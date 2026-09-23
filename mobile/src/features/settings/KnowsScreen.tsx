@@ -6,9 +6,8 @@ import { Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { useProfile, useTrust } from '../../api/queries';
-import { SettingsHeader } from './SettingsChrome';
+import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { MemorySection } from '../memory/MemorySection';
-import { SettingsRow } from './SettingsChrome';
 import { fill, ltr } from '../../i18n/strings';
 import { formatDate } from '../../i18n/format';
 

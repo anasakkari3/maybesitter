@@ -1246,7 +1246,7 @@ export function useConfirmAiContextImport() {
   return useMutation({
     mutationFn: (input: {
       proposalId: string;
-      accepted: Array<{ index: number; content?: string; resolve?: 'replace' | 'keep_both' }>;
+      accepted: { index: number; content?: string; resolve?: 'replace' | 'keep_both' }[];
     }) => confirmAiContextImport(input.proposalId, input.accepted),
     onSuccess: () => {
       // Two things went stale: the kept rows are memory now, and the Settings
@@ -1261,7 +1261,7 @@ export function useConfirmProfileSuggestions() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { proposalId: string; accepted: Array<{ index: number; content?: string }> }) =>
+    mutationFn: (input: { proposalId: string; accepted: { index: number; content?: string }[] }) =>
       confirmProfileSuggestions(input.proposalId, input.accepted),
     onSuccess: () => {
       // The confirmed facts are memory now, so the "what it knows" screen is

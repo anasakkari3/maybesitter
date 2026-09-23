@@ -6,6 +6,8 @@ import { useTimeZone } from '../../i18n/timezone';
 import { apiLocale } from '../../i18n/locale';
 import {
   useConsents,
+  useConfirmProfileSuggestions,
+  useDescribeProfile,
   usePutRoutine,
   useRecordAnalytics,
   useSetAiConsent,
@@ -33,7 +35,6 @@ import { SETUP_QUESTIONS } from './setupChat';
 import { EMPTY_SETUP_ANSWERS, answeredCount, composeDescription, type SetupAnswers } from './setupChat';
 import type { ProfileSuggestion, SuggestionCategory } from '../../api/schemas/profile';
 import { NotFoundError } from '../../api/errors';
-import { useConfirmProfileSuggestions, useDescribeProfile } from '../../api/queries';
 import type { AcceptedSuggestion } from './aboutYou';
 import { recordConsents } from './recordConsents';
 import type { ConsentLocale, ConsentPlatformName } from './consentTypes';

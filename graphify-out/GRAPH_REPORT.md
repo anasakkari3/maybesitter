@@ -1,165 +1,165 @@
-# Graph Report - ms-coral-final-parity  (2026-09-23)
+# Graph Report - ai-context-import  (2026-09-23)
 
 ## Corpus Check
-- 2028 files · ~2,367,645 words
+- 2071 files · ~2,401,573 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 34 file(s) not represented in the graph (top: (none) 9, .jsonl 8, .ics 4)
+- Unclassified: 36 file(s) not represented in the graph (top: (none) 9, .jsonl 8, .ics 4)
 
 ## Summary
-- 18068 nodes · 53634 edges · 444 communities (399 shown, 45 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 1535 edges (avg confidence: 0.84)
+- 18287 nodes · 54449 edges · 477 communities (432 shown, 45 thin omitted)
+- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 1567 edges (avg confidence: 0.84)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7799ec75`
+- Built from commit: `444f725f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- state/AppContext.tsx
-- OnboardingFlow.tsx
+- apiRequest
+- CaptureScreen
 - requireMobileUser
 - client.ts
 - mobile/package.json
 - useApp
-- privacySafeEvents.ts
-- Instant
+- experimentReport.ts
+- evaluationSet.ts
 - safetyContracts.ts
 - MODULE_CONTRACT_VERSION
 - personalizationConsentCopy.test.ts
 - present.ts
-- firestoreAdapter.ts
+- aiContextImportService.ts
 - recommendationContracts.ts
 - gmailTransport.test.ts
 - app.config.ts
-- registry/contracts.ts
+- isNonEmptyString
 - personalizationContracts.ts
 - select.ts
 - gmailTransport.ts
 - shadowPipelineContracts.ts
-- annotationQueue.ts
+- calibrationContracts.ts
 - release/handler.ts
 - useBusyCalendar.ts
-- lib/calibration/index.ts
+- validationPrimitives.ts
 - queries.ts
-- feedbackEventStore.ts
-- getStorage
+- feedbackContracts.ts
+- userCol
 - routineProfileService.ts
-- calibrationContracts.ts
+- calibrate.ts
 - createMemoryStorage
 - evaluation/corpus.ts
-- exposure.ts
-- captureBoundaryService.ts
+- MemoryScreen.tsx
+- stateMachine.ts
 - lifeStateMemoryFixtures.ts
-- NotificationsSettingsScreen.tsx
+- OnboardingFlow.tsx
 - support.js
-- dailyPlanService.ts
+- planActions.ts
 - llm/index.ts
-- shadowRollbackDrill.ts
+- shadowSloCatalog.ts
 - memoryService.ts
-- env.ts
+- firebaseAuthRepository.ts
 - shadowComparison.ts
 - protocol.ts
 - shareIntakeService.ts
-- snapshot.ts
-- scheduler/index.ts
-- accountDeletion.ts
+- deviceCalendarSync.test.ts
+- Instant
+- storageAdapter.ts
 - pressureService.ts
 - extractionService.ts
 - pilotService.ts
-- adapters.ts
+- adapters.test.ts
 - usageGuard.test.ts
-- userSubDoc
+- watcherEngine.test.ts
 - ShareProvider.tsx
 - prioritySeedSet.ts
 - domainAppSnapshotAdapter.ts
 - toEpochMs
 - maestroFlows.test.ts
 - financialContracts.ts
-- projectFixtures.ts
+- storage/index.ts
 - icsFeedLifecycle.test.ts
-- DomainState
+- lifeStateContracts.ts
 - release/evidence.ts
 - captureService.ts
-- priorityFeatures.test.ts
+- priorityFeatures.ts
 - decompositionContracts.ts
 - actionGateway.ts
 - internalJobs.ts
 - planningContracts.ts
-- imageShare.test.ts
+- image.ts
 - extractionTypes.ts
 - assistantTurn.ts
 - icsImport.ts
 - Decomposition proposal and confirmation boundary
 - seedService.ts
 - agenda.ts
-- generateGoalGraph.ts
-- mobileRanking.ts
-- TodayScreen.tsx
+- goalGraphContracts.ts
+- Commitment
+- label
 - explanationValidator.ts
 - dependencies
 - context/AppContext.tsx
 - derivedProjection.ts
 - realization.ts
 - alphaTraceStore.ts
-- Plan
+- continuousReplanControl.test.ts
 - habitContracts.ts
 - pilotDataBackup.ts
 - commitmentService.ts
 - scripts
 - legacyStoreGuard.test.ts
 - alphaQualityHarness.ts
-- captureParser.ts
+- types/index.ts
 - v03FieldIntake.ts
-- fieldEncryption.ts
+- providerOAuthProductionRuntime.test.ts
 - verify-durability.ts
 - habitService.ts
-- goalGraphContracts.ts
-- userDoc
+- goalGraphExecutionRead.test.ts
+- getStorage
 - calendar/icsFeeds.ts
 - build-share-injection-fixtures.ts
-- whatsappChannel.test.ts
+- useWatchers.ts
 - Work items
-- planActions.ts
-- isNonEmptyString
+- habitRoutes.test.ts
+- splits.ts
 - ollamaExtractor.ts
-- Commitment
+- nextStepArms.ts
 - Implementation roadmap (34 issues, independent, gate-free)
 - prepareImages.ts
-- nextStepLiveService.ts
+- nextStepContracts.ts
 - shareInjectionSuite.test.ts
 - whatsappExportReader.test.ts
 - planActivity.test.ts
-- DecompositionProposal
+- decomposition/evaluation/metrics.ts
 - useApp
 - V03-P1 closed-pilot operational runbook
 - v03BehavioralResearch.ts
-- emailShare.test.ts
+- shareTypes.ts
 - healthkit/adapter.ts
 - intelligenceModuleBoundaries.test.ts
-- reminders/policy.ts
+- imageShare.test.ts
 - alphaFeedbackStore.ts
 - Decomposition engine, validator and boundary
 - Priority Annotation Rubric
 - Recruitment tracker fields
-- experimentReport.ts
+- nextStepOrderingLocale.test.ts
 - useReminderSync.ts
-- shareTypes.ts
+- emailShare.test.ts
 - HealthKitReadinessModule
-- stateMachine.ts
-- calibration/corpus.ts
+- financial/adapter.ts
+- priority/calibrationFixtures.ts
 - CaptureProvider.tsx
 - intake.ts
 - navigation.ts
-- softAwarenessEngine.test.ts
+- avoidanceInvariant.test.ts
 - package.json
 - captureEvalRunner.ts
 - Sprint 06 — Decomposition: Design
 - integrationConnectionContracts.ts
-- compareByCodePoint
-- rulesDetector.ts
+- freezeResolve.ts
+- AiImportFlow.tsx
 - responseEngineQuality.test.ts
-- types/index.ts
+- dailyPlanService.ts
 - clarificationMerge.ts
 - nextStepBaseline.ts
 - offlineOnlyStores.test.ts
@@ -169,17 +169,17 @@
 - lib/calendar/busyBlocks.ts
 - proposalBoundaries.test.ts
 - Interview evidence tracker fields
-- providerOAuthProductionRuntime.test.ts
+- providerOAuthLifecycle.ts
 - lib/habits/index.ts
 - safeFetch.ts
 - inventory.ts
 - avoidanceNeverEscalates.test.ts
 - emailCleaner.ts
-- jobRunner.ts
+- storageSchedulerStore.ts
 - observationStore.ts
 - Sprint 03 — Feedback Events: Design
 - product-experiment.md
-- shadowRunLog.ts
+- shadowRollbackDrill.ts
 - r2-seed.js
 - reminderEngine.ts
 - shadowPipelineBoundaries.test.ts
@@ -190,7 +190,7 @@
 - coachingCrossTrack.test.ts
 - commitmentReviewService.ts
 - ExtractionResult
-- calendar/busyBlocks.test.ts
+- backgroundMonitors.test.ts
 - `site/` — the MaybeSitter public website
 - Decision
 - Script
@@ -211,7 +211,7 @@
 - AuthRepository
 - memoryIngestionService.ts
 - AssistantPanel.tsx
-- selectorBoundaries.test.ts
+- actionOutbox.ts
 - Lane A — Product Reliability Audit and Core-Flow Fixes
 - Alpha Interaction Trace — Pre-Pilot Reviewable Trace
 - Capture Gold freeze and annotation governance
@@ -232,7 +232,7 @@
 - HealthConnectReadinessModule.kt
 - 10 — Coding rubric
 - Audit P0/P1 Remediation Implementation Plan
-- providerRuntime.ts
+- microsoftGraph/adapter.ts
 - shadowDrillPipeline.ts
 - Expansion privacy and store declaration delta
 - Maestro flows
@@ -240,11 +240,11 @@
 - speechService.ts
 - priorityContracts.ts
 - runtimeMemoryStore.ts
-- memoryRoutes.test.ts
+- habitSupport.ts
 - 1. Flows that exist today — describe in the present tense
 - 02 — Recruitment messages
 - v03FieldIntake.test.ts
-- responseFormatter.ts
+- responseCompressionService.ts
 - Global Constraints
 - Decision
 - recordConsents.ts
@@ -254,9 +254,9 @@
 - pilotStateRestartDurability.emulator.test.ts
 - constraintsBoundaries.test.ts
 - Root cause: the failed blind-review consistency gate
-- liveProviderVerification.ts
+- ContextProviderKind
 - RemindersMount.tsx
-- behaviorFeedbackService.ts
+- mobileMemoryProvenance.test.ts
 - middleware.test.ts
 - boundaryImportClosure.test.ts
 - recommendationBoundaries.test.ts
@@ -266,7 +266,7 @@
 - Store privacy declarations — drafts and the consistency matrix (UC-4.3b, #179)
 - 07 — Interviewer instructions
 - Core Intelligence roadmap before Market Evidence Gate
-- whatsapp.ts
+- whatsappChannel.test.ts
 - ADR 0003 — Device notification signals enter as a watcher source, content-free, Android only
 - Signals by surface
 - GCP and Firebase bootstrap
@@ -276,8 +276,8 @@
 - 06 — Competitive workflow baseline questions
 - V03 behavioral research protocol
 - busyRead.test.ts
-- ListOptions
-- api/pilot/trust/route.ts
+- busySync.test.ts
+- planning/evaluation/metrics.ts
 - build-messy-multilingual.mjs
 - android-frame.jsx
 - WidgetSnapshot
@@ -300,8 +300,8 @@
 - ruleBasedExtractor.ts
 - sourceMapArtifact.test.ts
 - Design system
-- GoalNodeLinkStore
-- settings/page.tsx
+- conformanceHarness.ts
+- AgendaPanel.tsx
 - Expansion orchestration ledger
 - V03 closed-pilot trust and exposure notes
 - Sprint 00 security unblock
@@ -334,7 +334,7 @@
 - memoryTypes.ts
 - iOS system strings, in the languages the app speaks (UC-4.1, #176)
 - verify-release-android.sh
-- AgendaPanel.tsx
+- manual/route.ts
 - Controlled internal release — cohort, consent, staged exposure and the decision package
 - Google Calendar verification demo (UC-1.8 #152)
 - memoryCopy.test.ts
@@ -365,16 +365,16 @@
 - check-no-flutter.sh
 - test-stress.sh
 - withAndroidFixups.js
-- avoidanceInvariant.test.ts
+- __tests__/quietHours.test.ts
 - buildDailyPlan.ts
 - Final frontend feature parity
 - Planning Scenario Corpus and Feasibility Oracle
-- widgetBridge.ts
-- example.ts
+- AccountDeletionProvider.tsx
+- engine/index.ts
 - Recommendation review surface
 - Sprint 04 — Priority Engine v1: Design
 - crossProviderLinker.ts
-- mobileCaptureService.ts
+- memoryRoutes.test.ts
 - Cross-module Safety policy gateway
 - NextStepEntry
 - Global Constraints
@@ -384,14 +384,14 @@
 - Priority Annotation Queue
 - Two-Model Escalation — Completion Report (2026-08-21)
 - clarificationCopy.ts
-- NextStepWidget.tsx
+- personalizationControls/handler.ts
 - NextStepWidget.swift
 - makeFixtures.swift
 - Edit Path Repair Implementation Plan
 - instrumentation.test.ts
 - agendaService.ts
 - r2-strings.js
-- androidWidget.test.tsx
+- aiContextImportContracts.ts
 - Football fixtures as commitments — design
 - Recommendation contract and evidence graph
 - Life-State & Memory Contract Fixtures
@@ -410,13 +410,13 @@
 - Full Debt Repair — Ledger
 - WidgetDisplayState
 - Component inventory
-- profileSuggestionValidator.ts
-- FakeReporter
-- MemoryTransaction
+- profileContracts.ts
+- env.ts
+- requireDocumentPath
 - commitmentMemoryStore.ts
 - `data/quality/`
-- links.ts
-- widgetTaskHandler.tsx
+- state/types.ts
+- personalizationControls/consentStore.ts
 - commitmentResolver.ts
 - Notification sounds
 - Global Constraints
@@ -424,94 +424,127 @@
 - NEXT_STEP_BASELINE.md
 - pushRegistration.ts
 - Share injection threat model (UC-3.9, #193)
-- freeze-capture-gold.mjs
+- financialStateService.ts
 - lifeStateBoundaries.test.ts
 - responseEngine/validation.ts
 - MaybeSitter coral continuation · 2026-09-23
 - overlap.ts
-- HabitStore
-- semanticEvent.ts
-- requireDocumentPath
+- habitStore.ts
+- responseFormatter.ts
+- get
 - exactAlarms.ts
 - routeGuardCoverage.test.ts
 - schedulerBoundaries.test.ts
-- packBoundaries.test.ts
+- packLifecycle.test.ts
 - Round 2 polish — comparison report
 - astra-r3-context.md
 - Legacy frontend removal
-- noCommitmentCopy.test.ts
+- manualFinancialStore.ts
 - feedbackBoundaries.test.ts
 - exportEmailDetectorCases.test.ts
 - MaybeSitter product expansion review
+- HabitOccurrence
+- pressureService.test.ts
+- intentContracts.ts
+- latenessCopy.test.ts
+- syllabusSource.ts
+- constraintsNormalize.test.ts
+- build-v03-fieldwork-status.ts
+- awarenessStore.ts
+- arbiter.ts
+- disagreementLog.ts
+- importCandidateValidator.ts
+- externalActionGateway.ts
+- StorageAlphaFeedbackStore
+- scripts
+- .runTransaction
+- createExternalModules
+- messageKind.ts
+- boot
+- hermesPlurals.test.ts
+- devDependencies
+- toVertexSchema
+- AlphaFeedbackStore
+- dependencies
+- IntentSeedStore
+- unresolvedIntent.ts
+- nextStepRoutineArm.test.ts
+- seedCorpus.ts
+- Public claims policy
+- Tester sign-up: the endpoint the landing pages need
+- eslint.config.js
+- @bacons/xcode
+- answer
+- importantify
 
 ## God Nodes (most connected - your core abstractions)
-1. `useApp()` - 276 edges
-2. `getStorage()` - 273 edges
-3. `createMemoryStorage()` - 261 edges
-4. `StorageAdapter` - 207 edges
-5. `setStorageForTests()` - 200 edges
-6. `resetStorageForTests()` - 194 edges
-7. `requireMobileUser()` - 188 edges
-8. `userCol()` - 183 edges
-9. `mobileAuthErrorResponse()` - 179 edges
-10. `userDoc()` - 176 edges
+1. `useApp()` - 295 edges
+2. `getStorage()` - 277 edges
+3. `createMemoryStorage()` - 266 edges
+4. `StorageAdapter` - 209 edges
+5. `setStorageForTests()` - 205 edges
+6. `resetStorageForTests()` - 199 edges
+7. `requireMobileUser()` - 192 edges
+8. `userCol()` - 185 edges
+9. `mobileAuthErrorResponse()` - 183 edges
+10. `userDoc()` - 180 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `StandaloneRoot()` --indirect_call--> `Root()`  [INFERRED]
   design/support.js → mobile/src/Root.tsx
-- `boot()` --references--> `react-dom`  [EXTRACTED]
-  design/support.js → package.json
-- `POST()` --indirect_call--> `appendAnalyticsEvent()`  [INFERRED]
-  src/app/api/capture/route.ts → lib/analytics/eventStore.ts
-- `GET()` --indirect_call--> `appendAnalyticsEvent()`  [INFERRED]
-  src/app/api/next-step/route.ts → lib/analytics/eventStore.ts
-- `POST()` --indirect_call--> `appendAnalyticsEvent()`  [INFERRED]
-  src/app/api/next-step/route.ts → lib/analytics/eventStore.ts
+- `context()` --indirect_call--> `appendAnalyticsEvent()`  [INFERRED]
+  tests/analytics/loopAnalytics.test.ts → lib/analytics/eventStore.ts
+- `context()` --indirect_call--> `appendAnalyticsEvent()`  [INFERRED]
+  tests/integration/v02LiveLoop.test.ts → lib/analytics/eventStore.ts
+- `CalendarSource` --references--> `Instant`  [EXTRACTED]
+  lib/calendar/busyBlocks.ts → src/contracts/v1/planningContracts.ts
+- `subscribe()` --indirect_call--> `handleCreateFeed()`  [INFERRED]
+  tests/calendar/icsFeedLifecycle.test.ts → lib/calendar/icsFeedRoutes.ts
 
 ## Import Cycles
 - None detected.
 
-## Communities (444 total, 45 thin omitted)
+## Communities (477 total, 45 thin omitted)
 
-### Community 0 - "state/AppContext.tsx"
+### Community 0 - "apiRequest"
 Cohesion: 0.01
-Nodes (334): App(), resetAuthForTests(), setAuthRepository(), getConsents(), forgetValidators(), queryKeys, createAppQueryClient(), installDeviceManagers() (+326 more)
+Nodes (359): resetAuthForTests(), setAuthRepository(), apiRequest(), getWeeklySummary(), listActivity(), recordAnalyticsEvent(), clarifyCapture(), confirmCapture() (+351 more)
 
-### Community 1 - "OnboardingFlow.tsx"
-Cohesion: 0.05
-Nodes (71): useConfirmProfileSuggestions(), useDescribeProfile(), ProfileSuggestion, speechLanguageForTag(), acceptedFrom(), AcceptedSuggestion, initialChoices(), MAX_DESCRIPTION_LENGTH (+63 more)
+### Community 1 - "CaptureScreen"
+Cohesion: 0.12
+Nodes (17): voiceEnabled(), EXAMPLE_KEYS, ExampleKey, exampleText(), NO_COMMITMENT_REASONS, noCommitmentLine(), NoCommitmentReason, REASON_KEY (+9 more)
 
 ### Community 2 - "requireMobileUser"
-Cohesion: 0.02
-Nodes (230): createStorageAlphaTraceStore(), getTraceStore(), isTraceEnabled(), recordTraceStage(), resolveTraceSessionId(), setTraceStoreForTesting(), stage(), bearerTokenFrom() (+222 more)
+Cohesion: 0.03
+Nodes (163): AccountDirectory, accountExists(), bearerTokenFrom(), MobileAuthError, mobileAuthErrorResponse(), MobileUser, readOrCreateTrust(), requireMobileUser() (+155 more)
 
 ### Community 3 - "client.ts"
-Cohesion: 0.02
-Nodes (240): getIdToken(), refreshIdToken(), signOutExpired(), signOutForbidden(), apiRequestTagged(), apiUpload(), conflictFor(), errorForStatus() (+232 more)
+Cohesion: 0.03
+Nodes (107): getIdToken(), refreshIdToken(), signOutExpired(), signOutForbidden(), apiRequestTagged(), apiUpload(), conflictFor(), errorForStatus() (+99 more)
 
 ### Community 4 - "mobile/package.json"
-Cohesion: 0.02
-Nodes (135): engines, node, react, @types/react, typescript, main, name, private (+127 more)
+Cohesion: 0.01
+Nodes (184): App(), AppTree(), engines, node, react, @types/react, typescript, main (+176 more)
 
 ### Community 5 - "useApp"
 Cohesion: 0.02
-Nodes (199): useAlphaFlag(), useConsents(), useCreateIcsFeed(), useDecideIcsDeadline(), useDeleteIcsFeed(), useRefreshIcsFeed(), useReportPilotIncident(), useSetAiConsent() (+191 more)
+Nodes (409): useActivity(), useAlphaFlag(), useBuildPlan(), useCategoryPreferences(), useCommitment(), useCreateHabit(), useCreateIcsFeed(), useDecideIcsDeadline() (+401 more)
 
-### Community 6 - "privacySafeEvents.ts"
-Cohesion: 0.06
-Nodes (66): analyticsContextFrom(), buildAnalyticsEvent(), emitAnalyticsEvent(), ESSENTIAL_CONSENT_EVENTS, V02_EXPERIMENT_ARMS, V02_EXPERIMENT_ID, ANALYTICS_RETENTION_DAYS, appendAnalyticsEvent() (+58 more)
+### Community 6 - "experimentReport.ts"
+Cohesion: 0.03
+Nodes (143): AnalyticsContext, analyticsContextFrom(), buildAnalyticsEvent(), emitAnalyticsEvent(), ESSENTIAL_CONSENT_EVENTS, V02_EXPERIMENT_ARMS, V02_EXPERIMENT_ID, ANALYTICS_RETENTION_DAYS (+135 more)
 
-### Community 7 - "Instant"
+### Community 7 - "evaluationSet.ts"
 Cohesion: 0.02
-Nodes (186): ADVERSARIAL_CATEGORIES, ADVERSARIAL_CATEGORY_COVERAGE, ADVERSARIAL_CATEGORY_SPECS, ADVERSARIAL_TEXT, AdversarialCategory, AdversarialCategorySpec, alternateOption(), ANNOTATION_PROVENANCES (+178 more)
+Nodes (175): ADVERSARIAL_CATEGORIES, ADVERSARIAL_CATEGORY_COVERAGE, ADVERSARIAL_CATEGORY_SPECS, ADVERSARIAL_TEXT, AdversarialCategory, AdversarialCategorySpec, alternateOption(), ANNOTATION_PROVENANCES (+167 more)
 
 ### Community 8 - "safetyContracts.ts"
-Cohesion: 0.04
-Nodes (132): asArray(), capFindings(), finding(), FindingLocators, isObject(), decide(), digestOf(), evaluateSafetyGate() (+124 more)
+Cohesion: 0.03
+Nodes (150): PROVIDER_CONTEXT_CATALOG, providerCatalogEntry, providerCatalogForProvider(), ProviderPrepStage, ProviderSurfaceId, asArray(), capFindings(), finding() (+142 more)
 
 ### Community 9 - "MODULE_CONTRACT_VERSION"
 Cohesion: 0.03
-Nodes (146): attestationIndexOf(), COACHING_PROPOSED_EFFECTS, CoachingDeliveryInput, identifiersOf(), sourceIdentifiers(), toSafetyCandidate(), RubricInput, actionEvidence() (+138 more)
+Nodes (150): attestationIndexOf(), COACHING_PROPOSED_EFFECTS, CoachingDeliveryInput, identifiersOf(), sourceIdentifiers(), ClaimPlan, checkCoachingFaithfulness(), RubricInput (+142 more)
 
 ### Community 10 - "personalizationConsentCopy.test.ts"
 Cohesion: 0.40
@@ -521,289 +554,289 @@ Nodes (4): BANNED, BUNDLES, Locale, REQUIRED
 Cohesion: 0.03
 Nodes (148): ACTION_KIND_COPY, ByLocale, CONFIDENCE_BAND_COPY, EXCLUSION_REASON_COPY, NOTHING_TO_REVIEW_COPY, REVIEW_CHROME, ReviewChromeCopy, SOLENESS_COPY (+140 more)
 
-### Community 12 - "firestoreAdapter.ts"
-Cohesion: 0.16
-Nodes (12): configured, DATABASE_ENV_VAR, DEFAULT_DATABASE, firestore(), resolveFirestoreDatabaseId(), grpcStatusOf(), MAX_TRANSACTION_ATTEMPTS, StorageContentionError (+4 more)
+### Community 12 - "aiContextImportService.ts"
+Cohesion: 0.04
+Nodes (61): AcceptedImportCandidate, activeTarget(), AiContextImportReceipt, byListOrder(), clearAiContextImportReceipt(), confirmAiContextImport(), freeze(), importAiContext() (+53 more)
 
 ### Community 13 - "recommendationContracts.ts"
 Cohesion: 0.03
-Nodes (95): commitmentHandle(), _ActionKindsCovered, actionParts(), asArray(), bandForConfidence(), canonicalUnknown(), checkEvidenceGraph(), checkRecommendation() (+87 more)
+Nodes (85): commitmentHandle(), _ActionKindsCovered, actionParts(), asArray(), canonicalUnknown(), checkEvidenceGraph(), Confidence, _DecisionVerdictsCovered (+77 more)
 
 ### Community 14 - "gmailTransport.test.ts"
-Cohesion: 0.04
-Nodes (82): runGmailIncrementalSync(), GmailTransportDeps, ERROR_401_INVALID_CREDENTIALS, ERROR_403_DOMAIN_POLICY, ERROR_403_INSUFFICIENT_SCOPE, ERROR_403_RATE_LIMIT, ERROR_403_USER_RATE_LIMIT, ERROR_404_HISTORY_CURSOR_TOO_OLD (+74 more)
+Cohesion: 0.03
+Nodes (85): GMAIL_MAX_PAGE_SIZE, GMAIL_PHASE_B_SCOPES, GMAIL_TRANSPORT_POLICY, gmailBackoffMs(), GmailTransportDeps, ERROR_401_INVALID_CREDENTIALS, ERROR_403_DOMAIN_POLICY, ERROR_403_INSUFFICIENT_SCOPE (+77 more)
 
 ### Community 15 - "app.config.ts"
-Cohesion: 0.11
-Nodes (12): APP_ENV, NAME_SUFFIX, problems, appConfigSource, appManifest(), bundled, categories, declared (+4 more)
+Cohesion: 0.07
+Nodes (24): APP_ENV, NAME_SUFFIX, problems, appConfigSource, appManifest(), bundled, categories, declared (+16 more)
 
-### Community 16 - "registry/contracts.ts"
+### Community 16 - "isNonEmptyString"
 Cohesion: 0.03
-Nodes (132): recomputeRecordsChecksum(), corpusDigest(), assertWeights(), assignSplit(), assignSplits(), AssignSplitsOptions, buildSplitManifest(), byCodeUnit() (+124 more)
+Nodes (142): CHANGE_KINDS, validateAnnotationPolicyRegistry(), validateRuleChange(), AdapterFingerprint, ARTIFACT_ROLES, ArtifactLocation, ArtifactRole, ChecksumAlgorithm (+134 more)
 
 ### Community 17 - "personalizationContracts.ts"
 Cohesion: 0.03
-Nodes (120): FeedbackTally, createStorageFeedbackEventStore(), COMPARED_FIELDS, ComparedField, comparePersonalizationProfiles(), PersonalizationProfileDiff, PreferenceFieldChange, profilesAgree() (+112 more)
+Nodes (151): FeedbackTally, resolveFeedbackWindowDays(), createInMemoryFeedbackEventStore(), COMPARED_FIELDS, ComparedField, comparePersonalizationProfiles(), PersonalizationProfileDiff, PreferenceFieldChange (+143 more)
 
 ### Community 18 - "select.ts"
-Cohesion: 0.05
-Nodes (88): ReviewExclusionLine, CLOSED_COMMITMENT_STATUSES, CommitmentLifecycleStatus, effectiveTimeSource(), epochMsOrNull(), INSTANT_PROBE, isContractInstant(), KNOWN_COMMITMENT_STATUSES (+80 more)
+Cohesion: 0.04
+Nodes (112): CLOSED_COMMITMENT_STATUSES, CommitmentLifecycleStatus, CommitmentSnapshot, effectiveTimeSource(), epochMsOrNull(), INSTANT_PROBE, isContractInstant(), KNOWN_COMMITMENT_STATUSES (+104 more)
 
 ### Community 19 - "gmailTransport.ts"
 Cohesion: 0.04
-Nodes (72): finish(), GMAIL_DATA_POLICY, GMAIL_PROVIDER, GMAIL_SCOPES, GmailApiPort, GmailHistoryRequest, GmailMessagePayload, GmailProviderError (+64 more)
+Nodes (79): buildGmailDisconnectRequest(), finish(), GMAIL_DATA_POLICY, GMAIL_PROVIDER, GMAIL_SCOPES, GmailApiPort, GmailHistoryPage, GmailHistoryRequest (+71 more)
 
 ### Community 20 - "shadowPipelineContracts.ts"
 Cohesion: 0.02
-Nodes (140): SAFETY_DISPOSITIONS, checkShadowBudgetTable(), checkShadowEvidencePackage(), checkShadowPipelineOutcome(), checkShadowSloDefinition(), checkShadowSloReading(), checkShadowStudyConsent(), checkShadowStudyDeletionReceipt() (+132 more)
+Nodes (126): SAFETY_DISPOSITIONS, checkShadowBudgetTable(), checkShadowSloDefinition(), _ExposureReasonsCovered, _FallbackReasonsCovered, isFiniteNumber(), _OutcomeIsInert, PREIMAGE_FIELD_SEPARATOR (+118 more)
 
-### Community 21 - "annotationQueue.ts"
+### Community 21 - "calibrationContracts.ts"
 Cohesion: 0.04
-Nodes (93): ReviewIngestOutcome, ReviewLogLoadResult, ReviewValidationResult, SplitManifestParseResult, ValidationIssue, formatIssue(), AnnotationBatch, AnnotationBatchParseResult (+85 more)
+Nodes (102): ReviewIngestOutcome, ReviewLogLoadResult, ReviewValidationResult, SplitManifestParseResult, ValidationIssue, formatIssue(), AnnotationBatch, AnnotationBatchParseResult (+94 more)
 
 ### Community 22 - "release/handler.ts"
-Cohesion: 0.04
-Nodes (84): createInMemoryShadowStudyConsentStore(), createStorageShadowStudyConsentStore(), createInMemoryShadowArchive(), deleteShadowStudyParticipant(), notWiredArchive(), SHADOW_DELETABLE_STORES, SHADOW_DELETION_REFUSALS, ShadowArchiveAccess (+76 more)
+Cohesion: 0.03
+Nodes (113): deletePersonalizationScope(), PilotStopReason, createInMemoryShadowStudyConsentStore(), createStorageShadowStudyConsentStore(), createInMemoryShadowArchive(), deleteShadowStudyParticipant(), notWiredArchive(), SHADOW_DELETABLE_STORES (+105 more)
 
 ### Community 23 - "useBusyCalendar.ts"
-Cohesion: 0.03
-Nodes (114): deleteCalendarBusy(), deleteDeviceCalendarLink(), getCalendarSettings(), postCalendarBusy(), putCalendarWriteTarget(), putDeviceCalendarLink(), useSetCalendarWriteTarget(), CalendarWriteTarget (+106 more)
-
-### Community 24 - "lib/calibration/index.ts"
 Cohesion: 0.05
-Nodes (99): AdjudicationContext, adjudicationFor(), adjudicationsForSource(), CANONICAL_PASSES, validateAdjudications(), validateRecord(), buildDecisionPairs(), classificationCounts() (+91 more)
+Nodes (54): deleteCalendarBusy(), deleteDeviceCalendarLink(), getCalendarSettings(), postCalendarBusy(), putDeviceCalendarLink(), CommitmentList, calendarReadEnabled(), BUSY_BLOCK_KEYS (+46 more)
+
+### Community 24 - "validationPrimitives.ts"
+Cohesion: 0.05
+Nodes (109): AdjudicationContext, adjudicationFor(), adjudicationsForSource(), CANONICAL_PASSES, validateAdjudications(), validateRecord(), buildDecisionPairs(), classificationCounts() (+101 more)
 
 ### Community 25 - "queries.ts"
 Cohesion: 0.01
-Nodes (379): apiRequest(), UploadFile, deleteAccount(), getWeeklySummary(), listActivity(), recordAnalyticsEvent(), getBackgroundActivity(), getBackgroundAttribution() (+371 more)
+Nodes (352): putCalendarWriteTarget(), CommitmentAction, patchCommitment(), ConsentAnswer, putPersonalizationConsent(), getFeedbackHistory(), revokeFeedback(), connectFinancialSource() (+344 more)
 
-### Community 26 - "feedbackEventStore.ts"
-Cohesion: 0.04
-Nodes (75): assertValidCounters(), fail(), isEmptyHistory(), LEGACY_COUNTER_NAMES, LegacyCounterReader, LegacyCounterSnapshot, migrateLegacyBaseline(), MigrateLegacyBaselineOptions (+67 more)
+### Community 26 - "feedbackContracts.ts"
+Cohesion: 0.05
+Nodes (50): assertValidCounters(), fail(), isEmptyHistory(), LEGACY_COUNTER_NAMES, LegacyCounterReader, LegacyCounterSnapshot, migrateLegacyBaseline(), MigrateLegacyBaselineOptions (+42 more)
 
-### Community 27 - "getStorage"
-Cohesion: 0.02
-Nodes (130): TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA, TOP_LEVEL_USER_COLLECTIONS, TopLevelUserCollection, FixtureStoreDeps, FollowedClubsDeps, byNodeKey(), StoredLink, byNewest() (+122 more)
+### Community 27 - "userCol"
+Cohesion: 0.05
+Nodes (66): deleteTopLevelDocs(), ResolvedFeedbackAggregationInput, APPENDABLE_SOURCES, assertTimestamp(), assertValidInput(), baselinePath(), buildBaseline(), buildEvent() (+58 more)
 
 ### Community 28 - "routineProfileService.ts"
-Cohesion: 0.04
-Nodes (85): ROUTINE_FACT_KEYS, routineFactContent(), RoutineFactKey, routineFactKeyOf(), routineProfileToFacts(), windowValue(), FALLBACK_TIMEZONE, isInQuietHours() (+77 more)
+Cohesion: 0.05
+Nodes (70): ROUTINE_FACT_KEYS, routineFactContent(), RoutineFactKey, routineFactKeyOf(), RoutineFactsOptions, routineProfileToFacts(), windowValue(), FALLBACK_TIMEZONE (+62 more)
 
-### Community 29 - "calibrationContracts.ts"
+### Community 29 - "calibrate.ts"
 Cohesion: 0.06
-Nodes (64): buildCandidate(), CalibrationManifestMismatchError, CalibrationRunInput, CalibrationStatus, EMPTY_METRIC, PriorityCalibrationReport, RegressedPair, regressedPairsBetween() (+56 more)
+Nodes (65): buildCandidate(), CalibrationManifestMismatchError, CalibrationRunInput, CalibrationStatus, EMPTY_METRIC, PriorityCalibrationReport, RegressedPair, regressedPairsBetween() (+57 more)
 
 ### Community 30 - "createMemoryStorage"
 Cohesion: 0.02
-Nodes (306): setDeletionAuthForTests(), resetAnalyticsEventsForTests(), applyCommand(), applySchedulerSideEffects(), CommandServiceResultType, configureCommandService(), createJobFromSideEffect(), currentState (+298 more)
+Nodes (279): setAccountDirectoryForTests(), resetTokenVerifierForTests(), setTokenVerifierForTests(), clearPendingClarification(), getPendingClarification(), MemoryClarificationStore, configureCommandService(), buildAndStoreDailyPlan() (+271 more)
 
 ### Community 31 - "evaluation/corpus.ts"
-Cohesion: 0.05
-Nodes (62): ProposalBaseFields, ANNOTATION_PROVENANCES, buildDecompositionQueue(), BuildQueueOptions, buildReviewCoverage(), BuildReviewCoverageOptions, byCodeUnit(), CORPUS_KEYS (+54 more)
+Cohesion: 0.06
+Nodes (66): ANNOTATION_PROVENANCES, buildDecompositionQueue(), buildReviewCoverage(), BuildReviewCoverageOptions, byCodeUnit(), CORPUS_KEYS, createDecompositionReview(), createInMemoryReviewStore() (+58 more)
 
-### Community 32 - "exposure.ts"
-Cohesion: 0.10
-Nodes (29): PilotStopReason, createPilotAccessResolver(), defect(), _PilotCoversShadow, resolveCohortExposure(), resolveStagedExposure(), SHADOW_COHORT_ENV_VAR, SHADOW_PILOT_REASON_COVERAGE (+21 more)
+### Community 32 - "MemoryScreen.tsx"
+Cohesion: 0.06
+Nodes (61): useCreateMemory(), useDeleteAllMemory(), useDeleteMemory(), useMemory(), useMemoryMutation(), useMemorySuggestion(), usePatchMemory(), MemoryAdaptive (+53 more)
 
-### Community 33 - "captureBoundaryService.ts"
-Cohesion: 0.05
-Nodes (66): validateEdit(), auditEvent(), CaptureBoundaryDependencies, CaptureInputTooLargeError, confirmCapture(), manuallyCompleted(), noCommitmentReasonFrom(), proposeCapture() (+58 more)
+### Community 33 - "stateMachine.ts"
+Cohesion: 0.02
+Nodes (165): CaptureAnalyticsInput, participantJobHandler(), applyEditToCommands(), auditEvent(), CaptureBoundaryDependencies, CaptureConfirmationCommitter, confirmCapture(), manuallyCompleted() (+157 more)
 
 ### Community 34 - "lifeStateMemoryFixtures.ts"
 Cohesion: 0.04
-Nodes (77): describeIssues(), buildFixtureCoverageReport(), coverageCell, CoverageGap, emptyCell(), FixtureCoverageReport, fixtureStrings(), generateFixtureCoverageMarkdown() (+69 more)
+Nodes (111): isIsoTimestamp(), isPlainObject(), ACK_STATES, AUTHORITATIVE_OVER_EMPTY_STATE, AVAILABILITY_VIEW_KEYS, BUSY_WINDOW_KEYS, checkAvailabilityView(), checkCommitmentsView() (+103 more)
 
-### Community 35 - "NotificationsSettingsScreen.tsx"
-Cohesion: 0.05
-Nodes (78): useProfile(), usePutRoutine(), useReminderSettings(), useSavePlanSettings(), useSaveReminderSettings(), RoutineProfile, VerifyEmailBanner(), softRemindersEnabled() (+70 more)
+### Community 35 - "OnboardingFlow.tsx"
+Cohesion: 0.03
+Nodes (141): useConfirmProfileSuggestions(), useConsents(), useDescribeProfile(), usePutRoutine(), useReportPilotIncident(), useSetAiConsent(), useSetRecommendationConsent(), useTrustAction() (+133 more)
 
 ### Community 36 - "support.js"
-Cohesion: 0.06
-Nodes (76): boot(), StandaloneRoot(), bundledBlob(), cdnScriptFor(), collectProps(), compileAttr(), compileTemplate(), contentKey() (+68 more)
+Cohesion: 0.12
+Nodes (28): collectProps(), compileAttr(), compileTemplate(), contentKey(), cssToObj(), encodeCamelAttrs(), encodeCase(), evalDcLogic() (+20 more)
 
-### Community 37 - "dailyPlanService.ts"
-Cohesion: 0.02
-Nodes (165): BusyBlockReader, DAILY_PLAN_CONFIG, dailyPlanScheduleSources(), acknowledgeChanges(), CONTINUOUS_REPLAN_SWEEP_INTERVAL_MINUTES, ContinuousReplanTickOptions, processStateChangesForUser(), runContinuousReplanTick() (+157 more)
+### Community 37 - "planActions.ts"
+Cohesion: 0.05
+Nodes (86): earliestLedgerAcceptance(), DailyPlanBuild, applyIncrementalPlanPatch(), ApplyIncrementalPlanPatchInput, ApplyIncrementalPlanPatchResult, ComputedIncrementalPatch, DEFAULT_INCREMENTAL_APPLY_ATTEMPTS, acceptPlan() (+78 more)
 
 ### Community 38 - "llm/index.ts"
 Cohesion: 0.03
-Nodes (112): AiConsentOptions, captureLlmProvider(), CaptureProviderOptions, splitPrompt(), AiConsentRequiredError, consentGatedProvider(), requireConsent(), ConsentGatedProviderOptions (+104 more)
+Nodes (123): AiConsentOptions, captureLlmProvider(), CaptureProviderOptions, splitPrompt(), AiConsentRequiredError, consentGatedProvider(), requireConsent(), ConsentGatedProviderOptions (+115 more)
 
-### Community 39 - "shadowRollbackDrill.ts"
-Cohesion: 0.04
-Nodes (99): SHADOW_KILL_SWITCH_STANCE, shadowDrillEnv(), assemble(), elapsed(), millisColumn(), renderShadowRollbackReport(), runShadowRollbackDrill(), record() (+91 more)
+### Community 39 - "shadowSloCatalog.ts"
+Cohesion: 0.06
+Nodes (58): SHADOW_ROLLBACK_STEPS, BACKEND, evaluateShadowAlert(), PRODUCT, QUALITY, resolveShadowRotation(), resolveShadowSloOwner(), SHADOW_ALERT_QUERIES (+50 more)
 
 ### Community 40 - "memoryService.ts"
-Cohesion: 0.04
-Nodes (87): isMemoryGrowthRuleId(), CompletionObservation, deferDefaultFingerprint(), DeferDefaultSuggestion, DeferObservation, focusWindowFingerprint(), FocusWindowSuggestion, hhmm() (+79 more)
+Cohesion: 0.12
+Nodes (25): parseDeferDefaultFingerprint(), behaviorFeedbackOf(), compareByCodePoint(), createManualMemory(), CreateManualMemoryInput, listMemory(), MANUAL_MEMORY_KINDS, MEMORY_ADAPTIVE_UNSET (+17 more)
 
-### Community 41 - "env.ts"
-Cohesion: 0.03
-Nodes (118): AppTree(), DEFAULT_NONCE_LENGTH, generateNonce(), sha256Hex(), AppleCredential, appleSignInAvailable(), AppleSignInCancelled, AppleSignInUnavailable (+110 more)
+### Community 41 - "firebaseAuthRepository.ts"
+Cohesion: 0.06
+Nodes (56): DEFAULT_NONCE_LENGTH, generateNonce(), sha256Hex(), AppleCredential, appleSignInAvailable(), AppleSignInCancelled, AppleSignInUnavailable, isCancellation() (+48 more)
 
 ### Community 42 - "shadowComparison.ts"
-Cohesion: 0.07
-Nodes (52): PriorityFeatureInput, derivePolicy(), FEATURE_ORDER, policyDelta, PolicyPerturbation, PolicyWeightKey, REASON_ORDER, WEIGHT_FEATURES (+44 more)
+Cohesion: 0.08
+Nodes (50): derivePolicy(), FEATURE_ORDER, policyDelta, PolicyWeightKey, REASON_ORDER, WEIGHT_FEATURES, WEIGHT_KEY_ORDER, WeightedFeatureName (+42 more)
 
 ### Community 43 - "protocol.ts"
 Cohesion: 0.06
-Nodes (70): effectiveLevel(), ENABLED(), EVALUATION_METRICS, EvaluationMetric, INCONCLUSIVE_REASONS, laterInstant(), mean(), measureColdStart() (+62 more)
+Nodes (68): effectiveLevel(), ENABLED(), EVALUATION_METRICS, EvaluationMetric, INCONCLUSIVE_REASONS, laterInstant(), mean(), measureColdStart() (+60 more)
 
 ### Community 44 - "shareIntakeService.ts"
 Cohesion: 0.05
-Nodes (67): declarationConflicts(), HEIC_BRANDS, JPEG, PDF, PNG, RIFF, sniffMediaType(), startsWith() (+59 more)
+Nodes (53): declarationConflicts(), HEIC_BRANDS, JPEG, PDF, PNG, RIFF, sniffMediaType(), startsWith() (+45 more)
 
-### Community 45 - "snapshot.ts"
-Cohesion: 0.10
-Nodes (21): Importance, APP_GROUP, buildSnapshot(), compareOpen(), IMPORTANCE_ORDER, MAX_ITEMS, OPT_IN_SURFACES, SNAPSHOT_KEY (+13 more)
+### Community 45 - "deviceCalendarSync.test.ts"
+Cohesion: 0.08
+Nodes (37): CalendarWriteTarget, DeviceCalendarLink, CalendarEventDraft, DeviceCalendarError, failureFrom(), apply(), decide(), DecideInput (+29 more)
 
-### Community 46 - "scheduler/index.ts"
+### Community 46 - "Instant"
 Cohesion: 0.05
-Nodes (67): ParsedBusyUpload, applyEditsToBlocks(), blockForFixedEvent(), blockForItem(), blockForSource(), fail(), reconcileScheduleBlocks(), ReconcileScheduleBlocksArgs (+59 more)
+Nodes (69): ParsedBusyUpload, applyEditsToBlocks(), ScheduleBlockEdits, compareProtectionRetention(), isProtected(), projectBlockProtectionIntoPlanningConstraints(), PROTECTED_OWNERSHIP, protectedShiftMinutes() (+61 more)
 
-### Community 47 - "accountDeletion.ts"
+### Community 47 - "storageAdapter.ts"
 Cohesion: 0.03
-Nodes (76): ACCOUNT_DELETIONS, defaultAuthAdmin(), deleteAccount(), DeleteAccountOptions, deleteTopLevelDocs(), DELETION_RECEIPTS, DELETION_STEPS, DeletionAuthAdmin (+68 more)
+Nodes (94): ACCOUNT_DELETIONS, defaultAuthAdmin(), deleteAccount(), DeleteAccountOptions, DELETION_RECEIPTS, DELETION_STEPS, DeletionAuthAdmin, DeletionJobRecord (+86 more)
 
 ### Community 48 - "pressureService.ts"
 Cohesion: 0.08
-Nodes (43): AgendaItem, baseIntensityFor(), candidateFor(), CEILING_INTENSITY, ceilingFrom(), createDefaultPressureDeliveryStore(), DEFAULT_PRESSURE_CEILING, deliveryStoreFrom() (+35 more)
+Nodes (44): AgendaItem, readStoredHard(), adaptiveBehaviorFor(), adaptiveSignalsFor(), baseIntensityFor(), candidateFor(), CEILING_INTENSITY, ceilingFrom() (+36 more)
 
 ### Community 49 - "extractionService.ts"
-Cohesion: 0.06
-Nodes (37): ArbiterFunction, ARBITRATION_UNAVAILABLE, ArbitrationOutcome, ArbitrationVerdict, buildArbiterPrompt(), createAnthropicArbiter(), MAX_ARBITER_INPUT_CHARS, NO_CORRECTED_TIMES (+29 more)
+Cohesion: 0.07
+Nodes (36): answerClarification(), appliedLocal(), ClarifyDependencies, ClarifyError, ClarifyFailure, ClarifyInput, ClarifyOptions, withResolvedTime() (+28 more)
 
 ### Community 50 - "pilotService.ts"
-Cohesion: 0.04
-Nodes (103): recordFirstValueReached(), feedbackHistoryUnavailableResponse(), feedbackScopeIdFor(), requireFeedbackHistoryPort(), resolveFeedbackScope(), buildHistoryResponse(), resolveHistoryLimit(), toHistoryRow() (+95 more)
+Cohesion: 0.05
+Nodes (98): applyPilotTrustAction(), buildWhatMaybeSitterKnows(), createPilotAuditEvent(), createPilotTrustIncident(), createPilotTrustState(), decidePilotExposure(), PILOT_AUDIT_EVENT_TYPES, PilotAuditEvent (+90 more)
 
-### Community 51 - "adapters.ts"
-Cohesion: 0.07
-Nodes (74): deliverCoaching(), ShadowDrillAdapterSet, ShadowLogPairCount, captureAdapter(), coachingAdapter(), contributed(), createShadowAdapterSet(), decompositionAdapter() (+66 more)
+### Community 51 - "adapters.test.ts"
+Cohesion: 0.08
+Nodes (56): ShadowDrillAdapterSet, ShadowAdapterDeps, runShadowPipelineOnce(), ShadowPipelineOptions, assembleOutcome(), createShadowPipelineRun(), moduleOutcomeFor(), normalise() (+48 more)
 
 ### Community 52 - "usageGuard.test.ts"
-Cohesion: 0.10
-Nodes (36): decideFeatureEntitlement(), entitlementCheckCostEvent(), EntitlementDecisionReason, EntitlementStatus, instant(), NormalizedEntitlement, projectRevenueCatEntitlements(), REVENUECAT_ENTITLEMENT_POLICY (+28 more)
+Cohesion: 0.12
+Nodes (29): entitlementCheckCostEvent(), EntitlementDecisionReason, EntitlementStatus, instant(), NormalizedEntitlement, projectRevenueCatEntitlements(), REVENUECAT_ENTITLEMENT_POLICY, RevenueCatEntitlementInput (+21 more)
 
-### Community 53 - "userSubDoc"
-Cohesion: 0.01
-Nodes (331): blockPath(), EntitlementDecision, EntitlementProjection, ATHLETE_PACK, FOOTBALL_PACK, PACK_CATALOG, TRAVEL_PACK, instantiateWatcherTemplate() (+323 more)
+### Community 53 - "watcherEngine.test.ts"
+Cohesion: 0.02
+Nodes (176): assertPackWatcherMayBeEnabled(), forgetPackWatcher(), packsClaiming(), PackWatcherGuardDeps, PackWatcherLockedError, WATCHER_EVENTS, WATCHER_NOTIFICATIONS, WATCHER_PROPOSALS (+168 more)
 
 ### Community 54 - "ShareProvider.tsx"
 Cohesion: 0.08
-Nodes (23): MAX_ARCHIVE_BYTES, SharedPayload, SharePayloadProblem, PrepareImagesProblem, NativeShareIntent, ShareIntentHost(), useNativeShareIntent(), ARCHIVE_PROBLEM_KEY (+15 more)
+Nodes (24): shareIntentDebugEnabled(), MAX_ARCHIVE_BYTES, SharedPayload, SharePayloadProblem, PrepareImagesProblem, NativeShareIntent, ShareIntentHost(), useNativeShareIntent() (+16 more)
 
 ### Community 55 - "prioritySeedSet.ts"
-Cohesion: 0.05
-Nodes (68): BuildAnnotationQueueOptions, AnnotatorSummary, buildAgreementReport(), byCodeUnit(), CORPUS_KEYS, generateAgreementMarkdown(), JUDGMENT_CORPUS_CONTRACT_VERSION, JUDGMENT_KEYS (+60 more)
+Cohesion: 0.06
+Nodes (63): OutcomeTally, BuildAnnotationQueueOptions, AnnotatorSummary, buildAgreementReport(), byCodeUnit(), CORPUS_KEYS, generateAgreementMarkdown(), JUDGMENT_CORPUS_CONTRACT_VERSION (+55 more)
 
 ### Community 56 - "domainAppSnapshotAdapter.ts"
-Cohesion: 0.09
-Nodes (37): confirmDailyDigestAndAcknowledgeDueItems(), applyLegacyItemAction(), clearCommitments(), collisionsFor(), commitmentToItem(), createCommitmentFromItem(), dateTimeFromLegacy(), domainPriorityToItem() (+29 more)
+Cohesion: 0.06
+Nodes (60): confirmDailyDigestAndAcknowledgeDueItems(), LegacyMetadataAction, resetSingleUserAccount(), updateLegacyMetadata(), applyLegacyItemAction(), clearCommitments(), collisionsFor(), commitmentToItem() (+52 more)
 
 ### Community 57 - "toEpochMs"
-Cohesion: 0.05
-Nodes (77): addCalendarDays(), BoundaryResolutionKind, CalendarDate, calendarDateFromUtcMs(), calendarDateToUtcMs(), formatCalendarDate(), freeRunsWithin(), isKnownTimeZone() (+69 more)
+Cohesion: 0.06
+Nodes (87): addCalendarDays(), BoundaryResolutionKind, CalendarDate, calendarDateFromUtcMs(), calendarDateToUtcMs(), formatCalendarDate(), freeRunsWithin(), isKnownTimeZone() (+79 more)
 
 ### Community 58 - "maestroFlows.test.ts"
 Cohesion: 0.14
 Nodes (13): BUNDLE_ID, documentsOf(), FLOW_DIR, flowFiles, MOBILE_ROOT, parseError(), PATTERNS, referencedIds() (+5 more)
 
 ### Community 59 - "financialContracts.ts"
-Cohesion: 0.05
-Nodes (77): CATEGORY_BY_PREFIX, financialObligationCategory(), MONTHLY_RATIO, NormalizedFinancialObservations, NormalizeFinancialInput, ObservedObligation, signalsIn(), STREAM_CONFIDENCE (+69 more)
+Cohesion: 0.10
+Nodes (37): NormalizedFinancialObservations, bandOf(), buildFinancialState(), BuildFinancialStateInput, combine(), obligationsDueBefore(), PROVIDER_FIELD_READERS, soleCurrencyOf() (+29 more)
 
-### Community 60 - "projectFixtures.ts"
-Cohesion: 0.04
-Nodes (114): checkNoDuplicates(), Club, clubById(), clubByProviderTeamId(), ClubLanguage, CLUBS, CLUBS_BY_ID, CLUBS_BY_PROVIDER_TEAM_ID (+106 more)
+### Community 60 - "storage/index.ts"
+Cohesion: 0.03
+Nodes (113): checkNoDuplicates(), Club, clubById(), clubByProviderTeamId(), ClubLanguage, CLUBS, CLUBS_BY_ID, CLUBS_BY_PROVIDER_TEAM_ID (+105 more)
 
 ### Community 61 - "icsFeedLifecycle.test.ts"
-Cohesion: 0.08
-Nodes (32): handleRefreshFeed(), FAILURES_BEFORE_ERROR, MANUAL_REFRESH_COOLDOWN_MS, MAX_FEEDS_PER_USER, dynamic, POST(), afterFetchTransaction(), busyAndDeadlines() (+24 more)
+Cohesion: 0.05
+Nodes (48): handleRefreshFeed(), IcsRouteDeps, FAILURES_BEFORE_ERROR, IcsFeedDeps, IcsFeedDocument, IcsFeedItemDocument, MANUAL_REFRESH_COOLDOWN_MS, MAX_FEEDS_PER_USER (+40 more)
 
-### Community 62 - "DomainState"
-Cohesion: 0.06
-Nodes (75): buildAvailabilityView(), busyWindowsFrom(), canonicalizeLifeStateInput(), computeInputDigest(), ResolvedLifeStateInput, resolveWindowDays(), CommitmentFact, deriveCommitmentFacts() (+67 more)
+### Community 62 - "lifeStateContracts.ts"
+Cohesion: 0.10
+Nodes (46): buildAvailabilityView(), busyWindowsFrom(), resolveWindowDays(), CommitmentFact, deriveCommitmentFacts(), DRAFT_STATUSES, DUE_SOON_WINDOW_MS, OPEN_REMINDER_STATUSES (+38 more)
 
 ### Community 63 - "release/evidence.ts"
-Cohesion: 0.07
-Nodes (45): HARM_SIGNALS, ShadowRollbackDrillReport, buildEvidencePackage(), decideRelease(), isSafeCode(), itemsForPillar(), mergePillarSources(), PACKAGE_ENFORCED_INVARIANTS (+37 more)
+Cohesion: 0.06
+Nodes (48): buildEvidencePackage(), decideRelease(), isSafeCode(), itemsForPillar(), mergePillarSources(), PACKAGE_ENFORCED_INVARIANTS, placeholderItem(), provenanceMayAuthorise() (+40 more)
 
 ### Community 64 - "captureService.ts"
-Cohesion: 0.06
-Nodes (46): recordCaptureAnalytics(), CapturePersistenceAdapter, actionSummaryFor(), CaptureDisposition, CaptureEngineUsed, captureMeta(), captureMultipleCommitments(), CaptureServiceOptions (+38 more)
+Cohesion: 0.08
+Nodes (35): CaptureInputTooLargeError, actionSummaryFor(), CaptureDisposition, CaptureEngineUsed, captureMeta(), captureMultipleCommitments(), CaptureServiceOptions, captureText() (+27 more)
 
-### Community 65 - "priorityFeatures.test.ts"
-Cohesion: 0.09
-Nodes (27): deriveRelevantTimes(), scorePriority(), AgendaScoringInput, AgendaScoringReason, calculateAgendaUrgencyScore(), FeatureValue, assertEquivalent(), CASES (+19 more)
+### Community 65 - "priorityFeatures.ts"
+Cohesion: 0.08
+Nodes (41): buildImportance(), buildUrgency(), buildUserPressure(), candidateTimes(), clamp(), compareLabelledTimes(), DatedIgnore, DEFAULT_DUE_SOON_WINDOW_MS (+33 more)
 
 ### Community 66 - "decompositionContracts.ts"
-Cohesion: 0.02
-Nodes (162): applyConfirmation(), auditEvent(), confirmDecomposition(), DecompositionBoundaryDependencies, failure(), isRecord(), NormalisedRequest, normaliseRequest() (+154 more)
+Cohesion: 0.03
+Nodes (95): applyConfirmation(), auditEvent(), confirmDecomposition(), failure(), isRecord(), NormalisedRequest, normaliseRequest(), persistableSteps() (+87 more)
 
 ### Community 67 - "actionGateway.ts"
-Cohesion: 0.09
-Nodes (20): ActionExecutionReceipt, ActionExecutor, ActionGatewayAuditPhase, ActionGatewayAuditStore, ActionGatewayResult, AllowedActionExecution, auditRecord(), executeThroughActionGateway() (+12 more)
+Cohesion: 0.08
+Nodes (23): ExternalActionGatewayRequest, ActionExecutionReceipt, ActionExecutor, ActionGatewayAuditPhase, ActionGatewayAuditStore, ActionGatewayRequest, ActionGatewayResult, AllowedActionExecution (+15 more)
 
 ### Community 68 - "internalJobs.ts"
 Cohesion: 0.05
-Nodes (58): AUDIENCE_ENV_VAR, authorizeSchedulerRequest(), bearerToken(), get(), GOOGLE_ISSUERS, HeaderBearing, OidcPayload, OidcVerify (+50 more)
+Nodes (57): AUDIENCE_ENV_VAR, authorizeSchedulerRequest(), bearerToken(), get(), GOOGLE_ISSUERS, HeaderBearing, OidcPayload, OidcVerify (+49 more)
 
 ### Community 69 - "planningContracts.ts"
-Cohesion: 0.02
-Nodes (148): isWholeMinuteInDay(), windowDefect, describeWindowDefect(), forcesOrdering(), itemsInCycle(), reason(), StaticReason, validateConstraints() (+140 more)
+Cohesion: 0.03
+Nodes (88): MAX_FIXED_EVENT_CONFLICT_REASONS, assemblePlanningCorpus(), ATTEMPT_CODES, CURATED_PLANNING_SCENARIOS, CURATED_ROWS, DEEP_FROZEN, deepFreeze(), DEFAULT_CONFIG (+80 more)
 
-### Community 70 - "imageShare.test.ts"
-Cohesion: 0.04
-Nodes (72): READABLE, readableBytesOf(), concat(), endOfEntropyData(), FAILED, ImageStripResult, isJpegMetadata(), isJpegPictureSegment() (+64 more)
+### Community 70 - "image.ts"
+Cohesion: 0.06
+Nodes (49): cleanTitle(), IMAGE_CHANNEL_PRIORITY, KeptItem, MAX_SHARE_PROMPT_TOKENS, normalize(), READABLE, readableBytesOf(), Selection (+41 more)
 
 ### Community 71 - "extractionTypes.ts"
 Cohesion: 0.13
-Nodes (25): CommitmentCategory, AmbiguityFlag, ExtractionContext, ExtractionType, MissingField, TimeEvidence, anchorDayFrom(), boolOrDefault() (+17 more)
+Nodes (23): AmbiguityFlag, ExtractionType, MissingField, TimeEvidence, anchorDayFrom(), boolOrDefault(), clamp(), isoStringOrNull() (+15 more)
 
 ### Community 72 - "assistantTurn.ts"
-Cohesion: 0.07
-Nodes (47): Agenda, durationText(), PressureCandidateMessage, PressureMessage, pressureTurnFor(), CommunicativeIntent, createAssistantTurn(), CreateAssistantTurnInput (+39 more)
+Cohesion: 0.08
+Nodes (44): durationText(), pressureTurnFor(), CommunicativeIntent, createAssistantTurn(), CreateAssistantTurnInput, expectedUserActionFor(), isPressureEvent(), RealizationCandidate (+36 more)
 
 ### Community 73 - "icsImport.ts"
 Cohesion: 0.05
-Nodes (70): RFC-5545, CLASSIFY_HEAP_MB, CLASSIFY_TIMEOUT_MS, classifyIcsBounded(), EXPAND_WORKER_PATH, expandInWorker(), IcsTooComplexError, expandRecurrences() (+62 more)
+Nodes (73): RFC-5545, CLASSIFY_HEAP_MB, CLASSIFY_TIMEOUT_MS, classifyIcsBounded(), EXPAND_WORKER_PATH, expandInWorker(), IcsTooComplexError, expandRecurrences() (+65 more)
 
 ### Community 74 - "Decomposition proposal and confirmation boundary"
 Cohesion: 0.13
 Nodes (14): An edit moves the title, not the provenance, Behaviour, Confirmation, scope and idempotency, Contract and ownership, Decomposition proposal and confirmation boundary, Entry validation, Failure and compatibility behaviour, Migration (+6 more)
 
 ### Community 75 - "seedService.ts"
-Cohesion: 0.06
-Nodes (48): byNewest(), createStorageIntentSeedStore(), seedPath(), StorageIntentSeedStore, StoredSeed, createStorageCaptureProposalStore(), commitmentIdOf(), createSeed() (+40 more)
+Cohesion: 0.14
+Nodes (27): createStorageIntentSeedStore(), createStorageCaptureProposalStore(), commitmentIdOf(), createSeed(), CreateSeedRequest, deleteSeed(), exportSeeds(), LANGUAGES (+19 more)
 
 ### Community 76 - "agenda.ts"
 Cohesion: 0.09
-Nodes (51): DashboardPage(), FilterType, getGreeting(), DailyCalendar(), DailyCalendarProps, formatCalendarDate(), formatCalendarTime(), priorityConfig (+43 more)
+Nodes (50): DashboardPage(), FilterType, getGreeting(), DailyCalendar(), DailyCalendarProps, formatCalendarDate(), formatCalendarTime(), priorityConfig (+42 more)
 
-### Community 77 - "generateGoalGraph.ts"
-Cohesion: 0.06
-Nodes (53): statedValueAdmission(), generateGoalExecutionGraph(), GenerateGoalGraphRequest, GenerateGoalGraphResult, GoalGraphGenerationError, requireConfirmedGoal(), CHECKPOINT_NODE_KEY, checkpointNodeIdFor() (+45 more)
+### Community 77 - "goalGraphContracts.ts"
+Cohesion: 0.03
+Nodes (127): DecompositionEngineDependencies, DecompositionModelProvider, applyLinksToGraph(), commitmentIdOf(), confirmedNodeCommitment(), ConfirmGoalGraphDependencies, confirmGoalGraphNodes(), ConfirmGoalGraphRequest (+119 more)
 
-### Community 78 - "mobileRanking.ts"
-Cohesion: 0.19
-Nodes (13): bandFor(), IMPORTANCE_ADJUSTMENT, RANK_REASON_CODES, rankForMobile(), RankForMobileOptions, RankReasonCode, reasonCodesFor(), Scored (+5 more)
+### Community 78 - "Commitment"
+Cohesion: 0.08
+Nodes (33): CalibrationSubject, bandFor(), IMPORTANCE_ADJUSTMENT, RANK_REASON_CODES, RankedItem, rankForMobile(), RankForMobileOptions, RankReasonCode (+25 more)
 
-### Community 79 - "TodayScreen.tsx"
-Cohesion: 0.02
-Nodes (204): CommitmentPatch, adoptNewerCommitment(), invalidateCommitments(), rememberValidator(), useActivity(), useCategoryPreferences(), useCommitment(), useCommitmentAction() (+196 more)
+### Community 79 - "label"
+Cohesion: 0.09
+Nodes (15): chipIn(), NOW, prefixOf(), topItemFor(), AR, EN, view(), commitment() (+7 more)
 
 ### Community 80 - "explanationValidator.ts"
-Cohesion: 0.11
-Nodes (27): ARABIC_LEXICON, EXPLANATION_LEXICONS, explanationFactsFrom(), explanationRejections(), FOLDED, foldPattern(), foldScript(), hasExplanationLexicon() (+19 more)
+Cohesion: 0.09
+Nodes (31): ExplanationOutcome, ARABIC_LEXICON, EXPLANATION_LEXICONS, ExplanationFacts, explanationFactsFrom(), ExplanationRejection, FOLDED, foldPattern() (+23 more)
 
 ### Community 81 - "dependencies"
 Cohesion: 0.04
 Nodes (50): dependencies, @bacons/apple-targets, expo, expo-apple-authentication, expo-blur, expo-build-properties, expo-calendar, expo-clipboard (+42 more)
 
 ### Community 82 - "context/AppContext.tsx"
-Cohesion: 0.11
-Nodes (40): metadata, AppContext, AppProvider(), FilterType, generateClientId(), getAlertText(), isClosed(), ItemInput (+32 more)
+Cohesion: 0.12
+Nodes (38): next, metadata, AppContext, AppContextType, AppProvider(), FilterType, generateClientId(), getAlertText() (+30 more)
 
 ### Community 83 - "derivedProjection.ts"
 Cohesion: 0.18
@@ -814,24 +847,24 @@ Cohesion: 0.11
 Nodes (43): assistantActionClause(), assistantReminderClause(), candidate(), candidatesFor(), capitalFirst(), chooseCandidate(), clarificationCandidates(), clarificationQuestionClause() (+35 more)
 
 ### Community 85 - "alphaTraceStore.ts"
-Cohesion: 0.08
-Nodes (27): AlphaTraceStore, AlphaTraceStoreOptions, assertOwner(), assertSessionId(), createInMemoryAlphaTraceStore(), DEFAULT_RETENTION_TTL_MS, isValidTraceSessionId(), StorageAlphaTraceStore (+19 more)
+Cohesion: 0.05
+Nodes (62): createStorageAlphaFeedbackStore(), AlphaTraceStore, AlphaTraceStoreOptions, assertOwner(), assertSessionId(), createInMemoryAlphaTraceStore(), createStorageAlphaTraceStore(), DEFAULT_RETENTION_TTL_MS (+54 more)
 
-### Community 86 - "Plan"
-Cohesion: 0.06
-Nodes (67): burstKey(), byOccurrence(), closeGroup(), CoalesceOptions, coalescePlanningStateChanges(), OpenGroup, ContinuousReplanPipelineInput, executeContinuousReplanPipeline() (+59 more)
+### Community 86 - "continuousReplanControl.test.ts"
+Cohesion: 0.05
+Nodes (86): burstKey(), byOccurrence(), closeGroup(), CoalesceOptions, coalescePlanningStateChanges(), OpenGroup, ContinuousReplanPipelineInput, executeContinuousReplanPipeline() (+78 more)
 
 ### Community 87 - "habitContracts.ts"
-Cohesion: 0.07
-Nodes (56): buildHabitProposal(), confirmHabitProposal(), HabitProposalInput, requireDuration(), sameCadence(), applyHabitPatch(), buildHabitDefinition(), cadenceOccurrencesPerPeriod() (+48 more)
+Cohesion: 0.12
+Nodes (35): buildHabitProposal(), confirmHabitProposal(), HabitProposalInput, requireDuration(), sameCadence(), cadenceOccurrencesPerPeriod(), checkBounds(), fail() (+27 more)
 
 ### Community 88 - "pilotDataBackup.ts"
 Cohesion: 0.15
 Nodes (22): assertAbsoluteDirectoryInput(), assertExistingDirectory(), assertNotSameOrNested(), assertPilotDataLooksRestorable(), assertTargetWritable(), backupLabel(), backupPilotData(), BackupPilotDataOptions (+14 more)
 
 ### Community 89 - "commitmentService.ts"
-Cohesion: 0.03
-Nodes (119): RankedItem, addLocalDays(), currentWeekStart(), localDayStartInstant(), weekWindow, deleteDeviceCalendarLink(), DEVICE_CALENDAR_LINK_STATES, DeviceCalendarLink (+111 more)
+Cohesion: 0.02
+Nodes (168): DEVICE_CALENDAR_LINK_STATES, DeviceCalendarLinkDeps, DeviceCalendarLinkInput, DeviceCalendarLinkState, DeviceCalendarLinkValidationError, getDeviceCalendarLink(), listDeviceCalendarLinks(), nonEmptyString() (+160 more)
 
 ### Community 90 - "scripts"
 Cohesion: 0.05
@@ -839,71 +872,71 @@ Nodes (42): scripts, analytics:report, build, capture:eval, check:no-flutter, ch
 
 ### Community 91 - "legacyStoreGuard.test.ts"
 Cohesion: 0.15
-Nodes (10): assertNotCloudRun(), CLOUD_RUN_ENV_VAR, CloudRunUnsupportedStoreError, EnvLike, onCloudRun(), localDataDir(), resolveDataDir(), getAppSnapshot() (+2 more)
+Nodes (11): createFileDecisionStore(), defaultDataDir(), assertNotCloudRun(), CLOUD_RUN_ENV_VAR, CloudRunUnsupportedStoreError, EnvLike, onCloudRun(), localDataDir() (+3 more)
 
 ### Community 92 - "alphaQualityHarness.ts"
-Cohesion: 0.13
-Nodes (22): ConstraintFailure, generateMarkdownReport(), matchesConstraint(), matchesExtractionConstraints(), matchesRecConstraints(), QualityReport, runAlphaQualityHarness(), runSeededFailureTest() (+14 more)
+Cohesion: 0.12
+Nodes (25): ConstraintFailure, generateMarkdownReport(), matchesConstraint(), matchesExtractionConstraints(), matchesRecConstraints(), QualityReport, runAlphaQualityHarness(), runSeededFailureTest() (+17 more)
 
-### Community 93 - "captureParser.ts"
-Cohesion: 0.17
-Nodes (23): appendUniqueNote(), formatDate(), priorities, sourceOptions, TaskModal(), CaptureSource, ItemPriority, addDays() (+15 more)
+### Community 93 - "types/index.ts"
+Cohesion: 0.08
+Nodes (38): appendUniqueNote(), formatDate(), priorities, sourceOptions, TaskModal(), CaptureSource, Item, ItemPriority (+30 more)
 
 ### Community 94 - "v03FieldIntake.ts"
-Cohesion: 0.08
-Nodes (37): RFC-4180, exactKeys(), validateInterviewRecord(), validateRecruitmentRecord(), validIsoTime(), BASELINES, buildFieldworkStatus(), codedRates (+29 more)
+Cohesion: 0.10
+Nodes (25): RFC-4180, CompetitiveBaseline, CurrentWorkflow, ResearchCohort, SwitchingPain, V03ResearchReport, BASELINES, COHORTS (+17 more)
 
-### Community 95 - "fieldEncryption.ts"
+### Community 95 - "providerOAuthProductionRuntime.test.ts"
 Cohesion: 0.07
-Nodes (37): IcsFeedItemDocument, REFRESH_INTERVAL_MS, additionalAuthenticatedData(), base64Field(), decryptField(), encryptField(), FIELD_ENCRYPTION_VERSION, FieldEncryptionError (+29 more)
+Nodes (44): credentialKeyId(), credentialPurpose(), ENCRYPTED_VAULT_NAME, EncryptedProviderCredentialVault, StoredCredentialDocument, StoredProviderOAuthStateStore, verifierPurpose(), ProviderOAuthState (+36 more)
 
 ### Community 96 - "verify-durability.ts"
 Cohesion: 0.10
 Nodes (36): AppliedAction, CheckResult, CommitmentActionKind, countDistinctInstances(), DurabilitySummary, FinalState, finalStateFrom(), finalStatusFromCommitmentStatus() (+28 more)
 
 ### Community 97 - "habitService.ts"
-Cohesion: 0.07
-Nodes (43): createStorageHabitOccurrenceStore(), HabitOccurrenceOutcome, HabitOccurrenceStore, isHabitOccurrence(), isOpenOccurrence(), OccurrenceTransition, OPEN_STATES, StorageHabitOccurrenceStore (+35 more)
+Cohesion: 0.16
+Nodes (23): MaterializationResult, HabitRecoveryOutcome, createStorageHabitOccurrenceStore(), HabitOccurrenceOutcome, isOpenOccurrence(), OccurrenceTransition, OPEN_STATES, applyOccurrenceOutcome() (+15 more)
 
-### Community 98 - "goalGraphContracts.ts"
+### Community 98 - "goalGraphExecutionRead.test.ts"
 Cohesion: 0.07
-Nodes (56): applyLinksToGraph(), commitmentIdOf(), confirmedNodeCommitment(), ConfirmGoalGraphDependencies, confirmGoalGraphNodes(), ConfirmGoalGraphRequest, createCommitment(), GoalConfirmationError (+48 more)
+Nodes (46): civilDaysOrRefuse(), GOAL_GRAPH_MAX_GENERATION, GoalGraphRequestError, goalGraphRequestResponse(), GoalNodePatch, isRecord(), MAX_SELECTIONS_PER_CONFIRM, parseGeneration() (+38 more)
 
-### Community 99 - "userDoc"
+### Community 99 - "getStorage"
 Cohesion: 0.02
-Nodes (216): markDeleted(), applyCommands(), buildRef(), completeCommitmentForFixtureGuarded(), createAndConfirmCommands(), createCommitmentForFixtureGuarded(), dropCommitmentForFixtureGuarded(), fingerprintOf() (+208 more)
+Nodes (286): fixtureTitle(), refDocPath(), FixtureStoreDeps, FollowedClubsDeps, getFollowedClubs(), applyCommands(), buildRef(), completeCommitmentForFixtureGuarded() (+278 more)
 
 ### Community 100 - "calendar/icsFeeds.ts"
 Cohesion: 0.07
-Nodes (79): guarded(), handleCreateFeed(), handleDeadlineDecision(), handleListFeeds(), handleUpdateFeed(), IcsRefreshRouteDeps, jsonBody(), refusal() (+71 more)
+Nodes (78): guarded(), handleCreateFeed(), handleDeadlineDecision(), handleDeleteFeed(), handleUpdateFeed(), IcsRefreshRouteDeps, jsonBody(), refusal() (+70 more)
 
 ### Community 101 - "build-share-injection-fixtures.ts"
 Cohesion: 0.06
-Nodes (56): ALLOWED_ITEM_FIELDS, adler32(), ATTACK_FAMILIES, ATTACKS, be32(), BENIGN_LINE, BENIGN_SECOND, buildCorpus() (+48 more)
+Nodes (57): ALLOWED_ITEM_FIELDS, ALLOWED_NEXT_ACTION_KINDS, adler32(), ATTACK_FAMILIES, ATTACKS, be32(), BENIGN_LINE, BENIGN_SECOND (+49 more)
 
-### Community 102 - "whatsappChannel.test.ts"
-Cohesion: 0.10
-Nodes (29): MAX_UNASSISTED_SEGMENTS, ShareIntakeInput, SHARE_SEGMENT_SEPARATOR, REDACTED_PHONE, ALL_PAST, ANDROID_EN_DASH, ANDROID_ENGLISH, ARABIC_COMMA (+21 more)
+### Community 102 - "useWatchers.ts"
+Cohesion: 0.09
+Nodes (43): getBackgroundActivity(), getBackgroundAttribution(), setBackgroundActivityPaused(), createReadinessWatcher(), deleteWatcher(), getMonitoringSettings(), listWatchers(), path() (+35 more)
 
 ### Community 103 - "Work items"
 Cohesion: 0.09
 Nodes (21): D1 — Where timezone correctness lives, D2 — What happens to the reminder when only the due date moves, D3 — `isLocalDevBackend` after the fix, D4 — Scope of the capture safety valve, Design decisions, Edit Path Repair and Debt Cleanup — Design, Purpose, Risks (+13 more)
 
-### Community 104 - "planActions.ts"
-Cohesion: 0.05
-Nodes (49): acceptPlanProposal(), BlockProtectionRequest, blocksForAcceptedProposal(), clockOf(), dismissPlan(), editPlan(), parseEdit(), parseProtection() (+41 more)
+### Community 104 - "habitRoutes.test.ts"
+Cohesion: 0.11
+Nodes (34): checkHabitPatchBody(), checkNewHabitBody(), habitValidationResponse(), NEW_HABIT_KEYS, OCCURRENCE_ID, parseHabitId(), parseOccurrenceId(), PATCH_HABIT_KEYS (+26 more)
 
-### Community 105 - "isNonEmptyString"
-Cohesion: 0.07
-Nodes (93): validateGoldFreezeManifest(), validateAnnotationPolicyRegistry(), validateRuleChange(), createDecompositionReview(), DECOMPOSITION_LABEL_KINDS, exampleRef(), ingestReviews(), loadCorpusForRole() (+85 more)
+### Community 105 - "splits.ts"
+Cohesion: 0.08
+Nodes (48): recomputeRecordsChecksum(), corpusDigest(), ProposalBaseFields, BuildQueueOptions, ExampleCorpusLoadResult, VerifyReviewedProvenanceOptions, assertWeights(), assignSplit() (+40 more)
 
 ### Community 106 - "ollamaExtractor.ts"
 Cohesion: 0.08
 Nodes (35): CaseScore, DialectCase, DialectEvalReport, loadDialectSuite(), localClock(), main(), REPO_ROOT, runDialectEval() (+27 more)
 
-### Community 107 - "Commitment"
-Cohesion: 0.09
-Nodes (41): BehaviorProfile, buildBehaviorProfile(), hourIn(), kindAffinity(), localHour(), MINIMUM_PROFILE_OBSERVATIONS, preferredHours(), profileIsUsable() (+33 more)
+### Community 107 - "nextStepArms.ts"
+Cohesion: 0.13
+Nodes (30): BehaviorProfile, buildBehaviorProfile(), hourIn(), kindAffinity(), localHour(), MINIMUM_PROFILE_OBSERVATIONS, preferredHours(), profileIsUsable() (+22 more)
 
 ### Community 108 - "Implementation roadmap (34 issues, independent, gate-free)"
 Cohesion: 0.05
@@ -913,57 +946,57 @@ Nodes (36): C01 - [Codex 1][Foundation] Define Pilot Presence Contracts And Shar
 Cohesion: 0.13
 Nodes (34): SharedFile, ACCEPTED_IMAGE_TYPES, be16At(), concat(), Encoded, endOfEntropyData(), FAILED, heifHeader() (+26 more)
 
-### Community 110 - "nextStepLiveService.ts"
-Cohesion: 0.10
-Nodes (35): ArmAdjustment, ArmSelection, selectNextStepForArmFromState(), NextStepDecisionRecord, BaselineScore, BaselineSelection, evidenceLabel(), DECISION_EVENTS (+27 more)
+### Community 110 - "nextStepContracts.ts"
+Cohesion: 0.13
+Nodes (21): ArmAdjustment, ArmSelection, BaselineScore, BaselineSelection, ACTIONS, cleanText(), decideNextStep(), isSafeText() (+13 more)
 
 ### Community 111 - "shareInjectionSuite.test.ts"
-Cohesion: 0.08
-Nodes (47): ALLOWED_NEXT_ACTION_KINDS, ALLOWED_PROPOSAL_FIELDS, ALLOWED_STATUSES, allowedNextAction(), applyShareActionAllowlist(), CLARIFICATION_FIELDS, EXECUTED_ENGINES, freeTextDropReason() (+39 more)
+Cohesion: 0.07
+Nodes (51): documentPreprocessor, emailPreprocessor, imagePreprocessor, plainTextPreprocessor, whatsappPreprocessor, ALLOWED_PROPOSAL_FIELDS, ALLOWED_STATUSES, allowedNextAction() (+43 more)
 
 ### Community 112 - "whatsappExportReader.test.ts"
 Cohesion: 0.14
 Nodes (21): read(), bomb(), bulky(), concat(), lyingBomb(), TRANSCRIPT, u16(), u32() (+13 more)
 
 ### Community 113 - "planActivity.test.ts"
-Cohesion: 0.05
-Nodes (65): ACTIVITY_KIND_BY_EVENT_TYPE, ActivityItem, ActivityKind, commitmentIdOf(), CommitmentTitleSource, PRODUCED_ACTIVITY_KINDS, projectActivity(), ActivityPage (+57 more)
+Cohesion: 0.04
+Nodes (93): ACTIVITY_KIND_BY_EVENT_TYPE, ActivityItem, ActivityKind, commitmentIdOf(), CommitmentTitleSource, PRODUCED_ACTIVITY_KINDS, projectActivity(), ActivityPage (+85 more)
 
-### Community 114 - "DecompositionProposal"
-Cohesion: 0.15
-Nodes (10): DecompositionProposalStore, deepFreeze(), MemoryDecompositionProposalStore, StoredDecompositionProposal, StoredDecompositionProposalView, StoreRecord, BuildEvaluationReportOptions, PairProposalsOptions (+2 more)
+### Community 114 - "decomposition/evaluation/metrics.ts"
+Cohesion: 0.11
+Nodes (35): BoundaryMetrics, buildBoundaryMetrics(), buildCoverageMetrics(), buildEvaluationReport(), BuildEvaluationReportOptions, buildFaithfulnessMetrics(), byCodeUnit(), CoverageMetrics (+27 more)
 
 ### Community 115 - "useApp"
-Cohesion: 0.13
-Nodes (20): AnalyticsPage(), formatShortDate(), getDayLabel(), getWeekStart(), LoginPage(), SignupPage(), CalculatorPage(), milestones (+12 more)
+Cohesion: 0.08
+Nodes (32): AnalyticsPage(), formatShortDate(), getDayLabel(), getWeekStart(), LoginPage(), SignupPage(), CalculatorPage(), milestones (+24 more)
 
 ### Community 116 - "V03-P1 closed-pilot operational runbook"
 Cohesion: 0.10
 Nodes (19): Alarms, Architecture, Backup, Cloud Run, Cost Estimate, Incident Response, Kill Switch, Launch v1 cost guardrails (UC-4.5, #181) (+11 more)
 
 ### Community 117 - "v03BehavioralResearch.ts"
-Cohesion: 0.10
-Nodes (23): BASELINES, BehavioralInterviewRecord, buildV03ResearchReport(), canonicalJson(), COHORTS, CompetitiveBaseline, CurrentWorkflow, INTERVIEW_KEYS (+15 more)
+Cohesion: 0.14
+Nodes (19): BASELINES, BehavioralInterviewRecord, buildV03ResearchReport(), canonicalJson(), COHORTS, exactKeys(), INTERVIEW_KEYS, PILOT_STATUSES (+11 more)
 
-### Community 118 - "emailShare.test.ts"
-Cohesion: 0.07
-Nodes (40): ShareStructuredGenerator, BEGIN_UNTRUSTED_SHARED_CONTENT, END_UNTRUSTED_SHARED_CONTENT, pickThreeHoursLater(), show(), shown(), DATE, answerFor() (+32 more)
+### Community 118 - "shareTypes.ts"
+Cohesion: 0.13
+Nodes (25): ShareStructuredGenerator, ShareStructuredResponse, ImportOptions, BEGIN_UNTRUSTED_SHARED_CONTENT, END_UNTRUSTED_SHARED_CONTENT, SharePreprocessContext, pickThreeHoursLater(), AiConsentState (+17 more)
 
 ### Community 119 - "healthkit/adapter.ts"
 Cohesion: 0.07
-Nodes (31): HealthConnectAdapterOptions, HEALTHKIT_MINIMUM_READ_PERMISSIONS, HealthKitAdapterOptions, HealthKitAuthorizationSnapshot, HealthKitDisconnectResult, HealthKitNativePort, HealthKitNativeSamples, HealthKitReadinessAdapter (+23 more)
+Nodes (30): HEALTHKIT_MINIMUM_READ_PERMISSIONS, HealthKitAdapterOptions, HealthKitAuthorizationSnapshot, HealthKitDisconnectResult, HealthKitNativePort, HealthKitNativeSamples, HealthKitReadinessAdapter, HealthKitReadPermission (+22 more)
 
 ### Community 120 - "intelligenceModuleBoundaries.test.ts"
 Cohesion: 0.07
-Nodes (30): HEALTH_CONNECT_MINIMUM_READ_PERMISSIONS, HealthConnectAuthorizationSnapshot, HealthConnectDisconnectResult, HealthConnectNativePort, HealthConnectNativeRecords, HealthConnectReadinessAdapter, HealthConnectReadPermission, HealthConnectRecordWindow (+22 more)
+Nodes (33): HEALTH_CONNECT_MINIMUM_READ_PERMISSIONS, HealthConnectAdapterOptions, HealthConnectAuthorizationSnapshot, HealthConnectDisconnectResult, HealthConnectNativePort, HealthConnectNativeRecords, HealthConnectReadinessAdapter, HealthConnectReadPermission (+25 more)
 
-### Community 121 - "reminders/policy.ts"
-Cohesion: 0.14
-Nodes (21): fnv1a(), mustRingIdentifier(), EscalationCeiling, FOLLOW_UP_LEAD_MINUTES, leadMinutesFor(), legacyEscalation(), MAX_PENDING_REQUESTS, mustRingsDespitePostpone() (+13 more)
+### Community 121 - "imageShare.test.ts"
+Cohesion: 0.08
+Nodes (39): adler32(), ascii(), ATTACKS, be16(), be32(), bytesOf(), crc32(), CRC_TABLE (+31 more)
 
 ### Community 122 - "alphaFeedbackStore.ts"
-Cohesion: 0.11
-Nodes (20): AlphaFeedbackStore, AlphaFeedbackStoreOptions, collectionFor(), createInMemoryAlphaFeedbackStore(), createStorageAlphaFeedbackStore(), DEFAULT_RETENTION_TTL_MS, isFlag(), newFlag() (+12 more)
+Cohesion: 0.21
+Nodes (11): AlphaFeedbackStoreOptions, DEFAULT_RETENTION_TTL_MS, newFlag(), ALPHA_FEEDBACK, store, ALPHA_FEEDBACK_FLAG_VERSION, AlphaFeedbackFlagCategory, FLAG_NOTE_MAX_LENGTH (+3 more)
 
 ### Community 123 - "Decomposition engine, validator and boundary"
 Cohesion: 0.18
@@ -977,85 +1010,81 @@ Nodes (28): 0. What this document is, and what it is not, 1.1 What you may use, 
 Cohesion: 0.15
 Nodes (13): 09 — Evidence codebook, `adult_confirmed` / `cohort_eligibility_confirmed` / `research_consent_recorded`, `candidate_id`, Fields that do not exist, deliberately, `linked_interview_id`, `pilot_contact_consent_recorded`, `pilot_status`, Recruitment tracker fields (+5 more)
 
-### Community 126 - "experimentReport.ts"
-Cohesion: 0.07
-Nodes (42): assignExperiment(), stableHash(), ArmAssignment, NEXT_STEP_EXPERIMENT_ENV, NEXT_STEP_PINNED_ARM_ENV, nextStepExperimentEnabled(), pinnedNextStepArm(), resolveNextStepArm() (+34 more)
-
 ### Community 127 - "useReminderSync.ts"
-Cohesion: 0.28
-Nodes (13): importanceOf(), ReminderSettingsDto, mergeById(), quietTimeZone(), quietWindowOf(), startOf(), toEngineSettings(), toReminderCommitments() (+5 more)
+Cohesion: 0.30
+Nodes (12): importanceOf(), ReminderSettingsDto, mergeById(), quietTimeZone(), quietWindowOf(), startOf(), toEngineSettings(), toReminderCommitments() (+4 more)
 
-### Community 128 - "shareTypes.ts"
-Cohesion: 0.05
-Nodes (60): ShareStructuredResponse, DOCUMENT_CHANNEL_PRIORITY, documentPreprocessor, localTimeOf(), segmentFor(), cleanTitle(), EMAIL_CHANNEL_PRIORITY, emailPreprocessor (+52 more)
+### Community 128 - "emailShare.test.ts"
+Cohesion: 0.06
+Nodes (49): DOCUMENT_CHANNEL_PRIORITY, localTimeOf(), segmentFor(), cleanTitle(), EMAIL_CHANNEL_PRIORITY, EmailSource, KeptItem, normalizeForMatch() (+41 more)
 
 ### Community 129 - "HealthKitReadinessModule"
 Cohesion: 0.10
 Nodes (27): Any, Exception, ExpoModulesCore, GenericException, HealthKit, HKAuthorizationRequestStatus, HKObjectType, HKQuantityTypeIdentifier (+19 more)
 
-### Community 130 - "stateMachine.ts"
-Cohesion: 0.06
-Nodes (48): participantJobHandler(), patchedAllDay(), addReminder(), applyCommand(), assertInvariants(), cancelOpenReminders(), canEscalate(), cloneState() (+40 more)
+### Community 130 - "financial/adapter.ts"
+Cohesion: 0.09
+Nodes (32): CATEGORY_BY_PREFIX, financialObligationCategory(), MONTHLY_RATIO, nextIncomeFromStreams(), nextIncomeFromTransactions(), NormalizeFinancialInput, normalizeFinancialObservations(), obligationIdFor() (+24 more)
 
-### Community 131 - "calibration/corpus.ts"
-Cohesion: 0.12
-Nodes (32): CalibrationPair, CalibrationSubject, canonicalCorpus(), compareIds(), computeCorpusDigest(), HardConstraintDeclaration, hardConstraintsFromDecisions(), buildSeedCorpus() (+24 more)
+### Community 131 - "priority/calibrationFixtures.ts"
+Cohesion: 0.28
+Nodes (14): DEFAULT_PRIORITY_POLICY, PRIORITY_POLICY_VERSION, plain(), constrainedCorpus(), CAL_CLOCK, judgmentOf(), pairOf(), subjectOf() (+6 more)
 
 ### Community 132 - "CaptureProvider.tsx"
 Cohesion: 0.04
-Nodes (79): clarifyCapture(), deleteCommitment(), useAiConsentGranted(), useAnalyticsConsent(), useClarifyCapture(), useConfirmCapture(), useRecordAnalytics(), CaptureConfirmation (+71 more)
+Nodes (74): deleteCommitment(), useAiConsentGranted(), useAnalyticsConsent(), useCapture(), useClarifyCapture(), useConfirmCapture(), useRecordAnalytics(), CaptureConfirmation (+66 more)
 
 ### Community 133 - "intake.ts"
-Cohesion: 0.13
-Nodes (25): emailSignals(), looksLikeEmail(), BY_EXTENSION, EMAIL_TYPES, extensionOf(), fileFrom(), kindFor(), LIMIT_FOR (+17 more)
+Cohesion: 0.12
+Nodes (27): emailSignals(), looksLikeEmail(), BY_EXTENSION, EMAIL_TYPES, extensionOf(), fileFrom(), kindFor(), LIMIT_FOR (+19 more)
 
 ### Community 134 - "navigation.ts"
-Cohesion: 0.19
-Nodes (19): arrive(), back(), canGoBack(), closeTask(), derive(), Entry, go(), initialNav (+11 more)
+Cohesion: 0.18
+Nodes (20): arrive(), back(), canGoBack(), closeTask(), derive(), Entry, go(), initialNav (+12 more)
 
-### Community 135 - "softAwarenessEngine.test.ts"
-Cohesion: 0.08
-Nodes (41): gateway(), HORIZON_DAYS, ReminderCommitment, ReminderSettings, ReminderStage, QuietWindow, contentFor(), DesiredRequest (+33 more)
+### Community 135 - "avoidanceInvariant.test.ts"
+Cohesion: 0.05
+Nodes (65): fnv1a(), mustRingIdentifier(), EscalationCeiling, FOLLOW_UP_LEAD_MINUTES, HORIZON_DAYS, leadMinutesFor(), legacyEscalation(), MAX_PENDING_REQUESTS (+57 more)
 
 ### Community 136 - "package.json"
-Cohesion: 0.04
-Nodes (44): googleVerify(), dependencies, firebase-admin, google-auth-library, @google-cloud/kms, @google/genai, ical.js, ipaddr.js (+36 more)
+Cohesion: 0.08
+Nodes (23): googleVerify(), engines, node, react, @types/react, typescript, name, overrides (+15 more)
 
 ### Community 137 - "captureEvalRunner.ts"
-Cohesion: 0.13
-Nodes (23): geminiOptions(), main(), usage(), CaptureGateReport, CaptureGateThresholds, CaptureTestCase, CaseEvaluationResult, deepEqual() (+15 more)
+Cohesion: 0.15
+Nodes (20): geminiOptions(), main(), usage(), CaptureGateReport, CaptureGateThresholds, CaptureTestCase, CaseEvaluationResult, deepEqual() (+12 more)
 
 ### Community 138 - "Sprint 06 — Decomposition: Design"
 Cohesion: 0.15
 Nodes (12): Architecture, Component 1 — Proposal contracts and state machine (#25), Component 2 — Dataset and evaluator (#26), Component 3 — Engine and validator (#27), Context, Corrected premises, Dependency matrix, Migration and rollback (+4 more)
 
 ### Community 139 - "integrationConnectionContracts.ts"
-Cohesion: 0.05
-Nodes (56): buildRecord(), connectionIdFor(), freezeRecord(), MemoryIntegrationConnectionStore, recordConnectionSync(), requiresReauth(), uniqueSorted(), nextIncomeFromStreams() (+48 more)
+Cohesion: 0.09
+Nodes (26): buildRecord(), connectionIdFor(), freezeRecord(), MemoryIntegrationConnectionStore, recordConnectionSync(), requiresReauth(), uniqueSorted(), StoredIntegrationConnectionStore (+18 more)
 
-### Community 140 - "compareByCodePoint"
-Cohesion: 0.05
-Nodes (74): buildPatch(), FALLBACK_REASONS, FallbackReason, freezeBlocksAsFixedEvents(), FreezeResolveResult, frozenPlacementDrift(), fullFallback(), IncrementalReplanError (+66 more)
+### Community 140 - "freezeResolve.ts"
+Cohesion: 0.04
+Nodes (87): PlanQualityInput, buildPatch(), FALLBACK_REASONS, FallbackReason, freezeBlocksAsFixedEvents(), FreezeResolveInput, FreezeResolveResult, frozenPlacementDrift() (+79 more)
 
-### Community 141 - "rulesDetector.ts"
-Cohesion: 0.10
-Nodes (31): ARABIC_IMPERATIVES, ARABIC_OBJECT_PRONOUNS, beginsAction(), collectMarkers(), CONJUNCTION_WORD_LIST, CONJUNCTION_WORDS, countTokensIn(), DETECTOR_BOUNDARY_MARKERS (+23 more)
+### Community 141 - "AiImportFlow.tsx"
+Cohesion: 0.08
+Nodes (30): confirmAiContextImport(), importAiContext(), useConfirmAiContextImport(), useImportAiContext(), AiContextImportProposal, ImportCandidate, AiImportFlow(), AiImportHandoffStep() (+22 more)
 
 ### Community 142 - "responseEngineQuality.test.ts"
 Cohesion: 0.20
 Nodes (13): capitalFirst(), clean(), lowerFirst(), NormalizedPhrases, normalizePhrases(), normalizeTimePhrase(), PhraseKind, phraseKindForTitle() (+5 more)
 
-### Community 143 - "types/index.ts"
+### Community 143 - "dailyPlanService.ts"
 Cohesion: 0.10
-Nodes (30): LegacyMetadataAction, resetSingleUserAccount(), updateLegacyMetadata(), AppActionBody, dynamic, jsonError(), POST(), AppContextType (+22 more)
+Nodes (33): readBusyBlocksForPlanning(), instantFromResolution(), BusyBlockReader, buildDailyPlanOnDemand(), claimDueDeliveryOutcome(), composeDailyPlan(), DAILY_PLAN_BATCH, DailyPlanDeps (+25 more)
 
 ### Community 144 - "clarificationMerge.ts"
 Cohesion: 0.27
 Nodes (23): baseAction(), baseReminderText(), ClarificationMergeResult, compact(), continuationWithoutCorrection(), correctionResult(), datePieces(), fillMissingSlot() (+15 more)
 
 ### Community 145 - "nextStepBaseline.ts"
-Cohesion: 0.11
-Nodes (23): CLOSED, compareScores(), compareVariantSelection(), explanation(), importanceBand(), parseExplicitTime(), scoreBaselineCandidate(), selectBaselineNextStep() (+15 more)
+Cohesion: 0.22
+Nodes (13): BaselineCandidate, CLOSED, compareScores(), compareVariantSelection(), explanation(), importanceBand(), parseExplicitTime(), scoreBaselineCandidate() (+5 more)
 
 ### Community 146 - "offlineOnlyStores.test.ts"
 Cohesion: 0.12
@@ -1066,16 +1095,16 @@ Cohesion: 0.18
 Nodes (13): buildV03GateReport(), EVIDENCE_CHECKSUM_KEYS, finiteNonNegative(), integer(), rate(), V03_OPERATIONAL_THRESHOLDS, V03GateDecision, V03GateInput (+5 more)
 
 ### Community 148 - "recommendationCrossTrack.test.ts"
-Cohesion: 0.09
-Nodes (34): AGREED_TIME_VALUES, allKeys(), bump(), candidatesOverMatrix(), CASES, commitment(), Coverage, emittedInstants() (+26 more)
+Cohesion: 0.08
+Nodes (42): collectIdentifiers(), resolveClaimSource(), collectExternalReferences(), offeredOptions(), PROPOSABLE_ACTION_KINDS, summarizeOptionSet(), VERDICT_ONLY_ACTION_KINDS, AGREED_TIME_VALUES (+34 more)
 
 ### Community 149 - "expo"
 Cohesion: 0.09
 Nodes (22): backgroundColor, backgroundImage, foregroundImage, monochromeImage, adaptiveIcon, package, predictiveBackGestureEnabled, expo (+14 more)
 
 ### Community 150 - "lib/calendar/busyBlocks.ts"
-Cohesion: 0.09
-Nodes (40): allBlocks(), BUSY_BLOCK_UPLOAD_KEYS, BUSY_BLOCK_UPLOAD_LIMIT, BUSY_SOURCE_KINDS, BusyBlock, BusyBlockDeps, busyBlockId(), BusySourceKind (+32 more)
+Cohesion: 0.08
+Nodes (49): allBlocks(), blockPath(), BUSY_BLOCK_UPLOAD_KEYS, BUSY_BLOCK_UPLOAD_LIMIT, BUSY_SOURCE_KINDS, BusyBlock, BusyBlockDeps, busyBlockId() (+41 more)
 
 ### Community 151 - "proposalBoundaries.test.ts"
 Cohesion: 0.12
@@ -1085,33 +1114,33 @@ Nodes (21): ./lazy, basenameOf(), FORBIDDEN_CANONICAL_BASENAMES, FORBIDDEN_IO_SP
 Cohesion: 0.10
 Nodes (20): `abandoned_tool`, `cohort`, `cohort_eligibility_confirmed`, `competitive_comparison_completed`, `concrete_cost`, `current_workflows`, `evidence_ref`, Interview evidence tracker fields (+12 more)
 
-### Community 153 - "providerOAuthProductionRuntime.test.ts"
-Cohesion: 0.05
-Nodes (53): IcsFeedDocument, credentialKeyId(), credentialPurpose(), ENCRYPTED_VAULT_NAME, EncryptedProviderCredentialVault, StoredCredentialDocument, createProviderAccessTokenProvider(), loadProviderAccessToken() (+45 more)
+### Community 153 - "providerOAuthLifecycle.ts"
+Cohesion: 0.06
+Nodes (38): createProviderAccessTokenProvider(), loadProviderAccessToken(), metadataOf(), ProviderAccessToken, ProviderAccessTokenDeps, ProviderAccessTokenError, ProviderAccessTokenErrorCode, ProviderAccessTokenInput (+30 more)
 
 ### Community 154 - "lib/habits/index.ts"
-Cohesion: 0.18
-Nodes (29): addDays(), CivilDays, daysBetweenInclusive(), fromCivilDays(), periodIndexOf(), periodStartOf(), toCivilDays(), weekdayOfCivilDays() (+21 more)
+Cohesion: 0.23
+Nodes (25): addDays(), CivilDays, daysBetweenInclusive(), fromCivilDays(), periodIndexOf(), periodStartOf(), toCivilDays(), weekdayOfCivilDays() (+17 more)
 
 ### Community 155 - "safeFetch.ts"
-Cohesion: 0.08
-Nodes (37): IcsRouteDeps, IcsFeedDeps, assertPublicAddress(), BLOCKED_SUFFIXES, checkContentType(), checkOptions(), checkUrl(), DEFAULT_MAX_BYTES (+29 more)
+Cohesion: 0.09
+Nodes (31): assertPublicAddress(), BLOCKED_SUFFIXES, checkContentType(), checkOptions(), checkUrl(), DEFAULT_MAX_BYTES, DEFAULT_MAX_REDIRECTS, DEFAULT_TIMEOUT_MS (+23 more)
 
 ### Community 156 - "inventory.ts"
-Cohesion: 0.04
-Nodes (86): emitted(), PersonalizationConsentOptions, createInMemoryFeedbackEventStore(), MemoryGrowthOptions, PersonalizationDeletionInput, createInMemoryPersonalizationConsentStore(), PersonalizationConsentStore, StoredConsent (+78 more)
+Cohesion: 0.08
+Nodes (44): CorrectionEntry, CorrectionsByDimension, ADAPTIVE_INPUT_COPY, ADAPTIVE_LABELS, adaptiveView(), confidenceExplanationFor(), describeEvidence(), DIMENSION_LABELS (+36 more)
 
 ### Community 157 - "avoidanceNeverEscalates.test.ts"
-Cohesion: 0.06
-Nodes (29): AdaptiveBehavior, clearPressureHistory(), MemoryPressureDeliveryStore, PressureIntensity, addDraft(), confirm(), now, addConfirmedCommitment() (+21 more)
+Cohesion: 0.10
+Nodes (18): AdaptiveBehavior, PressureIntensity, avoidanceOrder(), behavior(), CEILING_INTENSITY, CEILINGS, GridPoint, IGNORED_STEPS (+10 more)
 
 ### Community 158 - "emailCleaner.ts"
 Cohesion: 0.11
 Nodes (26): RFC-3676, RFC-5322, screenParagraphs(), CleanedEmail, cleanEmail(), cutQuotedHistory(), cutSignature(), digitsIn() (+18 more)
 
-### Community 159 - "jobRunner.ts"
-Cohesion: 0.10
-Nodes (17): TickOptions, CommandServiceConfig, CommandHandler, CommandHandlerResult, ignoredCheckJob(), JobResult, JobRunResult, JobStatus (+9 more)
+### Community 159 - "storageSchedulerStore.ts"
+Cohesion: 0.07
+Nodes (26): TickOptions, DEFAULT_CLAIM_RECOVERY_MS, jobDoc(), newJob(), StorageSchedulerStore, StorageSchedulerStoreOptions, CommandServiceConfig, CommandHandler (+18 more)
 
 ### Community 160 - "observationStore.ts"
 Cohesion: 0.18
@@ -1125,17 +1154,17 @@ Nodes (18): Acceptance criteria, Acceptance criteria → mechanisms, Architectur
 Cohesion: 0.10
 Nodes (19): Analytics events, Baseline or control group, Data collected, Data explicitly not collected, Decision after experiment, Experiment duration, Failure threshold, Hypothesis (+11 more)
 
-### Community 163 - "shadowRunLog.ts"
-Cohesion: 0.11
-Nodes (24): emitAndReconcileShadowRunLogs(), emitShadowRunLog(), emptyCounts(), _LineCoversKey, PERMITTED_LOG_KEYS, PRIVACY_VERDICTS, PROBE_ENVELOPE, reconcileShadowRunLogs() (+16 more)
+### Community 163 - "shadowRollbackDrill.ts"
+Cohesion: 0.06
+Nodes (78): killSwitchEnvKey(), runShadowDrill(), SHADOW_KILL_SWITCH_STANCE, shadowDrillEnv(), ShadowKillSwitchStance, expectedStatusForStance(), ShadowKillSwitchCase, shadowKillSwitchCasePassed() (+70 more)
 
 ### Community 164 - "r2-seed.js"
 Cohesion: 0.11
 Nodes (16): ACTIVITY, ANSWERS, BUSY, CLUBS, COMMITMENTS, FEEDS, MEMORY, MOMENTS (+8 more)
 
 ### Community 165 - "reminderEngine.ts"
-Cohesion: 0.15
-Nodes (19): ReminderAttemptType, canSendReminder(), ESCALATION_POLICIES, EscalationPolicy, getEscalationIdempotencyKey(), getNextRetryAt(), getReminderDate(), getReminderEngineOperations() (+11 more)
+Cohesion: 0.16
+Nodes (18): canSendReminder(), ESCALATION_POLICIES, EscalationPolicy, getEscalationIdempotencyKey(), getNextRetryAt(), getReminderDate(), getReminderEngineOperations(), getReminderIdempotencyKey() (+10 more)
 
 ### Community 166 - "shadowPipelineBoundaries.test.ts"
 Cohesion: 0.13
@@ -1155,27 +1184,27 @@ Nodes (17): Adding a new dataset, Change procedure for a locked artifact, Comman
 
 ### Community 170 - "hardReceiptQueue.ts"
 Cohesion: 0.12
-Nodes (28): HardReceiptUpload, defaultDrainDeps, drain(), DrainDeps, drainHardReceipts(), DrainOutcome, inFlight, deps() (+20 more)
+Nodes (29): HardReceiptUpload, postHardReceipts(), defaultDrainDeps, drain(), DrainDeps, drainHardReceipts(), DrainOutcome, inFlight (+21 more)
 
 ### Community 171 - "coachingCrossTrack.test.ts"
-Cohesion: 0.10
-Nodes (23): provokedSafetyCodes(), PERSISTENCE_LEXICON, attestationsFor(), byCodePoint(), CODE_REACHABILITY, DECIDED_AT, decision(), DUE_AT (+15 more)
+Cohesion: 0.08
+Nodes (42): deliverCoaching(), toSafetyCandidate(), provokedSafetyCodes(), RecommendationSelection, captureAdapter(), coachingAdapter(), contributed(), createShadowAdapterSet() (+34 more)
 
 ### Community 172 - "commitmentReviewService.ts"
 Cohesion: 0.18
 Nodes (17): ACTIVE_STATUSES, CLOSED_STATUSES, CommitmentReviewItem, CommitmentReviewSnapshot, getCommitmentReviewSnapshot(), isOpen(), isOverdue(), isUpcoming() (+9 more)
 
 ### Community 173 - "ExtractionResult"
-Cohesion: 0.08
-Nodes (29): applyEditToCommands(), answerClarification(), appliedLocal(), ClarifyDependencies, ClarifyError, ClarifyFailure, ClarifyInput, ClarifyOptions (+21 more)
+Cohesion: 0.16
+Nodes (10): CLARIFICATION_RETENTION_MS, documentPath(), isExpired(), PendingClarification, PendingClarificationInput, StorageClarificationStore, StoredClarification, CLARIFICATIONS (+2 more)
 
-### Community 174 - "calendar/busyBlocks.test.ts"
-Cohesion: 0.05
-Nodes (61): FixtureExternalTaskRef, GmailUntrustedContext, UntrustedMeetingContext, decodeMicrosoftGraphCursors(), digest(), encodeMicrosoftGraphCursors(), MICROSOFT_GRAPH_DATA_POLICY, MICROSOFT_GRAPH_PROVIDER (+53 more)
+### Community 174 - "backgroundMonitors.test.ts"
+Cohesion: 0.08
+Nodes (30): PROVIDER_CONNECTIONS, BackgroundActivityDeps, backgroundMonitorStatusOf(), nextCheckAt(), projectBackgroundMonitor(), PURPOSE_BY_CONDITION, WATCHER_SWEEP_INTERVAL_MINUTES, BACKGROUND_MONITOR_CONTRACT_VERSION (+22 more)
 
 ### Community 175 - "`site/` — the MaybeSitter public website"
-Cohesion: 0.10
-Nodes (18): `{{DOMAIN}}`, `{{EFFECTIVE_DATE}}`, `{{LEGAL_NAME}}`, Not a placeholder — leave exactly as written, Placeholders the owner must fill in, `{{PRIVACY_EMAIL}}`, `{{SUPPORT_EMAIL}}`, The tokens (+10 more)
+Cohesion: 0.09
+Nodes (21): `{{DOMAIN}}`, `{{EFFECTIVE_DATE}}`, `{{LEGAL_NAME}}`, Not a placeholder — leave exactly as written, Placeholders the owner must fill in, `{{PRIVACY_EMAIL}}`, `{{SUPPORT_EMAIL}}`, The tokens (+13 more)
 
 ### Community 176 - "Decision"
 Cohesion: 0.08
@@ -1222,12 +1251,12 @@ Cohesion: 0.40
 Nodes (5): headerIssues(), parseCsv(), parseInterviewTracker(), parseRecruitmentTracker(), RowReader
 
 ### Community 188 - "profileEvalRunner.ts"
-Cohesion: 0.13
-Nodes (20): StoredProposal, geminiComplete(), main(), REPORT, SUITE, isInvented(), loadProfileEvalCases(), normalise() (+12 more)
+Cohesion: 0.14
+Nodes (19): geminiComplete(), main(), REPORT, SUITE, isInvented(), loadProfileEvalCases(), normalise(), ProfileEvalCase (+11 more)
 
 ### Community 189 - "pdfShare.ts"
-Cohesion: 0.04
-Nodes (84): segmentFor(), segmentFor(), safeMessages(), CLARIFY_MONTHS_AHEAD, cleanDocumentTitle(), dateTextHasYear(), decodeDocumentText(), DEFAULT_SELECT_CONFIDENCE (+76 more)
+Cohesion: 0.05
+Nodes (67): segmentFor(), segmentFor(), safeMessages(), CLARIFY_MONTHS_AHEAD, cleanDocumentTitle(), dateTextHasYear(), decodeDocumentText(), DEFAULT_SELECT_CONFIDENCE (+59 more)
 
 ### Community 190 - "MaybeSitter mobile (Expo · React Native)"
 Cohesion: 0.12
@@ -1242,16 +1271,16 @@ Cohesion: 0.08
 Nodes (6): AuthProviderProps, AuthRepository, EmailPasswordAuth, FederatedAuth, ReauthenticatingAuth, METRICS
 
 ### Community 193 - "memoryIngestionService.ts"
-Cohesion: 0.16
-Nodes (17): ResolutionDecision, classifyCommitmentStatus(), ConfirmationLevel, decideConfirmationLevel(), CandidatePrecision, MemoryCandidate, MemoryCandidateExtractionResult, validateMemoryCandidate() (+9 more)
+Cohesion: 0.15
+Nodes (17): level(), ResolutionDecision, classifyCommitmentStatus(), decideConfirmationLevel(), CandidatePrecision, MemoryCandidate, MemoryCandidateExtractionResult, validateMemoryCandidate() (+9 more)
 
 ### Community 194 - "AssistantPanel.tsx"
 Cohesion: 0.17
 Nodes (15): AssistantPanel(), handleSubmit(), startVoiceCapture(), stopVoiceCapture(), submitText(), toggleVoiceCapture(), BrowserSpeechRecognition, BrowserSpeechRecognitionErrorEvent (+7 more)
 
-### Community 195 - "selectorBoundaries.test.ts"
-Cohesion: 0.12
-Nodes (22): FORBIDDEN_CALLS, FORBIDDEN_MODULE_BASENAMES, humanReadableStrings(), ID_BEARING_KEYS, importClosure(), importSpecifiers(), knownField(), LEAKY_IDS (+14 more)
+### Community 195 - "actionOutbox.ts"
+Cohesion: 0.11
+Nodes (30): actOnCommitment(), outcomeOfError(), sendOutboxItem(), ACTIONS, adoptUnboundTaps(), backoffMs(), chain, clearOutbox() (+22 more)
 
 ### Community 196 - "Lane A — Product Reliability Audit and Core-Flow Fixes"
 Cohesion: 0.12
@@ -1286,24 +1315,24 @@ Cohesion: 0.12
 Nodes (16): 10. Data-sharing ladder, 11. Module unlock matrix, 12. Positioning language, 13. Claims that must not be used, 14. Current roadmap stage, 15. Product issue readiness rule, 1. Long-term North Star, 2. Current wedge (+8 more)
 
 ### Community 204 - "digest.ts"
-Cohesion: 0.12
-Nodes (29): ImpactClosure, canonicalPlanningInput(), encodeConfig(), encodeDependency(), encodeEffort(), encodeFixedEvent(), encodeHorizon(), encodeInterval() (+21 more)
+Cohesion: 0.19
+Nodes (23): canonicalPlanningInput(), encodeConfig(), encodeDependency(), encodeEffort(), encodeFixedEvent(), encodeHorizon(), encodeInterval(), encodeItem() (+15 more)
 
 ### Community 205 - "release/consentStore.ts"
-Cohesion: 0.12
-Nodes (17): documentPath(), isKnownScope(), isSafeParticipant(), isStoredConsent(), MemoryShadowStudyConsentStore, SHADOW_CONSENT_WRITE_REJECTIONS, SHADOW_STUDY_CONSENT_SCHEMA_VERSION, ShadowConsentWriteRejection (+9 more)
+Cohesion: 0.10
+Nodes (22): documentPath(), isKnownScope(), isSafeParticipant(), isStoredConsent(), MemoryShadowStudyConsentStore, SHADOW_CONSENT_WRITE_REJECTIONS, SHADOW_STUDY_CONSENT_SCHEMA_VERSION, ShadowConsentWriteRejection (+14 more)
 
 ### Community 206 - "calendarFeedService.ts"
-Cohesion: 0.24
-Nodes (14): addDays(), addMinutes(), buildDescription(), escapeIcsText(), eventStart(), foldIcsLine(), formatIcsDate(), formatIcsDateTime() (+6 more)
+Cohesion: 0.23
+Nodes (15): addDays(), addMinutes(), buildCalendarFeed(), buildDescription(), escapeIcsText(), eventStart(), foldIcsLine(), formatIcsDate() (+7 more)
 
 ### Community 207 - "encoderLayouts.ts"
 Cohesion: 0.11
 Nodes (30): ascii(), be16(), be32(), bytesOf(), DHT, DQT, DRI, encoder (+22 more)
 
 ### Community 208 - "check-links.sh"
-Cohesion: 0.31
-Nodes (15): as_disk_path(), as_static_path(), bad(), check_html_attrs(), check_redirect_rules_in_snippet(), green(), grey(), html_tag() (+7 more)
+Cohesion: 0.30
+Nodes (16): as_disk_path(), as_static_path(), bad(), check_claims(), check_html_attrs(), check_redirect_rules_in_snippet(), green(), grey() (+8 more)
 
 ### Community 209 - "planningBoundaries.test.ts"
 Cohesion: 0.16
@@ -1314,8 +1343,8 @@ Cohesion: 0.19
 Nodes (13): assistantCopy(), AssistantCopyIntent, AssistantPersonality, AssistantQuestioningStyle, AssistantTone, AssistantVerbosity, COPY, FILLER_PATTERNS (+5 more)
 
 ### Community 211 - "devDependencies"
-Cohesion: 0.05
-Nodes (37): { defineConfig }, expoConfig, i18next, @expo/plist, uuid, devDependencies, eslint, eslint-config-expo (+29 more)
+Cohesion: 0.13
+Nodes (15): devDependencies, eslint, eslint-config-expo, eslint-config-prettier, eslint-plugin-i18next, jest, jest-expo, js-yaml (+7 more)
 
 ### Community 212 - "Maybesitter"
 Cohesion: 0.13
@@ -1333,13 +1362,13 @@ Nodes (14): 10 — Coding rubric, Coding procedure, Cohort conflicts, Concrete c
 Cohesion: 0.14
 Nodes (13): Audit P0/P1 Remediation Implementation Plan, Global Constraints, Phase 1 — P0: Newly created commitments survive relaunch, Phase 2 — P0: Default capture path uses real extraction instead of a hardcoded mock, Phase 3 — P1 fixes (independent of each other; order doesn't matter), Task 1: Fix `saveAll()` to persist new commitments, and fix the stale-seed skip filter, Task 2: Fix the pre-existing failing test (`audit_regressions_test.dart`) — test bug, not product bug, Task 3: Start the backend locally and confirm `/api/mobile/capture` produces real extraction (+5 more)
 
-### Community 216 - "providerRuntime.ts"
-Cohesion: 0.03
-Nodes (91): ExternalActionGatewayPlan, ExternalActionGatewayRequest, ExternalActionGatewayRoute, planExternalActionGateway(), routeForDecision(), routeForTier(), ActionGatewayRequest, buildGmailDisconnectRequest() (+83 more)
+### Community 216 - "microsoftGraph/adapter.ts"
+Cohesion: 0.04
+Nodes (94): GmailUntrustedContext, UntrustedMeetingContext, buildMicrosoftGraphDisconnectRequest(), decodeMicrosoftGraphCursors(), digest(), MICROSOFT_GRAPH_PROVIDER, MicrosoftBusyContext, MicrosoftCalendarPayload (+86 more)
 
 ### Community 217 - "shadowDrillPipeline.ts"
-Cohesion: 0.06
-Nodes (55): AnalyticsContext, completedOutcome(), createShadowDrillAdapters(), createShadowDrillRun(), fellBackOutcome(), instantAt(), killSwitchEnvKey(), millisOfInstant() (+47 more)
+Cohesion: 0.09
+Nodes (34): completedOutcome(), createShadowDrillAdapters(), createShadowDrillRun(), fellBackOutcome(), instantAt(), millisOfInstant(), PROPOSAL_CANDIDATES, SHADOW_DRILL_CONTRACT_VERSION (+26 more)
 
 ### Community 218 - "Expansion privacy and store declaration delta"
 Cohesion: 0.18
@@ -1350,24 +1379,24 @@ Cohesion: 0.12
 Nodes (16): `activity.yaml` (UC-3.15, #201), `auth-gate.yaml`, `capture-edit.yaml` (UC-2.4, #164), `capture.yaml` (UC-2.R2, #172), `clarify.yaml` (UC-2.5, #165), `delete-account.yaml`, Locale, Maestro flows (+8 more)
 
 ### Community 220 - "feedbackAggregation.ts"
-Cohesion: 0.05
-Nodes (67): addBaselineCounters(), aggregateFeedback(), aggregateGlobalFeedback(), canonicalizeFeedbackInput(), computeFeedbackInputDigest(), emitCounts(), FEEDBACK_OUTCOME_ORDER, FeedbackWindow (+59 more)
+Cohesion: 0.06
+Nodes (60): addBaselineCounters(), aggregateFeedback(), aggregateGlobalFeedback(), canonicalizeFeedbackInput(), computeFeedbackInputDigest(), emitCounts(), FEEDBACK_OUTCOME_ORDER, FeedbackWindow (+52 more)
 
 ### Community 221 - "speechService.ts"
 Cohesion: 0.06
-Nodes (31): voiceEnabled(), ExpoSpeechCaptureService, SpeechEventName, SpeechEventSubscriber, SpeechRecognitionEventLike, SpeechRecognitionModuleLike, statusForErrorCode(), noopSpeechCaptureService (+23 more)
+Nodes (29): ExpoSpeechCaptureService, SpeechEventName, SpeechEventSubscriber, SpeechRecognitionEventLike, SpeechRecognitionModuleLike, statusForErrorCode(), noopSpeechCaptureService, SpeechCaptureCallbacks (+21 more)
 
 ### Community 222 - "priorityContracts.ts"
-Cohesion: 0.09
-Nodes (39): applyHardConstraints(), BAND_COMPONENT_CODES, clamp(), comparePriorityScores(), constraintTier(), deriveReasonCodes(), evidenceOf(), hasHardConstraint() (+31 more)
+Cohesion: 0.10
+Nodes (35): applyHardConstraints(), BAND_COMPONENT_CODES, clamp(), comparePriorityScores(), constraintTier(), evidenceOf(), hasHardConstraint(), importancePoints() (+27 more)
 
 ### Community 223 - "runtimeMemoryStore.ts"
 Cohesion: 0.07
-Nodes (47): RoutineFactsOptions, assertNoPersonalMemory(), isFineTuningExportable(), PersonalMemoryExportError, assertTimestamp(), assertValidInput(), assertValidProvenance(), buildRecord() (+39 more)
+Nodes (50): assertNoPersonalMemory(), isFineTuningExportable(), PersonalMemoryExportError, assertTimestamp(), assertValidInput(), assertValidProvenance(), buildRecord(), byNewestObserved() (+42 more)
 
-### Community 224 - "memoryRoutes.test.ts"
-Cohesion: 0.13
-Nodes (20): GROWTH_EVENT_READ_LIMIT, dismiss(), dismissRule(), enableConsent(), end(), json(), keep(), keepRule() (+12 more)
+### Community 224 - "habitSupport.ts"
+Cohesion: 0.12
+Nodes (23): definition(), applyHabitPatch(), buildHabitDefinition(), HABIT_HORIZON_MAX_DAYS, contractPath, habitsDir, repoRoot, testDir (+15 more)
 
 ### Community 225 - "1. Flows that exist today — describe in the present tense"
 Cohesion: 0.15
@@ -1378,12 +1407,12 @@ Cohesion: 0.15
 Nodes (13): 02 — Recruitment messages, English, R1 — Commercial cohort, community post, R2 — Commercial cohort, direct message or referral, R3 — Fast-research cohort, campus post, R4 — Screener passed, booking the interview, R5 — Single follow-up after no reply, R6 — Not qualified (+5 more)
 
 ### Community 227 - "v03FieldIntake.test.ts"
-Cohesion: 0.26
-Nodes (12): INTERVIEW_TRACKER_COLUMNS, RECRUITMENT_TRACKER_COLUMNS, trackerTemplate(), Cells, csv(), interviewCsv(), interviewLine(), pad() (+4 more)
+Cohesion: 0.23
+Nodes (13): INTERVIEW_TRACKER_COLUMNS, RECRUITMENT_TRACKER_COLUMNS, requiredDoubleCodedInterviews(), trackerTemplate(), Cells, csv(), interviewCsv(), interviewLine() (+5 more)
 
-### Community 228 - "responseFormatter.ts"
-Cohesion: 0.15
-Nodes (23): CaptureServiceResult, compressAction(), compressActions(), compressInterpretation(), compressNextStep(), compressResponse(), lowercaseFirst(), normalize() (+15 more)
+### Community 228 - "responseCompressionService.ts"
+Cohesion: 0.36
+Nodes (12): compressAction(), compressActions(), compressInterpretation(), compressNextStep(), compressResponse(), lowercaseFirst(), normalize(), quotedTitle() (+4 more)
 
 ### Community 229 - "Global Constraints"
 Cohesion: 0.20
@@ -1421,17 +1450,17 @@ Nodes (9): constraintsDir, FORBIDDEN_MODULE_BASENAMES, importClosure(), importSp
 Cohesion: 0.17
 Nodes (12): CAL-001 — the instrument could not see what it claimed to measure, CAL-002 — the annotation tooling invented a timestamp, CAL-003 — the blind sample under-sampled the dimension under test, CAL-004 — a guideline changed mid-round and nothing recorded it, CAL-005 — the accept-vs-edit threshold was undefined, Root cause: the failed blind-review consistency gate, Root causes, Summary (+4 more)
 
-### Community 238 - "liveProviderVerification.ts"
-Cohesion: 0.08
-Nodes (33): GmailHistoryPage, toProbeError(), MicrosoftMailPayload, LIVE_VERIFICATION_FLAG, liveVerificationEnabled(), ProbeContext, ProbeNormalization, probeOutcome (+25 more)
+### Community 238 - "ContextProviderKind"
+Cohesion: 0.07
+Nodes (41): toProbeError(), MicrosoftMailPayload, StoredOAuthStateDocument, BeginProviderOAuthInput, CompleteProviderOAuthInput, classifyProviderFailure(), failure(), ProviderSyncPlanInput (+33 more)
 
 ### Community 239 - "RemindersMount.tsx"
-Cohesion: 0.06
-Nodes (63): getAuthRepository(), onBeforeSignOut(), applyTap(), decideResponse(), isBodyTap(), ResponseDecision, TapEffects, RemindersMount() (+55 more)
+Cohesion: 0.09
+Nodes (38): getAuthRepository(), onBeforeSignOut(), applyTap(), decideResponse(), isBodyTap(), ResponseDecision, TapEffects, RemindersMount() (+30 more)
 
-### Community 240 - "behaviorFeedbackService.ts"
-Cohesion: 0.06
-Nodes (60): AdaptiveFeedbackOptions, behaviorFor(), classifyUserType(), DEFAULT_SIGNALS, deriveAdaptiveSignals(), getAdaptiveBehavior(), getAdaptiveBehaviorFromState(), hasFeedbackContext() (+52 more)
+### Community 240 - "mobileMemoryProvenance.test.ts"
+Cohesion: 0.05
+Nodes (62): createStorageFeedbackEventStore(), AdaptiveFeedbackOptions, AgendaActionOptions, AgendaActionResult, AgendaActionType, aggregateResult(), appendFeedbackEvent(), applyAgendaAction() (+54 more)
 
 ### Community 241 - "middleware.test.ts"
 Cohesion: 0.24
@@ -1469,9 +1498,9 @@ Nodes (11): 07 — Interviewer instructions, Before each interview, Before the f
 Cohesion: 0.18
 Nodes (10): Core Intelligence roadmap before Market Evidence Gate, Definition of done, Definition of ready, Goal, How to use this roadmap, Original Issue #49, Original Issues #1–#48, Permanent architecture rules (+2 more)
 
-### Community 250 - "whatsapp.ts"
-Cohesion: 0.07
-Nodes (50): sourceOf(), segmentsOf(), chooseMessages(), matchesWhatsApp(), probe(), recent(), Source, sourceOf() (+42 more)
+### Community 250 - "whatsappChannel.test.ts"
+Cohesion: 0.05
+Nodes (70): chooseMessages(), matchesWhatsApp(), MAX_UNASSISTED_SEGMENTS, probe(), recent(), Source, sourceOf(), wallClock() (+62 more)
 
 ### Community 251 - "ADR 0003 — Device notification signals enter as a watcher source, content-free, Android only"
 Cohesion: 0.11
@@ -1506,16 +1535,16 @@ Cohesion: 0.20
 Nodes (9): Approved operational decisions (2026-08-09), Coding rule, Competitive baseline, Consent and recruitment, Decision and sample, Interview guide, Reproducible report, Stop conditions (+1 more)
 
 ### Community 259 - "busyRead.test.ts"
-Cohesion: 0.22
-Nodes (8): at(), { deviceCalendar, DeviceCalendarError, ATTENDEE_LOOKUP_LIMIT, BUSY_LOOK_AHEAD_DAYS }, event(), mockGetCalendarPermissions, mockGetCalendars, mockListEvents, NOW, { Platform }
+Cohesion: 0.20
+Nodes (9): at(), { deviceCalendar, DeviceCalendarError, ATTENDEE_LOOKUP_LIMIT, BUSY_LOOK_AHEAD_DAYS }, event(), mockGetCalendarPermissions, mockGetCalendars, mockListEvents, NOW, { Platform } (+1 more)
 
-### Community 260 - "ListOptions"
-Cohesion: 0.19
-Nodes (13): toDocs(), withOptions(), applyOperator(), compareValues(), fieldValue(), matches(), rank(), selectRows() (+5 more)
+### Community 260 - "busySync.test.ts"
+Cohesion: 0.12
+Nodes (22): CalendarBusyUpload, BUSY_SYNC_MIN_INTERVAL_MS, BUSY_SYNC_UPLOAD_LIMIT, busySyncDecision, BusySyncDecisionInput, BusySyncInput, BusySyncOutcome, BusySyncPorts (+14 more)
 
-### Community 261 - "api/pilot/trust/route.ts"
-Cohesion: 0.24
-Nodes (15): buildWhatMaybeSitterKnows(), decidePilotExposure(), resolveUserAccess(), buildCalendarFeed(), dynamic, GET(), ClientAction, dynamic (+7 more)
+### Community 261 - "planning/evaluation/metrics.ts"
+Cohesion: 0.12
+Nodes (21): computePlanQualityMetrics(), fail(), protectionMetrics(), REASON_CODE_ORDER, scheduledStarts(), candidateIssues(), runTimefoldShadowExperiment(), sameHorizon() (+13 more)
 
 ### Community 262 - "build-messy-multilingual.mjs"
 Cohesion: 0.20
@@ -1527,7 +1556,7 @@ Nodes (19): Decodable, Identifiable, SafeItem, Bool, Date, Int, WidgetLabels, Wi
 
 ### Community 265 - "reviewAccessibility.test.ts"
 Cohesion: 0.20
-Nodes (6): code, componentPath, occurrences(), repoRoot, source, testDir
+Nodes (5): code, componentPath, repoRoot, source, testDir
 
 ### Community 266 - "Decomposition Annotation Guide"
 Cohesion: 0.08
@@ -1590,8 +1619,8 @@ Cohesion: 0.25
 Nodes (8): 03 — Consent script, Pilot-contact consent — asked at the end, never here, Script, Short forms for the bilingual cohort, What gets recorded, and where, Withdrawal, עברית, العربية
 
 ### Community 282 - "ruleBasedExtractor.ts"
-Cohesion: 0.08
-Nodes (47): LocalTimeSpec, classifyMessageKind(), createsNothing(), GREETING, INFORMATIONAL, INTERROGATIVE, MessageKind, NEGATED (+39 more)
+Cohesion: 0.10
+Nodes (41): LocalTimeSpec, createsNothing(), addDays(), addDaysTz(), AR_WEEKDAYS, cleanAction(), confidence(), countTimeExpressions() (+33 more)
 
 ### Community 283 - "sourceMapArtifact.test.ts"
 Cohesion: 0.25
@@ -1601,13 +1630,13 @@ Nodes (5): EAS_BUILD_HOOKS, easJson, packageJson, ROOT, script
 Cohesion: 0.50
 Nodes (3): Design system, The layers, Where the values come from
 
-### Community 285 - "GoalNodeLinkStore"
-Cohesion: 0.19
-Nodes (4): GoalNodeLinkStore, linkPath(), StorageGoalNodeLinkStore, GoalNodeLink
+### Community 285 - "conformanceHarness.ts"
+Cohesion: 0.18
+Nodes (29): accountDeletion(), ARTIFACT_KEYS, at(), atIso(), CANONICAL_COLLECTIONS, capabilityAvailability(), Check, CHECKS (+21 more)
 
-### Community 286 - "settings/page.tsx"
-Cohesion: 0.11
-Nodes (21): SettingsPage(), Tab, timezones, CommitmentReview(), CommitmentRow(), formatDate(), ReviewItem, ReviewSnapshot (+13 more)
+### Community 286 - "AgendaPanel.tsx"
+Cohesion: 0.10
+Nodes (24): actions, AgendaAction, AgendaActionResponse, AgendaItem, AgendaPanel(), handleAction(), AgendaReason, AgendaResponse (+16 more)
 
 ### Community 287 - "Expansion orchestration ledger"
 Cohesion: 0.18
@@ -1638,12 +1667,12 @@ Cohesion: 0.33
 Nodes (5): fs, path, rewrite(), { withEntitlementsPlist, withXcodeProject }, withShareExtensionFiles()
 
 ### Community 294 - "financialBoundary.test.ts"
-Cohesion: 0.15
-Nodes (14): SANDBOX_FINANCIAL_TRANSPORT_POLICY, PROVIDER_CONTEXT_CATALOG, providerCatalogEntry, providerCatalogForProvider(), ProviderPrepStage, ProviderSurfaceId, FINANCIAL_BOUNDARY_POLICY, KnownContextProviderKind (+6 more)
+Cohesion: 0.22
+Nodes (8): SANDBOX_FINANCIAL_TRANSPORT_POLICY, FINANCIAL_BOUNDARY_POLICY, code(), FINANCIAL_DIRS, FORBIDDEN_CONSUMERS, ROOT, sourcesUnder(), ADR-0002
 
 ### Community 295 - "moduleContracts.ts"
-Cohesion: 0.10
-Nodes (17): CaptureInput, _CaptureInputExample, CaptureOutput, ContractErrorCode, GenericModuleInput, _GenericModuleInputExample, GenericModuleOutput, HARD_CONSTRAINT_DETERMINISTIC_SERVICES (+9 more)
+Cohesion: 0.07
+Nodes (30): ShadowRollbackDrillReport, ShadowRollbackTrigger, ShadowAlertVerdict, CaptureInput, _CaptureInputExample, CaptureOutput, GenericModuleInput, _GenericModuleInputExample (+22 more)
 
 ### Community 296 - "NextStepWidgetView"
 Cohesion: 0.12
@@ -1726,8 +1755,8 @@ Cohesion: 0.90
 Nodes (4): bad(), check(), ok(), verify.sh script
 
 ### Community 316 - "memoryTypes.ts"
-Cohesion: 0.17
-Nodes (11): CandidateModality, CommitmentMatchScore, EnabledMemoryKind, EvidenceSpan, MemoryKind, NotificationDecision, NotificationReasonCode, TemporalInfo (+3 more)
+Cohesion: 0.16
+Nodes (13): ConfirmationLevel, CandidateModality, CommitmentEventType, CommitmentMatchScore, EnabledMemoryKind, EvidenceSpan, MemoryKind, NotificationDecision (+5 more)
 
 ### Community 317 - "iOS system strings, in the languages the app speaks (UC-4.1, #176)"
 Cohesion: 0.40
@@ -1737,9 +1766,9 @@ Nodes (4): Adding one, iOS system strings, in the languages the app speaks (UC-4
 Cohesion: 0.70
 Nodes (4): fail(), need(), pass(), verify-release-android.sh script
 
-### Community 319 - "AgendaPanel.tsx"
-Cohesion: 0.20
-Nodes (13): actions, AgendaAction, AgendaActionResponse, AgendaItem, AgendaPanel(), handleAction(), AgendaReason, AgendaResponse (+5 more)
+### Community 319 - "manual/route.ts"
+Cohesion: 0.18
+Nodes (27): category(), COUNT_FIELDS, currencyCode(), FINANCIAL_AMOUNT_LIMIT, FINANCIAL_LABEL_MAX_LENGTH, FINANCIAL_RECURRING_COUNT_LIMIT, FinancialValidationError, financialValidationResponse() (+19 more)
 
 ### Community 320 - "Controlled internal release — cohort, consent, staged exposure and the decision package"
 Cohesion: 0.11
@@ -1781,13 +1810,13 @@ Nodes (11): DecodedImage, ENCODE_ATTEMPTS, encodeWithinBudget(), ImageBytesPort,
 Cohesion: 0.50
 Nodes (3): data, root, tmp
 
-### Community 356 - "avoidanceInvariant.test.ts"
-Cohesion: 0.07
-Nodes (34): DeferOutcome, deferOutOfQuietHours(), endOfQuietWindow(), isInQuietWindow(), keepHigherIntensity(), MIN_LEAD_AFTER_DEFER_MS, minutesOf(), STAGE_INTENSITY (+26 more)
+### Community 356 - "__tests__/quietHours.test.ts"
+Cohesion: 0.15
+Nodes (19): resolveStorageBackend(), DeferOutcome, deferOutOfQuietHours(), endOfQuietWindow(), isInQuietWindow(), keepHigherIntensity(), MIN_LEAD_AFTER_DEFER_MS, minutesOf() (+11 more)
 
 ### Community 358 - "buildDailyPlan.ts"
 Cohesion: 0.07
-Nodes (48): belongsToDay(), buildDailyPlanInput(), BusyBlock, dayHorizon(), deadlineFor(), DEFAULT_EFFORT_MINUTES, earliestPlaceableStart(), FALLBACK_WINDOW (+40 more)
+Nodes (47): belongsToDay(), buildDailyPlanInput(), dayHorizon(), deadlineFor(), DEFAULT_EFFORT_MINUTES, earliestPlaceableStart(), FALLBACK_WINDOW, fixedStartOf() (+39 more)
 
 ### Community 359 - "Final frontend feature parity"
 Cohesion: 0.17
@@ -1797,13 +1826,13 @@ Nodes (10): Background and internal capabilities, Final frontend feature parity,
 Cohesion: 0.11
 Nodes (17): 0. Status — every scenario is synthetic, 1. What is here, 2. The oracle is a second reading, not a helper, 3. Kind coverage is a refusal, 4. Every expectation is machine-checkable, 5. Locked cases never enter tuning, 6. The generator asserts only what it can compute, 7. Metrics, and the three empty denominators (+9 more)
 
-### Community 361 - "widgetBridge.ts"
-Cohesion: 0.29
-Nodes (7): androidBridge(), createNativeWidgetBridge(), guarded(), iosBridge(), noopWidgetBridge, WidgetBridge, saveAndroidWidgetSnapshot()
+### Community 361 - "AccountDeletionProvider.tsx"
+Cohesion: 0.10
+Nodes (18): deleteAccount(), forgetValidators(), accountDeletionResponseSchema, DELETION_CONFIRMATION, DeletionReceipt, AccountDeletedGate(), AccountDeletionModel, AccountDeletionProvider() (+10 more)
 
-### Community 362 - "example.ts"
-Cohesion: 0.05
-Nodes (76): coveredTextOf(), dependencyRef(), detectSplitAtomic(), ExampleValidationResult, exceedsValidationLimits(), hasCycle(), isSafeRef(), mergedSpanRanges() (+68 more)
+### Community 362 - "engine/index.ts"
+Cohesion: 0.02
+Nodes (148): atomic(), baseFields(), decomposed(), DecompositionEngineInput, DEPENDENCY_KINDS, isMostlySourced(), isRecord(), NormalisedDraft (+140 more)
 
 ### Community 363 - "Recommendation review surface"
 Cohesion: 0.12
@@ -1817,9 +1846,9 @@ Nodes (16): Architecture, Component 1 — Feature extraction (#17), Component 2 
 Cohesion: 0.13
 Nodes (22): CROSS_PROVIDER_IDENTITY_POLICY, CROSS_PROVIDER_IDENTITY_VERSION, CrossProviderEntityKind, CrossProviderIdentityCandidate, CrossProviderIdentityDecision, decideCrossProviderIdentity(), decideCrossProviderIdentitySet(), decision() (+14 more)
 
-### Community 366 - "mobileCaptureService.ts"
+### Community 366 - "memoryRoutes.test.ts"
 Cohesion: 0.03
-Nodes (121): recordCaptureConfirmed(), aiConsentView(), getAiConsent(), readAiConsent(), setAiConsent(), SetAiConsentInput, allConsentsView(), ConsentBearingUser (+113 more)
+Nodes (141): aiConsentView(), getAiConsent(), readAiConsent(), setAiConsent(), SetAiConsentInput, ConsentBearingUser, ConsentOptions, ConsentView (+133 more)
 
 ### Community 367 - "Cross-module Safety policy gateway"
 Cohesion: 0.12
@@ -1854,12 +1883,12 @@ Cohesion: 0.15
 Nodes (12): A. Scope, B. Status, C. Verification, D. Review, E. Defects found by review and fixed, F. Re-measured baseline, G. Outside this plan's code, H. Known limitations of what was built (+4 more)
 
 ### Community 376 - "clarificationCopy.ts"
-Cohesion: 0.13
-Nodes (17): RankReasonCode, CLARIFICATION_FREE_TEXT_MAX, KNOWN_OPTION_KEYS, KNOWN_QUESTION_KEYS, OPTION_KEY, optionLabel(), QUESTION_KEY, questionText() (+9 more)
+Cohesion: 0.21
+Nodes (11): CLARIFICATION_FREE_TEXT_MAX, KNOWN_OPTION_KEYS, KNOWN_QUESTION_KEYS, OPTION_KEY, optionLabel(), QUESTION_KEY, questionText(), render() (+3 more)
 
-### Community 377 - "NextStepWidget.tsx"
-Cohesion: 0.27
-Nodes (10): ANDROID_WIDGET_NAME, c(), importanceColor(), inReadingOrder(), NextStepWidget(), NextStepWidgetProps, displayStateOf(), WidgetItem (+2 more)
+### Community 377 - "personalizationControls/handler.ts"
+Cohesion: 0.16
+Nodes (24): activeCorrectionRecords(), applyCorrection(), ApplyCorrectionResult, clearCorrection(), CORRECTION_CONTENT_PREFIX, formatCorrectionContent(), isKnownDimension(), isKnownLevel() (+16 more)
 
 ### Community 378 - "NextStepWidget.swift"
 Cohesion: 0.20
@@ -1878,12 +1907,12 @@ Cohesion: 0.21
 Nodes (7): FORBIDDEN_IN_PRODUCTION, RuntimeConfigurationError, validateRuntimeConfiguration(), register(), KEYS, VALID_PRODUCTION, backend()
 
 ### Community 382 - "agendaService.ts"
-Cohesion: 0.11
-Nodes (21): ACTIVE_STATUSES, AgendaOptions, AgendaReason, AgendaSuggestedAction, boundedMaxItems(), classifyCommitment(), CLOSED_STATUSES, getDailyAgenda() (+13 more)
+Cohesion: 0.10
+Nodes (22): ACTIVE_STATUSES, Agenda, AgendaOptions, AgendaReason, AgendaSuggestedAction, boundedMaxItems(), classifyCommitment(), CLOSED_STATUSES (+14 more)
 
-### Community 384 - "androidWidget.test.tsx"
-Cohesion: 0.22
-Nodes (7): defaultFallback(), widgetLabelsFor(), commitment(), LABELS, NOW, snapshotFor(), Tree
+### Community 384 - "aiContextImportContracts.ts"
+Cohesion: 0.12
+Nodes (24): MAX_MEMORY_CONTENT_LENGTH, AI_CONTEXT_IMPORT_PROMPT_VERSION, AiContextImportProposal, CandidateRelation, IMPORT_ASSISTANTS, ImportCandidate, ImportDropReason, ImportSummary (+16 more)
 
 ### Community 385 - "Football fixtures as commitments — design"
 Cohesion: 0.08
@@ -1903,11 +1932,11 @@ Nodes (10): 13 — Handoff rules: interviewed participant → qualified pilot ca
 
 ### Community 389 - "captureContracts.ts"
 Cohesion: 0.06
-Nodes (41): CreateDraft, InvalidEditError, NormalisedEdit, buildClarification(), ClarificationContext, dayFor(), DAYPART_OPTIONS, isFuture() (+33 more)
+Nodes (36): buildClarification(), ClarificationContext, dayFor(), DAYPART_OPTIONS, isFuture(), localDay(), option(), resolvedLocalDate() (+28 more)
 
 ### Community 390 - "calendarSettings.ts"
-Cohesion: 0.19
-Nodes (15): CALENDAR_WRITE_TARGETS, CalendarSettings, CalendarSettingsBearingUser, CalendarSettingsDeps, calendarSettingsOf(), CalendarSettingsValidationError, CalendarWriteTarget, DEFAULT_CALENDAR_WRITE_TARGET (+7 more)
+Cohesion: 0.22
+Nodes (12): CALENDAR_WRITE_TARGETS, CalendarSettings, CalendarSettingsBearingUser, CalendarSettingsDeps, calendarSettingsOf(), CalendarSettingsValidationError, CalendarWriteTarget, DEFAULT_CALENDAR_WRITE_TARGET (+4 more)
 
 ### Community 391 - "Shadow release — operations runbook (Sprint 11, issue #46)"
 Cohesion: 0.22
@@ -1926,8 +1955,8 @@ Cohesion: 0.25
 Nodes (8): 11 — Recruitment tracker and interview evidence tracker, If the tool refuses a row you believe is right, Interview evidence tracker, Reading the status output, Recruitment tracker, Running the tools, The third file: the identity map, Where the two open gates land
 
 ### Community 395 - "nextStepEvidenceCopy.test.ts"
-Cohesion: 0.19
-Nodes (11): EvidenceItem, evidencePhrase(), evidencePhrases(), KNOWN_EVIDENCE_CODES, LEVEL_KEY, PHRASE_KEY, LOCALES, linesWithNeutralLevels() (+3 more)
+Cohesion: 0.18
+Nodes (11): EvidenceItem, KNOWN_EVIDENCE_CODES, linesWithNeutralLevels(), LOCALES, renderedLines(), LATIN_PATTERN, LATIN_TERMS, normalise() (+3 more)
 
 ### Community 396 - "Sprint 00 runtime controls"
 Cohesion: 0.33
@@ -1957,29 +1986,33 @@ Nodes (6): Equatable, WidgetDisplayState, empty, loading, populated, stale
 Cohesion: 0.33
 Nodes (5): Component inventory, Maintained examples, Not built yet, Shipped components, The contract every component must satisfy
 
-### Community 403 - "profileSuggestionValidator.ts"
-Cohesion: 0.11
-Nodes (28): DropReason, MAX_DESCRIPTION_LENGTH, MAX_PROFILE_SUGGESTIONS, MAX_SUGGESTION_LENGTH, MIN_SUGGESTION_CONFIDENCE, PROFILE_PROMPT_VERSION, PROFILE_PROPOSAL_TTL_MS, ProfileProposal (+20 more)
+### Community 403 - "profileContracts.ts"
+Cohesion: 0.14
+Nodes (19): StoredProposal, ProfileEvalResult, RawImportCandidate, DropReason, MAX_DESCRIPTION_LENGTH, MAX_PROFILE_SUGGESTIONS, MIN_SUGGESTION_CONFIDENCE, PROFILE_PROPOSAL_TTL_MS (+11 more)
 
-### Community 405 - "MemoryTransaction"
-Cohesion: 0.11
-Nodes (9): asRow(), clone(), MemoryStore, MemoryTransaction, collectionIdOf(), isCollectionPath(), isDocumentPath(), parentCollectionOf() (+1 more)
+### Community 404 - "env.ts"
+Cohesion: 0.04
+Nodes (65): mockModeActive(), MockResponse, ROUTES, apiHostIsLocal(), DEV_BYPASS_USER, devBypassAllowed(), devBypassToken(), LOCAL_API_HOSTS (+57 more)
+
+### Community 405 - "requireDocumentPath"
+Cohesion: 0.07
+Nodes (25): FirestoreStorageAdapter, FirestoreTransaction, toDocs(), withOptions(), applyOperator(), asRow(), clone(), compareValues() (+17 more)
 
 ### Community 406 - "commitmentMemoryStore.ts"
-Cohesion: 0.14
-Nodes (14): CommitmentMemoryData, CommitmentMemoryStore, CreateCommitmentMemoryInput, FileCommitmentMemoryStore, UpdateCommitmentInput, allowedTransitions, assertValidTransition(), InvalidCommitmentTransitionError (+6 more)
+Cohesion: 0.15
+Nodes (13): CommitmentMemoryData, CommitmentMemoryStore, CreateCommitmentMemoryInput, FileCommitmentMemoryStore, UpdateCommitmentInput, allowedTransitions, assertValidTransition(), InvalidCommitmentTransitionError (+5 more)
 
 ### Community 407 - "`data/quality/`"
 Cohesion: 0.50
 Nodes (3): `data/quality/`, `priority-annotation-decisions.json`, `priority-judgments.json`
 
-### Community 408 - "links.ts"
-Cohesion: 0.29
-Nodes (9): CAPTURE_INPUTS, CAPTURE_SOURCES, CaptureLinkInput, CaptureLinkSource, LinkTarget, parseLink(), screenTarget(), targetFor() (+1 more)
+### Community 408 - "state/types.ts"
+Cohesion: 0.07
+Nodes (29): Lang, loadThemePref(), parseThemePref(), saveThemePref(), THEME_STORAGE_KEY, VALUES, CAPTURE_INPUTS, CAPTURE_SOURCES (+21 more)
 
-### Community 409 - "widgetTaskHandler.tsx"
-Cohesion: 0.29
-Nodes (8): createWidgetTaskHandler(), defaultWidgetTaskDeps, renderNextStepWidget(), WidgetTaskDeps, widgetTaskHandler, parseSnapshot(), expo, react-native-android-widget
+### Community 409 - "personalizationControls/consentStore.ts"
+Cohesion: 0.14
+Nodes (15): PersonalizationConsentOptions, MemoryGrowthOptions, CONSENT_SCHEMA_VERSION, DISABLED_DEFAULT, documentPath(), fail(), isStoredConsent(), MemoryPersonalizationConsentStore (+7 more)
 
 ### Community 410 - "commitmentResolver.ts"
 Cohesion: 0.38
@@ -1994,16 +2027,16 @@ Cohesion: 0.21
 Nodes (9): FORBIDDEN_MODULE_BASENAMES, importClosure(), importSpecifiers(), moduleDir, repoRoot, resolveLocal(), runtimeImportSpecifiers(), sourceFilesUnder() (+1 more)
 
 ### Community 419 - "pushRegistration.ts"
-Cohesion: 0.09
+Cohesion: 0.08
 Nodes (29): DeviceRegistration, forgetDevice(), registerDevice(), DeviceForgotten, deviceForgottenSchema, DeviceRegistered, deviceRegisteredSchema, appVersion() (+21 more)
 
 ### Community 420 - "Share injection threat model (UC-3.9, #193)"
 Cohesion: 0.22
 Nodes (8): Assets, Controls, Entry points, Evidence, Known limitations, Share injection threat model (UC-3.9, #193), The invariant, What this does not cover
 
-### Community 421 - "freeze-capture-gold.mjs"
-Cohesion: 0.36
-Nodes (8): ADJUDICATIONS, checksum(), fail(), main(), parseArgs(), readText(), repoRoot, SECOND_PASSES
+### Community 421 - "financialStateService.ts"
+Cohesion: 0.15
+Nodes (17): ActionGatewayAuditRecord, StoredActionGatewayAuditStore, StoredGatewayAuditRecord, withoutKind(), connectionIdFor(), connectFinancialSandbox(), FINANCIAL_PROVIDER, FINANCIAL_READ_CAPABILITY (+9 more)
 
 ### Community 422 - "lifeStateBoundaries.test.ts"
 Cohesion: 0.27
@@ -2021,17 +2054,21 @@ Nodes (5): Coverage, Deliverables and verification, Design system, MaybeSitter c
 Cohesion: 0.56
 Nodes (7): findOverlaps(), intervalsOverlap(), isPositiveInterval(), mergeBusy(), ms(), at(), span()
 
-### Community 427 - "semanticEvent.ts"
-Cohesion: 0.24
-Nodes (12): commandTitle(), executedCommands(), FormatterCommand, FormatterCommandResult, FormatterEventInput, FormatterExtractionResult, isExecuted(), missingDetail() (+4 more)
+### Community 426 - "habitStore.ts"
+Cohesion: 0.12
+Nodes (13): byNewest(), createStorageHabitStore(), habitPath(), StorageHabitStore, StoredHabit, HabitPlanningArgs, HABIT_STATUSES, HabitDefinition (+5 more)
 
-### Community 430 - "requireDocumentPath"
+### Community 427 - "responseFormatter.ts"
+Cohesion: 0.11
+Nodes (23): CaptureServiceResult, AssistantTurn, commandTitle(), executedCommands(), FormatterCommand, FormatterCommandResult, FormatterEventInput, FormatterExtractionResult (+15 more)
+
+### Community 430 - "get"
 Cohesion: 0.21
-Nodes (3): FirestoreStorageAdapter, FirestoreTransaction, requireDocumentPath()
+Nodes (25): bundledBlob(), createComponentFactory(), getDC(), Dispatcher(), getError(), load(), createHelmetManager(), applyCanvasBg() (+17 more)
 
 ### Community 431 - "exactAlarms.ts"
-Cohesion: 0.35
-Nodes (6): exactAlarmNativeModule, canScheduleExactAlarms(), ExactAlarmDeps, nativeOf(), openExactAlarmSettings(), native()
+Cohesion: 0.40
+Nodes (5): exactAlarmNativeModule, canScheduleExactAlarms(), ExactAlarmDeps, nativeOf(), openExactAlarmSettings()
 
 ### Community 432 - "routeGuardCoverage.test.ts"
 Cohesion: 0.40
@@ -2041,9 +2078,9 @@ Nodes (4): files, GUARDED_VIA_SCOPE, MOBILE_ROUTES, routeFiles()
 Cohesion: 0.20
 Nodes (8): CLOCK_PATTERNS, FORBIDDEN_MODULE_BASENAMES, importClosure(), importSpecifiers(), repoRoot, resolveLocal(), schedulerDir, testDir
 
-### Community 434 - "packBoundaries.test.ts"
-Cohesion: 0.29
-Nodes (4): ALLOWED_IMPORTS, ALLOWED_STORAGE_BINDINGS, FORBIDDEN_IMPORTS, PACKS_LIB
+### Community 434 - "packLifecycle.test.ts"
+Cohesion: 0.04
+Nodes (75): decideFeatureEntitlement(), EntitlementDecision, EntitlementProjection, ATHLETE_PACK, FOOTBALL_PACK, PACK_CATALOG, TRAVEL_PACK, instantiateWatcherTemplate() (+67 more)
 
 ### Community 435 - "Round 2 polish — comparison report"
 Cohesion: 0.29
@@ -2053,9 +2090,9 @@ Nodes (6): Preserved deliberately, Product changes, Remaining issues and verific
 Cohesion: 0.50
 Nodes (3): Duplicate-path audit, Intentionally retained shared views, Legacy frontend removal
 
-### Community 438 - "noCommitmentCopy.test.ts"
-Cohesion: 0.50
-Nodes (3): INTERPRETATION, LOCALES, REASON_KEYS
+### Community 438 - "manualFinancialStore.ts"
+Cohesion: 0.15
+Nodes (16): ObservedObligation, EMPTY_MANUAL_FINANCIAL_INPUTS, ManualFieldRow, ManualFinancialInputs, ManualObligationRow, fieldDocId(), obligationDocId(), StoredFieldRow (+8 more)
 
 ### Community 440 - "feedbackBoundaries.test.ts"
 Cohesion: 0.24
@@ -2069,25 +2106,153 @@ Nodes (5): emailSignals(), looksLikeEmail(), EMAIL_DETECTOR_CASES, EmailDetector
 Cohesion: 0.13
 Nodes (13): Architectural decisions, Fifteen-surface expansion — capability audit, 10. Remaining limitations and review decision, 1. Starting point, 2. Surface coverage, 3. Evidence, 4. Capability matrix and real behavior, 5. Backend and API gaps (+5 more)
 
+### Community 444 - "HabitOccurrence"
+Cohesion: 0.15
+Nodes (4): HabitOccurrenceStore, isHabitOccurrence(), StorageHabitOccurrenceStore, HabitOccurrence
+
+### Community 445 - "pressureService.test.ts"
+Cohesion: 0.13
+Nodes (8): clearPressureHistory(), MemoryPressureDeliveryStore, StoragePressureDeliveryStore, addConfirmedCommitment(), assertPressureCopy(), assertPressureStrategyCopy(), now, toneAt()
+
+### Community 446 - "intentContracts.ts"
+Cohesion: 0.12
+Nodes (15): byNewest(), StoredSeed, INTENT_SEEDS, CaptureSeedProposalContract, CreateSeedInput, INTENT_SEED_SCHEMA_VERSION, PatchSeedInput, SEED_EVENT_NAMES (+7 more)
+
+### Community 447 - "latenessCopy.test.ts"
+Cohesion: 0.13
+Nodes (14): evidenceLabel(), evidenceLabels(), LABELS, NEXT_STEP_EVIDENCE_CODES, LOCALES, NextStepEvidenceCode, stated(), EXEMPT (+6 more)
+
+### Community 448 - "syllabusSource.ts"
+Cohesion: 0.16
+Nodes (16): here, out, buildSyllabusPdf(), contentStream(), encoder, literal(), syllabusPdfs(), AR (+8 more)
+
+### Community 449 - "constraintsNormalize.test.ts"
+Cohesion: 0.14
+Nodes (12): projectTravelIntoPlanningConstraints(), requireInstant(), skipped(), TRAVEL_PLANNING_POLICY, TravelConstraintApplication, TravelEstimate, TravelProjectionResult, validateMinutes() (+4 more)
+
+### Community 450 - "build-v03-fieldwork-status.ts"
+Cohesion: 0.17
+Nodes (15): buildFieldworkStatus(), codedRates, difference(), exportableRecruitmentRows(), handoffBlockers(), painQualified(), sampleRows(), share() (+7 more)
+
+### Community 451 - "awarenessStore.ts"
+Cohesion: 0.26
+Nodes (15): storedAwareness(), AWARENESS_CACHE_VERSION, AWARENESS_MAX_AGE_MS, AwarenessEntry, awarenessStorageKey(), clearAwareness(), EMPTY_AWARENESS, isAware() (+7 more)
+
+### Community 452 - "arbiter.ts"
+Cohesion: 0.18
+Nodes (12): ARBITRATION_UNAVAILABLE, ArbitrationOutcome, buildArbiterPrompt(), createAnthropicArbiter(), MAX_ARBITER_INPUT_CHARS, NO_CORRECTED_TIMES, parseArbitrationVerdict(), ESCALATION_ENV_VAR (+4 more)
+
+### Community 453 - "disagreementLog.ts"
+Cohesion: 0.18
+Nodes (11): asCount(), disagreementRate(), DisagreementRecord, recordDisagreement(), UNKNOWN_LANGUAGE, decideEscalation(), ESCALATION_THRESHOLDS, EscalationDecision (+3 more)
+
+### Community 454 - "importCandidateValidator.ts"
+Cohesion: 0.21
+Nodes (14): CANDIDATE_RELATIONS, normalizeForComparison(), readCandidates(), resolveRelation(), validateImportCandidates(), ValidateImportOptions, validateOne(), validateTargetDate() (+6 more)
+
+### Community 455 - "externalActionGateway.ts"
+Cohesion: 0.20
+Nodes (12): ExternalActionGatewayPlan, ExternalActionGatewayRoute, planExternalActionGateway(), routeForDecision(), routeForTier(), ActionPolicyDecision, ActionRiskTier, gateway() (+4 more)
+
+### Community 456 - "StorageAlphaFeedbackStore"
+Cohesion: 0.26
+Nodes (5): collectionFor(), createInMemoryAlphaFeedbackStore(), isFlag(), oldestFirst(), StorageAlphaFeedbackStore
+
+### Community 457 - "scripts"
+Cohesion: 0.14
+Nodes (14): scripts, android, check:android-manifest, check:no-credentials, check:privacy-manifests, eas-build-on-success, format, ios (+6 more)
+
+### Community 458 - ".runTransaction"
+Cohesion: 0.33
+Nodes (3): seedPath(), StorageIntentSeedStore, IntentSeed
+
+### Community 459 - "createExternalModules"
+Cohesion: 0.25
+Nodes (11): cdnScriptFor(), createExternalModules(), ensureBabel(), resolve2(), resolveGlobal(), waitForGlobal(), isElementClass(), isRenderableType() (+3 more)
+
+### Community 460 - "messageKind.ts"
+Cohesion: 0.27
+Nodes (9): noCommitmentReasonFrom(), classifyMessageKind(), GREETING, INFORMATIONAL, INTERROGATIVE, MessageKind, NEGATED, PAST (+1 more)
+
+### Community 461 - "boot"
+Cohesion: 0.22
+Nodes (10): boot(), StandaloneRoot(), dcNameFromPath(), getReactDOM(), parseDataProps(), parseDcDocument(), parseDcText(), rootNameForDocument() (+2 more)
+
+### Community 462 - "hermesPlurals.test.ts"
+Cohesion: 0.20
+Nodes (5): intl, MutableIntl, saved, checked(), arm()
+
+### Community 463 - "devDependencies"
+Cohesion: 0.20
+Nodes (10): devDependencies, autoprefixer, firebase, @firebase/rules-unit-testing, postcss, tailwindcss, @types/node, @types/react (+2 more)
+
+### Community 464 - "toVertexSchema"
+Cohesion: 0.36
+Nodes (7): CARRIED, DROPPED, JsonSchemaNode, toVertexSchema(), GEMINI_EXTRACTION_SCHEMA, OLLAMA_EXTRACTION_SCHEMA, Node
+
+### Community 465 - "AlphaFeedbackStore"
+Cohesion: 0.25
+Nodes (3): AlphaFeedbackStore, AlphaFeedbackFlag, AlphaFeedbackFlagInput
+
+### Community 466 - "dependencies"
+Cohesion: 0.22
+Nodes (9): dependencies, firebase-admin, google-auth-library, @google-cloud/kms, @google/genai, ical.js, ipaddr.js, next (+1 more)
+
+### Community 468 - "unresolvedIntent.ts"
+Cohesion: 0.39
+Nodes (8): SeedKind, CONSIDERATION, detectUnresolvedIntent(), EXPLICIT_SCHEDULING, IDEA, POSSIBLE_GOAL, UnresolvedIntentReading, WAITING_FOR
+
+### Community 469 - "nextStepRoutineArm.test.ts"
+Cohesion: 0.36
+Nodes (7): ArmContext, armCandidate(), bandOf(), candidate(), codesFor(), context(), NOW
+
+### Community 470 - "seedCorpus.ts"
+Cohesion: 0.39
+Nodes (7): CalibrationPair, HardConstraintDeclaration, buildSeedCorpus(), calibrationPairOf(), provenanceOfEmptyCorpus(), sliceOf(), subjectOf()
+
+### Community 471 - "Public claims policy"
+Cohesion: 0.29
+Nodes (6): Allowed now, Allowed only with a qualification, Forbidden, Positioning, as decided, Privacy wording (X9, 2026-09-23), Public claims policy
+
+### Community 472 - "Tester sign-up: the endpoint the landing pages need"
+Cohesion: 0.33
+Nodes (5): Owner, Request, Required behaviour, Tester sign-up: the endpoint the landing pages need, What exists today, and why it is not enough
+
+### Community 473 - "eslint.config.js"
+Cohesion: 0.40
+Nodes (4): { defineConfig }, expoConfig, i18next, eslint-plugin-i18next
+
+### Community 474 - "@bacons/xcode"
+Cohesion: 0.50
+Nodes (4): @expo/plist, uuid, overrides, @bacons/xcode
+
+### Community 475 - "answer"
+Cohesion: 0.50
+Nodes (4): answer(), json(), request(), suggestionsFor()
+
+### Community 476 - "importantify"
+Cohesion: 1.00
+Nodes (3): importantify(), scanUnquotedUrl(), stripComments()
+
 ## Knowledge Gaps
-- **4607 isolated node(s):** `MD_C`, `NOW`, `PERSONA`, `COMMITMENTS`, `BUSY` (+4602 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 5922 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **4649 isolated node(s):** `MD_C`, `NOW`, `PERSONA`, `COMMITMENTS`, `BUSY` (+4644 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 5978 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **45 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `MODULE_CONTRACT_VERSION` connect `MODULE_CONTRACT_VERSION` to `captureContracts.ts`, `privacySafeEvents.ts`, `Instant`, `safetyContracts.ts`, `integrationConnectionContracts.ts`, `compareByCodePoint`, `recommendationContracts.ts`, `personalizationContracts.ts`, `select.ts`, `shadowPipelineContracts.ts`, `release/handler.ts`, `createMemoryStorage`, `evaluation/corpus.ts`, `captureBoundaryService.ts`, `shadowRunLog.ts`, `dailyPlanService.ts`, `shadowRollbackDrill.ts`, `moduleContracts.ts`, `coachingCrossTrack.test.ts`, `ExtractionResult`, `calendar/busyBlocks.test.ts`, `scheduler/index.ts`, `pilotService.ts`, `runtimeControls.test.ts`, `usageGuard.test.ts`, `userSubDoc`, `adapters.ts`, `financialContracts.ts`, `projectFixtures.ts`, `release/evidence.ts`, `decompositionContracts.ts`, `planningContracts.ts`, `digest.ts`, `generateGoalGraph.ts`, `Plan`, `providerRuntime.ts`, `shadowDrillPipeline.ts`, `feedbackAggregation.ts`, `goalGraphContracts.ts`, `example.ts`, `nextStepLiveService.ts`, `DecompositionProposal`, `healthkit/adapter.ts`, `intelligenceModuleBoundaries.test.ts`, `experimentReport.ts`?**
-  _High betweenness centrality (0.057) - this node is a cross-community bridge._
-- **Why does `body()` connect `createMemoryStorage` to `state/AppContext.tsx`, `requireMobileUser`, `client.ts`, `pushRegistration.ts`, `financialBoundary.test.ts`, `present.ts`, `mobileCaptureService.ts`, `gmailTransport.test.ts`, `userSubDoc`, `release/handler.ts`, `useBusyCalendar.ts`, `emailShare.test.ts`, `queries.ts`, `safeFetch.ts`, `inventory.ts`?**
-  _High betweenness centrality (0.054) - this node is a cross-community bridge._
-- **Why does `expected()` connect `planningContracts.ts` to `state/AppContext.tsx`, `calibration/corpus.ts`, `CaptureProvider.tsx`, `mobile/package.json`, `Instant`, `safetyContracts.ts`, `MODULE_CONTRACT_VERSION`, `rulesDetector.ts`, `release/handler.ts`, `proposalBoundaries.test.ts`, `getStorage`, `inventory.ts`, `routineProfileService.ts`, `createMemoryStorage`, `safetyBoundaries.test.ts`, `captureBoundaryService.ts`, `shadowPipelineBoundaries.test.ts`, `env.ts`, `coachingCrossTrack.test.ts`, `accountDeletion.ts`, `schedulerBoundaries.test.ts`, `feedbackBoundaries.test.ts`, `toEpochMs`, `release/evidence.ts`, `decompositionContracts.ts`, `selectorBoundaries.test.ts`, `extractionTypes.ts`, `icsImport.ts`, `TodayScreen.tsx`, `explanationValidator.ts`, `providerRuntime.ts`, `priorityContracts.ts`, `coachingBoundaries.test.ts`, `Commitment`, `constraintsBoundaries.test.ts`, `liveProviderVerification.ts`, `planActivity.test.ts`, `boundaryImportClosure.test.ts`, `recommendationBoundaries.test.ts`, `inferenceStore.ts`, `reminders/policy.ts`?**
-  _High betweenness centrality (0.054) - this node is a cross-community bridge._
+- **Why does `MODULE_CONTRACT_VERSION` connect `MODULE_CONTRACT_VERSION` to `captureContracts.ts`, `experimentReport.ts`, `evaluationSet.ts`, `safetyContracts.ts`, `integrationConnectionContracts.ts`, `freezeResolve.ts`, `recommendationContracts.ts`, `personalizationContracts.ts`, `select.ts`, `shadowPipelineContracts.ts`, `release/handler.ts`, `createMemoryStorage`, `stateMachine.ts`, `shadowRollbackDrill.ts`, `planActions.ts`, `shadowSloCatalog.ts`, `moduleContracts.ts`, `coachingCrossTrack.test.ts`, `backgroundMonitors.test.ts`, `Instant`, `packLifecycle.test.ts`, `runtimeControls.test.ts`, `usageGuard.test.ts`, `pilotService.ts`, `adapters.test.ts`, `watcherEngine.test.ts`, `toEpochMs`, `financialContracts.ts`, `storage/index.ts`, `release/evidence.ts`, `decompositionContracts.ts`, `planningContracts.ts`, `externalActionGateway.ts`, `goalGraphContracts.ts`, `continuousReplanControl.test.ts`, `microsoftGraph/adapter.ts`, `shadowDrillPipeline.ts`, `commitmentService.ts`, `getStorage`, `splits.ts`, `engine/index.ts`, `nextStepContracts.ts`, `mobileMemoryProvenance.test.ts`, `decomposition/evaluation/metrics.ts`, `healthkit/adapter.ts`, `intelligenceModuleBoundaries.test.ts`?**
+  _High betweenness centrality (0.064) - this node is a cross-community bridge._
+- **Why does `expected()` connect `planningContracts.ts` to `apiRequest`, `priority/calibrationFixtures.ts`, `CaptureProvider.tsx`, `mobile/package.json`, `avoidanceInvariant.test.ts`, `evaluationSet.ts`, `MODULE_CONTRACT_VERSION`, `safetyContracts.ts`, `personalizationContracts.ts`, `select.ts`, `env.ts`, `release/handler.ts`, `proposalBoundaries.test.ts`, `routineProfileService.ts`, `safetyBoundaries.test.ts`, `stateMachine.ts`, `shadowPipelineBoundaries.test.ts`, `habitStore.ts`, `coachingCrossTrack.test.ts`, `storageAdapter.ts`, `schedulerBoundaries.test.ts`, `feedbackBoundaries.test.ts`, `toEpochMs`, `release/evidence.ts`, `decompositionContracts.ts`, `extractionTypes.ts`, `icsImport.ts`, `release/consentStore.ts`, `explanationValidator.ts`, `microsoftGraph/adapter.ts`, `priorityContracts.ts`, `coachingBoundaries.test.ts`, `engine/index.ts`, `nextStepArms.ts`, `constraintsBoundaries.test.ts`, `ContextProviderKind`, `planActivity.test.ts`, `boundaryImportClosure.test.ts`, `recommendationBoundaries.test.ts`, `inferenceStore.ts`?**
+  _High betweenness centrality (0.060) - this node is a cross-community bridge._
+- **Why does `body()` connect `memoryRoutes.test.ts` to `apiRequest`, `emailShare.test.ts`, `requireMobileUser`, `client.ts`, `busySync.test.ts`, `present.ts`, `gmailTransport.test.ts`, `personalizationContracts.ts`, `release/handler.ts`, `queries.ts`, `safeFetch.ts`, `routineProfileService.ts`, `createMemoryStorage`, `stateMachine.ts`, `pushRegistration.ts`, `financialBoundary.test.ts`, `backgroundMonitors.test.ts`, `storageAdapter.ts`, `pilotService.ts`, `hermesPlurals.test.ts`, `commitmentService.ts`, `goalGraphExecutionRead.test.ts`, `getStorage`, `habitRoutes.test.ts`?**
+  _High betweenness centrality (0.053) - this node is a cross-community bridge._
 - **What connects `MD_C`, `NOW`, `PERSONA` to the rest of the system?**
-  _4607 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `state/AppContext.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.010925808375170716 - nodes in this community are weakly interconnected._
-- **Should `OnboardingFlow.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.05307017543859649 - nodes in this community are weakly interconnected._
+  _4649 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `apiRequest` be split into smaller, more focused modules?**
+  _Cohesion score 0.010166775476289395 - nodes in this community are weakly interconnected._
+- **Should `CaptureScreen` be split into smaller, more focused modules?**
+  _Cohesion score 0.12380952380952381 - nodes in this community are weakly interconnected._
 - **Should `requireMobileUser` be split into smaller, more focused modules?**
-  _Cohesion score 0.022298940420357825 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.02995001086720278 - nodes in this community are weakly interconnected._

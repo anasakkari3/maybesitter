@@ -18,13 +18,13 @@ import {
   memoryOriginSchema,
   memoryProvenanceSchema,
   memorySourceLabelSchema,
+  profileResponseSchema,
 } from '../schemas/profile';
 import {
   aiContextImportProposalSchema,
   aiContextImportConfirmedSchema,
   importAssistantSchema,
 } from '../schemas/aiContextImport';
-import { profileResponseSchema } from '../schemas/profile';
 
 const FIXTURES = join(__dirname, '..', '__fixtures__');
 

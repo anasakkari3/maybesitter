@@ -115,7 +115,7 @@ export function describeProfile(text: string) {
  */
 export function confirmProfileSuggestions(
   proposalId: string,
-  accepted: Array<{ index: number; content?: string }>,
+  accepted: { index: number; content?: string }[],
 ) {
   return apiRequest('POST', '/api/mobile/profile/describe/confirm', {
     body: { proposalId, accepted },
@@ -151,7 +151,7 @@ export function importAiContext(text: string, assistant: ImportAssistant) {
  */
 export function confirmAiContextImport(
   proposalId: string,
-  accepted: Array<{ index: number; content?: string; resolve?: 'replace' | 'keep_both' }>,
+  accepted: { index: number; content?: string; resolve?: 'replace' | 'keep_both' }[],
 ) {
   return apiRequest('POST', '/api/mobile/profile/import/confirm', {
     body: { proposalId, accepted },

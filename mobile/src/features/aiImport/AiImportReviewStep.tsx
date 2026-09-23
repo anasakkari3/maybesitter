@@ -158,6 +158,7 @@ function ConflictChoice({
           // A single choice, so a screen reader says so rather than announcing
           // two independent buttons.
           accessibilityRole="radio"
+          accessibilityState={{ checked: resolve === option.value }}
           onPress={() => onResolve(index, option.value)}
           testID={option.testID}
           style={{
@@ -199,6 +200,7 @@ function CandidateRow({
         <Btn
           label={candidate.content}
           accessibilityRole="checkbox"
+          accessibilityState={{ checked: kept }}
           onPress={() => onToggle(index)}
           scaleTo={0.9}
           hitSlop={8}

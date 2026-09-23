@@ -5,7 +5,7 @@ This ledger reconciles the coral mobile frontend with current `main` at
 `c67c516813b354c75dd961e65445e73858757305` on
 `integration/coral-final-parity`.
 
-The audit covered [163 closed issues](./closed-issues-reviewed.json), [314 merged pull requests](./merged-prs-reviewed.json), all 73 canonical
+The audit covered [163 closed issues](./closed-issues-reviewed.json), [314 merged pull requests](./merged-prs-reviewed.json), all 75 canonical
 `/api/mobile/**` routes, the React Native endpoint clients, the screen union and
 every production branch in `mobile/src/Root.tsx`. The machine-readable ledger
 is [`frontend-feature-parity.json`](./frontend-feature-parity.json); it is the
@@ -16,12 +16,12 @@ runtime evidence and legacy-dependency disposition.
 
 | Classification | Count | Meaning |
 |---|---:|---|
-| `LIVE_CONNECTED` | 36 | A real user-facing mobile path is connected to canonical behavior. |
+| `LIVE_CONNECTED` | 37 | A real user-facing mobile path is connected to canonical behavior. |
 | `BACKGROUND_ONLY` | 3 | Real behavior runs behind a visible result or system host and does not need a dedicated screen. |
 | `INTERNAL_ONLY` | 7 | Engineering/runtime capability is intentionally absent from production navigation. |
 | `COMING_SOON_GENUINE` | 9 | The production mobile contract or source adapter is genuinely absent; the UI says so only for that missing part. |
 | `SUPERSEDED` | 4 | A duplicate or prototype path was removed after its replacement was verified. |
-| **Total** | **59** | Distinct product capabilities reconciled. |
+| **Total** | **60** | Distinct product capabilities reconciled. |
 
 ## Live connected surfaces
 
@@ -37,6 +37,8 @@ runtime evidence and legacy-dependency disposition.
   review with explicit accept/reject and protected-block display.
 - Next-step recommendation feedback, memory CRUD, personalization controls,
   routine profile and readiness context.
+- AI context import from ChatGPT, Gemini, Claude or another assistant, with
+  bounded paste handling, explicit candidate review and confirmed memory writes.
 - Activity history, feedback transparency, reminders, notification actions,
   widgets, football fixtures and category preferences.
 - Seeds, goal execution graphs/progress/checkpoints, habit definitions and
@@ -106,6 +108,9 @@ production mobile route or adapter is absent:
   the false error that appeared even when the server had saved the object.
 - A postponed commitment shows both its original deadline and when it comes
   back, on Today and Details. The postpone action does not rewrite the deadline.
+- AI context import now has authenticated proposal/confirm routes and reachable
+  onboarding and What MaybeSitter knows entry points. Pasted source text remains
+  ephemeral; only candidates the user confirms become provenance-tagged memory.
 
 ## Orphan backend reconciliation
 

@@ -6,7 +6,7 @@
   "reviewScope": {
     "closedIssuesReviewed": 163,
     "mergedPullRequestsReviewed": 314,
-    "mobileApiRoutesReviewed": 73,
+    "mobileApiRoutesReviewed": 75,
     "sourceFiles": [
       "evidence/frontend-final-parity/closed-issues-reviewed.json",
       "evidence/frontend-final-parity/merged-prs-reviewed.json",
@@ -420,6 +420,18 @@
       "frontendSurface": "Settings → What it knows / Memory",
       "status": "LIVE_CONNECTED",
       "runtimeEvidence": "MemoryScreen, personalization and trust-personalization suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "AI context import with explicit review and confirmation",
+      "issues": [],
+      "prs": [],
+      "domain": "Ephemeral assistant-profile parsing, bounded candidate validation and provenance-aware memory writes",
+      "api": "/profile/import and /profile/import/confirm",
+      "mobile": "Typed import flow, assistant handoff, paste limits, per-candidate review and account-scoped cache refresh",
+      "frontendSurface": "Onboarding and Settings → What MaybeSitter knows",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "AI import contract, prompt-boundary, validator, route, receipt, reducer, schema, onboarding and reachability suites",
       "legacyDependencyRemoved": true
     },
     {
