@@ -7,8 +7,10 @@
 #   ./check-links.sh [BASE_URL]      HTTP mode (default BASE_URL http://localhost:8788)
 #   ./check-links.sh --local         filesystem mode, no server needed (for CI)
 #
-# HTTP mode checks the 7 public URLs from the acceptance criteria of issue #137
-# and the 2 redirects (/privacy -> /en/privacy, /terms -> /en/terms).
+# HTTP mode checks the 12 public pages (three landing pages, and privacy, terms and
+# delete-account in three languages) and the 4 redirects (/privacy, /terms,
+# /delete-account and /en). --local mode also scans every page for claims the
+# approved claims policy forbids (docs/marketing/CLAIMS_POLICY.md).
 #
 # `cleanUrls` is a Firebase Hosting feature. A plain static file server (for
 # example `python3 -m http.server`) does not implement it and does not implement
@@ -42,21 +44,35 @@ ok()      { PASS=$((PASS + 1)); green "$1"; }
 bad()     { FAIL=$((FAIL + 1)); red "$1"; }
 skipped() { SKIP=$((SKIP + 1)); grey "$1"; }
 
-# The 7 public pages, as deployed (clean URLs, no extension).
+# The 12 public pages, as deployed (clean URLs, no extension).
 PAGES=(
   "/:en:ltr"
+  "/ar:ar:rtl"
+  "/he:he:rtl"
   "/en/privacy:en:ltr"
   "/en/terms:en:ltr"
+  "/en/delete-account:en:ltr"
   "/ar/privacy:ar:rtl"
   "/ar/terms:ar:rtl"
+  "/ar/delete-account:ar:rtl"
   "/he/privacy:he:rtl"
   "/he/terms:he:rtl"
+  "/he/delete-account:he:rtl"
+)
+
+# The 301 rules, as source:destination.
+REDIRECTS=(
+  "/privacy:/en/privacy"
+  "/terms:/en/terms"
+  "/delete-account:/en/delete-account"
+  "/en:/"
 )
 
 # Map a deployed path to a path on a plain static file server.
 as_static_path() {
   case "$1" in
     /) printf '/index.html' ;;
+    /ar | /he) printf '%s/index.html' "$1" ;;
     *) printf '%s.html' "$1" ;;
   esac
 }
@@ -65,6 +81,7 @@ as_static_path() {
 as_disk_path() {
   case "$1" in
     /) printf '%s/index.html' "$SCRIPT_DIR" ;;
+    /ar | /he) printf '%s%s/index.html' "$SCRIPT_DIR" "$1" ;;
     *) printf '%s%s.html' "$SCRIPT_DIR" "$1" ;;
   esac
 }
@@ -98,7 +115,7 @@ check_html_attrs() {
   fi
 }
 
-# Assert the two 301 rules exist in the hosting snippet (used when the local
+# Assert every 301 rule exists in the hosting snippet (used when the local
 # server cannot perform redirects, so the rule itself is still verified).
 check_redirect_rules_in_snippet() {
   local src dst
@@ -106,7 +123,7 @@ check_redirect_rules_in_snippet() {
     bad "firebase-hosting.snippet.json not found at ${SNIPPET}"
     return
   fi
-  for pair in "/privacy:/en/privacy" "/terms:/en/terms"; do
+  for pair in "${REDIRECTS[@]}"; do
     src="${pair%%:*}"
     dst="${pair##*:}"
     if tr -d ' \n' <"$SNIPPET" |
@@ -114,6 +131,69 @@ check_redirect_rules_in_snippet() {
       ok "snippet declares 301 ${src} -> ${dst}"
     else
       bad "snippet is missing a 301 rule ${src} -> ${dst}"
+    fi
+  done
+}
+
+# Phrases the approved claims policy forbids on any public page, and phrases
+# that are only forbidden on the landing pages (the privacy policy has to be able
+# to name Google Calendar, Gmail scopes or voice processing to disclose them).
+FORBIDDEN_EVERYWHERE=(
+  "chief of staff"
+  "personal AI"
+  "AI assistant"
+  "anonymous usage"
+  "anonymous analytics"
+  "Share anonymous"
+  "at the right time"
+  "بالوقت المناسب"
+  "בזמן הנכון"
+  "never forget"
+  "knows you"
+  "free forever"
+  "\$5,000"
+  "5,000 in"
+)
+FORBIDDEN_ON_LANDING=(
+  "ADHD"
+  "Gmail"
+  "Outlook"
+  "Todoist"
+  "Notion"
+  "WHOOP"
+  "Google Calendar"
+  "syllabus"
+  "voice"
+  "dialect"
+  "بالصوت"
+  "لهجة"
+  "קולי"
+  "Pro plan"
+  "subscription"
+  "aggregateRating"
+  "reviewCount"
+  "testimonial"
+)
+
+check_claims() {
+  local phrase hits page
+  for phrase in "${FORBIDDEN_EVERYWHERE[@]}"; do
+    hits="$(grep -rilF --include='*.html' -e "$phrase" "$SCRIPT_DIR" || true)"
+    if [ -n "$hits" ]; then
+      bad "forbidden claim \"${phrase}\" in: $(printf '%s' "$hits" | tr '\n' ' ')"
+    else
+      ok "no \"${phrase}\""
+    fi
+  done
+  for phrase in "${FORBIDDEN_ON_LANDING[@]}"; do
+    hits=""
+    for page in "${SCRIPT_DIR}/index.html" "${SCRIPT_DIR}/ar/index.html" "${SCRIPT_DIR}/he/index.html"; do
+      if grep -qiF -e "$phrase" "$page"; then hits="${hits} ${page}"; fi
+    done
+    if [ -n "$hits" ]; then
+      bad "landing pages must not claim \"${phrase}\":${hits}"
+    else
+      ok "landing pages: no \"${phrase}\""
     fi
   done
 }
@@ -138,21 +218,25 @@ run_local() {
     check_html_attrs "$file" "$path" "$lang" "$dir"
   done
 
-  # The localized homepages are linked from the root page and must exist too.
-  for lang in en ar he; do
-    file="${SCRIPT_DIR}/${lang}/index.html"
-    if [ -f "$file" ]; then
-      ok "/${lang}/ — file exists"
+  # "/" is the English landing page; /en would duplicate it, so it only redirects.
+  if [ -f "${SCRIPT_DIR}/en/index.html" ]; then
+    bad "/en — en/index.html exists but /en must redirect to /"
+  else
+    ok "/en — no duplicate English landing page"
+  fi
+
+  local asset
+  for asset in styles.css landing.css landing.js robots.txt sitemap.xml; do
+    if [ -f "${SCRIPT_DIR}/${asset}" ]; then
+      ok "${asset} — file exists"
     else
-      bad "/${lang}/ — missing file ${file}"
+      bad "${asset} — missing"
     fi
   done
 
-  if [ -f "${SCRIPT_DIR}/styles.css" ]; then
-    ok "styles.css — file exists"
-  else
-    bad "styles.css — missing"
-  fi
+  echo
+  echo "Claims (docs/marketing/CLAIMS_POLICY.md):"
+  check_claims
 
   echo
   echo "Redirects (no server in --local mode; verifying the hosting rules instead):"
@@ -208,7 +292,7 @@ run_http() {
   echo "Redirects:"
   if [ "$clean_urls" -eq 1 ]; then
     local src dst location
-    for pair in "/privacy:/en/privacy" "/terms:/en/terms"; do
+    for pair in "${REDIRECTS[@]}"; do
       src="${pair%%:*}"
       dst="${pair##*:}"
       status="$(curl -s -o /dev/null -w '%{http_code}' "${base}${src}" || true)"
@@ -224,8 +308,10 @@ run_http() {
       esac
     done
   else
-    skipped "/privacy — 301 not testable on a static file server"
-    skipped "/terms — 301 not testable on a static file server"
+    local pair
+    for pair in "${REDIRECTS[@]}"; do
+      skipped "${pair%%:*} — 301 not testable on a static file server"
+    done
     echo "  Verifying the redirect rules in the hosting snippet instead:"
     check_redirect_rules_in_snippet
   fi

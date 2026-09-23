@@ -14,7 +14,7 @@ Replace them all at once (macOS `sed`), after you have decided the real values:
 
 ```bash
 cd site
-grep -rl '{{' . --include='*.html' --include='*.md' | xargs sed -i '' \
+grep -rl '{{' . --include='*.html' --include='*.md' --include='*.txt' --include='*.xml' | xargs sed -i '' \
   -e 's/{{DOMAIN}}/maybesitter.app/g' \
   -e 's/{{LEGAL_NAME}}/Your Full Legal Name/g' \
   -e 's/{{SUPPORT_EMAIL}}/support@maybesitter.app/g' \
@@ -38,6 +38,12 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
   - `en/terms.html` — intro, "Termination"
   - `ar/terms.html` — المقدّمة، «إنهاء الحساب»
   - `he/terms.html` — הפתיחה, "סיום ההתקשרות"
+  - every page's `<head>` — the `canonical` and `hreflang` links, and on the three landing
+    pages the `og:url` and the JSON-LD (`Organization`, `MobileApplication`, `FAQPage`)
+  - `robots.txt` — the `Sitemap:` line
+  - `sitemap.xml` — every `<loc>` and `hreflang` alternate
+  - The canonical and hreflang URLs assume the domain serves the site at its root, with
+    `trailingSlash: false` (so `/ar`, not `/ar/`).
 - **Note:** the deletion URLs (`{{DOMAIN}}/en/delete-account` and the ar/he variants)
   point at the page owned by UC-4.3b (#179). That page does not exist yet. Ship it
   before, or at the same time as, the store listings that link to it.
@@ -48,7 +54,7 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
   controller. This is the name a user or a regulator would use to identify who is
   responsible. Issue #137 deliberately does not record it, so choose it at publish time.
 - **Where it appears:**
-  - the footer of all 10 pages (`© MaybeSitter — {{LEGAL_NAME}}`)
+  - the footer of all 12 pages (`© MaybeSitter — {{LEGAL_NAME}}`)
   - `{en,ar,he}/privacy.html` — the "Who we are" section
   - `{en,ar,he}/terms.html` — the intro, "Who we are" and "Contact" sections
 
@@ -57,7 +63,7 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 - **What to put there:** the `support@<domain>` role alias you create in Cloudflare
   Email Routing (step 2 of the issue). Never your personal address.
 - **Where it appears:**
-  - `index.html` and `{en,ar,he}/index.html` — the Support section
+  - `index.html`, `ar/index.html`, `he/index.html` — the footer ("Questions and feedback")
   - `{en,ar,he}/privacy.html` — "Who we are"
   - `{en,ar,he}/terms.html` — "Who we are", "Your account", "Acceptable use", "Contact"
 
@@ -66,8 +72,7 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 - **What to put there:** the `privacy@<domain>` role alias. This is the address a data
   subject writes to, so it must actually be read.
 - **Where it appears:**
-  - `index.html` and `{en,ar,he}/index.html` — the Support section
-  - `{en,ar,he}/privacy.html` — "Who we are", "Your rights", "Age"
+  - `{en,ar,he}/privacy.html` — "Who we are", "Your rights", "Age", "Early-access sign-up"
   - `{en,ar,he}/terms.html` — "Contact"
 
 ### `{{EFFECTIVE_DATE}}`

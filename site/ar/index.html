@@ -1,44 +1,294 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" data-arm="none">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MaybeSitter</title>
-<meta name="description" content="MaybeSitter بيساعدك تتذكّر شو وعدت فيه، وبيذكّرك بالوقت المناسب.">
+<title>MaybeSitter · مخطِّط وتذكيرات هادي</title>
+<meta name="description" content="مخطِّط وتذكيرات هادي بالعربي والعبري والإنجليزي. اكتب شو التزمت فيه متل ما بتحكيه، أكّده، وبيظهر بيومك. مجاني بفترة الوصول المبكّر.">
+<link rel="canonical" href="https://{{DOMAIN}}/ar">
+<link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/">
+<link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar">
+<link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he">
+<link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MaybeSitter">
+<meta property="og:title" content="MaybeSitter · مخطِّط وتذكيرات هادي">
+<meta property="og:description" content="مخطِّط وتذكيرات هادي بالعربي والعبري والإنجليزي. اكتب شو التزمت فيه متل ما بتحكيه، أكّده، وبيظهر بيومك. مجاني بفترة الوصول المبكّر.">
+<meta property="og:url" content="https://{{DOMAIN}}/ar">
+<meta property="og:locale" content="ar_AR">
+<meta property="og:locale:alternate" content="en_GB">
+<meta property="og:locale:alternate" content="he_IL">
+<meta name="twitter:card" content="summary">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/landing.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://{{DOMAIN}}/#organization",
+      "name": "MaybeSitter",
+      "url": "https://{{DOMAIN}}/"
+    },
+    {
+      "@type": "MobileApplication",
+      "@id": "https://{{DOMAIN}}/#app",
+      "name": "MaybeSitter",
+      "description": "مخطِّط وتذكيرات هادي بالعربي والعبري والإنجليزي. اكتب شو التزمت فيه متل ما بتحكيه، أكّده، وبيظهر بيومك. مجاني بفترة الوصول المبكّر.",
+      "applicationCategory": "LifestyleApplication",
+      "operatingSystem": "iOS, Android",
+      "inLanguage": [
+        "ar",
+        "he",
+        "en"
+      ],
+      "url": "https://{{DOMAIN}}/ar",
+      "publisher": {
+        "@id": "https://{{DOMAIN}}/#organization"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "ILS"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://{{DOMAIN}}/ar#faq",
+      "inLanguage": "ar",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "بأي لغات؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "واجهة التطبيق بالعربي والعبري والإنجليزي، وبتكتب باللغة اللي بتفكّر فيها."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "قديش سعره؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "مجاني بفترة الوصول المبكّر. لسّا ما قرّرنا الأسعار بعدها."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "وين بلاقيه؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "جاي على App Store و‏Google Play بإسرائيل. بنبلّش بتجربة مغلقة مع مجموعة صغيرة."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "بيقرا رسائلي أو إيميلي؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "لا. ما بيتّصل بإيميلك ولا برسائلك."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "بيستعمل ذكاء اصطناعي؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "بس إذا وافقت. إذا رفضت، بيشتغل بقواعد بسيطة. التفاصيل بسياسة الخصوصية."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "رح يضل يزعجني بالإشعارات؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "التذكير بيجي قبل موعد الإشي، ولازم تكون الإشعارات مفعّلة. في أوقات هدوء وحدّ للمقاطعات."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "شو الفرق عن الملاحظات أو تطبيقات المهام؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "الملاحظات ما بترجعلك. وكثير من تطبيقات المهام بتكبّر قائمة «متأخّر». هون ما في حالة «متأخّر»: الإشي يا بيخلص، يا بيتأجّل، يا بينلغى بقصد."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "كيف بحذف بياناتي؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "من التطبيق، أو بطلب منّا. الخطوات بصفحة حذف الحساب."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
+<script src="/landing.js" defer></script>
 </head>
-<body>
-<header>
-  <h1>MaybeSitter</h1>
-  <p class="lede">MaybeSitter بيساعدك تتذكّر شو وعدت فيه، وبيذكّرك بالوقت المناسب.</p>
+<body class="landing">
+<a class="skip" href="#main">روح للمحتوى</a>
+<header class="site-head">
+  <p class="brand">MaybeSitter <span>مخطِّط وتذكيرات</span></p>
+  <nav class="langs" aria-label="اللغة">
+    <a href="/" hreflang="en" lang="en" data-keep-query>English</a>
+    <a href="/ar" hreflang="ar" lang="ar" data-keep-query aria-current="page">العربية</a>
+    <a href="/he" hreflang="he" lang="he" data-keep-query>עברית</a>
+  </nav>
 </header>
 
-<main>
-  <p class="badge">قريبًا على App Store و‏Google Play</p>
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <p class="eyebrow">مخطِّط وتذكيرات · عربي · עברית · English</p>
+    <h1 id="hero-title" data-arm-a="ما في كومة «متأخّر»." data-arm-b="احكيها مرّة، وبتلاقيها بيومك.">مخطِّط وتذكيرات هادي، بالعربي والعبري والإنجليزي.</h1>
+    <p id="hero-sub" class="lede" data-arm-a="كل إشي يا بتخلّصه، يا بتأجّله، يا بتلغيه إنت بقصد. ما في حالة «متأخّر» تضل تلحقك." data-arm-b="اكتبها متل ما بتحكيها، أكّدها، وبتظهر بيومك.">اكتب شو التزمت فيه متل ما بتحكيه. أكّده، وبيظهر بيومك.</p>
+    <p><a class="button" href="#join">انضم للتجربة</a></p>
+    <p class="muted">جاي على App Store و‏Google Play بإسرائيل. مجاني بفترة الوصول المبكّر.</p>
+  </section>
 
-  <h2>شو هو التطبيق</h2>
-  <p>
-    خلال اليوم بتوعد بأشياء كثيرة — بمحادثة، بالممرّ، بمكالمة. MaybeSitter بيلتقط هالوعود،
-    بيجمعها بمكان واحد، وبيرجّعلك كل وحدة منها بالوقت اللي فعلاً بتنفع فيه، مش بساعة عشوائية.
-  </p>
-  <p>
-    ما بينحفظ إشي بدون تأكيدك، وبتقدر تقرأ وتعدّل وتحذف كل إشي بيتذكّره عنك التطبيق.
-  </p>
+  <section aria-labelledby="problem-title">
+    <h2 id="problem-title">غالباً المشكلة مش إنك نسيت.</h2>
+    <p>سألنا ٤١ شخص، أغلبهم طلاب. من الـ٢٨ اللي فاتهم إشي مهم، ٢١ كانوا عارفين فيه. في منهم حسّوا إنه أكبر من إنهم يبلّشوا فيه.</p>
+    <p>وفي ناس تركوا تطبيقات مهام لأنها ضغطتهم بدل ما ترتّبلهم يومهم.</p>
+    <p class="note">استبيان صغير (٤١ شخص، أغلبهم طلاب). بيعطي اتجاه، مش إثبات.</p>
+  </section>
 
-  <h2>الدعم</h2>
-  <p>للأسئلة والمشاكل والملاحظات: <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></p>
-  <p>لأسئلة الخصوصية وطلبات البيانات: <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a></p>
+  <section aria-labelledby="how-title">
+    <h2 id="how-title">كيف بيشتغل</h2>
+    <ol class="steps">
+      <li><h3>اكتبها متل ما بتحكيها</h3><p>بالعربي أو العبري أو الإنجليزي، باللغة اللي بتفكّر فيها.</p></li>
+      <li><h3>أكّدها</h3><p>الالتزام اللي بتسجّله ما بينحفظ إلا بعد ما تأكّده. وإذا ناقصه إشي، بيسألك.</p></li>
+      <li><h3>بتظهر بيومك</h3><p>بتشوفها بيومك بوقتها، وبيذكّرك فيها قبل موعدها لمّا تكون الإشعارات مفعّلة.</p></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="diff-title">
+    <h2 id="diff-title">شو المختلف</h2>
+    <ul class="points">
+      <li><h3>ما في كومة «متأخّر»</h3><p>كل إشي يا خلص، يا تأجّل، يا انلغى بقصد منك. التطبيق مبني بلا حالة «متأخّر».</p></li>
+      <li><h3>مصمَّم ليقاطعك أقل</h3><p>أوقات هدوء، وحدّ لعدد المرّات اللي بيقاطعك فيها. هاد قرار تصميم، ولسّا عم نجرّبه مع ناس حقيقيين.</p></li>
+      <li><h3>بكلماتك، وبتأكيدك</h3><p>بتكتب بلغتك، والالتزام ما بينحفظ إلا بعد ما تأكّده.</p></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="trust-title">
+    <h2 id="trust-title">إنت اللي بتقرّر</h2>
+    <ul class="trust">
+      <li>الذكاء الاصطناعي ما بيشتغل إلا بعد ما توافق. إذا رفضت، التطبيق بيضل يشتغل بقواعد بسيطة.</li>
+      <li>بتقدر تشوف وتعدّل وتحذف اللي بيحفظه عنك.</li>
+      <li>ما في تتبّع إعلانات.</li>
+      <li>تحليلات الاستخدام بس إذا فعّلتها بالتطبيق، وهي مطفية من الأول.</li>
+      <li>هالموقع ما بيحط كوكيز وما فيه تحليلات.</li>
+    </ul>
+    <p><a href="/ar/privacy">سياسة الخصوصية</a> · <a href="/ar/delete-account">حذف الحساب والبيانات</a></p>
+  </section>
+
+  <section aria-labelledby="who-title">
+    <h2 id="who-title">لمين هو</h2>
+    <p>للي بيدرسوا وبيشتغلوا، وبيوعدوا بأشياء بالمحادثات والمحاضرات والشِفتات.</p>
+    <p class="muted">مش لإدارة مشاريع أو فرق، ومش مساعد بيعمل أشياء بالنيابة عنك، ومش أداة طبية.</p>
+  </section>
+
+  <section aria-labelledby="stage-title">
+    <h2 id="stage-title">وين واصلين</h2>
+    <p>لسّا بالأول. ما في تقييمات ولا أرقام مستخدمين، وما رح نخترع. بنبلّش بتجربة صغيرة بإسرائيل، ومنتعلّم من الناس اللي بيستعملوه فعلاً. لمّا يصير عنا أرقام حقيقية، بنحطّها هون.</p>
+  </section>
+
+  <section aria-labelledby="faq-title" class="faq">
+    <h2 id="faq-title">أسئلة</h2>
+    <details>
+      <summary>بأي لغات؟</summary>
+      <p>واجهة التطبيق بالعربي والعبري والإنجليزي، وبتكتب باللغة اللي بتفكّر فيها.</p>
+    </details>
+    <details>
+      <summary>قديش سعره؟</summary>
+      <p>مجاني بفترة الوصول المبكّر. لسّا ما قرّرنا الأسعار بعدها.</p>
+    </details>
+    <details>
+      <summary>وين بلاقيه؟</summary>
+      <p>جاي على App Store و‏Google Play بإسرائيل. بنبلّش بتجربة مغلقة مع مجموعة صغيرة.</p>
+    </details>
+    <details>
+      <summary>بيقرا رسائلي أو إيميلي؟</summary>
+      <p>لا. ما بيتّصل بإيميلك ولا برسائلك.</p>
+    </details>
+    <details>
+      <summary>بيستعمل ذكاء اصطناعي؟</summary>
+      <p>بس إذا وافقت. إذا رفضت، بيشتغل بقواعد بسيطة. التفاصيل بسياسة الخصوصية.</p>
+    </details>
+    <details>
+      <summary>رح يضل يزعجني بالإشعارات؟</summary>
+      <p>التذكير بيجي قبل موعد الإشي، ولازم تكون الإشعارات مفعّلة. في أوقات هدوء وحدّ للمقاطعات.</p>
+    </details>
+    <details>
+      <summary>شو الفرق عن الملاحظات أو تطبيقات المهام؟</summary>
+      <p>الملاحظات ما بترجعلك. وكثير من تطبيقات المهام بتكبّر قائمة «متأخّر». هون ما في حالة «متأخّر»: الإشي يا بيخلص، يا بيتأجّل، يا بينلغى بقصد.</p>
+    </details>
+    <details>
+      <summary>كيف بحذف بياناتي؟</summary>
+      <p>من التطبيق، أو بطلب منّا. الخطوات بصفحة حذف الحساب.</p>
+    </details>
+  </section>
+
+  <section id="join" aria-labelledby="join-title" class="join">
+    <h2 id="join-title">انضم للتجربة</h2>
+    <p>بنبلّش بمجموعة صغيرة. التجربة مجانية، لعمر ١٨ وفوق، وبتقدر تطلع منها بأي وقت.</p>
+    <noscript><p class="note">التسجيل بحاجة JavaScript. إذا مسكّر، جرّب من متصفّح تاني.</p></noscript>
+    <form id="join-form" hidden novalidate
+      data-msg-ok="تمام، إنت عالقائمة. رح نبعتلك إيميل لمّا تفتح التجربة." data-msg-invalid="في حقول ناقصة. شيّك عليها وجرّب مرّة تانية."
+      data-msg-error="ما قدرنا نحفظ تفاصيلك هلّق. جرّب كمان شوي." data-msg-busy="عم نحفظ…">
+      <div class="field">
+        <label for="join-email">الإيميل</label>
+        <input id="join-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required dir="ltr">
+      </div>
+      <fieldset class="field">
+        <legend>جهازك</legend>
+        <label><input type="radio" name="device" value="iphone" required> iPhone</label>
+        <label><input type="radio" name="device" value="android"> Android</label>
+      </fieldset>
+      <fieldset class="field">
+        <legend>بأي لغة رح تستعمله؟</legend>
+        <label lang="ar"><input type="radio" name="language" value="ar" required> العربية</label>
+        <label lang="he"><input type="radio" name="language" value="he"> עברית</label>
+        <label lang="en"><input type="radio" name="language" value="en"> English</label>
+      </fieldset>
+      <fieldset class="field">
+        <legend>بتعرف المؤسّس شخصياً؟</legend>
+        <p class="hint">هاد بيساعدنا نعرف إذا التطبيق بينفع لناس برّا دايرتنا.</p>
+        <label><input type="radio" name="knowsFounder" value="yes" required> آه</label>
+        <label><input type="radio" name="knowsFounder" value="no"> لا</label>
+      </fieldset>
+      <div class="field">
+        <label class="check"><input id="join-wa" name="whatsappOptIn" type="checkbox"> راسلوني على واتساب بخصوص التجربة (اختياري)</label>
+      </div>
+      <div class="field" id="join-phone-field" hidden>
+        <label for="join-phone">رقم الواتساب</label>
+        <input id="join-phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="30" dir="ltr">
+        <p class="hint">بنستعمله بس لنراسلك عن التجربة، مش للتسويق.</p>
+      </div>
+      <div class="hp" aria-hidden="true">
+        <label for="join-website">Website</label>
+        <input id="join-website" name="website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+      <input type="hidden" name="source" id="join-source" value="direct">
+      <input type="hidden" name="v" id="join-v" value="none">
+      <p class="hint">بنستعمل هالتفاصيل بس لنتواصل معك عن التجربة، ولنعرف أي رسائل دعوة بتوصل للناس. <a href="/ar/privacy#early-access">التفاصيل بسياسة الخصوصية</a></p>
+      <p><button class="button" type="submit">سجّلني</button></p>
+      <p id="join-status" class="status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
 </main>
 
 <footer>
-  <nav class="langs">
-    <a href="/en/">English</a>
-    <a href="/he/">עברית</a>
-  </nav>
-  <nav>
+  <nav aria-label="Legal">
     <a href="/ar/privacy">سياسة الخصوصية</a>
     <a href="/ar/terms">شروط الاستخدام</a>
+    <a href="/ar/delete-account">حذف الحساب</a>
   </nav>
+  <p class="muted">للأسئلة والملاحظات: <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></p>
   <p class="muted">© MaybeSitter — {{LEGAL_NAME}}</p>
 </footer>
 </body>

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://{{DOMAIN}}/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/ar</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/he</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/en/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/privacy"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/privacy"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/ar/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/privacy"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/privacy"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/he/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/privacy"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/privacy"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/en/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/terms"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/terms"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/ar/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/terms"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/terms"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/he/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/terms"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/terms"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/en/delete-account</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/delete-account"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/ar/delete-account</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/delete-account"/>
+  </url>
+  <url>
+    <loc>https://{{DOMAIN}}/he/delete-account</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/delete-account"/>
+  </url>
+</urlset>

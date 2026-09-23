@@ -3,16 +3,66 @@
     "public": "site",
     "cleanUrls": true,
     "trailingSlash": false,
+    "rewrites": [
+      {
+        "source": "/api/early-access",
+        "run": {
+          "serviceId": "maybesitter-api",
+          "region": "europe-west1"
+        }
+      }
+    ],
     "redirects": [
-      { "source": "/privacy", "destination": "/en/privacy", "type": 301 },
-      { "source": "/terms", "destination": "/en/terms", "type": 301 }
+      {
+        "source": "/privacy",
+        "destination": "/en/privacy",
+        "type": 301
+      },
+      {
+        "source": "/terms",
+        "destination": "/en/terms",
+        "type": 301
+      },
+      {
+        "source": "/delete-account",
+        "destination": "/en/delete-account",
+        "type": 301
+      },
+      {
+        "source": "/en",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/early-access-privacy",
+        "destination": "/en/privacy",
+        "type": 301
+      }
     ],
     "headers": [
       {
         "source": "**",
         "headers": [
-          { "key": "Strict-Transport-Security", "value": "max-age=31536000" },
-          { "key": "X-Content-Type-Options", "value": "nosniff" }
+          {
+            "key": "Strict-Transport-Security",
+            "value": "max-age=31536000"
+          },
+          {
+            "key": "X-Content-Type-Options",
+            "value": "nosniff"
+          },
+          {
+            "key": "Content-Security-Policy",
+            "value": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+          },
+          {
+            "key": "Referrer-Policy",
+            "value": "strict-origin-when-cross-origin"
+          },
+          {
+            "key": "Permissions-Policy",
+            "value": "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+          }
         ]
       }
     ]
