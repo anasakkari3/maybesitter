@@ -39,6 +39,7 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import { buildDailyPlanInput, dailyPlanScheduleSources } from './buildDailyPlan';
+import { projectPlanLayerIntoConstraints } from './dailyPlanService';
 import { reconcileScheduleBlocks, schedulePlan } from '../../planning/scheduler';
 import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { loadDomainState } from '../mobile/participantState';
@@ -295,11 +296,33 @@ export async function processStateChangesForUser(
   };
 
   const dailyInput = buildDailyPlanInput(inputArgs);
-  const sources = dailyPlanScheduleSources(dailyInput.constraints);
+  /**
+   * The request the morning build would have solved, not the bare adapter
+   * output (#585). `projectPlanLayerIntoConstraints` is the function
+   * `composeDailyPlan` calls, so the two solvers of a day cannot disagree about
+   * what is protected or how much room a person needs between items.
+   *
+   * Without it this solve treated every protected hour as ordinary flexible
+   * work: the auto-apply branch moved it without asking, the review branch
+   * offered a patch that moved it, and the blocks reconciled below — built from
+   * items that carried no protection — wrote the new generation with the
+   * protection gone. Everything downstream of this line reads `constraints`,
+   * the reconciliation included, for that last reason.
+   */
+  const constraints = await projectPlanLayerIntoConstraints({
+    uid,
+    now: nowIso,
+    timezone: settings.timezone,
+    commitments: inputArgs.commitments,
+    busyBlocks,
+    constraints: dailyInput.constraints,
+    previousBlocks: storedPlan?.blocks ?? null,
+  }, { storage, userDocument: user });
+  const sources = dailyPlanScheduleSources(constraints);
 
   // Planner solve closure
   const planner = () => {
-    const plan = schedulePlan(dailyInput.constraints, dailyInput.config);
+    const plan = schedulePlan(constraints, dailyInput.config);
     return { plan };
   };
 
@@ -349,7 +372,7 @@ export async function processStateChangesForUser(
       },
       plan: pipelineResult.newPlan,
       blocks: reconcileScheduleBlocks({
-        constraints: dailyInput.constraints,
+        constraints,
         plan: pipelineResult.newPlan,
         generation: nextGeneration,
         sources,

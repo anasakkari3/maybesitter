@@ -85,6 +85,7 @@ import {
 } from '../../planning/scheduler';
 import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
 import { toEpochMs } from '../../planning/shared/time';
+import type { PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import {
@@ -319,6 +320,77 @@ export function titlesOf(commitments: readonly Commitment[]): Map<string, string
   return new Map(commitments.map((commitment) => [commitment.id, commitment.title]));
 }
 
+export interface PlanLayerProjectionInput {
+  readonly uid: string;
+  /** The clock the solve is happening on; readiness is resolved against it. */
+  readonly now: string;
+  readonly timezone: string;
+  readonly commitments: readonly Commitment[];
+  readonly busyBlocks: readonly { readonly startsAt: string; readonly endsAt: string }[];
+  /** `buildDailyPlanInput`'s output, before anything below has touched it. */
+  readonly constraints: PlanningConstraints;
+  /** The blocks of the generation being replaced; null on a day's first build. */
+  readonly previousBlocks: readonly ScheduleBlock[] | null;
+}
+
+/**
+ * Everything the solver must see that `buildDailyPlanInput` cannot know
+ * (#522, #585), and the one place it is added.
+ *
+ * Both solvers of a day go through here: `composeDailyPlan` (the morning build
+ * and every regeneration) and `continuousReplanService` (the automatic
+ * replan). They did not always. The replan once solved `buildDailyPlanInput`'s
+ * bare output, so a protected hour held through every rebuild the user asked
+ * for and was given away by the first calendar change nobody asked about — and
+ * the reconciled blocks, built from unprotected items, dropped the protection
+ * from the document as well. One function is what keeps the two from drifting
+ * again; a second copy of these lines in the replan would be free to.
+ *
+ * Two projections, in this order. Readiness widens an item's after-buffer;
+ * protection (#522) states whose decision an item's position is. They commute
+ * — neither reads what the other writes — but the order is written down rather
+ * than left to whichever line someone adds next, because the result is what
+ * `inputDigest` is taken over and a reordering that changed a buffer would
+ * change every digest.
+ *
+ * The protections come from the *previous generation's blocks*: a protection
+ * is declared on a block, which is the plan layer's own state, and this is the
+ * one place it re-enters the solver's input. Without it a solve would rebuild
+ * every item from commitments that have never heard of it. The first build of
+ * a day has no previous blocks and therefore no protections, which is
+ * correct: nothing has been placed to protect yet.
+ *
+ * Readiness is resolved at `now`, not at the time of the plan being replaced.
+ * A replan that kept the morning's reading would be solving for a person the
+ * morning saw; one that dropped it would pack the day without the recovery gap
+ * the morning gave, and every tighter placement would reach the diff as churn
+ * although nothing about the person changed.
+ */
+export async function projectPlanLayerIntoConstraints(
+  input: PlanLayerProjectionInput,
+  deps: { readonly storage: StorageAdapter; readonly userDocument: unknown },
+): Promise<PlanningConstraints> {
+  const userState = await composeCurrentUserState({
+    uid: input.uid,
+    now: input.now,
+    busy: input.busyBlocks.map((block) => ({
+      startsAt: block.startsAt,
+      endsAt: block.endsAt,
+      timezone: input.timezone,
+    })),
+    deadlines: input.commitments.flatMap((commitment) => {
+      const dueAt = commitment.timeSpec.kind === 'due_by' ? commitment.timeSpec.dueAt : null;
+      return dueAt
+        ? [{ deadlineId: commitment.id, dueAt, kind: 'commitment' as const, sourceRef: null }]
+        : [];
+    }),
+  }, { storage: deps.storage, userDocument: deps.userDocument });
+  return projectBlockProtectionIntoPlanningConstraints(
+    projectReadinessIntoPlanningConstraints(input.constraints, userState.projection.readiness),
+    input.previousBlocks,
+  );
+}
+
 /**
  * What a regeneration carries forward from the plan it replaces (#521).
  *
@@ -380,39 +452,15 @@ export async function composeDailyPlan(
     // scheduled the whole day at 09:00 and was over before it was shown.
     builtAt: now.toISOString(),
   });
-  const userState = await composeCurrentUserState({
+  const constraints = await projectPlanLayerIntoConstraints({
     uid,
     now: now.toISOString(),
-    busy: busyBlocks.map((block) => ({
-      startsAt: block.startsAt,
-      endsAt: block.endsAt,
-      timezone,
-    })),
-    deadlines: commitments.flatMap((commitment) => {
-      const dueAt = commitment.timeSpec.kind === 'due_by' ? commitment.timeSpec.dueAt : null;
-      return dueAt
-        ? [{ deadlineId: commitment.id, dueAt, kind: 'commitment' as const, sourceRef: null }]
-        : [];
-    }),
+    timezone,
+    commitments,
+    busyBlocks,
+    constraints: baseConstraints,
+    previousBlocks: ancestry?.previousBlocks ?? null,
   }, { storage, userDocument: user });
-  /* Two projections, in this order, and both before the scheduler sees
-   * anything. Readiness widens an item's after-buffer; protection (#522) states
-   * whose decision an item's position is. They commute — neither reads what the
-   * other writes — but the order is written down rather than left to whichever
-   * line someone adds next, because the result is what `inputDigest` is taken
-   * over and a reordering that changed a buffer would change every digest.
-   *
-   * The protections come from the *previous generation's blocks*: a protection
-   * is declared on a block, which is the plan layer's own state, and this is
-   * the one place it re-enters the solver's input. Without it a regeneration
-   * would rebuild every item from commitments that have never heard of it, and
-   * a protected hour would survive exactly until the user asked for a new plan.
-   * The first build of a day has no previous blocks and therefore no
-   * protections, which is correct: nothing has been placed to protect yet. */
-  const constraints = projectBlockProtectionIntoPlanningConstraints(
-    projectReadinessIntoPlanningConstraints(baseConstraints, userState.projection.readiness),
-    ancestry?.previousBlocks ?? null,
-  );
   const plan = schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
   // back. Throws `ScheduleBlockIntegrityError` — and the build fails — if the
