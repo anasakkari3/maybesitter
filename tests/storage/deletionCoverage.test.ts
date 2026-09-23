@@ -41,7 +41,18 @@ const listed = new Set<string>(USER_SCOPED_COLLECTIONS);
  * `TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA` for the same reason `FIXTURES`
  * is.
  */
-const NOT_USER_SCOPED = new Set(['USERS', 'INCIDENTS', 'LLM_USAGE', 'FIXTURES', 'FOOTBALL_CLUB_SYNC_STATE']);
+const NOT_USER_SCOPED = new Set([
+  'USERS',
+  'INCIDENTS',
+  'LLM_USAGE',
+  'FIXTURES',
+  'FOOTBALL_CLUB_SYNC_STATE',
+  // Website tester sign-ups and their rate-limit window: no uid exists for
+  // either. Declared in `lib/account/topLevelUserData.ts`, the sign-ups as
+  // pre-account personal data deleted on request, the window as holding none.
+  'EARLY_ACCESS_REGISTRATIONS',
+  'EARLY_ACCESS_RATE_LIMITS',
+]);
 
 test('deleteTree(users/U) leaves nothing of U in any user collection, and nothing of V is lost', async () => {
   await assertDeleteTreeCoversEveryUserCollection(createMemoryStorage(), 'user_U', 'user_V');

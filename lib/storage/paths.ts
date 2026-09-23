@@ -580,6 +580,27 @@ export function footballClubSyncStateDoc(clubId: string): string {
   return `${FOOTBALL_CLUB_SYNC_STATE}/${requireDocId(clubId)}`;
 }
 
+/**
+ * Tester sign-ups from the public website's "Join the test" form
+ * (`site/SIGNUP_CONTRACT.md`, `lib/earlyAccess/service.ts`).
+ *
+ * Top-level and keyed by a hash of the normalised email, not under a uid:
+ * these are people who may never create an account, so there is no uid to
+ * nest them under and account deletion cannot find them. They *are* personal
+ * data (an email, and a WhatsApp number only when the person opted in), so
+ * they are declared in `lib/account/topLevelUserData.ts`'s
+ * `TOP_LEVEL_PRE_ACCOUNT_COLLECTIONS` with how they are deleted: on request,
+ * as the privacy policy's "Early-access sign-up" section promises. Clients
+ * cannot reach them: `firestore.rules` denies everything outside `/users/{uid}`.
+ */
+export const EARLY_ACCESS_REGISTRATIONS = 'earlyAccessRegistrations';
+
+/**
+ * The sign-up endpoint's global rate-limit window: a count and a reset time,
+ * one document for the whole service. No IP, no email, nothing about a person.
+ */
+export const EARLY_ACCESS_RATE_LIMITS = 'earlyAccessRateLimits';
+
 export const USERS = 'users';
 
 export function requireUserId(id: unknown): string {

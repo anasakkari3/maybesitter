@@ -63,4 +63,36 @@ export const TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA: readonly string[] = [
   // and nothing a person typed. Deleting an account must not reset how
   // recently a club everybody else still follows was synced.
   'footballClubSyncState',
+  // The early-access sign-up endpoint's global rate-limit window: one document
+  // holding a count and a reset time. It is keyed by a fixed name, never by
+  // an IP or an email, so there is nothing in it about anybody.
+  'earlyAccessRateLimits',
+] as const;
+
+export interface TopLevelPreAccountCollection {
+  /** The top-level collection id. */
+  collection: string;
+  /** Why this personal data exists outside any account, in one line. */
+  reason: string;
+  /** How a person gets it deleted, since account deletion cannot reach it. */
+  deletion: string;
+}
+
+/**
+ * Top-level collections holding personal data about people who may have no
+ * account at all.
+ *
+ * Neither list above fits them. They are not linked to a uid, so the account
+ * sweep has nothing to filter on, and they are not free of personal data. Putting them
+ * in either list would be a false statement the coverage test would then
+ * enforce. So they get their own declaration, with the route by which they
+ * *are* deleted, and `tests/account/topLevelDeletionCoverage.test.ts` holds
+ * each one to a reason and a deletion route.
+ */
+export const TOP_LEVEL_PRE_ACCOUNT_COLLECTIONS: readonly TopLevelPreAccountCollection[] = [
+  {
+    collection: 'earlyAccessRegistrations',
+    reason: 'website tester sign-ups from people who may never create an account, so no uid exists to nest them under',
+    deletion: 'on request to the privacy address, as the privacy policy "Early-access sign-up" section promises; retained only while early access runs',
+  },
 ] as const;
