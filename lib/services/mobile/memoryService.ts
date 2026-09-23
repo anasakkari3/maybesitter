@@ -191,9 +191,15 @@ export type MemorySourceLabel =
   /** A model proposed it and the user agreed. */
   | 'model_suggested_you_confirmed'
   /** A model proposed it and nobody has agreed yet. */
-  | 'model_suggested';
+  | 'model_suggested'
+  /** The user brought it from another AI assistant and kept it. */
+  | 'you_brought_from_ai';
 
 export function sourceLabelOf(record: Pick<RuntimeMemoryRecord, 'source' | 'provenance'>): MemorySourceLabel {
+  // First, and before the source is consulted at all: an import row is
+  // confirmed by construction, so the edited and unedited versions of the same
+  // imported line must not read differently on the screen.
+  if (record.provenance?.origin === 'ai_context_import') return 'you_brought_from_ai';
   if (record.source === 'model_inferred') {
     return record.provenance?.confirmedByUserAt ? 'model_suggested_you_confirmed' : 'model_suggested';
   }

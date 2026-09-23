@@ -96,7 +96,15 @@ export type MemoryOrigin =
    * Keep (UC-3.16, #202). `originRef` is the rule's fingerprint — the claim that
    * was kept — and `confirmedByUserAt` is when they kept it.
    */
-  | 'behaviour_rule';
+  | 'behaviour_rule'
+  /**
+   * The user brought a profile another AI assistant had written about them,
+   * and kept this line of it. Distinct from `self_description` on purpose:
+   * that is what the user typed, this is what somebody else's model said, and
+   * the screen is allowed to tell them apart. `provenance.assistant` names
+   * which one, and `originRef` is the import proposal id.
+   */
+  | 'ai_context_import';
 
 export const MEMORY_ORIGINS: readonly MemoryOrigin[] = [
   'routine_survey',
@@ -104,6 +112,7 @@ export const MEMORY_ORIGINS: readonly MemoryOrigin[] = [
   'manual',
   'capture',
   'behaviour_rule',
+  'ai_context_import',
 ];
 
 export interface MemoryProvenance {
@@ -120,6 +129,19 @@ export interface MemoryProvenance {
    * this being set (UC-2.7b, #168).
    */
   readonly confirmedByUserAt?: string;
+  /**
+   * Which assistant an imported claim came from. Only ever set alongside
+   * `origin: 'ai_context_import'`.
+   *
+   * It is a field rather than a prefix on `originRef` because `originRef` means
+   * "the proposal that produced this" for every other origin, and because a
+   * colon-delimited key the phone has to split is the shape this repo already
+   * refused for the behaviour-rule window. It is not `model` either: that field
+   * throws unless the record is `model_inferred`, so a user-edited import row
+   * could not carry it, and the name of somebody else's product is not the
+   * model we called.
+   */
+  readonly assistant?: 'chatgpt' | 'gemini' | 'claude' | 'other';
 }
 
 export interface RuntimeMemoryRecord {
