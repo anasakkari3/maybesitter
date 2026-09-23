@@ -24,7 +24,17 @@
  *  - **The client's `kind` is not believed.** It is not read. The kind is
  *    derived from what the bytes turned out to be.
  *  - **Nothing persists until the user confirms**, because this produces a
- *    proposal and a proposal is not persistence.
+ *    proposal and a proposal is not persistence. Since #193 that is a *tested*
+ *    claim and not only a documented one:
+ *    `tests/share/shareInjectionSuite.test.ts` runs ninety-six attacks through
+ *    this function with spies on the storage adapter, under an honest stub
+ *    model and a compromised one.
+ *  - **Nothing a model returned reaches the response unchecked.** The last
+ *    thing this function does before answering is `applyShareActionAllowlist`
+ *    (#193 step 2), which rebuilds the proposal out of the capture contract's
+ *    declared fields and drops any item carrying an unknown key, a URL, a
+ *    `tel:`/`mailto:` or a title addressed to the assistant. The count of what
+ *    it dropped goes into `ignoredSegments`; what it dropped never does.
  */
 import { randomUUID } from 'node:crypto';
 import { reserveDailyAction } from '../../llm/usageGuard';
@@ -35,6 +45,10 @@ import { proposeMobileCapture } from '../mobile/mobileCaptureService';
 import { normalizeTimezone, dateFromOptionalIso } from '../mobile/time';
 import { declarationConflicts, sniffMediaType } from './mediaType';
 import { resolveSharePreprocessor } from './shareRegistry';
+import {
+  allowedNextAction,
+  applyShareActionAllowlist,
+} from './shareAllowlist';
 import {
   MAX_EVIDENCE_CHARACTERS,
   SHARE_SEGMENT_SEPARATOR,
@@ -426,7 +440,7 @@ export async function proposeFromShare(
      * `proposeMobileCapture` refuses empty text, so the no-commitment proposal
      * is made here rather than by asking it to accept one.
      */
-    const proposal = text === ''
+    const produced = text === ''
       ? emptyProposal()
       : await propose(
         {
@@ -437,6 +451,27 @@ export async function proposeFromShare(
         { participantId: context.uid },
       );
 
+    /*
+     * The action allowlist (#193 step 2), and the reason it is *here* rather
+     * than inside a channel.
+     *
+     * Everything above this line is the model's: a channel's own model call,
+     * then the capture pipeline's. Everything below it is the route's answer.
+     * A proposal is rebuilt out of declared fields only, items carrying a URL,
+     * a `tel:`/`mailto:`, an unknown key or a title addressed to the assistant
+     * are dropped, and each refusal is counted into `ignoredSegments` — the
+     * count the review screen already shows as "some parts were ignored".
+     *
+     * Every drop is a count and never the content. `shareAllowlist.ts` says
+     * why the field list is the capture contract's rather than #183's sketch.
+     */
+    const allowed = applyShareActionAllowlist<Proposal>(produced);
+    const proposal = allowed.proposal;
+    const keptItemIds = new Set(
+      (Array.isArray(proposal.items) ? proposal.items : []).map((item) => item.itemId),
+    );
+    const next = allowedNextAction(suggestNextAction(proposal), keptItemIds);
+
     return {
       ...proposal,
       share: {
@@ -444,8 +479,8 @@ export async function proposeFromShare(
         kind,
         fileCount: files.length,
         totalBytes: files.reduce((sum, file) => sum + file.byteLength, 0),
-        ignoredSegments: prepared.ignoredSegments ?? 0,
-        suggestedNextAction: suggestNextAction(proposal),
+        ignoredSegments: (prepared.ignoredSegments ?? 0) + allowed.drops.length + (next.drop ? 1 : 0),
+        suggestedNextAction: next.action,
         ...evidenceFor(proposal, text, prepared.evidence),
         metrics: prepared.metrics ?? {},
         document: prepared.document ?? null,

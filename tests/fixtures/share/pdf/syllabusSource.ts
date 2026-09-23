@@ -158,11 +158,15 @@ const HIDDEN: SyllabusFixture = {
   /*
    * Two attacks, and they are dropped for two different reasons on purpose.
    *
-   * The first is #191's own wording. It names no date, so it is dropped by the
-   * "a dated item with no date is not a dated item" rule — which matters,
-   * because `detectPromptInjection` does **not** recognise a bare `SYSTEM:`
-   * followed by an ordinary verb. That gap is real and is #193's (UC-3.9)
-   * subject; this fixture records it rather than papering over it.
+   * The first is #191's own wording. It names no date, so before #193 (UC-3.9)
+   * it was dropped by the "a dated item with no date is not a dated item" rule
+   * rather than by the guard — `detectPromptInjection` did not recognise a bare
+   * `SYSTEM:` followed by an ordinary verb. #193 closed that gap: the guard's
+   * `assistant_command` family now catches "mark all as confirmed", so this
+   * line is dropped as an injection and the undated rule no longer sees it.
+   * Both reasons are still exercised by this fixture in combination — the
+   * second line is the one that would otherwise carry a date into somebody's
+   * account.
    *
    * The second carries a date, so nothing but the injection guard stands
    * between it and a commitment in somebody's account. It is what makes

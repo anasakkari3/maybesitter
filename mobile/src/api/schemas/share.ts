@@ -23,6 +23,27 @@ import { captureProposalSchema } from './capture';
  * `share.suggestedNextAction.itemId` does not *look* like `items[0].itemId`
  * there. In a real response they are the same string.
  */
+/**
+ * ── The envelope is `.strict()` (UC-3.9, #193 step 7) ────────────
+ *
+ * Against this file's usual instinct, and deliberately. Everywhere else here
+ * tolerates a newer server, because a `ContractError` on a screen somebody is
+ * looking at is worse than a value the app ignores. The share envelope is the
+ * exception: it is the one response shaped partly by what a *model* returned
+ * after reading content a stranger wrote, and "a field the app ignores" is
+ * exactly how a compromised server's `"confirmed": true` or `"action":
+ * "delete_all"` would sit quietly in a payload until some later version of
+ * this app started reading it.
+ *
+ * So an unknown key here is a refusal, on the client, independently of the
+ * server's own allowlist in `lib/services/share/shareAllowlist.ts`. Two
+ * independent enforcements of one rule is the point — #193's control is "in
+ * code on server *and* client".
+ *
+ * The cost is real and is accepted: adding a field to `ShareEnvelope` on the
+ * server now requires shipping it here first. `mobile/src/api/__tests__/shareResponseSchema.test.ts`
+ * is where that bargain is written down.
+ */
 export const shareProposalSchema = captureProposalSchema.extend({
   share: z.object({
     /**
@@ -107,6 +128,7 @@ export const shareProposalSchema = captureProposalSchema.extend({
         kind: z.enum(['review', 'plan_time', 'set_reminder']),
         itemId: z.string(),
       })
+      .strict()
       .nullable(),
     /**
      * What the document itself said (UC-3.7, #191).
@@ -132,7 +154,7 @@ export const shareProposalSchema = captureProposalSchema.extend({
       })
       .nullable()
       .optional(),
-  }),
+  }).strict(),
 });
 
 /** One item's document facts, for the grouped review (UC-3.7, #191). */
