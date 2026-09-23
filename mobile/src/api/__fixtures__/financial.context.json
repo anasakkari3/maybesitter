@@ -1,0 +1,238 @@
+{
+  "success": true,
+  "state": {
+    "version": "v1",
+    "schemaVersion": "financial-state-v1",
+    "scopeId": "FixtureUserxxxxxxxxxxxxxxxxx",
+    "asOf": "2026-08-09T09:00:00.000Z",
+    "currency": "ILS",
+    "cashAvailable": {
+      "minorUnits": 60000,
+      "currency": "ILS",
+      "provenance": {
+        "origin": "manual",
+        "contributingSources": [
+          "manual"
+        ],
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "confidence": 1,
+        "connectionId": null
+      }
+    },
+    "nextIncomeAt": {
+      "at": "2026-08-09T09:00:00.000Z",
+      "provenance": {
+        "origin": "provider",
+        "contributingSources": [
+          "provider"
+        ],
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "confidence": 0.9,
+        "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "nextIncomeAmount": {
+      "minorUnits": 820000,
+      "currency": "ILS",
+      "provenance": {
+        "origin": "provider",
+        "contributingSources": [
+          "provider"
+        ],
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "confidence": 0.9,
+        "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "obligationsBeforeNextIncome": {
+      "minorUnits": 122200,
+      "currency": "ILS",
+      "provenance": {
+        "origin": "computed",
+        "contributingSources": [
+          "provider"
+        ],
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "confidence": 0.9,
+        "connectionId": null
+      }
+    },
+    "fixedMonthlyObligations": {
+      "minorUnits": 516347,
+      "currency": "ILS",
+      "provenance": {
+        "origin": "provider",
+        "contributingSources": [
+          "provider"
+        ],
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "confidence": 0.9,
+        "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "recurringCount": {
+      "value": 5,
+      "provenance": {
+        "origin": "provider",
+        "contributingSources": [
+          "provider"
+        ],
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "confidence": 0.9,
+        "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "freeBuffer": {
+      "minorUnits": -62200,
+      "currency": "ILS",
+      "provenance": {
+        "origin": "computed",
+        "contributingSources": [
+          "manual",
+          "provider"
+        ],
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "confidence": 0.9,
+        "connectionId": null
+      }
+    },
+    "bufferBand": "negative",
+    "upcomingObligations": [
+      {
+        "obligationId": "3e1bfa199e5c1611dea8f3c625af838d",
+        "label": null,
+        "category": "card",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "amount": {
+          "minorUnits": 91200,
+          "currency": "ILS",
+          "provenance": {
+            "origin": "provider",
+            "contributingSources": [
+              "provider"
+            ],
+            "observedAt": "2026-08-09T09:00:00.000Z",
+            "confidence": 0.9,
+            "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "recurring": true
+      },
+      {
+        "obligationId": "40a02681b8c27f530459206596524664",
+        "label": null,
+        "category": "utility",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "amount": {
+          "minorUnits": 31000,
+          "currency": "ILS",
+          "provenance": {
+            "origin": "provider",
+            "contributingSources": [
+              "provider"
+            ],
+            "observedAt": "2026-08-09T09:00:00.000Z",
+            "confidence": 0.9,
+            "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "recurring": true
+      },
+      {
+        "obligationId": "7d109cfb182b4e191c596ffd4603bd58",
+        "label": null,
+        "category": "rent",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "amount": {
+          "minorUnits": 350000,
+          "currency": "ILS",
+          "provenance": {
+            "origin": "provider",
+            "contributingSources": [
+              "provider"
+            ],
+            "observedAt": "2026-08-09T09:00:00.000Z",
+            "confidence": 0.9,
+            "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "recurring": true
+      },
+      {
+        "obligationId": "bd2fe98fbbd570dc66d349e2fdf197d8",
+        "label": null,
+        "category": "subscription",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "amount": {
+          "minorUnits": 4990,
+          "currency": "ILS",
+          "provenance": {
+            "origin": "provider",
+            "contributingSources": [
+              "provider"
+            ],
+            "observedAt": "2026-08-09T09:00:00.000Z",
+            "confidence": 0.9,
+            "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "recurring": true
+      },
+      {
+        "obligationId": "00000000-0000-4000-8000-000000000001",
+        "label": "Semester B tuition",
+        "category": "tuition",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "amount": {
+          "minorUnits": 200000,
+          "currency": "ILS",
+          "provenance": {
+            "origin": "manual",
+            "contributingSources": [
+              "manual"
+            ],
+            "observedAt": "2026-08-09T09:00:00.000Z",
+            "confidence": 1,
+            "connectionId": null
+          }
+        },
+        "recurring": false
+      },
+      {
+        "obligationId": "1da4920595d9c939150764189597c3dd",
+        "label": null,
+        "category": "subscription",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "amount": {
+          "minorUnits": 2990,
+          "currency": "ILS",
+          "provenance": {
+            "origin": "provider",
+            "contributingSources": [
+              "provider"
+            ],
+            "observedAt": "2026-08-09T09:00:00.000Z",
+            "confidence": 0.9,
+            "connectionId": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "recurring": true
+      }
+    ],
+    "savingsGoal": null,
+    "sourceKinds": [
+      "manual",
+      "provider"
+    ],
+    "missingSourceKinds": [],
+    "conflicts": [
+      {
+        "field": "cash_available",
+        "providerValue": 180000,
+        "manualValue": 60000,
+        "resolvedTo": "manual",
+        "reason": "user_correction_overrides_observation"
+      }
+    ]
+  }
+}

@@ -49,6 +49,12 @@ import {
 } from '../schemas/calendar';
 import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
 import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readiness';
+import {
+  financialConnectionSchema,
+  financialContextResponseSchema,
+  financialManualResponseSchema,
+  financialManualSavedSchema,
+} from '../schemas/financial';
 import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
 import {
   icsDeadlineDecidedSchema,
@@ -179,6 +185,14 @@ const CASES: Array<[string, z.ZodType]> = [
   ['reminders.settingsDefault', reminderSettingsResponseSchema],
   ['reminders.settingsSaved', reminderSettingsResponseSchema],
   ['reminders.receiptsRecorded', hardReceiptsResponseSchema],
+  // The financial context (#financial-v1). The context fixture is recorded
+  // connected, corrected and overdrawn on purpose: an empty state is all
+  // nulls, which every schema here accepts and none of them proves.
+  ['financial.context', financialContextResponseSchema],
+  ['financial.manual', financialManualResponseSchema],
+  ['financial.manualSaved', financialManualSavedSchema],
+  ['financial.connected', financialConnectionSchema],
+  ['financial.connectionOff', financialConnectionSchema],
   ['readiness.current', readinessResponseSchema],
   ['readiness.saved', readinessSavedSchema],
   ['devices.registered', deviceRegisteredSchema],

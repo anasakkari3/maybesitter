@@ -27,6 +27,7 @@ import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen
 import { ActivityScreen } from './features/activity/ActivityScreen';
 import { RoutineSettingsScreen } from './features/settings/RoutineSettingsScreen';
 import { ReadinessSettingsScreen } from './features/settings/ReadinessSettingsScreen';
+import { FinancialContextScreen } from './features/settings/FinancialContextScreen';
 import { NotificationsSettingsScreen } from './features/settings/NotificationsSettingsScreen';
 import { CalendarSettingsScreen } from './features/settings/CalendarSettingsScreen';
 import { FootballSettingsScreen } from './features/settings/FootballSettingsScreen';
@@ -146,6 +147,9 @@ export function Root() {
           )}
           {s.screen === 'routineSettings' && (
             <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.go('settings')} />
+          )}
+          {s.screen === 'financialContext' && (
+            <FinancialContextScreen key="financialContext" onBack={() => latest.current.go('settings')} />
           )}
           {s.screen === 'readinessSettings' && (
             <ReadinessSettingsScreen key="readinessSettings" onBack={() => latest.current.go('settings')} />

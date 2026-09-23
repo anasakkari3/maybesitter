@@ -83,6 +83,10 @@ export type Screen =
   | 'activity'
   | 'routineSettings'
   | 'readinessSettings'
+  // Settings → Your context → Financial context (#financial-v1). What is
+  // available, what is due before the next income, and what is left — read
+  // only, and shown rather than acted on.
+  | 'financialContext'
   | 'notificationsSettings'
   // Settings → Calendar (UC-3.1, #185). Where confirmed commitments are
   // written, which calendar on this device, and the way to take them back.

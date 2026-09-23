@@ -116,6 +116,16 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'forgets what was inferred about someone, never what they did. Nothing here is derived: there '
     + 'is no score, no streak and no confidence, only a date, a state and a duration. Deleting the '
     + 'habit takes its dates with it, and account deletion takes the whole tree.',
+  financialInputs:
+    'what the user typed about their own money (#financial-v1) — a salary they entered, a bill '
+    + 'only they know about, a balance they corrected by hand. Kept for the reason `commitments` '
+    + 'is: none of it is derived, there is no score and no confidence, and every row exists '
+    + 'because somebody filled in a field. It is also the collection this button would be most '
+    + 'damaging to get wrong, because it is the only place a correction lives — purging it would '
+    + 'hand every field the user had overruled back to the bank without telling them. Nothing '
+    + 'inferred is in here to forget: the balances, the cadence and the buffer are computed at '
+    + 'read time and never written down. Removing one row is the control beside it, and account '
+    + 'deletion takes the whole tree.',
   reminders: 'scheduling for the user’s own content',
   escalationStates: 'live delivery state for a commitment that still exists',
   events: 'the domain log the user’s content is replayed from',

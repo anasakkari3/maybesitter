@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "manual": {
+    "fields": [
+      {
+        "field": "cash_available",
+        "kind": "correction",
+        "value": 60000,
+        "observedAt": "2026-08-09T09:00:00.000Z"
+      }
+    ],
+    "obligations": [
+      {
+        "obligationId": "00000000-0000-4000-8000-000000000001",
+        "label": "Semester B tuition",
+        "category": "tuition",
+        "dueAt": "2026-08-09T09:00:00.000Z",
+        "amountMinorUnits": 200000,
+        "currency": "ILS",
+        "recurring": false,
+        "observedAt": "2026-08-09T09:00:00.000Z"
+      }
+    ]
+  }
+}

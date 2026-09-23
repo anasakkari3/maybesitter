@@ -181,6 +181,22 @@ export const EXTERNAL_TASK_REFS = 'externalTaskRefs';
  * colon, which `requireDocId` refuses — so the document id is `docIdForKey` of
  * it and the raw value is a field, exactly as the header above prescribes.
  */
+/**
+ * What the user told us about their own money (#financial-v1).
+ *
+ * One document per field the user has stated or corrected, and one per bill
+ * they typed in themselves. One row per field rather than an append-only
+ * history, because the newest thing somebody said is the only one that decides
+ * anything — and because deleting that row is the documented way to hand a
+ * field back to the bank, which an append-only log has no gesture for.
+ *
+ * Nothing derived lives here. No balance, no buffer, no computed state: the
+ * `FinancialState` is built at read time and never written down, so a stale
+ * balance cannot sit in a database waiting to be believed. What a provider
+ * observed is not here either — that is read through the connection each time.
+ */
+export const FINANCIAL_INPUTS = 'financialInputs';
+
 export const CALENDAR_SOURCES = 'calendarSources';
 
 /**
@@ -487,6 +503,7 @@ export const USER_SCOPED_COLLECTIONS = [
   DEVICE_CALENDAR_LINKS,
   FOOTBALL_FOLLOWS,
   EXTERNAL_TASK_REFS,
+  FINANCIAL_INPUTS,
   CALENDAR_SOURCES,
   BUSY_BLOCKS,
   ICS_FEEDS,

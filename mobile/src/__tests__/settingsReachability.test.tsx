@@ -29,6 +29,9 @@ import * as categoryEndpoints from '../api/endpoints/categories';
 import * as calendarEndpoints from '../api/endpoints/calendar';
 import * as feedEndpoints from '../api/endpoints/icsFeeds';
 import * as readinessEndpoints from '../api/endpoints/readiness';
+import * as financialEndpoints from '../api/endpoints/financial';
+import financialContextFixture from '../api/__fixtures__/financial.context.json';
+import financialConnectedFixture from '../api/__fixtures__/financial.connected.json';
 import { deviceCalendar } from '../features/calendar/deviceCalendar';
 import { resetWidgetSettingsForTests } from '../lib/deviceSettings/widget';
 import nextStepFixture from '../api/__fixtures__/nextStep.recommendation.json';
@@ -87,6 +90,8 @@ beforeEach(async () => {
     selectedSource: 'current_subjective',
     freshness: 'fresh',
   } as never);
+  jest.spyOn(financialEndpoints, 'getFinancialContext').mockResolvedValue(financialContextFixture as never);
+  jest.spyOn(financialEndpoints, 'getFinancialConnection').mockResolvedValue(financialConnectedFixture as never);
   jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('undetermined' as never);
   jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([]);
   jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({ success: true, feeds: [], deadlines: [] } as never);
@@ -146,6 +151,14 @@ describe('from Settings, on the merged Root', () => {
     await fireEvent.press(screen.getByTestId('settings-readiness'));
     await waitFor(() => expect(screen.queryByTestId('readiness-band')).not.toBeNull());
     expect(screen.queryByText(en.readinessTitle)).not.toBeNull();
+  });
+
+  it('reaches the financial context screen', async () => {
+    await openApp();
+    await openSettings();
+    await fireEvent.press(screen.getByTestId('settings-financial'));
+    await waitFor(() => expect(screen.queryByTestId('financial-band')).not.toBeNull());
+    expect(screen.queryByText(en.financialTitle)).not.toBeNull();
   });
 
   it('has no calendar links row when the build flag is off, and the widget row is still there', async () => {

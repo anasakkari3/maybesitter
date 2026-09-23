@@ -9,7 +9,8 @@ export type ProviderSurfaceId =
   | 'microsoft_graph'
   | 'todoist'
   | 'notion'
-  | 'rescuetime';
+  | 'rescuetime'
+  | 'financial_sandbox';
 
 export type ProviderPrepStage =
   | 'read_context'
@@ -96,6 +97,25 @@ export const PROVIDER_CONTEXT_CATALOG: readonly ProviderCatalogEntry[] = Object.
     connectionCapabilities: ['focus_session_read'],
     actionCapabilities: [],
     providerScopes: ['time_data:read'],
+    rawProviderToolsAllowedForModel: false,
+  },
+  {
+    surface: 'financial_sandbox',
+    provider: 'financial_sandbox',
+    displayName: 'Financial context (sandbox)',
+    prepStages: ['read_context'],
+    connectionCapabilities: ['financial_read'],
+    /*
+     * One action capability, and it is a read. `read_financial_context` is
+     * the id the read surface evaluates against `ACTION_CAPABILITY_POLICIES`
+     * before it touches the port — the same declaration Gmail, Graph, Todoist
+     * and Notion make for their reads. There is deliberately no second entry:
+     * the one action anybody would eventually want here moves money, and
+     * `spend_money` is `unsupported` in the policy table, so there is still no
+     * id for a future caller to reach for that does anything but read.
+     */
+    actionCapabilities: ['read_financial_context'],
+    providerScopes: ['accounts:read', 'balances:read', 'transactions:read', 'recurring:read'],
     rawProviderToolsAllowedForModel: false,
   },
 ] as const);
