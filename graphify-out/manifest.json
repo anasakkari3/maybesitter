@@ -3870,9 +3870,9 @@
     "semantic_hash": ""
   },
   "mobile/src/features/capture/ClarifySheet.tsx": {
-    "mtime": 1790112130.369677,
-    "seen": 1790112837.9623811,
-    "ast_hash": "a296132e1ba1e078ac60f6870799b08a",
+    "mtime": 1790120434.681345,
+    "seen": 1790120942.062772,
+    "ast_hash": "241368bb6759506dc4ed750828eb9981",
     "semantic_hash": ""
   },
   "mobile/src/features/capture/ClipboardImportSheet.tsx": {
@@ -3900,9 +3900,9 @@
     "semantic_hash": ""
   },
   "mobile/src/features/capture/__tests__/captureFlowReachable.test.tsx": {
-    "mtime": 1790111186.0328317,
-    "seen": 1790112837.962383,
-    "ast_hash": "f4e60f1a11e725aee8c3e27133c3ed19",
+    "mtime": 1790121339.7306635,
+    "seen": 1790121707.4098392,
+    "ast_hash": "653d30fbb3a3dc5d8e85d7ffa7344a6f",
     "semantic_hash": ""
   },
   "mobile/src/features/capture/__tests__/captureMachine.test.ts": {
@@ -5064,21 +5064,21 @@
     "semantic_hash": ""
   },
   "mobile/src/i18n/locales/ar.json": {
-    "mtime": 1790111186.060561,
-    "seen": 1790112837.9625332,
-    "ast_hash": "3f6d78e6468e853a239955a6e535a69c",
+    "mtime": 1790121162.5277867,
+    "seen": 1790121707.425625,
+    "ast_hash": "5251c887dfdb176cb073528534cf51ca",
     "semantic_hash": ""
   },
   "mobile/src/i18n/locales/en.json": {
-    "mtime": 1790111186.0608127,
-    "seen": 1790112837.9625332,
-    "ast_hash": "5cc32b293f937a622ab5f2f1c1cdeac0",
+    "mtime": 1790121162.5284588,
+    "seen": 1790121707.425625,
+    "ast_hash": "bdd925924d2b89c9c3fa22fd34d62e10",
     "semantic_hash": ""
   },
   "mobile/src/i18n/locales/he.json": {
-    "mtime": 1790111186.0609524,
-    "seen": 1790112837.962534,
-    "ast_hash": "daa9d717b68b0c8f4a95604bd9db17eb",
+    "mtime": 1790121162.5291562,
+    "seen": 1790121707.425626,
+    "ast_hash": "0e5a5ecae9a8131f62dce74d2d223e75",
     "semantic_hash": ""
   },
   "mobile/src/i18n/polyfills.ts": {
@@ -5370,9 +5370,9 @@
     "semantic_hash": ""
   },
   "mobile/src/screens/CalendarScreen.tsx": {
-    "mtime": 1790113666.9197047,
-    "seen": 1790113983.192893,
-    "ast_hash": "49eb117c6c5bf7c0387237884c8750ea",
+    "mtime": 1790120711.277345,
+    "seen": 1790120942.0629299,
+    "ast_hash": "5468ede55e66e8f13d574d074f7e4f39",
     "semantic_hash": ""
   },
   "mobile/src/screens/CaptureScreen.tsx": {
@@ -5406,15 +5406,15 @@
     "semantic_hash": ""
   },
   "mobile/src/screens/ReviewScreen.tsx": {
-    "mtime": 1790113384.8927126,
-    "seen": 1790113983.192895,
-    "ast_hash": "5259d11aa3249edb83cec52ef71a28ad",
+    "mtime": 1790121308.532492,
+    "seen": 1790121707.4256508,
+    "ast_hash": "2d423dad5ac6d402bb66c7ab1e02939a",
     "semantic_hash": ""
   },
   "mobile/src/screens/SavedScreen.tsx": {
-    "mtime": 1790112394.4048257,
-    "seen": 1790112837.962556,
-    "ast_hash": "ee3cc5bad2d107ca180c30cca0f3b698",
+    "mtime": 1790120568.7030387,
+    "seen": 1790120942.062933,
+    "ast_hash": "04f3bb8a98b8d8f7353fb25946deac6b",
     "semantic_hash": ""
   },
   "mobile/src/screens/SettingsScreen.tsx": {
@@ -5448,9 +5448,9 @@
     "semantic_hash": ""
   },
   "mobile/src/screens/TodayScreen.tsx": {
-    "mtime": 1790112130.3685958,
-    "seen": 1790112837.962558,
-    "ast_hash": "20bbb4544abf3dc5cd139380ccbb5442",
+    "mtime": 1790120323.5397565,
+    "seen": 1790120942.062935,
+    "ast_hash": "cc19ce7d6cd2e6db917d7b24514fcb72",
     "semantic_hash": ""
   },
   "mobile/src/screens/__tests__/calendarScreen.test.tsx": {
@@ -5490,9 +5490,9 @@
     "semantic_hash": ""
   },
   "mobile/src/screens/__tests__/todayScreen.test.tsx": {
-    "mtime": 1790111186.0725336,
-    "seen": 1790112837.9625611,
-    "ast_hash": "fb8a02ed5a1bc35b39e865d2ada189bb",
+    "mtime": 1790120711.277629,
+    "seen": 1790120942.0629382,
+    "ast_hash": "bad27a16c6a9ba2baeca496d71f65ca2",
     "semantic_hash": ""
   },
   "mobile/src/state/AppContext.tsx": {
@@ -5604,8 +5604,8 @@
     "semantic_hash": ""
   },
   "mobile/tsconfig.json": {
-    "mtime": 1790113802.017777,
-    "seen": 1790113983.1929228,
+    "mtime": 1790120999.9085343,
+    "seen": 1790121707.425674,
     "ast_hash": "b2f1728eb1c65a55c9dae868a696b5fd",
     "semantic_hash": ""
   },
@@ -10746,9 +10746,9 @@
     "semantic_hash": ""
   },
   "mobile/src/features/plan/TodayPlanRow.tsx": {
-    "mtime": 1790112229.9613628,
-    "seen": 1790112837.9624882,
-    "ast_hash": "f4bdbe61ebe71188989a753892f4d238",
+    "mtime": 1790121063.292756,
+    "seen": 1790121707.425557,
+    "ast_hash": "7ab7d6072a45aac8907d4da81c0385c1",
     "semantic_hash": ""
   },
   "mobile/src/features/plan/__tests__/TodayPlanRow.test.tsx": {
@@ -11133,6 +11133,36 @@
     "mtime": 1790111185.8872168,
     "seen": 1790112837.962867,
     "ast_hash": "4d4e3e5d0b7b7ed5cf76e2caf5347f8e",
+    "semantic_hash": ""
+  },
+  "mobile/src/features/today/DeadlineContext.tsx": {
+    "mtime": 1790120323.5030901,
+    "seen": 1790120942.062891,
+    "ast_hash": "8931c24e65caadf8f73887ec0f57bd70",
+    "semantic_hash": ""
+  },
+  "mobile/src/features/today/__tests__/dayContext.test.ts": {
+    "mtime": 1790120582.602106,
+    "seen": 1790120942.062892,
+    "ast_hash": "fdc7d3da4ea4ece5f637acb6c0bfd054",
+    "semantic_hash": ""
+  },
+  "mobile/src/features/today/dayContext.ts": {
+    "mtime": 1790120711.2770174,
+    "seen": 1790120942.0628932,
+    "ast_hash": "d36ffd650c99e74c1846c0f935d01e88",
+    "semantic_hash": ""
+  },
+  "docs/design/astra-r2-polish.md": {
+    "mtime": 1790114231.0457244,
+    "seen": 1790120942.063241,
+    "ast_hash": "f674462b27555b1ac6909c91553c8b1c",
+    "semantic_hash": ""
+  },
+  "docs/design/astra-r3-context.md": {
+    "mtime": 1790121675.3244138,
+    "seen": 1790121707.425972,
+    "ast_hash": "0396906b5cafaa61050dace4cd03f299",
     "semantic_hash": ""
   }
 }
