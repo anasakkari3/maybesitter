@@ -39,13 +39,17 @@ import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import { buildDailyPlanInput, dailyPlanScheduleSources } from './buildDailyPlan';
-import { reconcileScheduleBlocks, schedulePlan } from '../../planning/scheduler';
+import { projectPlanLayerIntoConstraints } from './dailyPlanService';
+import { PROTECTED_OWNERSHIP, reconcileScheduleBlocks, schedulePlan } from '../../planning/scheduler';
 import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile } from '../mobile/routineProfileService';
 import { composeCurrentUserState, type CurrentUserState } from '../../userState/userStateService';
 import { executeContinuousReplanPipeline } from '../../planning/replan';
 import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
+import type { Plan, PlannedItem } from '../../../src/contracts/v1/planningContracts';
+import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
+import { toEpochMs } from '../../planning/shared/time';
 import type {
   ChangedEntityFacts,
   ContinuousReplanPipelineResult,
@@ -146,6 +150,54 @@ async function acknowledgeChanges(
   for (const change of supplied) {
     await storage.delete(userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)));
   }
+}
+
+/**
+ * The stored plan as the replan must read it: protected blocks where they sit
+ * (#585).
+ *
+ * The solve reads a protection's anchor off the blocks, and a drag re-anchors
+ * it there (`protectionAfterMove`) while `plan.scheduled` keeps the planner's
+ * placement — the move itself lives in `edits`. Measured against
+ * `plan.scheduled`, a replan that keeps a dragged protected block where the
+ * person put it reports moving it there: the user's own drag is charged to the
+ * churn budget, flips the policy to review, and is offered back to them as the
+ * system's proposal. The impact evaluator has the mirror-image blind spot — a
+ * meeting landing on the dragged hour would not overlap anything it can see.
+ *
+ * Protected blocks only. For them the anchor the solver honours, the block's
+ * `currentInterval` and what the person sees are one placement by
+ * construction. An unprotected drag is not an anchor — the solver is free to
+ * place the item elsewhere, and whether a replan should respect such a drag at
+ * all is a separate question this does not answer by the back door.
+ *
+ * The reserved interval travels with the effort, buffers intact.
+ */
+function planAsProtectionsHoldIt(stored: StoredDailyPlan): Plan {
+  const held = new Map<string, { startsAt: string; endsAt: string }>();
+  for (const block of stored.blocks ?? []) {
+    if (ownershipOf(block) !== PROTECTED_OWNERSHIP || block.currentInterval === null) continue;
+    held.set(block.source.id, block.currentInterval);
+  }
+  if (held.size === 0) return stored.plan;
+  const at = (ms: number) => new Date(ms).toISOString();
+  return {
+    ...stored.plan,
+    scheduled: stored.plan.scheduled.map((entry): PlannedItem => {
+      const interval = held.get(entry.itemId);
+      if (interval === undefined) return entry;
+      const startMs = toEpochMs(interval.startsAt);
+      const endMs = toEpochMs(interval.endsAt);
+      if (startMs === toEpochMs(entry.interval.startsAt) && endMs === toEpochMs(entry.interval.endsAt)) return entry;
+      const before = toEpochMs(entry.interval.startsAt) - toEpochMs(entry.reservedInterval.startsAt);
+      const after = toEpochMs(entry.reservedInterval.endsAt) - toEpochMs(entry.interval.endsAt);
+      return {
+        itemId: entry.itemId,
+        interval: { startsAt: at(startMs), endsAt: at(endMs) },
+        reservedInterval: { startsAt: at(startMs - before), endsAt: at(endMs + after) },
+      };
+    }),
+  };
 }
 
 /**
@@ -265,12 +317,14 @@ export async function processStateChangesForUser(
     };
   }
 
-  // 3. Build PlanImpactView from stored plan if available
-  const planView: PlanImpactView | null = storedPlan
+  // 3. Build PlanImpactView from stored plan if available. Both the impact
+  // view and the diff base read the plan with protected blocks where they sit.
+  const basePlan = storedPlan ? planAsProtectionsHoldIt(storedPlan) : null;
+  const planView: PlanImpactView | null = basePlan
     ? {
         scopeId: uid,
-        horizon: storedPlan.plan.horizon,
-        scheduled: storedPlan.plan.scheduled,
+        horizon: basePlan.horizon,
+        scheduled: basePlan.scheduled,
       }
     : null;
 
@@ -295,11 +349,38 @@ export async function processStateChangesForUser(
   };
 
   const dailyInput = buildDailyPlanInput(inputArgs);
-  const sources = dailyPlanScheduleSources(dailyInput.constraints);
+  /**
+   * The request the morning build would have solved, not the bare adapter
+   * output (#585). `projectPlanLayerIntoConstraints` is the function
+   * `composeDailyPlan` calls, so the two solvers of a day cannot disagree about
+   * what is protected or how much room a person needs between items.
+   *
+   * Without it this solve treated every protected hour as ordinary flexible
+   * work: the auto-apply branch moved it without asking, the review branch
+   * offered a patch that moved it, and the blocks reconciled below — built from
+   * items that carried no protection — wrote the new generation with the
+   * protection gone. The solve, the schedule sources and the reconciliation
+   * below all read `constraints`, the reconciliation for that last reason.
+   *
+   * What does *not* read it is the stored document's own `constraints` field:
+   * the auto-apply branch builds its document with `...storedPlan`, so that
+   * field still describes the generation being replaced. That predates #585
+   * and is left to its own issue rather than changed here.
+   */
+  const constraints = await projectPlanLayerIntoConstraints({
+    uid,
+    now: nowIso,
+    timezone: settings.timezone,
+    commitments: inputArgs.commitments,
+    busyBlocks,
+    constraints: dailyInput.constraints,
+    previousBlocks: storedPlan?.blocks ?? null,
+  }, { storage, userDocument: user });
+  const sources = dailyPlanScheduleSources(constraints);
 
   // Planner solve closure
   const planner = () => {
-    const plan = schedulePlan(dailyInput.constraints, dailyInput.config);
+    const plan = schedulePlan(constraints, dailyInput.config);
     return { plan };
   };
 
@@ -308,7 +389,7 @@ export async function processStateChangesForUser(
     changes: rawChanges,
     planView,
     entityFacts: options.entityFacts ?? null,
-    basePlan: storedPlan?.plan ?? null,
+    basePlan,
     planner,
     policyConfig: options.policyConfig,
     scopeId: uid,
@@ -349,7 +430,7 @@ export async function processStateChangesForUser(
       },
       plan: pipelineResult.newPlan,
       blocks: reconcileScheduleBlocks({
-        constraints: dailyInput.constraints,
+        constraints,
         plan: pipelineResult.newPlan,
         generation: nextGeneration,
         sources,
