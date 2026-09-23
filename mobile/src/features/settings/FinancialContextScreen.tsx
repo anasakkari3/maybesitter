@@ -65,6 +65,44 @@ function day(instant: string): string {
   return ltr(new Date(instant).toISOString().slice(0, 10));
 }
 
+/** Where a value came from, said in words beside the value itself. */
+function Origin({ provenance, testID }: { provenance: FinancialProvenance; testID: string }) {
+  const { t, p } = useApp();
+  return (
+    <Txt size={12} color={p.mu} testID={testID}>
+      {provenance.origin === 'computed'
+        ? `${t[ORIGIN_COPY.computed]} · ${provenance.contributingSources.map(source => t[ORIGIN_COPY[source]]).join(' + ')}`
+        : t[ORIGIN_COPY[provenance.origin]]}
+    </Txt>
+  );
+}
+
+/*
+ * Module-level, not declared inside the screen: a component created during
+ * render is a new type on every render, so React unmounts and remounts its
+ * subtree each time the screen re-renders (the `react-hooks` lint rule, and
+ * the reason). Neither of these holds state, so nothing was lost — but the
+ * remount was real, and the rule is not one to carry a warning for.
+ */
+function Line({ label, amount, testID }: {
+  label: string;
+  amount: { minorUnits: number; currency: string; provenance: FinancialProvenance } | null;
+  testID: string;
+}) {
+  const { t } = useApp();
+  return (
+    <View style={{ gap: 2 }}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+        <Txt size={14}>{label}</Txt>
+        <Txt size={15} weight={600} testID={testID}>
+          {amount === null ? t.financialUnknown : money(amount.minorUnits, amount.currency)}
+        </Txt>
+      </View>
+      {amount === null ? null : <Origin provenance={amount.provenance} testID={`${testID}-origin`} />}
+    </View>
+  );
+}
+
 export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
   const { t, p } = useApp();
   const insets = useSafeAreaInsets();
@@ -79,31 +117,6 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
 
   const state: FinancialState | null = context.data?.state ?? null;
   const connected = connection.data?.connected === true;
-
-  /** Where a value came from, said in words beside the value itself. */
-  const Origin = ({ provenance, testID }: { provenance: FinancialProvenance; testID: string }) => (
-    <Txt size={12} color={p.mu} testID={testID}>
-      {provenance.origin === 'computed'
-        ? `${t[ORIGIN_COPY.computed]} · ${provenance.contributingSources.map(source => t[ORIGIN_COPY[source]]).join(' + ')}`
-        : t[ORIGIN_COPY[provenance.origin]]}
-    </Txt>
-  );
-
-  const Line = ({ label, amount, testID }: {
-    label: string;
-    amount: { minorUnits: number; currency: string; provenance: FinancialProvenance } | null;
-    testID: string;
-  }) => (
-    <View style={{ gap: 2 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-        <Txt size={14}>{label}</Txt>
-        <Txt size={15} weight={600} testID={testID}>
-          {amount === null ? t.financialUnknown : money(amount.minorUnits, amount.currency)}
-        </Txt>
-      </View>
-      {amount === null ? null : <Origin provenance={amount.provenance} testID={`${testID}-origin`} />}
-    </View>
-  );
 
   const saveCorrection = async () => {
     setFailed(false);
