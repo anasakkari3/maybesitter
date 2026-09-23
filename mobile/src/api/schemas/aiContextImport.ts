@@ -5,13 +5,15 @@
  * profile contract several screens already read, and the locale files have
  * already taught this repo what happens when two lanes edit one hot file.
  *
- * The kind and category enums are imported rather than restated. Two copies of
- * the same eight categories is two lists that drift, and the one that drifts
- * rejects a live response.
+ * The kind and category enums come from `common.ts` rather than being restated.
+ * Two copies of the same eight categories is two lists that drift, and the one
+ * that drifts rejects a live response. They live in `common` rather than in
+ * `profile` because `profile`'s own response now carries this file's receipt,
+ * and an import in both directions is a load-time cycle: zod evaluates at module
+ * scope, so one of the two halves comes back undefined.
  */
 import { z } from 'zod';
-import { isoDateTime } from './common';
-import { profileSuggestionSchema } from './profile';
+import { isoDateTime, suggestionSchema } from './common';
 
 /**
  * A closed list, and closed on purpose: the app renders a *name* for each one,
@@ -38,7 +40,7 @@ export const importRelationSchema = z.enum(['new', 'update', 'conflict']);
  * the review screen needs it to show which sentence is being replaced. The
  * model never saw an id — it was shown numbers.
  */
-export const importCandidateSchema = profileSuggestionSchema.extend({
+export const importCandidateSchema = suggestionSchema.extend({
   relation: importRelationSchema,
   relatesToId: z.string().nullable(),
 });

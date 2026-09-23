@@ -170,3 +170,28 @@ export type CommitmentList = z.infer<typeof commitmentListSchema>;
 export function importanceOf(commitment: Commitment): 'must' | 'should' | 'nice' {
   return commitment.priority.level === 'high' ? 'must' : commitment.priority.level === 'low' ? 'nice' : 'should';
 }
+
+/**
+ * The vocabulary a proposed fact is written in.
+ *
+ * Here rather than in `profile.ts` because two schema files need it — the
+ * self-description and the AI context import — and having the second import the
+ * first produced a load-time cycle: `profile.ts` needs the import's receipt for
+ * its own response, so the arrow has to point one way and this is the only
+ * place both ends can reach.
+ */
+export const suggestionKindSchema = z.enum(['fact', 'preference', 'goal']);
+
+export const suggestionCategorySchema = z.enum([
+  'work_study', 'schedule', 'household', 'social',
+  'fitness_habit', 'learning', 'personal_project', 'other',
+]);
+
+/** One thing a model proposed. Nothing is stored until the user keeps it. */
+export const suggestionSchema = z.object({
+  kind: suggestionKindSchema,
+  category: suggestionCategorySchema,
+  content: z.string(),
+  targetDate: z.string().nullable(),
+  confidence: z.number(),
+});

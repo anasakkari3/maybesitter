@@ -9,7 +9,7 @@ import { createSpeechCaptureService, SpeechEventBridge } from '../capture/voice/
 import { speechLanguageForTag } from '../capture/voice/speechLocale';
 import type { SpeechCaptureService } from '../capture/voice/SpeechCaptureService';
 import { loadSpeechLanguage, type SpeechLanguagePref } from '../../lib/deviceSettings/speechLanguage';
-import { MAX_LIFE_ANSWER_LENGTH, SETUP_QUESTIONS, hasMeaningfulAnswer } from './setupChat';
+import { MAX_ANSWER_LENGTH, MAX_LIFE_ANSWER_LENGTH, SETUP_QUESTIONS, hasMeaningfulAnswer, type SetupQuestion } from './setupChat';
 
 /**
  * The first moment of MaybeSitter after sign-in: "tell me about your life".
@@ -43,6 +43,9 @@ import { MAX_LIFE_ANSWER_LENGTH, SETUP_QUESTIONS, hasMeaningfulAnswer } from './
  * of the screen. The footer holds the conversation's own action and Back.
  */
 export function SetupLifeStep({
+  question,
+  gapCount = 0,
+  onImport,
   answer,
   onAnswer,
   onContinue,
@@ -52,6 +55,20 @@ export function SetupLifeStep({
   failed = false,
   speech,
 }: {
+  /**
+   * Which question this screen is asking.
+   *
+   * Normally the life narrative. After an AI context import it may be
+   * `LIFE_BRIEF` — the same screen and the same field, asking "anything else we
+   * should know?" with a short answer's cap, because the import already covered
+   * most of what the long version asks for. It is never absent: a setup chat
+   * with nothing in it is not an outcome.
+   */
+  question?: SetupQuestion;
+  /** How many questions an import removed, for the line above the prompt. */
+  gapCount?: number;
+  /** Opens the AI context import. Absent when there is nothing to import from. */
+  onImport?: (() => void) | undefined;
   answer: string;
   onAnswer: (next: string) => void;
   onContinue: () => void;
@@ -62,9 +79,15 @@ export function SetupLifeStep({
   /** Injected in tests; the app's own recogniser otherwise. */
   speech?: SpeechCaptureService | undefined;
 }) {
-  const { t, p, rtl, lang } = useApp();
+  const { t, p, rtl, lang, tr } = useApp();
   const copy = t as unknown as Record<keyof Strings, string>;
-  const promptKeys = SETUP_QUESTIONS[0]!.chipKeys;
+  const asked = question ?? SETUP_QUESTIONS[0]!;
+  const promptKeys = asked.chipKeys;
+  // The brief stand-in is a short question, so it gets a short answer's cap —
+  // the field, its counter and the server's budget all agree without this
+  // screen having to know which variant it is rendering.
+  const cap = asked.kind === 'narrative' ? MAX_LIFE_ANSWER_LENGTH : MAX_ANSWER_LENGTH;
+  const title = copy[asked.promptKey];
   const input = useRef<TextInput>(null);
   const promptRow = useRef<ScrollView>(null);
   const [activePrompt, setActivePrompt] = useState<keyof Strings | null>(null);
@@ -88,7 +111,7 @@ export function SetupLifeStep({
 
   const withSpoken = (base: string, spoken: string) => {
     const joined = base.trim() === '' ? spoken : `${base.replace(/\s+$/, '')} ${spoken}`;
-    return Array.from(joined).slice(0, MAX_LIFE_ANSWER_LENGTH).join('');
+    return Array.from(joined).slice(0, cap).join('');
   };
   const onPartial = (spoken: string) => {
     if (spokenFrom.current === null) spokenFrom.current = latestAnswer.current;
@@ -105,7 +128,7 @@ export function SetupLifeStep({
   return (
     <OnboardingChrome
       step="about"
-      title={t.obSetupLifeTitle}
+      title={title}
       testID="onboarding-setup"
       primary={{ label: t.obSetupLifeCta, onPress: onContinue, disabled: !ready }}
       secondary={{ label: t.obBack, onPress: onBack }}
@@ -113,6 +136,30 @@ export function SetupLifeStep({
       footNote={failed ? t.obAboutFailed : undefined}
     >
       {speech ? null : <SpeechEventBridge />}
+
+      {/* Only after an import, and only when it actually removed questions.
+          Saying "just three things left" to somebody who was asked all five
+          would be a claim about work they never saw happen. */}
+      {gapCount > 0 ? (
+        <Txt size={13} color={p.mu} lh={1.5} testID="setup-gaps">
+          {tr('obSetupGapsHeadingN', { n: gapCount })}
+        </Txt>
+      ) : null}
+
+      {/* The offer, on the first screen and nowhere else: this is the moment
+          somebody is being asked to type out their life, and it is the moment
+          "you already told another assistant all this" is worth saying.
+          Absent once an import has happened — `onImport` is not passed then. */}
+      {onImport ? (
+        <Btn
+          label={t.aiImportTitle}
+          onPress={onImport}
+          testID="setup-ai-import"
+          style={{ minHeight: 44, justifyContent: 'center' }}
+        >
+          <Txt size={14} color={p.ac} lh={1.5}>{t.aiImportEntrySub}</Txt>
+        </Btn>
+      ) : null}
 
       <View style={{ gap: 8 }}>
         <Txt size={17} lh={1.55} testID="setup-life-body">{t.obSetupLifeBody}</Txt>
@@ -181,12 +228,12 @@ export function SetupLifeStep({
         <TextInput
           ref={input}
           testID="setup-life-input"
-          accessibilityLabel={t.obSetupLifeTitle}
+          accessibilityLabel={title}
           value={answer}
           onChangeText={onAnswer}
           placeholder={activePrompt ? copy[activePrompt] : t.obSetupLifePlaceholder}
           placeholderTextColor={p.mu}
-          maxLength={MAX_LIFE_ANSWER_LENGTH}
+          maxLength={cap}
           multiline
           scrollEnabled={false}
           editable={!reading}

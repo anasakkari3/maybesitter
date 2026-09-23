@@ -66,6 +66,7 @@ import {
 import type { MemoryOrigin } from '../../../src/contracts/v1/memoryContracts';
 import type { FeedbackEventStore } from '../../../src/contracts/v1/feedbackContracts';
 import { createStorageFeedbackEventStore } from '../../feedback/feedbackEventStore';
+import { clearAiContextImportReceipt } from './aiContextImportService';
 import { deletePersonalizationScope } from '../../personalization/deletion';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
@@ -603,6 +604,12 @@ export async function deleteAllMemory(
   // Counted before the delete, from the store, because `deleteScope`'s own
   // return value is the thing under suspicion here.
   const held = (await memory.listAll(uid)).length;
+
+  // Before the purge, and outside it: `deletePersonalizationScope` empties
+  // collections and cannot see the user document's profile map, so the "last
+  // brought over" date would survive a delete-everything and go on naming a
+  // day this account imported memories that no longer exist.
+  await clearAiContextImportReceipt(uid, { ...(options.storage ? { storage: options.storage } : {}) });
 
   const receipt = await deletePersonalizationScope({
     scopeId: uid,

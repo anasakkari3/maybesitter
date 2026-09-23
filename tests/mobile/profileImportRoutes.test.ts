@@ -133,7 +133,9 @@ test('an oversized paste is refused with the limit the client can show', async (
     const response = await importPost(request('/api/mobile/profile/import', {
       text: 'x'.repeat(MAX_IMPORT_LENGTH + 1), assistant: 'chatgpt',
     }));
-    assert.equal(response.status, 400);
+    // 413, as capture and share answer for the same thing, so the app's
+    // existing mapping gives it a typed error carrying the number.
+    assert.equal(response.status, 413);
     const body = await json(response);
     assert.equal(body.reason, 'import_too_long');
     assert.equal(body.maxCharacters, MAX_IMPORT_LENGTH);

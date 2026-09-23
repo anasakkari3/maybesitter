@@ -108,8 +108,11 @@ export type SetupAnswers = Record<SetupQuestionId, string>;
 export const EMPTY_SETUP_ANSWERS: SetupAnswers = { life: '', day: '', places: '', done: '', habits: '' };
 
 /** How many questions got a real answer — whitespace is not one. */
-export function answeredCount(answers: SetupAnswers): number {
-  return SETUP_QUESTIONS.filter((question) => answers[question.id].trim() !== '').length;
+export function answeredCount(
+  answers: SetupAnswers,
+  questions: readonly SetupQuestion[] = SETUP_QUESTIONS,
+): number {
+  return questions.filter((question) => answers[question.id].trim() !== '').length;
 }
 
 /** Enough typed to be worth reading: the first screen's CTA waits for this. */
@@ -131,18 +134,31 @@ function codePoints(text: string): number {
   return Array.from(text).length;
 }
 
-function questionFor(id: SetupQuestionId): SetupQuestion {
-  return SETUP_QUESTIONS.find((question) => question.id === id)!;
+/**
+ * The question with this id, out of the list actually being asked.
+ *
+ * `questions` defaults to the full five so every existing caller is unchanged.
+ * It is a parameter because gap filling (`setupGaps`) asks a *subset*, and one
+ * of its entries is a substituted brief narrative: looking the id up in the
+ * module list would find the long one and cap the field at 600 while the
+ * counter on screen said 150.
+ */
+function questionFor(id: SetupQuestionId, questions: readonly SetupQuestion[] = SETUP_QUESTIONS): SetupQuestion {
+  return questions.find((question) => question.id === id) ?? SETUP_QUESTIONS.find((question) => question.id === id)!;
 }
 
 /**
  * The answers exactly as they will be sent, each clamped in question order:
  * the narrative to its own cap, a short answer to whatever budget is left.
  */
-function composedAnswers(answers: SetupAnswers, t: Strings): { question: SetupQuestion; answer: string }[] {
+function composedAnswers(
+  answers: SetupAnswers,
+  t: Strings,
+  questions: readonly SetupQuestion[] = SETUP_QUESTIONS,
+): { question: SetupQuestion; answer: string }[] {
   const out: { question: SetupQuestion; answer: string }[] = [];
   let used = 0;
-  for (const question of SETUP_QUESTIONS) {
+  for (const question of questions) {
     const raw = answers[question.id].trim();
     if (raw === '') continue;
     const overhead = codePoints(String(t[question.labelKey])) + 2 + (out.length > 0 ? 1 : 0);
@@ -165,10 +181,15 @@ function composedAnswers(answers: SetupAnswers, t: Strings): { question: SetupQu
  * server's budget, and then exactly what is left — so the field, the counter
  * and the composed text all agree, and nothing is cut after the user sees it.
  */
-export function answerCap(answers: SetupAnswers, id: SetupQuestionId, t: Strings): number {
-  const question = questionFor(id);
+export function answerCap(
+  answers: SetupAnswers,
+  id: SetupQuestionId,
+  t: Strings,
+  questions: readonly SetupQuestion[] = SETUP_QUESTIONS,
+): number {
+  const question = questionFor(id, questions);
   if (question.kind === 'narrative') return MAX_LIFE_ANSWER_LENGTH;
-  const others = composedAnswers({ ...answers, [id]: '' }, t);
+  const others = composedAnswers({ ...answers, [id]: '' }, t, questions);
   const used = others.reduce(
     (sum, { question: q, answer }, i) => sum + codePoints(String(t[q.labelKey])) + 2 + (i > 0 ? 1 : 0) + codePoints(answer),
     0,
@@ -185,19 +206,29 @@ export function answerCap(answers: SetupAnswers, id: SetupQuestionId, t: Strings
  * by a path other than the field (a restored cache, say) cannot push the
  * whole past the server cap. The final cut is belt and braces.
  */
-export function composeDescription(answers: SetupAnswers, t: Strings): string {
-  return composedAnswers(answers, t)
+export function composeDescription(
+  answers: SetupAnswers,
+  t: Strings,
+  questions: readonly SetupQuestion[] = SETUP_QUESTIONS,
+): string {
+  return composedAnswers(answers, t, questions)
     .map(({ question, answer }) => `${t[question.labelKey]}: ${answer}`)
     .join('\n')
     .slice(0, MAX_DESCRIPTION_LENGTH);
 }
 
 /** The index after `index`, or null on the last question (or off the end). */
-export function nextQuestionIndex(index: number): number | null {
-  return index >= 0 && index < SETUP_QUESTIONS.length - 1 ? index + 1 : null;
+export function nextQuestionIndex(
+  index: number,
+  questions: readonly SetupQuestion[] = SETUP_QUESTIONS,
+): number | null {
+  return index >= 0 && index < questions.length - 1 ? index + 1 : null;
 }
 
 /** The index before `index`, or null on the first question (or off the start). */
-export function previousQuestionIndex(index: number): number | null {
-  return index > 0 && index < SETUP_QUESTIONS.length ? index - 1 : null;
+export function previousQuestionIndex(
+  index: number,
+  questions: readonly SetupQuestion[] = SETUP_QUESTIONS,
+): number | null {
+  return index > 0 && index < questions.length ? index - 1 : null;
 }

@@ -27,8 +27,11 @@ import { NotificationsStep } from './NotificationsStep';
 import { AboutYouStep } from './AboutYouStep';
 import { AboutYouReviewStep } from './AboutYouReviewStep';
 import { SetupChatStep } from './SetupChatStep';
+import { AiImportFlowStep } from './AiImportFlowStep';
+import { remainingQuestions } from './setupGaps';
+import { SETUP_QUESTIONS } from './setupChat';
 import { EMPTY_SETUP_ANSWERS, answeredCount, composeDescription, type SetupAnswers } from './setupChat';
-import type { ProfileSuggestion } from '../../api/schemas/profile';
+import type { ProfileSuggestion, SuggestionCategory } from '../../api/schemas/profile';
 import { NotFoundError } from '../../api/errors';
 import { useConfirmProfileSuggestions, useDescribeProfile } from '../../api/queries';
 import type { AcceptedSuggestion } from './aboutYou';
@@ -97,6 +100,9 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   // proposal, because the proposal expires in thirty minutes anyway and
   // resuming into an empty checklist would be worse than asking again.
   const [proposal, setProposal] = useState<{ id: string; suggestions: ProfileSuggestion[] } | null>(null);
+  /** The import detour, and what it turned out to have covered. */
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<readonly SuggestionCategory[] | null>(null);
   const [describeFailed, setDescribeFailed] = useState(false);
   const [confirmFailure, setConfirmFailure] = useState<unknown>(undefined);
   const describe = useDescribeProfile();
@@ -296,6 +302,11 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     await finishSetup('saved');
   }, [confirmSuggestions, finishSetup]);
 
+  // What is still worth asking. `remainingQuestions([])` is the full five and
+  // the identical array, so an account that skipped the import is byte-for-byte
+  // where it was before this feature existed.
+  const questions = remainingQuestions(imported ?? []);
+
   if (step === null || step === 'done') {
     // Held on the plain background while the stored step is read, for the same
     // reason AuthGate does: flashing the welcome screen at somebody who is
@@ -336,6 +347,19 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   }
 
   if (step === 'about') {
+    // A fourth sub-state of `about`, keyed on local state exactly as the other
+    // three are. Deliberately not a sixth ONBOARDING_STEP: the stored progress
+    // is per device and a user who reloads mid-import should come back to the
+    // setup chat, not to a step that only exists when they took a detour. The
+    // proposal expires in thirty minutes anyway.
+    if (importing) {
+      return (
+        <AiImportFlowStep
+          onDone={(categories) => { setImported(categories); setImporting(false); }}
+          onCancel={() => setImporting(false)}
+        />
+      );
+    }
     if (proposal) {
       return (
         <AboutYouReviewStep
@@ -362,6 +386,9 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       <SetupChatStep
         answers={setup.answers}
         index={setup.index}
+        questions={questions}
+        gapCount={SETUP_QUESTIONS.length - questions.length}
+        {...(imported === null ? { onImport: () => setImporting(true) } : {})}
         onChange={(update) => setSetup(previous => ({ ...previous, answers: update(previous.answers) }))}
         onIndexChange={(index) => setSetup(previous => ({ ...previous, index }))}
         onRead={() => void readDescription(composeDescription(setup.answers, t))}

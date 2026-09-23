@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { isoDateTime } from './common';
+import { aiContextImportReceiptSchema } from './aiContextImport';
+import { isoDateTime, suggestionSchema } from './common';
 
 /**
  * The routine profile and the memory it becomes (UC-2.7a, #167).
@@ -32,6 +33,15 @@ export const routineProfileSchema = z.object({
 export const profileResponseSchema = z.object({
   routine: routineProfileSchema.nullable(),
   updatedAt: isoDateTime.nullable(),
+  /**
+   * When context was last brought over from another AI assistant.
+   *
+   * Defaulted as well as nullable so a server that predates the feature still
+   * parses: an older response simply has no such field, and a screen that
+   * crashed the whole profile query over a missing one would take the routine
+   * settings down with it.
+   */
+  aiContextImport: aiContextImportReceiptSchema.nullable().default(null),
 });
 
 export const routineSavedSchema = z.object({
@@ -253,16 +263,7 @@ export type MemoryAdaptive = z.infer<typeof memoryAdaptiveSchema>;
  * until the user ticks it. The raw description is deliberately **not** in the
  * response — it is not stored anywhere, so there is nothing to echo.
  */
-export const profileSuggestionSchema = z.object({
-  kind: z.enum(['fact', 'preference', 'goal']),
-  category: z.enum([
-    'work_study', 'schedule', 'household', 'social',
-    'fitness_habit', 'learning', 'personal_project', 'other',
-  ]),
-  content: z.string(),
-  targetDate: z.string().nullable(),
-  confidence: z.number(),
-});
+export const profileSuggestionSchema = suggestionSchema;
 
 export const profileProposalSchema = z.object({
   success: z.literal(true),
@@ -280,4 +281,8 @@ export const profileConfirmedSchema = z.object({
 });
 
 export type ProfileSuggestion = z.infer<typeof profileSuggestionSchema>;
+/** The coarse buckets a suggestion falls into. Named so the onboarding gap
+ *  filling can map them onto its own questions without restating the list. */
+export type SuggestionCategory = ProfileSuggestion['category'];
+export type SuggestionKind = ProfileSuggestion['kind'];
 export type ProfileProposal = z.infer<typeof profileProposalSchema>;

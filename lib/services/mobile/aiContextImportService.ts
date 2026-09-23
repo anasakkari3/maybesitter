@@ -45,6 +45,7 @@ import {
   requireDocId,
   requireUserId,
   userCol,
+  userDoc,
   type StorageAdapter,
 } from '../../storage';
 import { toVertexSchema } from '../../../src/extraction/llm/vertexSchema';
@@ -89,6 +90,26 @@ export class ImportProposalNotFoundError extends Error {
     super('import proposal not found');
     this.name = 'ImportProposalNotFoundError';
   }
+}
+
+/**
+ * When the account last brought context over, and what it did.
+ *
+ * On the user document's profile map beside `profile.routine`, for the reason
+ * that one is there: it is a single small per-account value the Settings row
+ * reads on every render. A memory record would be a receipt about memory,
+ * inside memory; a collection would need its own deletion classification for
+ * one field.
+ */
+export interface AiContextImportReceipt {
+  lastImportedAt: string;
+  assistant: ImportAssistant;
+  counts: { created: number; superseded: number; unchanged: number; conflicts: number };
+  promptVersion: string;
+}
+
+interface ProfileBearingUser {
+  profile?: { aiContextImport?: AiContextImportReceipt };
 }
 
 export interface ImportOptions {
@@ -397,6 +418,30 @@ export async function confirmAiContextImport(
   // guarantee a second confirm cannot write the same facts twice.
   await storage.delete(proposalPath(uid, proposalId));
 
+  // Only when something was actually brought over. Reading a profile and
+  // keeping none of it is not an import, and a date for it would claim the
+  // store had changed when it had not.
+  if (result.created + result.superseded + result.unchanged + result.conflicts > 0) {
+    const user = await storage.get<ProfileBearingUser>(userDoc(uid)) ?? {};
+    await storage.set(userDoc(uid), {
+      ...user,
+      profile: {
+        ...user.profile,
+        aiContextImport: {
+          lastImportedAt: isoAt,
+          assistant: stored.assistant,
+          counts: {
+            created: result.created,
+            superseded: result.superseded,
+            unchanged: result.unchanged,
+            conflicts: result.conflicts,
+          },
+          promptVersion: stored.promptVersion,
+        },
+      },
+    });
+  }
+
   // Counts only. What the facts said is not in the audit trail.
   await appendAudit(createPilotAuditEvent({
     version: 'v1',
@@ -408,6 +453,34 @@ export async function confirmAiContextImport(
   }));
 
   return result;
+}
+
+export async function readAiContextImportReceipt(
+  uid: string,
+  options: ImportOptions = {},
+): Promise<AiContextImportReceipt | null> {
+  requireUserId(uid);
+  const user = await storageOf(options).get<ProfileBearingUser>(userDoc(uid));
+  return user?.profile?.aiContextImport ?? null;
+}
+
+/**
+ * Removes the receipt.
+ *
+ * Called by "delete everything", which purges collections and cannot see the
+ * profile map. Without this a user who deleted all their memories would return
+ * to a row reporting the date they brought over memories that no longer exist.
+ */
+export async function clearAiContextImportReceipt(
+  uid: string,
+  options: ImportOptions = {},
+): Promise<void> {
+  requireUserId(uid);
+  const storage = storageOf(options);
+  const user = await storage.get<ProfileBearingUser>(userDoc(uid));
+  if (!user?.profile?.aiContextImport) return;
+  const { aiContextImport: _gone, ...rest } = user.profile;
+  await storage.set(userDoc(uid), { ...user, profile: rest });
 }
 
 /** The target, only if it is still this user's own active record. */

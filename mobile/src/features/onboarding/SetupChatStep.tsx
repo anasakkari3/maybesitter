@@ -8,6 +8,7 @@ import { SetupLifeStep } from './SetupLifeStep';
 import type { SpeechCaptureService } from '../capture/voice/SpeechCaptureService';
 import {
   SETUP_QUESTIONS,
+  type SetupQuestion,
   answerCap,
   answeredCount,
   clampAnswer,
@@ -43,6 +44,9 @@ import {
 export function SetupChatStep({
   answers,
   index,
+  questions = SETUP_QUESTIONS,
+  gapCount = 0,
+  onImport,
   onChange,
   onIndexChange,
   onRead,
@@ -54,6 +58,16 @@ export function SetupChatStep({
 }: {
   answers: SetupAnswers;
   index: number;
+  /**
+   * The questions actually being asked. Shorter after an AI context import —
+   * see `setupGaps` — and its first entry may be a brief stand-in for the
+   * narrative rather than the narrative itself.
+   */
+  questions?: readonly SetupQuestion[];
+  /** How many questions the import removed, for the heading above the first. */
+  gapCount?: number;
+  /** Opens the import. Absent when there is nothing to import from. */
+  onImport?: (() => void) | undefined;
   /** An updater, for the same reason RoutineStep takes one. */
   onChange: (update: (previous: SetupAnswers) => SetupAnswers) => void;
   onIndexChange: (index: number) => void;
@@ -72,18 +86,21 @@ export function SetupChatStep({
   // The question keys are plain sentences; the same view RoutineStep takes of
   // the copy, because a few other keys are lists and widen `t[key]`.
   const copy = t as unknown as Record<keyof Strings, string>;
-  const question = SETUP_QUESTIONS[index] ?? SETUP_QUESTIONS[0]!;
+  const question = questions[index] ?? questions[0]!;
   const prompt = copy[question.promptKey];
   const answer = answers[question.id];
-  const next = nextQuestionIndex(index);
-  const previous = previousQuestionIndex(index);
-  const answered = answeredCount(answers);
+  const next = nextQuestionIndex(index, questions);
+  const previous = previousQuestionIndex(index, questions);
+  const answered = answeredCount(answers, questions);
 
   // The first question is the life narrative, a screen of its own (#469
   // follow-up). Questions 2–5 keep the layout below.
   if (question.kind === 'narrative') {
     return (
       <SetupLifeStep
+        question={question}
+        gapCount={gapCount}
+        {...(onImport ? { onImport } : {})}
         answer={answer}
         onAnswer={(text) => onChange((current) => ({ ...current, [question.id]: text }))}
         onContinue={() => { if (next !== null) onIndexChange(next); }}
@@ -98,7 +115,7 @@ export function SetupChatStep({
 
   // What the server's budget still allows here, after the narrative and the
   // other answers — normally the full short cap.
-  const cap = answerCap(answers, question.id, t);
+  const cap = answerCap(answers, question.id, t, questions);
 
   const setAnswer = (text: string) =>
     onChange((current) => ({ ...current, [question.id]: text }));
@@ -122,7 +139,7 @@ export function SetupChatStep({
       footNote={failed ? t.obAboutFailed : undefined}
     >
       <Txt size={13} color={p.mu} testID="setup-question-of">
-        {fill(t.obSetupQuestionOf, { current: index + 1, total: SETUP_QUESTIONS.length })}
+        {fill(t.obSetupQuestionOf, { current: index + 1, total: questions.length })}
       </Txt>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

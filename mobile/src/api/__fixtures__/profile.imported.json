@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "assistant": "chatgpt",
+  "candidates": [],
+  "summary": {
+    "new": 0,
+    "updates": 0,
+    "conflicts": 0
+  },
+  "existingConsidered": 4,
+  "existingTotal": 4,
+  "existingTruncated": false,
+  "createdAt": "2026-08-09T09:00:00.000Z",
+  "promptVersion": "ai-context-import-v1",
+  "model": null
+}

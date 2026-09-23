@@ -10,6 +10,8 @@
  * therefore not incidental additions; they are the difference between the
  * feature working and the screen it writes to breaking.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 import {
   memoryItemSchema,
@@ -22,6 +24,44 @@ import {
   aiContextImportConfirmedSchema,
   importAssistantSchema,
 } from '../schemas/aiContextImport';
+import { profileResponseSchema } from '../schemas/profile';
+
+const FIXTURES = join(__dirname, '..', '__fixtures__');
+
+/** A real response, written by invoking the handler in process. */
+function fixture(name: string): unknown {
+  return JSON.parse(readFileSync(join(FIXTURES, `${name}.json`), 'utf8'));
+}
+
+describe('the real responses these routes return', () => {
+  // The guard that matters: these files are regenerated from the handlers
+  // themselves, so a server change that alters a shape fails here rather than
+  // on somebody's screen.
+  it('parses a real import proposal', () => {
+    expect(aiContextImportProposalSchema.parse(fixture('profile.imported')).promptVersion)
+      .toBe('ai-context-import-v1');
+  });
+
+  it('parses a real confirm', () => {
+    expect(aiContextImportConfirmedSchema.parse(fixture('profile.importConfirmed')).created).toBe(0);
+  });
+
+  it('reads the last-imported receipt off a real profile', () => {
+    // Null here, and defaulted rather than required, so a server that predates
+    // this feature still parses instead of taking the routine settings down.
+    expect(profileResponseSchema.parse(fixture('profile.one')).aiContextImport).toBeNull();
+  });
+
+  it('records a real refusal carrying the number the screen may show', () => {
+    const refused = fixture('profile.importTooLong') as { reason: string; maxCharacters: number };
+    expect(refused.reason).toBe('import_too_long');
+    expect(refused.maxCharacters).toBe(4_000);
+  });
+
+  it('records a real expired proposal', () => {
+    expect((fixture('profile.importExpired') as { reason: string }).reason).toBe('proposal_not_found');
+  });
+});
 
 describe('the origin and label the import writes', () => {
   it('accepts the imported origin', () => {

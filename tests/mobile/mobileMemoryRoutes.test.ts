@@ -149,7 +149,12 @@ test('a profile nobody has answered reads as null rather than as a 404', async (
   try {
     const response = await profileGet(request(OWNER, '/api/mobile/profile'));
     assert.equal(response.status, 200);
-    assert.deepEqual(await json(response), { routine: null, updatedAt: null });
+    // Every field null, and asserted as a whole shape on purpose: this is the
+    // response an account sees before it has answered anything, and a field
+    // that quietly started arriving populated would be this route claiming
+    // knowledge of somebody who has told it nothing. `aiContextImport` joins
+    // the list with the AI context import — null until they bring one over.
+    assert.deepEqual(await json(response), { routine: null, updatedAt: null, aiContextImport: null });
   } finally {
     end();
   }

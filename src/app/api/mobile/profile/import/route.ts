@@ -72,13 +72,7 @@ export async function POST(request: Request) {
   }
 
   const text = String(body?.text ?? '');
-  if (tooLong(text)) {
-    const error = new ImportTextTooLongError();
-    return Response.json(
-      { success: false, error: error.message, reason: 'import_too_long', maxCharacters: error.maxCharacters },
-      { status: 400 },
-    );
-  }
+  if (tooLong(text)) return tooLongResponse();
 
   // Fails closed: an unreadable counter refuses rather than waves the call
   // through, which is what the guard does everywhere else.
@@ -99,12 +93,7 @@ export async function POST(request: Request) {
     const proposal = await importAiContext(user.uid, text, body.assistant, new Date());
     return Response.json({ success: true, ...proposal });
   } catch (error) {
-    if (error instanceof ImportTextTooLongError) {
-      return Response.json(
-        { success: false, error: error.message, reason: 'import_too_long', maxCharacters: error.maxCharacters },
-        { status: 400 },
-      );
-    }
+    if (error instanceof ImportTextTooLongError) return tooLongResponse();
     return mobileError(error instanceof Error ? error.message : 'could not read the profile', 500);
   }
 }
@@ -115,4 +104,17 @@ export async function POST(request: Request) {
  */
 function tooLong(text: string): boolean {
   return Array.from(text.trim()).length > new ImportTextTooLongError().maxCharacters;
+}
+
+/**
+ * 413, the same status the capture and share routes use for text that is too
+ * long, so the client's existing mapping produces `InputTooLargeError` with the
+ * number in it rather than a generic 400 this screen would have to special-case.
+ */
+function tooLongResponse(): Response {
+  const error = new ImportTextTooLongError();
+  return Response.json(
+    { success: false, error: error.message, reason: 'import_too_long', maxCharacters: error.maxCharacters },
+    { status: 413 },
+  );
 }

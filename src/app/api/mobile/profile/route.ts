@@ -1,6 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { moduleDisabledResponse } from '../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../lib/services/mobile/response';
+import { readAiContextImportReceipt } from '../../../../../lib/services/mobile/aiContextImportService';
 import { readRoutineProfile } from '../../../../../lib/services/mobile/routineProfileService';
 
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,10 @@ export async function GET(request: Request) {
 
   try {
     const routine = await readRoutineProfile(user.uid);
-    return Response.json({ routine, updatedAt: routine?.updatedAt ?? null });
+    // `null` for an account that has never brought context over, which is what
+    // the Settings row distinguishes: an invitation, or a date.
+    const aiContextImport = await readAiContextImportReceipt(user.uid);
+    return Response.json({ routine, updatedAt: routine?.updatedAt ?? null, aiContextImport });
   } catch (error) {
     return mobileError(error instanceof Error ? error.message : 'could not read the profile', 500);
   }
