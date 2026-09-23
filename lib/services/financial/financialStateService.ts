@@ -15,7 +15,7 @@
  * `missingSourceKinds`, and every provider-owned field falls back to whatever
  * the person supplied.
  *
- * ── The read is gated on the capability table, and what that does not buy ──
+ * ── The read is gated and durably audited ────────────────────────
  *
  * ADR-0002 §9: every integration reads behind `IntegrationConnectionRecord`
  * + a closed `CapabilityId`. The connection half was always here; the
@@ -25,21 +25,15 @@
  * absent from the state exactly as if nothing were connected — no partial
  * read, no cached picture from an earlier request.
  *
- * What this does **not** claim: an audit record. The policy row says
- * `auditRequired: true`, as every other provider read's row does, and as of
- * 2026-09-23 no provider read on main produces one. Gmail, Graph, Todoist,
- * Notion and RescueTime gate their reads through `planProviderSync`; the only
- * caller of `executeThroughActionGateway` is the MCP capability adapter, and
- * it takes an injected audit store for which no persisted implementation
- * exists. Routing this read through that gateway with an in-memory store
- * would produce a record nothing keeps, so it is not done. The gap is the
- * provider layer's, recorded in ADR-0002 under "Enforcement, stated honestly",
- * and closing it is one change for every provider read at once.
+ * The provider call runs through `executeThroughActionGateway` with the
+ * account-scoped persistent audit store. The audit contains the closed
+ * capability, policy result, phases and content-free identifiers; the
+ * provider request and normalized observations remain in memory only.
  */
-import {
-  evaluateActionPolicy,
-  type ActionPolicyDecision,
-  type ActionPolicyRequest,
+import { createHash, randomUUID } from 'node:crypto';
+import type {
+  ActionPolicyDecision,
+  ActionPolicyRequest,
 } from '../../../src/contracts/v1/actionPolicyContracts';
 import type { FinancialState } from '../../../src/contracts/v1/financialContracts';
 import type { IntegrationConnectionRecord } from '../../../src/contracts/v1/integrationConnectionContracts';
@@ -49,6 +43,8 @@ import {
 } from '../../integrations/financial/adapter';
 import type { FinancialDataPort } from '../../integrations/financial/port';
 import { createSandboxFinancialTransport } from '../../integrations/financial/sandbox/sandboxTransport';
+import { executeThroughActionGateway } from '../../integrations/actions/actionGateway';
+import { StoredActionGatewayAuditStore } from '../../integrations/actions/storedActionGatewayAuditStore';
 import { connectionIdFor, StoredIntegrationConnectionStore } from '../../integrations/providers/production/storedConnectionStore';
 import { getStorage } from '../../storage';
 import type { StorageAdapter } from '../../storage/storageAdapter';
@@ -100,11 +96,6 @@ export function financialReadPolicyRequest(): ActionPolicyRequest {
   };
 }
 
-function readAllowed(evaluate: FinancialReadPolicyEvaluator): boolean {
-  const decision = evaluate(financialReadPolicyRequest());
-  return decision.decision === 'allowed' && decision.providerExecutionAllowed;
-}
-
 export async function readFinancialState(input: ReadFinancialStateInput): Promise<FinancialState> {
   const storage = input.storage ?? getStorage();
   const connections = new StoredIntegrationConnectionStore(input.uid, storage);
@@ -116,14 +107,54 @@ export async function readFinancialState(input: ReadFinancialStateInput): Promis
   ]);
 
   const observations: NormalizedFinancialObservations[] = [];
-  if (isUsable(connection) && readAllowed(input.evaluatePolicy ?? evaluateActionPolicy)) {
+  if (isUsable(connection)) {
+    // The override is the pre-existing test seam that proves a denied decision
+    // never reaches the port. Live reads have no override and are evaluated
+    // only by the closed table inside the central gateway.
+    const overrideDecision = input.evaluatePolicy?.(financialReadPolicyRequest());
+    if (overrideDecision && (
+      overrideDecision.decision !== 'allowed'
+      || !overrideDecision.providerExecutionAllowed
+    )) {
+      return buildFinancialState({
+        scopeId: input.uid,
+        asOf: input.asOf,
+        observations,
+        manual,
+      });
+    }
+
     const port = input.transport ?? createSandboxFinancialTransport({ asOf: input.asOf });
-    observations.push(
-      await normalizeFinancialObservations(port, {
+    const requestId = randomUUID();
+    let normalized: NormalizedFinancialObservations | null = null;
+    const gateway = await executeThroughActionGateway({
+      ...financialReadPolicyRequest(),
+      requestId,
+      idempotencyKey: requestId,
+      scopeId: input.uid,
+      requestedAt: input.asOf,
+      payloadDigest: createHash('sha256')
+        .update(`${connection!.connectionId}\u0000${input.asOf}`)
+        .digest('hex'),
+      payload: {
         connectionId: connection!.connectionId,
         asOf: input.asOf,
-      }),
-    );
+      },
+    }, {
+      audit: new StoredActionGatewayAuditStore(input.uid, storage),
+      executor: {
+        async execute(action) {
+          normalized = await normalizeFinancialObservations(port, action.payload);
+          return { executionId: `financial-read:${requestId}`, resultRef: null };
+        },
+      },
+    });
+
+    if (gateway.status === 'executed' && normalized) {
+      observations.push(normalized);
+    } else if (gateway.status === 'failed' || gateway.status === 'indeterminate') {
+      throw new Error('financial provider read did not complete');
+    }
   }
 
   return buildFinancialState({

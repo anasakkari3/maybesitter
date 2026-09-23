@@ -135,6 +135,10 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'is not applied twice; not a claim about the person',
   nextStepDecisions: 'the user’s own answers to a question',
   auditEvents: 'the record that the deletion happened; erasing it erases the receipt',
+  actionGatewayAuditEvents:
+    'the content-free record of provider execution and the idempotency state that prevents an '
+    + 'external call from being repeated. It records what the product did under a policy, not an '
+    + 'inference about the person; account deletion takes the whole tree.',
   consents: 'the user’s own decision, not something derived about them',
   studyResponses: 'what the user chose to tell a study',
   alphaTraces: 'operator diagnostics, removed with the account',
