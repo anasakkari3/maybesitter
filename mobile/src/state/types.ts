@@ -78,6 +78,10 @@ export type Screen =
   | 'knows'
   // Trust → Knows → everything it remembers, with provenance (UC-3.16, #202).
   | 'memory'
+  /** Bringing context over from another AI assistant. One entry for the whole
+   *  flow — pick, hand off, paste, review — because which step shows is derived
+   *  from the flow's own status, as capture's is. */
+  | 'aiImport'
   | 'feedbackHistory'
   // Settings → Your activity (UC-3.15, #201). A sub-screen rather than a fifth
   // tab: the tab bar is Today · Calendar · Say it · Settings and what belongs

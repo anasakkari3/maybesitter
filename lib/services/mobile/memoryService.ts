@@ -66,6 +66,7 @@ import {
 import type { MemoryOrigin } from '../../../src/contracts/v1/memoryContracts';
 import type { FeedbackEventStore } from '../../../src/contracts/v1/feedbackContracts';
 import { createStorageFeedbackEventStore } from '../../feedback/feedbackEventStore';
+import { clearAiContextImportReceipt } from './aiContextImportService';
 import { deletePersonalizationScope } from '../../personalization/deletion';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
@@ -191,9 +192,15 @@ export type MemorySourceLabel =
   /** A model proposed it and the user agreed. */
   | 'model_suggested_you_confirmed'
   /** A model proposed it and nobody has agreed yet. */
-  | 'model_suggested';
+  | 'model_suggested'
+  /** The user brought it from another AI assistant and kept it. */
+  | 'you_brought_from_ai';
 
 export function sourceLabelOf(record: Pick<RuntimeMemoryRecord, 'source' | 'provenance'>): MemorySourceLabel {
+  // First, and before the source is consulted at all: an import row is
+  // confirmed by construction, so the edited and unedited versions of the same
+  // imported line must not read differently on the screen.
+  if (record.provenance?.origin === 'ai_context_import') return 'you_brought_from_ai';
   if (record.source === 'model_inferred') {
     return record.provenance?.confirmedByUserAt ? 'model_suggested_you_confirmed' : 'model_suggested';
   }
@@ -597,6 +604,12 @@ export async function deleteAllMemory(
   // Counted before the delete, from the store, because `deleteScope`'s own
   // return value is the thing under suspicion here.
   const held = (await memory.listAll(uid)).length;
+
+  // Before the purge, and outside it: `deletePersonalizationScope` empties
+  // collections and cannot see the user document's profile map, so the "last
+  // brought over" date would survive a delete-everything and go on naming a
+  // day this account imported memories that no longer exist.
+  await clearAiContextImportReceipt(uid, { ...(options.storage ? { storage: options.storage } : {}) });
 
   const receipt = await deletePersonalizationScope({
     scopeId: uid,

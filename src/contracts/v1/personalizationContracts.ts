@@ -844,6 +844,16 @@ export interface PersonalizationDeletionReceipt {
    */
   readonly remainingProfileProposalCount: number;
   /**
+   * Staged AI context imports still held for the scope.
+   *
+   * On the receipt for the same reason `remainingProfileProposalCount` is, and
+   * more sharply: an import proposal holds claims about a person written by
+   * another company's model, *and* the relations they stand in to existing
+   * records. A survivor confirmed after the purge could supersede a memory the
+   * user had re-entered by hand, so a verifier recounting the receipt has to be
+   * able to catch a row left behind here.
+   */
+  readonly remainingAiContextImportCount: number;
   /**
    * Suggestion dismissals still held for the scope (UC-3.16, #202). Each names
    * a window of the day read off the person's behaviour, so it is derived data

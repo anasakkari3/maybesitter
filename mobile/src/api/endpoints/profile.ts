@@ -1,3 +1,8 @@
+import {
+  aiContextImportConfirmedSchema,
+  aiContextImportProposalSchema,
+  type ImportAssistant,
+} from '../schemas/aiContextImport';
 import { apiRequest } from '../client';
 import {
   profileConfirmedSchema,
@@ -110,10 +115,46 @@ export function describeProfile(text: string) {
  */
 export function confirmProfileSuggestions(
   proposalId: string,
-  accepted: Array<{ index: number; content?: string }>,
+  accepted: { index: number; content?: string }[],
 ) {
   return apiRequest('POST', '/api/mobile/profile/describe/confirm', {
     body: { proposalId, accepted },
     schema: profileConfirmedSchema,
+  });
+}
+
+/**
+ * Reads a profile another AI assistant wrote about the user.
+ *
+ * Refusals the screen has to tell apart, all of them carrying a `reason`:
+ * 403 `consent_required` (offer to turn AI on), 400 `import_too_long` (the
+ * paste is too big, and `maxCharacters` says by how much), 400
+ * `invalid_assistant`, and 429 `import_rate_limited`. None of them is an error
+ * the user caused by doing something wrong, so none should read like one.
+ *
+ * The paste is not stored and is not echoed back. What returns is the
+ * candidates, plus how many existing records they were compared against.
+ */
+export function importAiContext(text: string, assistant: ImportAssistant) {
+  return apiRequest('POST', '/api/mobile/profile/import', {
+    body: { text, assistant },
+    schema: aiContextImportProposalSchema,
+  });
+}
+
+/**
+ * Saves the candidates the user kept, and only those.
+ *
+ * `content` is the user's edit, which makes the stored fact `user_stated`.
+ * `resolve` is read only on a conflict row: `'replace'` supersedes the record
+ * it disagrees with, and anything else — including leaving it out — keeps both.
+ */
+export function confirmAiContextImport(
+  proposalId: string,
+  accepted: { index: number; content?: string; resolve?: 'replace' | 'keep_both' }[],
+) {
+  return apiRequest('POST', '/api/mobile/profile/import/confirm', {
+    body: { proposalId, accepted },
+    schema: aiContextImportConfirmedSchema,
   });
 }

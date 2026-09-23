@@ -1,12 +1,15 @@
 import React from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
+import { useTimeZone } from '../../i18n/timezone';
 import { Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { useTrust } from '../../api/queries';
-import { SettingsHeader } from './SettingsChrome';
+import { useProfile, useTrust } from '../../api/queries';
+import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { MemorySection } from '../memory/MemorySection';
+import { fill, ltr } from '../../i18n/strings';
+import { formatDate } from '../../i18n/format';
 
 /**
  * What MaybeSitter knows (UC-2.R4 #174, memory from UC-2.7a #167).
@@ -23,10 +26,30 @@ import { MemorySection } from '../memory/MemorySection';
  * why nothing here renders while the query is still loading: an unanswered
  * "we never read your messages" is a promise made on no authority.
  */
-export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory?: (() => void) | undefined }) {
-  const { t, p } = useApp();
+export function KnowsScreen({
+  onBack, onMemory, onImport,
+}: {
+  onBack: () => void;
+  onMemory?: (() => void) | undefined;
+  onImport?: (() => void) | undefined;
+}) {
+  const { t, p, lang } = useApp();
+  const timeZone = useTimeZone();
   const trust = useTrust();
+  const profile = useProfile();
   const knows = trust.data?.whatKnows;
+
+  // The date of the last import, when there was one. A row that said only
+  // "bring my AI context" to somebody who already did would read as though
+  // nothing had happened.
+  const lastImport = profile.data?.aiContextImport ?? null;
+  const importSub = lastImport
+    // `ltr` because a date inside Arabic text reorders without it — the same
+    // rule every other date in this app goes through.
+    ? fill(t.aiImportLastImported, {
+      date: ltr(formatDate(new Date(lastImport.lastImportedAt), 'short', { locale: lang, timeZone })),
+    })
+    : t.aiImportEntrySub;
 
   const nevers = knows
     ? ([
@@ -57,6 +80,22 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
             Optional, so a caller that has no screen to open simply shows the
             card it always did. */}
         <MemorySection {...(onMemory ? { onOpen: onMemory } : {})} />
+
+        {/* Under the memory section rather than above it: the first thing this
+            screen answers is what MaybeSitter knows, and bringing more in is an
+            action about that, not a heading over it. Optional, so a caller with
+            no screen to open shows the memory card exactly as before. */}
+        {onImport ? (
+          <Card pad={0}>
+            <SettingsRow
+              first
+              label={t.aiImportTitle}
+              sub={importSub}
+              onPress={onImport}
+              testID="knows-ai-import"
+            />
+          </Card>
+        ) : null}
 
         {nevers.length > 0 ? (
           <Card pad={18} style={{ gap: 10 }} testID="knows-never">

@@ -54,6 +54,9 @@ const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Objec
   importance_estimate: 'planning',
   plan_explanation: 'planning',
   share_extraction: 'share_intake',
+  // Reading a profile about the person, same as `profile_extraction`: it is not
+  // capture, not planning, and not an integration sync.
+  ai_context_import: 'other',
 });
 
 function statusFor(outcome: LlmOutcome): CostOperationStatus {

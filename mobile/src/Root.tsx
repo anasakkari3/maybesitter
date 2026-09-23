@@ -22,6 +22,7 @@ import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
 import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
 import { TrustScreen } from './features/settings/TrustScreen';
 import { KnowsScreen } from './features/settings/KnowsScreen';
+import { AiImportScreen } from './features/aiImport/AiImportScreen';
 import { MemoryScreen } from './features/memory/MemoryScreen';
 import { SeedsScreen } from './features/seeds/SeedsScreen';
 import { FeedbackHistoryScreen } from './features/settings/FeedbackHistoryScreen';
@@ -172,9 +173,11 @@ export function Root() {
               key="knows"
               onBack={() => latest.current.back()}
               onMemory={() => latest.current.go('memory')}
+              onImport={() => latest.current.go('aiImport')}
             />
           )}
           {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.back()} />}
+          {s.screen === 'aiImport' && <AiImportScreen key="aiImport" onBack={() => latest.current.back()} />}
           {s.screen === 'feedbackHistory' && (
             <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.back()} />
           )}

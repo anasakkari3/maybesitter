@@ -86,6 +86,8 @@ import { GET as profileGet } from '../../src/app/api/mobile/profile/route.ts';
 import { PUT as routinePut } from '../../src/app/api/mobile/profile/routine/route.ts';
 import { POST as describePost } from '../../src/app/api/mobile/profile/describe/route.ts';
 import { POST as describeConfirmPost } from '../../src/app/api/mobile/profile/describe/confirm/route.ts';
+import { POST as importPost } from '../../src/app/api/mobile/profile/import/route.ts';
+import { POST as importConfirmPost } from '../../src/app/api/mobile/profile/import/confirm/route.ts';
 import {
   DELETE as memoryDeleteAll,
   GET as memoryGet,
@@ -1028,6 +1030,34 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // while the user was reading it.
     await record('profile.describeExpired', 404, await describeConfirmPost(
       request('/api/mobile/profile/describe/confirm', {
+        body: { proposalId: 'not-a-real-proposal', accepted: [] },
+      }),
+    ));
+
+    // ── the AI context import pair ────────────────────────────────
+    // No model here either, so the candidate list comes back empty — again the
+    // shape the review screen has to handle, and the honest record of this
+    // handler without one. What matters in the fixture is the fields around it:
+    // the summary the screen reads before the user commits, and how many
+    // existing records the comparison actually covered.
+    const imported = await record('profile.imported', 200, await importPost(request('/api/mobile/profile/import', {
+      body: { text: 'They are a nursing student who wants to run a 10k.', assistant: 'chatgpt' },
+    })));
+
+    await record('profile.importConfirmed', 200, await importConfirmPost(
+      request('/api/mobile/profile/import/confirm', {
+        body: { proposalId: (imported as { proposalId: string }).proposalId, accepted: [] },
+      }),
+    ));
+
+    // The refusals the screen tells apart: a paste past the cap, which carries
+    // the number it may show, and a proposal that expired while it was read.
+    await record('profile.importTooLong', 413, await importPost(request('/api/mobile/profile/import', {
+      body: { text: 'x'.repeat(4_001), assistant: 'chatgpt' },
+    })));
+
+    await record('profile.importExpired', 404, await importConfirmPost(
+      request('/api/mobile/profile/import/confirm', {
         body: { proposalId: 'not-a-real-proposal', accepted: [] },
       }),
     ));

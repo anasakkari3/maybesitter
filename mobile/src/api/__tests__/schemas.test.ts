@@ -1,3 +1,7 @@
+import {
+  aiContextImportConfirmedSchema,
+  aiContextImportProposalSchema,
+} from '../schemas/aiContextImport';
 import { describe, expect, it } from '@jest/globals';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
@@ -122,6 +126,10 @@ const CASES: Array<[string, z.ZodType]> = [
   ['profile.described', profileProposalSchema],
   ['profile.describeConfirmed', profileConfirmedSchema],
   ['profile.describeExpired', errorBodySchema],
+  ['profile.imported', aiContextImportProposalSchema],
+  ['profile.importConfirmed', aiContextImportConfirmedSchema],
+  ['profile.importTooLong', errorBodySchema],
+  ['profile.importExpired', errorBodySchema],
   ['memory.list', memoryListSchema],
   ['memory.created', memoryCreatedSchema],
   ['memory.patched', memoryCreatedSchema],

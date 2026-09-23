@@ -33,6 +33,7 @@ export const SOURCE_LABEL_STRING: Record<MemorySourceLabel, string> = {
   noticed_from_confirmed: 'memorySourceNoticed',
   model_suggested_you_confirmed: 'memorySourceAiConfirmed',
   model_suggested: 'memorySourceAi',
+  you_brought_from_ai: 'memorySourceBroughtFromAi',
 };
 
 /**
@@ -56,7 +57,14 @@ export function groupOf(item: Pick<MemoryItem, 'sourceLabel'>): MemoryGroup {
   switch (item.sourceLabel) {
     case 'noticed_from_confirmed': return 'noticed';
     case 'model_suggested':
-    case 'model_suggested_you_confirmed': return 'suggested';
+    case 'model_suggested_you_confirmed':
+    // Grouped with the model's suggestions rather than with what the user told
+    // us, because the sentence was written by a model — a different company's,
+    // which if anything makes the distinction sharper. The group heading answers
+    // "which of these did I say, and which did something decide?", and an
+    // imported line belongs on the second side of that even though keeping it
+    // was a deliberate act.
+    case 'you_brought_from_ai': return 'suggested';
     default: return 'told';
   }
 }
@@ -109,6 +117,7 @@ export const ORIGIN_STRING: Record<NonNullable<MemoryItem['evidence']['origin']>
   manual: 'memoryOriginManual',
   capture: 'memoryOriginCapture',
   behaviour_rule: 'memoryOriginRule',
+  ai_context_import: 'memoryOriginAiImport',
 };
 
 export interface EvidenceLine {

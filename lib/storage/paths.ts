@@ -100,6 +100,9 @@ export const CAPTURE_PROPOSALS = 'captureProposals';
  */
 export const PROFILE_PROPOSALS = 'profileProposals';
 
+/** Staged candidates from an AI context import, held for thirty minutes. */
+export const AI_CONTEXT_IMPORTS = 'aiContextImports';
+
 /**
  * Suggestions a user answered "Not right" to (UC-3.16, #202).
  *
@@ -506,6 +509,7 @@ export const USER_SCOPED_COLLECTIONS = [
   ANALYTICS_EVENTS,
   CAPTURE_PROPOSALS,
   PROFILE_PROPOSALS,
+  AI_CONTEXT_IMPORTS,
   MEMORY_DISMISSALS,
   USAGE,
   PLANS,
