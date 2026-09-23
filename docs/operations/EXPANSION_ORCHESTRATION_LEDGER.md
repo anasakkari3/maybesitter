@@ -1,6 +1,6 @@
 # Expansion orchestration ledger
 
-Updated: 2026-09-18
+Updated: 2026-09-23
 Current integration base: `c60d896` (`origin/main` after #485)
 Release-candidate SHA for UAT: `c60d896`
 
@@ -268,6 +268,7 @@ An active conflict in one subsystem is not a program-wide blocker.
 | Timefold solver dependency | root Dependabot PRs own package surfaces | Classify and reconcile dependency PRs after the benchmark boundary merges. |
 | Live OAuth/provider verification | external app credentials | Run contract-approved smoke tests when credentials are supplied. |
 | Android device notification signals (ADR-0003, deferred) | Two of three gates unmet: no provider proven end to end (Gmail is the only integration with real transport), and no Android device/emulator verification capability — a `NotificationListenerService` is invisible to Jest. The `PlanningStateChange` consumer gate is already satisfied by #523's replan tick. | Open only after one provider moves a real day end to end **and** an Android device verification lane exists. Design constraints are fixed in `docs/architecture/adr-0003-device-notification-context.md`; no code, contract or manifest work until then. |
+| Context Connections (ADR-0004, deferred) | The expansion lane is **deferred/evidence-gated**: no owner approval for the lane, and the shared gate that also blocks ADR-0003 holds — no external provider is proven end to end (Gmail's read transport exists but has no OAuth callback route; every other provider has no production transport). Binding constraints are fixed in `docs/architecture/adr-0004-context-connections-architecture.md`; follow-up issue #594 is labelled `status: conditional` with no milestone so no lane or parallel agent picks it up. | Open only after owner approval of the lane **and** one provider proven end to end with live verification, per #594's resume conditions. No APIs, adapters, contracts, collections, scheduler code, UI, migrations or tests until then. |
 
 ## Merge discipline
 
