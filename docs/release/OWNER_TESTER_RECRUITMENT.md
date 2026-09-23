@@ -31,6 +31,10 @@ Columns, so the sheet is ready to create:
 |---|---|
 | Name | first name is enough |
 | Platform | `android` / `ios` |
+| Language | `ar` / `he` / `en`, the language they said they'd use |
+| Knows the founder | `yes` / `no`, their own answer from the sign-up form |
+| Source · arm | the `source` code and `v` arm of the link they came from (see the kit) |
+| Outside network | `yes` only if "knows the founder" is `no` **and** the source is not `wa` or `warm` |
 | Contact | the address the invite went to |
 | Google account email | **Android only.** Play needs the exact Google account; a different address silently fails to grant access |
 | Invited on | date |
@@ -47,6 +51,16 @@ incident, not a tidy-up.
 
 Short, honest about the burden, and explicit that leaving is fine. Israeli
 Hebrew and Levantine Arabic speakers are the audience; English is the fallback.
+
+**The current drafts live in
+[`docs/marketing/TESTER_RECRUITMENT_KIT.md`](../marketing/TESTER_RECRUITMENT_KIT.md):**
+Arabic (written first), Hebrew (awaiting native review, #335) and English, each in both
+message-test arms, plus the warm-lead and student-union texts and the link and
+source-code convention. They follow the approved claims policy. The owner approves every
+word before anything is sent.
+
+The original English draft is kept below for reference. Use the kit's version: this one
+says "no nagging", which the claims policy replaces with "designed to interrupt less".
 
 > **Subject:** Would you try MaybeSitter for two weeks?
 >
@@ -65,9 +79,10 @@ Hebrew and Levantine Arabic speakers are the audience; English is the fallback.
 > You can stop any time and I won't ask why. If you'd rather not, just say so —
 > genuinely no hard feelings.
 
-**Arabic and Hebrew versions are the owner's to write or approve**, not
-Claude's to invent: an invitation in somebody's own language, from a friend,
-that reads as machine-translated does more harm than an English one.
+**Arabic and Hebrew versions are the owner's to approve.** The kit's drafts
+are a starting point, not a send-ready text: an invitation in somebody's own
+language, from a friend, that reads as machine-translated does more harm than an
+English one.
 
 ## Consent, before anything is recorded
 
@@ -77,6 +92,16 @@ did not say them is not consent to them:
 1. They are installing a **pre-release** app that will have problems.
 2. On Android, their **Google account email** is used to grant access.
 3. They may **leave at any time**, and nothing is owed.
+
+> **4. PLACEHOLDER: NOT FINAL, BLOCKED ON COUNSEL (X9, option C).**
+> The owner ruled (2026-09-23) that usage of the pre-release build may be
+> measured for the closed test under a research consent, **only if counsel
+> approves the exact wording and its relationship to the in-app analytics
+> setting.** No wording is proposed here on purpose. Until counsel approves:
+> do not add measurement wording to any message, do not treat any reply as
+> consent to measurement, and do not read any tester's usage data beyond what
+> they choose to show you. Public users stay on option A: analytics only
+> after the in-app consent.
 
 Record the date of their own words. Do not record the words.
 
@@ -110,6 +135,8 @@ Recruitment, 2026-10-2X
   opted in     android N · ios N
   still in     android N · ios N   (day X of 14)
   at risk      N        (consented, not opted in)
+  outside net  N        (see the roster column)
+  by arm       a N · b N · none N
 ```
 
 `at risk` is the number that decides whether to recruit more, and it is the
