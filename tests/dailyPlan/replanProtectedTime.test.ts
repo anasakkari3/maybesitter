@@ -34,10 +34,10 @@ import {
   savePlanSettings,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { readStoredPlan, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
-import { acceptPlanProposal, setBlockProtection } from '../../lib/services/dailyPlan/planActions.ts';
+import { acceptPlanProposal, editPlan, setBlockProtection } from '../../lib/services/dailyPlan/planActions.ts';
 import { processStateChangesForUser } from '../../lib/services/dailyPlan/continuousReplanService.ts';
 import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
-import { saveNormalizedReadinessSnapshot } from '../../lib/userState/userStateService.ts';
+import { saveNormalizedReadinessSnapshot, saveSubjectiveEnergyCheckIn } from '../../lib/userState/userStateService.ts';
 import { ownershipOf, scheduleBlockId } from '../../src/contracts/v1/scheduleBlockContracts.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import type { Plan, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
@@ -153,7 +153,11 @@ async function protectWhereItSits(storage: StorageAdapter, uid: string): Promise
 }
 
 /** The meeting a calendar sync writes, and the change row that announces it. */
-async function meetingLands(storage: StorageAdapter, uid: string): Promise<PlanningStateChange> {
+async function meetingLands(
+  storage: StorageAdapter,
+  uid: string,
+  meeting: TimeInterval = MEETING,
+): Promise<PlanningStateChange> {
   await replaceBusyBlocks(
     uid,
     'device:calendar-1',
@@ -162,8 +166,8 @@ async function meetingLands(storage: StorageAdapter, uid: string): Promise<Plann
       blockId: 'busy-meeting',
       sourceId: 'device:calendar-1',
       sourceKind: 'device',
-      startAt: MEETING.startsAt,
-      endAt: MEETING.endsAt,
+      startAt: meeting.startsAt,
+      endAt: meeting.endsAt,
       allDay: false,
     }],
     { storage },
@@ -182,14 +186,20 @@ async function meetingLands(storage: StorageAdapter, uid: string): Promise<Plann
   };
 }
 
-async function replan(storage: StorageAdapter, uid: string, policyConfig: Partial<ReplanPolicyConfig>) {
-  const change = await meetingLands(storage, uid);
+async function replan(
+  storage: StorageAdapter,
+  uid: string,
+  policyConfig: Partial<ReplanPolicyConfig>,
+  options: { meeting?: TimeInterval; now?: Date } = {},
+) {
+  const meeting = options.meeting ?? MEETING;
+  const change = await meetingLands(storage, uid, meeting);
   return processStateChangesForUser(uid, {
     storage,
-    now: MORNING,
+    now: options.now ?? MORNING,
     date: DATE,
     changes: [change],
-    entityFacts: { interval: MEETING, blocking: true },
+    entityFacts: { interval: meeting, blocking: true },
     policyConfig,
   });
 }
@@ -254,6 +264,60 @@ test('an automatic replan leaves a protected block where it is, and keeps it pro
   });
 });
 
+test('a protected block the user dragged is measured from where they put it, not charged to the replan', async () => {
+  // A drag re-anchors the protection on the block (`protectionAfterMove`) and
+  // leaves `plan.scheduled` holding the planner's placement — the move lives
+  // in `edits`. The replan solves from the anchor, so it keeps the block where
+  // the person dragged it. Diffed against `plan.scheduled`, that looked like
+  // the replan moving it 150 minutes: the churn budget was spent on the user's
+  // own drag, the policy flipped to review, and the review screen offered the
+  // person their own move back as the system's proposal.
+  await withStorage(async (storage) => {
+    const uid = 'user_replan_protected_dragged';
+    await seedAccount(storage, uid);
+    await protectWhereItSits(storage, uid);
+    const dragged: TimeInterval = { startsAt: `${DATE}T09:00:00.000Z`, endsAt: `${DATE}T09:30:00.000Z` };
+    assert.ok(await editPlan(uid, DATE, {
+      moves: [{ itemId: PROTECTED, startsAt: dragged.startsAt, endsAt: dragged.endsAt }],
+      removals: [],
+    }, { storage, now: () => MORNING }));
+
+    // The meeting lands on the third task, not on anything the user touched.
+    const report = await replan(storage, uid, {}, {
+      meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
+    });
+
+    const diff = report.pipelineResult.diff;
+    assert.ok(diff, 'the replan must have been diffed, or nothing was tested');
+    const protectedChange = diff.changes.find((change) => change.itemId === PROTECTED);
+    assert.equal(protectedChange?.kind, 'unchanged', 'the user\'s own drag was reported as a replan move');
+    assert.equal(report.pipelineResult.policyDecision?.action, 'auto_apply', 'the user\'s drag spent the churn budget');
+
+    const after = await readStoredPlan(uid, DATE, storage);
+    assert.deepEqual(placementOf(after!.plan, PROTECTED), dragged);
+  });
+});
+
+test('an unprotected drag is not an anchor, so the replan is measured exactly as before', async () => {
+  // The other half of the rule above, pinned because it is a decision: only a
+  // protection makes the solver honour a placement. Rebasing on an ordinary
+  // drag would report the planner's own position as a move away from it.
+  await withStorage(async (storage) => {
+    const uid = 'user_replan_unprotected_dragged';
+    const before = await seedAccount(storage, uid);
+    assert.ok(await editPlan(uid, DATE, {
+      moves: [{ itemId: PROTECTED, startsAt: `${DATE}T09:00:00.000Z`, endsAt: `${DATE}T09:30:00.000Z` }],
+      removals: [],
+    }, { storage, now: () => MORNING }));
+
+    const report = await replan(storage, uid, {}, {
+      meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
+    });
+    assert.deepEqual(report.pipelineResult.basePlan, before.plan);
+    assert.equal(report.pipelineResult.diff?.changes.find((change) => change.itemId === PROTECTED)?.kind, 'unchanged');
+  });
+});
+
 /* ── The review path ─────────────────────────────────────────────── */
 
 test('a replan offered for review is solved under the protection, so accepting it keeps the hour', async () => {
@@ -299,6 +363,40 @@ test('an automatic replan keeps the readiness buffer the morning build gave ever
       // and every one of those tighter placements shows up as churn in the
       // diff although nothing about the person changed.
       assert.equal(after, 15, `${entry.itemId} lost its readiness buffer in the replan`);
+    }
+  });
+});
+
+test('readiness is read at the replan\'s clock, not carried over from the morning', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_replan_readiness_changed';
+    // Last night the person said they were full of energy. At the morning
+    // build that statement is 11 hours old — still current — and outranks the
+    // low wearable reading, so the morning plan has no recovery gap.
+    await persistParticipantState(uid, seedState());
+    assert.equal(await saveNormalizedReadinessSnapshot(uid, lowReadiness(uid), {
+      storage, now: MORNING.toISOString(),
+    }), 'stored');
+    assert.equal(await saveSubjectiveEnergyCheckIn(uid, {
+      energy: 5,
+      observedAt: '2026-09-14T19:00:00.000Z',
+    }, { storage, now: MORNING.toISOString() }), 'stored');
+    const before = await seedAccount(storage, uid);
+    assert.ok(before.constraints.items.every((item) => item.bufferAfterMinutes === 0), 'fixture: the check-in must win at the morning build');
+
+    // By 07:30 the statement is past its 12 hours and the wearable is what is
+    // known. A solve made now must add the gap; one that read readiness at the
+    // time of the plan it replaces would not.
+    const later = new Date('2026-09-15T07:30:00.000Z');
+    const report = await replan(storage, uid, REVIEW, {
+      now: later,
+      meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
+    });
+    const solved = report.pipelineResult.newPlan;
+    assert.ok(solved && solved.scheduled.length > 0, 'the replan must have produced a plan');
+    for (const entry of solved.scheduled) {
+      const after = (Date.parse(entry.reservedInterval.endsAt) - Date.parse(entry.interval.endsAt)) / 60_000;
+      assert.equal(after, 15, `${entry.itemId} was solved with the morning's readiness`);
     }
   });
 });
