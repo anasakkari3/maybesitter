@@ -9,6 +9,7 @@ import { GoalExecutionScreen, HabitDetailScreen } from '../ControlScreens';
 const mockConfirmGoal = jest.fn();
 const mockCreateHabit = jest.fn();
 const mockCreateMemory = jest.fn();
+const mockGenerate = jest.fn();
 const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
 
@@ -18,6 +19,7 @@ jest.mock('../../../api/queries', () => ({
     isPending: false, error: null, refetch: jest.fn(),
   }),
   useCreateMemory: () => ({ mutate: mockCreateMemory, isPending: false, error: null }),
+  useGenerateGoalExecution: () => ({ mutate: mockGenerate, isPending: false, error: null }),
   useGoalExecution: () => ({
     data: {
       success: true,
@@ -34,6 +36,7 @@ jest.mock('../../../api/queries', () => ({
   useConfirmGoalSelections: () => ({ mutate: mockConfirmGoal, isPending: false, error: null }),
   useRegenerateGoalExecution: () => ({ mutate: mockRegenerate, isPending: false, error: null }),
   useUnlinkGoalNode: () => ({ mutate: mockUnlink, isPending: false, error: null }),
+  useCommitment: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
   useHabits: () => ({ data: [], isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
@@ -47,16 +50,27 @@ const wrap = (child: React.ReactNode) => (
   <SafeAreaProvider initialMetrics={metrics}><AppProvider>{child}</AppProvider></SafeAreaProvider>
 );
 
-beforeEach(() => { jest.clearAllMocks(); });
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
+    generation: 1,
+    nodes: [
+      { nodeId: 'proposal-1', kind: 'milestone_proposal', status: 'proposed', title: 'Recruit five participants', statedTiming: 'This week' },
+      { nodeId: 'checkpoint-1', kind: 'checkpoint', status: 'proposed', title: 'Review participant feedback', statedTiming: 'Friday' },
+    ],
+  }));
+});
 afterEach(cleanup);
 
 it('shows checkpoints and requires an explicit target before goal work is created', async () => {
   await render(wrap(<GoalExecutionScreen />));
+  await fireEvent.press(screen.getByTestId('goal-open-goal-1'));
+  await fireEvent.press(screen.getByTestId('goal-generate'));
   expect(JSON.stringify(screen.toJSON())).toContain('Review participant feedback');
   await fireEvent.press(screen.getByLabelText(/Recruit five participants/));
-  const t = Object.values(strings).find(value => screen.queryAllByText(value.xHabits).length > 0)!;
-  await fireEvent.press(screen.getByText(t.xHabits));
-  await fireEvent.press(screen.getByTestId('goal-confirm-goal-1'));
+  const t = Object.values(strings).find(value => screen.queryAllByText(value.xGoalAsHabit).length > 0)!;
+  await fireEvent.press(screen.getByText(t.xGoalAsHabit));
+  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
 
   expect(mockConfirmGoal).toHaveBeenCalledWith({
     generation: 1,

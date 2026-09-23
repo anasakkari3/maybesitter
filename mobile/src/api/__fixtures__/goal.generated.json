@@ -1,0 +1,89 @@
+{
+  "success": true,
+  "graph": {
+    "version": "v1",
+    "schema": "goal-graph-v1",
+    "graphId": "0000000000000000000000000000000000000000000000000000000000000000",
+    "goalMemoryId": "mem_00000000-0000-4000-8000-000000000001",
+    "scopeId": "GoalFixtureUserxxxxxxxxxxxxx",
+    "language": "en",
+    "nodes": [
+      {
+        "nodeId": "g1.checkpoint.goal",
+        "kind": "checkpoint",
+        "status": "proposed",
+        "title": "Launch the side project: build the landing page, then set up payments, then announce it",
+        "statedTiming": null
+      },
+      {
+        "nodeId": "g1.step.s1",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "s1",
+        "title": "Launch the side project: build the landing page",
+        "sourceSpans": [
+          {
+            "start": 0,
+            "end": 47,
+            "text": "Launch the side project: build the landing page"
+          }
+        ],
+        "inferred": false,
+        "statedTiming": null,
+        "statedOwner": null
+      },
+      {
+        "nodeId": "g1.step.s2",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "s2",
+        "title": "set up payments, then announce it",
+        "sourceSpans": [
+          {
+            "start": 54,
+            "end": 87,
+            "text": "set up payments, then announce it"
+          }
+        ],
+        "inferred": false,
+        "statedTiming": null,
+        "statedOwner": null
+      }
+    ],
+    "edges": [
+      {
+        "edgeId": "e.contributes_to.g1.step.s1.g1.checkpoint.goal",
+        "kind": "contributes_to",
+        "fromNodeId": "g1.step.s1",
+        "toNodeId": "g1.checkpoint.goal"
+      },
+      {
+        "edgeId": "e.contributes_to.g1.step.s2.g1.checkpoint.goal",
+        "kind": "contributes_to",
+        "fromNodeId": "g1.step.s2",
+        "toNodeId": "g1.checkpoint.goal"
+      },
+      {
+        "edgeId": "e.depends_on.g1.step.s2.g1.step.s1",
+        "kind": "depends_on",
+        "fromNodeId": "g1.step.s2",
+        "toNodeId": "g1.step.s1",
+        "dependencyKind": "temporal"
+      }
+    ],
+    "generatedAt": "2026-08-09T09:00:00.000Z",
+    "generation": 1,
+    "provenance": {
+      "decompositionProposalId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "decompositionOutcome": "decomposed",
+      "decomposition": {
+        "requestedEngine": "model",
+        "executedEngine": "rules",
+        "fallbackUsed": true,
+        "fallbackReason": "rules_only_runtime:feature_disabled"
+      },
+      "atomicReason": null,
+      "violations": []
+    }
+  }
+}

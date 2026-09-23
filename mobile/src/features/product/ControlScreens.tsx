@@ -3,18 +3,12 @@ import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import {
-  useConfirmGoalSelections,
-  useCreateMemory,
   useCreateHabit,
   useDeleteHabit,
-  useGoalExecution,
   useHabits,
-  useMemory,
   usePlan,
   usePlanAction,
-  useRegenerateGoalExecution,
   useSetHabitStatus,
-  useUnlinkGoalNode,
 } from '../../api/queries';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -24,7 +18,7 @@ import { isolate } from '../../i18n/bidi';
 import { dayKey, formatTimeRange } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { BrandMark } from '../../ui/brand';
-import { Card, Pill, Txt } from '../../ui/primitives';
+import { Pill, Txt } from '../../ui/primitives';
 import { Dialog } from '../../ui/dialog';
 import { ProductActions, ProductPage, ProductSection, ProductRow } from '../../ui/product';
 import { capabilities as cap } from './capabilities';
@@ -109,102 +103,7 @@ export function AddToMaybeSitterScreen() {
   </ProductPage>;
 }
 
-export function GoalExecutionScreen() {
-  const { t, p, rtl, lang, actions } = useApp();
-  const memory = useMemory();
-  const create = useCreateMemory();
-  const [draft, setDraft] = React.useState('');
-  const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
-  return <ProductPage id="goals" title={t.xGoals} subtitle={t.xGoalBody}>
-    <ProductSection title={t.xAddGoal} body={t.xAddGoalBody} icon="goal">
-      <TextInput
-        testID="goal-add-input"
-        accessibilityLabel={t.xAddGoal}
-        value={draft}
-        onChangeText={setDraft}
-        placeholder={t.xGoalPlaceholder}
-        placeholderTextColor={p.mu}
-        maxLength={200}
-        multiline
-        style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: rtl ? 'right' : 'left' }}
-      />
-      {create.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
-      <Pill testID="goal-add-save" label={t.memorySave} disabled={create.isPending || !draft.trim()} onPress={() => {
-        create.mutate({ kind: 'goal', content: draft.trim(), language: lang }, { onSuccess: () => setDraft('') });
-      }} />
-    </ProductSection>
-    <QueryBoundary isPending={memory.isPending} error={memory.error} onRetry={() => void memory.refetch()}>
-      <ProductSection title={t.xGoalSaved} body={goals.length === 0 ? t.xNoGoals : undefined} icon="goal">
-        {goals.map(goal => <GoalExecutionCard key={goal.id} goalId={goal.id} title={goal.content} />)}
-        <Pill label={t.memoryScreenTitle} kind="outline" onPress={() => actions.go('knows')} />
-      </ProductSection>
-    </QueryBoundary>
-    <Pill label={t.xLinkedHabits} kind="outline" onPress={() => actions.go('habitDetail')} />
-  </ProductPage>;
-}
-
-function GoalExecutionCard({ goalId, title }: { goalId: string; title: string }) {
-  const { t, p } = useApp();
-  const [generation, setGeneration] = React.useState(1);
-  const [selected, setSelected] = React.useState<readonly string[]>([]);
-  const [target, setTarget] = React.useState<'commitment'|'habit'>('commitment');
-  const [habitCount, setHabitCount] = React.useState(3);
-  const [habitDuration, setHabitDuration] = React.useState(30);
-  const query = useGoalExecution(goalId, generation);
-  const confirm = useConfirmGoalSelections(goalId);
-  const regenerate = useRegenerateGoalExecution(goalId);
-  const unlink = useUnlinkGoalNode(goalId);
-  const graph = query.data?.graph;
-  const proposals = graph?.nodes.filter(node => node.kind === 'milestone_proposal' || node.kind === 'decomposition_step_proposal') ?? [];
-  const linked = graph?.nodes.filter(node => node.kind === 'linked_commitment' || node.kind === 'linked_habit') ?? [];
-  const checkpoints = graph?.nodes.filter(node => node.kind === 'checkpoint') ?? [];
-  const toggle = (nodeId: string) => setSelected(current => current.includes(nodeId) ? current.filter(id => id !== nodeId) : [...current, nodeId]);
-  return <Card style={{ gap: 12 }}>
-    <Txt role="card">{isolate(title)}</Txt>
-    <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
-      {query.data ? <>
-        <Txt role="supporting" color={p.mu}>{`${query.data.progress.completedCount}/${query.data.progress.confirmedCount} · ${t.xRoadmap}`}</Txt>
-        {proposals.map(node => <ProductRow
-          key={node.nodeId}
-          title={isolate(node.title)}
-          body={node.statedTiming ? isolate(node.statedTiming) : undefined}
-          icon={node.kind === 'milestone_proposal' ? 'goal' : 'check'}
-          {...(selected.includes(node.nodeId) ? { status: 'AVAILABLE' as const } : {})}
-          onPress={() => toggle(node.nodeId)}
-        />)}
-        {linked.map(node => <View key={node.nodeId} style={{ gap: 8 }}>
-          <ProductRow title={node.kind === 'linked_commitment' ? t.xLinkedSteps : t.xLinkedHabits} body={node.kind === 'linked_commitment' ? node.commitmentId : node.habitId} icon={node.kind === 'linked_commitment' ? 'check' : 'habit'} status="LIVE" />
-          <Pill label={t.memoryDelete} kind="outline" disabled={unlink.isPending} onPress={() => unlink.mutate(node.nodeId)} />
-        </View>)}
-        {checkpoints.length > 0 ? <ProductSection title={t.xCheckpoints} icon="goal">
-          {checkpoints.map(node => <ProductRow
-            key={node.nodeId}
-            title={isolate(node.title)}
-            body={node.statedTiming ? isolate(node.statedTiming) : undefined}
-            icon="goal"
-            status={node.status === 'confirmed' ? 'LIVE' : 'AVAILABLE'}
-          />)}
-        </ProductSection> : null}
-        {confirm.error || regenerate.error || unlink.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(confirm.error ?? regenerate.error ?? unlink.error, t)}</Txt> : null}
-        {selected.length > 0 ? <Card style={{ gap: 10 }}>
-          <Txt role="label">{t.xTurnSelectedInto}</Txt>
-          <ProductActions><Pill label={t.xCommitments} kind={target === 'commitment' ? 'accent' : 'outline'} onPress={() => setTarget('commitment')} /><Pill label={t.xHabits} kind={target === 'habit' ? 'accent' : 'outline'} onPress={() => setTarget('habit')} /></ProductActions>
-          {target === 'habit' ? <>
-            <Txt role="supporting" color={p.mu}>{t.xHabitConfirmationBody}</Txt>
-            <ProductActions>{[1, 3, 5].map(value => <Pill key={value} label={t.xTimesPerWeek.replace('{count}', String(value))} kind={habitCount === value ? 'accent' : 'outline'} onPress={() => setHabitCount(value)} />)}</ProductActions>
-            <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={t.xMinutes.replace('{count}', String(value))} kind={habitDuration === value ? 'accent' : 'outline'} onPress={() => setHabitDuration(value)} />)}</ProductActions>
-          </> : null}
-        </Card> : null}
-        <ProductActions>
-          {selected.length > 0 ? <Pill testID={`goal-confirm-${goalId}`} label={t.xAcceptChanges} disabled={confirm.isPending} onPress={() => confirm.mutate({ generation, selections: selected.map(nodeId => target === 'commitment'
-            ? { nodeId, as: 'commitment' as const }
-            : { nodeId, as: 'habit' as const, habit: { cadence: { kind: 'weekly_count' as const, count: habitCount }, durationMinutes: habitDuration, preferredWindows: [], minimumOccurrences: habitCount, maximumOccurrences: habitCount, flexibility: 'flexible' as const, recoveryPolicy: 'skip' as const } }) }, { onSuccess: () => setSelected([]) })} /> : null}
-          <Pill label={t.xSuggestSteps} kind="outline" disabled={regenerate.isPending} onPress={() => regenerate.mutate(generation, { onSuccess: () => { setGeneration(value => value + 1); setSelected([]); } })} />
-        </ProductActions>
-      </> : null}
-    </QueryBoundary>
-  </Card>;
-}
+export { GoalExecutionScreen } from '../goals/GoalExecutionScreen';
 
 export function PatchReviewScreen() {
   const { t, p, lang, actions } = useApp();

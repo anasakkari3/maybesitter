@@ -6,12 +6,17 @@ import {
   goalUnlinkResponseSchema,
   type GoalExecution,
   type GoalGraph,
+  type GoalConfirmation,
+  type GoalProgressPeriod,
 } from '../schemas/goals';
 
 const path = (goalId: string, suffix = '') => `/api/mobile/goals/${encodeURIComponent(goalId)}/execution${suffix}`;
 
-export function getGoalExecution(goalId: string, generation = 1): Promise<GoalExecution> {
-  return apiRequest('GET', `${path(goalId)}?generation=${generation}`, { schema: goalExecutionResponseSchema });
+export function getGoalExecution(goalId: string, generation = 1, period?: GoalProgressPeriod): Promise<GoalExecution> {
+  return apiRequest('GET', path(goalId), {
+    query: { generation, fromLocalDate: period?.fromLocalDate, toLocalDate: period?.toLocalDate },
+    schema: goalExecutionResponseSchema,
+  });
 }
 
 export async function generateGoalExecution(goalId: string): Promise<GoalGraph> {
@@ -44,12 +49,11 @@ export type GoalConfirmationSelection =
     recoveryPolicy: 'skip' | 'retry_same_day' | 'recover_within_period';
   } };
 
-export async function confirmGoalSelections(goalId: string, generation: number, selections: readonly GoalConfirmationSelection[]): Promise<GoalGraph> {
-  const response = await apiRequest('POST', path(goalId, '/confirm'), {
+export function confirmGoalSelections(goalId: string, generation: number, selections: readonly GoalConfirmationSelection[]): Promise<GoalConfirmation> {
+  return apiRequest('POST', path(goalId, '/confirm'), {
     body: { generation, selections },
     schema: goalConfirmResponseSchema,
   });
-  return response.graph;
 }
 
 export function unlinkGoalNode(goalId: string, nodeId: string) {
