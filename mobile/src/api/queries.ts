@@ -77,7 +77,10 @@ import {
   listMemory,
   patchMemory,
   putRoutine,
+  importAiContext,
+  confirmAiContextImport,
 } from './endpoints/profile';
+import type { ImportAssistant } from './schemas/aiContextImport';
 import type { RoutineProfilePayload } from '../features/routine/routineProfile';
 import { applyEditLocally } from '../features/plan/optimisticEdit';
 import type { DailyPlan } from './schemas/plan';
@@ -1222,6 +1225,35 @@ export function useMemorySuggestion() {
 export function useDescribeProfile() {
   return useMutation({
     mutationFn: (text: string) => describeProfile(text),
+  });
+}
+
+/**
+ * Reads an imported profile. No retry: a second attempt is a second model call
+ * against a daily cap of three, and the user can press the button again.
+ */
+export function useImportAiContext() {
+  return useMutation({
+    mutationFn: (input: { text: string; assistant: ImportAssistant }) =>
+      importAiContext(input.text, input.assistant),
+    retry: false,
+  });
+}
+
+export function useConfirmAiContextImport() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (input: {
+      proposalId: string;
+      accepted: Array<{ index: number; content?: string; resolve?: 'replace' | 'keep_both' }>;
+    }) => confirmAiContextImport(input.proposalId, input.accepted),
+    onSuccess: () => {
+      // Two things went stale: the kept rows are memory now, and the Settings
+      // row that says when context was last brought over lives on the profile.
+      void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+      void client.invalidateQueries({ queryKey: queryKeys.profile(uid) });
+    },
   });
 }
 

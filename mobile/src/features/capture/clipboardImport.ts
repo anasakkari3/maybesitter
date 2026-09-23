@@ -52,9 +52,15 @@ export type ClipboardReader = () => Promise<string | null>;
  * user would have confirmed one thing and pasted another. Line endings are
  * normalised because a clipboard filled on a desktop carries CRLF, which the
  * field renders as a blank line per break.
+ *
+ * `maxLength` defaults to capture's limit so capture is unchanged. It exists
+ * because the AI context import accepts twice as much: a machine-written profile
+ * runs past 2,000 characters easily, and the first version of that screen cut
+ * one in half without saying so — the user would have reviewed candidates drawn
+ * from the first half of their life and had no way to tell.
  */
-export function normalizeClipboardText(raw: string): string {
-  return raw.replace(/\r\n?/g, '\n').trim().slice(0, MAX_CAPTURE_LENGTH);
+export function normalizeClipboardText(raw: string, maxLength: number = MAX_CAPTURE_LENGTH): string {
+  return raw.replace(/\r\n?/g, '\n').trim().slice(0, maxLength);
 }
 
 /**
@@ -67,6 +73,7 @@ export function normalizeClipboardText(raw: string): string {
  */
 export async function readClipboardText(
   read: ClipboardReader = () => Clipboard.getStringAsync(),
+  options: { maxLength?: number } = {},
 ): Promise<ClipboardImport> {
   let raw: string | null;
   try {
@@ -76,6 +83,6 @@ export async function readClipboardText(
     // state — the user simply has nothing to paste.
     return { kind: 'empty' };
   }
-  const text = normalizeClipboardText(raw ?? '');
+  const text = normalizeClipboardText(raw ?? '', options.maxLength);
   return text.length > 0 ? { kind: 'text', text } : { kind: 'empty' };
 }

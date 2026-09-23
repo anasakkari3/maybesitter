@@ -50,7 +50,11 @@ export const routineSavedSchema = z.object({
  * Which path a fact arrived by. `behaviour_rule` is a suggestion the user kept
  * (UC-3.16, #202).
  */
-export const memoryOriginSchema = z.enum(['routine_survey', 'self_description', 'manual', 'capture', 'behaviour_rule']);
+export const memoryOriginSchema = z.enum([
+  'routine_survey', 'self_description', 'manual', 'capture', 'behaviour_rule',
+  /** A profile another AI assistant wrote, which the user brought over. */
+  'ai_context_import',
+]);
 
 /**
  * Where a fact came from, which is what the provenance chip renders.
@@ -63,6 +67,12 @@ export const memoryProvenanceSchema = z.object({
   model: z.string().optional(),
   promptVersion: z.string().optional(),
   confirmedByUserAt: z.string().optional(),
+  /**
+   * Which assistant an imported claim came from. Only ever present alongside
+   * `origin: 'ai_context_import'`, and a name rather than a model id because it
+   * is rendered as words: "brought from ChatGPT".
+   */
+  assistant: z.enum(['chatgpt', 'gemini', 'claude', 'other']).optional(),
 });
 
 /**
@@ -79,6 +89,13 @@ export const memorySourceLabelSchema = z.enum([
   'noticed_from_confirmed',
   'model_suggested_you_confirmed',
   'model_suggested',
+  /**
+   * Brought from another AI assistant and kept. Both the edited and unedited
+   * versions of an imported line read this way: every one of them was confirmed
+   * by the act of keeping it, so the confirmed/unconfirmed split the
+   * `model_suggested*` pair needs has nothing to carry here.
+   */
+  'you_brought_from_ai',
 ]);
 
 /**
