@@ -225,15 +225,14 @@ clause 9 asks for, and what the tree actually does for provider *reads*:
   row before it touches the port; a decision other than `allowed` leaves the
   provider absent from the state. `tests/financial/financialReadPolicy.test.ts`
   proves the gate is on the path, not only in the table.
-- **`actionGateway`** — *no provider read on main is executably audited.*
-  `executeThroughActionGateway` has one caller, the MCP capability adapter,
-  and it takes an injected `ActionGatewayAuditStore` with no persisted
-  implementation. `auditRequired: true` on every read row is a declaration.
-  The financial read was **not** routed through the gateway with an in-memory
-  store to satisfy the wording: that would produce a record nothing keeps.
-  Closing this is one change for every provider read at once — a persisted
-  audit store and a read-side call into the gateway — and belongs to the
-  provider layer, not to any one integration.
+- **`actionGateway`** — financial context is the first provider read on main
+  that is executably audited. It runs through `executeThroughActionGateway`
+  and `StoredActionGatewayAuditStore`, which writes the content-free phase
+  history and current idempotency state under the account. The provider
+  request and observations are never persisted in that record. Gmail, Graph,
+  Todoist, Notion and RescueTime still gate reads through `planProviderSync`
+  without calling the gateway; their `auditRequired: true` rows remain
+  declarations until those existing read paths adopt the same seam.
 
 ## Migration and rollback
 

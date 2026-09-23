@@ -48,6 +48,16 @@ export const COMMITMENT_ACTION_RECEIPTS = 'commitmentActionReceipts';
 export const NEXT_STEP_DECISIONS = 'nextStepDecisions';
 export const AUDIT_EVENTS = 'auditEvents';
 
+/**
+ * Content-free execution records written by the central action gateway.
+ *
+ * This is separate from `AUDIT_EVENTS`, whose rows are `PilotAuditEvent`s and
+ * are projected into the operator trust surface. Gateway rows have a different
+ * contract: request and idempotency ids, a closed capability, a policy result,
+ * and an execution phase. They never contain the provider payload or result.
+ */
+export const ACTION_GATEWAY_AUDIT_EVENTS = 'actionGatewayAuditEvents';
+
 /** Added by UC-1.0c (#142) as the remaining stores moved off local disk. */
 export const MEMORY = 'memory';
 export const FEEDBACK_EVENTS = 'feedbackEvents';
@@ -481,6 +491,7 @@ export const USER_SCOPED_COLLECTIONS = [
   COMMITMENT_ACTION_RECEIPTS,
   NEXT_STEP_DECISIONS,
   AUDIT_EVENTS,
+  ACTION_GATEWAY_AUDIT_EVENTS,
   MEMORY,
   FEEDBACK_EVENTS,
   FEEDBACK_BASELINES,
