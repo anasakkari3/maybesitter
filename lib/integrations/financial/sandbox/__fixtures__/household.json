@@ -1,0 +1,29 @@
+{
+  "epoch": "2026-09-23T00:00:00.000Z",
+  "accounts": [
+    { "accountId": "sbx-acct-checking", "name": "Everyday Checking", "accountNumberMasked": "****4432", "type": "depository", "currency": "ILS" },
+    { "accountId": "sbx-acct-savings", "name": "Rainy Day", "accountNumberMasked": "****7781", "type": "depository", "currency": "ILS" },
+    { "accountId": "sbx-acct-card", "name": "Platinum Card", "accountNumberMasked": "****8890", "type": "credit", "currency": "ILS" }
+  ],
+  "balances": [
+    { "accountId": "sbx-acct-checking", "availableMinorUnits": 134000, "currentMinorUnits": 141500, "currency": "ILS", "observedAt": "2026-09-23T05:30:00.000Z" },
+    { "accountId": "sbx-acct-savings", "availableMinorUnits": 46000, "currentMinorUnits": 46000, "currency": "ILS", "observedAt": "2026-09-23T05:30:00.000Z" },
+    { "accountId": "sbx-acct-card", "availableMinorUnits": 480000, "currentMinorUnits": -91200, "currency": "ILS", "observedAt": "2026-09-23T05:30:00.000Z" }
+  ],
+  "transactions": [
+    { "transactionId": "sbx-txn-0001", "accountId": "sbx-acct-checking", "postedAt": "2026-07-28T06:00:00.000Z", "amountMinorUnits": 820000, "currency": "ILS", "merchantName": "NORTHWIND LTD PAYROLL", "description": "SALARY NORTHWIND LTD", "categoryCode": "INCOME_WAGES" },
+    { "transactionId": "sbx-txn-0002", "accountId": "sbx-acct-checking", "postedAt": "2026-08-28T06:00:00.000Z", "amountMinorUnits": 820000, "currency": "ILS", "merchantName": "NORTHWIND LTD PAYROLL", "description": "SALARY NORTHWIND LTD", "categoryCode": "INCOME_WAGES" },
+    { "transactionId": "sbx-txn-0003", "accountId": "sbx-acct-checking", "postedAt": "2026-09-01T07:12:00.000Z", "amountMinorUnits": -350000, "currency": "ILS", "merchantName": "ZEBRAHOUSE PROPERTIES LTD", "description": "STANDING ORDER RENT", "categoryCode": "RENT_AND_UTILITIES_RENT" },
+    { "transactionId": "sbx-txn-0004", "accountId": "sbx-acct-card", "postedAt": "2026-09-14T21:41:00.000Z", "amountMinorUnits": -4730, "currency": "ILS", "merchantName": "MCDONALDS RAMAT GAN", "description": "CARD PURCHASE MCDONALDS", "categoryCode": "FOOD_AND_DRINK_FAST_FOOD" },
+    { "transactionId": "sbx-txn-0005", "accountId": "sbx-acct-checking", "postedAt": "2026-09-18T09:02:00.000Z", "amountMinorUnits": -12900, "currency": "ILS", "merchantName": "SUPERPHARM", "description": "CARD PURCHASE SUPERPHARM", "categoryCode": "GENERAL_MERCHANDISE_PHARMACY" }
+  ],
+  "recurring": [
+    { "streamId": "sbx-stream-salary", "accountId": "sbx-acct-checking", "direction": "inflow", "averageAmountMinorUnits": 820000, "currency": "ILS", "frequency": "monthly", "lastDate": "2026-08-28T06:00:00.000Z", "predictedNextDate": "2026-09-28T06:00:00.000Z", "merchantName": "NORTHWIND LTD PAYROLL", "categoryCode": "INCOME_WAGES", "status": "mature" },
+    { "streamId": "sbx-stream-rent", "accountId": "sbx-acct-checking", "direction": "outflow", "averageAmountMinorUnits": 350000, "currency": "ILS", "frequency": "monthly", "lastDate": "2026-09-01T07:12:00.000Z", "predictedNextDate": "2026-10-01T07:12:00.000Z", "merchantName": "ZEBRAHOUSE PROPERTIES LTD", "categoryCode": "RENT_AND_UTILITIES_RENT", "status": "mature" },
+    { "streamId": "sbx-stream-card", "accountId": "sbx-acct-checking", "direction": "outflow", "averageAmountMinorUnits": 91200, "currency": "ILS", "frequency": "monthly", "lastDate": "2026-08-25T00:00:00.000Z", "predictedNextDate": "2026-09-25T00:00:00.000Z", "merchantName": "PLATINUM CARD SETTLEMENT", "categoryCode": "LOAN_PAYMENTS_CREDIT_CARD", "status": "mature" },
+    { "streamId": "sbx-stream-electric", "accountId": "sbx-acct-checking", "direction": "outflow", "averageAmountMinorUnits": 31000, "currency": "ILS", "frequency": "biweekly", "lastDate": "2026-09-12T00:00:00.000Z", "predictedNextDate": "2026-09-26T00:00:00.000Z", "merchantName": "ISRAEL ELECTRIC", "categoryCode": "RENT_AND_UTILITIES_ELECTRIC", "status": "mature" },
+    { "streamId": "sbx-stream-stream1", "accountId": "sbx-acct-card", "direction": "outflow", "averageAmountMinorUnits": 4990, "currency": "ILS", "frequency": "monthly", "lastDate": "2026-09-08T00:00:00.000Z", "predictedNextDate": "2026-10-08T00:00:00.000Z", "merchantName": "STREAMFLIX", "categoryCode": "ENTERTAINMENT_SUBSCRIPTION", "status": "mature" },
+    { "streamId": "sbx-stream-stream2", "accountId": "sbx-acct-card", "direction": "outflow", "averageAmountMinorUnits": 2990, "currency": "ILS", "frequency": "monthly", "lastDate": "2026-09-11T00:00:00.000Z", "predictedNextDate": "2026-10-11T00:00:00.000Z", "merchantName": "CLOUDNOTES PRO", "categoryCode": "GENERAL_SERVICES_SUBSCRIPTION", "status": "early_detection" },
+    { "streamId": "sbx-stream-gone", "accountId": "sbx-acct-card", "direction": "outflow", "averageAmountMinorUnits": 3990, "currency": "ILS", "frequency": "monthly", "lastDate": "2026-05-03T00:00:00.000Z", "predictedNextDate": null, "merchantName": "OLDGYM MEMBERSHIP", "categoryCode": "GENERAL_SERVICES_SUBSCRIPTION", "status": "tombstoned" }
+  ]
+}

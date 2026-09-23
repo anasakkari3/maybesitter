@@ -10,3 +10,4 @@ export * from './captureContracts';
 export * from './intentContracts';
 export * from './nextStepContracts';
 export * from './analyticsEventContracts';
+export * from './financialContracts';

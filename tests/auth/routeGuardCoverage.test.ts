@@ -155,7 +155,17 @@ test('every mobile route file exists and is enumerated', () => {
   // protection: an unauthenticated caller reaching it would read that, and
   // would learn from the 404-vs-200 difference alone whether a given memory
   // id names a real goal.
-  assert.equal(files.length, 70, `found:\n${files.join('\n')}`);
+  // Seventy-three with the financial context (#financial-v1):
+  // `GET /api/mobile/financial/context`, `GET|PUT|DELETE /api/mobile/financial/
+  // manual`, and `GET|POST|DELETE /api/mobile/financial/connection`. These
+  // three are the most sensitive reads in the list. The context route answers
+  // with what somebody has, what they owe and when they are next paid; the
+  // manual route holds text they wrote about their own money; and the
+  // connection route is where connecting and disconnecting a money source
+  // actually happen. None of them takes a uid from anywhere but the verified
+  // token, which is what makes another account's figures not filtered out of
+  // these answers but absent from the collections they read.
+  assert.equal(files.length, 73, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

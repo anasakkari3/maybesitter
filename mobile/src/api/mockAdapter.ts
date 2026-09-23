@@ -59,6 +59,10 @@ import memoryList from './__fixtures__/memory.list.json';
 import memorySuggestionKept from './__fixtures__/memory.suggestionKept.json';
 import profileOne from './__fixtures__/profile.one.json';
 import profileSaved from './__fixtures__/profile.saved.json';
+import financialConnected from './__fixtures__/financial.connected.json';
+import financialContext from './__fixtures__/financial.context.json';
+import financialManual from './__fixtures__/financial.manual.json';
+import financialManualSaved from './__fixtures__/financial.manualSaved.json';
 import readinessCurrent from './__fixtures__/readiness.current.json';
 import readinessSaved from './__fixtures__/readiness.saved.json';
 import trustState from './__fixtures__/trust.state.json';
@@ -130,6 +134,16 @@ const ROUTES: [string, RegExp, MockResponse][] = [
 
   ['GET', /^\/api\/mobile\/profile$/, { status: 200, body: profileOne }],
   ['PUT', /^\/api\/mobile\/profile\/routine$/, { status: 200, body: profileSaved }],
+  ['GET', /^\/api\/mobile\/financial\/context$/, { status: 200, body: financialContext }],
+  ['GET', /^\/api\/mobile\/financial\/manual$/, { status: 200, body: financialManual }],
+  ['PUT', /^\/api\/mobile\/financial\/manual$/, { status: 200, body: financialManualSaved }],
+  ['DELETE', /^\/api\/mobile\/financial\/manual/, { status: 200, body: { success: true } }],
+  // The connected fixture, not the disconnected one: mock mode exists to work
+  // on a screen, and the screen worth seeing is the populated one. The
+  // disconnected shape is covered by its own fixture in the Jest suite.
+  ['GET', /^\/api\/mobile\/financial\/connection$/, { status: 200, body: financialConnected }],
+  ['POST', /^\/api\/mobile\/financial\/connection$/, { status: 201, body: financialConnected }],
+  ['DELETE', /^\/api\/mobile\/financial\/connection$/, { status: 200, body: { success: true } }],
   ['GET', /^\/api\/mobile\/readiness$/, { status: 200, body: readinessCurrent }],
   ['PUT', /^\/api\/mobile\/readiness$/, { status: 200, body: readinessSaved }],
   ['GET', /^\/api\/mobile\/memory$/, { status: 200, body: memoryList }],

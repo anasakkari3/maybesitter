@@ -235,6 +235,12 @@ test('context provider vocabulary is provider-independent and future-safe', () =
     'notion',
     'meeting',
     'mcp',
+    // A financial source (#financial-v1). Its own kind rather than a real
+    // aggregator's name, because this vocabulary is what a connection record
+    // is stamped with and what the Trust Center shows, and a record reading
+    // `plaid` while nothing has ever spoken to Plaid would be wrong in the one
+    // place somebody checks what is attached to their money.
+    'financial_sandbox',
   ]);
   assert.equal(INTEGRATION_CONNECTION_CONTRACT_VERSION, MODULE_CONTRACT_VERSION);
   assert.equal(INTEGRATION_CONNECTION_SCHEMA_VERSION, 'integration-connection-v1');

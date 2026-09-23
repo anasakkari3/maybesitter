@@ -400,7 +400,7 @@ test('executor errors become privacy-safe terminal audit results', async () => {
 test('provider context catalog routes Gmail, Graph, tasks, notes, and RescueTime through central policy', () => {
   assert.deepEqual(
     PROVIDER_CONTEXT_CATALOG.map((entry) => entry.surface),
-    ['gmail', 'microsoft_graph', 'todoist', 'notion', 'rescuetime'],
+    ['gmail', 'microsoft_graph', 'todoist', 'notion', 'rescuetime', 'financial_sandbox'],
   );
   assert.equal(providerCatalogEntry('gmail').provider, 'google');
   assert.equal(providerCatalogEntry('microsoft_graph').provider, 'microsoft');
@@ -416,6 +416,15 @@ test('provider context catalog routes Gmail, Graph, tasks, notes, and RescueTime
   assert.deepEqual(providerCatalogEntry('gmail').actionCapabilities, ['read_email', 'draft_email', 'send_email']);
   assert.deepEqual(providerCatalogEntry('todoist').connectionCapabilities, ['task_read', 'task_write']);
   assert.deepEqual(providerCatalogEntry('rescuetime').connectionCapabilities, ['focus_session_read']);
+  /*
+   * The financial surface reads and grants nothing to act with. The empty
+   * action list is the assertion that matters: the loop above proves every
+   * action capability a surface names has a policy behind it, and this proves
+   * this surface names none — so the one action anybody would eventually reach
+   * for here, which moves money, has no id to be requested by.
+   */
+  assert.deepEqual(providerCatalogEntry('financial_sandbox').connectionCapabilities, ['financial_read']);
+  assert.deepEqual(providerCatalogEntry('financial_sandbox').actionCapabilities, []);
 
   const graphSend = evaluateActionPolicy({
     capability: 'send_email',

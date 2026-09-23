@@ -55,6 +55,17 @@ import {
 import type { SeedStatus } from './schemas/seeds';
 import { getReadiness, putSubjectiveEnergy } from './endpoints/readiness';
 import {
+  connectFinancialSource,
+  deleteFinancialField,
+  deleteFinancialObligation,
+  disconnectFinancialSource,
+  getFinancialConnection,
+  getFinancialContext,
+  getFinancialManual,
+  putFinancialField,
+  putFinancialObligation,
+} from './endpoints/financial';
+import {
   confirmProfileSuggestions,
   describeProfile,
   createMemory,
@@ -120,6 +131,9 @@ export const queryKeys = {
   planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
   reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
   readiness: (uid: string) => ['user', uid, 'readiness'] as const,
+  financialContext: (uid: string) => ['user', uid, 'financialContext'] as const,
+  financialManual: (uid: string) => ['user', uid, 'financialManual'] as const,
+  financialConnection: (uid: string) => ['user', uid, 'financialConnection'] as const,
   categoryPreferences: (uid: string) => ['user', uid, 'categoryPreferences'] as const,
   /** Subscribed calendar feeds and the deadlines they propose (UC-3.4, #188). Never a URL. */
   icsFeeds: (uid: string) => ['user', uid, 'icsFeeds'] as const,
@@ -677,6 +691,86 @@ export function useSavePlanSettings() {
       void client.invalidateQueries({ queryKey: queryKeys.planSettings(uid) });
     },
   });
+}
+
+/**
+ * The financial context (#financial-v1).
+ *
+ * `staleTime: 0` for the same reason readiness has it: the answer is about a
+ * moment — what is due before the next income, and how much is left after it —
+ * and a cached copy from this morning is a different claim than the one it
+ * looks like.
+ */
+export function useFinancialContext() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.financialContext(uid),
+    queryFn: getFinancialContext,
+    enabled: uid !== 'signed-out',
+    staleTime: 0,
+  });
+}
+
+export function useFinancialManual() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.financialManual(uid),
+    queryFn: getFinancialManual,
+    enabled: uid !== 'signed-out',
+  });
+}
+
+export function useFinancialConnection() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.financialConnection(uid),
+    queryFn: getFinancialConnection,
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * Every financial write invalidates the context as well as its own list.
+ *
+ * A correction that did not refresh the context would leave the previous
+ * number on screen beside a confirmation that it had been saved, which is the
+ * one outcome the whole conflict design is trying to avoid.
+ */
+function useFinancialMutation<TInput, TResult>(fn: (input: TInput) => Promise<TResult>) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: fn,
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.financialContext(uid) });
+      void client.invalidateQueries({ queryKey: queryKeys.financialManual(uid) });
+      void client.invalidateQueries({ queryKey: queryKeys.financialConnection(uid) });
+    },
+  });
+}
+
+export function useSaveFinancialField() {
+  return useFinancialMutation(putFinancialField);
+}
+
+export function useSaveFinancialObligation() {
+  return useFinancialMutation(putFinancialObligation);
+}
+
+export function useClearFinancialField() {
+  return useFinancialMutation(deleteFinancialField);
+}
+
+export function useRemoveFinancialObligation() {
+  return useFinancialMutation(deleteFinancialObligation);
+}
+
+export function useConnectFinancialSource() {
+  return useFinancialMutation(() => connectFinancialSource());
+}
+
+export function useDisconnectFinancialSource() {
+  return useFinancialMutation(() => disconnectFinancialSource());
 }
 
 export function useReadiness() {

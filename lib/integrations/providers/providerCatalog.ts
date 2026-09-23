@@ -9,7 +9,8 @@ export type ProviderSurfaceId =
   | 'microsoft_graph'
   | 'todoist'
   | 'notion'
-  | 'rescuetime';
+  | 'rescuetime'
+  | 'financial_sandbox';
 
 export type ProviderPrepStage =
   | 'read_context'
@@ -96,6 +97,23 @@ export const PROVIDER_CONTEXT_CATALOG: readonly ProviderCatalogEntry[] = Object.
     connectionCapabilities: ['focus_session_read'],
     actionCapabilities: [],
     providerScopes: ['time_data:read'],
+    rawProviderToolsAllowedForModel: false,
+  },
+  {
+    surface: 'financial_sandbox',
+    provider: 'financial_sandbox',
+    displayName: 'Financial context (sandbox)',
+    prepStages: ['read_context'],
+    connectionCapabilities: ['financial_read'],
+    /*
+     * Empty, and not by omission. An action capability is something the
+     * product may go and *do* at a provider; this surface only ever reads, and
+     * the one action anybody would eventually want here moves money. Leaving
+     * the list empty means there is no capability id for a future caller to
+     * reach for.
+     */
+    actionCapabilities: [],
+    providerScopes: ['accounts:read', 'balances:read', 'transactions:read', 'recurring:read'],
     rawProviderToolsAllowedForModel: false,
   },
 ] as const);

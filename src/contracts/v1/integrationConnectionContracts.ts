@@ -21,6 +21,15 @@ export const CONTEXT_PROVIDER_KINDS = Object.freeze([
   'notion',
   'meeting',
   'mcp',
+  /**
+   * A financial data source backed by fixtures, not a bank (#financial-v1).
+   *
+   * Listed as its own provider rather than borrowed from a real aggregator's
+   * name, because a connection record is what the Trust Center shows and what
+   * "Disconnect" acts on, and a row that says `plaid` when nothing has ever
+   * spoken to Plaid is a lie in the one place a user goes to check.
+   */
+  'financial_sandbox',
 ] as const);
 
 export type KnownContextProviderKind = (typeof CONTEXT_PROVIDER_KINDS)[number];
@@ -56,7 +65,16 @@ export type IntegrationCapability =
   | 'focus_session_read'
   | 'meeting_read'
   | 'memory_context_read'
-  | 'mcp_tool_context';
+  | 'mcp_tool_context'
+  /**
+   * Read balances, transactions and detected recurring payments.
+   *
+   * There is deliberately no `financial_write` or `financial_payment` beside
+   * it. A capability that does not exist cannot be granted by a bug, requested
+   * by a mis-typed scope list, or found by somebody reading this union for
+   * something to use.
+   */
+  | 'financial_read';
 
 export interface IntegrationCredentialReference {
   /** Logical secure-store implementation; never a token or secret value. */

@@ -43,6 +43,15 @@ import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/
 import { EVENTS, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
+import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
+import {
+  GET as financialManualGet,
+  PUT as financialManualPut,
+} from '../../src/app/api/mobile/financial/manual/route.ts';
+import {
+  GET as financialConnectionGet,
+  POST as financialConnectionPost,
+} from '../../src/app/api/mobile/financial/connection/route.ts';
 import { PUT as personalizationConsentPut } from '../../src/app/api/mobile/consents/personalization/route.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
@@ -798,6 +807,50 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     );
     await record('commitments.stale', 409, stale);
 
+
+    // ── financial context (#financial-v1) ──────────────────────────
+    //
+    // Recorded connected and populated rather than empty. An empty state is
+    // all nulls, which every schema accepts and nothing proves — the fixture
+    // has to carry an amount, a provenance and a conflict, or the app's schema
+    // is only ever validated against the shape of "nothing here yet".
+    const financialDisconnected = await record(
+      'financial.connectionOff', 200, await financialConnectionGet(request('/api/mobile/financial/connection')),
+    );
+    assert.equal(financialDisconnected.connected, false);
+
+    await record('financial.connected', 201, await financialConnectionPost(
+      request('/api/mobile/financial/connection', { method: 'POST' }),
+    ));
+
+    await record('financial.manualSaved', 200, await financialManualPut(
+      request('/api/mobile/financial/manual', {
+        method: 'PUT',
+        body: { field: 'cash_available', kind: 'correction', value: 60_000 },
+      }),
+    ));
+    await financialManualPut(request('/api/mobile/financial/manual', {
+      method: 'PUT',
+      body: {
+        label: 'Semester B tuition', category: 'tuition',
+        dueAt: '2026-10-10T00:00:00.000Z', amountMinorUnits: 200_000, currency: 'ILS',
+      },
+    }));
+
+    const financialManual = await record(
+      'financial.manual', 200, await financialManualGet(request('/api/mobile/financial/manual')),
+    );
+    assert.equal((financialManual.manual as { fields: unknown[] }).fields.length, 1);
+
+    const financialContext = await record(
+      'financial.context', 200, await financialContextGet(request('/api/mobile/financial/context')),
+    );
+    const financialState = financialContext.state as {
+      cashAvailable: unknown; conflicts: unknown[]; upcomingObligations: unknown[];
+    };
+    assert.ok(financialState.cashAvailable, 'the fixture recorded a state with no amount in it');
+    assert.equal(financialState.conflicts.length, 1, 'the fixture recorded no conflict, so the app never renders one');
+    assert.ok(financialState.upcomingObligations.length > 0);
 
     // ── trust ──────────────────────────────────────────────────────
     const trust = await record('trust.state', 200, await trustGet(request('/api/mobile/pilot/trust')));

@@ -26,6 +26,7 @@ export function SettingsScreen() {
     { label: t.sLanguage, value: languageValue, onPress: actions.cycleLanguage, testID: 'settings-language' },
     { label: t.settingsRoutine, value: '', onPress: () => actions.go('routineSettings'), testID: 'settings-routine' },
     { label: t.readinessTitle, value: '', onPress: () => actions.go('readinessSettings'), testID: 'settings-readiness' },
+    { label: t.financialTitle, value: '', onPress: () => actions.go('financialContext'), testID: 'settings-financial' },
     { label: t.settingsCategories, value: '', onPress: () => actions.go('categorySettings'), testID: 'settings-categories' },
     { label: t.sNotif, value: '', onPress: () => actions.go('notificationsSettings'), testID: 'settings-notifications' },
     { label: t.calendarWriteTitle, value: '', onPress: () => actions.go('calendarSettings'), testID: 'settings-calendar' },
