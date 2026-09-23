@@ -106,13 +106,15 @@ export const PROVIDER_CONTEXT_CATALOG: readonly ProviderCatalogEntry[] = Object.
     prepStages: ['read_context'],
     connectionCapabilities: ['financial_read'],
     /*
-     * Empty, and not by omission. An action capability is something the
-     * product may go and *do* at a provider; this surface only ever reads, and
-     * the one action anybody would eventually want here moves money. Leaving
-     * the list empty means there is no capability id for a future caller to
-     * reach for.
+     * One action capability, and it is a read. `read_financial_context` is
+     * the id the read surface evaluates against `ACTION_CAPABILITY_POLICIES`
+     * before it touches the port — the same declaration Gmail, Graph, Todoist
+     * and Notion make for their reads. There is deliberately no second entry:
+     * the one action anybody would eventually want here moves money, and
+     * `spend_money` is `unsupported` in the policy table, so there is still no
+     * id for a future caller to reach for that does anything but read.
      */
-    actionCapabilities: [],
+    actionCapabilities: ['read_financial_context'],
     providerScopes: ['accounts:read', 'balances:read', 'transactions:read', 'recurring:read'],
     rawProviderToolsAllowedForModel: false,
   },

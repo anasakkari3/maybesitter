@@ -14,7 +14,33 @@
  * no connection the provider half is simply absent, the state says so in
  * `missingSourceKinds`, and every provider-owned field falls back to whatever
  * the person supplied.
+ *
+ * ── The read is gated on the capability table, and what that does not buy ──
+ *
+ * ADR-0002 §9: every integration reads behind `IntegrationConnectionRecord`
+ * + a closed `CapabilityId`. The connection half was always here; the
+ * capability half is `read_financial_context`, evaluated against
+ * `ACTION_CAPABILITY_POLICIES` before the port is touched. A decision that is
+ * not `allowed` with `providerExecutionAllowed` means the provider half is
+ * absent from the state exactly as if nothing were connected — no partial
+ * read, no cached picture from an earlier request.
+ *
+ * What this does **not** claim: an audit record. The policy row says
+ * `auditRequired: true`, as every other provider read's row does, and as of
+ * 2026-09-23 no provider read on main produces one. Gmail, Graph, Todoist,
+ * Notion and RescueTime gate their reads through `planProviderSync`; the only
+ * caller of `executeThroughActionGateway` is the MCP capability adapter, and
+ * it takes an injected audit store for which no persisted implementation
+ * exists. Routing this read through that gateway with an in-memory store
+ * would produce a record nothing keeps, so it is not done. The gap is the
+ * provider layer's, recorded in ADR-0002 under "Enforcement, stated honestly",
+ * and closing it is one change for every provider read at once.
  */
+import {
+  evaluateActionPolicy,
+  type ActionPolicyDecision,
+  type ActionPolicyRequest,
+} from '../../../src/contracts/v1/actionPolicyContracts';
 import type { FinancialState } from '../../../src/contracts/v1/financialContracts';
 import type { IntegrationConnectionRecord } from '../../../src/contracts/v1/integrationConnectionContracts';
 import {
@@ -30,6 +56,10 @@ import { buildFinancialState } from './buildFinancialState';
 import { StoredManualFinancialStore } from './manualFinancialStore';
 
 export const FINANCIAL_PROVIDER = 'financial_sandbox' as const;
+/** The one `CapabilityId` this feature holds. A read; see `actionPolicyContracts`. */
+export const FINANCIAL_READ_CAPABILITY = 'read_financial_context' as const;
+
+export type FinancialReadPolicyEvaluator = (request: ActionPolicyRequest) => ActionPolicyDecision;
 
 export interface ReadFinancialStateInput {
   readonly uid: string;
@@ -41,6 +71,11 @@ export interface ReadFinancialStateInput {
    * sandbox is used — and only for a connection that actually exists.
    */
   readonly transport?: FinancialDataPort;
+  /**
+   * Injected in tests only, to prove a decision other than `allowed` keeps
+   * the port unread. Production always evaluates the real table.
+   */
+  readonly evaluatePolicy?: FinancialReadPolicyEvaluator;
 }
 
 export function financialConnectionId(): string {
@@ -51,6 +86,23 @@ function isUsable(connection: IntegrationConnectionRecord | null): boolean {
   return connection !== null
     && connection.state === 'connected'
     && connection.capabilities.includes('financial_read');
+}
+
+/** The request every financial read is evaluated as. `system`, because no person confirms a read. */
+export function financialReadPolicyRequest(): ActionPolicyRequest {
+  return {
+    capability: FINANCIAL_READ_CAPABILITY,
+    provider: FINANCIAL_PROVIDER,
+    actor: 'system',
+    userConfirmed: false,
+    strongConfirmation: false,
+    settingsAllowAutomaticExternalWrites: false,
+  };
+}
+
+function readAllowed(evaluate: FinancialReadPolicyEvaluator): boolean {
+  const decision = evaluate(financialReadPolicyRequest());
+  return decision.decision === 'allowed' && decision.providerExecutionAllowed;
 }
 
 export async function readFinancialState(input: ReadFinancialStateInput): Promise<FinancialState> {
@@ -64,7 +116,7 @@ export async function readFinancialState(input: ReadFinancialStateInput): Promis
   ]);
 
   const observations: NormalizedFinancialObservations[] = [];
-  if (isUsable(connection)) {
+  if (isUsable(connection) && readAllowed(input.evaluatePolicy ?? evaluateActionPolicy)) {
     const port = input.transport ?? createSandboxFinancialTransport({ asOf: input.asOf });
     observations.push(
       await normalizeFinancialObservations(port, {

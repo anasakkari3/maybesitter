@@ -111,6 +111,7 @@ test('action policy vocabulary is versioned and machine-readable', () => {
     'read_health',
     'read_email',
     'read_external_task',
+    'read_financial_context',
     'create_local_reminder',
     'create_calendar_event',
     'create_external_task',
@@ -417,14 +418,34 @@ test('provider context catalog routes Gmail, Graph, tasks, notes, and RescueTime
   assert.deepEqual(providerCatalogEntry('todoist').connectionCapabilities, ['task_read', 'task_write']);
   assert.deepEqual(providerCatalogEntry('rescuetime').connectionCapabilities, ['focus_session_read']);
   /*
-   * The financial surface reads and grants nothing to act with. The empty
-   * action list is the assertion that matters: the loop above proves every
-   * action capability a surface names has a policy behind it, and this proves
-   * this surface names none — so the one action anybody would eventually reach
-   * for here, which moves money, has no id to be requested by.
+   * The financial surface reads, and the one action capability it names is
+   * that read. Naming it is what puts the surface under the loop above: a
+   * policy row exists, it is `read_only_context`, provider execution is a
+   * read, and audit is required — the same declaration every other provider
+   * read makes. The tier assertion is the one that matters: the only action
+   * anybody would eventually reach for here moves money, and this proves no
+   * capability on the surface is anything but a read.
    */
   assert.deepEqual(providerCatalogEntry('financial_sandbox').connectionCapabilities, ['financial_read']);
-  assert.deepEqual(providerCatalogEntry('financial_sandbox').actionCapabilities, []);
+  assert.deepEqual(providerCatalogEntry('financial_sandbox').actionCapabilities, ['read_financial_context']);
+  for (const capability of providerCatalogEntry('financial_sandbox').actionCapabilities) {
+    const policy = policyForCapability(capability);
+    assert.equal(policy?.tier, 'read_only_context', `${capability} on the financial surface is not a read`);
+    assert.equal(policy?.confirmation, 'none');
+    assert.equal(policy?.providerExecutionAllowed, true);
+    assert.equal(policy?.auditRequired, true);
+  }
+  const financialRead = evaluateActionPolicy({
+    capability: 'read_financial_context',
+    provider: 'financial_sandbox',
+    actor: 'system',
+    userConfirmed: false,
+    strongConfirmation: false,
+    settingsAllowAutomaticExternalWrites: false,
+  });
+  assert.equal(financialRead.decision, 'allowed');
+  assert.equal(financialRead.providerExecutionAllowed, true);
+  assert.equal(policyForCapability('spend_money')?.tier, 'unsupported');
 
   const graphSend = evaluateActionPolicy({
     capability: 'send_email',

@@ -35,6 +35,17 @@ export type CapabilityId =
   | 'read_meeting_context'
   | 'read_note_context'
   | 'read_mcp_context'
+  /**
+   * Read balances, obligations and recurring streams from a connected
+   * financial source (#financial-v1). The only financial capability that
+   * exists; `spend_money` below is `unsupported` and there is no
+   * `write_financial_*`. Added by review under ADR-0002 §9: a connected
+   * provider's read has to name a member of this closed union, so the
+   * read-only tier and the audit requirement are declared in the one table
+   * every other provider read is declared in, rather than implied by an
+   * empty action list.
+   */
+  | 'read_financial_context'
   | 'create_local_reminder'
   | 'update_local_plan'
   | 'create_local_proposal'
@@ -61,6 +72,7 @@ export type ActionSubjectKind =
   | 'plan'
   | 'mcp'
   | 'billing'
+  | 'financial'
   | 'unknown';
 
 export interface ActionCapabilityPolicy {
@@ -131,6 +143,15 @@ export const ACTION_CAPABILITY_POLICIES: readonly ActionCapabilityPolicy[] = Obj
   {
     capability: 'read_mcp_context',
     subject: 'mcp',
+    tier: 'read_only_context',
+    confirmation: 'none',
+    providerExecutionAllowed: true,
+    modelMaySelectRawProviderTool: false,
+    auditRequired: true,
+  },
+  {
+    capability: 'read_financial_context',
+    subject: 'financial',
     tier: 'read_only_context',
     confirmation: 'none',
     providerExecutionAllowed: true,

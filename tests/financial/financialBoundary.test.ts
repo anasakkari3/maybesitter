@@ -26,6 +26,7 @@ import {
 import { FINANCIAL_PORT_POLICY } from '../../lib/integrations/financial/port.ts';
 import { SANDBOX_FINANCIAL_TRANSPORT_POLICY } from '../../lib/integrations/financial/sandbox/sandboxTransport.ts';
 import { providerCatalogEntry } from '../../lib/integrations/providers/providerCatalog.ts';
+import { policyForCapability } from '../../src/contracts/v1/actionPolicyContracts.ts';
 
 const ROOT = process.cwd();
 
@@ -132,11 +133,20 @@ test('no financial module names a payment, a transfer or a payee', () => {
   }
 });
 
-test('the financial provider surface grants no action capability', () => {
+test('the financial provider surface grants exactly one action capability, and it is a read', () => {
   const entry = providerCatalogEntry('financial_sandbox');
-  assert.deepEqual([...entry.actionCapabilities], []);
+  assert.deepEqual([...entry.actionCapabilities], ['read_financial_context']);
   assert.deepEqual([...entry.connectionCapabilities], ['financial_read']);
   assert.equal(entry.rawProviderToolsAllowedForModel, false);
+  // The id exists so the read is declared in the closed capability table
+  // (ADR-0002 §9). What keeps money unmovable is the tier: every capability
+  // this surface names must be a read, and the only money-moving id in the
+  // table stays `unsupported`.
+  for (const capability of entry.actionCapabilities) {
+    assert.equal(policyForCapability(capability)?.tier, 'read_only_context', `${capability} is not a read`);
+  }
+  assert.equal(policyForCapability('spend_money')?.tier, 'unsupported');
+  assert.equal(policyForCapability('spend_money')?.providerExecutionAllowed, false);
 });
 
 /* ── The declared policies say what the code does ─────────────────── */

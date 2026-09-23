@@ -209,6 +209,32 @@ Both should follow the source-scanning shape already used by
 `tests/safety/safetyBoundaries.test.ts` where a boundary is what is being
 checked.
 
+#### Clause 9 against the code, 2026-09-23 (financial context v1 landing)
+
+Reviewed while landing the first integration written after this ADR. What
+clause 9 asks for, and what the tree actually does for provider *reads*:
+
+- **`IntegrationConnectionRecord`** — every provider read checks one. Gmail,
+  Graph, Todoist, Notion and RescueTime do it through `planProviderSync`; the
+  financial read checks state and capability on the record directly, because a
+  sandbox has no OAuth token for `planProviderSync` to grade.
+- **Closed `CapabilityId`** — every connected provider's read names a `read_*`
+  member with a `read_only_context` policy row. The financial surface shipped
+  without one (an empty action list, on the RescueTime precedent). It now
+  declares `read_financial_context`, and `readFinancialState` evaluates that
+  row before it touches the port; a decision other than `allowed` leaves the
+  provider absent from the state. `tests/financial/financialReadPolicy.test.ts`
+  proves the gate is on the path, not only in the table.
+- **`actionGateway`** — *no provider read on main is executably audited.*
+  `executeThroughActionGateway` has one caller, the MCP capability adapter,
+  and it takes an injected `ActionGatewayAuditStore` with no persisted
+  implementation. `auditRequired: true` on every read row is a declaration.
+  The financial read was **not** routed through the gateway with an in-memory
+  store to satisfy the wording: that would produce a record nothing keeps.
+  Closing this is one change for every provider read at once — a persisted
+  audit store and a read-side call into the gateway — and belongs to the
+  provider layer, not to any one integration.
+
 ## Migration and rollback
 
 Documentation only. No contract change, no stored state, no data migration,
