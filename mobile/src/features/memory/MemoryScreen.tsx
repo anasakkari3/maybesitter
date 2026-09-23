@@ -305,10 +305,14 @@ function SuggestionsCard({
               ? fill(strings.memorySuggestionDeferDefault ?? '', {
                 duration: durationText(suggestion.deferMinutes, strings),
               })
-              : fill(strings.memorySuggestionFocusWindow ?? '', {
-                start: suggestion.window.start,
-                end: suggestion.window.end,
-              }))}
+              : suggestion.ruleId === 'R3_plan_time'
+                ? fill(strings.memorySuggestionPlanTime ?? '', {
+                  time: suggestion.planTime,
+                })
+                : fill(strings.memorySuggestionFocusWindow ?? '', {
+                  start: suggestion.window.start,
+                  end: suggestion.window.end,
+                }))}
           </Txt>
           <Txt size={13} color={p.mu} lh={1.5} testID={`memory-suggestion-evidence-${suggestion.fingerprint}`}>
             {isolate(suggestion.ruleId === 'R2_defer_default'
@@ -316,11 +320,16 @@ function SuggestionsCard({
                 total: String(suggestion.evidence.totalCount),
                 matching: String(suggestion.evidence.matchingCount),
               })
-              : fill(strings.memorySuggestionEvidence ?? '', {
-                days: String(suggestion.evidence.lookbackDays),
-                total: String(suggestion.evidence.totalCount),
-                matching: String(suggestion.evidence.matchingCount),
-              }))}
+              : suggestion.ruleId === 'R3_plan_time'
+                ? fill(strings.memorySuggestionPlanTimeEvidence ?? '', {
+                  total: String(suggestion.evidence.totalCount),
+                  matching: String(suggestion.evidence.matchingCount),
+                })
+                : fill(strings.memorySuggestionEvidence ?? '', {
+                  days: String(suggestion.evidence.lookbackDays),
+                  total: String(suggestion.evidence.totalCount),
+                  matching: String(suggestion.evidence.matchingCount),
+                }))}
           </Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
             <Action

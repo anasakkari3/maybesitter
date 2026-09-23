@@ -45,6 +45,20 @@ export function keptDeferDefaultContent(deferMinutes: number, language: KeptSugg
 }
 
 /**
+ * R3's kept sentence (#533). `{time}` is the rule's own half-hour, never the
+ * request body's, for the same reason the whole sentence is fixed here.
+ */
+export const KEPT_PLAN_TIME_CONTENT: Readonly<Record<KeptSuggestionLanguage, string>> = Object.freeze({
+  en: 'You usually look at your plan around {time}.',
+  ar: 'غالباً بتفتح خطتك حوالي {time}.',
+  he: 'לרוב אתה מסתכל על התוכנית שלך בסביבות {time}.',
+});
+
+export function keptPlanTimeContent(planTime: string, language: KeptSuggestionLanguage): string {
+  return KEPT_PLAN_TIME_CONTENT[language].replace('{time}', planTime);
+}
+
+/**
  * A duration as a person says it, in the kept sentence's own language.
  *
  * The buckets a rule can produce are half-hour multiples, so the forms below

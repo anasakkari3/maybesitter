@@ -41,6 +41,10 @@ export const PLAN_EVENTS_NOT_USER_FACING: Readonly<Record<string, string>> = Obj
   // ledger — a placement the planner stops moving needs a record of who asked —
   // and not in a history of what somebody did.
   plan_protected: 'declaring a block protected tunes the planner; it is not an outcome',
+  // A view is not something the person did (#533). It is recorded so R3 can
+  // learn when the plan is usually looked at; showing it in a history of what
+  // somebody did would read as a tally of glances.
+  plan_opened: 'looking at a plan is not doing it',
 });
 
 /**

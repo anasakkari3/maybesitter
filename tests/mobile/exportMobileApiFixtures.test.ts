@@ -106,6 +106,7 @@ import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { POST as planBuildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
+import { POST as planOpenedPost } from '../../src/app/api/mobile/plans/[date]/opened/route.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
 import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
 import {
@@ -139,6 +140,7 @@ import {
   claimDueDelivery,
   savePlanSettings,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
+import { appendPlanEvent } from '../../lib/services/dailyPlan/planStore.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -280,6 +282,52 @@ async function seedDeferHabit(uid: string): Promise<void> {
       at: at.toISOString(),
       aggregateId: `c_defer_${index}`,
       payload: { postponedUntil: new Date(at.getTime() + durations[index]! * 60_000).toISOString() },
+    });
+  }
+  await setPersonalizationConsent(uid, {
+    state: 'granted',
+    version: PERSONALIZATION_CONSENT_VERSION,
+    at: new Date(nowMs - 60_000),
+  });
+}
+
+/**
+ * Seven plan days, five of them opened in the 08:00 half-hour and two in the
+ * evening — the shape R3 reads (#533). The opens are appended to the plan
+ * ledger the way the route appends them; no planSettings row, so the delivery
+ * time defaults to 07:30 and the delivery exclusion has nothing to take. The
+ * plan documents themselves do not exist: R3 reads the ledger, not the plans.
+ */
+async function seedPlanOpenHabit(uid: string): Promise<void> {
+  const nowMs = Date.now();
+  const at = (daysAgo: number, hour: number, minute: number): string => {
+    const base = new Date(nowMs - daysAgo * 86_400_000);
+    for (let utcShift = -14; utcShift <= 14; utcShift += 1) {
+      const candidate = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), hour - utcShift, minute));
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+        .formatToParts(candidate);
+      const shownHour = Number(parts.find(part => part.type === 'hour')!.value);
+      if (shownHour === hour && candidate.getTime() < nowMs) return candidate.toISOString();
+    }
+    throw new Error('no instant');
+  };
+  const date = (daysAgo: number): string => {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(new Date(nowMs - daysAgo * 86_400_000));
+    const part = (type: string) => parts.find(entry => entry.type === type)!.value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  };
+  await getStorage().set(userDoc(uid), { uid, timezone: 'Asia/Jerusalem' });
+  const opens: Array<[number, number, number]> = [
+    [1, 8, 12], [2, 8, 26], [3, 21, 5], [4, 8, 4], [5, 21, 40], [6, 8, 29], [7, 8, 0],
+  ];
+  for (const [daysAgo, hour, minute] of opens) {
+    await appendPlanEvent(uid, {
+      type: 'plan_opened',
+      date: date(daysAgo),
+      at: at(daysAgo, hour, minute),
+      generation: 1,
+      inputDigest: 'digest',
     });
   }
   await setPersonalizationConsent(uid, {
@@ -1161,6 +1209,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       { params: Promise.resolve({ ruleId: 'R2_defer_default' }) },
     ));
 
+    // R3 (#533), on an account that has only ever opened its plan, so the
+    // recorded response carries the plan-time suggestion and nothing else.
+    const growthPlanOpener = uidFor('FixtureGrowthPlanOpen');
+    await seedPlanOpenHabit(growthPlanOpener);
+    const withPlanTimeSuggestion = await record('memory.withPlanTimeSuggestion', 200, await memoryGet(
+      request('/api/mobile/memory', { uid: growthPlanOpener }),
+    ));
+    assert.deepEqual(
+      (withPlanTimeSuggestion.suggestions as Array<{ ruleId: string }>).map((suggestion) => suggestion.ruleId),
+      ['R3_plan_time'],
+      'the plan-open fixture carries a suggestion that is not R3, so the client schema it exists to pin is never exercised',
+    );
+    const planTimeFingerprintValue = (withPlanTimeSuggestion.suggestions as Array<{ fingerprint: string }>)[0]!.fingerprint;
+    await record('memory.planTimeSuggestionKept', 201, await memorySuggestionPost(
+      request('/api/mobile/memory/suggestions/R3_plan_time', {
+        uid: growthPlanOpener,
+        body: { decision: 'keep', fingerprint: planTimeFingerprintValue, language: 'en' },
+      }),
+      { params: Promise.resolve({ ruleId: 'R3_plan_time' }) },
+    ));
+
     // ── the daily plan (#194), rendered by UC-3.10b (#195) ─────────
     // The settings pair first: `nextRunAt` is the server's own answer to "when
     // does my next plan arrive", which the screen shows rather than recomputing
@@ -1212,6 +1281,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
 
     await record('plan.accepted', 200, await planActionPost(
       request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept' } }),
+      dateParams(PLAN_DATE),
+    ));
+
+    // "The plan was put on screen" (#533): the acknowledgement carries nothing
+    // back — the append to the plan ledger is the point of the call.
+    await record('plan.opened', 200, await planOpenedPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/opened`),
       dateParams(PLAN_DATE),
     ));
 

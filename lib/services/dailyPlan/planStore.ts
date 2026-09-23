@@ -235,7 +235,13 @@ export type PlanEventType =
   | 'plan_edited'
   | 'plan_dismissed'
   | 'plan_regenerated'
-  | 'plan_protected';
+  | 'plan_protected'
+  /**
+   * The plan was put on screen (#533). A view, not a decision: it exists so
+   * R3 (`lib/memoryGrowth/rules.ts`) can name the time a person usually looks
+   * at their plan, and it is deliberately not activity (`planActivity.ts`).
+   */
+  | 'plan_opened';
 
 export interface PlanEvent {
   readonly id: string;

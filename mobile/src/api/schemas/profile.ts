@@ -118,9 +118,9 @@ export const memorySourceLabelSchema = z.enum([
  */
 /**
  * What one growth rule read off the user's behaviour (UC-3.16, #202; R2 in
- * #532). A token and the claim's own shape, never a sentence: R1 carries a
- * local window, R2 the length of a "Later" in minutes, and the words are this
- * app's in three languages.
+ * #532, R3 in #533). A token and the claim's own shape, never a sentence: R1
+ * carries a local window, R2 the length of a "Later" in minutes, R3 a local
+ * `HH:MM`, and the words are this app's in three languages.
  *
  * Discriminated on `ruleId`, so a rule this version does not know fails the
  * parse for that field alone rather than being read as R1's shape.
@@ -133,6 +133,10 @@ export const memoryPatternSchema = z.discriminatedUnion('ruleId', [
   z.object({
     ruleId: z.literal('R2_defer_default'),
     deferMinutes: z.number(),
+  }),
+  z.object({
+    ruleId: z.literal('R3_plan_time'),
+    planTime: z.string(),
   }),
 ]);
 
@@ -175,8 +179,8 @@ const suggestionEvidenceSchema = z.object({
 
 /**
  * Something MaybeSitter could say it noticed, computed on the read and stored
- * nowhere until the user keeps it (UC-3.16, #202; R2 in #532). A token and the
- * claim's own shape, not a sentence: the words are this app's, in three
+ * nowhere until the user keeps it (UC-3.16, #202; R2 in #532, R3 in #533). A
+ * token and the claim's own shape, not a sentence: the words are this app's, in three
  * languages.
  */
 export const memorySuggestionSchema = z.discriminatedUnion('ruleId', [
@@ -191,6 +195,13 @@ export const memorySuggestionSchema = z.discriminatedUnion('ruleId', [
     ruleId: z.literal('R2_defer_default'),
     fingerprint: z.string(),
     deferMinutes: z.number(),
+    confidence: z.number(),
+    evidence: suggestionEvidenceSchema,
+  }),
+  z.object({
+    ruleId: z.literal('R3_plan_time'),
+    fingerprint: z.string(),
+    planTime: z.string(),
     confidence: z.number(),
     evidence: suggestionEvidenceSchema,
   }),

@@ -130,6 +130,35 @@ const DEFER_NOTICED = item({
   },
 });
 
+/** R3's claim (#533): a local HH:MM on the wire, words on the phone. */
+const PLAN_TIME_SUGGESTION: MemorySuggestion = {
+  ruleId: 'R3_plan_time',
+  fingerprint: 'R3_plan_time:08:00',
+  planTime: '08:00',
+  confidence: 0.71,
+  evidence: { matchingCount: 5, totalCount: 7, lookbackDays: 28 },
+};
+
+const PLAN_TIME_NOTICED = item({
+  id: 'mem_plan_time',
+  kind: 'preference',
+  content: 'You usually look at your plan around 08:00.',
+  source: 'deterministic_rule',
+  sourceLabel: 'noticed_from_confirmed',
+  confidence: 0.71,
+  staleAfter: NINETY_DAYS,
+  provenance: { origin: 'behaviour_rule', originRef: 'R3_plan_time:08:00', confirmedByUserAt: RECORDED },
+  evidence: {
+    origin: 'behaviour_rule',
+    observedAt: RECORDED,
+    recordedAt: RECORDED,
+    confirmedAt: RECORDED,
+    edited: false,
+    observationCount: 5,
+    pattern: { ruleId: 'R3_plan_time', planTime: '08:00' },
+  },
+});
+
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 
@@ -469,6 +498,42 @@ describe('suggestions (#202)', () => {
     // R1's window shapes the next plan and says so; nothing reads a kept
     // defer duration, and the line has to say that rather than borrow R1's.
     const plan = screen.getByTestId('memory-evidence-mem_defer-plan').props.children as string;
+    expect(plan).toContain(en.memoryWhyDeferNoPlanUse);
+    expect(plan).not.toContain(en.memoryWhyPlanUse);
+  });
+
+  it('words R3 as a time, sends its own ruleId back, and still shows no share', async () => {
+    listing([], [PLAN_TIME_SUGGESTION]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-suggestion-R3_plan_time:08:00')).not.toBeNull());
+
+    const sentence = screen.getByTestId('memory-suggestion-R3_plan_time:08:00').props.children as string;
+    expect(sentence).toContain('08:00');
+    expect(sentence).not.toMatch(/\{|\}/);
+    const evidence = screen.getByTestId('memory-suggestion-evidence-R3_plan_time:08:00').props.children as string;
+    expect(evidence).toContain('7');
+    expect(evidence).toContain('5');
+    expect(`${sentence} ${evidence}`).not.toMatch(/0\.71|71\s*%/);
+
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R3_plan_time:08:00')); });
+    await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
+    const [sent] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
+    // The route is keyed on the ruleId, so R3 keeping under R1's id would be a 409.
+    expect(sent.ruleId).toBe('R3_plan_time');
+    expect(sent.fingerprint).toBe('R3_plan_time:08:00');
+  });
+
+  it('a kept R3 pattern says what it was read from, and that the plan does not use it', async () => {
+    listing([PLAN_TIME_NOTICED]);
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('memory-why-mem_plan_time')).not.toBeNull());
+    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_plan_time')); });
+
+    const pattern = screen.getByTestId('memory-evidence-mem_plan_time-pattern').props.children as string;
+    expect(pattern).toContain('08:00');
+    expect(pattern).not.toMatch(/\{|\}/);
+    // Nothing reads a kept plan time yet, the same answer R2's duration gets.
+    const plan = screen.getByTestId('memory-evidence-mem_plan_time-plan').props.children as string;
     expect(plan).toContain(en.memoryWhyDeferNoPlanUse);
     expect(plan).not.toContain(en.memoryWhyPlanUse);
   });

@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "decision": "keep",
+  "memory": {
+    "id": "mem_00000000-0000-4000-8000-000000000001",
+    "kind": "preference",
+    "content": "You usually look at your plan around 08:00.",
+    "language": "en",
+    "source": "deterministic_rule",
+    "sourceLabel": "noticed_from_confirmed",
+    "confidence": 0.71,
+    "createdAt": "2026-08-09T09:00:00.000Z",
+    "observedAt": "2026-08-09T09:00:00.000Z",
+    "staleAfter": "2026-08-09T09:00:00.000Z",
+    "provenance": {
+      "origin": "behaviour_rule",
+      "originRef": "R3_plan_time:08:00",
+      "confirmedByUserAt": "2026-08-09T09:00:00.000Z"
+    },
+    "evidence": {
+      "origin": "behaviour_rule",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "recordedAt": "2026-08-09T09:00:00.000Z",
+      "confirmedAt": "2026-08-09T09:00:00.000Z",
+      "edited": false,
+      "observationCount": 5,
+      "pattern": {
+        "ruleId": "R3_plan_time",
+        "planTime": "08:00"
+      }
+    }
+  }
+}

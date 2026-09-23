@@ -55,7 +55,9 @@ export function PersonalizationScreen() {
         {suggestions.map(suggestion => <Card key={suggestion.fingerprint} style={{ gap: 12 }}>
           <Txt role="card">{isolate(suggestion.ruleId === 'R2_defer_default'
             ? fill(t.memorySuggestionDeferDefault, { duration: durationText(suggestion.deferMinutes, t as unknown as Record<string, string>) })
-            : fill(t.memorySuggestionFocusWindow, suggestion.window))}</Txt>
+            : suggestion.ruleId === 'R3_plan_time'
+              ? fill(t.memorySuggestionPlanTime, { time: suggestion.planTime })
+              : fill(t.memorySuggestionFocusWindow, suggestion.window))}</Txt>
           <Txt role="supporting" color={p.mu}>{isolate(fill(t.memorySuggestionEvidence, { days: suggestion.evidence.lookbackDays, total: suggestion.evidence.totalCount, matching: suggestion.evidence.matchingCount }))}</Txt>
           {editing === suggestion.fingerprint ? <View style={{ gap: 12 }}>
             <Txt role="supporting" color={p.mu}>{t.xEditLearningBody}</Txt>
@@ -70,7 +72,9 @@ export function PersonalizationScreen() {
               create.reset();
               setDraft(suggestion.ruleId === 'R2_defer_default'
                 ? fill(t.memorySuggestionDeferDefault, { duration: durationText(suggestion.deferMinutes, t as unknown as Record<string, string>) })
-                : fill(t.memorySuggestionFocusWindow, suggestion.window));
+                : suggestion.ruleId === 'R3_plan_time'
+                  ? fill(t.memorySuggestionPlanTime, { time: suggestion.planTime })
+                  : fill(t.memorySuggestionFocusWindow, suggestion.window));
               setEditing(suggestion.fingerprint);
             }} />
             <Pill label={t.memorySuggestionKeep} testID={`personalization-keep-${suggestion.fingerprint}`} disabled={decide.isPending} onPress={() => decide.mutate({ suggestion, decision: 'keep', language: lang })} />

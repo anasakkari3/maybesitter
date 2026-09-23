@@ -1,6 +1,7 @@
 import { apiRequest } from '../client';
 import { NotFoundError, ValidationError } from '../errors';
 import {
+  planOpenedSchema,
   planResponseSchema,
   planSettingsResponseSchema,
   type DailyPlan,
@@ -113,6 +114,19 @@ export async function buildPlan(date: string): Promise<DailyPlan> {
     schema: planResponseSchema,
   });
   return withProposal(response);
+}
+
+/**
+ * Records that the plan was put on screen (#533).
+ *
+ * The append to the caller's own plan ledger is the whole call; the screen
+ * sends it once per plan day it actually shows and never waits on it — a lost
+ * signal is one missing open in a habit count, not something the user is
+ * looking at. It is a POST of its own rather than a side effect of `getPlan`
+ * because a fetch cannot tell "shown" from "refetched".
+ */
+export async function markPlanOpened(date: string): Promise<void> {
+  await apiRequest('POST', planPath(date, '/opened'), { schema: planOpenedSchema });
 }
 
 export async function getPlanSettings(): Promise<PlanSettings> {

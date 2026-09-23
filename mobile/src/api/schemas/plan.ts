@@ -178,6 +178,17 @@ export const planResponseSchema = z.object({
 export type PlanResponse = z.infer<typeof planResponseSchema>;
 
 /**
+ * Mirrors `plan.opened.json` — the acknowledgement for "the plan was put on
+ * screen" (#533). The append to the caller's own plan ledger is the point of
+ * the call; the answer carries nothing back.
+ */
+export const planOpenedSchema = z.object({
+  success: z.literal(true),
+});
+
+export type PlanOpened = z.infer<typeof planOpenedSchema>;
+
+/**
  * Mirrors `plan.editRejected.json` — the 422 a refused edit answers with.
  *
  * It carries `itemId` as well as `reason`, which is the point: the screen
