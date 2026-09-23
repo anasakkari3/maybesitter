@@ -5,18 +5,27 @@ import { setLocale, tFor } from '../i18n';
 import { isRtl, scriptFor } from '../i18n/locale';
 import type { Script } from '../theme/fonts';
 import {
-  loadLanguagePref, nextLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
+  loadLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
+import { useReducedTransparency } from '../theme/useReducedTransparency';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
-import { seedCommitments, TODAY } from './seed';
-import type { Commitment, Screen, Sheet, Status, ThemePref } from './types';
+import type { Screen, Sheet, ThemePref, Toast } from './types';
+import * as nav from './navigation';
 import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
 export type AppState = {
+  /**
+   * The navigation history (Round 2, Phase B): a tab, a stack per tab, and
+   * an optional task over it. See src/state/navigation.ts. `screen`,
+   * `detailId` and `planDate` below are *derived* from it after every
+   * change, so the screens keep reading the fields they always read.
+   */
+  nav: nav.Nav;
   screen: Screen;
-  prev: Screen;
+  /** Whether the tab bar is showing: no task open and the current tab at its root. */
+  showTabs: boolean;
   /**
    * Capture holds none of its state here any more (UC-2.R2, #172).
    *
@@ -30,8 +39,7 @@ export type AppState = {
   captureSource: CaptureSource;
   captureInput: CaptureInputMode;
   sheet: Sheet;
-  toast: string;
-  nextDismissed: boolean;
+  toast: Toast | null;
   /**
    * Which day of the week strip is open, as an offset from today (0 = today).
    *
@@ -40,18 +48,23 @@ export type AppState = {
    * on what day it is.
    */
   selDay: number;
+  /** Derived from `nav`: the commitment the top entry was opened for. */
   detailId: string | null;
-  /** The `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
+  /** Derived from `nav`: the `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
   planDate: string | null;
-  commitments: Commitment[];
 };
 
+/** Recompute the three derived fields from the history. Every nav change goes through here. */
+function withNav(st: AppState, next: nav.Nav): AppState {
+  const d = nav.derive(next);
+  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, showTabs: d.showTabs };
+}
+
 const initial: AppState = {
-  screen: 'today', prev: 'today',
+  nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
-  sheet: null, toast: '',
-  nextDismissed: false, selDay: 0, detailId: null, planDate: null,
-  commitments: seedCommitments,
+  sheet: null, toast: null,
+  selDay: 0, detailId: null, planDate: null,
 };
 
 function useAppModel() {
@@ -73,7 +86,10 @@ function useAppModel() {
   // ICU-aware, key-checked `t` for the three count messages `fill` cannot
   // inflect (confirmN, lockedTitle, progressWords). See src/i18n/README.md.
   const tr = useMemo(() => tFor(lang), [lang]);
-  const p: Palette = palettes[scheme];
+  const reduceTransparency = useReducedTransparency();
+  const p: Palette = useMemo(() => reduceTransparency
+    ? { ...palettes[scheme], glass: palettes[scheme].sf, sfBar: palettes[scheme].sfBarSolid }
+    : palettes[scheme], [scheme, reduceTransparency]);
 
   // Read the persisted preference once, then keep i18next on whatever language
   // the app is actually rendering, so `tr` and the screens never disagree.
@@ -97,6 +113,9 @@ function useAppModel() {
       const next = typeof patch === 'function' ? patch(st) : patch;
       return next ? { ...st, ...next } : st;
     });
+  /** Apply a pure navigation step and re-derive what is on screen. Sheets close on every move. */
+  const move = (step: (n: nav.Nav) => nav.Nav, extra?: Partial<AppState>) =>
+    setS(st => ({ ...withNav(st, step(st.nav)), sheet: null, ...(extra ?? {}) }));
   const holdAt = useRef(0);
 
   const applyLangPref = (pref: LanguagePref) => {
@@ -128,9 +147,14 @@ function useAppModel() {
 
   const actions = {
     resetForNewUser,
-    go: (screen: Screen) => set(st => ({ prev: st.screen, screen, sheet: null })),
-    back: () => set(st => ({ screen: st.prev === 'details' ? 'today' : st.prev, sheet: null })),
-    openDetail: (id: string) => set(st => ({ detailId: id, prev: st.screen, screen: 'details' })),
+    /** A tab switches, a task opens, anything else is pushed onto the current tab. */
+    go: (screen: Screen) => move(n => nav.go(n, screen)),
+    /** One step back through the history. At a tab root this is a no-op; `canGoBack` says so. */
+    back: () => move(nav.back),
+    canGoBack: () => nav.canGoBack(s.nav),
+    openDetail: (id: string) => move(n => nav.push(n, { name: 'details', detailId: id })),
+    /** A commitment opened from outside — a notification or a link — with Today underneath. */
+    arriveAtDetail: (id: string) => move(n => nav.arrive(n, { name: 'details', detailId: id })),
     /**
      * Today's plan, for one named date (UC-3.10b, #195).
      *
@@ -138,12 +162,15 @@ function useAppModel() {
      * `maybesitter://plan/<date>` link, which `src/links.ts` has already
      * checked is a plain `YYYY-MM-DD`.
      */
-    openPlan: (date: string) => set(st => ({ planDate: date, prev: st.screen, screen: 'plan', sheet: null })),
-    toggle: (id: string) => set(st => ({
-      commitments: st.commitments.map(c => (c.id === id ? { ...c, status: c.status === 'done' ? 'active' : 'done' } : c)),
-    })),
+    openPlan: (date: string) => move(n => nav.push(n, { name: 'plan', planDate: date })),
+    /**
+     * The plan opened from the morning notification or a link: the plan, with
+     * Today underneath and nothing else, so back is Today (UC-3.10b, #195).
+     */
+    arriveAtPlan: (date: string) => move(n => nav.arrive(n, { name: 'plan', planDate: date })),
+    /** A tab or task named by a link. */
+    arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen })),
     setSelDay: (d: number) => set({ selDay: d }),
-    dismissNext: () => set({ nextDismissed: true }),
 
     /**
      * Enter the capture flow (UC-2.R2, #172).
@@ -154,31 +181,35 @@ function useAppModel() {
      * here.
      */
     goCapture: (source: CaptureSource = 'tab', inputMode: CaptureInputMode = 'text') =>
-      set(st => ({ prev: st.screen, screen: 'capture', captureSource: source, captureInput: inputMode, sheet: null })),
-    closeCapture: () => set({ sheet: null, screen: 'today' }),
+      move(n => nav.openTask(n, { name: 'capture' }), { captureSource: source, captureInput: inputMode }),
+    /** Leave the flow. The tab underneath is exactly as it was. */
+    closeCapture: () => move(nav.closeTask),
 
     // sheets
     closeSheet: () => set({ sheet: null }),
-    closeSheetHome: () => set({ sheet: null, screen: 'today' }),
+    /** Close the sheet and return to Today's root — the calm landing after a write. */
+    closeSheetHome: () => move(n => nav.switchTab(n, 'today')),
     openPostpone: () => set({ sheet: 'postpone' }),
     openEdit: () => set({ sheet: 'edit' }),
     openConfirmDrop: () => set({ sheet: 'confirmDrop' }),
     openConfirmDelete: () => set({ sheet: 'confirmDelete' }),
-    /** Sheet-as-toast, the design's confirmation for a write that succeeded. */
-    toast: (message: string) => set({ sheet: 'toast', toast: message }),
-
-    // details
-    setStatus: (id: string, status: Status, toast: string) =>
-      set(st => ({ commitments: st.commitments.map(c => (c.id === id ? { ...c, status } : c)), sheet: 'toast', toast })),
+    /**
+     * The calm confirmation of a write that worked (Round 2): a line at the
+     * bottom that fades on its own, carrying undo when the write can be
+     * taken back. It replaces Round 1's blocking OK sheet.
+     */
+    toast: (message: string, undo?: () => void) => set({ toast: { id: Date.now(), text: message, undo } }),
+    dismissToast: (id: number) => set(st => (st.toast?.id === id ? { toast: null } : null)),
 
     // preferences
-    // The language picker: System → English → العربية → עברית → System.
-    cycleLanguage: () => applyLangPref(nextLanguagePref(langPref)),
+    /** Kept for the theme-persistence test and any link that wants the next scheme. */
     cycleTheme: () =>
       applyThemePref(themePref === 'system' ? 'light' : themePref === 'light' ? 'dark' : 'system'),
     // A maybesitter://<screen>?lang=ar link picks a language explicitly, so it
     // stops following the system exactly as tapping the row does.
     setLang: (l: Lang) => applyLangPref(l),
+    /** The picker's answer, including "system" (Round 2). */
+    setLangPref: (pref: LanguagePref) => applyLangPref(pref),
     setThemePref: applyThemePref,
 
     /**
@@ -187,26 +218,24 @@ function useAppModel() {
      */
     jump: (name: string) => {
       switch (name) {
-        // Development only, so a release build cannot reach the gallery.
-        case 'gallery': if (__DEV__) set({ screen: 'gallery', sheet: null }); return;
         // Additionally behind an env flag the release guard refuses to let a
         // staging or production build set at all (UC-1.8 #152).
-        case 'calendarDemo': if (googleCalendarDemoEnabled()) set({ screen: 'calendarDemo', sheet: null }); return;
+        case 'calendarDemo': if (googleCalendarDemoEnabled()) move(n => nav.arrive(n, { name: 'calendarDemo' })); return;
         case 'today': case 'calendar': case 'settings':
-          set({ screen: name, sheet: null }); return;
+          move(n => nav.arrive(n, { name })); return;
         // Capture has one entry now. The gallery's old `typing`, `listening`,
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`
         // jumps each forced a mock sub-state directly; those states are the
         // reducer's and are reached by using the flow (UC-2.R2, #172).
-        case 'capture': set({ screen: 'capture', captureSource: 'tab', captureInput: 'text', sheet: null }); return;
-        case 'details': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: null }); return;
-        case 'postpone': set({ detailId: 'c3', prev: 'today', screen: 'details', sheet: 'postpone' }); return;
+        case 'capture': move(n => nav.arrive(n, { name: 'capture' }), { captureSource: 'tab', captureInput: 'text' }); return;
+        case 'details': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' })); return;
+        case 'postpone': move(n => nav.arrive(n, { name: 'details', detailId: 'c3' }), { sheet: 'postpone' }); return;
       }
     },
   };
 
   return {
-    s, t, tr, p, lang, langPref, scheme, themePref, actions,
+    s, t, tr, p, lang, langPref, scheme, themePref, reduceTransparency, actions,
     /**
      * Which way the UI reads. Arabic and Hebrew both go right to left; `Root`
      * is the single place that acts on it (`direction` on the root view).

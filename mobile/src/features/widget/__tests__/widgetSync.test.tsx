@@ -153,7 +153,7 @@ async function settled() {
 async function openWidgetSettings() {
   await fireEvent.press(screen.getByLabelText(en.tabSettings));
   await waitFor(() => expect(screen.queryByTestId('settings-widget')).not.toBeNull());
-  await fireEvent.press(screen.getByLabelText(en.widgetSettingsTitle));
+  await fireEvent.press(screen.getByLabelText(en.settingsWidget));
   await waitFor(() => expect(screen.queryByTestId('widget-titles-toggle')).not.toBeNull());
 }
 

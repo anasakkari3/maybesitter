@@ -1,5 +1,5 @@
-import React, { useRef } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { BackHandler, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useApp } from './state/AppContext';
 import { useAuth } from './auth/AuthProvider';
@@ -16,6 +16,7 @@ import { CaptureProvider } from './features/capture/CaptureProvider';
 import { ShareProvider } from './features/share/ShareProvider';
 import { ShareScreen } from './screens/ShareScreen';
 import { SheetHost } from './screens/Sheets';
+import { ToastHost } from './ui/toast';
 import { TabBar } from './screens/TabBar';
 import { CalendarDemoScreen } from './screens/CalendarDemoScreen';
 import { DeleteAccountScreen } from './screens/DeleteAccountScreen';
@@ -36,13 +37,17 @@ import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSyn
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
 import { CalendarFeedsScreen } from './features/calendarFeeds/CalendarFeedsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
+import { LangAppearanceScreen } from './features/settings/LangAppearanceScreen';
+import { AccountScreen } from './features/settings/AccountScreen';
+import { SourcesScreen } from './features/settings/SourcesScreen';
 import { WidgetSettingsScreen } from './features/widget/WidgetSettingsScreen';
 import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
-import { Gallery } from './design/Gallery';
 
-const tabScreens = ['today', 'calendar', 'settings'];
+import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, PdfReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
+import { PersonalizationScreen, CommitmentsScreen, ContextualAssistantScreen } from './features/product/ContextScreens';
+import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product/WatcherScreens';
 
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
@@ -54,18 +59,34 @@ export function Root() {
   useLinks(
     {
       jump: name => latest.current.jump(name),
-      openCommitment: id => latest.current.openDetail(id),
+      // A link is an arrival, not a push: the thing it names opens with its
+      // natural way back underneath (Today), whatever was open before.
+      openCommitment: id => latest.current.arriveAtDetail(id),
       // UC-3.10b (#195). The morning "your plan is ready" notification opens
       // maybesitter://plan/<date>, and the date it carries is the one shown.
-      openPlan: date => latest.current.openPlan(date),
+      openPlan: date => latest.current.arriveAtPlan(date),
       // The next step lives on Today's card; there is no screen of its own.
-      openNextStep: () => latest.current.go('today'),
+      openNextStep: () => latest.current.arriveAt('today'),
       openCapture: (source, input) => latest.current.goCapture(source, input),
       setLang: l => latest.current.setLang(l),
       setThemePref: v => latest.current.setThemePref(v),
     },
     () => pending.current(),
   );
+  /**
+   * Android's hardware and gesture back walks the same history as every
+   * on-screen back button (Round 2, Phase B). At a tab root there is nothing
+   * to walk, so the event is left to the platform, which leaves the app — the
+   * one place a user should ever exit is the place they came in.
+   */
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!latest.current.canGoBack()) return false;
+      latest.current.back();
+      return true;
+    });
+    return () => sub.remove();
+  }, []);
   return (
     /*
      * `CaptureProvider` is mounted here, not in `App.tsx` (UC-2.R2, #172).
@@ -115,74 +136,89 @@ export function Root() {
               on this phone — and clears it before a sign-out and when this
               signed-in tree unmounts. */}
           <WidgetSnapshotHost />
+          {s.screen === 'myMaybeSitter' && <MyMaybeSitterScreen />}
+{s.screen === 'integrations' && <IntegrationsScreen />}
+{s.screen === 'googleIntegration' && <GoogleIntegrationScreen />}
+{s.screen === 'actionModes' && <ActionModesScreen />}
+{s.screen === 'addToMaybeSitter' && <AddToMaybeSitterScreen />}
+{s.screen === 'goalExecution' && <GoalExecutionScreen />}
+{s.screen === 'personalization' && <PersonalizationScreen />}
+{s.screen === 'patchReview' && <PatchReviewScreen />}
+{s.screen === 'backgroundActivity' && <BackgroundActivityScreen />}
+{s.screen === 'pdfReview' && <PdfReviewScreen />}
+{s.screen === 'habitDetail' && <HabitDetailScreen />}
+{s.screen === 'watchBuilder' && <WatchBuilderScreen />}
+{s.screen === 'commitments' && <CommitmentsScreen />}
+{s.screen === 'contextualAssistant' && <ContextualAssistantScreen />}
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}
           {s.screen === 'deleteAccount' && (
-            <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.go('settings')} />
+            <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.back()} />
           )}
-          {/* Settings sub-screens (UC-2.R4 #174). Each takes the way back rather
-              than reading history: `back()` returns to `prev`, which is Settings
-              for all of these, and Trust for the one reached from it. */}
+          {/* Settings sub-screens (UC-2.R4 #174). Each one's back is the
+              history's back (Round 2, Phase B): a leaf reached from Settings
+              returns to Settings, Memory reached through Trust → Knows returns
+              through them, and none of them names a destination. */}
           {s.screen === 'trust' && (
             <TrustScreen
               key="trust"
-              onBack={() => latest.current.go('settings')}
+              onBack={() => latest.current.back()}
               onKnows={() => latest.current.go('knows')}
             />
           )}
           {s.screen === 'knows' && (
             <KnowsScreen
               key="knows"
-              onBack={() => latest.current.go('trust')}
+              onBack={() => latest.current.back()}
               onMemory={() => latest.current.go('memory')}
             />
           )}
-          {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.go('knows')} />}
+          {s.screen === 'memory' && <MemoryScreen key="memory" onBack={() => latest.current.back()} />}
           {s.screen === 'feedbackHistory' && (
-            <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.go('settings')} />
+            <FeedbackHistoryScreen key="feedbackHistory" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'activity' && (
-            <ActivityScreen key="activity" onBack={() => latest.current.go('settings')} />
+            <ActivityScreen key="activity" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'routineSettings' && (
-            <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.go('settings')} />
+            <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'financialContext' && (
-            <FinancialContextScreen key="financialContext" onBack={() => latest.current.go('settings')} />
+            <FinancialContextScreen key="financialContext" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'readinessSettings' && (
-            <ReadinessSettingsScreen key="readinessSettings" onBack={() => latest.current.go('settings')} />
+            <ReadinessSettingsScreen key="readinessSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'notificationsSettings' && (
-            <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.go('settings')} />
+            <NotificationsSettingsScreen key="notificationsSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'calendarSettings' && (
             <CalendarSettingsScreen
               key="calendarSettings"
-              onBack={() => latest.current.go('settings')}
+              onBack={() => latest.current.back()}
               onFeeds={() => latest.current.go('calendarFeeds')}
             />
           )}
           {/* Behind the build flag here as well as inside the screen, so a
               build without the feature cannot reach it by a stale screen name. */}
           {icsFeedsEnabled() && s.screen === 'calendarFeeds' && (
-            <CalendarFeedsScreen key="calendarFeeds" onBack={() => latest.current.go('calendarSettings')} />
+            <CalendarFeedsScreen key="calendarFeeds" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'footballSettings' && (
-            <FootballSettingsScreen key="footballSettings" onBack={() => latest.current.go('settings')} />
+            <FootballSettingsScreen key="footballSettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'categorySettings' && (
-            <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.go('settings')} />
+            <CategorySettingsScreen key="categorySettings" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'widgetSettings' && (
-            <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.go('settings')} />
+            <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.back()} />
           )}
-          {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.go('settings')} />}
-          {/* Considering / Waiting (#519). Reached from the week ahead, and
-              back to it — not to Settings, which is not where it was opened
-              from. */}
-          {s.screen === 'seeds' && <SeedsScreen key="seeds" onBack={() => latest.current.go('calendar')} />}
+          {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.back()} />}
+          {s.screen === 'langAppearance' && <LangAppearanceScreen key="langAppearance" onBack={() => latest.current.back()} />}
+          {s.screen === 'account' && <AccountScreen key="account" onBack={() => latest.current.back()} />}
+          {s.screen === 'sources' && <SourcesScreen key="sources" onBack={() => latest.current.back()} />}
+          {s.screen === 'seeds' && <SeedsScreen key="seeds" onBack={() => latest.current.back()} />}
           {s.screen === 'details' && <DetailsScreen key="details" />}
           {/* Today's plan (UC-3.10b, #195). Keyed by its date so a second link
               for another day remounts rather than re-using the first day's
@@ -196,13 +232,13 @@ export function Root() {
               to be wrong. */}
           {s.screen === 'capture' && <CaptureFlow key="capture" />}
           {s.screen === 'share' && <ShareScreen key="share" />}
-          {__DEV__ && s.screen === 'gallery' && <Gallery key="gallery" />}
           {/* Two independent gates: the flag, and the release guard that refuses
               to configure a staging or production build which sets it (#152). */}
           {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (
-            <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.go('settings')} />
+            <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.back()} />
           )}
-          {tabScreens.includes(s.screen) && <TabBar />}
+          {s.showTabs && <TabBar />}
+          <ToastHost />
           <SheetHost key={s.sheet ?? 'none'} />
         </View>
       </ShareProvider>

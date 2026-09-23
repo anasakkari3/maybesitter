@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { fill } from '../../i18n/strings';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import { CLARIFICATION_FREE_TEXT_MAX, optionLabel, questionText } from './clarificationCopy';
@@ -37,7 +36,7 @@ export function ClarifySheet({
   onAnswer(answer: { optionId?: string; freeText?: string }): void;
   onSkip(): void;
 }) {
-  const { t, p, rtl, script } = useApp();
+  const { t, tr, p, rtl, script } = useApp();
   const [freeText, setFreeText] = useState('');
   const strings = t as unknown as Record<string, string>;
   const question = item.clarification;
@@ -52,17 +51,14 @@ export function ClarifySheet({
 
   return (
     <View style={{ gap: 14 }} testID="clarify-sheet">
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <Txt size={12} color={p.mu}>{t.oneQuestion}</Txt>
-        {total > 1 ? (
-          <Txt size={12} color={p.mu} testID="clarify-position">
-            {fill(t.clarifyPosition, { n: String(position), total: String(total) })}
-          </Txt>
-        ) : null}
+      <View style={{ gap: 4, borderStartWidth: 3, borderStartColor: p.prop, paddingStart: 12 }} testID="capture-understanding">
+        <Txt role="supporting" color={p.mu}>{t.captureUnderstood}</Txt>
+        <Txt role="body">{item.title}</Txt>
       </View>
-
-      <Txt size={22} weight={600} lh={1.5} testID="clarify-question">{heading}</Txt>
-      <Txt size={14} color={p.mu}>{item.title}</Txt>
+      <Txt role="supporting" color={p.mu} testID="clarify-position">
+        {tr('clarifyRemaining', { n: Math.max(1, total - position + 1) })}
+      </Txt>
+      <Txt role="section" testID="clarify-question">{heading}</Txt>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {question.options.map((option) => {
@@ -76,9 +72,9 @@ export function ClarifySheet({
               disabled={busy}
               accessibilityRole="radio"
               onPress={() => onAnswer({ optionId: option.optionId })}
-              style={{ backgroundColor: p.acs, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center', opacity: busy ? 0.4 : 1 }}
+              style={{ backgroundColor: busy ? p.dis : p.sf2, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center' }}
             >
-              <Txt size={15} weight={600} color={p.ac}>{label}</Txt>
+              <Txt size={15} weight={600} color={busy ? p.disTx : p.tx}>{label}</Txt>
             </Btn>
           );
         })}

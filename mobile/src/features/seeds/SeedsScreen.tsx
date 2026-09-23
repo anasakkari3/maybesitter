@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { formatDate } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { useDeleteSeed, usePatchSeed, usePromoteSeed, useSeeds } from '../../api/queries';
 import type { Seed } from '../../api/schemas/seeds';
@@ -41,18 +40,14 @@ import { hasRevisit, liveSeeds, seedKindLabel, seedStatusLabel } from './seedDis
  */
 export function SeedsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang } = useApp();
-  const insets = useSafeAreaInsets();
   const seeds = useSeeds();
   const strings = t as unknown as Record<string, string>;
 
   const items = liveSeeds(seeds.data?.items ?? []);
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: insets.bottom + 40, gap: 14 }}
-      >
-        <SettingsHeader title={t.seedsTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.seedsTitle} onBack={onBack} />}>
+      <ScreenScroll>
         <Txt size={13} color={p.mu} testID="seeds-lede">{t.seedsLede}</Txt>
         {/* Unconditional, like Review's suggestion note. */}
         <Txt size={12} color={p.mu} testID="seeds-not-commitment">{t.seedsNotCommitment}</Txt>
@@ -71,8 +66,8 @@ export function SeedsScreen({ onBack }: { onBack: () => void }) {
             <SeedCard key={seed.seedId} seed={seed} strings={strings} lang={lang} />
           ))}
         </QueryBoundary>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
 

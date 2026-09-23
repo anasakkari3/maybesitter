@@ -1,13 +1,12 @@
 import React, { useCallback } from 'react';
-import { ActivityIndicator, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatDate, formatTime } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
 import { fixtureTitle } from './fixtureTitle';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 import { useDismissFixture, useFootballSettings, useSetFollowedClubs } from '../../api/queries';
 import type { FootballFixture } from '../../api/schemas/football';
@@ -46,7 +45,6 @@ import type { FootballFixture } from '../../api/schemas/football';
  */
 export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang } = useApp();
-  const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
   const settings = useFootballSettings();
   const setFollowed = useSetFollowedClubs();
@@ -76,9 +74,8 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
   }, [lang, timezone]);
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.footballTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.footballTitle} onBack={onBack} />}>
+      <ScreenScroll>
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5}>{t.footballBody}</Txt>
         </Card>
@@ -162,7 +159,7 @@ export function FootballSettingsScreen({ onBack }: { onBack: () => void }) {
         {/* The provider's free tier requires this on screen, not only in a
             code comment -- see task-11-report.md's decision log. */}
         <Txt size={12} color={p.mu} testID="football-attribution">{t.footballAttribution}</Txt>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

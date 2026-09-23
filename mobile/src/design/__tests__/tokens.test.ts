@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { color, motion, radius, typeScale, type ColorRoles, type Scheme } from '../../theme/tokens';
 import source from '../tokens.source.json';
+import continuation from '../coral.source.json';
 
 const repoRoot = join(__dirname, '..', '..', '..', '..');
 const read = (p: string) => readFileSync(join(repoRoot, p), 'utf8');
@@ -30,11 +31,16 @@ describe('design tokens are tied to the export', () => {
     }
   });
 
+  it('matches the explicitly approved continuation on every color role', () => {
+    expect(color).toEqual(continuation.colors);
+    expect(continuation.references).toHaveLength(15);
+  });
+
   it('use the values recorded in tokens.source.json', () => {
-    expect(color.light.brand).toBe(source.palette.teal);
-    expect(color.dark.brand).toBe(source.palette.tealDark);
-    expect(color.light.background).toBe(source.palette.paper);
-    expect(color.dark.background).toBe(source.palette.inkDark);
+    expect(color.light.brand).toBe(continuation.colors.light.brand);
+    expect(color.dark.brand).toBe(continuation.colors.dark.brand);
+    expect(color.light.background).toBe(continuation.colors.light.background);
+    expect(color.dark.background).toBe(continuation.colors.dark.background);
     expect(radius.chip).toBe(source.radius.pill);
     expect(radius.card).toBe(source.radius.card);
     expect(typeScale.display).toBe(source.typeScale.display);
@@ -42,10 +48,9 @@ describe('design tokens are tied to the export', () => {
     expect(motion.screenIn).toBe(source.motion.screenIn.duration);
   });
 
-  it('record the one deviation from the export, and only that one', () => {
-    expect(source.deviations).toHaveLength(1);
-    expect(source.deviations[0]?.token).toBe('color.dark.onAccent');
-    expect(color.dark.onBrand).toBe(source.deviations[0]?.used);
+  it('retains the historical R2 source without silently rewriting it', () => {
+    expect(source.deviations).toHaveLength(0);
+    expect(continuation.authority).toContain('Supersedes the R2 teal palette');
   });
 });
 
@@ -68,6 +73,11 @@ describe('text contrast meets WCAG AA (4.5:1)', () => {
     { name: 'muted text on background', fg: 'textMuted', bg: 'background' },
     { name: 'muted text on surface', fg: 'textMuted', bg: 'surface' },
     { name: 'label on the brand button', fg: 'onBrand', bg: 'brand' },
+    { name: 'brand link on surface', fg: 'brand', bg: 'surface' },
+    { name: 'pressed link on surface', fg: 'brandPressed', bg: 'surface' },
+    { name: 'success label', fg: 'success', bg: 'successContainer' },
+    { name: 'confirmation check', fg: 'onSuccess', bg: 'success' },
+    { name: 'disabled label', fg: 'onDisabled', bg: 'disabled' },
   ];
 
   for (const scheme of ['light', 'dark'] as Scheme[]) {
@@ -79,9 +89,8 @@ describe('text contrast meets WCAG AA (4.5:1)', () => {
     }
   }
 
-  it('proves the check catches the value the export actually specifies', () => {
-    // White on the dark accent is what the export says; it fails. This keeps
-    // the reason for the deviation visible instead of buried in a comment.
+  it('rejects white labels on bright reference coral', () => {
+    // The supplied screenshots use white. The implementation uses ink.
     expect(contrast('#FFFFFF', color.dark.brand)).toBeLessThan(4.5);
   });
 });

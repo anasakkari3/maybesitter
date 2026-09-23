@@ -28,6 +28,8 @@ import ar from '../../i18n/locales/ar.json';
 import he from '../../i18n/locales/he.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
+import * as nextStepEndpoints from '../../api/endpoints/nextStep';
+import * as planEndpoints from '../../api/endpoints/plans';
 import * as language from '../../i18n/language';
 
 const METRICS: Metrics = {
@@ -76,6 +78,16 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  // An empty day is not an unanswered one. `nextStepReviewService` returns
+  // `state: 'empty'` with a null step, and `getPlan` returns `null` when the
+  // date has no plan — so both sources *answer*. Left unmocked they failed
+  // instead, and Today may not call a day empty on a source it never heard
+  // from (F5). A case that wants a recommendation or a plan overrides these.
+  jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
+    success: true, participantId: USER.uid,
+    recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+  } as never);
+  jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
 });
 
 afterEach(() => {
@@ -101,9 +113,12 @@ async function show(items: Commitment[]) {
 
 describe('the day comes from the account', () => {
   it('shows what the server sent, in the groups the user chose', async () => {
-    await show([withPriority('m', 'high'), withPriority('s', 'normal'), withPriority('n', 'low')]);
-    expect(screen.queryByTestId('today-item-m')).not.toBeNull();
-    expect(screen.queryByTestId('today-group-must')).not.toBeNull();
+    await show([withPriority('m', 'high'), withPriority('m2', 'high'), withPriority('s', 'normal'), withPriority('n', 'low')]);
+    // The top item is the primary card (Round 2): shown once, there, and
+    // taken out of its group. The rest sit in the groups the user chose.
+    expect(within(screen.getByTestId('today-primary')).getByTestId('today-item-m')).toBeTruthy();
+    expect(within(screen.getByTestId('today-group-must')).getByTestId('today-item-m2')).toBeTruthy();
+    expect(within(screen.getByTestId('today-group-must')).queryByTestId('today-item-m')).toBeNull();
     expect(screen.queryByTestId('today-group-should')).not.toBeNull();
     expect(screen.queryByTestId('today-group-nice')).not.toBeNull();
   });
@@ -137,11 +152,15 @@ describe('ranking', () => {
       { ...withPriority('first', 'high'), rank: 0, reasonCodes: [] } as Commitment,
       { ...withPriority('second', 'high'), rank: 1, reasonCodes: [] } as Commitment,
     ]);
-    // Sent out of order on purpose: the rank decides, not the array.
+    // Sent out of order on purpose: the rank decides, not the array. Rank 0
+    // is the primary card; the group holds the rest in rank order.
+    expect(within(screen.getByTestId('today-primary')).getByTestId('today-item-first')).toBeTruthy();
     const order = within(screen.getByTestId('today-group-must'))
       .getAllByTestId(/^today-item-/)
       .map((node) => node.props.testID);
-    expect(order).toEqual(['today-item-first', 'today-item-second', 'today-item-third']);
+    expect(order).toEqual(['today-item-second', 'today-item-third']);
+    expect(screen.getAllByTestId(/^today-item-/).map((n) => n.props.testID))
+      .toEqual(['today-item-first', 'today-item-second', 'today-item-third']);
   });
 
   it('never lifts a Nice above a Must, whatever its rank', async () => {
@@ -152,9 +171,10 @@ describe('ranking', () => {
       { ...withPriority('nice-urgent', 'low'), rank: 0, reasonCodes: ['overdue'] } as Commitment,
       { ...withPriority('must-later', 'high'), rank: 5, reasonCodes: ['due_today'] } as Commitment,
     ]);
-    // Each sits in its own group, and not in the other's.
-    expect(within(screen.getByTestId('today-group-must')).getByTestId('today-item-must-later')).toBeTruthy();
-    expect(within(screen.getByTestId('today-group-must')).queryByTestId('today-item-nice-urgent')).toBeNull();
+    // The Must is the primary card — not the rank-0 Nice — and the Nice sits
+    // in its own group underneath, not in the Must's place.
+    expect(within(screen.getByTestId('today-primary')).getByTestId('today-item-must-later')).toBeTruthy();
+    expect(screen.queryByTestId('today-group-must')).toBeNull();
     expect(within(screen.getByTestId('today-group-nice')).getByTestId('today-item-nice-urgent')).toBeTruthy();
     // And the Must is rendered above the Nice, rank notwithstanding.
     expect(screen.getAllByTestId(/^today-item-/).map((n) => n.props.testID))
@@ -307,9 +327,15 @@ describe('done and not-now, from the row (#173 steps 3, 8)', () => {
     } as never);
   }
 
+  /** `top` is the primary card; `m` stays a row in the Must group. */
+  const rowAndPrimary = () => [
+    { ...withPriority('top', 'high'), rank: 0, reasonCodes: [] } as Commitment,
+    { ...withPriority('m', 'high'), rank: 1, reasonCodes: [] } as Commitment,
+  ];
+
   it('a swipe action completes the commitment', async () => {
     const act = actOn();
-    await show([withPriority('m', 'high')]);
+    await show(rowAndPrimary());
     await fireEvent.press(screen.getByTestId('today-swipe-m-complete'));
     await waitFor(() => expect(act).toHaveBeenCalled());
     expect(act.mock.calls[0]![1]).toBe('complete');
@@ -318,7 +344,7 @@ describe('done and not-now, from the row (#173 steps 3, 8)', () => {
   it('a swipe action postpones it by an hour, with a real instant', async () => {
     const act = actOn();
     const before = Date.now();
-    await show([withPriority('m', 'high')]);
+    await show(rowAndPrimary());
     await fireEvent.press(screen.getByTestId('today-swipe-m-postpone'));
     await waitFor(() => expect(act).toHaveBeenCalled());
 
@@ -333,7 +359,7 @@ describe('done and not-now, from the row (#173 steps 3, 8)', () => {
     // A swipe is invisible to a screen reader and impossible with a switch
     // control. Anything reachable by swiping has to be reachable here.
     const act = actOn();
-    await show([withPriority('m', 'high')]);
+    await show(rowAndPrimary());
     const row = screen.getByTestId('today-item-m');
     expect((row.props.accessibilityActions ?? []).map((a: { name: string }) => a.name))
       .toEqual(['complete', 'postpone']);
@@ -351,14 +377,42 @@ describe('done and not-now, from the row (#173 steps 3, 8)', () => {
     expect(screen.queryByTestId('today-swipe-done-complete')).toBeNull();
   });
 
+  it('the primary card offers the same two, as buttons', async () => {
+    const act = actOn();
+    await show([withPriority('m', 'high')]);
+    expect(screen.queryByTestId('today-swipe-m-complete')).toBeNull();
+    await fireEvent.press(screen.getByTestId('today-primary-complete'));
+    await waitFor(() => expect(act).toHaveBeenCalled());
+    expect(act.mock.calls[0]![1]).toBe('complete');
+  });
+
   it('declares the assistive actions from the same list the swipe uses', async () => {
     // Two declarations drift, and the failure is a row completable by swipe and
     // not by VoiceOver — which nobody sees until somebody who needs it does.
-    await show([withPriority('m', 'high')]);
+    await show(rowAndPrimary());
     const labels = (screen.getByTestId('today-item-m').props.accessibilityActions ?? [])
       .map((a: { label: string }) => a.label);
     expect(labels).toEqual([en.rowComplete, en.rowPostpone]);
     expect(screen.queryByTestId('today-swipe-m-complete')).not.toBeNull();
     expect(screen.queryByTestId('today-swipe-m-postpone')).not.toBeNull();
+  });
+});
+
+
+describe('Round 3 progressive density', () => {
+  it('keeps one primary, previews at most four slots, and only lists unpreviewed tasks below', async () => {
+    const records = ['primary', 'second', 'third', 'fourth', 'overflow'].map(id => withPriority(id, id === 'primary' ? 'high' : 'normal'));
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue({
+      date: '2026-09-23', timezone: 'UTC', status: 'accepted', generation: 1, inputDigest: '',
+      generatedAt: '2026-09-23T00:00:00Z', acceptedAt: '2026-09-23T00:00:00Z',
+      explanation: { text: '', locale: 'en', source: 'template' }, edited: false, unscheduled: [],
+      scheduled: records.map((record, i) => ({ itemId: record.id, title: record.title, startsAt: `2026-09-23T0${i + 4}:00:00Z`, endsAt: `2026-09-23T0${i + 4}:30:00Z`, blockId: null })),
+      protections: [],
+    });
+    await show(records);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
+    expect(screen.getAllByTestId(/^today-item-/).map(node => node.props.testID)).toEqual(['today-item-primary', 'today-item-overflow']);
+    expect(screen.queryByTestId('today-plan-preview-overflow')).toBeNull();
   });
 });

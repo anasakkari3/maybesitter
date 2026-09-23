@@ -12,7 +12,8 @@ import {
   type FieldErrorKey,
 } from '../auth/validation';
 import { fill } from '../i18n/strings';
-import { FlowHeader, Pill, Txt } from '../ui/primitives';
+import { Pill, Txt } from '../ui/primitives';
+import { TaskHeader } from '../ui/taskHeader';
 
 export type EmailAuthMode = 'signIn' | 'signUp' | 'reset';
 
@@ -108,7 +109,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: p.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <FlowHeader pill={t.back} onPill={onBack} title={t.authEmailTitle} />
+      <TaskHeader pill={t.back} onPill={onBack} title={t.authEmailTitle} />
       <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
         <Txt size={22} weight={600}>{title}</Txt>
         {mode === 'reset' ? <Txt size={14} color={p.mu}>{t.authResetBody}</Txt> : null}

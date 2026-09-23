@@ -12,13 +12,15 @@ The previous Flutter client is retired. Nothing in this repository should
 reference it as current; its final state is preserved on the tag
 `archive/flutter-final`.
 
-## 2. The design source of truth is the Claude Design project
+## 2. The design source of truth is the approved coral continuation
 
-All product UI follows the Claude Design project
-`https://claude.ai/design/p/d96ab124-0531-4fef-9e0b-084677ee8911`
-(`MaybeSitter.dc.html`). Older design material — the Stitch tokens, the
-Indigo/violet Flutter design system and the September 2026 design brief — is
-superseded and must not be used as a reference.
+The accepted coral/charcoal continuation is the visual baseline for `mobile/**`.
+Its reference hashes and palette are recorded in
+`mobile/src/design/coral.source.json`; implementation decisions and coverage are
+in `docs/design/coral-continuation.md`. The Round-2 Claude Design export in
+`design/R2App.dc.html` remains the structural reference for navigation,
+typography and motion. The earlier Round-1 export and teal Round-2 palette are
+historical material, not the current product appearance.
 
 ## 3. No new product features in the legacy web UI
 

@@ -1,10 +1,9 @@
 import React from 'react';
 import { ScrollView } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { useApp } from '../../state/AppContext';
 import { Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { openLegal, privacyPolicyUrl, termsUrl } from '../../config/legalLinks';
 import { testCrashEnabled } from '../../config/env';
@@ -27,7 +26,6 @@ import { triggerTestCrash } from '../../lib/crash';
  */
 export function AboutScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang } = useApp();
-  const insets = useSafeAreaInsets();
   const version = Constants.expoConfig?.version ?? '—';
   const build = Constants.expoConfig?.ios?.buildNumber
     ?? (Constants.expoConfig?.android?.versionCode !== undefined
@@ -57,9 +55,8 @@ export function AboutScreen({ onBack }: { onBack: () => void }) {
   const testCrash = testCrashEnabled();
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.settingsAbout} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.settingsAbout} onBack={onBack} />}>
+      <ScreenScroll>
         <Card pad={18} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <Txt size={15}>{t.aboutVersion}</Txt>
           <Txt size={15} color={p.mu} latin selectable testID="about-version">
@@ -92,7 +89,7 @@ export function AboutScreen({ onBack }: { onBack: () => void }) {
             />
           </Card>
         ) : null}
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

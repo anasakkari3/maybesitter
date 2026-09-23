@@ -9,6 +9,14 @@ module.exports = defineConfig([
     ignores: ['dist/*', '.expo/*', 'node_modules/*'],
   },
   {
+    // `jest.setup.js` runs inside Jest and is nothing but `jest.mock` calls,
+    // but no config block covered it, so every one of them read as an
+    // undefined global. Twelve errors for the one identifier the file exists
+    // to use drowns out anything real that lands here later.
+    files: ['jest.setup.js'],
+    languageOptions: { globals: { jest: 'readonly' } },
+  },
+  {
     files: ['src/**/*.{ts,tsx}', 'App.tsx', 'app.config.ts'],
     rules: {
       // Arabic is the default language and the root view sets `direction`, so

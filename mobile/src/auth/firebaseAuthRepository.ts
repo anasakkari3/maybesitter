@@ -10,6 +10,7 @@
  *     header — the SDK's own keychain/keystore entry is the only copy on disk.
  */
 import {
+  connectAuthEmulator,
   createUserWithEmailAndPassword,
   getAuth,
   getIdToken as firebaseGetIdToken,
@@ -31,6 +32,8 @@ import { AppleSignInCancelled, requestAppleCredential } from './appleSignIn';
 import { ReauthCancelled, ReauthUnavailable } from '../features/account/reauthenticate';
 import { requestGoogleCredential, signOutOfGoogle } from './googleSignIn';
 import { normalizeEmail } from './validation';
+import { authEmulatorUrl } from './authEmulator';
+import { appEnv, apiBaseUrl, firebaseAuthEmulatorHost } from '../config/env';
 import type { AuthRepository, AuthUser, SignOutReason } from './types';
 
 export function toAuthUser(user: FirebaseUser | null): AuthUser | null {
@@ -44,7 +47,36 @@ export function toAuthUser(user: FirebaseUser | null): AuthUser | null {
   };
 }
 
+/**
+ * Point sign-in at a local Auth emulator, at most once per process.
+ *
+ * The decision is `authEmulator.ts`'s and is refused outright unless this is
+ * a development bundle whose backend is also on this machine; `releaseGuard`
+ * fails the build if the variable reaches staging or production. Calling it
+ * twice throws in the SDK once a request has gone out, so the flag is the
+ * guard — `createFirebaseAuthRepository` is called from two places.
+ *
+ * There is no log line either way: nothing under `src/auth/` may call
+ * `console.*` (`authSafety.test.ts`), and this is exactly the module where
+ * that rule earns its keep.
+ */
+let emulatorConnected = false;
+
+function connectEmulatorOnce(): void {
+  if (emulatorConnected) return;
+  const url = authEmulatorUrl({
+    isDevBundle: __DEV__,
+    appEnv: appEnv(),
+    apiBaseUrl: apiBaseUrl(),
+    host: firebaseAuthEmulatorHost(),
+  });
+  if (!url) return;
+  emulatorConnected = true;
+  connectAuthEmulator(getAuth(), url);
+}
+
 export function createFirebaseAuthRepository(): AuthRepository {
+  connectEmulatorOnce();
   // Firebase has no notion of *why* a session ended, so the repository keeps
   // it — for this process only, never on disk.
   let signOutReason: SignOutReason | null = null;

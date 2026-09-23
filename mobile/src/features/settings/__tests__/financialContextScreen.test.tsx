@@ -136,6 +136,57 @@ describe('what a bill is allowed to say', () => {
       expect(rendered).not.toContain(sentinel);
     }
   });
+
+  it('adds a user-entered bill with validated minor units and due date', async () => {
+    const save = jest.spyOn(financialEndpoints, 'putFinancialObligation')
+      .mockResolvedValue({
+        success: true,
+        obligation: {
+          obligationId: 'manual-course-materials',
+          label: 'Course materials',
+          category: 'other',
+          dueAt: '2026-10-04T12:00:00.000Z',
+          amountMinorUnits: 4_275,
+          currency: 'EUR',
+          recurring: false,
+          observedAt: '2026-09-23T12:00:00.000Z',
+        },
+      });
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-bill-label')).toBeTruthy());
+
+    await fireEvent.changeText(screen.getByTestId('financial-bill-label'), 'Course materials');
+    await fireEvent.changeText(screen.getByTestId('financial-bill-amount'), '42.75');
+    await fireEvent.changeText(screen.getByTestId('financial-bill-currency'), 'eur');
+    await fireEvent.changeText(screen.getByTestId('financial-bill-date'), '2026-10-04');
+    await waitFor(() => expect(screen.getByTestId('financial-bill-date').props.value).toBe('2026-10-04'));
+    await fireEvent.press(screen.getByTestId('financial-bill-save'));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]?.[0]).toEqual({
+      label: 'Course materials',
+      category: 'other',
+      dueAt: '2026-10-04T12:00:00.000Z',
+      amountMinorUnits: 4_275,
+      currency: 'EUR',
+      recurring: false,
+    });
+    await waitFor(() => expect(screen.getByTestId('financial-bill-label').props.value).toBe(''));
+  });
+
+  it('only offers removal for a bill entered by the user and sends its opaque id', async () => {
+    const remove = jest.spyOn(financialEndpoints, 'deleteFinancialObligation')
+      .mockResolvedValue({ success: true });
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-obligations')).toBeTruthy());
+
+    expect(screen.queryByTestId('financial-obligation-remove-3e1bfa199e5c1611dea8f3c625af838d')).toBeNull();
+    await fireEvent.press(screen.getByTestId('financial-obligation-remove-00000000-0000-4000-8000-000000000001'));
+
+    await waitFor(() => expect(remove).toHaveBeenCalled());
+    expect(remove.mock.calls[0]?.[0]).toBe('00000000-0000-4000-8000-000000000001');
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
 });
 
 describe('correcting a figure', () => {

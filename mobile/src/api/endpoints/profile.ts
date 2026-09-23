@@ -45,7 +45,7 @@ export function listMemory(): Promise<{ items: MemoryItem[]; suggestions: Memory
 }
 
 export function createMemory(input: { kind: 'fact' | 'preference' | 'goal'; content: string; language: 'ar' | 'he' | 'en' | 'mixed' }) {
-  return apiRequest('POST', '/api/mobile/memory', { body: input, schema: memoryCreatedSchema });
+  return apiRequest('POST', '/api/mobile/memory', { body: input, schema: memoryCreatedSchema, expectStatus: 201 });
 }
 
 /** An edit supersedes: the reply carries a **new** id, and the old one is gone from the list. */
@@ -71,6 +71,7 @@ export function keepMemorySuggestion(suggestion: Pick<MemorySuggestion, 'ruleId'
   return apiRequest('POST', `/api/mobile/memory/suggestions/${encodeURIComponent(suggestion.ruleId)}`, {
     body: { decision: 'keep', fingerprint: suggestion.fingerprint, language },
     schema: memorySuggestionDecisionSchema,
+    expectStatus: 201,
   });
 }
 

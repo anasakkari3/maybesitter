@@ -1,33 +1,43 @@
 import React, { useRef } from 'react';
 import {
-  Animated, Pressable, Text, View,
-  type GestureResponderEvent, type StyleProp, type TextStyle, type ViewStyle,
+  Animated, Platform, Pressable, Text, View,
+  type AccessibilityState, type GestureResponderEvent, type NativeSyntheticEvent, type StyleProp, type TextLayoutEventData, type TextStyle, type ViewStyle,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { family, LINE_HEIGHT, type Weight } from '../theme/fonts';
-import { cardShadow, type Palette } from '../theme/tokens';
-import { impColors, impLabel } from '../state/derive';
-import type { Imp } from '../state/types';
+import { cardShadow, typography, type Palette, type TextRole } from '../theme/tokens';
+import { useReducedMotion } from './motion';
 
 type Align = 'start' | 'center' | 'end';
 
+// Fabric on iOS swaps left/right with the inherited Yoga direction in
+// RCTAttributedTextUtils.mm. Supplying a physical RTL alignment swaps twice.
+// Android expects the physical edge. Keep this platform detail in one place.
+export function textAlignment(align: Align, rtl: boolean, platform: string) {
+  if (align === 'center') return 'center';
+  const physicalRTL = platform === 'ios' ? false : rtl;
+  return (align === 'start') === physicalRTL ? 'right' : 'left';
+}
+
 export function Txt({
-  children, size = 15, weight = 400, color, align = 'start', style, lines, lh, latin, selectable, testID,
+  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout,
 }: {
   children: React.ReactNode;
-  size?: number;
-  weight?: Weight;
-  color?: string;
-  align?: Align;
-  style?: StyleProp<TextStyle>;
-  lines?: number;
-  lh?: number;
+  role?: TextRole;
+  size?: number | undefined;
+  weight?: Weight | undefined;
+  color?: string | undefined;
+  align?: Align | undefined;
+  style?: StyleProp<TextStyle> | undefined;
+  lines?: number | undefined;
+  lh?: number | undefined;
   /** Set digits and Latin-only labels in Outfit even inside Arabic or Hebrew UI. */
-  latin?: boolean;
+  latin?: boolean | undefined;
   /** For an opaque id the user may need to read out or paste (#149). */
-  selectable?: boolean;
-  testID?: string;
+  selectable?: boolean | undefined;
+  testID?: string | undefined;
+  /** For chrome that has to know whether this label still fits its slot (TabBar). */
+  onTextLayout?: ((e: NativeSyntheticEvent<TextLayoutEventData>) => void) | undefined;
 }) {
   const { rtl, script, p } = useApp();
   // `latin` is the AGENTS.md escape hatch: a digit or a Latin-only label in a
@@ -35,17 +45,23 @@ export function Txt({
   // set in the script of the language — which for Hebrew is a different face
   // from Arabic's, not a different direction.
   const runScript = latin ? 'latin' : script;
-  const textAlign = align === 'center' ? 'center' : (align === 'start') === rtl ? 'right' : 'left';
+  const textAlign = textAlignment(align, rtl, Platform.OS);
+  // RN 0.86 scales BOTH fontSize and lineHeight natively (iOS:
+  // RCTAttributedTextUtils; Android: TextAttributes.effectiveLineHeight).
+  // Supply the unscaled script ratio once. Multiplying by fontScale here
+  // produces a squared line box at accessibility sizes, wasting the viewport.
   return (
     <Text
       numberOfLines={lines}
       selectable={selectable}
       testID={testID}
+      onTextLayout={onTextLayout}
+      accessibilityRole={role === 'page' || role === 'section' ? 'header' : undefined}
       style={[
         {
           fontFamily: family(weight, runScript),
           fontSize: size,
-          lineHeight: Math.round(size * (lh ?? LINE_HEIGHT[runScript])),
+          lineHeight: Math.round(size * (runScript === 'arabic' ? Math.max(lh ?? LINE_HEIGHT.arabic, LINE_HEIGHT.arabic) : (lh ?? LINE_HEIGHT[runScript]))),
           color: color ?? p.tx,
           textAlign,
           writingDirection: rtl ? 'rtl' : 'ltr',
@@ -66,8 +82,8 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
  * out like any other view.
  */
 export function Btn({
-  onPress, onPressIn, onPressOut, style, children, disabled, label, scaleTo = 0.95, hitSlop, testID,
-  accessibilityRole = 'button', accessibilityActions, onAccessibilityAction,
+  onPress, onPressIn, onPressOut, style, children, disabled, label, hint, scaleTo = 0.95, hitSlop, testID,
+  accessibilityRole = 'button', accessibilityState, accessibilityActions, onAccessibilityAction,
 }: {
   // `| undefined` is explicit because the app compiles with
   // exactOptionalPressableTypes: callers pass `onPress={disabled ? undefined : fn}`.
@@ -78,6 +94,7 @@ export function Btn({
   children: React.ReactNode;
   disabled?: boolean | undefined;
   label?: string | undefined;
+  hint?: string | undefined;
   scaleTo?: number | undefined;
   hitSlop?: number | undefined;
   /**
@@ -94,6 +111,7 @@ export function Btn({
    * reader announcing four buttons does not say that only one may be picked.
    */
   accessibilityRole?: 'button' | 'radio' | 'checkbox' | 'link';
+  accessibilityState?: AccessibilityState;
   /**
    * Actions a screen reader or switch control can perform on this row.
    *
@@ -105,41 +123,46 @@ export function Btn({
   onAccessibilityAction?: (event: { nativeEvent: { actionName: string } }) => void;
 }) {
   const v = useRef(new Animated.Value(1)).current;
-  const spring = (to: number) => Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  const reduced = useReducedMotion();
+  const spring = (to: number) => {
+    if (reduced) { v.setValue(1); return; }
+    Animated.spring(v, { toValue: to, useNativeDriver: true, speed: 40, bounciness: 0 }).start();
+  };
   return (
     <AnimatedPressable
       accessibilityRole={accessibilityRole}
       accessibilityLabel={label}
+      accessibilityHint={hint}
       {...(accessibilityActions ? { accessibilityActions: [...accessibilityActions] } : {})}
       {...(onAccessibilityAction ? { onAccessibilityAction } : {})}
       testID={testID}
-      accessibilityState={{ disabled }}
+      accessibilityState={{ ...accessibilityState, disabled }}
       disabled={disabled}
       hitSlop={hitSlop}
       onPress={onPress}
       onPressIn={e => { spring(scaleTo); onPressIn?.(e); }}
       onPressOut={e => { spring(1); onPressOut?.(e); }}
-      style={[style, { transform: [{ scale: v }] }]}
+      style={[style, { transform: [{ scale: reduced ? 1 : v }] }]}
     >
       {children}
     </AnimatedPressable>
   );
 }
 
-type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'ink' | 'ghost';
+type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'warmSolid' | 'ink' | 'ghost';
 
 export function Pill({
   label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID,
 }: {
   label: string;
-  onPress?: () => void;
-  kind?: PillKind;
-  style?: StyleProp<ViewStyle>;
-  size?: number;
-  weight?: Weight;
-  disabled?: boolean;
-  pad?: number;
-  radius?: number;
+  onPress?: (() => void) | undefined;
+  kind?: PillKind | undefined;
+  style?: StyleProp<ViewStyle> | undefined;
+  size?: number | undefined;
+  weight?: Weight | undefined;
+  disabled?: boolean | undefined;
+  pad?: number | undefined;
+  radius?: number | undefined;
   /** See `Btn`. Two pills legitimately read the same on the details screen. */
   testID?: string | undefined;
 }) {
@@ -149,10 +172,15 @@ export function Pill({
     soft: { bg: p.sf2, fg: p.tx },
     outline: { bg: p.sf, fg: p.tx, border: p.ln },
     warm: { bg: p.wms, fg: p.wm },
-    ink: { bg: p.tx, fg: p.bg },
+    warmSolid: { bg: p.wm, fg: p.onAccent },
+    ink: { bg: p.ink, fg: p.onInk },
     ghost: { bg: 'transparent', fg: p.mu },
   };
-  const l = look[kind];
+  // A control that cannot be pressed yet is drawn in the disabled roles —
+  // `dis` / `disTx`, which Round 2 names and which measure ≥ 4.5:1 in both
+  // schemes — rather than by fading the whole control to 40 % opacity, which
+  // took the label with it and left the reason for the fade unreadable.
+  const l = disabled ? { bg: p.dis, fg: p.disTx, border: kind === 'outline' ? p.ln : undefined } : look[kind];
   return (
     <Btn
       onPress={disabled ? undefined : onPress}
@@ -163,7 +191,7 @@ export function Pill({
         {
           backgroundColor: l.bg, borderRadius: radius, paddingVertical: pad, paddingHorizontal: 18,
           alignItems: 'center', justifyContent: 'center', minHeight: 48,
-          borderWidth: l.border ? 1 : 0, borderColor: l.border, opacity: disabled ? 0.4 : 1,
+          borderWidth: l.border ? 1 : 0, borderColor: l.border,
         },
         style,
       ]}
@@ -173,41 +201,9 @@ export function Pill({
   );
 }
 
-/** Small outlined pill used for Back / Cancel in screen headers. */
-export function HeaderPill({ label, onPress }: { label: string; onPress: () => void }) {
+export function Card({ children, style, pad = 18, testID, focus = false }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined; focus?: boolean }) {
   const { p } = useApp();
-  return (
-    <Btn onPress={onPress} label={label} style={{ backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14, minHeight: 36, justifyContent: 'center' }}>
-      <Txt size={13}>{label}</Txt>
-    </Btn>
-  );
-}
-
-export function Card({ children, style, pad = 18, testID }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined }) {
-  const { p } = useApp();
-  return <View testID={testID} style={[{ backgroundColor: p.sf, borderRadius: 24, padding: pad }, cardShadow(p), style]}>{children}</View>;
-}
-
-export function ImpBadge({ imp, style }: { imp: Imp; style?: StyleProp<ViewStyle> }) {
-  const { p, t } = useApp();
-  const c = impColors(imp, p);
-  return (
-    <View style={[{ backgroundColor: c.bg, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, alignSelf: 'flex-start' }, style]}>
-      <Txt size={12} weight={600} color={c.fg}>{impLabel(imp, t)}</Txt>
-    </View>
-  );
-}
-
-/** Top bar for flow screens: a pill on the start side, a muted title on the end side. */
-export function FlowHeader({ pill, onPill, title }: { pill: string; onPill: () => void; title: string }) {
-  const { p } = useApp();
-  const insets = useSafeAreaInsets();
-  return (
-    <View style={{ paddingTop: insets.top + 8, paddingHorizontal: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-      <HeaderPill label={pill} onPress={onPill} />
-      <Txt size={13} color={p.mu}>{title}</Txt>
-    </View>
-  );
+  return <View testID={testID} style={[{ backgroundColor: p.glass, borderRadius: 24, padding: pad, borderWidth: 1, borderColor: p.ln }, focus ? cardShadow(p) : undefined, style]}>{children}</View>;
 }
 
 export function Divider({ p }: { p: Palette }) {

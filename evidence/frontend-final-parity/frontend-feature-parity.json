@@ -1,0 +1,1077 @@
+{
+  "generatedAt": "2026-09-23",
+  "startingMainSha": "7799ec75e0c62e426e5eed7b3ae7f726f51c2426",
+  "coralSourceSha": "c67c516813b354c75dd961e65445e73858757305",
+  "integrationBranch": "integration/coral-final-parity",
+  "reviewScope": {
+    "closedIssuesReviewed": 163,
+    "mergedPullRequestsReviewed": 314,
+    "mobileApiRoutesReviewed": 73,
+    "sourceFiles": [
+      "evidence/frontend-final-parity/closed-issues-reviewed.json",
+      "evidence/frontend-final-parity/merged-prs-reviewed.json",
+      "src/app/api/mobile/**/route.ts",
+      "mobile/src/**"
+    ]
+  },
+  "features": [
+    {
+      "feature": "Account authentication and account-scoped query state",
+      "issues": [
+        148,
+        171
+      ],
+      "prs": [
+        266,
+        315
+      ],
+      "domain": "Firebase authentication and per-account isolation",
+      "api": "Bearer-authenticated /api/mobile/** boundary",
+      "mobile": "AuthProvider, auth repositories, uid-scoped React Query keys",
+      "frontendSurface": "Sign in, email verification, account",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "authGate, emailAuth, appleSignIn, googleSignIn, oneTruth and query-layer suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Language-first onboarding and separate consent decisions",
+      "issues": [
+        161,
+        168,
+        169,
+        171,
+        469
+      ],
+      "prs": [
+        280,
+        356,
+        391
+      ],
+      "domain": "Onboarding, profile and consent state",
+      "api": "/consents, /consents/ai-processing, /consents/personalization, /consents/recommendations, /profile/describe, /profile/describe/confirm",
+      "mobile": "Guided setup in Arabic, Hebrew and English",
+      "frontendSurface": "Language gate and onboarding conversation",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "onboardingFlow, setupLifeStep, setupChatStep, consentStep and languageGate suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Typed multilingual capture, clarification and explicit confirmation",
+      "issues": [
+        6,
+        162,
+        172,
+        252,
+        474,
+        492,
+        502,
+        508,
+        509,
+        512,
+        514
+      ],
+      "prs": [
+        255,
+        283,
+        315,
+        479,
+        485,
+        510,
+        554,
+        555,
+        560,
+        561
+      ],
+      "domain": "Capture extraction, safety and durable proposals",
+      "api": "/capture, /capture/clarify, /capture/confirm",
+      "mobile": "CaptureProvider and single capture state machine",
+      "frontendSurface": "Say it → Clarify → Review → Saved",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "capture flow, no-commitment Arabic, edit-proposal and mobile fixture contract suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Voice capture with ar/he/en locale handling",
+      "issues": [
+        163
+      ],
+      "prs": [
+        315
+      ],
+      "domain": "Native speech input feeding canonical capture",
+      "api": "Canonical capture endpoints after transcription",
+      "mobile": "VoiceButton with locale-aware transcription",
+      "frontendSurface": "Say it microphone",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "voiceButton suite and capture reachability suite",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Clipboard capture",
+      "issues": [
+        336
+      ],
+      "prs": [
+        353
+      ],
+      "domain": "Clipboard input routed through capture safety",
+      "api": "Canonical capture endpoints",
+      "mobile": "Clipboard import guard",
+      "frontendSurface": "Say it composer",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "captureClipboard and Maestro-flow configuration suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Native share intake for text, email and WhatsApp exports",
+      "issues": [
+        183,
+        189,
+        192
+      ],
+      "prs": [
+        393,
+        596
+      ],
+      "domain": "Share ingestion and instruction-boundary safety",
+      "api": "/capture/share",
+      "mobile": "ShareProvider and ShareScreen",
+      "frontendSurface": "OS share extension → preview → canonical Review",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "shareFlow and instruction-injection route suites; gated by share-intake build flag",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Shared image intake with metadata stripping and resizing",
+      "issues": [
+        190,
+        404
+      ],
+      "prs": [
+        403,
+        429
+      ],
+      "domain": "Safe image preprocessing and multimodal extraction",
+      "api": "/capture/share",
+      "mobile": "Share extension image path",
+      "frontendSurface": "OS share extension → preview → canonical Review",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "share image tests and capture-share API fixtures; physical picker remains separate",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Shared PDF/document intake",
+      "issues": [
+        191
+      ],
+      "prs": [
+        552
+      ],
+      "domain": "Document upload through canonical share intake",
+      "api": "/capture/share",
+      "mobile": "Share extension document payload",
+      "frontendSurface": "Add to MaybeSitter → Files explains OS share path",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "share-intake route and client schemas; enabled only when shareIntakeEnabled",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Direct in-app camera and file picker",
+      "issues": [],
+      "prs": [],
+      "domain": "No production picker implementation",
+      "api": "none",
+      "mobile": "No camera or picker adapter",
+      "frontendSurface": "Add to MaybeSitter labels these entries Coming soon",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "capabilities.ts and ControlScreens truth-label audit",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Today and upcoming commitment lists",
+      "issues": [
+        169,
+        173,
+        383,
+        384
+      ],
+      "prs": [
+        303,
+        304,
+        396
+      ],
+      "domain": "Commitment ordering and visibility",
+      "api": "/commitments/today, /commitments/upcoming",
+      "mobile": "useToday and useUpcoming",
+      "frontendSurface": "Today, Calendar and Commitments",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "todayScreen, calendarScreen and activity reachability suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Commitment details, edit, complete, postpone, drop and delete",
+      "issues": [
+        173,
+        337,
+        351,
+        352
+      ],
+      "prs": [
+        305,
+        307
+      ],
+      "domain": "Commitment lifecycle with stale-write guards",
+      "api": "/commitments/[id], /commitments/[id]/actions",
+      "mobile": "DetailsScreen and action sheets",
+      "frontendSurface": "Commitment details",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "simulator capture/edit/postpone/complete/drop with server state after reload; model, details and action suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Device calendar write and update/delete sync",
+      "issues": [
+        185
+      ],
+      "prs": [
+        412
+      ],
+      "domain": "Native device-calendar link lifecycle",
+      "api": "/settings/calendar, /commitments/[id]/device-calendar-link",
+      "mobile": "DeviceCalendarSyncHost and CalendarSettingsScreen",
+      "frontendSurface": "Settings → Calendar",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "syncRuntime, calendar settings and disconnect suites; requires native permission/device",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Device calendar busy-time conflict avoidance",
+      "issues": [
+        186
+      ],
+      "prs": [
+        461
+      ],
+      "domain": "Busy-block projection into planning",
+      "api": "/calendar/busy",
+      "mobile": "BusyCalendarHost and conflict chips",
+      "frontendSurface": "Today, Review and Calendar settings",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "busyRuntime, busyBlocks, busyChip and busyConflictInApp suites; requires native permission/device",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "External ICS calendar feeds and deadline decisions",
+      "issues": [
+        188
+      ],
+      "prs": [
+        445,
+        460
+      ],
+      "domain": "Safe feed subscription, refresh and proposed deadlines",
+      "api": "/calendar/ics and nested feed/deadline routes",
+      "mobile": "ICS hooks and CalendarFeedsScreen",
+      "frontendSurface": "Settings → Sources → Calendar links",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "calendarFeedsScreen and icsFeedsGuards suites; build-flag gated",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Direct Google Calendar account connection",
+      "issues": [],
+      "prs": [
+        264,
+        436,
+        464,
+        491
+      ],
+      "domain": "Provider runtime boundaries exist, but no production mobile connection flow",
+      "api": "No canonical mobile Google OAuth/sync route",
+      "mobile": "Development verification demo is release-blocked",
+      "frontendSurface": "Integrations labels direct Google Calendar Coming soon and links to device-calendar settings",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "releaseGuard and Google demo gating tests",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Gmail and Google Drive direct connections",
+      "issues": [],
+      "prs": [
+        436,
+        464,
+        491
+      ],
+      "domain": "Provider OAuth boundary preparation only",
+      "api": "No production mobile Gmail/Drive routes",
+      "mobile": "No connection adapters",
+      "frontendSurface": "Integrations labels both Coming soon",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "mobile route inventory and capabilities.ts truth-label audit",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Daily plan build, accept, edit and regenerate",
+      "issues": [
+        194,
+        195,
+        477,
+        494,
+        500,
+        521,
+        522
+      ],
+      "prs": [
+        387,
+        408,
+        482,
+        529,
+        557
+      ],
+      "domain": "Daily planning and stable/protected-flexible blocks",
+      "api": "/plans/[date], /build, /actions, /regenerate and /settings/plan",
+      "mobile": "Plan schema, hooks and PlanScreen",
+      "frontendSurface": "Today plan card and Plan editor",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "PlanScreen snapshot/behavior, morning-plan settings and plan-activity freshness suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Continuous replanning proposal review",
+      "issues": [
+        523,
+        524
+      ],
+      "prs": [
+        570,
+        578,
+        582,
+        583,
+        588
+      ],
+      "domain": "Event-driven impact evaluation and durable plan proposals",
+      "api": "/plans/[date] includes proposal; /actions accepts or rejects",
+      "mobile": "Proposal schema and real plan action mutations",
+      "frontendSurface": "Calendar → Review the patch",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "Plan schema/typecheck, PatchReview source audit and server continuous-replan suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Server morning planning job",
+      "issues": [
+        194
+      ],
+      "prs": [
+        387,
+        426
+      ],
+      "domain": "Scheduled plan generation",
+      "api": "Internal job plus /plans/[date] read",
+      "mobile": "Reads resulting plan and offers explicit manual build fallback",
+      "frontendSurface": "Today and Plan",
+      "status": "BACKGROUND_ONLY",
+      "runtimeEvidence": "server daily-plan tests and PlanScreen manual build coverage",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Next-step recommendation and user decision feedback",
+      "issues": [
+        51,
+        53,
+        55,
+        56,
+        170
+      ],
+      "prs": [
+        309
+      ],
+      "domain": "Deterministic recommendation, explanation and decision events",
+      "api": "/recommendations/next-step and /actions",
+      "mobile": "NextStepCard and consent-aware hooks",
+      "frontendSurface": "Today",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "nextStepCard and recommendation selector suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Memory CRUD, provenance and delete-all",
+      "issues": [
+        10,
+        12,
+        42,
+        167,
+        202,
+        532
+      ],
+      "prs": [
+        99,
+        278,
+        290,
+        300,
+        389,
+        427,
+        534,
+        538
+      ],
+      "domain": "Provenance-aware account memory",
+      "api": "/memory, /memory/[id], /memory/suggestions/[ruleId]",
+      "mobile": "Memory and personalization query/mutation hooks",
+      "frontendSurface": "Settings → What it knows / Memory",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "MemoryScreen, personalization and trust-personalization suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Behavior-derived personalization controls",
+      "issues": [
+        41,
+        42,
+        43,
+        44,
+        202
+      ],
+      "prs": [
+        129,
+        427,
+        534
+      ],
+      "domain": "Suggestions remain proposals until kept; consent controls learning",
+      "api": "/memory/suggestions, /consents/personalization",
+      "mobile": "PersonalizationScreen",
+      "frontendSurface": "Personalization center",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "personalization screen test and server personalization control suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Routine profile and self-description",
+      "issues": [
+        167,
+        168
+      ],
+      "prs": [
+        278,
+        290,
+        348
+      ],
+      "domain": "Profile/routine persistence and confirmed suggestions",
+      "api": "/profile, /profile/routine, /profile/describe, /profile/describe/confirm",
+      "mobile": "RoutineSettings and onboarding sync",
+      "frontendSurface": "Onboarding and Settings → Routine",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "routineStep, setupLifeStep and useRoutineSync suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Subjective and native health readiness context",
+      "issues": [],
+      "prs": [
+        416,
+        421,
+        422,
+        433,
+        434,
+        435,
+        456,
+        457,
+        461,
+        470,
+        473
+      ],
+      "domain": "Readiness normalization and user-state projection",
+      "api": "/readiness",
+      "mobile": "HealthKit/Health Connect bridges and subjective-energy writes",
+      "frontendSurface": "Settings → Energy / Health",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "readiness settings source, native permission declarations and runtime contracts; physical certification still required",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "WHOOP readiness connection",
+      "issues": [],
+      "prs": [
+        414
+      ],
+      "domain": "Normalization foundation only",
+      "api": "No production mobile connection route",
+      "mobile": "No WHOOP OAuth adapter",
+      "frontendSurface": "Background Activity labels WHOOP Coming soon",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "runtimeControls contracts and mobile route inventory",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Activity history and weekly achievements",
+      "issues": [
+        201
+      ],
+      "prs": [
+        428
+      ],
+      "domain": "Activity event projection and weekly summary",
+      "api": "/activity and /activity/summary",
+      "mobile": "Activity hooks and screen",
+      "frontendSurface": "Settings → Your activity",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "ActivityScreen and planActivityFreshness suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Feedback flagging, history and revoke",
+      "issues": [
+        13,
+        14,
+        15,
+        16,
+        96
+      ],
+      "prs": [
+        101,
+        343
+      ],
+      "domain": "Behavioral feedback events and transparency",
+      "api": "/alpha/feedback, /feedback/history, /feedback/[id]/revoke",
+      "mobile": "FeedbackFlagButton and FeedbackHistoryScreen",
+      "frontendSurface": "Next step and Settings → Activity → Feedback history",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "nextStepCard, feedback history and API fixture suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Reminder settings, soft/hard delivery and notification actions",
+      "issues": [
+        134,
+        196,
+        198,
+        200,
+        375,
+        475
+      ],
+      "prs": [
+        386,
+        430,
+        444,
+        447,
+        448,
+        483
+      ],
+      "domain": "Quiet hours, ceilings, receipts and idempotent actions",
+      "api": "/settings/reminders, /reminders/receipts, commitment actions",
+      "mobile": "RemindersMount and NotificationsSettingsScreen",
+      "frontendSurface": "Settings → Notifications and system notifications",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "reminderSettings, remindersMount, useReminderSync and ceiling suites; push delivery needs real provider/device",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Home-screen widget with title privacy control",
+      "issues": [
+        203
+      ],
+      "prs": [
+        449
+      ],
+      "domain": "Redacted next-step snapshot",
+      "api": "Uses canonical next-step/commitment data",
+      "mobile": "WidgetSnapshotHost and WidgetSettingsScreen",
+      "frontendSurface": "Settings → Home screen widget",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "widgetSync and titlesAllowedHook suites; native surface needs device certification",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Football fixture projection and dismissal",
+      "issues": [],
+      "prs": [
+        468
+      ],
+      "domain": "Followed clubs projected as commitments",
+      "api": "/football and /football/fixtures/[commitmentId]",
+      "mobile": "Football settings hooks",
+      "frontendSurface": "Settings → Sources → Football",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "FootballSettingsScreen suite and server football timeout tests",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Category preferences and filter bar",
+      "issues": [
+        415
+      ],
+      "prs": [],
+      "domain": "Account category preferences",
+      "api": "/settings/categories",
+      "mobile": "CategorySettingsScreen and list filters",
+      "frontendSurface": "Settings → Areas of life",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "categorySettingsScreen and reachability suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Seeds / unresolved intents",
+      "issues": [
+        519
+      ],
+      "prs": [
+        539
+      ],
+      "domain": "Considering/waiting objects separate from commitments",
+      "api": "/seeds, /seeds/[id], /promote",
+      "mobile": "Seed hooks and SeedsScreen",
+      "frontendSurface": "Calendar → Considering / Waiting",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "seedsScreen and seedReview suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Goal execution graphs, progress, checkpoints and linked work",
+      "issues": [
+        526
+      ],
+      "prs": [
+        572,
+        576,
+        579
+      ],
+      "domain": "Goal graph with explicit confirmation, unlink and regeneration",
+      "api": "/goals/[goalId]/execution and generate/confirm/regenerate/node routes",
+      "mobile": "Typed goal schemas/endpoints/hooks and explicit manual goal creation",
+      "frontendSurface": "Goal execution",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "simulator user-stated goal persisted in emulator and rendered with checkpoint; controlScreens goal tests and server goal route suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Habit definitions, explicit creation, pause/resume/delete and planner projection",
+      "issues": [
+        520
+      ],
+      "prs": [
+        568,
+        573
+      ],
+      "domain": "Schedulable habit definitions with bounded occurrences",
+      "api": "/habits and /habits/[id]",
+      "mobile": "Typed habit schemas/endpoints/hooks",
+      "frontendSurface": "Habit detail",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "simulator habit create/pause/resume against authenticated emulator; route 201 fixture, controlScreens test and server habit suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Habit occurrence review, complete and skip",
+      "issues": [
+        520
+      ],
+      "prs": [
+        568,
+        573
+      ],
+      "domain": "Occurrence action routes exist but no mobile occurrence-list read contract",
+      "api": "Complete/skip write routes exist; no mobile GET occurrence list",
+      "mobile": "Cannot safely discover occurrence IDs",
+      "frontendSurface": "Habit detail labels only Occurrences Coming soon",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "route inventory confirms write-only occurrence surface",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Readiness watcher creation and lifecycle",
+      "issues": [
+        525
+      ],
+      "prs": [
+        537
+      ],
+      "domain": "Generic watcher engine using the currently connected readiness signal",
+      "api": "/watchers, /watchers/[id], /pause and /settings/monitoring",
+      "mobile": "Typed watcher client and account-scoped mutations",
+      "frontendSurface": "Watch this for me and Background activity",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "simulator readiness watcher create/pause/resume against authenticated emulator; route 201 fixture and watchBuilder tests",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Canonical background monitor projection, pause and attribution",
+      "issues": [
+        527
+      ],
+      "prs": [
+        563,
+        566,
+        567,
+        577,
+        580
+      ],
+      "domain": "Monitor projection and full decision/effect/artifact attribution",
+      "api": "/trust/background-activity and /attribution",
+      "mobile": "Typed projection hooks and cache-safe pause",
+      "frontendSurface": "Settings → Background activity",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "watchers schema/cache tests and server backgroundMonitors/backgroundAttribution suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Flight, package, football, Notion and location watchers",
+      "issues": [
+        525
+      ],
+      "prs": [
+        537
+      ],
+      "domain": "Generic engine exists but these source adapters/mobile contracts do not",
+      "api": "No production source-specific creation routes",
+      "mobile": "Only readiness watcher creation is wired",
+      "frontendSurface": "Explore and builder label these sources Coming soon",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "watchBuilder test and false-live-label audit",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Financial context, source connection, corrections and manual obligations",
+      "issues": [],
+      "prs": [
+        597,
+        598
+      ],
+      "domain": "Advisory financial state with provenance, conflicts and provider audits",
+      "api": "/financial/context, /financial/connection, /financial/manual",
+      "mobile": "Typed financial queries/mutations",
+      "frontendSurface": "Settings → Financial context",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "financialContextScreen suite covers provenance, conflict, correction, bill add/remove and privacy",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Account deletion and cross-feature cleanup",
+      "issues": [
+        149
+      ],
+      "prs": [
+        268,
+        269,
+        271,
+        566
+      ],
+      "domain": "Permanent account deletion with receipt and watcher cleanup",
+      "api": "/account DELETE",
+      "mobile": "Reauthentication and deletion flow",
+      "frontendSurface": "Settings → Account → Delete account",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "deletionFlow, deletionPrivacy, deletionRtl and reauth suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Trust controls and pilot incident reporting",
+      "issues": [
+        55,
+        57,
+        60,
+        174
+      ],
+      "prs": [
+        74,
+        81,
+        82
+      ],
+      "domain": "Progressive trust controls and incident capture",
+      "api": "/pilot/trust, /pilot/incidents and /consents",
+      "mobile": "TrustScreen, typed pilot incident endpoint and privacy links",
+      "frontendSurface": "Settings → Trust → Report an issue",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "authenticated local pilot incident POST 201; Trust report UI and endpoint tests; trustPersonalization and settings reachability suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Device registration and content-free analytics",
+      "issues": [
+        13,
+        55
+      ],
+      "prs": [
+        81,
+        343
+      ],
+      "domain": "Push installation lifecycle and bounded event telemetry",
+      "api": "/devices, /devices/[installationId], /analytics, /alpha/trace",
+      "mobile": "Session hosts and analytics client",
+      "frontendSurface": "No dedicated screen; supports notifications and product reliability",
+      "status": "BACKGROUND_ONLY",
+      "runtimeEvidence": "device/reminder and analytics contract tests",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Priority, life-state, decomposition, coaching and safety engines",
+      "issues": [
+        9,
+        10,
+        20,
+        24,
+        28,
+        29,
+        30,
+        31,
+        32,
+        38,
+        40
+      ],
+      "prs": [
+        99,
+        115,
+        125
+      ],
+      "domain": "Internal decision/support modules behind canonical recommendations and planning",
+      "api": "Consumed through capture, plan and next-step routes",
+      "mobile": "No raw engine controls exposed",
+      "frontendSurface": "Results appear in Review, Today and Plan with explanations",
+      "status": "INTERNAL_ONLY",
+      "runtimeEvidence": "contract, selector, planning and coaching suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Travel constraints projected into planning",
+      "issues": [],
+      "prs": [
+        442
+      ],
+      "domain": "Provider context projection",
+      "api": "No standalone user-facing mobile route",
+      "mobile": "Consumed by plan result when available",
+      "frontendSurface": "No direct control until a production provider connection exists",
+      "status": "BACKGROUND_ONLY",
+      "runtimeEvidence": "provider-context and planning contract suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Assistant preparation, coordination, weekly mode, personality and assistant name",
+      "issues": [],
+      "prs": [],
+      "domain": "No canonical production behavior",
+      "api": "none",
+      "mobile": "Preview-only coral surfaces",
+      "frontendSurface": "Assistant, Action modes and My MaybeSitter label these parts Coming soon",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "capabilities.ts centralized truth labels",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Grouped PDF extraction for exams, assignments, deadlines and lectures",
+      "issues": [],
+      "prs": [
+        552
+      ],
+      "domain": "File intake exists; grouped syllabus-date extraction does not",
+      "api": "No grouped review/confirmation route",
+      "mobile": "No parsed-document review contract",
+      "frontendSurface": "Review PDF labels grouped extraction Coming soon while file intake remains live",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "PdfReview source audit and route inventory",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Personal data export",
+      "issues": [],
+      "prs": [],
+      "domain": "No export job or download contract",
+      "api": "none",
+      "mobile": "No exporter",
+      "frontendSurface": "Personalization center labels Export Coming soon",
+      "status": "COMING_SOON_GENUINE",
+      "runtimeEvidence": "capabilities.ts and route inventory",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Standalone component gallery",
+      "issues": [
+        486
+      ],
+      "prs": [
+        535
+      ],
+      "domain": "Prototype-only parallel visual path",
+      "api": "none",
+      "mobile": "Deleted Gallery.tsx and removed documentation reference",
+      "frontendSurface": "none",
+      "status": "SUPERSEDED",
+      "runtimeEvidence": "reference scan finds no Gallery.tsx import or route",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Legacy TodayPlanCard implementation",
+      "issues": [],
+      "prs": [],
+      "domain": "Duplicate plan-summary component",
+      "api": "Canonical plan query unchanged",
+      "mobile": "Deleted and replaced by TodayPlanRow",
+      "frontendSurface": "Today plan summary",
+      "status": "SUPERSEDED",
+      "runtimeEvidence": "renamed component test and reference scan",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Seeded in-memory production state",
+      "issues": [
+        486
+      ],
+      "prs": [
+        535
+      ],
+      "domain": "Static prototype records",
+      "api": "Replaced by account APIs",
+      "mobile": "Deleted state/seed.ts; screens use query/domain data",
+      "frontendSurface": "none",
+      "status": "SUPERSEDED",
+      "runtimeEvidence": "oneTruth and screen reachability suites plus no-reference scan",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Separate Review and Saved navigation routes",
+      "issues": [
+        172
+      ],
+      "prs": [
+        283,
+        315
+      ],
+      "domain": "Duplicate navigation state for one capture transaction",
+      "api": "Canonical capture flow unchanged",
+      "mobile": "ReviewScreen and SavedScreen are controlled children of CaptureFlow, not routes",
+      "frontendSurface": "Single Say it route",
+      "status": "SUPERSEDED",
+      "runtimeEvidence": "Screen union and Root switch have one capture entry",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Development Google Calendar verification demo",
+      "issues": [
+        152
+      ],
+      "prs": [
+        264
+      ],
+      "domain": "Development-only validation harness",
+      "api": "Development demo path only",
+      "mobile": "Double-gated by dev flag and release guard",
+      "frontendSurface": "Absent from production navigation",
+      "status": "INTERNAL_ONLY",
+      "runtimeEvidence": "releaseGuard tests prove staging/production refusal",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Arabic/Hebrew/English, RTL/LTR, light/dark, Dynamic Type and reduced transparency",
+      "issues": [
+        155,
+        156,
+        469
+      ],
+      "prs": [
+        237,
+        356
+      ],
+      "domain": "Cross-cutting presentation and accessibility contract",
+      "api": "Locale/timezone passed to relevant routes",
+      "mobile": "Tokenized coral system, script-aware Txt, logical layout, text-scale helpers",
+      "frontendSurface": "All production screens",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "tokens, primitives render, Hebrew UI, textScale, reducedTransparency, taskHeader and tabBar tests",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Single production navigation and deep-link routing",
+      "issues": [
+        173,
+        195,
+        486
+      ],
+      "prs": [
+        307,
+        535
+      ],
+      "domain": "One screen union and history stack",
+      "api": "Deep links resolve only canonical entities",
+      "mobile": "state/navigation.ts and one Root switch",
+      "frontendSurface": "Coral tabs and reachable sub-screens",
+      "status": "LIVE_CONNECTED",
+      "runtimeEvidence": "navigation, screenReachability, settingsReachability and deep-link suites",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "RescueTime aggregate context and cross-provider identity",
+      "issues": [],
+      "prs": [
+        440,
+        459
+      ],
+      "domain": "Privacy-filtered context adapter and account-scoped identity decisions",
+      "api": "No production mobile connection or setup route",
+      "mobile": "No direct client; provider context may enter planning only after an operator-connected source exists",
+      "frontendSurface": "No direct UI; direct provider connection remains future-facing",
+      "status": "INTERNAL_ONLY",
+      "runtimeEvidence": "lifeStateProjection and identity decision tests; mobile route inventory",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Policy-gated external actions and MCP capability adapter",
+      "issues": [],
+      "prs": [
+        424,
+        450,
+        451,
+        591
+      ],
+      "domain": "Central action policy, operator-bound MCP capabilities and audited execution gateway",
+      "api": "No production mobile action-selection route",
+      "mobile": "No raw provider tool selection or direct action settings",
+      "frontendSurface": "No direct UI; internal safety boundary for future controlled actions",
+      "status": "INTERNAL_ONLY",
+      "runtimeEvidence": "policyContract and redTeam gateway tests; mobile route inventory",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "RevenueCat entitlement projection and vertical pack lifecycle",
+      "issues": [
+        528
+      ],
+      "prs": [
+        452,
+        575
+      ],
+      "domain": "Projection-only entitlements, pack conformance and watcher pause on entitlement loss",
+      "api": "No production mobile purchase or pack-management route",
+      "mobile": "No in-app billing or pack controls",
+      "frontendSurface": "No direct UI; pack runtime is internal until an account rollout surface exists",
+      "status": "INTERNAL_ONLY",
+      "runtimeEvidence": "packLifecycle, packBoundaries and pack conformance suites; mobile route inventory",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Timefold shadow planner comparison",
+      "issues": [],
+      "prs": [
+        453
+      ],
+      "domain": "Shadow-only plan quality experiment with no candidate persistence or actions",
+      "api": "No mobile route; canonical scheduler remains authoritative",
+      "mobile": "No UI control",
+      "frontendSurface": "No direct UI; evaluation only",
+      "status": "INTERNAL_ONLY",
+      "runtimeEvidence": "timefoldShadow policy and planning experiment tests",
+      "legacyDependencyRemoved": true
+    },
+    {
+      "feature": "Credential-gated provider verification probes",
+      "issues": [],
+      "prs": [
+        490
+      ],
+      "domain": "Operator-only live provider verification harness",
+      "api": "No production mobile route",
+      "mobile": "No user setup screen",
+      "frontendSurface": "No direct UI; operator verification only",
+      "status": "INTERNAL_ONLY",
+      "runtimeEvidence": "liveProviderVerification and providerProbeCatalog source audit",
+      "legacyDependencyRemoved": true
+    }
+  ]
+}

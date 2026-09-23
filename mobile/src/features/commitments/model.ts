@@ -32,6 +32,8 @@ export interface CommitmentView {
   status: ViewStatus;
   /** The instant the screen shows: the due time, or the reminder if that is all there is. */
   shownAt: string | null;
+  /** Separate from the due time: postponing pauses resurfacing, not the deadline. */
+  postponedUntil?: string | null;
   /** Past its shown time, and still active. Not a status — see the header. */
   isPast: boolean;
   /** The user chose this importance; it was not read off their words. */
@@ -76,6 +78,7 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
     importance: IMPORTANCE[commitment.priority.level],
     status,
     shownAt,
+    postponedUntil: commitment.currentAckState === 'postponed' ? commitment.postponedUntil : null,
     isPast: status === 'active' && !Number.isNaN(shownMs) && shownMs < Date.parse(now),
     importanceIsStated: commitment.priority.source === 'user_explicit',
     rank: commitment.rank,

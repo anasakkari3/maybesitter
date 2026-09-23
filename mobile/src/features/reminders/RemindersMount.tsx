@@ -181,10 +181,13 @@ export function RemindersMount(): null {
       await markAware(uid, route.commitmentId, known ? startOf(known) : null, new Date());
       latest.current.resync();
     }
-    if (route.kind === 'commitment') latest.current.actions.openDetail(route.commitmentId);
+    // A tap is an arrival (Round 2, Phase B): the thing it names opens with
+    // Today underneath, whatever the person had open before, so back from a
+    // reminder is never a half-finished settings screen from an hour ago.
+    if (route.kind === 'commitment') latest.current.actions.arriveAtDetail(route.commitmentId);
     // `plan_ready` (#194) opens the day it names on the plan screen (#195).
-    else if (route.kind === 'plan') latest.current.actions.openPlan(route.planDate);
-    else latest.current.actions.go('today');
+    else if (route.kind === 'plan') latest.current.actions.arriveAtPlan(route.planDate);
+    else latest.current.actions.arriveAt('today');
   }, []);
 
   /*

@@ -739,7 +739,8 @@ describe('right to left', () => {
     const title = screen.getByText(ar.planWhyTitle);
     const style = Array.isArray(title.props.style) ? title.props.style[0] : title.props.style;
     expect(style.writingDirection).toBe('rtl');
-    expect(style.textAlign).toBe('right');
+    // Fabric resolves this logical edge to the right under inherited RTL.
+    expect(style.textAlign).toBe('left');
   });
 
   it('matches the Arabic layout it was reviewed in', async () => {

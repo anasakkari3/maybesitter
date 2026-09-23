@@ -33,6 +33,17 @@ export const trustResponseSchema = z.object({
 
 export type TrustResponse = z.infer<typeof trustResponseSchema>;
 
+export const pilotIncidentResponseSchema = z.object({
+  success: z.literal(true),
+  incidentId: z.string(),
+  status: z.literal('open'),
+});
+
+export type PilotIncidentInput = {
+  surface: 'capture' | 'recommendation' | 'calendar' | 'analytics' | 'account';
+  category: 'reliability' | 'privacy' | 'safety' | 'consent' | 'other';
+};
+
 /** Every action `POST /api/mobile/pilot/trust` accepts. */
 export type TrustAction =
   | { type: 'grant_recommendation_consent' }

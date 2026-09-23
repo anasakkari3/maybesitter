@@ -51,6 +51,8 @@ import * as captureEndpoints from '../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../api/endpoints/analytics';
 import * as trustEndpoints from '../../api/endpoints/trust';
+import * as nextStepEndpoints from '../../api/endpoints/nextStep';
+import * as planEndpoints from '../../api/endpoints/plans';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -70,6 +72,16 @@ beforeEach(() => {
   setAuthRepository(repository);
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+  // An empty day is not an unanswered one. `nextStepReviewService` returns
+  // `state: 'empty'` with a null step, and `getPlan` returns `null` when the
+  // date has no plan — so both sources *answer*. Leaving them unmocked let
+  // them fail instead, and Today may not call a day empty on a source it
+  // never heard from (F5).
+  jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
+    success: true, participantId: USER.uid,
+    recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+  } as never);
+  jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
   jest.spyOn(trustEndpoints, 'getTrust')
     .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
@@ -168,23 +180,24 @@ describe('a Hebrew phone gets a Hebrew app', () => {
   });
 });
 
-describe('the language row offers it', () => {
-  it('cycles Arabic → עברית and turns the app Hebrew as it goes', async () => {
+describe('the language picker offers it', () => {
+  it('Arabic → עברית through the picker, and the app turns Hebrew as it goes', async () => {
     await openAppIn('ar');
     await fireEvent.press(screen.getByRole('button', { name: ar.tabSettings }));
-    await waitFor(() => expect(screen.queryByText(ar.sLanguage)).not.toBeNull());
-
-    // System → English → العربية → עברית → System. From Arabic, one tap.
-    await fireEvent.press(screen.getByRole('button', { name: ar.sLanguage }));
-
-    await waitFor(() => expect(screen.queryByText(he.sLanguage)).not.toBeNull());
-    // The row names the language in itself, so this is the picker's own label.
+    // Round 2: language and appearance are a picker screen, not a row that
+    // cycles. The row's label names both.
+    await waitFor(() => expect(screen.queryByTestId('settings-language')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('settings-language'));
+    await waitFor(() => expect(screen.queryByTestId('lang-option-he')).not.toBeNull());
+    // The option names the language in itself, so this is the picker's own label.
     expect(screen.queryByText('עברית')).not.toBeNull();
-    // And the screen around it changed language, not just the one row.
-    expect(screen.queryByText(ar.settingsTitle)).toBeNull();
-    // getAllBy: «הגדרות» is both the screen title and the tab label, and that
-    // both changed is the point — the row did not translate itself alone.
-    expect(screen.getAllByText(he.settingsTitle).length).toBeGreaterThan(1);
+    await fireEvent.press(screen.getByTestId('lang-option-he'));
+
+    // The screen around it changed language, not just the one row.
+    await waitFor(() => expect(screen.queryByText(he.langAppearanceTitle)).not.toBeNull());
+    expect(screen.queryByText(ar.langAppearanceTitle)).toBeNull();
+    // And the chrome outside the picker changed with it: the back label.
+    expect(screen.queryByText(he.settingsBack)).not.toBeNull();
   });
 });
 

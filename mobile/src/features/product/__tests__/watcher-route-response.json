@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "watcher": {
+    "watcherId": "wtc_00000000-0000-4000-8000-000000000001",
+    "enabled": true,
+    "status": "active",
+    "blockedReason": null,
+    "source": {
+      "provider": "subjective",
+      "connectionId": null,
+      "signalKind": "readiness",
+      "subjectRef": "expansion-verification"
+    },
+    "condition": {
+      "kind": "digest_changed"
+    },
+    "effect": "update_context",
+    "createdBy": "user",
+    "createdAt": "2026-09-23T00:00:00.000Z",
+    "updatedAt": "2026-09-23T00:00:00.000Z",
+    "lastObservedAt": null,
+    "lastFiredAt": null,
+    "fireCount": 0
+  }
+}

@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { isolate } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { useFeedbackHistory, useRevokeFeedback } from '../../api/queries';
 import { SettingsHeader } from './SettingsChrome';
 
@@ -38,7 +37,6 @@ const DECISION_KEY: Record<string, string> = {
 
 export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang } = useApp();
-  const insets = useSafeAreaInsets();
   const timeZone = useTimeZone();
   const history = useFeedbackHistory();
   const revoke = useRevokeFeedback();
@@ -49,9 +47,8 @@ export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
   const strings = t as unknown as Record<string, string>;
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.feedbackHistoryTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.feedbackHistoryTitle} onBack={onBack} />}>
+      <ScreenScroll>
 
         {history.isError ? (
           <Card pad={18}>
@@ -168,7 +165,7 @@ export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
             )}
           </>
         ) : null}
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

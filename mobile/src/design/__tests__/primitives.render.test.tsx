@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, expect, it, jest } from '@jest/globals';
 // RNTL v14's render() is asynchronous — it resolves to the query object.
 import { render, waitFor } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
 // The colour scheme is the one input a test cannot drive through the app's
 // own actions, so it is mocked per case.
@@ -15,7 +15,8 @@ jest.mock('react-native/Libraries/Utilities/useColorScheme', () => ({
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider, useApp } from '../../state/AppContext';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
-import { Card, HeaderPill, ImpBadge, Pill, Txt } from '../../ui/primitives';
+import { Card, Pill, Txt } from '../../ui/primitives';
+import { Tag } from '../../ui/chrome';
 import { color } from '../../theme/tokens';
 
 function Harness({ children }: { children: React.ReactNode }) {
@@ -43,8 +44,7 @@ describe('primitives render in both schemes', () => {
           <Probe />
           <Txt>مرحبا</Txt>
           <Pill label="تمّت" onPress={() => {}} />
-          <HeaderPill label="رجوع" onPress={() => {}} />
-          <ImpBadge imp="must" />
+          <Tag kind="must" label="ضروري" />
           <Card>
             <Txt>بطاقة</Txt>
           </Card>
@@ -55,7 +55,10 @@ describe('primitives render in both schemes', () => {
       expect(view.getByText('بطاقة')).toBeTruthy();
       // The label is both the visible text and the accessibility name.
       expect(view.getAllByRole('button', { name: 'تمّت' }).length).toBeGreaterThan(0);
-      expect(view.getAllByRole('button', { name: 'رجوع' }).length).toBeGreaterThan(0);
+      // Round 2's `Tag` replaced `ImpBadge`: a word in the scheme's own
+      // "must" colour, not a button.
+      const badge = view.getByText('ضروري');
+      expect(StyleSheet.flatten(badge.props.style)).toMatchObject({ color: color[scheme].must });
 
       const probe = view.getByTestId('probe').props.children as string;
       expect(probe).toBe(`${scheme}|rtl|${color[scheme].background}|${color[scheme].onBrand}`);

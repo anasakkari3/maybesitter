@@ -39,6 +39,14 @@ describe('releaseConfigProblems', () => {
     { name: 'share intent debug in production', env: { appEnv: 'production', apiBaseUrl: 'https://api.example.com', shareIntentDebug: 'true' }, safe: false },
     { name: 'share intent debug in staging', env: { appEnv: 'staging', apiBaseUrl: 'https://staging.example.com', shareIntentDebug: 'true' }, safe: false },
     { name: 'share intent debug in development', env: { appEnv: 'development', apiBaseUrl: 'http://localhost:3000', shareIntentDebug: 'true' }, safe: true },
+    // Pointing sign-in at a local Auth emulator. It does not skip
+    // authentication, but a tester whose build had it set would sign into a
+    // throwaway account and believe it was theirs — so it is refused at
+    // *configure* time like the bearer, and allowed in development where
+    // driving the app against a local backend is the whole point.
+    { name: 'auth emulator host in production', env: { appEnv: 'production', apiBaseUrl: 'https://api.example.com', firebaseAuthEmulatorHost: '127.0.0.1:9099' }, safe: false },
+    { name: 'auth emulator host in staging', env: { appEnv: 'staging', apiBaseUrl: 'https://staging.example.com', firebaseAuthEmulatorHost: '127.0.0.1:9099' }, safe: false },
+    { name: 'auth emulator host in development', env: { appEnv: 'development', apiBaseUrl: 'http://localhost:3000', firebaseAuthEmulatorHost: '127.0.0.1:9099' }, safe: true },
   ];
 
   for (const { name, env, safe } of cases) {
@@ -54,10 +62,12 @@ describe('releaseConfigProblems', () => {
       appEnv: 'production',
       apiBaseUrl: 'http://127.0.0.1:3000',
       devBearerToken: 'leaked',
+      firebaseAuthEmulatorHost: '127.0.0.1:9099',
     });
-    expect(problems).toHaveLength(3);
+    expect(problems).toHaveLength(4);
     expect(problems.join(' ')).toMatch(/https/);
     expect(problems.join(' ')).toMatch(/local or private host/);
     expect(problems.join(' ')).toMatch(/DEV_BEARER_TOKEN/);
+    expect(problems.join(' ')).toMatch(/FIREBASE_AUTH_EMULATOR_HOST/);
   });
 });

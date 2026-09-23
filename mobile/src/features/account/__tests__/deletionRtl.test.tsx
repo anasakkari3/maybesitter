@@ -58,7 +58,8 @@ describe('right-to-left', () => {
     const title = screen.getByText(ar.accountDeleteTitle);
     const style = Array.isArray(title.props.style) ? Object.assign({}, ...title.props.style.filter(Boolean)) : title.props.style;
     expect(style.writingDirection).toBe('rtl');
-    expect(style.textAlign).toBe('right');
+    // iOS Fabric swaps this logical edge under inherited RTL.
+    expect(style.textAlign).toBe('left');
   });
 
   it('hard-codes no physical side anywhere on the screen or the receipt', () => {

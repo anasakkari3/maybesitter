@@ -85,7 +85,7 @@ describe('Categories is reachable', () => {
     await fireEvent.press(screen.getByLabelText(en.tabSettings));
     await waitFor(() => expect(screen.queryByTestId('settings-categories')).not.toBeNull());
 
-    await fireEvent.press(screen.getByLabelText(en.settingsCategories));
+    await fireEvent.press(screen.getByLabelText(en.settingsParts));
     await waitFor(() => expect(screen.queryByTestId('category-split-toggle')).not.toBeNull());
 
     await fireEvent(screen.getByTestId('category-split-toggle'), 'valueChange', true);
@@ -106,14 +106,14 @@ describe('Categories is reachable', () => {
     for (const tab of [en.tabToday, en.tabCalendar, en.tabCapture, en.tabSettings]) {
       expect(screen.queryAllByLabelText(tab).length).toBeGreaterThan(0);
     }
-    expect(screen.queryByLabelText(en.settingsCategories)).toBeNull();
+    expect(screen.queryByLabelText(en.settingsParts)).toBeNull();
   });
 
   it('goes back to Settings rather than stranding the user', async () => {
     await openApp();
     await fireEvent.press(screen.getByLabelText(en.tabSettings));
     await waitFor(() => expect(screen.queryByTestId('settings-categories')).not.toBeNull());
-    await fireEvent.press(screen.getByLabelText(en.settingsCategories));
+    await fireEvent.press(screen.getByLabelText(en.settingsParts));
     await waitFor(() => expect(screen.queryByTestId('category-split-toggle')).not.toBeNull());
 
     await fireEvent.press(screen.getByLabelText(en.settingsBack));

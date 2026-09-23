@@ -16,6 +16,7 @@ const problems = releaseConfigProblems({
   appEnv: APP_ENV,
   apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL,
   devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
+  firebaseAuthEmulatorHost: process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST,
   apiMode: process.env.EXPO_PUBLIC_API_MODE,
   googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
   testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
@@ -774,5 +775,6 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? null,
     googleWebClientId: googleWebClientId(),
     apiMode: process.env.EXPO_PUBLIC_API_MODE ?? null,
+    firebaseAuthEmulatorHost: process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST ?? null,
   },
 });

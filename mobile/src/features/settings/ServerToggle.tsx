@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Txt } from '../../ui/primitives';
+import { useLayoutMode } from '../../theme/textScale';
 
 /**
  * A switch whose position is the server's answer, never this component's
@@ -41,13 +42,14 @@ export function ServerToggle({
   testID?: string;
 }) {
   const { t, p } = useApp();
+  const stacked = useLayoutMode() === 'xl';
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
   return (
-    <View style={{ paddingVertical: 14, paddingHorizontal: 18, gap: 6 }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-        <Txt size={15} style={{ flex: 1 }}>{title}</Txt>
+    <View style={{ paddingVertical: 18, paddingHorizontal: 18, gap: 8, borderBottomWidth: 1, borderBottomColor: p.ln }}>
+      <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }}>
+        <Txt role="action" style={stacked ? undefined : { flex: 1 }}>{title}</Txt>
         {busy ? <ActivityIndicator testID={`${testID ?? 'toggle'}-busy`} color={p.ac} /> : null}
         <Switch
           testID={testID}
@@ -73,7 +75,7 @@ export function ServerToggle({
           }}
         />
       </View>
-      {body ? <Txt size={13} color={p.mu} lh={1.5}>{body}</Txt> : null}
+      {body ? <Txt role="supporting" color={p.mu}>{body}</Txt> : null}
       {failed ? (
         <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t.trustActionFailed}</Txt>
       ) : null}

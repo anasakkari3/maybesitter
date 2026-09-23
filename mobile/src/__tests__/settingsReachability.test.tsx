@@ -150,7 +150,7 @@ describe('from Settings, on the merged Root', () => {
     await openSettings();
     await fireEvent.press(screen.getByTestId('settings-readiness'));
     await waitFor(() => expect(screen.queryByTestId('readiness-band')).not.toBeNull());
-    expect(screen.queryByText(en.readinessTitle)).not.toBeNull();
+    expect(screen.queryByText(en.settingsEnergy)).not.toBeNull();
   });
 
   it('reaches the financial context screen', async () => {

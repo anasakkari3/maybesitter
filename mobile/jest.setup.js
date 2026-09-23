@@ -202,3 +202,15 @@ jest.mock('@react-native-firebase/messaging', () => ({
   getInitialNotification: async () => null,
   onNotificationOpenedApp: () => () => {},
 }));
+
+// React Native's own Dimensions mock reports `fontScale: 2` — a reader at
+// twice the default text size. Nothing read the font scale until Round 2's
+// `--ts` landed, so the value never mattered; now it decides which layout
+// renders, and every test would silently exercise the largest one. A test
+// about anything else should see an ordinary phone, so the default is 1 here.
+// The tests that are about text size mock this module themselves, and a
+// per-file `jest.mock` wins over this one.
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  __esModule: true,
+  default: () => ({ width: 750, height: 1334, scale: 2, fontScale: 1 }),
+}));

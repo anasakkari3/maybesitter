@@ -1,9 +1,8 @@
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, Switch, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, Switch, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { icsFeedsEnabled } from '../../config/env';
 import { fill } from '../../i18n/strings';
@@ -50,23 +49,18 @@ import type { IcsDeadline, IcsDeadlineAction, IcsFeed } from '../../api/schemas/
  */
 export function CalendarFeedsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, rtl } = useApp();
-  const insets = useSafeAreaInsets();
   const enabled = icsFeedsEnabled();
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}
-      >
-        <SettingsHeader title={t.icsFeedsTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.icsFeedsTitle} onBack={onBack} />}>
+      <ScreenScroll keyboardShouldPersistTaps="handled">
         {enabled ? <FeedsBody rtl={rtl} /> : (
           <Card pad={18}>
             <Txt size={14} color={p.mu} lh={1.5} testID="ics-unavailable">{t.icsFeedsUnavailable}</Txt>
           </Card>
         )}
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
 

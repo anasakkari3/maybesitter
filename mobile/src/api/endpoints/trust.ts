@@ -1,5 +1,5 @@
 import { apiRequest } from '../client';
-import { trustResponseSchema, type TrustAction, type TrustResponse } from '../schemas/trust';
+import { pilotIncidentResponseSchema, trustResponseSchema, type PilotIncidentInput, type TrustAction, type TrustResponse } from '../schemas/trust';
 
 export function getTrust(): Promise<TrustResponse> {
   return apiRequest('GET', '/api/mobile/pilot/trust', { schema: trustResponseSchema });
@@ -16,5 +16,14 @@ export function updateTrust(action: TrustAction): Promise<TrustResponse> {
   return apiRequest('POST', '/api/mobile/pilot/trust', {
     body: { action },
     schema: trustResponseSchema,
+  });
+}
+
+/** The pilot support route stores only a category and surface, never raw notes. */
+export function reportPilotIncident(input: PilotIncidentInput) {
+  return apiRequest('POST', '/api/mobile/pilot/incidents', {
+    body: input,
+    schema: pilotIncidentResponseSchema,
+    expectStatus: 201,
   });
 }
