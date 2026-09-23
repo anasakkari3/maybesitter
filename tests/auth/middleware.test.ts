@@ -49,6 +49,10 @@ const BLOCKED_IN_PRODUCTION = [
   '/api/release',
   '/api/dev/seed-demo',
   '/api/reminders/run',
+  // The stranded launch build had a page-view endpoint here. The site sends no
+  // page views, so it must not come back by accident.
+  '/api/early-access/events',
+  '/api/early-accessx',
   '/',
   '/assistant',
 ];
@@ -61,6 +65,7 @@ const SERVED_IN_PRODUCTION = [
   '/api/mobile/feedback/history',
   '/api/mobile/pilot/trust',
   '/api/internal/anything',
+  '/api/early-access',
 ];
 
 test('on Cloud Run the legacy surface is 404, including the URL-id routes', () => {

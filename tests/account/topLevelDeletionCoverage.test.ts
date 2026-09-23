@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { USER_SCOPED_COLLECTIONS } from '../../lib/storage/paths.ts';
 import {
   TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA,
+  TOP_LEVEL_PRE_ACCOUNT_COLLECTIONS,
   TOP_LEVEL_USER_COLLECTIONS,
 } from '../../lib/account/topLevelUserData.ts';
 
@@ -46,6 +47,7 @@ test('every top-level collection is either swept by deletion or declared to hold
   const declared = new Set<string>([
     ...TOP_LEVEL_USER_COLLECTIONS.map((entry) => entry.collection),
     ...TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA,
+    ...TOP_LEVEL_PRE_ACCOUNT_COLLECTIONS.map((entry) => entry.collection),
     THE_TREE,
   ]);
   const userScoped = new Set<string>(USER_SCOPED_COLLECTIONS);
@@ -74,6 +76,24 @@ test('each swept collection names the field the sweep filters on', () => {
     assert.match(entry.collection, /^[a-z][A-Za-z0-9]*$/, `${entry.collection} is not a collection id`);
     assert.match(entry.field, /^[a-z][A-Za-z0-9]*$/, `${entry.collection} names no uid field`);
     assert.ok(entry.reason.length > 20, `${entry.collection} has no stated reason for living outside the tree`);
+  }
+});
+
+test('each pre-account collection says why it exists and how it is deleted, and sits in no other list', () => {
+  // Personal data with no uid: the account sweep cannot find it, so the only
+  // honest declaration is one that names the route by which it *is* deleted.
+  for (const entry of TOP_LEVEL_PRE_ACCOUNT_COLLECTIONS) {
+    assert.match(entry.collection, /^[a-z][A-Za-z0-9]*$/, `${entry.collection} is not a collection id`);
+    assert.ok(entry.reason.length > 20, `${entry.collection} has no stated reason for existing outside any account`);
+    assert.ok(entry.deletion.length > 20, `${entry.collection} names no way for a person to have it deleted`);
+    assert.ok(
+      !TOP_LEVEL_COLLECTIONS_WITHOUT_USER_DATA.includes(entry.collection),
+      `${entry.collection} holds personal data and must not be declared free of it`,
+    );
+    assert.ok(
+      !TOP_LEVEL_USER_COLLECTIONS.some((swept) => swept.collection === entry.collection),
+      `${entry.collection} has no uid field for the account sweep to filter on`,
+    );
   }
 });
 

@@ -62,6 +62,10 @@ const PRODUCTION_PATHS: readonly RegExp[] = [
   /^\/api\/mobile(?:\/|$)/,
   /^\/api\/health/,
   /^\/api\/internal(?:\/|$)/,
+  // The website's tester sign-up (site/SIGNUP_CONTRACT.md): unauthenticated by
+  // design and same-origin only. Matched exactly, so nothing beneath it (no
+  // `/events` page-view endpoint) is ever served.
+  /^\/api\/early-access$/,
 ];
 
 /** True when production serves this path. Exported so a test can enumerate it. */
