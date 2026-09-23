@@ -1,27 +1,87 @@
 # `site/` — the MaybeSitter public website
 
-Plain HTML and CSS for the public site required by issue #137 (OWNER-A1): a homepage, a
-privacy policy and terms of use, in English, Arabic and Hebrew.
+Plain HTML and CSS for the public site: three landing pages (`/` in English, `/ar`, `/he`)
+and a privacy policy, terms of use and account-deletion page in each language (issues
+#137, #179).
 
-No framework, no build step, no JavaScript, no cookies, no trackers, no third-party fonts
-and no CDN requests. One shared stylesheet, `styles.css`, with a system font stack chosen
-to cover Latin, Arabic and Hebrew. The Arabic and Hebrew pages carry `lang` and `dir="rtl"`
-on `<html>`; the English pages carry `dir="ltr"`.
+No framework and no build step. No cookies, no localStorage, no trackers, no analytics, no
+third-party fonts and no CDN requests. The only script is the first-party `landing.js`, on
+the three landing pages. It picks the message-test headline and submits the sign-up form
+(see "Message test" below). The legal pages have no script at all. The Arabic and Hebrew
+pages carry `lang` and `dir="rtl"` on `<html>`; the English pages carry `dir="ltr"`.
+
+Every public sentence must pass `docs/marketing/CLAIMS_POLICY.md`, and `check-links.sh
+--local` fails on the phrases it forbids. The approved positioning source is the
+owner-approved Product Marketing Context (`.agents/product-marketing.md` at the project
+root).
 
 ## What is here
 
 ```
 site/
+  index.html                     English landing page (also x-default)
+  ar/index.html  he/index.html   Arabic and Hebrew landing pages
+  {en,ar,he}/privacy.html        privacy policy
+  {en,ar,he}/terms.html          terms of use
+  {en,ar,he}/delete-account.html account and data deletion (#179)
   styles.css                     shared stylesheet
-  index.html                     English root, links to /ar/ and /he/
-  en/index.html  en/privacy.html  en/terms.html
-  ar/index.html  ar/privacy.html  ar/terms.html
-  he/index.html  he/privacy.html  he/terms.html
-  check-links.sh                 verification script (HTTP and --local modes)
-  firebase-hosting.snippet.json  the hosting block to merge into firebase.json
+  landing.css  landing.js        landing pages only
+  robots.txt  sitemap.xml        crawl hygiene (no programmatic SEO)
+  check-links.sh                 verification script (HTTP and --local modes, claims scan)
+  firebase-hosting.snippet.json  mirror of the hosting block in firebase.json
+  SIGNUP_CONTRACT.md             the endpoint the sign-up form needs (not on main yet)
   PLACEHOLDERS.md                the 5 tokens you must fill in before publishing
   README.md                      this file
 ```
+
+`/en` redirects to `/`, so there is one English landing page. `/privacy`, `/terms` and
+`/delete-account` redirect to the English pages.
+
+## What is live today (2026-09-23), and why this is not it yet
+
+`https://maybesitter-app.web.app` does **not** serve this folder. It serves an English-only
+early-access page deployed around 2026-09-13 from a local commit that never reached
+`main`. That commit survives only as the tag `archive/2026-09/stranded/local-main-launch-site`
+(`ba7f74f0`). The live page:
+
+- markets "your personal AI chief of staff", goals and "$5,000 in early funding", which the
+  claims policy forbids;
+- shows the owner's **personal Gmail address** in its privacy notice;
+- counts page views and clicks through `/api/early-access/events`;
+- posts sign-ups to a Cloud Run endpoint that is not on `main` (see `SIGNUP_CONTRACT.md`).
+
+This folder is the canonical replacement. Deploying it is an owner action, blocked on the
+checklist below.
+
+## Message test
+
+Two positioning lines are being tested, and neither has won:
+
+- `?v=a`: "No overdue pile."
+- `?v=b`: "Say it once. It lands in your day."
+
+With no `v`, the page shows the interim line, "A calm planner and reminders app, in Arabic,
+Hebrew and English." Assignment happens **through the link a person is sent**. Each post or
+message carries one arm's link and a `?source=` code. The page never assigns, stores or
+counts visitors. `landing.js` swaps the headline, carries `v` and `source` onto the
+language links, and sends them with the sign-up. Sign-ups by arm are the numerator; the
+link taps each platform reports are the denominator.
+
+## Deploy checklist (owner)
+
+Do not deploy while any item is open:
+
+1. **Sign-up endpoint** on `main` per `SIGNUP_CONTRACT.md` (backend). Without it the form
+   cannot save anything.
+2. **Domain** bought and connected (#137); `{{DOMAIN}}` replaced.
+3. **Role aliases** `support@` and `privacy@` created; `{{SUPPORT_EMAIL}}` and
+   `{{PRIVACY_EMAIL}}` replaced. No personal address, ever.
+4. `{{LEGAL_NAME}}` and `{{EFFECTIVE_DATE}}` decided.
+5. **Hebrew native review** of `he/index.html` and the new Hebrew privacy paragraphs (#335).
+   The landing page carries a `NATIVE-REVIEW-REQUIRED` comment until then.
+6. `./check-links.sh --local` passes and `git grep '{{' -- site/` is empty.
+
+Deploying replaces the live page, which also removes the personal address from it.
 
 ## Before you publish: fill in the placeholders
 
@@ -70,10 +130,10 @@ exists: `firebase emulators:start --only hosting`.
 
 ## Deploy (owner)
 
-`firebase.json` is owned by UC-1.0a (#140) and is deliberately **not** created here. Merge
-the `hosting` block from `firebase-hosting.snippet.json` into it — if the file already has
-other top-level keys (`firestore`, `functions`, …), add `hosting` alongside them rather
-than overwriting the file.
+The `hosting` block in the root `firebase.json` is the source of truth.
+`firebase-hosting.snippet.json` mirrors it minus `ignore`, and `check-links.sh` reads the
+redirect rules from it. Change both together. The other top-level keys in `firebase.json`
+(`firestore`, `emulators`) belong to infra (#140) and are not touched here.
 
 ```bash
 # from the repo root, with firebase.json in place

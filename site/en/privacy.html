@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Privacy Policy — MaybeSitter</title>
 <meta name="description" content="How MaybeSitter collects, uses and stores your data.">
+<link rel="canonical" href="https://{{DOMAIN}}/en/privacy">
+<link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/privacy">
+<link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/privacy">
+<link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/privacy">
+<link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/privacy">
 <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -15,13 +20,13 @@
 
 <main>
   <p class="lede">
-    MaybeSitter is a personal organizer. It remembers what you promised to do and reminds you
-    at the right time. This policy explains, service by service, what we collect, why, where it
+    MaybeSitter is a planner and reminders app. It keeps the commitments you confirm and reminds
+    you before they are due, when notifications are enabled. This policy explains, service by service, what we collect, why, where it
     is stored and how to get rid of it.
   </p>
   <p>
     Two things are true everywhere in this document: your data is stored in the European Union,
-    and nothing is saved to your account without your confirmation.
+    and a commitment you capture is saved to your account only after you confirm it.
   </p>
 
   <h2>Who we are</h2>
@@ -160,6 +165,10 @@
     OS version and a random installation ID. This is not linked to your account and is kept for
     90 days.
   </p>
+  <p>
+    Crash reporting is on in released versions of the app. It is separate from analytics: the
+    analytics setting below does not switch it on or off.
+  </p>
 
   <h2>Analytics</h2>
   <p>
@@ -167,7 +176,36 @@
     the Trust Center. The default is off. If you leave it off, no analytics events are sent. You
     can turn it off again at any time.
   </p>
+  <p>
+    Analytics events are linked to your account, so they are pseudonymous, not anonymous. They
+    never contain the text you type, the titles of your commitments or anything you told
+    MaybeSitter about yourself.
+  </p>
+  <p>
+    If analytics is off, we do not turn the records the app needs in order to work — your
+    account, your commitments, your activity history — into analytics about you.
+  </p>
   <p>This website itself has no analytics, no cookies and no third-party scripts of any kind.</p>
+
+  <h2 id="early-access">Early-access sign-up</h2>
+  <p>
+    If you join the test on this website, we collect your email address, your phone type (iPhone
+    or Android), the language you would use, whether you know the founder personally, the
+    campaign code and message version in the link you followed, and the time you signed up. We
+    collect a WhatsApp number only if you tick the box asking us to message you there.
+  </p>
+  <p>
+    We use these details only to contact you about early access and the test, and to count, in
+    total and never per person, which invitation messages bring people who join. A WhatsApp
+    number is used only to message you about the test, never for marketing. We do not ask for
+    your name, and nothing about your commitments is collected through this form.
+  </p>
+  <p>
+    Sign-ups are stored in Google Cloud Firestore in the European Union (<code>europe-west1</code>)
+    for as long as we run early access, unless you ask us to remove yours sooner. To see,
+    correct or delete your sign-up, write to <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a>
+    from the address you signed up with.
+  </p>
 
   <h2>Account deletion</h2>
   <p>You can delete your account in two ways:</p>
@@ -239,7 +277,7 @@
     <a href="/he/privacy">עברית</a>
   </nav>
   <nav>
-    <a href="/en/">Home</a>
+    <a href="/">Home</a>
     <a href="/en/terms">Terms of Use</a>
   </nav>
   <p class="muted">© MaybeSitter — {{LEGAL_NAME}}</p>

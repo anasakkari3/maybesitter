@@ -1,0 +1,278 @@
+/* MaybeSitter landing pages (/, /ar, /he). Loaded after styles.css, which the
+   legal pages share. Logical properties only, so the same rules serve LTR and RTL.
+   No third-party fonts, no CDNs. */
+
+:root {
+  --accent: #0e6655;
+  --accent-ink: #ffffff;
+  --accent-soft: #e3f1ed;
+  --landing-maxw: 46rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #5ec4ae;
+    --accent-ink: #0d1614;
+    --accent-soft: #16302a;
+  }
+}
+
+.landing main,
+.landing header,
+.landing footer {
+  max-width: var(--landing-maxw);
+}
+
+.skip {
+  position: absolute;
+  inset-inline-start: -999px;
+}
+
+.skip:focus {
+  inset-inline-start: 1rem;
+  top: 1rem;
+  background: var(--bg);
+  padding: 0.5rem 0.75rem;
+  z-index: 1;
+}
+
+.site-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.brand {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.brand span {
+  font-weight: 400;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  margin-inline-start: 0.4rem;
+}
+
+.site-head .langs {
+  display: flex;
+  gap: 1rem;
+}
+
+.site-head .langs a[aria-current="page"] {
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.hero {
+  padding-block: 2.5rem 1rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+  color: var(--ink-soft);
+}
+
+.hero h1 {
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.hero .lede {
+  font-size: 1.15rem;
+  max-width: 38rem;
+}
+
+.button {
+  display: inline-block;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: 0;
+  border-radius: 0.5rem;
+  padding: 0.7rem 1.3rem;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:visited {
+  color: var(--accent-ink);
+}
+
+.button:hover,
+.button:focus-visible {
+  filter: brightness(1.08);
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.landing section {
+  padding-block: 0.5rem;
+}
+
+.note {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  border-inline-start: 3px solid var(--rule);
+  padding-inline-start: 0.75rem;
+}
+
+.steps,
+.points {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.steps {
+  counter-reset: step;
+}
+
+.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2rem 1fr;
+  column-gap: 0.75rem;
+}
+
+.steps li::before {
+  content: counter(step);
+  grid-row: span 2;
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 1.3rem;
+  line-height: 1.4;
+}
+
+.steps h3,
+.points h3 {
+  margin: 0;
+}
+
+.steps p,
+.points p {
+  margin: 0.2rem 0 0;
+}
+
+.points li {
+  background: var(--bg-soft);
+  border-radius: 0.5rem;
+  padding: 0.9rem 1rem;
+}
+
+.trust {
+  padding-inline-start: 1.25rem;
+}
+
+.faq details {
+  border-bottom: 1px solid var(--rule);
+  padding-block: 0.6rem;
+}
+
+.faq summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.faq details p {
+  margin: 0.4rem 0 0;
+}
+
+.join form {
+  display: grid;
+  gap: 1rem;
+  background: var(--bg-soft);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+
+.join form[hidden],
+.field[hidden] {
+  display: none;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.field legend,
+.field > label:first-child {
+  font-weight: 600;
+  padding: 0;
+}
+
+fieldset.field label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field input[type="email"],
+.field input[type="tel"] {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--ink);
+  max-width: 100%;
+}
+
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.hp {
+  position: absolute;
+  inset-inline-start: -999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.status {
+  margin: 0;
+  font-weight: 600;
+  min-height: 1.5em;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}

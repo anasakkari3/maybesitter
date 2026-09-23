@@ -1,44 +1,296 @@
 <!doctype html>
-<html lang="he" dir="rtl">
+<!-- NATIVE-REVIEW-REQUIRED (#335): this Hebrew copy was drafted by the marketing lane and
+     has not been reviewed by a native speaker. Do not deploy /he until it has been. -->
+<html lang="he" dir="rtl" data-arm="none">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MaybeSitter</title>
-<meta name="description" content="MaybeSitter עוזר לך לזכור מה הבטחת לעשות, ומזכיר לך בזמן הנכון.">
+<title>MaybeSitter · אפליקציית תכנון ותזכורות רגועה</title>
+<meta name="description" content="אפליקציית תכנון ותזכורות רגועה בעברית, בערבית ובאנגלית. כותבים את מה שהתחייבתם אליו כמו שמדברים, מאשרים, וזה מופיע ביום. חינם בתקופת הגישה המוקדמת.">
+<link rel="canonical" href="https://{{DOMAIN}}/he">
+<link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/">
+<link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar">
+<link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he">
+<link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MaybeSitter">
+<meta property="og:title" content="MaybeSitter · אפליקציית תכנון ותזכורות רגועה">
+<meta property="og:description" content="אפליקציית תכנון ותזכורות רגועה בעברית, בערבית ובאנגלית. כותבים את מה שהתחייבתם אליו כמו שמדברים, מאשרים, וזה מופיע ביום. חינם בתקופת הגישה המוקדמת.">
+<meta property="og:url" content="https://{{DOMAIN}}/he">
+<meta property="og:locale" content="he_IL">
+<meta property="og:locale:alternate" content="en_GB">
+<meta property="og:locale:alternate" content="ar_AR">
+<meta name="twitter:card" content="summary">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/landing.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://{{DOMAIN}}/#organization",
+      "name": "MaybeSitter",
+      "url": "https://{{DOMAIN}}/"
+    },
+    {
+      "@type": "MobileApplication",
+      "@id": "https://{{DOMAIN}}/#app",
+      "name": "MaybeSitter",
+      "description": "אפליקציית תכנון ותזכורות רגועה בעברית, בערבית ובאנגלית. כותבים את מה שהתחייבתם אליו כמו שמדברים, מאשרים, וזה מופיע ביום. חינם בתקופת הגישה המוקדמת.",
+      "applicationCategory": "LifestyleApplication",
+      "operatingSystem": "iOS, Android",
+      "inLanguage": [
+        "ar",
+        "he",
+        "en"
+      ],
+      "url": "https://{{DOMAIN}}/he",
+      "publisher": {
+        "@id": "https://{{DOMAIN}}/#organization"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "ILS"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://{{DOMAIN}}/he#faq",
+      "inLanguage": "he",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "באילו שפות?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "הממשק בעברית, בערבית ובאנגלית, וכותבים בשפה שבה חושבים."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "כמה זה עולה?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "חינם בתקופת הגישה המוקדמת. עוד לא החלטנו על מחירים אחריה."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "איפה אפשר להשיג את זה?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "בקרוב ב-App Store וב-Google Play בישראל. מתחילים בניסוי סגור עם קבוצה קטנה."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "האפליקציה קוראת הודעות או מיילים?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "לא. היא לא מתחברת למייל או להודעות."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "יש בה בינה מלאכותית?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "רק אחרי הסכמה. בלי הסכמה היא עובדת עם כללים פשוטים. הפרטים במדיניות הפרטיות."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "היא תציף אותי בהתראות?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "תזכורת מגיעה לפני המועד, כשההתראות מופעלות. יש שעות שקטות ומגבלה על ההפרעות."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "מה ההבדל מפתקים או מאפליקציות משימות?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "פתקים לא חוזרים אליכם. הרבה אפליקציות משימות מגדילות רשימת «באיחור». כאן אין מצב «באיחור»: כל דבר מסתיים, נדחה, או שמוותרים עליו בכוונה."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "איך מוחקים את המידע?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "מתוך האפליקציה, או בבקשה אלינו. השלבים מופיעים בדף מחיקת החשבון."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
+<script src="/landing.js" defer></script>
 </head>
-<body>
-<header>
-  <h1>MaybeSitter</h1>
-  <p class="lede">MaybeSitter עוזר לך לזכור מה הבטחת לעשות, ומזכיר לך בזמן הנכון.</p>
+<body class="landing">
+<a class="skip" href="#main">דילוג לתוכן</a>
+<header class="site-head">
+  <p class="brand">MaybeSitter <span>תכנון ותזכורות</span></p>
+  <nav class="langs" aria-label="שפה">
+    <a href="/" hreflang="en" lang="en" data-keep-query>English</a>
+    <a href="/ar" hreflang="ar" lang="ar" data-keep-query>العربية</a>
+    <a href="/he" hreflang="he" lang="he" data-keep-query aria-current="page">עברית</a>
+  </nav>
 </header>
 
-<main>
-  <p class="badge">בקרוב ב-App Store וב-Google Play</p>
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <p class="eyebrow">תכנון ותזכורות · עברית · عربي · English</p>
+    <h1 id="hero-title" data-arm-a="בלי ערימת «באיחור»." data-arm-b="אומרים פעם אחת, וזה נכנס ליום.">אפליקציית תכנון ותזכורות רגועה, בעברית, בערבית ובאנגלית.</h1>
+    <p id="hero-sub" class="lede" data-arm-a="כל דבר מסתיים, נדחה, או שמוותרים עליו בכוונה. אין מצב «באיחור» שרודף אחרי אף אחד." data-arm-b="כותבים כמו שמדברים, מאשרים, וזה מופיע ביום.">כותבים את מה שהתחייבתם אליו, כמו שמדברים. מאשרים, וזה מופיע ביום.</p>
+    <p><a class="button" href="#join">להצטרפות לניסוי</a></p>
+    <p class="muted">בקרוב ב-App Store וב-Google Play בישראל. חינם בתקופת הגישה המוקדמת.</p>
+  </section>
 
-  <h2>מה זה</h2>
-  <p>
-    לאורך היום אתה מבטיח דברים — בצ'אט, במסדרון, בשיחה. MaybeSitter קולט את ההבטחות האלה,
-    שומר אותן במקום אחד, ומחזיר לך כל אחת מהן בזמן שבו היא באמת שימושית, ולא בשעה אקראית.
-  </p>
-  <p>
-    שום דבר לא נשמר בלי האישור שלך, ואפשר לקרוא, לערוך ולמחוק כל מה שהאפליקציה זוכרת עליך.
-  </p>
+  <section aria-labelledby="problem-title">
+    <h2 id="problem-title">בדרך כלל זו לא שכחה.</h2>
+    <p>שאלנו 41 אנשים, רובם סטודנטים. מתוך 28 שפספסו משהו חשוב, 21 ידעו עליו. חלקם הרגישו שזה גדול מדי כדי להתחיל.</p>
+    <p>ויש שעזבו אפליקציות משימות כי הן הלחיצו במקום לסדר את היום.</p>
+    <p class="note">סקר קטן (41 משתתפים, רובם סטודנטים). הוא מצביע על כיוון, לא מוכיח.</p>
+  </section>
 
-  <h2>תמיכה</h2>
-  <p>שאלות, תקלות או משוב: <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></p>
-  <p>שאלות פרטיות ובקשות בנוגע למידע: <a href="mailto:{{PRIVACY_EMAIL}}">{{PRIVACY_EMAIL}}</a></p>
+  <section aria-labelledby="how-title">
+    <h2 id="how-title">איך זה עובד</h2>
+    <ol class="steps">
+      <li><h3>כותבים כמו שמדברים</h3><p>בעברית, בערבית או באנגלית, בשפה שבה חושבים.</p></li>
+      <li><h3>מאשרים</h3><p>התחייבות שנקלטה נשמרת רק אחרי אישור. אם חסר משהו, האפליקציה שואלת.</p></li>
+      <li><h3>זה מופיע ביום</h3><p>רואים את זה ביום, בשעה שלו, ומקבלים תזכורת לפני המועד כשההתראות מופעלות.</p></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="diff-title">
+    <h2 id="diff-title">מה שונה</h2>
+    <ul class="points">
+      <li><h3>בלי ערימת «באיחור»</h3><p>כל דבר מסתיים, נדחה, או שמוותרים עליו בכוונה. האפליקציה בנויה בלי מצב «באיחור».</p></li>
+      <li><h3>מתוכננת להפריע פחות</h3><p>שעות שקטות ומגבלה על מספר ההפרעות. זו החלטת עיצוב, ואנחנו עדיין בודקים אותה עם אנשים אמיתיים.</p></li>
+      <li><h3>במילים שלכם, באישור שלכם</h3><p>כותבים בשפה שלכם, והתחייבות נשמרת רק אחרי אישור.</p></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="trust-title">
+    <h2 id="trust-title">ההחלטה אצלכם</h2>
+    <ul class="trust">
+      <li>בינה מלאכותית פועלת רק אחרי הסכמה. בלי הסכמה, האפליקציה ממשיכה לעבוד עם כללים פשוטים.</li>
+      <li>אפשר לראות, לערוך ולמחוק את מה שהיא שומרת.</li>
+      <li>אין מעקב פרסומי.</li>
+      <li>נתוני שימוש נאספים רק אם מפעילים אותם באפליקציה. ברירת המחדל: כבוי.</li>
+      <li>האתר הזה לא שומר עוגיות ולא מריץ אנליטיקה.</li>
+    </ul>
+    <p><a href="/he/privacy">מדיניות הפרטיות</a> · <a href="/he/delete-account">מחיקת החשבון והמידע</a></p>
+  </section>
+
+  <section aria-labelledby="who-title">
+    <h2 id="who-title">למי זה מתאים</h2>
+    <p>למי שלומדים ועובדים, ומבטיחים דברים בצ&#x27;אטים, בהרצאות ובמשמרות.</p>
+    <p class="muted">זה לא כלי לניהול פרויקטים או צוותים, לא עוזר שפועל בשמכם, ולא כלי רפואי.</p>
+  </section>
+
+  <section aria-labelledby="stage-title">
+    <h2 id="stage-title">איפה אנחנו עומדים</h2>
+    <p>אנחנו בהתחלה. אין עדיין דירוגים או מספרי משתמשים, ולא נמציא אותם. מתחילים בניסוי קטן בישראל ולומדים ממי שמשתמשים בפועל. כשיהיו מספרים אמיתיים, הם יופיעו כאן.</p>
+  </section>
+
+  <section aria-labelledby="faq-title" class="faq">
+    <h2 id="faq-title">שאלות</h2>
+    <details>
+      <summary>באילו שפות?</summary>
+      <p>הממשק בעברית, בערבית ובאנגלית, וכותבים בשפה שבה חושבים.</p>
+    </details>
+    <details>
+      <summary>כמה זה עולה?</summary>
+      <p>חינם בתקופת הגישה המוקדמת. עוד לא החלטנו על מחירים אחריה.</p>
+    </details>
+    <details>
+      <summary>איפה אפשר להשיג את זה?</summary>
+      <p>בקרוב ב-App Store וב-Google Play בישראל. מתחילים בניסוי סגור עם קבוצה קטנה.</p>
+    </details>
+    <details>
+      <summary>האפליקציה קוראת הודעות או מיילים?</summary>
+      <p>לא. היא לא מתחברת למייל או להודעות.</p>
+    </details>
+    <details>
+      <summary>יש בה בינה מלאכותית?</summary>
+      <p>רק אחרי הסכמה. בלי הסכמה היא עובדת עם כללים פשוטים. הפרטים במדיניות הפרטיות.</p>
+    </details>
+    <details>
+      <summary>היא תציף אותי בהתראות?</summary>
+      <p>תזכורת מגיעה לפני המועד, כשההתראות מופעלות. יש שעות שקטות ומגבלה על ההפרעות.</p>
+    </details>
+    <details>
+      <summary>מה ההבדל מפתקים או מאפליקציות משימות?</summary>
+      <p>פתקים לא חוזרים אליכם. הרבה אפליקציות משימות מגדילות רשימת «באיחור». כאן אין מצב «באיחור»: כל דבר מסתיים, נדחה, או שמוותרים עליו בכוונה.</p>
+    </details>
+    <details>
+      <summary>איך מוחקים את המידע?</summary>
+      <p>מתוך האפליקציה, או בבקשה אלינו. השלבים מופיעים בדף מחיקת החשבון.</p>
+    </details>
+  </section>
+
+  <section id="join" aria-labelledby="join-title" class="join">
+    <h2 id="join-title">להצטרפות לניסוי</h2>
+    <p>מתחילים בקבוצה קטנה. הניסוי חינמי, ואפשר לעזוב בכל עת.</p>
+    <noscript><p class="note">ההרשמה דורשת JavaScript. אם הוא כבוי, אפשר לנסות מדפדפן אחר.</p></noscript>
+    <form id="join-form" hidden novalidate
+      data-msg-ok="נרשמתם. נשלח אימייל כשהניסוי ייפתח." data-msg-invalid="חסרים פרטים. כדאי לבדוק את השדות ולנסות שוב."
+      data-msg-error="לא הצלחנו לשמור את הפרטים כרגע. כדאי לנסות שוב מאוחר יותר." data-msg-busy="שומרים…">
+      <div class="field">
+        <label for="join-email">אימייל</label>
+        <input id="join-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="254" required dir="ltr">
+      </div>
+      <fieldset class="field">
+        <legend>מכשיר</legend>
+        <label><input type="radio" name="device" value="iphone" required> iPhone</label>
+        <label><input type="radio" name="device" value="android"> Android</label>
+      </fieldset>
+      <fieldset class="field">
+        <legend>באיזו שפה תשתמשו באפליקציה?</legend>
+        <label lang="ar"><input type="radio" name="language" value="ar" required> العربية</label>
+        <label lang="he"><input type="radio" name="language" value="he"> עברית</label>
+        <label lang="en"><input type="radio" name="language" value="en"> English</label>
+      </fieldset>
+      <fieldset class="field">
+        <legend>יש היכרות אישית עם המייסד?</legend>
+        <p class="hint">זה עוזר לנו לדעת אם האפליקציה עובדת גם מחוץ למעגל שלנו.</p>
+        <label><input type="radio" name="knowsFounder" value="yes" required> כן</label>
+        <label><input type="radio" name="knowsFounder" value="no"> לא</label>
+      </fieldset>
+      <div class="field">
+        <label class="check"><input id="join-wa" name="whatsappOptIn" type="checkbox"> לשלוח לי הודעת וואטסאפ בנוגע לניסוי (לא חובה)</label>
+      </div>
+      <div class="field" id="join-phone-field" hidden>
+        <label for="join-phone">מספר וואטסאפ</label>
+        <input id="join-phone" name="phone" type="tel" autocomplete="tel" inputmode="tel" maxlength="30" dir="ltr">
+        <p class="hint">רק להודעות על הניסוי, לא לשיווק.</p>
+      </div>
+      <div class="hp" aria-hidden="true">
+        <label for="join-website">Website</label>
+        <input id="join-website" name="website" type="text" tabindex="-1" autocomplete="off">
+      </div>
+      <input type="hidden" name="source" id="join-source" value="direct">
+      <input type="hidden" name="v" id="join-v" value="none">
+      <p class="hint">הפרטים משמשים רק ליצירת קשר בנוגע לניסוי, וכדי לדעת אילו הודעות הזמנה מגיעות לאנשים. <a href="/he/privacy#early-access">פרטים במדיניות הפרטיות</a></p>
+      <p><button class="button" type="submit">להרשמה</button></p>
+      <p id="join-status" class="status" role="status" aria-live="polite"></p>
+    </form>
+  </section>
 </main>
 
 <footer>
-  <nav class="langs">
-    <a href="/en/">English</a>
-    <a href="/ar/">العربية</a>
+  <nav aria-label="Legal">
+    <a href="/he/privacy">מדיניות הפרטיות</a>
+    <a href="/he/terms">תנאי השימוש</a>
+    <a href="/he/delete-account">מחיקת חשבון</a>
   </nav>
-  <nav>
-    <a href="/he/privacy">מדיניות פרטיות</a>
-    <a href="/he/terms">תנאי שימוש</a>
-  </nav>
+  <p class="muted">שאלות ומשוב: <a href="mailto:{{SUPPORT_EMAIL}}">{{SUPPORT_EMAIL}}</a></p>
   <p class="muted">© MaybeSitter — {{LEGAL_NAME}}</p>
 </footer>
 </body>
