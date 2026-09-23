@@ -8,6 +8,7 @@ import {
   buildPlan,
   getPlan,
   getPlanSettings,
+  markPlanOpened,
   putPlanSettings,
   regeneratePlan,
 } from '../endpoints/plans';
@@ -88,6 +89,26 @@ describe('reading a plan', () => {
     for (const bad of ['../../account', 'today', '2026-8-9', '2026-08-09T00:00:00Z', '']) {
       await expect(getPlan(bad)).rejects.toBeInstanceOf(ValidationError);
     }
+    expect(requests).toHaveLength(0);
+  });
+});
+
+describe('recording that a plan was put on screen (#533)', () => {
+  it('posts the date and reads the acknowledgement', async () => {
+    serve(fixture('plan.opened'));
+    await markPlanOpened('2026-08-09');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      url: 'http://localhost:3000/api/mobile/plans/2026-08-09/opened',
+      method: 'POST',
+      // No body: the route learns everything from the token and the path.
+      body: undefined,
+    });
+  });
+
+  it('refuses to put anything but a civil date into the path', async () => {
+    serve(fixture('plan.opened'));
+    await expect(markPlanOpened('today')).rejects.toBeInstanceOf(ValidationError);
     expect(requests).toHaveLength(0);
   });
 });

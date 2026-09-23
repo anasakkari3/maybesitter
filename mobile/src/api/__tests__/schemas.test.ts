@@ -41,6 +41,7 @@ import {
 } from '../schemas/profile';
 import {
   planEditRejectedSchema,
+  planOpenedSchema,
   planResponseSchema,
   planSettingsResponseSchema,
 } from '../schemas/plan';
@@ -143,6 +144,9 @@ const CASES: Array<[string, z.ZodType]> = [
   ['memory.suggestionStale', errorBodySchema],
   ['memory.withDeferSuggestion', memoryListSchema],
   ['memory.deferSuggestionKept', memorySuggestionKeptSchema],
+  // R3 (#533): the plan-open habit, suggested and kept.
+  ['memory.withPlanTimeSuggestion', memoryListSchema],
+  ['memory.planTimeSuggestionKept', memorySuggestionKeptSchema],
   ['nextStep.recommendation', nextStepResponseSchema],
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],
@@ -164,6 +168,9 @@ const CASES: Array<[string, z.ZodType]> = [
   // protection schema is never parsed against anything a handler produced.
   ['plan.protected', planResponseSchema],
   ['plan.built', planResponseSchema],
+  // "The plan was put on screen" (#533): the acknowledgement carries nothing
+  // back; the append to the plan ledger is the point of the call.
+  ['plan.opened', planOpenedSchema],
   ['plan.notFound', errorBodySchema],
   ['plan.editRejected', planEditRejectedSchema],
   ['plan.settingsDefault', planSettingsResponseSchema],

@@ -219,6 +219,15 @@ export function evidenceLines(item: MemoryItem, copy: EvidenceCopy): EvidenceLin
       text: fill(strings.memoryWhyPatternDefer ?? '', { duration: durationText(pattern.deferMinutes, strings) }),
     });
     lines.push({ key: 'plan', text: strings.memoryWhyDeferNoPlanUse ?? '' });
+  } else if (pattern?.ruleId === 'R3_plan_time') {
+    lines.push({
+      key: 'pattern',
+      text: fill(strings.memoryWhyPatternPlanTime ?? '', { time: pattern.planTime }),
+    });
+    // Nothing reads a kept plan time yet, the same answer R2's kept duration
+    // gets — and the same words, because the sentence is about the plan, not
+    // about which rule was kept.
+    lines.push({ key: 'plan', text: strings.memoryWhyDeferNoPlanUse ?? '' });
   }
 
   lines.push({

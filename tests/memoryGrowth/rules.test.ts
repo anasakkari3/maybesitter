@@ -15,14 +15,20 @@ import {
   R1_LOOKBACK_DAYS,
   R2_DEFER_DEFAULT,
   R2_LOOKBACK_DAYS,
+  R3_LOOKBACK_DAYS,
+  R3_PLAN_TIME,
   deferDefaultFingerprint,
   focusWindowFingerprint,
   parseDeferDefaultFingerprint,
   parseFocusWindowFingerprint,
+  parsePlanTimeFingerprint,
+  planTimeFingerprint,
   suggestDeferDefault,
   suggestFocusWindow,
+  suggestPlanTime,
   type CompletionObservation,
   type DeferObservation,
+  type PlanOpenObservation,
 } from '../../lib/memoryGrowth/rules.ts';
 
 const NOW = '2026-09-16T18:00:00.000Z';
@@ -317,6 +323,181 @@ test('the R2 fingerprint round-trips and refuses anything it did not write', () 
   }
 });
 
+// ── R3: the usual plan-open time (#533) ──────────────────────────
+
+const DELIVERY = '07:30';
+
+/** A plan opened at a local wall-clock time, `daysAgo` days before NOW. */
+function openAt(id: string, daysAgo: number, localHHMM: string, zoneOffsetHours = 3): PlanOpenObservation {
+  const [hour, minute] = localHHMM.split(':').map(Number);
+  const day = new Date(Date.parse(NOW) - daysAgo * 86_400_000);
+  const utc = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hour! - zoneOffsetHours, minute!);
+  const at = new Date(utc);
+  const planDate = new Date(utc + zoneOffsetHours * 3_600_000).toISOString().slice(0, 10);
+  return { id, at: at.toISOString(), planDate };
+}
+
+/** Seven plan days: five first opened in the 08:00 half-hour, two at 21:00. */
+function sevenDaysFiveAtEight(): PlanOpenObservation[] {
+  return [
+    openAt('o01', 1, '08:12'),
+    openAt('o02', 2, '08:26'),
+    openAt('o03', 3, '21:05'),
+    openAt('o04', 4, '08:04'),
+    openAt('o05', 5, '21:40'),
+    openAt('o06', 6, '08:29'),
+    openAt('o07', 7, '08:00'),
+  ];
+}
+
+test('five of the last seven plan days opened around one time yield the R3 suggestion', () => {
+  const suggestion = suggestPlanTime(sevenDaysFiveAtEight(), DELIVERY, ZONE, NOW);
+  assert.ok(suggestion, 'the fixture must produce a suggestion');
+  assert.equal(suggestion.ruleId, R3_PLAN_TIME);
+  assert.equal(suggestion.fingerprint, 'R3_plan_time:08:00');
+  assert.equal(suggestion.planTime, '08:00');
+  assert.equal(suggestion.matchingCount, 5);
+  assert.equal(suggestion.totalCount, 7);
+  assert.equal(suggestion.confidence, 0.71);
+  assert.equal(suggestion.lookbackDays, R3_LOOKBACK_DAYS);
+  assert.deepEqual(suggestion.evidenceIds, ['o07', 'o06', 'o04', 'o02', 'o01']);
+});
+
+test('four of the last seven plan days at one time yield nothing', () => {
+  // The threshold is five: four of seven is exactly below it.
+  const four = [
+    openAt('o01', 1, '08:12'),
+    openAt('o02', 2, '08:26'),
+    openAt('o03', 3, '21:05'),
+    openAt('o04', 4, '08:04'),
+    openAt('o05', 5, '21:40'),
+    openAt('o06', 6, '08:29'),
+    openAt('o07', 7, '22:10'),
+  ];
+  assert.equal(suggestPlanTime(four, DELIVERY, ZONE, NOW), null);
+});
+
+test('fewer than seven opened plan days yield nothing, however uniform they are', () => {
+  const six = sevenDaysFiveAtEight().slice(0, 6);
+  assert.equal(suggestPlanTime(six, DELIVERY, ZONE, NOW), null);
+  const sixUniform = [1, 2, 3, 4, 5, 6].map((day) => openAt(`u${day}`, day, '08:15'));
+  assert.equal(suggestPlanTime(sixUniform, DELIVERY, ZONE, NOW), null);
+});
+
+test('an open within twenty minutes of the delivery is the delivery, not a habit', () => {
+  // Every day opened only at 07:35, five minutes after the 07:30 delivery.
+  const deliveryReads = [1, 2, 3, 4, 5, 6, 7].map((day) => openAt(`r${day}`, day, '07:35'));
+  assert.equal(suggestPlanTime(deliveryReads, DELIVERY, ZONE, NOW), null);
+  // The boundary itself: twenty minutes away is still the delivery.
+  const atBoundary = [1, 2, 3, 4, 5, 6, 7].map((day) => openAt(`b${day}`, day, '07:50'));
+  assert.equal(suggestPlanTime(atBoundary, DELIVERY, ZONE, NOW), null);
+  // One minute past it counts.
+  const pastBoundary = [1, 2, 3, 4, 5, 6, 7].map((day) => openAt(`p${day}`, day, '07:51'));
+  assert.equal(suggestPlanTime(pastBoundary, DELIVERY, ZONE, NOW)?.fingerprint, 'R3_plan_time:07:30');
+  // And the window wraps midnight: a 00:10 delivery makes 23:55 a delivery read.
+  const acrossMidnight = [1, 2, 3, 4, 5, 6, 7].map((day) => openAt(`m${day}`, day, '23:55'));
+  assert.equal(suggestPlanTime(acrossMidnight, '00:10', ZONE, NOW), null);
+});
+
+test('a day opened at the delivery and again later counts at the later time', () => {
+  const days = [1, 2, 3, 4, 5, 6, 7].flatMap((day) => [
+    openAt(`d${day}_delivery`, day, '07:32'),
+    openAt(`d${day}_later`, day, '12:10'),
+  ]);
+  const suggestion = suggestPlanTime(days, DELIVERY, ZONE, NOW);
+  assert.equal(suggestion?.fingerprint, 'R3_plan_time:12:00');
+  assert.equal(suggestion?.matchingCount, 7);
+});
+
+test('the first open of the day counts, and reopening all evening cannot move it', () => {
+  const days = [1, 2, 3, 4, 5, 6, 7].flatMap((day) => [
+    openAt(`f${day}`, day, '08:10'),
+    openAt(`s${day}_1`, day, '19:00'),
+    openAt(`s${day}_2`, day, '20:00'),
+    openAt(`s${day}_3`, day, '21:00'),
+  ]);
+  const suggestion = suggestPlanTime(days, DELIVERY, ZONE, NOW);
+  assert.equal(suggestion?.fingerprint, 'R3_plan_time:08:00');
+  assert.equal(suggestion?.matchingCount, 7);
+  assert.equal(suggestion?.totalCount, 7);
+});
+
+test('only the newest seven plan days are counted', () => {
+  const newest = sevenDaysFiveAtEight();
+  // An eighth, oldest day at a different time is out of the seven.
+  const withOddOldest = [...newest, openAt('o00', 9, '15:00')];
+  assert.equal(suggestPlanTime(withOddOldest, DELIVERY, ZONE, NOW)?.fingerprint, 'R3_plan_time:08:00');
+  // But when the newest seven hold only four of a kind, an older run of the
+  // same time does not rescue the pattern.
+  const patternInThePast = [
+    openAt('n1', 1, '21:00'),
+    openAt('n2', 2, '21:20'),
+    openAt('n3', 3, '19:40'),
+    openAt('n4', 4, '08:10'),
+    openAt('n5', 5, '08:20'),
+    openAt('n6', 6, '08:05'),
+    openAt('n7', 7, '08:15'),
+    openAt('n8', 8, '08:25'),
+    openAt('n9', 9, '08:10'),
+  ];
+  assert.equal(suggestPlanTime(patternInThePast, DELIVERY, ZONE, NOW), null);
+});
+
+test('only the lookback counts, and an open in the future is not an observation', () => {
+  const recent = [1, 2, 3, 4, 5, 6].map((day) => openAt(`r${day}`, day, '08:15'));
+  const tooOld = openAt('old', R3_LOOKBACK_DAYS + 1, '08:15');
+  assert.equal(suggestPlanTime([...recent, tooOld], DELIVERY, ZONE, NOW), null);
+  const day = new Date(Date.parse(NOW) + 86_400_000);
+  const inFuture: PlanOpenObservation = {
+    id: 'future',
+    at: new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), 5, 15)).toISOString(),
+    planDate: '2099-01-01',
+  };
+  assert.equal(suggestPlanTime([...recent, inFuture], DELIVERY, ZONE, NOW), null);
+});
+
+test('the open time is read in the user’s own zone, not the server’s or UTC', () => {
+  // The same instants are 08:0x in Jerusalem and 05:0x in UTC: the habit is
+  // the user's wall clock, so the claim must move with the zone it is read in.
+  const opens = [1, 2, 3, 4, 5, 6, 7].map((day) => openAt(`z${day}`, day, '08:10'));
+  assert.equal(suggestPlanTime(opens, DELIVERY, ZONE, NOW)?.fingerprint, 'R3_plan_time:08:00');
+  assert.equal(suggestPlanTime(opens, DELIVERY, 'UTC', NOW)?.fingerprint, 'R3_plan_time:05:00');
+});
+
+test('the fingerprint is the time, so the same habit re-keys and a changed one re-suggests', () => {
+  const again = [3, 5, 8, 12, 13].map((day) => openAt(`g${day}`, day, '08:20'));
+  const others = [openAt('x1', 1, '19:00'), openAt('x2', 2, '20:00')];
+  // Different days, different ids, the same half-hour: the claim is the same claim.
+  assert.equal(
+    suggestPlanTime([...again, ...others], DELIVERY, ZONE, NOW)?.fingerprint,
+    suggestPlanTime(sevenDaysFiveAtEight(), DELIVERY, ZONE, NOW)?.fingerprint,
+  );
+  const evenings = [1, 2, 3, 4, 5].map((day) => openAt(`t${day}`, day, '21:10'));
+  const moved = suggestPlanTime([...evenings, openAt('y1', 6, '08:00'), openAt('y2', 7, '08:20')], DELIVERY, ZONE, NOW);
+  assert.equal(moved?.fingerprint, 'R3_plan_time:21:00');
+  assert.notEqual(moved?.fingerprint, planTimeFingerprint('08:00'));
+});
+
+test('the same opens give the same answer whatever order they arrive in', () => {
+  const events = sevenDaysFiveAtEight();
+  const forward = suggestPlanTime(events, DELIVERY, ZONE, NOW);
+  const backward = suggestPlanTime([...events].reverse(), DELIVERY, ZONE, NOW);
+  assert.deepEqual(backward, forward);
+});
+
+test('the R3 fingerprint round-trips and refuses anything it did not write', () => {
+  assert.equal(planTimeFingerprint('08:00'), 'R3_plan_time:08:00');
+  assert.equal(parsePlanTimeFingerprint('R3_plan_time:08:00'), '08:00');
+  assert.equal(parsePlanTimeFingerprint('R3_plan_time:23:30'), '23:30');
+  for (const bad of [
+    '', 'R3_plan_time', 'R3_plan_time:8:00', 'R3_plan_time:08:15', 'R3_plan_time:08:60',
+    'R3_plan_time:24:00', 'R3_plan_time:29:30', 'R3_plan_time:08:00 ',
+    'R1_focus_window:09:00-12:00', 'R2_defer_default:60m', 'R3_plan_time:٠٨:٠٠', null, 42, 800,
+  ]) {
+    assert.equal(parsePlanTimeFingerprint(bad), null, `accepted ${String(bad)}`);
+  }
+});
+
 // ── Boundaries ───────────────────────────────────────────────────
 
 function sourcesUnder(directory: string): string[] {
@@ -350,10 +531,12 @@ test('the kept sentence passes the same §13, shame and coercion lexicons as the
   const { EXPLANATION_LEXICONS } = await import('../../lib/services/dailyPlan/explanationValidator.ts');
   const {
     KEPT_DEFER_CONTENT,
+    KEPT_PLAN_TIME_CONTENT,
     KEPT_SUGGESTION_CONTENT,
     KEPT_SUGGESTION_LANGUAGES,
     keptDeferDefaultContent,
     keptFocusWindowContent,
+    keptPlanTimeContent,
   } = await import('../../lib/memoryGrowth/templates.ts');
   assert.deepEqual([...KEPT_SUGGESTION_LANGUAGES].sort(), ['ar', 'en', 'he']);
   for (const language of KEPT_SUGGESTION_LANGUAGES) {
@@ -361,6 +544,7 @@ test('the kept sentence passes the same §13, shame and coercion lexicons as the
       keptFocusWindowContent({ start: '09:00', end: '12:00' }, language),
       // The buckets a rule can produce, at every age the wording changes.
       ...[30, 60, 90, 120, 150, 180, 210, 1440].map((minutes) => keptDeferDefaultContent(minutes, language)),
+      keptPlanTimeContent('08:30', language),
     ];
     for (const sentence of sentences) {
       assert.doesNotMatch(sentence, /\{|\}/, `${language}: a placeholder survived in ${sentence}`);
@@ -379,7 +563,13 @@ test('the kept sentence passes the same §13, shame and coercion lexicons as the
       keptDeferDefaultContent(60, language).trim() !== KEPT_DEFER_CONTENT[language],
       `${language}: the duration is not in the sentence`,
     );
+    assert.ok(
+      keptPlanTimeContent('08:30', language).includes('08:30'),
+      `${language}: the time is not in the sentence`,
+    );
     assert.notEqual(KEPT_DEFER_CONTENT[language], KEPT_SUGGESTION_CONTENT[language]);
+    assert.notEqual(KEPT_PLAN_TIME_CONTENT[language], KEPT_SUGGESTION_CONTENT[language]);
+    assert.notEqual(KEPT_PLAN_TIME_CONTENT[language], KEPT_DEFER_CONTENT[language]);
   }
 });
 

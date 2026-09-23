@@ -20,6 +20,7 @@ import {
   useRegeneratePlan,
 } from '../api/queries';
 import { QuotaExceededError } from '../api/errors';
+import { markPlanOpened } from '../api/endpoints/plans';
 import { userFacingMessage } from '../api/ui/userFacingMessage';
 import type { DailyPlan, PlanItem } from '../api/schemas/plan';
 import { CIVIL_ZONE, civilDate, dayKey, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
@@ -235,6 +236,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   // plan object, which every action replaces.
   useEffect(() => {
     void reportPlanOpened(plan, reporter);
+    // The ledger half of the same fact (#533): the analytics event above is
+    // consent-gated metrics, and this append to the user's own plan ledger is
+    // what R3 may one day read. Fire-and-forget for the same reason — a lost
+    // signal is one missing open in a habit count, never something on screen.
+    void markPlanOpened(date).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 

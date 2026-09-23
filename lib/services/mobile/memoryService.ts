@@ -87,8 +87,10 @@ import { recordDismissal } from '../../memoryGrowth/dismissals';
 import {
   R1_FOCUS_WINDOW,
   R2_DEFER_DEFAULT,
+  R3_PLAN_TIME,
   parseDeferDefaultFingerprint,
   parseFocusWindowFingerprint,
+  parsePlanTimeFingerprint,
   type LocalWindow,
 } from '../../memoryGrowth/rules';
 
@@ -246,7 +248,7 @@ export interface MemoryEvidenceDto {
   observationCount: number;
   /**
    * The pattern a rule read off the user's behaviour, when this record is one
-   * they kept unedited (UC-3.16, #202; R2 in #532). Null for everything else —
+   * they kept unedited (UC-3.16, #202; R2 in #532, R3 in #533). Null for everything else —
    * including a kept suggestion the user has since rewritten, because their
    * sentence is no longer the rule's claim.
    *
@@ -259,14 +261,17 @@ export interface MemoryEvidenceDto {
 
 export type MemoryPatternDto =
   | { ruleId: typeof R1_FOCUS_WINDOW; window: LocalWindow }
-  | { ruleId: typeof R2_DEFER_DEFAULT; deferMinutes: number };
+  | { ruleId: typeof R2_DEFER_DEFAULT; deferMinutes: number }
+  | { ruleId: typeof R3_PLAN_TIME; planTime: string };
 
 function patternOf(record: RuntimeMemoryRecord): MemoryPatternDto | null {
   if (record.source !== 'deterministic_rule' || record.provenance?.origin !== 'behaviour_rule') return null;
   const window = parseFocusWindowFingerprint(record.provenance.originRef);
   if (window) return { ruleId: R1_FOCUS_WINDOW, window };
   const deferMinutes = parseDeferDefaultFingerprint(record.provenance.originRef);
-  return deferMinutes ? { ruleId: R2_DEFER_DEFAULT, deferMinutes } : null;
+  if (deferMinutes) return { ruleId: R2_DEFER_DEFAULT, deferMinutes };
+  const planTime = parsePlanTimeFingerprint(record.provenance.originRef);
+  return planTime ? { ruleId: R3_PLAN_TIME, planTime } : null;
 }
 
 /** What the phone receives. Deliberately not the stored record. */

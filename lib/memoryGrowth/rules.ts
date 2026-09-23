@@ -24,21 +24,23 @@
  *
  * ── Which rules exist ────────────────────────────────────────────
  *
- * R1 (focus window) and R2 (the usual "Later" duration, UC-3.14 (#200)'s
- * defer — #532). #202 also describes R3 (when the plan is usually opened),
- * whose input is a record of the plan being *opened*, which nothing in this
- * repository writes — the daily plan records accept, dismiss and edit, not a
- * view. It is not approximated from something adjacent: a rule fed a stand-in
- * would suggest a sentence about the person that the data behind it does not
- * say.
+ * R1 (focus window), R2 (the usual "Later" duration, UC-3.14 (#200)'s defer —
+ * #532) and R3 (when the plan is usually opened — #533). R3's input is a
+ * record of the plan being *opened*, which the daily plan ledger learned to
+ * write in #533 (`plan_opened` in `users/{uid}/planEvents` — the ledger, not
+ * the domain log, for the reason planStore's header gives). It is not
+ * approximated from something adjacent like `plan_accepted`: a rule fed a
+ * stand-in would suggest a sentence about the person that the data behind it
+ * does not say.
  */
 
 export const R1_FOCUS_WINDOW = 'R1_focus_window' as const;
 export const R2_DEFER_DEFAULT = 'R2_defer_default' as const;
+export const R3_PLAN_TIME = 'R3_plan_time' as const;
 
-export type MemoryGrowthRuleId = typeof R1_FOCUS_WINDOW | typeof R2_DEFER_DEFAULT;
+export type MemoryGrowthRuleId = typeof R1_FOCUS_WINDOW | typeof R2_DEFER_DEFAULT | typeof R3_PLAN_TIME;
 
-export const MEMORY_GROWTH_RULE_IDS: readonly MemoryGrowthRuleId[] = [R1_FOCUS_WINDOW, R2_DEFER_DEFAULT];
+export const MEMORY_GROWTH_RULE_IDS: readonly MemoryGrowthRuleId[] = [R1_FOCUS_WINDOW, R2_DEFER_DEFAULT, R3_PLAN_TIME];
 
 /** How far back R1 looks. */
 export const R1_LOOKBACK_DAYS = 28;
@@ -61,6 +63,24 @@ export const R2_MIN_DEFER_MATCHES = 4;
  * 12:31 — as two, so a defer counts toward the bucket nearest its length.
  */
 export const R2_BUCKET_MINUTES = 30;
+
+/** How far back R3 looks — the same range R1 and R2 read. */
+export const R3_LOOKBACK_DAYS = 28;
+/** The newest plan days R3 judges. Fewer than this many opened in the lookback, and there is no "usually" to name. */
+export const R3_PLAN_DAYS_WINDOW = 7;
+/** How many of those days one time bucket has to hold. */
+export const R3_MIN_DAY_MATCHES = 5;
+/**
+ * The width of the bucket two opens fall into when they are "the same time",
+ * in minutes. Exact equality would read the same habit — 08:12 one day and
+ * 08:26 the next — as two, so opens count toward the half-hour they fall in.
+ */
+export const R3_SAME_TIME_MINUTES = 30;
+/**
+ * An open this close to the plan's own `deliveryLocalTime` is the delivery
+ * being read, not a habit, and does not count (#533's spec).
+ */
+export const R3_DELIVERY_EXCLUSION_MINUTES = 20;
 
 const MS_PER_DAY = 86_400_000;
 const MINUTES_PER_DAY = 1440;
@@ -307,6 +327,156 @@ export function parseDeferDefaultFingerprint(value: unknown): number | null {
   const minutes = Number(match[1]);
   if (!Number.isInteger(minutes) || minutes <= 0 || minutes % R2_BUCKET_MINUTES !== 0) return null;
   return minutes;
+}
+
+/** One plan being put on screen: the event id, when, and which plan day. */
+export interface PlanOpenObservation {
+  readonly id: string;
+  readonly at: string;
+  /** The plan's own local date, `YYYY-MM-DD` — the day this open counts for. */
+  readonly planDate: string;
+}
+
+export interface PlanTimeSuggestion {
+  readonly ruleId: typeof R3_PLAN_TIME;
+  /**
+   * What the suggestion *claims*, and nothing else — the winning half-hour,
+   * never a count or an evidence id, so one more open at the same time does
+   * not resurrect a claim the user turned down.
+   */
+  readonly fingerprint: string;
+  /** The time the user usually opens their plan, `HH:MM`, on the hour or half-hour. */
+  readonly planTime: string;
+  /** The share of the counted plan days that half-hour holds, 0..1. */
+  readonly confidence: number;
+  /** The open events inside the half-hour, oldest first. */
+  readonly evidenceIds: readonly string[];
+  readonly matchingCount: number;
+  readonly totalCount: number;
+  readonly lookbackDays: number;
+}
+
+/**
+ * R3: "You usually look at your plan around 08:30." (#533)
+ *
+ * The seven newest plan days with a recorded open in the lookback, and at
+ * least five of them first opened in the same local half-hour. Fewer than
+ * seven opened days is not a pattern that failed its threshold; it is a
+ * person who rarely looks, and there is nothing to name.
+ *
+ * ── One open per plan day ────────────────────────────────────────
+ *
+ * The first open of the day is the one that says when the person looks at
+ * their plan; counting every open would let one restless evening outweigh a
+ * week of mornings. Days are counted, not opens, so a screen left open and
+ * reopened cannot manufacture a pattern.
+ *
+ * ── The delivery is not a habit ──────────────────────────────────
+ *
+ * An open within `R3_DELIVERY_EXCLUSION_MINUTES` of the plan's own
+ * `deliveryLocalTime` — either side, across midnight — is the morning
+ * notification being read, not a time the person chose. Those opens are
+ * removed *before* the day's first open is picked: a day opened at the
+ * delivery and again at noon counts as a noon day.
+ *
+ * With seven days and a threshold of five, two half-hours can never both
+ * qualify, so there is no tie to break.
+ */
+export function suggestPlanTime(
+  observations: readonly PlanOpenObservation[],
+  deliveryLocalTime: string,
+  timeZone: string,
+  now: string,
+): PlanTimeSuggestion | null {
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(nowMs)) return null;
+  const fromMs = nowMs - R3_LOOKBACK_DAYS * MS_PER_DAY;
+  const deliveryMinute = parseHhmm(deliveryLocalTime);
+
+  // First non-delivery open per plan day, inside [now - 28d, now).
+  const firstByDay = new Map<string, { id: string; atMs: number }>();
+  observations.forEach((observation) => {
+    const atMs = Date.parse(observation.at);
+    if (!Number.isFinite(atMs) || atMs < fromMs || atMs >= nowMs) return;
+    const minute = localMinuteOfDay(atMs, timeZone);
+    if (deliveryMinute !== null && circularMinuteDistance(minute, deliveryMinute) <= R3_DELIVERY_EXCLUSION_MINUTES) return;
+    const current = firstByDay.get(observation.planDate);
+    if (!current || atMs < current.atMs || (atMs === current.atMs && observation.id < current.id)) {
+      firstByDay.set(observation.planDate, { id: observation.id, atMs });
+    }
+  });
+
+  const days: Array<{ planDate: string; id: string; atMs: number; bucket: number }> = [];
+  firstByDay.forEach((open, planDate) => {
+    days.push({
+      planDate,
+      ...open,
+      bucket: Math.floor(localMinuteOfDay(open.atMs, timeZone) / R3_SAME_TIME_MINUTES) * R3_SAME_TIME_MINUTES,
+    });
+  });
+  days.sort((left, right) => right.planDate.localeCompare(left.planDate) || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+
+  const counted = days.slice(0, R3_PLAN_DAYS_WINDOW);
+  const total = counted.length;
+  if (total < R3_PLAN_DAYS_WINDOW) return null;
+
+  const buckets: Array<{ minute: number; inside: typeof counted }> = [];
+  counted.forEach((day) => {
+    const bucket = buckets.find((candidate) => candidate.minute === day.bucket);
+    if (bucket) bucket.inside.push(day);
+    else buckets.push({ minute: day.bucket, inside: [day] });
+  });
+
+  const winner = buckets.find((bucket) => bucket.inside.length >= R3_MIN_DAY_MATCHES);
+  if (!winner) return null;
+
+  const share = winner.inside.length / total;
+  const evidence = [...winner.inside].sort((left, right) => left.atMs - right.atMs || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0));
+  return {
+    ruleId: R3_PLAN_TIME,
+    fingerprint: planTimeFingerprint(hhmm(winner.minute)),
+    planTime: hhmm(winner.minute),
+    confidence: Math.round(share * 100) / 100,
+    evidenceIds: evidence.map((day) => day.id),
+    matchingCount: winner.inside.length,
+    totalCount: total,
+    lookbackDays: R3_LOOKBACK_DAYS,
+  };
+}
+
+export function planTimeFingerprint(planTime: string): string {
+  return `${R3_PLAN_TIME}:${planTime}`;
+}
+
+const R3_FINGERPRINT = /^R3_plan_time:([0-2][0-9]):([03]0)$/;
+
+/**
+ * The time a fingerprint names, or null for anything this module could not
+ * have written: not on the hour or half-hour, past 23:30, or another rule's.
+ * The same discipline as `parseDeferDefaultFingerprint` — a hand-edited or
+ * future-format value is refused rather than half-understood.
+ */
+export function parsePlanTimeFingerprint(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = R3_FINGERPRINT.exec(value);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  if (hour > 23) return null;
+  return `${match[1]}:${match[2]}`;
+}
+
+/** `HH:mm` as a minute of the day, or null for anything else. */
+function parseHhmm(value: string): number | null {
+  const match = /^([0-2][0-9]):([0-5][0-9])$/.exec(value);
+  if (!match) return null;
+  const minute = Number(match[1]) * 60 + Number(match[2]);
+  return minute < MINUTES_PER_DAY ? minute : null;
+}
+
+/** The shorter distance between two minutes of the day, across midnight. */
+function circularMinuteDistance(left: number, right: number): number {
+  const apart = Math.abs(left - right);
+  return Math.min(apart, MINUTES_PER_DAY - apart);
 }
 
 const FINGERPRINT = /^R1_focus_window:([0-2][0-9]):00-([0-2][0-9]):00$/;

@@ -1,0 +1,20 @@
+{
+  "items": [],
+  "suggestions": [
+    {
+      "ruleId": "R3_plan_time",
+      "fingerprint": "R3_plan_time:08:00",
+      "planTime": "08:00",
+      "confidence": 0.71,
+      "evidence": {
+        "matchingCount": 5,
+        "totalCount": 7,
+        "lookbackDays": 28
+      }
+    }
+  ],
+  "adaptive": {
+    "classification": null,
+    "effect": null
+  }
+}

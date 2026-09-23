@@ -43,6 +43,8 @@ import type {
 import { personalizationGrowthAllowed } from '../consents/personalizationConsentService';
 import type { PersonalizationConsentStore } from '../personalizationControls/consentStore';
 import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
+import { planSettingsOf, type PlanSettingsBearingUser } from '../services/dailyPlan/planSettings';
+import { listPlanEvents } from '../services/dailyPlan/planStore';
 import { listEventsInRange } from '../services/mobile/eventLog';
 import { memoryToDto, type MemoryDto } from '../services/mobile/memoryService';
 import { normalizeTimezone } from '../services/mobile/time';
@@ -53,19 +55,25 @@ import {
   R1_LOOKBACK_DAYS,
   R2_DEFER_DEFAULT,
   R2_LOOKBACK_DAYS,
+  R3_LOOKBACK_DAYS,
+  R3_PLAN_TIME,
   parseFocusWindowFingerprint,
   suggestDeferDefault,
   suggestFocusWindow,
+  suggestPlanTime,
   type CompletionObservation,
   type DeferDefaultSuggestion,
   type DeferObservation,
   type FocusWindowSuggestion,
   type LocalWindow,
+  type PlanOpenObservation,
+  type PlanTimeSuggestion,
 } from './rules';
 import {
   KEPT_SUGGESTION_LANGUAGES,
   keptDeferDefaultContent,
   keptFocusWindowContent,
+  keptPlanTimeContent,
   type KeptSuggestionLanguage,
 } from './templates';
 
@@ -80,8 +88,8 @@ export const GROWTH_EVENT_READ_LIMIT = 2_000;
 
 const MS_PER_DAY = 86_400_000;
 
-/** A suggestion from any growth rule. The two kinds share the contract and differ in what they claim. */
-export type RuleSuggestion = FocusWindowSuggestion | DeferDefaultSuggestion;
+/** A suggestion from any growth rule. The kinds share the contract and differ in what they claim. */
+export type RuleSuggestion = FocusWindowSuggestion | DeferDefaultSuggestion | PlanTimeSuggestion;
 
 interface SuggestionEvidenceDto {
   matchingCount: number;
@@ -102,6 +110,14 @@ export type MemorySuggestionDto =
     ruleId: typeof R2_DEFER_DEFAULT;
     fingerprint: string;
     deferMinutes: number;
+    confidence: number;
+    evidence: SuggestionEvidenceDto;
+  }
+  | {
+    ruleId: typeof R3_PLAN_TIME;
+    fingerprint: string;
+    /** `HH:MM` on the user's own clock face, on the hour or half-hour. */
+    planTime: string;
     confidence: number;
     evidence: SuggestionEvidenceDto;
   };
@@ -170,6 +186,15 @@ function toDto(suggestion: RuleSuggestion): MemorySuggestionDto {
       evidence,
     };
   }
+  if (suggestion.ruleId === R3_PLAN_TIME) {
+    return {
+      ruleId: suggestion.ruleId,
+      fingerprint: suggestion.fingerprint,
+      planTime: suggestion.planTime,
+      confidence: suggestion.confidence,
+      evidence,
+    };
+  }
   return {
     ruleId: suggestion.ruleId,
     fingerprint: suggestion.fingerprint,
@@ -185,9 +210,9 @@ async function computeRuleSuggestions(
   now: string,
   storage: StorageAdapter,
 ): Promise<RuleSuggestion[]> {
-  const user = await storage.get<{ timezone?: unknown }>(userDoc(uid));
+  const user = await storage.get<PlanSettingsBearingUser>(userDoc(uid));
   const timezone = normalizeTimezone(user?.timezone);
-  const from = new Date(Date.parse(now) - Math.max(R1_LOOKBACK_DAYS, R2_LOOKBACK_DAYS) * MS_PER_DAY).toISOString();
+  const from = new Date(Date.parse(now) - Math.max(R1_LOOKBACK_DAYS, R2_LOOKBACK_DAYS, R3_LOOKBACK_DAYS) * MS_PER_DAY).toISOString();
   const events = await listEventsInRange(uid, from, now, GROWTH_EVENT_READ_LIMIT, storage);
   if (events.length >= GROWTH_EVENT_READ_LIMIT) return [];
 
@@ -206,11 +231,22 @@ async function computeRuleSuggestions(
     }
   });
 
+  // R3's input lives in the plan ledger, not the domain log: a plan is not an
+  // aggregate the reducer owns, so #533's `plan_opened` is appended where
+  // `plan_accepted` already is (planStore's header says why).
+  const opens: PlanOpenObservation[] = [];
+  for (const event of await listPlanEvents(uid, storage)) {
+    if (event.type !== 'plan_opened') continue;
+    opens.push({ id: event.id, at: event.at, planDate: event.date });
+  }
+
   const suggestions: RuleSuggestion[] = [];
   const r1 = suggestFocusWindow(completions, timezone, now);
   if (r1) suggestions.push(r1);
   const r2 = suggestDeferDefault(defers, now);
   if (r2) suggestions.push(r2);
+  const r3 = suggestPlanTime(opens, planSettingsOf(user, timezone).deliveryLocalTime, timezone, now);
+  if (r3) suggestions.push(r3);
   return suggestions;
 }
 
@@ -304,7 +340,9 @@ export async function decideMemorySuggestion(
     kind: 'preference' as const,
     content: current.ruleId === R2_DEFER_DEFAULT
       ? keptDeferDefaultContent(current.deferMinutes, language!)
-      : keptFocusWindowContent(current.window, language!),
+      : current.ruleId === R3_PLAN_TIME
+        ? keptPlanTimeContent(current.planTime, language!)
+        : keptFocusWindowContent(current.window, language!),
     language: language! as MemoryLanguage,
     source: 'deterministic_rule' as const,
     confidence: current.confidence,

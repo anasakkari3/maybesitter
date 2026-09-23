@@ -83,6 +83,9 @@ beforeEach(async () => {
   jest.spyOn(planEndpoints, 'actOnPlan').mockResolvedValue(planWith({ status: 'accepted' }) as never);
   jest.spyOn(planEndpoints, 'regeneratePlan').mockResolvedValue(planWith({ generation: 2 }) as never);
   jest.spyOn(planEndpoints, 'buildPlan').mockResolvedValue(planWith({ generation: 1 }) as never);
+  // The ledger append (#533) is fire-and-forget; mocked so the suite never
+  // waits on it and no request escapes to the network.
+  jest.spyOn(planEndpoints, 'markPlanOpened').mockResolvedValue(undefined as never);
   // The screen reads analytics consent before it reports anything (#195 step
   // 7). Declined by default, so every case above this line exercises the
   // screen without a metrics call in it — and so that the consent read is a
@@ -925,6 +928,31 @@ describe('what the screen reports about what somebody did', () => {
       await fireEvent.press(screen.getByTestId('plan-accept'));
       await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
       expect(screen.queryByText(en.planAcceptedToast)).not.toBeNull();
+      expect(screen.queryByTestId('plan-edit-error')).toBeNull();
+    });
+  });
+
+  describe('the ledger append (#533)', () => {
+    it('records the plan being put on screen, once, whatever the analytics consent', async () => {
+      // The same once-per-shown-plan discipline as the analytics event, but
+      // none of its gate: this row is the user's own ledger, not metrics, and
+      // R3 cannot learn from a record consent never let exist. Default consent
+      // here is declined — the append must happen anyway.
+      await loaded();
+      await waitFor(() => expect(planEndpoints.markPlanOpened).toHaveBeenCalledWith(DATE));
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      expect(planEndpoints.markPlanOpened).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets the screen work when the append fails', async () => {
+      // A lost signal is one missing open in a habit count, never something
+      // the user is looking at.
+      jest.spyOn(planEndpoints, 'markPlanOpened').mockRejectedValue(new NetworkError('no signal') as never);
+      await loaded();
+      await fireEvent.press(screen.getByTestId('plan-accept'));
+      await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
       expect(screen.queryByTestId('plan-edit-error')).toBeNull();
     });
   });

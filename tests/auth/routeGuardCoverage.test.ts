@@ -171,7 +171,12 @@ test('every mobile route file exists and is enumerated', () => {
   // The second writes memory records under a proposal id that arrives in the
   // *body* — so an unguarded confirm would let a caller who guessed an id write
   // facts into an account that is not theirs.
-  assert.equal(files.length, 75, `found:\n${files.join('\n')}`);
+  // Seventy-six after #533: `POST /api/mobile/plans/{date}/opened`. It appends
+  // a "the plan was put on screen" row to the caller's own plan ledger — the
+  // record R3 reads to say when somebody usually looks at their plan — so an
+  // unauthenticated caller reaching it would be writing a behaviour row into
+  // an account that is not theirs.
+  assert.equal(files.length, 76, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

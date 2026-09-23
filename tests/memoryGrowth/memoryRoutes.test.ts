@@ -24,7 +24,8 @@ import {
 import { DELETE as memoryDelete, PATCH as memoryPatch } from '../../src/app/api/mobile/memory/[id]/route.ts';
 import { POST as suggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { EVENTS, MEMORY, MEMORY_DISMISSALS, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
-import { KEPT_DEFER_CONTENT, KEPT_SUGGESTION_CONTENT } from '../../lib/memoryGrowth/templates.ts';
+import { KEPT_DEFER_CONTENT, KEPT_PLAN_TIME_CONTENT, KEPT_SUGGESTION_CONTENT } from '../../lib/memoryGrowth/templates.ts';
+import { appendPlanEvent } from '../../lib/services/dailyPlan/planStore.ts';
 import { GROWTH_EVENT_READ_LIMIT } from '../../lib/memoryGrowth/suggestionService.ts';
 import { deleteAllMemory } from '../../lib/services/mobile/memoryService.ts';
 import { recordBehaviorFeedback } from '../../lib/services/behaviorFeedbackService.ts';
@@ -570,6 +571,153 @@ test('with personalization consent off there is no R2 suggestion, and its Keep i
     assert.equal(refusedDismiss.status, 403);
     assert.equal((await getStorage().list(userCol(OWNER, MEMORY_DISMISSALS))).length, 0);
     assert.equal((await createStorageRuntimeMemoryStore().listAll(OWNER)).length, 0);
+  } finally {
+    end();
+  }
+});
+
+// ── R3: the usual plan-open time, through the routes (#533) ──────
+
+/** The plan day's own local date, `daysAgo` days back, in ZONE. */
+function planDateDaysAgo(daysAgo: number): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(NOW_MS - daysAgo * 86_400_000));
+  const part = (type: string) => parts.find((entry) => entry.type === type)!.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+/**
+ * Seven plan days, five of them opened in one half-hour and two at another
+ * time — the fixture R3 fires on (#533). The opens live in the plan ledger,
+ * not the domain log: a plan is not an aggregate the reducer owns. No
+ * planSettings row: the delivery time defaults to 07:30, half an hour and
+ * more from the habit, so the delivery exclusion has nothing to take.
+ */
+async function seedPlanOpenHabit(uid: string, dominantHour = 8, otherHour = 21): Promise<void> {
+  await getStorage().set(userDoc(uid), { uid, timezone: ZONE });
+  const dominantDays = [1, 2, 4, 6, 7];
+  const otherDays = [3, 5];
+  for (let index = 0; index < dominantDays.length; index += 1) {
+    const day = dominantDays[index]!;
+    await appendPlanEvent(uid, {
+      type: 'plan_opened', date: planDateDaysAgo(day),
+      at: localInstant(day, dominantHour, index), generation: 1, inputDigest: 'digest',
+    });
+  }
+  for (let index = 0; index < otherDays.length; index += 1) {
+    const day = otherDays[index]!;
+    await appendPlanEvent(uid, {
+      type: 'plan_opened', date: planDateDaysAgo(day),
+      at: localInstant(day, otherHour, 5), generation: 1, inputDigest: 'digest',
+    });
+  }
+}
+
+test('seven plan days with five opened around eight yield the R3 suggestion, and reading it writes nothing', async () => {
+  const { storage, writes } = countingWrites(createMemoryStorage());
+  begin(storage);
+  try {
+    await seedPlanOpenHabit(OWNER);
+    await warmUpAuth(OWNER);
+    await enableConsent(OWNER);
+    const before = writes();
+    const suggestions = await suggestionsFor(OWNER);
+    assert.equal(suggestions.length, 1, 'no R3 suggestion was computed, so a zero write count would prove nothing');
+    assert.deepEqual(suggestions[0], {
+      ruleId: 'R3_plan_time',
+      fingerprint: 'R3_plan_time:08:00',
+      planTime: '08:00',
+      confidence: 0.71,
+      evidence: { matchingCount: 5, totalCount: 7, lookbackDays: 28 },
+    });
+    await suggestionsFor(OWNER);
+    // A fingerprint the server would not suggest is refused, still without a write.
+    const stale = await keepRule(OWNER, 'R3_plan_time', 'R3_plan_time:21:00');
+    assert.equal(stale.status, 409);
+    assert.equal((await json(stale)).reason, 'memory_suggestion_stale');
+    assert.equal(writes() - before, 0);
+    assert.equal((await createStorageRuntimeMemoryStore().listAll(OWNER)).length, 0);
+  } finally {
+    end();
+  }
+});
+
+test('a habit at the delivery hour is the delivery being read, not a habit', async () => {
+  begin();
+  try {
+    // Delivery at 08:00, and every open within five minutes of it.
+    await getStorage().set(userDoc(OWNER), {
+      uid: OWNER, timezone: ZONE,
+      planSettings: { enabled: true, deliveryLocalTime: '08:00', timezone: ZONE },
+    });
+    for (let day = 1; day <= 7; day += 1) {
+      await appendPlanEvent(OWNER, {
+        type: 'plan_opened', date: planDateDaysAgo(day),
+        at: localInstant(day, 8, 5), generation: 1, inputDigest: 'digest',
+      });
+    }
+    await enableConsent(OWNER);
+    assert.deepEqual(await suggestionsFor(OWNER), []);
+  } finally {
+    end();
+  }
+});
+
+test('Keep stores the R3 sentence from the rule, and it lists with the plan-time pattern instead of being suggested', async () => {
+  begin();
+  try {
+    await seedPlanOpenHabit(OWNER);
+    await enableConsent(OWNER);
+    const response = await keepRule(OWNER, 'R3_plan_time', 'R3_plan_time:08:00', 'he');
+    assert.equal(response.status, 201);
+    const kept = (await json(response)).memory;
+    assert.equal(kept.source, 'deterministic_rule');
+    assert.equal(kept.sourceLabel, 'noticed_from_confirmed');
+    assert.equal(kept.language, 'he');
+    assert.equal(kept.content, KEPT_PLAN_TIME_CONTENT.he.replace('{time}', '08:00'));
+    assert.equal(kept.confidence, 0.71);
+    assert.equal(kept.evidence.origin, 'behaviour_rule');
+    assert.equal(kept.evidence.observationCount, 5);
+    assert.deepEqual(kept.evidence.pattern, { ruleId: 'R3_plan_time', planTime: '08:00' });
+
+    // From the store, not the response.
+    const stored = await createStorageRuntimeMemoryStore().get(kept.id);
+    assert.ok(stored);
+    assert.equal(stored.scopeId, OWNER);
+    assert.equal(stored.exportPolicy, 'personal_never_export');
+    assert.equal(stored.provenance?.originRef, 'R3_plan_time:08:00');
+    assert.equal(stored.evidenceIds.length, 5);
+
+    const body = await json(await memoryGet(request(OWNER, '/api/mobile/memory')));
+    assert.deepEqual(body.items.map((item: { id: string }) => item.id), [kept.id]);
+    assert.deepEqual(body.suggestions, []);
+  } finally {
+    end();
+  }
+});
+
+test('dismissing R3 stops the same time reappearing, and a changed time still can', async () => {
+  begin();
+  try {
+    await seedPlanOpenHabit(OWNER);
+    await enableConsent(OWNER);
+    const response = await dismissRule(OWNER, 'R3_plan_time', 'R3_plan_time:08:00');
+    assert.equal(response.status, 200);
+    assert.deepEqual(await suggestionsFor(OWNER), []);
+    assert.deepEqual(await suggestionsFor(OWNER), [], 'a dismissal that wore off on the second read');
+    assert.equal((await createStorageRuntimeMemoryStore().listAll(OWNER)).length, 0, 'a dismissal wrote a memory');
+
+    // The habit moves to the evening: a different claim, so it may be suggested.
+    await getStorage().deleteTree(userDoc(OWNER));
+    await seedPlanOpenHabit(OWNER, 21, 8);
+    await enableConsent(OWNER);
+    await dismissRule(OWNER, 'R3_plan_time', 'R3_plan_time:08:00');
+    const moved = await suggestionsFor(OWNER);
+    assert.equal(moved.length, 1);
+    assert.equal(moved[0]!.fingerprint, 'R3_plan_time:21:00');
+    assert.equal(moved[0]!.planTime, '21:00');
+    assert.equal(moved[0]!.confidence, 0.71);
   } finally {
     end();
   }
