@@ -5,7 +5,7 @@ This ledger reconciles the coral mobile frontend with current `main` at
 `c67c516813b354c75dd961e65445e73858757305` on
 `integration/coral-final-parity`.
 
-The audit covered [163 closed issues](./closed-issues-reviewed.json), [314 merged pull requests](./merged-prs-reviewed.json), all 63 canonical
+The audit covered [163 closed issues](./closed-issues-reviewed.json), [314 merged pull requests](./merged-prs-reviewed.json), all 73 canonical
 `/api/mobile/**` routes, the React Native endpoint clients, the screen union and
 every production branch in `mobile/src/Root.tsx`. The machine-readable ledger
 is [`frontend-feature-parity.json`](./frontend-feature-parity.json); it is the

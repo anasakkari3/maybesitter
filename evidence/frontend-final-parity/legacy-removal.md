@@ -6,6 +6,8 @@ code was retained whenever the replacement still depended on it.
 
 | Removed legacy item | Replacement | Evidence |
 |---|---|---|
+| `design/MaybeSitter.dc.html` | `design/R2App.dc.html` | The R2 coral artifact is the current structural design source; repository and design guidance point to it, and no production import depends on the retired export. |
+| `design/github.md` | Current repository guidance and canonical mobile source | The removed note referenced the retired Flutter tree; no current documentation or production source depends on it. |
 | `mobile/src/design/Gallery.tsx` | Production coral screens plus render, token and accessibility tests | No Gallery import or screen route remains; the stale component-inventory entry was removed. |
 | `mobile/src/features/plan/TodayPlanCard.tsx` | `mobile/src/features/plan/TodayPlanRow.tsx` | Component test was migrated to `TodayPlanRow.test.tsx`; Today composes live plan data through the new row. |
 | `mobile/src/state/seed.ts` | Account-scoped mobile API queries and domain records | No seed-store import remains; `oneTruth`, reachability and screen suites verify live data paths. |

@@ -6,7 +6,7 @@
   "reviewScope": {
     "closedIssuesReviewed": 163,
     "mergedPullRequestsReviewed": 314,
-    "mobileApiRoutesReviewed": 63,
+    "mobileApiRoutesReviewed": 73,
     "sourceFiles": [
       "evidence/frontend-final-parity/closed-issues-reviewed.json",
       "evidence/frontend-final-parity/merged-prs-reviewed.json",
