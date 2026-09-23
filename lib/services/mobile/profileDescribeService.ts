@@ -38,6 +38,7 @@ import {
 } from '../../../src/profile/profileContracts';
 import { buildProfilePrompt } from '../../../src/profile/profilePrompt';
 import { validateProfileSuggestions } from '../../../src/profile/profileSuggestionValidator';
+import { languageOf, stripUndefined } from '../../../src/profile/memoryWriteHelpers';
 import { detectPromptInjection } from '../../../src/extraction/ollamaExtractor';
 import { captureLlmProvider } from '../../llm/captureProvider';
 import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
@@ -257,21 +258,3 @@ export async function confirmProfileSuggestions(
   return { saved, kinds };
 }
 
-/** The script the content is written in. Not the user's locale — the text's. */
-function languageOf(content: string): MemoryLanguage {
-  const arabic = /[؀-ۿ]/.test(content);
-  const hebrew = /[֐-׿]/.test(content);
-  const latin = /[A-Za-z]/.test(content);
-  if (arabic && !hebrew && !latin) return 'ar';
-  if (hebrew && !arabic && !latin) return 'he';
-  if (latin && !arabic && !hebrew) return 'en';
-  return 'mixed';
-}
-
-function stripUndefined(input: CreateMemoryInput): CreateMemoryInput {
-  const provenance = input.provenance
-    ? Object.fromEntries(Object.entries(input.provenance).filter(([, v]) => v !== undefined))
-    : undefined;
-  const entries = Object.entries({ ...input, provenance }).filter(([, v]) => v !== undefined);
-  return Object.fromEntries(entries) as unknown as CreateMemoryInput;
-}

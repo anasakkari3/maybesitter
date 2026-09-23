@@ -26,7 +26,9 @@ export type LlmPurpose =
   /** Narrating a plan the deterministic scheduler already produced (#194). */
   | 'plan_explanation'
   /** One shared thing, read once (UC-3.0, #183). */
-  | 'share_extraction';
+  | 'share_extraction'
+  /** A profile another AI assistant wrote about the user, read once. */
+  | 'ai_context_import';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 
