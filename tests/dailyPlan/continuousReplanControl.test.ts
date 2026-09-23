@@ -233,6 +233,9 @@ const FACTS = {
   blocking: true,
 } as const;
 
+/** `FACTS` as the one change these cases store (`chg-busy-1`) describes it (#605). */
+const FACTS_BY_CHANGE = new Map([['chg-busy-1', FACTS]]);
+
 /* ── The default ─────────────────────────────────────────────────── */
 
 test('a user document written before the switch existed keeps continuous replanning on', async () => {
@@ -261,7 +264,7 @@ test('a user document written before the switch existed keeps continuous replann
       storage,
       now: NOW,
       date: DATE,
-      entityFacts: FACTS,
+      entityFactsByChangeId: FACTS_BY_CHANGE,
       policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
     });
 
@@ -318,7 +321,7 @@ test('an explicit opt-out survives a sibling field the record can no longer read
       storage,
       now: NOW,
       date: DATE,
-      entityFacts: FACTS,
+      entityFactsByChangeId: FACTS_BY_CHANGE,
       policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
     });
     assert.equal(report.skipped, 'continuous_replan_disabled');
@@ -424,13 +427,15 @@ test('switching continuous replanning off stops the replan and leaves provider s
     assert.equal(totals.examined, 2, 'the sweep must still examine an account that has replanning off');
     assert.equal(totals.skipped, 1);
     assert.equal(totals.failed, 0);
-    // Exactly one of the two accounts reached the impact evaluator. The sweep
-    // supplies no `entityFacts`, so the enabled account's change is judged
-    // PLAN_STALE rather than replanned — the point is which account was
-    // judged at all, which is what makes this a per-account gate and not a
-    // kill switch.
-    assert.equal(totals.stale, 1, 'the enabled account must still reach the pipeline in the same sweep');
-    assert.equal(totals.autoApplied, 0);
+    // Exactly one of the two accounts reached the impact evaluator, and the
+    // sweep now carries it all the way (#605). The tick resolves the change's
+    // facts from the stored busy block, which sits on the enabled account's
+    // scheduled item, so that account is replanned in this very sweep. The
+    // point is still which account was judged at all: a per-account gate, not
+    // a kill switch.
+    assert.equal(totals.replanRequired, 1, 'the enabled account must reach the pipeline in the same sweep');
+    assert.equal(totals.stale, 0);
+    assert.equal(totals.autoApplied + totals.proposed, 1, 'and the pipeline acted on it');
 
     // Nothing was planned for the account that switched it off …
     const untouched = await readStoredPlan(off, DATE, storage);
@@ -438,20 +443,13 @@ test('switching continuous replanning off stops the replan and leaves provider s
     assert.equal(untouched?.proposal ?? null, null, 'a disabled account must not be offered a patch either');
     assert.deepEqual(await listPlanEvents(off, storage), [], 'a disabled account must leave no plan ledger entry');
 
-    // … while the other account in the very same sweep was carried through the
-    // pipeline, and would have been replanned had the change contradicted a
-    // placement. Proven directly rather than through the sweep's totals:
-    // the same change, the same facts, one setting apart.
-    await storage.set(userSubDoc(on, PLANNING_STATE_CHANGES, 'chg-busy-1'), changeFor(on));
-    const enabled = await processStateChangesForUser(on, {
-      storage,
-      now: NOW,
-      date: DATE,
-      entityFacts: FACTS,
-      policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
-    });
-    assert.equal(enabled.skipped, null);
-    assert.equal((await readStoredPlan(on, DATE, storage))?.generation, 2, 'the gate must be per account');
+    // … while the other account in the very same sweep was replanned by it:
+    // a new generation, or a stored patch, depending on the churn policy.
+    const replanned = await readStoredPlan(on, DATE, storage);
+    assert.ok(
+      replanned?.generation === 2 || replanned?.proposal,
+      'the gate must be per account: the enabled account was replanned by the sweep',
+    );
 
     // And the disabled account, given the identical change and facts, is
     // still not replanned — the difference is the setting and nothing else.
@@ -460,7 +458,7 @@ test('switching continuous replanning off stops the replan and leaves provider s
       storage,
       now: NOW,
       date: DATE,
-      entityFacts: FACTS,
+      entityFactsByChangeId: FACTS_BY_CHANGE,
       policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
     });
     assert.equal(disabled.skipped, 'continuous_replan_disabled');
@@ -498,7 +496,7 @@ test('a disabled account drains its pending changes rather than hoarding them', 
       planSettings: { enabled: true, deliveryLocalTime: '07:30', timezone: TZ, continuousReplanEnabled: false },
     });
 
-    const report = await processStateChangesForUser(uid, { storage, now: NOW, date: DATE, entityFacts: FACTS });
+    const report = await processStateChangesForUser(uid, { storage, now: NOW, date: DATE, entityFactsByChangeId: FACTS_BY_CHANGE });
     assert.equal(report.skipped, 'continuous_replan_disabled');
     assert.equal(report.changesProcessed, 1, 'the change was read, and reading it is having handled it');
     assert.equal(report.pipelineResult.impact.reason, 'continuous_replan_disabled');
@@ -529,7 +527,7 @@ test('the monitoring pause and the continuous-replan switch are orthogonal', asy
       storage,
       now: NOW,
       date: DATE,
-      entityFacts: FACTS,
+      entityFactsByChangeId: FACTS_BY_CHANGE,
       policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
     });
     assert.equal(report.skipped, null, 'the monitoring pause must not be read as a replan opt-out');
@@ -599,7 +597,7 @@ test('a proposal the user must confirm is stored as a patch of the generation it
       storage,
       now: NOW,
       date: DATE,
-      entityFacts: FACTS,
+      entityFactsByChangeId: FACTS_BY_CHANGE,
       policyConfig: { userControlMode: 'always_require_confirmation' },
     });
     assert.equal(report.pipelineResult.policyDecision?.action, 'propose_for_review');
@@ -676,7 +674,7 @@ test('a patch of a generation that has moved on is refused, and an auto-apply cl
       storage,
       now: NOW,
       date: DATE,
-      entityFacts: FACTS,
+      entityFactsByChangeId: FACTS_BY_CHANGE,
       policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
     });
     assert.equal(report.planStored, true);

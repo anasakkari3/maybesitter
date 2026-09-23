@@ -199,7 +199,7 @@ async function replan(
     now: options.now ?? MORNING,
     date: DATE,
     changes: [change],
-    entityFacts: { interval: meeting, blocking: true },
+    entityFactsByChangeId: new Map([[change.changeId, { interval: meeting, blocking: true }]]),
     policyConfig,
   });
 }

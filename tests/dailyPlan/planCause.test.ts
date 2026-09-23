@@ -16,7 +16,7 @@
  * Nothing here hand-writes a `WatcherFireEvent` or a `PlanningStateChange`:
  * the watcher is created, the engine sweeps, the engine fires, and the change
  * the replan consumes is the one production writes. The only thing the test
- * supplies is `entityFacts` — the changed entity's post-change time facts,
+ * supplies is `entityFactsByChangeId`: the changed entity's post-change time facts,
  * which is the caller's input to the service in production too, and which is
  * what makes the impact `REPLAN_REQUIRED` rather than `PLAN_STALE`.
  */
@@ -203,12 +203,15 @@ async function fireBothWatchers(): Promise<{
 }
 
 /** The automatic replan, with the facts that make the flight change bite. */
-async function runAutomaticReplan() {
+async function runAutomaticReplan(bitingChangeIds: readonly string[]) {
+  // Only the named changes carry the overlapping interval (#605). Any other
+  // change in the batch is judged on its own fields.
+  const facts = { interval: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` }, blocking: true };
   return processStateChangesForUser(UID, {
     storage,
     now: NOW,
     date: DATE,
-    entityFacts: { interval: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` }, blocking: true },
+    entityFactsByChangeId: new Map(bitingChangeIds.map((changeId) => [changeId, facts])),
     policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
   });
 }
@@ -328,7 +331,7 @@ test('a stored plan produced by an automatic replan names the monitor that cause
 
     // The service reads the pending change from storage itself — the watcher's
     // own record, not one this test handed it.
-    const report = await runAutomaticReplan();
+    const report = await runAutomaticReplan([changeId]);
     assert.equal(report.pipelineResult.impact.decision, 'REPLAN_REQUIRED');
     assert.equal(report.pipelineResult.policyDecision?.action, 'auto_apply');
     assert.equal(report.planStored, true, 'the automatic replan did not reach storage');
@@ -369,7 +372,7 @@ test('a monitor that fired in the same sweep but did not impact the plan is not 
     await seedAccount();
     const { flight, meeting } = await fireBothWatchers();
 
-    const report = await runAutomaticReplan();
+    const report = await runAutomaticReplan([flight.changeId]);
     assert.equal(report.pipelineResult.impact.decision, 'REPLAN_REQUIRED');
     assert.equal(report.planStored, true);
 
@@ -476,7 +479,7 @@ test('a manual regeneration drops the cause of the generation it replaces', asyn
   try {
     await seedAccount();
     const { changeId } = await fireReplanWatcher();
-    assert.equal((await runAutomaticReplan()).planStored, true);
+    assert.equal((await runAutomaticReplan([changeId])).planStored, true);
 
     // Generation 2 is caused, and provably so — the inheritance defect needs
     // something to inherit.
@@ -513,7 +516,7 @@ test('a cause id belonging to another account attributes to nothing', async () =
   try {
     await seedAccount();
     const { changeId } = await fireReplanWatcher();
-    assert.equal((await runAutomaticReplan()).planStored, true);
+    assert.equal((await runAutomaticReplan([changeId])).planStored, true);
 
     // The same id, recorded on a different account's plan. The firing that
     // claims it lives under UID, and the join is scoped before it matches, so

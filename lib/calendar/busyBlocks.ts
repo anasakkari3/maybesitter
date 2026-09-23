@@ -360,6 +360,36 @@ async function allBlocks(uid: string, deps: BusyBlockDeps): Promise<BusyBlock[]>
   return rows.map((row) => row.data);
 }
 
+/**
+ * The stored blocks carrying these ids, grouped by id (#605).
+ *
+ * The replan tick uses it to resolve what a calendar change now describes. It
+ * reads the whole account, not a window, on purpose: a block announced by a
+ * change may sit outside today's horizon, and the impact evaluator must see its
+ * interval to judge it outside the horizon rather than as a block that vanished.
+ * The cost is `allBlocks`'s, which is bounded for the reason given there.
+ *
+ * A block's id hashes its start (`busyBlockId`), so a meeting that moves is a
+ * new id, not the old one relocated. Under the old id it reads as absent, which
+ * is the same as deleted: the block was removed, or never reached this account.
+ */
+export async function readBusyBlocksById(
+  uid: string,
+  blockIds: readonly string[],
+  deps: BusyBlockDeps = {},
+): Promise<ReadonlyMap<string, readonly BusyBlock[]>> {
+  const wanted = new Set(blockIds);
+  const found = new Map<string, BusyBlock[]>();
+  if (wanted.size === 0) return found;
+  for (const block of await allBlocks(uid, deps)) {
+    if (!wanted.has(block.blockId)) continue;
+    const list = found.get(block.blockId);
+    if (list) list.push(block);
+    else found.set(block.blockId, [block]);
+  }
+  return found;
+}
+
 export async function listBusyBlocks(
   uid: string,
   window: TimeInterval,

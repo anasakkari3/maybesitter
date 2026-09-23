@@ -232,7 +232,7 @@ test('pipeline: non-planning metadata change results in NO_EFFECT and zero plann
   const result = executeContinuousReplanPipeline({
     changes: [change({ changedFields: ['title', 'description'] })],
     planView,
-    entityFacts: { interval: interval('2026-11-09T09:30:00.000Z', '2026-11-09T10:30:00.000Z'), blocking: true },
+    entityFactsByChangeId: new Map([['chg-1', { interval: interval('2026-11-09T09:30:00.000Z', '2026-11-09T10:30:00.000Z'), blocking: true }]]),
     basePlan: base,
     planner: () => {
       plannerCalls += 1;
@@ -260,7 +260,7 @@ test('pipeline: PLAN_STALE flags plan status without replan by default', () => {
   const result = executeContinuousReplanPipeline({
     changes: [change({ changedFields: ['deadlineAt'] })],
     planView,
-    entityFacts: { interval: interval('2026-11-09T15:00:00.000Z', '2026-11-09T16:00:00.000Z'), blocking: false },
+    entityFactsByChangeId: new Map([['chg-1', { interval: interval('2026-11-09T15:00:00.000Z', '2026-11-09T16:00:00.000Z'), blocking: false }]]),
     basePlan: base,
     planner: () => {
       plannerCalls += 1;
@@ -285,7 +285,7 @@ test('pipeline: PLAN_STALE invokes planner when replanOnStale is true', () => {
   const result = executeContinuousReplanPipeline({
     changes: [change({ changedFields: ['deadlineAt'] })],
     planView,
-    entityFacts: null,
+    entityFactsByChangeId: new Map(),
     basePlan: base,
     planner: () => {
       plannerCalls += 1;
@@ -318,7 +318,7 @@ test('pipeline: REPLAN_REQUIRED enqueues, plans, diffs, and auto-applies minor s
   const result = executeContinuousReplanPipeline({
     changes: [change({ changedFields: ['interval', 'blocking'] })],
     planView,
-    entityFacts: blockingCollision,
+    entityFactsByChangeId: new Map([['chg-1', blockingCollision]]),
     basePlan: base,
     planner: (causes) => {
       plannerCalls += 1;
@@ -360,7 +360,7 @@ test('pipeline: REPLAN_REQUIRED with excessive churn escalates to propose_for_re
   const result = executeContinuousReplanPipeline({
     changes: [change({ changedFields: ['interval'] })],
     planView,
-    entityFacts: blockingCollision,
+    entityFactsByChangeId: new Map([['chg-1', blockingCollision]]),
     basePlan: base,
     planner: () => ({ plan: solved }),
     policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 60 },
@@ -381,7 +381,7 @@ test('pipeline: is deterministic with identical output across runs', () => {
   const input = {
     changes: [change({ changedFields: ['interval'] })],
     planView,
-    entityFacts: { interval: interval('2026-11-09T09:00:00.000Z', '2026-11-09T09:30:00.000Z'), blocking: true },
+    entityFactsByChangeId: new Map([['chg-1', { interval: interval('2026-11-09T09:00:00.000Z', '2026-11-09T09:30:00.000Z'), blocking: true }]]),
     basePlan: base,
     planner: () => ({ plan: samplePlan([planned('item-1', '2026-11-09T09:30:00.000Z', '2026-11-09T10:30:00.000Z')]) }),
     scopeId: SCOPE_ID,
