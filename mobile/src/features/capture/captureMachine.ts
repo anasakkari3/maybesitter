@@ -179,6 +179,8 @@ export type CaptureEvent =
   | { type: 'clarified'; proposal: CaptureProposal }
   | { type: 'analyzeFailed'; kind: CaptureFailureKind; messageKey?: UserFacingKey; reason?: string }
   | { type: 'toggleItem'; itemId: string }
+  | { type: 'selectAll' }
+  | { type: 'deselectAll' }
   | { type: 'editItem'; itemId: string; edit: CaptureItemEdit }
   | { type: 'clearEdit'; itemId: string }
   | { type: 'confirmStarted' }
@@ -291,6 +293,38 @@ export function confirmableItems(
     .map((item) => item.itemId);
 }
 
+/**
+ * Items that start selected when a proposal arrives.
+ *
+ * For ordinary captures: all confirmable items start selected.
+ * For document shares (UC-3.7, #191 Step 6): items with confidence >= 0.7
+ * start selected; items with confidence < 0.7 start unselected.
+ */
+export function defaultSelectedItems(
+  proposal: CaptureProposal | null,
+  edits: Record<string, CaptureItemEdit> = {},
+): string[] {
+  if (!proposal) return [];
+  const confirmable = confirmableItems(proposal, edits);
+  const share = (proposal as { share?: { evidence?: readonly { itemId: string; document?: { confidence?: number } }[] } }).share;
+  if (!share || !Array.isArray(share.evidence)) {
+    return confirmable;
+  }
+  const confidenceByItem = new Map<string, number>();
+  for (const ev of share.evidence) {
+    if (ev?.itemId && ev.document && typeof ev.document.confidence === 'number') {
+      confidenceByItem.set(ev.itemId, ev.document.confidence);
+    }
+  }
+  if (confidenceByItem.size === 0) {
+    return confirmable;
+  }
+  return confirmable.filter((id) => {
+    const conf = confidenceByItem.get(id);
+    return conf === undefined ? true : conf >= 0.7;
+  });
+}
+
 /** What the confirm request carries. Only the selection, and only its edits. */
 export function confirmPayload(state: CaptureState): {
   proposalId: string;
@@ -331,7 +365,7 @@ export function wantsDiscardConfirmation(state: CaptureState): boolean {
   if (state.proposal) {
     if (Object.keys(state.edits).length > 0) return true;
     const base = state.original ?? state.proposal;
-    const defaultSelected = confirmableItems(base);
+    const defaultSelected = defaultSelectedItems(base);
     return !sameIds(state.selected, defaultSelected);
   }
   return state.text.trim().length > 0;
@@ -380,7 +414,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         proposal: event.proposal,
         // The untouched copy, for #164 to diff against.
         original: event.proposal,
-        selected: confirmableItems(event.proposal),
+        selected: defaultSelectedItems(event.proposal),
         edits: {},
         errorReason: null,
         messageKey: null,
@@ -425,6 +459,15 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         ? state.selected.filter((id) => id !== event.itemId)
         : [...state.selected, event.itemId];
       return { ...state, selected };
+    }
+
+    case 'selectAll': {
+      const confirmable = confirmableItems(state.proposal, state.edits);
+      return { ...state, selected: confirmable };
+    }
+
+    case 'deselectAll': {
+      return { ...state, selected: [] };
     }
 
     case 'editItem': {

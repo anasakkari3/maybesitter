@@ -77,3 +77,21 @@ export const calendarBusyDeletedSchema = z.object({
   success: z.literal(true),
   deleted: z.number().int().nonnegative(),
 });
+
+/**
+ * What the server answers a manual busy time store with (UC-3.7, #191 Step 7).
+ */
+export const manualCalendarStoredSchema = z.object({
+  success: z.literal(true),
+  sourceId: z.string(),
+  blocks: z.number().int().nonnegative(),
+  windowStart: z.string(),
+  windowEnd: z.string(),
+});
+
+export const manualCalendarDeletedSchema = z.object({
+  success: z.literal(true),
+  sourceId: z.string(),
+  deleted: z.number().int().nonnegative(),
+});
+

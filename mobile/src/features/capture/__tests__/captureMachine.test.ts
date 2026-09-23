@@ -17,6 +17,7 @@ import {
   captureReducer,
   confirmPayload,
   confirmableItems,
+  defaultSelectedItems,
   hasUnsavedText,
   wantsDiscardConfirmation,
   initialCaptureState,
@@ -593,3 +594,93 @@ describe('a proposal the server sent as needs_clarification (#492)', () => {
     expect(settled.proposal?.items[0]?.resolvedTime).toBeNull();
   });
 });
+
+describe('document share selection and selectAll/deselectAll (UC-3.7, #191)', () => {
+  const docProposal = (over: Partial<CaptureProposal> = {}) => ({
+    version: 'v1',
+    proposalId: 'p-doc',
+    status: 'proposed' as const,
+    items: [
+      { itemId: 'item-high', title: 'Midterm Exam', resolvedTime: '2026-10-10T10:00:00.000Z', needsClarification: false },
+      { itemId: 'item-low', title: 'Optional Reading Quiz', resolvedTime: '2026-10-15T10:00:00.000Z', needsClarification: false },
+      { itemId: 'item-edge', title: 'Assignment 1', resolvedTime: '2026-10-20T10:00:00.000Z', needsClarification: false },
+    ],
+    seeds: [],
+    share: {
+      channel: 'pdf',
+      kind: 'pdf' as const,
+      fileCount: 1,
+      totalBytes: 5000,
+      ignoredSegments: 0,
+      evidenceDropped: false,
+      metrics: {},
+      suggestedNextAction: null,
+      evidence: [
+        { itemId: 'item-high', sourceIndex: 0, excerpt: 'Midterm Oct 10', document: { kind: 'exam', page: 2, confidence: 0.95, dueAt: '2026-10-10T10:00:00.000Z', needsClarification: false } },
+        { itemId: 'item-low', sourceIndex: 0, excerpt: 'Optional Quiz Oct 15', document: { kind: 'quiz', page: 3, confidence: 0.55, dueAt: '2026-10-15T10:00:00.000Z', needsClarification: false } },
+        { itemId: 'item-edge', sourceIndex: 0, excerpt: 'Assignment 1 Oct 20', document: { kind: 'assignment', page: 1, confidence: 0.70, dueAt: '2026-10-20T10:00:00.000Z', needsClarification: false } },
+      ],
+      document: {
+        documentTitle: 'Biology 101',
+        courseName: 'Bio 101',
+        recurringSessions: [
+          { weekday: 1, start: '10:00', end: '12:00', label: 'Lecture' },
+        ],
+      },
+    },
+    ...over,
+  });
+
+  it('selects items with confidence >= 0.7 by default and leaves confidence < 0.7 unselected', () => {
+    const p = docProposal() as unknown as CaptureProposal;
+    const selected = defaultSelectedItems(p);
+    expect(selected).toContain('item-high'); // 0.95 >= 0.7
+    expect(selected).toContain('item-edge'); // 0.70 >= 0.7
+    expect(selected).not.toContain('item-low'); // 0.55 < 0.7
+
+    const state = run(
+      { type: 'open', source: 'share' },
+      { type: 'analyzeSucceeded', proposal: p },
+    );
+    expect(state.selected.sort()).toEqual(['item-edge', 'item-high'].sort());
+  });
+
+  it('selectAll selects all confirmable items', () => {
+    const p = docProposal() as unknown as CaptureProposal;
+    const state = run(
+      { type: 'open', source: 'share' },
+      { type: 'analyzeSucceeded', proposal: p },
+      { type: 'selectAll' },
+    );
+    expect(state.selected.sort()).toEqual(['item-edge', 'item-high', 'item-low'].sort());
+  });
+
+  it('deselectAll clears all selections', () => {
+    const p = docProposal() as unknown as CaptureProposal;
+    const state = run(
+      { type: 'open', source: 'share' },
+      { type: 'analyzeSucceeded', proposal: p },
+      { type: 'deselectAll' },
+    );
+    expect(state.selected).toEqual([]);
+  });
+
+  it('wantsDiscardConfirmation handles document shares with default confidence selections', () => {
+    const p = docProposal() as unknown as CaptureProposal;
+    const initial = run(
+      { type: 'open', source: 'share' },
+      { type: 'analyzeSucceeded', proposal: p },
+    );
+    // Fresh state with default selection does not prompt discard confirmation
+    expect(wantsDiscardConfirmation(initial)).toBe(false);
+
+    // Toggling an item marks selection modified
+    const toggled = captureReducer(initial, { type: 'toggleItem', itemId: 'item-low' });
+    expect(wantsDiscardConfirmation(toggled)).toBe(true);
+
+    // Deselect all marks selection modified
+    const deselected = captureReducer(initial, { type: 'deselectAll' });
+    expect(wantsDiscardConfirmation(deselected)).toBe(true);
+  });
+});
+

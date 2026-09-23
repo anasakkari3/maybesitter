@@ -5,6 +5,8 @@ import {
   calendarSettingsResponseSchema,
   deviceCalendarLinkRemovedSchema,
   deviceCalendarLinkResponseSchema,
+  manualCalendarDeletedSchema,
+  manualCalendarStoredSchema,
   type CalendarWriteTarget,
 } from '../schemas/calendar';
 import type { DeviceCalendarLink } from '../schemas/common';
@@ -84,3 +86,35 @@ export function deleteCalendarBusy(sourceId: string) {
     schema: calendarBusyDeletedSchema,
   });
 }
+
+/**
+ * Recurring lecture session busy input (UC-3.7, #191 Step 7).
+ */
+export interface ManualBusySession {
+  weekday: number;
+  start: string;
+  end: string;
+  label?: string | null;
+}
+
+export interface PostManualBusyInput {
+  proposalId: string;
+  sessions: readonly ManualBusySession[];
+  timezone: string;
+  referenceTime?: string;
+}
+
+export function postManualBusy(input: PostManualBusyInput) {
+  return apiRequest('POST', '/api/mobile/calendar/manual', {
+    body: input,
+    schema: manualCalendarStoredSchema,
+  });
+}
+
+export function deleteManualBusy(proposalId: string) {
+  return apiRequest('DELETE', '/api/mobile/calendar/manual', {
+    query: { proposalId },
+    schema: manualCalendarDeletedSchema,
+  });
+}
+

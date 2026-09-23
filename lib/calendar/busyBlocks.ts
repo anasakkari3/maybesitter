@@ -75,8 +75,8 @@ import { BUSY_BLOCKS, CALENDAR_SOURCES, docIdForKey, userCol, userSubDoc } from 
 
 export { BUSY_BLOCKS, CALENDAR_SOURCES };
 
-/** Where a busy block came from. #187 adds `google`, #188 adds `ics`. */
-export const BUSY_SOURCE_KINDS = ['device', 'google', 'ics'] as const;
+/** Where a busy block came from. #187 adds `google`, #188 adds `ics`, #191 adds `manual`. */
+export const BUSY_SOURCE_KINDS = ['device', 'google', 'ics', 'manual'] as const;
 export type BusySourceKind = (typeof BUSY_SOURCE_KINDS)[number];
 
 /**
@@ -219,11 +219,14 @@ export function sourceKindOf(sourceId: unknown): BusySourceKind {
   if (sourceId.includes('..')) {
     throw new BusyUploadError('sourceId must not contain ".."');
   }
-  const kind = BUSY_SOURCE_KINDS.find((candidate) => sourceId.startsWith(`${candidate}:`));
+  const kind = BUSY_SOURCE_KINDS.find((candidate) =>
+    sourceId.startsWith(`${candidate}:`) || (candidate === 'manual' && sourceId.startsWith('manual-'))
+  );
   if (!kind) {
     throw new BusyUploadError(`sourceId must start with one of ${BUSY_SOURCE_KINDS.map((k) => `${k}:`).join(', ')}`);
   }
-  if (sourceId.length === kind.length + 1) throw new BusyUploadError('sourceId must name a source after its kind');
+  const prefixLength = (kind === 'manual' && sourceId.startsWith('manual-')) ? 7 : kind.length + 1;
+  if (sourceId.length === prefixLength) throw new BusyUploadError('sourceId must name a source after its kind');
   return kind;
 }
 
