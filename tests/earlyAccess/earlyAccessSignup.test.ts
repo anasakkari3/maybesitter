@@ -100,7 +100,7 @@ test('a valid sign-up stores exactly the contract fields, normalised, and nothin
   for (const leaked of ['203.0.113.9', 'UA-probe', 'c=1']) assert.ok(!text.includes(leaked), `${leaked} must never be stored`);
   // The document id is a hash, so the email never appears in a path or a log line.
   assert.ok(await storage.get(registrationPath('tester@example.com')));
-  assert.ok(!registrationPath('tester@example.com').includes('example.com'));
+  assert.match(registrationPath('tester@example.com'), /^earlyAccessRegistrations\/[0-9a-f]{64}$/);
 });
 
 test('the rate-limit window holds a count and a reset time, and nothing about a person', async () => {
