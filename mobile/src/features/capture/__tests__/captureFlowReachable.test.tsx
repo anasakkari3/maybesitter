@@ -1,3 +1,4 @@
+import * as textScale from '../../../theme/textScale';
 /**
  * The capture flow, from an entry point a user can actually reach
  * (UC-2.R2, #172).
@@ -17,7 +18,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -857,5 +858,24 @@ describe('a saved item that lands on something already there (football fixtures,
     await fireEvent.press(screen.getByTestId('review-confirm'));
     await waitFor(() => expect(screen.queryByTestId('saved-item-i-1')).not.toBeNull());
     expect(screen.queryByTestId('saved-collisions')).toBeNull();
+  });
+});
+
+
+describe('Review at accessibility text sizes', () => {
+  it('keeps Back outside the scroller and confirmation after the reviewable facts', async () => {
+    jest.spyOn(textScale, 'useLayoutMode').mockReturnValue('xl');
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    const contents = within(screen.getByTestId('review-scroll'));
+    expect(contents.getByTestId('review-item-i-1')).toBeTruthy();
+    expect(contents.getByTestId('review-confirm')).toBeTruthy();
+    expect(contents.queryByTestId('review-back')).toBeNull();
+    expect(screen.getByTestId('review-back')).toBeTruthy();
+    await fireEvent.press(contents.getByTestId('review-confirm'));
+    await waitFor(() => expect(screen.getByTestId('saved-title')).toBeTruthy());
   });
 });

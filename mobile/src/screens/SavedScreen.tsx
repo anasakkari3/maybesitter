@@ -98,8 +98,8 @@ export function SavedScreen() {
     <ScreenIn style={{ backgroundColor: p.bg, paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: insets.bottom + 24 }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 20, paddingVertical: 28 }}>
         <Pop>
-          <View style={{ width: 64, height: 64, borderRadius: 24, backgroundColor: p.acs, alignItems: 'center', justifyContent: 'center' }}>
-            <CheckIcon size={28} color={p.acd} weight={2.5 / 2} />
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
+            <CheckIcon size={38} color={p.onAccent} weight={2.5 / 2} />
           </View>
         </Pop>
         <Txt role="section" align="center" testID="saved-title">{t.savedTitle}</Txt>

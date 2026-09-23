@@ -1,3 +1,4 @@
+import { useLayoutMode } from '../theme/textScale';
 import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -46,6 +47,7 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 export function ReviewScreen() {
   const { t, tr, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
+  const scrollActions = useLayoutMode() === 'xl';
   const flow = useCaptureFlow();
   const { state } = flow;
   const [answering, setAnswering] = useState(false);
@@ -83,10 +85,37 @@ export function ReviewScreen() {
     });
   };
 
+  const confirmationActions = (
+    <View style={{ paddingTop: 12, paddingHorizontal: scrollActions ? 0 : 16, paddingBottom: insets.bottom + 8, gap: 4, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
+      {selectedCount === 0 ? (
+        <Txt size={12} color={p.mu} align="center" testID="review-none-selected">{t.reviewNothingSelected}</Txt>
+      ) : null}
+      <Pill
+        testID="review-confirm"
+        label={tr('confirmN', { n: selectedCount })}
+        onPress={() => void flow.confirm()}
+        disabled={selectedCount === 0 || busy}
+        size={17}
+        pad={14}
+      />
+      <Pill
+        testID="review-cancel"
+        label={t.cancelAll}
+        onPress={() => { flow.close(); actions.closeCapture(); }}
+        kind="ghost"
+        size={14}
+        weight={400}
+        pad={10}
+      />
+    </View>
+
+  );
+
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <TaskHeader pill={t.back} onPill={() => flow.backToComposer()} title={t.reviewTitle} pillTestID="review-back" />
+      <TaskHeader pill={t.back} onPill={() => flow.backToComposer()} title={!asking && scrollActions ? t.reviewConfirmationHeading : t.reviewTitle} pillTestID="review-back" />
       <ScrollView
+        testID="review-scroll"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 20, gap: 12 }}
       >
@@ -139,6 +168,13 @@ export function ReviewScreen() {
           </View>
         ) : null}
 
+        {!asking && !scrollActions ? (
+          <View style={{ gap: 4, paddingHorizontal: 4, paddingVertical: 8 }} testID="review-confirmation-heading">
+            <Txt role="section">{t.reviewConfirmationHeading}</Txt>
+            <Txt role="supporting" color={p.mu}>{t.reviewConfirmationBody}</Txt>
+          </View>
+        ) : null}
+
         {items.map((item) => (
           <ItemCard
             key={item.itemId}
@@ -164,30 +200,10 @@ export function ReviewScreen() {
             />
           </View>
         ) : null}
+        {scrollActions ? confirmationActions : null}
       </ScrollView>
 
-      <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 4, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.ln }}>
-        {selectedCount === 0 ? (
-          <Txt size={12} color={p.mu} align="center" testID="review-none-selected">{t.reviewNothingSelected}</Txt>
-        ) : null}
-        <Pill
-          testID="review-confirm"
-          label={tr('confirmN', { n: selectedCount })}
-          onPress={() => void flow.confirm()}
-          disabled={selectedCount === 0 || busy}
-          size={17}
-          pad={14}
-        />
-        <Pill
-          testID="review-cancel"
-          label={t.cancelAll}
-          onPress={() => { flow.close(); actions.closeCapture(); }}
-          kind="ghost"
-          size={14}
-          weight={400}
-          pad={10}
-        />
-      </View>
+      {!scrollActions ? confirmationActions : null}
     </ScreenIn>
   );
 }
@@ -231,29 +247,23 @@ function ItemCard({
       label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}`}
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
-        // React Native refuses a dashed border whose sides differ in width, so
-        // the "chosen" accent edge is its own bar rather than a thicker side
-        // (the warning is logged on device, and the edge simply vanished).
+        // Selection belongs to the explicit checkbox, not the proposal border.
         backgroundColor: p.sf, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 18, gap: 10,
         alignItems: 'flex-start', overflow: 'hidden',
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop,
 
       }}
     >
-      <View
-        pointerEvents="none"
-        style={{ position: 'absolute', top: 0, bottom: 0, start: 0, width: 4, backgroundColor: selected ? p.ink : p.ln }}
-      />
       <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, alignSelf: 'stretch' }}>
         <View
           testID={`review-check-${item.itemId}`}
           style={{
             width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 2,
-            backgroundColor: selected ? p.ink : 'transparent',
-            borderWidth: selected ? 0 : 2, borderColor: p.lnStrong,
+            backgroundColor: selected ? p.acs : 'transparent',
+            borderWidth: 2, borderColor: selected ? p.acd : p.lnStrong,
           }}
         >
-          {selected ? <CheckIcon size={14} color={p.onInk} /> : null}
+          {selected ? <CheckIcon size={16} color={p.acd} /> : null}
         </View>
         <Txt role="card" style={{ flex: 1 }}>{title}</Txt>
         <TextLink testID={`review-edit-${item.itemId}`} label={t.reviewEdit} onPress={onEdit} size={13} />

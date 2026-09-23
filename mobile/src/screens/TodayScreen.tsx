@@ -1,3 +1,6 @@
+import { dayProgress, importantDeadline, planPreview } from '../features/today/dayContext';
+import { DeadlineContext } from '../features/today/DeadlineContext';
+import { weekStripKeys } from '../features/commitments/weekStrip';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
@@ -118,8 +121,22 @@ export function TodayScreen() {
     return new Map(all.map((c) => [c.id, c]));
   }, [groups]);
 
+  const visibleRecords = showBar ? filterByCategory(today.data?.items ?? [], chip) : today.data?.items ?? [];
+  const preview = planPreview(plan.data, visibleRecords);
+  const previewIds = new Set(preview.map(item => item.id));
+  const progress = dayProgress(visibleRecords, dayKey(new Date(), timezone), timezone);
+  const futureRecords = showBar ? filterByCategory(upcoming.data?.items ?? [], chip) : upcoming.data?.items ?? [];
+  const insight = importantDeadline(futureRecords, [weekStripKeys(new Date(), timezone)[1]!], timezone);
+  const restGroups = {
+    must: model.groups.must.filter(item => !previewIds.has(item.id)),
+    should: model.groups.should.filter(item => !previewIds.has(item.id)),
+    nice: model.groups.nice.filter(item => !previewIds.has(item.id)),
+    finished: model.groups.finished.filter(item => !previewIds.has(item.id)),
+  };
+  const later = model.later.filter(item => !previewIds.has(item.id) && item.id !== insight?.id);
+
   const strings = t as unknown as Record<string, string>;
-  const hasRest = model.openInGroups > 0 || model.groups.finished.length > 0;
+  const hasRest = Object.values(restGroups).some(items => items.length > 0);
 
   const refresh = () => {
     setRefreshing(true);
@@ -155,14 +172,14 @@ export function TodayScreen() {
           ) : (
             <>
               <Txt size={13} color={p.mu} testID="today-count">
-                {tr('todayCountOpen', { n: model.openTotal })}
+                {progress ? tr('todayProgressCompact', progress) : tr('todayCountOpen', { n: model.openTotal })}
               </Txt>
 
               {/* PRIMARY · what matters now */}
               <PrimaryCard primary={model.primary} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
 
               {/* SECONDARY · the plan, always present, always honest */}
-              <TodayPlanRow row={model.plan} />
+              <TodayPlanRow row={model.plan} preview={preview} />
 
               {/* The rest of today, in the user's own groups */}
               {hasRest ? <SectionLabel testID="today-rest-title">{t.todayRestTitle}</SectionLabel> : null}
@@ -171,20 +188,20 @@ export function TodayScreen() {
                   key={key}
                   title={strings[GROUP_TITLE[key]]!}
                   testID={`today-group-${key}`}
-                  items={model.groups[key]}
+                  items={restGroups[key]}
                   timezone={timezone}
                   lang={lang}
                   busy={busy}
                 />
               ))}
-              {model.groups.finished.length > 0 ? <FinishedGroup items={model.groups.finished} /> : null}
+              {restGroups.finished.length > 0 ? <FinishedGroup items={restGroups.finished} /> : null}
 
               {/* TERTIARY · later */}
-              {model.later.length > 0 ? (
+              {later.length > 0 ? (
                 <View style={{ gap: 6 }}>
                   <SectionLabel testID="today-later-title">{t.todayLaterTitle}</SectionLabel>
                   <Card pad={0} style={{ overflow: 'hidden' }} testID="today-later">
-                    {model.later.map((item, index) => (
+                    {later.map((item, index) => (
                       <LaterRow key={item.id} item={item} first={index === 0} timezone={timezone} lang={lang} />
                     ))}
                     <View style={{ paddingHorizontal: 18, paddingVertical: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
@@ -193,6 +210,7 @@ export function TodayScreen() {
                   </Card>
                 </View>
               ) : null}
+              {insight ? <DeadlineContext item={insight} /> : null}
             </>
           )}
         </QueryBoundary>

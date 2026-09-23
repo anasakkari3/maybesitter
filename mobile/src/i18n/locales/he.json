@@ -963,5 +963,17 @@
   "authSignOutConfirm": "להתנתק?",
   "authSignOutBody": "ההתחייבויות נשארות בחשבון. תראו אותן שוב כשתתחברו.",
   "sourcesTitle": "מקורות",
-  "sourcesBody": "דברים שיכולים להכניס התחייבויות לימים שלכם בעצמם."
+  "sourcesBody": "דברים שיכולים להכניס התחייבויות לימים שלכם בעצמם.",
+  "todayProgressCompact": "{done} מתוך {total} הושלמו היום",
+  "planPreviewNext": "הבא בתוכנית",
+  "planPreviewPlanned": "בתוכנית",
+  "planPreviewProposed": "מוצע",
+  "planPreviewDone": "הושלם",
+  "tomorrowDeadlineContext": "מועד הגשה חשוב מחר",
+  "weekDeadlineContext": "מועד הגשה שכדאי לזכור השבוע",
+  "openDetails": "פרטים",
+  "captureUnderstood": "זה מה שהבנתי:",
+  "reviewConfirmationHeading": "לאישור",
+  "reviewConfirmationBody": "רק הפרטים שנבחרו יתווספו.",
+  "clarifyRemaining": "{n, plural, one{נשארה שאלה אחת} other{נשארו # שאלות}}"
 }

@@ -960,5 +960,17 @@
   "authSignOutConfirm": "Sign out?",
   "authSignOutBody": "Your commitments stay in your account. You’ll see them again when you sign back in.",
   "sourcesTitle": "Sources",
-  "sourcesBody": "Things that can put commitments into your days on their own."
+  "sourcesBody": "Things that can put commitments into your days on their own.",
+  "todayProgressCompact": "{done} of {total} done today",
+  "planPreviewNext": "Next in plan",
+  "planPreviewPlanned": "Planned",
+  "planPreviewProposed": "Suggested",
+  "planPreviewDone": "Done",
+  "tomorrowDeadlineContext": "An important deadline tomorrow",
+  "weekDeadlineContext": "A deadline to keep in mind this week",
+  "openDetails": "Details",
+  "captureUnderstood": "Here’s what I understood:",
+  "reviewConfirmationHeading": "For confirmation",
+  "reviewConfirmationBody": "Only the selected details will be added.",
+  "clarifyRemaining": "{n, plural, one{One question left} other{# questions left}}"
 }

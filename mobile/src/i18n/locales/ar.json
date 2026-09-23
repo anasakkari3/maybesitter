@@ -960,5 +960,17 @@
   "authSignOutConfirm": "تسجّل خروج؟",
   "authSignOutBody": "التزاماتك بتضل بحسابك. بترجع تشوفها لما تسجّل من جديد.",
   "sourcesTitle": "مصادر",
-  "sourcesBody": "أشياء بتقدر تحط التزامات بأيامك لحالها."
+  "sourcesBody": "أشياء بتقدر تحط التزامات بأيامك لحالها.",
+  "todayProgressCompact": "خلصت {done} من {total} اليوم",
+  "planPreviewNext": "التالي بالخطة",
+  "planPreviewPlanned": "بالخطة",
+  "planPreviewProposed": "مقترح",
+  "planPreviewDone": "تمّت",
+  "tomorrowDeadlineContext": "بكرا عندك موعد تسليم مهم",
+  "weekDeadlineContext": "موعد تسليم مهم تنتبه له هالأسبوع",
+  "openDetails": "التفاصيل",
+  "captureUnderstood": "فهمت منك:",
+  "reviewConfirmationHeading": "للتأكيد",
+  "reviewConfirmationBody": "رح نضيف بس التفاصيل اللي بتختارها.",
+  "clarifyRemaining": "{n, plural, =1{باقي سؤال واحد} =2{باقي سؤالين} few{باقي # أسئلة} other{باقي # سؤال}}"
 }

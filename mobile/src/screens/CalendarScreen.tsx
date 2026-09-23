@@ -1,3 +1,5 @@
+import { importantDeadline } from '../features/today/dayContext';
+import { DeadlineContext } from '../features/today/DeadlineContext';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
 import { useLayoutMode, useTextScale } from '../theme/textScale';
@@ -90,6 +92,8 @@ export function CalendarScreen() {
   }, [busy, timezone]);
 
   const selectedKey = keys[Math.min(Math.max(s.selDay, 0), STRIP_DAYS - 1)] ?? todayKey;
+  // Context should add something beyond the selected day’s list.
+  const weekInsight = importantDeadline([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])], keys.filter(key => key !== selectedKey), timezone);
   const selected = byDay.get(selectedKey) ?? [];
   const selectedBusy = calendarConnected ? (busyByDay.get(selectedKey) ?? []) : [];
   // Commitments and busy blocks in one list, in time order; an undated
@@ -205,6 +209,7 @@ export function CalendarScreen() {
               </View>
             ) : null}
           </View>
+          {weekInsight ? <DeadlineContext item={weekInsight} weekly /> : null}
         </QueryBoundary>
       </ScreenScroll>
     </Screen>

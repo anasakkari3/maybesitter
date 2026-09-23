@@ -1,10 +1,12 @@
+import type { PlanPreviewItem } from '../today/dayContext';
+import { ltr } from '../../i18n/strings';
 import React from 'react';
 import { View } from 'react-native';
 import { useLayoutMode } from '../../theme/textScale';
-import { CalendarIcon } from '../../ui/icons';
+import { CalendarIcon, CheckIcon } from '../../ui/icons';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
-import { dayKey } from '../../i18n/format';
+import { dayKey, formatTime } from '../../i18n/format';
 import { usePlan } from '../../api/queries';
 import { Btn, Txt } from '../../ui/primitives';
 import type { PlanRow as PlanRowModel } from '../today/composeToday';
@@ -37,8 +39,8 @@ import type { PlanRow as PlanRowModel } from '../today/composeToday';
  * This row means "the plan for the day I am in", so it asks with the device's
  * zone. Once opened, `PlanScreen` reads every time in the plan's own zone.
  */
-export function TodayPlanRow({ row }: { row: PlanRowModel }) {
-  const { t, tr, p, actions } = useApp();
+export function TodayPlanRow({ row, preview = [] }: { row: PlanRowModel; preview?: readonly PlanPreviewItem[] }) {
+  const { t, tr, p, lang, actions } = useApp();
   const timezone = useTimeZone();
   const stacked = useLayoutMode() !== 'normal';
   const date = dayKey(new Date(), timezone);
@@ -63,27 +65,49 @@ export function TodayPlanRow({ row }: { row: PlanRowModel }) {
     : row.kind === 'loading' ? undefined
     : () => actions.openPlan(date);
 
+  const stateLabels = { done: t.planPreviewDone, next: t.planPreviewNext, planned: t.planPreviewPlanned, proposed: t.planPreviewProposed };
+  const timeOf = (item: PlanPreviewItem) => ltr(formatTime(new Date(item.startsAt), { locale: lang, timeZone: query.data?.timezone ?? timezone }));
+  const description = preview.map(item => `${item.title}, ${timeOf(item)}, ${stateLabels[item.state]}`).join('. ');
+
   return (
     <Btn
-      label={`${title}. ${sub}`}
+      label={`${title}. ${sub}${description ? `. ${description}` : ''}`}
       testID="today-plan-card"
       onPress={onPress}
       disabled={!onPress}
       scaleTo={0.98}
       style={{
-        flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, minHeight: 56,
+        flexDirection: 'column', alignItems: 'stretch', gap: 12, minHeight: 56,
         backgroundColor: p.sf, borderRadius: 20, paddingVertical: 12, paddingHorizontal: 14,
         borderWidth: 1, borderColor: proposed ? p.prop : p.ln, borderStyle: proposed ? 'dashed' : 'solid',
       }}
     >
-      <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.acs : p.sf2 }}>
-        <CalendarIcon color={accepted ? p.acd : p.mu} />
+      <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }}>
+        <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.acs : p.sf2 }}>
+          <CalendarIcon color={accepted ? p.acd : p.mu} />
+        </View>
+        <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
+          <Txt size={15} weight={600} testID="today-plan-title">{title}</Txt>
+          <Txt role="supporting" color={p.mu} testID="today-plan-summary">{sub}</Txt>
+        </View>
+        {cta ? <Txt size={13} weight={600} color={p.acd} testID="today-plan-open">{cta}</Txt> : null}
       </View>
-      <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
-        <Txt size={15} weight={600} testID="today-plan-title">{title}</Txt>
-        <Txt role="supporting" color={p.mu} testID="today-plan-summary">{sub}</Txt>
-      </View>
-      {cta ? <Txt size={13} weight={600} color={p.acd} testID="today-plan-open">{cta}</Txt> : null}
+      {preview.length > 0 ? (
+        <View testID="today-plan-preview">
+          {preview.map(item => (
+            <View key={item.id} testID={`today-plan-preview-${item.id}`} style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: p.ln, gap: 4, alignItems: 'flex-start' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                {item.state === 'done' ? <CheckIcon size={16} color={p.acd} /> : null}
+                <Txt role="body" style={{ flex: 1 }} color={item.state === 'done' ? p.mu : p.tx}>{item.title}</Txt>
+              </View>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                <Txt role="supporting" color={p.mu}>{timeOf(item)}</Txt>
+                <Txt role="supporting" color={item.state === 'done' ? p.acd : p.mu}>{stateLabels[item.state]}</Txt>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </Btn>
   );
 }

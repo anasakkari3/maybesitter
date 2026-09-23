@@ -397,3 +397,21 @@ describe('done and not-now, from the row (#173 steps 3, 8)', () => {
     expect(screen.queryByTestId('today-swipe-m-postpone')).not.toBeNull();
   });
 });
+
+
+describe('Round 3 progressive density', () => {
+  it('keeps one primary, previews at most four slots, and only lists unpreviewed tasks below', async () => {
+    const records = ['primary', 'second', 'third', 'fourth', 'overflow'].map(id => withPriority(id, id === 'primary' ? 'high' : 'normal'));
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue({
+      date: '2026-09-23', timezone: 'UTC', status: 'accepted', generation: 1, inputDigest: '',
+      generatedAt: '2026-09-23T00:00:00Z', acceptedAt: '2026-09-23T00:00:00Z',
+      explanation: { text: '', locale: 'en', source: 'template' }, edited: false, unscheduled: [],
+      scheduled: records.map((record, i) => ({ itemId: record.id, title: record.title, startsAt: `2026-09-23T0${i + 4}:00:00Z`, endsAt: `2026-09-23T0${i + 4}:30:00Z` })),
+    });
+    await show(records);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
+    expect(screen.getAllByTestId(/^today-item-/).map(node => node.props.testID)).toEqual(['today-item-primary', 'today-item-overflow']);
+    expect(screen.queryByTestId('today-plan-preview-overflow')).toBeNull();
+  });
+});
