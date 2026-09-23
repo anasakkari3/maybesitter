@@ -69,7 +69,12 @@ const MIN_LITERAL = 4;
 
 function renderableTestIdPatterns(): { source: string; pattern: RegExp }[] {
   const patterns: { source: string; pattern: RegExp }[] = [];
-  const declaration = /testID\s*[=:]\s*\{?\s*(['"`])([\s\S]*?)\1/g;
+  // `[A-Za-z]*[Tt]estID` rather than `testID`: a component that forwards an
+  // id to a child names the prop for the child — `actionTestID` on `Notice`
+  // becomes `testID` on the link inside it. The capital T made the narrower
+  // pattern miss a real, renderable id, which is the one thing this guard
+  // must not do.
+  const declaration = /\b[A-Za-z]*[Tt]estID\s*[=:]\s*\{?\s*(['"`])([\s\S]*?)\1/g;
   for (const file of sourceFiles(SRC_DIR)) {
     const code = readFileSync(file, 'utf8');
     for (const match of code.matchAll(declaration)) {

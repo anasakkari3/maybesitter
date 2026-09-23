@@ -1,0 +1,136 @@
+{
+  "success": true,
+  "habit": {
+    "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+    "title": "Test reading habit",
+    "cadence": {
+      "kind": "weekly_count",
+      "count": 3
+    },
+    "durationMinutes": 30,
+    "preferredWindows": [],
+    "minimumOccurrences": 3,
+    "maximumOccurrences": 3,
+    "flexibility": "flexible",
+    "recoveryPolicy": "skip",
+    "status": "active",
+    "source": "user_created",
+    "confirmation": {
+      "confirmedByUserAt": "2026-09-23T13:45:31.447239+00:00",
+      "sourceRef": null,
+      "acceptedSuggestedValues": true
+    },
+    "createdAt": "2026-09-23T13:45:31.465Z",
+    "updatedAt": "2026-09-23T13:45:31.465Z"
+  },
+  "occurrences": [
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-09-23.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-09-23",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-09-26.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-09-26",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-09-28.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-09-28",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-09-30.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-09-30",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-03.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-03",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-05.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-05",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-07.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-07",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-10.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-10",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-12.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-12",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-14.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-14",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-17.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-17",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    },
+    {
+      "occurrenceId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99.2026-10-19.0",
+      "habitId": "ebbc4e1c-f553-4920-b553-cd30dbc60c99",
+      "localDate": "2026-10-19",
+      "ordinal": 0,
+      "state": "pending",
+      "durationMinutes": 30,
+      "recoveredFromOccurrenceId": null
+    }
+  ]
+}

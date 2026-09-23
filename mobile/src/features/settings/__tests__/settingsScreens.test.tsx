@@ -23,6 +23,7 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { KnowsScreen } from '../KnowsScreen';
+import { TrustScreen } from '../TrustScreen';
 import { RoutineSettingsScreen } from '../RoutineSettingsScreen';
 import { FeedbackHistoryScreen } from '../FeedbackHistoryScreen';
 import en from '../../../i18n/locales/en.json';
@@ -82,6 +83,16 @@ async function show(node: React.ReactNode) {
     </SafeAreaProvider>,
   );
 }
+
+it('offers the pilot report from Trust and sends no free-text content', async () => {
+  const report = jest.spyOn(trustEndpoints, 'reportPilotIncident').mockResolvedValue({ success: true, incidentId: 'incident-test', status: 'open' });
+  await show(<TrustScreen onBack={() => {}} onKnows={() => {}} />);
+  await waitFor(() => expect(screen.queryByTestId('trust-report-open')).not.toBeNull());
+  await fireEvent.press(screen.getByTestId('trust-report-open'));
+  await fireEvent.press(screen.getByTestId('trust-report-submit'));
+  await waitFor(() => expect(report).toHaveBeenCalledWith({ surface: 'capture', category: 'reliability' }));
+  await waitFor(() => expect(screen.queryByTestId('trust-report-saved')).not.toBeNull());
+});
 
 describe('what MaybeSitter knows', () => {
   it('shows the confirmed commitment count the server reported', async () => {

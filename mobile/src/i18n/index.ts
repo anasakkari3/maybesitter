@@ -52,5 +52,6 @@ export async function setLocale(locale: Locale): Promise<void> {
 export { apiLocale, DEFAULT_LOCALE, intlLocale, isLocale, LOCALES, SELECTABLE_LOCALES } from './locale';
 export type { Locale } from './locale';
 export { isolate, isolateAuto, ltr, stripIsolates } from './bidi';
-export { formatDate, formatNumber, formatRelativeDay, formatTime, formatTimeRange } from './format';
+// Date/number helpers are imported from ./format by their callers. Re-exporting
+// them here creates a runtime cycle: format needs tFor after i18next is ready.
 export { deviceTimeZone, FALLBACK_TIME_ZONE, resolveTimeZone, useTimeZone } from './timezone';

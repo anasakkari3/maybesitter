@@ -70,7 +70,7 @@ export interface RequestOptions<T> {
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
   schema: z.ZodType<T>;
-  /** 201 for the alpha feedback flag; everything else answers 200. */
+  /** Expected success status from the route; creation routes commonly answer 201. */
   expectStatus?: number;
   signal?: AbortSignal;
   /**

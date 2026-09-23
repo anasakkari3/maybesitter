@@ -30,7 +30,7 @@ import {
   type PlanEdit,
 } from './endpoints/plans';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
-import { getTrust, updateTrust } from './endpoints/trust';
+import { getTrust, reportPilotIncident, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
 import { recordAnalyticsEvent } from './endpoints/analytics';
 import { putCalendarWriteTarget } from './endpoints/calendar';
@@ -82,7 +82,7 @@ import type { RoutineProfilePayload } from '../features/routine/routineProfile';
 import { applyEditLocally } from '../features/plan/optimisticEdit';
 import type { DailyPlan } from './schemas/plan';
 import type { NextStepDecisionKind, NextStepRecommendation } from './schemas/nextStep';
-import type { TrustAction } from './schemas/trust';
+import type { PilotIncidentInput, TrustAction } from './schemas/trust';
 import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
@@ -97,6 +97,17 @@ import {
   updateIcsFeed,
 } from './endpoints/icsFeeds';
 import type { IcsDeadlineAction } from './schemas/icsFeeds';
+import {
+  confirmGoalCommitments,
+  confirmGoalSelections,
+  generateGoalExecution,
+  getGoalExecution,
+  regenerateGoalExecution,
+  unlinkGoalNode,
+} from './endpoints/goals';
+import type { GoalConfirmationSelection } from './endpoints/goals';
+import { createHabit, deleteHabit, listHabits, setHabitStatus } from './endpoints/habits';
+import type { Habit, NewHabitInput } from './schemas/habits';
 
 /**
  * The hooks screens use, and the invalidation rules that keep them honest.
@@ -139,6 +150,8 @@ export const queryKeys = {
   icsFeeds: (uid: string) => ['user', uid, 'icsFeeds'] as const,
   /** Things the person is considering or waiting on (#519). */
   seeds: (uid: string) => ['user', uid, 'seeds'] as const,
+  goalExecution: (uid: string, goalId: string, generation: number) => ['user', uid, 'goalExecution', goalId, generation] as const,
+  habits: (uid: string) => ['user', uid, 'habits'] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -179,6 +192,11 @@ export function forgetValidators(): void {
 function invalidateCommitments(client: QueryClient, uid: string, id?: string): void {
   void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
   void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+  // The day's plan places these same commitments (Round 2, Phase C). A thing
+  // finished on Today was still a scheduled plan item until the plan happened
+  // to refetch, and Today's plan row counted it. One truth: a commitment that
+  // moves moves the plan too.
+  void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
   if (id) void client.invalidateQueries({ queryKey: queryKeys.commitment(uid, id) });
   // Anything that moves a commitment is, by definition, something that just
   // happened — so the history and the week's counts are both out of date
@@ -250,6 +268,81 @@ export function useNextStep() {
     queryFn: () => getNextStep(locale),
     enabled: uid !== 'signed-out',
   });
+}
+
+export function useGoalExecution(goalId: string, generation = 1) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.goalExecution(uid, goalId, generation),
+    queryFn: () => getGoalExecution(goalId, generation),
+    enabled: uid !== 'signed-out' && goalId !== '',
+  });
+}
+
+function useGoalMutation<TInput>(goalId: string, mutationFn: (input: TInput) => Promise<unknown>) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution', goalId] });
+      invalidateCommitments(client, uid);
+    },
+  });
+}
+
+export function useGenerateGoalExecution(goalId: string) {
+  return useGoalMutation(goalId, () => generateGoalExecution(goalId));
+}
+
+export function useRegenerateGoalExecution(goalId: string) {
+  return useGoalMutation(goalId, (generation: number) => regenerateGoalExecution(goalId, generation));
+}
+
+export function useConfirmGoalCommitments(goalId: string) {
+  return useGoalMutation(goalId, (input: { generation: number; nodeIds: readonly string[] }) =>
+    confirmGoalCommitments(goalId, input.generation, input.nodeIds));
+}
+
+export function useConfirmGoalSelections(goalId: string) {
+  return useGoalMutation(goalId, (input: { generation: number; selections: readonly GoalConfirmationSelection[] }) =>
+    confirmGoalSelections(goalId, input.generation, input.selections));
+}
+
+export function useUnlinkGoalNode(goalId: string) {
+  return useGoalMutation(goalId, (nodeId: string) => unlinkGoalNode(goalId, nodeId));
+}
+
+export function useHabits() {
+  const uid = useUid();
+  return useQuery({ queryKey: queryKeys.habits(uid), queryFn: listHabits, enabled: uid !== 'signed-out' });
+}
+
+function useHabitMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.habits(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+    },
+  });
+}
+
+export function useSetHabitStatus() {
+  const timezone = useTimeZone();
+  return useHabitMutation((input: { id: string; status: Habit['status'] }) => setHabitStatus(input.id, input.status, timezone));
+}
+
+export function useCreateHabit() {
+  const timezone = useTimeZone();
+  return useHabitMutation((input: NewHabitInput) => createHabit(input, timezone));
+}
+
+export function useDeleteHabit() {
+  return useHabitMutation((id: string) => deleteHabit(id));
 }
 
 export function useTrust() {
@@ -569,6 +662,10 @@ export function usePlan(date: string) {
 function adoptPlan(client: QueryClient, uid: string, date: string, plan: DailyPlan): void {
   client.setQueryData(queryKeys.plan(uid, date), plan);
   void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
+  // The next step is derived from the same commitments the plan just moved
+  // (Round 2, Phase C): accepting or editing a plan could leave the card
+  // suggesting a thing the plan had just placed elsewhere.
+  void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
   void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
   // An accepted plan is a day with a plan, and the first one a Moment
   // (#201) — both live in the week's summary, which is its own key.
@@ -587,7 +684,7 @@ export function usePlanAction(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (action: 'accept' | 'dismiss') => actOnPlan(date, { action }),
+    mutationFn: (action: 'accept' | 'dismiss' | 'accept_proposal' | 'reject_proposal') => actOnPlan(date, { action }),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
   });
 }
@@ -806,6 +903,10 @@ export function useTrustAction() {
       void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
     },
   });
+}
+
+export function useReportPilotIncident() {
+  return useMutation({ mutationFn: (input: PilotIncidentInput) => reportPilotIncident(input) });
 }
 
 export function useRevokeFeedback() {

@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { useTimeZone } from '../i18n/timezone';
-import { formatRelativeDay, formatTime } from '../i18n/format';
+import { dayKey, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
-import { accentGlow, cardShadow } from '../theme/tokens';
+import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
+import { ActionRow, Tag } from '../ui/chrome';
 import { CheckIcon, UndoRing } from '../ui/icons';
 import { Pop, ScreenIn } from '../ui/motion';
 import { UNDO_WINDOW_MS } from '../features/capture/captureMachine';
@@ -60,6 +61,11 @@ export function SavedScreen() {
   };
 
   const finish = () => { flow.close(); actions.go('today'); };
+  // «شوف اليوم» when everything landed today, «شوف الأسبوع» otherwise: the
+  // day the things went to is where the person goes next.
+  const today = dayKey(new Date(), timezone);
+  const allToday = state.persisted.length > 0 && state.persisted.every((item) => item.resolvedTime && dayKey(new Date(item.resolvedTime), timezone) === today);
+  const viewDay = () => { flow.close(); actions.go(allToday ? 'today' : 'calendar'); };
 
   const whenOf = (resolvedTime: string | null) => (resolvedTime
     ? `${formatRelativeDay(new Date(resolvedTime), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(resolvedTime), { locale: lang, timeZone: timezone }))}`
@@ -73,7 +79,7 @@ export function SavedScreen() {
       .map((id) => state.persisted.find((item) => item.commitmentId === id)?.title ?? id);
     return (
       <ScreenIn style={{ backgroundColor: p.bg, paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: insets.bottom + 24 }}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 }} testID="saved-undo-outcome">
+        <ScrollView contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 14, paddingVertical: 24 }} testID="saved-undo-outcome">
           <Txt size={22} weight={600} align="center">
             {fully ? t.undoneTitle : t.undonePartialTitle}
           </Txt>
@@ -82,7 +88,7 @@ export function SavedScreen() {
               {fill(t.undonePartialBody, { titles: stillSavedTitles.join('، ') })}
             </Txt>
           ) : null}
-        </View>
+        </ScrollView>
         <Pill testID="saved-done" label={t.ok} onPress={finish} />
       </ScreenIn>
     );
@@ -90,23 +96,26 @@ export function SavedScreen() {
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg, paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: insets.bottom + 24 }}>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+      <ScrollView contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', gap: 20, paddingVertical: 28 }}>
         <Pop>
-          <View style={[{ width: 72, height: 72, borderRadius: 36, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }, accentGlow(p, 0.3)]}>
-            <CheckIcon size={30} color={p.onAccent} weight={2.5 / 2} />
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: p.success, alignItems: 'center', justifyContent: 'center' }}>
+            <CheckIcon size={38} color={p.onSuccess} weight={2.5 / 2} />
           </View>
         </Pop>
-        <Txt size={24} weight={600} align="center" testID="saved-title">{t.savedTitle}</Txt>
+        <Txt role="section" align="center" testID="saved-title">{t.savedTitle}</Txt>
 
         <View style={{ alignSelf: 'stretch', gap: 8, marginTop: 6 }}>
           {state.persisted.map((item) => (
             <View
               key={item.commitmentId}
               testID={`saved-item-${item.itemId}`}
-              style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, flexDirection: 'row', justifyContent: 'space-between', gap: 10 }, cardShadow(p)]}
+              style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
             >
-              <Txt size={15} style={{ flexShrink: 1 }}>{item.title}</Txt>
-              <Txt size={12} color={p.mu}>{whenOf(item.resolvedTime)}</Txt>
+              <Txt role="card">{item.title}</Txt>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <Tag kind="saved" label={t.reviewConfirmedTag} />
+                <Txt size={12} color={p.mu}>{whenOf(item.resolvedTime)}</Txt>
+              </View>
             </View>
           ))}
         </View>
@@ -154,9 +163,12 @@ export function SavedScreen() {
             </View>
           </Btn>
         ) : null}
-      </View>
+      </ScrollView>
 
-      <Pill testID="saved-done" label={t.ok} onPress={finish} size={15} />
+      <ActionRow>
+        <Pill testID="saved-view-day" label={allToday ? t.tabToday : t.todayLaterSeeAll} onPress={viewDay} kind="outline" size={15} weight={500} />
+        <Pill testID="saved-done" label={t.ok} onPress={finish} size={15} />
+      </ActionRow>
     </ScreenIn>
   );
 }

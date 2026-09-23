@@ -2,69 +2,66 @@ import React from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Txt } from '../../ui/primitives';
+import { ProductIcon, type ProductIconName } from '../../ui/product';
+import { BackHeader } from '../../ui/chrome';
+import { ChevronIcon } from '../../ui/icons';
+import { useLayoutMode } from '../../theme/textScale';
 
-/** A settings sub-screen's title and its way back. */
-export function SettingsHeader({ title, onBack }: { title: string; onBack: () => void }) {
-  const { t, p } = useApp();
-  return (
-    <View style={{ gap: 10 }}>
-      <Btn
-        label={t.settingsBack}
-        onPress={onBack}
-        scaleTo={0.97}
-        style={{ alignSelf: 'flex-start', paddingVertical: 6, paddingHorizontal: 2, minHeight: 32 }}
-      >
-        <Txt size={14} color={p.ac}>{t.settingsBack}</Txt>
-      </Btn>
-      <Txt size={26} weight={600} lh={1.3}>{title}</Txt>
-    </View>
-  );
+/**
+ * A settings sub-screen's title and its way back — Round 2's one header
+ * (`BackHeader`), so the fourteen leaves that use this share it with every
+ * other pushed screen.
+ */
+export function SettingsHeader({ title, onBack, end }: { title: string; onBack: () => void; end?: React.ReactNode }) {
+  const { t } = useApp();
+  return <BackHeader title={title} onBack={onBack} backLabel={t.settingsBack} end={end} />;
 }
 
 /**
- * One tappable settings row.
- *
- * `start`/`end` are never used here and neither are `left`/`right`: the row is
- * a flex row, and the root view's `direction` mirrors it for Arabic and Hebrew
- * without this component knowing which way it is being read.
+ * One tappable settings row (Round 2): a label, an optional second line that
+ * says what is there before it is opened, an optional value at the end, and
+ * a chevron. `start`/`end` are never used here and neither are `left`/`right`:
+ * the row is a flex row, and the root view's `direction` mirrors it.
  */
 export function SettingsRow({
-  label, value, onPress, testID, tone,
+  label, sub, value, onPress, testID, tone, first, icon,
 }: {
   label: string;
+  icon?: ProductIconName;
+  sub?: string | undefined;
   value?: string | undefined;
   onPress?: (() => void) | undefined;
-  testID?: string;
+  testID?: string | undefined;
   tone?: 'default' | 'warn';
+  first?: boolean | undefined;
 }) {
-  const { p } = useApp();
+  const { p, rtl } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   return (
     <Btn
       label={label}
+      hint={[sub, value].filter(Boolean).join('. ') || undefined}
       onPress={onPress}
       disabled={!onPress}
       scaleTo={onPress ? 0.98 : 1}
       style={{
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'center',
+        gap: 12,
         paddingVertical: 16,
-        paddingHorizontal: 18,
-        minHeight: 52,
-        borderTopWidth: 1,
+        minHeight: 56,
+        borderTopWidth: first ? 0 : 1,
         borderTopColor: p.ln,
       }}
     >
-      <Txt
-        size={15}
-        // Spread rather than `prop={x ?? undefined}`: the app compiles with
-        // exactOptionalPropertyTypes, so an explicit undefined is an error.
-        {...(testID ? { testID } : {})}
-        {...(tone === 'warn' ? { color: p.wm } : {})}
-      >
-        {label}
-      </Txt>
-      {value ? <Txt size={13} color={p.mu}>{value}</Txt> : null}
+      {icon && !stacked ? <ProductIcon name={icon} quiet /> : null}
+      <View style={{ flex: 1, gap: 4 }}>
+        <Txt role="action" color={tone === 'warn' ? p.wm : p.tx} {...(testID ? { testID } : {})}>{label}</Txt>
+        {sub ? <Txt role="supporting" color={p.mu}>{sub}</Txt> : null}
+        {value && stacked ? <Txt role="supporting" color={p.mu}>{value}</Txt> : null}
+      </View>
+      {value && !stacked ? <Txt role="label" weight={400} color={p.mu} style={{ flexShrink: 1, maxWidth: '45%' }}>{value}</Txt> : null}
+      {onPress ? <ChevronIcon color={p.mu} rtl={rtl} /> : null}
     </Btn>
   );
 }

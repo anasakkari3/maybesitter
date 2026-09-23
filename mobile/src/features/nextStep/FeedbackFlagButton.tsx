@@ -102,7 +102,7 @@ export function FeedbackFlagButton({ proposalId, commitmentId }: {
             accessibilityRole="radio"
             disabled={flag.isPending}
             onPress={() => send(category)}
-            style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center', opacity: flag.isPending ? 0.4 : 1 }}
+            style={{ backgroundColor: flag.isPending ? p.dis : p.sf2, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' }}
           >
             <Txt size={13}>{strings[CATEGORY_KEY[category]]}</Txt>
           </Btn>

@@ -11,10 +11,10 @@ import { join } from 'path';
  * noticed because each screen passed its own tests in isolation.
  *
  * So this test reads the union from `state/types.ts` and requires every member
- * to have a way in: a place in `tabScreens`, a `go('<name>')` call, a
- * `screen: '<name>'` assignment (`openDetail`, `openPlan`, the jump list), or a
- * `case '<name>'` in that list. A screen added to the union without one fails
- * here, not in a design review.
+ * to have a way in: a tab in `navigation.ts`'s `TABS`, a `go('<name>')` call,
+ * a history entry `name: '<name>'` (`openDetail`, `openPlan`, the arrivals,
+ * the jump list), or a `case '<name>'` in that list. A screen added to the
+ * union without one fails here, not in a design review.
  */
 
 const SRC = join(__dirname, '..', '..');
@@ -55,11 +55,15 @@ describe('screen reachability', () => {
     .join('\n');
 
   const tabScreens = [
-    .../tabScreens = \[([^\]]*)\]/.exec(sources)?.[1]?.matchAll(/'([A-Za-z]+)'/g) ?? [],
+    .../TABS: readonly Tab\[\] = \[([^\]]*)\]/.exec(sources)?.[1]?.matchAll(/'([A-Za-z]+)'/g) ?? [],
   ].map(m => m[1] as string);
 
   it('reads a non-empty union from state/types.ts', () => {
     expect(screenUnion().length).toBeGreaterThan(3);
+  });
+
+  it('found the three tabs in navigation.ts, so the tab check is not vacuous', () => {
+    expect(tabScreens).toEqual(['today', 'calendar', 'settings']);
   });
 
   it.each(screenUnion())("'%s' has a way in", screen => {
@@ -67,6 +71,7 @@ describe('screen reachability', () => {
     const reachable =
       tabScreens.includes(screen) ||
       new RegExp(`\\bgo\\('${screen}'\\)`).test(sources) ||
+      new RegExp(`\\bname: '${screen}'`).test(sources) ||
       new RegExp(`\\bscreen: '${screen}'`).test(sources) ||
       new RegExp(`\\bcase '${screen}'`).test(sources);
     expect({ screen, reachable }).toEqual({ screen, reachable: true });

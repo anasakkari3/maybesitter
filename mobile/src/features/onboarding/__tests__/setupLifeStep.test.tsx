@@ -146,7 +146,8 @@ describe('it reads as a conversation, in every language', () => {
     expect(screen.getByTestId('setup-life-input').props.placeholder).toBe(copy.obSetupLifePlaceholder);
     // The composer and the invitation read in the language's own direction.
     expect(alignOf('setup-life-input')).toBe(align);
-    expect(alignOf('setup-life-body')).toBe(align);
+    // TextInput uses physical alignment; Fabric Text resolves a logical edge.
+    expect(alignOf('setup-life-body')).toBe('left');
   });
 
   it.each([

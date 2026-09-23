@@ -20,6 +20,14 @@ export interface ReleaseConfigInput {
   apiBaseUrl?: string | undefined;
   devBearerToken?: string | undefined;
   /**
+   * `EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST`. Points sign-in at a Firebase
+   * Auth emulator so the app can be driven against a local backend. It does
+   * not skip authentication — the account still signs in and the server still
+   * verifies the ID token — but a tester whose build had it set would sign
+   * into a throwaway emulator account and believe it was theirs.
+   */
+  firebaseAuthEmulatorHost?: string | undefined;
+  /**
    * `EXPO_PUBLIC_API_MODE`. `mock` serves the committed contract fixtures
    * instead of the server, which is useful for UI work and catastrophic in a
    * build a tester installs: they would confirm commitments into nothing and
@@ -212,6 +220,10 @@ export function releaseConfigProblems(input: ReleaseConfigInput): string[] {
 
   if ((input.devBearerToken ?? '').trim() !== '') {
     problems.push('EXPO_PUBLIC_DEV_BEARER_TOKEN must not be set in a staging or production build');
+  }
+
+  if ((input.firebaseAuthEmulatorHost ?? '').trim() !== '') {
+    problems.push('EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST must not be set in a staging or production build');
   }
 
   return problems;

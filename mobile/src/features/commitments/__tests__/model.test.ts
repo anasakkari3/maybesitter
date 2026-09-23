@@ -42,6 +42,16 @@ function withPriority(id: string, level: 'low' | 'normal' | 'high', source = 'de
   });
 }
 
+it('keeps a postponed return separate from the original due time', () => {
+  const view = toViewModel(commitment({
+    id: 'moved',
+    currentAckState: 'postponed',
+    postponedUntil: '2026-09-20T09:00:00.000Z',
+  }), NOW);
+  expect(view.shownAt).toBe('2026-09-13T12:00:00.000Z');
+  expect(view.postponedUntil).toBe('2026-09-20T09:00:00.000Z');
+});
+
 describe('importance', () => {
   it('maps the three levels to the three the design draws', () => {
     expect(toViewModel(withPriority('a', 'high'), NOW).importance).toBe('must');

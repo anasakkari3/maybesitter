@@ -6,13 +6,17 @@ import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { confirmCapture, proposeCapture } from '../endpoints/capture';
 import { actOnCommitment, deleteCommitment, getCommitment, listToday, listUpcoming, patchCommitment } from '../endpoints/commitments';
 import { getNextStep, recordNextStepDecision } from '../endpoints/nextStep';
-import { getTrust, updateTrust } from '../endpoints/trust';
+import { getTrust, reportPilotIncident, updateTrust } from '../endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from '../endpoints/feedback';
 import { recordAnalyticsEvent } from '../endpoints/analytics';
 import { getWeeklySummary, listActivity } from '../endpoints/activity';
 import { getReadiness, putSubjectiveEnergy } from '../endpoints/readiness';
 import { buildTimePatch } from '../../features/commitments/timePatch';
 import { nextStepResponseSchema } from '../schemas/nextStep';
+import { createReadinessWatcher } from '../endpoints/watchers';
+import watcherResponse from '../../features/product/__tests__/watcher-route-response.json';
+import { createMemory, keepMemorySuggestion } from '../endpoints/profile';
+import { createHabit } from '../endpoints/habits';
 
 /**
  * Each endpoint, against the fixture its own route produced.
@@ -81,6 +85,60 @@ describe('capture', () => {
     // of reporting it.
     await expect(confirmCapture({ proposalId: 'gone', itemIds: ['i1'] })).rejects.toThrow();
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe('watchers', () => {
+  it('accepts the created watcher only on the route’s 201 response', async () => {
+    serve(watcherResponse, 201);
+    const result = await createReadinessWatcher('notify');
+    expect(result.watcher.watcherId).toBe(watcherResponse.watcher.watcherId);
+    expect(requests[0]?.method).toBe('POST');
+    expect(requests[0]?.body).toMatchObject({
+      source: { provider: 'maybesitter', signalKind: 'readiness', subjectRef: 'self' },
+      effect: 'notify',
+    });
+  });
+});
+
+describe('memory', () => {
+  it('accepts the manual fact only on the route’s 201 response', async () => {
+    serve(fixture('memory.created'), 201);
+    const result = await createMemory({ kind: 'fact', content: 'A test fact', language: 'en' });
+    expect(result.success).toBe(true);
+    expect(requests[0]?.body).toEqual({ kind: 'fact', content: 'A test fact', language: 'en' });
+  });
+
+  it('accepts a kept suggestion on the route’s 201 response', async () => {
+    serve({ success: true, decision: 'keep', memory: (fixture('memory.created') as { memory: unknown }).memory }, 201);
+    const result = await keepMemorySuggestion({ ruleId: 'R2_defer_default', fingerprint: 'fingerprint-1' }, 'en');
+    expect(result.decision).toBe('keep');
+    expect(requests[0]?.body).toEqual({ decision: 'keep', fingerprint: 'fingerprint-1', language: 'en' });
+  });
+});
+
+describe('habits', () => {
+  it('accepts the created habit and materialized occurrences on the route’s 201 response', async () => {
+    const response = fixture('habit.created') as { habit: { habitId: string }; occurrences: unknown[] };
+    serve(response, 201);
+    const habit = await createHabit({
+      title: 'Test reading habit', cadence: { kind: 'weekly_count', count: 3 }, durationMinutes: 30,
+      preferredWindows: [], minimumOccurrences: 3, maximumOccurrences: 3,
+      flexibility: 'flexible', recoveryPolicy: 'skip', source: 'user_created',
+      confirmation: { confirmedByUserAt: new Date().toISOString(), sourceRef: null, acceptedSuggestedValues: true },
+    }, 'Asia/Hebron');
+    expect(habit.habitId).toBe(response.habit.habitId);
+    expect(response.occurrences).toHaveLength(12);
+    expect(requests[0]?.url).toContain('timezone=Asia%2FHebron');
+  });
+});
+
+describe('pilot incident reporting', () => {
+  it('sends only the chosen surface and category and accepts the route’s 201 response', async () => {
+    serve(fixture('pilot.incident'), 201);
+    const result = await reportPilotIncident({ surface: 'capture', category: 'reliability' });
+    expect(result.status).toBe('open');
+    expect(requests[0]?.body).toEqual({ surface: 'capture', category: 'reliability' });
   });
 });
 

@@ -8,8 +8,8 @@ import { EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
 import { readClipboardText, type ClipboardImport } from '../features/capture/clipboardImport';
 import { fill } from '../i18n/strings';
-import { family } from '../theme/fonts';
-import { cardShadow } from '../theme/tokens';
+import { family, LINE_HEIGHT } from '../theme/fonts';
+import { useLayoutMode } from '../theme/textScale';
 import { VoiceButton } from '../features/capture/voice/VoiceButton';
 import { createSpeechCaptureService, SpeechEventBridge } from '../features/capture/voice/speechService';
 import { VoiceLanguageChip } from '../features/capture/voice/VoiceLanguageChip';
@@ -19,7 +19,8 @@ import {
   saveSpeechLanguage,
   type SpeechLanguagePref,
 } from '../lib/deviceSettings/speechLanguage';
-import { Btn, FlowHeader, Pill, Txt } from '../ui/primitives';
+import { Btn, Pill, Txt } from '../ui/primitives';
+import { TaskHeader } from '../ui/taskHeader';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
 
@@ -57,6 +58,7 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
 export function CaptureScreen() {
   const { t, p, rtl, script, lang, actions } = useApp();
   const flow = useCaptureFlow();
+  const stacked = useLayoutMode() !== 'normal';
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   /**
    * What the last deliberate clipboard read found, while it is being reviewed.
@@ -117,10 +119,30 @@ export function CaptureScreen() {
           in so the service can stay a plain object (UC-2.3, #163). */}
       <SpeechEventBridge />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <FlowHeader pill={t.cancel} onPill={requestClose} title={t.captureTitle} />
+        <TaskHeader
+          pill={t.cancel}
+          onPill={requestClose}
+          title={t.captureTitle}
+          end={
+            // The AI chip is display only. Analyze works either way — the
+            // server picks rules and makes no model call — so this says what
+            // will happen, it does not gate anything (#161). Round 2 puts it
+            // in the header's end slot, where a status belongs.
+            !flow.aiGranted ? (
+              <Btn
+                testID="capture-ai-off"
+                label={`${t.captureAiOff}. ${t.captureAiOffHint}`}
+                onPress={() => actions.go('trust')}
+                style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}
+              >
+                <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt>
+              </Btn>
+            ) : null
+          }
+        />
         <ScrollView
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingTop: 20, paddingHorizontal: 20, paddingBottom: 34, gap: 16 }}
+          contentContainerStyle={{ flexGrow: 1, paddingTop: 16, paddingHorizontal: 16, paddingBottom: 34, gap: 14 }}
         >
           {confirmingDiscard ? (
             <View style={{ flex: 1, justifyContent: 'center', gap: 14 }} testID="capture-discard">
@@ -157,100 +179,92 @@ export function CaptureScreen() {
               />
           ) : (
             <>
-              <View style={{ flex: 1, gap: 12 }}>
-                {/* The AI chip is display only. Analyze works either way — the
-                    server picks rules and makes no model call — so this says
-                    what will happen, it does not gate anything (#161). */}
-                {!flow.aiGranted ? (
-                  <Btn
-                    testID="capture-ai-off"
-                    label={t.captureAiOff}
-                    onPress={() => actions.go('trust')}
-                    style={{ alignSelf: 'flex-start', backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12, gap: 2 }}
-                  >
-                    <Txt size={12} weight={600}>{t.captureAiOff}</Txt>
-                    <Txt size={11} color={p.mu}>{t.captureAiOffHint}</Txt>
-                  </Btn>
-                ) : null}
+              <View style={{ flex: 1, gap: 16 }}>
+                <Txt role="section" style={{ paddingHorizontal: 4 }}>{t.sayItLikeYouThink}</Txt>
+                <View>
+                  <TextInput
+                    testID="capture-input"
+                    value={state.text}
+                    onChangeText={flow.setText}
+                    placeholder={t.typePlaceholder}
+                    placeholderTextColor={p.mu}
+                    autoFocus
+                    multiline
+                    textAlignVertical="top"
+                    accessibilityLabel={t.sayItLikeYouThink}
+                    style={[
+                      {
+                        minHeight: 160, backgroundColor: p.sf, borderWidth: 1,
+                        borderColor: tooLong ? p.wm : p.lnStrong, borderRadius: 24,
+                        paddingTop: 18, paddingHorizontal: 18, paddingBottom: 34,
+                        fontSize: 20, lineHeight: Math.round(20 * LINE_HEIGHT[script]), color: p.tx, fontFamily: family(400, script),
+                        textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
+                      },
+                    ]}
+                  />
+                  {/* Inside the field's bottom corner (Round 2), and only as
+                      the limit gets close: a counter on an empty field is a
+                      rule nobody asked about yet. */}
+                  {state.text.length > MAX_CAPTURE_LENGTH - 200 ? (
+                    <Txt size={11} color={tooLong ? p.wm : p.mu} latin testID="capture-counter" style={{ position: 'absolute', bottom: 12, end: 18 }}>
+                      {fill(t.captureCounter, { n: String(state.text.length) })}
+                    </Txt>
+                  ) : null}
+                </View>
 
-                <TextInput
-                  testID="capture-input"
-                  value={state.text}
-                  onChangeText={flow.setText}
-                  placeholder={t.typePlaceholder}
-                  placeholderTextColor={p.mu}
-                  autoFocus
-                  multiline
-                  textAlignVertical="top"
-                  accessibilityLabel={t.sayItLikeYouThink}
-                  style={[
-                    {
-                      minHeight: 150, backgroundColor: p.sf, borderWidth: 1,
-                      borderColor: tooLong ? p.wm : p.ln, borderRadius: 24, padding: 18,
-                      fontSize: 20, lineHeight: 30, color: p.tx, fontFamily: family(400, script),
-                      textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
-                    },
-                    cardShadow(p),
-                  ]}
-                />
-
-                {/* Shown only as the limit gets close: a counter on an empty
-                    field is a rule nobody asked about yet. */}
-                {state.text.length > MAX_CAPTURE_LENGTH - 200 ? (
-                  <Txt size={12} color={tooLong ? p.wm : p.mu} testID="capture-counter">
-                    {fill(t.captureCounter, { n: String(state.text.length) })}
-                  </Txt>
-                ) : null}
-
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {/* Sits with the example chips because it does what they do:
-                      it fills the field, and nothing more. The clipboard is
-                      read here and only here, when this is pressed. */}
+                {/* The three ways in besides typing, as one row: speak, paste,
+                    and which language the mic listens for. Each fills the
+                    field and nothing more — the clipboard is read here and
+                    only here, on that press. */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <VoiceButton
+                    service={speech}
+                    autoFocus={state.inputMode === 'voice'}
+                    onPartial={flow.setText}
+                    onFinal={flow.setText}
+                  />
                   <Btn
                     testID="capture-paste"
                     label={t.capturePaste}
                     onPress={() => { void pasteFromClipboard(); }}
-                    style={{ backgroundColor: p.acs, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 }}
+                    style={{ flexGrow: 1, minHeight: 48, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' }}
                   >
-                    <Txt size={12} weight={600} color={p.ac}>{t.capturePaste}</Txt>
+                    <Txt role="supporting" weight={600}>{t.capturePaste}</Txt>
                   </Btn>
-                  {EXAMPLE_KEYS.map((key) => (
-                    <Btn
-                      key={key}
-                      testID={`capture-example-${key}`}
-                      label={exampleText(key, t)}
-                      onPress={() => flow.setText(exampleText(key, t))}
-                      style={{ backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 12 }}
-                    >
-                      <Txt size={12}>{exampleText(key, t)}</Txt>
-                    </Btn>
-                  ))}
+                  <VoiceLanguageChip
+                    value={speechLang}
+                    onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
+                  />
                 </View>
+                <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.captureShareHint}</Txt>
+
+                {state.text.length === 0 ? <View style={{ gap: 8 }}>
+                  <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.tryOne}</Txt>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {EXAMPLE_KEYS.map((key) => (
+                      <Btn
+                        key={key}
+                        testID={`capture-example-${key}`}
+                        label={exampleText(key, t)}
+                        onPress={() => flow.setText(exampleText(key, t))}
+                        style={{ borderWidth: 1, borderColor: p.ln, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', ...(stacked ? { width: '100%' } : {}) }}
+                      >
+                        <Txt role="supporting" color={p.mu}>{exampleText(key, t)}</Txt>
+                      </Btn>
+                    ))}
+                  </View>
+                </View> : null}
               </View>
 
-              <Txt size={12} color={p.mu} align="center">{t.privacyText}</Txt>
-              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                {/* Renders nothing until a recogniser exists (UC-2.3 #163).
-                    A transcript lands in the field and is never submitted for
-                    the user. */}
-                <VoiceLanguageChip
-                  value={speechLang}
-                  onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
-                />
-                <VoiceButton
-                  service={speech}
-                  autoFocus={state.inputMode === 'voice'}
-                  onPartial={flow.setText}
-                  onFinal={flow.setText}
-                />
-                <Pill
-                  testID="capture-analyze"
-                  label={t.analyze}
-                  onPress={() => void flow.analyze()}
-                  disabled={!canAnalyze}
-                  style={{ flex: 1 }}
-                />
-              </View>
+              <Txt size={12} color={p.mu} align="center" lh={1.5}>{t.privacyText}</Txt>
+              <Pill
+                testID="capture-analyze"
+                label={t.analyze}
+                onPress={() => void flow.analyze()}
+                disabled={!canAnalyze}
+                size={17}
+                pad={14}
+              />
             </>
           )}
         </ScrollView>

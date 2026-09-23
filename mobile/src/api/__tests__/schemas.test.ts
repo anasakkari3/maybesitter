@@ -13,7 +13,8 @@ import {
 import { captureConfirmationSchema, captureProposalSchema } from '../schemas/capture';
 import { shareProposalSchema } from '../schemas/share';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
-import { trustResponseSchema } from '../schemas/trust';
+import { pilotIncidentResponseSchema, trustResponseSchema } from '../schemas/trust';
+import { habitChangedSchema } from '../schemas/habits';
 import { alphaFeedbackSchema, feedbackHistorySchema, feedbackRevokeSchema } from '../schemas/feedback';
 import { activityPageSchema, weeklySummarySchema } from '../schemas/activity';
 import { analyticsAckSchema } from '../schemas/analytics';
@@ -69,10 +70,10 @@ import {
 /**
  * The drift detector.
  *
- * Every fixture in `../__fixtures__/` was written by
- * `tests/mobile/exportMobileApiFixtures.test.ts`, which invokes the real route
- * handlers in-process. If the backend changes a response, that test rewrites
- * the fixture and this one fails — in CI, before a user's screen does.
+ * Fixtures in `../__fixtures__/` come from the backend route handlers, either
+ * through `tests/mobile/exportMobileApiFixtures.test.ts` or an authenticated
+ * local emulator response. Their parsed shapes are checked before a screen
+ * consumes them.
  *
  * The last case is the one that makes the rest hold: every fixture must be
  * claimed by a schema. A new endpoint whose fixture nobody parses would
@@ -138,6 +139,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],
   ['trust.updated', trustResponseSchema],
+  ['pilot.incident', pilotIncidentResponseSchema],
   ['feedback.history', feedbackHistorySchema],
   ['feedback.revoked', feedbackRevokeSchema],
   ['alphaFeedback.flag', alphaFeedbackSchema],
@@ -193,6 +195,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['financial.manualSaved', financialManualSavedSchema],
   ['financial.connected', financialConnectionSchema],
   ['financial.connectionOff', financialConnectionSchema],
+  ['habit.created', habitChangedSchema],
   ['readiness.current', readinessResponseSchema],
   ['readiness.saved', readinessSavedSchema],
   ['devices.registered', deviceRegisteredSchema],

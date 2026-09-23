@@ -97,6 +97,45 @@ export const blockProtectionSchema = z.object({
 
 export type BlockProtection = z.infer<typeof blockProtectionSchema>;
 
+const intervalSchema = z.object({ startsAt: isoDateTime, endsAt: isoDateTime });
+
+export const planProposalChangeSchema = z.object({
+  kind: z.enum(['added', 'removed', 'moved', 'unchanged', 'reason_changed']),
+  itemId: z.string(),
+  title: z.string().nullable(),
+  from: intervalSchema.nullable(),
+  to: intervalSchema.nullable(),
+  shiftMinutes: z.number().nullable(),
+  fromReasonCode: z.string().nullable(),
+  toReasonCode: z.string().nullable(),
+});
+
+export const proposedProtectionSchema = z.object({
+  blockId: z.string(),
+  itemId: z.string(),
+  title: z.string().nullable(),
+  origin: z.string(),
+  preferredInterval: intervalSchema.nullable(),
+  maxShiftMinutes: z.number().nullable(),
+  proposedInterval: intervalSchema.nullable(),
+  overridden: z.boolean(),
+});
+
+export const pendingPlanProposalSchema = z.object({
+  proposalId: z.string(),
+  proposedAt: isoDateTime,
+  baseGeneration: z.number().int(),
+  reason: z.string(),
+  userControlMode: z.string(),
+  causeChangeIds: z.array(z.string()),
+  scheduled: z.array(planItemSchema),
+  unscheduled: z.array(unplacedItemSchema),
+  changes: z.array(planProposalChangeSchema),
+  protections: z.array(proposedProtectionSchema),
+});
+
+export type PendingPlanProposal = z.infer<typeof pendingPlanProposalSchema>;
+
 export const dailyPlanSchema = z.object({
   /** The local day the plan is for, `YYYY-MM-DD` — never an instant. */
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD'),
@@ -115,6 +154,8 @@ export const dailyPlanSchema = z.object({
   edited: z.boolean(),
   /** Blocks whose position is the user's (or a policy's) decision (#522). */
   protections: z.array(blockProtectionSchema),
+  /** Pending continuous-replan patch joined from the response envelope. */
+  proposal: pendingPlanProposalSchema.nullable().optional(),
 });
 
 export type DailyPlan = z.infer<typeof dailyPlanSchema>;
@@ -131,6 +172,7 @@ export type UnplacedItem = z.infer<typeof unplacedItemSchema>;
 export const planResponseSchema = z.object({
   success: z.literal(true),
   plan: dailyPlanSchema,
+  proposal: pendingPlanProposalSchema.nullable().optional(),
 });
 
 export type PlanResponse = z.infer<typeof planResponseSchema>;

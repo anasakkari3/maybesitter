@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, ScrollView, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
-import { ScreenIn } from '../ui/motion';
-import { SettingsHeader } from '../features/settings/SettingsChrome';
+import { ActionRow, BackHeader, EmptyState, SectionLabel, Skeleton, Tag, TextLink } from '../ui/chrome';
+import { Screen, ScreenScroll } from '../ui/screen';
+import { ProcessingDots } from '../ui/motion';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { useIsOnline } from '../api/ui/OfflineBanner';
 import {
@@ -75,7 +76,6 @@ import {
  */
 export function PlanScreen({ date, onBack }: { date: string; onBack: () => void }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const online = useIsOnline();
   const query = usePlan(date);
   const settings = usePlanSettings();
@@ -90,7 +90,7 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   // a train.
   if (!online && !answered) {
     return (
-      <PlanFrame title={t.planTitle} onBack={onBack} insets={insets}>
+      <PlanFrame title={t.planTitle} onBack={onBack}>
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5} testID="plan-offline-cold">{t.planOfflineCold}</Txt>
         </Card>
@@ -99,7 +99,7 @@ export function PlanScreen({ date, onBack }: { date: string; onBack: () => void 
   }
 
   return (
-    <PlanFrame title={t.planTitle} onBack={onBack} insets={insets}>
+    <PlanFrame title={t.planTitle} onBack={onBack}>
       <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
         {plan ? (
           <LoadedPlan plan={plan} date={date} readOnly={!online} />
@@ -133,17 +133,22 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
   const building = useOneAtATime();
   const deliveryOff = deliveryOn === false;
 
+  if (build.isPending) return <Generating />;
   return (
-    <Card pad={18} style={{ gap: 12 }}>
-      <Txt size={17} weight={600} testID="plan-empty">{t.planEmptyTitle}</Txt>
-      {online ? (
-        <>
-          <Txt size={14} color={p.mu} lh={1.5}>{deliveryOff ? t.planEmptyBody : t.planEmptyBodyReady}</Txt>
+    <EmptyState
+      testID="plan-empty"
+      top={40}
+      title={t.planEmptyTitle}
+      body={online ? (deliveryOff ? t.planEmptyBody : t.planEmptyBodyReady) : t.planOfflineCold}
+      action={online ? (
+        <View style={{ alignItems: 'center', gap: 6, marginTop: 6 }}>
           <Pill
             label={t.planEmptyBuildCta}
             size={15}
+            pad={12}
             testID="plan-build"
             disabled={build.isPending}
+            style={{ paddingHorizontal: 22 }}
             onPress={() => {
               // One tap, one request: see `oneAtATime.ts`.
               if (!building.enter()) return;
@@ -157,46 +162,46 @@ function EmptyPlan({ date, online, deliveryOn }: { date: string; online: boolean
               to somebody who already has it on would be telling them the
               wrong thing about their own settings. */}
           {deliveryOff ? (
-            <Pill
-              label={t.planEmptyEnableCta}
-              kind="outline"
-              size={14}
-              testID="plan-enable-morning"
-              onPress={() => actions.go('notificationsSettings')}
-            />
+            <TextLink label={t.planEmptyEnableCta} onPress={() => actions.go('notificationsSettings')} testID="plan-enable-morning" />
           ) : null}
-        </>
-      ) : (
-        <Txt size={14} color={p.mu} lh={1.5} testID="plan-empty-offline">{t.planOfflineCold}</Txt>
-      )}
-    </Card>
+        </View>
+      ) : <Txt size={13} color={p.mu} testID="plan-empty-offline">{''}</Txt>}
+    />
+  );
+}
+
+/** The planner at work: Round 2's dots, the sentence, and the shape of what is coming. */
+function Generating() {
+  const { t, p } = useApp();
+  return (
+    <View style={{ gap: 14 }} testID="plan-generating">
+      <View style={{ alignItems: 'center', gap: 14, paddingTop: 40, paddingHorizontal: 20, paddingBottom: 10 }}>
+        <ProcessingDots color={p.ac} />
+        <Txt size={17} weight={600} align="center">{t.planGeneratingTitle}</Txt>
+        <Txt size={14} color={p.mu} align="center">{t.planGeneratingSub}</Txt>
+      </View>
+      <Skeleton heights={[64, 64, 64]} label={t.planGeneratingTitle} />
+    </View>
   );
 }
 
 function PlanFrame({
-  title, onBack, insets, children,
+  title, onBack, children,
 }: {
   title: string;
   onBack: () => void;
-  insets: { top: number };
   children: React.ReactNode;
 }) {
-  const { p } = useApp();
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView
-        testID="plan-screen"
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}
-      >
-        <SettingsHeader title={title} onBack={onBack} />
-        {children}
-      </ScrollView>
-    </ScreenIn>
+    <Screen pinned={<BackHeader title={title} onBack={onBack} />}>
+      <ScreenScroll testID="plan-screen">{children}</ScreenScroll>
+    </Screen>
   );
 }
 
 function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; readOnly: boolean }) {
   const { t, tr, p, lang } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   const accept = usePlanAction(date);
   const edit = usePlanEdit(date);
   const rebuild = useRegeneratePlan(date);
@@ -272,10 +277,22 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   );
 
   const settled = plan.status === 'accepted' || plan.status === 'dismissed';
+  const proposal = !settled;
+  // The explanation is rendered only in the language the app is showing.
+  // The route says which language it wrote in; when that is not this one,
+  // a templated sentence stands in rather than a paragraph the reader may
+  // not read (Round 2: never raw server text in the wrong language).
+  const explanationInLanguage = plan.explanation.locale === lang;
+  const [whyOpen, setWhyOpen] = useState(true);
+
+  if (rebuild.isPending) return <Generating />;
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={15} color={p.mu} testID="plan-date">{heading}</Txt>
+      <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', alignItems: stacked ? 'flex-start' : 'center', gap: 10, paddingHorizontal: 4 }}>
+        <Txt size={15} color={p.mu} testID="plan-date">{heading}</Txt>
+        {proposal ? <Tag kind="proposal" label={t.planStatusProposal} testID="plan-status-proposal" /> : null}
+      </View>
 
       {readOnly ? (
         <Card pad={16}>
@@ -289,27 +306,18 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           would throw the user off this screen the moment they accepted the
           plan they were reading. */}
       {plan.status === 'accepted' ? (
-        <Txt size={15} color={p.ac} testID="plan-accepted">
-          {accept.isSuccess ? t.planAcceptedToast : t.planAcceptedStatus}
-        </Txt>
+        <View style={{ alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 }}>
+          <Txt size={13} weight={600} color={p.acd} testID="plan-accepted">
+            {accept.isSuccess ? t.planAcceptedToast : t.planAcceptedStatus}
+          </Txt>
+        </View>
       ) : null}
       {plan.status === 'dismissed' ? (
-        <Txt size={15} color={p.mu} testID="plan-dismissed">{t.planDismissedStatus}</Txt>
+        <Txt size={14} color={p.mu} testID="plan-dismissed">{t.planDismissedStatus}</Txt>
       ) : null}
+      {proposal ? <Txt size={13} color={p.mu} style={{ paddingHorizontal: 4 }} testID="plan-proposal-note">{t.suggestionNote}</Txt> : null}
 
-      {/* Why this plan. A quiet card, never a banner: it is context, not an
-          instruction. The "written by the assistant" line appears only for
-          `source: 'model'` — a templated sentence has no author to name, and
-          badging it would claim a model wrote something it did not. */}
-      <Card pad={18} style={{ gap: 8 }} testID="plan-why">
-        <Txt size={13} weight={600} color={p.mu}>{t.planWhyTitle}</Txt>
-        <Txt size={15} lh={1.5}>{isolateAuto(plan.explanation.text)}</Txt>
-        {plan.explanation.source === 'model' ? (
-          <Txt size={12} color={p.mu} testID="plan-model-note">{t.planWrittenByAssistant}</Txt>
-        ) : null}
-      </Card>
-
-      <Txt size={13} weight={600} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.planOrderTitle}</Txt>
+      <SectionLabel>{t.planOrderTitle}</SectionLabel>
       {plan.scheduled.length === 0 ? (
         <Card pad={18}>
           <Txt size={14} color={p.mu} testID="plan-nothing-placed">{t.planNothingPlaced}</Txt>
@@ -394,22 +402,52 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
         </View>
       ) : null}
 
+      {/* Why this plan. A quiet card, never a banner: it is context, not an
+          instruction, and it folds. The "written by the assistant" line
+          appears only for `source: 'model'` — a templated sentence has no
+          author to name. */}
+      <Card pad={0} style={{ overflow: 'hidden' }} testID="plan-why">
+        <Btn label={t.planWhyTitle} onPress={() => setWhyOpen(!whyOpen)} testID="plan-why-toggle" accessibilityState={{ expanded: whyOpen }} scaleTo={0.99} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, minHeight: 48 }}>
+          <Txt size={15} weight={600}>{t.planWhyTitle}</Txt>
+          <Txt size={13} color={p.mu}>{whyOpen ? '−' : '+'}</Txt>
+        </Btn>
+        {whyOpen ? (
+          <View style={{ paddingHorizontal: 16, paddingBottom: 14, gap: 8 }}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.ac, marginTop: 8 }} />
+              <Txt size={14} color={p.mu} lh={1.55} style={{ flex: 1 }} testID="plan-why-text">
+                {explanationInLanguage ? isolateAuto(plan.explanation.text) : t.planWhyFallback}
+              </Txt>
+            </View>
+            {explanationInLanguage && plan.explanation.source === 'model' ? (
+              <Txt size={12} color={p.mu} testID="plan-model-note">{t.planWrittenByAssistant}</Txt>
+            ) : null}
+            {proposal ? (
+              <Txt size={12} color={p.mu} lh={1.5} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 8 }}>{t.planWhatHappens}</Txt>
+            ) : null}
+          </View>
+        ) : null}
+      </Card>
+
       <View style={{ gap: 10, paddingTop: 6 }}>
         <Pill
           label={t.planAccept}
+          size={17}
+          pad={14}
           testID="plan-accept"
           // Disabled once it is accepted, and while the one request is in
           // flight. "Looks good" sends exactly one accept: the criterion is
-          // about the request count, not about how fast somebody taps.
+          // about the request count, not about how fast somebody taps. It
+          // stays drawn after acceptance, disabled, so the footer does not
+          // jump under the finger that just pressed it.
           disabled={readOnly || accept.isPending || plan.status === 'accepted'}
           onPress={() => send('accept')}
         />
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <ActionRow>
           <Pill
             label={t.planRegenerate}
             kind="outline"
             size={14}
-            style={{ flex: 1 }}
             testID="plan-regenerate"
             disabled={readOnly || rebuild.isPending || capReached}
             onPress={() => {
@@ -424,12 +462,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             label={t.planDismiss}
             kind="ghost"
             size={14}
-            style={{ flex: 1 }}
             testID="plan-dismiss"
             disabled={readOnly || accept.isPending || plan.status === 'dismissed'}
             onPress={() => send('dismiss')}
           />
-        </View>
+        </ActionRow>
         {capReached ? (
           <Txt size={13} color={p.mu} lh={1.5} testID="plan-regenerate-capped">{t.planRegenerateNoneLeft}</Txt>
         ) : (
@@ -458,6 +495,7 @@ function PlannedRow({
   onRemove: () => void;
 }) {
   const { t, p, lang, scheme } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Date | null>(null);
 
@@ -490,10 +528,20 @@ function PlannedRow({
         onPress={readOnly ? undefined : onToggle}
         disabled={readOnly}
         scaleTo={readOnly ? 1 : 0.98}
-        style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 4, alignItems: 'flex-start' }}
+        style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 16, minHeight: 56 }}
       >
-        <Txt size={13} color={p.mu} latin testID={`plan-item-time-${item.itemId}`}>{when}</Txt>
-        <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
+        {/* Round 2's row: the start time in its own column, a bar in the
+            item's colour, then the title with its range and whether it moves. */}
+        <Txt size={13} weight={600} latin testID={`plan-item-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
+        {!stacked ? <View style={{ width: 2, alignSelf: 'stretch', borderRadius: 2, backgroundColor: p.lnStrong, minHeight: 28 }} /> : null}
+        <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
+          <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Txt size={12} color={p.mu} latin>{when}</Txt>
+            <Txt size={12} color={p.mu}>·</Txt>
+            <Txt size={12} color={p.mu}>{readOnly ? t.planItemFixed : t.planItemMovable}</Txt>
+          </View>
+        </View>
       </Btn>
 
       {refusal ? (

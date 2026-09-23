@@ -3,11 +3,13 @@ import { describe, expect, it } from '@jest/globals';
 import { render, screen } from '@testing-library/react-native';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, sep } from 'path';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { SettingsScreen } from '../../../screens/SettingsScreen';
+import { AccountScreen } from '../../settings/AccountScreen';
 import ar from '../../../i18n/locales/ar.json';
 import en from '../../../i18n/locales/en.json';
 import he from '../../../i18n/locales/he.json';
@@ -125,51 +127,45 @@ describe('the copy', () => {
 });
 
 describe('the Settings entry', () => {
-  async function renderSettings() {
-    const repository = createFakeAuthRepository({
-      initialUser: {
-        uid: 'alice',
-        email: 'alice@example.com',
-        emailVerified: true,
-        displayName: null,
-        providerIds: ['password'],
-      },
-    });
-    return render(
-      <SafeAreaProvider initialMetrics={METRICS}>
-        <AppProvider>
-          <AuthProvider repository={repository} isDevBundle={false}>
-            <SettingsScreen />
-          </AuthProvider>
-        </AppProvider>
-      </SafeAreaProvider>,
-    );
-  }
+  /**
+   * Round 2: the account is its own screen. The Settings root carries one
+   * row into it for a signed-in device; sign out and delete live on that
+   * screen, in that order.
+   */
+  const signedIn = () => createFakeAuthRepository({
+    initialUser: { uid: 'alice', email: 'alice@example.com', emailVerified: true, displayName: null, providerIds: ['password'] },
+  });
+  const wrap = (repository: ReturnType<typeof createFakeAuthRepository>, child: React.ReactNode) => (
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <AppProvider>
+        <AuthProvider repository={repository} isDevBundle={false}>
+          <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+            {child}
+          </QueryClientProvider>
+        </AuthProvider>
+      </AppProvider>
+    </SafeAreaProvider>
+  );
 
-  it('shows an Account section with Delete account in it', async () => {
-    await renderSettings();
-    expect(screen.getByText(en.settingsAccount)).toBeTruthy();
-    // Reachable from the Today tab in two taps: Settings tab, then this.
-    expect(screen.getByLabelText(en.accountDelete)).toBeTruthy();
+  it('the root shows an Account row for a signed-in device', async () => {
+    await render(wrap(signedIn(), <SettingsScreen />));
+    expect(screen.getByTestId('settings-account')).toBeTruthy();
   });
 
-  it('puts sign-out before deletion, so a thumb does not land on the wrong one', async () => {
-    await renderSettings();
+  it('the Account screen puts sign-out before deletion, so a thumb does not land on the wrong one', async () => {
+    await render(wrap(signedIn(), <AccountScreen onBack={() => undefined} />));
+    expect(screen.getByLabelText(en.accountDelete)).toBeTruthy();
     const rendered = JSON.stringify(screen.toJSON());
     expect(rendered.indexOf(en.authSignOut)).toBeLessThan(rendered.indexOf(en.accountDelete));
   });
 
   it('shows neither to a signed-out device', async () => {
     const repository = createFakeAuthRepository({ initialUser: null });
-    await render(
-      <SafeAreaProvider initialMetrics={METRICS}>
-        <AppProvider>
-          <AuthProvider repository={repository} isDevBundle={false}>
-            <SettingsScreen />
-          </AuthProvider>
-        </AppProvider>
-      </SafeAreaProvider>,
-    );
+    await render(wrap(repository, <SettingsScreen />));
+    expect(screen.queryByTestId('settings-account')).toBeNull();
+    screen.unmount();
+    await render(wrap(repository, <AccountScreen onBack={() => undefined} />));
     expect(screen.queryByLabelText(en.accountDelete)).toBeNull();
+    expect(screen.queryByLabelText(en.authSignOut)).toBeNull();
   });
 });

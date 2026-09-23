@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useReadiness, useSaveSubjectiveEnergy } from '../../api/queries';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 
 const ENERGY = [1, 2, 3, 4, 5] as const;
@@ -28,7 +27,6 @@ const FRESHNESS_COPY = {
 
 export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const readiness = useReadiness();
   const save = useSaveSubjectiveEnergy();
   const [failed, setFailed] = useState(false);
@@ -49,9 +47,8 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 80, gap: 14 }}>
-        <SettingsHeader title={t.readinessTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.settingsEnergy} onBack={onBack} />}>
+      <ScreenScroll bottom={80}>
         <Card pad={18} style={{ gap: 14 }}>
           <View style={{ gap: 6 }}>
             <Txt size={15} weight={600}>{t.readinessEnergyTitle}</Txt>
@@ -78,7 +75,7 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
                     borderColor: active ? p.ac : p.ln,
                   }}
                 >
-                  <Txt size={15} weight={600} color={active ? '#FFFFFF' : p.tx} latin>{energy}</Txt>
+                  <Txt size={15} weight={600} color={active ? p.onAccent : p.tx} latin>{energy}</Txt>
                 </Btn>
               );
             })}
@@ -106,7 +103,7 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
         </Card>
 
         <Txt size={12} color={p.mu} lh={1.5}>{t.readinessPrivacyNote}</Txt>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

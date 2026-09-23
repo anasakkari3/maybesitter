@@ -1,17 +1,24 @@
+import { ProductRow } from '../ui/product';
+import { importantDeadline } from '../features/today/dayContext';
+import { DeadlineContext } from '../features/today/DeadlineContext';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
-import { useToday, useUpcoming } from '../api/queries';
+import { useToday, useTrust, useUpcoming } from '../api/queries';
+import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
+import { ScreenHeader, Notice } from '../ui/chrome';
+import { Screen, ScreenScroll } from '../ui/screen';
+import { SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Txt } from '../ui/primitives';
-import { ScreenIn } from '../ui/motion';
 import { cardShadow } from '../theme/tokens';
 
 /**
@@ -29,13 +36,14 @@ import { cardShadow } from '../theme/tokens';
  * So the strip starts at today. Every cell shown is a cell we have real data
  * for.
  *
- * ── The busy hatch is gone until there is something to hatch ─────
+ * ── The busy hatch, from the phone's own calendar (Round 2, Phase G) ──
  *
- * The design's second bar per day is Google Calendar busy time. No
- * `/api/mobile` route returns it — `lib/lifeState/availabilityView.ts` is
- * server-side and feeds the selector, not the phone. It comes back with the S3
- * calendar work, along with its legend; until then the legend would be
- * explaining a mark that never appears.
+ * The second bar per day and the hatched rows in the day's list are the busy
+ * times the phone's calendar reports — the same cache Today's conflict chips
+ * read (UC-3.2, #186). Times only, never titles. When the calendar is not
+ * connected the strip shows only commitments and a line says so, with the way
+ * to connect it beside it: one Calendar, and its configuration where
+ * configuration lives.
  *
  * ── Days, in the timezone the app told the server about ──────────
  *
@@ -45,10 +53,13 @@ import { cardShadow } from '../theme/tokens';
  */
 export function CalendarScreen() {
   const { s, t, p, lang, actions } = useApp();
-  const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
+  const stacked = useLayoutMode() !== 'normal';
   const today = useToday();
   const upcoming = useUpcoming();
+  const trust = useTrust();
+  const busy = useBusyBlocks();
+  const calendarConnected = trust.data?.trust.calendarConsent === true;
   const [refreshing, setRefreshing] = useState(false);
 
   const now = new Date();
@@ -72,8 +83,26 @@ export function CalendarScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today.data, upcoming.data, timezone, todayKey]);
 
+  const busyByDay = useMemo(() => {
+    const map = new Map<string, DeviceBusyBlock[]>();
+    for (const block of busy) {
+      const key = dayKey(new Date(block.startAt), timezone);
+      map.set(key, [...(map.get(key) ?? []), block]);
+    }
+    return map;
+  }, [busy, timezone]);
+
   const selectedKey = keys[Math.min(Math.max(s.selDay, 0), STRIP_DAYS - 1)] ?? todayKey;
+  // Context should add something beyond the selected day’s list.
+  const weekInsight = importantDeadline([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])], keys.filter(key => key !== selectedKey), timezone);
   const selected = byDay.get(selectedKey) ?? [];
+  const selectedBusy = calendarConnected ? (busyByDay.get(selectedKey) ?? []) : [];
+  // Commitments and busy blocks in one list, in time order; an undated
+  // commitment sorts last.
+  const dayRows = [
+    ...selected.map((item) => ({ kind: 'commitment' as const, at: item.shownAt ? Date.parse(item.shownAt) : Number.POSITIVE_INFINITY, item })),
+    ...selectedBusy.map((block) => ({ kind: 'busy' as const, at: Date.parse(block.startAt), block })),
+  ].sort((a, b) => a.at - b.at);
   const load = selected.length === 0 ? t.loadLight : selected.length < 3 ? t.loadNormal : t.loadFull;
 
   const refresh = () => {
@@ -85,15 +114,25 @@ export function CalendarScreen() {
     formatDate(civilDate(keys[STRIP_DAYS - 1]!), 'short', { locale: lang, timeZone: CIVIL_ZONE })}`;
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView
-        contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 130, gap: 14 }}
+    <Screen>
+      <ScreenScroll
+        bottom={130}
+        topGap={8}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
-        <View>
-          <Txt size={13} color={p.mu} testID="calendar-range">{ltr(range)}</Txt>
-          <Txt size={28} weight={600} lh={1.3}>{t.calendarTitle}</Txt>
-        </View>
+        <ScreenHeader
+          eyebrow={ltr(range)}
+          eyebrowTestID="calendar-range"
+          title={t.calendarTitle}
+          end={(
+            <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
+              <SettingsIcon color={p.mu} knob={p.sf} />
+            </Btn>
+          )}
+        />
+        {trust.data && !calendarConnected ? (
+          <Notice text={t.calendarNotConnected} action={t.calendarSettingsBtn} onAction={() => actions.go('calendarSettings')} testID="calendar-not-connected" />
+        ) : null}
 
         <QueryBoundary
           isPending={today.isPending || upcoming.isPending}
@@ -101,7 +140,7 @@ export function CalendarScreen() {
           onRetry={() => { void today.refetch(); void upcoming.refetch(); }}
         >
           <Card pad={0} style={{ paddingVertical: 14, paddingHorizontal: 10 }}>
-            <View style={{ flexDirection: 'row', gap: 4 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 4 }}>
               {keys.map((key, offset) => (
                 <DayCell
                   key={key}
@@ -109,15 +148,22 @@ export function CalendarScreen() {
                   isToday={key === todayKey}
                   selected={key === selectedKey}
                   items={byDay.get(key) ?? []}
+                  busy={calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0}
                   onPress={() => actions.setSelDay(offset)}
                 />
               ))}
-            </View>
-            <View style={{ flexDirection: 'row', gap: 14, paddingTop: 12, paddingHorizontal: 8 }}>
+            </ScrollView>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingTop: 12, paddingHorizontal: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.ac }} />
+                <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.mu }} />
                 <Txt size={11} color={p.mu}>{t.legendCommit}</Txt>
               </View>
+              {calendarConnected ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                  <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.hatch }} />
+                  <Txt size={11} color={p.mu}>{t.calendarBusyLegend}</Txt>
+                </View>
+              ) : null}
             </View>
           </Card>
 
@@ -131,7 +177,14 @@ export function CalendarScreen() {
           </View>
 
           <View style={{ gap: 8 }}>
-            {selected.map((item) => (
+            {dayRows.map((row) => row.kind === 'busy' ? (
+              <View key={`busy-${row.block.nativeId}`} testID="calendar-busy-row" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
+                <Txt size={14} color={p.mu} style={{ flex: 1 }}>{t.calendarBusyLegend}</Txt>
+                <Txt size={12} color={p.mu} latin>
+                  {row.block.allDay ? '' : ltr(`${formatTime(new Date(row.block.startAt), { locale: lang, timeZone: timezone })}–${formatTime(new Date(row.block.endAt), { locale: lang, timeZone: timezone })}`)}
+                </Txt>
+              </View>
+            ) : ((item) => (
               <Btn
                 key={item.id}
                 testID={`calendar-item-${item.id}`}
@@ -140,58 +193,47 @@ export function CalendarScreen() {
                   : null)}
                 onPress={() => actions.openDetail(item.id)}
                 scaleTo={0.98}
-                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12 }, cardShadow(p)]}
+                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }, cardShadow(p)]}
               >
-                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.importance === 'must' ? p.wm : p.ac }} />
-                <Txt size={15} style={{ flex: 1 }}>{item.title}</Txt>
+                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
+                <Txt role="body" style={stacked ? undefined : { flex: 1 }}>{item.title}</Txt>
                 <Txt size={12} color={p.mu} latin testID={`calendar-time-${item.id}`}>
                   {item.shownAt
                     ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
                     : t.noTimeYet}
                 </Txt>
               </Btn>
-            ))}
-            {selected.length === 0 ? (
-              <View style={{ padding: 26, backgroundColor: p.sf, borderRadius: 18 }} testID="calendar-day-free">
+            ))(row.item))}
+            {dayRows.length === 0 ? (
+              <View style={{ padding: 18, backgroundColor: p.sf, borderRadius: 18 }} testID="calendar-day-free">
                 <Txt size={14} color={p.mu} align="center">{t.dayFree}</Txt>
               </View>
             ) : null}
           </View>
-
-          {/*
-            The way into "Considering / Waiting" (#519).
-            
-            Below the week rather than inside it, and deliberately: nothing in
-            that list is on a day. A seed drawn as a bar on Thursday would be
-            the product putting somebody's maybe into their week, which is the
-            one thing this feature exists not to do.
-          */}
-          <Btn
-            testID="calendar-seeds-entry"
-            label={t.seedsOpen}
-            onPress={() => actions.go('seeds')}
-            scaleTo={0.98}
-            style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16, alignItems: 'flex-start', gap: 4 }, cardShadow(p)]}
-          >
-            <Txt size={15}>{t.seedsOpen}</Txt>
-            <Txt size={12} color={p.mu}>{t.seedsNotCommitment}</Txt>
-          </Btn>
+          {weekInsight ? <DeadlineContext item={weekInsight} weekly /> : null}
         </QueryBoundary>
-      </ScrollView>
-    </ScreenIn>
+        <ProductRow id="calendar-commitments" title={t.xCommitments} body={t.xCurrentHorizon} icon="check" onPress={() => actions.go('commitments')} />
+        <ProductRow id="calendar-seeds" title={t.seedsOpen} body={t.seedsNotCommitment} icon="spark" onPress={() => actions.go('seeds')} />
+        <ProductRow id="calendar-patch" title={t.xPatch} icon="calendar" status="LIVE" onPress={() => actions.go('patchReview')} />
+      </ScreenScroll>
+    </Screen>
   );
 }
 
 function DayCell({
-  dayKey: key, isToday, selected, items, onPress,
+  dayKey: key, isToday, selected, items, busy, onPress,
 }: {
   dayKey: string;
   isToday: boolean;
   selected: boolean;
   items: CommitmentView[];
+  /** How many busy blocks the phone's calendar has that day; one hatched bar when any. */
+  busy: number;
   onPress: () => void;
 }) {
   const { p, lang } = useApp();
+  const scale = useTextScale();
+  const stacked = useLayoutMode() !== 'normal';
   const date = civilDate(key);
   const options = { locale: lang, timeZone: CIVIL_ZONE } as const;
 
@@ -200,13 +242,14 @@ function DayCell({
       testID={`calendar-day-${key}`}
       onPress={onPress}
       label={formatDate(date, 'weekday', options)}
+      accessibilityState={{ selected }}
       scaleTo={0.94}
-      style={{ flex: 1, alignItems: 'center', gap: 2, paddingTop: 8, paddingBottom: 10, paddingHorizontal: 4, borderRadius: 16, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 88 }}
+      style={{ ...(stacked ? { width: 62 * scale } : { flex: 1 }), alignItems: 'center', gap: 2, paddingTop: 8, paddingBottom: 10, paddingHorizontal: 4, borderRadius: 16, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 88 }}
     >
       <Txt size={11} color={p.mu} align="center" lines={1}>{formatDate(date, 'weekdayShort', options)}</Txt>
-      <View style={{ width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: isToday ? p.ac : 'transparent' }}>
+      <View style={{ minWidth: 36 * scale, minHeight: 36 * scale, borderRadius: 18 * scale, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? p.ink : 'transparent', borderWidth: isToday ? 1 : 0, borderColor: p.lnStrong }}>
         {/* `latin`: Noto Naskh's line box clips digits in a box this tight. */}
-        <Txt size={16} weight={600} align="center" color={isToday ? p.onAccent : p.tx} lh={1.25} latin>
+        <Txt size={16} weight={600} align="center" color={selected ? p.onInk : p.tx} lh={1.25} latin>
           {formatDate(date, 'dayNumber', options)}
         </Txt>
       </View>
@@ -217,9 +260,10 @@ function DayCell({
           <View
             key={item.id}
             testID={`calendar-bar-${key}`}
-            style={{ height: 4, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.ac, opacity: 0.9 }}
+            style={{ height: 4, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong, opacity: 0.9 }}
           />
         ))}
+        {busy > 0 ? <View testID={`calendar-busy-bar-${key}`} style={{ height: 4, borderRadius: 2, backgroundColor: p.hatch }} /> : null}
       </View>
     </Btn>
   );

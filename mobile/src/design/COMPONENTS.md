@@ -4,6 +4,13 @@ Every component the app renders today, where it comes from in the design, and
 what it must keep. New components are added when a screen needs them, not in
 advance.
 
+> Round 2 (2026-09-22): the screen grammar lives in `src/ui/chrome.tsx`
+> (`ScreenHeader`, `BackHeader`, `SectionLabel`, `Tag`, `TextLink`,
+> `EmptyState`, `Skeleton`, `Notice`), with `TaskHeader`, `Dialog` and
+> `ToastHost` beside it. `HeaderPill`, `FlowHeader` and `ImpBadge` from Round
+> 1 are gone; their uses are `BackHeader`/`TaskHeader` and `Tag`. Entries
+> below that name them describe Round 1 and are kept as history.
+
 ## The contract every component must satisfy
 
 1. Colours, radii, spacing, type sizes and durations come from
@@ -27,12 +34,11 @@ advance.
 | `Pill` | `src/ui/primitives.tsx` | today, details, review | Six kinds (accent/soft/outline/warm/ink/ghost); min height 48 | done |
 | `Card` | `src/ui/primitives.tsx` | today, calendar, details | Radius `card`; shadow only in light scheme | done |
 | `HeaderPill` | `src/ui/primitives.tsx` | details, capture, review | Back/cancel affordance; mirrors with the row | done |
-| `ImpBadge` | `src/ui/primitives.tsx` | today, review, details | must = sand, should = teal container, nice = neutral | done |
+| `ImpBadge` | `src/ui/primitives.tsx` | today, review, details | must = sand, should = coral container, nice = neutral | done |
 | Icons | `src/ui/icons.tsx` | tab bar, capture, today | Inline SVG; directional glyphs must mirror when added | done |
 | `ScreenIn` / motion helpers | `src/ui/motion.tsx` | screen transitions, sheets | Durations from `motion`; honours `useReducedMotion` | done |
 | `TabBar` | `src/screens/TabBar.tsx` | today, calendar, settings | Floating bar; blur on iOS only; symmetric absolute fill | done |
 | `SheetHost` | `src/screens/Sheets.tsx` | clarify, readings, rearrange, toast | Scrim + slide-up; four sheet states | done |
-| Gallery | `src/design/Gallery.tsx` | dev only | Renders every row above in both schemes and both directions | built, not wired (see below) |
 
 ## Not built yet
 
@@ -45,10 +51,9 @@ component with no consumer is untested inventory that the Phase 2 author would
 have to fight. Each lands with the screen issue that needs it (#171–#174),
 built from tokens and primitives and meeting the contract above.
 
-## Gallery wiring
+## Maintained examples
 
-`src/design/Gallery.tsx` is complete but not mounted. Mounting it adds a
-`gallery` member to the screen union in `src/state/types.ts`, a branch in
-`src/Root.tsx`, and a `jump('gallery')` case — all files the localisation work
-(UC-1.R3 #156) is editing in parallel. It is wired in the commit that
-integrates the two, behind `__DEV__` so it can never appear in a release.
+The old standalone component gallery was removed during frontend
+reconciliation. Production screens and their render/accessibility tests are
+the maintained component examples, preventing a second visual system from
+drifting beside the app.

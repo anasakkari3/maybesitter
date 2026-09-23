@@ -28,6 +28,8 @@ import en from '../../../i18n/locales/en.json';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 
+import { NotFoundError, NetworkError } from '../../../api/errors';
+
 import * as profileEndpoints from '../../../api/endpoints/profile';
 
 const METRICS: Metrics = {
@@ -199,8 +201,16 @@ describe('what the screen shows', () => {
     expect(screen.queryByText('70%')).toBeNull();
   });
 
+  it('does not claim there are no memories when the request failed', async () => {
+    jest.spyOn(profileEndpoints, 'listMemory').mockRejectedValue(new NetworkError('offline'));
+    await show(<MemoryScreen onBack={() => {}} />);
+    await waitFor(() => expect(screen.queryByTestId('query-error')).not.toBeNull());
+    expect(screen.queryByTestId('memory-screen-empty')).toBeNull();
+    expect(screen.getByRole('button', { name: en.errorsRetry })).toBeTruthy();
+  });
+
   it('is empty rather than broken when the feature is off', async () => {
-    jest.spyOn(profileEndpoints, 'listMemory').mockRejectedValue(new Error('not found'));
+    jest.spyOn(profileEndpoints, 'listMemory').mockRejectedValue(new NotFoundError('not found'));
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-empty')).not.toBeNull());
     // And the way back is still there: a blank page with no exit is worse.

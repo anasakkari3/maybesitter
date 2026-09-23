@@ -136,8 +136,12 @@ describe('what it shows', () => {
   it('offers no actions on something already finished', async () => {
     await show(commitment({ status: 'completed', completedAt: '2026-09-13T16:00:00.000Z' }));
     expect(screen.getByTestId('details-status').props.children).toBe(en.doneS);
-    expect(screen.getByTestId('details-done').props.accessibilityState.disabled).toBe(true);
-    expect(screen.getByTestId('details-drop').props.accessibilityState.disabled).toBe(true);
+    // Absent, not disabled (Round 2): a control that cannot succeed is worse
+    // than an absent one, and there is no reopen route to offer instead.
+    expect(screen.queryByTestId('details-done')).toBeNull();
+    expect(screen.queryByTestId('details-drop')).toBeNull();
+    expect(screen.queryByTestId('details-postpone')).toBeNull();
+    expect(screen.getByTestId('details-closed-note')).toBeTruthy();
     // Delete stays: a finished item can still be removed from the lists.
     expect(screen.getByTestId('details-delete').props.accessibilityState.disabled).toBeFalsy();
   });

@@ -9,9 +9,9 @@ export type Status = 'active' | 'done' | 'dropped';
  *
  * Deliberately **not** `Record<Lang, string>` now that Hebrew is a language the
  * UI can be set to. This is fixture copy — the round-1 prototype's seven
- * commitments — and `src/state/seed.ts` says in its own first line that it is
- * waiting to be replaced by `/api/mobile/commitments/*` (UC-2.R3, #173). Real
- * commitment titles come from the account as one plain string in whatever
+ * commitments. The placeholder store was replaced by
+ * `/api/mobile/commitments/*` (UC-2.R3, #173). Real commitment titles come
+ * from the account as one plain string in whatever
  * language the user wrote them in; they are never translated, which is the
  * whole reason `isolateAuto` exists. Machine-translating seven placeholder
  * titles into a third language would be inventing content to satisfy a type.
@@ -23,7 +23,7 @@ export type Localized = { ar: string; en: string; he?: string };
 export type Commitment = {
   id: string;
   title: Localized;
-  day: number; // index into the week that starts Sunday 6 Sept; see seed.ts
+  day: number; // index into the legacy design fixture week that starts Sunday 6 Sept
   h: number | null;
   m: number;
   dur: number; // minutes
@@ -48,6 +48,10 @@ export type Proposal = {
 export type Part = { text: string; c: number };
 
 export type Screen =
+  | 'myMaybeSitter' | 'integrations' | 'googleIntegration' | 'actionModes'
+  | 'addToMaybeSitter' | 'goalExecution' | 'personalization' | 'patchReview'
+  | 'backgroundActivity' | 'pdfReview' | 'habitDetail' | 'watchBuilder'
+  | 'commitments' | 'contextualAssistant'
   | 'today'
   | 'calendar'
   | 'settings'
@@ -62,8 +66,6 @@ export type Screen =
   // twice. A successful analyze leaves here for `capture`, which is where the
   // ordinary review and confirm live.
   | 'share'
-  // Development only: the design gallery (src/design/Gallery.tsx).
-  | 'gallery'
   // Development only, and additionally behind an env flag: the Google Calendar
   // verification demo (src/screens/CalendarDemoScreen.tsx, UC-1.8 #152).
   | 'calendarDemo'
@@ -103,6 +105,12 @@ export type Screen =
   // Settings → Categories (#415). Which parts of life this account uses, and
   // whether the lists carry a filter bar.
   | 'categorySettings'
+  // Round 2 (Phase I): language and appearance as pickers rather than rows
+  // that cycle; the account as its own screen; and a "sources" hub for the
+  // things that can put commitments into a day on their own.
+  | 'langAppearance'
+  | 'account'
+  | 'sources'
   | 'about'
   // Calendar → Considering / Waiting (#519). Things the person has not decided
   // on: no time, no importance, nothing on the day. Reached from the week
@@ -131,8 +139,14 @@ export type Sheet =
   | 'postpone'
   | 'edit'
   | 'confirmDrop'
-  | 'confirmDelete'
-  | 'toast';
+  | 'confirmDelete';
+
+/**
+ * A write that worked, said once at the bottom of the screen (Round 2). It
+ * fades on its own; `undo`, when the write can be taken back within the
+ * window, is the one action it carries.
+ */
+export type Toast = { id: number; text: string; undo?: (() => void) | undefined };
 
 export type ExampleKey = 'doctor' | 'report' | 'sami' | 'study' | 'hi';
 

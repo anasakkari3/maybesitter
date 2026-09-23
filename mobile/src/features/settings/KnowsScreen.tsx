@@ -1,9 +1,9 @@
 import React from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
+import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { useTrust } from '../../api/queries';
 import { SettingsHeader } from './SettingsChrome';
 import { MemorySection } from '../memory/MemorySection';
@@ -25,7 +25,6 @@ import { MemorySection } from '../memory/MemorySection';
  */
 export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory?: (() => void) | undefined }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const trust = useTrust();
   const knows = trust.data?.whatKnows;
 
@@ -38,9 +37,9 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
     : [];
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.knowsTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.settingsKnows} onBack={onBack} />}>
+      <ScreenScroll>
+        <QueryBoundary isPending={trust.isPending} error={trust.error} onRetry={() => void trust.refetch()}>
 
         {knows ? (
           <Card pad={18} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -61,7 +60,7 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
 
         {nevers.length > 0 ? (
           <Card pad={18} style={{ gap: 10 }} testID="knows-never">
-            <Txt size={13} weight={600} color={p.mu}>{t.knowsNeverHeading}</Txt>
+            <Txt role="card">{t.knowsNeverHeading}</Txt>
             {nevers.map(([key, line]) => (
               <View key={key} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
                 <Txt size={14} color={p.mu}>·</Txt>
@@ -70,7 +69,8 @@ export function KnowsScreen({ onBack, onMemory }: { onBack: () => void; onMemory
             ))}
           </Card>
         ) : null}
-      </ScrollView>
-    </ScreenIn>
+        </QueryBoundary>
+      </ScreenScroll>
+    </Screen>
   );
 }

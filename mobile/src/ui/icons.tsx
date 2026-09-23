@@ -1,6 +1,13 @@
 import React, { useId } from 'react';
 import Svg, { Circle, Defs, Path, Pattern, Polyline, RadialGradient, Rect, Stop } from 'react-native-svg';
 
+/** Direction belongs to navigation, never to the script of a text glyph. */
+export function ChevronIcon({ color, rtl, back = false }: { color: string; rtl: boolean; back?: boolean }) {
+  return <Svg width={18} height={18} viewBox="0 0 24 24" accessible={false}>
+    <Polyline points={back !== rtl ? '15,5 8,12 15,19' : '9,5 16,12 9,19'} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+  </Svg>;
+}
+
 export function MicIcon({ size = 20, color = '#fff' }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={2} strokeLinecap="round">

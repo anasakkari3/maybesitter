@@ -1,10 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Linking, Platform, ScrollView, View } from 'react-native';
+import { AppState, Linking, Platform, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import {
   usePlanSettings,
   useProfile,
@@ -88,7 +87,6 @@ const QUIET_CHOICES: readonly QuietChoice[] = ['none', 'early', 'standard', 'lat
 
 export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, lang, actions } = useApp();
-  const insets = useSafeAreaInsets();
   const device = useTimeZone();
   const settings = useReminderSettings();
   const profile = useProfile();
@@ -289,9 +287,8 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   };
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.notifTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
+      <ScreenScroll>
         <Card pad={18}>
           <Txt size={15} color={p.mu} lh={1.5}>{t.obNotifBody}</Txt>
         </Card>
@@ -552,7 +549,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
         >
           <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
         </Btn>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

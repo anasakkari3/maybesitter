@@ -8,7 +8,8 @@ import { useAccountDeletion } from '../features/account/AccountDeletionProvider'
 import { ReauthCancelled } from '../features/account/reauthenticate';
 import { useIsOnline } from '../api/ui/OfflineBanner';
 import { accountDeletionUrl } from '../config/env';
-import { Card, FlowHeader, Pill, Txt } from '../ui/primitives';
+import { Card, Pill, Txt } from '../ui/primitives';
+import { TaskHeader } from '../ui/taskHeader';
 
 /**
  * Delete account (UC-1.5 #149).
@@ -83,7 +84,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
   if (phase.kind === 'reauth') {
     return (
       <View style={{ flex: 1, backgroundColor: p.bg }}>
-        <FlowHeader pill={t.back} onPill={cancelReauth} title={t.accountDeleteTitle} />
+        <TaskHeader pill={t.back} onPill={cancelReauth} title={t.accountDeleteTitle} />
         <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
           <Txt size={22} weight={600}>{t.accountReauthTitle}</Txt>
           <Txt size={15} color={p.mu}>{t.accountReauthBody}</Txt>
@@ -156,7 +157,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: p.bg }}>
-      <FlowHeader pill={t.back} onPill={onBack} title={t.settingsAccount} />
+      <TaskHeader pill={t.back} onPill={onBack} title={t.settingsAccount} />
       <ScrollView contentContainerStyle={{ padding: 24, gap: 18, paddingBottom: 48 }}>
         <Txt size={24} weight={600}>{t.accountDeleteTitle}</Txt>
         <Txt size={15}>{t.accountDeleteLede}</Txt>

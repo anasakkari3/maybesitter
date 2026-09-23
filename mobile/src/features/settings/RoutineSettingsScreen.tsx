@@ -1,10 +1,9 @@
 import React, { useState } from 'react';
 import { ScrollView } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import { Btn, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { useTimeZone } from '../../i18n/timezone';
 import { usePutRoutine } from '../../api/queries';
 import { RoutineStep } from '../onboarding/RoutineStep';
@@ -30,7 +29,6 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
   // Whose answers these are (#148).
   const accountId = useAuth().user?.uid ?? null;
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
   const putRoutine = usePutRoutine();
   const sync = useRoutineSync();
@@ -83,9 +81,8 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
   };
 
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 60, gap: 14 }}>
-        <SettingsHeader title={t.settingsRoutine} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.settingsRoutine} onBack={onBack} />}>
+      <ScreenScroll>
         <RoutineStep
           mode="settings"
           answers={answers}
@@ -108,7 +105,7 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
         >
           <Txt size={16} weight={600} color="#FFFFFF">{t.memorySave}</Txt>
         </Btn>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }

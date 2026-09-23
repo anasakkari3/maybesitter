@@ -49,13 +49,19 @@ export interface PlanEdit {
 export type PlanActionBody =
   | { action: 'accept' }
   | { action: 'dismiss' }
+  | { action: 'accept_proposal' }
+  | { action: 'reject_proposal' }
   | ({ action: 'edit' } & PlanEdit);
+
+function withProposal(response: { plan: DailyPlan; proposal?: DailyPlan['proposal'] }): DailyPlan {
+  return { ...response.plan, proposal: response.proposal ?? null };
+}
 
 /** That date's plan, or null when none was built. */
 export async function getPlan(date: string): Promise<DailyPlan | null> {
   try {
     const response = await apiRequest('GET', planPath(date), { schema: planResponseSchema });
-    return response.plan;
+    return withProposal(response);
   } catch (error) {
     if (error instanceof NotFoundError) return null;
     throw error;
@@ -74,7 +80,7 @@ export async function actOnPlan(date: string, body: PlanActionBody): Promise<Dai
     body,
     schema: planResponseSchema,
   });
-  return response.plan;
+  return withProposal(response);
 }
 
 /**
@@ -90,7 +96,7 @@ export async function regeneratePlan(date: string): Promise<DailyPlan> {
     body: {},
     schema: planResponseSchema,
   });
-  return response.plan;
+  return withProposal(response);
 }
 
 /**
@@ -106,7 +112,7 @@ export async function buildPlan(date: string): Promise<DailyPlan> {
     body: {},
     schema: planResponseSchema,
   });
-  return response.plan;
+  return withProposal(response);
 }
 
 export async function getPlanSettings(): Promise<PlanSettings> {

@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import {
   useClearFinancialField,
@@ -8,6 +7,8 @@ import {
   useDisconnectFinancialSource,
   useFinancialConnection,
   useFinancialContext,
+  useRemoveFinancialObligation,
+  useSaveFinancialObligation,
   useSaveFinancialField,
 } from '../../api/queries';
 import type {
@@ -18,7 +19,7 @@ import type {
 } from '../../api/schemas/financial';
 import { ltr } from '../../i18n/strings';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { ScreenIn } from '../../ui/motion';
+import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 
 const BAND_COPY = {
@@ -105,15 +106,20 @@ function Line({ label, amount, testID }: {
 
 export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
   const { t, p } = useApp();
-  const insets = useSafeAreaInsets();
   const context = useFinancialContext();
   const connection = useFinancialConnection();
   const connect = useConnectFinancialSource();
   const disconnect = useDisconnectFinancialSource();
   const saveField = useSaveFinancialField();
+  const saveObligation = useSaveFinancialObligation();
+  const removeObligation = useRemoveFinancialObligation();
   const clearField = useClearFinancialField();
   const [draft, setDraft] = useState('');
   const [failed, setFailed] = useState(false);
+  const [billLabel, setBillLabel] = useState('');
+  const [billAmount, setBillAmount] = useState('');
+  const [billCurrency, setBillCurrency] = useState('USD');
+  const [billDate, setBillDate] = useState('');
 
   const state: FinancialState | null = context.data?.state ?? null;
   const connected = connection.data?.connected === true;
@@ -145,10 +151,40 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const saveBill = async () => {
+    setFailed(false);
+    const amount = billAmount.trim();
+    const currency = billCurrency.trim().toUpperCase();
+    const due = billDate.trim();
+    if (!billLabel.trim() || !/^\d+(\.\d{1,2})?$/.test(amount) || !/^[A-Z]{3}$/.test(currency) || !/^\d{4}-\d{2}-\d{2}$/.test(due)) {
+      setFailed(true);
+      return;
+    }
+    const dueAt = new Date(`${due}T12:00:00.000Z`);
+    if (Number.isNaN(dueAt.getTime()) || dueAt.toISOString().slice(0, 10) !== due) {
+      setFailed(true);
+      return;
+    }
+    try {
+      await saveObligation.mutateAsync({
+        label: billLabel.trim(),
+        category: 'other',
+        dueAt: dueAt.toISOString(),
+        amountMinorUnits: Math.round(Number(amount) * 100),
+        currency,
+        recurring: false,
+      });
+      setBillLabel('');
+      setBillAmount('');
+      setBillDate('');
+    } catch {
+      setFailed(true);
+    }
+  };
+
   return (
-    <ScreenIn style={{ backgroundColor: p.bg }}>
-      <ScrollView contentContainerStyle={{ paddingTop: insets.top + 8, paddingHorizontal: 20, paddingBottom: 80, gap: 14 }}>
-        <SettingsHeader title={t.financialTitle} onBack={onBack} />
+    <Screen pinned={<SettingsHeader title={t.financialTitle} onBack={onBack} />}>
+      <ScreenScroll bottom={80}>
 
         <Card pad={18} style={{ gap: 10 }}>
           <Txt size={15} weight={600}>{t.financialSourceTitle}</Txt>
@@ -169,6 +205,26 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
             <Txt size={15} weight={600} color={connected ? p.tx : '#FFFFFF'}>
               {connected ? t.financialDisconnect : t.financialConnect}
             </Txt>
+          </Btn>
+        </Card>
+
+        <Card pad={18} style={{ gap: 10 }}>
+          <Txt size={15} weight={600}>{t.financialAddBillTitle}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5}>{t.financialAddBillBody}</Txt>
+          <TextInput testID="financial-bill-label" value={billLabel} onChangeText={setBillLabel} placeholder={t.financialAddBillLabel} placeholderTextColor={p.mu}
+            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TextInput testID="financial-bill-amount" value={billAmount} onChangeText={setBillAmount} keyboardType="decimal-pad" placeholder={t.financialAddBillAmount} placeholderTextColor={p.mu}
+              style={{ flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+            <TextInput testID="financial-bill-currency" value={billCurrency} onChangeText={setBillCurrency} autoCapitalize="characters" maxLength={3} placeholder="USD" placeholderTextColor={p.mu}
+              style={{ width: 82, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+          </View>
+          <TextInput testID="financial-bill-date" value={billDate} onChangeText={setBillDate} keyboardType="numbers-and-punctuation" placeholder={t.financialAddBillDate} placeholderTextColor={p.mu}
+            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+          <Btn label={t.financialAddBillSave} testID="financial-bill-save" onPress={() => void saveBill()}
+            disabled={saveObligation.isPending || !billLabel.trim() || !billAmount.trim() || !billDate.trim()}
+            style={{ minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}>
+            <Txt size={15} weight={600} color="#FFFFFF">{t.financialAddBillSave}</Txt>
           </Btn>
         </Card>
 
@@ -284,13 +340,16 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
                   <Txt size={12} color={p.mu}>{day(obligation.dueAt)}</Txt>
                 </View>
                 <Txt size={14} weight={600}>{money(obligation.amount.minorUnits, obligation.amount.currency)}</Txt>
+                {obligation.amount.provenance.origin === 'manual' ? <Btn label={t.financialRemoveBill} testID={`financial-obligation-remove-${obligation.obligationId}`}
+                  disabled={removeObligation.isPending} onPress={() => void removeObligation.mutateAsync(obligation.obligationId).catch(() => setFailed(true))}
+                  style={{ minHeight: 44, justifyContent: 'center' }}><Txt size={13} color={p.wm}>{t.financialRemoveBill}</Txt></Btn> : null}
               </View>
             ))}
           </Card>
         ) : null}
 
         <Txt size={12} color={p.mu} lh={1.5}>{t.financialPrivacyNote}</Txt>
-      </ScrollView>
-    </ScreenIn>
+      </ScreenScroll>
+    </Screen>
   );
 }
