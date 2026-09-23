@@ -51,5 +51,6 @@
         "maxShiftMinutes": 30
       }
     ]
-  }
+  },
+  "proposal": null
 }

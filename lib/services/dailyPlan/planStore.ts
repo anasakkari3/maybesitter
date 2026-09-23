@@ -160,23 +160,30 @@ export interface StoredDailyPlan {
  * It does not change `status`. The plan in force is still the accepted plan:
  * the patch is an offer beside it, not a state it has entered.
  *
- * ── A constraint on whoever builds the reader ────────────────────
+ * ── The orphaning hazard, and how it is closed (#523's reader) ───
  *
  * `storePlanProposal` pins a patch to `generation` alone, and `generation` is
  * not the only thing that moves a plan: `acceptPlan`, `dismissPlan`,
  * `editPlan` and `setBlockProtection` all rewrite the document with
- * `{ ...current, … }` without incrementing it and without clearing this
- * field. A patch solved against generation 3 therefore survives an edit or a
- * dismissal and still satisfies the compare-and-set.
+ * `{ ...current, … }` without incrementing it. A patch solved against
+ * generation 3 would therefore survive an edit or a dismissal and still
+ * satisfy the compare-and-set.
  *
- * That is harmless today only because nothing reads this field yet — the
- * writer, the type and the tests are its entire world. It stops being
- * harmless on the first read. Whoever adds that reader must close it one of
- * three ways: bump the generation on an edit, clear `proposal` in those four
- * mutators, or compare `baseInputDigest` against the plan's own at read time.
- * It is recorded here rather than fixed here because fixing it means
- * rewriting four mutators that nothing currently exercises against this
- * field, which is a change with no test that could fail for it.
+ * Of the three closures this comment once offered, only one actually works.
+ * **None of those four mutators touches `inputDigest`** — an edit changes
+ * `edits`, `blocks` and `status`, and the digest still describes the same
+ * planner inputs — so comparing `baseInputDigest` at read time compares equal
+ * and presents the orphan as actionable. Bumping the generation on an edit
+ * would make a user's drag look like a regeneration and would burn a slot of
+ * `MAX_PLAN_GENERATIONS_PER_DAY`. So the fix is the second one: those four
+ * mutators now write `proposal: null` in the same transaction that changes
+ * the plan under it, and a patch cannot outlive the state it patches.
+ *
+ * `pendingProposalOf` keeps the read-time `(generation, inputDigest)`
+ * comparison as well, because the two catch different things: the clearing
+ * catches a mutator that changes the plan without moving either number, and
+ * the comparison catches a writer that moves a number without clearing the
+ * field. Neither subsumes the other, and both are cheap.
  */
 export interface StoredPlanProposal {
   readonly proposalId: string;
@@ -200,6 +207,26 @@ export interface StoredPlanProposal {
    * the whole batch the replan request subsumed.
    */
   readonly causeChangeIds: readonly string[];
+}
+
+/**
+ * The proposal a reader may act on, or null (#523).
+ *
+ * The one place "is this patch still about this plan" is answered, so the read
+ * surface and the accept action cannot drift into two different answers. A
+ * patch whose base is not exactly the document's own `(generation,
+ * inputDigest)` is not a weaker offer — it describes a plan the user is no
+ * longer looking at — so it is withheld rather than shown with a caveat.
+ *
+ * Pure and synchronous: it is a predicate over the document, and every caller
+ * already has the document.
+ */
+export function pendingProposalOf(stored: StoredDailyPlan): StoredPlanProposal | null {
+  const proposal = stored.proposal ?? null;
+  if (proposal === null) return null;
+  if (proposal.baseGeneration !== stored.generation) return null;
+  if (proposal.baseInputDigest !== stored.inputDigest) return null;
+  return proposal;
 }
 
 export type PlanEventType =

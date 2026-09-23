@@ -1,7 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
-import { planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { pendingProposalToDto, planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
 import {
   PlanDateOutOfRangeError,
   buildDailyPlanOnDemand,
@@ -41,5 +41,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     throw error;
   }
   const state = await loadDomainState(getStorage(), user.uid);
-  return Response.json({ success: true, plan: planToDto(stored, titlesOf(Object.values(state.commitments))) });
+  const titles = titlesOf(Object.values(state.commitments));
+  /*
+   * `proposal` rides along because this route's contract, stated above, is
+   * that it answers the shape `GET` returns. A freshly built plan has no
+   * pending patch, so this is `null` in practice — but a client that renders
+   * from the build response and a client that renders from `GET` must not see
+   * two different shapes, or the second one grows a branch for a key the first
+   * never sends.
+   */
+  return Response.json({ success: true, plan: planToDto(stored, titles), proposal: pendingProposalToDto(stored, titles) });
 }
