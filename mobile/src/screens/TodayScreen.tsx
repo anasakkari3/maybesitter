@@ -160,6 +160,7 @@ export function TodayScreen() {
           eyebrow={formatDate(new Date(), 'weekday', { locale: lang, timeZone: timezone })}
           eyebrowTestID="today-date"
           title={t.todayTitle}
+          end={<TextLink label={t.xAssistant} onPress={() => actions.go('contextualAssistant')} testID="today-assistant" />}
         />
 
         {showBar ? <CategoryBar chips={chips} selected={chip} onSelect={setChip} /> : null}

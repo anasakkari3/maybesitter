@@ -48,6 +48,10 @@ export type Proposal = {
 export type Part = { text: string; c: number };
 
 export type Screen =
+  | 'myMaybeSitter' | 'integrations' | 'googleIntegration' | 'actionModes'
+  | 'addToMaybeSitter' | 'goalExecution' | 'personalization' | 'patchReview'
+  | 'backgroundActivity' | 'pdfReview' | 'habitDetail' | 'watchBuilder'
+  | 'commitments' | 'contextualAssistant'
   | 'today'
   | 'calendar'
   | 'settings'

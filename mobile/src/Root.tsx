@@ -43,6 +43,10 @@ import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
 
+import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, PdfReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
+import { PersonalizationScreen, CommitmentsScreen, ContextualAssistantScreen } from './features/product/ContextScreens';
+import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product/WatcherScreens';
+
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
   const { takePendingLink } = useAuth();
@@ -130,6 +134,20 @@ export function Root() {
               on this phone — and clears it before a sign-out and when this
               signed-in tree unmounts. */}
           <WidgetSnapshotHost />
+          {s.screen === 'myMaybeSitter' && <MyMaybeSitterScreen />}
+{s.screen === 'integrations' && <IntegrationsScreen />}
+{s.screen === 'googleIntegration' && <GoogleIntegrationScreen />}
+{s.screen === 'actionModes' && <ActionModesScreen />}
+{s.screen === 'addToMaybeSitter' && <AddToMaybeSitterScreen />}
+{s.screen === 'goalExecution' && <GoalExecutionScreen />}
+{s.screen === 'personalization' && <PersonalizationScreen />}
+{s.screen === 'patchReview' && <PatchReviewScreen />}
+{s.screen === 'backgroundActivity' && <BackgroundActivityScreen />}
+{s.screen === 'pdfReview' && <PdfReviewScreen />}
+{s.screen === 'habitDetail' && <HabitDetailScreen />}
+{s.screen === 'watchBuilder' && <WatchBuilderScreen />}
+{s.screen === 'commitments' && <CommitmentsScreen />}
+{s.screen === 'contextualAssistant' && <ContextualAssistantScreen />}
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}

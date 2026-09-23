@@ -56,6 +56,7 @@ const TASKS: ReadonlySet<Screen> = new Set<Screen>(['capture', 'share', 'deleteA
  * and the plan belong to whichever tab asked for them.
  */
 const SETTINGS_LEAVES: ReadonlySet<Screen> = new Set<Screen>([
+  'myMaybeSitter', 'integrations', 'googleIntegration', 'personalization', 'backgroundActivity',
   'trust', 'knows', 'memory', 'feedbackHistory', 'activity', 'routineSettings', 'readinessSettings',
   'notificationsSettings', 'calendarSettings', 'calendarFeeds', 'footballSettings', 'categorySettings',
   'widgetSettings', 'about', 'langAppearance', 'account', 'sources',

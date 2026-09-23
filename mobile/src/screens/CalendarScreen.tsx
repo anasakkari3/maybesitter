@@ -1,3 +1,4 @@
+import { ProductRow } from '../ui/product';
 import { importantDeadline } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import React, { useMemo, useState } from 'react';
@@ -211,6 +212,8 @@ export function CalendarScreen() {
           </View>
           {weekInsight ? <DeadlineContext item={weekInsight} weekly /> : null}
         </QueryBoundary>
+      <ProductRow id="calendar-commitments" title={t.xCommitments} body={t.xCurrentHorizon} icon="check" onPress={() => actions.go('commitments')} />
+        <ProductRow id="calendar-patch" title={t.xPatch} icon="calendar" status="COMING_SOON" onPress={() => actions.go('patchReview')} />
       </ScreenScroll>
     </Screen>
   );

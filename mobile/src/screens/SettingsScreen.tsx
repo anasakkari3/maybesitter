@@ -1,4 +1,5 @@
 import React from 'react';
+import { ProductRow } from '../ui/product';
 import { View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
@@ -47,6 +48,8 @@ export function SettingsScreen() {
       <ScreenScroll bottom={130} gap={24} topGap={8}>
         <ScreenHeader title={t.settingsTitle} />
 
+        <ProductRow id="settings-my" title={t.xMy} body={t.xMyBody} icon="person" onPress={() => actions.go('myMaybeSitter')} />
+
         <Group title={t.settingsGroupYou}>
           <SettingsRow first label={t.settingsRoutine} sub={t.settingsRoutineSub} onPress={() => actions.go('routineSettings')} testID="settings-routine" />
           <SettingsRow label={t.settingsEnergy} sub={t.settingsEnergySub} onPress={() => actions.go('readinessSettings')} testID="settings-readiness" />
@@ -55,6 +58,8 @@ export function SettingsScreen() {
         </Group>
 
         <Group title={t.settingsGroupConnections}>
+          <SettingsRow first label={t.xIntegrations} onPress={() => actions.go('integrations')} testID="settings-integrations" />
+          <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} testID="settings-background" />
           <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} testID="settings-calendar" />
           <SettingsRow label={t.settingsSources} sub={t.settingsSourcesSub} onPress={() => actions.go('sources')} testID="settings-sources" />
         </Group>
@@ -71,6 +76,7 @@ export function SettingsScreen() {
         </Group>
 
         <Group title={t.settingsGroupTrust}>
+          <SettingsRow first label={t.xPersonalization} onPress={() => actions.go('personalization')} testID="settings-personalization" />
           <SettingsRow first label={t.settingsKnows} sub={memoryCount === undefined ? undefined : tr('settingsKnowsSub', { n: memoryCount })} onPress={() => actions.go('knows')} testID="settings-knows" />
           <SettingsRow label={t.sTrust} onPress={() => actions.go('trust')} testID="settings-trust" />
           <SettingsRow label={t.activityTitle} onPress={() => actions.go('activity')} testID="settings-activity" />

@@ -1,0 +1,21 @@
+import React from 'react';
+import { afterEach, expect, it } from '@jest/globals';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AppProvider } from '../../../state/AppContext';
+import { WatchBuilderScreen } from '../WatcherScreens';
+import { strings } from '../../../i18n/strings';
+const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
+afterEach(cleanup);
+it('changing the source removes flight-only conditions and resets the selected condition', async () => {
+  await render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><WatchBuilderScreen /></AppProvider></SafeAreaProvider>);
+  const lang = Object.values(strings).find(t => screen.queryAllByText(t.xFlightDelay).length > 0)!;
+  expect(lang).toBeDefined();
+  await fireEvent.press(screen.getByTestId('watch-source-package'));
+  expect(screen.queryByText(lang.xFlightDelay)).toBeNull();
+  expect(screen.getAllByText(lang.xDelivery).length).toBeGreaterThan(0);
+  await fireEvent.press(screen.getByTestId('watch-source-readiness'));
+  expect(screen.queryByText(lang.xDelivery)).toBeNull();
+  expect(screen.getAllByText(lang.xEnergyChange).length).toBeGreaterThan(0);
+  expect(screen.getByLabelText(`${lang.xCreateWatch} · ${lang.xSoon}`)).toBeDisabled();
+});
