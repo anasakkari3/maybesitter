@@ -27,6 +27,7 @@ import {
 } from '../../src/extraction/llm';
 import { getAiConsent } from '../consents/aiConsentService';
 import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProvider';
+import { PROFILE_EXTRACTION_SCHEMA } from '../../src/profile/profilePrompt';
 import { GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
 import { logLlmCall, uidHash } from './llmLog';
 import {
@@ -167,7 +168,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
       const response = await provider.generateJson({
         system,
         user,
-        responseSchema: GEMINI_EXTRACTION_SCHEMA,
+        responseSchema: purpose === 'profile_extraction' ? PROFILE_EXTRACTION_SCHEMA : GEMINI_EXTRACTION_SCHEMA,
         purpose,
         uid,
       });

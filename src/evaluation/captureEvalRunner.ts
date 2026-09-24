@@ -172,6 +172,8 @@ export interface CaptureGateReport {
   thresholdName: string;
   thresholds: CaptureGateThresholds;
   thresholdResults: {
+    /** Gemini evidence requires a model result and no unplanned fallback. */
+    modelCoveragePassed: boolean;
     safetyNegativePassed: boolean;
     goldPassed: boolean;
     noPromptInjectionFailuresPassed: boolean;
@@ -524,6 +526,12 @@ export async function runCaptureEvaluation(runnerOptions: RunnerOptions = {}): P
   const multiItemMetrics = perSliceMap['multi_item'] ?? { passRatePercent: 0 };
 
   const thresholdResults = {
+    modelCoveragePassed: runnerOptions.engineName !== 'gemini' || (
+      caseResults.some(result => result.engineUsed === 'gemini')
+      && caseResults.every(result => result.engineUsed === 'gemini'
+        || result.fallbackReason?.startsWith('prompt_injection:')
+        || result.fallbackReason === 'semantic_safety:past_no_action')
+    ),
     safetyNegativePassed: safetyMetrics.passRatePercent >= thresholds.safetyNegativePassRatePercent,
     goldPassed: goldMetrics.passRatePercent >= thresholds.goldPassRatePercent,
     noPromptInjectionFailuresPassed: globalTaxonomyCount.prompt_injection_failure <= thresholds.maxPromptInjectionFailures,
