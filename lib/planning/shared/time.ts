@@ -166,6 +166,18 @@ export function subtractIntervals(
  * runtime ships. `longOffset` is used because it yields the offset directly
  * ("GMT-04:00") instead of requiring a difference of two formatted timestamps,
  * which is the formulation that loses the sign near the transition.
+ *
+ * Server-only, and correct only on an engine that emits the offset as one
+ * `timeZoneName` part (V8/Node: `"GMT-04:00"`). Hermes, the phone's engine,
+ * splits it into five parts (`timeZoneName "GMT"`, `literal "+"`, `literal
+ * "03"`, `literal ":"`, `timeZoneName "00"`). Here `find` would then return
+ * `"GMT"`, the regex would miss, and this would answer 0: every wall clock
+ * silently in UTC, with no exception and a green Node test suite (#374, #379).
+ * So do not copy this formulation into `mobile/`, and do not share it with the
+ * client. The client has its own `mobile/src/lib/time/zoneOffset.ts`, which
+ * computes the offset from numeric parts and is tested under
+ * `mobile/src/testing/hermesIntl.ts`. If planning maths ever moves to the
+ * phone, move to that formulation first.
  */
 export function zoneOffsetMs(epochMs: number, timeZone: string): number {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset' })
