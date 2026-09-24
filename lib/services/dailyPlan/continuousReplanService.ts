@@ -50,8 +50,8 @@ import { editsSurvivingReschedule, effectiveSchedule, planUnderKeptRemovals } fr
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
-import { buildDailyPlanInput, dailyPlanScheduleSources } from './buildDailyPlan';
-import { projectPlanLayerIntoConstraints } from './dailyPlanService';
+import { dailyPlanScheduleSources } from './buildDailyPlan';
+import { composeDailyPlanRequest } from './dailyPlanService';
 import {
   PROTECTED_OWNERSHIP,
   applyEditsToBlocks,
@@ -59,9 +59,6 @@ import {
   reconcileScheduleBlocks,
   schedulePlan,
 } from '../../planning/scheduler';
-import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
-import { loadDomainState } from '../mobile/participantState';
-import { readRoutineProfile } from '../mobile/routineProfileService';
 import { composeCurrentUserState, type CurrentUserState } from '../../userState/userStateService';
 import { executeContinuousReplanPipeline } from '../../planning/replan';
 import { resolveChangedEntityFacts, type EntityFactsByChangeId } from './changedEntityFacts';
@@ -501,54 +498,36 @@ export async function processStateChangesForUser(
   const entityFactsByChangeId = options.entityFactsByChangeId
     ?? await resolveChangedEntityFacts(uid, rawChanges, { storage });
 
-  // 4. Pre-load commitments, busy blocks, and routine for planner invocation
-  const domain = await loadDomainState(storage, uid);
-  const routine = await readRoutineProfile(uid, { storage });
-  const horizon = storedPlan?.plan.horizon ?? {
-    startsAt: `${date}T00:00:00.000Z`,
-    endsAt: `${date}T23:59:59.999Z`,
-  };
-
-  const busyBlocks = await readBusyBlocksForPlanning(uid, horizon, { storage });
-
-  const inputArgs = {
-    uid,
-    date,
-    timezone: settings.timezone,
-    commitments: Object.values(domain.commitments),
-    busyBlocks,
-    profile: routine,
-    builtAt: nowIso,
-  };
-
-  const dailyInput = buildDailyPlanInput(inputArgs);
   /**
-   * The request the morning build would have solved, not the bare adapter
-   * output (#585). `projectPlanLayerIntoConstraints` is the function
-   * `composeDailyPlan` calls, so the two solvers of a day cannot disagree about
-   * what is protected or how much room a person needs between items.
+   * 4. The request the morning build would have solved (#585, #606).
+   * `composeDailyPlanRequest` is the function `composeDailyPlan` calls, so the
+   * two solvers of a day read the same routine, the same kept focus window
+   * behind the same consent gate, busy time over the same horizon, and cannot
+   * disagree about what is protected or how much room a person needs between
+   * items.
    *
-   * Without it this solve treated every protected hour as ordinary flexible
-   * work: the auto-apply branch moved it without asking, the review branch
-   * offered a patch that moved it, and the blocks reconciled below — built from
-   * items that carried no protection — wrote the new generation with the
-   * protection gone. The solve, the schedule sources and the reconciliation
-   * below all read `constraints`, the reconciliation for that last reason.
+   * This solve once assembled its own request. Without the plan-layer
+   * projection it treated every protected hour as ordinary flexible work, and
+   * the blocks reconciled below, built from items that carried no protection,
+   * wrote the new generation with the protection gone (#585). Without the
+   * focus hint it solved a user who kept a focus window inside 08:00–20:00
+   * instead, and repacked their day on every replan (#606). The solve, the
+   * schedule sources and the reconciliation below all read `constraints`, the
+   * reconciliation because of #585.
    *
    * What does *not* read it is the stored document's own `constraints` field:
    * the auto-apply branch builds its document with `...current`, so that
    * field still describes the generation being replaced. That predates #585
    * and is left to its own issue rather than changed here.
    */
-  const constraints = await projectPlanLayerIntoConstraints({
+  const { constraints, config } = await composeDailyPlanRequest({
     uid,
-    now: nowIso,
+    date,
     timezone: settings.timezone,
-    commitments: inputArgs.commitments,
-    busyBlocks,
-    constraints: dailyInput.constraints,
+    now: nowIso,
+    userDocument: user,
     previousBlocks: storedPlan?.blocks ?? null,
-  }, { storage, userDocument: user });
+  }, { storage });
   const sources = dailyPlanScheduleSources(constraints);
 
   // Planner solve closure. The diff is visible day against visible day
@@ -556,7 +535,7 @@ export async function processStateChangesForUser(
   // plan as the person sees it now.
   const removals = storedPlan?.edits.removals ?? [];
   const planner = () => {
-    const plan = schedulePlan(constraints, dailyInput.config);
+    const plan = schedulePlan(constraints, config);
     return basePlan ? { plan, diff: diffPlans(basePlan, planUnderKeptRemovals(plan, removals)) } : { plan };
   };
 
