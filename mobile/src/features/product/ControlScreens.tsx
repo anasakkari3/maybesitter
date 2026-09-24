@@ -151,7 +151,11 @@ export function PatchReviewScreen() {
     key={protection.blockId}
     id={`patch-protection-${protection.blockId}`}
     title={protection.title ? isolate(protection.title) : protection.itemId}
-    body={protection.proposedInterval ? range(protection.proposedInterval) : t.xUnplaced}
+    body={protection.overridden
+      // What the user would give up, next to what they would get: the time
+      // they protected, then the proposed one.
+      ? `${t.xProtectedTime}: ${range(protection.preferredInterval)} · ${t.xAfter}: ${protection.proposedInterval ? range(protection.proposedInterval) : t.xUnplaced}`
+      : protection.proposedInterval ? range(protection.proposedInterval) : t.xUnplaced}
     icon="shield"
   />;
   return <ProductPage id="patch" title={t.xPatch} subtitle={t.xPatchBody}>
@@ -161,7 +165,7 @@ export function PatchReviewScreen() {
           {proposal.changes.filter(change => change.kind !== 'unchanged').map(change => <ProductRow
             key={`${change.kind}-${change.itemId}`}
             title={change.title ? isolate(change.title) : change.itemId}
-            body={`${t.xBefore}: ${range(change.from)} · ${t.xAfter}: ${range(change.to)}`}
+            body={`${t.xBefore}: ${range(change.from)} · ${t.xAfter}: ${change.kind === 'removed' && change.to === null ? t.xUnplaced : range(change.to)}`}
             icon="calendar"
           />)}
         </ProductSection>

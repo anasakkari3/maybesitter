@@ -1408,8 +1408,11 @@ test('exports a fixture for every /api/mobile call the React Native client makes
      * It is built to exercise the two shapes the screen has to get right: the
      * whole day an hour later, which pushes the block protected above past its
      * 30-minute allowance (`overridden: true`), and the last item dropped into
-     * `unscheduled` (a `removed` change). The reason is the internal policy
-     * code the screen must never show raw.
+     * `unscheduled` (a `removed` change). The reason is the one
+     * `evaluateReplanPolicy` gives any diff with a removal (its rule 3 runs
+     * before the churn rule), so the fixture is a state the server can
+     * actually produce — and it is an internal code the screen must never show
+     * raw.
      */
     const base = await readStoredPlan(USER, PLAN_DATE);
     assert.ok(base, 'the protected plan must still be stored');
@@ -1437,7 +1440,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       baseInputDigest: base.inputDigest,
       plan: patched,
       diff: diffPlans(base.plan, patched),
-      reason: 'churn_exceeded_threshold',
+      reason: 'contains_removals',
       userControlMode: 'automatic_time_only',
       causeChangeIds: ['chg_fixture_calendar'],
     });

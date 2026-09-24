@@ -56,7 +56,7 @@
     "proposalId": "prp_fixture",
     "proposedAt": "2026-08-09T08:00:00.000Z",
     "baseGeneration": 2,
-    "reason": "churn_exceeded_threshold",
+    "reason": "contains_removals",
     "userControlMode": "automatic_time_only",
     "causeChangeIds": [
       "chg_fixture_calendar"

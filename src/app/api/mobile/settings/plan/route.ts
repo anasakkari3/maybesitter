@@ -39,7 +39,11 @@ export async function PUT(request: Request) {
     return mobileError('Invalid JSON request body');
   }
 
-  if (typeof body.enabled !== 'boolean') return mobileError('enabled must be a boolean');
+  // `enabled` may be left out only by a write that is about the replanning
+  // switch (#523) — which then leaves the morning delivery untouched. Every
+  // other PUT still has to say whether the morning plan is on.
+  const replanOnly = body.enabled === undefined && body.continuousReplanEnabled !== undefined;
+  if (!replanOnly && typeof body.enabled !== 'boolean') return mobileError('enabled must be a boolean');
   if (body.deliveryLocalTime !== undefined && typeof body.deliveryLocalTime !== 'string') {
     return mobileError('deliveryLocalTime must be a string');
   }
@@ -53,7 +57,7 @@ export async function PUT(request: Request) {
     const settings = await savePlanSettings(
       user.uid,
       {
-        enabled: body.enabled,
+        ...(replanOnly ? {} : { enabled: body.enabled as boolean }),
         ...(body.deliveryLocalTime === undefined ? {} : { deliveryLocalTime: body.deliveryLocalTime }),
         ...(body.continuousReplanEnabled === undefined
           ? {}

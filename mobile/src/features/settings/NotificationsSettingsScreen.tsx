@@ -471,10 +471,8 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             title={t.planMorningTitle}
             body={t.planMorningBody}
             value={plan?.enabled === true}
-            // Nothing to write against until the server has answered once —
-            // and nothing while the replanning switch's write is in flight,
-            // since that write carries this switch's previous value (#523).
-            disabled={plan === null || savePlan.isPending}
+            // Nothing to write against until the server has answered once.
+            disabled={plan === null}
             onChange={async next_ => {
               // The plan arrives as a push, so the permission is asked here on
               // the way on for the same reason the reminders switch asks — and
@@ -509,24 +507,19 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               and nowhere near the calendar connections, because switching it
               off must not read as disconnecting one (it does not).
 
-              The route requires `enabled` on every PUT, so this write carries
-              the morning switch's current value. That makes one race real: a
-              morning-switch write still in flight has not reached the cache
-              yet, and this write would re-send the value it is replacing. So
-              this switch waits while any plan-settings write is pending. */}
+              The write names this field and nothing else. The route accepts a
+              PUT without `enabled` for exactly this case, so the phone never
+              re-sends a morning value it only has cached — which, after another
+              device turned the morning plan on, would turn it back off. */}
           <ServerToggle
             testID="plan-replan-toggle"
             title={t.planReplanTitle}
             body={t.planReplanBody}
             value={plan?.continuousReplanEnabled === true}
-            disabled={plan === null || savePlan.isPending}
+            disabled={plan === null}
             onChange={async next_ => {
-              if (plan === null) return false;
               try {
-                const saved = await savePlan.mutateAsync({
-                  enabled: plan.enabled,
-                  continuousReplanEnabled: next_,
-                });
+                const saved = await savePlan.mutateAsync({ continuousReplanEnabled: next_ });
                 return saved.continuousReplanEnabled === next_;
               } catch {
                 return false;

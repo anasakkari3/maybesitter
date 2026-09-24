@@ -733,7 +733,15 @@ export async function runDailyPlanTick(options: DailyPlanTickOptions = {}): Prom
 }
 
 export interface PlanSettingsInput {
-  readonly enabled: boolean;
+  /**
+   * The morning delivery. Omitted keeps the stored value *and* the stored
+   * `nextRunAt` (#523): the replanning switch saves through this same record,
+   * and a client that had to re-send `enabled` could only send the value in its
+   * cache — so a phone that had not seen another device turn the morning plan
+   * on would turn it back off. A write that does not name `enabled` does not
+   * touch the delivery at all.
+   */
+  readonly enabled?: boolean;
   readonly deliveryLocalTime?: string;
   /**
    * Whether continuous replanning may act on this account (#523, AC 9).
@@ -796,11 +804,17 @@ export async function savePlanSettings(
       ?? DEFAULT_CONTINUOUS_REPLAN_ENABLED;
     const timezone = user?.timezone ?? current.timezone;
 
-    const base = { enabled: input.enabled === true, deliveryLocalTime, timezone, continuousReplanEnabled };
+    const keepsDelivery = input.enabled === undefined;
+    const enabled = keepsDelivery ? current.enabled === true : input.enabled === true;
+    const base = { enabled, deliveryLocalTime, timezone, continuousReplanEnabled };
     const next: PlanSettings = base.enabled
       ? {
         ...base,
-        nextRunAt: nextDeliveryAt(now.toISOString(), base),
+        // Re-armed only by a write that is about the delivery. One that is not
+        // (the replanning switch) leaves an armed delivery exactly where it was.
+        nextRunAt: keepsDelivery && input.deliveryLocalTime === undefined && current.nextRunAt
+          ? current.nextRunAt
+          : nextDeliveryAt(now.toISOString(), base),
         ...(current.lastDeliveredDate ? { lastDeliveredDate: current.lastDeliveredDate } : {}),
       }
       // No `nextRunAt` key at all — see the header.

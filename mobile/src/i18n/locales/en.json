@@ -1128,6 +1128,7 @@
   "xOverridden": "Moves time you protected",
   "xOverriddenBody": "If you accept, these leave the time you protected.",
   "xUnplaced": "Not placed in the new plan",
+  "xProtectedTime": "Your protected time",
   "xPatchFuture": "Event-driven before/after review is coming soon. You can still review and edit your daily plan.",
   "xAcceptChanges": "Accept changes",
   "xKeepPlan": "Keep my current plan",

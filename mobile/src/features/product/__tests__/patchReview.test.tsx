@@ -13,7 +13,7 @@ import { PatchReviewScreen, patchReasonKey } from '../ControlScreens';
  *
  * Two things it must never do, both named in #523's handoff and both shipped
  * by the first version of this screen: show the server's internal policy code
- * (`churn_exceeded_threshold`) as if it were copy, and list a protection the
+ * (`contains_removals`) as if it were copy, and list a protection the
  * patch *overrides* under the heading "what stays protected". The second is the
  * worse one — the `protections` field exists so that nobody accepts a move
  * over an hour they protected without being told.
@@ -62,11 +62,11 @@ afterEach(cleanup);
 
 describe('the reason', () => {
   it('is said as a sentence, never as the policy code the server sends', async () => {
-    expect(RECORDED_PROPOSAL.reason).toBe('churn_exceeded_threshold');
+    expect(RECORDED_PROPOSAL.reason).toBe('contains_removals');
     await show();
     const t = language();
-    expect(screen.queryByText('churn_exceeded_threshold')).toBeNull();
-    expect(screen.getByText(t.xPatchWhyChurn)).toBeTruthy();
+    expect(screen.queryByText('contains_removals')).toBeNull();
+    expect(screen.getByText(t.xPatchWhyRemovals)).toBeTruthy();
   });
 
   it('maps every reason the policy can propose with, and nothing else by accident', () => {
@@ -135,7 +135,20 @@ describe('protections the patch overrides', () => {
     mockPlan = withProposal({ ...RECORDED_PROPOSAL, protections: [unplaced] });
     await show();
     const t = language();
-    expect(within(screen.getByTestId('patch-overridden')).getByText(t.xUnplaced)).toBeTruthy();
+    expect(within(screen.getByTestId('patch-overridden')).getByText(new RegExp(`${t.xAfter}: ${t.xUnplaced}$`))).toBeTruthy();
+  });
+
+  it('shows the protected time an override gives up, not only the proposed one', async () => {
+    await show();
+    const t = language();
+    expect(within(screen.getByTestId('patch-overridden')).getByText(new RegExp(`^${t.xProtectedTime}: `))).toBeTruthy();
+  });
+
+  it('says a removed item is not in the new plan, rather than "not set"', async () => {
+    expect(RECORDED_PROPOSAL.changes.some(change => change.kind === 'removed' && change.to === null)).toBe(true);
+    await show();
+    const t = language();
+    expect(screen.getAllByText(new RegExp(`${t.xAfter}: ${t.xUnplaced}$`)).length).toBeGreaterThan(0);
   });
 });
 

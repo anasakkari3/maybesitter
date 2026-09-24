@@ -252,7 +252,9 @@ describe('the morning-plan setting', () => {
 
   it('sends the replanning switch only when it is the thing being changed', async () => {
     serve(fixture('plan.settingsSaved'));
-    await putPlanSettings({ enabled: true, continuousReplanEnabled: false });
-    expect(requests[0]!.body).toEqual({ enabled: true, continuousReplanEnabled: false });
+    // No `enabled`: the route accepts this write alone without it, so the
+    // phone never re-sends a morning value it only has cached.
+    await putPlanSettings({ continuousReplanEnabled: false });
+    expect(requests[0]!.body).toEqual({ continuousReplanEnabled: false });
   });
 });

@@ -24,12 +24,12 @@ import settingsDefault from '../../../api/__fixtures__/plan.settingsDefault.json
  * The continuous-replanning switch (#523, AC 9: "User can disable continuous
  * replanning independently from provider sync").
  *
- * It shares one record — and one PUT, which requires `enabled` every time —
- * with the morning-plan switch beside it. So besides "the position is the
- * server's answer", the property under test is that neither switch can
- * rewrite the other: flipping this one must carry the morning switch's stored
- * value, never a default, and never a value a write still in flight is about
- * to replace.
+ * It shares one record, and one PUT, with the morning-plan switch beside it.
+ * So besides "the position is the server's answer", the property under test
+ * is that neither switch can rewrite the other. The morning switch never sends
+ * the replanning field, and this switch never sends `enabled` — the route
+ * accepts that write alone without it — because the only `enabled` a phone
+ * could send is the one in its cache, which another device may have changed.
  */
 
 const METRICS: Metrics = {
@@ -45,7 +45,7 @@ const USER: AuthUser = {
 const DEFAULT: PlanSettings = settingsDefault.planSettings as PlanSettings;
 const MORNING_ON: PlanSettings = { ...DEFAULT, enabled: true, nextRunAt: '2026-08-10T04:30:00.000Z' };
 
-type PutInput = { enabled: boolean; deliveryLocalTime?: string; continuousReplanEnabled?: boolean };
+type PutInput = { enabled?: boolean; deliveryLocalTime?: string; continuousReplanEnabled?: boolean };
 
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
@@ -66,10 +66,10 @@ beforeEach(() => {
   jest.spyOn(planEndpoints, 'putPlanSettings').mockImplementation((async (input: PutInput) => {
     stored = {
       ...stored,
-      enabled: input.enabled,
+      enabled: input.enabled ?? stored.enabled,
       ...(input.deliveryLocalTime ? { deliveryLocalTime: input.deliveryLocalTime } : {}),
       ...(input.continuousReplanEnabled === undefined ? {} : { continuousReplanEnabled: input.continuousReplanEnabled }),
-      nextRunAt: input.enabled ? MORNING_ON.nextRunAt : null,
+      nextRunAt: (input.enabled ?? stored.enabled) ? MORNING_ON.nextRunAt : null,
     };
     return stored;
   }) as never);
@@ -113,8 +113,9 @@ describe('the replanning switch is the server’s record', () => {
 
     await act(async () => { answer.resolve(DEFAULT); });
     await waitFor(() => expect(replan().props.disabled).toBe(false));
-    // The regression this pins: zod stripped the field, so a default-on
-    // account was drawn as off.
+    // The endpoint is mocked here, so zod does not run: the stripped-field
+    // regression is pinned in `api/__tests__/plans.test.ts`. This pins that
+    // the switch reads the field it is given.
     expect(replan().props.value).toBe(true);
   });
 
@@ -123,6 +124,8 @@ describe('the replanning switch is the server’s record', () => {
     await fireEvent(replan(), 'valueChange', false);
     await waitFor(() => expect(replan().props.value).toBe(false));
     expect(stored.continuousReplanEnabled).toBe(false);
+    // And the morning plan it sits beside is still off.
+    expect(stored.enabled).toBe(false);
   });
 
   it('stays on when the server did not store the change', async () => {
@@ -145,14 +148,16 @@ describe('the replanning switch is the server’s record', () => {
 });
 
 describe('the two switches on one record cannot rewrite each other', () => {
-  it('carries the morning plan’s stored value, not a default, when replanning is switched', async () => {
-    stored = MORNING_ON;
+  it('sends only its own field, so a morning plan another device turned on stays on', async () => {
+    // This phone has read "morning off" and is still showing it; another
+    // device has since turned the morning plan on. No refetch has happened.
     await settled();
+    stored = { ...stored, enabled: true, nextRunAt: MORNING_ON.nextRunAt };
+
     await fireEvent(replan(), 'valueChange', false);
     await waitFor(() => expect(replan().props.value).toBe(false));
-    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ enabled: true, continuousReplanEnabled: false });
+    expect(planEndpoints.putPlanSettings).toHaveBeenCalledWith({ continuousReplanEnabled: false });
     expect(stored.enabled).toBe(true);
-    expect(morning().props.value).toBe(true);
   });
 
   it('never sends the replanning field from the morning switch', async () => {
@@ -164,22 +169,5 @@ describe('the two switches on one record cannot rewrite each other', () => {
     expect(sent).not.toHaveProperty('continuousReplanEnabled');
     expect(stored.continuousReplanEnabled).toBe(false);
     expect(replan().props.value).toBe(false);
-  });
-
-  it('holds the replanning switch while a morning-switch write is still in flight', async () => {
-    // Without this, a tap on the replanning switch here would send the morning
-    // switch's *previous* value (still what the cache holds) and could land
-    // after the morning write, turning the morning plan back off.
-    await settled();
-    const held = deferred<PlanSettings>();
-    jest.spyOn(planEndpoints, 'putPlanSettings').mockReturnValue(held.promise as never);
-
-    await fireEvent(morning(), 'valueChange', true);
-    await waitFor(() => expect(replan().props.disabled).toBe(true));
-    await fireEvent(replan(), 'valueChange', false);
-    expect(planEndpoints.putPlanSettings).toHaveBeenCalledTimes(1);
-
-    await act(async () => { held.resolve({ ...MORNING_ON }); });
-    await waitFor(() => expect(replan().props.disabled).toBe(false));
   });
 });

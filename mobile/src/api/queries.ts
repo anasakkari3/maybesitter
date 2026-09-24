@@ -789,7 +789,7 @@ export function useSavePlanSettings() {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (input: { enabled: boolean; deliveryLocalTime?: string; continuousReplanEnabled?: boolean }) =>
+    mutationFn: (input: { enabled?: boolean; deliveryLocalTime?: string; continuousReplanEnabled?: boolean }) =>
       putPlanSettings(input),
     onSuccess: settings => client.setQueryData(queryKeys.planSettings(uid), settings),
     onSettled: () => {
