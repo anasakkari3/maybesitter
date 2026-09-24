@@ -46,12 +46,12 @@ import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile } from '../mobile/routineProfileService';
 import { composeCurrentUserState, type CurrentUserState } from '../../userState/userStateService';
 import { executeContinuousReplanPipeline } from '../../planning/replan';
+import { resolveChangedEntityFacts, type EntityFactsByChangeId } from './changedEntityFacts';
 import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
 import type { Plan, PlannedItem } from '../../../src/contracts/v1/planningContracts';
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { toEpochMs } from '../../planning/shared/time';
 import type {
-  ChangedEntityFacts,
   ContinuousReplanPipelineResult,
   PlanImpactView,
   ReplanPolicyConfig,
@@ -61,7 +61,13 @@ export interface ContinuousReplanServiceOptions {
   readonly storage?: StorageAdapter;
   readonly now?: Date;
   readonly changes?: readonly PlanningStateChange[];
-  readonly entityFacts?: ChangedEntityFacts | null;
+  /**
+   * Post-change facts supplied by the caller, keyed by `changeId`, used instead
+   * of resolving them from storage (#605). Without it, each change's facts are
+   * read from the entity as stored now (`resolveChangedEntityFacts`), which is
+   * what the scheduled tick relies on.
+   */
+  readonly entityFactsByChangeId?: EntityFactsByChangeId;
   readonly policyConfig?: Partial<ReplanPolicyConfig>;
   readonly date?: string;
 }
@@ -328,6 +334,15 @@ export async function processStateChangesForUser(
       }
     : null;
 
+  /**
+   * Each change's own post-change facts (#605). Read after the gate, since a
+   * switched-off account never reaches the evaluator, and before anything
+   * writes. A read that fails here fails the run while its change rows are
+   * still in place, so the next tick retries them.
+   */
+  const entityFactsByChangeId = options.entityFactsByChangeId
+    ?? await resolveChangedEntityFacts(uid, rawChanges, { storage });
+
   // 4. Pre-load commitments, busy blocks, and routine for planner invocation
   const domain = await loadDomainState(storage, uid);
   const routine = await readRoutineProfile(uid, { storage });
@@ -388,7 +403,7 @@ export async function processStateChangesForUser(
   const pipelineResult = executeContinuousReplanPipeline({
     changes: rawChanges,
     planView,
-    entityFacts: options.entityFacts ?? null,
+    entityFactsByChangeId,
     basePlan,
     planner,
     policyConfig: options.policyConfig,

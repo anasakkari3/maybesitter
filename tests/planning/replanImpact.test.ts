@@ -376,3 +376,14 @@ test('a malformed window is refused rather than coalescing with NaN', () => {
   assert.throws(() => coalescePlanningStateChanges([], { windowMs: Number.NaN }), TypeError);
   assert.throws(() => coalescePlanningStateChanges([], { windowMs: -1 }), TypeError);
 });
+
+test('changes from different sources, or whose ids only concatenate alike, never share a burst (#605)', () => {
+  const base = providerRefreshBurst()[0]!;
+  const calendar = { ...base, changeId: 'chg-cal', source: 'calendar' as const, entityId: 'x1', afterDigest: 'd' };
+  const commitment = { ...calendar, changeId: 'chg-cmt', source: 'commitment' as const };
+  assert.equal(coalescePlanningStateChanges([calendar, commitment]).length, 2, 'one entity id in two sources is two entities');
+
+  const split = { ...calendar, changeId: 'chg-split-a', entityId: 'ab', afterDigest: 'c' };
+  const shifted = { ...calendar, changeId: 'chg-split-b', entityId: 'a', afterDigest: 'bc' };
+  assert.equal(coalescePlanningStateChanges([split, shifted]).length, 2, 'key parts must not run together');
+});

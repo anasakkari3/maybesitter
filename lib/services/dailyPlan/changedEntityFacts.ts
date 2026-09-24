@@ -1,0 +1,96 @@
+/**
+ * Each pending change's post-change facts, resolved from canonical stored
+ * state (#605).
+ *
+ * The impact evaluator can only return `REPLAN_REQUIRED` when it knows where
+ * the changed entity now sits and whether that time is blocked (rule 6). A
+ * `PlanningStateChange` deliberately carries neither: it is a content-free
+ * notice that an entity moved. So the facts are read here, from the entity as
+ * it is stored now, one change at a time.
+ *
+ * ── Why per change, and why a map ─────────────────────────────────
+ *
+ * The pipeline used to take a single `entityFacts` for the whole batch. The
+ * only way to fill it from storage would have been to resolve one entity and
+ * apply its facts to every change beside it. A monitor firing that shared a
+ * tick with a real meeting would then be judged as the meeting, earn
+ * `REPLAN_REQUIRED`, and be named as a cause on the Trust surface (#527). A
+ * map keyed by `changeId` cannot express that mistake.
+ *
+ * ── What resolves, and what does not ───────────────────────────────
+ *
+ * `calendar`: the busy block whose `blockId` is the change's `entityId`, read
+ * from this account's own store. Its interval is the block's. Whether it
+ * blocks is decided by `toFixedEvents`, the rule the planner itself applies, so
+ * an all-day entry that the solver ignores cannot earn a replan here either.
+ * No block means the entity occupies no time any more: `{ interval: null,
+ * blocking: false }`, which the contract defines as a cancellation or
+ * deletion. It frees capacity (`PLAN_STALE`) and never contradicts a placement.
+ * Two blocks with one id (two sources choosing the same id) resolve to null,
+ * because there is no honest way to pick one.
+ *
+ * Every other source resolves to null, as `ChangedEntityFacts` specifies for
+ * sources whose effect is not a span of time (readiness, habit policy, a
+ * watcher firing). `commitment`, `external_task` and `manual` are judged on
+ * their digests and fields too. None has a canonical "busy interval" to read,
+ * and inventing one here would be deciding planner semantics in a lookup.
+ *
+ * Scope: a change is resolved only against the account running the tick, and
+ * only when it names that account. A row naming another scope resolves to
+ * null and is then refused by the evaluator's own scope rule. The lookup never
+ * reads another account's store.
+ *
+ * Only an interval and a boolean leave this module. No source id, source kind,
+ * title or other provider value reaches the planning contracts.
+ *
+ * ── What production writes today ──────────────────────────────────
+ *
+ * As of this change, nothing in production writes a `calendar` change. The only
+ * producer of `planningStateChanges` is `watcherEngine`, which writes
+ * `source: 'watcher'`, and that resolves to null here exactly as before. So this
+ * module makes the tick *able* to replan a calendar change, and changes no
+ * production outcome until a calendar producer exists. Such a producer must
+ * announce a moved meeting as two changes, because a block's id hashes its
+ * start: the old id, which resolves as deleted, and the new id, which resolves
+ * to its new interval.
+ */
+import type { StorageAdapter } from '../../storage';
+import { readBusyBlocksById, toFixedEvents, type BusyBlock } from '../../calendar/busyBlocks';
+import type { ChangedEntityFacts } from '../../../src/contracts/v1/replanContracts';
+import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
+
+/** Each change's own facts, keyed by `changeId`. An absent key means null. */
+export type EntityFactsByChangeId = ReadonlyMap<string, ChangedEntityFacts | null>;
+
+/** What a stored busy block now tells the planner, or what its absence tells it. */
+export function factsOfBusyBlock(block: BusyBlock | null): ChangedEntityFacts {
+  if (block === null) return Object.freeze({ interval: null, blocking: false });
+  const asPlanned = toFixedEvents([block]);
+  return Object.freeze({
+    interval: Object.freeze({ startsAt: block.startAt, endsAt: block.endAt }),
+    blocking: asPlanned.length === 1 && asPlanned[0]!.blocking,
+  });
+}
+
+export async function resolveChangedEntityFacts(
+  uid: string,
+  changes: readonly PlanningStateChange[],
+  deps: { readonly storage: StorageAdapter },
+): Promise<EntityFactsByChangeId> {
+  const own = (change: PlanningStateChange) => change.scopeId === uid;
+  const calendarIds = changes.filter((change) => own(change) && change.source === 'calendar').map((change) => change.entityId);
+  const blocks = calendarIds.length > 0
+    ? await readBusyBlocksById(uid, calendarIds, { storage: deps.storage })
+    : new Map<string, readonly BusyBlock[]>();
+
+  const facts = new Map<string, ChangedEntityFacts | null>();
+  for (const change of changes) {
+    if (!own(change) || change.source !== 'calendar') {
+      facts.set(change.changeId, null);
+      continue;
+    }
+    const matches = blocks.get(change.entityId) ?? [];
+    facts.set(change.changeId, matches.length > 1 ? null : factsOfBusyBlock(matches[0] ?? null));
+  }
+  return facts;
+}

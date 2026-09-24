@@ -39,7 +39,19 @@ import { evaluateReplanPolicy } from './replanPolicy';
 export interface ContinuousReplanPipelineInput {
   readonly changes: readonly PlanningStateChange[];
   readonly planView: PlanImpactView | null;
-  readonly entityFacts: ChangedEntityFacts | null;
+  /**
+   * Each change's own post-change facts, keyed by `changeId` (#605).
+   *
+   * A coalesced group is judged on its representative's entry. That is sound
+   * because a group's members share scope, source, entity and `afterDigest`
+   * (`coalescing.ts`'s burst key), so they describe one entity in one state. An absent key is null: the change is
+   * judged on its digests and fields alone.
+   *
+   * This replaced a single `entityFacts` applied to every group in the batch.
+   * It had no honest value for a batch of two different entities: whatever was
+   * passed, one change was judged by another's interval.
+   */
+  readonly entityFactsByChangeId: ReadonlyMap<string, ChangedEntityFacts | null>;
   readonly basePlan: Plan | null;
   /**
    * The canonical planner solve. Receives the accumulated cause change IDs.
@@ -60,7 +72,7 @@ export function executeContinuousReplanPipeline(
   const {
     changes,
     planView,
-    entityFacts,
+    entityFactsByChangeId,
     basePlan,
     planner,
     scopeId,
@@ -100,7 +112,7 @@ export function executeContinuousReplanPipeline(
       impact: evaluateStateChangeImpact({
         change: group.representative,
         plan: planView,
-        entity: entityFacts,
+        entity: entityFactsByChangeId.get(group.representative.changeId) ?? null,
       }),
     }));
     const impacts = groupImpacts.map((entry) => entry.impact);

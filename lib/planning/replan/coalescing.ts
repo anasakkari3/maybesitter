@@ -47,8 +47,18 @@ export interface CoalesceOptions {
   readonly windowMs?: number;
 }
 
+/**
+ * One burst: the same entity, from the same source, reaching the same state.
+ *
+ * `source` is part of the key, and the parts are joined unambiguously (#605).
+ * Without them a calendar change and a commitment change that happen to share
+ * an `entityId` and `afterDigest` coalesced into one group. So did
+ * `('ab', 'c')` and `('a', 'bc')`. A group is judged on its representative's
+ * facts alone, so a merged group judged one entity by another's interval, and
+ * named both as its cause.
+ */
 function burstKey(change: PlanningStateChange): string {
-  return `${change.scopeId}${change.entityId}${change.afterDigest}`;
+  return JSON.stringify([change.scopeId, change.source, change.entityId, change.afterDigest]);
 }
 
 function byOccurrence(left: PlanningStateChange, right: PlanningStateChange): number {

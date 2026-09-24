@@ -203,10 +203,10 @@ test('processStateChangesForUser: REPLAN_REQUIRED auto-applies minor shift, incr
       storage,
       now: NOW,
       date: DATE,
-      entityFacts: {
+      entityFactsByChangeId: new Map([['chg-busy-1', {
         interval: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
         blocking: true,
-      },
+      }]]),
       policyConfig: { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 120 },
     });
 
@@ -281,7 +281,7 @@ test('processStateChangesForUser: PLAN_STALE marks user state projection without
       now: NOW,
       date: DATE,
       changes: [stateChange],
-      entityFacts: null,
+      entityFactsByChangeId: new Map(),
     });
 
     assert.equal(report.pipelineResult.impact.decision, 'PLAN_STALE');
