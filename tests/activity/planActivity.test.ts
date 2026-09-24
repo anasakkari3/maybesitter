@@ -283,6 +283,7 @@ async function offerChange(uid: string, date: string, proposedAt: string): Promi
     baseGeneration: stored.generation,
     baseInputDigest: stored.inputDigest,
     plan,
+    solveInputs: { constraints: stored.constraints, config: stored.config },
     diff: diffPlans(stored.plan, plan),
     reason: 'user_requires_confirmation',
     userControlMode: 'always_require_confirmation',

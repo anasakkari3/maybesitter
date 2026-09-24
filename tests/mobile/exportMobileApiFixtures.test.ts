@@ -1507,6 +1507,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       baseGeneration: base.generation,
       baseInputDigest: base.inputDigest,
       plan: patched,
+      solveInputs: { constraints: base.constraints, config: base.config },
       diff: diffPlans(base.plan, patched),
       reason: 'contains_removals',
       userControlMode: 'automatic_time_only',
