@@ -43,7 +43,7 @@ test('5xx uses a service-wide ratio, not an absolute errors/second threshold', (
 test('Vertex counts publisher model invocations over a full day across series', () => {
   const c = condition('Vertex AI requests above 1500/day');
   assert.match(c.filter, /publisher\/online_serving\/model_invocation_count/);
-  assert.match(c.filter, /aiplatform.googleapis.com\/PublisherModel/);
+  assert.match(c.filter, /aiplatform\.googleapis\.com\/PublisherModel/);
   assert.equal(c.aggregations[0].alignmentPeriod, '86400s');
   assert.equal(c.aggregations[0].crossSeriesReducer, 'REDUCE_SUM');
   assert.equal(c.aggregations[0].perSeriesAligner, 'ALIGN_SUM');
