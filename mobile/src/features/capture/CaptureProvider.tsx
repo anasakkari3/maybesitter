@@ -79,6 +79,8 @@ interface CaptureContextValue {
    */
   adoptProposal(proposal: CaptureProposal, source?: CaptureSource): void;
   toggleItem(itemId: string): void;
+  selectAll(): void;
+  deselectAll(): void;
   editItem(itemId: string, edit: CaptureItemEdit): void;
   /**
    * Answers the one question on one item (UC-2.5, #165).
@@ -190,6 +192,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
+  const selectAll = useCallback(() => dispatch({ type: 'selectAll' }), []);
+  const deselectAll = useCallback(() => dispatch({ type: 'deselectAll' }), []);
 
   const clarify = useCallback(async (itemId: string, answer: { optionId?: string; freeText?: string }) => {
     const proposal = state.proposal;
@@ -277,8 +281,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<CaptureContextValue>(() => ({
-    state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, editItem, clarify, confirm, undo, backToComposer, close,
-  }), [state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, editItem, clarify, confirm, undo, backToComposer, close]);
+    state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, clarify, confirm, undo, backToComposer, close,
+  }), [state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, clarify, confirm, undo, backToComposer, close]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

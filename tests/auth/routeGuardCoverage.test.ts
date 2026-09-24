@@ -176,7 +176,9 @@ test('every mobile route file exists and is enumerated', () => {
   // record R3 reads to say when somebody usually looks at their plan — so an
   // unauthenticated caller reaching it would be writing a behaviour row into
   // an account that is not theirs.
-  assert.equal(files.length, 76, `found:\n${files.join('\n')}`);
+  // Seventy-seven with syllabus manual lecture busy time (#191 Step 7):
+  // `POST|DELETE /api/mobile/calendar/manual`.
+  assert.equal(files.length, 77, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

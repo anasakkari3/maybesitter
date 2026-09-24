@@ -1,5 +1,5 @@
 import { useLayoutMode } from '../theme/textScale';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
@@ -9,7 +9,7 @@ import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet
 import { questionText } from '../features/capture/clarificationCopy';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
-import { ltr, type Lang } from '../i18n/strings';
+import { fill, ltr, type Lang } from '../i18n/strings';
 import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
@@ -22,7 +22,9 @@ import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
 import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
+import { postManualBusy } from '../api/endpoints/calendar';
 import type { CaptureProposalItem } from '../api/schemas/capture';
+import type { ShareProposal, ShareDocumentFacts } from '../api/schemas/share';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 
 /**
@@ -79,6 +81,92 @@ export function ReviewScreen() {
   };
 
   const confirmable = confirmableItems(state.proposal, state.edits);
+
+  const timezone = useTimeZone();
+  const share = (state.proposal as ShareProposal | null)?.share;
+  const isDocumentShare = Boolean(
+    state.source === 'share' &&
+    share &&
+    (share.kind === 'pdf' ||
+      share.kind === 'textFile' ||
+      share.document !== undefined ||
+      share.evidence?.some((e) => e.document !== undefined))
+  );
+
+  const evidenceByItemId = useMemo(() => {
+    const map = new Map<string, ShareDocumentFacts>();
+    if (!share?.evidence) return map;
+    for (const ev of share.evidence) {
+      if (ev.itemId && ev.document) {
+        map.set(ev.itemId, ev.document);
+      }
+    }
+    return map;
+  }, [share]);
+
+  const [addingLectures, setAddingLectures] = useState(false);
+  const [lecturesAdded, setLecturesAdded] = useState(false);
+  const [lecturesError, setLecturesError] = useState<string | null>(null);
+
+  const handleAddLectures = async () => {
+    if (!share?.document?.recurringSessions || !state.proposal) return;
+    setAddingLectures(true);
+    setLecturesError(null);
+    try {
+      await postManualBusy({
+        proposalId: state.proposal.proposalId,
+        sessions: share.document.recurringSessions,
+        timezone,
+      });
+      setLecturesAdded(true);
+    } catch {
+      setLecturesError(t.syllabusLecturesFailed);
+    } finally {
+      setAddingLectures(false);
+    }
+  };
+
+  const KIND_ORDER = ['assignment', 'exam', 'quiz', 'presentation', 'deadline', 'other'] as const;
+
+  const sectionTitles: Record<string, string> = {
+    assignment: t.syllabusSectionAssignment,
+    exam: t.syllabusSectionExam,
+    quiz: t.syllabusSectionQuiz,
+    presentation: t.syllabusSectionPresentation,
+    deadline: t.syllabusSectionDeadline,
+    other: t.syllabusSectionOther,
+  };
+
+  const groupedSections = useMemo(() => {
+    if (!isDocumentShare) return null;
+    const groups = new Map<string, CaptureProposalItem[]>();
+    for (const kind of KIND_ORDER) {
+      groups.set(kind, []);
+    }
+    for (const item of items) {
+      const facts = evidenceByItemId.get(item.itemId);
+      const kind = facts?.kind && (KIND_ORDER as readonly string[]).includes(facts.kind) ? facts.kind : 'other';
+      const list = groups.get(kind);
+      if (list) list.push(item);
+    }
+    for (const kind of KIND_ORDER) {
+      const list = groups.get(kind);
+      if (list) {
+        list.sort((a, b) => {
+          const factsA = evidenceByItemId.get(a.itemId);
+          const factsB = evidenceByItemId.get(b.itemId);
+          const timeA = factsA?.dueAt || a.resolvedTime || '';
+          const timeB = factsB?.dueAt || b.resolvedTime || '';
+          return timeA.localeCompare(timeB);
+        });
+      }
+    }
+    return KIND_ORDER.map((kind) => ({
+      kind,
+      title: sectionTitles[kind] || t.syllabusSectionOther,
+      items: groups.get(kind) ?? [],
+    })).filter((section) => section.items.length > 0);
+  }, [isDocumentShare, items, evidenceByItemId, t]);
 
   /**
    * The items still waiting on their one question (UC-2.5, #165).
@@ -224,26 +312,130 @@ export function ReviewScreen() {
           </View>
         ) : null}
 
-        {!asking && !scrollActions ? (
+        {isDocumentShare ? (
+          <View style={{ gap: 8, paddingHorizontal: 4, paddingVertical: 4 }} testID="review-document-header">
+            {share?.document?.documentTitle || share?.document?.courseName ? (
+              <Txt role="section" size={17} weight={700}>
+                {fill(t.syllabusDatesFoundWithTitle, {
+                  title: share.document.documentTitle || share.document.courseName || '',
+                  n: items.length,
+                })}
+              </Txt>
+            ) : (
+              <Txt role="section" size={17} weight={700}>
+                {fill(t.syllabusDatesFound, { n: items.length })}
+              </Txt>
+            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+              <TextLink
+                testID="review-select-all"
+                label={t.syllabusSelectAll}
+                onPress={() => flow.selectAll()}
+                size={14}
+              />
+              <TextLink
+                testID="review-select-none"
+                label={t.syllabusSelectNone}
+                onPress={() => flow.deselectAll()}
+                size={14}
+              />
+            </View>
+          </View>
+        ) : null}
+
+        {isDocumentShare && share?.document?.recurringSessions && share.document.recurringSessions.length > 0 ? (
+          <View
+            style={[
+              {
+                backgroundColor: p.sf,
+                borderRadius: 20,
+                padding: 16,
+                gap: 10,
+                borderWidth: 1,
+                borderColor: p.ln,
+              },
+              cardShadow(p),
+            ]}
+            testID="review-lecture-times-banner"
+          >
+            {lecturesAdded ? (
+              <View
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}
+                testID="review-lecture-times-added"
+              >
+                <CheckIcon size={18} color={p.ac} />
+                <Txt size={14} weight={600} color={p.tx}>
+                  {t.syllabusLecturesAdded}
+                </Txt>
+              </View>
+            ) : (
+              <View style={{ gap: 8 }} testID="review-lecture-times-prompt">
+                <Txt size={14} weight={600} color={p.tx}>
+                  {t.syllabusAddLecturesPrompt}
+                </Txt>
+                {lecturesError ? (
+                  <Txt size={12} color={p.wm}>
+                    {lecturesError}
+                  </Txt>
+                ) : null}
+                <Pill
+                  testID="review-add-lecture-times"
+                  label={t.syllabusAddLecturesAction}
+                  onPress={() => void handleAddLectures()}
+                  disabled={addingLectures}
+                  kind="soft"
+                  size={14}
+                />
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {!isDocumentShare && !asking && !scrollActions ? (
           <View style={{ gap: 4, paddingHorizontal: 4, paddingVertical: 8 }} testID="review-confirmation-heading">
             <Txt role="section">{t.reviewConfirmationHeading}</Txt>
             <Txt role="supporting" color={p.mu}>{t.reviewConfirmationBody}</Txt>
           </View>
         ) : null}
 
-        {items.map((item) => (
-          <ItemCard
-            key={item.itemId}
-            item={item}
-            edit={state.edits[item.itemId]}
-            selected={state.selected.includes(item.itemId)}
-            needsQuestion={item.needsClarification && !confirmable.includes(item.itemId)}
-            onToggle={() => flow.toggleItem(item.itemId)}
-            onEdit={() => setEditingItemId(item.itemId)}
-            lang={lang}
-            busy={busyBlocks}
-          />
-        ))}
+        {groupedSections ? (
+          groupedSections.map((section) => (
+            <View key={section.kind} style={{ gap: 8, marginTop: 8 }} testID={`review-section-${section.kind}`}>
+              <Txt role="section" size={15} weight={700} color={p.tx} style={{ paddingHorizontal: 4 }}>
+                {section.title} ({section.items.length})
+              </Txt>
+              {section.items.map((item) => (
+                <ItemCard
+                  key={item.itemId}
+                  item={item}
+                  edit={state.edits[item.itemId]}
+                  selected={state.selected.includes(item.itemId)}
+                  needsQuestion={item.needsClarification && !confirmable.includes(item.itemId)}
+                  onToggle={() => flow.toggleItem(item.itemId)}
+                  onEdit={() => setEditingItemId(item.itemId)}
+                  lang={lang}
+                  busy={busyBlocks}
+                  docFacts={evidenceByItemId.get(item.itemId)}
+                />
+              ))}
+            </View>
+          ))
+        ) : (
+          items.map((item) => (
+            <ItemCard
+              key={item.itemId}
+              item={item}
+              edit={state.edits[item.itemId]}
+              selected={state.selected.includes(item.itemId)}
+              needsQuestion={item.needsClarification && !confirmable.includes(item.itemId)}
+              onToggle={() => flow.toggleItem(item.itemId)}
+              onEdit={() => setEditingItemId(item.itemId)}
+              lang={lang}
+              busy={busyBlocks}
+              docFacts={evidenceByItemId.get(item.itemId)}
+            />
+          ))
+        )}
 
         {state.proposal && seeds.length > 0 ? (
           <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds} />
@@ -274,7 +466,7 @@ export function ReviewScreen() {
 const PRIORITY_IMP = { high: 'must', normal: 'should', low: 'nice' } as const;
 
 function ItemCard({
-  item, edit, selected, needsQuestion, onToggle, onEdit, lang, busy,
+  item, edit, selected, needsQuestion, onToggle, onEdit, lang, busy, docFacts,
 }: {
   item: CaptureProposalItem;
   edit: CaptureItemEdit | undefined;
@@ -284,6 +476,7 @@ function ItemCard({
   onEdit: () => void;
   lang: Lang;
   busy: readonly DeviceBusyBlock[];
+  docFacts?: ShareDocumentFacts | undefined;
 }) {
   const { t, p } = useApp();
   const timezone = useTimeZone();
@@ -344,6 +537,11 @@ function ItemCard({
         {item.priorityEstimated && edit?.priority === undefined ? (
           <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}>
             <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
+          </View>
+        ) : null}
+        {docFacts?.page ? (
+          <View style={{ backgroundColor: p.sf2, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8 }} testID={`review-page-${item.itemId}`}>
+            <Txt size={11} color={p.mu}>{fill(t.syllabusPageChip, { page: docFacts.page })}</Txt>
           </View>
         ) : null}
         {needsQuestion ? (
