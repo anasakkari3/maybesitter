@@ -365,6 +365,43 @@ test('the token matcher is anchored at both ends and Unicode-aware, proved both 
   assert.equal(containsToken('anything', ''), false);
 });
 
+test('the token matcher folds the text the way the safety gateway does (#617)', () => {
+  // `matchesAny` in lib/safety tests `matchingVariants(text)` — NFKC, format
+  // characters both removed and replaced, lowercase, whitespace collapsed. This
+  // matcher tested the raw string, so a fullwidth or zero-width-split spelling
+  // of a forbidden word read as clean while a person read the forbidden word.
+  assert.equal(containsToken('I am ｔｒａｃｋｉｎｇ that one.', 'tracking'), true, 'fullwidth letters must fold to the listed word');
+  assert.equal(containsToken('I am tra​cking that one.', 'tracking'), true, 'a zero-width space inside the word must not hide it');
+  assert.equal(containsToken('I am tracking​that one.', 'tracking'), true, 'a zero-width space in place of the space must still bound the word');
+  // The word is folded too: a lexicon entry typed with a no-break space or a
+  // compatibility form must still match the plain spelling in prose.
+  assert.equal(containsToken('I keep tabs on it.', 'keep tabs'), true, 'the lexicon entry is normalised as well as the text');
+  assert.equal(containsToken('You’re set now.', 'you’re set'), true, 'a curly apostrophe survives NFKC on both sides and still matches');
+  // Folding must not reopen the boundary the previous fix closed.
+  assert.equal(containsToken('The storefront is open.', 'store'), false);
+  assert.equal(containsToken('He is a logician.', 'log'), false);
+  assert.equal(containsToken('This is a shameless plug.', 'shame'), false);
+  assert.equal(containsToken('The ｓｔｏｒｅｆｒｏｎｔ is open.', 'store'), false, 'a folded text keeps the closed right boundary');
+});
+
+test('the persistence lexicon covers a tracker and storage, and the folded spellings are refused in a real sentence (#617)', () => {
+  const source = soleSurvivor('OVERDUE', 0.9);
+  const output = outputFor(source);
+  for (const text of [
+    'I have set up a tracker for that.',
+    'I have set up trackers for those.',
+    'That is in storage now.',
+    'I am ｔｒａｃｋｉｎｇ that one.',
+    'I am tra​cking that one.',
+  ]) {
+    const mutated = { ...output, sentences: [{ ...output.sentences[0], text }, output.sentences[1]] } as unknown as CoachingOutput;
+    assert.ok(
+      codesOf(checkCoachingLanguage(mutated, identifiersOf(source))).includes('FORBIDDEN_LANGUAGE'),
+      `a persistence claim was not caught: ${JSON.stringify(text)}`,
+    );
+  }
+});
+
 test('an identifier reaching prose is caught, and the real templates never do', () => {
   const source = soleSurvivor('OVERDUE', 0.9);
   const output = outputFor(source);
