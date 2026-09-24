@@ -222,6 +222,28 @@ export const planEditRejectedSchema = z.object({
 export type PlanEditRejected = z.infer<typeof planEditRejectedSchema>;
 
 /**
+ * The 422 `accept_proposal` and `reject_proposal` answer with (#523, #611).
+ *
+ * Written from the route (`src/app/api/mobile/plans/[date]/actions/route.ts`,
+ * the `PlanProposalRejected` branch), which answers `{ success, error, reason }`
+ * and deliberately no `itemId` or `blockId`: the refusal is about the offer,
+ * not about a row in it. The fixture exporter does not record this refusal
+ * yet, so the route is the source.
+ *
+ * `stale_proposal` the offer no longer fits the day: the plan moved, a calendar
+ *                  event landed on a proposed slot, a newer offer replaced it,
+ *                  or its day ended.
+ * `no_proposal`    there is nothing pending to act on.
+ */
+export const planProposalRejectedSchema = z.object({
+  success: z.literal(false),
+  error: z.string(),
+  reason: z.enum(['stale_proposal', 'no_proposal']),
+});
+
+export type PlanProposalRejected = z.infer<typeof planProposalRejectedSchema>;
+
+/**
  * Mirrors `plan.settingsDefault.json` and `plan.settingsSaved.json`.
  *
  * `nextRunAt` is the server's own answer to "when does my next plan arrive".

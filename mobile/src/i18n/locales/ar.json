@@ -221,6 +221,8 @@
   "authErrorAppleUnavailable": "تسجيل الدخول بـApple مش متاح على هذا الجهاز. استعمل Google أو الإيميل.",
   "errorsStaleCommitment": "هاد تغيّر من جهاز تاني. هاي آخر نسخة.",
   "errorsInvalidTransition": "تحدّث من جهاز تاني.",
+  "errorsPlanProposalStale": "يومك تغيّر بعد هالاقتراح، فما طبّقنا إشي. هاي خطّتك زي ما هي هلّق.",
+  "errorsPlanProposalGone": "هالاقتراح ما عاد بستنّى موافقتك، فما في إشي تراجعه.",
   "settingsAccount": "الحساب",
   "accountDelete": "حذف الحساب",
   "accountDeleteTitle": "احذف حسابك",

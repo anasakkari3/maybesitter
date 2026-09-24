@@ -14,6 +14,7 @@ import {
   NetworkError,
   NotFoundError,
   PlanEditRefusedError,
+  PlanProposalRefusedError,
   ServerError,
   ServiceUnavailableError,
   ApiError,
@@ -29,7 +30,7 @@ import {
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
-import { planEditRejectedSchema } from './schemas/plan';
+import { planEditRejectedSchema, planProposalRejectedSchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 
 /**
@@ -210,13 +211,20 @@ function conflictFor(body: unknown): Error {
 /**
  * A 422 the screen can render beside the item it is about (#194, #195).
  *
- * Only `/api/mobile/plans/[date]/actions` answers 422, and it always answers
- * `{ success, error, reason, itemId }`. Parsed rather than trusted: a body that
+ * Only `/api/mobile/plans/[date]/actions` answers 422: an edit's refusal is
+ * `{ success, error, reason, itemId }`, an offer's is `{ success, error, reason }`.
+ * Parsed rather than trusted: a body that
  * does not match is a contract the client was not built against, and guessing a
  * reason code out of it would put a sentence under the wrong item. That case
  * falls back to the generic refusal, which says nothing specific.
  */
 function planEditRefusal(body: unknown, message: string): Error {
+  // The same route refuses an offer (`accept_proposal` / `reject_proposal`)
+  // with a reason and no `itemId` (#523, #611). Its reasons are disjoint from
+  // an edit's, and it is about the offer rather than a row, so it has its own
+  // error; without it both reasons flattened into "check it and try again".
+  const proposal = planProposalRejectedSchema.safeParse(body);
+  if (proposal.success) return new PlanProposalRefusedError(proposal.data.reason);
   const parsed = planEditRejectedSchema.safeParse(body);
   if (!parsed.success) return new ValidationError(message);
   return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId);

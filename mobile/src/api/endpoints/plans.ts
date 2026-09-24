@@ -49,11 +49,17 @@ export interface PlanEdit {
   removals?: readonly string[];
 }
 
+/**
+ * `proposalId` names the offer the person was looking at (#611). The route
+ * reads only `action` today and ignores the rest of the body; once it checks
+ * the id, an accept of an offer a newer one has replaced is refused as
+ * `stale_proposal` instead of installing whatever is pending now.
+ */
 export type PlanActionBody =
   | { action: 'accept' }
   | { action: 'dismiss' }
-  | { action: 'accept_proposal' }
-  | { action: 'reject_proposal' }
+  | { action: 'accept_proposal'; proposalId?: string }
+  | { action: 'reject_proposal'; proposalId?: string }
   | ({ action: 'edit' } & PlanEdit);
 
 function withProposal(response: { plan: DailyPlan; proposal?: DailyPlan['proposal'] }): DailyPlan {
