@@ -41,7 +41,8 @@ import {
 import {
   appendPlanEvent,
   mutateStoredPlan,
-  MAX_PROPOSAL_CAUSES,
+  MAX_CAUSE_ENTITIES,
+  MAX_CHANGE_IDS_PER_CAUSE,
   pendingProposalOf,
   planPath,
   proposalFingerprint,
@@ -51,7 +52,13 @@ import {
   type StoredDailyPlan,
   type StoredPlanProposal,
 } from './planStore';
-import { editsSurvivingReschedule, effectiveSchedule, planUnderKeptRemovals } from './planActions';
+import {
+  editsSurvivingReschedule,
+  effectiveSchedule,
+  fixedTimeInForce,
+  planUnderKeptRemovals,
+  scheduleCollidesWithFixedTime,
+} from './planActions';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
@@ -350,8 +357,6 @@ function offerIdOf(stored: StoredDailyPlan): string | null {
 /**
  * The causes a write names, and what each is about (#611 guards, #527).
  *
- * Three rules, and a cap behind them:
- *
  *  1. **A run's own changes are causes only if they contradicted a
  *     placement.** With an offer pending, a stale verdict re-solves (see the
  *     pipeline's `pendingView`), and the rows behind it moved an input but
@@ -359,59 +364,90 @@ function offerIdOf(stored: StoredDailyPlan): string | null {
  *     offer to move a task off 06:00. So `own` is the `REPLAN_REQUIRED` ids
  *     when an offer is pending, and the impacting ids as before otherwise.
  *  2. **A replaced offer's cause is carried only while it still blocks what
- *     the new placement moves.** Its entity is re-read now (`causeRefs`), and
- *     it survives if its blocking interval overlaps the path of an item that
- *     moves relative to the visible day: the item's visible placement, its
- *     new one, or the time between (an item left unplaced counts with its
- *     visible placement). A cancelled meeting, or one nothing moves across,
- *     is dropped. Which moves each cause produced exactly would take one solve
- *     per cause; this is the geometric reading of "still in the diff".
+ *     the new placement moves** (`filterCarried`). Its entity is re-read now
+ *     (`causeRefs`), and it survives if its blocking interval overlaps the
+ *     path of an item that moves relative to the visible day: the item's
+ *     visible placement, its new one, or the time between (an item left
+ *     unplaced counts with its visible placement). A cancelled meeting, or
+ *     one nothing moves across, is dropped. A kept offer, whose placement is
+ *     unchanged, carries all of its causes (`filterCarried: false`).
  *  3. **An entity is named once across runs.** A later row about an entity a
  *     carried cause already names (a re-sync, a retry) adds nothing, so a
- *     meeting announced on every tick does not accumulate ids. Within one run
- *     every row of a burst is named, as #527 has always done.
+ *     meeting announced on every tick does not accumulate ids.
+ *  4. **The cap is by entity** (`MAX_CAUSE_ENTITIES`, this run's new entities
+ *     before carried ones), and of one entity's rows in one run only the
+ *     first and the latest by `occurredAt` are named
+ *     (`MAX_CHANGE_IDS_PER_CAUSE`). One meeting's burst cannot crowd another
+ *     meeting out.
  *
- * `MAX_PROPOSAL_CAUSES` caps the result as a backstop, carried causes first.
- * An offer stored before `causeRefs` existed has its causes carried as they
- * are, because there is nothing to re-read them by.
+ * A carried id with no ref (an offer stored before `causeRefs` existed)
+ * cannot be re-read, so it is carried as it is, as its own entity.
+ *
+ * Attribution only. Whether an offer is withdrawn is decided on the facts of
+ * the day, not on these (`dayCollidesNow` in `processStateChangesForUser`).
  */
 function causesOf(args: {
   readonly pending: StoredPlanProposal | null;
   readonly own: readonly string[];
-  readonly refsById: ReadonlyMap<string, ProposalCauseRef>;
+  readonly changesById: ReadonlyMap<string, PlanningStateChange>;
   readonly carriedFacts: EntityFactsByChangeId;
   readonly visible: Plan | null;
   readonly placed: Plan | null;
+  readonly filterCarried: boolean;
 }): { readonly changeIds: readonly string[]; readonly refs: readonly ProposalCauseRef[] } {
-  const { pending, own, refsById, carriedFacts, visible, placed } = args;
-  const refs = new Map<string, ProposalCauseRef>();
-  const ordered: string[] = [];
-  const add = (id: string, ref: ProposalCauseRef | undefined) => {
-    if (ordered.includes(id)) return;
-    ordered.push(id);
-    if (ref) refs.set(id, ref);
+  const { pending, own, changesById, carriedFacts, visible, placed, filterCarried } = args;
+  interface Entity { readonly key: string; ids: string[]; readonly refs: Map<string, ProposalCauseRef> }
+  const entityOf = (list: Entity[], index: Map<string, Entity>, key: string): Entity => {
+    let entity = index.get(key);
+    if (entity === undefined) {
+      entity = { key, ids: [], refs: new Map() };
+      index.set(key, entity);
+      list.push(entity);
+    }
+    return entity;
   };
 
-  const named = new Set<string>();
+  const carried: Entity[] = [];
+  const carriedIndex = new Map<string, Entity>();
   if (pending !== null) {
-    if (pending.causeRefs === undefined) {
-      for (const id of pending.causeChangeIds) add(id, undefined);
-    } else {
-      const spans = visible && placed ? movedSpans(visible, placed) : [];
-      for (const ref of pending.causeRefs) {
-        if (!blocksAny(carriedFacts.get(ref.changeId) ?? null, spans)) continue;
-        add(ref.changeId, ref);
-        named.add(entityKey(ref));
+    const refById = new Map((pending.causeRefs ?? []).map((ref) => [ref.changeId, ref] as const));
+    const spans = visible && placed ? movedSpans(visible, placed) : [];
+    for (const id of pending.causeChangeIds) {
+      const ref = refById.get(id);
+      if (ref === undefined) {
+        entityOf(carried, carriedIndex, JSON.stringify(['id', id])).ids.push(id);
+        continue;
       }
+      if (filterCarried && !blocksAny(carriedFacts.get(id) ?? null, spans)) continue;
+      const entity = entityOf(carried, carriedIndex, entityKey(ref));
+      entity.ids.push(id);
+      entity.refs.set(id, ref);
     }
   }
-  for (const id of own) {
-    const ref = refsById.get(id);
-    if (pending !== null && ref && named.has(entityKey(ref))) continue;
-    add(id, ref);
+
+  const fresh: Entity[] = [];
+  const freshIndex = new Map<string, Entity>();
+  const byOccurrence = (left: string, right: string): number => {
+    const delta = toEpochMs(changesById.get(left)!.occurredAt) - toEpochMs(changesById.get(right)!.occurredAt);
+    return delta !== 0 ? delta : compareByCodePoint(left, right);
+  };
+  for (const id of own.filter((candidate) => changesById.has(candidate)).sort(byOccurrence)) {
+    const change = changesById.get(id)!;
+    const ref: ProposalCauseRef = { changeId: id, source: change.source, entityId: change.entityId };
+    const key = entityKey(ref);
+    if (carriedIndex.has(key)) continue;
+    const entity = entityOf(fresh, freshIndex, key);
+    entity.ids.push(id);
+    entity.refs.set(id, ref);
+  }
+  for (const entity of fresh) {
+    if (entity.ids.length > MAX_CHANGE_IDS_PER_CAUSE) entity.ids = [entity.ids[0]!, entity.ids[entity.ids.length - 1]!];
   }
 
-  const changeIds = ordered.slice(0, MAX_PROPOSAL_CAUSES).sort(compareByCodePoint);
+  const named = [...fresh, ...carried].slice(0, MAX_CAUSE_ENTITIES);
+  const changeIds = named.flatMap((entity) => entity.ids).sort(compareByCodePoint);
+  const refs = new Map<string, ProposalCauseRef>();
+  for (const entity of named) entity.refs.forEach((ref, id) => refs.set(id, ref));
   return { changeIds, refs: changeIds.flatMap((id) => (refs.has(id) ? [refs.get(id)!] : [])) };
 }
 
@@ -442,36 +478,6 @@ function movedSpans(visible: Plan, placed: Plan): TimeInterval[] {
     if (fromStart === toStart && fromEnd === toEnd) return [];
     return [{ startsAt: at(Math.min(fromStart!, toStart!)), endsAt: at(Math.max(fromEnd!, toEnd!)) }];
   });
-}
-
-/**
- * Whether the conflict an offer exists to fix is gone (#611 guards).
- *
- * True when none of its causes, re-read now, and none of this run's own
- * contradicting changes, is blocking time on the visible day. Then the offer
- * answers a question nobody is asking and is withdrawn, whatever a fresh solve
- * would say: after the day's first slot has started, every solve moves
- * something (#500, work is never placed in the past), so "the re-solve changes
- * nothing" is a test that almost never passes.
- *
- * Unknown for an offer stored before `causeRefs` existed: that one is only
- * withdrawn when a re-solve discards, as before.
- */
-function offerConflictIsGone(args: {
-  readonly pending: StoredPlanProposal;
-  readonly carriedFacts: EntityFactsByChangeId;
-  readonly own: readonly string[];
-  readonly ownFacts: EntityFactsByChangeId;
-  readonly visible: Plan;
-}): boolean {
-  const { pending, carriedFacts, own, ownFacts, visible } = args;
-  if (pending.causeRefs === undefined) return false;
-  const day = visible.scheduled.map((item) => item.reservedInterval);
-  const stillBlocking = [
-    ...pending.causeRefs.map((ref) => carriedFacts.get(ref.changeId) ?? null),
-    ...own.map((id) => ownFacts.get(id) ?? null),
-  ];
-  return !stillBlocking.some((facts) => blocksAny(facts, day));
 }
 
 /**
@@ -700,7 +706,7 @@ export async function processStateChangesForUser(
    * field still describes the generation being replaced. That predates #585
    * and is left to its own issue rather than changed here.
    */
-  const { constraints, config } = await composeDailyPlanRequest({
+  const { commitments, constraints, config } = await composeDailyPlanRequest({
     uid,
     date,
     timezone: settings.timezone,
@@ -766,28 +772,35 @@ export async function processStateChangesForUser(
   const ownCauses = pending === null || pipelineResult.impact.decision === 'REPLAN_REQUIRED'
     ? pipelineResult.impactingChangeIds
     : [];
-  const refsById = new Map<string, ProposalCauseRef>(rawChanges.map((change) => [
-    change.changeId,
-    { changeId: change.changeId, source: change.source, entityId: change.entityId },
-  ]));
+  const changesById = new Map(rawChanges.map((change) => [change.changeId, change] as const));
   const carriedFacts: EntityFactsByChangeId = pending?.causeRefs && pending.causeRefs.length > 0
     ? await resolveChangedEntityFacts(uid, pending.causeRefs.map((ref) => ({ ...ref, scopeId: uid })), { storage })
     : new Map();
-  const causesFor = (plan: Plan) => causesOf({
+  const causesFor = (plan: Plan, filterCarried = true) => causesOf({
     pending,
     own: ownCauses,
-    refsById,
+    changesById,
     carriedFacts,
     visible: basePlan,
     placed: planUnderKeptRemovals(plan, removals),
+    filterCarried,
   });
-  const conflictGone = pending !== null && basePlan !== null && offerConflictIsGone({
-    pending,
-    carriedFacts,
-    own: ownCauses,
-    ownFacts: entityFactsByChangeId,
-    visible: basePlan,
-  });
+
+  /**
+   * Whether the day in force still has a conflict (#611 guards, round 3).
+   *
+   * Decided on the facts, not on the offer's causes: the visible day against
+   * the time taken now (`fixedTimeInForce`, by `scheduleCollidesWithFixedTime`,
+   * the read and the rule accept and the plan GET use). While an offer is
+   * pending, this is one read of the day's fixed time per run. The causes are
+   * for attribution and can miss a conflict: a meeting that arrived while the
+   * offer was kept, a row cut by a cap, busy time with no change row at all.
+   * The facts cannot.
+   */
+  const dayCollidesNow = pending !== null && storedPlan !== null && basePlan !== null
+    ? scheduleCollidesWithFixedTime(basePlan.scheduled, await fixedTimeInForce(uid, storedPlan, nowIso, { storage, commitments }))
+    : true;
+  const conflictGone = pending !== null && !dayCollidesNow;
 
   /**
    * Withdraws the pending offer (#611 guards), in the same guarded
@@ -815,12 +828,13 @@ export async function processStateChangesForUser(
   // 6. Act on policy decision
   if (conflictGone && storedPlan) {
     /**
-     * The conflict the offer existed to fix is gone (`offerConflictIsGone`):
-     * none of its causes, and none of this run's changes, is blocking time on
-     * the visible day any more. The meeting was cancelled, say. It is
-     * withdrawn whatever a fresh solve would say, because after the day's
-     * first slot has started a solve always moves something (#500), and an
-     * offer kept alive by that drift would go on citing a deleted meeting.
+     * The day in force has no conflict left (`dayCollidesNow`): nothing on the
+     * visible day sits on time taken now. The meeting was cancelled, say. So
+     * the offer has nothing left to fix and is withdrawn, whatever a fresh
+     * solve would say: after the day's first slot has started a solve always
+     * moves something (#500), and an offer kept alive by that drift would go
+     * on citing a deleted meeting. While any conflict remains it is never
+     * withdrawn here.
      */
     await withdrawOffer(storedPlan);
   } else if (pipelineResult.policyDecision?.action === 'auto_apply' && storedPlan && pipelineResult.newPlan) {
@@ -970,10 +984,13 @@ export async function processStateChangesForUser(
      * re-delivered change row, or a bulk re-sync straddling two ticks, would
      * otherwise replace the offer with an identical one under a new id and
      * write a second `plan_proposed` for one question. The offer on the table
-     * is kept exactly as it is: its id, its ledger entry and its causes. It
-     * gains none, because this run asked the person nothing new.
+     * is kept: its id, its `proposedAt` and its ledger entry. Its causes grow
+     * only by an entity this run found contradicting a placement that the offer
+     * does not name yet (a call landing on a task the offer already moves). A
+     * re-announced entity adds nothing, and nothing else is rewritten.
      */
     let sameOffer = false;
+    const keptCauses = pending !== null && pipelineResult.newPlan ? causesFor(pipelineResult.newPlan, false) : null;
     const stored = proposal
       ? await mutateStoredPlan<null>(uid, date, (current) => {
         alreadyRejected = false;
@@ -986,14 +1003,25 @@ export async function processStateChangesForUser(
         // The guard above has required the document to carry `pending`'s id.
         if (pending !== null && proposalFingerprint(pending.plan) === proposalFingerprint(proposal.plan)) {
           sameOffer = true;
-          return null;
+          if (isDeepStrictEqual([...keptCauses!.changeIds], [...pending.causeChangeIds])) return null;
+          return {
+            next: {
+              ...current,
+              proposal: { ...pending, causeChangeIds: keptCauses!.changeIds, causeRefs: keptCauses!.refs },
+              updatedAt: nowIso,
+            },
+            result: null,
+          };
         }
         return { next: { ...current, proposal, updatedAt: nowIso }, result: null };
       }, storage)
       : null;
-    if (sameOffer) offerOutcome = 'kept';
-    if (stored) {
-      drainBasis = stored.stored;
+    if (stored) drainBasis = stored.stored;
+    if (sameOffer) {
+      // Kept, with any newly named cause written above: no new id, no
+      // second `plan_proposed`.
+      offerOutcome = 'kept';
+    } else if (stored) {
       offerOutcome = 'offered';
       await appendPlanEvent(
         uid,

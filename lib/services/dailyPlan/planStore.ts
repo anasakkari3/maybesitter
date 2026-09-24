@@ -282,15 +282,22 @@ export interface ProposalCauseRef {
 }
 
 /**
- * The most change ids one offer names as its causes (#611 guards).
+ * How many causes one offer names (#611 guards). The cap is by entity, not by
+ * change id, so one meeting's burst of rows cannot crowd out another meeting:
  *
- * A backstop, not the rule. The rule is that a run adds causes only for
- * changes that contradicted a placement, that a kept offer adds none, and that
- * a carried cause about an entity already named is not named twice. The cap
- * is sized for one bulk re-sync's burst (every row of one burst is named, as
- * #527 requires), and bounds the document if everything else fails.
+ *  - at most `MAX_CAUSE_ENTITIES` entities (meetings, blocks) are named, this
+ *    run's own before the ones carried from the offer it replaces;
+ *  - of one entity's rows in one run, at most `MAX_CHANGE_IDS_PER_CAUSE`: the
+ *    first and the latest by `occurredAt`, which is enough to join the offer
+ *    to the event that started the burst and to the one that settled it.
+ *
+ * `MAX_PROPOSAL_CAUSES` is their product, the most change ids an offer holds.
+ * These bound the document; the rules that decide what is a cause at all are
+ * in the replan service (`causesOf`).
  */
-export const MAX_PROPOSAL_CAUSES = 50;
+export const MAX_CAUSE_ENTITIES = 25;
+export const MAX_CHANGE_IDS_PER_CAUSE = 2;
+export const MAX_PROPOSAL_CAUSES = MAX_CAUSE_ENTITIES * MAX_CHANGE_IDS_PER_CAUSE;
 
 /**
  * The instant an unanswered proposal on this plan stops being an offer: the

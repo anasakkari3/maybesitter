@@ -851,9 +851,21 @@ export function offerCollidesWithFixedTime(
   proposal: StoredPlanProposal,
   fixed: readonly FixedTimeInForce[],
 ): boolean {
+  return scheduleCollidesWithFixedTime(planUnderKeptRemovals(proposal.plan, stored.edits.removals).scheduled, fixed);
+}
+
+/**
+ * Whether any of these placements sits on time taken now: the one collision
+ * rule behind accepting an offer, showing it, and (#611 guards, round 3)
+ * withdrawing it, which asks it of the visible day. Reserved intervals, as the
+ * impact evaluator compares them; an item never collides with its own pin.
+ */
+export function scheduleCollidesWithFixedTime(
+  items: readonly PlannedItem[],
+  fixed: readonly FixedTimeInForce[],
+): boolean {
   if (fixed.length === 0) return false;
-  const day = planUnderKeptRemovals(proposal.plan, stored.edits.removals);
-  return day.scheduled.some((item) => fixed.some((taken) =>
+  return items.some((item) => fixed.some((taken) =>
     taken.sourceCommitmentId !== item.itemId && intervalsOverlap(item.reservedInterval, taken.interval)));
 }
 

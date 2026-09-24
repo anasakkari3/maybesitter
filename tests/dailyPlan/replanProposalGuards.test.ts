@@ -43,7 +43,7 @@ import {
   savePlanSettings,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import {
-  MAX_PROPOSAL_CAUSES,
+  MAX_CAUSE_ENTITIES,
   listPlanEvents,
   planPath,
   proposalExpiresAt,
@@ -586,6 +586,85 @@ test('2: an offer whose meeting still blocks the day is not withdrawn by an unre
 });
 
 /*
+ * Round 3: withdrawal is decided on the facts of the day, not on the offer's
+ * causes. Each of these left a task under a meeting with no offer when it was
+ * decided on the causes.
+ */
+test('2: a call that lands while the offer is kept is named, and deleting the first meeting does not withdraw the offer', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_call_while_kept';
+    await seedAccount(storage, uid);
+    const first = await offerForMeeting(storage, uid);
+
+    // A 15-minute call on a's slot: the offer already moves a off it.
+    const CALL: TimeInterval = { startsAt: `${DATE}T06:00:00.000Z`, endsAt: `${DATE}T06:15:00.000Z` };
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-call', interval: CALL }]);
+    await storeChange(storage, uid, 'chg-call', 'busy-call', minutesAfterMorning(5));
+    const kept = await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
+    assert.equal(kept.kept, 1, `fixture: the re-solve lands on the offer's placement: ${JSON.stringify(kept)}`);
+    const named = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.equal(named.proposalId, first.proposalId, 'kept: the same offer');
+    assert.equal(named.proposedAt, first.proposedAt);
+    assert.deepEqual(named.causeChangeIds, ['chg-call', 'chg-meeting'], 'and the call is named');
+    assert.equal(
+      (await listPlanEvents(uid, storage)).filter((event) => event.type === 'plan_proposed' && event.proposalId !== undefined).length,
+      1,
+      'no second offer in the ledger',
+    );
+
+    // The first meeting is deleted. a is still under the call.
+    await syncCalendar(storage, uid, [{ blockId: 'busy-call', interval: CALL }]);
+    await storeChange(storage, uid, 'chg-meeting-gone', 'busy-meeting', minutesAfterMorning(10));
+    const later = await runContinuousReplanTick({ storage, now: minutesAfterMorning(10) });
+    assert.equal(later.withdrawn, 0, `a is under the call: ${JSON.stringify(later)}`);
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal;
+    assert.ok(offer, 'an offer still stands for the call');
+    assert.ok(offer.causeChangeIds.includes('chg-call'));
+    assert.deepEqual(underAny(offer.plan.scheduled, [CALL]), []);
+  });
+});
+
+test('2: busy time with no change row still blocks the day, so the offer is not withdrawn', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_rowless_busy';
+    await seedAccount(storage, uid);
+    await offerForMeeting(storage, uid);
+    // A meeting on b arrives with no row (no producer writes one yet), and the
+    // first meeting is deleted with one.
+    const ON_B: TimeInterval = { startsAt: `${DATE}T06:30:00.000Z`, endsAt: `${DATE}T07:00:00.000Z` };
+    await syncCalendar(storage, uid, [{ blockId: 'busy-no-row', interval: ON_B }]);
+    await storeChange(storage, uid, 'chg-meeting-gone', 'busy-meeting', minutesAfterMorning(10));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(10) });
+    assert.equal(totals.withdrawn, 0, `b is under a meeting: ${JSON.stringify(totals)}`);
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal;
+    assert.ok(offer, 'the offer stands while the day has a conflict');
+    assert.deepEqual(underAny(offer.plan.scheduled, [ON_B]), []);
+  });
+});
+
+test('2: an offer stored before causeRefs existed is not withdrawn while its meeting still blocks', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_legacy_offer';
+    await seedAccount(storage, uid);
+    await offerForMeeting(storage, uid);
+    // As an offer written before the field existed.
+    const stored = (await readStoredPlan(uid, DATE, storage))!;
+    const { causeRefs: _dropped, ...legacy } = stored.proposal!;
+    await storage.set(planPath(uid, DATE), { ...stored, proposal: legacy });
+
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-evening', interval: EVENING }]);
+    await storeChange(storage, uid, 'chg-evening', 'busy-evening', minutesAfterMorning(40));
+    await runContinuousReplanTick({ storage, now: minutesAfterMorning(40) });
+    await storeChange(storage, uid, 'chg-evening-again', 'busy-evening', minutesAfterMorning(45));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(45) });
+    assert.equal(totals.withdrawn, 0, `a is still under the meeting: ${JSON.stringify(totals)}`);
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal;
+    assert.ok(offer, 'the offer stands');
+    assert.ok(offer.causeChangeIds.includes('chg-meeting'), 'and keeps the cause it could not re-read');
+  });
+});
+
+/*
  * No calendar source writes change rows yet, so a meeting can land on an
  * offer with nothing to tell the tick. The plan GET withholds such an offer
  * by the check accept refuses on, so the person is never shown a button that
@@ -859,18 +938,57 @@ test('3: a cause whose meeting was deleted is not carried into the next offer', 
   });
 });
 
-test('3: an offer names at most MAX_PROPOSAL_CAUSES changes', async () => {
+/*
+ * The cap is by entity. Fifty rows about one meeting used to fill a cap of
+ * fifty change ids, so a second meeting in the same tick was not named; and
+ * with no ref for it, deleting the first meeting withdrew the offer while the
+ * second still sat on a task.
+ */
+test('3: fifty rows about one meeting and one about another name both, and the second still counts once the first is gone', async () => {
   await withStorage(async (storage) => {
-    const uid = 'user_guard_causes_cap';
+    const uid = 'user_guard_causes_cap_two';
     await seedAccount(storage, uid);
-    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }]);
-    for (let index = 0; index < MAX_PROPOSAL_CAUSES + 10; index += 1) {
-      await storeChange(storage, uid, `chg-burst-${String(index).padStart(3, '0')}`, 'busy-meeting', new Date(MORNING.getTime() + index * 500));
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-late', interval: ON_LAST }]);
+    const burst = Array.from({ length: 50 }, (_, index) => `chg-burst-${String(index).padStart(2, '0')}`);
+    for (let index = 0; index < burst.length; index += 1) {
+      await storeChange(storage, uid, burst[index]!, 'busy-meeting', new Date(MORNING.getTime() + index * 1000));
     }
+    await storeChange(storage, uid, 'chg-late', 'busy-late');
     await runContinuousReplanTick({ storage, now: minutesAfterMorning(1) });
+    const first = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.deepEqual(first.causeChangeIds, ['chg-burst-00', 'chg-burst-49', 'chg-late']);
+
+    // The first meeting is deleted. c still sits under the second.
+    await syncCalendar(storage, uid, [{ blockId: 'busy-late', interval: ON_LAST }]);
+    await storeChange(storage, uid, 'chg-meeting-gone', 'busy-meeting', minutesAfterMorning(40));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(40) });
+    assert.equal(totals.withdrawn, 0, `a task is still under the second meeting: ${JSON.stringify(totals)}`);
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal;
+    assert.ok(offer, 'the offer stands');
+    assert.deepEqual(offer.causeChangeIds, ['chg-late']);
+    assert.deepEqual(underAny(offer.plan.scheduled, [ON_LAST]), []);
+  });
+});
+
+test('3: at most MAX_CAUSE_ENTITIES entities are named, this run\'s own before carried ones', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_causes_cap_entities';
+    await seedAccount(storage, uid);
+    const blocks = Array.from({ length: MAX_CAUSE_ENTITIES }, (_, index) => ({ blockId: `busy-${String(index).padStart(2, '0')}`, interval: MEETING }));
+    await syncCalendar(storage, uid, blocks);
+    for (const block of blocks) await storeChange(storage, uid, `chg-${block.blockId}`, block.blockId);
+    await runContinuousReplanTick({ storage, now: MORNING });
+    assert.equal((await readStoredPlan(uid, DATE, storage))!.proposal!.causeChangeIds.length, MAX_CAUSE_ENTITIES, 'fixture: the cap is full');
+
+    // A new meeting on c: a new offer, whose own new cause must be named.
+    await syncCalendar(storage, uid, [...blocks, { blockId: 'busy-late', interval: ON_LAST }]);
+    await storeChange(storage, uid, 'chg-late', 'busy-late', minutesAfterMorning(5));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
+    assert.equal(totals.proposed, 1, `the premise: a new offer: ${JSON.stringify(totals)}`);
     const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
-    assert.equal(offer.causeChangeIds.length, MAX_PROPOSAL_CAUSES);
-    assert.equal(offer.causeRefs?.length, MAX_PROPOSAL_CAUSES);
+    assert.ok(offer.causeChangeIds.includes('chg-late'), 'this run\'s own cause comes before carried ones');
+    assert.equal(offer.causeChangeIds.length, MAX_CAUSE_ENTITIES);
+    assert.equal(offer.causeRefs?.length, MAX_CAUSE_ENTITIES);
   });
 });
 
@@ -988,7 +1106,9 @@ test('5: fifty rows announcing one meeting in one tick become one offer and one 
     const events = await listPlanEvents(uid, storage);
     assert.equal(events.filter((event) => event.type === 'plan_proposed' && event.proposalId !== undefined).length, 1);
     const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
-    assert.deepEqual(offer.causeChangeIds, ids, 'one meeting, every row that announced it');
+    // One meeting: the first row of the burst and the latest are named
+    // (`MAX_CHANGE_IDS_PER_CAUSE`), not all fifty.
+    assert.deepEqual(offer.causeChangeIds, [ids[0], ids[ids.length - 1]], 'one meeting, its first and latest rows');
     assert.equal(await pendingChanges(storage, uid), 0);
   });
 });
