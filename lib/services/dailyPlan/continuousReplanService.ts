@@ -30,6 +30,7 @@
  *    mutates canonical `Commitment` records directly.
  */
 
+import { replanExplanation } from './replanMetadata';
 import { isDeepStrictEqual } from 'node:util';
 import { getStorage, type StorageAdapter } from '../../storage';
 import {
@@ -765,10 +766,8 @@ export async function processStateChangesForUser(
    * schedule sources and the reconciliation below all read `constraints`, the
    * reconciliation because of #585.
    *
-   * What does *not* read it is the stored document's own `constraints` field:
-   * the auto-apply branch builds its document with `...current`, so that
-   * field still describes the generation being replaced. That predates #585
-   * and is left to its own issue rather than changed here.
+   * The installed generation and any review offer retain these exact inputs
+   * too (#586), so edits and replay describe the placement actually solved.
    */
   const { commitments, constraints, config } = await composeDailyPlanRequest({
     uid,
@@ -956,6 +955,11 @@ export async function processStateChangesForUser(
           generation,
           replaces: { generation: current.generation, inputDigest: current.inputDigest },
           plan: newPlan,
+          constraints,
+          config,
+          timezone: constraints.timezone,
+          inputDigest: newPlan.inputDigest,
+          explanation: replanExplanation(planUnderKeptRemovals(newPlan, edits.removals), { ...current, timezone: constraints.timezone }),
           // Mirrors the kept removals, as an edit's blocks do: a removed item
           // the planner placed again stays unplaced on its block.
           blocks,
@@ -1014,6 +1018,7 @@ export async function processStateChangesForUser(
         baseGeneration: storedPlan.generation,
         baseInputDigest: storedPlan.inputDigest,
         plan: pipelineResult.newPlan,
+        solveInputs: { constraints, config },
         diff: pipelineResult.policyDecision.diff,
         reason: pipelineResult.policyDecision.reason,
         userControlMode: pipelineResult.policyDecision.userControlMode,
@@ -1051,7 +1056,8 @@ export async function processStateChangesForUser(
      * is kept: its id, its `proposedAt` and its ledger entry. Its causes grow
      * only by an entity this run found contradicting a placement that the offer
      * does not name yet (a call landing on a task the offer already moves). A
-     * re-announced entity adds nothing, and nothing else is rewritten.
+     * re-announced entity adds nothing. The matching solve snapshot is refreshed
+     * without minting another offer, including for pre-#586 stored offers.
      */
     let sameOffer = false;
     const keptCauses = pending !== null && pipelineResult.newPlan ? causesFor(pipelineResult.newPlan, false) : null;
@@ -1067,11 +1073,18 @@ export async function processStateChangesForUser(
         // The guard above has required the document to carry `pending`'s id.
         if (pending !== null && proposalFingerprint(pending.plan) === proposalFingerprint(proposal.plan)) {
           sameOffer = true;
-          if (isDeepStrictEqual([...keptCauses!.changeIds], [...pending.causeChangeIds])) return null;
+          const refreshed = {
+            ...pending,
+            plan: proposal.plan,
+            solveInputs: proposal.solveInputs,
+            causeChangeIds: keptCauses!.changeIds,
+            causeRefs: keptCauses!.refs,
+          };
+          if (isDeepStrictEqual(refreshed, pending)) return null;
           return {
             next: {
               ...current,
-              proposal: { ...pending, causeChangeIds: keptCauses!.changeIds, causeRefs: keptCauses!.refs },
+              proposal: refreshed,
               updatedAt: nowIso,
             },
             result: null,

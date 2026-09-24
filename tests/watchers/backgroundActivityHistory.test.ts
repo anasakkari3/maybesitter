@@ -27,6 +27,7 @@ import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integra
 import type { WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
 import { appendPlanEvent, planPath, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { acceptPlanProposal, rejectPlanProposal } from '../../lib/services/dailyPlan/planActions.ts';
+import { DAILY_PLAN_CONFIG } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
 import { PLANNING_CONTRACT_VERSION, PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContracts.ts';
 
 const BASE = 'https://api.maybesitter.test';
@@ -405,6 +406,11 @@ async function seedAnsweredProposal(answer: 'accept' | 'reject'): Promise<string
     constraintReasons: [],
     inputDigest: 'digest_1',
   };
+  const solveInputs = {
+    constraints: { scopeId: plan.scopeId, timezone: 'Asia/Jerusalem', horizon: plan.horizon,
+      workingWindows: [], fixedEvents: [], items: [] },
+    config: DAILY_PLAN_CONFIG,
+  };
   const document = {
     date,
     timezone: 'Asia/Jerusalem',
@@ -413,8 +419,7 @@ async function seedAnsweredProposal(answer: 'accept' | 'reject'): Promise<string
     plan,
     blocks: [],
     replaces: null,
-    constraints: {},
-    config: {},
+    ...solveInputs,
     explanation: { text: 'x', locale: 'en', source: 'template', validated: true },
     edits: { moves: [], removals: [] },
     generatedAt: T0,
@@ -428,6 +433,7 @@ async function seedAnsweredProposal(answer: 'accept' | 'reject'): Promise<string
       baseGeneration: 1,
       baseInputDigest: 'digest_1',
       plan,
+      solveInputs,
       diff: { changes: [], sameInputDigest: true },
       reason: 'user_requires_confirmation',
       userControlMode: 'always_require_confirmation',

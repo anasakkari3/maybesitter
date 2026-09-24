@@ -246,6 +246,14 @@ export interface StoredPlanProposal {
   readonly baseInputDigest: string;
   /** The solved plan this patch would install, verbatim from the planner. */
   readonly plan: Plan;
+  /** Exact inputs of `plan`; absent only on offers stored before #586.
+   * Legacy offers can be declined or regenerated, but cannot be installed
+   * without this snapshot. No current-time solve may replace reviewed times.
+   */
+  readonly solveInputs?: {
+    readonly constraints: PlanningConstraints;
+    readonly config: PlanningConfig;
+  };
   /** The existing diff contract, not a second one (#523's `PlanDiff` step). */
   readonly diff: PlanDiff;
   readonly reason: ReplanPolicyReason;

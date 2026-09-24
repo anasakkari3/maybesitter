@@ -1,3 +1,4 @@
+import { replayStoredPlan, editPlan, PlanEditRejected } from '../../lib/services/dailyPlan/planActions.ts';
 /**
  * Integration tests for ContinuousReplanService (#523, slice 2).
  *
@@ -222,6 +223,13 @@ test('processStateChangesForUser: REPLAN_REQUIRED auto-applies minor shift, incr
     assert.equal(updatedPlan.replaces?.generation, 1);
     assert.equal(updatedPlan.replaces?.inputDigest, 'digest-base-gen1');
     assert.equal(updatedPlan.status, 'accepted');
+    assert.equal(updatedPlan.inputDigest, updatedPlan.plan.inputDigest);
+    assert.deepEqual(replayStoredPlan(updatedPlan), updatedPlan.plan);
+    assert.notEqual(updatedPlan.explanation.text, 'Initial plan');
+    assert.equal(updatedPlan.explanation.source, 'template');
+    assert.ok(updatedPlan.constraints.fixedEvents.some((event) => event.interval.startsAt === `${DATE}T07:00:00.000Z`));
+    await assert.rejects(editPlan(UID, DATE, { moves: [{ itemId: updatedPlan.plan.scheduled[0].itemId, startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` }], removals: [] }, { storage, now: () => NOW }),
+      (error: unknown) => error instanceof PlanEditRejected && error.reason === 'overlaps_fixed_event');
 
     // 8. Verify ledger event was appended
     const events = await listPlanEvents(UID, storage);

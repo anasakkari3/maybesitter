@@ -36,6 +36,7 @@
  * left to the `{ ...current }` spread for the reason `causeChangeIds` is
  * assigned unconditionally on the write side: an omitted key inherits.
  */
+import { replanExplanation } from './replanMetadata';
 import {
   mergeIntervals,
   normalizeWorkingWindows,
@@ -713,8 +714,9 @@ export function planUnderKeptRemovals(plan: Plan, removals: readonly string[]): 
  *
  * The auto-apply branch of `continuousReplanService` is the precedent and this
  * matches it: the generation advances, `replaces` records the one it
- * supersedes, `inputDigest` carries over (the inputs did not change — the
- * placement did), `causeChangeIds` becomes the patch's own, and `proposal`
+ * supersedes, the exact solve inputs and digest replace the old metadata,
+ * a deterministic explanation describes the new day, `causeChangeIds`
+ * becomes the patch's own, and `proposal`
  * goes back to null.
  *
  * Two further rules, which the auto-apply branch now follows too (#610) via
@@ -825,8 +827,12 @@ export async function fixedTimeForOffer(
   now: Date,
   deps: { readonly storage?: StorageAdapter; readonly commitments?: readonly Commitment[] } = {},
 ): Promise<FixedTimeInForce[]> {
-  if (pendingProposalOf(stored, now) === null) return [];
-  return fixedTimeInForce(uid, stored, now.toISOString(), deps);
+  const proposal = pendingProposalOf(stored, now);
+  if (proposal === null) return [];
+  return fixedTimeInForce(uid, {
+    ...stored,
+    timezone: proposal.solveInputs?.constraints.timezone ?? stored.timezone,
+  }, now.toISOString(), deps);
 }
 
 /**
@@ -891,7 +897,9 @@ export async function acceptPlanProposal(
    * judged against the plan it replaced.
    */
   const before = await readStoredPlan(uid, date, options.storage);
-  const taken = before ? await fixedTimeInForce(uid, before, at, { storage: options.storage }) : [];
+  const offeredTimezone = before ? pendingProposalOf(before, at)?.solveInputs?.constraints.timezone : undefined;
+  const checkedTimezone = offeredTimezone ?? before?.timezone;
+  const taken = before ? await fixedTimeInForce(uid, { ...before, timezone: checkedTimezone! }, at, { storage: options.storage }) : [];
 
   const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
     // Re-read inside the transaction, and everything below is derived from
@@ -921,8 +929,22 @@ export async function acceptPlanProposal(
      * accounts for it. Clearing it here would lose the conflicts the patch was
      * solving too: their change rows were drained when it was stored.
      */
+    // A same-ID offer can refresh its solve snapshot while the busy-time
+    // read runs. Never install a different zone using the old zone's horizon.
+    if (proposal.solveInputs && proposal.solveInputs.constraints.timezone !== checkedTimezone) {
+      rejection = new PlanProposalRejected('stale_proposal', 'the proposed solve zone changed during acceptance');
+      return null;
+    }
     if (offerCollidesWithFixedTime(current, proposal, taken)) {
       rejection = new PlanProposalRejected('stale_proposal', 'the day has changed under the proposed times');
+      return null;
+    }
+    if (!proposal.solveInputs) {
+      // An old offer cannot prove which inputs produced its reviewed times.
+      // Leave it intact: declining it or manually regenerating the day remains
+      // available. A later solve may refresh it, but no new tick is promised
+      // when its original change rows have already been drained.
+      rejection = new PlanProposalRejected('stale_proposal', 'the proposed change needs a new solve snapshot');
       return null;
     }
     rejection = null;
@@ -938,6 +960,11 @@ export async function acceptPlanProposal(
         generation,
         replaces: { generation: current.generation, inputDigest: current.inputDigest },
         plan: proposal.plan,
+        constraints: proposal.solveInputs.constraints,
+        config: proposal.solveInputs.config,
+        timezone: proposal.solveInputs.constraints.timezone,
+        inputDigest: proposal.plan.inputDigest,
+        explanation: replanExplanation(planUnderKeptRemovals(proposal.plan, edits.removals), { ...current, timezone: proposal.solveInputs.constraints.timezone }),
         // The kept removals are mirrored onto the blocks the way the edit
         // path and auto-apply mirror them (#610). Without that, a removed item
         // the patch placed again would carry that placement on its block,
@@ -962,8 +989,7 @@ export async function acceptPlanProposal(
           date,
           at,
           generation,
-          // Carried over, as on the document: the inputs did not change.
-          inputDigest: current.inputDigest,
+          inputDigest: proposal.plan.inputDigest,
           ...causes,
         }, regeneratedId),
         preparePlanEvent(uid, {
