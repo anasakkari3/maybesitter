@@ -702,6 +702,7 @@
   "activityKindPostponed": "הוזז",
   "activityKindDropped": "הופל במודע",
   "activityKindPlanAccepted": "התוכנית אושרה",
+  "activityKindPlanChangeAccepted": "השינוי אושר",
   "activityKindReminderAcknowledged": "התזכורת נראתה",
   "activityPlanFor": "התוכנית של {date}",
   "activityMovedTo": "הוזז ל-{date}",

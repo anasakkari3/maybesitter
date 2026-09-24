@@ -699,6 +699,7 @@
   "activityKindPostponed": "أجّلته",
   "activityKindDropped": "أسقطته بوعي",
   "activityKindPlanAccepted": "قبلت الخطة",
+  "activityKindPlanChangeAccepted": "قبلت التغيير",
   "activityKindReminderAcknowledged": "شفت التذكير",
   "activityPlanFor": "خطة {date}",
   "activityMovedTo": "أجّلته لـ {date}",

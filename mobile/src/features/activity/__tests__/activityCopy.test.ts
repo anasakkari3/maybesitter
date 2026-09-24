@@ -25,7 +25,7 @@ const KEYS = [
   'activityMomentFirstPlan', 'activityMomentDone10', 'activityMomentDone25', 'activityMomentDone50',
   'activityMomentDone100', 'activityHistoryTitle', 'activityEmpty', 'activityRemovedItem',
   'activityKindCaptured', 'activityKindConfirmed', 'activityKindCompleted', 'activityKindPostponed',
-  'activityKindDropped', 'activityKindPlanAccepted', 'activityKindReminderAcknowledged',
+  'activityKindDropped', 'activityKindPlanAccepted', 'activityKindPlanChangeAccepted', 'activityKindReminderAcknowledged',
   'activityPlanFor', 'activityMovedTo', 'activityUnavailable',
 ] as const;
 
@@ -148,6 +148,8 @@ describe('the activity copy', () => {
     // before the event does.
     for (const bundle of Object.values(BUNDLES)) {
       expect(typeof bundle.activityKindPlanAccepted).toBe('string');
+      // #587: an accepted change to the day, from the same ledger.
+      expect(typeof bundle.activityKindPlanChangeAccepted).toBe('string');
       expect(typeof bundle.activityKindReminderAcknowledged).toBe('string');
       expect(typeof bundle.activityMomentFirstPlan).toBe('string');
       expect(bundle.activityPlanFor).toContain('{date}');

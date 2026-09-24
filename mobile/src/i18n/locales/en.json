@@ -699,6 +699,7 @@
   "activityKindPostponed": "Moved",
   "activityKindDropped": "Dropped on purpose",
   "activityKindPlanAccepted": "Plan accepted",
+  "activityKindPlanChangeAccepted": "Change accepted",
   "activityKindReminderAcknowledged": "Reminder seen",
   "activityPlanFor": "Your plan for {date}",
   "activityMovedTo": "Moved to {date}",

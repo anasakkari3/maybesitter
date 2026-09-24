@@ -34,6 +34,7 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import listFixture from '../../../api/__fixtures__/activity.list.json';
 import summaryFixture from '../../../api/__fixtures__/activity.summary.json';
 import planAcceptedFixture from '../../../api/__fixtures__/activity.planAccepted.json';
+import planProposalAcceptedFixture from '../../../api/__fixtures__/activity.planProposalAccepted.json';
 import he from '../../../i18n/locales/he.json';
 import { withHermesIntl } from '../../../testing/hermesIntl';
 import { activityPageSchema, type ActivityItem, type ActivityPage, type WeeklySummary } from '../../../api/schemas/activity';
@@ -232,13 +233,14 @@ describe('the history', () => {
         item({ id: '4', kind: 'postponed', detail: { postponedUntil: '2026-09-15T09:00:00.000Z' } }),
         item({ id: '5', kind: 'dropped' }),
         item({ id: '6', kind: 'plan_accepted', commitmentId: null, commitmentTitle: null, detail: { planDate: '2026-09-14' } }),
+        item({ id: '7', kind: 'plan_proposal_accepted', commitmentId: null, commitmentTitle: null, detail: { planDate: '2026-09-14' } }),
       ],
       nextCursor: null,
     } as ActivityPage as never);
 
     await show();
     await waitFor(() => expect(screen.queryByTestId('activity-item-completed')).not.toBeNull());
-    for (const kind of ['captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted']) {
+    for (const kind of ['captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'plan_proposal_accepted']) {
       expect(screen.queryByTestId(`activity-item-${kind}`)).not.toBeNull();
     }
     // The dropped label is the design's own words, not a failure word.
@@ -390,6 +392,41 @@ describe('the fixtures the backend generated', () => {
     // answered although nothing happened in the week being summarised.
     expect(summaryFixture.completedCount).toBe(0);
     expect(namedMoments(summaryFixture.moments, strings.en).length).toBeGreaterThan(0);
+  });
+});
+
+describe('an accepted change to a plan (#587)', () => {
+  it('says a change was accepted, for which day, and never "an item you removed"', async () => {
+    // Through the schema, from the fixture the backend recorded after a real
+    // `accept_proposal`: the ledger's decision entry, read back through the
+    // activity route.
+    const parsed = activityPageSchema.parse(planProposalAcceptedFixture);
+    expect(parsed.items.map(entry => entry.kind)).toEqual(['plan_proposal_accepted']);
+    // The fixture is a page of one with a live cursor; answering the next page
+    // with it again would render the entry twice, so the history ends here.
+    jest.spyOn(activityEndpoints, 'listActivity').mockResolvedValue({ ...parsed, nextCursor: null } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('activity-item-plan_proposal_accepted')).not.toBeNull());
+
+    expect(screen.queryByText(en.activityKindPlanChangeAccepted)).not.toBeNull();
+    // Not the whole-day label: accepting a change is not accepting the day.
+    expect(screen.queryByText(en.activityKindPlanAccepted)).toBeNull();
+    expect(screen.getByTestId('activity-plan-date').props.children).toBe('Your plan for Sunday, Aug 9');
+    expect(screen.queryByText(en.activityRemovedItem)).toBeNull();
+  });
+
+  it('says it in Arabic when the account is in Arabic', async () => {
+    const parsed = activityPageSchema.parse(planProposalAcceptedFixture);
+    jest.spyOn(activityEndpoints, 'listActivity').mockResolvedValue({ ...parsed, nextCursor: null } as never);
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    try {
+      await show();
+      await waitFor(() => expect(screen.queryByText(ar.activityKindPlanChangeAccepted)).not.toBeNull());
+      expect(screen.queryByText(ar.activityKindPlanAccepted)).toBeNull();
+      expect(screen.queryByText(ar.activityRemovedItem)).toBeNull();
+    } finally {
+      await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY);
+    }
   });
 });
 

@@ -207,6 +207,9 @@ const CASES: Array<[string, z.ZodType]> = [
   // An accepted plan read back through the history: the plan ledger (#194)
   // merged into the activity route, with the day it was for and a live cursor.
   ['activity.planAccepted', activityPageSchema],
+  // An accepted change to a plan (#587), read back the same way: the ledger's
+  // decision entry, shown once although the acceptance wrote two rows.
+  ['activity.planProposalAccepted', activityPageSchema],
   // Gentle reminders (#196). The quiet hours on this response come from the
   // routine profile, which is the one place they are stored — so a change that
   // moved them somewhere else would rewrite this fixture and fail here.
