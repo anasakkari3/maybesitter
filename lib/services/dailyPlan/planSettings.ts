@@ -109,7 +109,9 @@ export interface PlanSettings {
    * `processStateChangesForUser`. The independence the issue asks for is
    * therefore structural, not a rule anyone has to remember: a connected
    * calendar keeps syncing and keeps writing `PlanningStateChange` rows while
-   * this is false.
+   * this is false. Every busy-block write announces what it added, moved or
+   * removed (`replaceBusyBlocks` and `deleteBusySource`, #611), whatever this
+   * says; with it off, the tick drains those rows without planning.
    */
   continuousReplanEnabled?: boolean;
 }

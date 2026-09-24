@@ -205,6 +205,112 @@ test('a cancelled event frees capacity → PLAN_STALE, never REPLAN_REQUIRED', (
   assert.equal(impact.reason, 'planner_input_changed');
 });
 
+/* ── A removal is judged by where the removed time was (#611, #645 review) ── */
+
+test('a removal whose previous interval lies outside the horizon → NO_EFFECT', () => {
+  // Next week's meeting, cancelled. It frees no time today.
+  const impact = evaluate(
+    { changedFields: ['interval', 'blocking'] },
+    planView(),
+    { interval: null, blocking: false, previousInterval: interval('2026-11-16T14:00:00.000Z', '2026-11-16T15:00:00.000Z') },
+  );
+  assert.equal(impact.decision, 'NO_EFFECT');
+  assert.equal(impact.reason, 'outside_horizon');
+});
+
+test('a removal whose previous interval lies inside the horizon still frees capacity → PLAN_STALE', () => {
+  const impact = evaluate(
+    { changedFields: ['interval', 'blocking'] },
+    planView(),
+    { interval: null, blocking: false, previousInterval: interval('2026-11-09T09:00:00.000Z', '2026-11-09T10:00:00.000Z') },
+  );
+  assert.equal(impact.decision, 'PLAN_STALE');
+});
+
+test('a removal whose previous interval straddles the horizon edge is inside it → PLAN_STALE', () => {
+  const impact = evaluate(
+    { changedFields: ['interval', 'blocking'] },
+    planView(),
+    { interval: null, blocking: false, previousInterval: interval('2026-11-08T23:00:00.000Z', '2026-11-09T01:00:00.000Z') },
+  );
+  assert.equal(impact.decision, 'PLAN_STALE');
+});
+
+test('an entity that left the horizon freed time inside it → PLAN_STALE, not outside_horizon', () => {
+  // Its span now is next week; its span before was today.
+  const impact = evaluate(
+    { changedFields: ['interval'] },
+    planView(),
+    {
+      interval: interval('2026-11-16T09:00:00.000Z', '2026-11-16T10:00:00.000Z'),
+      blocking: true,
+      previousInterval: interval('2026-11-09T09:00:00.000Z', '2026-11-09T10:00:00.000Z'),
+    },
+  );
+  assert.equal(impact.decision, 'PLAN_STALE');
+});
+
+test('an entity moved within next week (both spans outside) → NO_EFFECT', () => {
+  const impact = evaluate(
+    { changedFields: ['interval'] },
+    planView(),
+    {
+      interval: interval('2026-11-16T11:00:00.000Z', '2026-11-16T12:00:00.000Z'),
+      blocking: true,
+      previousInterval: interval('2026-11-16T09:00:00.000Z', '2026-11-16T10:00:00.000Z'),
+    },
+  );
+  assert.equal(impact.decision, 'NO_EFFECT');
+  assert.equal(impact.reason, 'outside_horizon');
+});
+
+/* ── Time freed only in the past (#611, #645 review round 2) ────────── */
+
+function evaluateAt(now: string | undefined, entity: ChangedEntityFacts | null) {
+  return evaluateStateChangeImpact({ change: change({ changedFields: ['interval', 'blocking'] }), plan: planView(), entity, ...(now === undefined ? {} : { now }) });
+}
+
+const MORNING_MEETING = interval('2026-11-09T09:00:00.000Z', '2026-11-09T10:00:00.000Z');
+
+test('a removal whose previous interval ended before now → NO_EFFECT, freed_time_in_past', () => {
+  const impact = evaluateAt('2026-11-09T12:00:00.000Z', { interval: null, blocking: false, previousInterval: MORNING_MEETING });
+  assert.equal(impact.decision, 'NO_EFFECT');
+  assert.equal(impact.reason, 'freed_time_in_past');
+});
+
+test('a removal whose previous interval ended exactly now → NO_EFFECT (half-open)', () => {
+  const impact = evaluateAt('2026-11-09T10:00:00.000Z', { interval: null, blocking: false, previousInterval: MORNING_MEETING });
+  assert.equal(impact.reason, 'freed_time_in_past');
+});
+
+test('a removal of a meeting still in progress, or still ahead, frees time that can be used → PLAN_STALE', () => {
+  assert.equal(evaluateAt('2026-11-09T09:30:00.000Z', { interval: null, blocking: false, previousInterval: MORNING_MEETING }).decision, 'PLAN_STALE');
+  assert.equal(evaluateAt('2026-11-09T08:00:00.000Z', { interval: null, blocking: false, previousInterval: MORNING_MEETING }).decision, 'PLAN_STALE');
+});
+
+test('without an instant to judge at, or without a previous interval, the rule does not apply → PLAN_STALE', () => {
+  assert.equal(evaluateAt(undefined, { interval: null, blocking: false, previousInterval: MORNING_MEETING }).decision, 'PLAN_STALE');
+  assert.equal(evaluateAt('2026-11-09T12:00:00.000Z', { interval: null, blocking: false }).decision, 'PLAN_STALE');
+});
+
+test('an entity that still blocks is not a removal, even when its previous interval has ended → judged as usual', () => {
+  // Same id, its end moved from 10:00 to 16:00, judged at 12:00: it now sits
+  // on the 14:00 block, and that is a contradiction, not freed time.
+  const impact = evaluateAt('2026-11-09T12:00:00.000Z', {
+    interval: interval('2026-11-09T09:00:00.000Z', '2026-11-09T16:00:00.000Z'),
+    blocking: true,
+    previousInterval: MORNING_MEETING,
+  });
+  assert.equal(impact.decision, 'REPLAN_REQUIRED');
+});
+
+test('the mirror is not applied: a meeting entered after the fact on a past placement still → REPLAN_REQUIRED', () => {
+  // 14:00–15:00 on the scheduled block, judged at 18:00. It can sit on a
+  // placement of a pending offer, which only a re-solve replaces (#636).
+  const impact = evaluateAt('2026-11-09T18:00:00.000Z', { interval: interval('2026-11-09T14:00:00.000Z', '2026-11-09T15:00:00.000Z'), blocking: true });
+  assert.equal(impact.decision, 'REPLAN_REQUIRED');
+});
+
 test('a changed field nobody recognises falls through to PLAN_STALE', () => {
   // Unknown is not metadata: dismissing a field not on the list is how a real
   // change gets silenced by a stale allow-list.

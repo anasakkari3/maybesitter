@@ -24,7 +24,12 @@
  *     stale; a first plan is built, not replanned.
  *  4. **Different scope → NO_EFFECT.** A plan answers its own scope only.
  *  5. **Interval outside the horizon → NO_EFFECT.** An event next week cannot
- *     move today's placements or today's capacity.
+ *     move today's placements or today's capacity. Both the entity's span now
+ *     and its span before the change (when the change carries one) must lie
+ *     outside: a meeting removed next week is out, one removed today is not.
+ *  5b. **Freed time that had already ended → NO_EFFECT.** A removal (the
+ *     entity blocks nothing now) whose previous interval ended at or before
+ *     the instant the caller judges at. Nothing can be placed in the past.
  *  6. **Blocking interval overlapping a scheduled block's reserved interval →
  *     REPLAN_REQUIRED.** The one tier that directly invalidates a placement,
  *     and the only one that ever justifies a replan request downstream.
@@ -47,7 +52,7 @@ import {
   type PlanImpactDecision,
   type PlanImpactView,
 } from '../../../src/contracts/v1/replanContracts';
-import { intervalsOverlap } from '../shared/time';
+import { intervalsOverlap, toEpochMs } from '../shared/time';
 
 export interface ImpactEvaluationInput {
   readonly change: PlanningStateChange;
@@ -58,6 +63,12 @@ export interface ImpactEvaluationInput {
    * time. Null for non-temporal sources (readiness, habit policy, watcher).
    */
   readonly entity: ChangedEntityFacts | null;
+  /**
+   * The instant the change is judged at, from the caller (the pipeline's own
+   * `now`); this module reads no clock. Only rule 5b uses it, and without it
+   * that rule does not apply.
+   */
+  readonly now?: string;
 }
 
 const NON_PLANNING_FIELDS: ReadonlySet<string> = new Set(NON_PLANNING_CHANGE_FIELDS);
@@ -96,10 +107,32 @@ export function evaluateStateChangeImpact(input: ImpactEvaluationInput): PlanImp
   // Rule 4 — a plan answers its own scope.
   if (plan.scopeId !== change.scopeId) return answer('NO_EFFECT', 'different_scope');
 
-  // Rule 5 — the entity's span never enters the window this plan covers.
+  // Rule 5 — no span the change touched enters the window this plan covers.
+  // The entity's span now and, when the change carries it, its span before:
+  // a removal is judged by where the removed time was (#611), and a span that
+  // left the horizon still freed time inside it. Nothing known, nothing ruled
+  // out: a deletion with no previous interval falls through to rule 7.
   const interval = entity?.interval ?? null;
-  if (interval !== null && !intervalsOverlap(interval, plan.horizon)) {
+  const touched = [interval, entity?.previousInterval ?? null].filter((span): span is NonNullable<typeof span> => span !== null);
+  if (touched.length > 0 && touched.every((span) => !intervalsOverlap(span, plan.horizon))) {
     return answer('NO_EFFECT', 'outside_horizon');
+  }
+
+  // Rule 5b — time freed only in the past (#611, #645 review). The entity
+  // blocks nothing now, and the time it used to block had ended by the time
+  // this is judged: a lecture that ended at 12:00 and dropped out of a feed at
+  // 14:00. The solver never places anything before `now` (#500's earliest
+  // start), so there is nothing for the freed time to be used by, and a
+  // re-solve would only move what is still ahead.
+  //
+  // Removals only. An addition or change that lies wholly in the past is left
+  // to the rules below on purpose: a meeting entered after the fact can land
+  // on a placement of the offer on the table, which accept and the plan GET
+  // then refuse to show (#636), and only a re-solve replaces that offer.
+  const previous = entity?.previousInterval ?? null;
+  if (input.now !== undefined && entity !== null && !entity.blocking && previous !== null
+    && toEpochMs(previous.endsAt) <= toEpochMs(input.now)) {
+    return answer('NO_EFFECT', 'freed_time_in_past');
   }
 
   // Rule 6 — the one direct contradiction: new blocking time on top of a

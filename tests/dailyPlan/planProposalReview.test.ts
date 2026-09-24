@@ -53,7 +53,7 @@ import {
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 import { rejectPlanProposal } from '../../lib/services/dailyPlan/planActions.ts';
 import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
-import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import type { Plan, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
@@ -786,7 +786,7 @@ const CALENDAR = 'device:calendar-1';
 const MEETING: TimeInterval = { startsAt: `${DATE}T06:00:00.000Z`, endsAt: `${DATE}T08:00:00.000Z` };
 
 async function syncCalendar(storage: StorageAdapter, blocks: ReadonlyArray<{ blockId: string; interval: TimeInterval }>): Promise<void> {
-  await replaceBusyBlocks(
+  await replaceBusyBlocksAsFixture(
     USER,
     CALENDAR,
     { startsAt: `${DATE}T00:00:00.000Z`, endsAt: '2026-09-17T00:00:00.000Z' },

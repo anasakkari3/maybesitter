@@ -67,11 +67,35 @@
  * still able to work in, and turning it into a twenty-four hour blocking event
  * empties the plan. `toFixedEvents` therefore leaves them out by default while
  * `listBusyBlocks` still returns them, so the conflict chip can mention one.
+ *
+ * ── Every write is announced (#611) ──────────────────────────────
+ *
+ * The replan tick reacts only to `PlanningStateChange` rows. So the two
+ * functions here that write this collection, `replaceBusyBlocks` and
+ * `deleteBusySource`, write a `source: 'calendar'` row for every block whose
+ * planner-facing facts they change, in the same commit as the block
+ * (`commitTransitions`). Every production writer — the phone's sync, ICS
+ * feeds, accepted lecture sessions, disconnects — goes through one of the two,
+ * and `tests/calendar/busyChangeRows.test.ts` holds the census that keeps it
+ * that way. An unchanged block writes nothing, so a re-sync costs no rows.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { FixedEvent, Instant, TimeInterval } from '../../src/contracts/v1/planningContracts';
+import {
+  PLANNING_STATE_CHANGE_SCHEMA_VERSION,
+  type PlanningStateChange,
+} from '../../src/contracts/v1/watcherContracts';
 import { getStorage, type StorageAdapter } from '../storage';
-import { BUSY_BLOCKS, CALENDAR_SOURCES, docIdForKey, userCol, userSubDoc } from '../storage/paths';
+import {
+  BUSY_BLOCKS,
+  CALENDAR_SOURCES,
+  PLANNING_STATE_CHANGES,
+  docIdForKey,
+  userCol,
+  userDoc,
+  userSubDoc,
+} from '../storage/paths';
 
 export { BUSY_BLOCKS, CALENDAR_SOURCES };
 
@@ -412,6 +436,187 @@ export async function listCalendarSources(uid: string, deps: BusyBlockDeps = {})
   return rows.map((row) => row.data).sort((a, b) => (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0));
 }
 
+/* ── Announcing a change to the replan tick (#611) ───────────────── */
+
+/**
+ * The prefix of every change id this module writes, so a reader can tell a
+ * calendar sync's row from a watcher's (`watcher:`) without reading its body.
+ */
+export const BUSY_CHANGE_ID_PREFIX = 'calendar:';
+
+/**
+ * What the planner reads of one block: its interval when it blocks, and
+ * nothing when it does not.
+ *
+ * `toFixedEvents` is the rule, so this cannot disagree with the solver: an
+ * all-day entry is nothing here, exactly as it is nothing to the planner, and
+ * an absent block is nothing too. Two states with the same facts are the same
+ * planner input, whatever else differs between them, and they announce nothing.
+ */
+function plannerFactsOf(block: BusyBlock | null): TimeInterval | null {
+  if (block === null) return null;
+  const [event] = toFixedEvents([block]);
+  return event ? { startsAt: event.interval.startsAt, endsAt: event.interval.endsAt } : null;
+}
+
+/** A digest of what the planner reads, as `replanContracts` asks of every producer. */
+function plannerFactsDigest(facts: TimeInterval | null): string {
+  const normalized = facts === null ? null : [facts.startsAt, facts.endsAt];
+  return createHash('sha256').update(JSON.stringify(['busy-block-facts-v1', normalized])).digest('hex');
+}
+
+/** The rows of one sync share a sync id and an instant, and nothing else. */
+interface SyncStamp {
+  readonly syncId: string;
+  readonly occurredAt: Instant;
+}
+
+function newSyncStamp(now: Date): SyncStamp {
+  return { syncId: randomUUID(), occurredAt: now.toISOString() };
+}
+
+/**
+ * The change row for one block's transition, or null when the planner reads
+ * the same thing before and after.
+ *
+ * Content-free by construction: the entity is the block's own id (already a
+ * digest), the digests hash two instants, `beforeInterval` is the same two
+ * instants in the clear, and the change id and provenance are built from a
+ * random sync id. No source id, title or other calendar value is
+ * in it. The source id is deliberately not hashed into the change id either:
+ * one sync is one source, so the sync id already keeps two rows apart.
+ *
+ * A moved meeting is two of these, because its id hashes its start: the old
+ * id (`interval → null`, which frees capacity) and the new one (`null →
+ * interval`). A block whose id is stable while its end moves is one row.
+ */
+function changeRowFor(
+  uid: string,
+  blockId: string,
+  before: BusyBlock | null,
+  after: BusyBlock | null,
+  stamp: SyncStamp,
+): PlanningStateChange | null {
+  const was = plannerFactsOf(before);
+  const now = plannerFactsOf(after);
+  if (isDeepStrictEqual(was, now)) return null;
+  const changeId = `${BUSY_CHANGE_ID_PREFIX}${docIdForKey(JSON.stringify([stamp.syncId, blockId]))}`;
+  const row: PlanningStateChange = {
+    schemaVersion: PLANNING_STATE_CHANGE_SCHEMA_VERSION,
+    changeId,
+    scopeId: uid,
+    source: 'calendar',
+    entityId: blockId,
+    occurredAt: stamp.occurredAt,
+    // `PLANNER_INPUT_CHANGE_FIELDS` names: busy time appearing or going is the
+    // interval and whether it blocks; busy time moving is the interval alone.
+    changedFields: was === null || now === null ? ['interval', 'blocking'] : ['interval'],
+    beforeDigest: before === null ? null : plannerFactsDigest(was),
+    afterDigest: plannerFactsDigest(now),
+    provenanceRef: `calendar-sync:${stamp.syncId}`,
+  };
+  // Where the planner saw this block before, so a removal can be judged by the
+  // day it was on: once the block is deleted nothing else remembers (#645
+  // review). Two instants, the same the digest hashes. Omitted, not null, when
+  // the planner saw nothing: the key is optional in the contract.
+  return was === null ? row : { ...row, beforeInterval: { startsAt: was.startsAt, endsAt: was.endsAt } };
+}
+
+function changeRowPath(uid: string, changeId: string): string {
+  return userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(changeId));
+}
+
+/** The one thing read off the account document here: whether it is being deleted. */
+interface AccountLiveness {
+  readonly trust?: { readonly deletedAt?: string | null } | null;
+}
+
+function accountIsLive(account: AccountLiveness | null): boolean {
+  return account !== null && !account.trust?.deletedAt;
+}
+
+/** One block as a sync means to leave it: `next` is the document, or null to delete it. */
+interface BlockTransition {
+  readonly blockId: string;
+  readonly next: BusyBlock | null;
+}
+
+/**
+ * How many blocks one commit carries. Each costs at most two writes (the block
+ * and its change row) and Firestore allows 500 per commit.
+ */
+const TRANSITIONS_PER_COMMIT = 200;
+
+/**
+ * The only place a busy block is written or deleted, and it writes the block's
+ * change row in the same commit (#611).
+ *
+ * ── Why one commit per block, and not one per sync ─────────────────
+ *
+ * The replan tick resolves a row by reading its block (`resolveChangedEntity
+ * Facts`), so a row must never be visible before its block is in the state the
+ * row announces. A new meeting whose row landed first would read as deleted,
+ * be judged `PLAN_STALE` and be drained, and the meeting would never be
+ * replanned. Writing a block and its row together makes that impossible for
+ * every row, at every instant, without making a whole sync one transaction —
+ * which a thousand blocks would not fit.
+ *
+ * It also makes a crash harmless. Whatever committed carries its rows; whatever
+ * did not is still different from what the stored source holds, so the next
+ * sync of that source finds it in its diff and announces it then. There is no
+ * window in which a block changed and its row was lost.
+ *
+ * Each block is re-read inside the commit, and the row is decided against
+ * *that*: a block another sync already put in this state writes nothing, and a
+ * row's before-state is the stored one, not the one this sync listed earlier.
+ *
+ * ── No row for an account that is going ────────────────────────────
+ *
+ * The account document is read in the same commit, and an account that is
+ * gone or marked deleted gets no row. A row would be a document written into a
+ * tree that account deletion has removed or is about to — the ICS refresh that
+ * outlives a deletion undoes its busy blocks, and a row it left behind would be
+ * the one thing that came back — and there is no plan left to replan. An
+ * account with no document loses nothing either: the tick finds accounts by
+ * listing `users`, so a row under a missing document could never be read.
+ */
+async function commitTransitions(
+  storage: StorageAdapter,
+  uid: string,
+  sourceId: string,
+  transitions: readonly BlockTransition[],
+  stamp: SyncStamp,
+): Promise<number> {
+  let announced = 0;
+  for (let start = 0; start < transitions.length; start += TRANSITIONS_PER_COMMIT) {
+    const chunk = transitions.slice(start, start + TRANSITIONS_PER_COMMIT);
+    announced += await storage.runTransaction(async (tx) => {
+      const [account, stored] = await Promise.all([
+        tx.get<AccountLiveness>(userDoc(uid)),
+        Promise.all(chunk.map((transition) => tx.get<BusyBlock>(blockPath(uid, sourceId, transition.blockId)))),
+      ]);
+      const announces = accountIsLive(account);
+      let rows = 0;
+      chunk.forEach((transition, index) => {
+        const before = stored[index] ?? null;
+        if (isDeepStrictEqual(before, transition.next)) return;
+        const path = blockPath(uid, sourceId, transition.blockId);
+        if (transition.next === null) tx.delete(path);
+        else tx.set<BusyBlock>(path, transition.next);
+        const row = announces ? changeRowFor(uid, transition.blockId, before, transition.next, stamp) : null;
+        if (row !== null) {
+          tx.set<PlanningStateChange>(changeRowPath(uid, row.changeId), row);
+          rows += 1;
+        }
+      });
+      return rows;
+    });
+  }
+  return announced;
+}
+
+/* ── Writing a source ────────────────────────────────────────────── */
+
 export interface ReplaceBusyBlocksDeps extends BusyBlockDeps {
   /** `ios` or `android` for a phone; null for a source that is not one. */
   platform?: string | null;
@@ -422,21 +627,40 @@ export interface ReplaceBusyBlocksDeps extends BusyBlockDeps {
  * What this source holds now, in full.
  *
  * Every row of this source that is not in `blocks` is deleted, whatever its
- * dates, and then `blocks` is written. Not "every row overlapping the window":
- * the device's window moves a day every night, and a row it left behind was
- * outside every later window and survived for ever. The header has the numbers.
+ * dates, and every block in `blocks` is written. Not "every row overlapping the
+ * window": the device's window moves a day every night, and a row it left
+ * behind was outside every later window and survived for ever. The header has
+ * the numbers.
  *
  * `window` is still validated and still recorded — a block must overlap it, and
  * it is what the Trust Center shows as the span this source covers — but it is
  * no longer what decides a deletion.
  *
- * Outside a transaction on purpose, and that is now safe for a stated reason
- * rather than an assumed one: the only rows this touches are the ones whose
- * document path hashes *this* source, so two devices cannot reach each other's
- * documents even by presenting the same block id. A transaction over a thousand
- * documents would exceed Firestore's limit for one, and the worst a crash
- * halfway can do is leave the source part-written, which the next sync —
- * fifteen minutes away at most — restates in full.
+ * ── What changed, and only that (#611) ─────────────────────────────
+ *
+ * The new set is compared with what the source holds. A block that is already
+ * stored exactly as sent is not written again and announces nothing, so a
+ * re-sync of an unchanged calendar costs the source document and no rows. A
+ * block that is new, moved or changed is written, and removed blocks are
+ * deleted, each with its `PlanningStateChange` row in the same commit
+ * (`commitTransitions`). Rows are written only for what the planner reads
+ * (`plannerFactsOf`): adding an all-day entry changes no plan and writes none.
+ *
+ * ── Never less busy than either end, mid-sync ─────────────────────
+ *
+ * Additions and changes commit before removals. A replan tick that runs while
+ * a sync is in flight therefore reads a source that holds every block the old
+ * state held or the new state holds, never fewer: a moved meeting sits at both
+ * of its times for a moment, and never at neither. What the tick reads is at
+ * worst busier than the truth, and every row it can see names a block already
+ * in its final state. Removals' rows arrive after, and free the time then.
+ *
+ * Not one transaction for the whole source, and that is safe for a stated
+ * reason: the only rows this touches are the ones whose document path hashes
+ * *this* source, so two devices cannot reach each other's documents even by
+ * presenting the same block id; and a crash halfway leaves a source that the
+ * next sync — fifteen minutes away at most on a phone — restates in full,
+ * announcing whatever this one did not get to.
  */
 export async function replaceBusyBlocks(
   uid: string,
@@ -447,19 +671,15 @@ export async function replaceBusyBlocks(
 ): Promise<{ written: number; removed: number }> {
   const storage = storageOf(deps);
   const kind = sourceKindOf(sourceId);
-  const keep = new Set(blocks.map((block) => block.blockId));
+  const now = deps.now ?? new Date();
 
-  const stale = (await allBlocks(uid, deps)).filter((block) => (
-    block.sourceId === sourceId && !keep.has(block.blockId)
-  ));
-  for (const block of stale) await storage.delete(blockPath(uid, sourceId, block.blockId));
-
+  // Rebuilt field by field rather than spread: this is the last place a key
+  // the client smuggled past `parseBusyUpload` could reach durable storage,
+  // and "only these six" is a property of this literal rather than of every
+  // caller's discipline.
+  const next = new Map<string, BusyBlock>();
   for (const block of blocks) {
-    // Rebuilt field by field rather than spread: this is the last place a key
-    // the client smuggled past `parseBusyUpload` could reach durable storage,
-    // and "only these six" is a property of this literal rather than of every
-    // caller's discipline.
-    await storage.set<BusyBlock>(blockPath(uid, sourceId, block.blockId), {
+    next.set(block.blockId, {
       blockId: block.blockId,
       sourceId,
       sourceKind: kind,
@@ -469,11 +689,22 @@ export async function replaceBusyBlocks(
     });
   }
 
+  const held = (await allBlocks(uid, deps)).filter((block) => block.sourceId === sourceId);
+  const heldById = new Map(held.map((block) => [block.blockId, block] as const));
+  const stale = held.filter((block) => !next.has(block.blockId));
+  const transitions: BlockTransition[] = [
+    ...Array.from(next.values())
+      .filter((block) => !isDeepStrictEqual(heldById.get(block.blockId) ?? null, block))
+      .map((block) => ({ blockId: block.blockId, next: block })),
+    ...stale.map((block) => ({ blockId: block.blockId, next: null })),
+  ];
+  await commitTransitions(storage, uid, sourceId, transitions, newSyncStamp(now));
+
   const source: CalendarSource = {
     sourceId,
     kind,
     platform: deps.platform ?? null,
-    lastSyncedAt: (deps.now ?? new Date()).toISOString(),
+    lastSyncedAt: now.toISOString(),
     windowStart: window.startsAt,
     windowEnd: window.endsAt,
   };
@@ -488,15 +719,25 @@ export async function replaceBusyBlocks(
  * Not window-scoped. "Disconnect and delete" is the answer to "take it back
  * off your servers", and a deletion that left the blocks outside the last
  * synced window behind would be an answer that was not true.
+ *
+ * Every timed block it removes is announced like any other removal (#611): the
+ * time is free now, and a pending plan offer that was built around it has to
+ * be judged again rather than wait for the day to end.
  */
 export async function deleteBusySource(
   uid: string,
   sourceId: string,
-  deps: BusyBlockDeps = {},
+  deps: BusyBlockDeps & { now?: Date } = {},
 ): Promise<{ deleted: number }> {
   const storage = storageOf(deps);
   const mine = (await allBlocks(uid, deps)).filter((block) => block.sourceId === sourceId);
-  for (const block of mine) await storage.delete(blockPath(uid, sourceId, block.blockId));
+  await commitTransitions(
+    storage,
+    uid,
+    sourceId,
+    mine.map((block) => ({ blockId: block.blockId, next: null })),
+    newSyncStamp(deps.now ?? new Date()),
+  );
   await storage.delete(sourcePath(uid, sourceId));
   return { deleted: mine.length };
 }

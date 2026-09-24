@@ -41,7 +41,7 @@ import { pendingProposalToDto } from '../../lib/services/dailyPlan/planDto.ts';
 import { intervalsOverlap } from '../../lib/planning/shared/time.ts';
 import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
 import { factsOfBusyBlock, resolveChangedEntityFacts } from '../../lib/services/dailyPlan/changedEntityFacts.ts';
-import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { ownershipOf, scheduleBlockId } from '../../src/contracts/v1/scheduleBlockContracts.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import type { Plan, PlannedItem, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
@@ -117,7 +117,7 @@ interface BlockSpec {
 
 /** What a calendar sync writes: the source's current blocks, replaced as a set. */
 async function syncCalendar(storage: StorageAdapter, uid: string, blocks: readonly BlockSpec[]): Promise<void> {
-  await replaceBusyBlocks(
+  await replaceBusyBlocksAsFixture(
     uid,
     CALENDAR,
     { startsAt: `${DATE}T00:00:00.000Z`, endsAt: '2026-09-17T00:00:00.000Z' },
@@ -533,7 +533,7 @@ test('two blocks sharing one id resolve to null rather than to whichever was lis
   await withStorage(async (storage) => {
     const uid = 'user_resolver_ambiguous';
     await syncCalendar(storage, uid, [{ blockId: 'busy-shared', interval: MEETING }]);
-    await replaceBusyBlocks(
+    await replaceBusyBlocksAsFixture(
       uid,
       'device:calendar-2',
       { startsAt: `${DATE}T00:00:00.000Z`, endsAt: '2026-09-17T00:00:00.000Z' },

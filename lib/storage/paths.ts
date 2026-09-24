@@ -382,7 +382,9 @@ export const WATCHER_NOTIFICATIONS = 'watcherNotifications';
 /**
  * The entry of the common state-change pipeline (#525 emitting; #523
  * consuming). A `replan_if_impacted` firing appends one `PlanningStateChange`
- * here; the impact evaluator reads them. No watcher touches a plan directly.
+ * here, and so does every busy block a calendar sync adds, moves or removes
+ * (`source: 'calendar'`, written with the block by `lib/calendar/busyBlocks.ts`,
+ * #611); the impact evaluator reads them. No producer touches a plan directly.
  */
 export const PLANNING_STATE_CHANGES = 'planningStateChanges';
 

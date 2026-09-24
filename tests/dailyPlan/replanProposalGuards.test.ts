@@ -61,7 +61,7 @@ import {
 } from '../../lib/services/dailyPlan/planActions.ts';
 import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
 import { executeContinuousReplanPipeline } from '../../lib/planning/replan/index.ts';
-import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { upsertDevice } from '../../lib/push/deviceRegistry.ts';
 import { intervalsOverlap } from '../../lib/planning/shared/time.ts';
 import { CONTINUOUS_REPLAN_POLICY } from '../../src/contracts/v1/replanContracts.ts';
@@ -147,7 +147,7 @@ async function syncCalendar(
   uid: string,
   blocks: ReadonlyArray<{ blockId: string; interval: TimeInterval }>,
 ): Promise<void> {
-  await replaceBusyBlocks(
+  await replaceBusyBlocksAsFixture(
     uid,
     CALENDAR,
     { startsAt: `${DATE}T00:00:00.000Z`, endsAt: '2026-09-17T00:00:00.000Z' },

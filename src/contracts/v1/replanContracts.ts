@@ -97,6 +97,12 @@ export const PLAN_IMPACT_REASONS = Object.freeze([
   'outside_horizon',
   /** A blocking interval overlaps a scheduled block's reserved interval. */
   'overlaps_scheduled_block',
+  /**
+   * The entity blocks nothing now, and the time it used to block had already
+   * ended when the change was judged (#611). Nothing is ever placed in the
+   * past, so the freed time is nothing the planner can use.
+   */
+  'freed_time_in_past',
   /** A planner input moved and no rule above could clear it. */
   'planner_input_changed',
   /**
@@ -178,6 +184,14 @@ export interface PlanImpactView {
 export interface ChangedEntityFacts {
   readonly interval: TimeInterval | null;
   readonly blocking: boolean;
+  /**
+   * Where the entity sat before the change, when the change says so
+   * (`PlanningStateChange.beforeInterval`, #611). A change is outside a plan's
+   * horizon only when every span it touched is: a removal next week is
+   * `NO_EFFECT` for today, and a removal today still frees today's time.
+   * Absent means unknown, and an unknown span is never assumed outside.
+   */
+  readonly previousInterval?: TimeInterval;
 }
 
 /* ── The field vocabularies ──────────────────────────────────────── */

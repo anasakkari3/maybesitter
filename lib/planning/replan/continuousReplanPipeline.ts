@@ -148,12 +148,12 @@ export function executeContinuousReplanPipeline(
     const pendingView = input.pendingView ?? null;
     groupImpacts = coalesced.map((group) => {
       const entity = entityFactsByChangeId.get(group.representative.changeId) ?? null;
-      const againstDay = evaluateStateChangeImpact({ change: group.representative, plan: planView, entity });
+      const againstDay = evaluateStateChangeImpact({ change: group.representative, plan: planView, entity, now });
       return {
         changeIds: group.changeIds,
         impact: pendingView === null
           ? againstDay
-          : moreSevere(againstDay, evaluateStateChangeImpact({ change: group.representative, plan: pendingView, entity })),
+          : moreSevere(againstDay, evaluateStateChangeImpact({ change: group.representative, plan: pendingView, entity, now })),
       };
     });
     const impacts = groupImpacts.map((entry) => entry.impact);

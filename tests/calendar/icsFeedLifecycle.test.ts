@@ -22,7 +22,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { BUSY_BLOCKS, CALENDAR_SOURCES, ICS_FEED_ITEMS, ICS_FEEDS, USER_SCOPED_COLLECTIONS, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
+import { BUSY_BLOCKS, CALENDAR_SOURCES, ICS_FEED_ITEMS, ICS_FEEDS, PLANNING_STATE_CHANGES, USER_SCOPED_COLLECTIONS, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { createInMemoryKms, type InMemoryKms } from '../../lib/security/inMemoryKms.ts';
@@ -52,6 +52,8 @@ import {
 } from '../../lib/calendar/icsFeedRoutes.ts';
 import { POST as realCreateRoute } from '../../src/app/api/mobile/calendar/ics/route.ts';
 import { requireMobileUser } from '../../lib/auth/mobileAuth.ts';
+import { resolveChangedEntityFacts } from '../../lib/services/dailyPlan/changedEntityFacts.ts';
+import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const MOODLE = readFileSync(path.join(here, '..', 'fixtures', 'ics', 'moodle.ics'), 'utf8');
@@ -1222,5 +1224,91 @@ test('after consent is withdrawn: no refresh, no accept, no move — but skip, u
     assert.equal((await decide(h, feedId, essay.itemKey, 'dismiss')).status, 200);
     assert.equal((await decide(h, feedId, quiz.itemKey, 'undo')).status, 200);
     assert.equal((await call(handleDeleteFeed, request('DELETE', `/x/${feedId}`), feedId, h.deps)).status, 200);
+  });
+});
+
+/* ── #611: a feed's busy time announces itself to the replan tick ─── */
+
+/** The change rows written since the last call, and the collection emptied, as a tick's drain would. */
+async function drainChangeRows(uid = USER): Promise<PlanningStateChange[]> {
+  const collection = userCol(uid, PLANNING_STATE_CHANGES);
+  const found = await getStorage().list<PlanningStateChange>(collection);
+  for (const row of found) await getStorage().delete(`${collection}/${row.id}`);
+  return found.map((row) => row.data);
+}
+
+async function feedBlockIds(feedId: string): Promise<string[]> {
+  return (await icsBusyBlocks(USER, feedId, { now: () => NOW })).map((block) => block.blockId).sort();
+}
+
+test('#611: a subscribe announces each lecture once; an identical refresh announces nothing; a moved lecture is two rows and a dropped one is one', async () => {
+  await withWorld(async (h) => {
+    const lectures: Lecture[] = [
+      { uid: 'l1', startInHours: 3, hours: 1 },
+      { uid: 'l2', startInHours: 27, hours: 1 },
+      { uid: 'l3', startInHours: 51, hours: 2 },
+    ];
+    h.bodies.set(FEED_URL, calendar([], lectures));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    const first = await feedBlockIds(feedId);
+    assert.equal(first.length, 3);
+    const announced = await drainChangeRows();
+    assert.deepEqual(announced.map((row) => row.entityId).sort(), first);
+    assert.ok(announced.every((row) => row.source === 'calendar' && row.scopeId === USER));
+    assert.ok(!JSON.stringify(announced).includes(feedId), 'a row names no feed');
+
+    assert.equal((await refresh(h, feedId)).outcome, 'updated');
+    assert.deepEqual(await drainChangeRows(), [], 'the same feed, fetched again, changed nothing the planner reads');
+
+    h.bodies.set(FEED_URL, calendar([], [lectures[0]!, { uid: 'l2', startInHours: 28, hours: 1 }, lectures[2]!]));
+    assert.equal((await refresh(h, feedId)).outcome, 'updated');
+    const moved = await drainChangeRows();
+    const second = await feedBlockIds(feedId);
+    const gone = first.filter((id) => !second.includes(id));
+    const arrived = second.filter((id) => !first.includes(id));
+    assert.deepEqual([gone.length, arrived.length], [1, 1]);
+    assert.deepEqual(moved.map((row) => row.entityId).sort(), [...gone, ...arrived].sort(), 'a moved lecture is its old id and its new id');
+    const facts = await resolveChangedEntityFacts(USER, moved, { storage: getStorage() });
+    const byEntity = new Map(moved.map((row) => [row.entityId, facts.get(row.changeId)] as const));
+    const freed = byEntity.get(gone[0]!);
+    assert.deepEqual([freed?.interval, freed?.blocking], [null, false]);
+    assert.ok(freed?.previousInterval, 'the freed lecture says where it was');
+    assert.equal(byEntity.get(arrived[0]!)?.blocking, true);
+
+    h.bodies.set(FEED_URL, calendar([], [lectures[0]!, { uid: 'l2', startInHours: 28, hours: 1 }]));
+    assert.equal((await refresh(h, feedId)).outcome, 'updated');
+    const third = await feedBlockIds(feedId);
+    assert.deepEqual((await drainChangeRows()).map((row) => row.entityId), second.filter((id) => !third.includes(id)));
+  });
+});
+
+test('#611: a semester feed re-synced unchanged writes no row at all', async () => {
+  await withWorld(async (h) => {
+    // Three hundred lectures over the next twenty-five days: a full timetable.
+    const semester: Lecture[] = Array.from({ length: 300 }, (_, index) => ({ uid: `lec-${index}`, startInHours: 1 + index * 2, hours: 1 }));
+    h.bodies.set(FEED_URL, calendar([], semester));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    assert.equal((await feedBlockIds(feedId)).length, 300);
+    assert.equal((await drainChangeRows()).length, 300, 'the first sync announces each lecture once');
+
+    for (let refreshes = 0; refreshes < 3; refreshes += 1) {
+      assert.equal((await refresh(h, feedId)).outcome, 'updated');
+    }
+    assert.deepEqual(await drainChangeRows(), [], 'three full refreshes of an unchanged semester: no rows');
+  });
+});
+
+test('#611: unsubscribing announces every busy block the feed held, as free time', async () => {
+  await withWorld(async (h) => {
+    h.bodies.set(FEED_URL, calendar([], [{ uid: 'l1', startInHours: 3, hours: 1 }, { uid: 'l2', startInHours: 27, hours: 1 }]));
+    const feedId = (await subscribe(h)).body.feed.feedId as string;
+    const held = await feedBlockIds(feedId);
+    await drainChangeRows();
+
+    assert.equal((await call(handleDeleteFeed, request('DELETE', `/x/${feedId}`), feedId, h.deps)).status, 200);
+    const announced = await drainChangeRows();
+    assert.deepEqual(announced.map((row) => row.entityId).sort(), held);
+    const facts = await resolveChangedEntityFacts(USER, announced, { storage: getStorage() });
+    assert.ok(announced.every((row) => facts.get(row.changeId)?.interval === null));
   });
 });
