@@ -1,3 +1,5 @@
+import { ClarityConsent } from '../../clarity/ClarityConsent';
+import { useClarityConsent } from '../../clarity/ClarityProvider';
 import React, { useState } from 'react';
 import { Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -60,6 +62,7 @@ const INCIDENT_CATEGORIES: readonly PilotIncidentInput['category'][] = ['reliabi
  * thing. A grep test asserts no screen here sends `{type:'delete'}`.
  */
 export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: () => void }) {
+  const replayConsent = useClarityConsent();
   const { t, p, lang, actions } = useApp();
   const consents = useConsents();
   const trust = useTrust();
@@ -107,7 +110,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             confirmLabel={t.trustRevoke}
             cancelLabel={t.cancel}
             tone="ink"
-            onConfirm={() => { setConfirmRevoke(false); void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined); }}
+            onConfirm={() => { replayConsent?.setConsent(false); setConfirmRevoke(false); void trustAction.mutateAsync({ type: 'revoke' }).catch(() => undefined); }}
             onCancel={() => setConfirmRevoke(false)}
             confirmTestID="trust-revoke-confirm"
             cancelTestID="trust-revoke-cancel"
@@ -168,6 +171,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             disabled={state === undefined}
             onChange={next => record(trustAction.mutateAsync({ type: 'set_analytics_consent', granted: next }))}
           />
+          <ClarityConsent />
           <ServerToggle
             testID="trust-quiet-mode"
             title={t.trustQuietMode}

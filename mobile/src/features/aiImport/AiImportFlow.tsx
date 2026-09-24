@@ -1,3 +1,4 @@
+import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
 import React, { useCallback, useReducer } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { View } from 'react-native';
@@ -37,9 +38,11 @@ export function AiImportFlow({
   onCancel: () => void;
 }) {
   const { t } = useApp();
+  const replayEvent = useReplayEvent();
   const [state, dispatch] = useReducer(reduceImport, initialImport);
   const importing = useImportAiContext();
   const confirming = useConfirmAiContextImport();
+  useClarityStage(`ai_import_${state.status}`);
 
   const copyPrompt = useCallback(async () => {
     try {
@@ -87,6 +90,7 @@ export function AiImportFlow({
       { proposalId: proposal.proposalId, accepted },
       {
         onSuccess: () => {
+          replayEvent('ai_import_confirmed');
           dispatch({ type: 'saved' });
           onDone(accepted.map(({ index }) => proposal.candidates[index]!.category as SuggestionCategory));
         },
@@ -95,7 +99,7 @@ export function AiImportFlow({
         onError: () => dispatch({ type: 'saveFailed' }),
       },
     );
-  }, [confirming, onDone, state]);
+  }, [confirming, onDone, state, replayEvent]);
 
   // Three refusals the user can do something about, so they are named rather
   // than collapsed into "something went wrong". Everything else goes through

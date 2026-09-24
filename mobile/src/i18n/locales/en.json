@@ -1,4 +1,7 @@
 {
+  "clarityConsentTitle": "Share a masked session recording",
+  "clarityConsentBody": "Optional: let Microsoft Clarity record taps, navigation and screen layout to help us improve MaybeSitter. All text, images and what you type are masked before upload. We do not send your name, email or account ID as tags.",
+  "clarityConsentLifetime": "For this app session on this phone only. You can stop recording here or in Settings → Trust. Stopping does not delete recordings already sent. After closing and reopening the app, recording starts off again.",
   "tabToday": "Today",
   "tabCalendar": "Calendar",
   "tabCapture": "Say it",
@@ -268,7 +271,7 @@
   "obBack": "Back",
   "obSkip": "Skip for now",
   "obConsentTitle": "What may MaybeSitter use?",
-  "obConsentLede": "Three separate questions. All start off. Nothing is chosen for you.",
+  "obConsentLede": "Each choice is separate. You decide what MaybeSitter may use.",
   "obAiTitle": "Let AI read what you write",
   "obAiWhatIsSent": "Sent: what you type or dictate, the date and time, your time zone, and your description of yourself if you give one.",
   "obAiToWhom": "To: Google Cloud Vertex AI (Gemini), in the EU.",

@@ -1,3 +1,4 @@
+import { ClarityConsent } from '../../clarity/ClarityConsent';
 import React from 'react';
 import { Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -177,6 +178,7 @@ export function ConsentStep({
         value={choices.analytics}
         onChange={value => onChange(previous => ({ ...previous, analytics: value }))}
       />
+      <ClarityConsent card />
     </OnboardingChrome>
   );
 }
