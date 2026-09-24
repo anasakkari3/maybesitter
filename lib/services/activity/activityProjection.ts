@@ -24,7 +24,9 @@
  * ledger (`users/{uid}/planEvents`) rather than in this log. activityService
  * merges that ledger in, through planActivity's own allowlist, and hands the
  * accepted entries to this projection shaped as records — so it is mapped
- * here once, whichever collection it was read from.
+ * here once, whichever collection it was read from. `plan_proposal_accepted`
+ * (#587), a person accepting a change the product proposed to their day,
+ * arrives the same way and carries the same day.
  *
  * `reminder_acknowledged` (UC-3.14, #200) is written to this log by the
  * `MarkAware` command when the awareness is a tap on a reminder notification
@@ -56,6 +58,7 @@ export type ActivityKind =
   | 'postponed'
   | 'dropped'
   | 'plan_accepted'
+  | 'plan_proposal_accepted'
   | 'reminder_acknowledged';
 
 export interface ActivityItem {
@@ -80,14 +83,20 @@ export const ACTIVITY_KIND_BY_EVENT_TYPE: Readonly<Record<string, ActivityKind>>
   commitment_dropped: 'dropped',
   // Read from the plan ledger (#194) — see the header.
   plan_accepted: 'plan_accepted',
+  // Also from the plan ledger (#587) — see the header.
+  plan_proposal_accepted: 'plan_proposal_accepted',
   // A tap on a reminder notification (#200) — see the header.
   reminder_acknowledged: 'reminder_acknowledged',
 });
 
 /** The kinds an account can actually be shown today. */
 export const PRODUCED_ACTIVITY_KINDS: readonly ActivityKind[] = Object.freeze([
-  'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'reminder_acknowledged',
+  'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'plan_proposal_accepted',
+  'reminder_acknowledged',
 ]);
+
+/** The kinds that are about a day's plan rather than a commitment. */
+const PLAN_KINDS: ReadonlySet<ActivityKind> = new Set<ActivityKind>(['plan_accepted', 'plan_proposal_accepted']);
 
 const PLAN_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -130,7 +139,7 @@ export function projectActivity(
       item.detail = { postponedUntil };
     }
     const planDate = event.payload?.planDate;
-    if (kind === 'plan_accepted' && typeof planDate === 'string' && PLAN_DATE.test(planDate)) {
+    if (PLAN_KINDS.has(kind) && typeof planDate === 'string' && PLAN_DATE.test(planDate)) {
       item.detail = { planDate };
     }
     items.push(item);

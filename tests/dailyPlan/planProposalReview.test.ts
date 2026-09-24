@@ -26,10 +26,13 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { readdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createMemoryStorage, type MemoryStorageAdapter } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
-import { userDoc } from '../../lib/storage/paths.ts';
+import { PLANNING_STATE_CHANGES, docIdForKey, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
@@ -41,12 +44,17 @@ import {
 import {
   listPlanEvents,
   planPath,
+  proposalFingerprint,
   readStoredPlan,
   storePlanProposal,
   type StoredDailyPlan,
   type StoredPlanProposal,
 } from '../../lib/services/dailyPlan/planStore.ts';
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
+import { rejectPlanProposal } from '../../lib/services/dailyPlan/planActions.ts';
+import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
+import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import type { Plan, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as actionsPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
@@ -553,33 +561,351 @@ test('rejecting the proposal clears it and leaves the plan exactly as it was', a
     const after = await readStoredPlan(USER, DATE, storage);
     assert.ok(after);
     assert.equal(after.proposal ?? null, null);
-    // Everything but the offer and the timestamp is byte-for-byte the plan
-    // that was there: a rejection is a decision about the offer, not the day.
+    // Everything but the offer, the timestamp and the memory of the answer
+    // (#587) is byte-for-byte the plan that was there: a rejection is a
+    // decision about the offer, not the day.
     assert.deepEqual(
-      { ...after, proposal: null, updatedAt: '' },
-      { ...stored, proposal: null, updatedAt: '' },
+      { ...after, proposal: null, updatedAt: '', rejectedProposals: [] },
+      { ...stored, proposal: null, updatedAt: '', rejectedProposals: [] },
     );
     assert.equal((await get()).body.proposal, null);
   });
 });
 
-/**
- * Recorded so that the silence is a decision rather than an oversight.
+/*
+ * #587: the answer is the person's, and it is written down.
  *
- * There is no `PlanEventType` a rejection could honestly take: `plan_dismissed`
- * says the *plan* was set aside, which is not what happened, and a sixth
- * member would force a mapping decision in `lib/services/activity` that this
- * slice does not own. So a rejection writes no ledger row, and this is the
- * assertion that will fail if somebody changes that without meaning to.
+ * Until #587 a rejection appended nothing and an acceptance appended only
+ * `plan_regenerated`, the type that means "the system did this". The test
+ * that stood here asserted that silence. These replace it.
  */
-test('rejecting the proposal appends nothing to the plan ledger', async () => {
+test('rejecting the proposal appends the person\'s decision to the plan ledger (#587)', async () => {
   await withHarness(async ({ storage }) => {
-    await offerProposal(storage);
+    const { stored, proposal } = await offerProposal(storage);
     const before = await listPlanEvents(USER, storage);
 
     assert.equal((await act('reject_proposal')).status, 200);
 
-    assert.deepEqual(await listPlanEvents(USER, storage), before, 'a rejection is not a ledger event today');
+    const added = (await listPlanEvents(USER, storage)).filter((event) => !before.some((old) => old.id === event.id));
+    assert.deepEqual(added.map((event) => event.type), ['plan_proposal_rejected'], 'a rejection is exactly one ledger entry');
+    const [decision] = added;
+    assert.equal(decision!.date, DATE);
+    assert.equal(decision!.proposalId, 'prp_review');
+    // The base the patch was solved against, which is what the offer's own
+    // `plan_proposed` entry carries, so the answer joins to the offer.
+    assert.equal(decision!.generation, stored.generation);
+    assert.equal(decision!.inputDigest, stored.inputDigest);
+    assert.deepEqual([...(decision!.causeChangeIds ?? [])], ['chg-calendar-moved']);
+    assert.equal(decision!.proposalFingerprint, proposalFingerprint(proposal.plan));
+
+    // And the plan remembers the declined placement for the replan tick.
+    const after = await readStoredPlan(USER, DATE, storage);
+    assert.deepEqual(after!.rejectedProposals, [{
+      baseGeneration: stored.generation,
+      baseInputDigest: stored.inputDigest,
+      fingerprint: proposalFingerprint(proposal.plan),
+    }]);
+  });
+});
+
+test('accepting the proposal appends the person\'s decision beside the new generation (#587)', async () => {
+  await withHarness(async ({ storage }) => {
+    const { stored } = await offerProposal(storage);
+    const before = await listPlanEvents(USER, storage);
+
+    assert.equal((await act('accept_proposal')).status, 200);
+
+    const added = (await listPlanEvents(USER, storage)).filter((event) => !before.some((old) => old.id === event.id));
+    assert.deepEqual(
+      added.map((event) => event.type).sort(),
+      ['plan_proposal_accepted', 'plan_regenerated'],
+      'one system fact (a new generation) and one decision (the person said yes), nothing else',
+    );
+    const decision = added.find((event) => event.type === 'plan_proposal_accepted')!;
+    const regenerated = added.find((event) => event.type === 'plan_regenerated')!;
+
+    assert.equal(decision.proposalId, 'prp_review');
+    assert.equal(decision.date, DATE);
+    assert.equal(decision.generation, stored.generation, 'the decision names the base it answered');
+    assert.equal(decision.inputDigest, stored.inputDigest);
+    // The Trust surface's join: "you accepted a change caused by X".
+    assert.deepEqual([...(decision.causeChangeIds ?? [])], ['chg-calendar-moved']);
+
+    // The generation chain is unbroken: the installed generation still has
+    // its own `plan_regenerated`, carrying the same causes.
+    assert.equal(regenerated.generation, stored.generation + 1);
+    assert.deepEqual([...(regenerated.causeChangeIds ?? [])], ['chg-calendar-moved']);
+    assert.equal(regenerated.at, decision.at, 'one act, one instant');
+  });
+});
+
+test('a decision entry carries ids, hashes, dates and cause ids, and no words (#587)', async () => {
+  for (const action of ['accept_proposal', 'reject_proposal'] as const) {
+    await withHarness(async ({ storage }) => {
+      await offerProposal(storage);
+      assert.equal((await act(action)).status, 200);
+      const decision = (await listPlanEvents(USER, storage))
+        .find((event) => event.type === 'plan_proposal_accepted' || event.type === 'plan_proposal_rejected');
+      assert.ok(decision, `${action} wrote no decision`);
+      const allowed = ['at', 'causeChangeIds', 'date', 'generation', 'id', 'inputDigest', 'proposalId', 'type',
+        ...(action === 'reject_proposal' ? ['proposalFingerprint'] : [])];
+      assert.deepEqual(Object.keys(decision).sort(), allowed.sort(), `${action}: an unexpected field on a ledger entry`);
+      const text = JSON.stringify(decision);
+      for (const title of ['Write the summary', 'Call the bank', 'Book the train']) {
+        assert.ok(!text.includes(title), `${action}: a title reached the ledger`);
+      }
+      // Neither does any interval: the fingerprint stands in for the placement.
+      assert.ok(!/\d{4}-\d{2}-\d{2}T/.test(text.replace(`"at":"${decision.at}"`, '')), `${action}: an instant other than \`at\` reached the ledger`);
+    });
+  }
+});
+
+/**
+ * The type names the actor, the way every other entry in the plan ledger does
+ * (`plan_accepted`, `plan_edited`, `plan_dismissed` carry no actor field). That
+ * only holds if nothing but a person's own request can write one, so this pins
+ * the writers: one function each, reachable only from the authenticated
+ * actions route. A replan tick, a job or a watcher that started writing one
+ * would turn "the person decided" into a claim.
+ */
+test('only the person\'s own accept and reject write a decision entry (#587)', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const sources: Array<{ file: string; text: string }> = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
+      const relative = join(dir, entry.name);
+      if (entry.isDirectory()) walk(relative);
+      else if (/\.tsx?$/.test(entry.name)) sources.push({ file: relative, text: readFileSync(join(root, relative), 'utf8') });
+    }
+  };
+  walk('lib');
+  walk('src');
+
+  const writers = sources.filter(({ text }) => /type:\s*'plan_proposal_(accepted|rejected)'/.test(text)).map(({ file }) => file);
+  assert.deepEqual(writers, [join('lib', 'services', 'dailyPlan', 'planActions.ts')]);
+  const actions = sources.find(({ file }) => file === writers[0])!.text;
+  const within = (name: string, type: string): boolean => {
+    const start = actions.indexOf(`export async function ${name}(`);
+    const end = actions.indexOf('\nexport ', start + 1);
+    return start >= 0 && actions.slice(start, end).includes(`type: '${type}'`);
+  };
+  assert.ok(within('acceptPlanProposal', 'plan_proposal_accepted'));
+  assert.ok(within('rejectPlanProposal', 'plan_proposal_rejected'));
+  assert.equal(actions.split("type: 'plan_proposal_").length - 1, 2, 'one writer each');
+
+  const callers = sources
+    // Importers, not mentions: a comment naming the function calls nothing.
+    .filter(({ file, text }) => file !== writers[0]
+      && /import\s*(type\s*)?\{[^}]*\b(acceptPlanProposal|rejectPlanProposal)\b[^}]*\}\s*from/.test(text))
+    .map(({ file }) => file);
+  assert.deepEqual(callers, [join('src', 'app', 'api', 'mobile', 'plans', '[date]', 'actions', 'route.ts')]);
+});
+
+test('the answer commits in the same transaction as the plan it changes (#587)', async () => {
+  for (const action of ['accept_proposal', 'reject_proposal'] as const) {
+    await withHarness(async ({ storage }) => {
+      await offerProposal(storage);
+      // A write to the ledger outside a transaction fails. The answer must
+      // still land, entry and all, because it never takes that path.
+      const outsideOnly = new Proxy(storage, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target) as unknown;
+          if (property === 'set') {
+            return async (path: string, data: unknown) => {
+              if (path.includes('/planEvents/')) throw new Error('a ledger entry was written outside the transaction');
+              return target.set(path, data);
+            };
+          }
+          return typeof value === 'function' ? (value as (...rest: unknown[]) => unknown).bind(target) : value;
+        },
+      }) as StorageAdapter;
+      const { acceptPlanProposal, rejectPlanProposal } = await import('../../lib/services/dailyPlan/planActions.ts');
+      const answer = action === 'accept_proposal' ? acceptPlanProposal : rejectPlanProposal;
+      await answer(USER, DATE, { storage: outsideOnly, now: () => new Date(PROPOSED_AT) });
+      const types = (await listPlanEvents(USER, storage)).map((event) => event.type);
+      assert.ok(
+        types.includes(action === 'accept_proposal' ? 'plan_proposal_accepted' : 'plan_proposal_rejected'),
+        `${action}: the decision did not commit with the plan`,
+      );
+    });
+  }
+});
+
+test('a transaction that retries writes the decision once (#587)', async () => {
+  await withHarness(async ({ storage }) => {
+    await offerProposal(storage);
+    const memory = storage as MemoryStorageAdapter;
+    // The first attempt loses to a writer that touches nothing the patch is
+    // pinned to, so the retry succeeds. Its ledger rows must not be doubled.
+    memory.setBeforeCommitHookForTests(async ({ attempt }) => {
+      if (attempt !== 1) return;
+      const current = await readStoredPlan(USER, DATE, storage);
+      await storage.set<StoredDailyPlan>(planPath(USER, DATE), { ...current!, updatedAt: '2026-09-15T09:31:00.000Z' });
+    });
+    try {
+      assert.equal((await act('accept_proposal')).status, 200);
+    } finally {
+      memory.setBeforeCommitHookForTests(null);
+    }
+    const types = (await listPlanEvents(USER, storage)).map((event) => event.type);
+    assert.equal(types.filter((type) => type === 'plan_proposal_accepted').length, 1);
+    assert.equal(types.filter((type) => type === 'plan_regenerated').length, 1);
+  });
+});
+
+test('a refused acceptance writes no decision (#587)', async () => {
+  await withHarness(async ({ storage }) => {
+    const { stored } = await offerProposal(storage);
+    // Orphan the patch: its base digest no longer matches the plan.
+    await storage.set<StoredDailyPlan>(planPath(USER, DATE), { ...stored, inputDigest: 'sha256-moved' });
+    const before = await listPlanEvents(USER, storage);
+    assert.equal((await act('accept_proposal')).status, 422);
+    assert.deepEqual(await listPlanEvents(USER, storage), before, 'a refusal is not a decision');
+  });
+});
+
+/*
+ * #587, the council's gate before #611: a rejected patch is not raised again.
+ *
+ * Driven through the real tick (`runContinuousReplanTick`) with a real busy
+ * block and real change rows, because the defect lives in what the tick does
+ * after a rejection: the rejection clears the offer, the meeting is still on
+ * the tasks the person chose to leave where they are, and so the next change
+ * row about that meeting solves to the very patch they declined.
+ */
+
+const CALENDAR = 'device:calendar-1';
+/** A two-hour meeting over the three morning tasks: a big shift, so even the
+ *  default `automatic_time_only` policy asks rather than applies. */
+const MEETING: TimeInterval = { startsAt: `${DATE}T06:00:00.000Z`, endsAt: `${DATE}T08:00:00.000Z` };
+
+async function syncCalendar(storage: StorageAdapter, blocks: ReadonlyArray<{ blockId: string; interval: TimeInterval }>): Promise<void> {
+  await replaceBusyBlocks(
+    USER,
+    CALENDAR,
+    { startsAt: `${DATE}T00:00:00.000Z`, endsAt: '2026-09-17T00:00:00.000Z' },
+    blocks.map((block) => ({
+      blockId: block.blockId,
+      sourceId: CALENDAR,
+      sourceKind: 'device' as const,
+      startAt: block.interval.startsAt,
+      endAt: block.interval.endsAt,
+      allDay: false,
+    })),
+    { storage },
+  );
+}
+
+/** A change row, stored where a calendar producer stores one and the tick drains it. */
+async function calendarChange(storage: StorageAdapter, changeId: string, entityId: string): Promise<void> {
+  const change: PlanningStateChange = {
+    schemaVersion: 'planning-state-change-v1',
+    changeId,
+    scopeId: USER,
+    source: 'calendar',
+    entityId,
+    occurredAt: MORNING.toISOString(),
+    changedFields: ['interval', 'blocking'],
+    beforeDigest: null,
+    afterDigest: `digest-${entityId}`,
+    provenanceRef: 'calendar:refresh-1',
+  };
+  await storage.set(userSubDoc(USER, PLANNING_STATE_CHANGES, docIdForKey(changeId)), change);
+}
+
+function minutesAfterMorning(minutes: number): Date {
+  return new Date(MORNING.getTime() + minutes * 60_000);
+}
+
+/** The meeting lands, the tick proposes, the person says no. Returns the declined patch. */
+async function proposeThenReject(storage: StorageAdapter): Promise<StoredPlanProposal> {
+  await syncCalendar(storage, [{ blockId: 'busy-meeting', interval: MEETING }]);
+  await calendarChange(storage, 'chg-meeting', 'busy-meeting');
+  const first = await runContinuousReplanTick({ storage, now: MORNING });
+  assert.equal(first.proposed, 1, `fixture: the meeting must earn a proposal: ${JSON.stringify(first)}`);
+  const offered = (await readStoredPlan(USER, DATE, storage))!.proposal;
+  assert.ok(offered, 'fixture: the tick stored no proposal');
+  await rejectPlanProposal(USER, DATE, { storage, now: () => minutesAfterMorning(1) });
+  assert.equal((await readStoredPlan(USER, DATE, storage))!.proposal ?? null, null);
+  return offered;
+}
+
+function proposalsIn(events: readonly { type: string }[]): number {
+  return events.filter((event) => event.type === 'plan_proposed').length;
+}
+
+test('a rejected patch is not raised again when the same change is delivered again (#587)', async () => {
+  await withHarness(async ({ storage }) => {
+    await proposeThenReject(storage);
+    const ledger = await listPlanEvents(USER, storage);
+
+    // A producer retry: the very same change row, again.
+    await calendarChange(storage, 'chg-meeting', 'busy-meeting');
+    const again = await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
+    // The premise: the tick really did solve again, and to the same patch.
+    assert.equal(again.replanRequired, 1, `the meeting still overlaps the tasks: ${JSON.stringify(again)}`);
+
+    assert.equal((await readStoredPlan(USER, DATE, storage))!.proposal ?? null, null, 'the declined patch was offered again');
+    assert.equal(proposalsIn(await listPlanEvents(USER, storage)), proposalsIn(ledger), 'no second offer in the ledger');
+    // A decision, not a lost race: the row is drained, not held for every
+    // tick to re-solve and re-decline.
+    assert.equal((await storage.list(userCol(USER, PLANNING_STATE_CHANGES))).length, 0);
+  });
+});
+
+test('a rejected patch is not raised again by a re-sync of the same meeting under a new change id (#587)', async () => {
+  await withHarness(async ({ storage }) => {
+    const declined = await proposeThenReject(storage);
+
+    // A bulk re-sync: the same meeting, announced by a new row.
+    await syncCalendar(storage, [{ blockId: 'busy-meeting', interval: MEETING }]);
+    await calendarChange(storage, 'chg-meeting-resync', 'busy-meeting');
+    const again = await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
+    assert.equal(again.replanRequired, 1, `the premise: the tick solved again: ${JSON.stringify(again)}`);
+
+    const after = await readStoredPlan(USER, DATE, storage);
+    assert.equal(after!.proposal ?? null, null, 'the declined patch was offered again under a new change id');
+    assert.equal(after!.generation, declined.baseGeneration, 'and nothing was applied in its place');
+  });
+});
+
+test('a rejection that lands while the tick is solving still stops the same patch (#587)', async () => {
+  await withHarness(async ({ storage }) => {
+    await syncCalendar(storage, [{ blockId: 'busy-meeting', interval: MEETING }]);
+    await calendarChange(storage, 'chg-meeting', 'busy-meeting');
+    assert.equal((await runContinuousReplanTick({ storage, now: MORNING })).proposed, 1);
+
+    // The same meeting again, and this time the person's "no" commits after
+    // the tick has read the plan and solved, just before it stores the patch.
+    await calendarChange(storage, 'chg-meeting-resync', 'busy-meeting');
+    const raced = racedStorage(storage, async () => {
+      await rejectPlanProposal(USER, DATE, { storage, now: () => minutesAfterMorning(4) });
+    });
+    await runContinuousReplanTick({ storage: raced, now: minutesAfterMorning(5) });
+
+    assert.equal(
+      (await readStoredPlan(USER, DATE, storage))!.proposal ?? null,
+      null,
+      'the guard must read the rejection inside the write, not before it',
+    );
+  });
+});
+
+test('after a rejection, a patch that places things differently is still offered (#587)', async () => {
+  await withHarness(async ({ storage }) => {
+    const declined = await proposeThenReject(storage);
+
+    // A second meeting that overlaps a task still on the visible day (so it
+    // earns a replan) and runs into the hour the declined patch would have
+    // used (so the next solve must place the tasks somewhere else).
+    const next: TimeInterval = { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T09:00:00.000Z` };
+    await syncCalendar(storage, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-next', interval: next }]);
+    await calendarChange(storage, 'chg-next', 'busy-next');
+    await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
+
+    const offered = (await readStoredPlan(USER, DATE, storage))!.proposal;
+    assert.ok(offered, 'the guard must not mute every later offer, only the declined one');
+    assert.notEqual(proposalFingerprint(offered.plan), proposalFingerprint(declined.plan));
   });
 });
 

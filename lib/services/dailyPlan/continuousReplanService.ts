@@ -42,6 +42,7 @@ import {
   appendPlanEvent,
   mutateStoredPlan,
   planPath,
+  proposalWasRejected,
   readStoredPlan,
   type StoredDailyPlan,
   type StoredPlanProposal,
@@ -710,13 +711,25 @@ export async function processStateChangesForUser(
      * solved before a dismissal or an edit would be stored after it, on a day
      * the person set aside or over placements they have just overruled.
      * `status` is untouched: the plan in force is still the plan in force.
+     *
+     * A patch the person already declined is not offered again (#587). The
+     * check reads `rejectedProposals` from this transaction's own document,
+     * so a rejection that commits while this run was solving is seen. It is
+     * a decision, not a lost race: the rows are drained below like any other
+     * verdict that stored nothing, rather than held and re-solved to the same
+     * declined patch on every tick.
      */
+    let alreadyRejected = false;
     const stored = proposal
-      ? await mutateStoredPlan<null>(uid, date, (current) => (
-        stillTheStateSolvedAgainst(current, storedPlan)
-          ? { next: { ...current, proposal, updatedAt: nowIso }, result: null }
-          : null
-      ), storage)
+      ? await mutateStoredPlan<null>(uid, date, (current) => {
+        alreadyRejected = false;
+        if (!stillTheStateSolvedAgainst(current, storedPlan)) return null;
+        if (proposalWasRejected(current, proposal)) {
+          alreadyRejected = true;
+          return null;
+        }
+        return { next: { ...current, proposal, updatedAt: nowIso }, result: null };
+      }, storage)
       : null;
     if (stored) {
       await appendPlanEvent(
@@ -728,10 +741,11 @@ export async function processStateChangesForUser(
           generation: storedPlan.generation,
           inputDigest: storedPlan.inputDigest,
           causeChangeIds: proposal!.causeChangeIds,
+          proposalId: proposal!.proposalId,
         },
         storage,
       );
-    } else if (proposal) {
+    } else if (proposal && !alreadyRejected) {
       lostToConcurrentWrite = true;
     }
   }

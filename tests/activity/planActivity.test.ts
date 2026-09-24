@@ -24,8 +24,16 @@ import type { UserDocument } from '../../lib/storage/userDocument.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { applyParticipantCommands } from '../../lib/services/mobile/participantState.ts';
 import { composeDailyPlan } from '../../lib/services/dailyPlan/dailyPlanService.ts';
-import { appendPlanEvent, createIfAbsent } from '../../lib/services/dailyPlan/planStore.ts';
-import { acceptPlan, dismissPlan, editPlan, regeneratePlan } from '../../lib/services/dailyPlan/planActions.ts';
+import { appendPlanEvent, createIfAbsent, readStoredPlan, storePlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
+import {
+  acceptPlan,
+  acceptPlanProposal,
+  dismissPlan,
+  editPlan,
+  regeneratePlan,
+  rejectPlanProposal,
+} from '../../lib/services/dailyPlan/planActions.ts';
+import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 import { activityStatsPath } from '../../lib/services/activity/activityStats.ts';
 import { LEGACY_PLAN_SCAN, listActivitySources } from '../../lib/services/activity/activityService.ts';
 import { compareEventsNewestFirst, MAX_EVENT_PAGE } from '../../lib/services/mobile/eventLog.ts';
@@ -131,7 +139,23 @@ test('every plan ledger event is either mapped or declared not user-facing', () 
   assert.deepEqual(both, []);
   const stale = Object.keys(PLAN_EVENTS_NOT_USER_FACING).filter((type) => !declared.includes(type));
   assert.deepEqual(stale, [], 'these exclusions name plan events that no longer exist');
-  assert.deepEqual(Object.entries(ACTIVITY_KIND_BY_PLAN_EVENT_TYPE), [['plan_accepted', 'plan_accepted']]);
+  assert.deepEqual(Object.entries(ACTIVITY_KIND_BY_PLAN_EVENT_TYPE), [
+    ['plan_accepted', 'plan_accepted'],
+    ['plan_proposal_accepted', 'plan_proposal_accepted'],
+  ]);
+});
+
+test('the two answers to a proposed change are decided, in opposite directions (#587)', () => {
+  // Accepting is something the person did: shown. Declining is recorded for
+  // the Trust surface and the re-raise guard, and kept out of this history
+  // for the reason a dismissed plan is.
+  assert.equal(ACTIVITY_KIND_BY_PLAN_EVENT_TYPE.plan_proposal_accepted, 'plan_proposal_accepted');
+  assert.equal(PLAN_EVENTS_NOT_USER_FACING.plan_proposal_accepted, undefined);
+  assert.equal(ACTIVITY_KIND_BY_PLAN_EVENT_TYPE.plan_proposal_rejected, undefined);
+  assert.match(PLAN_EVENTS_NOT_USER_FACING.plan_proposal_rejected ?? '', /refusals/);
+  // And the system fact written beside an acceptance stays hidden, so the
+  // acceptance is shown once.
+  assert.equal(ACTIVITY_KIND_BY_PLAN_EVENT_TYPE.plan_regenerated, undefined);
 });
 
 /* ── The history ─────────────────────────────────────────────────── */
@@ -233,6 +257,96 @@ test('pages walk both logs together: stable, non-overlapping, nothing lost', asy
       }
       assert.deepEqual(seen, expected, `pages of ${size} did not walk the same history`);
     }
+  } finally {
+    end();
+  }
+});
+
+/* ── A proposed change, answered (#587) ─────────────────────────── */
+
+/** Offers a patch of the stored plan the way the replan tick stores one: every item an hour later. */
+async function offerChange(uid: string, date: string, proposedAt: string): Promise<void> {
+  const storage = getStorage();
+  const stored = await readStoredPlan(uid, date, storage);
+  assert.ok(stored, 'fixture: no plan to patch');
+  const later = (interval: { startsAt: string; endsAt: string }) => ({
+    startsAt: new Date(Date.parse(interval.startsAt) + 3_600_000).toISOString(),
+    endsAt: new Date(Date.parse(interval.endsAt) + 3_600_000).toISOString(),
+  });
+  const plan = {
+    ...stored.plan,
+    scheduled: stored.plan.scheduled.map((item) => ({ ...item, interval: later(item.interval), reservedInterval: later(item.reservedInterval) })),
+  };
+  const offered = await storePlanProposal(uid, date, {
+    proposalId: 'prp_activity',
+    proposedAt,
+    baseGeneration: stored.generation,
+    baseInputDigest: stored.inputDigest,
+    plan,
+    diff: diffPlans(stored.plan, plan),
+    reason: 'user_requires_confirmation',
+    userControlMode: 'always_require_confirmation',
+    causeChangeIds: ['chg-meeting'],
+  }, storage);
+  assert.ok(offered?.proposal, 'fixture: the patch was not stored');
+}
+
+test('accepting a proposed change appears in the history once, naming the day (#587)', async () => {
+  begin();
+  try {
+    await setProfile(OWNER, 'ar');
+    await seedTask(OWNER, 'c1', '2026-09-14T05:00:00.000Z');
+    await buildPlan(OWNER, '2026-09-14', '2026-09-14T05:30:00.000Z');
+    await offerChange(OWNER, '2026-09-14', '2026-09-14T06:00:00.000Z');
+    await acceptPlanProposal(OWNER, '2026-09-14', { now: () => new Date('2026-09-14T06:10:00.000Z') });
+
+    const items = await history(OWNER);
+    // Once: the `plan_regenerated` written in the same commit is not activity.
+    assert.deepEqual(items.map((item) => item.kind), ['plan_proposal_accepted', 'confirmed', 'captured']);
+    const [change] = items;
+    assert.equal(change!.at, '2026-09-14T06:10:00.000Z');
+    assert.equal(change!.commitmentId, null);
+    assert.equal(change!.commitmentTitle, null);
+    assert.deepEqual(change!.detail, { planDate: '2026-09-14' });
+  } finally {
+    end();
+  }
+});
+
+test('accepting a change is not accepting the day: no planned day, no first-plan Moment (#587)', async () => {
+  begin();
+  try {
+    await setProfile(OWNER, 'ar');
+    await seedTask(OWNER, 'c1', '2026-09-14T05:00:00.000Z');
+    await buildPlan(OWNER, '2026-09-14', '2026-09-14T05:30:00.000Z');
+    await offerChange(OWNER, '2026-09-14', '2026-09-14T06:00:00.000Z');
+    await acceptPlanProposal(OWNER, '2026-09-14', { now: () => new Date('2026-09-14T06:10:00.000Z') });
+
+    const week = await summary(OWNER, '2026-09-13');
+    assert.equal(week.plannedDaysCount, 0);
+    assert.deepEqual(week.moments.map((moment: { id: string }) => moment.id), ['first_capture']);
+    const stats = await getStorage().get<{ firstPlanAcceptedAt: string | null }>(activityStatsPath(OWNER));
+    assert.equal(stats?.firstPlanAcceptedAt ?? null, null);
+  } finally {
+    end();
+  }
+});
+
+test('declining a proposed change is recorded but never appears in the history (#587)', async () => {
+  begin();
+  try {
+    await setProfile(OWNER, 'ar');
+    await seedTask(OWNER, 'c1', '2026-09-14T05:00:00.000Z');
+    await buildPlan(OWNER, '2026-09-14', '2026-09-14T05:30:00.000Z');
+    await offerChange(OWNER, '2026-09-14', '2026-09-14T06:00:00.000Z');
+    await rejectPlanProposal(OWNER, '2026-09-14', { now: () => new Date('2026-09-14T06:10:00.000Z') });
+
+    // The premise: it is in the ledger, so leaving it out here is a decision.
+    const ledger = await getStorage().list<{ type: string }>(userCol(OWNER, PLAN_EVENTS));
+    assert.ok(ledger.some((row) => row.data.type === 'plan_proposal_rejected'));
+
+    assert.deepEqual((await history(OWNER)).map((item) => item.kind), ['confirmed', 'captured']);
+    assert.equal((await summary(OWNER, '2026-09-13')).plannedDaysCount, 0);
   } finally {
     end();
   }
@@ -440,7 +554,11 @@ function seeded(seed: number): () => number {
 }
 
 test('seeded logs walk in the one total order at every page size', async () => {
-  const LEDGER_TYPES = ['plan_accepted', 'plan_proposed', 'plan_regenerated', 'plan_dismissed', 'plan_edited'];
+  const LEDGER_TYPES = [
+    'plan_accepted', 'plan_proposed', 'plan_regenerated', 'plan_dismissed', 'plan_edited',
+    'plan_proposal_accepted', 'plan_proposal_rejected',
+  ];
+  const SHOWN = new Set(Object.keys(ACTIVITY_KIND_BY_PLAN_EVENT_TYPE));
   for (let seed = 1; seed <= 40; seed += 1) {
     begin();
     try {
@@ -458,7 +576,7 @@ test('seeded logs walk in the one total order at every page size', async () => {
         } else {
           const type = LEDGER_TYPES[Math.floor(random() * LEDGER_TYPES.length)]!;
           await putLedger(OWNER, `l${id}`, at, type);
-          if (type === 'plan_accepted') expected.push({ id: `l${id}`, at });
+          if (SHOWN.has(type)) expected.push({ id: `l${id}`, at });
         }
       }
       const order = expected

@@ -1541,6 +1541,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       'the plan cause fixture recorded no attribution',
     );
 
+    /*
+     * The proposal above, accepted through the real action and read back
+     * through the history (#587). The acceptance writes two ledger rows in one
+     * commit — `plan_regenerated`, which the history never shows, and
+     * `plan_proposal_accepted`, which it does — so a page of one pins both
+     * that the new kind reaches the client and that it reaches it once, with
+     * the day it was for.
+     */
+    const acceptedChange = await planActionPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept_proposal' } }),
+      dateParams(PLAN_DATE),
+    );
+    assert.equal(acceptedChange.status, 200, 'the fixture proposal could not be accepted');
+    const withChange = await record('activity.planProposalAccepted', 200, await activityGet(
+      request('/api/mobile/activity?limit=1'),
+    ));
+    assert.deepEqual(
+      (withChange.items as Array<{ kind: string; detail?: unknown }>).map((item) => [item.kind, item.detail]),
+      [['plan_proposal_accepted', { planDate: PLAN_DATE }]],
+    );
+
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),
       dateParams('2026-08-10'),

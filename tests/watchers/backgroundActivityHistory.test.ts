@@ -25,6 +25,9 @@ import {
 } from '../../src/contracts/v1/backgroundMonitorContracts.ts';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts.ts';
 import type { WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
+import { appendPlanEvent, planPath, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
+import { acceptPlanProposal, rejectPlanProposal } from '../../lib/services/dailyPlan/planActions.ts';
+import { PLANNING_CONTRACT_VERSION, PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContracts.ts';
 
 const BASE = 'https://api.maybesitter.test';
 const ALICE = uidFor('AliceHistory');
@@ -340,6 +343,132 @@ test('history strictly isolates accounts', async () => {
     assert.equal(bobView.items.length, 1);
     assert.equal(bobView.items[0]!.watcherId, wBob.definition.watcherId);
     assert.equal(bobView.items[0]!.title, 'Bob Secret Flight');
+  } finally {
+    end();
+  }
+});
+
+/*
+ * #587: a person's answer to a proposed change adds no "plan reconsidered" row
+ * of its own, and takes none away.
+ *
+ * Accepting writes `plan_regenerated` (the system fact, which this history
+ * reads as "replan applied") and `plan_proposal_accepted` (the person's
+ * decision, which carries the same causes and which this history does not
+ * read). Reading both would show one acceptance as two replans; dropping the
+ * first would lose the applied row. Driven through the real actions, so the
+ * rows are the ones production writes.
+ */
+async function seedAnsweredProposal(answer: 'accept' | 'reject'): Promise<string> {
+  const store = createWatcherStore(ALICE, storage);
+  const watcher = await store.create(
+    {
+      source: { provider: 'aviation', connectionId: null, signalKind: 'flight', subjectRef: 'ba162' },
+      condition: { kind: 'digest_changed' },
+      effect: 'replan_if_impacted',
+      enabled: true,
+      label: 'BA flight 162',
+      createdBy: 'user',
+    },
+    T0,
+  );
+  const changeId = 'watcher:change_587';
+  const firing: WatcherFireEvent = {
+    version: 'v1',
+    schemaVersion: 'watcher-event-v1',
+    eventId: 'evt_587',
+    watcherId: watcher.definition.watcherId,
+    scopeId: ALICE,
+    signalId: 'sig_587',
+    provider: 'aviation',
+    signalKind: 'flight',
+    subjectRef: 'ba162',
+    observedAt: T1,
+    firedAt: T1,
+    effect: 'replan_if_impacted',
+    outcome: 'effected',
+    reason: 'digest_changed',
+    policyDecision: 'allowed',
+    provenanceRef: 'signals/sig_587',
+    effectRef: changeId,
+  };
+  await storage.set(userSubDoc(ALICE, 'watcherEvents', 'evt_587'), firing);
+
+  const date = '2026-09-24';
+  const plan = {
+    version: PLANNING_CONTRACT_VERSION,
+    schema: PLANNING_SCHEMA_VERSION,
+    scopeId: `${ALICE}:${date}`,
+    horizon: { startsAt: `${date}T00:00:00.000Z`, endsAt: `${date}T23:59:59.999Z` },
+    scheduled: [],
+    unscheduled: [],
+    constraintReasons: [],
+    inputDigest: 'digest_1',
+  };
+  const document = {
+    date,
+    timezone: 'Asia/Jerusalem',
+    locale: 'en',
+    status: 'accepted',
+    plan,
+    blocks: [],
+    replaces: null,
+    constraints: {},
+    config: {},
+    explanation: { text: 'x', locale: 'en', source: 'template', validated: true },
+    edits: { moves: [], removals: [] },
+    generatedAt: T0,
+    generation: 1,
+    inputDigest: 'digest_1',
+    acceptedAt: T0,
+    updatedAt: T0,
+    proposal: {
+      proposalId: 'prp_587',
+      proposedAt: T2,
+      baseGeneration: 1,
+      baseInputDigest: 'digest_1',
+      plan,
+      diff: { changes: [], sameInputDigest: true },
+      reason: 'user_requires_confirmation',
+      userControlMode: 'always_require_confirmation',
+      causeChangeIds: [changeId],
+    },
+  } as unknown as StoredDailyPlan;
+  await storage.set(planPath(ALICE, date), document);
+  // The offer's own entry, exactly as the replan tick writes it.
+  await appendPlanEvent(ALICE, {
+    type: 'plan_proposed', date, at: T2, generation: 1, inputDigest: 'digest_1', causeChangeIds: [changeId], proposalId: 'prp_587',
+  }, storage);
+
+  const options = { storage, now: () => new Date(T3) };
+  if (answer === 'accept') await acceptPlanProposal(ALICE, date, options);
+  else await rejectPlanProposal(ALICE, date, options);
+  return watcher.definition.watcherId;
+}
+
+test('accepting a proposed change reads as one proposed and one applied replan, not a third row (#587)', async () => {
+  begin();
+  try {
+    const watcherId = await seedAnsweredProposal('accept');
+    const types = (await storage.list<{ type: string }>(userCol(ALICE, PLAN_EVENTS))).map((row) => row.data.type).sort();
+    assert.deepEqual(types, ['plan_proposal_accepted', 'plan_proposed', 'plan_regenerated'], 'the premise: all three rows exist');
+
+    const history = await listBackgroundActivityHistory(ALICE, { kind: 'plan_reconsidered' }, { storage });
+    assert.deepEqual(
+      history.items.map((item) => [item.description, item.occurredAt, item.watcherId]),
+      [['replan_applied', T3, watcherId], ['replan_proposed', T2, watcherId]],
+    );
+  } finally {
+    end();
+  }
+});
+
+test('declining a proposed change leaves only the proposed replan (#587)', async () => {
+  begin();
+  try {
+    await seedAnsweredProposal('reject');
+    const history = await listBackgroundActivityHistory(ALICE, { kind: 'plan_reconsidered' }, { storage });
+    assert.deepEqual(history.items.map((item) => item.description), ['replan_proposed']);
   } finally {
     end();
   }

@@ -34,7 +34,7 @@ import type { Plan, PlanDiff, PlanningConfig, PlanningConstraints } from '../../
 import type { ReplanPolicyReason, UserControlMode } from '../../../src/contracts/v1/replanContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { UserLocale } from '../../storage/userDocument';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 export type DailyPlanStatus = 'proposed' | 'accepted' | 'edited' | 'dismissed';
 export type ExplanationSource = 'model' | 'template';
@@ -135,7 +135,47 @@ export interface StoredDailyPlan {
    * assigned unconditionally to avoid.
    */
   readonly proposal?: StoredPlanProposal | null;
+  /**
+   * The patches the person declined against this generation (#587).
+   *
+   * The memory the tick consults before storing a patch
+   * (`proposalWasRejected`): without it a rejection clears the offer and
+   * nothing else, and the very next change row about the same meeting — a
+   * provider re-sync, a producer retry — solves to the same placement and
+   * offers it again. Kept on the plan document rather than read from the
+   * ledger so that the check runs inside the same transaction that would store
+   * the patch: a rejection that lands while the tick is solving is seen, not
+   * raced.
+   *
+   * Numbers and hashes only. Scoped to the day by living on the day's
+   * document, and to the generation by `baseGeneration`: a rebuilt plan is a
+   * different question, so an entry for an older generation matches nothing
+   * and is dropped the next time a rejection is written.
+   */
+  readonly rejectedProposals?: readonly RejectedProposalMark[];
 }
+
+/**
+ * One declined patch, as the re-raise guard needs to recognise it (#587).
+ *
+ * `(baseGeneration, baseInputDigest)` is the state the patch was solved
+ * against, and `fingerprint` is `proposalFingerprint` of the placement it
+ * would have installed. No titles, no intervals, no text.
+ */
+export interface RejectedProposalMark {
+  readonly baseGeneration: number;
+  readonly baseInputDigest: string;
+  readonly fingerprint: string;
+}
+
+/**
+ * The most declined patches one generation remembers.
+ *
+ * A bound on the document, not a product rule: every entry is a person pressing
+ * "no" on one day's plan, so a real day never comes near it, and the oldest
+ * entry is the one dropped if one ever does.
+ */
+export const MAX_REJECTED_PROPOSALS = 20;
 
 /**
  * A schedule patch continuous replanning proposed but did not apply (#523).
@@ -241,7 +281,22 @@ export type PlanEventType =
    * R3 (`lib/memoryGrowth/rules.ts`) can name the time a person usually looks
    * at their plan, and it is deliberately not activity (`planActivity.ts`).
    */
-  | 'plan_opened';
+  | 'plan_opened'
+  /**
+   * The person accepted a patch continuous replanning proposed (#587).
+   * Written only by `acceptPlanProposal`, which only the authenticated
+   * actions route reaches, so the type itself names the actor: the ledger has
+   * never carried an actor field, and `plan_accepted`, `plan_edited` and
+   * `plan_dismissed` are acts of the person by their type alone. It is written
+   * in the same commit as the `plan_regenerated` entry for the generation it
+   * installs, which stays the system fact that the plan in force changed.
+   */
+  | 'plan_proposal_accepted'
+  /**
+   * The person declined such a patch (#587). Also the audit record of the
+   * re-raise guard, see `StoredDailyPlan.rejectedProposals`.
+   */
+  | 'plan_proposal_rejected';
 
 export interface PlanEvent {
   readonly id: string;
@@ -261,6 +316,60 @@ export interface PlanEvent {
    * Opaque ids, like the digest beside them.
    */
   readonly causeChangeIds?: readonly string[];
+  /**
+   * On `plan_proposed` written by an automatic replan, and on both answers to
+   * it (#587): the proposal the entry is about, so an answer joins to the
+   * offer it answers. On those three entries `generation` and `inputDigest`
+   * are the proposal's base, the state it was solved against, and not the
+   * generation an acceptance goes on to install (that one is on the
+   * `plan_regenerated` entry written beside it). An opaque id.
+   */
+  readonly proposalId?: string;
+  /**
+   * On `plan_proposal_rejected` only: `proposalFingerprint` of the declined
+   * placement, the key the re-raise guard remembers. A hash.
+   */
+  readonly proposalFingerprint?: string;
+}
+
+/**
+ * A hash of the placement a patch would install (#587).
+ *
+ * The re-raise guard compares patches by this. Not by `plan.inputDigest`,
+ * which hashes the whole planning request and so moves with anything the
+ * request carries that the person never sees, and not by `proposalId`, which
+ * is minted fresh on every solve. Two patches with the same fingerprint put
+ * every item in the same place and leave the same items unplaced, which is
+ * what a person saw and said no to.
+ *
+ * Instants are compared as epoch milliseconds, so two spellings of one instant
+ * are one placement. The inputs are item ids and numbers, and the output is a
+ * hash, so nothing a person wrote reaches it.
+ */
+export function proposalFingerprint(plan: Plan): string {
+  const placed = plan.scheduled
+    .map((item) => [item.itemId, Date.parse(item.interval.startsAt), Date.parse(item.interval.endsAt)] as const)
+    .sort((left, right) => (left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0));
+  const unplaced = plan.unscheduled.map((item) => item.itemId).sort();
+  return createHash('sha256').update(JSON.stringify({ placed, unplaced })).digest('hex');
+}
+
+/**
+ * Whether the person already declined this exact patch of this exact state
+ * (#587, the council's "the same change does not re-raise it").
+ *
+ * Read by the replan tick inside the transaction that would store the patch.
+ * A match needs all three: the same base generation, the same base digest and
+ * the same placement. A patch that moves anything differently is a different
+ * offer and is still made, and so is any patch of a rebuilt plan.
+ */
+export function proposalWasRejected(stored: StoredDailyPlan, proposal: StoredPlanProposal): boolean {
+  const marks = stored.rejectedProposals ?? [];
+  if (marks.length === 0) return false;
+  const fingerprint = proposalFingerprint(proposal.plan);
+  return marks.some((mark) => mark.baseGeneration === proposal.baseGeneration
+    && mark.baseInputDigest === proposal.baseInputDigest
+    && mark.fingerprint === fingerprint);
 }
 
 function storageOf(storage?: StorageAdapter): StorageAdapter {
@@ -309,7 +418,7 @@ export async function createIfAbsent(
 export async function mutateStoredPlan<T>(
   uid: string,
   date: string,
-  mutate: (current: StoredDailyPlan) => { next: StoredDailyPlan; result: T } | null,
+  mutate: (current: StoredDailyPlan) => PlanMutation<T> | null,
   storage?: StorageAdapter,
 ): Promise<{ stored: StoredDailyPlan; result: T } | null> {
   const path = planPath(uid, date);
@@ -319,8 +428,23 @@ export async function mutateStoredPlan<T>(
     const outcome = mutate(current);
     if (!outcome) return null;
     tx.set<StoredDailyPlan>(path, outcome.next);
+    for (const entry of outcome.ledger ?? []) tx.set<PlanEvent>(entry.path, entry.record);
     return { stored: outcome.next, result: outcome.result };
   });
+}
+
+/**
+ * What a `mutateStoredPlan` mutator returns.
+ *
+ * `ledger` is the plan ledger entries that commit with the document (#587):
+ * a person's answer to a proposal and the state change it makes are one fact,
+ * and an entry appended in a second write would be lost on every crash
+ * between the two. Built with `preparePlanEvent`.
+ */
+export interface PlanMutation<T> {
+  readonly next: StoredDailyPlan;
+  readonly result: T;
+  readonly ledger?: readonly { readonly path: string; readonly record: PlanEvent }[];
 }
 
 /**
@@ -437,9 +561,16 @@ export async function appendPlanEvent(
  * something else — `acceptPlan` advances the activity counter (#201) in the
  * same commit. The id is minted here, outside that transaction, so a retried
  * transaction body writes the same record rather than a new one per attempt.
+ * A caller that can only build the entry inside the transaction body (#587:
+ * the answer to a proposal needs the proposal the body read) mints the id
+ * outside and passes it in, for the same reason.
  */
-export function preparePlanEvent(uid: string, event: Omit<PlanEvent, 'id'>): { path: string; record: PlanEvent } {
-  const record: PlanEvent = { id: randomUUID(), ...event };
+export function preparePlanEvent(
+  uid: string,
+  event: Omit<PlanEvent, 'id'>,
+  id: string = randomUUID(),
+): { path: string; record: PlanEvent } {
+  const record: PlanEvent = { id, ...event };
   return { path: `${userCol(uid, PLAN_EVENTS)}/${sortableDocId(record.at, record.id)}`, record };
 }
 
