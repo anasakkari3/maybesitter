@@ -105,6 +105,30 @@ export function AddToMaybeSitterScreen() {
 
 export { GoalExecutionScreen } from '../goals/GoalExecutionScreen';
 
+/**
+ * The sentence a proposal's `reason` is shown as — never the code itself.
+ *
+ * `reason` is the server's internal policy vocabulary (`REPLAN_POLICY_REASONS`),
+ * shipped as a bare string. These are the four the policy can attach to a
+ * `propose_for_review` decision; anything else, including a reason added on the
+ * server later, reads as the generic sentence rather than as
+ * `churn_exceeded_threshold` in the middle of an Arabic screen. The schema keeps
+ * `reason` a plain string on purpose, so a new server value is not a parse
+ * failure that blanks the whole plan.
+ */
+const PATCH_REASON_KEYS = {
+  user_requires_confirmation: 'xPatchWhyConfirm',
+  contains_removals: 'xPatchWhyRemovals',
+  contains_additions: 'xPatchWhyAdditions',
+  churn_exceeded_threshold: 'xPatchWhyChurn',
+} as const;
+
+export function patchReasonKey(reason: string): (typeof PATCH_REASON_KEYS)[keyof typeof PATCH_REASON_KEYS] | 'xPatchWhyOther' {
+  return Object.prototype.hasOwnProperty.call(PATCH_REASON_KEYS, reason)
+    ? PATCH_REASON_KEYS[reason as keyof typeof PATCH_REASON_KEYS]
+    : 'xPatchWhyOther';
+}
+
 export function PatchReviewScreen() {
   const { t, p, lang, actions } = useApp();
   const zone = useTimeZone();
@@ -115,10 +139,25 @@ export function PatchReviewScreen() {
   const range = (interval: { startsAt: string; endsAt: string } | null) => interval
     ? formatTimeRange(new Date(interval.startsAt), new Date(interval.endsAt), { locale: lang, timeZone: query.data?.timezone ?? zone })
     : t.xNotSet;
+  // A protection the patch overrides is not something that "stays protected",
+  // so it is never listed under that heading. It gets its own section, said in
+  // words, above the buttons: consenting blind to an override is the one
+  // outcome the `protections` field exists to prevent (#523, #588). A block the
+  // patch leaves unplaced is the strongest override, and says so rather than
+  // showing an empty time.
+  const overridden = proposal?.protections.filter(protection => protection.overridden) ?? [];
+  const kept = proposal?.protections.filter(protection => !protection.overridden) ?? [];
+  const protectionRow = (protection: NonNullable<typeof proposal>['protections'][number]) => <ProductRow
+    key={protection.blockId}
+    id={`patch-protection-${protection.blockId}`}
+    title={protection.title ? isolate(protection.title) : protection.itemId}
+    body={protection.proposedInterval ? range(protection.proposedInterval) : t.xUnplaced}
+    icon="shield"
+  />;
   return <ProductPage id="patch" title={t.xPatch} subtitle={t.xPatchBody}>
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {proposal ? <>
-        <ProductSection title={t.xChanged} body={proposal.reason} icon="calendar" status="AVAILABLE">
+        <ProductSection title={t.xChanged} body={t[patchReasonKey(proposal.reason)]} icon="calendar" status="AVAILABLE">
           {proposal.changes.filter(change => change.kind !== 'unchanged').map(change => <ProductRow
             key={`${change.kind}-${change.itemId}`}
             title={change.title ? isolate(change.title) : change.itemId}
@@ -126,15 +165,16 @@ export function PatchReviewScreen() {
             icon="calendar"
           />)}
         </ProductSection>
-        <ProductSection title={t.xProtected} icon="shield">
-          {proposal.protections.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoResults}</Txt> : proposal.protections.map(protection => <ProductRow
-            key={protection.blockId}
-            title={protection.title ? isolate(protection.title) : protection.itemId}
-            body={range(protection.proposedInterval)}
-            icon="shield"
-            status={protection.overridden ? 'BLOCKED' : 'AVAILABLE'}
-          />)}
-        </ProductSection>
+        {overridden.length > 0 ? <View testID="patch-overridden">
+          <ProductSection title={t.xOverridden} body={t.xOverriddenBody} icon="shield">
+            {overridden.map(protectionRow)}
+          </ProductSection>
+        </View> : null}
+        {kept.length > 0 || overridden.length === 0 ? <View testID="patch-kept">
+          <ProductSection title={t.xProtected} icon="shield">
+            {kept.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoResults}</Txt> : kept.map(protectionRow)}
+          </ProductSection>
+        </View> : null}
         {action.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(action.error, t)}</Txt> : null}
         <Pill testID="patch-accept" label={t.xAcceptChanges} disabled={action.isPending} onPress={() => action.mutate('accept_proposal')} />
         <Pill testID="patch-reject" label={t.xKeepPlan} kind="outline" disabled={action.isPending} onPress={() => action.mutate('reject_proposal')} />

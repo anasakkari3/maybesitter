@@ -471,8 +471,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             title={t.planMorningTitle}
             body={t.planMorningBody}
             value={plan?.enabled === true}
-            // Nothing to write against until the server has answered once.
-            disabled={plan === null}
+            // Nothing to write against until the server has answered once —
+            // and nothing while the replanning switch's write is in flight,
+            // since that write carries this switch's previous value (#523).
+            disabled={plan === null || savePlan.isPending}
             onChange={async next_ => {
               // The plan arrives as a push, so the permission is asked here on
               // the way on for the same reason the reminders switch asks — and
@@ -502,6 +504,41 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               <Txt size={13} color={p.mu} testID="plan-next-run">{fill(t.planMorningNext, { when: ltr(next) })}</Txt>
             </View>
           ) : null}
+          {/* ── Continuous replanning (#523, AC 9) ─────────────────────
+              Its own field on the same record, so it lives on the same card —
+              and nowhere near the calendar connections, because switching it
+              off must not read as disconnecting one (it does not).
+
+              The route requires `enabled` on every PUT, so this write carries
+              the morning switch's current value. That makes one race real: a
+              morning-switch write still in flight has not reached the cache
+              yet, and this write would re-send the value it is replacing. So
+              this switch waits while any plan-settings write is pending. */}
+          <ServerToggle
+            testID="plan-replan-toggle"
+            title={t.planReplanTitle}
+            body={t.planReplanBody}
+            value={plan?.continuousReplanEnabled === true}
+            disabled={plan === null || savePlan.isPending}
+            onChange={async next_ => {
+              if (plan === null) return false;
+              try {
+                const saved = await savePlan.mutateAsync({
+                  enabled: plan.enabled,
+                  continuousReplanEnabled: next_,
+                });
+                return saved.continuousReplanEnabled === next_;
+              } catch {
+                return false;
+              }
+            }}
+          />
+          <View style={{ paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: p.ln }}>
+            {/* Said whichever way the switch sits: the moment it matters is
+                before somebody turns it off, not after. Disabling drains the
+                pending changes, so re-enabling cannot replay them. */}
+            <Txt size={13} color={p.mu} lh={1.5} testID="plan-replan-no-backfill">{t.planReplanNoBackfill}</Txt>
+          </View>
           <SettingsRow
             label={t.planOpen}
             testID="plan-open"

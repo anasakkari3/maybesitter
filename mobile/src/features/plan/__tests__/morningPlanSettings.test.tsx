@@ -44,7 +44,7 @@ const USER: AuthUser = {
 };
 
 const OFF: PlanSettings = {
-  enabled: false, deliveryLocalTime: '07:30', timezone: 'Asia/Jerusalem', nextRunAt: null,
+  enabled: false, deliveryLocalTime: '07:30', timezone: 'Asia/Jerusalem', nextRunAt: null, continuousReplanEnabled: true,
 };
 
 const ON: PlanSettings = { ...OFF, enabled: true, nextRunAt: '2026-08-10T04:30:00.000Z' };

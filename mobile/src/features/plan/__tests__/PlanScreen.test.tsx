@@ -66,7 +66,7 @@ function trustDeciding(granted: boolean) {
 }
 
 const SETTINGS_ON: PlanSettings = {
-  enabled: true, deliveryLocalTime: '07:30', timezone: 'Asia/Jerusalem', nextRunAt: '2026-08-10T04:30:00.000Z',
+  enabled: true, deliveryLocalTime: '07:30', timezone: 'Asia/Jerusalem', nextRunAt: '2026-08-10T04:30:00.000Z', continuousReplanEnabled: true,
 };
 
 let client: QueryClient;

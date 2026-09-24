@@ -228,12 +228,20 @@ export type PlanEditRejected = z.infer<typeof planEditRejectedSchema>;
  * It is null when delivery is off, and the client shows it rather than
  * recomputing a DST boundary on the phone. `deliveryLocalTime` is a local
  * wall-clock `HH:mm` in `timezone`, not an instant.
+ *
+ * `continuousReplanEnabled` is #523's switch: whether a change to the day may
+ * rearrange a plan the user already has. It is independent of `enabled` (the
+ * morning delivery) and of every calendar connection. Required, not optional:
+ * the route always sends it, and an optional field here is how zod stripped
+ * it silently before this screen existed — the server's `true` default would
+ * have reached the switch as `undefined` and been drawn as "off".
  */
 export const planSettingsSchema = z.object({
   enabled: z.boolean(),
   deliveryLocalTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/, 'expected HH:mm'),
   timezone: z.string(),
   nextRunAt: isoDateTime.nullable(),
+  continuousReplanEnabled: z.boolean(),
 });
 
 export const planSettingsResponseSchema = z.object({
