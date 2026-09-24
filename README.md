@@ -108,6 +108,7 @@ npm run dev             # Start the Next.js dev server
 npm run build           # Build for production
 npm start               # Start the production server
 npm test                # Run the full test suite
+npm run test:serial     # The same files as npm test, one at a time
 npm run test:registry      # Run the dataset-governance tests only
 npm run test:calibration   # Run the Capture Gold calibration tests
 npm run validate:registry  # Validate the dataset registry, lock ledger, and reports
