@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { BackHandler, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useApp } from './state/AppContext';
@@ -53,6 +53,7 @@ import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
   const { takePendingLink } = useAuth();
+  const [tabClearance, setTabClearance] = useState(130);
   const latest = useRef(actions);
   latest.current = actions;
   const pending = useRef(takePendingLink);
@@ -153,7 +154,7 @@ export function Root() {
 {s.screen === 'contextualAssistant' && <ContextualAssistantScreen />}
           {s.screen === 'today' && <TodayScreen key="today" />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
-          {s.screen === 'settings' && <SettingsScreen key="settings" />}
+          {s.screen === 'settings' && <SettingsScreen key="settings" tabClearance={tabClearance} />}
           {s.screen === 'deleteAccount' && (
             <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.back()} />
           )}
@@ -240,7 +241,7 @@ export function Root() {
           {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (
             <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.back()} />
           )}
-          {s.showTabs && <TabBar />}
+          {s.showTabs && <TabBar onClearanceChange={setTabClearance} />}
           <ToastHost />
           <SheetHost key={s.sheet ?? 'none'} />
         </View>
