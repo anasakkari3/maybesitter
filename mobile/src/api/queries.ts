@@ -109,6 +109,7 @@ import {
   unlinkGoalNode,
 } from './endpoints/goals';
 import type { GoalConfirmationSelection } from './endpoints/goals';
+import type { GoalProgressPeriod } from './schemas/goals';
 import { createHabit, deleteHabit, listHabits, setHabitStatus } from './endpoints/habits';
 import type { Habit, NewHabitInput } from './schemas/habits';
 
@@ -153,7 +154,9 @@ export const queryKeys = {
   icsFeeds: (uid: string) => ['user', uid, 'icsFeeds'] as const,
   /** Things the person is considering or waiting on (#519). */
   seeds: (uid: string) => ['user', uid, 'seeds'] as const,
-  goalExecution: (uid: string, goalId: string, generation: number) => ['user', uid, 'goalExecution', goalId, generation] as const,
+  goalExecution: (uid: string, goalId: string, generation: number, period?: GoalProgressPeriod) => [
+    'user', uid, 'goalExecution', goalId, generation, period?.fromLocalDate ?? null, period?.toLocalDate ?? null,
+  ] as const,
   habits: (uid: string) => ['user', uid, 'habits'] as const,
 };
 
@@ -273,16 +276,16 @@ export function useNextStep() {
   });
 }
 
-export function useGoalExecution(goalId: string, generation = 1) {
+export function useGoalExecution(goalId: string, generation = 1, period?: GoalProgressPeriod) {
   const uid = useUid();
   return useQuery({
-    queryKey: queryKeys.goalExecution(uid, goalId, generation),
-    queryFn: () => getGoalExecution(goalId, generation),
+    queryKey: queryKeys.goalExecution(uid, goalId, generation, period),
+    queryFn: () => getGoalExecution(goalId, generation, period),
     enabled: uid !== 'signed-out' && goalId !== '',
   });
 }
 
-function useGoalMutation<TInput>(goalId: string, mutationFn: (input: TInput) => Promise<unknown>) {
+function useGoalMutation<TInput, TData>(goalId: string, mutationFn: (input: TInput) => Promise<TData>) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
@@ -290,6 +293,7 @@ function useGoalMutation<TInput>(goalId: string, mutationFn: (input: TInput) => 
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution', goalId] });
       invalidateCommitments(client, uid);
+      void client.invalidateQueries({ queryKey: queryKeys.habits(uid) });
     },
   });
 }
@@ -316,9 +320,9 @@ export function useUnlinkGoalNode(goalId: string) {
   return useGoalMutation(goalId, (nodeId: string) => unlinkGoalNode(goalId, nodeId));
 }
 
-export function useHabits() {
+export function useHabits(enabled = true) {
   const uid = useUid();
-  return useQuery({ queryKey: queryKeys.habits(uid), queryFn: listHabits, enabled: uid !== 'signed-out' });
+  return useQuery({ queryKey: queryKeys.habits(uid), queryFn: listHabits, enabled: uid !== 'signed-out' && enabled });
 }
 
 function useHabitMutation<TInput>(mutationFn: (input: TInput) => Promise<unknown>) {

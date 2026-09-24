@@ -19,6 +19,12 @@ import { shareProposalSchema } from '../schemas/share';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
 import { pilotIncidentResponseSchema, trustResponseSchema } from '../schemas/trust';
 import { habitChangedSchema } from '../schemas/habits';
+import {
+  goalConfirmResponseSchema,
+  goalExecutionResponseSchema,
+  goalGraphResponseSchema,
+  goalUnlinkResponseSchema,
+} from '../schemas/goals';
 import { alphaFeedbackSchema, feedbackHistorySchema, feedbackRevokeSchema } from '../schemas/feedback';
 import { activityPageSchema, weeklySummarySchema } from '../schemas/activity';
 import { analyticsAckSchema } from '../schemas/analytics';
@@ -211,6 +217,11 @@ const CASES: Array<[string, z.ZodType]> = [
   ['financial.connected', financialConnectionSchema],
   ['financial.connectionOff', financialConnectionSchema],
   ['habit.created', habitChangedSchema],
+  ['goal.generated', goalGraphResponseSchema],
+  ['goal.execution', goalExecutionResponseSchema],
+  ['goal.confirmed', goalConfirmResponseSchema],
+  ['goal.regenerated', goalGraphResponseSchema],
+  ['goal.unlinked', goalUnlinkResponseSchema],
   ['readiness.current', readinessResponseSchema],
   ['readiness.saved', readinessSavedSchema],
   ['devices.registered', deviceRegisteredSchema],

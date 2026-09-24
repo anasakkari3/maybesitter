@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "unlinked": {
+    "nodeId": "g2.step.s1",
+    "nodeKey": "step.s1",
+    "entityKind": "commitment",
+    "entityId": "00000000-0000-4000-8000-000000000001"
+  },
+  "canonicalWorkKept": true
+}

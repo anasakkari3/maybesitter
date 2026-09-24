@@ -107,6 +107,12 @@ import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/ac
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { POST as planBuildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
 import { POST as planOpenedPost } from '../../src/app/api/mobile/plans/[date]/opened/route.ts';
+import { GET as goalExecutionGet } from '../../src/app/api/mobile/goals/[goalId]/execution/route.ts';
+import { POST as goalGeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/generate/route.ts';
+import { POST as goalConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/execution/confirm/route.ts';
+import { POST as goalRegeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/regenerate/route.ts';
+import { PATCH as goalNodePatch } from '../../src/app/api/mobile/goals/[goalId]/execution/nodes/[nodeId]/route.ts';
+import { seedGoal, SPLITTABLE_GOAL } from '../goalGraph/goalGraphSupport.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
 import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
 import {
@@ -157,6 +163,7 @@ const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
 const WALL_CLOCK = new Date();
 const PATCHED_DUE_DATE = new Date(WALL_CLOCK.getTime() + 72 * 3_600_000).toISOString();
 const USER = uidFor('FixtureUser');
+const GOAL_USER = uidFor('GoalFixtureUser');
 
 const FIXTURES = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -551,6 +558,37 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     assert.equal(confirmation.success, true);
     const persisted = confirmation.persisted as Array<{ commitmentId: string }>;
     const commitmentId = persisted[0]!.commitmentId;
+
+    // ── saved Goal → reviewed work (#526) ─────────────────────────
+    const { goal } = await seedGoal(SPLITTABLE_GOAL, { scopeId: GOAL_USER, storage: getStorage() });
+    const goalContext = { params: Promise.resolve({ goalId: goal.id }) };
+    const generatedGoal = await record('goal.generated', 200, await goalGeneratePost(
+      request(`/api/mobile/goals/${goal.id}/execution/generate`, { body: {}, uid: GOAL_USER }),
+      goalContext,
+    ));
+    const goalNodeId = (generatedGoal.graph as { nodes: Array<{ kind: string; nodeId: string }> }).nodes
+      .find(node => node.kind === 'decomposition_step_proposal')!.nodeId;
+    const confirmedGoal = await record('goal.confirmed', 200, await goalConfirmPost(
+      request(`/api/mobile/goals/${goal.id}/execution/confirm`, {
+        body: { generation: 1, selections: [{ nodeId: goalNodeId, as: 'commitment' }] }, uid: GOAL_USER,
+      }),
+      { params: Promise.resolve({ goalId: goal.id }) },
+    ));
+    await record('goal.execution', 200, await goalExecutionGet(
+      request(`/api/mobile/goals/${goal.id}/execution?generation=1&fromLocalDate=2026-09-20&toLocalDate=2026-09-26`, { uid: GOAL_USER }),
+      { params: Promise.resolve({ goalId: goal.id }) },
+    ));
+    const regeneratedGoal = await record('goal.regenerated', 200, await goalRegeneratePost(
+      request(`/api/mobile/goals/${goal.id}/execution/regenerate`, { body: { fromGeneration: 1 }, uid: GOAL_USER }),
+      { params: Promise.resolve({ goalId: goal.id }) },
+    ));
+    const linkedNodeId = (regeneratedGoal.graph as { nodes: Array<{ kind: string; nodeId: string }> }).nodes
+      .find(node => node.kind === 'linked_commitment')!.nodeId;
+    assert.equal((confirmedGoal.created as unknown[]).length, 1);
+    await record('goal.unlinked', 200, await goalNodePatch(
+      request(`/api/mobile/goals/${goal.id}/execution/nodes/${linkedNodeId}`, { method: 'PATCH', body: { action: 'unlink' }, uid: GOAL_USER }),
+      { params: Promise.resolve({ goalId: goal.id, nodeId: linkedNodeId }) },
+    ));
 
     // ── the one clarification (#165) ───────────────────────────────
     // A capture with an action and no time: the extractor cannot resolve it,
