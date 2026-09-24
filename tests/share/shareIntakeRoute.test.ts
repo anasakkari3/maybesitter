@@ -30,6 +30,7 @@ import { getParticipantStateSnapshot } from '../../lib/services/mobile/participa
 import { POST as sharePost } from '../../src/app/api/mobile/capture/share/route.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import {
+  MAX_SHARE_RAW_TEXT_CHARACTERS,
   MAX_SHARE_TEXT_CHARACTERS,
   MAX_TOTAL_BYTES,
   proposeFromShare,
@@ -43,6 +44,7 @@ import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../src/contracts/v1/captureCont
 import {
   segmentsToResult,
   ShareInputError,
+  ShareTextTooLongError,
   wrapUntrustedShared,
   SHARE_SEGMENT_SEPARATOR,
   SHARE_SYSTEM_PREAMBLE,
@@ -553,7 +555,7 @@ const REFUSALS: Array<{
     build() {
       const secret = new TextEncoder().encode('private appointment');
       return {
-        text: 'x'.repeat(MAX_SHARE_TEXT_CHARACTERS + 1),
+        text: 'x'.repeat(MAX_SHARE_RAW_TEXT_CHARACTERS + 1),
         files: [{ bytes: secret, declaredType: 'text/plain', fileName: 'a.txt' }],
         watched: [secret],
       };
@@ -658,9 +660,9 @@ const REFUSALS: Array<{
 ];
 
 /**
- * The reason a refusal answers with. Over-long text is refused with the capture
- * boundary's own error on every share path (#513), and the route maps it to
- * `text_too_long`; everything else is share's own `ShareInputError`.
+ * The reason a refusal answers with. Channel output over the content limit is
+ * refused with the capture boundary's own error (#513), which the route maps
+ * to `text_too_long`; everything else is share's own `ShareInputError`.
  */
 function refusalReason(error: unknown): string | null {
   if (error instanceof ShareInputError) return error.reason;
@@ -976,15 +978,22 @@ test('a refusal before the channel runs spends nothing', async () => {
   }
 });
 
-/* ── Over-long text: one limit, one answer (#513) ────────────────── */
+/* ── Over-long text: two bounds, one answer (#513) ───────────────── */
 
 /**
- * #513's decision: a shared text is the same kind of input as a typed capture.
- * One limit (`CAPTURE_INPUT_MAX_CHARACTERS`), refused rather than cut on every
- * ingress, and one 413 body — the typed capture route's. Before this, the text
- * ingress refused at 20,000 without `maxCharacters`, the file ingress cut at
- * 20,000 and answered 200, and the capture cap refused both at 2,000 behind
- * them.
+ * #513. A channel's input and the capture pipeline's input are different
+ * strings — a WhatsApp chat pasted as text is condensed before capture reads
+ * it — so each has its own bound, and both are reachable and loud:
+ *
+ *  - the raw bound (20,000) on shared text as received, before any channel;
+ *  - the content limit (the capture cap, 2,000) on what a channel produced,
+ *    before the capture pipeline, the same for text and files.
+ *
+ * Each refusal is a 413 `text_too_long` whose `maxCharacters` names the bound
+ * that was hit, in the typed capture route's shape. Nothing is ever cut. Before
+ * this, the text ingress refused at 20,000 without `maxCharacters`, the file
+ * ingress cut at 20,000 and answered 200, and only the capture cap behind them
+ * held the content limit.
  */
 
 /** Exactly `length` characters, opening with something a capture can read. */
@@ -1001,12 +1010,20 @@ function rawTextFile(text: string): ShareIntakeRawFile {
   return { bytes: new TextEncoder().encode(text), declaredType: 'text/plain', fileName: 'note.txt' };
 }
 
-/** The one body every over-long refusal sends, shared or typed. */
+/** The content-limit refusal: the body the typed capture route sends. */
 const TOO_LONG_BODY = {
   success: false,
   error: 'a capture may be at most 2000 characters',
   reason: 'text_too_long',
   maxCharacters: 2000,
+};
+
+/** The raw-bound refusal: the same shape, naming the bound that was hit. */
+const RAW_TOO_LONG_BODY = {
+  success: false,
+  error: 'shared text may be at most 20000 characters',
+  reason: 'text_too_long',
+  maxCharacters: 20000,
 };
 
 /** A capture pipeline that records what it was handed and proposes nothing. */
@@ -1019,17 +1036,24 @@ function proposeSpy() {
   return { seen, propose };
 }
 
-function isTooLong(error: unknown): boolean {
+function isOverContentLimit(error: unknown): boolean {
   return error instanceof CaptureInputTooLargeError && error.maxCharacters === 2000;
 }
 
-test('the share limit is the capture limit, not a second number', () => {
+function isOverRawBound(error: unknown): boolean {
+  return error instanceof ShareTextTooLongError && error.maxCharacters === 20000;
+}
+
+test('two text bounds, both named, and the raw one is at least the content one', () => {
   assert.equal(CAPTURE_INPUT_MAX_CHARACTERS, 2000);
   assert.equal(MAX_SHARE_TEXT_CHARACTERS, CAPTURE_INPUT_MAX_CHARACTERS);
-  assert.equal(SHARE_LIMITS.maxTextCharacters, CAPTURE_INPUT_MAX_CHARACTERS);
+  assert.equal(MAX_SHARE_RAW_TEXT_CHARACTERS, 20000);
+  assert.ok(MAX_SHARE_RAW_TEXT_CHARACTERS >= MAX_SHARE_TEXT_CHARACTERS);
+  // `ShareLimits` describes what a channel may be handed.
+  assert.equal(SHARE_LIMITS.maxTextCharacters, MAX_SHARE_RAW_TEXT_CHARACTERS);
 });
 
-test('shared text: 2,000 characters is read, 2,001 is a 413 carrying maxCharacters', async () => {
+test('shared text: the content limit applies to what the channel read — 2,000 is read, 2,001 is a 413', async () => {
   const teardown = setup();
   try {
     const accepted = await sharePost(shareRequest({ text: sentenceOf(2000) }));
@@ -1038,6 +1062,23 @@ test('shared text: 2,000 characters is read, 2,001 is a 413 carrying maxCharacte
     const refused = await sharePost(shareRequest({ text: sentenceOf(2001) }));
     assert.equal(refused.status, 413);
     assert.deepEqual(await json(refused), TOO_LONG_BODY);
+  } finally {
+    teardown();
+  }
+});
+
+test('shared text: over the raw bound is a 413 naming the raw bound, at the bound it reaches the channel', async () => {
+  const teardown = setup();
+  try {
+    const overRaw = await sharePost(shareRequest({ text: sentenceOf(20_001) }));
+    assert.equal(overRaw.status, 413);
+    assert.deepEqual(await json(overRaw), RAW_TOO_LONG_BODY);
+
+    // Exactly at the raw bound it is read — and then the plain-text channel
+    // hands capture 20,000 characters, which the content limit refuses.
+    const atRaw = await sharePost(shareRequest({ text: sentenceOf(20_000) }));
+    assert.equal(atRaw.status, 413);
+    assert.deepEqual(await json(atRaw), TOO_LONG_BODY);
   } finally {
     teardown();
   }
@@ -1063,7 +1104,7 @@ test('a shared file: the same boundary and the same 413, and nothing is cut or c
   }
 });
 
-test('every over-long refusal is one body, whichever door it came through', async () => {
+test('every text_too_long has one shape and names the bound it hit, whichever door', async () => {
   const teardown = setup();
   try {
     const typed = await capturePost(new Request(`${BASE}/api/mobile/capture`, {
@@ -1073,12 +1114,17 @@ test('every over-long refusal is one body, whichever door it came through', asyn
     }));
     const sharedText = await sharePost(shareRequest({ text: sentenceOf(2001) }));
     const sharedFile = await sharePost(shareRequest({ files: [textFilePart(sentenceOf(5000))] }));
-    // A 100,000-character share is refused by the same check, in the same words.
     const huge = await sharePost(shareRequest({ text: 'x'.repeat(100_000) }));
 
     for (const response of [typed, sharedText, sharedFile, huge]) assert.equal(response.status, 413);
-    const bodies = [await json(typed), await json(sharedText), await json(sharedFile), await json(huge)];
-    for (const body of bodies) assert.deepEqual(body, TOO_LONG_BODY);
+    for (const body of [await json(typed), await json(sharedText), await json(sharedFile)]) {
+      assert.deepEqual(body, TOO_LONG_BODY);
+    }
+    const hugeBody = await json(huge);
+    assert.deepEqual(hugeBody, RAW_TOO_LONG_BODY);
+    // The same keys as the capture refusal, so a client reading `maxCharacters`
+    // never gets `undefined`.
+    assert.deepEqual(Object.keys(hugeBody).sort(), Object.keys(TOO_LONG_BODY).sort());
   } finally {
     teardown();
   }
@@ -1110,7 +1156,7 @@ test('a 100,000-character share is refused before a channel, the meter or the ca
           propose: async () => { calls.propose += 1; throw new Error('the capture pipeline was called'); },
         },
       ),
-      isTooLong,
+      isOverRawBound,
     );
     assert.deepEqual(calls, { channel: 0, reserve: 0, consent: 0, model: 0, propose: 0 });
     assert.equal(await actionsToday(USER, SHARE_USAGE_ACTION), 0, 'a refused share spent the daily allowance');
@@ -1128,9 +1174,18 @@ test('no path hands the capture pipeline a cut text', async () => {
     const overFile = proposeSpy();
     await assert.rejects(
       () => proposeFromShare({ files: [rawTextFile(sentenceOf(5000))] }, { ...context, propose: overFile.propose }),
-      isTooLong,
+      isOverContentLimit,
     );
     assert.deepEqual(overFile.seen, [], 'an over-long file reached the capture pipeline');
+
+    // Shared text within the raw bound whose channel output is over the
+    // content limit: refused by share itself, before the capture pipeline.
+    const overText = proposeSpy();
+    await assert.rejects(
+      () => proposeFromShare({ text: sentenceOf(5000), files: [] }, { ...context, propose: overText.propose }),
+      isOverContentLimit,
+    );
+    assert.deepEqual(overText.seen, [], 'over-long channel output from shared text reached the capture pipeline');
 
     // A shared text and a file that are each within the limit and together are not.
     const together = proposeSpy();
@@ -1139,7 +1194,7 @@ test('no path hands the capture pipeline a cut text', async () => {
         { text: sentenceOf(1500), files: [rawTextFile(sentenceOf(1500))] },
         { ...context, propose: together.propose },
       ),
-      isTooLong,
+      isOverContentLimit,
     );
     assert.deepEqual(together.seen, [], 'text and file together reached the capture pipeline over the limit');
 
@@ -1153,12 +1208,12 @@ test('no path hands the capture pipeline a cut text', async () => {
   }
 });
 
-test('each check measures the string the next stage reads', async () => {
+test('each check measures the string its next stage reads', async () => {
   const teardown = setup();
   try {
     const context = { uid: USER, reserve: async () => 'ok' as const };
 
-    // A file is measured on the channel's text trimmed, which is what the
+    // The content limit measures the channel's text trimmed, which is what the
     // capture pipeline reads and how the capture boundary measures: padding
     // around 2,000 characters is not held against it. A channel that pads its
     // own output, because the built-in plain-text channel trims before it
@@ -1179,14 +1234,16 @@ test('each check measures the string the next stage reads', async () => {
     );
     assert.deepEqual(padded.seen, [content]);
 
-    // Shared text is measured as received, because that is the string every
-    // channel is handed; the check that guards the channels cannot measure a
-    // shorter string than the one they read. The app trims before it uploads
+    // The raw bound measures shared text as received, because that is the
+    // string every channel is handed. The app trims before it uploads
     // (`mobile/src/features/share/intake.ts`), so it never sends this.
     const received = proposeSpy();
     await assert.rejects(
-      () => proposeFromShare({ text: `  ${content}`, files: [] }, { ...context, propose: received.propose }),
-      isTooLong,
+      () => proposeFromShare(
+        { text: `${' '.repeat(10)}${sentenceOf(19_995)}`, files: [] },
+        { ...context, propose: received.propose },
+      ),
+      isOverRawBound,
     );
     assert.deepEqual(received.seen, []);
   } finally {

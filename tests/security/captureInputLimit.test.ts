@@ -32,7 +32,10 @@ import {
   proposeCapture,
 } from '../../lib/services/captureBoundary/index.ts';
 import { proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
-import { MAX_SHARE_TEXT_CHARACTERS } from '../../lib/services/share/shareIntakeService.ts';
+import {
+  MAX_SHARE_RAW_TEXT_CHARACTERS,
+  MAX_SHARE_TEXT_CHARACTERS,
+} from '../../lib/services/share/shareIntakeService.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import type { ExtractionResult } from '../../src/extraction/extractionTypes.ts';
 
@@ -348,15 +351,23 @@ test('E: multi-segment splitting still works, in all three languages', async () 
 test('F: the shared boundary refuses oversized text whichever door it came through', async () => {
   // Share is the second door onto `proposeMobileCapture`
   // (lib/services/share/shareIntakeService.ts), so it reaches this guard.
-  // Since #513 share's own limit *is* this cap rather than a larger number the
-  // boundary silently overrode: share refuses over-long text itself, before
-  // its parsers and before this boundary, with this boundary's own error. This
-  // guard stays as the floor under both doors. The share route end to end is
-  // exercised in tests/share/shareIntakeRoute.test.ts ("Over-long text").
+  // Since #513 share has two named bounds, because a channel's input and the
+  // capture pipeline's input are different strings: a raw bound on what a
+  // channel may read (a WhatsApp chat pasted as text is condensed before
+  // capture sees it), and a content limit — this cap — on what the channel
+  // hands the capture pipeline, which share enforces itself before this guard.
+  // The raw bound must be at least this cap, or shared text the capture
+  // pipeline would accept could never reach it. This guard stays as the floor
+  // under both doors. The share route end to end is exercised in
+  // tests/share/shareIntakeRoute.test.ts ("Over-long text").
+  assert.ok(
+    MAX_SHARE_RAW_TEXT_CHARACTERS >= CAPTURE_INPUT_MAX_CHARACTERS,
+    'the raw share bound is below the capture cap, so text capture accepts is refused before a channel reads it',
+  );
   assert.equal(
     MAX_SHARE_TEXT_CHARACTERS,
     CAPTURE_INPUT_MAX_CHARACTERS,
-    'share and typed capture are one limit (#513); a second number needs its own security reasoning',
+    'share\'s content limit is the capture cap (#513); a second number needs its own security reasoning',
   );
   const harness = spyHarness();
   await assert.rejects(
