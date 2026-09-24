@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "there is no proposed change to accept for this plan",
+  "reason": "no_proposal"
+}

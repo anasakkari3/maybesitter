@@ -141,7 +141,9 @@ interface Measurement {
    *
    * They diverge for module-scoped rates, and the divergence matters. A
    * degraded run executes fewer modules: coaching times out, the fail-closed
-   * gate downstream is skipped, and six modules run where seven would have.
+   * gate downstream is skipped, and seven modules run where eight would have
+   * (six where seven would have, before #131 made priority execute; the
+   * numbers below were measured then).
    * Comparing a floor of "twenty runs' worth of executions" against that count
    * means **the worse the incident, the harder it is to reach the floor** —
    * measured, before this split: twenty runs of a coaching timeout produced a
@@ -222,9 +224,10 @@ export function measureShadowSloMetric(
         // The first version incremented for every member of the chain. Two
         // consequences, both measured:
         //
-        //   - `priority` is `skipped` in every real run, so one slot sat in the
-        //     denominator that the numerator could never match, and the rate
-        //     could not reach 1.0 however completely the pipeline failed;
+        //   - `priority` was `skipped` in every real run while it was a
+        //     placeholder (until #131), so one slot sat in the denominator that
+        //     the numerator could never match, and the rate could not reach 1.0
+        //     however completely the pipeline failed;
         //   - worse, the dilution scaled with kill switches. Two modules run,
         //     both time out, six are switched off — a total failure of
         //     everything that executed — read **0.25** against a 0.02 threshold.

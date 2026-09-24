@@ -29,6 +29,11 @@ import {
   runShadowDrill,
   shadowDrillEnv,
 } from '../../lib/operations/shadowDrillPipeline.ts';
+import {
+  SYNTHETIC_PLACEHOLDER_DRILL_PROFILE,
+  SYNTHETIC_PLACEHOLDER_MODULE,
+  SYNTHETIC_PLACEHOLDER_ROLES,
+} from '../fixtures/shadowSyntheticPlaceholder.ts';
 
 const PLAN = {
   runId: 'drill-harness-001',
@@ -43,7 +48,10 @@ test('the fixture elapsed table is pinned and sits inside every declared budget'
     {
       capture: 750,
       memory: 200,
-      priority: 0,
+      // 0 while priority was a placeholder, which is never invoked and so never
+      // spends time. #131 made it execute: half its 250 budget, like every
+      // other row here.
+      priority: 125,
       decomposition: 600,
       planning: 450,
       recommendation: 400,
@@ -59,7 +67,8 @@ test('the fixture elapsed table is pinned and sits inside every declared budget'
   }
   let total = 0;
   for (const module of SHADOW_PIPELINE_CHAIN) total += SHADOW_DRILL_ELAPSED_MS[module];
-  assert.equal(total, 3450);
+  // 3450 + priority's 125 (#131).
+  assert.equal(total, 3575);
   assert.ok(total < SHADOW_PIPELINE_TOTAL_BUDGET_MS);
 });
 
@@ -77,7 +86,36 @@ test('a fixture run is contract-clean, inert, and replays to itself', async () =
     }),
     [],
   );
-  assert.equal(result.bundle.outcome.totalElapsedMs, 3450);
+  assert.equal(result.bundle.outcome.totalElapsedMs, 3575);
+  // Every module contributed, so the fixture reports `complete`. It threw here
+  // instead while priority was a placeholder, because no run could then be
+  // complete and a harness that produced one would have been manufacturing it.
+  assert.equal(result.bundle.outcome.completeness, 'complete');
+  assert.equal(result.bundle.outcome.degradation, null);
+});
+
+test('a placeholder in the drill is skipped, reaches no model, and degrades the run', async () => {
+  // The drill's own placeholder branch, which every drill run exercised while
+  // priority was the placeholder and none does with the real roles since #131.
+  const result = await runShadowDrill({
+    ...PLAN,
+    runId: 'drill-harness-placeholder',
+    profile: SYNTHETIC_PLACEHOLDER_DRILL_PROFILE,
+  });
+  const outcome = result.bundle.outcome;
+  assert.deepEqual(checkShadowPipelineOutcome(outcome, SYNTHETIC_PLACEHOLDER_ROLES), []);
+  assert.deepEqual(checkShadowTrace(result.bundle.trace, outcome), []);
+
+  const stub = outcome.moduleOutcomes[SYNTHETIC_PLACEHOLDER_MODULE];
+  assert.equal(stub.status, 'skipped');
+  assert.equal(stub.reason, 'module_placeholder');
+  assert.equal(stub.elapsedMs, 0);
+  const invocation = result.invocations.find((entry) => entry.module === SYNTHETIC_PLACEHOLDER_MODULE);
+  assert.ok(invocation);
+  assert.equal(invocation.modelExecuted, false, 'a placeholder reached a model');
+  assert.equal(outcome.completeness, 'degraded');
+  assert.deepEqual(outcome.degradation?.nonContributingModules, [SYNTHETIC_PLACEHOLDER_MODULE]);
+  assert.equal(outcome.totalElapsedMs, 3575 - SHADOW_DRILL_ELAPSED_MS[SYNTHETIC_PLACEHOLDER_MODULE]);
 });
 
 test('the same plan produces a byte-identical preimage and digest', async () => {

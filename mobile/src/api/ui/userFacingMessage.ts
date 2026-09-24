@@ -7,6 +7,7 @@ import {
   InvalidTransitionError,
   NetworkError,
   NotFoundError,
+  PlanProposalRefusedError,
   QuotaExceededError,
   ServerError,
   ServiceUnavailableError,
@@ -103,6 +104,11 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.
   if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';
+  // A plan-change offer that moved on (#611). Neither reason is the user's
+  // doing, so neither may fall through to "check it and try again".
+  if (error instanceof PlanProposalRefusedError) {
+    return error.reason === 'stale_proposal' ? 'errorsPlanProposalStale' : 'errorsPlanProposalGone';
+  }
   if (error instanceof InvalidTransitionError) return 'errorsInvalidTransition';
   // Before the generic branches. A spent quota is not a server fault and not a
   // bad request; it is a limit that will clear, and which one decides the words

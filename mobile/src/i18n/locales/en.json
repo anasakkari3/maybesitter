@@ -221,6 +221,8 @@
   "authErrorAppleUnavailable": "Apple sign-in isn't available on this device. Use Google or email.",
   "errorsStaleCommitment": "This changed on another device. Here's the latest version.",
   "errorsInvalidTransition": "Already updated on another device.",
+  "errorsPlanProposalStale": "Your day changed after this suggestion was made, so nothing was applied. Here's where things stand now.",
+  "errorsPlanProposalGone": "This suggestion isn't waiting for your OK any more, so there's nothing to review.",
   "settingsAccount": "Account",
   "accountDelete": "Delete account",
   "accountDeleteTitle": "Delete your account",

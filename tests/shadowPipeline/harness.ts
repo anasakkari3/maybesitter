@@ -97,7 +97,7 @@ export function createTestDeadline(options: {
     ): Promise<ShadowRaceResult<T>> {
       // The module comes from the call, never from a running index. Inferring
       // it from call order attributed every budget after `memory` to the wrong
-      // module — `priority` is a placeholder and is never raced — and the
+      // module — `priority` was then a placeholder and never raced — and the
       // recorder passed anyway. See the note on `ShadowDeadline`.
       seen.push([module, budgetMs]);
 

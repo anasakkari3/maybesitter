@@ -68,6 +68,7 @@ import {
   type ShadowEffectProposal,
   type ShadowModuleAdapter,
   type ShadowModuleOutcome,
+  type ShadowModuleRoleTable,
   type ShadowPipelineInput,
   type ShadowPipelineModule,
   type ShadowPipelineOutcome,
@@ -115,15 +116,17 @@ function instantAt(millis: number): Instant {
  * How long each module takes when it answers, in milliseconds.
  *
  * Every value is strictly below that module's budget in
- * `SHADOW_MODULE_TIMEOUT_BUDGET_MS`, and the test pins both the literals and
- * the relation — a fixture that silently exceeded a budget would be rejected by
+ * `SHADOW_MODULE_TIMEOUT_BUDGET_MS` — each is exactly half of it — and the test
+ * pins both the literals and the relation. `priority` read 0 while it was a
+ * placeholder, which is never invoked and so never spends time; #131 made it
+ * execute, and it takes half its budget like every other module — a fixture that silently exceeded a budget would be rejected by
  * `checkShadowTrace` as `TRACE_COMPLETED_EXCEEDS_BUDGET`, and every measurement
  * taken over it would be a measurement of a malformed run.
  */
 export const SHADOW_DRILL_ELAPSED_MS: Readonly<Record<ShadowPipelineModule, number>> = Object.freeze({
   capture: 750,
   memory: 200,
-  priority: 0,
+  priority: 125,
   decomposition: 600,
   planning: 450,
   recommendation: 400,
@@ -134,12 +137,19 @@ export const SHADOW_DRILL_ELAPSED_MS: Readonly<Record<ShadowPipelineModule, numb
 /**
  * What a thrown kill switch does to each module, as data.
  *
- * This is the "documented stance" the kill-switch sweep asserts against, and it
- * has two rows rather than one because a module with nothing to fall back to
- * cannot fall back. `priority` is `placeholder` in `SHADOW_MODULE_ROLES`: a
- * rules-only stub is still a stub, so the honest record is `skipped`, and
+ * This is the "documented stance" the kill-switch sweep asserts against, and
+ * the type has two members rather than one because a module with nothing to
+ * fall back to cannot fall back. A placeholder is that module: a rules-only
+ * stub is still a stub, so the honest record is `skipped`, and
  * `SHADOW_STAGE_REASON_ADMISSIBILITY` admits `kill_switch_active` for `skipped`
  * precisely so this can be said.
+ *
+ * `priority` was that row until #131 made it implemented. It is a sort over
+ * scores the caller supplied, with no model path to switch off, so a thrown
+ * switch leaves it answering rules-only like every other module — which is also
+ * what the real orchestrator records for it. No real module holds
+ * `skipped_no_fallback` now; `tests/fixtures/shadowSyntheticPlaceholder.ts`
+ * supplies a profile in which one does, so the stance stays exercised.
  *
  * **Precedence, stated because it is a judgement:** when a placeholder module
  * also has its switch thrown, the recorded reason is `kill_switch_active` and
@@ -154,12 +164,37 @@ export const SHADOW_KILL_SWITCH_STANCE: Readonly<
 > = Object.freeze({
   capture: 'rules_only_fallback',
   memory: 'rules_only_fallback',
-  priority: 'skipped_no_fallback',
+  priority: 'rules_only_fallback',
   decomposition: 'rules_only_fallback',
   planning: 'rules_only_fallback',
   recommendation: 'rules_only_fallback',
   coaching: 'rules_only_fallback',
   safety: 'rules_only_fallback',
+});
+
+/**
+ * The two per-module tables a drill's adapters read, as one value a caller can
+ * replace.
+ *
+ * `SHADOW_DRILL_CHAIN_PROFILE` — the real roles and the real stances — is what
+ * every drill uses unless told otherwise, and no production caller tells it
+ * otherwise. The seam exists because #131 left no real module in the
+ * `placeholder` role or the `skipped_no_fallback` stance, and the code that
+ * handles both would otherwise be code nothing runs. The tests pass a synthetic
+ * profile with one slot stubbed.
+ *
+ * One value rather than two parameters because the two must move together: a
+ * placeholder whose stance says it can fall back would fall back into a stub,
+ * which is the lie `skipped_no_fallback` exists to prevent.
+ */
+export interface ShadowDrillChainProfile {
+  readonly roles: ShadowModuleRoleTable;
+  readonly killSwitchStance: Readonly<Record<ShadowPipelineModule, ShadowKillSwitchStance>>;
+}
+
+export const SHADOW_DRILL_CHAIN_PROFILE: ShadowDrillChainProfile = Object.freeze({
+  roles: SHADOW_MODULE_ROLES,
+  killSwitchStance: SHADOW_KILL_SWITCH_STANCE,
 });
 
 /**
@@ -294,6 +329,7 @@ function unavailableOutcome(
  */
 export function createShadowDrillAdapters(
   behaviours: Readonly<Partial<Record<ShadowPipelineModule, ShadowDrillBehaviour>>> = {},
+  profile: ShadowDrillChainProfile = SHADOW_DRILL_CHAIN_PROFILE,
 ): ShadowDrillAdapterSet {
   const invocations: ShadowDrillInvocation[] = [];
   const adapters: Partial<Record<ShadowPipelineModule, ShadowModuleAdapter>> = {};
@@ -307,9 +343,9 @@ export function createShadowDrillAdapters(
         mode: decision.mode,
         fallbackReason: rulesOnly ? decision.reason : null,
         // A placeholder reaches no model however permissive the decision was:
-        // recording `true` for it would make the one module in the chain with
-        // nothing behind it look like the seven that have something.
-        modelExecuted: !rulesOnly && SHADOW_MODULE_ROLES[module] === 'implemented',
+        // recording `true` for it would make a module with nothing behind it
+        // look like the ones that have something.
+        modelExecuted: !rulesOnly && profile.roles[module] === 'implemented',
       });
 
       // The switch is consulted **before** the role, so a thrown switch on a
@@ -317,13 +353,13 @@ export function createShadowDrillAdapters(
       // `module_placeholder`: the operator's action explains this run, and
       // "always a stub" explains every run. The stance table is what decides
       // between falling back and skipping, so it is read on every rules-only
-      // stage rather than being a comment about `priority`.
+      // stage rather than being a comment about one module.
       if (rulesOnly) {
-        return SHADOW_KILL_SWITCH_STANCE[module] === 'skipped_no_fallback'
+        return profile.killSwitchStance[module] === 'skipped_no_fallback'
           ? skippedOutcome(module, decision.reason)
           : fellBackOutcome(module, invocation.runId, decision.reason);
       }
-      if (SHADOW_MODULE_ROLES[module] === 'placeholder') {
+      if (profile.roles[module] === 'placeholder') {
         return skippedOutcome(module, 'module_placeholder');
       }
 
@@ -445,22 +481,6 @@ export function createShadowDrillRun(
         .filter((index) => index !== -1),
     }));
 
-    if (nonContributing.length === 0) {
-      // Unreachable while `priority` is a `placeholder` in `SHADOW_MODULE_ROLES`,
-      // since a placeholder can never contribute. It is a throw rather than a
-      // `complete` branch because the contract states that no Sprint 11 run can
-      // be complete, and a harness that quietly produced one would be
-      // manufacturing the shape the checkers exist to report.
-      throw new Error('the fixture produced a run in which every module contributed');
-    }
-    const nonContributingModules: readonly [ShadowPipelineModule, ...ShadowPipelineModule[]] = [
-      nonContributing[0],
-      ...nonContributing.slice(1),
-    ];
-    const degradation = {
-      nonContributingModules,
-      crossedFailClosedModule: nonContributing.indexOf('safety') !== -1,
-    };
     const totalElapsedMs = cursor - startMillis;
     const base = {
       version: SHADOW_PIPELINE_CONTRACT_VERSION,
@@ -470,22 +490,48 @@ export function createShadowDrillRun(
       totalElapsedMs,
     } as const;
 
-    const outcome: ShadowPipelineOutcome =
-      deliverable === null
-        ? {
-            ...base,
-            completeness: 'withheld',
-            deliverable: null,
-            degradation,
-            withheldReason: 'fail_closed_module_did_not_contribute',
-          }
-        : {
-            ...base,
-            completeness: 'degraded',
-            deliverable,
-            degradation,
-            withheldReason: null,
-          };
+    // Every module contributed: `complete`. This was a throw while `priority`
+    // was a placeholder, because the contract then said no run could be
+    // complete and a harness that quietly produced one would have been
+    // manufacturing the shape the checkers exist to report. #131 made it the
+    // shape of a clean run. With no non-contributor, `safety` contributed, so
+    // the deliverable is non-null — the same reasoning, and the same cast, as
+    // the orchestrator's `assembleOutcome`.
+    let outcome: ShadowPipelineOutcome;
+    if (nonContributing.length === 0) {
+      outcome = {
+        ...base,
+        completeness: 'complete',
+        deliverable: deliverable as ShadowDeliverable,
+        degradation: null,
+        withheldReason: null,
+      };
+    } else {
+      const nonContributingModules: readonly [ShadowPipelineModule, ...ShadowPipelineModule[]] = [
+        nonContributing[0],
+        ...nonContributing.slice(1),
+      ];
+      const degradation = {
+        nonContributingModules,
+        crossedFailClosedModule: nonContributing.indexOf('safety') !== -1,
+      };
+      outcome =
+        deliverable === null
+          ? {
+              ...base,
+              completeness: 'withheld',
+              deliverable: null,
+              degradation,
+              withheldReason: 'fail_closed_module_did_not_contribute',
+            }
+          : {
+              ...base,
+              completeness: 'degraded',
+              deliverable,
+              degradation,
+              withheldReason: null,
+            };
+    }
 
     const trace = {
       version: SHADOW_PIPELINE_CONTRACT_VERSION,
@@ -520,6 +566,8 @@ export interface ShadowDrillPlan {
   /** Read by the shipped `readRuntimeControls`; never `process.env`. */
   readonly env: RuntimeControlEnv;
   readonly behaviours?: Readonly<Partial<Record<ShadowPipelineModule, ShadowDrillBehaviour>>>;
+  /** Defaults to `SHADOW_DRILL_CHAIN_PROFILE`; see there for who passes another. */
+  readonly profile?: ShadowDrillChainProfile;
   readonly safetyDisposition?: SafetyDisposition;
   /** What the run cost, in micros. No shape in the contract carries this — see the docs. */
   readonly costMicros?: number;
@@ -603,7 +651,10 @@ export async function runShadowDrill(
   }),
 ): Promise<ShadowDrillRunResult> {
   const controls = readRuntimeControls(plan.env);
-  const { adapters, invocations } = createShadowDrillAdapters(plan.behaviours ?? {});
+  const { adapters, invocations } = createShadowDrillAdapters(
+    plan.behaviours ?? {},
+    plan.profile ?? SHADOW_DRILL_CHAIN_PROFILE,
+  );
   const bundle = await run(shadowDrillInput(plan, controls), adapters);
   return {
     bundle,

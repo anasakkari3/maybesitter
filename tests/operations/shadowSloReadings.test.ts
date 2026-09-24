@@ -115,8 +115,9 @@ function collected(items: readonly ShadowRunObservation[]) {
  * `SHADOW_PIPELINE_CHAIN`, executed or not, and nothing tested the denominator
  * at all. Two consequences, both measured before the fix:
  *
- *   - `priority` is `skipped` in every real run, so one slot sat in the
- *     denominator the numerator could never match;
+ *   - `priority` was `skipped` in every real run while it was a placeholder
+ *     (until #131), so one slot sat in the denominator the numerator could
+ *     never match;
  *   - the dilution scaled with kill switches. Two modules run, both time out,
  *     six switched off — a total failure of everything that executed — read
  *     0.25 against a 0.02 threshold. The more of the pipeline you disabled, the
@@ -285,15 +286,17 @@ test('the module timeout rate counts module executions, not runs', async () => {
   );
   const reading = computeShadowSloReading(definition, collected(items), OBSERVED_AT);
   assert.equal(reading.status, 'measured');
-  // 140, not 160: `priority` is a placeholder and is skipped in every run, and
-  // a module that never ran is not a module run. Seven executing modules across
-  // twenty runs. The literal is spelled out rather than derived from the chain
-  // length so that implementing `priority` fails here and the floor beside it
-  // becomes a deliberate edit.
-  assert.equal(reading.sampleCount, 140, 'twenty runs of a seven-executing-module chain is 140 executions');
-  // Measured, not inconclusive, even though 140 is not compared against the
+  // 160: eight executing modules across twenty runs. This read 140 while
+  // `priority` was a placeholder, skipped in every run — a module that never
+  // ran is not a module run. The literal was spelled out rather than derived
+  // from the chain length so that implementing `priority` would fail here and
+  // the floor beside it would become a deliberate edit; #131 is that edit. The
+  // floor itself is twenty *runs* (see `Measurement.sufficiencyCount`), so it
+  // did not move: only the executions reported beside it did.
+  assert.equal(reading.sampleCount, 160, 'twenty runs of an eight-executing-module chain is 160 executions');
+  // Measured, not inconclusive, even though 160 is not compared against the
   // floor: sufficiency is the twenty runs. See `Measurement.sufficiencyCount`.
-  assert.equal(reading.value, 4 / 140);
+  assert.equal(reading.value, 4 / 160);
   assert.equal(reading.breached, true);
 });
 
@@ -305,22 +308,24 @@ test('nineteen runs cannot satisfy the run floor, and the reported count is stil
   // The floor was compared against nineteen runs; the count reported to an
   // operator is what the rate would have divided by. The two are deliberately
   // different numbers and this pins both.
-  assert.equal(reading.sampleCount, 133, 'nineteen runs times seven executing modules');
+  // 152 since #131 (133 while priority was skipped in every run).
+  assert.equal(reading.sampleCount, 152, 'nineteen runs times eight executing modules');
 });
 
 test('a degraded incident still reaches the floor: sufficiency does not shrink with failure', async () => {
   // The defect this split exists to prevent, as a test. A coaching timeout also
-  // skips the fail-closed gate downstream, so a degraded run executes six
-  // modules rather than seven. With sufficiency counted in executions, twenty
-  // such runs produced 120 against a floor of 140 and a rate of 0.167 against a
-  // 0.02 threshold read `inconclusive` — the worse the incident, the less
-  // measurable it became.
+  // skips the fail-closed gate downstream, so a degraded run executes seven
+  // modules rather than eight (six rather than seven before #131 made priority
+  // execute). With sufficiency counted in executions, twenty such runs produced
+  // 120 against a floor of 140 and a rate of 0.167 against a 0.02 threshold
+  // read `inconclusive` — the worse the incident, the less measurable it
+  // became. Those were the measured numbers on the seven-module chain.
   const definition = definitionFor('shadow-module-timeout-rate');
   const items = await observations(20, () => ({ plan: { behaviours: { coaching: { kind: 'times_out' } } } }));
   const reading = computeShadowSloReading(definition, collected(items), OBSERVED_AT);
 
   assert.equal(reading.status, 'measured', 'a severe, sustained incident reported inconclusive');
-  assert.equal(reading.sampleCount, 120, 'twenty degraded runs of six executing modules');
+  assert.equal(reading.sampleCount, 140, 'twenty degraded runs of seven executing modules');
   assert.equal(reading.breached, true);
   assert.ok((reading.value ?? 0) > definition.threshold);
 });
@@ -339,12 +344,15 @@ test('the latency reading is a nearest-rank p95 over run totals', async () => {
     9,
   );
 
+  // 3575 and 3725: each 125 more than before #131, which is priority executing
+  // (half its 250 budget in the drill's elapsed table) where it used to be
+  // skipped at no cost.
   const clean = await observations(1);
-  assert.equal(clean[0].outcome.totalElapsedMs, 3450);
+  assert.equal(clean[0].outcome.totalElapsedMs, 3575);
   const slow = await observations(1, () => ({
     plan: { behaviours: { capture: { kind: 'times_out' } } },
   }));
-  assert.equal(slow[0].outcome.totalElapsedMs, 3600);
+  assert.equal(slow[0].outcome.totalElapsedMs, 3725);
 });
 
 test('the cost reading is the mean cost of a run in micros', async () => {

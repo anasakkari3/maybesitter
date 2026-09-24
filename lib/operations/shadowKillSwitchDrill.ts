@@ -34,10 +34,11 @@ import {
 } from '../../src/contracts/v1/shadowPipelineContracts';
 import type { RulesOnlyFallbackReason } from '../../src/contracts/v1/runtimeControls';
 import {
-  SHADOW_KILL_SWITCH_STANCE,
+  SHADOW_DRILL_CHAIN_PROFILE,
   killSwitchEnvKey,
   runShadowDrill,
   shadowDrillEnv,
+  type ShadowDrillChainProfile,
   type ShadowKillSwitchStance,
 } from './shadowDrillPipeline';
 
@@ -77,6 +78,12 @@ export interface ShadowKillSwitchSweepOptions {
    */
   readonly throwSwitch?: boolean;
   readonly runIdPrefix?: string;
+  /**
+   * The roles and stances the sweep runs and judges against. Defaults to
+   * `SHADOW_DRILL_CHAIN_PROFILE`; only a test passes another, to keep the
+   * placeholder stance exercised (see there).
+   */
+  readonly profile?: ShadowDrillChainProfile;
 }
 
 /**
@@ -90,6 +97,7 @@ export async function sweepShadowKillSwitches(
 ): Promise<readonly ShadowKillSwitchCase[]> {
   const thrown = options.throwSwitch !== false;
   const prefix = options.runIdPrefix ?? 'drill-killswitch';
+  const profile = options.profile ?? SHADOW_DRILL_CHAIN_PROFILE;
   const cases: ShadowKillSwitchCase[] = [];
 
   for (const module of SHADOW_PIPELINE_CHAIN) {
@@ -100,6 +108,7 @@ export async function sweepShadowKillSwitches(
       scopeId: 'drill-scope',
       startedAt: options.startedAt,
       env,
+      profile,
     });
 
     const outcome = result.bundle.outcome;
@@ -114,7 +123,7 @@ export async function sweepShadowKillSwitches(
 
     const outcomeDefects = checkShadowPipelineOutcome(outcome);
     const traceDefects = checkShadowTrace(result.bundle.trace, outcome);
-    const stance = SHADOW_KILL_SWITCH_STANCE[module];
+    const stance = profile.killSwitchStance[module];
     const runtimeMode = decision === null ? 'enabled' : decision.mode;
     const runtimeReason =
       decision !== null && decision.mode === 'rules_only' ? decision.reason : null;

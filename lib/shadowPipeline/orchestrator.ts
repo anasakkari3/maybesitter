@@ -84,6 +84,7 @@ import {
   type ShadowEffectProposal,
   type ShadowModuleAdapter,
   type ShadowModuleOutcome,
+  type ShadowModuleRoleTable,
   type ShadowModuleStatus,
   type ShadowPipelineInput,
   type ShadowPipelineModule,
@@ -107,6 +108,22 @@ export interface ShadowOrchestratorDeps {
   readonly deadline: ShadowDeadline;
   readonly digest: ShadowDigest;
   readonly ledger: ShadowRunLedger;
+  /**
+   * Which chain modules are placeholders. Defaults to `SHADOW_MODULE_ROLES`,
+   * and production composition never passes it.
+   *
+   * It exists for one reason. Since #131 every real chain module is
+   * `implemented`, so with the real table the placeholder branch below is
+   * unreachable — and a branch nothing can reach is a branch nothing tests,
+   * which is how it would be found broken on the day a module enters the chain
+   * before its implementation does. The tests pass a synthetic table
+   * (`tests/fixtures/shadowSyntheticPlaceholder.ts`) to keep it exercised.
+   *
+   * The table is read for the skip decision only. The replay preimage records
+   * `SHADOW_MODULE_ROLES`, as it always has: the bundle carries no role table,
+   * and a replay recomputes the preimage from the bundle alone.
+   */
+  readonly roles?: ShadowModuleRoleTable;
 }
 
 /**
@@ -124,9 +141,14 @@ export interface ShadowOrchestratorDeps {
  *                       this run's text turned out to say, and coupling it to
  *                       capture would make a capture failure cost context it
  *                       never needed.
- *  - `priority`       — capture, in principle. Never reached: the registry
- *                       calls it a placeholder, so it is skipped before this
- *                       table is consulted.
+ *  - `priority`       — capture. Declared while priority was a placeholder
+ *                       and never consulted then; #131 made it reachable and
+ *                       left it as it was, because changing the wiring is a
+ *                       decision and #131 is a repair. It matches
+ *                       `recommendation`, which also reads the caller's scored
+ *                       commitments from the seed: a run whose capture produced
+ *                       nothing has no commitment of its own for either to be
+ *                       about.
  *  - `decomposition`  — capture. Its input is one commitment's text.
  *  - `planning`       — capture. Its items come from what capture found.
  *                       Deliberately **not** decomposition: `schedulePlan` takes
@@ -265,6 +287,7 @@ function normalise(
  * not input, and they belong to whoever composes the pipeline.
  */
 export function createShadowPipelineRun(deps: ShadowOrchestratorDeps): ShadowPipelineRun {
+  const roles = deps.roles ?? SHADOW_MODULE_ROLES;
   return async function runShadowPipeline(
     input: ShadowPipelineInput,
     adapters: Readonly<Record<ShadowPipelineModule, ShadowModuleAdapter>>,
@@ -294,7 +317,7 @@ export function createShadowPipelineRun(deps: ShadowOrchestratorDeps): ShadowPip
 
       let resolved: ResolvedModule;
 
-      if (SHADOW_MODULE_ROLES[module] === 'placeholder') {
+      if (roles[module] === 'placeholder') {
         // Never invoked. A placeholder has nothing to complete, and calling its
         // descriptor to find that out would turn the registry into the routing
         // hub `moduleContracts` says it is deliberately not.

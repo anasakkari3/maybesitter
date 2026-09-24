@@ -224,6 +224,8 @@
   "authErrorAppleUnavailable": "התחברות עם Apple אינה זמינה במכשיר הזה. השתמש ב-Google או באימייל.",
   "errorsStaleCommitment": "זה השתנה במכשיר אחר. זו הגרסה העדכנית.",
   "errorsInvalidTransition": "כבר עודכן במכשיר אחר.",
+  "errorsPlanProposalStale": "היום שלך השתנה אחרי שההצעה הזו נוצרה, אז לא הוחל שום שינוי. כך הדברים עומדים עכשיו.",
+  "errorsPlanProposalGone": "ההצעה הזו כבר לא מחכה לאישור שלך, אז אין מה לבדוק.",
   "settingsAccount": "חשבון",
   "accountDelete": "מחיקת חשבון",
   "accountDeleteTitle": "מחיקת החשבון שלך",

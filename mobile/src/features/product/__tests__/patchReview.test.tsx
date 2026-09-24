@@ -1,4 +1,5 @@
 import React from 'react';
+import { AccessibilityInfo } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -7,6 +8,15 @@ import { strings } from '../../../i18n/strings';
 import { planResponseSchema, type DailyPlan, type PendingPlanProposal } from '../../../api/schemas/plan';
 import fixture from '../../../api/__fixtures__/plan.withProposal.json';
 import { PatchReviewScreen, patchReasonKey } from '../ControlScreens';
+import { PlanProposalRefusedError, ValidationError } from '../../../api/errors';
+
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const useWindowDimensions = require('react-native/Libraries/Utilities/useWindowDimensions')
+  .default as jest.Mock;
 
 /**
  * The continuous-replan review screen (#523).
@@ -28,11 +38,13 @@ const RECORDED_PLAN: DailyPlan = { ...recorded.plan, proposal: recorded.proposal
 const RECORDED_PROPOSAL = recorded.proposal!;
 
 let mockPlan: DailyPlan | null = RECORDED_PLAN;
+let mockActionError: unknown = null;
+let mockFetching = false;
 const mockAct = jest.fn();
 
 jest.mock('../../../api/queries', () => ({
-  usePlan: () => ({ data: mockPlan, isPending: false, error: null, refetch: jest.fn() }),
-  usePlanAction: () => ({ mutate: mockAct, isPending: false, error: null }),
+  usePlan: () => ({ data: mockPlan, isPending: false, isFetching: mockFetching, error: null, refetch: jest.fn() }),
+  usePlanAction: () => ({ mutate: mockAct, isPending: false, error: mockActionError }),
   // Imported by other screens in the same module; never rendered here.
   useHabits: () => ({ data: [], isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
@@ -56,9 +68,15 @@ function withProposal(proposal: PendingPlanProposal): DailyPlan {
 
 beforeEach(() => {
   mockPlan = RECORDED_PLAN;
-  mockAct.mockClear();
+  mockActionError = null;
+  mockFetching = false;
+  mockAct.mockReset();
+  useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  jest.restoreAllMocks();
+});
 
 describe('the reason', () => {
   it('is said as a sentence, never as the policy code the server sends', async () => {
@@ -153,11 +171,16 @@ describe('protections the patch overrides', () => {
 });
 
 describe('the decision', () => {
-  it('accepts and rejects through the plan actions route', async () => {
+  it('accepts and rejects through the plan actions route, naming the offer on screen', async () => {
+    // The id is what lets the server refuse an accept of an offer a newer one
+    // has replaced (#611), instead of installing one the person never saw.
     await show();
     await fireEvent.press(screen.getByTestId('patch-accept'));
     await fireEvent.press(screen.getByTestId('patch-reject'));
-    expect(mockAct.mock.calls).toEqual([['accept_proposal'], ['reject_proposal']]);
+    expect(mockAct.mock.calls.map(([variables]) => variables)).toEqual([
+      { action: 'accept_proposal', proposalId: RECORDED_PROPOSAL.proposalId },
+      { action: 'reject_proposal', proposalId: RECORDED_PROPOSAL.proposalId },
+    ]);
   });
 
   it('offers nothing to accept when there is no proposal', async () => {
@@ -165,5 +188,88 @@ describe('the decision', () => {
     await show();
     expect(screen.queryByTestId('patch-accept')).toBeNull();
     expect(screen.getByText(language().xNoPatch)).toBeTruthy();
+  });
+});
+
+const REFUSALS: [PlanProposalRefusedError['reason'], 'errorsPlanProposalStale' | 'errorsPlanProposalGone'][] = [
+  ['stale_proposal', 'errorsPlanProposalStale'],
+  ['no_proposal', 'errorsPlanProposalGone'],
+];
+
+describe('a refused decision (#611)', () => {
+  it.each(REFUSALS)('%s says its own sentence, never "check it and try again"', async (reason, key) => {
+    mockActionError = new PlanProposalRefusedError(reason);
+    await show();
+    const t = language();
+    expect(screen.getByTestId('patch-refused')).toHaveTextContent(t[key]);
+    expect(screen.queryByText(t.errorsValidation)).toBeNull();
+    expect(screen.queryByText(t.errorsGeneric)).toBeNull();
+  });
+
+  it('is still said when the re-read plan has no offer left to draw', async () => {
+    // The old placement lived inside the offer; with nothing pending the
+    // sentence vanished with it and the screen changed without a word.
+    mockActionError = new PlanProposalRefusedError('no_proposal');
+    mockPlan = { ...RECORDED_PLAN, proposal: null };
+    await show();
+    const t = language();
+    expect(screen.getByTestId('patch-refused')).toHaveTextContent(t.errorsPlanProposalGone);
+    expect(screen.getByText(t.xNoPatch)).toBeTruthy();
+  });
+
+  it('holds the buttons while the refused offer is being re-read', async () => {
+    mockActionError = new PlanProposalRefusedError('stale_proposal');
+    mockFetching = true;
+    await show();
+    expect(screen.getByTestId('patch-accept')).toBeDisabled();
+    expect(screen.getByTestId('patch-reject')).toBeDisabled();
+  });
+
+  it('keeps the generic sentence for a failure that is not about the offer', async () => {
+    mockActionError = new ValidationError('bad');
+    await show();
+    const t = language();
+    expect(screen.queryByTestId('patch-refused')).toBeNull();
+    expect(screen.getByText(t.errorsValidation)).toBeTruthy();
+  });
+
+  it.each(REFUSALS)('announces %s to a screen reader, in the words on screen', async (reason, key) => {
+    // React Native's jest preset already makes this a mock, so spying on it
+    // hands back the same function with the earlier tests' calls on it.
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    mockAct.mockImplementation((...args: unknown[]) => {
+      const options = args[1] as { onError?: (error: unknown) => void };
+      options.onError?.(new PlanProposalRefusedError(reason));
+    });
+    await show();
+    await fireEvent.press(screen.getByTestId('patch-accept'));
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(language()[key]);
+  });
+
+  it('announces nothing for a failure the screen shows beside the buttons', async () => {
+    // React Native's jest preset already makes this a mock, so spying on it
+    // hands back the same function with the earlier tests' calls on it.
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    mockAct.mockImplementation((...args: unknown[]) => {
+      (args[1] as { onError?: (error: unknown) => void }).onError?.(new ValidationError('bad'));
+    });
+    await show();
+    await fireEvent.press(screen.getByTestId('patch-accept'));
+    expect(announce).not.toHaveBeenCalled();
+  });
+
+  it('is whole at twice the text size: not clipped to a line, and both buttons remain', async () => {
+    useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 2 });
+    mockActionError = new PlanProposalRefusedError('stale_proposal');
+    await show();
+    const t = language();
+    const message = screen.getByTestId('patch-refused');
+    expect(message).toHaveTextContent(t.errorsPlanProposalStale);
+    expect(message.props.numberOfLines).toBeUndefined();
+    expect(screen.getByTestId('patch-accept')).toBeTruthy();
+    expect(screen.getByTestId('patch-reject')).toBeTruthy();
   });
 });

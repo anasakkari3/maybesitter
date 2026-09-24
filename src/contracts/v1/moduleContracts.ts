@@ -157,9 +157,30 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
     owner: 'backend',
     allowsDirectStateWrites: false,
     allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
-    inputDescription: 'Priority scoring requests from deterministic features.',
-    outputDescription: 'Non-operative placeholder until Sprint 04+ gates pass.',
-    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, { status: 'not_implemented_in_sprint_00' } satisfies GenericModuleOutput),
+    inputDescription: 'Priority scores already computed from deterministic features, ranked without re-scoring.',
+    outputDescription: 'Ranked PriorityScores; see priorityContracts and lib/priority.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'priority',
+      // Spelled out as a literal, like `decomposition`, `planning`,
+      // `recommendation`, `coaching` and `safety` below — and for a reason
+      // that is prospective here rather than present. `priorityContracts`
+      // imports nothing from this file today (its one import is a type, which
+      // is erased), so importing `PRIORITY_SCHEMA_VERSION` would not close a
+      // cycle *yet*. Most sibling contract files do import
+      // `MODULE_CONTRACT_VERSION` from here, though, and the day
+      // `priorityContracts` follows suit the back-import becomes a TDZ
+      // ReferenceError at import time that `tsc` reports nothing about. The
+      // literal cannot turn into that. `the priority module descriptor matches
+      // the priority schema version` in
+      // tests/contract/intelligenceModuleBoundaries.test.ts pins the two
+      // spellings together instead. Issue #131 moved this entry from
+      // placeholder to implemented in the same commit as
+      // `SHADOW_MODULE_ROLES.priority`; `registryDrift.test.ts` fails if only
+      // one of them moves.
+      schemaVersion: 'priority-v1',
+      entryPoint: 'lib/priority/priorityScorer#rankPriorities',
+    } satisfies ImplementedModuleOutput),
   },
   decomposition: {
     version: MODULE_CONTRACT_VERSION,
