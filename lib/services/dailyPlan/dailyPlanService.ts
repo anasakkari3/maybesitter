@@ -85,7 +85,7 @@ import {
 } from '../../planning/scheduler';
 import { projectReadinessIntoPlanningConstraints } from '../../planning/scheduler/readiness';
 import { toEpochMs } from '../../planning/shared/time';
-import type { PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
+import type { PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import {
@@ -391,6 +391,101 @@ export async function projectPlanLayerIntoConstraints(
   );
 }
 
+export interface DailyPlanRequestInput {
+  readonly uid: string;
+  /** The local calendar date being planned, `YYYY-MM-DD`. */
+  readonly date: string;
+  readonly timezone: string;
+  /** The clock the solve is happening on. */
+  readonly now: string;
+  /** The account document the caller already read; readiness is composed from it. */
+  readonly userDocument: unknown;
+  /** The blocks of the generation being replaced; null on a day's first build. */
+  readonly previousBlocks: readonly ScheduleBlock[] | null;
+}
+
+export interface DailyPlanRequest {
+  /** What the request was built from, for the caller's titles. */
+  readonly commitments: readonly Commitment[];
+  /** What the solver is given: `buildDailyPlanInput`'s output, projected. */
+  readonly constraints: PlanningConstraints;
+  readonly config: PlanningConfig;
+}
+
+/**
+ * The planning request for one account's day, read and assembled in one place
+ * (#606).
+ *
+ * Both solvers of a day build their request here: `composeDailyPlan` (the
+ * morning build and every regeneration) and `continuousReplanService` (the
+ * automatic replan). #604 unified the plan-layer half of the request
+ * (`projectPlanLayerIntoConstraints`); this is the other half, the reads that
+ * feed `buildDailyPlanInput`. They used to be assembled separately, and the
+ * replan's copy had drifted: it never read the kept focus window. For a user
+ * whose routine names no focus window, the morning plan was solved inside the
+ * window they kept and every replan fell back to 08:00–20:00 and repacked the
+ * day at "now". The diff charged that repacking to whichever change triggered
+ * the replan.
+ *
+ * ── The focus hint and its gate ──────────────────────────────────
+ *
+ * Read only when it could matter: a routine with focus windows outranks it.
+ * `keptFocusWindow` answers null without personalization consent, so
+ * withdrawing consent takes the hint out of the next plan (UC-3.16, #202), and
+ * out of the next replan. Nothing here reads the memory any other way.
+ *
+ * ── The busy-block horizon is the day being solved ───────────────
+ *
+ * Busy time is read over `dayHorizon(date, timezone)`, for both solvers,
+ * because that is the horizon `buildDailyPlanInput` builds the request over.
+ * The replan used to read over the stored plan's horizon instead. That is
+ * the same span whenever the zone has not changed since the plan was built,
+ * since that horizon *is* `dayHorizon` taken at build time. When the account has
+ * moved zones, though, the request is solved over the new zone's day while
+ * the busy read covered the old one, and the solve is blind to calendar time in
+ * the hours the two days do not share. Reading over the span the request is
+ * solved over is the only choice that cannot disagree with the request.
+ */
+export async function composeDailyPlanRequest(
+  input: DailyPlanRequestInput,
+  deps: { readonly storage: StorageAdapter; readonly busyBlocks?: BusyBlockReader },
+): Promise<DailyPlanRequest> {
+  const { uid, date, timezone, now } = input;
+  const storage = deps.storage;
+
+  const state = await loadDomainState(storage, uid);
+  const commitments = Object.values(state.commitments);
+  const profile = await readRoutineProfile(uid, { storage });
+  const focusHint = (profile?.focusWindows ?? []).length > 0
+    ? null
+    : await keptFocusWindow(uid, now, { storage });
+  const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, dayHorizon(date, timezone));
+
+  const { constraints: baseConstraints, config } = buildDailyPlanInput({
+    uid,
+    date,
+    timezone,
+    commitments,
+    busyBlocks,
+    profile,
+    focusHint,
+    // The clock this build is happening on (#500). Without it the mapping
+    // filled the working window from its start, so a plan built at 13:44
+    // scheduled the whole day at 09:00 and was over before it was shown.
+    builtAt: now,
+  });
+  const constraints = await projectPlanLayerIntoConstraints({
+    uid,
+    now,
+    timezone,
+    commitments,
+    busyBlocks,
+    constraints: baseConstraints,
+    previousBlocks: input.previousBlocks,
+  }, { storage, userDocument: input.userDocument });
+  return { commitments, constraints, config };
+}
+
 /**
  * What a regeneration carries forward from the plan it replaces (#521).
  *
@@ -427,40 +522,14 @@ export async function composeDailyPlan(
   const user = await storage.get<PlanSettingsBearingUser>(userDoc(uid));
   const locale: UserLocale = user?.locale === 'ar' || user?.locale === 'he' ? user.locale : 'en';
 
-  const state = await loadDomainState(storage, uid);
-  const commitments = Object.values(state.commitments);
-  const profile = await readRoutineProfile(uid, { storage });
-  // Read only when it could matter: a routine with focus windows outranks it.
-  // `keptFocusWindow` answers null without personalization consent, so
-  // withdrawing consent takes the hint out of the next plan (UC-3.16, #202).
-  const focusHint = (profile?.focusWindows ?? []).length > 0
-    ? null
-    : await keptFocusWindow(uid, now.toISOString(), { storage });
-  const horizon = dayHorizon(date, timezone);
-  const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, horizon);
-
-  const { constraints: baseConstraints, config } = buildDailyPlanInput({
+  const { commitments, constraints, config } = await composeDailyPlanRequest({
     uid,
     date,
     timezone,
-    commitments,
-    busyBlocks,
-    profile,
-    focusHint,
-    // The clock this build is happening on (#500). Without it the mapping
-    // filled the working window from its start, so a plan built at 13:44
-    // scheduled the whole day at 09:00 and was over before it was shown.
-    builtAt: now.toISOString(),
-  });
-  const constraints = await projectPlanLayerIntoConstraints({
-    uid,
     now: now.toISOString(),
-    timezone,
-    commitments,
-    busyBlocks,
-    constraints: baseConstraints,
+    userDocument: user,
     previousBlocks: ancestry?.previousBlocks ?? null,
-  }, { storage, userDocument: user });
+  }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
   const plan = schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
   // back. Throws `ScheduleBlockIntegrityError` — and the build fails — if the
