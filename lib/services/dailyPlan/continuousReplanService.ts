@@ -10,15 +10,26 @@
  *
  * ── Invariants ─────────────────────────────────────────────────────
  *
- *  - Idempotency & Concurrency: When auto-applying, uses `replaceStoredPlan`
- *    with expected generation to ensure the plan has not been edited or replaced
- *    underfoot.
+ *  - Idempotency & Concurrency (#610): both writes — the auto-applied
+ *    generation and the proposed patch — are built inside one transaction from
+ *    the document it reads, and are refused unless that document is still the
+ *    state the run judged and solved against (`stillTheStateSolvedAgainst`).
+ *    A generation-only compare-and-set is not enough: `editPlan`,
+ *    `dismissPlan` and `setBlockProtection` never move the generation.
+ *  - The person's day, not the planner's (#610): the impact view and the diff
+ *    read the *visible* day, with the person's edits applied. A dismissed day
+ *    is never replanned or patched, and a background run never changes a
+ *    plan's status on the person's behalf.
+ *  - A change is drained only when its outcome was decided and stored. A
+ *    write refused because the plan moved underneath it leaves the change for
+ *    the next tick, which judges it against whatever is in force by then.
  *  - User State: Reuses `UserStateProjection` from `userStateProjectionContracts.ts`
  *    and `composeCurrentUserState`. Does not create a second user state model.
  *  - Canonical writes: Proposes time changes or updates plan proposals; never
  *    mutates canonical `Commitment` records directly.
  */
 
+import { isDeepStrictEqual } from 'node:util';
 import { getStorage, type StorageAdapter } from '../../storage';
 import {
   PLANNING_STATE_CHANGES,
@@ -29,18 +40,25 @@ import {
 } from '../../storage/paths';
 import {
   appendPlanEvent,
+  mutateStoredPlan,
+  planPath,
   readStoredPlan,
-  replaceStoredPlan,
-  storePlanProposal,
   type StoredDailyPlan,
   type StoredPlanProposal,
 } from './planStore';
+import { editsSurvivingReschedule, effectiveSchedule, planUnderKeptRemovals } from './planActions';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import { buildDailyPlanInput, dailyPlanScheduleSources } from './buildDailyPlan';
 import { projectPlanLayerIntoConstraints } from './dailyPlanService';
-import { PROTECTED_OWNERSHIP, reconcileScheduleBlocks, schedulePlan } from '../../planning/scheduler';
+import {
+  PROTECTED_OWNERSHIP,
+  applyEditsToBlocks,
+  diffPlans,
+  reconcileScheduleBlocks,
+  schedulePlan,
+} from '../../planning/scheduler';
 import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { loadDomainState } from '../mobile/participantState';
 import { readRoutineProfile } from '../mobile/routineProfileService';
@@ -88,7 +106,7 @@ export interface ContinuousReplanUserReport {
    * `runContinuousReplanTick` would be a copy of the gate that a mutation
    * could leave disagreeing with the original.
    */
-  readonly skipped: 'continuous_replan_disabled' | null;
+  readonly skipped: 'continuous_replan_disabled' | 'plan_dismissed' | null;
 }
 
 /**
@@ -146,16 +164,68 @@ async function acknowledgeChanges(
   changeDocPaths: readonly string[],
   supplied: readonly PlanningStateChange[] | undefined,
 ): Promise<void> {
-  if (changeDocPaths.length > 0) {
-    for (const docPath of changeDocPaths) {
-      await storage.delete(docPath);
-    }
-    return;
+  for (const docPath of changeRowPaths(uid, changeDocPaths, supplied)) {
+    await storage.delete(docPath);
   }
-  if (!supplied) return;
-  for (const change of supplied) {
-    await storage.delete(userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)));
-  }
+}
+
+/** The rows this run consumed: listed here, or named by the caller's changes. */
+function changeRowPaths(
+  uid: string,
+  changeDocPaths: readonly string[],
+  supplied: readonly PlanningStateChange[] | undefined,
+): string[] {
+  if (changeDocPaths.length > 0) return [...changeDocPaths];
+  return (supplied ?? []).map((change) => userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)));
+}
+
+/**
+ * Transactional writes are capped per commit (Firestore allows 500). The
+ * re-check below needs only one read and one delete in the same commit to be
+ * atomic, so the rows are drained in chunks under this size.
+ */
+const DRAIN_CHUNK = 400;
+
+/**
+ * Drains a verdict that stored nothing, but only if the plan it was judged
+ * against is still the plan in force (#610, AC 5).
+ *
+ * `NO_EFFECT`, `PLAN_STALE` and a discarded replan write nothing, so no
+ * compare-and-set ever tells them that the plan moved while they were
+ * judging. Suppose a person accepts an older patch mid-run, and the patch puts
+ * a task where the change's meeting now is. The change was judged `PLAN_STALE`
+ * against the generation that was replaced, and draining it would leave the
+ * conflict in the new generation with nothing left to fix it.
+ *
+ * So the plan is re-read, and the first chunk of rows is deleted, in one
+ * transaction. If the plan is not the state the verdict read, nothing is
+ * drained and the next tick re-judges the rows against whatever is in force.
+ * Rows after the first chunk are deleted once that commit has shown the
+ * verdict held. A plan that changes after that commit changes after the
+ * judgement, which is the same case as a change arriving after the drain.
+ *
+ * Returns whether the rows were drained.
+ */
+async function acknowledgeIfPlanUnchanged(
+  uid: string,
+  date: string,
+  storage: StorageAdapter,
+  judgedAgainst: StoredDailyPlan | null,
+  rows: readonly string[],
+): Promise<boolean> {
+  const [first, rest] = [rows.slice(0, DRAIN_CHUNK), rows.slice(DRAIN_CHUNK)];
+  const drained = await storage.runTransaction(async (tx) => {
+    const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
+    const unchanged = current === null || judgedAgainst === null
+      ? current === judgedAgainst
+      : stillTheStateSolvedAgainst(current, judgedAgainst);
+    if (!unchanged) return false;
+    for (const row of first) tx.delete(row);
+    return true;
+  });
+  if (!drained) return false;
+  for (const row of rest) await storage.delete(row);
+  return true;
 }
 
 /**
@@ -204,6 +274,51 @@ function planAsProtectionsHoldIt(stored: StoredDailyPlan): Plan {
       };
     }),
   };
+}
+
+/**
+ * The day as the person sees it (#610): protected blocks where they sit, and
+ * then the person's own edits, with removed items gone and moved items at the
+ * slots they were moved to.
+ *
+ * Both the impact view and the diff base read this. Measured against
+ * `plan.scheduled`, a meeting on the slot of a task the person removed
+ * "overlaps" it and earns a replan whose `causeChangeIds` names the meeting
+ * for a conflict nobody can see, while a meeting on a task they moved overlaps
+ * nothing the evaluator can see and the task sits under it. The diff has the
+ * same blind spot: replanning a moved task back off a meeting reads as
+ * "unchanged" against the planner's placement, so the policy would discard
+ * the very replan the impact view asked for, and a move dropped on install
+ * (`editsSurvivingReschedule`) would be charged nothing against the churn
+ * budget.
+ */
+function visiblePlanOf(stored: StoredDailyPlan): Plan {
+  const held = planAsProtectionsHoldIt(stored);
+  return { ...held, scheduled: effectiveSchedule({ ...stored, plan: held }) };
+}
+
+/**
+ * Whether the stored document is still the state this run judged and solved
+ * against (#610). Read inside the write's own transaction.
+ *
+ * Generation and digest alone cannot tell. `editPlan`, `dismissPlan`,
+ * `acceptPlan` and `setBlockProtection` rewrite the document without moving
+ * either, so a write guarded by them alone installs a solve over an edit it
+ * never saw. A removal comes back onto the day, a dismissed plan is revived,
+ * and a protection is dropped from blocks rebuilt from the old ones. So the
+ * status, the edits and the blocks are compared too, since those are what the
+ * impact view, the solve and the policy read. Anything else on the document is
+ * carried from the transaction's own read, never from the snapshot.
+ *
+ * A refusal is not retried here. The change is left in place and the next
+ * tick judges it against whatever is in force by then.
+ */
+function stillTheStateSolvedAgainst(current: StoredDailyPlan, solved: StoredDailyPlan): boolean {
+  return current.generation === solved.generation
+    && current.inputDigest === solved.inputDigest
+    && current.status === solved.status
+    && isDeepStrictEqual(current.edits, solved.edits)
+    && isDeepStrictEqual(current.blocks ?? [], solved.blocks ?? []);
 }
 
 /**
@@ -323,9 +438,52 @@ export async function processStateChangesForUser(
     };
   }
 
+  /**
+   * A dismissed day is never replanned or patched (#610, AC 3).
+   *
+   * `dismissPlan` clears any pending patch on purpose, and a background run
+   * that went on to solve would either revive the plan as a new generation or
+   * store a fresh patch on a day the person has set aside. Checked here,
+   * before anything expensive, and again inside each write's transaction for
+   * a dismissal that lands while the run is solving.
+   *
+   * Unlike the switch above, the changes are **not** drained. Nothing was
+   * decided about them. A dismissal can be taken back (`acceptPlan` accepts a
+   * dismissed plan), and the change should then be replanned like any other.
+   * Rows held past the day are harmless: tomorrow's tick judges them against
+   * tomorrow's plan, where an interval from today is outside the horizon and
+   * is drained as `NO_EFFECT`.
+   */
+  if (storedPlan?.status === 'dismissed') {
+    return {
+      uid,
+      date,
+      changesProcessed: rawChanges.length,
+      pipelineResult: {
+        scopeId: uid,
+        date,
+        // `'none'`, for the reason the switch's path gives: nothing was judged.
+        impact: { changeId: 'none', scopeId: uid, decision: 'NO_EFFECT', reason: 'plan_dismissed' },
+        enqueued: false,
+        queueEntry: null,
+        impactingChangeIds: [],
+        basePlan: storedPlan.plan,
+        newPlan: null,
+        diff: null,
+        policyDecision: null,
+        // No plan is in force for a dismissed day.
+        planStatus: 'none',
+      },
+      planStored: false,
+      userState: null,
+      skipped: 'plan_dismissed',
+    };
+  }
+
   // 3. Build PlanImpactView from stored plan if available. Both the impact
-  // view and the diff base read the plan with protected blocks where they sit.
-  const basePlan = storedPlan ? planAsProtectionsHoldIt(storedPlan) : null;
+  // view and the diff base read the visible day: protected blocks where they
+  // sit and the person's edits applied (#585, #610).
+  const basePlan = storedPlan ? visiblePlanOf(storedPlan) : null;
   const planView: PlanImpactView | null = basePlan
     ? {
         scopeId: uid,
@@ -378,7 +536,7 @@ export async function processStateChangesForUser(
    * below all read `constraints`, the reconciliation for that last reason.
    *
    * What does *not* read it is the stored document's own `constraints` field:
-   * the auto-apply branch builds its document with `...storedPlan`, so that
+   * the auto-apply branch builds its document with `...current`, so that
    * field still describes the generation being replaced. That predates #585
    * and is left to its own issue rather than changed here.
    */
@@ -393,10 +551,13 @@ export async function processStateChangesForUser(
   }, { storage, userDocument: user });
   const sources = dailyPlanScheduleSources(constraints);
 
-  // Planner solve closure
+  // Planner solve closure. The diff is visible day against visible day
+  // (#610): the plan as it would read once installed, measured against the
+  // plan as the person sees it now.
+  const removals = storedPlan?.edits.removals ?? [];
   const planner = () => {
     const plan = schedulePlan(constraints, dailyInput.config);
-    return { plan };
+    return basePlan ? { plan, diff: diffPlans(basePlan, planUnderKeptRemovals(plan, removals)) } : { plan };
   };
 
   // 5. Run continuous replan pipeline
@@ -414,10 +575,19 @@ export async function processStateChangesForUser(
   });
 
   let planStored = false;
+  /**
+   * Set when a write was refused because the plan moved underneath the run
+   * (#610, AC 5). The change is then left for the next tick rather than
+   * drained. The write that won may be a full rebuild that already accounts
+   * for it, or it may be an older patch solved before it existed, and nothing
+   * here can tell which. The next tick can, because it judges the change
+   * against whatever is in force by then.
+   */
+  let lostToConcurrentWrite = false;
 
   // 6. Act on policy decision
   if (pipelineResult.policyDecision?.action === 'auto_apply' && storedPlan && pipelineResult.newPlan) {
-    const nextGeneration = storedPlan.generation + 1;
+    const newPlan = pipelineResult.newPlan;
     /**
      * Which changes caused this generation (#527, AC 2).
      *
@@ -432,39 +602,63 @@ export async function processStateChangesForUser(
      * matched the decision that ran the planner.
      *
      * Assigned unconditionally below: the document is built with
-     * `...storedPlan`, so an omitted assignment would let this generation
+     * `...current`, so an omitted assignment would let this generation
      * inherit the previous generation's reason.
      */
     const causeChangeIds = pipelineResult.impactingChangeIds;
-    const updatedPlan: StoredDailyPlan = {
-      ...storedPlan,
-      generation: nextGeneration,
-      replaces: {
-        generation: storedPlan.generation,
-        inputDigest: storedPlan.inputDigest,
-      },
-      plan: pipelineResult.newPlan,
-      blocks: reconcileScheduleBlocks({
-        constraints,
-        plan: pipelineResult.newPlan,
-        generation: nextGeneration,
-        sources,
-        previous: storedPlan.blocks,
-      }),
-      status: 'accepted',
-      updatedAt: nowIso,
-      causeChangeIds,
-      /**
-       * Assigned, not omitted, for the reason `causeChangeIds` is: the
-       * document is built with `...storedPlan`, so leaving the key out would
-       * carry a patch of the *previous* generation into this one, where its
-       * diff and its `baseGeneration` describe a plan that no longer exists.
-       */
-      proposal: null,
-    };
+    /**
+     * Built inside the write's own transaction, from the document it reads
+     * (#610, AC 1), the way `acceptPlanProposal` builds its document. A
+     * document assembled from the snapshot read before the solve would
+     * overwrite anything that landed since with the snapshot's values, and
+     * the generation-only compare-and-set this replaced could not see it.
+     */
+    const written = await mutateStoredPlan<null>(uid, date, (current) => {
+      if (!stillTheStateSolvedAgainst(current, storedPlan)) return null;
+      const generation = current.generation + 1;
+      // Moves dropped, removals kept, status carried (#610, AC 2 and 3). This
+      // is the rule accepting a patch follows, and the diff the policy just
+      // judged was computed on exactly this outcome (`planUnderKeptRemovals`).
+      const { edits, status } = editsSurvivingReschedule(current);
+      const blocks = applyEditsToBlocks(
+        reconcileScheduleBlocks({
+          constraints,
+          plan: newPlan,
+          generation,
+          sources,
+          previous: current.blocks,
+        }),
+        newPlan.scheduled,
+        edits,
+        generation,
+      );
+      return {
+        next: {
+          ...current,
+          generation,
+          replaces: { generation: current.generation, inputDigest: current.inputDigest },
+          plan: newPlan,
+          // Mirrors the kept removals, as an edit's blocks do: a removed item
+          // the planner placed again stays unplaced on its block.
+          blocks,
+          edits,
+          status,
+          updatedAt: nowIso,
+          causeChangeIds,
+          /**
+           * Assigned, not omitted, for the reason `causeChangeIds` is: the
+           * document is built with `...current`, so leaving the key out would
+           * carry a patch of the *previous* generation into this one, where
+           * its diff and its `baseGeneration` describe a plan that no longer
+           * exists.
+           */
+          proposal: null,
+        },
+        result: null,
+      };
+    }, storage);
 
-    const replaced = await replaceStoredPlan(uid, updatedPlan, storedPlan.generation, storage);
-    if (replaced !== null) {
+    if (written !== null) {
       planStored = true;
       await appendPlanEvent(
         uid,
@@ -472,12 +666,14 @@ export async function processStateChangesForUser(
           type: 'plan_regenerated',
           date,
           at: nowIso,
-          generation: updatedPlan.generation,
-          inputDigest: updatedPlan.inputDigest,
+          generation: written.stored.generation,
+          inputDigest: written.stored.inputDigest,
           causeChangeIds,
         },
         storage,
       );
+    } else {
+      lostToConcurrentWrite = true;
     }
   } else if (pipelineResult.policyDecision?.action === 'propose_for_review' && storedPlan) {
     /**
@@ -508,7 +704,20 @@ export async function processStateChangesForUser(
       }
       : null;
 
-    const stored = proposal ? await storePlanProposal(uid, date, proposal, storage) : null;
+    /**
+     * The same guard as the auto-apply write, in the same transaction (#610).
+     * `storePlanProposal` pins a patch to the generation alone, so a patch
+     * solved before a dismissal or an edit would be stored after it, on a day
+     * the person set aside or over placements they have just overruled.
+     * `status` is untouched: the plan in force is still the plan in force.
+     */
+    const stored = proposal
+      ? await mutateStoredPlan<null>(uid, date, (current) => (
+        stillTheStateSolvedAgainst(current, storedPlan)
+          ? { next: { ...current, proposal, updatedAt: nowIso }, result: null }
+          : null
+      ), storage)
+      : null;
     if (stored) {
       await appendPlanEvent(
         uid,
@@ -522,11 +731,20 @@ export async function processStateChangesForUser(
         },
         storage,
       );
+    } else if (proposal) {
+      lostToConcurrentWrite = true;
     }
   }
 
-  // 7. Acknowledge/delete processed planning state changes
-  await acknowledgeChanges(uid, storage, changeDocPaths, options.changes);
+  // 7. Acknowledge/delete processed planning state changes (#610, AC 5).
+  // A stored outcome drains. A refused write holds (`lostToConcurrentWrite`).
+  // A verdict that stored nothing drains only if the plan it was judged
+  // against is still in force (`acknowledgeIfPlanUnchanged`).
+  if (planStored) {
+    await acknowledgeChanges(uid, storage, changeDocPaths, options.changes);
+  } else if (!lostToConcurrentWrite) {
+    await acknowledgeIfPlanUnchanged(uid, date, storage, storedPlan, changeRowPaths(uid, changeDocPaths, options.changes));
+  }
 
   // 8. Compose updated UserStateProjection
   const userState = await composeCurrentUserState(
@@ -567,7 +785,11 @@ export interface ContinuousReplanTickTotals {
   stale: number;
   noEffect: number;
   failed: number;
-  /** Accounts whose pending changes were drained without a replan (#523, AC 9). */
+  /**
+   * Accounts the run stopped for before judging anything: continuous
+   * replanning switched off (#523, AC 9), where the changes are drained, or a
+   * dismissed day (#610), where they are held for the day to come back.
+   */
   skipped: number;
 }
 

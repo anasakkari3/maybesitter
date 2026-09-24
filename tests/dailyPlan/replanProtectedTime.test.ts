@@ -298,23 +298,36 @@ test('a protected block the user dragged is measured from where they put it, not
   });
 });
 
-test('an unprotected drag is not an anchor, so the replan is measured exactly as before', async () => {
+test('an unprotected drag is not an anchor, and the replan charges its return to the planner\'s slot', async () => {
   // The other half of the rule above, pinned because it is a decision: only a
-  // protection makes the solver honour a placement. Rebasing on an ordinary
-  // drag would report the planner's own position as a move away from it.
+  // protection makes the solver honour a placement. An ordinary drag is not
+  // anchored, so the solve puts the task back where the planner wants it.
+  //
+  // What changed with #610 is how that is measured. Installing a replan drops
+  // the person's moves (`editsSurvivingReschedule`, the rule accepting a patch
+  // already followed), so the task really does leave the slot the person
+  // dragged it to. The diff reads the visible day, and it reports that move
+  // and charges it to the churn budget. Reporting it as `unchanged` would let
+  // auto-apply undo a drag without asking.
   await withStorage(async (storage) => {
     const uid = 'user_replan_unprotected_dragged';
     const before = await seedAccount(storage, uid);
+    const dragged: TimeInterval = { startsAt: `${DATE}T09:00:00.000Z`, endsAt: `${DATE}T09:30:00.000Z` };
     assert.ok(await editPlan(uid, DATE, {
-      moves: [{ itemId: PROTECTED, startsAt: `${DATE}T09:00:00.000Z`, endsAt: `${DATE}T09:30:00.000Z` }],
+      moves: [{ itemId: PROTECTED, startsAt: dragged.startsAt, endsAt: dragged.endsAt }],
       removals: [],
     }, { storage, now: () => MORNING }));
 
     const report = await replan(storage, uid, {}, {
       meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
     });
-    assert.deepEqual(report.pipelineResult.basePlan, before.plan);
-    assert.equal(report.pipelineResult.diff?.changes.find((change) => change.itemId === PROTECTED)?.kind, 'unchanged');
+    // Not an anchor: the solve places the task where the planner first put it.
+    assert.deepEqual(placementOf(report.pipelineResult.newPlan!, PROTECTED), placementOf(before.plan, PROTECTED));
+    // Measured on the visible day: from where the person put it, back to there.
+    assert.deepEqual(placementOf(report.pipelineResult.basePlan!, PROTECTED), dragged);
+    const change = report.pipelineResult.diff?.changes.find((entry) => entry.itemId === PROTECTED);
+    assert.equal(change?.kind, 'moved');
+    assert.equal(report.pipelineResult.policyDecision?.action, 'propose_for_review', 'a 150-minute undo of a drag is not applied silently');
   });
 });
 

@@ -14,7 +14,7 @@ import type { PlanItemChange, PlanningItem, TimeInterval, UnscheduledItem } from
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { withinMaxShift } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
-import { effectiveSchedule } from './planActions';
+import { effectiveSchedule, planUnderKeptRemovals } from './planActions';
 import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from './planStore';
 
 export interface PlanItemDto {
@@ -180,9 +180,10 @@ export interface PlanProposalChangeDto {
  * being shown, and a second round trip would be a spinner every review screen
  * had to design around.
  *
- * `scheduled` and `unscheduled` are the whole plan the patch would install, so
- * a client can render the proposed day beside the current one without
- * replaying the diff itself. `changes` is what moved between them.
+ * `scheduled` and `unscheduled` are the whole day the patch would install, as
+ * the person would see it (their removals kept off it, #610), so a client can
+ * render the proposed day beside the current one without replaying the diff
+ * itself. `changes` is what moved between them.
  */
 /**
  * What the patch would do to one block the user protected (#522, #523).
@@ -278,6 +279,10 @@ export function pendingProposalToDto(
 ): PendingPlanProposalDto | null {
   const proposal = pendingProposalOf(stored);
   if (proposal === null) return null;
+  // The day the patch would produce, as accepting it installs it: the
+  // person's removals stay off it (#610). `changes` is the diff of that same
+  // visible day, so the two agree on which items the offer is about.
+  const proposedDay = planUnderKeptRemovals(proposal.plan, stored.edits.removals);
 
   const blockByItemId = new Map((stored.blocks ?? [])
     .filter((block) => block.mobility !== 'fixed')
@@ -290,14 +295,14 @@ export function pendingProposalToDto(
     reason: proposal.reason,
     userControlMode: proposal.userControlMode,
     causeChangeIds: [...proposal.causeChangeIds],
-    scheduled: proposal.plan.scheduled.map((item) => ({
+    scheduled: proposedDay.scheduled.map((item) => ({
       itemId: item.itemId,
       title: titles.get(item.itemId) ?? null,
       startsAt: item.interval.startsAt,
       endsAt: item.interval.endsAt,
       blockId: blockByItemId.get(item.itemId) ?? null,
     })),
-    unscheduled: proposal.plan.unscheduled.map((item: UnscheduledItem) => ({
+    unscheduled: proposedDay.unscheduled.map((item: UnscheduledItem) => ({
       itemId: item.itemId,
       title: titles.get(item.itemId) ?? null,
       reasonCode: item.reason.code,
