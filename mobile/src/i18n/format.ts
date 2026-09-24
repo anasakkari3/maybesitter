@@ -90,7 +90,7 @@ function calendarDayDiff(from: Date, to: Date, timeZone: string): number {
 }
 
 /**
- * "Today" / "Tomorrow" from the copy, falling back to a weekday date. The
+ * "Today" / "Tomorrow" / "Yesterday" from the copy, falling back to a weekday date. The
  * comparison is by calendar day in `timeZone`, not by elapsed hours, so 23:30
  * and 00:30 are correctly different days.
  */
