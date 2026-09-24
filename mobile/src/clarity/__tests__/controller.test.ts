@@ -169,3 +169,63 @@ it('rotates again after revoke/re-grant during a pending session rotation', asyn
   fresh(); await controller.settled();
   expect(sdk.resume).toHaveBeenCalledTimes(1);
 });
+
+it('wakes an Android rotation that completes only after capturing resumes', async () => {
+  const { controller, sdk, initialized, fresh } = setup();
+  const android = { ...context, platform: 'android' as const };
+  controller.update(android, true, true); initialized();
+  await controller.settled();
+  expect(sdk.resume).toHaveBeenCalledTimes(1);
+  expect(sdk.setCurrentScreenName).not.toHaveBeenCalled();
+  controller.event('capture_saved');
+  expect(sdk.sendCustomEvent).not.toHaveBeenCalled();
+  fresh(); await controller.settled();
+  controller.stop();
+  sdk.resume.mockClear(); sdk.setCustomTag.mockClear();
+  controller.update(android, true, true);
+  await controller.settled();
+  expect(sdk.resume).toHaveBeenCalledTimes(1);
+  expect(sdk.setCustomTag).not.toHaveBeenCalled();
+  fresh(); await controller.settled();
+  expect(sdk.setCustomTag).toHaveBeenCalled();
+});
+
+it('does not wake Android when consent is revoked during the native consent call', async () => {
+  const { controller, sdk, initialized, fresh } = setup();
+  let finish!: (value: boolean) => void;
+  sdk.consent.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  controller.update({ ...context, platform: 'android' }, true, true); initialized();
+  await Promise.resolve(); await Promise.resolve();
+  controller.stop(); finish(true);
+  await controller.settled(); fresh(); await controller.settled();
+  expect(sdk.resume).not.toHaveBeenCalled();
+  expect(sdk.consent).toHaveBeenLastCalledWith(false, false);
+});
+
+it('pauses again if Android rotation wake completes after revocation', async () => {
+  const { controller, sdk, initialized, fresh } = setup();
+  let finish!: (value: boolean) => void;
+  sdk.resume.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  controller.update({ ...context, platform: 'android' }, true, true); initialized();
+  for (let n = 0; n < 10; n++) await Promise.resolve();
+  expect(finish).toBeDefined();
+  controller.stop(); const pauses = sdk.pause.mock.calls.length;
+  finish(true); await controller.settled(); fresh(); await controller.settled();
+  expect(sdk.pause.mock.calls.length).toBeGreaterThan(pauses);
+  expect(sdk.setCustomTag).not.toHaveBeenCalled();
+});
+
+it('wakes the pending Android rotation again after revoke/re-grant', async () => {
+  const { controller, sdk, initialized, fresh } = setup();
+  const android = { ...context, platform: 'android' as const };
+  controller.update(android, true, true); initialized();
+  controller.stop(); controller.update(android, true, true);
+  await controller.settled();
+  expect(sdk.resume).toHaveBeenCalledTimes(1);
+  expect(sdk.setCustomTag).not.toHaveBeenCalled();
+  fresh(); await controller.settled();
+  expect(sdk.startNewSession).toHaveBeenCalledTimes(2);
+  expect(sdk.setCustomTag).not.toHaveBeenCalled();
+  fresh(); await controller.settled();
+  expect(sdk.setCustomTag).toHaveBeenCalled();
+});

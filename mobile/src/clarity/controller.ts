@@ -29,7 +29,7 @@ export function createReplayController(load: () => ClaritySdk | null) {
   let ready = false;
   let allowed = false;
   // The SDK may resume a persisted session at initialization. Rotate it before
-  // tagging/resuming, including when consent changes while native startup waits.
+  // tagging, including when consent changes while native startup waits.
   let needsFreshSession = true;
   let changingSession = false;
   let context: ReplayContext | null = null;
@@ -60,7 +60,24 @@ export function createReplayController(load: () => ClaritySdk | null) {
         ready = true;
         sessionReady();
       });
+      wakeRotation();
     } catch { changingSession = false; stop(); }
+  }
+
+  function wakeRotation() {
+    // Android completes a requested rotation on its next captured frame, not
+    // while paused. Wake it only with current consent; the root remains fully
+    // masked and application metadata/events still wait for the callback.
+    if (context?.platform !== 'android' || !changingSession) return;
+    const expected = revision;
+    queue = queue.then(async () => {
+      const current = () => allowed && changingSession && expected === revision;
+      if (!sdk || !current()) return;
+      if (!await sdk.consent(false, true)) { stop(); return; }
+      if (!current()) { if (!allowed) stop(); return; }
+      await sdk.resume();
+      if (!allowed) stop();
+    }).catch(() => { stop(); });
   }
 
   function synchronize() {
@@ -108,6 +125,7 @@ export function createReplayController(load: () => ClaritySdk | null) {
           sdk.initialize(CLARITY_PROJECT_ID, { logLevel: sdk.LogLevel.None });
         } catch { stop(); }
       } else if (ready) sessionReady();
+      else if (changingSession) wakeRotation();
     },
     stop,
     event(value: ReplayEvent): void {
