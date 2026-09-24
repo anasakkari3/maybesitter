@@ -89,7 +89,7 @@ import type { PilotIncidentInput, TrustAction } from './schemas/trust';
 import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
-import { ForbiddenError, InvalidTransitionError, StaleCommitmentError } from './errors';
+import { ForbiddenError, InvalidTransitionError, PlanProposalRefusedError, StaleCommitmentError } from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
   createIcsFeed,
@@ -687,12 +687,26 @@ function adoptPlan(client: QueryClient, uid: string, date: string, plan: DailyPl
  * guards against a second send — see `PlanScreen`, and `PlanScreen.test.tsx`,
  * which asserts two taps produce one request.
  */
+export type PlanActionVariables =
+  | 'accept'
+  | 'dismiss'
+  | { action: 'accept_proposal' | 'reject_proposal'; proposalId?: string };
+
 export function usePlanAction(date: string) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (action: 'accept' | 'dismiss' | 'accept_proposal' | 'reject_proposal') => actOnPlan(date, { action }),
+    mutationFn: (variables: PlanActionVariables) => actOnPlan(date, typeof variables === 'string' ? { action: variables } : variables),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
+    // A refused offer (#611) means the offer on screen is not the one the
+    // server holds: the day moved, a newer offer replaced it, or it is gone.
+    // The refusal carries no plan, so the plan is re-read; left alone, the
+    // screen would keep offering the same stale buttons.
+    onError: error => {
+      if (error instanceof PlanProposalRefusedError) {
+        void client.invalidateQueries({ queryKey: queryKeys.plan(uid, date) });
+      }
+    },
   });
 }
 

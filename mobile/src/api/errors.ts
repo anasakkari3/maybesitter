@@ -1,5 +1,5 @@
 import type { Commitment } from './schemas/common';
-import type { PlanEditRejected } from './schemas/plan';
+import type { PlanEditRejected, PlanProposalRejected } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
 
 /**
@@ -179,6 +179,22 @@ export class PlanEditRefusedError extends ApiError {
     readonly itemId: string | null,
   ) {
     super('the plan edit was refused');
+  }
+}
+
+/**
+ * 422 on `accept_proposal` / `reject_proposal` — the offer the screen showed is
+ * not the one the server holds (#523, #611).
+ *
+ * Its own class rather than a `ValidationError`, for the same reason as
+ * `PlanEditRefusedError`: nothing about the request was wrong. The user's day
+ * moved on, and "check it and try again" would blame them for that. The reason
+ * decides the sentence, and the plan query is re-read so the screen shows the
+ * day as it now is (`usePlanAction`).
+ */
+export class PlanProposalRefusedError extends ApiError {
+  constructor(readonly reason: PlanProposalRejected['reason']) {
+    super('the plan proposal was refused');
   }
 }
 

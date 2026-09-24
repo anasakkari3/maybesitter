@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput, View } from 'react-native';
+import { AccessibilityInfo, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
 import {
@@ -10,6 +10,7 @@ import {
   usePlanAction,
   useSetHabitStatus,
 } from '../../api/queries';
+import { PlanProposalRefusedError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { calendarReadEnabled, calendarWriteEnabled, shareIntakeEnabled } from '../../config/env';
@@ -136,6 +137,36 @@ export function PatchReviewScreen() {
   const query = usePlan(date);
   const action = usePlanAction(date);
   const proposal = query.data?.proposal ?? null;
+  // The offer on screen was not the one the server held (#611): the day moved
+  // on, a newer offer replaced it, or nothing is pending any more. That is
+  // not the person's mistake, so it gets its own sentence rather than the
+  // generic "check it and try again", and it sits above the plan rather than
+  // beside the buttons: the plan query is re-read (`usePlanAction`), and when
+  // nothing is pending the offer and its buttons are no longer drawn at all.
+  const refused = action.error instanceof PlanProposalRefusedError ? action.error : null;
+  // An offer refused as stale can come back unchanged from the re-read: the
+  // server leaves it on the table until the next replan tick replaces it, so
+  // for a few minutes the same id is still pending. Accepting it again could
+  // only be refused again, so that one offer's Accept is held; declining it
+  // is still honest and still allowed.
+  const [staleOfferId, setStaleOfferId] = React.useState<string | null>(null);
+  const decide = (decision: 'accept_proposal' | 'reject_proposal') => {
+    // The offer being answered is named, so an accept cannot install a newer
+    // offer the person has not seen.
+    const proposalId = proposal?.proposalId;
+    action.mutate(proposalId ? { action: decision, proposalId } : { action: decision }, {
+      onError: error => {
+        if (!(error instanceof PlanProposalRefusedError)) return;
+        if (error.reason === 'stale_proposal' && proposalId) setStaleOfferId(proposalId);
+        // Said aloud as well as shown: the sentence appears away from the
+        // button that was pressed, where a screen reader's focus is not.
+        AccessibilityInfo.announceForAccessibility(userFacingMessage(error, t));
+      },
+    });
+  };
+  // Until the re-read lands, the offer on screen is the one just refused;
+  // pressing it again could only be refused again.
+  const busy = action.isPending || (refused !== null && query.isFetching === true);
   const range = (interval: { startsAt: string; endsAt: string } | null) => interval
     ? formatTimeRange(new Date(interval.startsAt), new Date(interval.endsAt), { locale: lang, timeZone: query.data?.timezone ?? zone })
     : t.xNotSet;
@@ -160,6 +191,7 @@ export function PatchReviewScreen() {
   />;
   return <ProductPage id="patch" title={t.xPatch} subtitle={t.xPatchBody}>
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
+      {refused ? <Txt role="supporting" color={p.wm} testID="patch-refused">{userFacingMessage(refused, t)}</Txt> : null}
       {proposal ? <>
         <ProductSection title={t.xChanged} body={t[patchReasonKey(proposal.reason)]} icon="calendar" status="AVAILABLE">
           {proposal.changes.filter(change => change.kind !== 'unchanged').map(change => <ProductRow
@@ -179,9 +211,9 @@ export function PatchReviewScreen() {
             {kept.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoResults}</Txt> : kept.map(protectionRow)}
           </ProductSection>
         </View> : null}
-        {action.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(action.error, t)}</Txt> : null}
-        <Pill testID="patch-accept" label={t.xAcceptChanges} disabled={action.isPending} onPress={() => action.mutate('accept_proposal')} />
-        <Pill testID="patch-reject" label={t.xKeepPlan} kind="outline" disabled={action.isPending} onPress={() => action.mutate('reject_proposal')} />
+        {action.error && !refused ? <Txt role="supporting" color={p.wm}>{userFacingMessage(action.error, t)}</Txt> : null}
+        <Pill testID="patch-accept" label={t.xAcceptChanges} disabled={busy || proposal.proposalId === staleOfferId} onPress={() => decide('accept_proposal')} />
+        <Pill testID="patch-reject" label={t.xKeepPlan} kind="outline" disabled={busy} onPress={() => decide('reject_proposal')} />
       </> : <ProductSection title={t.xNoPatch} body={t.xPatchFuture} icon="calendar" />}
     </QueryBoundary>
     <Pill testID="patch-open-plan" label={t.xPlanner} kind="soft" onPress={() => actions.openPlan(dayKey(new Date(), zone))} />

@@ -14,10 +14,13 @@ import {
 } from '../endpoints/plans';
 import {
   PlanEditRefusedError,
+  PlanProposalRefusedError,
   QuotaExceededError,
   ServerError,
   ValidationError,
 } from '../errors';
+import { userFacingMessage } from '../ui/userFacingMessage';
+import { strings } from '../../i18n/strings';
 
 /**
  * The plan routes (UC-3.10a #194, called by UC-3.10b #195).
@@ -169,6 +172,51 @@ describe('acting on a plan', () => {
     const error = await actOnPlan('2026-08-09', { action: 'edit', removals: ['i1'] }).catch(e => e);
     expect(error).toBeInstanceOf(ValidationError);
     expect(error).not.toBeInstanceOf(PlanEditRefusedError);
+  });
+});
+
+describe('answering a plan-change offer (#523, #611)', () => {
+  it('names the offer being answered, so a replaced one cannot be accepted blind', async () => {
+    serve(fixture('plan.accepted'));
+    await actOnPlan('2026-08-09', { action: 'accept_proposal', proposalId: 'prp_on_screen' });
+    await actOnPlan('2026-08-09', { action: 'reject_proposal', proposalId: 'prp_on_screen' });
+    expect(requests.map(request => request.body)).toEqual([
+      { action: 'accept_proposal', proposalId: 'prp_on_screen' },
+      { action: 'reject_proposal', proposalId: 'prp_on_screen' },
+    ]);
+  });
+
+  it.each<[string, PlanProposalRefusedError['reason']]>([
+    ['plan.proposal.stale', 'stale_proposal'],
+    ['plan.proposal.none', 'no_proposal'],
+  ])('keeps the reason of the recorded %s refusal', async (name, reason) => {
+    // The handler's own 422 bodies: no `itemId`, so the edit schema cannot
+    // read them, and they used to fall to a bare ValidationError.
+    serve(fixture(name), 422);
+    const error = await actOnPlan('2026-08-09', { action: 'accept_proposal' }).catch(e => e);
+    expect(error).toBeInstanceOf(PlanProposalRefusedError);
+    expect(error).not.toBeInstanceOf(ValidationError);
+    expect((error as PlanProposalRefusedError).reason).toBe(reason);
+  });
+
+  it('says each refusal in its own words in every language, never "check it and try again"', () => {
+    for (const t of Object.values(strings)) {
+      const stale = userFacingMessage(new PlanProposalRefusedError('stale_proposal'), t);
+      const gone = userFacingMessage(new PlanProposalRefusedError('no_proposal'), t);
+      expect(stale).toBe(t.errorsPlanProposalStale);
+      expect(gone).toBe(t.errorsPlanProposalGone);
+      expect(stale).not.toBe(gone);
+      for (const said of [stale, gone]) {
+        expect(said).not.toBe(t.errorsValidation);
+        expect(said).not.toBe(t.errorsGeneric);
+      }
+    }
+  });
+
+  it('still reads an edit refusal as an edit refusal', async () => {
+    serve({ success: false, error: 'no', reason: 'overlaps_fixed_event', itemId: 'i1' }, 422);
+    const error = await actOnPlan('2026-08-09', { action: 'edit', removals: ['i1'] }).catch(e => e);
+    expect(error).toBeInstanceOf(PlanEditRefusedError);
   });
 });
 

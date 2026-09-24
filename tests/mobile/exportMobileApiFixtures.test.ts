@@ -1562,6 +1562,49 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       [['plan_proposal_accepted', { planDate: PLAN_DATE }]],
     );
 
+    /*
+     * The two refusals the review screen has to say in words (#611). The
+     * client once read both through the edit-refusal schema, which requires an
+     * `itemId` this body never carries, and flattened them into "check it and
+     * try again". Recorded here so the client's `planProposalRejectedSchema`
+     * is checked against what the handler really sends, not against a shape
+     * read out of the route's source.
+     *
+     * `plan.proposal.none`: the offer above was just accepted, and every
+     * action clears `proposal`, so nothing is pending.
+     */
+    const nothingPending = await record('plan.proposal.none', 422, await planActionPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept_proposal' } }),
+      dateParams(PLAN_DATE),
+    ));
+    assert.equal(nothingPending.reason, 'no_proposal');
+
+    /*
+     * `plan.proposal.stale`: the same offer, still on the document, after the
+     * acceptance above moved the generation it was solved against. That is
+     * the state `pendingProposalOf` withholds and accept refuses — an offer a
+     * writer outside the actions route left behind a generation that moved on.
+     * Written straight to the document rather than through
+     * `storePlanProposal`, whose CAS would refuse a stale base and whose
+     * `plan_proposed` entry would change the history fixtures recorded after
+     * this one; the document is put back exactly as it was afterwards.
+     */
+    const beforeStale = await readStoredPlan(USER, PLAN_DATE);
+    assert.ok(beforeStale, 'the accepted plan must still be stored');
+    assert.equal(beforeStale.proposal ?? null, null, 'the acceptance must have cleared the offer');
+    assert.notEqual(
+      offered.proposal.baseGeneration,
+      beforeStale.generation,
+      'the acceptance must have moved the generation, or the offer is not stale',
+    );
+    await getStorage().set(planPath(USER, PLAN_DATE), { ...beforeStale, proposal: offered.proposal });
+    const staleOffer = await record('plan.proposal.stale', 422, await planActionPost(
+      request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept_proposal' } }),
+      dateParams(PLAN_DATE),
+    ));
+    assert.equal(staleOffer.reason, 'stale_proposal');
+    await getStorage().set(planPath(USER, PLAN_DATE), beforeStale);
+
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),
       dateParams('2026-08-10'),
