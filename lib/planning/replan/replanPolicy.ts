@@ -14,7 +14,8 @@
  *    exceeds `maxAutoChurnMinutes`, the policy refuses to overwrite silently and
  *    escalates to `propose_for_review`.
  *  - Under `always_require_confirmation`: every replan is staged as a proposal
- *    requiring explicit confirmation, giving conservative users complete veto.
+ *    requiring explicit confirmation. **The default** since #611's council
+ *    decision (2026-09-24), and the only mode any account reaches today.
  *  - Under `silent_auto`: applies autonomously even with large churn, intended
  *    for fully autonomous operation.
  *

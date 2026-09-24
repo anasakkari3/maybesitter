@@ -47,8 +47,9 @@ export const DEFAULT_DELIVERY_LOCAL_TIME = '07:30';
  * True, and the opposite of `DEFAULT_PLAN_ENABLED` on purpose. The morning
  * delivery defaults off because it *pushes* — it wakes a phone for a plan
  * nobody asked for. Continuous replanning under the default control mode
- * (`automatic_time_only`) does not: it proposes a patch, or shifts a block by
- * minutes inside a churn budget, on a plan the user already has. Defaulting it
+ * (`always_require_confirmation`, since #611's council decision) does not: it
+ * proposes a patch, in the app and without a push, on a plan the user already
+ * has, and changes nothing until they accept it. Defaulting it
  * off would also have silently disabled everything #523 slices 1-3 shipped,
  * for every existing account, on the deploy that added the switch.
  */

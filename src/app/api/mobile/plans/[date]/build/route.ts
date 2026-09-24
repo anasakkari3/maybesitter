@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../..
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
 import { pendingProposalToDto, planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { fixedTimeForOffer } from '../../../../../../../lib/services/dailyPlan/planActions';
 import {
   PlanDateOutOfRangeError,
   buildDailyPlanOnDemand,
@@ -41,7 +42,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     throw error;
   }
   const state = await loadDomainState(getStorage(), user.uid);
-  const titles = titlesOf(Object.values(state.commitments));
+  const commitments = Object.values(state.commitments);
+  const titles = titlesOf(commitments);
+  // The time taken now, read only when there is a live offer to check against
+  // it (#611 guards): an offer that would land on it is withheld.
+  const now = new Date();
+  const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   /*
    * `proposal` rides along because this route's contract, stated above, is
    * that it answers the shape `GET` returns. A freshly built plan has no
@@ -50,5 +56,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
    * two different shapes, or the second one grows a branch for a key the first
    * never sends.
    */
-  return Response.json({ success: true, plan: planToDto(stored, titles), proposal: pendingProposalToDto(stored, titles) });
+  return Response.json({ success: true, plan: planToDto(stored, titles), proposal: pendingProposalToDto(stored, titles, now, taken) });
 }

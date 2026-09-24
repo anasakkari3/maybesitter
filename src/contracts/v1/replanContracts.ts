@@ -118,6 +118,18 @@ export const PLAN_IMPACT_REASONS = Object.freeze([
    * this rather than a verdict nobody reached.
    */
   'plan_dismissed',
+  /**
+   * A blocking interval overlaps the reserved interval of a placement the
+   * pending, unanswered proposal would install (#611 guards).
+   *
+   * Not produced by `evaluateStateChangeImpact`, which judges one plan view.
+   * The pipeline judges each change against the pending proposal as well as
+   * against the visible day, and records this when only the proposal is hit.
+   * `overlaps_scheduled_block` would be a false statement about a change that
+   * overlaps nothing the person has on their day yet: what it contradicts is
+   * the offer beside it.
+   */
+  'overlaps_proposed_block',
 ] as const);
 
 export type PlanImpactReason = (typeof PLAN_IMPACT_REASONS)[number];
@@ -266,13 +278,22 @@ export const REPLAN_EVALUATOR_POLICY = Object.freeze({
 /**
  * How the user controls replan applications.
  *
- *  - `automatic_time_only`: Default. Time-only shifts within acceptable churn
- *    threshold are applied automatically; additions, dropped items, or excessive
- *    churn require explicit confirmation (staged as a proposal).
- *  - `always_require_confirmation`: Every replan requires user confirmation;
- *    staged as a proposal and never auto-applied.
+ *  - `always_require_confirmation`: **The default** (#611's council decision,
+ *    2026-09-24). Every replan requires user confirmation; staged as a
+ *    proposal and never auto-applied.
+ *  - `automatic_time_only`: Time-only shifts within the churn threshold are
+ *    applied automatically; additions, dropped items, or excessive churn
+ *    require explicit confirmation (staged as a proposal). It was the default
+ *    until #611 and is kept, tested, for a future opt-in.
  *  - `silent_auto`: Applies replans autonomously regardless of churn magnitude,
  *    as long as constraints are feasible.
+ *
+ * Only the default is reachable today. There is no per-user mode setting, and
+ * nothing reads a mode from storage: the tick solves every account under
+ * `CONTINUOUS_REPLAN_POLICY.defaultUserControlMode`. The two automatic modes
+ * are reached only by a caller that passes a `policyConfig` in code, and no
+ * production caller does (`tests/dailyPlan/replanProposalGuards.test.ts`
+ * pins both halves of that).
  */
 export const USER_CONTROL_MODES = Object.freeze([
   'automatic_time_only',
@@ -395,7 +416,18 @@ export interface ContinuousReplanPipelineResult {
 }
 
 export const CONTINUOUS_REPLAN_POLICY = Object.freeze({
-  defaultUserControlMode: 'automatic_time_only' as UserControlMode,
+  /**
+   * Every calendar-driven replan is a proposal the person accepts or rejects
+   * (#611's council decision, option B, 2026-09-24).
+   *
+   * It was `automatic_time_only`. The council rejected that as the default
+   * because the first production run would have rewritten plans silently, with
+   * no undo; the 60-minute churn budget measures how much the engine moved,
+   * not how much that harmed the person. `automatic_time_only` may come back
+   * only as an opt-in, once a per-user mode and a one-tap undo exist and
+   * testers accept small proposals unchanged at least 90% of the time.
+   */
+  defaultUserControlMode: 'always_require_confirmation' as UserControlMode,
   defaultMaxAutoChurnMinutes: 60,
   mutatesCommitments: false,
   providerSpecificBranchesAllowed: false,

@@ -72,12 +72,19 @@ export function factsOfBusyBlock(block: BusyBlock | null): ChangedEntityFacts {
   });
 }
 
+/**
+ * What resolution reads of a change: which account, which source, which entity.
+ * A stored proposal's `causeRefs` carry exactly this, so the causes of an offer
+ * can be re-resolved after their change rows were drained (#611 guards).
+ */
+export type EntityRef = Pick<PlanningStateChange, 'changeId' | 'scopeId' | 'source' | 'entityId'>;
+
 export async function resolveChangedEntityFacts(
   uid: string,
-  changes: readonly PlanningStateChange[],
+  changes: readonly EntityRef[],
   deps: { readonly storage: StorageAdapter },
 ): Promise<EntityFactsByChangeId> {
-  const own = (change: PlanningStateChange) => change.scopeId === uid;
+  const own = (change: EntityRef) => change.scopeId === uid;
   const calendarIds = changes.filter((change) => own(change) && change.source === 'calendar').map((change) => change.entityId);
   const blocks = calendarIds.length > 0
     ? await readBusyBlocksById(uid, calendarIds, { storage: deps.storage })
