@@ -73,10 +73,26 @@ test('baseline: every recommendation has concise evidence and no persistence', (
   assert.equal(result.recommendation.persistence.occurred, false);
 });
 
+/**
+ * "Baseline evidence" is what `selectBaselineNextStep` computed: the selection
+ * and each score's evidence codes and labels. Nothing here is frozen: the
+ * fixture pins candidates and the expected id, and the labels come from the
+ * live label table on every run.
+ *
+ * The lateness label once read "overdue". #383 stopped the product saying that
+ * word (onboarding promises there is no "overdue"); the evidence *code* kept its
+ * name and the label became "waiting since its time passed" (0e12e5d6). This
+ * test was outside `npm test`, so it kept expecting the old word until #376.
+ */
 test('baseline: comparison interface cannot mutate or replace baseline evidence', () => {
   const baseline = selectBaselineNextStep(fixture.cases[0].candidates, now, 'en', 'compare');
+  const before = structuredClone(baseline);
   const comparison = compareVariantSelection(baseline, 'today');
+  assert.deepEqual(baseline, before, 'comparing a variant changed the baseline selection');
   assert.equal(comparison.sameSelection, false);
   assert.equal(comparison.baselineCommitmentId, 'overdue');
-  assert.deepEqual(comparison.baselineEvidenceLabels, ['overdue', 'importance: normal']);
+  const selected = baseline.scores.find((score) => score.commitmentId === 'overdue');
+  assert.deepEqual(selected?.evidenceCodes.map((evidence) => evidence.code), ['overdue', 'importance']);
+  assert.deepEqual(comparison.baselineEvidenceLabels, selected?.evidenceLabels);
+  assert.deepEqual(comparison.baselineEvidenceLabels, ['waiting since its time passed', 'importance: normal']);
 });
