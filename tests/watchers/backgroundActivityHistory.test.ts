@@ -206,20 +206,25 @@ test('background activity history exposes event-backed row types (condition chan
     assert.ok(planReconsidered);
     assert.equal(planReconsidered.occurredAt, T4);
     assert.equal(planReconsidered.watcherId, w2.definition.watcherId);
-    assert.equal(planReconsidered.label, 'BA flight 162');
+    // The code stays a code; the user's name travels beside it (#527).
+    assert.equal(planReconsidered.label, 'aviation:flight');
+    assert.equal(planReconsidered.title, 'BA flight 162');
 
     // Verify Row 2: watcher condition changed (at T3)
     const condChanged = history.items.find((i) => i.kind === 'watcher_condition_changed');
     assert.ok(condChanged);
     assert.equal(condChanged.occurredAt, T3);
     assert.equal(condChanged.watcherId, w2.definition.watcherId);
+    assert.equal(condChanged.label, 'aviation:flight');
+    assert.equal(condChanged.title, 'BA flight 162');
 
     // Verify Row 3: notification sent (at T2)
     const notifSent = history.items.find((i) => i.kind === 'notification_sent');
     assert.ok(notifSent);
     assert.equal(notifSent.occurredAt, T2);
     assert.equal(notifSent.watcherId, w1.definition.watcherId);
-    assert.equal(notifSent.label, 'Recovery Monitor');
+    assert.equal(notifSent.label, 'whoop:readiness');
+    assert.equal(notifSent.title, 'Recovery Monitor');
   } finally {
     end();
   }
@@ -334,7 +339,7 @@ test('history strictly isolates accounts', async () => {
     );
     assert.equal(bobView.items.length, 1);
     assert.equal(bobView.items[0]!.watcherId, wBob.definition.watcherId);
-    assert.equal(bobView.items[0]!.label, 'Bob Secret Flight');
+    assert.equal(bobView.items[0]!.title, 'Bob Secret Flight');
   } finally {
     end();
   }

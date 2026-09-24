@@ -150,7 +150,8 @@ export async function listBackgroundActivityHistory(
       ? connections.get(watcher.definition.source.connectionId) ?? null
       : null;
     const status = watcher ? backgroundMonitorStatusOf(watcher, connection) : 'paused';
-    const label = watcher?.definition.label ?? `${event.provider}:${event.signalKind}`;
+    const label = `${event.provider}:${event.signalKind}`;
+    const title = watcher?.definition.label ?? null;
     const monitorId = monitorIdForWatcher(event.watcherId);
 
     if (event.effect === 'notify' && event.outcome === 'effected') {
@@ -159,6 +160,7 @@ export async function listBackgroundActivityHistory(
         monitorId,
         watcherId: event.watcherId,
         label,
+        title,
         occurredAt: event.firedAt,
         kind: 'notification_sent',
         status,
@@ -172,6 +174,7 @@ export async function listBackgroundActivityHistory(
         monitorId,
         watcherId: event.watcherId,
         label,
+        title,
         occurredAt: event.firedAt,
         kind: 'watcher_condition_changed',
         status,
@@ -196,13 +199,14 @@ export async function listBackgroundActivityHistory(
         ? connections.get(watcher.definition.source.connectionId) ?? null
         : null;
       const status = watcher ? backgroundMonitorStatusOf(watcher, connection) : 'active';
-      const label = watcher?.definition.label ?? matchedAttribution.label;
+      const title = watcher?.definition.label ?? null;
 
       pushItem({
         itemId: `his_pr_${stableHash(`${pe.id}:${causeId}`)}`,
         monitorId: matchedAttribution.monitorId,
         watcherId: matchedAttribution.watcherId,
-        label,
+        label: matchedAttribution.label,
+        title,
         occurredAt: pe.at,
         kind: 'plan_reconsidered',
         status,

@@ -59,7 +59,7 @@ describe('watcher mobile boundary', () => {
       paused: false,
       monitors: [{
         monitorId: 'watcher:w-1', watcherId: 'w-1', connectionId: null,
-        label: 'maybesitter:readiness', status: 'active', purpose: 'notice_threshold_crossed',
+        label: 'maybesitter:readiness', title: null, status: 'active', purpose: 'notice_threshold_crossed',
         effects: ['notify'], lastCheckedAt: '2026-09-23T09:00:00.000Z',
         lastChangedAt: null, nextCheckAt: '2026-09-23T09:30:00.000Z', canPause: true, canDelete: true,
       }],

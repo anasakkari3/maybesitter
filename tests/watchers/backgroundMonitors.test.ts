@@ -191,6 +191,8 @@ test('an active watcher is listed as active, with the next check it will actuall
       watcherId: watcher.definition.watcherId,
       connectionId: 'cnx_whoop_1',
       label: 'whoop:readiness',
+      // No name given, so none is invented.
+      title: null,
       status: 'active',
       purpose: 'notice_any_change',
       effects: ['notify'],
@@ -387,7 +389,7 @@ test('no provider token, scope, cursor, account name or error code appears anywh
     for (const monitor of parsed.monitors) {
       assert.deepEqual(Object.keys(monitor).sort(), [
         'canDelete', 'canPause', 'connectionId', 'effects', 'label', 'lastChangedAt',
-        'lastCheckedAt', 'monitorId', 'nextCheckAt', 'purpose', 'status', 'watcherId',
+        'lastCheckedAt', 'monitorId', 'nextCheckAt', 'purpose', 'status', 'title', 'watcherId',
       ]);
     }
   } finally {
