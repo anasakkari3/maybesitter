@@ -1,24 +1,29 @@
 # Store privacy declarations — drafts and the consistency matrix (UC-4.3b, #179)
 
-> This baseline was verified on 2026-09-13. For calendar, health, connected
-> providers, meetings, and subscriptions added by the expansion program, read
-> `EXPANSION_PRIVACY_STORE_DELTA.md` before preparing any console answer.
+> Historical baseline: 2026-09-13. Device ID and Crash data facts were
+> reconciled on 2026-09-24 against `main` at `4424aa83` for #327. Other baseline
+> rows and console answers below are historical drafts, **not a current,
+> complete submission checklist**.
 
-**Neither console exists** (#158 is owner/paid-deferred), so nothing here has
-been submitted. These are the answers to give, worked out against what the code
-actually does, plus the comparison #179 step 7 asks for.
+Read [the expansion delta](EXPANSION_PRIVACY_STORE_DELTA.md) and
+[Clarity's operating policy](../operations/CLARITY.md), then reconcile the
+actual release binary and enabled configuration before answering either store.
+Those documents also have dated evidence; code and final release evidence take
+precedence. Production Clarity remains disabled in `mobile/eas.json`; the SDK
+is installed and its disclosure must be considered before enabling replay.
 
-Verified against `main` on 2026-09-13. Every "not implemented" below was
-checked, not assumed.
+This document does not establish console availability, submission, legal
+approval, or owner sign-off. #327 still requires an explicit owner decision
+for each data type and matching console forms through the store follow-up.
 
 ---
 
-## 1. What the app actually collects today
+## 1. Baseline inventory (historical except the two reconciled rows)
 
-The only honest starting point. A declaration is a claim about the code, and
-these are the claims the code supports right now.
+The non-device/non-crash rows retain the September 13 baseline. Their “no”
+answers must not be reused as current answers for features added since then.
 
-| Data | Collected today? | Where | Evidence |
+| Data | September 13 baseline / stated update | Where | Evidence |
 |---|---|---|---|
 | Email address | **yes** | Firebase Auth | `mobile/src/auth/` |
 | Name | **yes, when the provider gives one** | Firebase Auth | Apple private relay supported; nothing is copied into Firestore |
@@ -30,52 +35,44 @@ these are the claims the code supports right now.
 | Files and docs | **no** | — | S3 (#183) |
 | Calendar events | **no** | — | dev-only demo (#152); real integration is S3 (#185/#186) |
 | Audio | **no** | — | no speech dependency; #163 in flight |
-| Device ID (FCM token) | **no** | — | **no messaging dependency in `mobile/package.json`** |
-| Crash data | **no** | — | **no Crashlytics dependency; #180 open** |
+| Device ID (FCM token and installation ID) | **yes — September 24 code reconciliation** | Account-scoped device registration | `mobile/src/notifications/pushRegistration.ts`; `src/app/api/mobile/devices/route.ts` |
+| Crash data | **yes — September 24 code reconciliation** | Firebase Crashlytics | `mobile/package.json`; `mobile/firebase.json`; `mobile/src/lib/crash.ts` |
 
 ---
 
-## 2. A discrepancy with the iOS privacy manifest (#178)
+## 2. Device ID and Crash data reconciliation (#327)
 
-`mobile/app.config.ts` currently declares two `NSPrivacyCollectedDataTypes`
-that the app does not collect:
+The old “dependencies missing” premise is superseded. No collection or
+manifest behavior is changed by this reconciliation.
 
-- `NSPrivacyCollectedDataTypeDeviceID`, commented "The FCM registration token"
-- `NSPrivacyCollectedDataTypeCrashData`, for Crashlytics
+| Type | Current code evidence | Existing iOS app declaration (unchanged) | Remaining decision/evidence |
+|---|---|---|---|
+| Device ID | `@react-native-firebase/messaging` is installed and configured. In API mode, `registerDeviceForPush` sends the FCM token and persistent installation ID to `/api/mobile/devices`, under the authenticated account. Registration reports permission state, including denied; it is not conditional on notification permission being granted. | `DeviceID`, linked, App Functionality, tracking false | Owner to record the declaration decision and reconcile both console forms with the release binary. The reason to remove it cannot be “the dependency is absent.” |
+| Crash data | Crashlytics is installed and configured. `firebase.json` enables native auto-collection; the JS initializer sets collection off in development and on otherwise. The wrapper allowlists attribute keys and breadcrumb names and does not call `setUserId`. | `CrashData`, not linked, App Functionality, tracking false | Owner to explicitly confirm purpose/linkage after reviewing the installed SDK's collection and the final release configuration, then match the console forms. |
 
-Neither dependency is installed, and #180 is open.
+The absence of an app `setUserId` call is **not proof of anonymity or absence of
+SDK-generated identifiers**, nor does it independently establish the store's
+“not linked” answer. The existing `linked: false` value is reported above, not
+newly approved here. App wrapper tests cannot establish the native SDK's full
+payload or a final store declaration. `recordError` forwards the supplied
+Error; this reconciliation makes no new claim that every possible error
+payload has been inspected.
 
-This is worth naming rather than working around, because **#178's own file
-makes the argument**: it deliberately omits the `1C8F.1` App-Group reason on
-the grounds that *"declaring a reason the app does not use would be
-over-declaring, which is the same kind of inaccuracy as under-declaring."* The
-same reasoning applies to a collected-data type for a dependency that is not
-there.
-
-It is not urgent and it is not a rejection risk. It matters because #179's
-labels must equal the manifest, and #177's policy checklist says these flows do
-not exist — so as things stand the three documents cannot all be true.
-
-**Two ways to make them agree, and this is Agent A's call, not ours:**
-
-1. Remove both types from the manifest now, and add each back in the PR that
-   adds its dependency (#180 for crash data, S3 #194 for the FCM token). This
-   is what the `1C8F.1` decision implies.
-2. Keep them, on the grounds that the manifest ships with the binary and both
-   land before the store submission — and say so in the file, so the next
-   reader does not take it for an error.
-
-The matrix in section 5 marks both rows **pending reconciliation** and must be
-re-read once #180 merges. Nothing here changes `app.config.ts`'s manifest:
-#178 owns it.
+Source checks: `mobile/package.json`, `mobile/app.config.ts`,
+`mobile/firebase.json`, `mobile/src/lib/crash.ts`,
+`mobile/src/lib/installationId.ts`,
+`mobile/src/notifications/pushRegistration.ts`, and
+`src/app/api/mobile/devices/route.ts`. Focused tests are
+`mobile/src/lib/__tests__/crash.test.ts`,
+`mobile/src/notifications/__tests__/pushRegistration.test.ts`, and
+`mobile/src/config/__tests__/appConfig.test.ts`.
 
 ---
 
-## 3. Play Console → App content → Data safety
+## 3. Historical Play Console draft → Data safety
 
-**Only the rows that are true today.** Rows for S3 features are listed at the
-end, to be added with the feature and not before — a Data safety form that
-over-declares invites questions nobody can answer yet.
+**September 13 draft only.** Do not paste these answers into a console without
+reconciling §2, the expansion delta, Clarity, and the release binary.
 
 - Does your app collect or share any of the required user data types? **Yes**
 - Is all of the user data collected by your app encrypted in transit? **Yes**
@@ -98,11 +95,14 @@ inferred.
 **Audio is not collected**, and will not be even after #163: the OS recognizer
 processes the audio and the app receives only text.
 
-**To add with their features, not before:** Photos and Files (S3 #183,
-*processed ephemerally*) · Calendar events (S3 #185/#186) · Device or other IDs
-(S3 #194, the FCM token) · Crash logs and diagnostics (#180, not linked).
+**Current Device ID / Crash data correction:** the relevant Play types are
+Device or other IDs and Crash logs. Both have implemented collection paths
+(§2); they are no longer waiting for missing dependencies. Final required,
+purpose, sharing, and other console answers remain for the release review.
+The older Photos/Files/Calendar deferrals are not current implementation
+status; consult the expansion delta and source.
 
-## Play Console → App content, the rest
+## Historical Play Console draft → App content, the rest
 
 | Item | Answer |
 |---|---|
@@ -117,7 +117,7 @@ processes the audio and the app receives only text.
 
 ---
 
-## 4. App Store Connect → App Privacy
+## 4. Historical App Store Connect draft → App Privacy
 
 | Category | Type | Linked | Tracking | Purpose |
 |---|---|---|---|---|
@@ -130,33 +130,35 @@ processes the audio and the app receives only text.
 **Tracking: No**, for every type. There is no ATT prompt and no tracking
 domain, which the manifest already states.
 
-Pending reconciliation (§2): Identifiers → Device ID, and Diagnostics → Crash
-Data (**not linked**).
+Current additions to reconcile (§2): Identifiers → Device ID and Diagnostics
+→ Crash Data. The app manifest declares the former linked and the latter not
+linked; this records existing values, not final owner approval.
 
 ---
 
-## 5. The consistency matrix (#179 step 7)
+## 5. Baseline consistency matrix (#179 step 7; §2 rows updated)
 
-| Data | iOS manifest (#178) | App Store privacy label | Play Data safety | In the code today |
+| Data | iOS manifest (#178) | App Store privacy label | Play Data safety | Baseline code status / stated update |
 |---|---|---|---|---|
 | Email | `EmailAddress`, linked | Contact Info → Email | Personal info → Email | **yes** |
 | Name | `Name`, linked | Contact Info → Name | Personal info → Name | **yes** |
 | User id | `UserID`, linked | Identifiers → User ID | Personal info → User IDs | **yes** |
 | Captures and commitments | `OtherUserContent`, linked | User Content → Other | App activity → Other UGC | **yes** |
 | Product interaction | `ProductInteraction`, linked, analytics | Usage Data → Product Interaction | App activity → App interactions | **yes, consent-gated** |
-| Device id (FCM) | `DeviceID`, linked | *pending* | *pending* | **no** — pending reconciliation, §2 |
-| Crash data | `CrashData`, **not linked** | *pending* | *pending* | **no** — pending reconciliation, §2 |
+| Device id (FCM / installation) | `DeviceID`, linked | Identifiers → Device ID; final answer pending | Device or other IDs; final answer pending | **yes — September 24**, §2 |
+| Crash data | `CrashData`, **not linked** (existing flag, not newly approved) | Diagnostics → Crash Data; linkage review pending | Crash logs; final answer pending | **yes — September 24**, §2 |
 | Photos / Files | absent | absent | absent | no — S3 #183 |
 | Calendar | absent | absent | absent | no — S3 #185/#186 |
 | Audio | absent | absent | absent | no, and not after #163 |
 | Location | absent | absent | absent | no |
 
-The five implemented rows agree across all three columns today. The two pending
-rows are the whole of §2.
+This is not a complete current-binary matrix: all other rows retain the dated
+baseline, including its absent/“no” entries. §2 supersedes the old missing-SDK
+blockers but does not satisfy #327 owner sign-off or console submission.
 
 ---
 
-## 6. The deletion page
+## 6. Historical deletion-page preparation
 
 Drafted in `site/{en,ar,he}/delete-account.html`, with the same `{{DOMAIN}}` /
 `{{SUPPORT_EMAIL}}` / `{{PRIVACY_EMAIL}}` / `{{LEGAL_NAME}}` /
@@ -174,7 +176,7 @@ nothing until a domain is configured.
 
 ---
 
-## 7. Permissions
+## 7. Historical permission preparation
 
 `android.blockedPermissions` now blocks `USE_EXACT_ALARM` and
 `USE_FULL_SCREEN_INTENT` alongside `SYSTEM_ALERT_WINDOW` and the two storage
@@ -200,13 +202,13 @@ therefore #158. The config test is the part that can run today; it checks what
 
 ---
 
-## 8. What is blocked, and on what
+## 8. Remaining release gates (no console state asserted)
 
-| Item | Blocker |
+| Item | Required evidence / dependency |
 |---|---|
-| Submitting either declaration | **#158** — neither console exists |
-| The deletion URL returning 200 | **#137** — no domain |
-| Device ID and Crash data rows | **#180** — and §2's reconciliation |
-| Photos, Files, Calendar rows | **S3** #183, #185, #186 |
-| Release-AAB permission audit | **#158** — needs an EAS build |
-| Android 14 exact-alarm-denied acceptance | **S3 #197** |
+| #327 final decision | Owner comment naming Device ID and Crash data outcomes; SDK linkage/purpose review, especially Crash data; matching declaration and console forms |
+| Submitting either declaration | Authenticated store access and completed account prerequisites (#158), current release inventory and owner-approved answers; repository text is not submission evidence |
+| Public deletion/privacy URLs | Domain and published legal pages (#137 / #333); verify actual URLs, not placeholders |
+| Expansion and replay declarations | Reconcile the expansion delta, Clarity policy, enabled release configuration, and archived binary; do not reuse historical feature deferrals above |
+| Release permission audit | Inspect the actual release AAB and archived iOS app; source tests do not prove the final native manifests |
+| Reminder device acceptance | Native behavior evidence tracked by #197; this factual document update supplies none |

@@ -287,13 +287,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
        * UC-4.3b (#179).
        *
        * Every entry is `Tracking: false`, because none of it is used to track.
-       * Crash data is the one type that is **not** linked to identity: the
-       * Crashlytics wrapper (UC-4.4 #180) never calls `setUserId`, and a test
-       * greps the app for a call to it — so a crash report cannot be tied back
-       * to a person.
+       * Crash data currently declares `linked: false`. The app wrapper does
+       * not call `setUserId`, but that alone does not establish the SDK's full
+       * identifier/linkage behavior. Final store review remains under #327.
        *
-       * Crashlytics is a real dependency as of #180, so this entry is now true.
-       * `DeviceID` below is the one that is not; see the note on it.
+       * Both Crashlytics and Firebase Messaging are installed. See #327's
+       * factual reconciliation in docs/release/STORE_PRIVACY_DECLARATIONS.md.
        *
        * `OtherUserContent` is the capture text itself — the most sensitive
        * thing here, and the reason it is declared plainly rather than folded
@@ -321,7 +320,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         collected('NSPrivacyCollectedDataTypeDeviceID'),
         // Captures, and the commitments made from them.
         collected('NSPrivacyCollectedDataTypeOtherUserContent'),
-        // Not linked: no `setUserId`, so a crash cannot be tied to a person.
+        // Existing linkage declaration; final SDK/store review remains under #327.
         collected('NSPrivacyCollectedDataTypeCrashData', { linked: false }),
         /*
          * The calendar link (UC-3.1, #185).
