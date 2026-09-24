@@ -150,6 +150,10 @@ import {
   MODULE_CONTRACT_VERSION,
 } from '../../src/contracts/v1/moduleContracts.ts';
 import { resolveModuleRuntime } from '../../src/contracts/v1/runtimeControls.ts';
+import {
+  SYNTHETIC_PLACEHOLDER_MODULE,
+  SYNTHETIC_PLACEHOLDER_ROLES,
+} from '../fixtures/shadowSyntheticPlaceholder.ts';
 import { ALPHA_TRACE_VERSION } from '../../src/contracts/v1/alphaTraceContracts.ts';
 import { ANALYTICS_EVENT_CONTRACT_VERSION } from '../../src/contracts/v1/analyticsEventContracts.ts';
 import { validateAnalyticsEvent } from '../../lib/analytics/privacySafeEvents.ts';
@@ -283,23 +287,34 @@ function proposal(module: ShadowPipelineModule = 'planning'): ShadowEffectPropos
   };
 }
 
+/** The synthetic placeholder's slot, spelled once for the tests below. */
+const PLACEHOLDER = SYNTHETIC_PLACEHOLDER_MODULE;
+
 /**
- * The realistic Sprint 11 run: every implemented module completed, `priority`
- * skipped because it is a placeholder. Deliberately `degraded` rather than
- * `complete` — see the chain's doc comment: a chain containing a stub cannot
- * produce a complete run, and pretending otherwise is the dishonesty the
- * placeholder role exists to prevent.
+ * A run whose chain contains a placeholder: every implemented module completed,
+ * the placeholder skipped. Deliberately `degraded` rather than `complete` — see
+ * the chain's doc comment: a chain containing a stub cannot produce a complete
+ * run, and pretending otherwise is the dishonesty the placeholder role exists
+ * to prevent.
+ *
+ * This was "the realistic Sprint 11 run", with `priority` as the placeholder,
+ * derived from `SHADOW_MODULE_ROLES`. Since #131 the real table has no
+ * placeholder, so derived from it this fixture would be a `degraded` run that
+ * names no degraded module — which is what made fourteen tests here fail at the
+ * flip. It is derived from the synthetic table instead: the same shape, one
+ * placeholder skipped, and the tampering tests below keep a clean degraded
+ * baseline to break. `completeOutcome` is the realistic run now.
  */
 function degradedOutcome(): ShadowDegradedOutcome {
   const moduleOutcomes = {} as Record<ShadowPipelineModule, ShadowModuleOutcome>;
   for (const module of SHADOW_PIPELINE_CHAIN) {
     moduleOutcomes[module] = moduleOutcome(
       module,
-      SHADOW_MODULE_ROLES[module] === 'placeholder' ? 'skipped' : 'completed',
+      SYNTHETIC_PLACEHOLDER_ROLES[module] === 'placeholder' ? 'skipped' : 'completed',
     );
   }
   const placeholders = SHADOW_PIPELINE_CHAIN.filter(
-    (module) => SHADOW_MODULE_ROLES[module] === 'placeholder',
+    (module) => SYNTHETIC_PLACEHOLDER_ROLES[module] === 'placeholder',
   );
   return {
     version: SHADOW_PIPELINE_CONTRACT_VERSION,
@@ -320,6 +335,36 @@ function degradedOutcome(): ShadowDegradedOutcome {
       ],
       crossedFailClosedModule: false,
     },
+    withheldReason: null,
+    totalElapsedMs: 3_000,
+  };
+}
+
+/**
+ * The realistic run since #131: the real role table has no placeholder, every
+ * chain module completed, and the run is `complete` with no degradation.
+ */
+function completeOutcome(): ShadowCompleteOutcome {
+  const moduleOutcomes = {} as Record<ShadowPipelineModule, ShadowModuleOutcome>;
+  for (const module of SHADOW_PIPELINE_CHAIN) {
+    moduleOutcomes[module] = moduleOutcome(
+      module,
+      SHADOW_MODULE_ROLES[module] === 'placeholder' ? 'skipped' : 'completed',
+    );
+  }
+  return {
+    version: SHADOW_PIPELINE_CONTRACT_VERSION,
+    schemaVersion: SHADOW_PIPELINE_SCHEMA_VERSION,
+    runId: RUN_ID,
+    completeness: 'complete',
+    moduleOutcomes,
+    deliverable: {
+      coachingDeliveryDigest: DIGEST,
+      safetyDisposition: 'allow',
+      wouldHaveBeenShown: false,
+      proposedEffects: [proposal()],
+    },
+    degradation: null,
     withheldReason: null,
     totalElapsedMs: 3_000,
   };
@@ -755,10 +800,18 @@ test('the roles, stances, positions and contribution table are total over the ch
     SHADOW_PIPELINE_CHAIN.filter((module) => SHADOW_MODULE_FAILURE_STANCE[module] === 'fail_closed'),
     ['safety'],
   );
-  // Exactly one placeholder, and it is the module `moduleContracts` still stubs.
+  // No placeholder: `moduleContracts` stubs no chain module since #131, and
+  // `registryDrift.test.ts` binds the two tables. This read "exactly one
+  // placeholder, and it is priority" until then.
   assert.deepEqual(
     SHADOW_PIPELINE_CHAIN.filter((module) => SHADOW_MODULE_ROLES[module] === 'placeholder'),
-    ['priority'],
+    [],
+  );
+  // The synthetic table the placeholder tests use has exactly one, so the
+  // placeholder rules below are exercised against a real placeholder shape.
+  assert.deepEqual(
+    SHADOW_PIPELINE_CHAIN.filter((module) => SYNTHETIC_PLACEHOLDER_ROLES[module] === 'placeholder'),
+    [PLACEHOLDER],
   );
 });
 
@@ -949,30 +1002,55 @@ test('the write surface names what this contract does not close', () => {
 
 /* ── The outcome checker ─────────────────────────────────────────── */
 
-test('the realistic Sprint 11 run is clean, and it is degraded rather than complete', () => {
+test('the realistic run is clean, and since #131 it is complete: every module contributed', () => {
+  const outcome = completeOutcome();
+  assert.deepEqual(checkShadowPipelineOutcome(outcome), []);
+  assert.equal(outcome.completeness, 'complete');
+  assert.deepEqual(nonContributingModules(outcome), []);
+  assert.deepEqual(contributingModules(outcome), [...SHADOW_PIPELINE_CHAIN]);
+});
+
+test('a run whose chain contains a placeholder is clean, and it is degraded rather than complete', () => {
+  // What "the realistic Sprint 11 run" asserted while `priority` was the
+  // placeholder, now asserted of the synthetic one — and checked against the
+  // role table that makes it a placeholder, not only the default.
   const outcome = degradedOutcome();
+  assert.deepEqual(checkShadowPipelineOutcome(outcome, SYNTHETIC_PLACEHOLDER_ROLES), []);
   assert.deepEqual(checkShadowPipelineOutcome(outcome), []);
   assert.equal(outcome.completeness, 'degraded');
-  assert.deepEqual(nonContributingModules(outcome), ['priority']);
-  assert.deepEqual(contributingModules(outcome), [
-    'capture',
-    'memory',
-    'decomposition',
-    'planning',
-    'recommendation',
-    'coaching',
-    'safety',
-  ]);
+  assert.deepEqual(nonContributingModules(outcome), [PLACEHOLDER]);
+  assert.deepEqual(
+    contributingModules(outcome),
+    SHADOW_PIPELINE_CHAIN.filter((module) => module !== PLACEHOLDER),
+  );
+  assert.equal(outcome.moduleOutcomes[PLACEHOLDER].reason, 'module_placeholder');
 });
 
 test('a placeholder module claiming completion is reported, and so is the completion claim it enables', () => {
   const dishonest = tampered(degradedOutcome(), (draft) => {
     const outcomes = draft.moduleOutcomes as Record<string, Record<string, unknown>>;
-    outcomes.priority = { ...outcomes.priority, status: 'completed', contributed: true, reason: null, outputDigest: DIGEST };
+    outcomes[PLACEHOLDER] = {
+      ...outcomes[PLACEHOLDER],
+      status: 'completed',
+      contributed: true,
+      reason: null,
+      outputDigest: DIGEST,
+    };
     draft.completeness = 'complete';
     draft.degradation = null;
   });
-  assert.deepEqual(codesOf(checkShadowPipelineOutcome(dishonest)), ['PLACEHOLDER_MODULE_CLAIMS_COMPLETION']);
+  const findings = checkShadowPipelineOutcome(dishonest, SYNTHETIC_PLACEHOLDER_ROLES);
+  assert.deepEqual(codesOf(findings), ['PLACEHOLDER_MODULE_CLAIMS_COMPLETION']);
+  assert.equal(findings[0].module, PLACEHOLDER);
+
+  // The rule reads the role table it is given and nothing else: under the real
+  // table the same module is implemented, and the same outcome is simply a
+  // clean complete run. That is also the flip itself — `priority` completing
+  // was this finding until #131.
+  assert.deepEqual(checkShadowPipelineOutcome(dishonest), []);
+  const priorityCompletes = completeOutcome();
+  assert.equal(priorityCompletes.moduleOutcomes.priority.status, 'completed');
+  assert.deepEqual(checkShadowPipelineOutcome(priorityCompletes), []);
 });
 
 test('a complete outcome carrying a non-contributor is reported', () => {
@@ -986,11 +1064,11 @@ test('a complete outcome carrying a non-contributor is reported', () => {
 test('a status and a contribution flag that disagree are reported', () => {
   const lying = tampered(degradedOutcome(), (draft) => {
     const outcomes = draft.moduleOutcomes as Record<string, Record<string, unknown>>;
-    outcomes.priority.contributed = true;
+    outcomes[PLACEHOLDER].contributed = true;
   });
   const findings = checkShadowPipelineOutcome(lying);
   assert.ok(codesOf(findings).includes('MODULE_CONTRIBUTION_DISAGREES_WITH_STATUS'));
-  assert.equal(findings[0].module, 'priority');
+  assert.equal(findings[0].module, PLACEHOLDER);
 });
 
 test('a fail-closed module that did not contribute may not leave a deliverable', () => {
@@ -1006,7 +1084,7 @@ test('a fail-closed module that did not contribute may not leave a deliverable',
       elapsedMs: SHADOW_MODULE_TIMEOUT_BUDGET_MS.safety,
       budgetMs: SHADOW_MODULE_TIMEOUT_BUDGET_MS.safety,
     };
-    (draft.degradation as Record<string, unknown>).nonContributingModules = ['priority', 'safety'];
+    (draft.degradation as Record<string, unknown>).nonContributingModules = [PLACEHOLDER, 'safety'];
     (draft.degradation as Record<string, unknown>).crossedFailClosedModule = true;
   });
   const findings = checkShadowPipelineOutcome(ungated);
@@ -1055,11 +1133,11 @@ test('a proposal that claims it was applied is reported: the type guarantee at t
 test('a proposal attributed to a module that did not contribute is reported', () => {
   const orphan = tampered(degradedOutcome(), (draft) => {
     const deliverable = draft.deliverable as Record<string, unknown>;
-    (deliverable.proposedEffects as Record<string, unknown>[])[0].proposedBy = 'priority';
+    (deliverable.proposedEffects as Record<string, unknown>[])[0].proposedBy = PLACEHOLDER;
   });
   const findings = checkShadowPipelineOutcome(orphan);
   assert.deepEqual(codesOf(findings), ['PROPOSAL_FROM_NON_CONTRIBUTING_MODULE']);
-  assert.equal(findings[0].module, 'priority');
+  assert.equal(findings[0].module, PLACEHOLDER);
 });
 
 test('digests are hex, present when there is output and absent when there is not', () => {
@@ -1077,7 +1155,7 @@ test('digests are hex, present when there is output and absent when there is not
   assert.deepEqual(codesOf(checkShadowPipelineOutcome(prose)), ['MODULE_DIGEST_MALFORMED']);
 
   const spurious = tampered(degradedOutcome(), (draft) => {
-    (draft.moduleOutcomes as Record<string, Record<string, unknown>>).priority.outputDigest = DIGEST;
+    (draft.moduleOutcomes as Record<string, Record<string, unknown>>)[PLACEHOLDER].outputDigest = DIGEST;
   });
   assert.deepEqual(codesOf(checkShadowPipelineOutcome(spurious)), [
     'MODULE_DIGEST_PRESENT_WITHOUT_CONTRIBUTION',
@@ -1196,19 +1274,19 @@ test('a stage that did not complete and states no reason is reported', () => {
   const outcome = degradedOutcome();
   const silent = tampered(traceFor(outcome), (draft) => {
     const stages = draft.stages as Record<string, unknown>[];
-    const stage = stages.find((candidate) => candidate.module === 'priority');
+    const stage = stages.find((candidate) => candidate.module === PLACEHOLDER);
     if (stage !== undefined) stage.reason = null;
   });
   const findings = checkShadowTrace(silent, outcome);
   assert.deepEqual(codesOf(findings), ['TRACE_REASON_MISSING']);
-  assert.equal(findings[0].module, 'priority');
+  assert.equal(findings[0].module, PLACEHOLDER);
 });
 
 test('a reason that cannot produce its status is reported', () => {
   const outcome = degradedOutcome();
   const incoherent = tampered(traceFor(outcome), (draft) => {
     const stages = draft.stages as Record<string, unknown>[];
-    const stage = stages.find((candidate) => candidate.module === 'priority');
+    const stage = stages.find((candidate) => candidate.module === PLACEHOLDER);
     if (stage !== undefined) {
       stage.status = 'timed_out';
       stage.reason = 'feature_disabled';
@@ -1235,7 +1313,7 @@ test('a stage blaming a switch its own runtime decision says was not thrown is r
   const outcome = degradedOutcome();
   const narrated = tampered(traceFor(outcome), (draft) => {
     const stages = draft.stages as Record<string, unknown>[];
-    const stage = stages.find((candidate) => candidate.module === 'priority');
+    const stage = stages.find((candidate) => candidate.module === PLACEHOLDER);
     if (stage !== undefined) {
       stage.status = 'skipped';
       stage.reason = 'kill_switch_active';

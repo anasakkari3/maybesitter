@@ -23,14 +23,21 @@
  * All three suites would stay green if #45's orchestrator produced traces #46
  * cannot read and outcomes #47 cannot score. This file is where that is checked.
  *
- * ── What is asserted as a *limitation* rather than smoothed over ──
+ * ── What was asserted as a *limitation*, and what replaced it ─────
  *
- * `priority` is a placeholder in the registry, so every Sprint 11 run is
- * `degraded` and none is ever `complete`. That is pinned here too, at the join,
- * because it is the fact that makes "the run degraded" useless as a
+ * `priority` was a placeholder in the registry, so every Sprint 11 run was
+ * `degraded` and none was ever `complete`. That was pinned here, at the join,
+ * because it was the fact that made "the run degraded" useless as a
  * discriminating assertion — which is why #46's kill-switch sweep had to assert
- * stance, reason, runtime decision and blast radius instead. See
- * `registryDrift.test.ts` for why it was not simply fixed at integration.
+ * stance, reason, runtime decision and blast radius instead. It still does:
+ * those four are stronger than completeness, and #131 did not weaken them.
+ *
+ * #131 corrected the registry and the role table together, as the pin below
+ * said someone eventually would. A clean run is now `complete`, so "the run
+ * degraded" discriminates again; the pin now asserts that, and every reliability
+ * figure measured over the old chain is re-derived in its own suite
+ * (`shadowSloReadings.test.ts` is where the sample counts moved from 7 to 8
+ * executing modules).
  */
 
 import test from 'node:test';
@@ -41,7 +48,6 @@ import { fileURLToPath } from 'node:url';
 
 import {
   SHADOW_PIPELINE_CHAIN,
-  SHADOW_MODULE_ROLES,
   checkShadowInertness,
   checkShadowPipelineOutcome,
   checkShadowTrace,
@@ -130,17 +136,18 @@ test('the real orchestrator emits a bundle every contract checker accepts', asyn
   assert.deepEqual(checkShadowInertness(bundle.outcome), []);
 });
 
-test('every Sprint 11 run is degraded and priority is the only non-contributor', async () => {
-  // The limitation, pinned at the join. If the registry and the role table are
-  // ever corrected together, this fails and someone re-reads the sprint's
-  // reliability figures — which is the point.
+test('a clean run is complete at the join, and every chain module contributes', async () => {
+  // Was `every Sprint 11 run is degraded and priority is the only
+  // non-contributor`, whose comment said: "if the registry and the role table
+  // are ever corrected together, this fails and someone re-reads the sprint's
+  // reliability figures". #131 corrected them, this failed, and the figures were
+  // re-read (see this file's header). What it pins now is the new fact at the
+  // same join: nothing is missing from a clean run, in chain order.
   const bundle = await realRun();
-  assert.equal(bundle.outcome.completeness, 'degraded');
-  assert.deepEqual(nonContributingModules(bundle.outcome), ['priority']);
-  assert.deepEqual(
-    contributingModules(bundle.outcome).slice().sort(),
-    SHADOW_PIPELINE_CHAIN.filter((m) => SHADOW_MODULE_ROLES[m] !== 'placeholder').slice().sort(),
-  );
+  assert.equal(bundle.outcome.completeness, 'complete');
+  assert.equal(bundle.outcome.degradation, null);
+  assert.deepEqual(nonContributingModules(bundle.outcome), []);
+  assert.deepEqual(contributingModules(bundle.outcome), [...SHADOW_PIPELINE_CHAIN]);
 });
 
 /* ── 2. #46 reads #45's real trace ───────────────────────────────── */

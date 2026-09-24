@@ -11,8 +11,8 @@
  * behaviour was governed by a copy while the registry was free to drift away
  * from it.
  *
- * That was not hypothetical. `INTELLIGENCE_MODULE_CONTRACTS.priority` reads
- * `not_implemented_in_sprint_00` while `lib/priority/priorityScorer.ts` is real
+ * That was not hypothetical. `INTELLIGENCE_MODULE_CONTRACTS.priority` read
+ * `not_implemented_in_sprint_00` while `lib/priority/priorityScorer.ts` was real
  * and imported by shipped code (`lib/utils/agendaScoring.ts`). Integration
  * corrected the registry entry to see what would happen and **nothing failed**:
  * the orchestrator kept skipping priority because it reads the copy. The
@@ -31,15 +31,19 @@
  * `moduleContracts.ts`, where importing the constant back would close a TDZ
  * cycle.
  *
- * ── Why the flip was not made here ───────────────────────────────
+ * ── The flip, and what exercises the placeholder path now ────────
  *
- * Correcting the registry *and* the role table together is right, and it is not
- * an integration-time change: `priority` is the only placeholder in the chain,
- * so it is the sole exemplar the contract suite uses to exercise skipping,
- * degradation, non-contribution and the fail-closed interaction. Flipping it
- * failed 67 tests and would have left the `placeholder` path with nothing
- * exercising it at all. Filed instead, with this test as the tripwire so the
- * two lists cannot drift further apart in the meantime.
+ * Correcting the registry *and* the role table together was right, and it was
+ * not an integration-time change: `priority` was the only placeholder in the
+ * chain, so it was the sole exemplar the suites used to exercise skipping,
+ * degradation, non-contribution and the fail-closed interaction. Integration
+ * filed it (#131) with this file as the tripwire.
+ *
+ * #131 made the flip: both tables moved in one commit, and the drift inventory
+ * below is empty with no module in it. The placeholder path is now exercised
+ * through a synthetic role table (`tests/fixtures/shadowSyntheticPlaceholder.ts`)
+ * — and because a synthetic stand-in is only as good as its resemblance to what
+ * it stands in for, the last test here pins the properties that make it one.
  */
 
 import test from 'node:test';
@@ -47,9 +51,20 @@ import assert from 'node:assert/strict';
 
 import { INTELLIGENCE_MODULE_CONTRACTS } from '../../src/contracts/v1/moduleContracts.ts';
 import {
+  SHADOW_MODULE_FAILURE_STANCE,
   SHADOW_MODULE_ROLES,
   SHADOW_PIPELINE_CHAIN,
 } from '../../src/contracts/v1/shadowPipelineContracts.ts';
+import { SHADOW_MODULE_PREREQUISITES } from '../../lib/shadowPipeline/orchestrator.ts';
+import {
+  SHADOW_DRILL_HARD_DEPENDENCY,
+  SHADOW_KILL_SWITCH_STANCE,
+} from '../../lib/operations/shadowDrillPipeline.ts';
+import {
+  SYNTHETIC_PLACEHOLDER_DRILL_PROFILE,
+  SYNTHETIC_PLACEHOLDER_MODULE,
+  SYNTHETIC_PLACEHOLDER_ROLES,
+} from '../fixtures/shadowSyntheticPlaceholder.ts';
 
 const PROVENANCE = {
   traceId: 'registry-drift',
@@ -64,9 +79,10 @@ const PROVENANCE = {
  *
  * Not "iff `status === 'implemented'`", which was this helper's first form and
  * was wrong about `capture`: its descriptor returns a domain payload,
- * `{ disposition, commitmentCount }`, with no `status` field at all. Six of the
- * eight use the `ImplementedModuleOutput` envelope, `priority` uses the
- * placeholder sentinel, and `capture` uses neither — so a predicate written
+ * `{ disposition, commitmentCount }`, with no `status` field at all. Seven of
+ * the eight use the `ImplementedModuleOutput` envelope (six did while `priority`
+ * still answered the placeholder sentinel), and `capture` uses neither — so a
+ * predicate written
  * around the envelope reports the one module that does the most work as the one
  * that does none.
  *
@@ -127,4 +143,74 @@ test('the registry disagreement this test was written for is the one that exists
     [],
     'the two lists disagree; the first test above names which and why it matters',
   );
+});
+
+test('no chain module is a placeholder in either table, and priority is the one #131 moved', async () => {
+  // The positive half of the flip, stated so that reverting it is a named
+  // failure and not only a drift: both tables say implemented for every module,
+  // and the priority descriptor names the entry point the shadow adapter binds.
+  for (const module of SHADOW_PIPELINE_CHAIN) {
+    assert.equal(SHADOW_MODULE_ROLES[module], 'implemented', `${module} is a placeholder in the role table`);
+    const { role, output } = await registryRoleOf(module);
+    assert.equal(role, 'implemented', `${module}'s descriptor answers the placeholder sentinel: ${output}`);
+  }
+  const priority = await INTELLIGENCE_MODULE_CONTRACTS.priority.execute({
+    provenance: PROVENANCE,
+    input: {},
+  } as never);
+  assert.equal(priority.ok, true);
+  assert.deepEqual(priority.ok ? priority.output : null, {
+    status: 'implemented',
+    module: 'priority',
+    schemaVersion: 'priority-v1',
+    entryPoint: 'lib/priority/priorityScorer#rankPriorities',
+  });
+});
+
+test('the synthetic placeholder has the shape the old placeholder had', () => {
+  // What the re-pointed placeholder tests rely on, one property at a time. If
+  // any of these stops holding, those tests are testing something else — a
+  // placeholder that withholds, or one whose skip cascades — while still
+  // passing.
+  const module = SYNTHETIC_PLACEHOLDER_MODULE;
+
+  // Exactly one slot differs from the real table, and it is the named one.
+  const differing = SHADOW_PIPELINE_CHAIN.filter(
+    (candidate) => SYNTHETIC_PLACEHOLDER_ROLES[candidate] !== SHADOW_MODULE_ROLES[candidate],
+  );
+  assert.deepEqual(differing, [module]);
+  assert.equal(SYNTHETIC_PLACEHOLDER_ROLES[module], 'placeholder');
+
+  // Degrade-open: a skipped placeholder degrades the run, never withholds it.
+  assert.equal(SHADOW_MODULE_FAILURE_STANCE[module], 'degrade_open');
+
+  // Nobody needs it, so its skip cascades nowhere — in the orchestrator's
+  // wiring or in the drill's.
+  for (const candidate of SHADOW_PIPELINE_CHAIN) {
+    assert.equal(
+      SHADOW_MODULE_PREREQUISITES[candidate].includes(module),
+      false,
+      `${candidate} lists the synthetic placeholder as a prerequisite`,
+    );
+    assert.notEqual(
+      SHADOW_DRILL_HARD_DEPENDENCY[candidate],
+      module,
+      `${candidate} hard-depends on the synthetic placeholder in the drill`,
+    );
+  }
+
+  // It is not priority: a stubbed priority would read as the stale fact #131
+  // removed.
+  assert.notEqual(module, 'priority');
+
+  // The drill profile moves the role and the stance together, and nothing else.
+  assert.equal(SYNTHETIC_PLACEHOLDER_DRILL_PROFILE.roles, SYNTHETIC_PLACEHOLDER_ROLES);
+  assert.deepEqual(
+    SHADOW_PIPELINE_CHAIN.filter(
+      (candidate) =>
+        SYNTHETIC_PLACEHOLDER_DRILL_PROFILE.killSwitchStance[candidate] !== SHADOW_KILL_SWITCH_STANCE[candidate],
+    ),
+    [module],
+  );
+  assert.equal(SYNTHETIC_PLACEHOLDER_DRILL_PROFILE.killSwitchStance[module], 'skipped_no_fallback');
 });

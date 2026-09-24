@@ -11,11 +11,14 @@
  * model path it was allowed to.
  *
  * "The run degrades to the documented stance" needs the stance to be documented
- * somewhere a test can read, and `SHADOW_KILL_SWITCH_STANCE` is that. It is not
- * uniform: `priority` is a placeholder, so there is no rules-only mode for it to
- * fall back into and the honest record is `skipped`. A test that expected
- * `fell_back` everywhere would have forced the fixture to lie about the one
- * module in the chain that has nothing behind it.
+ * somewhere a test can read, and `SHADOW_KILL_SWITCH_STANCE` is that. The type
+ * is not uniform: a placeholder has no rules-only mode to fall back into, so
+ * its honest record is `skipped`. `priority` held that row until #131 made it
+ * implemented, and since then every real row is `rules_only_fallback`; the
+ * placeholder stance is exercised through a synthetic profile
+ * (`tests/fixtures/shadowSyntheticPlaceholder.ts`). A test that expected
+ * `fell_back` everywhere would force the fixture to lie about a module that has
+ * nothing behind it.
  *
  * Every run in the sweep is put through `checkShadowPipelineOutcome` and
  * `checkShadowTrace` before anything is concluded from it. A degraded run that
@@ -39,6 +42,11 @@ import {
   runShadowDrill,
   shadowDrillEnv,
 } from '../../lib/operations/shadowDrillPipeline.ts';
+import {
+  SYNTHETIC_PLACEHOLDER_DRILL_PROFILE,
+  SYNTHETIC_PLACEHOLDER_MODULE,
+  SYNTHETIC_PLACEHOLDER_ROLES,
+} from '../fixtures/shadowSyntheticPlaceholder.ts';
 import {
   expectedStatusForStance,
   shadowKillSwitchCasePassed,
@@ -69,8 +77,38 @@ test('the baseline run throws no switch and executes every implemented module', 
       `${invocation.module} did not take the path its role allows`,
     );
   }
-  assert.equal(result.bundle.outcome.completeness, 'degraded');
+  // Every module is implemented since #131, so every one took the model path
+  // and the baseline is `complete` — `degraded` here meant "priority was
+  // skipped" and nothing about any switch.
+  assert.equal(result.invocations.length, SHADOW_PIPELINE_CHAIN.length);
+  assert.equal(result.invocations.every((invocation) => invocation.modelExecuted), true);
+  assert.equal(result.bundle.outcome.completeness, 'complete');
   assert.equal(result.bundle.outcome.deliverable !== null, true);
+
+  // The same baseline with a placeholder in the chain: the role clause above
+  // has to hold in its `false` direction too, or it is only ever checked for
+  // `true`.
+  const stubbed = await runShadowDrill({
+    runId: 'drill-baseline-placeholder',
+    scopeId: 'drill-scope',
+    startedAt: STARTED_AT,
+    env: shadowDrillEnv(),
+    profile: SYNTHETIC_PLACEHOLDER_DRILL_PROFILE,
+  });
+  assert.deepEqual(checkShadowPipelineOutcome(stubbed.bundle.outcome, SYNTHETIC_PLACEHOLDER_ROLES), []);
+  assert.deepEqual(checkShadowTrace(stubbed.bundle.trace, stubbed.bundle.outcome), []);
+  for (const invocation of stubbed.invocations) {
+    assert.equal(
+      invocation.modelExecuted,
+      SYNTHETIC_PLACEHOLDER_ROLES[invocation.module] === 'implemented',
+      `${invocation.module} did not take the path its synthetic role allows`,
+    );
+  }
+  assert.equal(
+    stubbed.bundle.outcome.moduleOutcomes[SYNTHETIC_PLACEHOLDER_MODULE].reason,
+    'module_placeholder',
+  );
+  assert.equal(stubbed.bundle.outcome.completeness, 'degraded');
 });
 
 test('every module in the chain degrades to its documented stance when its switch is thrown', async () => {
@@ -111,18 +149,44 @@ test('the sweep covers the chain exactly once, in chain order', async () => {
 });
 
 test('the placeholder module is skipped rather than falling back to a stub', async () => {
-  const cases = await sweepShadowKillSwitches({ startedAt: STARTED_AT });
-  const priority = cases.find((drillCase) => drillCase.module === 'priority');
-  assert.ok(priority);
-  assert.equal(SHADOW_MODULE_ROLES.priority, 'placeholder');
-  assert.equal(SHADOW_KILL_SWITCH_STANCE.priority, 'skipped_no_fallback');
-  assert.equal(priority.observedStatus, 'skipped');
+  // Was asserted of `priority`. #131 made priority implemented, so the stance
+  // and the switch-before-role precedence are asserted of the synthetic
+  // placeholder, swept exactly as the real chain is.
+  const cases = await sweepShadowKillSwitches({
+    startedAt: STARTED_AT,
+    profile: SYNTHETIC_PLACEHOLDER_DRILL_PROFILE,
+  });
+  assert.equal(cases.length, SHADOW_PIPELINE_CHAIN.length);
+  const stub = cases.find((drillCase) => drillCase.module === SYNTHETIC_PLACEHOLDER_MODULE);
+  assert.ok(stub);
+  assert.equal(stub.stance, 'skipped_no_fallback');
+  assert.equal(stub.observedStatus, 'skipped');
   assert.equal(
-    priority.observedReason,
+    stub.observedReason,
     'kill_switch_active',
     'the operator action is the fact that explains this run; "always a stub" explains every run',
   );
-  assert.equal(priority.contributed, false);
+  assert.equal(stub.contributed, false);
+  assert.equal(stub.modelExecuted, false);
+  assert.deepEqual([...stub.otherModulesAffected], []);
+  assert.equal(stub.passed, true, 'the placeholder case did not reach its documented stance');
+  // Every other case in the stubbed sweep still passes, so the placeholder
+  // costs nothing but itself.
+  assert.deepEqual(
+    cases.filter((drillCase) => !drillCase.passed).map((drillCase) => drillCase.module),
+    [],
+  );
+
+  // And the real row it replaced: priority now answers rules-only under its
+  // switch, like every other module, and still contributes.
+  const real = await sweepShadowKillSwitches({ startedAt: STARTED_AT });
+  const priority = real.find((drillCase) => drillCase.module === 'priority');
+  assert.ok(priority);
+  assert.equal(SHADOW_KILL_SWITCH_STANCE.priority, 'rules_only_fallback');
+  assert.equal(priority.observedStatus, 'fell_back');
+  assert.equal(priority.observedReason, 'kill_switch_active');
+  assert.equal(priority.contributed, true);
+  assert.equal(priority.passed, true);
 });
 
 test('a rules-only fallback still contributes, so the gate is not starved by its own switch', async () => {
@@ -132,9 +196,12 @@ test('a rules-only fallback still contributes, so the gate is not starved by its
   assert.equal(SHADOW_MODULE_FAILURE_STANCE.safety, 'fail_closed');
   assert.equal(safety.observedStatus, 'fell_back');
   assert.equal(safety.contributed, true);
+  // `complete`, not `degraded`, since #131: a rules-only answer contributes, and
+  // with no placeholder left nothing else is missing. What this guards is
+  // unchanged — the run was not withheld — and is now asserted exactly.
   assert.equal(
     safety.completeness,
-    'degraded',
+    'complete',
     'a rules-only gate answered; the withheld path is the gate not answering at all',
   );
 });

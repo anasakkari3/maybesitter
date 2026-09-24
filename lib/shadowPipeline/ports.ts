@@ -69,10 +69,12 @@ export type ShadowRaceResult<T> =
  * *what* it abandoned produces a diagnostic nobody can act on, and — the reason
  * it was added — a recording implementation in a test cannot attribute a budget
  * to a module without it. Inferring the module from call order was the first
- * attempt and it was wrong within one run: `priority` is a placeholder and is
- * never raced, so the nth race is not the nth chain module, and the recorder
- * silently attributed every budget after `memory` to the wrong module while
- * passing. A test that mis-attributes and passes is worse than no test.
+ * attempt and it was wrong within one run: `priority` was then a placeholder
+ * and was never raced, so the nth race was not the nth chain module, and the
+ * recorder silently attributed every budget after `memory` to the wrong module
+ * while passing. A test that mis-attributes and passes is worse than no test.
+ * Any placeholder or skipped module still breaks call-order inference, which is
+ * why the parameter stays now that every real module is raced (#131).
  *
  * Implementations must not throw: a `threw` variant exists precisely so that a
  * module that rejects is a *reported* outcome rather than an exception the

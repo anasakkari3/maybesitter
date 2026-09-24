@@ -28,7 +28,6 @@ import assert from 'node:assert/strict';
 
 import {
   SHADOW_MODULE_FAILURE_STANCE,
-  SHADOW_MODULE_ROLES,
   SHADOW_MODULE_TIMEOUT_BUDGET_MS,
   SHADOW_PIPELINE_CHAIN,
   SHADOW_PIPELINE_CHAIN_POSITION,
@@ -39,6 +38,7 @@ import {
   nonContributingModules,
   shadowReplayPreimage,
   type ShadowModuleAdapter,
+  type ShadowModuleRoleTable,
   type ShadowPipelineModule,
 } from '../../src/contracts/v1/shadowPipelineContracts.ts';
 import {
@@ -55,6 +55,14 @@ import {
   testControls,
   testInput,
 } from './harness.ts';
+import {
+  SYNTHETIC_PLACEHOLDER_MODULE,
+  SYNTHETIC_PLACEHOLDER_ROLES,
+  syntheticPlaceholderRolesAt,
+} from '../fixtures/shadowSyntheticPlaceholder.ts';
+
+/** The synthetic placeholder's slot. See the fixture for why it is this one. */
+const PLACEHOLDER = SYNTHETIC_PLACEHOLDER_MODULE;
 
 /** One run with fully controllable ports. Fresh ledger per run, always. */
 async function runWith(options: {
@@ -62,6 +70,8 @@ async function runWith(options: {
   readonly script?: Parameters<typeof createTestDeadline>[0]['script'];
   readonly elapsedFor?: (module: ShadowPipelineModule) => number;
   readonly input?: Parameters<typeof testInput>[0];
+  /** A synthetic role table; omitted, the orchestrator uses the real one. */
+  readonly roles?: ShadowModuleRoleTable;
 } = {}) {
   const clock = createTestClock();
   const deadline = createTestDeadline({
@@ -71,7 +81,7 @@ async function runWith(options: {
   });
   const digest = createTestDigest();
   const ledger = createShadowRunLedger();
-  const run = createShadowPipelineRun({ clock, deadline, digest, ledger });
+  const run = createShadowPipelineRun({ clock, deadline, digest, ledger, roles: options.roles });
   const bundle = await run(testInput(options.input), options.adapters ?? stubAdapters());
   return { bundle, clock, deadline, digest, ledger };
 }
@@ -87,52 +97,125 @@ test('a clean run emits a bundle its own checkers report nothing about', async (
 });
 
 test('the chain is walked in declared order, once per module', async () => {
+  // Every real module is implemented since #131, so every adapter is called,
+  // in chain order. This used to filter out `priority`, the placeholder.
   const invoked: ShadowPipelineModule[] = [];
   await runWith({ adapters: stubAdapters({ onInvoke: (module) => invoked.push(module) }) });
-  // `priority` is a placeholder in the registry, so its adapter is never called
-  // at all — the honest handling, and the reason this is not simply the chain.
+  assert.deepEqual(invoked, [...SHADOW_PIPELINE_CHAIN]);
+
+  // A placeholder's adapter is never called at all — the honest handling —
+  // and the rest of the chain is still walked in order around it.
+  const aroundPlaceholder: ShadowPipelineModule[] = [];
+  await runWith({
+    roles: SYNTHETIC_PLACEHOLDER_ROLES,
+    adapters: stubAdapters({ onInvoke: (module) => aroundPlaceholder.push(module) }),
+  });
   assert.deepEqual(
-    invoked,
-    SHADOW_PIPELINE_CHAIN.filter((module) => SHADOW_MODULE_ROLES[module] !== 'placeholder'),
+    aroundPlaceholder,
+    SHADOW_PIPELINE_CHAIN.filter((module) => module !== PLACEHOLDER),
   );
 });
 
-test('no run is ever complete, because the chain contains a placeholder', async () => {
-  // The consequence the contract states rather than discovers: `priority` is
-  // `not_implemented_in_sprint_00` in `INTELLIGENCE_MODULE_CONTRACTS`, a
-  // placeholder can never report `completed`, so `degraded` is the ceiling for
-  // this sprint.
-  //
-  // This comment used to end "if someone implements priority and updates the
-  // registry, this test fails and the update becomes a decision rather than a
-  // drift". That was false, and integration proved it by doing exactly that:
-  // the registry entry was corrected and **nothing failed here**, because the
-  // orchestrator reads `SHADOW_MODULE_ROLES` — a second, hand-maintained copy
-  // of the same fact — and not the registry.
-  //
-  // The check that comment described now exists, as
-  // `tests/shadowPipeline/registryDrift.test.ts`, and it does fail on that
-  // mutation. This test asserts the behaviour that follows from the role table;
-  // that one asserts the role table still means what the registry says.
+test('a clean run is complete, now that no chain module is a placeholder', async () => {
+  // This was `no run is ever complete, because the chain contains a
+  // placeholder`, and its comment ended by promising that "if someone
+  // implements priority and updates the registry, this test fails and the
+  // update becomes a decision rather than a drift". That was false while the
+  // orchestrator read only the role table; `registryDrift.test.ts` is the check
+  // it described. #131 made the update, in both tables: priority executes, and
+  // a run in which every module contributes is `complete`.
   const { bundle } = await runWith();
+  assert.equal(bundle.outcome.completeness, 'complete');
+  assert.deepEqual(nonContributingModules(bundle.outcome), []);
+  assert.equal(bundle.outcome.degradation, null);
+  assert.notEqual(bundle.outcome.deliverable, null);
+  assert.equal(bundle.outcome.moduleOutcomes.priority.status, 'completed');
+  assert.deepEqual(checkShadowPipelineOutcome(bundle.outcome), []);
+  assert.deepEqual(checkShadowTrace(bundle.trace, bundle.outcome), []);
+});
+
+test('a run whose chain contains a placeholder is never complete, and the placeholder is skipped', async () => {
+  // The consequence the contract states rather than discovers, still true and
+  // now asserted of a synthetic placeholder: a placeholder can never report
+  // `completed`, so a chain containing one tops out at `degraded`.
+  //
+  // The placeholder's stub adapter *throws* if called. Removing the
+  // orchestrator's skip therefore turns this into an `unavailable` stage for
+  // `module_error` — a loud failure here — rather than a plausible stub answer
+  // silently counted as a contribution.
+  const { bundle } = await runWith({
+    roles: SYNTHETIC_PLACEHOLDER_ROLES,
+    adapters: stubAdapters({ throwing: [PLACEHOLDER] }),
+  });
   assert.equal(bundle.outcome.completeness, 'degraded');
-  assert.deepEqual(nonContributingModules(bundle.outcome), ['priority']);
-  const priority = bundle.outcome.moduleOutcomes.priority;
-  assert.equal(priority.status, 'skipped');
-  assert.equal(priority.reason, 'module_placeholder');
+  assert.deepEqual(nonContributingModules(bundle.outcome), [PLACEHOLDER]);
+  const placeholder = bundle.outcome.moduleOutcomes[PLACEHOLDER];
+  assert.equal(placeholder.status, 'skipped');
+  assert.equal(placeholder.reason, 'module_placeholder');
+  assert.equal(placeholder.contributed, false);
+  assert.deepEqual(checkShadowPipelineOutcome(bundle.outcome, SYNTHETIC_PLACEHOLDER_ROLES), []);
+  assert.deepEqual(checkShadowTrace(bundle.trace, bundle.outcome), []);
+});
+
+test('a placeholder in any slot is skipped unraced, and costs the run what that slot costs', async () => {
+  // The fail-closed interaction, which no single synthetic slot can show: a
+  // placeholder in a `degrade_open` slot degrades the run, and a placeholder in
+  // the `fail_closed` slot — or upstream of it — withholds it. Every slot in
+  // turn, each run checked by the contract against the table that made it.
+  for (const stubbed of SHADOW_PIPELINE_CHAIN) {
+    const roles = syntheticPlaceholderRolesAt(stubbed);
+    const invoked: ShadowPipelineModule[] = [];
+    const { bundle, deadline } = await runWith({
+      roles,
+      adapters: stubAdapters({ throwing: [stubbed], onInvoke: (module) => invoked.push(module) }),
+    });
+    const outcome = bundle.outcome;
+
+    assert.equal(invoked.includes(stubbed), false, `${stubbed} is a placeholder and was invoked`);
+    assert.equal(
+      deadline.budgets().some(([module]) => module === stubbed),
+      false,
+      `${stubbed} is a placeholder and was raced`,
+    );
+    assert.equal(outcome.moduleOutcomes[stubbed].status, 'skipped', stubbed);
+    assert.equal(outcome.moduleOutcomes[stubbed].reason, 'module_placeholder', stubbed);
+    assert.notEqual(outcome.completeness, 'complete', `${stubbed}: a chain with a stub completed`);
+    assert.deepEqual(checkShadowPipelineOutcome(outcome, roles), [], `${stubbed}: outcome defects`);
+    assert.deepEqual(checkShadowTrace(bundle.trace, outcome), [], `${stubbed}: trace defects`);
+
+    const safetyContributed = outcome.moduleOutcomes.safety.contributed;
+    assert.equal(
+      outcome.completeness,
+      safetyContributed ? 'degraded' : 'withheld',
+      `${stubbed}: completeness does not follow from whether the gate ran`,
+    );
+    if (SHADOW_MODULE_FAILURE_STANCE[stubbed] === 'fail_closed') {
+      assert.equal(outcome.completeness, 'withheld', `${stubbed} is fail_closed and its stub was delivered past`);
+      assert.equal(outcome.withheldReason, 'fail_closed_module_did_not_contribute');
+    }
+  }
 });
 
 test('the trace explains every module the outcome decided about', async () => {
-  const { bundle } = await runWith();
-  const traced = bundle.trace.stages.map((stage) => stage.module);
-  assert.deepEqual(traced, [...SHADOW_PIPELINE_CHAIN]);
-  for (const stage of bundle.trace.stages) {
-    assert.equal(stage.position, SHADOW_PIPELINE_CHAIN_POSITION[stage.module]);
-    assert.equal(stage.status, bundle.outcome.moduleOutcomes[stage.module].status);
-    if (stage.status !== 'completed') {
-      assert.notEqual(stage.reason, null, `${stage.module} did not complete and states no reason`);
+  // Over a clean run and over one with a placeholder in it. The clean run has
+  // no stage that did not complete since #131, so on its own it would leave the
+  // "states a reason" clause below unexercised; the placeholder run is where a
+  // stage that did not complete has to explain itself.
+  for (const roles of [undefined, SYNTHETIC_PLACEHOLDER_ROLES]) {
+    const { bundle } = await runWith({ roles });
+    const traced = bundle.trace.stages.map((stage) => stage.module);
+    assert.deepEqual(traced, [...SHADOW_PIPELINE_CHAIN]);
+    let explained = 0;
+    for (const stage of bundle.trace.stages) {
+      assert.equal(stage.position, SHADOW_PIPELINE_CHAIN_POSITION[stage.module]);
+      assert.equal(stage.status, bundle.outcome.moduleOutcomes[stage.module].status);
+      if (stage.status !== 'completed') {
+        assert.notEqual(stage.reason, null, `${stage.module} did not complete and states no reason`);
+        explained += 1;
+      }
+      assert.equal(stage.runtimeDecision.module, stage.module);
     }
-    assert.equal(stage.runtimeDecision.module, stage.module);
+    assert.equal(explained, roles === undefined ? 0 : 1);
   }
 });
 
@@ -151,19 +234,25 @@ test('the carried duration is the measured one, not what the adapter claimed', a
 /* ── Budgets: declared, per module, and actually handed to the race ── */
 
 test('every module is raced against its own declared budget', async () => {
+  // All eight since #131 — `priority`'s 250 included, which no run had ever
+  // handed to a race before.
   const { deadline } = await runWith();
   const raced = new Map(deadline.budgets());
+  assert.equal(raced.size, SHADOW_PIPELINE_CHAIN.length);
   for (const module of SHADOW_PIPELINE_CHAIN) {
-    if (SHADOW_MODULE_ROLES[module] === 'placeholder') {
-      assert.equal(raced.has(module), false, `${module} is a placeholder and must not be raced`);
-      continue;
-    }
     assert.equal(
       raced.get(module),
       SHADOW_MODULE_TIMEOUT_BUDGET_MS[module],
       `${module} was raced against a budget that is not its declared one`,
     );
   }
+
+  // A placeholder is never raced: it is skipped before any adapter is
+  // consulted, so it has no budget to spend.
+  const withPlaceholder = await runWith({ roles: SYNTHETIC_PLACEHOLDER_ROLES });
+  const racedAround = new Map(withPlaceholder.deadline.budgets());
+  assert.equal(racedAround.has(PLACEHOLDER), false, `${PLACEHOLDER} is a placeholder and must not be raced`);
+  assert.equal(racedAround.size, SHADOW_PIPELINE_CHAIN.length - 1);
 });
 
 test('the adapter is told the same budget the race was given', async () => {
@@ -258,8 +347,11 @@ test('a kill switch turns a module into a fell_back stage that still contributes
   assert.equal(planning.reason, 'kill_switch_active');
   assert.equal(planning.contributed, true);
   // Contributing is the point: a kill switch that made every downstream module
-  // skip would be a kill switch nobody dares use.
-  assert.deepEqual(nonContributingModules(bundle.outcome), ['priority']);
+  // skip would be a kill switch nobody dares use. With no placeholder in the
+  // chain (#131) that makes the run complete — a rules-only answer is still an
+  // answer — where it used to be degraded by `priority` alone.
+  assert.deepEqual(nonContributingModules(bundle.outcome), []);
+  assert.equal(bundle.outcome.completeness, 'complete');
   assert.deepEqual(checkShadowPipelineOutcome(bundle.outcome), []);
   assert.deepEqual(checkShadowTrace(bundle.trace, bundle.outcome), []);
 });
@@ -329,9 +421,24 @@ test('a module whose prerequisite did not contribute is skipped, and says which'
 
 /* ── Degradation: one module failing leaves a usable result ──────── */
 
+/**
+ * The modules a failure at `failing` costs: itself, and every module whose
+ * prerequisites transitively include it. Derived from the orchestrator's own
+ * table, walked in chain order (prerequisites always precede their dependents,
+ * which the prerequisite test above pins).
+ */
+function costOfFailing(failing: ShadowPipelineModule): ShadowPipelineModule[] {
+  const lost = new Set<ShadowPipelineModule>([failing]);
+  for (const module of SHADOW_PIPELINE_CHAIN) {
+    if (SHADOW_MODULE_PREREQUISITES[module].some((need) => lost.has(need))) lost.add(module);
+  }
+  return SHADOW_PIPELINE_CHAIN.filter((module) => lost.has(module));
+}
+
 test('degradation sweep: every module can fail and the pipeline still answers', async () => {
+  // All eight since #131; `priority` used to be skipped here as the placeholder,
+  // and so was never shown to fail safely.
   for (const failing of SHADOW_PIPELINE_CHAIN) {
-    if (SHADOW_MODULE_ROLES[failing] === 'placeholder') continue;
 
     const { bundle } = await runWith({ adapters: stubAdapters({ throwing: [failing] }) });
     const outcome = bundle.outcome;
@@ -350,9 +457,15 @@ test('degradation sweep: every module can fail and the pipeline still answers', 
     );
 
     // The module that failed is a non-contributor, and so is everything that
-    // needed it — nothing else.
+    // needed it — nothing else. Asserted exactly now: while `priority` was a
+    // placeholder it was a non-contributor in every run, and this could only
+    // check membership.
     assert.ok(missing.includes(failing), `${failing} failed and is not listed as a non-contributor`);
-    assert.ok(missing.includes('priority'), 'the placeholder is always a non-contributor');
+    assert.deepEqual(
+      [...missing],
+      costOfFailing(failing),
+      `${failing} failing cost the run modules that did not need it, or spared ones that did`,
+    );
 
     const safetyContributed = outcome.moduleOutcomes.safety.contributed;
     if (safetyContributed) {
@@ -385,7 +498,7 @@ test('a degrade-open module failing leaves the deliverable intact', async () => 
   const { bundle } = await runWith({ adapters: stubAdapters({ throwing: ['memory'] }) });
   assert.equal(bundle.outcome.completeness, 'degraded');
   assert.notEqual(bundle.outcome.deliverable, null);
-  assert.deepEqual(nonContributingModules(bundle.outcome), ['memory', 'priority']);
+  assert.deepEqual(nonContributingModules(bundle.outcome), ['memory']);
   assert.equal(bundle.outcome.degradation.crossedFailClosedModule, false);
 });
 
@@ -404,7 +517,8 @@ test('capture failing cascades to the guard, and the run withholds', async () =>
   // of unexplained skips.
   for (const module of SHADOW_PIPELINE_CHAIN) {
     if (module === 'capture' || module === 'memory') continue;
-    if (SHADOW_MODULE_ROLES[module] === 'placeholder') continue;
+    // `priority` included since #131: it used to be skipped here as the
+    // placeholder, and now explains itself as an upstream failure too.
     assert.equal(
       bundle.outcome.moduleOutcomes[module].reason,
       'upstream_did_not_contribute',
