@@ -73,8 +73,8 @@ export function createReplayController(load: () => ClaritySdk | null) {
     queue = queue.then(async () => {
       const current = () => allowed && changingSession && expected === revision;
       if (!sdk || !current()) return;
-      if (!await sdk.consent(false, true)) { stop(); return; }
-      if (!current()) { if (!allowed) stop(); return; }
+      // Leave native storage consent unchanged until the rotation callback:
+      // changing it here requests another SDK rotation and replaces that callback.
       await sdk.resume();
       if (!allowed) stop();
     }).catch(() => { stop(); });

@@ -176,6 +176,7 @@ it('wakes an Android rotation that completes only after capturing resumes', asyn
   controller.update(android, true, true); initialized();
   await controller.settled();
   expect(sdk.resume).toHaveBeenCalledTimes(1);
+  expect(sdk.consent).not.toHaveBeenCalled();
   expect(sdk.setCurrentScreenName).not.toHaveBeenCalled();
   controller.event('capture_saved');
   expect(sdk.sendCustomEvent).not.toHaveBeenCalled();
@@ -190,13 +191,10 @@ it('wakes an Android rotation that completes only after capturing resumes', asyn
   expect(sdk.setCustomTag).toHaveBeenCalled();
 });
 
-it('does not wake Android when consent is revoked during the native consent call', async () => {
+it('does not wake Android when consent is revoked before the queued wake', async () => {
   const { controller, sdk, initialized, fresh } = setup();
-  let finish!: (value: boolean) => void;
-  sdk.consent.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   controller.update({ ...context, platform: 'android' }, true, true); initialized();
-  await Promise.resolve(); await Promise.resolve();
-  controller.stop(); finish(true);
+  controller.stop();
   await controller.settled(); fresh(); await controller.settled();
   expect(sdk.resume).not.toHaveBeenCalled();
   expect(sdk.consent).toHaveBeenLastCalledWith(false, false);
