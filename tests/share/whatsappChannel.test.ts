@@ -32,6 +32,7 @@ import { uidFor } from '../support/fakeAuth.ts';
 import { LLMUnavailableError } from '../../src/extraction/llm/index.ts';
 import { screenForInjection } from '../../src/extraction/injectionBoundary.ts';
 import {
+  MAX_SHARE_RAW_TEXT_CHARACTERS,
   proposeFromShare,
   type ShareIntakeContext,
   type ShareIntakeInput,
@@ -45,6 +46,8 @@ import { plainTextPreprocessor, whatsappPreprocessor } from '../../lib/services/
 import { MAX_EVIDENCE_CHARACTERS, SHARE_SEGMENT_SEPARATOR } from '../../lib/services/share/shareTypes.ts';
 import type { LlmPart, ShareStructuredGenerator } from '../../lib/services/share/shareTypes.ts';
 import { MAX_UNASSISTED_SEGMENTS } from '../../lib/services/share/channels/whatsapp.ts';
+import { CaptureInputTooLargeError } from '../../lib/services/captureBoundary/captureBoundaryService.ts';
+import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../src/contracts/v1/captureContracts.ts';
 import { buildZip } from '../fixtures/whatsapp/zipBuilder.ts';
 import {
   ALL_PAST,
@@ -429,6 +432,65 @@ test('a model that will not answer degrades to the recent messages rather than f
     );
     assert.equal(result.share.metrics.modelUsed, 0);
     assert.equal(result.share.metrics.messagesChosen, MAX_UNASSISTED_SEGMENTS);
+  } finally {
+    teardown();
+  }
+});
+
+/* ── Length: the channel's input and capture's input (#513) ─────── */
+
+/**
+ * Two bounds, because this channel is the reason there are two strings. The
+ * raw bound (20,000) is on the chat as shared; the content limit (the capture
+ * cap, 2,000) is on what this channel hands the capture pipeline. A chat longer
+ * than the capture cap is ordinary, and is read when what it condenses to fits.
+ */
+test('a chat longer than the capture cap, shared as text, is read when its channel output fits', async () => {
+  const teardown = setup();
+  try {
+    const chat = fiftyMessages(-1);
+    assert.ok(chat.length > CAPTURE_INPUT_MAX_CHARACTERS, 'this chat is not actually longer than the capture cap');
+    assert.ok(chat.length <= MAX_SHARE_RAW_TEXT_CHARACTERS);
+    const seen: string[] = [];
+    const result = await share({ text: chat }, {
+      generateStructured: modelSpy().generate,
+      propose: async (request) => {
+        seen.push(String(request.text));
+        return { version: 'v1', proposalId: 'p', status: 'no_commitment', items: [], provenance: {} } as never;
+      },
+    });
+    assert.equal(result.share.channel, 'whatsapp');
+    assert.equal(seen.length, 1, 'the condensed chat did not reach the capture pipeline');
+    assert.ok(seen[0]!.length <= CAPTURE_INPUT_MAX_CHARACTERS, `capture was handed ${seen[0]!.length} characters`);
+  } finally {
+    teardown();
+  }
+});
+
+test('a chat whose channel output is over the capture cap is refused with the content limit, never cut', async () => {
+  const teardown = setup();
+  try {
+    const lines: string[] = [];
+    for (let index = 0; index < 50; index += 1) {
+      const minute = String(index % 60).padStart(2, '0');
+      lines.push(`${LRM}[15/09/2026, 09:${minute}:00] Dana: message number ${index}, please remember to bring the signed documents to the office`);
+    }
+    const chat = lines.join('\n');
+    assert.ok(chat.length <= MAX_SHARE_RAW_TEXT_CHARACTERS, 'this chat is over the raw bound, which is a different test');
+    const seen: string[] = [];
+    await assert.rejects(
+      () => share({ text: chat }, {
+        // Chooses every message, so the condensed text is longer than 2,000.
+        generateStructured: modelSpy().generate,
+        propose: async (request) => {
+          seen.push(String(request.text));
+          return { version: 'v1', proposalId: 'p', status: 'no_commitment', items: [], provenance: {} } as never;
+        },
+      }),
+      (error: unknown) => error instanceof CaptureInputTooLargeError
+        && error.maxCharacters === CAPTURE_INPUT_MAX_CHARACTERS,
+    );
+    assert.deepEqual(seen, [], 'over-long channel output reached the capture pipeline');
   } finally {
     teardown();
   }

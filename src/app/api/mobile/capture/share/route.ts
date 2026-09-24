@@ -42,7 +42,7 @@ import {
   type ShareIntakeRawFile,
 } from '../../../../../../lib/services/share/shareIntakeService';
 import { CaptureInputTooLargeError } from '../../../../../../lib/services/captureBoundary/captureBoundaryService';
-import { ShareInputError } from '../../../../../../lib/services/share/shareTypes';
+import { ShareInputError, ShareTextTooLongError } from '../../../../../../lib/services/share/shareTypes';
 
 // `nodejs`, not edge: the service reads `Uint8Array`s with Node's `Buffer` on
 // the way to Vertex, and the cost guard runs a Firestore transaction.
@@ -184,14 +184,16 @@ export async function POST(request: Request) {
     return Response.json(result);
   } catch (error) {
     /*
-     * Share is the second door onto `proposeCapture`, so it inherits that
-     * boundary's length cap (#508) — and answers for it in share's own
-     * vocabulary rather than letting a capture-layer error fall through to a
-     * generic failure. Same status and same reason code as
-     * `ShareInputError(413, 'text_too_long')` below, which is the refusal this
-     * route already gives for text it will not read.
+     * Both text bounds (#513), one body: the typed capture route's — 413,
+     * `text_too_long`, and `maxCharacters` naming the bound that was hit, which
+     * `mobile/src/api/client.ts` turns into `InputTooLargeError`.
+     * `ShareTextTooLongError` is the raw bound on what a channel may read;
+     * `CaptureInputTooLargeError` is the content limit on what capture reads,
+     * thrown by the service before capture runs and by the #508 boundary under
+     * it. Before the generic `ShareInputError` branch, which has no
+     * `maxCharacters`.
      */
-    if (error instanceof CaptureInputTooLargeError) {
+    if (error instanceof CaptureInputTooLargeError || error instanceof ShareTextTooLongError) {
       return Response.json(
         { success: false, error: error.message, reason: 'text_too_long', maxCharacters: error.maxCharacters },
         { status: 413 },

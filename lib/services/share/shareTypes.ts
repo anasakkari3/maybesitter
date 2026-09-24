@@ -483,3 +483,19 @@ export class ShareInputError extends Error {
     this.name = 'ShareInputError';
   }
 }
+
+/**
+ * Shared text over the raw bound a channel may read (#513).
+ *
+ * Its own class so `maxCharacters` cannot be left off: every `text_too_long`
+ * this route sends names the limit that was hit, which is what
+ * `mobile/src/api/client.ts` reads into `InputTooLargeError`. The content limit
+ * is refused by the capture boundary's `CaptureInputTooLargeError` instead,
+ * and the route gives both the same body.
+ */
+export class ShareTextTooLongError extends ShareInputError {
+  constructor(readonly maxCharacters: number) {
+    super(413, 'text_too_long', `shared text may be at most ${maxCharacters} characters`);
+    this.name = 'ShareTextTooLongError';
+  }
+}
