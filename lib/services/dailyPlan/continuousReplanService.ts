@@ -41,11 +41,12 @@ import {
 import {
   appendPlanEvent,
   mutateStoredPlan,
+  planPath,
   readStoredPlan,
   type StoredDailyPlan,
   type StoredPlanProposal,
 } from './planStore';
-import { editsSurvivingReschedule, effectiveSchedule } from './planActions';
+import { editsSurvivingReschedule, effectiveSchedule, planUnderKeptRemovals } from './planActions';
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DELIVERY_LOCAL_TIME, DEFAULT_PLAN_ENABLED, localDateOf, planSettingsOf } from './planSettings';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
@@ -163,16 +164,68 @@ async function acknowledgeChanges(
   changeDocPaths: readonly string[],
   supplied: readonly PlanningStateChange[] | undefined,
 ): Promise<void> {
-  if (changeDocPaths.length > 0) {
-    for (const docPath of changeDocPaths) {
-      await storage.delete(docPath);
-    }
-    return;
+  for (const docPath of changeRowPaths(uid, changeDocPaths, supplied)) {
+    await storage.delete(docPath);
   }
-  if (!supplied) return;
-  for (const change of supplied) {
-    await storage.delete(userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)));
-  }
+}
+
+/** The rows this run consumed: listed here, or named by the caller's changes. */
+function changeRowPaths(
+  uid: string,
+  changeDocPaths: readonly string[],
+  supplied: readonly PlanningStateChange[] | undefined,
+): string[] {
+  if (changeDocPaths.length > 0) return [...changeDocPaths];
+  return (supplied ?? []).map((change) => userSubDoc(uid, PLANNING_STATE_CHANGES, docIdForKey(change.changeId)));
+}
+
+/**
+ * Transactional writes are capped per commit (Firestore allows 500). The
+ * re-check below needs only one read and one delete in the same commit to be
+ * atomic, so the rows are drained in chunks under this size.
+ */
+const DRAIN_CHUNK = 400;
+
+/**
+ * Drains a verdict that stored nothing, but only if the plan it was judged
+ * against is still the plan in force (#610, AC 5).
+ *
+ * `NO_EFFECT`, `PLAN_STALE` and a discarded replan write nothing, so no
+ * compare-and-set ever tells them that the plan moved while they were
+ * judging. Suppose a person accepts an older patch mid-run, and the patch puts
+ * a task where the change's meeting now is. The change was judged `PLAN_STALE`
+ * against the generation that was replaced, and draining it would leave the
+ * conflict in the new generation with nothing left to fix it.
+ *
+ * So the plan is re-read, and the first chunk of rows is deleted, in one
+ * transaction. If the plan is not the state the verdict read, nothing is
+ * drained and the next tick re-judges the rows against whatever is in force.
+ * Rows after the first chunk are deleted once that commit has shown the
+ * verdict held. A plan that changes after that commit changes after the
+ * judgement, which is the same case as a change arriving after the drain.
+ *
+ * Returns whether the rows were drained.
+ */
+async function acknowledgeIfPlanUnchanged(
+  uid: string,
+  date: string,
+  storage: StorageAdapter,
+  judgedAgainst: StoredDailyPlan | null,
+  rows: readonly string[],
+): Promise<boolean> {
+  const [first, rest] = [rows.slice(0, DRAIN_CHUNK), rows.slice(DRAIN_CHUNK)];
+  const drained = await storage.runTransaction(async (tx) => {
+    const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
+    const unchanged = current === null || judgedAgainst === null
+      ? current === judgedAgainst
+      : stillTheStateSolvedAgainst(current, judgedAgainst);
+    if (!unchanged) return false;
+    for (const row of first) tx.delete(row);
+    return true;
+  });
+  if (!drained) return false;
+  for (const row of rest) await storage.delete(row);
+  return true;
 }
 
 /**
@@ -242,20 +295,6 @@ function planAsProtectionsHoldIt(stored: StoredDailyPlan): Plan {
 function visiblePlanOf(stored: StoredDailyPlan): Plan {
   const held = planAsProtectionsHoldIt(stored);
   return { ...held, scheduled: effectiveSchedule({ ...stored, plan: held }) };
-}
-
-/**
- * A solved plan as it will read once it is installed over these edits (#610).
- *
- * Mirrors `editsSurvivingReschedule`: moves are dropped, so the planner's
- * placement stands, and removals are kept, so a removed item stays off the day
- * whatever the planner did with it. The planner is not told about the edits,
- * so this is applied to its output rather than to its input.
- */
-function visibleAfterInstall(plan: Plan, removals: readonly string[]): Plan {
-  if (removals.length === 0) return plan;
-  const removed = new Set(removals);
-  return { ...plan, scheduled: plan.scheduled.filter((item) => !removed.has(item.itemId)) };
 }
 
 /**
@@ -518,7 +557,7 @@ export async function processStateChangesForUser(
   const removals = storedPlan?.edits.removals ?? [];
   const planner = () => {
     const plan = schedulePlan(constraints, dailyInput.config);
-    return basePlan ? { plan, diff: diffPlans(basePlan, visibleAfterInstall(plan, removals)) } : { plan };
+    return basePlan ? { plan, diff: diffPlans(basePlan, planUnderKeptRemovals(plan, removals)) } : { plan };
   };
 
   // 5. Run continuous replan pipeline
@@ -579,7 +618,7 @@ export async function processStateChangesForUser(
       const generation = current.generation + 1;
       // Moves dropped, removals kept, status carried (#610, AC 2 and 3). This
       // is the rule accepting a patch follows, and the diff the policy just
-      // judged was computed on exactly this outcome (`visibleAfterInstall`).
+      // judged was computed on exactly this outcome (`planUnderKeptRemovals`).
       const { edits, status } = editsSurvivingReschedule(current);
       const blocks = applyEditsToBlocks(
         reconcileScheduleBlocks({
@@ -697,10 +736,14 @@ export async function processStateChangesForUser(
     }
   }
 
-  // 7. Acknowledge/delete processed planning state changes — unless the
-  // outcome was never stored (#610, AC 5; see `lostToConcurrentWrite`).
-  if (!lostToConcurrentWrite) {
+  // 7. Acknowledge/delete processed planning state changes (#610, AC 5).
+  // A stored outcome drains. A refused write holds (`lostToConcurrentWrite`).
+  // A verdict that stored nothing drains only if the plan it was judged
+  // against is still in force (`acknowledgeIfPlanUnchanged`).
+  if (planStored) {
     await acknowledgeChanges(uid, storage, changeDocPaths, options.changes);
+  } else if (!lostToConcurrentWrite) {
+    await acknowledgeIfPlanUnchanged(uid, date, storage, storedPlan, changeRowPaths(uid, changeDocPaths, options.changes));
   }
 
   // 8. Compose updated UserStateProjection
@@ -742,7 +785,11 @@ export interface ContinuousReplanTickTotals {
   stale: number;
   noEffect: number;
   failed: number;
-  /** Accounts whose pending changes were drained without a replan (#523, AC 9). */
+  /**
+   * Accounts the run stopped for before judging anything: continuous
+   * replanning switched off (#523, AC 9), where the changes are drained, or a
+   * dismissed day (#610), where they are held for the day to come back.
+   */
   skipped: number;
 }
 

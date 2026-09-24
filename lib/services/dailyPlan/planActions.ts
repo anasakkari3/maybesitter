@@ -642,6 +642,27 @@ export function editsSurvivingReschedule(current: StoredDailyPlan): { edits: Pla
 }
 
 /**
+ * A plan as it will read once installed under a person's kept removals: the
+ * visible day a patch or a replan produces (#610).
+ *
+ * The companion of `editsSurvivingReschedule`. The planner is never told about
+ * removals, so it may place a removed item again. The removal is kept, so
+ * the item stays off the day, and every reader of the new placement has to
+ * agree on that: the replan's diff, the proposal the client is shown, and
+ * the blocks the install writes. Moves need no counterpart here, because
+ * they are dropped and the planner's placement stands.
+ */
+export function planUnderKeptRemovals(plan: Plan, removals: readonly string[]): Plan {
+  if (removals.length === 0) return plan;
+  const removed = new Set(removals);
+  return {
+    ...plan,
+    scheduled: plan.scheduled.filter((item) => !removed.has(item.itemId)),
+    unscheduled: plan.unscheduled.filter((item) => !removed.has(item.itemId)),
+  };
+}
+
+/**
  * Installs the proposed patch as the plan (#523's user-control layer).
  *
  * Returns null when there is no plan for the date — 404, the same as every
@@ -740,7 +761,16 @@ export async function acceptPlanProposal(
         generation,
         replaces: { generation: current.generation, inputDigest: current.inputDigest },
         plan: proposal.plan,
-        blocks: blocksForAcceptedProposal(current.blocks ?? [], proposal.plan, generation),
+        // The kept removals are mirrored onto the blocks the way the edit
+        // path and auto-apply mirror them (#610). Without that, a removed item
+        // the patch placed again would carry that placement on its block,
+        // and a protected one would be anchored by the next solve.
+        blocks: applyEditsToBlocks(
+          blocksForAcceptedProposal(current.blocks ?? [], proposal.plan, generation),
+          proposal.plan.scheduled,
+          edits,
+          generation,
+        ),
         edits,
         status,
         updatedAt: at,
