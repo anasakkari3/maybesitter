@@ -45,7 +45,9 @@ import {
   profileResponseSchema,
   routineSavedSchema,
 } from '../schemas/profile';
+import { backgroundActivityHistorySchema } from '../schemas/backgroundActivity';
 import {
+  planCauseResponseSchema,
   planEditRejectedSchema,
   planOpenedSchema,
   planResponseSchema,
@@ -157,6 +159,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],
   ['trust.updated', trustResponseSchema],
+  ['backgroundActivity.history', backgroundActivityHistorySchema],
   ['pilot.incident', pilotIncidentResponseSchema],
   ['feedback.history', feedbackHistorySchema],
   ['feedback.revoked', feedbackRevokeSchema],
@@ -175,6 +178,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.protected', planResponseSchema],
   ['plan.withProposal', planResponseSchema],
   ['plan.built', planResponseSchema],
+  ['plan.cause', planCauseResponseSchema],
   // "The plan was put on screen" (#533): the acknowledgement carries nothing
   // back; the append to the plan ledger is the point of the call.
   ['plan.opened', planOpenedSchema],

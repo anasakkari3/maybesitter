@@ -52,5 +52,34 @@ export const backgroundAttributionSchema = z.object({
   orphanCount: z.number().int().nonnegative(),
 });
 
+export const backgroundMonitorHistoryKindSchema = z.enum([
+  'watcher_condition_changed',
+  'notification_sent',
+  'plan_reconsidered',
+]);
+
+export const backgroundMonitorHistoryItemSchema = z.object({
+  itemId: z.string(),
+  monitorId: z.string(),
+  watcherId: z.string(),
+  label: z.string(),
+  occurredAt: isoDateTime,
+  kind: backgroundMonitorHistoryKindSchema,
+  status: monitorStatusSchema,
+  description: z.string(),
+  effect: z.string().nullable(),
+  artifactRef: z.string().nullable(),
+});
+
+export const backgroundActivityHistorySchema = z.object({
+  success: z.literal(true),
+  schemaVersion: z.literal('background-monitor-v1'),
+  paused: z.boolean(),
+  items: z.array(backgroundMonitorHistoryItemSchema),
+});
+
 export type BackgroundActivity = z.infer<typeof backgroundActivitySchema>;
 export type BackgroundAction = z.infer<typeof backgroundActionSchema>;
+export type BackgroundMonitorHistoryKind = z.infer<typeof backgroundMonitorHistoryKindSchema>;
+export type BackgroundMonitorHistoryItem = z.infer<typeof backgroundMonitorHistoryItemSchema>;
+export type BackgroundActivityHistory = z.infer<typeof backgroundActivityHistorySchema>;

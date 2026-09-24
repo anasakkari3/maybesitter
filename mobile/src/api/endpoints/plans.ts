@@ -4,8 +4,10 @@ import {
   planOpenedSchema,
   planResponseSchema,
   planSettingsResponseSchema,
+  planCauseResponseSchema,
   type DailyPlan,
   type PlanSettings,
+  type PlanCause,
 } from '../schemas/plan';
 
 /**
@@ -163,4 +165,21 @@ export async function putPlanSettings(input: {
     schema: planSettingsResponseSchema,
   });
   return response.planSettings;
+}
+
+/**
+ * Returns which monitor caused this plan (#527, AC 2).
+ *
+ * Resolves null when no plan exists for that date (404).
+ */
+export async function getPlanCause(date: string): Promise<PlanCause | null> {
+  try {
+    const response = await apiRequest('GET', planPath(date, '/cause'), {
+      schema: planCauseResponseSchema,
+    });
+    return response.cause;
+  } catch (error) {
+    if (error instanceof NotFoundError) return null;
+    throw error;
+  }
 }

@@ -236,6 +236,7 @@ test('no watcher module can reach the planner, the domain state machine or a com
     // the id, because two spellings of one identifier is how a Trust screen
     // and a Trust audit come to disagree about which monitor they mean.
     './backgroundMonitors',
+    './backgroundAttribution',
   ];
 
   for (const { file, text } of watcherSources()) {

@@ -238,3 +238,45 @@ export function isBackgroundActionArtifactKind(value: unknown): value is Backgro
   return typeof value === 'string'
     && ['notification', 'proposal', 'state_change', 'context_update', 'none'].includes(value);
 }
+
+/* ── History (User-visible history feed #527) ────────────────────── */
+
+/**
+ * The closed vocabulary of user-visible monitor history event types (#527).
+ *
+ * - `watcher_condition_changed` — the condition evaluated differently or produced a change.
+ * - `notification_sent` — a notification intent was queued/delivered.
+ * - `plan_reconsidered` — an automatic or proposed replan was caused by this monitor.
+ */
+export const BACKGROUND_MONITOR_HISTORY_KINDS = Object.freeze([
+  'watcher_condition_changed',
+  'notification_sent',
+  'plan_reconsidered',
+] as const);
+
+export type BackgroundMonitorHistoryKind = (typeof BACKGROUND_MONITOR_HISTORY_KINDS)[number];
+
+export interface BackgroundMonitorHistoryItem {
+  readonly itemId: string;
+  readonly monitorId: string;
+  readonly watcherId: string;
+  readonly label: string;
+  readonly occurredAt: string;
+  readonly kind: BackgroundMonitorHistoryKind;
+  readonly status: BackgroundMonitorStatus;
+  readonly description: string;
+  readonly effect: string | null;
+  readonly artifactRef: string | null;
+}
+
+export interface BackgroundActivityHistoryView {
+  readonly schemaVersion: typeof BACKGROUND_MONITOR_SCHEMA_VERSION;
+  readonly paused: boolean;
+  readonly items: readonly BackgroundMonitorHistoryItem[];
+}
+
+export function isBackgroundMonitorHistoryKind(value: unknown): value is BackgroundMonitorHistoryKind {
+  return typeof value === 'string'
+    && (BACKGROUND_MONITOR_HISTORY_KINDS as readonly string[]).includes(value);
+}
+

@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "cause": {
+    "date": "2026-08-09",
+    "generation": 2,
+    "causeChangeIds": [
+      "watcher:0000000000000000000000000000000000000000000000000000000000000001"
+    ],
+    "attributions": [
+      {
+        "actionId": "evt_0000000000000001",
+        "monitorId": "mon_wtc_00000000-0000-4000-8000-000000000001",
+        "watcherId": "wtc_00000000-0000-4000-8000-000000000001",
+        "label": "whoop:readiness",
+        "observedAt": "2026-08-09T08:00:00.000Z",
+        "occurredAt": "2026-08-09T08:00:00.000Z",
+        "condition": "threshold_crossed",
+        "capability": "update_local_plan",
+        "policyDecision": "allowed",
+        "effect": "replan_if_impacted",
+        "artifact": {
+          "kind": "state_change",
+          "ref": "watcher:0000000000000000000000000000000000000000000000000000000000000001"
+        }
+      }
+    ]
+  }
+}

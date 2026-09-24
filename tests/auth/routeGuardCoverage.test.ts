@@ -178,7 +178,13 @@ test('every mobile route file exists and is enumerated', () => {
   // an account that is not theirs.
   // Seventy-seven with syllabus manual lecture busy time (#191 Step 7):
   // `POST|DELETE /api/mobile/calendar/manual`.
-  assert.equal(files.length, 77, `found:\n${files.join('\n')}`);
+  // Seventy-nine with background monitoring productization (#527):
+  // `GET /api/mobile/trust/background-activity/history` and
+  // `GET /api/mobile/plans/{date}/cause`. The first exposes the user's
+  // background monitoring activity timeline (all five dated row types) and the
+  // second exposes which monitor/watcher caused a daily plan replan. Both resolve
+  // their caller from the verified token and forbid cross-account leaks.
+  assert.equal(files.length, 79, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

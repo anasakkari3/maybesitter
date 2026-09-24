@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "schemaVersion": "background-monitor-v1",
+  "paused": false,
+  "items": [
+    {
+      "itemId": "his_cond_evt_0000000000000001",
+      "monitorId": "mon_wtc_00000000-0000-4000-8000-000000000001",
+      "watcherId": "wtc_00000000-0000-4000-8000-000000000001",
+      "label": "Low recovery monitor",
+      "occurredAt": "2026-08-09T08:00:00.000Z",
+      "kind": "watcher_condition_changed",
+      "status": "active",
+      "description": "threshold_crossed",
+      "effect": "replan_if_impacted",
+      "artifactRef": "watcher:0000000000000000000000000000000000000000000000000000000000000001"
+    }
+  ]
+}

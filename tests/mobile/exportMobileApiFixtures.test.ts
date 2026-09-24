@@ -40,7 +40,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { EVENTS, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
+import { EVENTS, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -75,6 +75,7 @@ import { GET as activitySummaryGet } from '../../src/app/api/mobile/activity/sum
 import { GET as nextStepGet } from '../../src/app/api/mobile/recommendations/next-step/route.ts';
 import { POST as nextStepActionPost } from '../../src/app/api/mobile/recommendations/next-step/actions/route.ts';
 import { GET as trustGet, POST as trustPost } from '../../src/app/api/mobile/pilot/trust/route.ts';
+import { GET as backgroundActivityHistoryGet } from '../../src/app/api/mobile/trust/background-activity/history/route.ts';
 import { GET as feedbackHistoryGet } from '../../src/app/api/mobile/feedback/history/route.ts';
 import { POST as feedbackRevokePost } from '../../src/app/api/mobile/feedback/[id]/revoke/route.ts';
 import { POST as alphaFeedbackPost } from '../../src/app/api/mobile/alpha/feedback/route.ts';
@@ -103,10 +104,12 @@ import {
   RECOMMENDATION_CONSENT_VERSION,
 } from '../../src/contracts/v1/consentContracts.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
+import { GET as planCauseGet } from '../../src/app/api/mobile/plans/[date]/cause/route.ts';
 import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { POST as planBuildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
 import { POST as planOpenedPost } from '../../src/app/api/mobile/plans/[date]/opened/route.ts';
+import type { WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
 import { GET as goalExecutionGet } from '../../src/app/api/mobile/goals/[goalId]/execution/route.ts';
 import { POST as goalGeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/generate/route.ts';
 import { POST as goalConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/execution/confirm/route.ts';
@@ -146,7 +149,7 @@ import {
   claimDueDelivery,
   savePlanSettings,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
-import { appendPlanEvent, readStoredPlan, storePlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
+import { appendPlanEvent, planPath, readStoredPlan, storePlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -949,6 +952,71 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       body: { action: { type: 'set_analytics_consent', granted: true } },
     })));
 
+    const causeWatcherId = 'wtc_00000000-0000-4000-8000-000000000001';
+    const causeEventId = 'evt_0000000000000001';
+    const causeChangeId = 'watcher:0000000000000000000000000000000000000000000000000000000000000001';
+
+    await getStorage().set(userSubDoc(USER, WATCHERS, causeWatcherId), {
+      definition: {
+        version: 'v1',
+        schemaVersion: 'watcher-v1',
+        watcherId: causeWatcherId,
+        scopeId: USER,
+        enabled: true,
+        label: 'Low recovery monitor',
+        source: { provider: 'whoop', connectionId: null, signalKind: 'readiness', subjectRef: 'self' },
+        condition: { kind: 'threshold', metric: 'recovery', operator: 'lt', value: 33 },
+        effect: 'replan_if_impacted',
+        createdBy: 'user',
+        createdAt: REFERENCE_TIME,
+        updatedAt: REFERENCE_TIME,
+      },
+      runtime: {
+        watcherId: causeWatcherId,
+        scopeId: USER,
+        status: 'active',
+        blockedReason: null,
+        lastSignalId: 'sig_0000000000000001',
+        lastDigest: null,
+        lastMeasures: [{ metric: 'recovery', value: 25 }],
+        lastObservedAt: REFERENCE_TIME,
+        lastFiredAt: REFERENCE_TIME,
+        fireCount: 1,
+        updatedAt: REFERENCE_TIME,
+      },
+    });
+
+    const fireEvent: WatcherFireEvent = {
+      version: 'v1',
+      schemaVersion: 'watcher-event-v1',
+      eventId: causeEventId,
+      watcherId: causeWatcherId,
+      scopeId: USER,
+      signalId: 'sig_0000000000000001',
+      provider: 'whoop',
+      signalKind: 'readiness',
+      subjectRef: 'self',
+      observedAt: REFERENCE_TIME,
+      firedAt: REFERENCE_TIME,
+      effect: 'replan_if_impacted',
+      outcome: 'effected',
+      reason: 'threshold_crossed',
+      policyDecision: 'allowed',
+      provenanceRef: 'signals/sig_0000000000000001',
+      effectRef: causeChangeId,
+    };
+    await getStorage().set(userSubDoc(USER, WATCHER_EVENTS, causeEventId), fireEvent);
+
+    const backgroundHistory = await record(
+      'backgroundActivity.history',
+      200,
+      await backgroundActivityHistoryGet(request('/api/mobile/trust/background-activity/history')),
+    );
+    assert.ok(
+      ((backgroundHistory.items as unknown[]).length) >= 1,
+      'the background activity history fixture recorded no item',
+    );
+
     // ── next step ──────────────────────────────────────────────────
     // Needs a confirmed commitment and recommendation consent, or the route
     // answers a blocked state rather than the shape the client renders.
@@ -1456,6 +1524,22 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       'the proposal fixture overrides no protection, so the disclosure it exists to pin is never exercised',
     );
     assert.ok(liveProposal.changes.some((change) => change.kind === 'removed'), 'the proposal fixture removes nothing');
+
+    const stored = await readStoredPlan(USER, PLAN_DATE);
+    assert.ok(stored, 'expected stored plan');
+    await getStorage().set(planPath(USER, PLAN_DATE), {
+      ...stored,
+      causeChangeIds: [causeChangeId],
+    });
+
+    const planCause = await record('plan.cause', 200, await planCauseGet(
+      request(`/api/mobile/plans/${PLAN_DATE}/cause`),
+      dateParams(PLAN_DATE),
+    ));
+    assert.ok(
+      ((planCause.cause as { attributions: unknown[] }).attributions).length >= 1,
+      'the plan cause fixture recorded no attribution',
+    );
 
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),

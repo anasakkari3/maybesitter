@@ -126,8 +126,8 @@ export function projectBackgroundMonitor(
     monitorId: monitorIdForWatcher(definition.watcherId),
     watcherId: definition.watcherId,
     connectionId: definition.source.connectionId,
-    // Two closed vocabularies joined, never a provider-authored string.
-    label: `${definition.source.provider}:${definition.source.signalKind}`,
+    // User-authored label or closed vocabulary fallback, never a provider-authored string.
+    label: definition.label ?? `${definition.source.provider}:${definition.source.signalKind}`,
     status,
     purpose: PURPOSE_BY_CONDITION[definition.condition.kind],
     effects: [definition.effect],
