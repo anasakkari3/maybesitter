@@ -1,42 +1,13 @@
 import { runCaptureEvaluation, THRESHOLD_PRESETS } from '../src/evaluation/captureEvalRunner';
 import type { ExtractAndMapOptions } from '../src/extraction/extractionService';
 
-/**
- * Builds the Gemini provider for an evaluation run (UC-2.2, #162 step 6).
- *
- * Imported lazily and only for `--engine gemini`, because `lib/llm` reaches for
- * Firestore and a configured Vertex project. A rule-based run must not need
- * either, or the baseline could not be produced on a laptop or in CI.
- *
- * The eval uid is a dedicated one and the call caps are lifted for it: an
- * evaluation is a deliberate batch, and having case 151 of a 160-case suite
- * fall back to rules because the daily cap ran out would silently turn the
- * report into a mixture of two engines.
- */
-async function geminiOptions(): Promise<ExtractAndMapOptions> {
-  const { captureLlmProvider } = await import('../lib/llm/captureProvider');
-  const { configuredProviderName } = await import('../src/extraction/llm');
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-  const provider = configuredProviderName();
-  if (provider === 'none') {
-    throw new Error(
-      'No model is configured. Set MAYBESITTER_LLM_PROVIDER and the Vertex variables, '
-      + 'or run with --engine rule-based.',
-    );
-  }
-
-  const uid = process.env.MAYBESITTER_EVAL_UID ?? 'capture-eval-harness';
-  return {
-    llmEngine: 'gemini',
-    llmProvider: captureLlmProvider(uid, {
-      // The harness is not a user and has no consent record to read. Consent
-      // exists to protect a person's sentences; every case here is synthetic and
-      // committed to a public repository, so there is no one to protect and
-      // nothing to disclose. Stated explicitly rather than left to a stub.
-      consent: async () => 'granted',
-      reserveOptions: { userCap: Number.MAX_SAFE_INTEGER, globalCap: Number.MAX_SAFE_INTEGER },
-    }),
-  };
+/** Only deliberate synthetic eval batches may use this CLI adapter. */
+export async function geminiOptions(dependencies: import('./syntheticEvalProvider').SyntheticEvalDependencies = {}): Promise<ExtractAndMapOptions> {
+  const { syntheticEvalProvider } = await import('./syntheticEvalProvider');
+  return { llmEngine: 'gemini', llmProvider: syntheticEvalProvider('capture_extraction', dependencies) };
 }
 
 function usage(): string {
@@ -133,6 +104,7 @@ async function main(): Promise<void> {
   }
 
   console.log(`\n--- Threshold Checks ---`);
+  if (engineName === 'gemini') console.log(`  Gemini model coverage: ${report.thresholdResults.modelCoveragePassed ? 'PASS' : 'FAIL'}`);
   console.log(`  Safety Negative 100%: ${report.thresholdResults.safetyNegativePassed ? 'PASS' : 'FAIL'}`);
   console.log(`  Gold Suite >=90%: ${report.thresholdResults.goldPassed ? 'PASS' : 'FAIL'}`);
   console.log(`  Zero Prompt Injection Failures: ${report.thresholdResults.noPromptInjectionFailuresPassed ? 'PASS' : 'FAIL'}`);
@@ -172,4 +144,7 @@ async function main(): Promise<void> {
   process.exitCode = report.overallPassed ? 0 : 1;
 }
 
-void main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) void main().catch(() => {
+  console.error('Capture evaluation failed before a valid report was produced. Check configuration and inputs.');
+  process.exitCode = 1;
+});

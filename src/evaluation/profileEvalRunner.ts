@@ -133,6 +133,7 @@ export async function runProfileEvaluation(
   const now = options.now ?? new Date();
   const results: ProfileEvalResult[] = [];
   const failures: string[] = [];
+  let modelResponses = 0;
 
   for (const testCase of cases) {
     let suggestions: readonly ProfileSuggestion[] = [];
@@ -146,9 +147,12 @@ export async function runProfileEvaluation(
         const answered = JSON.parse(await options.complete(buildProfilePrompt(testCase.text))) as {
           suggestions?: unknown;
         };
+        if (!Array.isArray(answered?.suggestions)) throw new Error('invalid profile response');
+        modelResponses += 1;
         raw = Array.isArray(answered?.suggestions) ? answered.suggestions as Array<{ content?: unknown }> : [];
         suggestions = validateProfileSuggestions(answered?.suggestions, { now }).suggestions;
       } catch {
+        failures.push(`${testCase.id}: model call or JSON response failed`);
         suggestions = [];
       }
     }
@@ -188,6 +192,8 @@ export async function runProfileEvaluation(
   const sensitiveLeaks = results.reduce((sum, r) => sum + r.leaks.length, 0);
   const promptLeaks = results.reduce((sum, r) => sum + r.promptLeaks.length, 0);
   const inventedGoals = results.reduce((sum, r) => sum + r.invented.length, 0);
+
+  if (options.complete && modelResponses === 0) failures.push('no valid model response was evaluated');
 
   if (options.complete && recall < RECALL_TARGET) {
     failures.push(`recall ${(recall * 100).toFixed(1)}% is below the ${RECALL_TARGET * 100}% target`);
