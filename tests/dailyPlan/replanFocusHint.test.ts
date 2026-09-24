@@ -34,7 +34,7 @@ import {
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { readStoredPlan, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
-import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
@@ -117,7 +117,7 @@ async function seedAccount(storage: StorageAdapter, uid: string, consent: 'grant
 }
 
 async function meetingLandsOn(storage: StorageAdapter, uid: string, interval: TimeInterval): Promise<void> {
-  await replaceBusyBlocks(
+  await replaceBusyBlocksAsFixture(
     uid,
     CALENDAR,
     { startsAt: `${DATE}T00:00:00.000Z`, endsAt: '2026-09-17T00:00:00.000Z' },

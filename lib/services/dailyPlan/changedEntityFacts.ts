@@ -43,16 +43,16 @@
  * Only an interval and a boolean leave this module. No source id, source kind,
  * title or other provider value reaches the planning contracts.
  *
- * ── What production writes today ──────────────────────────────────
+ * ── Who writes the rows ───────────────────────────────────────────
  *
- * As of this change, nothing in production writes a `calendar` change. The only
- * producer of `planningStateChanges` is `watcherEngine`, which writes
- * `source: 'watcher'`, and that resolves to null here exactly as before. So this
- * module makes the tick *able* to replan a calendar change, and changes no
- * production outcome until a calendar producer exists. Such a producer must
- * announce a moved meeting as two changes, because a block's id hashes its
- * start: the old id, which resolves as deleted, and the new id, which resolves
- * to its new interval.
+ * `calendar` rows come from `lib/calendar/busyBlocks.ts` (#611): every
+ * busy-block write — the phone's sync, an ICS feed, accepted lecture sessions,
+ * a disconnect — commits each block it adds, moves or removes together with
+ * its row, so a row is never visible before its block is in the state it
+ * announces. A moved meeting is two rows, because a block's id hashes its
+ * start: the old id, which resolves as deleted here, and the new id, which
+ * resolves to its new interval. `watcher` rows come from `watcherEngine` and
+ * resolve to null, as above.
  */
 import type { StorageAdapter } from '../../storage';
 import { readBusyBlocksById, toFixedEvents, type BusyBlock } from '../../calendar/busyBlocks';

@@ -60,7 +60,7 @@ import {
 } from '../../lib/services/dailyPlan/planSettings.ts';
 import { readPlanSettings, savePlanSettings } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { GET as settingsGet, PUT as settingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
-import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { Commitment, DomainState } from '../../src/domain/stateMachine.ts';
@@ -195,7 +195,7 @@ async function seedSyncedAccount(
   await persistParticipantState(uid, state);
   await seedPlan(uid, storage);
 
-  await replaceBusyBlocks(
+  await replaceBusyBlocksAsFixture(
     uid,
     'device:calendar-1',
     { startsAt: `${DATE}T00:00:00.000Z`, endsAt: `${DATE}T23:59:59.999Z` },

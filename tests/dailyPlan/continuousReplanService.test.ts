@@ -21,7 +21,7 @@ import {
   listPlanEvents,
   type StoredDailyPlan,
 } from '../../lib/services/dailyPlan/planStore';
-import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState';
 import { createEmptyDomainState } from '../../src/domain/stateMachine';
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
@@ -166,7 +166,7 @@ test('processStateChangesForUser: REPLAN_REQUIRED auto-applies minor shift, incr
     await seedInitialPlan(storage, [scheduledItem]);
 
     // 4. Add a calendar busy block that collides with com-1's slot (e.g. 07:00-07:30)
-    await replaceBusyBlocks(
+    await replaceBusyBlocksAsFixture(
       UID,
       'device:calendar-1',
       { startsAt: `${DATE}T00:00:00.000Z`, endsAt: `${DATE}T23:59:59.999Z` },

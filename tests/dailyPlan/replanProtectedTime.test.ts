@@ -36,7 +36,7 @@ import {
 import { readStoredPlan, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { acceptPlanProposal, editPlan, setBlockProtection } from '../../lib/services/dailyPlan/planActions.ts';
 import { processStateChangesForUser } from '../../lib/services/dailyPlan/continuousReplanService.ts';
-import { replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
 import { saveNormalizedReadinessSnapshot, saveSubjectiveEnergyCheckIn } from '../../lib/userState/userStateService.ts';
 import { ownershipOf, scheduleBlockId } from '../../src/contracts/v1/scheduleBlockContracts.ts';
 import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
@@ -165,7 +165,7 @@ async function meetingLands(
   uid: string,
   meeting: TimeInterval = MEETING,
 ): Promise<PlanningStateChange> {
-  await replaceBusyBlocks(
+  await replaceBusyBlocksAsFixture(
     uid,
     'device:calendar-1',
     { startsAt: `${DATE}T00:00:00.000Z`, endsAt: `${DATE}T23:59:59.999Z` },

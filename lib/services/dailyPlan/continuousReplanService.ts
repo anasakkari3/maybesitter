@@ -1,9 +1,10 @@
 /**
  * Continuous replanning service (#523, slice 2).
  *
- * Consumes normalized `PlanningStateChange` records (written e.g. by watchers or
- * external events) and executes continuous replanning against the user's active
- * daily plan using the continuous replanning pipeline:
+ * Consumes normalized `PlanningStateChange` records (written by watchers, and
+ * by every busy-block write of a calendar sync since #611) and executes
+ * continuous replanning against the user's active daily plan using the
+ * continuous replanning pipeline:
  *
  * normalized state change → ImpactEvaluator → {NO_EFFECT | PLAN_STALE | REPLAN_REQUIRED}
  *   → deduped enqueue → canonical planner → PlanDiff → policy/user-control layer.
