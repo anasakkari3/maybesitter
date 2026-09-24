@@ -429,7 +429,7 @@ for (const [label, header, payload] of REFUSED) {
       },
       dailyPlan: async () => {
         swept = true;
-        return { due: 0, claimed: 0, built: 0, pushed: 0, failed: 0 };
+        return { due: 0, claimed: 0, built: 0, pushed: 0, retried: 0, retryPushed: 0, retryDropped: 0, failed: 0 };
       },
     }));
     assert.equal(response.status, 401);
@@ -445,7 +445,7 @@ test('daily-plan: missing configuration is 503 and builds nothing', async () => 
     verify: async () => SCHEDULER,
     dailyPlan: async () => {
       swept = true;
-      return { due: 0, claimed: 0, built: 0, pushed: 0, failed: 0 };
+      return { due: 0, claimed: 0, built: 0, pushed: 0, retried: 0, retryPushed: 0, retryDropped: 0, failed: 0 };
     },
   }));
   assert.equal(response.status, 503);

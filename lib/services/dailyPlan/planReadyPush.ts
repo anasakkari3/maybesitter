@@ -18,13 +18,14 @@
  * a notification's text passes through Google's and Apple's servers and sits in
  * the OS notification store, so a commitment title in it is a leak.
  *
- * ── What this does not do ────────────────────────────────────────
+ * ── Retries are not this module's ───────────────────────────────
  *
- * It does not retry. `sendToUser` suppresses during quiet hours without spending
- * the dedupe key, so a later `plan:<date>` push would still be delivered — but
- * nothing here sends one later. A delivery time the user set inside their own
- * quiet hours therefore builds the plan and stays silent that morning; the plan
- * is still there when the app is opened.
+ * This sends one notice. Whether a notice is sent again — after quiet hours, a
+ * throwing send or a crash — is `planPushRetry.ts` (#431). What this module
+ * contributes is `collapseId`: every attempt for one date is shown under
+ * `plan:{date}`, whatever its dedupe key, so a retry after an ambiguous FCM
+ * failure replaces a notification that did arrive instead of standing beside
+ * it.
  */
 import { sendToUser, type MessagingClient, type PushMessage, type PushResult } from '../../push/pushService';
 import type { StorageAdapter } from '../../storage';
@@ -49,6 +50,7 @@ export function planReadyMessage(notice: PlanReadyNotice): PushMessage {
     kind: notice.kind,
     uid: notice.uid,
     dedupeKey: notice.dedupeKey,
+    collapseId: `plan:${notice.data.planDate}`,
     data: { kind: notice.kind, planDate: notice.data.planDate },
     title: copy.title,
     body: copy.body,
