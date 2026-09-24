@@ -2,11 +2,13 @@
 # The cost alarms for the model, as commands rather than console clicks
 # (UC-4.5 #181, steps 7a-7d).
 #
-# Nothing here spends money. Budgets, budget threshold rules, log-based metrics
-# and alert policies are all free; what they do is make somebody notice before
-# the bill does. The ₪100 budget itself already exists and is alert-only — it
-# does not cap anything, which is why the caps live in the application
-# (lib/llm/usageGuard.ts) where they can actually refuse a call.
+# Printing is local only. Applying creates user-defined log-based metrics and
+# alert policies, whose billing depends on current Observability pricing and
+# the project's usage/free allotment. Check billing, quota and approved spend
+# before apply; do not assume these resources are free:
+# https://cloud.google.com/products/observability/pricing
+# Budget alerts are notifications, not a spending cap; application limits live
+# in lib/llm/usageGuard.ts where they can actually refuse a model call.
 #
 # Deliberately NOT here: anything that disables billing. That would take the
 # whole app down for everyone rather than just the model, and the app has two
