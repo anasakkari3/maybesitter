@@ -205,6 +205,65 @@ test('a cancelled event frees capacity → PLAN_STALE, never REPLAN_REQUIRED', (
   assert.equal(impact.reason, 'planner_input_changed');
 });
 
+/* ── A removal is judged by where the removed time was (#611, #645 review) ── */
+
+test('a removal whose previous interval lies outside the horizon → NO_EFFECT', () => {
+  // Next week's meeting, cancelled. It frees no time today.
+  const impact = evaluate(
+    { changedFields: ['interval', 'blocking'] },
+    planView(),
+    { interval: null, blocking: false, previousInterval: interval('2026-11-16T14:00:00.000Z', '2026-11-16T15:00:00.000Z') },
+  );
+  assert.equal(impact.decision, 'NO_EFFECT');
+  assert.equal(impact.reason, 'outside_horizon');
+});
+
+test('a removal whose previous interval lies inside the horizon still frees capacity → PLAN_STALE', () => {
+  const impact = evaluate(
+    { changedFields: ['interval', 'blocking'] },
+    planView(),
+    { interval: null, blocking: false, previousInterval: interval('2026-11-09T09:00:00.000Z', '2026-11-09T10:00:00.000Z') },
+  );
+  assert.equal(impact.decision, 'PLAN_STALE');
+});
+
+test('a removal whose previous interval straddles the horizon edge is inside it → PLAN_STALE', () => {
+  const impact = evaluate(
+    { changedFields: ['interval', 'blocking'] },
+    planView(),
+    { interval: null, blocking: false, previousInterval: interval('2026-11-08T23:00:00.000Z', '2026-11-09T01:00:00.000Z') },
+  );
+  assert.equal(impact.decision, 'PLAN_STALE');
+});
+
+test('an entity that left the horizon freed time inside it → PLAN_STALE, not outside_horizon', () => {
+  // Its span now is next week; its span before was today.
+  const impact = evaluate(
+    { changedFields: ['interval'] },
+    planView(),
+    {
+      interval: interval('2026-11-16T09:00:00.000Z', '2026-11-16T10:00:00.000Z'),
+      blocking: true,
+      previousInterval: interval('2026-11-09T09:00:00.000Z', '2026-11-09T10:00:00.000Z'),
+    },
+  );
+  assert.equal(impact.decision, 'PLAN_STALE');
+});
+
+test('an entity moved within next week (both spans outside) → NO_EFFECT', () => {
+  const impact = evaluate(
+    { changedFields: ['interval'] },
+    planView(),
+    {
+      interval: interval('2026-11-16T11:00:00.000Z', '2026-11-16T12:00:00.000Z'),
+      blocking: true,
+      previousInterval: interval('2026-11-16T09:00:00.000Z', '2026-11-16T10:00:00.000Z'),
+    },
+  );
+  assert.equal(impact.decision, 'NO_EFFECT');
+  assert.equal(impact.reason, 'outside_horizon');
+});
+
 test('a changed field nobody recognises falls through to PLAN_STALE', () => {
   // Unknown is not metadata: dismissing a field not on the list is how a real
   // change gets silenced by a stale allow-list.

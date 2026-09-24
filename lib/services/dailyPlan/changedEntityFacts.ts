@@ -26,6 +26,10 @@
  * No block means the entity occupies no time any more: `{ interval: null,
  * blocking: false }`, which the contract defines as a cancellation or
  * deletion. It frees capacity (`PLAN_STALE`) and never contradicts a placement.
+ * When the row carries the block's interval from before the change
+ * (`beforeInterval`, which the busy-block producer writes, #611), it comes
+ * back as `previousInterval`, so a removal outside the plan's horizon is
+ * `NO_EFFECT` instead of freeing time on a day it was never on.
  * Two blocks with one id (two sources choosing the same id) resolve to null,
  * because there is no honest way to pick one.
  *
@@ -57,6 +61,7 @@
 import type { StorageAdapter } from '../../storage';
 import { readBusyBlocksById, toFixedEvents, type BusyBlock } from '../../calendar/busyBlocks';
 import type { ChangedEntityFacts } from '../../../src/contracts/v1/replanContracts';
+import type { TimeInterval } from '../../../src/contracts/v1/planningContracts';
 import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
 
 /** Each change's own facts, keyed by `changeId`. An absent key means null. */
@@ -77,7 +82,21 @@ export function factsOfBusyBlock(block: BusyBlock | null): ChangedEntityFacts {
  * A stored proposal's `causeRefs` carry exactly this, so the causes of an offer
  * can be re-resolved after their change rows were drained (#611 guards).
  */
-export type EntityRef = Pick<PlanningStateChange, 'changeId' | 'scopeId' | 'source' | 'entityId'>;
+export type EntityRef = Pick<PlanningStateChange, 'changeId' | 'scopeId' | 'source' | 'entityId' | 'beforeInterval'>;
+
+/**
+ * The change's own record of where the entity sat before it (#611), if it
+ * carries a well-formed one. The block itself cannot say: after a removal it
+ * is gone. Anything malformed is dropped, which leaves the span unknown and
+ * the change judged as before, never ruled outside a horizon.
+ */
+function previousIntervalOf(change: EntityRef): TimeInterval | null {
+  const before = change.beforeInterval;
+  if (!before || typeof before.startsAt !== 'string' || typeof before.endsAt !== 'string') return null;
+  const [start, end] = [Date.parse(before.startsAt), Date.parse(before.endsAt)];
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return Object.freeze({ startsAt: before.startsAt, endsAt: before.endsAt });
+}
 
 export async function resolveChangedEntityFacts(
   uid: string,
@@ -97,7 +116,13 @@ export async function resolveChangedEntityFacts(
       continue;
     }
     const matches = blocks.get(change.entityId) ?? [];
-    facts.set(change.changeId, matches.length > 1 ? null : factsOfBusyBlock(matches[0] ?? null));
+    if (matches.length > 1) {
+      facts.set(change.changeId, null);
+      continue;
+    }
+    const now = factsOfBusyBlock(matches[0] ?? null);
+    const previousInterval = previousIntervalOf(change);
+    facts.set(change.changeId, previousInterval === null ? now : Object.freeze({ ...now, previousInterval }));
   }
   return facts;
 }

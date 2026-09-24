@@ -480,8 +480,9 @@ function newSyncStamp(now: Date): SyncStamp {
  * the same thing before and after.
  *
  * Content-free by construction: the entity is the block's own id (already a
- * digest), the digests hash two instants, and the change id and provenance are
- * built from a random sync id. No source id, title or other calendar value is
+ * digest), the digests hash two instants, `beforeInterval` is the same two
+ * instants in the clear, and the change id and provenance are built from a
+ * random sync id. No source id, title or other calendar value is
  * in it. The source id is deliberately not hashed into the change id either:
  * one sync is one source, so the sync id already keeps two rows apart.
  *
@@ -500,7 +501,7 @@ function changeRowFor(
   const now = plannerFactsOf(after);
   if (isDeepStrictEqual(was, now)) return null;
   const changeId = `${BUSY_CHANGE_ID_PREFIX}${docIdForKey(JSON.stringify([stamp.syncId, blockId]))}`;
-  return {
+  const row: PlanningStateChange = {
     schemaVersion: PLANNING_STATE_CHANGE_SCHEMA_VERSION,
     changeId,
     scopeId: uid,
@@ -514,6 +515,11 @@ function changeRowFor(
     afterDigest: plannerFactsDigest(now),
     provenanceRef: `calendar-sync:${stamp.syncId}`,
   };
+  // Where the planner saw this block before, so a removal can be judged by the
+  // day it was on: once the block is deleted nothing else remembers (#645
+  // review). Two instants, the same the digest hashes. Omitted, not null, when
+  // the planner saw nothing: the key is optional in the contract.
+  return was === null ? row : { ...row, beforeInterval: { startsAt: was.startsAt, endsAt: was.endsAt } };
 }
 
 function changeRowPath(uid: string, changeId: string): string {

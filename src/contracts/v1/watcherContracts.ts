@@ -214,6 +214,18 @@ export interface PlanningStateChange {
   readonly beforeDigest: string | null;
   readonly afterDigest: string;
   readonly provenanceRef: string;
+  /**
+   * The entity's own interval before the change, for a source that occupies
+   * time, when it occupied time before (#611). Two instants, as content-free
+   * as the digests that already hash them.
+   *
+   * It exists for removals. After a deletion there is nothing left to read the
+   * entity's interval from, so without it a meeting cancelled next week and one
+   * cancelled this afternoon were the same change to the evaluator: both
+   * "occupies no time now". Absent for every other producer and for an entity
+   * that is new, and read as "unknown", never as "outside".
+   */
+  readonly beforeInterval?: { readonly startsAt: string; readonly endsAt: string };
 }
 
 /**

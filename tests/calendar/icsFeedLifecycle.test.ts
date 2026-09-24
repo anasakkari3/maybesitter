@@ -1270,7 +1270,9 @@ test('#611: a subscribe announces each lecture once; an identical refresh announ
     assert.deepEqual(moved.map((row) => row.entityId).sort(), [...gone, ...arrived].sort(), 'a moved lecture is its old id and its new id');
     const facts = await resolveChangedEntityFacts(USER, moved, { storage: getStorage() });
     const byEntity = new Map(moved.map((row) => [row.entityId, facts.get(row.changeId)] as const));
-    assert.deepEqual(byEntity.get(gone[0]!), { interval: null, blocking: false });
+    const freed = byEntity.get(gone[0]!);
+    assert.deepEqual([freed?.interval, freed?.blocking], [null, false]);
+    assert.ok(freed?.previousInterval, 'the freed lecture says where it was');
     assert.equal(byEntity.get(arrived[0]!)?.blocking, true);
 
     h.bodies.set(FEED_URL, calendar([], [lectures[0]!, { uid: 'l2', startInHours: 28, hours: 1 }]));

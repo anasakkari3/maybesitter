@@ -643,6 +643,69 @@ export async function processStateChangesForUser(
     };
   }
 
+  /** The user-state projection a run reports, after its verdict. */
+  const userStateAfter = (result: ContinuousReplanPipelineResult) => composeCurrentUserState(
+    {
+      uid,
+      now: nowIso,
+      plan: {
+        meta: {
+          source: 'plan',
+          freshness: 'fresh',
+          updatedAt: nowIso,
+          inputDigest: storedPlan?.inputDigest ?? null,
+        },
+        status: result.planStatus,
+        planId: storedPlan ? date : null,
+        updatedAt: nowIso,
+      },
+    },
+    { storage, userDocument: user },
+  );
+
+  /**
+   * No plan for the day: nothing to replan, and nothing to read for it (#645
+   * review). The evaluator answers `no_current_plan` for every change before
+   * it looks at a fact (rule 3), so resolving each change's entity and
+   * composing the day's planning request — the domain load, the busy-block
+   * read, the plan-layer projection — bought nothing. Since #611 every
+   * calendar-connected account has rows on most ticks, and most accounts on
+   * most ticks have no plan for the day.
+   *
+   * The verdict is still the pipeline's own, with no facts and a planner that
+   * must never run, so the report is the one the full path produced. The rows
+   * drain exactly as a verdict that stored nothing drains: only if the day
+   * still has no plan when the drain commits (`acknowledgeIfPlanUnchanged`).
+   */
+  if (storedPlan === null) {
+    const pipelineResult = executeContinuousReplanPipeline({
+      changes: rawChanges,
+      planView: null,
+      pendingView: null,
+      entityFactsByChangeId: new Map(),
+      basePlan: null,
+      planner: () => {
+        throw new Error('continuous replan: a day with no plan is never solved');
+      },
+      policyConfig: options.policyConfig,
+      scopeId: uid,
+      date,
+      now: nowIso,
+      baseGeneration: undefined,
+    });
+    await acknowledgeIfPlanUnchanged(uid, date, storage, null, changeRowPaths(uid, changeDocPaths, options.changes));
+    return {
+      uid,
+      date,
+      changesProcessed: rawChanges.length,
+      pipelineResult,
+      planStored: false,
+      userState: await userStateAfter(pipelineResult),
+      skipped: null,
+      offerOutcome: null,
+    };
+  }
+
   // 3. Build PlanImpactView from stored plan if available. Both the impact
   // view and the diff base read the visible day: protected blocks where they
   // sit and the person's edits applied (#585, #610).
@@ -1058,24 +1121,7 @@ export async function processStateChangesForUser(
   }
 
   // 8. Compose updated UserStateProjection
-  const userState = await composeCurrentUserState(
-    {
-      uid,
-      now: nowIso,
-      plan: {
-        meta: {
-          source: 'plan',
-          freshness: 'fresh',
-          updatedAt: nowIso,
-          inputDigest: storedPlan?.inputDigest ?? null,
-        },
-        status: pipelineResult.planStatus,
-        planId: storedPlan ? date : null,
-        updatedAt: nowIso,
-      },
-    },
-    { storage, userDocument: user },
-  );
+  const userState = await userStateAfter(pipelineResult);
 
   return {
     uid,

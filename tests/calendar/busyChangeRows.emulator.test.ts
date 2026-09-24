@@ -70,6 +70,9 @@ test('firestore: a multi-commit sync writes each block with its row, an identica
     const facts = await resolveChangedEntityFacts(uid, changes, { storage });
     const freed = changes.filter((row) => facts.get(row.changeId)?.interval === null).length;
     assert.equal(freed, 450, 'every old id resolves as deleted');
+    const removals = changes.filter((row) => facts.get(row.changeId)?.interval === null);
+    assert.ok(removals.every((row) => row.beforeInterval && facts.get(row.changeId)?.previousInterval?.startsAt === row.beforeInterval.startsAt),
+      'each removal carries where it was, through Firestore, and the resolver reads it back');
     assert.equal((await storage.list(userCol(uid, BUSY_BLOCKS))).length, 300);
 
     assert.deepEqual(await deleteBusySource(uid, SOURCE, { storage }), { deleted: 300 });

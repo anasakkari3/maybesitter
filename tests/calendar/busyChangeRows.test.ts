@@ -141,7 +141,11 @@ test('a moved meeting is two rows: the old id resolves as deleted, the new id as
     'one row per id, and none for the lunch that did not move');
   assert.notEqual(written[0]!.changeId, written[1]!.changeId);
   const facts = await resolved(storage, written);
-  assert.deepEqual(facts.get(MEETING.blockId), { interval: null, blocking: false }, 'the old time is free');
+  assert.deepEqual(facts.get(MEETING.blockId), {
+    interval: null,
+    blocking: false,
+    previousInterval: { startsAt: MEETING.startAt, endsAt: MEETING.endAt },
+  }, 'the old time is free, and the row says where it was');
   assert.deepEqual(facts.get(MOVED.blockId), { interval: { startsAt: MOVED.startAt, endsAt: MOVED.endAt }, blocking: true });
   const removal = written.find((row) => row.entityId === MEETING.blockId)!;
   assert.notEqual(removal.beforeDigest, null);
@@ -157,7 +161,29 @@ test('a removed meeting is one row that resolves as deleted', async () => {
   await sync(storage, [LUNCH]);
   const written = await rows(storage);
   assert.deepEqual(written.map((row) => row.entityId), [MEETING.blockId]);
-  assert.deepEqual((await resolved(storage, written)).get(MEETING.blockId), { interval: null, blocking: false });
+  assert.deepEqual((await resolved(storage, written)).get(MEETING.blockId), {
+    interval: null,
+    blocking: false,
+    previousInterval: { startsAt: MEETING.startAt, endsAt: MEETING.endAt },
+  });
+  assert.deepEqual(written[0]!.beforeInterval, { startsAt: MEETING.startAt, endsAt: MEETING.endAt },
+    'the removed block\'s own instants, since nothing else remembers them once it is deleted');
+});
+
+test('the resolver reads a removal\'s previous interval off the row only when it is well formed, and only for calendar rows', async () => {
+  const storage = createMemoryStorage();
+  const base = { schemaVersion: 'planning-state-change-v1' as const, scopeId: UID, occurredAt: at('05:00'), changedFields: ['interval', 'blocking'], beforeDigest: 'b', afterDigest: 'a', provenanceRef: 'p' };
+  const good = { startsAt: at('06:00'), endsAt: at('06:30') };
+  const facts = await resolveChangedEntityFacts(UID, [
+    { ...base, changeId: 'ok', source: 'calendar', entityId: 'gone-1', beforeInterval: good },
+    { ...base, changeId: 'reversed', source: 'calendar', entityId: 'gone-2', beforeInterval: { startsAt: at('07:00'), endsAt: at('06:00') } },
+    { ...base, changeId: 'garbage', source: 'calendar', entityId: 'gone-3', beforeInterval: { startsAt: 'yesterday', endsAt: at('06:00') } },
+    { ...base, changeId: 'watcher', source: 'watcher', entityId: 'w-1', beforeInterval: good },
+  ], { storage });
+  assert.deepEqual(facts.get('ok'), { interval: null, blocking: false, previousInterval: good });
+  assert.deepEqual(facts.get('reversed'), { interval: null, blocking: false }, 'malformed is unknown, never "outside"');
+  assert.deepEqual(facts.get('garbage'), { interval: null, blocking: false });
+  assert.equal(facts.get('watcher'), null);
 });
 
 test('a meeting whose end moves keeps its id and is one row', async () => {
@@ -215,6 +241,16 @@ test('a row carries exactly the contract\'s keys, and no source id or title', as
   const text = JSON.stringify(row);
   assert.doesNotMatch(text, /Oncology|Haddad/);
   assert.ok(!text.includes(SOURCE) && !text.includes(SOURCE.slice('device:'.length)), `the source id leaked: ${text}`);
+
+  // A removal adds one key, `beforeInterval`, holding two instants and nothing else.
+  await drain(storage);
+  await sync(storage, []);
+  const [removal] = await rows(storage);
+  assert.deepEqual(Object.keys(removal!).sort(), [
+    'afterDigest', 'beforeDigest', 'beforeInterval', 'changeId', 'changedFields', 'entityId', 'occurredAt', 'provenanceRef', 'schemaVersion', 'scopeId', 'source',
+  ]);
+  assert.deepEqual(removal!.beforeInterval, { startsAt: MEETING.startAt, endsAt: MEETING.endAt });
+  assert.doesNotMatch(JSON.stringify(removal), /Oncology|Haddad/);
 });
 
 test('no row is written for an account that is gone or being deleted', async () => {

@@ -178,6 +178,14 @@ export interface PlanImpactView {
 export interface ChangedEntityFacts {
   readonly interval: TimeInterval | null;
   readonly blocking: boolean;
+  /**
+   * Where the entity sat before the change, when the change says so
+   * (`PlanningStateChange.beforeInterval`, #611). A change is outside a plan's
+   * horizon only when every span it touched is: a removal next week is
+   * `NO_EFFECT` for today, and a removal today still frees today's time.
+   * Absent means unknown, and an unknown span is never assumed outside.
+   */
+  readonly previousInterval?: TimeInterval;
 }
 
 /* ── The field vocabularies ──────────────────────────────────────── */

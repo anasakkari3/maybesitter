@@ -25,10 +25,13 @@ import { PLANNING_STATE_CHANGES, userCol, userDoc } from '../../lib/storage/path
 import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { buildAndStoreDailyPlan, claimDueDelivery, savePlanSettings } from '../../lib/services/dailyPlan/dailyPlanService.ts';
-import { readStoredPlan, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
+import { listPlanEvents, readStoredPlan, type StoredDailyPlan } from '../../lib/services/dailyPlan/planStore.ts';
 import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
 import { applyTrustAction } from '../../lib/pilot/pilotTrustStore.ts';
 import { busyBlockId } from '../../lib/calendar/busyBlocks.ts';
+import { createIcsFeed, icsBusyBlocks, refreshIcsFeed } from '../../lib/calendar/icsFeeds.ts';
+import { createInMemoryKms } from '../../lib/security/inMemoryKms.ts';
+import { KMS_KEY_ENV_VAR, resetFieldEncryptionForTests } from '../../lib/security/fieldEncryption.ts';
 import { intervalsOverlap } from '../../lib/planning/shared/time.ts';
 import { installFakeAuth, tokenFor, uidFor } from '../support/fakeAuth.ts';
 import { POST as busyPost } from '../../src/app/api/mobile/calendar/busy/route.ts';
@@ -112,21 +115,33 @@ async function withWorld(name: string, fn: (world: World) => Promise<void>): Pro
   }
 }
 
-/** The phone's sync, through the production route: the standup at `at`, or no standup at all. */
-async function phoneSync(uid: string, at: TimeInterval | null): Promise<string | null> {
-  const blockId = at === null ? null : busyBlockId(SOURCE, STANDUP, at.startsAt);
+/** One event on the phone's calendar: its native id and where it sits. */
+interface PhoneEvent {
+  readonly nativeId: string;
+  readonly at: TimeInterval;
+}
+
+/** The phone's sync, through the production route: the whole calendar, as the phone restates it. */
+async function phoneSyncAll(uid: string, events: readonly PhoneEvent[]): Promise<string[]> {
+  const blocks = events.map((event) => ({
+    blockId: busyBlockId(SOURCE, event.nativeId, event.at.startsAt),
+    startAt: event.at.startsAt,
+    endAt: event.at.endsAt,
+    allDay: false,
+  }));
   const response = await busyPost(new Request(`${BASE}/api/mobile/calendar/busy`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', authorization: `Bearer ${tokenFor(uid)}` },
-    body: JSON.stringify({
-      sourceId: SOURCE,
-      platform: 'ios',
-      ...WINDOW,
-      blocks: at === null ? [] : [{ blockId, startAt: at.startsAt, endAt: at.endsAt, allDay: false }],
-    }),
+    body: JSON.stringify({ sourceId: SOURCE, platform: 'ios', ...WINDOW, blocks }),
   }));
   assert.equal(response.status, 200, await response.clone().text());
-  return blockId;
+  return blocks.map((block) => block.blockId);
+}
+
+/** The phone's sync with the standup at `at`, or with no standup at all. */
+async function phoneSync(uid: string, at: TimeInterval | null): Promise<string | null> {
+  const [blockId] = await phoneSyncAll(uid, at === null ? [] : [{ nativeId: STANDUP, at }]);
+  return blockId ?? null;
 }
 
 async function pendingRows(storage: StorageAdapter, uid: string): Promise<PlanningStateChange[]> {
@@ -267,5 +282,201 @@ test('a tick that runs in the middle of the sync never loses the meeting', async
     const task = stored.proposal.plan.scheduled.find((item) => item.itemId === 'cmt_a');
     assert.ok(task && !intervalsOverlap(task.reservedInterval, ON_TASK));
     assert.deepEqual(await pendingRows(storage, uid), []);
+  });
+});
+
+/* ══ Removals on another day (#645 review, P2) ═══════════════════════ */
+
+/*
+ * A removal resolves to `{ interval: null }`: the block is gone. Before the
+ * row carried the removed block's own interval, the evaluator could not tell a
+ * removal next week from one on the plan's day, judged every removal
+ * `PLAN_STALE`, and with an offer pending that re-solves and re-issues the
+ * offer: a new id, drifted placements, another `plan_proposed`, and the
+ * person's Accept on the offer they are looking at refused as stale. Off-day
+ * removals are routine: a cancellation next week, the old id of a meeting
+ * moved within next week, the phone's window rolling past midnight, and every
+ * ICS refresh (its window starts at `now`, so lectures that ended drop out).
+ */
+
+const NEXT_WEEK: TimeInterval = { startsAt: '2026-09-22T07:00:00.000Z', endsAt: '2026-09-22T08:00:00.000Z' };
+const NEXT_WEEK_LATER: TimeInterval = { startsAt: '2026-09-22T09:00:00.000Z', endsAt: '2026-09-22T10:00:00.000Z' };
+const REVIEW = 'evt-review';
+
+/** An account with an offer on the table: the standup moved onto `cmt_a`, and next week's review in the calendar. */
+async function withOfferPending(storage: MemoryStorageAdapter, uid: string, setClock: (at: Date) => void): Promise<{ proposalId: string; proposed: number }> {
+  await seedAccount(storage, uid);
+  await phoneSyncAll(uid, [{ nativeId: STANDUP, at: EVENING }, { nativeId: REVIEW, at: NEXT_WEEK }]);
+  setClock(minutesAfterMorning(1));
+  await runContinuousReplanTick({ storage, now: minutesAfterMorning(1) });
+  setClock(minutesAfterMorning(5));
+  await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }, { nativeId: REVIEW, at: NEXT_WEEK }]);
+  setClock(minutesAfterMorning(6));
+  const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(6) });
+  assert.equal(totals.proposed, 1, `fixture: the standup must be offered for: ${JSON.stringify(totals)}`);
+  const offer = (await readStoredPlan(uid, DATE, storage))!.proposal;
+  assert.ok(offer);
+  assert.deepEqual(await pendingRows(storage, uid), []);
+  return { proposalId: offer.proposalId, proposed: await offersMade(storage, uid) };
+}
+
+async function offersMade(storage: StorageAdapter, uid: string): Promise<number> {
+  return (await listPlanEvents(uid, storage)).filter((event) => event.type === 'plan_proposed').length;
+}
+
+async function assertOfferUntouched(storage: StorageAdapter, uid: string, before: { proposalId: string; proposed: number }): Promise<void> {
+  const stored = (await readStoredPlan(uid, DATE, storage))!;
+  assert.equal(stored.proposal?.proposalId, before.proposalId, 'the offer the person is looking at is the same offer');
+  assert.equal(await offersMade(storage, uid), before.proposed, 'and nothing was offered again');
+  assert.deepEqual(await pendingRows(storage, uid), [], 'the rows were judged and drained');
+}
+
+test('P2: a meeting cancelled next week leaves today\'s pending offer as it is', async () => {
+  await withWorld('ProducerOffDayRemoval', async ({ storage, uid, setClock }) => {
+    const before = await withOfferPending(storage, uid, setClock);
+
+    setClock(minutesAfterMorning(40));
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }]);
+    assert.equal((await pendingRows(storage, uid)).length, 1, 'the cancellation is announced');
+    setClock(minutesAfterMorning(41));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(41) });
+
+    assert.equal(totals.noEffect, 1, `a removal next week cannot touch today: ${JSON.stringify(totals)}`);
+    assert.equal(totals.stale + totals.proposed + totals.kept + totals.withdrawn, 0, JSON.stringify(totals));
+    await assertOfferUntouched(storage, uid, before);
+  });
+});
+
+test('P2: a meeting moved within next week (old id freed, new id taken) leaves today\'s offer as it is', async () => {
+  await withWorld('ProducerOffDayMove', async ({ storage, uid, setClock }) => {
+    const before = await withOfferPending(storage, uid, setClock);
+
+    setClock(minutesAfterMorning(40));
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }, { nativeId: REVIEW, at: NEXT_WEEK_LATER }]);
+    assert.equal((await pendingRows(storage, uid)).length, 2, 'a move is two rows');
+    setClock(minutesAfterMorning(41));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(41) });
+
+    assert.equal(totals.noEffect, 1, JSON.stringify(totals));
+    assert.equal(totals.stale + totals.proposed + totals.kept + totals.withdrawn, 0, JSON.stringify(totals));
+    await assertOfferUntouched(storage, uid, before);
+  });
+});
+
+test('P2: an ICS refresh that drops a lecture which ended yesterday leaves today\'s offer as it is', async () => {
+  await withWorld('ProducerIcsEnded', async ({ storage, uid, setClock }) => {
+    resetFieldEncryptionForTests();
+    const kms = createInMemoryKms();
+    let feedNow = new Date('2026-09-14T08:00:00.000Z');
+    const stamp = (iso: string) => iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const lecture = (uid: string, at: TimeInterval) => [
+      'BEGIN:VEVENT', `UID:${uid}`, 'SUMMARY:Lecture', 'DTSTAMP:20260901T080000Z',
+      `DTSTART:${stamp(at.startsAt)}`, `DTEND:${stamp(at.endsAt)}`, 'END:VEVENT',
+    ];
+    const YESTERDAY: TimeInterval = { startsAt: '2026-09-14T10:00:00.000Z', endsAt: '2026-09-14T12:00:00.000Z' };
+    const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...lecture('lec-1', YESTERDAY), ...lecture('lec-2', NEXT_WEEK), 'END:VCALENDAR', ''].join('\r\n');
+    const deps = {
+      now: () => feedNow,
+      encryption: { kms, env: { NODE_ENV: 'test', [KMS_KEY_ENV_VAR]: kms.keyName } as NodeJS.ProcessEnv },
+      log: () => undefined,
+      classifyTimeoutMs: 15_000,
+      fetch: async () => ({ notModified: false as const, body, etag: null, lastModified: null }),
+    };
+
+    const before = await (async () => {
+      await seedAccount(storage, uid);
+      // Subscribed yesterday morning: both lectures are busy time.
+      const created = await createIcsFeed(uid, { url: 'https://moodle.univ.example/export?authtoken=T0KEN' }, deps);
+      assert.equal(created.preview.busyBlocks, 2);
+      const offer = await (async () => {
+        setClock(minutesAfterMorning(1));
+        await runContinuousReplanTick({ storage, now: minutesAfterMorning(1) });
+        assert.deepEqual(await pendingRows(storage, uid), [], 'fixture: the subscribe rows were drained');
+        await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }]);
+        setClock(minutesAfterMorning(6));
+        const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(6) });
+        assert.equal(totals.proposed, 1, JSON.stringify(totals));
+        return (await readStoredPlan(uid, DATE, storage))!.proposal!;
+      })();
+      return { feedId: created.feed.feedId, proposalId: offer.proposalId, proposed: await offersMade(storage, uid) };
+    })();
+
+    // This morning's scheduled refresh: yesterday's lecture has ended and
+    // falls out of the feed's window.
+    feedNow = minutesAfterMorning(40);
+    setClock(feedNow);
+    const refreshed = await refreshIcsFeed(uid, before.feedId, { manual: false }, deps);
+    assert.equal(refreshed.outcome, 'updated');
+    assert.equal((await icsBusyBlocks(uid, before.feedId, { now: () => feedNow })).length, 1);
+    assert.equal((await pendingRows(storage, uid)).length, 1, 'the ended lecture\'s removal is announced');
+
+    setClock(minutesAfterMorning(41));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(41) });
+    assert.equal(totals.noEffect, 1, JSON.stringify(totals));
+    assert.equal(totals.stale + totals.proposed + totals.kept + totals.withdrawn, 0, JSON.stringify(totals));
+    await assertOfferUntouched(storage, uid, before);
+    resetFieldEncryptionForTests();
+  });
+});
+
+test('P2 control: a removal on the plan\'s own day is still judged — it frees today\'s time', async () => {
+  await withWorld('ProducerSameDayRemoval', async ({ storage, uid, setClock }) => {
+    await seedAccount(storage, uid);
+    const LUNCH: TimeInterval = { startsAt: `${DATE}T10:00:00.000Z`, endsAt: `${DATE}T11:00:00.000Z` };
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }, { nativeId: 'evt-lunch', at: LUNCH }]);
+    setClock(minutesAfterMorning(6));
+    const offered = await runContinuousReplanTick({ storage, now: minutesAfterMorning(6) });
+    assert.equal(offered.proposed, 1, JSON.stringify(offered));
+
+    // Lunch is cancelled; the standup still sits on the task.
+    setClock(minutesAfterMorning(40));
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }]);
+    setClock(minutesAfterMorning(41));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(41) });
+    assert.equal(totals.stale, 1, `a removal on today is a planner input that moved: ${JSON.stringify(totals)}`);
+    assert.equal(totals.noEffect, 0);
+    assert.equal(totals.proposed + totals.kept, 1, 'with an offer pending it re-solves, as before');
+    assert.ok((await readStoredPlan(uid, DATE, storage))!.proposal, 'the standup still needs the offer');
+  });
+});
+
+/* ══ No plan today: no compose (#645 review, P3) ═════════════════════ */
+
+/*
+ * Since #611 every calendar-connected account has change rows on most ticks,
+ * and most of those accounts have no plan for the day. The evaluator answers
+ * `no_current_plan` before it reads a fact, so the tick must not resolve
+ * entity facts or compose the day's planning request (the domain load and the
+ * busy-block read) for them. The rows still drain, as they did.
+ */
+test('P3: an account with calendar rows and no plan today drains them without composing a plan request', async () => {
+  await withWorld('ProducerNoPlanToday', async ({ storage, uid }) => {
+    await storage.set(userDoc(uid), { timezone: TZ, locale: 'en' });
+    await applyTrustAction(uid, { type: 'record_first_value', at: '2026-09-14T06:00:00.000Z' });
+    await applyTrustAction(uid, { type: 'set_calendar_consent', granted: true, at: '2026-09-14T06:00:00.000Z' });
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }, { nativeId: REVIEW, at: NEXT_WEEK }]);
+    assert.equal((await pendingRows(storage, uid)).length, 2);
+    assert.equal(await readStoredPlan(uid, DATE, storage), null, 'fixture: no plan for today');
+
+    const reads: string[] = [];
+    const spy: StorageAdapter = {
+      get: (path) => { reads.push(path); return storage.get(path); },
+      list: (path, options) => { reads.push(path); return storage.list(path, options); },
+      listGroup: (id, options) => { reads.push(`group:${id}`); return storage.listGroup(id, options); },
+      set: (path, value) => storage.set(path, value),
+      delete: (path) => storage.delete(path),
+      deleteTree: (path) => storage.deleteTree(path),
+      runTransaction: (fn) => storage.runTransaction(fn),
+    };
+    const totals = await runContinuousReplanTick({ storage: spy, now: minutesAfterMorning(1) });
+
+    assert.deepEqual(totals, {
+      examined: 1, replanRequired: 0, autoApplied: 0, proposed: 0, kept: 0, withdrawn: 0,
+      stale: 0, noEffect: 1, failed: 0, skipped: 0,
+    });
+    assert.deepEqual(await pendingRows(storage, uid), [], 'the rows drain, as a verdict that stored nothing drains');
+    const busyReads = reads.filter((path) => path.startsWith(`users/${uid}/busyBlocks`));
+    assert.deepEqual(busyReads, [], `no entity facts were resolved and no plan request composed; read: ${reads.join(', ')}`);
+    assert.equal(await readStoredPlan(uid, DATE, storage), null, 'and nothing was planned');
   });
 });
