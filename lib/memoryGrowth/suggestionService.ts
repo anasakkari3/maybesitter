@@ -45,7 +45,7 @@ import type { PersonalizationConsentStore } from '../personalizationControls/con
 import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
 import { planSettingsOf, type PlanSettingsBearingUser } from '../services/dailyPlan/planSettings';
 import { listPlanEvents } from '../services/dailyPlan/planStore';
-import { listEventsInRange } from '../services/mobile/eventLog';
+import { listEventsOfTypeInRange } from '../services/mobile/eventLog';
 import { memoryToDto, type MemoryDto } from '../services/mobile/memoryService';
 import { normalizeTimezone } from '../services/mobile/time';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../storage';
@@ -55,7 +55,6 @@ import {
   R1_LOOKBACK_DAYS,
   R2_DEFER_DEFAULT,
   R2_LOOKBACK_DAYS,
-  R3_LOOKBACK_DAYS,
   R3_PLAN_TIME,
   parseFocusWindowFingerprint,
   suggestDeferDefault,
@@ -78,11 +77,29 @@ import {
 } from './templates';
 
 /**
- * How many events one read may scan for R1.
+ * How many events of one rule's input type a read may take (#443).
  *
- * The range read is ordered oldest first, so a truncated read would silently
- * drop the *newest* completions and describe an old habit as a current one.
- * A read that fills this bound yields no suggestion rather than a skewed one.
+ * Each rule reads only the event type it counts — R1 `commitment_completed`,
+ * R2 `commitment_postponed` — inside its own lookback, so this bounds that
+ * type, not the whole log. Before #443 it bounded every event in the window,
+ * and an account busy with anything else (drafts, edits, confirms) filled it
+ * and silently lost every suggestion.
+ *
+ * What a read that fills the bound yields is unchanged, and deliberate (#427,
+ * decision 5): no suggestion from that rule, rather than a skewed one. The
+ * read is ordered oldest first, so a truncated read drops the *newest* of the
+ * rule's inputs and would describe an old habit as a current one. Reading
+ * newest first instead would keep the habit current but quietly shorten the
+ * lookback, while the evidence the phone shows still says "in the last 28
+ * days" over counts that are not that. Computing it exactly would mean paging
+ * the whole window, which is the unbounded read this bound exists to prevent.
+ * The bound now binds only at 2,000 completions (or defers) in 28 days — more
+ * than 70 a day, every day — which is not an account whose habit this rule
+ * can describe, so declining there costs no real user a suggestion.
+ *
+ * A filled bound silences only the rule whose input filled it: a flood of
+ * defers does not hide a focus window, and R3 reads the plan ledger, not this
+ * log, so neither bound touches it.
  */
 export const GROWTH_EVENT_READ_LIMIT = 2_000;
 
@@ -212,24 +229,32 @@ async function computeRuleSuggestions(
 ): Promise<RuleSuggestion[]> {
   const user = await storage.get<PlanSettingsBearingUser>(userDoc(uid));
   const timezone = normalizeTimezone(user?.timezone);
-  const from = new Date(Date.parse(now) - Math.max(R1_LOOKBACK_DAYS, R2_LOOKBACK_DAYS, R3_LOOKBACK_DAYS) * MS_PER_DAY).toISOString();
-  const events = await listEventsInRange(uid, from, now, GROWTH_EVENT_READ_LIMIT, storage);
-  if (events.length >= GROWTH_EVENT_READ_LIMIT) return [];
+  const nowMs = Date.parse(now);
+  const since = (days: number) => new Date(nowMs - days * MS_PER_DAY).toISOString();
+  // Only the types the rules count, each in its own lookback (#443). Anything
+  // else in the log is neither read nor counted against the bound.
+  const [completedEvents, postponedEvents] = await Promise.all([
+    listEventsOfTypeInRange(uid, 'commitment_completed', since(R1_LOOKBACK_DAYS), now, GROWTH_EVENT_READ_LIMIT, storage),
+    listEventsOfTypeInRange(uid, 'commitment_postponed', since(R2_LOOKBACK_DAYS), now, GROWTH_EVENT_READ_LIMIT, storage),
+  ]);
 
+  // A read that filled its bound may be missing the newest events of its
+  // type, so its rule gets no input rather than a truncated one.
   const completions: CompletionObservation[] = [];
-  const defers: DeferObservation[] = [];
-  events.forEach((event) => {
-    if (event.type === 'commitment_completed') {
+  if (completedEvents.length < GROWTH_EVENT_READ_LIMIT) {
+    completedEvents.forEach((event) => {
       if (typeof event.aggregateId !== 'string' || event.aggregateId === '') return;
       completions.push({ id: event.id, at: event.at, commitmentId: event.aggregateId });
-      return;
-    }
-    if (event.type === 'commitment_postponed') {
+    });
+  }
+  const defers: DeferObservation[] = [];
+  if (postponedEvents.length < GROWTH_EVENT_READ_LIMIT) {
+    postponedEvents.forEach((event) => {
       const postponedUntil = event.payload?.postponedUntil;
       if (typeof postponedUntil !== 'string') return;
       defers.push({ id: event.id, at: event.at, postponedUntil });
-    }
-  });
+    });
+  }
 
   // R3's input lives in the plan ledger, not the domain log: a plan is not an
   // aggregate the reducer owns, so #533's `plan_opened` is appended where

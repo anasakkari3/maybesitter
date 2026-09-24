@@ -841,20 +841,115 @@ test('"delete everything" leaves zero memory, zero dismissals and zero personali
   }
 });
 
-test('a log too large to read whole yields no suggestion rather than one skewed toward old habits', async () => {
+/**
+ * Records every read of a user's `events` collection: the options it asked
+ * with and the documents it got back. Wraps the adapter's own `list`, so the
+ * suggestion service reads exactly what it would read without the wrapper.
+ */
+function recordingEventReads(storage: StorageAdapter): Array<{ options: unknown; docs: Array<Record<string, any>> }> {
+  const reads: Array<{ options: unknown; docs: Array<Record<string, any>> }> = [];
+  const real = storage.list.bind(storage);
+  (storage as { list: unknown }).list = async (path: string, options?: unknown) => {
+    const rows = await real(path, options as never);
+    if (path.endsWith(`/${EVENTS}`)) {
+      reads.push({ options, docs: rows.map((row) => row.data as Record<string, any>) });
+    }
+    return rows;
+  };
+  return reads;
+}
+
+/** More events than the read bound, none of them a completion or a defer, spread over the window. */
+async function seedBusyLog(uid: string): Promise<number> {
+  const types = ['draft_created', 'commitment_confirmed', 'commitment_updated'];
+  const count = GROWTH_EVENT_READ_LIMIT + 500;
+  const instants = Array.from({ length: 20 }, (_, day) => localInstant(1 + day, 8 + (day % 12), 5));
+  for (let index = 0; index < count; index += 1) {
+    const id = `ev_bulk_${index}`;
+    await getStorage().set(userSubDoc(uid, EVENTS, id), {
+      id, type: types[index % types.length], at: instants[index % instants.length], aggregateId: `c_bulk_${index}`, payload: {},
+    });
+  }
+  return count;
+}
+
+test('a heavy account with more other activity than the read bound still gets its suggestion (#443)', async () => {
   begin();
   try {
     await seedMorningHabit(OWNER);
+    const bulk = await seedBusyLog(OWNER);
+    assert.ok(bulk > GROWTH_EVENT_READ_LIMIT);
     await enableConsent(OWNER);
+    const suggestions = await suggestionsFor(OWNER);
+    assert.deepEqual(suggestions.map((suggestion) => suggestion.fingerprint), ['R1_focus_window:09:00-12:00']);
+    assert.deepEqual(suggestions[0]!.evidence, { matchingCount: 7, totalCount: 10, lookbackDays: 28 });
+  } finally {
+    end();
+  }
+});
+
+test('the suggestion read asks storage only for the event types the rules count, and reads nothing else (#443)', async () => {
+  const storage = begin();
+  try {
+    await seedMorningHabit(OWNER);
+    await seedBusyLog(OWNER);
+    await warmUpAuth(OWNER);
+    await enableConsent(OWNER);
+    const reads = recordingEventReads(storage);
     assert.equal((await suggestionsFor(OWNER)).length, 1);
-    // Fill the 28 days to the read bound with events that are not completions.
-    const at = localInstant(3, 14, 0);
+
+    // Every read of the log is narrowed by type in the query itself…
+    const asked = reads.map((read) => {
+      const where = (read.options as { where?: Array<[string, string, unknown]> } | undefined)?.where ?? [];
+      return where.find(([field, op]) => field === 'type' && op === '==')?.[2] ?? null;
+    });
+    assert.deepEqual([...asked].sort(), ['commitment_completed', 'commitment_postponed']);
+    // …so what comes back is the ten completions and the one defer, not the
+    // 2,500 other events in the same 28 days.
+    const docs = reads.flatMap((read) => read.docs);
+    assert.deepEqual(Array.from(new Set(docs.map((doc) => doc.type))).sort(), ['commitment_completed', 'commitment_postponed']);
+    assert.equal(docs.length, 11);
+  } finally {
+    end();
+  }
+});
+
+test('more completions than the read bound yield no focus window rather than a skewed one, and do not hide R2', async () => {
+  begin();
+  try {
+    await getStorage().set(userDoc(OWNER), { uid: OWNER, timezone: ZONE });
+    // Every one of these finished at 09:30. Read whole or truncated, they would
+    // make a focus window — so the only thing that can keep R1 quiet here is
+    // the bound being filled.
+    const at = localInstant(3, 9, 30);
     for (let index = 0; index < GROWTH_EVENT_READ_LIMIT; index += 1) {
-      await getStorage().set(userSubDoc(OWNER, EVENTS, `ev_bulk_${index}`), {
-        id: `ev_bulk_${index}`, type: 'draft_created', at, aggregateId: `c_bulk_${index}`, payload: {},
+      await seedCompletion(OWNER, `ev_many_${index}`, at, `c_many_${index}`);
+    }
+    await seedDeferHabit(OWNER);
+    await enableConsent(OWNER);
+    const suggestions = await suggestionsFor(OWNER);
+    assert.deepEqual(suggestions.map((suggestion) => suggestion.ruleId), ['R2_defer_default']);
+  } finally {
+    end();
+  }
+});
+
+test('more defers than the read bound yield no R2 rather than a skewed one, and do not hide R1', async () => {
+  begin();
+  try {
+    await seedMorningHabit(OWNER);
+    // Every one of these is a one-hour "Later", so read whole or truncated
+    // they would make a defer default — only the filled bound can stop R2.
+    const at = localInstant(3, 14, 0);
+    const postponedUntil = new Date(Date.parse(at) + 60 * 60_000).toISOString();
+    for (let index = 0; index < GROWTH_EVENT_READ_LIMIT; index += 1) {
+      await getStorage().set(userSubDoc(OWNER, EVENTS, `ev_later_${index}`), {
+        id: `ev_later_${index}`, type: 'commitment_postponed', at, aggregateId: `c_later_${index}`, payload: { postponedUntil },
       });
     }
-    assert.deepEqual(await suggestionsFor(OWNER), []);
+    await enableConsent(OWNER);
+    const suggestions = await suggestionsFor(OWNER);
+    assert.deepEqual(suggestions.map((suggestion) => suggestion.ruleId), ['R1_focus_window']);
   } finally {
     end();
   }
