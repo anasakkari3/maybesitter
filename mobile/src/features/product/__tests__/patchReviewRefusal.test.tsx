@@ -18,6 +18,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -123,6 +124,46 @@ describe('accepting an offer the day has moved past', () => {
     await fireEvent.press(screen.getByTestId('patch-accept'));
     await waitFor(() => expect(posts()).toHaveLength(2));
     expect(posts()[1]!.body).toEqual({ action: 'accept_proposal', proposalId: 'prp_newer' });
+  });
+});
+
+describe('keeping the plan when a newer offer has replaced the one on screen', () => {
+  it('says the plan was kept and points at the newer offer, aloud as well as on screen', async () => {
+    // The person pressed "keep my plan", and it was kept: the server refused
+    // only because the offer they declined is no longer the pending one.
+    // "Nothing was applied" is the accept sentence and reads wrong here.
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    serve([ON_SCREEN, REPLACED], { reason: 'stale_proposal' });
+    await mount();
+    const t = language();
+
+    await fireEvent.press(screen.getByTestId('patch-reject'));
+
+    await waitFor(() => expect(screen.getByTestId('patch-refused')).toHaveTextContent(t.errorsPlanProposalReplaced));
+    expect(posts().map(request => request.body)).toEqual([{ action: 'reject_proposal', proposalId: OFFER_ID }]);
+    expect(screen.queryByText(t.errorsPlanProposalStale)).toBeNull();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(t.errorsPlanProposalReplaced);
+    // The newer offer is on screen, and both answers to it are open.
+    await waitFor(() => expect(gets()).toHaveLength(2));
+    await waitFor(() => expect(screen.getByText(t.xPatchWhyAdditions)).toBeTruthy());
+    expect(screen.getByTestId('patch-accept')).not.toBeDisabled();
+    expect(screen.getByTestId('patch-reject')).not.toBeDisabled();
+  });
+
+  it('still tells an accept that nothing was applied', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    serve([ON_SCREEN, REPLACED], { reason: 'stale_proposal' });
+    await mount();
+    const t = language();
+
+    await fireEvent.press(screen.getByTestId('patch-accept'));
+
+    await waitFor(() => expect(screen.getByTestId('patch-refused')).toHaveTextContent(t.errorsPlanProposalStale));
+    expect(screen.queryByText(t.errorsPlanProposalReplaced)).toBeNull();
+    expect(announce).toHaveBeenCalledWith(t.errorsPlanProposalStale);
   });
 });
 

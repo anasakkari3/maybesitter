@@ -1,5 +1,5 @@
 import { apiRequest } from '../client';
-import { NotFoundError, ValidationError } from '../errors';
+import { NotFoundError, PlanProposalRefusedError, ValidationError } from '../errors';
 import {
   planOpenedSchema,
   planResponseSchema,
@@ -85,11 +85,22 @@ export async function getPlan(date: string): Promise<DailyPlan | null> {
  * arrives as `PlanEditRefusedError`, carrying the reason and the item.
  */
 export async function actOnPlan(date: string, body: PlanActionBody): Promise<DailyPlan> {
-  const response = await apiRequest('POST', planPath(date, '/actions'), {
-    body,
-    schema: planResponseSchema,
-  });
-  return withProposal(response);
+  try {
+    const response = await apiRequest('POST', planPath(date, '/actions'), {
+      body,
+      schema: planResponseSchema,
+    });
+    return withProposal(response);
+  } catch (error) {
+    // A refused offer is said differently for each answer (#611): "keep my
+    // plan" refused because a newer offer replaced this one left the plan
+    // exactly as the person wanted it. Only this call knows which answer it
+    // sent, so it names it on the error.
+    if (error instanceof PlanProposalRefusedError && (body.action === 'accept_proposal' || body.action === 'reject_proposal')) {
+      throw new PlanProposalRefusedError(error.reason, body.action);
+    }
+    throw error;
+  }
 }
 
 /**

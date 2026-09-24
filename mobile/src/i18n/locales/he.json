@@ -226,6 +226,7 @@
   "errorsInvalidTransition": "כבר עודכן במכשיר אחר.",
   "errorsPlanProposalStale": "היום שלך השתנה אחרי שההצעה הזו נוצרה, אז לא הוחל שום שינוי. כך הדברים עומדים עכשיו.",
   "errorsPlanProposalGone": "ההצעה הזו כבר לא מחכה לאישור שלך, אז אין מה לבדוק.",
+  "errorsPlanProposalReplaced": "הצעה חדשה יותר החליפה את ההצעה הזו, והתוכנית שלך לא השתנתה. כדאי להציץ בחדשה.",
   "settingsAccount": "חשבון",
   "accountDelete": "מחיקת חשבון",
   "accountDeleteTitle": "מחיקת החשבון שלך",

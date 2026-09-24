@@ -106,8 +106,14 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';
   // A plan-change offer that moved on (#611). Neither reason is the user's
   // doing, so neither may fall through to "check it and try again".
+  // A declined offer that a newer one replaced gets its own sentence: the
+  // person asked to keep their plan, and it was kept. "Nothing was applied"
+  // is written for an accept. `no_proposal` stays one sentence for both
+  // answers: the offer may have been accepted on another device, so "your
+  // plan hasn't changed" could be untrue there.
   if (error instanceof PlanProposalRefusedError) {
-    return error.reason === 'stale_proposal' ? 'errorsPlanProposalStale' : 'errorsPlanProposalGone';
+    if (error.reason !== 'stale_proposal') return 'errorsPlanProposalGone';
+    return error.action === 'reject_proposal' ? 'errorsPlanProposalReplaced' : 'errorsPlanProposalStale';
   }
   if (error instanceof InvalidTransitionError) return 'errorsInvalidTransition';
   // Before the generic branches. A spent quota is not a server fault and not a

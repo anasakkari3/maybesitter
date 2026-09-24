@@ -193,7 +193,17 @@ export class PlanEditRefusedError extends ApiError {
  * day as it now is (`usePlanAction`).
  */
 export class PlanProposalRefusedError extends ApiError {
-  constructor(readonly reason: PlanProposalRejected['reason']) {
+  /**
+   * `action` is the answer that was refused, when the caller knows it. The
+   * status mapping in `apiRequest` does not see the request body, so it builds
+   * the error with none; `actOnPlan` knows what it sent and says so. It picks
+   * the sentence: a declined offer that a newer one replaced must not be told
+   * "nothing was applied", because keeping the plan was the whole point.
+   */
+  constructor(
+    readonly reason: PlanProposalRejected['reason'],
+    readonly action: 'accept_proposal' | 'reject_proposal' | null = null,
+  ) {
     super('the plan proposal was refused');
   }
 }
