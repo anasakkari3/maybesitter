@@ -209,3 +209,49 @@ jobs:
       # ITMS-91053 email arrives an hour after the upload (UC-4.3a #178).
       - name: Privacy manifests cover what the dependencies use
         run: npm run check:privacy-manifests
+
+  # The same mobile suite under a second zone (#413). The suite is pinned to UTC
+  # (`mobile/jest.globalSetup.js`), so every machine and CI agree, but a pin alone
+  # means a zone-dependent test is green everywhere and wrong everywhere.
+  #
+  # America/Los_Angeles, deliberately: most fixtures put the user in
+  # Asia/Jerusalem, so a Jerusalem or Hebron device would match the plan's zone
+  # and hide exactly the device-zone-vs-plan-zone confusion #413 was about. This
+  # zone differs from both UTC and the fixtures, sits on the other side of UTC
+  # (a late-evening UTC instant is the previous local day here, the next one
+  # there), and changes DST on different dates than Jerusalem does.
+  #
+  # Its own job rather than a second step: the mobile job is already the
+  # longest in this workflow, and running the suite again after it would add
+  # its ~7 minutes to every PR. In parallel, the extra cost is one checkout and
+  # one `npm ci`. It runs on pull requests only, where a failure can still be
+  # acted on; the push to main would repeat the PR's own merge-commit run.
+  mobile-second-zone:
+    name: Mobile tests (America/Los_Angeles)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      MAYBESITTER_TEST_TZ: America/Los_Angeles
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      # `src/__tests__/jestZone.test.ts` fails this run if the zone never
+      # reaches the runtime, so it cannot quietly run in UTC a second time.
+      - name: Test
+        run: npm test -- --runInBand
