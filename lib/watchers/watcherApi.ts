@@ -64,9 +64,9 @@ const PROVIDER = /^[a-z][a-z0-9_]{0,31}$/;
 /** The store mints `wtc_<uuid>`; nothing else is a watcher id this API will look up. */
 const WATCHER_ID = /^wtc_[0-9a-fA-F-]{36}$/;
 
-const NEW_KEYS = new Set(['enabled', 'source', 'condition', 'effect', 'createdBy']);
+const NEW_KEYS = new Set(['enabled', 'source', 'condition', 'effect', 'createdBy', 'label']);
 const SOURCE_KEYS = new Set(['provider', 'connectionId', 'signalKind', 'subjectRef']);
-const PATCH_KEYS = new Set(['enabled', 'condition', 'effect']);
+const PATCH_KEYS = new Set(['enabled', 'condition', 'effect', 'label']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -140,6 +140,13 @@ export function parseNewWatcher(body: unknown): NewWatcherInput {
   if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
     throw new WatcherValidationError('enabled must be a boolean', 'invalid_enabled');
   }
+  let label: string | undefined;
+  if (body.label !== undefined) {
+    if (typeof body.label !== 'string' || body.label.trim().length === 0 || body.label.length > 100) {
+      throw new WatcherValidationError('label must be a string of at most 100 characters', 'invalid_label');
+    }
+    label = body.label.trim();
+  }
   // `pack_template` is refused here, not merely validated (#528). The value is
   // an attribution the *server* makes when `enablePack` installs a pack's
   // template, and it is load-bearing: a pack watcher is expected to appear on
@@ -155,6 +162,7 @@ export function parseNewWatcher(body: unknown): NewWatcherInput {
   }
   return {
     enabled: body.enabled ?? true,
+    ...(label ? { label } : {}),
     source: parseSource(body.source),
     condition: parseCondition(body.condition),
     effect: parseEffect(body.effect),
@@ -164,6 +172,7 @@ export function parseNewWatcher(body: unknown): NewWatcherInput {
 
 export interface WatcherPatch {
   readonly enabled?: boolean;
+  readonly label?: string;
   readonly condition?: WatchCondition;
   readonly effect?: WatcherEffect;
 }
@@ -187,8 +196,16 @@ export function parseWatcherPatch(body: unknown): WatcherPatch {
   if (body.enabled !== undefined && typeof body.enabled !== 'boolean') {
     throw new WatcherValidationError('enabled must be a boolean', 'invalid_enabled');
   }
+  let label: string | undefined;
+  if (body.label !== undefined) {
+    if (typeof body.label !== 'string' || body.label.trim().length === 0 || body.label.length > 100) {
+      throw new WatcherValidationError('label must be a string of at most 100 characters', 'invalid_label');
+    }
+    label = body.label.trim();
+  }
   return {
     ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
+    ...(label === undefined ? {} : { label }),
     ...(body.condition === undefined ? {} : { condition: parseCondition(body.condition) }),
     ...(body.effect === undefined ? {} : { effect: parseEffect(body.effect) }),
   };
@@ -233,6 +250,7 @@ export function applyWatcherPatch(current: StoredWatcher, patch: WatcherPatch, n
   const definition = {
     ...current.definition,
     ...(patch.enabled === undefined ? {} : { enabled: patch.enabled }),
+    ...(patch.label === undefined ? {} : { label: patch.label }),
     ...(patch.condition === undefined ? {} : { condition: patch.condition }),
     ...(patch.effect === undefined ? {} : { effect: patch.effect }),
     updatedAt: now,
@@ -264,6 +282,7 @@ export function presentWatcher(stored: StoredWatcher) {
   return {
     watcherId: definition.watcherId,
     enabled: definition.enabled,
+    label: definition.label ?? null,
     status: runtime.status,
     blockedReason: runtime.blockedReason,
     source: {

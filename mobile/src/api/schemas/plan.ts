@@ -249,5 +249,36 @@ export const planSettingsResponseSchema = z.object({
   planSettings: planSettingsSchema,
 });
 
+export const planCauseAttributionSchema = z.object({
+  actionId: z.string(),
+  monitorId: z.string(),
+  watcherId: z.string(),
+  label: z.string(),
+  observedAt: isoDateTime,
+  occurredAt: isoDateTime,
+  condition: z.string(),
+  capability: z.string(),
+  policyDecision: z.string(),
+  effect: z.string(),
+  artifact: z.object({
+    kind: z.enum(['notification', 'proposal', 'state_change', 'context_update', 'none']),
+    ref: z.string().nullable(),
+  }),
+});
+
+export const planCauseSchema = z.object({
+  date: z.string(),
+  generation: z.number().int().positive(),
+  causeChangeIds: z.array(z.string()),
+  attributions: z.array(planCauseAttributionSchema),
+});
+
+export const planCauseResponseSchema = z.object({
+  success: z.literal(true),
+  cause: planCauseSchema,
+});
+
 export type PlanSettings = z.infer<typeof planSettingsSchema>;
 export type PlanSettingsResponse = z.infer<typeof planSettingsResponseSchema>;
+export type PlanCause = z.infer<typeof planCauseSchema>;
+export type PlanCauseResponse = z.infer<typeof planCauseResponseSchema>;

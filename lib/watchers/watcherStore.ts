@@ -39,6 +39,7 @@ export interface StoredWatcher {
 
 export interface NewWatcherInput {
   readonly enabled: boolean;
+  readonly label?: string;
   readonly source: WatcherSourceRef;
   readonly condition: WatchCondition;
   readonly effect: WatcherEffect;
@@ -83,6 +84,7 @@ export class WatcherStore {
         watcherId,
         scopeId: this.uid,
         enabled: input.enabled,
+        ...(input.label ? { label: input.label } : {}),
         source: input.source,
         condition: input.condition,
         effect: input.effect,

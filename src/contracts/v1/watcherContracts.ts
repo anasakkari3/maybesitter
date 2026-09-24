@@ -77,6 +77,8 @@ export interface WatcherDefinition {
   readonly watcherId: string;
   readonly scopeId: string;
   readonly enabled: boolean;
+  /** Human-readable title or label for the watcher (e.g. 'Watching: BA flight 162') (#527). */
+  readonly label?: string;
   readonly source: WatcherSourceRef;
   readonly condition: WatchCondition;
   readonly effect: WatcherEffect;

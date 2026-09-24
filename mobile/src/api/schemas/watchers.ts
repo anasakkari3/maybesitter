@@ -4,6 +4,7 @@ import { isoDateTime } from './common';
 /** Mirrors presentWatcher in lib/watchers/watcherApi.ts, not provider data. */
 export const watcherSchema = z.object({
   watcherId: z.string().regex(/^wtc_[0-9a-fA-F-]{36}$/),
+  label: z.string().optional(),
   enabled: z.boolean(),
   status: z.enum(['active', 'paused', 'blocked']),
   blockedReason: z.enum(['provider_disconnected', 'provider_needs_reauth', 'signal_unavailable']).nullable(),
