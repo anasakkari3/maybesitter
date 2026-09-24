@@ -1,3 +1,4 @@
+import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
 import React, { useEffect, useRef } from 'react';
 import { useApp } from '../../state/AppContext';
 import { CaptureScreen } from '../../screens/CaptureScreen';
@@ -31,6 +32,13 @@ export function CaptureFlow() {
   const flow = useCaptureFlow();
   const { state } = flow;
   const opened = useRef(false);
+  const replayEvent = useReplayEvent();
+  useEffect(() => {
+    if (state.status === 'saved') replayEvent('capture_saved');
+  }, [state.status, replayEvent]);
+  useClarityStage(state.status === 'saved' ? 'capture_saved'
+    : ['needsConfirmation', 'needsClarification', 'unresolvedIntent', 'confirming', 'confirmFailed'].includes(state.status)
+      ? 'capture_review' : 'capture_input');
 
   // Once, on entry. `actions` is rebuilt every render, so an effect depending
   // on it and dispatching would re-fire forever; and re-opening on every render

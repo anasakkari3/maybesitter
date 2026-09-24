@@ -15,6 +15,7 @@ import { Root } from './src/Root';
 import { fontMap } from './src/theme/fonts';
 import { initialiseCrashReporting } from './src/lib/crash';
 import { ErrorBoundary } from './src/ui/ErrorBoundary';
+import { ClarityProvider } from './src/clarity/ClarityProvider';
 
 /**
  * The root, which is only the boundary (UC-4.4, #180 step 4).
@@ -37,7 +38,7 @@ import { ErrorBoundary } from './src/ui/ErrorBoundary';
  */
 export default function App() {
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView testID="clarity-private-root" collapsable={false} style={{ flex: 1 }}>
       <ErrorBoundary>
         <AppTree />
       </ErrorBoundary>
@@ -71,22 +72,24 @@ function AppTree() {
           <AuthProvider>
             {/* Inside AuthProvider: the API layer takes its bearer from the
                 repository, and clears every cached row when the uid changes. */}
-            <ApiProvider>
-              <AccountDeletionProvider>
-                {/* Outside AuthGate on purpose: a successful deletion removes
-                    the Firebase user, so the gate flips to sign-in in the same
-                    frame — and the receipt the user is owed would vanish with
-                    it (UC-1.5 #149). */}
-                <AccountDeletedGate>
-                  {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
-                      into the slot it has always had. A signed-in user who has
-                      not been through the consent screen does not reach Root. */}
-                  <OnboardingGate>
-                    <Root />
-                  </OnboardingGate>
-                </AccountDeletedGate>
-              </AccountDeletionProvider>
-            </ApiProvider>
+            <ClarityProvider>
+              <ApiProvider>
+                <AccountDeletionProvider>
+                  {/* Outside AuthGate on purpose: a successful deletion removes
+                      the Firebase user, so the gate flips to sign-in in the same
+                      frame — and the receipt the user is owed would vanish with
+                      it (UC-1.5 #149). */}
+                  <AccountDeletedGate>
+                    {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
+                        into the slot it has always had. A signed-in user who has
+                        not been through the consent screen does not reach Root. */}
+                    <OnboardingGate>
+                      <Root />
+                    </OnboardingGate>
+                  </AccountDeletedGate>
+                </AccountDeletionProvider>
+              </ApiProvider>
+            </ClarityProvider>
           </AuthProvider>
         </LanguageGate>
       </AppProvider>

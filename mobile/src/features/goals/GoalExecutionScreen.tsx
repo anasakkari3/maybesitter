@@ -1,3 +1,4 @@
+import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import {
@@ -35,6 +36,7 @@ export function GoalExecutionScreen() {
   const create = useCreateMemory();
   const [draft, setDraft] = React.useState('');
   const [openGoal, setOpenGoal] = React.useState<{ id: string; title: string } | null>(null);
+  useClarityStage(openGoal ? null : 'goal_list');
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
 
   return <ProductPage id="goals" title={t.xGoals} {...(openGoal ? {} : { subtitle: t.xGoalBody })}>
@@ -77,6 +79,7 @@ export function GoalExecutionScreen() {
 function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; onBack: () => void }) {
   const { t, p, lang } = useApp();
   const zone = useTimeZone();
+  const replayEvent = useReplayEvent();
   const period = React.useMemo(() => currentGoalProgressPeriod(new Date(), zone, lang), [lang, zone]);
   const [generation, setGeneration] = React.useState(1);
   const [proposalGraph, setProposalGraph] = React.useState<GoalGraph | null>(null);
@@ -88,6 +91,10 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
   const regenerate = useRegenerateGoalExecution(goalId);
   const confirm = useConfirmGoalSelections(goalId);
   const unlink = useUnlinkGoalNode(goalId);
+  useClarityStage(confirm.isPending ? 'goal_confirming'
+    : notice === 'saved' ? 'goal_saved'
+      : generate.isPending || regenerate.isPending ? 'goal_generating'
+        : proposalGraph ? 'goal_review' : 'goal_detail');
   const canonicalGraph = query.data?.graph;
   const linked = canonicalGraph?.nodes.filter((node): node is LinkedNode => node.kind === 'linked_commitment' || node.kind === 'linked_habit') ?? [];
   const habits = useHabits(linked.some(node => node.kind === 'linked_habit'));
@@ -209,6 +216,7 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
             } else {
               setProposalGraph(null);
               setNotice('saved');
+              replayEvent('goal_confirmed');
             }
           } })}
         />}

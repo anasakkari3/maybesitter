@@ -352,6 +352,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
          * used for tracking.
          */
         collected('NSPrivacyCollectedDataTypeHealth'),
+        // Clarity 4.1.1's bundled manifest: masked replay usage, not linked
+        // to an app account. ProductInteraction already covers analytics below.
+        collected('NSPrivacyCollectedDataTypeOtherUsageData', {
+          linked: false, purposes: ['NSPrivacyCollectedDataTypePurposeAnalytics'],
+        }),
         collected('NSPrivacyCollectedDataTypeProductInteraction', {
           purposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality', 'NSPrivacyCollectedDataTypePurposeAnalytics'],
         }),

@@ -65,6 +65,21 @@ Must state: counts and enum-valued properties only, never content; that the
 event list is fixed server-side and anything else is refused; that nothing is
 recorded until the analytics consent is granted.
 
+### Optional Microsoft Clarity session replay (2026-09-24 addition)
+
+The mobile integration adds a **separate** session-only opt-in; analytics
+consent above never enables replay. Enabled builds may send masked screen
+layout, taps, navigation, SDK device/session metadata and fixed flow events to
+Microsoft Clarity. All text/images are masked with Strict, WebView capture is
+disabled, and the app sends no name, email, account ID or user-content tags.
+SDK-generated identifiers still exist; do not describe this as anonymous.
+Users can stop future recording in Settings → Trust. Stopping or deleting the
+app account does not delete previously uploaded recordings. The public notice
+must identify Microsoft, the operator's replay retention/deletion process and
+the contact route before enabling production. Implementation and masking
+matrix: `docs/operations/CLARITY.md`. Production builds remain disabled pending
+native replay verification and the corresponding published disclosures.
+
 ### Rights, and deletion
 **Status now: in-app deletion shipped (#149).**
 

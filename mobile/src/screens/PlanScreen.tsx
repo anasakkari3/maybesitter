@@ -1,3 +1,4 @@
+import { useReplayEvent } from '../clarity/ClarityProvider';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -204,6 +205,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   const { t, tr, p, lang } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   const accept = usePlanAction(date);
+  const replayEvent = useReplayEvent();
   const edit = usePlanEdit(date);
   const rebuild = useRegeneratePlan(date);
 
@@ -261,7 +263,10 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
     accept.mutate(action, {
       // Reported from the plan the server answered with, not the one on screen
       // when the button was pressed.
-      onSuccess: settledPlan => void reportPlanDecision(action, settledPlan, reporter),
+      onSuccess: settledPlan => {
+        if (action === 'accept' && settledPlan.status === 'accepted') replayEvent('daily_plan_accepted');
+        void reportPlanDecision(action, settledPlan, reporter);
+      },
       onSettled: accepting.leave,
     });
   };

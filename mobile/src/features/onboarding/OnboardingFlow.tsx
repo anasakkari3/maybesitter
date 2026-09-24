@@ -1,3 +1,4 @@
+import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -78,6 +79,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   const accountId = useAuth().user?.uid ?? null;
   const { p, t } = useApp();
   const timezone = useTimeZone();
+  const replayEvent = useReplayEvent();
   const consents = useConsents();
   const setAi = useSetAiConsent();
   const setRecommendations = useSetRecommendationConsent();
@@ -86,6 +88,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   const recordAnalytics = useRecordAnalytics();
 
   const [step, setStep] = useState<OnboardingProgress | null>(null);
+  useClarityStage(step && step !== 'done' ? `onboarding_${step}` : null);
   // `recommendations` starts at `null`, not `false`, so "nobody has answered"
   // and "answered no" stay distinguishable through a refetch. See the seeding
   // block below, and `ConsentChoices`.
@@ -184,8 +187,8 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
     const next = nextStep(from);
     await saveOnboardingProgress(next);
     setStep(next);
-    if (next === 'done') onFinished();
-  }, [onFinished]);
+    if (next === 'done') { replayEvent('onboarding_completed'); onFinished(); }
+  }, [onFinished, replayEvent]);
 
   const goBack = useCallback((from: OnboardingStep) => {
     const back = previousStep(from);
