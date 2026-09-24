@@ -147,23 +147,29 @@ That publishes to the default `*.web.app` / `*.firebaseapp.com` URL. Verify ther
 site/check-links.sh https://maybesitter-app.web.app
 ```
 
-## Custom domain and DNS (owner)
+## Custom domain and DNS
 
-1. Buy the domain at **Cloudflare Registrar**. Turn on 2FA, auto-renew and WHOIS privacy.
-   The `.app` TLD is HSTS-preloaded, so it is HTTPS-only by design.
-2. Cloudflare → **Email Routing**: create `support@<domain>` and `privacy@<domain>`,
-   both forwarding to your inbox. Send a test message to each and confirm delivery.
-3. Firebase console → **Hosting** → **Add custom domain** → enter `<domain>`.
-4. Create the A and TXT records Firebase shows you in Cloudflare DNS, with the orange
-   proxy **turned off** (grey cloud). Firebase cannot issue the TLS certificate through
-   Cloudflare's proxy.
-5. Wait for propagation and for the certificate to be issued. This is usually minutes but
-   can take up to 24 hours.
-6. Re-run the check against the real domain, which also exercises the redirects:
+The owner purchased **maybesitter.com** (Cloudflare), and supplied the localized
+operator names. Support/privacy role addresses are free aliases on the existing
+Google Workspace mailbox; recipient-level delivery logs verified both on
+2026-09-25. Preserve the existing Google Workspace MX and SPF records; do not
+replace them with Cloudflare Email Routing. See [PLACEHOLDERS.md](PLACEHOLDERS.md).
 
-```bash
-site/check-links.sh https://<domain>
-```
+The default Firebase site already serves an older early-access release. A full
+`firebase deploy --only hosting` from this checkout would replace that live site.
+Before any public deployment, prepare and review the exact asset/config diff,
+preserve its early-access form and `/api/early-access/events` route, and obtain
+owner approval for the publication. Neither the domain purchase nor a code merge
+constitutes policy approval. Do not bind an unfinished legal draft to the domain.
+
+After the final site and legal text are approved:
+
+1. Firebase Hosting → Add custom domain → `maybesitter.com`.
+2. Copy the exact verification and serving records shown by Firebase to Cloudflare,
+   preserving all mail records; follow Firebase's current certificate instructions.
+3. Wait for domain verification and certificate issuance.
+4. Run `site/check-links.sh https://maybesitter.com` and verify all nine legal and
+   deletion URLs, plus Arabic/Hebrew rendering. Record actual HTTP and TLS results.
 
 ## Search Console (owner)
 
@@ -188,7 +194,8 @@ Include no email addresses, IDs or screenshots containing personal data.
 - The Google Limited Use sentence in the Calendars section is quoted verbatim in English on
   all three pages because Google's review requires that exact wording. Do not translate or
   reword it; the ar/he pages carry a clearly-marked unofficial translation beside it.
-- This is **v1.0**. UC-4.2 (#177) revises the text to v1.1 and adds the in-app links.
+- The legal text is a **v1.1 draft**, pending owner approval (#326) and proficient
+  Hebrew review. Technical review is not legal or linguistic approval.
   UC-4.3b (#179) owns `/{en,ar,he}/delete-account`, which the privacy pages already link to.
 - Any new data flow added to the product must be reflected here. The policy is the public
   promise every later issue has to keep.

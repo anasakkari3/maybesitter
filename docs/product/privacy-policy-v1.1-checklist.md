@@ -1,152 +1,96 @@
-# Privacy policy v1.1 — contents checklist (UC-4.2, #177)
+# Privacy policy v1.1 — factual draft checklist (#177, #333)
 
-What the published policy must say, checked against **what the code actually
-does on `main` today** rather than against the roadmap. Written for the owner
-to approve; the owner publishes, and may take legal review first.
+**DRAFT — not owner/legal approval or publication evidence.** Reconciled on
+2026-09-25 against the implementation at `3f64a8ca`. The site policy and deletion
+pages are v1.1 drafts with `{{EFFECTIVE_DATE}}` unresolved. Arabic and Hebrew
+changes in this draft require review; native Hebrew approval is still pending.
+The earlier permission-copy approval does not approve these policy drafts.
 
-Two columns matter more than the rest:
+Repository implementation, enabled release configuration and deployed evidence
+are distinct. Do not describe an installed dependency or implemented adapter as
+proof that its provider connection is enabled or verified for production.
 
-- **Status now** — is this flow *implemented and reachable by a user today*?
-- **How to phrase it** — a flow that does not exist yet must be described in the
-  future tense or left out. A policy that describes planned behaviour as current
-  is inaccurate in the direction that looks like over-collection, and it is the
-  kind of inaccuracy a regulator reads as a disclosure failure rather than as
-  optimism.
+## Current implementation facts
 
-Verified against `main` at the time of writing (see "Evidence" per row).
+| Area | Source-backed fact | Evidence / publication boundary |
+| --- | --- | --- |
+| Authentication | Firebase email/password, Google and Apple sign-in are implemented. Auth identity includes provider identifiers and Firebase UID. | `mobile/src/auth/`; `lib/auth/mobileAuth.ts`. Verify actual provider configuration for the release. |
+| Capture and sharing | Capture proposals are stored before confirmation, with expiry metadata. Confirmation creates the commitment; it is not the first persistence of any data. | `lib/services/captureBoundary/proposalStore.ts`; `mobile/src/features/share/shareIntentBridge.tsx`. Do not promise “nothing is saved until confirmation.” |
+| Cloud AI | Production deployment configuration sets the model provider to `none`; staging selects Gemini. Model requests are consent-gated. Deterministic capture fallback runs on the server, not exclusively on the phone. | `infra/cloudrun/flags.sh`; `lib/llm/captureProvider.ts`. Configuration is not proof of the current deployed revision. Reconcile enabled features and payloads before publication; do not claim consent withdrawal makes all processing on-device. |
+| Speech | Native speech recognition is implemented, initiated through the capture voice flow. The OS recognition service may process speech online. | `expo-speech-recognition` in `mobile/package.json`; `mobile/src/features/capture/voice/expoSpeechCaptureService.ts`. Do not promise exclusively on-device recognition. |
+| Device calendar | Native calendar read/write and busy-time sync are implemented. Native events enter local memory; titles/details are filtered out before busy intervals are uploaded. | `mobile/src/features/calendar/deviceCalendar.ts`; `busyBlocks.ts`; `lib/calendar/busyBlocks.ts`. Say what leaves the device, not that the app never reads event objects. |
+| Google Calendar | A development verification demo exists; its scopes and reachability must not be generalized to every production calendar connection. | `mobile/src/features/calendarDemo/README.md`, `scopes.ts`. Reconcile the selected release's provider route and enabled integrations separately. |
+| Push notifications | FCM messaging is installed. Device registration sends a token, installation ID and permission state under the signed-in account. | `mobile/src/notifications/pushRegistration.ts`; `src/app/api/mobile/devices/route.ts`. Registration also reports denied permission. |
+| Widgets | Native widget code exists; it is not merely a reserved analytics event. | `mobile/targets/widget/`; `react-native-android-widget` in `mobile/package.json`. Native release verification remains separate. |
+| Crash reporting | Crashlytics is installed; native auto-collection is configured, and JS collection is disabled in development and enabled otherwise. The app wrapper does not call `setUserId`. | `mobile/firebase.json`; `mobile/src/lib/crash.ts`. Absence of `setUserId` does not prove anonymity or establish SDK linkage/retention. See the owner review boundary in `docs/release/STORE_PRIVACY_DECLARATIONS.md`. |
+| Analytics | Product analytics consent is separate from replay consent; content is excluded by the fixed event contract. | `lib/analytics/`; `mobile/src/clarity/`. Do not describe account-linked events as anonymous. |
+| Other implemented flows | Health/readiness, imported context and provider adapters must be reconciled against the actual enabled release, not omitted because an old checklist called them future work. | `docs/release/EXPANSION_PRIVACY_STORE_DELTA.md` is a dated inventory, not proof that every adapter is live. Confirm native permissions, credentials, payloads and reachability for the release. |
 
----
+## Microsoft Clarity — production remains disabled
 
-## 1. Flows that exist today — describe in the present tense
+`mobile/eas.json` sets `EXPO_PUBLIC_CLARITY_ENABLED=false` for production.
+Enabled builds require a **separate, session-only opt-in**; analytics consent
+never grants replay consent. Cold launch, sign-out and account change reset the
+choice. SDK device/session identifiers still exist; do not promise anonymity.
 
-### Firebase Authentication
-**Status now: shipped.** Email/password, Google and Apple (`mobile/src/auth/`).
+The masking policy is Strict, all text/images masked, with WebView capture off.
+The runtime pauses excluded routes and stops future capture on revocation.
+Account deletion does **not** invoke deletion of previously uploaded Clarity
+recordings. See `docs/operations/CLARITY.md` and `mobile/src/clarity/`.
 
-Must state: email address, display name where the provider gives one, the
-provider's user id and the Firebase UID; that Apple's private relay address is
-supported and is what we then hold; that Google Firebase stores it. Nothing is
-copied into our own database — `lib/auth/mobileAuth.ts` deliberately writes no
-email or display name into `users/{uid}`, so the policy should not imply we
-hold a second copy.
+**Before any enabled production release:** the owner must decide and publish
+Clarity retention and the deletion-request process, reconcile store declarations,
+and attach applicable native replay evidence. This draft invents neither a
+retention period nor an operator SLA. Historical notes in the operating document
+are SHA-scoped and are not a current pass or failure for every later build.
 
-### Firestore, under the signed-in account
-**Status now: shipped.** `lib/storage/paths.ts` names every collection.
+## Deletion and retention
 
-Must state, by name: commitments and the reminders derived from them; captures
-held between proposing and confirming; the routine profile and memory facts
-with their provenance; settings; consents; feedback the user gave; the audit
-trail of consent and deletion events. Kept until the account is deleted.
+The in-app account-delete flow and a static, no-install deletion-instructions
+page exist. The web page explains an email request; it is not a web deletion
+API. Publishing, mailbox availability and request handling need separate evidence.
 
-Two honest details worth including because they are unusual and favourable:
-capture proposals expire on their own (a TTL collection), and memory the user
-states themselves does not expire on a timer — only they retire it.
+`lib/account/accountDeletion.ts` deletes the account tree and Auth account and
+records external revocation outcomes. A failed external revocation is recorded;
+it must not be described as guaranteed success merely because account deletion
+completed. `docs/operations/ACCOUNT_DELETION.md` describes operator recovery.
 
-### Gemini on Vertex AI
-**Status now: shipped, consent-gated, and OFF in production.**
-`infra/cloudrun/flags.sh:23,29` sets `MAYBESITTER_LLM_PROVIDER=gemini` for
-staging and `none` for production.
+Two retained records must be disclosed alongside backup/crash handling:
 
-Must state: what is sent (the text the user typed or dictated, the date, time
-and time zone, and their self-description if they wrote one); to whom (Google
-Cloud Vertex AI, EU region); why; that name, email, contacts, calendar and
-location are never sent; that Google acts as a processor and the data is not
-used to train models under the Vertex terms; and that consent is withdrawable
-in Settings, taking effect on the next request with no cache in between.
+- Deletion receipt: **configured expiry after 400 days**; contains a keyed
+  subject hash and receipt/step metadata, not raw UID/email/content.
+- Deletion job: **configured expiry after 30 days**; the raw UID is removed
+  from the completed record; the keyed subject hash remains.
 
-**Phrasing note:** production currently sends nothing to any model. The policy
-should describe the behaviour as it will be when the feature is enabled, and
-must not claim it is currently happening for every user — the AI consent screen
-already tells each person exactly what applies to them.
+These are expiry settings (`RECEIPT_RETENTION_MS`, `JOB_RETENTION_MS`), not proof
+of an exact runtime purge deadline. `infra/firestore-ttl.sh` declares TTL setup;
+verify deployed policies before making a purge-time promise. Read-only production
+inspection on 2026-09-25 found receipt TTL active but **no accountDeletions TTL
+policy**. The owner must resolve that operational gap before publication; this
+draft does not authorize enabling a TTL policy. The same inspection found a
+seven-day PITR window, no configured backup schedules and 30-day retention for
+the default log bucket. Provider retention still requires separate evidence.
+Incomplete/stuck deletion jobs can retain the UID for resumption. Early-access
+website registrations are separate records, not automatically removed by an
+app-account deletion.
+Do not equate a pseudonymous receipt with “no data retained.”
 
-### Analytics
-**Status now: shipped, consent-gated.** `lib/analytics/`.
+## Links, version and remaining owner decisions
 
-Must state: counts and enum-valued properties only, never content; that the
-event list is fixed server-side and anything else is refused; that nothing is
-recorded until the analytics consent is granted.
+- Sign-in, Settings legal links and Trust privacy link are implemented;
+  `mobile/src/features/settings/TrustScreen.tsx` renders the Trust link when
+  a valid configured legal URL exists. The deletion-instructions HTML exists
+  in all three locales. Their deployment must be checked separately.
+- Domain and contact tokens were filled in #648. The effective date remains
+  unresolved; no publication or mailbox-operability claim follows from the text.
+- Approve final enabled-release disclosures and v1.1 effective date; determine
+  the notice process for policy/terms changes. Do not promise an automatic
+  in-app notice or next-sign-in notice without implementing/operating it.
+- Verify SDK retention/linkage, backup/log retention and deployed TTL policies.
+- Finish Clarity retention/deletion decisions before enabling production replay.
+- Obtain legal/owner review and native Hebrew review, and reconcile the store
+  console forms. This checklist supplies implementation facts, not legal advice
+  or an approval of any data category, purpose, linkage flag or console answer.
 
-### Optional Microsoft Clarity session replay (2026-09-24 addition)
-
-The mobile integration adds a **separate** session-only opt-in; analytics
-consent above never enables replay. Enabled builds may send masked screen
-layout, taps, navigation, SDK device/session metadata and fixed flow events to
-Microsoft Clarity. All text/images are masked with Strict, WebView capture is
-disabled, and the app sends no name, email, account ID or user-content tags.
-SDK-generated identifiers still exist; do not describe this as anonymous.
-Users can stop future recording in Settings → Trust. Stopping or deleting the
-app account does not delete previously uploaded recordings. The public notice
-must identify Microsoft, the operator's replay retention/deletion process and
-the contact route before enabling production. Implementation and masking
-matrix: `docs/operations/CLARITY.md`. Production builds remain disabled pending
-native replay verification and the corresponding published disclosures.
-
-### Rights, and deletion
-**Status now: in-app deletion shipped (#149).**
-
-Must state: access, correction and deletion; that deletion is a real delete of
-the account tree and returns a receipt; the contact address; the Israeli
-Privacy Protection Law basis.
-
-**Not yet true:** a deletion page reachable *without installing the app*. That
-is #179, and the URL does not exist. Do not state it until it does.
-
-### Children
-**Status now: n/a — a statement, not a flow.**
-Must state that the service is not directed at under-18s.
-
-### Changes to the policy
-Must state how users are told. There is no in-app mechanism for this today, so
-the honest phrasing is the site's "last updated" date plus notice on next
-sign-in — not an in-app alert we do not send.
-
----
-
-## 2. Flows that do NOT exist yet — future tense, or omit
-
-Each of these appears in #177's original table. None is implemented on `main`,
-and **none may be described as current**.
-
-| Flow | Reality on `main` | Owner |
-|---|---|---|
-| Speech recognition | No speech dependency in `mobile/package.json` | #163 |
-| Device calendar (busy times) | Not implemented | S3 #186 |
-| Google Calendar | Dev-only verification demo, unreachable outside a development bundle (#152) | S3 #185 |
-| Share extension | Not implemented | S3 #183 |
-| FCM push | No messaging dependency in `mobile/package.json` | S3 #194, #198 |
-| Home-screen widget | Not implemented; the widget analytics events exist in the contract but nothing emits them | S3 #203 |
-| Crashlytics | No Crashlytics dependency in `mobile/package.json` | #180 (Agent A, unmerged at the time of writing) |
-
-**Recommended approach for the owner:** publish v1.1 covering section 1 only,
-with a short "What we may add" paragraph naming the categories in section 2 in
-the future tense. Each becomes a present-tense section in the version that
-ships alongside its feature. That keeps the policy true on the day it is
-published, which is the only day it can be checked.
-
----
-
-## 3. Where the app links to it
-
-| Surface | Status |
-|---|---|
-| Sign-in screen, before any provider is pressed | Shipped (#151, locale-routed by #177) |
-| Settings → Legal → Privacy policy / Terms of use | Shipped (#177) |
-| Trust centre → Privacy policy | Waiting on the Trust centre screen (#174) |
-| Account deletion screen | Shipped (#149), shows the deletion page link once one is configured |
-
-Every one of them renders **nothing** until `EXPO_PUBLIC_LEGAL_BASE_URL` names
-an https origin. Nothing in the app invents a domain, and a dead policy link is
-worse than no policy link.
-
----
-
-## 4. Blocked on the owner
-
-- The domain, and publishing the site (#137). Until then `curl -sI` on the six
-  URLs cannot return 200, so #177's last acceptance criterion cannot be met.
-- Approving v1.1 against section 1 — a comment on #177 is enough.
-- The privacy policy URL in App Store Connect and the Play Console, which
-  needs the paid accounts (#158).
-
-The `{{DOMAIN}}`, `{{LEGAL_NAME}}`, `{{SUPPORT_EMAIL}}`, `{{PRIVACY_EMAIL}}` and
-`{{EFFECTIVE_DATE}}` placeholders in `site/` are still literal and greppable;
-`site/PLACEHOLDERS.md` has the one-command replacement.
+The older future-flow table was removed because its absence claims for speech,
+device calendar, share, FCM, widgets and Crashlytics no longer match the code.
