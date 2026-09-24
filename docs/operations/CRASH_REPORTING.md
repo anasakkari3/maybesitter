@@ -98,11 +98,16 @@ is ever made — `npx expo config` stops with `CFG-1` in seconds.
 per platform, per day.
 
 - **Numerator:** Crashlytics → Crashes, filtered by platform and date.
-- **Denominator:** a Cloud Logging log-based metric counting requests carrying
-  `X-App-Platform`, which `mobile/src/api/client.ts` sets on every call. There
-  is deliberately no analytics SDK: a header the backend already receives is
-  enough, and it carries no user id, no device id, and nothing to join on —
-  which is what keeps the Data safety story short.
+- **Denominator:** actual app sessions for the same platform, build cohort and
+  reporting window as the fatal-crash numerator. The previously proposed count
+  of API requests carrying `X-App-Platform` is **not an app-session count**: a
+  session can make many requests or none, and sending the header does not prove
+  that Cloud Run logs it. Do not create an `app_session_start` metric from that
+  request count or use it to claim the crash-free-session gate passed.
+- **Release evidence still required (#328):** select and verify the platform's
+  actual session/crash-free-session reporting in the release dashboards, with
+  matching windows and population. Until then this denominator is unverified;
+  request volume cannot substitute for it. This correction adds no telemetry.
 
 Cross-check against Play Console → Android vitals and App Store Connect →
 Crashes. Targets: **≥ 99.0%** to promote a build, **≥ 99.5%** at launch.
