@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "the proposed change describes a plan that has since moved on",
+  "reason": "stale_proposal"
+}

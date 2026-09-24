@@ -186,10 +186,13 @@ describe('answering a plan-change offer (#523, #611)', () => {
     ]);
   });
 
-  it.each(['stale_proposal', 'no_proposal'] as const)('keeps the reason of a %s refusal', async (reason) => {
-    // The route's `PlanProposalRejected` branch: no `itemId`, so the edit
-    // schema cannot read it, and it used to fall to a bare ValidationError.
-    serve({ success: false, error: 'refused', reason }, 422);
+  it.each<[string, PlanProposalRefusedError['reason']]>([
+    ['plan.proposal.stale', 'stale_proposal'],
+    ['plan.proposal.none', 'no_proposal'],
+  ])('keeps the reason of the recorded %s refusal', async (name, reason) => {
+    // The handler's own 422 bodies: no `itemId`, so the edit schema cannot
+    // read them, and they used to fall to a bare ValidationError.
+    serve(fixture(name), 422);
     const error = await actOnPlan('2026-08-09', { action: 'accept_proposal' }).catch(e => e);
     expect(error).toBeInstanceOf(PlanProposalRefusedError);
     expect(error).not.toBeInstanceOf(ValidationError);

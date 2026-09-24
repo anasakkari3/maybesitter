@@ -49,6 +49,7 @@ import { backgroundActivityHistorySchema } from '../schemas/backgroundActivity';
 import {
   planCauseResponseSchema,
   planEditRejectedSchema,
+  planProposalRejectedSchema,
   planOpenedSchema,
   planResponseSchema,
   planSettingsResponseSchema,
@@ -184,6 +185,11 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.opened', planOpenedSchema],
   ['plan.notFound', errorBodySchema],
   ['plan.editRejected', planEditRejectedSchema],
+  // The refusals of an offer (#611): no `itemId`, so the edit schema above
+  // cannot read them. Recorded from the real handler in both states it
+  // refuses — nothing pending, and an offer whose base generation moved on.
+  ['plan.proposal.none', planProposalRejectedSchema],
+  ['plan.proposal.stale', planProposalRejectedSchema],
   ['plan.settingsDefault', planSettingsResponseSchema],
   ['plan.settingsSaved', planSettingsResponseSchema],
   // The device calendar (UC-3.1, #185). `commitments.one` above is a commitment
