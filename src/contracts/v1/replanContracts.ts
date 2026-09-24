@@ -110,6 +110,14 @@ export const PLAN_IMPACT_REASONS = Object.freeze([
    * change nobody looked at.
    */
   'continuous_replan_disabled',
+  /**
+   * The person dismissed the day's plan (#610).
+   *
+   * Service-only, like `continuous_replan_disabled`: a dismissed plan is never
+   * replanned or patched, so the service stops before the pipeline and records
+   * this rather than a verdict nobody reached.
+   */
+  'plan_dismissed',
 ] as const);
 
 export type PlanImpactReason = (typeof PLAN_IMPACT_REASONS)[number];

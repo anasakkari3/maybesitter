@@ -622,6 +622,26 @@ function blocksForAcceptedProposal(
 }
 
 /**
+ * What a person's edits and status become when a new placement is installed
+ * under them (#523, #610).
+ *
+ * One rule, for both writers that do it: accepting a proposed patch
+ * (`acceptPlanProposal`) and continuous replanning's auto-apply. The reasons
+ * are in `acceptPlanProposal`'s header. In short, a move is an interval checked
+ * against the placement it was made on, so it is dropped rather than laid over
+ * one nothing has checked it against. A removal is a bare item id and is kept.
+ * The status is carried over, except that a plan whose only edits were moves
+ * falls back to what it was before the edit.
+ */
+export function editsSurvivingReschedule(current: StoredDailyPlan): { edits: PlanEdits; status: DailyPlanStatus } {
+  const edits: PlanEdits = { moves: [], removals: current.edits.removals };
+  const status: DailyPlanStatus = current.status === 'edited' && edits.removals.length === 0
+    ? (current.acceptedAt === null ? 'proposed' : 'accepted')
+    : current.status;
+  return { edits, status };
+}
+
+/**
  * Installs the proposed patch as the plan (#523's user-control layer).
  *
  * Returns null when there is no plan for the date — 404, the same as every
@@ -661,7 +681,8 @@ function blocksForAcceptedProposal(
  * placement did), `causeChangeIds` becomes the patch's own, and `proposal`
  * goes back to null.
  *
- * Two deliberate departures. The first is that **moves are dropped and
+ * Two further rules, which the auto-apply branch now follows too (#610) via
+ * `editsSurvivingReschedule`. The first is that **moves are dropped and
  * removals are kept**. The two halves of `PlanEdits` are not the same kind of
  * statement: a move is an interval, validated against the placement it was
  * made on, and layering it over a plan that has just been rescheduled would
@@ -669,9 +690,9 @@ function blocksForAcceptedProposal(
  * overlap it with something. A removal is a bare item id. It needs no
  * placement to be valid and nothing about a reschedule makes it stale, and
  * discarding it would put work back on the user's day that they took off it —
- * silently, because the diff is computed against the *un-edited* stored plan,
- * so a removed item shows as `unchanged` and the patch they approved never
- * named it.
+ * silently, because the patch they approved never named it. (Since #610 the
+ * diff is computed on the visible day with the removals applied on both
+ * sides, so a removed item is absent from it altogether.)
  *
  * The second is that `acceptedAt` is carried over untouched rather than
  * stamped: accepting a *patch* says something about the schedule, not about
@@ -712,10 +733,7 @@ export async function acceptPlanProposal(
 
     const generation = current.generation + 1;
     // The moves go, the removals stay. See the header above.
-    const edits: PlanEdits = { moves: [], removals: current.edits.removals };
-    const status: DailyPlanStatus = current.status === 'edited' && edits.removals.length === 0
-      ? (current.acceptedAt === null ? 'proposed' : 'accepted')
-      : current.status;
+    const { edits, status } = editsSurvivingReschedule(current);
     return {
       next: {
         ...current,
