@@ -85,7 +85,7 @@ export function Screen({ pinned, children, footer, decoration, overlay, style, t
  * the floating tab bar is drawn over the screen and the last row has to clear
  * it.
  */
-export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps }: {
+export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, style }: {
   children: React.ReactNode;
   gap?: number;
   bottom?: number;
@@ -96,10 +96,13 @@ export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, te
   /** The space between a pinned header and the first row beneath it. */
   topGap?: number;
   keyboardShouldPersistTaps?: 'always' | 'never' | 'handled' | undefined;
+  /** Viewport layout, distinct from the padding of its scrolling content. */
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <ScrollView
       testID={testID}
+      style={style}
       {...(refreshControl ? { refreshControl } : {})}
       {...(keyboardShouldPersistTaps ? { keyboardShouldPersistTaps } : {})}
       contentContainerStyle={{

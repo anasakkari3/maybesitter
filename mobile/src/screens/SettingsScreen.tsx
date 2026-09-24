@@ -28,7 +28,7 @@ import { SettingsRow } from '../features/settings/SettingsChrome';
  * docs/design/round-2-feature-matrix.md; the screen names underneath did not
  * change.
  */
-export function SettingsScreen() {
+export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
   const { t, tr, p, langPref, themePref, actions } = useApp();
   const { user } = useAuth();
   const trust = useTrust();
@@ -45,7 +45,10 @@ export function SettingsScreen() {
 
   return (
     <Screen>
-      <ScreenScroll bottom={130} gap={24} topGap={8}>
+      {/* Clip the scrolling viewport above the tabs, not just its last row.
+          Otherwise any intermediate row can look tappable through the pill
+          while its touch goes to a tab (#506). Root measures the actual bar. */}
+      <ScreenScroll testID="settings-scroll" style={{ marginBottom: tabClearance }} bottom={24} gap={24} topGap={8}>
         <ScreenHeader title={t.settingsTitle} />
 
         <ProductRow id="settings-my" title={t.xMy} body={t.xMyBody} icon="person" onPress={() => actions.go('myMaybeSitter')} />
