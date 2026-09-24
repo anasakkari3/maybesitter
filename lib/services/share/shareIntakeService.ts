@@ -42,6 +42,8 @@ import { uidHash } from '../../llm/llmLog';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/shareProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { proposeMobileCapture } from '../mobile/mobileCaptureService';
+import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureContracts';
+import { CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { normalizeTimezone, dateFromOptionalIso } from '../mobile/time';
 import { declarationConflicts, sniffMediaType } from './mediaType';
 import { resolveSharePreprocessor } from './shareRegistry';
@@ -80,14 +82,29 @@ export const MAX_FILE_BYTES = 15 * 1024 * 1024;
 /** The most files one share may carry. Five images is the iOS activation rule. */
 export const MAX_FILES = 5;
 /**
- * The most text the capture pipeline is handed, in characters.
+ * The most text one share may carry, in characters: the capture limit itself,
+ * not a second number (#513).
  *
- * The same 20 000 as `MAX_INPUT_CHARACTERS` in the cost guard, on purpose: text
- * longer than this cannot reach the model anyway, and truncating here means a
- * long share is read as far as the limit rather than silently falling back to
- * rules for the whole thing.
+ * A shared text is treated as the same kind of input as a typed capture. It
+ * ends in the same two quadratic parsers behind `proposeCapture` (#508), so it
+ * gets the same bound, and it is refused the same way: by
+ * `CaptureInputTooLargeError`, which every route answers with one body — 413,
+ * `reason: 'text_too_long'`, `maxCharacters`. The two alternatives #513 named
+ * were not taken. A higher share-only bound would need chunking or a summary
+ * step and its own security reasoning (#193, #508); truncation answers as if
+ * it had read what it cut. This one adds no parser load and no new surface,
+ * and share intake is flag-gated off, so it is reversible. Raising it means
+ * raising `CAPTURE_INPUT_MAX_CHARACTERS`, which
+ * `tests/security/captureParserWorkBounds.test.ts` refuses above 2,000.
+ *
+ * Checked twice, and never by truncating. Each check measures exactly the
+ * string the next stage reads:
+ *  1. `input.text` as received, before a channel or any parser sees it;
+ *  2. the text a channel produced (a file's contents, joined with any shared
+ *     text), trimmed — which is what the capture pipeline reads and how it
+ *     measures — before the capture pipeline sees it.
  */
-export const MAX_SHARE_TEXT_CHARACTERS = 20_000;
+export const MAX_SHARE_TEXT_CHARACTERS = CAPTURE_INPUT_MAX_CHARACTERS;
 /** How many shares one account may analyse in a UTC day (#183 step 9). */
 export const DEFAULT_SHARE_DAILY_CAP = 30;
 /** The usage document's prefix: `users/{uid}/usage/share-{yyyy-mm-dd}`. */
@@ -351,10 +368,11 @@ function suggestNextAction(proposal: Proposal): SuggestedNextAction | null {
 /**
  * Reads one share and returns a proposal (UC-3.0, #183).
  *
- * Throws `ShareInputError` for input this route refuses, `ShareQuotaError` when
- * the account is over its daily share limit, and whatever the capture pipeline
- * throws for everything else — which is the same set the ordinary capture route
- * already answers.
+ * Throws `CaptureInputTooLargeError` for text longer than
+ * `MAX_SHARE_TEXT_CHARACTERS` on any ingress, `ShareInputError` for other input
+ * this route refuses, `ShareQuotaError` when the account is over its daily
+ * share limit, and whatever the capture pipeline throws for everything else —
+ * which is the same set the ordinary capture route already answers.
  */
 export async function proposeFromShare(
   input: ShareIntakeInput,
@@ -379,8 +397,10 @@ export async function proposeFromShare(
   const files: ShareIntakeFile[] = [];
   try {
     const sharedText = typeof input.text === 'string' ? input.text : null;
+    // First, before sniffing, metering or any channel: a 100,000-character
+    // share costs a length read and nothing else (#513, #508).
     if (sharedText !== null && sharedText.length > MAX_SHARE_TEXT_CHARACTERS) {
-      throw new ShareInputError(413, 'text_too_long', 'the shared text is longer than this route accepts');
+      throw new CaptureInputTooLargeError(MAX_SHARE_TEXT_CHARACTERS);
     }
 
     validateFiles(input.files, files);
@@ -422,7 +442,16 @@ export async function proposeFromShare(
       ...(context.signal ? { signal: context.signal } : {}),
     });
 
-    const text = prepared.text.trim().slice(0, MAX_SHARE_TEXT_CHARACTERS);
+    /*
+     * Refused, not cut (#513). A file's text is only known once a channel has
+     * read it, so this is the earliest it can be measured — and it is still
+     * before the capture pipeline's parsers. It also catches a shared text and
+     * a file that are each within the limit and together are not.
+     */
+    const text = prepared.text.trim();
+    if (text.length > MAX_SHARE_TEXT_CHARACTERS) {
+      throw new CaptureInputTooLargeError(MAX_SHARE_TEXT_CHARACTERS);
+    }
 
     const propose = context.propose ?? proposeMobileCapture;
     /*

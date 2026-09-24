@@ -184,12 +184,13 @@ export async function POST(request: Request) {
     return Response.json(result);
   } catch (error) {
     /*
-     * Share is the second door onto `proposeCapture`, so it inherits that
-     * boundary's length cap (#508) — and answers for it in share's own
-     * vocabulary rather than letting a capture-layer error fall through to a
-     * generic failure. Same status and same reason code as
-     * `ShareInputError(413, 'text_too_long')` below, which is the refusal this
-     * route already gives for text it will not read.
+     * Every over-long refusal on this route, whichever ingress it came through
+     * (#513). Share's own checks — on `input.text` before any parsing, and on
+     * a file's text before the capture pipeline — throw the capture boundary's
+     * own `CaptureInputTooLargeError` (#508), so this one branch mints
+     * `text_too_long` and the body is the one the typed capture route sends:
+     * 413 with `maxCharacters`, which `mobile/src/api/client.ts` turns into
+     * `InputTooLargeError`. `ShareInputError` never carries `text_too_long`.
      */
     if (error instanceof CaptureInputTooLargeError) {
       return Response.json(

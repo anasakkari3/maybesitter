@@ -45,6 +45,8 @@ import { plainTextPreprocessor, whatsappPreprocessor } from '../../lib/services/
 import { MAX_EVIDENCE_CHARACTERS, SHARE_SEGMENT_SEPARATOR } from '../../lib/services/share/shareTypes.ts';
 import type { LlmPart, ShareStructuredGenerator } from '../../lib/services/share/shareTypes.ts';
 import { MAX_UNASSISTED_SEGMENTS } from '../../lib/services/share/channels/whatsapp.ts';
+import { CaptureInputTooLargeError } from '../../lib/services/captureBoundary/captureBoundaryService.ts';
+import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../src/contracts/v1/captureContracts.ts';
 import { buildZip } from '../fixtures/whatsapp/zipBuilder.ts';
 import {
   ALL_PAST,
@@ -277,7 +279,10 @@ test('one injected message in fifty is dropped and the other forty-nine survive'
     );
 
     const spy = modelSpy();
-    const result = await share({ text: chat }, { generateStructured: spy.generate });
+    // As Android's `.txt` export: fifty messages are ~3,100 characters, which
+    // the text ingress refuses before any channel reads it (#513). A file is
+    // measured on what the channel hands the capture pipeline.
+    const result = await share({ files: [textFile(chat)] }, { generateStructured: spy.generate });
 
     assert.equal(result.share.ignoredSegments, 1, 'exactly one message should have been dropped');
     assert.equal(result.share.metrics.messagesParsed, 50);
@@ -297,7 +302,7 @@ test('an injected message never reaches the text the capture pipeline reads', as
   try {
     const spy = modelSpy();
     const seen: string[] = [];
-    await share({ text: fiftyMessages(3) }, {
+    await share({ files: [textFile(fiftyMessages(3))] }, {
       generateStructured: spy.generate,
       propose: async (request) => {
         seen.push(String(request.text));
@@ -422,13 +427,43 @@ test('a model that will not answer degrades to the recent messages rather than f
   const teardown = setup();
   try {
     const result = await share(
-      { text: fiftyMessages(-1) },
+      { files: [textFile(fiftyMessages(-1))] },
       {
         generateStructured: async () => { throw new LLMUnavailableError('provider_none'); },
       },
     );
     assert.equal(result.share.metrics.modelUsed, 0);
     assert.equal(result.share.metrics.messagesChosen, MAX_UNASSISTED_SEGMENTS);
+  } finally {
+    teardown();
+  }
+});
+
+/* ── Length (#513) ───────────────────────────────────────────────── */
+
+/**
+ * The trade #513 made, pinned so it is read rather than rediscovered. Shared
+ * *text* is bounded by the capture limit before any channel sees it, so a chat
+ * pasted as text is refused at 2,000 characters even when this channel would
+ * have reduced it to less. An export shared as a file is measured on what the
+ * channel hands the capture pipeline — the tests above share fifty messages
+ * that way.
+ */
+test('a chat shared as text over the capture limit is refused before the channel reads it', async () => {
+  const teardown = setup();
+  try {
+    const chat = fiftyMessages(-1);
+    assert.ok(chat.length > CAPTURE_INPUT_MAX_CHARACTERS, 'this chat is not actually over the limit');
+    const spy = modelSpy();
+    await assert.rejects(
+      () => share({ text: chat }, { generateStructured: spy.generate }),
+      (error: unknown) => error instanceof CaptureInputTooLargeError,
+    );
+    assert.equal(spy.calls.length, 0, 'the channel ran on text the ingress should have refused');
+
+    // The same chat as Android's `.txt` export is read.
+    const result = await share({ files: [textFile(chat)] }, { generateStructured: modelSpy().generate });
+    assert.equal(result.share.channel, 'whatsapp');
   } finally {
     teardown();
   }

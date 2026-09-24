@@ -145,8 +145,8 @@ export const CLARIFICATION_FREE_TEXT_MAX = 200;
  *    20,000 chars     167.9ms                    294.8ms
  *   100,000 chars    3555.9ms                   7233.6ms
  *
- * So 20,000 — the figure `MAX_INPUT_CHARACTERS` and `MAX_SHARE_TEXT_CHARACTERS`
- * use for a model prompt and for an imported chat export — is not a safe
+ * So 20,000 — the figure `MAX_INPUT_CHARACTERS` uses for a model prompt, and
+ * share intake's own limit until #513 made it this one — is not a safe
  * boundary for a *typed* capture: it still leaves nearly half a second of
  * blocked event loop reachable per request. 2,000 bounds both parsers to single
  * digit milliseconds, and is what the product already contracts for a capture.

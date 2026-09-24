@@ -347,16 +347,16 @@ test('E: multi-segment splitting still works, in all three languages', async () 
 
 test('F: the shared boundary refuses oversized text whichever door it came through', async () => {
   // Share is the second door onto `proposeMobileCapture`
-  // (lib/services/share/shareIntakeService.ts:398), so it reaches this guard.
-  // Its own ingress limit is larger than the boundary's — that is deliberate
-  // and documented on the constant — so the boundary is what actually decides,
-  // and the share route maps the refusal to the same 413 `text_too_long` it
-  // already uses. What is NOT exercised here is the share route end to end:
-  // share is flag-disabled in this suite and 404s on every deployed
-  // environment.
-  assert.ok(
-    MAX_SHARE_TEXT_CHARACTERS > CAPTURE_INPUT_MAX_CHARACTERS,
-    'this test is pinning the inheritance; if share is ever lowered to the cap, say so here',
+  // (lib/services/share/shareIntakeService.ts), so it reaches this guard.
+  // Since #513 share's own limit *is* this cap rather than a larger number the
+  // boundary silently overrode: share refuses over-long text itself, before
+  // its parsers and before this boundary, with this boundary's own error. This
+  // guard stays as the floor under both doors. The share route end to end is
+  // exercised in tests/share/shareIntakeRoute.test.ts ("Over-long text").
+  assert.equal(
+    MAX_SHARE_TEXT_CHARACTERS,
+    CAPTURE_INPUT_MAX_CHARACTERS,
+    'share and typed capture are one limit (#513); a second number needs its own security reasoning',
   );
   const harness = spyHarness();
   await assert.rejects(
