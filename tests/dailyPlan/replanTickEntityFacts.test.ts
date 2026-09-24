@@ -169,6 +169,15 @@ function outcomePlan(stored: StoredDailyPlan): Plan | null {
 
 const ZERO = { examined: 0, replanRequired: 0, autoApplied: 0, proposed: 0, stale: 0, noEffect: 0, failed: 0, skipped: 0 };
 
+/**
+ * The mode that was the default until #611's council decision, passed
+ * explicitly by every case below that is about the auto-apply write. The
+ * default is now `always_require_confirmation`, under which the tick never
+ * auto-applies; those cases would otherwise pass by storing a proposal and
+ * never reach the write they exist to test.
+ */
+const TIME_ONLY = { userControlMode: 'automatic_time_only' } as const;
+
 /* ── The headline: a meeting on a scheduled task earns a replan ───── */
 
 test('the tick replans a stored change whose busy block overlaps a scheduled task, and persists the outcome', async () => {
@@ -188,8 +197,9 @@ test('the tick replans a stored change whose busy block overlaps a scheduled tas
 
     const after = await readStoredPlan(uid, DATE, storage);
     assert.ok(after);
-    // The default policy (automatic_time_only, 60-minute budget) decides between
-    // applying and proposing; whichever it chose must be what was stored.
+    // The policy decides between applying and proposing (under the default,
+    // `always_require_confirmation`, it proposes); whichever it chose must be
+    // what was stored.
     if (totals.autoApplied === 1) {
       assert.equal(after.generation, before.generation + 1);
       assert.deepEqual(after.causeChangeIds, ['chg-meeting']);
@@ -411,21 +421,21 @@ test('a re-delivered change after an automatic replan does not apply twice', asy
   await withStorage(async (storage) => {
     const uid = 'user_tick_repeat';
     await seedAccount(storage, uid);
-    // A meeting on the last task: a 30-minute shift, inside the default churn
-    // budget, so the default policy applies it without asking.
+    // A meeting on the last task: a 30-minute shift, inside the 60-minute churn
+    // budget, so `automatic_time_only` applies it without asking.
     const onLast: TimeInterval = { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` };
     await syncCalendar(storage, uid, [{ blockId: 'busy-late', interval: onLast }]);
     const change = calendarChange(uid, 'chg-late', 'busy-late');
     await storeChange(storage, uid, change);
 
-    const first = await runContinuousReplanTick({ storage, now: MORNING });
-    assert.equal(first.autoApplied, 1, `fixture: the default policy must auto-apply here: ${JSON.stringify(first)}`);
+    const first = await runContinuousReplanTick({ storage, now: MORNING, policyConfig: TIME_ONLY });
+    assert.equal(first.autoApplied, 1, `fixture: the time-only policy must auto-apply here: ${JSON.stringify(first)}`);
     const once = await readStoredPlan(uid, DATE, storage);
     assert.equal(once!.generation, 2);
 
     // The same change, delivered again (a producer retry, a replayed sync).
     await storeChange(storage, uid, change);
-    const second = await runContinuousReplanTick({ storage, now: new Date(MORNING.getTime() + 5 * 60_000) });
+    const second = await runContinuousReplanTick({ storage, now: new Date(MORNING.getTime() + 5 * 60_000), policyConfig: TIME_ONLY });
     assert.equal(second.replanRequired, 0, `the task already left the meeting: ${JSON.stringify(second)}`);
     assert.equal(second.autoApplied, 0);
     const twice = await readStoredPlan(uid, DATE, storage);
@@ -537,15 +547,16 @@ test('two blocks sharing one id resolve to null rather than to whichever was lis
 
 /* ── #610: the tick over a plan the person has touched ─────────────
  *
- * Every case below drives `runContinuousReplanTick` on the #604 fixture under
- * the default policy (`automatic_time_only`, 60-minute budget). A concurrent
+ * Every case below drives `runContinuousReplanTick` on the #604 fixture. The
+ * auto-apply cases pass `automatic_time_only` (60-minute budget) explicitly,
+ * since #611 made `always_require_confirmation` the default. A concurrent
  * action is injected one of two ways: right after the tick has read the plan
  * (the window a real solve spends), through the real action; or from the
  * memory adapter's before-commit hook, as the raw write that action makes,
  * landing between the plan write's own read and its commit.
  */
 
-/** A meeting on the last task: a 30-minute shift, which the default policy applies without asking. */
+/** A meeting on the last task: a 30-minute shift, which `automatic_time_only` applies without asking. */
 const ON_LAST: TimeInterval = { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` };
 
 function move(itemId: string, startsAt: string) {
@@ -622,7 +633,7 @@ test('#610 AC1: a removal made while the tick solves survives auto-apply, and th
 
     const race = racingAfterPlanRead(storage, uid, () =>
       editPlan(uid, DATE, { moves: [], removals: ['cmt_a'] }, { storage, now: () => MORNING }));
-    await runContinuousReplanTick({ storage: race.storage, now: MORNING });
+    await runContinuousReplanTick({ storage: race.storage, now: MORNING, policyConfig: TIME_ONLY });
     assert.ok(race.fired(), 'fixture: the removal must have raced the tick');
 
     const raced = await readStoredPlan(uid, DATE, storage);
@@ -632,7 +643,7 @@ test('#610 AC1: a removal made while the tick solves survives auto-apply, and th
     assert.equal(await pendingChanges(storage, uid), 1, 'a change whose outcome was not stored must not be drained');
 
     // The next tick judges the change against the edited day and applies it there.
-    const retried = await runContinuousReplanTick({ storage, now: MORNING });
+    const retried = await runContinuousReplanTick({ storage, now: MORNING, policyConfig: TIME_ONLY });
     assert.equal(retried.autoApplied, 1, JSON.stringify(retried));
     const applied = await readStoredPlan(uid, DATE, storage);
     assert.equal(applied!.generation, 2);
@@ -660,7 +671,7 @@ test('#610 AC1: on a plan already edited, and written before blocks existed, a s
 
     const race = racingAfterPlanRead(storage, uid, () =>
       editPlan(uid, DATE, { moves: [], removals: ['cmt_b', 'cmt_a'] }, { storage, now: () => MORNING }));
-    await runContinuousReplanTick({ storage: race.storage, now: MORNING });
+    await runContinuousReplanTick({ storage: race.storage, now: MORNING, policyConfig: TIME_ONLY });
     assert.ok(race.fired(), 'fixture: the removal must have raced the tick');
 
     const raced = await readStoredPlan(uid, DATE, storage);
@@ -681,12 +692,15 @@ test('#610 AC1+AC3: a dismissal landing inside the auto-apply write is not undon
     const hook = rewriteAtCommit(storage, uid, (current) => ({
       ...current, status: 'dismissed', updatedAt: MORNING.toISOString(), proposal: null,
     }));
+    let totals;
     try {
-      await runContinuousReplanTick({ storage, now: MORNING });
+      totals = await runContinuousReplanTick({ storage, now: MORNING, policyConfig: TIME_ONLY });
     } finally {
       hook.disarm();
     }
     assert.ok(hook.fired(), 'fixture: the dismissal must have landed inside the write');
+    // The write the dismissal landed in was the auto-apply write, not a proposal's.
+    assert.equal(totals.autoApplied, 1, `fixture: the time-only policy must auto-apply here: ${JSON.stringify(totals)}`);
 
     const after = await readStoredPlan(uid, DATE, storage);
     assert.equal(after!.status, 'dismissed', 'a background run must not bring a dismissed plan back');
@@ -700,7 +714,8 @@ test('#610 AC3: a dismissal landing inside the proposal write gets no patch', as
   await withStorage(async (storage) => {
     const uid = 'user_610_dismiss_propose';
     await seedAccount(storage, uid);
-    // The first task's slot: a 90-minute cascade, which the default policy proposes.
+    // The first task's slot: a 90-minute cascade, which the default policy proposes
+    // (as every mode short of `silent_auto` would).
     await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }]);
     await storeChange(storage, uid, calendarChange(uid, 'chg-meeting', 'busy-meeting'));
 
@@ -738,8 +753,9 @@ test('#610 AC1: a protection declared while the tick solves is not erased by aut
       maxShiftMinutes: null,
       preferredInterval: null,
     }, { storage, now: () => MORNING }));
-    await runContinuousReplanTick({ storage: race.storage, now: MORNING });
+    const totals = await runContinuousReplanTick({ storage: race.storage, now: MORNING, policyConfig: TIME_ONLY });
     assert.ok(race.fired(), 'fixture: the protection must have raced the tick');
+    assert.equal(totals.autoApplied, 1, `fixture: the time-only policy must auto-apply here: ${JSON.stringify(totals)}`);
 
     const after = await readStoredPlan(uid, DATE, storage);
     const block = after!.blocks.find((entry) => entry.blockId === lastBlock);
@@ -763,8 +779,8 @@ test('#610 AC2: auto-apply over a user-moved plan does not double-book the visib
     await syncCalendar(storage, uid, [{ blockId: 'busy-span', interval: spanning }]);
     await storeChange(storage, uid, calendarChange(uid, 'chg-span', 'busy-span'));
 
-    const totals = await runContinuousReplanTick({ storage, now: MORNING });
-    assert.equal(totals.autoApplied, 1, `fixture: the default policy must auto-apply here: ${JSON.stringify(totals)}`);
+    const totals = await runContinuousReplanTick({ storage, now: MORNING, policyConfig: TIME_ONLY });
+    assert.equal(totals.autoApplied, 1, `fixture: the time-only policy must auto-apply here: ${JSON.stringify(totals)}`);
 
     const after = await readStoredPlan(uid, DATE, storage);
     assert.equal(after!.generation, 2);
@@ -792,7 +808,7 @@ test('#610 AC3: a dismissed day is neither replanned nor patched, and its change
     await syncCalendar(storage, proposing, [{ blockId: 'busy-meeting', interval: MEETING }]);
     await storeChange(storage, proposing, calendarChange(proposing, 'chg-meeting', 'busy-meeting'));
 
-    const totals = await runContinuousReplanTick({ storage, now: MORNING });
+    const totals = await runContinuousReplanTick({ storage, now: MORNING, policyConfig: TIME_ONLY });
     assert.deepEqual(totals, { ...ZERO, examined: 2, skipped: 2 });
     for (const uid of [applying, proposing]) {
       const after = await readStoredPlan(uid, DATE, storage);
@@ -804,7 +820,7 @@ test('#610 AC3: a dismissed day is neither replanned nor patched, and its change
 
     // The person takes the day back: the held change is replanned then.
     await acceptPlan(applying, DATE, { storage, now: () => MORNING });
-    const later = await runContinuousReplanTick({ storage, now: MORNING });
+    const later = await runContinuousReplanTick({ storage, now: MORNING, policyConfig: TIME_ONLY });
     assert.equal(later.autoApplied, 1, JSON.stringify(later));
     assert.equal(later.skipped, 1, 'the other day is still dismissed');
     const back = await readStoredPlan(applying, DATE, storage);
@@ -822,7 +838,7 @@ test('#610 AC3: a plan the person has not accepted stays proposed through a back
     await syncCalendar(storage, uid, [{ blockId: 'busy-late', interval: ON_LAST }]);
     await storeChange(storage, uid, calendarChange(uid, 'chg-late', 'busy-late'));
 
-    const totals = await runContinuousReplanTick({ storage, now: MORNING });
+    const totals = await runContinuousReplanTick({ storage, now: MORNING, policyConfig: TIME_ONLY });
     assert.equal(totals.autoApplied, 1, JSON.stringify(totals));
     const after = await readStoredPlan(uid, DATE, storage);
     assert.equal(after!.generation, 2);
@@ -889,14 +905,21 @@ test('#610 AC5: when an older patch is accepted during the run, the new change i
     const first = await runContinuousReplanTick({ storage, now: MORNING });
     assert.equal(first.proposed, 1, `fixture: ${JSON.stringify(first)}`);
 
-    // A second meeting lands at 07:00, where that patch would put b.
-    await syncCalendar(storage, uid, [
-      { blockId: 'busy-meeting', interval: MEETING },
-      { blockId: 'busy-late', interval: ON_LAST },
-    ]);
+    // A second meeting's change row is waiting for the tick.
     await storeChange(storage, uid, calendarChange(uid, 'chg-late', 'busy-late'));
-    // While the tick solves for it, the person accepts the older patch.
-    const race = racingAfterPlanRead(storage, uid, () => acceptPlanProposal(uid, DATE, { storage, now: () => MORNING }));
+    // While the tick solves for it, the person accepts the older patch, and
+    // only then does the meeting reach the calendar: it lands at 07:00, where
+    // that patch puts b. The order matters since the #611 guards. Accepting
+    // checks the patch against the busy time in force, so a meeting already
+    // on the calendar would refuse it; this is the other order, where the
+    // acceptance comes first and only the tick can catch the meeting.
+    const race = racingAfterPlanRead(storage, uid, async () => {
+      await acceptPlanProposal(uid, DATE, { storage, now: () => MORNING });
+      await syncCalendar(storage, uid, [
+        { blockId: 'busy-meeting', interval: MEETING },
+        { blockId: 'busy-late', interval: ON_LAST },
+      ]);
+    });
     await runContinuousReplanTick({ storage: race.storage, now: MORNING });
     assert.ok(race.fired(), 'fixture: the acceptance must have raced the tick');
 
@@ -919,44 +942,50 @@ test('#610 AC5: when an older patch is accepted during the run, the new change i
   });
 });
 
-test('#610 AC5: a change judged against a plan replaced mid-run is held even when its verdict stored nothing', async () => {
+/*
+ * Until the #611 guards this case accepted an older patch mid-run with the
+ * second meeting already on the calendar, so the accepted patch put a task
+ * under it. Accepting now refuses exactly that (the busy-time check), and a
+ * pending offer now re-solves on a stale verdict rather than storing nothing,
+ * so the accept flavour of "a verdict that stored nothing" no longer exists.
+ * The rule it pinned still does: a verdict that stored nothing is drained only
+ * if the day it was judged against is still in force. So the day is changed
+ * mid-run by the other writer that moves the visible day without moving the
+ * generation, an edit, and the same four things are asserted.
+ */
+test('#610 AC5: a change judged against a day edited mid-run is held even when its verdict stored nothing', async () => {
   await withStorage(async (storage) => {
     const uid = 'user_610_stale_race';
     await seedAccount(storage, uid);
-    // A first meeting earns a patch (a@06:30, b@07:00, c@07:30) that waits for review.
-    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }]);
-    await storeChange(storage, uid, calendarChange(uid, 'chg-meeting', 'busy-meeting'));
-    const first = await runContinuousReplanTick({ storage, now: MORNING });
-    assert.equal(first.proposed, 1, `fixture: ${JSON.stringify(first)}`);
-
-    // A second meeting at 07:30 overlaps only the patch: the visible day ends at 07:30.
-    const onPatch: TimeInterval = { startsAt: `${DATE}T07:30:00.000Z`, endsAt: `${DATE}T08:00:00.000Z` };
-    await syncCalendar(storage, uid, [
-      { blockId: 'busy-meeting', interval: MEETING },
-      { blockId: 'busy-patch', interval: onPatch },
-    ]);
-    await storeChange(storage, uid, calendarChange(uid, 'chg-patch', 'busy-patch'));
-    // While the tick judges it against the old generation, the person accepts the patch.
-    const race = racingAfterPlanRead(storage, uid, () => acceptPlanProposal(uid, DATE, { storage, now: () => MORNING }));
+    // A meeting at 07:30, just after the last task (c ends at 07:30): it
+    // overlaps nothing on the day the tick reads.
+    const onLater: TimeInterval = { startsAt: `${DATE}T07:30:00.000Z`, endsAt: `${DATE}T08:00:00.000Z` };
+    await syncCalendar(storage, uid, [{ blockId: 'busy-later', interval: onLater }]);
+    await storeChange(storage, uid, calendarChange(uid, 'chg-later', 'busy-later'));
+    // While the tick judges it, the person drags c to 07:30. The edit is
+    // checked against the constraints the plan was built from, which predate
+    // the meeting, so it is allowed and lands the task under the meeting.
+    const race = racingAfterPlanRead(storage, uid, () =>
+      editPlan(uid, DATE, { moves: [move('cmt_c', onLater.startsAt)], removals: [] }, { storage, now: () => MORNING }));
     const judged = await runContinuousReplanTick({ storage: race.storage, now: MORNING });
-    assert.ok(race.fired(), 'fixture: the acceptance must have raced the tick');
+    assert.ok(race.fired(), 'fixture: the edit must have raced the tick');
     assert.equal(judged.stale, 1, `fixture: judged against the old day the meeting overlaps nothing: ${JSON.stringify(judged)}`);
 
-    const accepted = await readStoredPlan(uid, DATE, storage);
-    assert.equal(accepted!.generation, 2, 'fixture: the patch is in force');
+    const edited = await readStoredPlan(uid, DATE, storage);
+    assert.equal(edited!.status, 'edited', 'fixture: the edit is in force');
     assert.ok(
-      effectiveSchedule(accepted!).some((item) => intervalsOverlap(item.interval, onPatch)),
-      'fixture: the accepted patch puts a task under the second meeting',
+      effectiveSchedule(edited!).some((item) => intervalsOverlap(item.interval, onLater)),
+      'fixture: the edited day puts a task under the meeting',
     );
-    assert.equal(await pendingChanges(storage, uid), 1, 'a verdict reached against a replaced plan must not drain the change');
+    assert.equal(await pendingChanges(storage, uid), 1, 'a verdict reached against a day that changed must not drain the change');
 
     const retried = await runContinuousReplanTick({ storage, now: MORNING });
     assert.equal(retried.replanRequired, 1, JSON.stringify(retried));
     const after = await readStoredPlan(uid, DATE, storage);
     const outcome = after!.proposal ? after!.proposal.plan.scheduled : effectiveSchedule(after!);
     const causes = after!.proposal ? after!.proposal.causeChangeIds : after!.causeChangeIds;
-    assert.deepEqual(causes, ['chg-patch']);
-    assert.ok(!outcome.some((item) => intervalsOverlap(item.interval, onPatch)), 'the replan must clear the second meeting');
+    assert.deepEqual(causes, ['chg-later']);
+    assert.ok(!outcome.some((item) => intervalsOverlap(item.interval, onLater)), 'the replan must clear the meeting');
     assert.equal(await pendingChanges(storage, uid), 0);
   });
 });
@@ -997,7 +1026,7 @@ test('#610: the proposal the client is shown leaves out tasks the person removed
     const uid = 'user_610_dto_removed';
     await proposeOverRemoval(storage, uid);
 
-    const dto = pendingProposalToDto((await readStoredPlan(uid, DATE, storage))!, new Map());
+    const dto = pendingProposalToDto((await readStoredPlan(uid, DATE, storage))!, new Map(), MORNING);
     assert.ok(dto);
     assert.ok(!dto.scheduled.some((item) => item.itemId === 'cmt_c'), 'a removed task must not be shown as proposed');
     assert.ok(!dto.unscheduled.some((item) => item.itemId === 'cmt_c'));

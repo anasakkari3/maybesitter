@@ -46,6 +46,11 @@ export const dynamic = 'force-dynamic';
  * when there is nothing to act on, `stale_proposal` when the patch describes
  * a plan state that has moved on. Neither carries an `itemId` or a `blockId`:
  * the refusal is about the offer, not about a row in it.
+ *
+ * Since the #611 guards, `stale_proposal` on accept also covers an offer
+ * whose day is over, one a meeting has landed on since it was solved, and one
+ * replaced by a newer offer than the `proposalId` the client names. The body
+ * may carry that `proposalId`; without it, whatever is pending is accepted.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ date: string }> }) {
   let user;
@@ -58,7 +63,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   const { date } = await params;
   if (!isPlanDate(date)) return mobileError('date must be YYYY-MM-DD');
 
-  let body: { action?: unknown };
+  let body: { action?: unknown; proposalId?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -73,7 +78,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     else if (body.action === 'protect') {
       const outcome = await setBlockProtection(user.uid, date, parseProtection(body));
       stored = outcome?.stored ?? null;
-    } else if (body.action === 'accept_proposal') stored = await acceptPlanProposal(user.uid, date);
+    } else if (body.action === 'accept_proposal') {
+      // The offer the client was shown, when it names one (#611 guards): a
+      // proposal replaced since is refused rather than installed unseen.
+      stored = await acceptPlanProposal(user.uid, date, typeof body.proposalId === 'string' ? { proposalId: body.proposalId } : {});
+    }
     else if (body.action === 'reject_proposal') stored = await rejectPlanProposal(user.uid, date);
     else return mobileError(`Unknown plan action: ${String(body.action)}`);
   } catch (error) {
@@ -107,6 +116,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     // The same key GET answers with, on every action: a client that has just
     // accepted or rejected a patch learns from its own response that the offer
     // is gone, instead of re-fetching to find out.
-    proposal: pendingProposalToDto(stored, titles),
+    proposal: pendingProposalToDto(stored, titles, new Date()),
   });
 }

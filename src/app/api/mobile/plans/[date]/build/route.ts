@@ -50,5 +50,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
    * two different shapes, or the second one grows a branch for a key the first
    * never sends.
    */
-  return Response.json({ success: true, plan: planToDto(stored, titles), proposal: pendingProposalToDto(stored, titles) });
+  return Response.json({ success: true, plan: planToDto(stored, titles), proposal: pendingProposalToDto(stored, titles, new Date()) });
 }

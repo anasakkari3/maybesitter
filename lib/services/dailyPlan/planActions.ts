@@ -61,6 +61,7 @@ import {
   pendingProposalOf,
   preparePlanEvent,
   proposalFingerprint,
+  proposalHasExpired,
   readStoredPlan,
   replaceStoredPlan,
   type DailyPlanStatus,
@@ -70,6 +71,8 @@ import {
   type StoredDailyPlan,
 } from './planStore';
 import { MAX_PLAN_GENERATIONS_PER_DAY } from './planSettings';
+import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
+import { dayHorizon } from './buildDailyPlan';
 import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
 
 export type PlanEditReason =
@@ -672,6 +675,13 @@ export function planUnderKeptRemovals(plan: Plan, removals: readonly string[]): 
  * patch to act on (`no_proposal`), and when the state the patch was solved
  * against is no longer the stored one (`stale_proposal`).
  *
+ * Since the #611 guards `stale_proposal` also covers three more cases, each
+ * refused without writing anything and without recording a rejection: the
+ * offer's day is over (`proposalHasExpired`); a meeting now sits on one of
+ * its placements (`patchCollidesWithBusyTime`, the council's
+ * compare-and-set against the calendar); and the caller named an offer that a
+ * newer one has replaced (`proposalId`).
+ *
  * ── The guard is the stronger one, and it is the write's own ─────
  *
  * The whole acceptance happens inside `mutateStoredPlan`'s transaction: the
@@ -743,10 +753,49 @@ export function planUnderKeptRemovals(plan: Plan, removals: readonly string[]): 
  *    (`planActivity.ts`), and #527's history does not read it, so neither
  *    surface counts the acceptance twice.
  */
+export interface AcceptPlanProposalOptions extends PlanActionOptions {
+  /**
+   * The offer the person was shown, when the client names it (#611 guards).
+   *
+   * A newer proposal replaces an unanswered one (supersede, don't stack), so
+   * the offer in the document when the tap arrives may not be the offer that
+   * was on screen. Named, a different one is refused as `stale_proposal`
+   * rather than installed unseen. Optional: a client that does not send it
+   * accepts whatever is pending, as before.
+   */
+  readonly proposalId?: string;
+}
+
+/**
+ * Whether any placement of the patch sits on busy time in force now (#611
+ * guards, the council's "compare-and-set on accept").
+ *
+ * The patch was solved against the calendar as it stood then, and a meeting
+ * that has landed on one of its placements since is, until the replan tick
+ * next runs, visible only here. So the patch's day — as accepting it would
+ * install it, the person's removals kept off it — is checked against the busy
+ * time the planner itself reads (`readBusyBlocksForPlanning`: the same
+ * all-day rule, the same blocking intervals). Reserved intervals, as the
+ * impact evaluator compares them.
+ *
+ * A collision, not a fingerprint: a meeting added elsewhere in the day moves
+ * nothing the patch does, and refusing the offer over it would leave the
+ * person a button that cannot be pressed until the next tick.
+ */
+function patchCollidesWithBusyTime(
+  current: StoredDailyPlan,
+  proposal: NonNullable<StoredDailyPlan['proposal']>,
+  busy: readonly TimeInterval[],
+): boolean {
+  if (busy.length === 0) return false;
+  const day = planUnderKeptRemovals(proposal.plan, current.edits.removals);
+  return day.scheduled.some((item) => busy.some((interval) => intervalsOverlap(item.reservedInterval, interval)));
+}
+
 export async function acceptPlanProposal(
   uid: string,
   date: string,
-  options: PlanActionOptions = {},
+  options: AcceptPlanProposalOptions = {},
 ): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let rejection: PlanProposalRejected | null = null;
@@ -754,11 +803,27 @@ export async function acceptPlanProposal(
   const regeneratedId = randomUUID();
   const decisionId = randomUUID();
 
+  /**
+   * The busy time in force, read before the transaction because the mutator
+   * is synchronous. Both orderings are then safe. A meeting written before
+   * this read is seen and refuses the patch. One written after it is ordered
+   * after the acceptance: its change row is judged by the next tick against
+   * the generation this installs, where it overlaps a scheduled task and earns
+   * a proposal of its own. The drain cannot skip it, because the acceptance
+   * moves the generation and `acknowledgeIfPlanUnchanged` holds any change
+   * judged against the plan it replaced.
+   */
+  const before = await readStoredPlan(uid, date, options.storage);
+  const busy: TimeInterval[] = before
+    ? (await readBusyBlocksForPlanning(uid, dayHorizon(date, before.timezone), { storage: options.storage }))
+      .map((block) => ({ startsAt: block.startsAt, endsAt: block.endsAt }))
+    : [];
+
   const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
     // Re-read inside the transaction, and everything below is derived from
     // *this* `current`. See the header: a document assembled from an earlier
     // read clobbers whatever landed in between.
-    const proposal = pendingProposalOf(current);
+    const proposal = pendingProposalOf(current, at);
     if (!proposal) {
       // Recorded rather than thrown, for the reason `editPlan` records its
       // refusal: throwing out of a transaction body is retried by the adapter,
@@ -769,6 +834,21 @@ export async function acceptPlanProposal(
           ? 'the proposed change describes a plan that has since moved on'
           : 'there is no proposed change to accept for this plan',
       );
+      return null;
+    }
+    if (options.proposalId !== undefined && options.proposalId !== proposal.proposalId) {
+      rejection = new PlanProposalRejected('stale_proposal', 'a newer proposed change has replaced the one being accepted');
+      return null;
+    }
+    /**
+     * Refused and left in place, not dropped. The meeting that caused this
+     * has a change row the next tick judges against the patch and re-solves
+     * (`overlaps_proposed_block`), so the offer is replaced by one that
+     * accounts for it. Clearing it here would lose the conflicts the patch was
+     * solving too: their change rows were drained when it was stored.
+     */
+    if (patchCollidesWithBusyTime(current, proposal, busy)) {
+      rejection = new PlanProposalRejected('stale_proposal', 'the calendar has changed under the proposed times');
       return null;
     }
     rejection = null;
@@ -873,13 +953,17 @@ export async function rejectPlanProposal(
 
   const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
     const proposal = current.proposal ?? null;
-    if (proposal === null) {
+    // An offer whose day is over is not an offer (#611 guards): no reader
+    // shows it, so there is nothing for the person to be declining. It is
+    // refused like an absent one and nothing is written, least of all a
+    // rejection, because expiry is not an answer.
+    if (proposal === null || proposalHasExpired(current, at)) {
       rejection = new PlanProposalRejected('no_proposal', 'there is no proposed change to reject for this plan');
       return null;
     }
     rejection = null;
     const fingerprint = proposalFingerprint(proposal.plan);
-    const live = pendingProposalOf(current) !== null;
+    const live = pendingProposalOf(current, at) !== null;
     // Entries for an older generation can never match again, so they are
     // dropped here rather than carried forever.
     const remembered = (current.rejectedProposals ?? []).filter((mark) => mark.baseGeneration === current.generation);

@@ -41,7 +41,9 @@ import {
 import {
   appendPlanEvent,
   mutateStoredPlan,
+  pendingProposalOf,
   planPath,
+  proposalFingerprint,
   proposalWasRejected,
   readStoredPlan,
   type StoredDailyPlan,
@@ -67,6 +69,7 @@ import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContr
 import type { Plan, PlannedItem } from '../../../src/contracts/v1/planningContracts';
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { toEpochMs } from '../../planning/shared/time';
+import { compareByCodePoint } from '../../planning/shared/compare';
 import type {
   ContinuousReplanPipelineResult,
   PlanImpactView,
@@ -316,7 +319,63 @@ function stillTheStateSolvedAgainst(current: StoredDailyPlan, solved: StoredDail
     && current.inputDigest === solved.inputDigest
     && current.status === solved.status
     && isDeepStrictEqual(current.edits, solved.edits)
-    && isDeepStrictEqual(current.blocks ?? [], solved.blocks ?? []);
+    && isDeepStrictEqual(current.blocks ?? [], solved.blocks ?? [])
+    && offerIdOf(current) === offerIdOf(solved);
+}
+
+/**
+ * Which offer the document carries, by id (#611 guards).
+ *
+ * Part of the state a run judged against since the tick began judging each
+ * change against the pending offer as well as the day: an offer accepted,
+ * declined or replaced while the run was solving changes what the run's
+ * verdict and its merged causes are about. The raw field, not
+ * `pendingProposalOf`, because the question is whether the document moved,
+ * not whether the offer is still live.
+ */
+function offerIdOf(stored: StoredDailyPlan): string | null {
+  return stored.proposal?.proposalId ?? null;
+}
+
+/**
+ * The causes of a write that replaces an unanswered offer (#611 guards, #527).
+ *
+ * The union of the replaced offer's causes and this run's own. The two are
+ * patches of one base: an offer is pending only while its generation, digest,
+ * edits and blocks are the document's (every mutator clears it, and the write
+ * guard refuses a moved base), and the new solve reads every input in force.
+ * So each conflict the old offer resolved that still exists is resolved again
+ * by the new one, and its moves are carried over. Naming only this run's
+ * change would ask the person to accept moves off a meeting it does not
+ * mention.
+ *
+ * The union rather than a narrower set, because a narrower one is not
+ * computable: which of the new diff's moves each cause produced would need
+ * one solve per cause. What the union can get wrong is naming a cause whose
+ * conflict has since gone (its meeting was cancelled while another still
+ * needs moves). That over-names something that did prompt the offer; the
+ * alternative under-names a meeting whose moves are on screen. And once no
+ * conflict remains at all the re-solve changes nothing, the offer is
+ * withdrawn, and no cause outlives every effect.
+ */
+function mergedCauses(offer: StoredPlanProposal | null, own: readonly string[]): readonly string[] {
+  if (offer === null) return own;
+  return Array.from(new Set([...offer.causeChangeIds, ...own])).sort(compareByCodePoint);
+}
+
+/**
+ * The offer on the table as the write's own transaction reads it, or null.
+ *
+ * Only an offer the run judged against counts: `pending` is the snapshot's
+ * live offer (an expired or stale-based one is no offer), and the write guard
+ * has already required the document to carry that offer's id. Read from
+ * `current` rather than the snapshot so that causes a concurrent run added
+ * to the same offer are carried, not overwritten.
+ */
+function offerOnTable(current: StoredDailyPlan, pending: StoredPlanProposal | null): StoredPlanProposal | null {
+  if (pending === null) return null;
+  const onTable = current.proposal ?? null;
+  return onTable !== null && onTable.proposalId === pending.proposalId ? onTable : null;
 }
 
 /**
@@ -491,6 +550,27 @@ export async function processStateChangesForUser(
     : null;
 
   /**
+   * The offer on the table, and the day accepting it would install (#611
+   * guards). Every change is judged against both. A meeting landing where the
+   * offer would put a task overlaps nothing on the visible day: judged against
+   * that alone it was `PLAN_STALE`, was drained, and left the offer acceptable
+   * with a task under the meeting. The pipeline now re-solves, and the result
+   * replaces the offer, keeps it, or withdraws it (step 6).
+   *
+   * The offer's day is what `acceptPlanProposal` installs and the client is
+   * shown (`pendingProposalToDto`): the solver's placement, with the person's
+   * removals kept off it. An expired offer is no offer (`pendingProposalOf`).
+   */
+  const pending = storedPlan ? pendingProposalOf(storedPlan, now) : null;
+  const pendingView: PlanImpactView | null = pending && storedPlan && basePlan
+    ? {
+        scopeId: uid,
+        horizon: basePlan.horizon,
+        scheduled: planUnderKeptRemovals(pending.plan, storedPlan.edits.removals).scheduled,
+      }
+    : null;
+
+  /**
    * Each change's own post-change facts (#605). Read after the gate, since a
    * switched-off account never reaches the evaluator, and before anything
    * writes. A read that fails here fails the run while its change rows are
@@ -544,6 +624,7 @@ export async function processStateChangesForUser(
   const pipelineResult = executeContinuousReplanPipeline({
     changes: rawChanges,
     planView,
+    pendingView,
     entityFactsByChangeId,
     basePlan,
     planner,
@@ -564,6 +645,14 @@ export async function processStateChangesForUser(
    * against whatever is in force by then.
    */
   let lostToConcurrentWrite = false;
+  /**
+   * The document the drain must still find for the verdict to hold. The plan
+   * the run read, unless this run wrote an offer (stored, extended or
+   * withdrawn): then the document it wrote, since the drain's re-check now
+   * compares the offer too (`offerIdOf`) and would otherwise refuse the run's
+   * own write as a concurrent one.
+   */
+  let drainBasis: StoredDailyPlan | null = storedPlan;
 
   // 6. Act on policy decision
   if (pipelineResult.policyDecision?.action === 'auto_apply' && storedPlan && pipelineResult.newPlan) {
@@ -585,7 +674,10 @@ export async function processStateChangesForUser(
      * `...current`, so an omitted assignment would let this generation
      * inherit the previous generation's reason.
      */
-    const causeChangeIds = pipelineResult.impactingChangeIds;
+    // An offer this generation subsumes gives its causes too (#611 guards):
+    // its moves are part of what is being installed. See `mergedCauses`.
+    // Assigned inside the write, from the offer as the transaction reads it.
+    let causeChangeIds: readonly string[] = pipelineResult.impactingChangeIds;
     /**
      * Built inside the write's own transaction, from the document it reads
      * (#610, AC 1), the way `acceptPlanProposal` builds its document. A
@@ -595,6 +687,7 @@ export async function processStateChangesForUser(
      */
     const written = await mutateStoredPlan<null>(uid, date, (current) => {
       if (!stillTheStateSolvedAgainst(current, storedPlan)) return null;
+      causeChangeIds = mergedCauses(offerOnTable(current, pending), pipelineResult.impactingChangeIds);
       const generation = current.generation + 1;
       // Moves dropped, removals kept, status carried (#610, AC 2 and 3). This
       // is the rule accepting a patch follows, and the diff the policy just
@@ -679,7 +772,9 @@ export async function processStateChangesForUser(
         reason: pipelineResult.policyDecision.reason,
         userControlMode: pipelineResult.policyDecision.userControlMode,
         // Narrowed exactly as the auto-apply branch narrows it: the batch's
-        // other changes did not cause this offer.
+        // other changes did not cause this offer. Merged, inside the write,
+        // with the offer it supersedes, whose moves it carries (#611 guards,
+        // `mergedCauses`).
         causeChangeIds: pipelineResult.impactingChangeIds,
       }
       : null;
@@ -699,18 +794,41 @@ export async function processStateChangesForUser(
      * declined patch on every tick.
      */
     let alreadyRejected = false;
+    /**
+     * Supersede, don't stack (#611 guards). There is one `proposal` field, so
+     * a new offer always replaces the old one; what this adds is that an offer
+     * re-solved to the placement already on the table is not minted again. A
+     * re-delivered change row, or a bulk re-sync straddling two ticks, would
+     * otherwise replace the offer with an identical one under a new id and
+     * write a second `plan_proposed` for one question. The offer on the table
+     * is kept, its id and its ledger entry with it, and only gains the causes
+     * this run adds, if any.
+     */
+    let sameOffer = false;
     const stored = proposal
       ? await mutateStoredPlan<null>(uid, date, (current) => {
         alreadyRejected = false;
+        sameOffer = false;
         if (!stillTheStateSolvedAgainst(current, storedPlan)) return null;
         if (proposalWasRejected(current, proposal)) {
           alreadyRejected = true;
           return null;
         }
-        return { next: { ...current, proposal, updatedAt: nowIso }, result: null };
+        const onTable = offerOnTable(current, pending);
+        const causeChangeIds = mergedCauses(onTable, proposal.causeChangeIds);
+        if (onTable !== null && proposalFingerprint(onTable.plan) === proposalFingerprint(proposal.plan)) {
+          sameOffer = true;
+          if (isDeepStrictEqual([...onTable.causeChangeIds], [...causeChangeIds])) return null;
+          return { next: { ...current, proposal: { ...onTable, causeChangeIds }, updatedAt: nowIso }, result: null };
+        }
+        return { next: { ...current, proposal: { ...proposal, causeChangeIds }, updatedAt: nowIso }, result: null };
       }, storage)
       : null;
-    if (stored) {
+    if (stored) drainBasis = stored.stored;
+    if (stored && sameOffer) {
+      // The offer stands, with any new cause added; no second `plan_proposed`
+      // for the same question.
+    } else if (stored) {
       await appendPlanEvent(
         uid,
         {
@@ -719,14 +837,34 @@ export async function processStateChangesForUser(
           at: nowIso,
           generation: storedPlan.generation,
           inputDigest: storedPlan.inputDigest,
-          causeChangeIds: proposal!.causeChangeIds,
-          proposalId: proposal!.proposalId,
+          // As stored: the causes were merged inside the write.
+          causeChangeIds: stored.stored.proposal!.causeChangeIds,
+          proposalId: stored.stored.proposal!.proposalId,
         },
         storage,
       );
-    } else if (proposal && !alreadyRejected) {
+    } else if (proposal && !alreadyRejected && !sameOffer) {
       lostToConcurrentWrite = true;
     }
+  } else if (pipelineResult.policyDecision?.action === 'discard' && storedPlan && pending) {
+    /**
+     * Withdrawn (#611 guards): the re-solve says the visible day needs no
+     * change, so the offer beside it answers a question nobody is asking any
+     * more — the meeting it moved things off was cancelled, say. Cleared in
+     * the same guarded transaction as every other write here, so an offer
+     * the person answered, or one a concurrent run replaced, is left alone
+     * and the change waits for the next tick.
+     *
+     * Not a rejection. `rejectedProposals` and the ledger are untouched: the
+     * person said nothing, and a placement they never declined must stay
+     * offerable if the meeting comes back.
+     */
+    const withdrawn = await mutateStoredPlan<null>(uid, date, (current) => {
+      if (!stillTheStateSolvedAgainst(current, storedPlan)) return null;
+      return { next: { ...current, proposal: null, updatedAt: nowIso }, result: null };
+    }, storage);
+    if (withdrawn) drainBasis = withdrawn.stored;
+    else lostToConcurrentWrite = true;
   }
 
   // 7. Acknowledge/delete processed planning state changes (#610, AC 5).
@@ -736,7 +874,7 @@ export async function processStateChangesForUser(
   if (planStored) {
     await acknowledgeChanges(uid, storage, changeDocPaths, options.changes);
   } else if (!lostToConcurrentWrite) {
-    await acknowledgeIfPlanUnchanged(uid, date, storage, storedPlan, changeRowPaths(uid, changeDocPaths, options.changes));
+    await acknowledgeIfPlanUnchanged(uid, date, storage, drainBasis, changeRowPaths(uid, changeDocPaths, options.changes));
   }
 
   // 8. Compose updated UserStateProjection
@@ -790,6 +928,18 @@ export interface ContinuousReplanTickOptions {
   storage?: StorageAdapter;
   now?: Date;
   limit?: number;
+  /**
+   * A control mode chosen in code, for tests of the automatic modes only.
+   *
+   * No production caller passes it: the scheduled route calls
+   * `runContinuousReplanTick()` bare, and nothing reads a mode from storage,
+   * so every account is solved under `CONTINUOUS_REPLAN_POLICY`'s default,
+   * `always_require_confirmation` (#611's council decision). The automatic
+   * modes stay in code and tested for a future opt-in, which is why this seam
+   * exists; `tests/dailyPlan/replanProposalGuards.test.ts` pins that nothing
+   * outside tests uses it.
+   */
+  policyConfig?: Partial<ReplanPolicyConfig>;
 }
 
 /**
@@ -825,6 +975,7 @@ export async function runContinuousReplanTick(
         storage,
         now,
         changes: pendingChanges.map((r) => r.data),
+        ...(options.policyConfig ? { policyConfig: options.policyConfig } : {}),
       });
 
       // The sweep does not re-read the setting; it reports the decision the

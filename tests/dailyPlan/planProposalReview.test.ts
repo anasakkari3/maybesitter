@@ -24,7 +24,7 @@
  *
  * 3. **One account's patch must be invisible to another.**
  */
-import test from 'node:test';
+import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -121,6 +121,11 @@ async function withHarness(fn: (harness: Harness) => Promise<void>): Promise<voi
   const storage = createMemoryStorage();
   setStorageForTests(storage);
   const auth = installFakeAuth();
+  // The routes read the wall clock, and since the #611 guards an offer
+  // expires with its day. Pinned to the moment the fixture's offer is made,
+  // inside the plan's own day, so the routes answer about today and not about
+  // whatever day the suite happens to run on.
+  mock.timers.enable({ apis: ['Date'], now: Date.parse(PROPOSED_AT) });
   try {
     await seedAccount(USER, storage);
     await fn({
@@ -129,6 +134,7 @@ async function withHarness(fn: (harness: Harness) => Promise<void>): Promise<voi
       teardown() { /* handled below */ },
     });
   } finally {
+    mock.timers.reset();
     auth.restore();
     resetStorageForTests();
   }
@@ -775,8 +781,8 @@ test('a refused acceptance writes no decision (#587)', async () => {
  */
 
 const CALENDAR = 'device:calendar-1';
-/** A two-hour meeting over the three morning tasks: a big shift, so even the
- *  default `automatic_time_only` policy asks rather than applies. */
+/** A two-hour meeting over the three morning tasks: a big shift, which every
+ *  control mode short of `silent_auto` asks about rather than applies. */
 const MEETING: TimeInterval = { startsAt: `${DATE}T06:00:00.000Z`, endsAt: `${DATE}T08:00:00.000Z` };
 
 async function syncCalendar(storage: StorageAdapter, blocks: ReadonlyArray<{ blockId: string; interval: TimeInterval }>): Promise<void> {

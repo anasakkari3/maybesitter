@@ -61,6 +61,13 @@ const MEETING: TimeInterval = { startsAt: `${DATE}T06:00:00.000Z`, endsAt: `${DA
 /** Room for the whole unprotected slide (90 minutes), so the policy auto-applies. */
 const AUTO_APPLY: Partial<ReplanPolicyConfig> = { userControlMode: 'automatic_time_only', maxAutoChurnMinutes: 240 };
 const REVIEW: Partial<ReplanPolicyConfig> = { userControlMode: 'always_require_confirmation' };
+/**
+ * The mode that was the default until #611's council decision, with its own
+ * default 60-minute budget. The drag cases below are about what the churn
+ * budget is charged, which only this mode reads; under the default every
+ * replan is a proposal, and asserting "proposed" there would prove nothing.
+ */
+const TIME_ONLY: Partial<ReplanPolicyConfig> = { userControlMode: 'automatic_time_only' };
 
 function seedState() {
   let state = createEmptyDomainState();
@@ -283,7 +290,7 @@ test('a protected block the user dragged is measured from where they put it, not
     }, { storage, now: () => MORNING }));
 
     // The meeting lands on the third task, not on anything the user touched.
-    const report = await replan(storage, uid, {}, {
+    const report = await replan(storage, uid, TIME_ONLY, {
       meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
     });
 
@@ -318,7 +325,7 @@ test('an unprotected drag is not an anchor, and the replan charges its return to
       removals: [],
     }, { storage, now: () => MORNING }));
 
-    const report = await replan(storage, uid, {}, {
+    const report = await replan(storage, uid, TIME_ONLY, {
       meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
     });
     // Not an anchor: the solve places the task where the planner first put it.

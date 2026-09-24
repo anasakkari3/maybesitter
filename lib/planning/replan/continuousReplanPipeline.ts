@@ -54,6 +54,26 @@ export interface ContinuousReplanPipelineInput {
   readonly entityFactsByChangeId: ReadonlyMap<string, ChangedEntityFacts | null>;
   readonly basePlan: Plan | null;
   /**
+   * The day the pending, unanswered proposal would install, or null when
+   * nothing is on offer (#611 guards).
+   *
+   * Each change is judged against this as well as against `planView`. A patch
+   * is solved against the calendar as it stood then, and a meeting that lands
+   * where the patch would put a task overlaps nothing the person has on their
+   * day yet: judged against `planView` alone it is `PLAN_STALE`, is drained,
+   * and leaves the patch acceptable with a task under the meeting. So a
+   * change's verdict is the more severe of its two, and one that is severe
+   * only against the offer is recorded as `overlaps_proposed_block`.
+   *
+   * While an offer is pending, `PLAN_STALE` re-solves as well, whatever
+   * `replanOnStale` says. The offer was solved against inputs that have just
+   * moved, and re-solving is the only way to learn whether it still holds: the
+   * service then replaces it, keeps it (the same placement), or withdraws it
+   * (the day needs no change any more). Without an offer, `replanOnStale`
+   * decides as before.
+   */
+  readonly pendingView?: PlanImpactView | null;
+  /**
    * The canonical planner solve. Receives the accumulated cause change IDs.
    */
   readonly planner: (causeChangeIds: readonly string[]) => { plan: Plan; diff?: PlanDiff };
@@ -64,6 +84,24 @@ export interface ContinuousReplanPipelineInput {
   readonly now: string;
   readonly requestId?: string;
   readonly baseGeneration?: number;
+}
+
+const SEVERITY: Readonly<Record<PlanImpact['decision'], number>> = { NO_EFFECT: 0, PLAN_STALE: 1, REPLAN_REQUIRED: 2 };
+
+/**
+ * One change's verdict, judged against the visible day and against the
+ * pending offer (#611 guards): the more severe of the two.
+ *
+ * The day's verdict wins a tie, so a change that contradicts both is still
+ * recorded as contradicting the person's day. Only the offer's overlap is
+ * renamed: every other reason the evaluator gives depends on the change alone
+ * or on the horizon, which the two views share, so it reads the same against
+ * either.
+ */
+function moreSevere(againstDay: PlanImpact, againstOffer: PlanImpact): PlanImpact {
+  if (SEVERITY[againstOffer.decision] <= SEVERITY[againstDay.decision]) return againstDay;
+  if (againstOffer.reason !== 'overlaps_scheduled_block') return againstOffer;
+  return Object.freeze({ ...againstOffer, reason: 'overlaps_proposed_block' as const });
 }
 
 export function executeContinuousReplanPipeline(
@@ -107,14 +145,17 @@ export function executeContinuousReplanPipeline(
       reason: 'digests_unchanged',
     });
   } else {
-    groupImpacts = coalesced.map((group) => ({
-      changeIds: group.changeIds,
-      impact: evaluateStateChangeImpact({
-        change: group.representative,
-        plan: planView,
-        entity: entityFactsByChangeId.get(group.representative.changeId) ?? null,
-      }),
-    }));
+    const pendingView = input.pendingView ?? null;
+    groupImpacts = coalesced.map((group) => {
+      const entity = entityFactsByChangeId.get(group.representative.changeId) ?? null;
+      const againstDay = evaluateStateChangeImpact({ change: group.representative, plan: planView, entity });
+      return {
+        changeIds: group.changeIds,
+        impact: pendingView === null
+          ? againstDay
+          : moreSevere(againstDay, evaluateStateChangeImpact({ change: group.representative, plan: pendingView, entity })),
+      };
+    });
     const impacts = groupImpacts.map((entry) => entry.impact);
 
     const overallDecision = combineImpactDecisions(impacts);
@@ -139,7 +180,9 @@ export function executeContinuousReplanPipeline(
     });
   }
 
-  if (primaryImpact.decision === 'PLAN_STALE' && !fullPolicyConfig.replanOnStale) {
+  // An offer on the table re-solves on a stale verdict too; see `pendingView`.
+  const offerPending = (input.pendingView ?? null) !== null;
+  if (primaryImpact.decision === 'PLAN_STALE' && !fullPolicyConfig.replanOnStale && !offerPending) {
     // In continuous replanning, PLAN_STALE marks the plan as stale in the user's state
     // without triggering an intrusive replan by default.
     return Object.freeze({
@@ -182,7 +225,9 @@ export function executeContinuousReplanPipeline(
     requestId: input.requestId ?? `replan-${date}-${scopeId}`,
     scopeId,
     date,
-    trigger: primaryImpact.reason === 'overlaps_scheduled_block' ? 'event_impact' : 'stale_refresh',
+    trigger: primaryImpact.reason === 'overlaps_scheduled_block' || primaryImpact.reason === 'overlaps_proposed_block'
+      ? 'event_impact'
+      : 'stale_refresh',
     causeChangeIds: Object.freeze(allChangeIds),
     enqueuedAt: now,
     priority: 'immediate',

@@ -46,6 +46,6 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   return Response.json({
     success: true,
     plan: planToDto(stored, titles),
-    proposal: pendingProposalToDto(stored, titles),
+    proposal: pendingProposalToDto(stored, titles, new Date()),
   });
 }

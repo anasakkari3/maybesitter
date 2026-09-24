@@ -272,12 +272,17 @@ function proposalChangeDto(change: PlanItemChange, titles: ReadonlyMap<string, s
  * base no longer matches the document is withheld here rather than shown with
  * a flag, because a client handed a proposal will offer a button for it, and
  * the button would install a plan solved against a state that is gone.
+ *
+ * `now` is the moment the reader is asking at, because an offer expires with
+ * its day (#611 guards): a patch of yesterday's plan is withheld here exactly
+ * as `acceptPlanProposal` refuses it.
  */
 export function pendingProposalToDto(
   stored: StoredDailyPlan,
   titles: ReadonlyMap<string, string>,
+  now: Date,
 ): PendingPlanProposalDto | null {
-  const proposal = pendingProposalOf(stored);
+  const proposal = pendingProposalOf(stored, now);
   if (proposal === null) return null;
   // The day the patch would produce, as accepting it installs it: the
   // person's removals stay off it (#610). `changes` is the diff of that same

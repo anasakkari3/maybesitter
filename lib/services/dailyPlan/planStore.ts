@@ -36,6 +36,7 @@ import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContr
 import type { UserLocale } from '../../storage/userDocument';
 import type { PlanPushPending } from './planPushRetry';
 import { createHash, randomUUID } from 'node:crypto';
+import { dayHorizon } from './buildDailyPlan';
 
 export type DailyPlanStatus = 'proposed' | 'accepted' | 'edited' | 'dismissed';
 export type ExplanationSource = 'model' | 'template';
@@ -261,6 +262,36 @@ export interface StoredPlanProposal {
 }
 
 /**
+ * The instant an unanswered proposal on this plan stops being an offer: the
+ * end of the plan's own local day (#611 guards, the council's "expiry").
+ *
+ * Local midnight after `date`, in the zone the plan was built in, by the same
+ * function that gives the plan its horizon (`dayHorizon`), so a DST day is
+ * 23 or 25 hours long here exactly as it is to the planner. A patch of
+ * Tuesday's plan is a question about Tuesday, and once Tuesday is over there
+ * is nothing left for a "yes" to change.
+ */
+export function proposalExpiresAt(stored: Pick<StoredDailyPlan, 'date' | 'timezone'>): string {
+  return dayHorizon(stored.date, stored.timezone).endsAt;
+}
+
+/**
+ * Whether the proposal stored on this plan has outlived its day.
+ *
+ * Checked at read time, by every reader through `pendingProposalOf`, rather
+ * than cleared by a job: no sweep visits every plan at midnight (the replan
+ * tick visits only accounts with pending changes, and only today's plan), and
+ * a check that costs one comparison needs none. The expired field stays on a
+ * document for a day that is over until something rewrites it. Nothing
+ * records it as declined: expiry is not the person's answer, so
+ * `rejectedProposals` and the ledger are untouched.
+ */
+export function proposalHasExpired(stored: Pick<StoredDailyPlan, 'date' | 'timezone'>, now: Date | string): boolean {
+  const at = typeof now === 'string' ? Date.parse(now) : now.getTime();
+  return at >= Date.parse(proposalExpiresAt(stored));
+}
+
+/**
  * The proposal a reader may act on, or null (#523).
  *
  * The one place "is this patch still about this plan" is answered, so the read
@@ -269,14 +300,18 @@ export interface StoredPlanProposal {
  * inputDigest)` is not a weaker offer — it describes a plan the user is no
  * longer looking at — so it is withheld rather than shown with a caveat.
  *
- * Pure and synchronous: it is a predicate over the document, and every caller
- * already has the document.
+ * Nor is one whose day is over (#611 guards): `now` is required, so no caller
+ * can ask the question without saying when it is asking.
+ *
+ * Pure and synchronous: it is a predicate over the document and an instant,
+ * and every caller already has both.
  */
-export function pendingProposalOf(stored: StoredDailyPlan): StoredPlanProposal | null {
+export function pendingProposalOf(stored: StoredDailyPlan, now: Date | string): StoredPlanProposal | null {
   const proposal = stored.proposal ?? null;
   if (proposal === null) return null;
   if (proposal.baseGeneration !== stored.generation) return null;
   if (proposal.baseInputDigest !== stored.inputDigest) return null;
+  if (proposalHasExpired(stored, now)) return null;
   return proposal;
 }
 

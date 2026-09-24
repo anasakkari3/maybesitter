@@ -1513,10 +1513,14 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       causeChangeIds: ['chg_fixture_calendar'],
     });
     assert.ok(offered?.proposal, 'a patch of the current generation must be stored');
+    // An offer expires with its plan's day (#611 guards), and the handlers
+    // read the wall clock. Pinned to the reference morning, inside the plan's
+    // day, for the read and for the acceptance below, as `plan.built` is.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE_TIME) });
     const withProposal = await record('plan.withProposal', 200, await planGet(
       request(`/api/mobile/plans/${PLAN_DATE}`),
       dateParams(PLAN_DATE),
-    ));
+    )).finally(() => mock.timers.reset());
     const liveProposal = withProposal.proposal as { protections: Array<{ overridden: boolean }>; changes: Array<{ kind: string }> } | null;
     assert.ok(liveProposal, 'the proposal fixture carries no proposal');
     assert.ok(
@@ -1549,14 +1553,31 @@ test('exports a fixture for every /api/mobile call the React Native client makes
      * that the new kind reaches the client and that it reaches it once, with
      * the day it was for.
      */
+    // Accepted inside the plan's own day, since an offer expires with it
+    // (#611 guards). A minute after the reference morning rather than on it,
+    // so the entry's instant is normalised like every other one here.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE_TIME) + 60_000 });
     const acceptedChange = await planActionPost(
       request(`/api/mobile/plans/${PLAN_DATE}/actions`, { body: { action: 'accept_proposal' } }),
       dateParams(PLAN_DATE),
-    );
+    ).finally(() => mock.timers.reset());
     assert.equal(acceptedChange.status, 200, 'the fixture proposal could not be accepted');
-    const withChange = await record('activity.planProposalAccepted', 200, await activityGet(
-      request('/api/mobile/activity?limit=1'),
-    ));
+    // That day is earlier than the real-clock actions recorded above, so the
+    // acceptance is not the newest entry in the history. The page it is on is
+    // reached the way the client reaches it: by echoing each cursor back.
+    let acceptedPage: Response | null = null;
+    let cursor: string | null = null;
+    for (let page = 0; page < 50 && acceptedPage === null; page += 1) {
+      const response = await activityGet(
+        request(`/api/mobile/activity?limit=1${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`),
+      );
+      const body = await response.clone().json() as { items: Array<{ kind: string }>; nextCursor: string | null };
+      if (body.items[0]?.kind === 'plan_proposal_accepted') acceptedPage = response;
+      else cursor = body.nextCursor;
+      assert.ok(acceptedPage !== null || cursor !== null, 'the acceptance never appeared in the history');
+    }
+    assert.ok(acceptedPage, 'the acceptance never appeared in the history');
+    const withChange = await record('activity.planProposalAccepted', 200, acceptedPage);
     assert.deepEqual(
       (withChange.items as Array<{ kind: string; detail?: unknown }>).map((item) => [item.kind, item.detail]),
       [['plan_proposal_accepted', { planDate: PLAN_DATE }]],
