@@ -24,6 +24,9 @@ export const ACTIVITY_KINDS = [
   'postponed',
   'dropped',
   'plan_accepted',
+  // A change the product proposed to the day, accepted (#587). From the plan
+  // ledger too, and about a day rather than a commitment, like `plan_accepted`.
+  'plan_proposal_accepted',
   'reminder_acknowledged',
 ] as const;
 
@@ -59,7 +62,7 @@ export const activityItemSchema = z.object({
   commitmentTitle: z.string().nullable(),
   detail: z.object({
     postponedUntil: isoDateTime.optional(),
-    /** The local day an accepted plan was for, `YYYY-MM-DD` (#194). */
+    /** The local day an accepted plan, or an accepted change to it, was for, `YYYY-MM-DD` (#194, #587). */
     planDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   }).optional(),
 });

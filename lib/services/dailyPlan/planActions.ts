@@ -53,11 +53,14 @@ import { getStorage, type StorageAdapter } from '../../storage';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
 import { applyEditsToBlocks, protectionAfterMove, protectionOf, schedulePlan } from '../../planning/scheduler';
+import { randomUUID } from 'node:crypto';
 import {
+  MAX_REJECTED_PROPOSALS,
   appendPlanEvent,
   mutateStoredPlan,
   pendingProposalOf,
   preparePlanEvent,
+  proposalFingerprint,
   readStoredPlan,
   replaceStoredPlan,
   type DailyPlanStatus,
@@ -65,7 +68,6 @@ import {
   type PlanEvent,
   type PlanMove,
   type StoredDailyPlan,
-  type StoredPlanProposal,
 } from './planStore';
 import { MAX_PLAN_GENERATIONS_PER_DAY } from './planSettings';
 import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
@@ -723,6 +725,23 @@ export function planUnderKeptRemovals(plan: Plan, removals: readonly string[]): 
  * longer edited once they are dropped, so `'edited'` would disagree with the
  * DTO's own `edited: false`. It falls back to what it must have been before
  * the edit — `'accepted'` if there is an `acceptedAt`, `'proposed'` if not.
+ *
+ * ── What the ledger says (#587) ──────────────────────────────────
+ *
+ * Two entries, committed in the same transaction as the document:
+ *
+ *  - `plan_regenerated` for the generation the patch installs, exactly as
+ *    before. It is the system-level fact that the plan in force changed, and
+ *    every reader of the generation chain reads it: #527's history turns its
+ *    `causeChangeIds` into the "replan applied" row, and it is the one entry
+ *    per generation that `applyIncrementalPlanPatch`, auto-apply and a
+ *    rebuild all write. Dropping it here would leave a gap in that chain
+ *    for exactly the generations a person approved.
+ *  - `plan_proposal_accepted`, the person's decision: the proposal's id, its
+ *    base, and its causes, so the Trust surface can say "you accepted a
+ *    change caused by X". It is the one of the two the activity feed shows
+ *    (`planActivity.ts`), and #527's history does not read it, so neither
+ *    surface counts the acceptance twice.
  */
 export async function acceptPlanProposal(
   uid: string,
@@ -731,7 +750,9 @@ export async function acceptPlanProposal(
 ): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let rejection: PlanProposalRejected | null = null;
-  let accepted: StoredPlanProposal | null = null;
+  // Minted outside the transaction, so a retried body writes the same rows.
+  const regeneratedId = randomUUID();
+  const decisionId = randomUUID();
 
   const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
     // Re-read inside the transaction, and everything below is derived from
@@ -750,11 +771,13 @@ export async function acceptPlanProposal(
       );
       return null;
     }
-    accepted = proposal;
+    rejection = null;
 
     const generation = current.generation + 1;
     // The moves go, the removals stay. See the header above.
     const { edits, status } = editsSurvivingReschedule(current);
+    const causeChangeIds = proposal.causeChangeIds;
+    const causes = causeChangeIds.length > 0 ? { causeChangeIds: [...causeChangeIds] } : {};
     return {
       next: {
         ...current,
@@ -778,6 +801,27 @@ export async function acceptPlanProposal(
         proposal: null,
       },
       result: null,
+      // Both in this commit. See "What the ledger says" above.
+      ledger: [
+        preparePlanEvent(uid, {
+          type: 'plan_regenerated',
+          date,
+          at,
+          generation,
+          // Carried over, as on the document: the inputs did not change.
+          inputDigest: current.inputDigest,
+          ...causes,
+        }, regeneratedId),
+        preparePlanEvent(uid, {
+          type: 'plan_proposal_accepted',
+          date,
+          at,
+          generation: proposal.baseGeneration,
+          inputDigest: proposal.baseInputDigest,
+          proposalId: proposal.proposalId,
+          ...causes,
+        }, decisionId),
+      ],
     };
   }, options.storage);
 
@@ -786,36 +830,36 @@ export async function acceptPlanProposal(
   // this is the date having no plan at all, which is the 404 every other
   // action here answers.
   if (!outcome) return null;
-  const stored = outcome.stored;
-  const causeChangeIds = accepted!.causeChangeIds;
-
-  // `plan_regenerated` and not a sixth ledger type: the fact recorded is that
-  // the plan in force was replaced by a new generation, which is what
-  // `applyIncrementalPlanPatch` records for the same kind of write. A new
-  // member of `PlanEventType` would also need a decision in
-  // `lib/services/activity/planActivity.ts`, which is not this slice's to make.
-  await appendPlanEvent(uid, {
-    type: 'plan_regenerated',
-    date,
-    at,
-    generation: stored.generation,
-    inputDigest: stored.inputDigest,
-    ...(causeChangeIds.length > 0 ? { causeChangeIds } : {}),
-  }, options.storage);
-  return stored;
+  return outcome.stored;
 }
 
 /**
  * Declines the proposed patch: the offer goes, the plan stays.
  *
- * Nothing but `proposal` and `updatedAt` changes — not the generation, not the
+ * Nothing about the plan in force changes — not the generation, not the
  * digest, not the placement, not the status. "No thanks" is not a decision
- * about the day; it is a decision about the offer.
+ * about the day; it is a decision about the offer. What does change is
+ * `proposal`, `updatedAt`, and the memory of the answer (#587).
  *
  * A stale proposal is cleared too rather than refused. It is already withheld
  * from every reader, so the only thing left to do with it is stop storing it,
  * and a rejection that failed because the orphan was *too* dead would be a
  * dead end for a client with nothing else to press.
+ *
+ * ── The answer is remembered (#587) ──────────────────────────────
+ *
+ * Two things commit with the cleared offer. A `plan_proposal_rejected` ledger
+ * entry records the decision as the person's, with the proposal's id, base,
+ * causes and placement fingerprint. And the plan document remembers the
+ * declined placement in `rejectedProposals`, which the replan tick reads before
+ * it stores a patch (`proposalWasRejected`). Before this, a rejection left no
+ * trace at all, and the next change row about the same meeting solved to the
+ * same placement and offered it again.
+ *
+ * Only a live proposal is remembered. A stale one describes a state that is no
+ * longer in force, so no future patch can have its base, and remembering it
+ * would only take a slot. Its rejection is still recorded in the ledger: the
+ * person did press the button.
  */
 export async function rejectPlanProposal(
   uid: string,
@@ -824,13 +868,42 @@ export async function rejectPlanProposal(
 ): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let rejection: PlanProposalRejected | null = null;
+  // Minted outside the transaction, so a retried body writes the same row.
+  const decisionId = randomUUID();
 
   const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
-    if ((current.proposal ?? null) === null) {
+    const proposal = current.proposal ?? null;
+    if (proposal === null) {
       rejection = new PlanProposalRejected('no_proposal', 'there is no proposed change to reject for this plan');
       return null;
     }
-    return { next: { ...current, proposal: null, updatedAt: at }, result: null };
+    rejection = null;
+    const fingerprint = proposalFingerprint(proposal.plan);
+    const live = pendingProposalOf(current) !== null;
+    // Entries for an older generation can never match again, so they are
+    // dropped here rather than carried forever.
+    const remembered = (current.rejectedProposals ?? []).filter((mark) => mark.baseGeneration === current.generation);
+    const rejectedProposals = live
+      ? [...remembered, {
+        baseGeneration: proposal.baseGeneration,
+        baseInputDigest: proposal.baseInputDigest,
+        fingerprint,
+      }].slice(-MAX_REJECTED_PROPOSALS)
+      : remembered;
+    return {
+      next: { ...current, proposal: null, updatedAt: at, rejectedProposals },
+      result: null,
+      ledger: [preparePlanEvent(uid, {
+        type: 'plan_proposal_rejected',
+        date,
+        at,
+        generation: proposal.baseGeneration,
+        inputDigest: proposal.baseInputDigest,
+        proposalId: proposal.proposalId,
+        proposalFingerprint: fingerprint,
+        ...(proposal.causeChangeIds.length > 0 ? { causeChangeIds: [...proposal.causeChangeIds] } : {}),
+      }, decisionId)],
+    };
   }, options.storage);
 
   if (rejection) throw rejection;

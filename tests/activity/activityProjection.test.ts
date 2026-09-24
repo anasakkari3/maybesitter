@@ -103,7 +103,7 @@ test('pressure, classification and analytics events never become activity', () =
   assert.deepEqual(projectActivity(hostile, TITLES), []);
 });
 
-test('the seven kinds with a producer today are projected from their events', () => {
+test('the eight kinds with a producer today are projected from their events', () => {
   const items = projectActivity([
     record({ type: 'draft_created', id: 'e1', at: '2026-09-14T08:00:00.000Z' }),
     record({ type: 'commitment_activated', id: 'e2', at: '2026-09-14T08:01:00.000Z' }),
@@ -116,6 +116,8 @@ test('the seven kinds with a producer today are projected from their events', ()
     // Read from the plan ledger (#194) and shaped by planActivity: a day, not
     // a commitment, so no aggregate.
     record({ type: 'plan_accepted', id: 'e6', at: '2026-09-14T08:05:00.000Z', aggregateId: '', payload: { planDate: '2026-09-14' } }),
+    // Also from the plan ledger (#587): a proposed change the person accepted.
+    record({ type: 'plan_proposal_accepted', id: 'e8', at: '2026-09-14T08:05:30.000Z', aggregateId: '', payload: { planDate: '2026-09-14' } }),
     // A tap on a reminder notification (#200).
     record({ type: 'reminder_acknowledged', id: 'e7', at: '2026-09-14T08:06:00.000Z', payload: { commitmentId: 'c1' } }),
   ], TITLES);
@@ -126,6 +128,11 @@ test('the seven kinds with a producer today are projected from their events', ()
   assert.equal(items[0]!.detail, undefined);
   assert.deepEqual(
     [items[5]!.commitmentId, items[5]!.commitmentTitle, items[5]!.detail],
+    [null, null, { planDate: '2026-09-14' }],
+  );
+  // An accepted change is about a day too, and says which one.
+  assert.deepEqual(
+    [items[6]!.commitmentId, items[6]!.commitmentTitle, items[6]!.detail],
     [null, null, { planDate: '2026-09-14' }],
   );
 });
@@ -166,7 +173,8 @@ test('a renamed commitment reads as its current name', () => {
 
 test('every mapped kind is one the ActivityKind union names', () => {
   const kinds: ActivityKind[] = [
-    'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'reminder_acknowledged',
+    'captured', 'confirmed', 'completed', 'postponed', 'dropped', 'plan_accepted', 'plan_proposal_accepted',
+    'reminder_acknowledged',
   ];
   assert.deepEqual(Array.from(new Set(Object.values(ACTIVITY_KIND_BY_EVENT_TYPE))).sort(), [...kinds].sort());
 });

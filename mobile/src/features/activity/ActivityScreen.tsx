@@ -48,6 +48,8 @@ const KIND_KEY: Record<string, keyof Strings> = {
   dropped: 'activityKindDropped',
   // Read from #194's plan ledger by the server.
   plan_accepted: 'activityKindPlanAccepted',
+  // A proposed change to the day, accepted (#587). Also from the plan ledger.
+  plan_proposal_accepted: 'activityKindPlanChangeAccepted',
   // No producer yet: #200. Present so it lands additively.
   reminder_acknowledged: 'activityKindReminderAcknowledged',
 };
@@ -230,9 +232,10 @@ function ActivityRow({ item, timeZone }: { item: ActivityItem; timeZone: string 
   if (!kindLabel) return null;
 
   const moved = item.detail?.postponedUntil;
-  // An accepted plan is about a day, not a commitment. Its null title is not a
-  // deletion, so it must never fall through to "an item you removed".
-  const isPlan = item.kind === 'plan_accepted';
+  // An accepted plan, and an accepted change to one (#587), are about a day,
+  // not a commitment. Their null title is not a deletion, so it must never
+  // fall through to "an item you removed".
+  const isPlan = item.kind === 'plan_accepted' || item.kind === 'plan_proposal_accepted';
   const planDate = isPlan ? item.detail?.planDate : undefined;
 
   return (

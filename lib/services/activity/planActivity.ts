@@ -14,10 +14,11 @@
  *
  * ── The same allowlist discipline as the domain log ──────────────
  *
- * Only `plan_accepted` is shown. The rest of the ledger is named below with
- * its reason, and `tests/activity/planActivity.test.ts` reads `PlanEventType`
- * out of planStore so that a sixth ledger event cannot reach somebody's
- * history without a decision here.
+ * Only `plan_accepted` and `plan_proposal_accepted` are shown. The rest of
+ * the ledger is named below with its reason, and
+ * `tests/activity/planActivity.test.ts` reads `PlanEventType` out of planStore
+ * so that a new ledger event cannot reach somebody's history without a
+ * decision here.
  */
 import { PLAN_EVENTS, userCol, type StorageReader } from '../../storage';
 import type { PlanEvent } from '../dailyPlan/planStore';
@@ -26,6 +27,14 @@ import type { ActivityKind } from './activityProjection';
 
 export const ACTIVITY_KIND_BY_PLAN_EVENT_TYPE: Readonly<Record<string, ActivityKind>> = Object.freeze({
   plan_accepted: 'plan_accepted',
+  // Saying yes to a change the product proposed (#587). It is something the
+  // person did, and the one user act the proposal review exists to enable.
+  // Its own kind rather than `plan_accepted`: accepting a change to the day is
+  // not accepting the day, so it is not a day with a plan in the week's count
+  // and not the first-plan Moment (`acceptPlanProposal` leaves `acceptedAt`
+  // alone for the same reason). The `plan_regenerated` entry written in the
+  // same commit stays hidden, so the acceptance shows once.
+  plan_proposal_accepted: 'plan_proposal_accepted',
 });
 
 /** Ledger events that exist and are deliberately not activity, with why. */
@@ -45,6 +54,13 @@ export const PLAN_EVENTS_NOT_USER_FACING: Readonly<Record<string, string>> = Obj
   // learn when the plan is usually looked at; showing it in a history of what
   // somebody did would read as a tally of glances.
   plan_opened: 'looking at a plan is not doing it',
+  // Declining a proposed change (#587) is recorded, as the person's decision,
+  // so the Trust surface can say "you declined this" and the replan tick does
+  // not offer it again. It is kept out of the history for the reason
+  // `plan_dismissed` is: under confirm-every-change, a person who turns down
+  // most proposals would see a list of refusals, and this screen reports what
+  // somebody did, not what they said no to.
+  plan_proposal_rejected: 'declining a proposed change must not become a count of refusals',
 });
 
 /**
