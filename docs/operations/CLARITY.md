@@ -16,7 +16,8 @@ Consent is **session-only**, held in memory for the current account. A cold
 launch, sign-out, account deletion or account change starts off. This choice
 avoids reviving a grant from stale storage after a failed revocation write.
 Backgrounding pauses capture; returning to the foreground retains that
-session's answer. Granting again starts a new Clarity session. Withdrawal calls
+session's answer. Initial consent and re-grant start a fresh Clarity session,
+including consent changes while native initialization/rotation is pending. Withdrawal calls
 both `pause()` and `consent(false, false)` immediately, and late startup/resume
 callbacks re-check the current decision. Advertising consent is never granted.
 
@@ -96,7 +97,7 @@ against the exact commit/build, following `evidence/UAT-EVIDENCE-INDEX.md`.
 
 Implementation verification on 2026-09-24:
 
-- Mobile Jest: 223 suites / 2,938 tests passed, including the replay tests.
+- Mobile Jest: 223 suites / 2,940 tests passed, including 19 replay tests.
   The suite reported a worker teardown/open-timer warning after passing.
 - Mobile TypeScript, changed-code ESLint, `git diff --check`, and the privacy
   manifest check passed.
@@ -104,6 +105,8 @@ Implementation verification on 2026-09-24:
   4.1.1 linked. On a dedicated iOS 26.5 simulator with synthetic development
   identity, the Arabic switch was off initially, accepted an explicit opt-in,
   and was off after terminating/relaunching the app. No real account was used.
+  This smoke preceded the final session-rotation race hardening, which has
+  automated coverage and remains part of the pending device replay check.
 - This is a **limited native smoke check**, not a replay privacy PASS. The
   local fixture backend did not complete the onboarding consent fetch. No
   uploaded replay was available in Clarity during the check, and no Android

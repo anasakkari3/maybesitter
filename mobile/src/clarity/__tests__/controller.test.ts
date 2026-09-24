@@ -17,7 +17,7 @@ function setup() {
     setCurrentScreenName: jest.fn(async (_screen: string) => true), sendCustomEvent: jest.fn(async (_event: string) => true),
   };
   const load = jest.fn(() => sdk as unknown as ClaritySdk);
-  return { controller: createReplayController(load), sdk, load, session: () => session(), fresh: () => fresh() };
+  return { controller: createReplayController(load), sdk, load, session: () => { session(); fresh(); }, initialized: () => session(), fresh: () => fresh() };
 }
 
 it('does not even import the SDK without both build enablement and explicit consent', () => {
@@ -85,7 +85,7 @@ it('new consent after an account boundary starts a fresh session and ignores lat
   controller.update(context, true, true); session(); await controller.settled();
   controller.stop();
   controller.update(context, true, true);
-  expect(sdk.startNewSession).toHaveBeenCalledTimes(1);
+  expect(sdk.startNewSession).toHaveBeenCalledTimes(2);
   controller.stop(); fresh(); await controller.settled();
   expect(sdk.resume).toHaveBeenCalledTimes(1);
 });
@@ -141,4 +141,31 @@ it('build switch fails closed on missing or mistyped configuration', () => {
     if (original === undefined) delete process.env.EXPO_PUBLIC_CLARITY_ENABLED;
     else process.env.EXPO_PUBLIC_CLARITY_ENABLED = original;
   }
+});
+
+it('rotates before first use, including re-grant while native initialization is pending', async () => {
+  const { controller, sdk, initialized, fresh } = setup();
+  controller.update(context, true, true);
+  controller.stop();
+  controller.update(context, true, true);
+  initialized(); await controller.settled();
+  expect(sdk.startNewSession).toHaveBeenCalledTimes(1);
+  expect(sdk.resume).not.toHaveBeenCalled();
+  expect(sdk.setCustomTag).not.toHaveBeenCalled();
+  fresh(); await controller.settled();
+  expect(sdk.resume).toHaveBeenCalledTimes(1);
+});
+
+it('rotates again after revoke/re-grant during a pending session rotation', async () => {
+  const { controller, sdk, initialized, fresh } = setup();
+  controller.update(context, true, true); initialized();
+  controller.stop(); controller.update(context, true, true);
+  initialized(); // Global notification must not finish the explicit rotation.
+  await controller.settled();
+  expect(sdk.resume).not.toHaveBeenCalled();
+  fresh(); await controller.settled();
+  expect(sdk.startNewSession).toHaveBeenCalledTimes(2);
+  expect(sdk.resume).not.toHaveBeenCalled();
+  fresh(); await controller.settled();
+  expect(sdk.resume).toHaveBeenCalledTimes(1);
 });

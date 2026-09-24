@@ -28,11 +28,16 @@ export function createReplayController(load: () => ClaritySdk | null) {
   let initialized = false;
   let ready = false;
   let allowed = false;
+  // The SDK may resume a persisted session at initialization. Rotate it before
+  // tagging/resuming, including when consent changes while native startup waits.
+  let needsFreshSession = true;
+  let changingSession = false;
   let context: ReplayContext | null = null;
   let revision = 0;
   let queue = Promise.resolve();
 
   function stop() {
+    if (allowed) needsFreshSession = true;
     allowed = false;
     revision += 1;
     // Do not wait behind pending initialization, session callbacks, or tag writes.
@@ -40,6 +45,22 @@ export function createReplayController(load: () => ClaritySdk | null) {
       try { void sdk.pause().catch(() => undefined); } catch { /* Unavailable bridge. */ }
       try { void sdk.consent(false, false).catch(() => undefined); } catch { /* Unavailable bridge. */ }
     }
+  }
+
+  function sessionReady() {
+    if (!allowed) { stop(); return; }
+    if (!sdk || !ready || changingSession) return;
+    if (!needsFreshSession) { synchronize(); return; }
+    needsFreshSession = false;
+    changingSession = true;
+    ready = false;
+    try {
+      sdk.startNewSession(() => {
+        changingSession = false;
+        ready = true;
+        sessionReady();
+      });
+    } catch { changingSession = false; stop(); }
   }
 
   function synchronize() {
@@ -70,30 +91,23 @@ export function createReplayController(load: () => ClaritySdk | null) {
     update(next: ReplayContext | null, consent: boolean, enabled: boolean): void {
       context = next && validContext(next) ? next : null;
       if (!enabled || !consent || !context) { stop(); return; }
-      const wasAllowed = allowed;
       sdk ??= load();
       if (!sdk) return;
       allowed = true;
       if (!initialized) {
         try {
           const registered = sdk.setOnSessionStartedCallback(() => {
+            // Explicit rotation has its own completion callback. A global
+            // notification for the old session cannot finish that rotation.
+            if (changingSession) return;
             ready = true;
-            if (allowed) synchronize(); else stop();
+            sessionReady();
           });
           if (!registered) { stop(); return; }
           initialized = true;
           sdk.initialize(CLARITY_PROJECT_ID, { logLevel: sdk.LogLevel.None });
         } catch { stop(); }
-      } else if (!wasAllowed && ready) {
-        // Fresh consent gets a fresh session, including after an account switch.
-        ready = false;
-        try {
-          sdk.startNewSession(() => {
-            ready = true;
-            if (allowed) synchronize(); else stop();
-          });
-        } catch { stop(); }
-      } else if (ready) synchronize();
+      } else if (ready) sessionReady();
     },
     stop,
     event(value: ReplayEvent): void {
