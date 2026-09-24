@@ -4,8 +4,10 @@ The owner purchased **maybesitter.com** and approved it as the project domain on
 2026-09-25 (#333). Its domain token is resolved in the public site files.
 The owner also confirmed the localized public operator names on 2026-09-25:
 English `anas akkari`, Hebrew `אנס עקארי`, Arabic `انس عكاري`.
-The remaining contact and effective-date tokens stay literal and
-unfinished until their actual values are confirmed; domain approval is not
+The support and privacy addresses were configured as free aliases on the existing
+owner Workspace mailbox on 2026-09-25. Admin Console confirmed both saved;
+end-to-end test delivery and owner monitoring confirmation remain pending.
+Only the effective-date token stays unfinished until publication is approved; domain approval is not
 approval to publish the legal documents.
 
 Find them all at any time:
@@ -15,13 +17,11 @@ git grep -nE '\{\{(DOMAIN|LEGAL_NAME|SUPPORT_EMAIL|PRIVACY_EMAIL|EFFECTIVE_DATE)
 ```
 
 Replace them all at once (macOS `sed`), after you have decided the real values.
-The following is a template: replace `APPROVED_PUBLICATION_DATE` before running it, and verify both role addresses.
+The following is a template: replace `APPROVED_PUBLICATION_DATE` before running it, and finish delivery/monitoring verification for both role addresses.
 
 ```bash
 cd site
 grep -rl '{{' . --include='*.html' --include='*.md' --include='*.txt' --include='*.xml' | xargs sed -i '' \
-  -e 's/{{SUPPORT_EMAIL}}/support@maybesitter.com/g' \
-  -e 's/{{PRIVACY_EMAIL}}/privacy@maybesitter.com/g' \
   -e 's/{{EFFECTIVE_DATE}}/APPROVED_PUBLICATION_DATE/g'
 ```
 
@@ -63,9 +63,10 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 ### `{{SUPPORT_EMAIL}}`
 
-- **What to put there:** the monitored `support@maybesitter.com` role address.
-  The domain currently uses Google Workspace MX records; verify or configure the
-  address there without replacing those MX records. Never use a personal address.
+- **Configured:** `support@maybesitter.com`, an alias on the existing owner
+  Workspace mailbox. Admin Console confirmed the saved configuration on
+  2026-09-25. Delivery testing and owner monitoring confirmation are still pending.
+  Existing Google Workspace MX records were preserved.
 - **Where it appears:**
   - `index.html`, `ar/index.html`, `he/index.html` — the footer ("Questions and feedback")
   - `{en,ar,he}/privacy.html` — "Who we are"
@@ -73,8 +74,10 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 ### `{{PRIVACY_EMAIL}}`
 
-- **What to put there:** the monitored `privacy@maybesitter.com` role address. This is the address a data
-  subject writes to, so it must actually be read.
+- **Configured:** `privacy@maybesitter.com`, an alias on the same existing owner
+  Workspace mailbox. Admin Console confirmed the saved configuration on
+  2026-09-25. Delivery testing and owner monitoring confirmation are still pending;
+  this is the address a data subject writes to, so it must actually be read.
 - **Where it appears:**
   - `{en,ar,he}/privacy.html` — "Who we are", "Your rights", "Age", "Early-access sign-up"
   - `{en,ar,he}/terms.html` — "Contact"
