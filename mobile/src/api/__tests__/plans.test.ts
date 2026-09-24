@@ -242,4 +242,19 @@ describe('the morning-plan setting', () => {
     await putPlanSettings({ enabled: false });
     expect(requests[0]!.body).toEqual({ enabled: false });
   });
+
+  it('reads the continuous-replanning switch rather than dropping it (#523)', async () => {
+    // Before the schema named it, zod stripped the field, so the server's
+    // default-on reached the client as undefined.
+    serve(fixture('plan.settingsDefault'));
+    expect((await getPlanSettings()).continuousReplanEnabled).toBe(true);
+  });
+
+  it('sends the replanning switch only when it is the thing being changed', async () => {
+    serve(fixture('plan.settingsSaved'));
+    // No `enabled`: the route accepts this write alone without it, so the
+    // phone never re-sends a morning value it only has cached.
+    await putPlanSettings({ continuousReplanEnabled: false });
+    expect(requests[0]!.body).toEqual({ continuousReplanEnabled: false });
+  });
 });

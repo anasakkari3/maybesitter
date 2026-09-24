@@ -1,0 +1,154 @@
+{
+  "success": true,
+  "plan": {
+    "date": "2026-08-09",
+    "timezone": "Asia/Jerusalem",
+    "status": "proposed",
+    "generation": 2,
+    "inputDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+    "generatedAt": "2026-08-09T09:00:00.000Z",
+    "acceptedAt": null,
+    "explanation": {
+      "text": "I placed 3 things between 09:00 and 10:30.",
+      "locale": "en",
+      "source": "template"
+    },
+    "scheduled": [
+      {
+        "itemId": "plan_fixture_0",
+        "title": "Write the summary",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_0"
+      },
+      {
+        "itemId": "plan_fixture_1",
+        "title": "Call the bank",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_1"
+      },
+      {
+        "itemId": "plan_fixture_2",
+        "title": "Book the train",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_2"
+      }
+    ],
+    "unscheduled": [],
+    "edited": false,
+    "protections": [
+      {
+        "blockId": "block:commitment:plan_fixture_0",
+        "itemId": "plan_fixture_0",
+        "ownership": "protected_flexible",
+        "origin": "user",
+        "preferredInterval": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "maxShiftMinutes": 30
+      }
+    ]
+  },
+  "proposal": {
+    "proposalId": "prp_fixture",
+    "proposedAt": "2026-08-09T08:00:00.000Z",
+    "baseGeneration": 2,
+    "reason": "contains_removals",
+    "userControlMode": "automatic_time_only",
+    "causeChangeIds": [
+      "chg_fixture_calendar"
+    ],
+    "scheduled": [
+      {
+        "itemId": "plan_fixture_0",
+        "title": "Write the summary",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_0"
+      },
+      {
+        "itemId": "plan_fixture_1",
+        "title": "Call the bank",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T08:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_1"
+      }
+    ],
+    "unscheduled": [
+      {
+        "itemId": "plan_fixture_2",
+        "title": "Book the train",
+        "reasonCode": "NO_FEASIBLE_SLOT",
+        "blockId": "block:commitment:plan_fixture_2"
+      }
+    ],
+    "changes": [
+      {
+        "kind": "moved",
+        "itemId": "plan_fixture_0",
+        "title": "Write the summary",
+        "from": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "to": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "shiftMinutes": 60,
+        "fromReasonCode": null,
+        "toReasonCode": null
+      },
+      {
+        "kind": "moved",
+        "itemId": "plan_fixture_1",
+        "title": "Call the bank",
+        "from": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "to": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T08:00:00.000Z"
+        },
+        "shiftMinutes": 60,
+        "fromReasonCode": null,
+        "toReasonCode": null
+      },
+      {
+        "kind": "removed",
+        "itemId": "plan_fixture_2",
+        "title": "Book the train",
+        "from": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "to": null,
+        "shiftMinutes": null,
+        "fromReasonCode": null,
+        "toReasonCode": null
+      }
+    ],
+    "protections": [
+      {
+        "blockId": "block:commitment:plan_fixture_0",
+        "itemId": "plan_fixture_0",
+        "title": "Write the summary",
+        "origin": "user",
+        "preferredInterval": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "maxShiftMinutes": 30,
+        "proposedInterval": {
+          "startsAt": "2026-08-09T09:00:00.000Z",
+          "endsAt": "2026-08-09T09:00:00.000Z"
+        },
+        "overridden": true
+      }
+    ]
+  }
+}

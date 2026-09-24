@@ -173,6 +173,7 @@ const CASES: Array<[string, z.ZodType]> = [
   // other one answers `protections: []`, so without this the five-field
   // protection schema is never parsed against anything a handler produced.
   ['plan.protected', planResponseSchema],
+  ['plan.withProposal', planResponseSchema],
   ['plan.built', planResponseSchema],
   // "The plan was put on screen" (#533): the acknowledgement carries nothing
   // back; the append to the plan ledger is the point of the call.

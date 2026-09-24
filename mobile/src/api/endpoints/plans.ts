@@ -142,15 +142,23 @@ export async function getPlanSettings(): Promise<PlanSettings> {
  * `deliveryLocalTime` is omitted rather than sent as undefined when the caller
  * is only flipping the switch: the route reads `body.deliveryLocalTime !==
  * undefined` and would otherwise be asked to re-validate a time nobody changed.
+ * `continuousReplanEnabled` (#523) is omitted the same way, so the morning
+ * switch can never rewrite the replanning one — and the replanning switch
+ * omits `enabled`, which the route accepts for that write alone, so it can
+ * never re-send a morning value this phone only has cached.
  */
 export async function putPlanSettings(input: {
-  enabled: boolean;
+  enabled?: boolean;
   deliveryLocalTime?: string;
+  continuousReplanEnabled?: boolean;
 }): Promise<PlanSettings> {
   const response = await apiRequest('PUT', '/api/mobile/settings/plan', {
     body: {
-      enabled: input.enabled,
+      ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
       ...(input.deliveryLocalTime === undefined ? {} : { deliveryLocalTime: input.deliveryLocalTime }),
+      ...(input.continuousReplanEnabled === undefined
+        ? {}
+        : { continuousReplanEnabled: input.continuousReplanEnabled }),
     },
     schema: planSettingsResponseSchema,
   });

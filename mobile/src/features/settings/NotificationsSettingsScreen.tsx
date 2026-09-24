@@ -502,6 +502,36 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               <Txt size={13} color={p.mu} testID="plan-next-run">{fill(t.planMorningNext, { when: ltr(next) })}</Txt>
             </View>
           ) : null}
+          {/* ── Continuous replanning (#523, AC 9) ─────────────────────
+              Its own field on the same record, so it lives on the same card —
+              and nowhere near the calendar connections, because switching it
+              off must not read as disconnecting one (it does not).
+
+              The write names this field and nothing else. The route accepts a
+              PUT without `enabled` for exactly this case, so the phone never
+              re-sends a morning value it only has cached — which, after another
+              device turned the morning plan on, would turn it back off. */}
+          <ServerToggle
+            testID="plan-replan-toggle"
+            title={t.planReplanTitle}
+            body={t.planReplanBody}
+            value={plan?.continuousReplanEnabled === true}
+            disabled={plan === null}
+            onChange={async next_ => {
+              try {
+                const saved = await savePlan.mutateAsync({ continuousReplanEnabled: next_ });
+                return saved.continuousReplanEnabled === next_;
+              } catch {
+                return false;
+              }
+            }}
+          />
+          <View style={{ paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: p.ln }}>
+            {/* Said whichever way the switch sits: the moment it matters is
+                before somebody turns it off, not after. Disabling drains the
+                pending changes, so re-enabling cannot replay them. */}
+            <Txt size={13} color={p.mu} lh={1.5} testID="plan-replan-no-backfill">{t.planReplanNoBackfill}</Txt>
+          </View>
           <SettingsRow
             label={t.planOpen}
             testID="plan-open"

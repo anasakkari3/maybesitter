@@ -146,7 +146,8 @@ import {
   claimDueDelivery,
   savePlanSettings,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
-import { appendPlanEvent } from '../../lib/services/dailyPlan/planStore.ts';
+import { appendPlanEvent, readStoredPlan, storePlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
+import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -1393,6 +1394,68 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       1,
       'the protected fixture carries no protection, so the schema it exists to pin is never exercised',
     );
+
+    /*
+     * A plan with a live continuous-replan proposal beside it (#523).
+     *
+     * Every other plan fixture answers `proposal: null`, so until this one the
+     * client's `pendingPlanProposalSchema` — and `protections[].overridden`,
+     * the field the review screen must disclose — had never been parsed
+     * against anything a real handler produced. The patch is stored the way
+     * the replan service stores one (`storePlanProposal`, a CAS on the base
+     * generation) and read back through the real GET.
+     *
+     * It is built to exercise the two shapes the screen has to get right: the
+     * whole day an hour later, which pushes the block protected above past its
+     * 30-minute allowance (`overridden: true`), and the last item dropped into
+     * `unscheduled` (a `removed` change). The reason is the one
+     * `evaluateReplanPolicy` gives any diff with a removal (its rule 3 runs
+     * before the churn rule), so the fixture is a state the server can
+     * actually produce — and it is an internal code the screen must never show
+     * raw.
+     */
+    const base = await readStoredPlan(USER, PLAN_DATE);
+    assert.ok(base, 'the protected plan must still be stored');
+    const hourLater = (interval: { startsAt: string; endsAt: string }) => ({
+      startsAt: new Date(Date.parse(interval.startsAt) + 60 * 60_000).toISOString(),
+      endsAt: new Date(Date.parse(interval.endsAt) + 60 * 60_000).toISOString(),
+    });
+    const dropped = base.plan.scheduled[base.plan.scheduled.length - 1]!;
+    // The protected block is the first scheduled row, the dropped one the last.
+    assert.ok(base.plan.scheduled.length >= 2, 'the proposal fixture needs a protected row and a different one to drop');
+    const patched = {
+      ...base.plan,
+      scheduled: base.plan.scheduled
+        .filter((item) => item.itemId !== dropped.itemId)
+        .map((item) => ({ ...item, interval: hourLater(item.interval), reservedInterval: hourLater(item.reservedInterval) })),
+      unscheduled: [
+        ...base.plan.unscheduled,
+        { itemId: dropped.itemId, reason: { code: 'NO_FEASIBLE_SLOT' as const, itemId: dropped.itemId, detail: 'fixture' } },
+      ],
+    };
+    const offered = await storePlanProposal(USER, PLAN_DATE, {
+      proposalId: 'prp_fixture',
+      proposedAt: REFERENCE_TIME,
+      baseGeneration: base.generation,
+      baseInputDigest: base.inputDigest,
+      plan: patched,
+      diff: diffPlans(base.plan, patched),
+      reason: 'contains_removals',
+      userControlMode: 'automatic_time_only',
+      causeChangeIds: ['chg_fixture_calendar'],
+    });
+    assert.ok(offered?.proposal, 'a patch of the current generation must be stored');
+    const withProposal = await record('plan.withProposal', 200, await planGet(
+      request(`/api/mobile/plans/${PLAN_DATE}`),
+      dateParams(PLAN_DATE),
+    ));
+    const liveProposal = withProposal.proposal as { protections: Array<{ overridden: boolean }>; changes: Array<{ kind: string }> } | null;
+    assert.ok(liveProposal, 'the proposal fixture carries no proposal');
+    assert.ok(
+      liveProposal.protections.some((protection) => protection.overridden),
+      'the proposal fixture overrides no protection, so the disclosure it exists to pin is never exercised',
+    );
+    assert.ok(liveProposal.changes.some((change) => change.kind === 'removed'), 'the proposal fixture removes nothing');
 
     await record('plan.notFound', 404, await planGet(
       request('/api/mobile/plans/2026-08-10'),

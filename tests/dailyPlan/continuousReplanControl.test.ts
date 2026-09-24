@@ -582,6 +582,51 @@ test('the switch round-trips through savePlanSettings and GET/PUT /api/mobile/se
   }
 });
 
+test('a replanning-only write leaves the morning delivery exactly as stored, on or off', async () => {
+  // The client's switch sends only `continuousReplanEnabled`. Were `enabled`
+  // still required, it could only send the value in its cache — and a phone
+  // that had not seen another device turn the morning plan on would turn it
+  // back off, silently. So the write must not touch the delivery at all:
+  // not `enabled`, and not an armed `nextRunAt`.
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  const auth = installFakeAuth();
+  const uid = uidFor('ReplanOnlyWriter');
+  const request = (body: unknown): Request => new Request(`${BASE}/api/mobile/settings/plan`, {
+    method: 'PUT',
+    headers: new Headers({ authorization: `Bearer ${tokenFor(uid)}`, 'content-type': 'application/json' }),
+    body: JSON.stringify(body),
+  });
+  try {
+    // Armed on one day; the replanning write arrives a day later.
+    await savePlanSettings(uid, { enabled: true, deliveryLocalTime: '07:30' }, new Date('2026-08-08T12:00:00.000Z'), { storage });
+    const armed = await readPlanSettings(uid, { storage });
+    assert.ok(armed.nextRunAt, 'the fixture must start armed');
+
+    const off = await settingsPut(request({ continuousReplanEnabled: false }));
+    assert.equal(off.status, 200);
+    const afterOff = await readPlanSettings(uid, { storage });
+    assert.equal(afterOff.continuousReplanEnabled, false);
+    assert.equal(afterOff.enabled, true, 'a replanning write must not switch the morning plan off');
+    assert.equal(afterOff.nextRunAt, armed.nextRunAt, 'a replanning write must not re-arm the delivery');
+
+    // And the other way round: a morning plan that is off stays off.
+    await savePlanSettings(uid, { enabled: false }, new Date('2026-08-09T12:00:00.000Z'), { storage });
+    await settingsPut(request({ continuousReplanEnabled: true }));
+    const afterOn = await readPlanSettings(uid, { storage });
+    assert.equal(afterOn.continuousReplanEnabled, true);
+    assert.equal(afterOn.enabled, false, 'a replanning write must not switch the morning plan on');
+    assert.equal(afterOn.nextRunAt, undefined);
+
+    // A PUT that names neither switch is still refused.
+    assert.equal((await settingsPut(request({}))).status, 400);
+    assert.equal((await settingsPut(request({ deliveryLocalTime: '08:00' }))).status, 400);
+  } finally {
+    auth.restore();
+    resetStorageForTests();
+  }
+});
+
 /* ── The proposed patch ──────────────────────────────────────────── */
 
 test('a proposal the user must confirm is stored as a patch of the generation it patches', async () => {
