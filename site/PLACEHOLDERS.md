@@ -2,7 +2,9 @@
 
 The owner purchased **maybesitter.com** and approved it as the project domain on
 2026-09-25 (#333). Its domain token is resolved in the public site files.
-The remaining identity, contact and effective-date tokens stay literal and
+The owner also confirmed the localized public operator names on 2026-09-25:
+English `anas akkari`, Hebrew `אנס עקארי`, Arabic `انس عكاري`.
+The remaining contact and effective-date tokens stay literal and
 unfinished until their actual values are confirmed; domain approval is not
 approval to publish the legal documents.
 
@@ -13,13 +15,11 @@ git grep -nE '\{\{(DOMAIN|LEGAL_NAME|SUPPORT_EMAIL|PRIVACY_EMAIL|EFFECTIVE_DATE)
 ```
 
 Replace them all at once (macOS `sed`), after you have decided the real values.
-The following is a template: replace `Your Full Legal Name` and
-`APPROVED_PUBLICATION_DATE` before running it, and verify both role addresses.
+The following is a template: replace `APPROVED_PUBLICATION_DATE` before running it, and verify both role addresses.
 
 ```bash
 cd site
 grep -rl '{{' . --include='*.html' --include='*.md' --include='*.txt' --include='*.xml' | xargs sed -i '' \
-  -e 's/{{LEGAL_NAME}}/Your Full Legal Name/g' \
   -e 's/{{SUPPORT_EMAIL}}/support@maybesitter.com/g' \
   -e 's/{{PRIVACY_EMAIL}}/privacy@maybesitter.com/g' \
   -e 's/{{EFFECTIVE_DATE}}/APPROVED_PUBLICATION_DATE/g'
@@ -53,9 +53,9 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 ### `{{LEGAL_NAME}}`
 
-- **What to put there:** your full legal name as the individual developer and data
-  controller. This is the name a user or a regulator would use to identify who is
-  responsible. Issue #137 deliberately does not record it, so choose it at publish time.
+- **Resolved:** exact owner-supplied public names: English `anas akkari`, Hebrew
+  `אנס עקארי`, Arabic `انس عكاري` (2026-09-25). Each language uses its matching
+  name. This identity confirmation does not approve legal publication.
 - **Where it appears:**
   - the footer of all 12 pages (`© MaybeSitter — {{LEGAL_NAME}}`)
   - `{en,ar,he}/privacy.html` — the "Who we are" section
