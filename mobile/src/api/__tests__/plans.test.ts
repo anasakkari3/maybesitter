@@ -199,6 +199,32 @@ describe('answering a plan-change offer (#523, #611)', () => {
     expect((error as PlanProposalRefusedError).reason).toBe(reason);
   });
 
+  it.each<['accept_proposal' | 'reject_proposal']>([['accept_proposal'], ['reject_proposal']])(
+    'names the refused answer (%s) on the error, so the sentence can fit it',
+    async action => {
+      serve(fixture('plan.proposal.stale'), 422);
+      const error = await actOnPlan('2026-08-09', { action, proposalId: 'prp_on_screen' }).catch(e => e);
+      expect(error).toBeInstanceOf(PlanProposalRefusedError);
+      expect((error as PlanProposalRefusedError).reason).toBe('stale_proposal');
+      expect((error as PlanProposalRefusedError).action).toBe(action);
+    },
+  );
+
+  it('tells a declined offer a newer one replaced that the plan was kept, not that nothing was applied', () => {
+    // "Keep my plan" refused as stale (#611): the plan is exactly what the
+    // person asked for. The accept sentence says the opposite of reassuring.
+    for (const t of Object.values(strings)) {
+      const declined = userFacingMessage(new PlanProposalRefusedError('stale_proposal', 'reject_proposal'), t);
+      const accepted = userFacingMessage(new PlanProposalRefusedError('stale_proposal', 'accept_proposal'), t);
+      expect(declined).toBe(t.errorsPlanProposalReplaced);
+      expect(accepted).toBe(t.errorsPlanProposalStale);
+      expect(declined).not.toBe(accepted);
+      // Nothing pending is one sentence for either answer.
+      expect(userFacingMessage(new PlanProposalRefusedError('no_proposal', 'reject_proposal'), t)).toBe(t.errorsPlanProposalGone);
+      expect(userFacingMessage(new PlanProposalRefusedError('no_proposal', 'accept_proposal'), t)).toBe(t.errorsPlanProposalGone);
+    }
+  });
+
   it('says each refusal in its own words in every language, never "check it and try again"', () => {
     for (const t of Object.values(strings)) {
       const stale = userFacingMessage(new PlanProposalRefusedError('stale_proposal'), t);

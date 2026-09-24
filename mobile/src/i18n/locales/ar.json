@@ -223,6 +223,7 @@
   "errorsInvalidTransition": "تحدّث من جهاز تاني.",
   "errorsPlanProposalStale": "يومك تغيّر بعد هالاقتراح، فما طبّقنا إشي. هاي خطّتك زي ما هي هلّق.",
   "errorsPlanProposalGone": "هالاقتراح ما عاد بستنّى موافقتك، فما في إشي تراجعه.",
+  "errorsPlanProposalReplaced": "إجا اقتراح أجدد مكان هالاقتراح، وخطّتك بعدها زي ما هي. طُلّ عالجديد.",
   "settingsAccount": "الحساب",
   "accountDelete": "حذف الحساب",
   "accountDeleteTitle": "احذف حسابك",

@@ -206,6 +206,14 @@ describe('a refused decision (#611)', () => {
     expect(screen.queryByText(t.errorsGeneric)).toBeNull();
   });
 
+  it('shows the kept-plan sentence, not the accept one, for a refused "keep my plan"', async () => {
+    mockActionError = new PlanProposalRefusedError('stale_proposal', 'reject_proposal');
+    await show();
+    const t = language();
+    expect(screen.getByTestId('patch-refused')).toHaveTextContent(t.errorsPlanProposalReplaced);
+    expect(screen.queryByText(t.errorsPlanProposalStale)).toBeNull();
+  });
+
   it('is still said when the re-read plan has no offer left to draw', async () => {
     // The old placement lived inside the offer; with nothing pending the
     // sentence vanished with it and the screen changed without a word.
@@ -246,6 +254,21 @@ describe('a refused decision (#611)', () => {
     await fireEvent.press(screen.getByTestId('patch-accept'));
     expect(announce).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledWith(language()[key]);
+  });
+
+  it('tells "keep my plan" refused as stale that the plan was kept, aloud and on screen', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    mockAct.mockImplementation((...args: unknown[]) => {
+      const options = args[1] as { onError?: (error: unknown) => void };
+      options.onError?.(new PlanProposalRefusedError('stale_proposal', 'reject_proposal'));
+    });
+    await show();
+    await fireEvent.press(screen.getByTestId('patch-reject'));
+    const t = language();
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(t.errorsPlanProposalReplaced);
+    expect(announce).not.toHaveBeenCalledWith(t.errorsPlanProposalStale);
   });
 
   it('announces nothing for a failure the screen shows beside the buttons', async () => {
