@@ -18,6 +18,7 @@ import {
   cursorFor,
   listEvents,
   listEventsInRange,
+  listEventsOfTypeInRange,
   parseCursor,
   type DomainEventRecord,
 } from '../../lib/services/mobile/eventLog.ts';
@@ -166,6 +167,45 @@ test('the range read is half-open and bounded', async () => {
 
     const bounded = await listEventsInRange(UID, '2026-09-14T00:00:00.000Z', '2026-09-15T00:00:00.000Z', 1);
     assert.equal(bounded.length, 1);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('the typed range read returns only that type, half-open, in the total order, and bounds only that type (#443)', async () => {
+  begin();
+  try {
+    const { getStorage } = await import('../../lib/storage/index.ts');
+    await seed([
+      event('before', '2026-09-13T23:59:59.999Z'),
+      event('start', '2026-09-14T00:00:00.000Z'),
+      // Three sharing one instant, written out of id order.
+      event('tie_c', '2026-09-14T09:00:00.000Z'),
+      event('tie_a', '2026-09-14T09:00:00.000Z'),
+      event('tie_b', '2026-09-14T09:00:00.000Z'),
+      event('end', '2026-09-15T00:00:00.000Z'),
+      // Other types, more of them than the bound below.
+      ...Array.from({ length: 6 }, (_, index) => event(`other_${index}`, '2026-09-14T08:00:00.000Z', 'draft_created')),
+    ]);
+    // A document with no `type` is in no type's index, as in Firestore.
+    await getStorage().set(`${userCol(UID, EVENTS)}/untyped`, { id: 'untyped', at: '2026-09-14T10:00:00.000Z', aggregateId: 'c1', payload: {} });
+
+    const from = '2026-09-14T00:00:00.000Z';
+    const to = '2026-09-15T00:00:00.000Z';
+    const window = await listEventsOfTypeInRange(UID, 'commitment_completed', from, to, 500);
+    assert.deepEqual(window.map((e) => e.id), ['start', 'tie_a', 'tie_b', 'tie_c']);
+    assert.deepEqual(
+      (await listEventsOfTypeInRange(UID, 'commitment_completed', from, to, 500)).map((e) => e.id),
+      window.map((e) => e.id),
+      'a second read orders the same way',
+    );
+
+    // Six other events precede the completions in the window; a bound of four
+    // still returns all four completions, because only completions count.
+    assert.deepEqual((await listEventsOfTypeInRange(UID, 'commitment_completed', from, to, 4)).map((e) => e.id), ['start', 'tie_a', 'tie_b', 'tie_c']);
+    assert.equal((await listEventsOfTypeInRange(UID, 'commitment_completed', from, to, 2)).length, 2);
+    assert.equal((await listEventsOfTypeInRange(UID, 'draft_created', from, to, 500)).length, 6);
+    assert.deepEqual(await listEventsOfTypeInRange(UID, 'commitment_postponed', from, to, 500), []);
   } finally {
     resetStorageForTests();
   }

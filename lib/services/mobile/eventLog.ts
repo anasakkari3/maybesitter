@@ -189,6 +189,37 @@ export async function listEventsInRange(
   return rows.map((row) => row.data).sort(compareEventsOldestFirst);
 }
 
+/**
+ * Every event of one `type` in `[fromInclusive, toExclusive)`, oldest first.
+ *
+ * The same read as `listEventsInRange`, narrowed by the engine rather than
+ * after it: `limit` bounds the events of this type, not the whole log, so a
+ * reader that needs only completions neither pays for every other event in
+ * the window nor has its bound filled by them (#443).
+ *
+ * In Firestore this is an equality on `type` plus a range and an order on
+ * `at`, which needs the composite index `events (type ASC, at ASC)` declared
+ * in `firestore.indexes.json`; `tests/storage/firestoreIndexes.test.ts` reads
+ * this call to keep the two in step. A document with no `type` matches no
+ * type, in the memory adapter as in Firestore.
+ */
+export async function listEventsOfTypeInRange(
+  uid: string,
+  type: string,
+  fromInclusive: string,
+  toExclusive: string,
+  limit: number,
+  reader: StorageReader = getStorage(),
+): Promise<DomainEventRecord[]> {
+  requireUserId(uid);
+  const rows = await reader.list<DomainEventRecord>(userCol(uid, EVENTS), {
+    where: [['type', '==', type], ['at', '>=', fromInclusive], ['at', '<', toExclusive]],
+    orderBy: { field: 'at', direction: 'asc' },
+    limit,
+  });
+  return rows.map((row) => row.data).sort(compareEventsOldestFirst);
+}
+
 /** Just enough of a record for the comparator to place the cursor. */
 function asRecord(cursor: { at: string; id: string }): DomainEventRecord {
   return { id: cursor.id, at: cursor.at, type: '', aggregateId: '', payload: {} };

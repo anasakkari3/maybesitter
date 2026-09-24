@@ -86,3 +86,28 @@ test('the scheduler composite indexes match what claimDueJobs and recoverClaimed
     );
   }
 });
+
+test('the event-log composite index matches what listEventsOfTypeInRange queries (#443)', () => {
+  // The memory suggestions read only the event types their rules count: an
+  // equality on `type` plus a range and an order on `at`. Firestore answers
+  // that shape with 400 FAILED_PRECONDITION unless `events (type, at)` is
+  // declared, and neither the memory adapter nor the emulator enforces it, so
+  // the query is read out of the source rather than retyped here.
+  const source = readFileSync(join(repoRoot, 'lib/services/mobile/eventLog.ts'), 'utf8');
+  const start = source.indexOf('export async function listEventsOfTypeInRange');
+  assert.ok(start >= 0, 'listEventsOfTypeInRange is gone; this test no longer checks the query it names');
+  const body = source.slice(start, source.indexOf('\n}\n', start));
+  assert.match(body, /userCol\(uid, EVENTS\)/, 'the typed range read no longer reads the events collection');
+  const filters = Array.from(body.matchAll(/\['([A-Za-z]+)', '(==|<|<=|>|>=)'/g), (m) => `${m[1]} ${m[2]}`);
+  assert.deepEqual(filters, ['type ==', 'at >=', 'at <'], 'the typed range read no longer asks what this test thinks it asks');
+  assert.match(body, /orderBy: \{ field: 'at', direction: 'asc' \}/);
+
+  assert.equal(collectionNames().EVENTS, 'events');
+  const declared = config.indexes
+    .filter((index) => index.collectionGroup === 'events' && index.queryScope === 'COLLECTION')
+    .map((index) => index.fields.map((field) => `${field.fieldPath} ${(field as { order?: string }).order}`).join(','));
+  assert.ok(
+    declared.includes('type ASCENDING,at ASCENDING'),
+    `events is missing the type+at composite index. Declared: ${JSON.stringify(declared)}`,
+  );
+});
