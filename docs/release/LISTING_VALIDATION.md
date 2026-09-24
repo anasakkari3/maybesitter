@@ -81,6 +81,7 @@ own validation remains authoritative. Keyword byte counts include commas.
 
 Empty or whitespace-only values, malformed types, missing/extra locales,
 duplicate keywords, and recognized draft markers (`{{…}}`, TODO, TBD, FIXME,
-PLACEHOLDER, `<domain>`, and example.com/org/net URLs) fail. Marker checks are
+PLACEHOLDER, `<domain>`, and example.com/org/net URLs) fail. Marker matching
+is case-sensitive: ordinary lowercase `todo` copy is allowed. Marker checks are
 not a general approval or secret detector. Errors print fixed field paths and
 reasons; output includes counts but never submitted text.

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-const placeholder = /\{\{[^}]*\}\}|\b(?:TODO|TBD|FIXME|PLACEHOLDER)\b|<(?:domain|support_email|legal_name|[^>]*placeholder[^>]*)>|https?:\/\/[^\s/]*example\.(?:com|org|net)\b/i;
+const placeholder = /\{\{[^}]*\}\}|\b(?:TODO|TBD|FIXME|PLACEHOLDER)\b|<(?:domain|support_email|legal_name|[^>]*placeholder[^>]*)>|https?:\/\/[^\s/]*example\.(?:com|org|net)\b/;
 
 export function validateListings(apple, play) {
   const errors = [];

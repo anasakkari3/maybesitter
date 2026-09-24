@@ -71,6 +71,16 @@ test('malformed structures, keyword values and duplicate keywords fail', () => {
   assert.match(validateListings(apple, play).errors.join('\n'), /non-empty strings/);
 });
 
+test('ordinary lowercase todo copy passes while an explicit TODO marker fails', () => {
+  const { apple, play } = fixtures();
+  apple.apple.info['en-US'].keywords = ['todo', 'reminders'];
+  apple.apple.info['en-US'].description = 'A synthetic todo list description.';
+  play.locales[0].shortDescription = 'A synthetic todo list';
+  assert.deepEqual(validateListings(apple, play).errors, []);
+  apple.apple.info['en-US'].keywords = ['TODO'];
+  assert.match(validateListings(apple, play).errors.join('\n'), /unresolved placeholder/);
+});
+
 test('placeholders fail without returning their content', () => {
   for (const value of ['{{LEGAL_NAME}}', 'TBD', 'https://example.com/privacy', '<domain>']) {
     const { apple, play } = fixtures();
