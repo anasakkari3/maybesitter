@@ -10,6 +10,7 @@
  * Settings tab, the row, the screen — for both, in one app.
  */
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -128,6 +129,25 @@ async function openSettings() {
 }
 
 describe('from Settings, on the merged Root', () => {
+  it('clips Settings above the measured floating tabs, including after their height changes', async () => {
+    await openApp();
+    await openSettings();
+    let initialViewport = screen.getByTestId('settings-activity').parent;
+    while (initialViewport && !initialViewport.props.contentContainerStyle) initialViewport = initialViewport.parent;
+    expect(initialViewport).not.toBeNull();
+    expect(StyleSheet.flatten(initialViewport?.props.style)?.marginBottom ?? 0).toBeGreaterThan(0);
+    const bar = screen.getByTestId('floating-tab-bar');
+    for (const height of [74, 102]) {
+      await fireEvent(bar, 'layout', { nativeEvent: { layout: { x: 14, y: 700, width: 362, height } } });
+      const viewport = screen.getByTestId('settings-scroll');
+      // Insetting the viewport prevents rows at ANY scroll offset from being
+      // painted/hit behind a tab. Content padding only clears the final row.
+      expect(StyleSheet.flatten(viewport.props.style).marginBottom).toBeGreaterThanOrEqual(height + METRICS.insets.bottom + 4);
+    }
+    await fireEvent.press(screen.getByTestId('settings-activity'));
+    await waitFor(() => expect(screen.queryByTestId('settings-scroll')).toBeNull());
+  });
+
   it('reaches the widget settings screen', async () => {
     await openApp();
     await openSettings();

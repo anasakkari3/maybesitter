@@ -31,7 +31,7 @@ import { CalendarIcon, MicIcon, SettingsIcon, TodayIcon } from '../ui/icons';
  * and a device flow all find the same four controls whether or not a word is
  * painted under the icon.
  */
-export function TabBar() {
+export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: number) => void } = {}) {
   const { s, t, p, scheme, reduceTransparency, actions } = useApp();
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
@@ -75,7 +75,11 @@ export function TabBar() {
 
   return (
     <View
-      onLayout={(e) => setBarWidth(e.nativeEvent.layout.width)}
+      testID="floating-tab-bar"
+      onLayout={(e) => {
+        setBarWidth(e.nativeEvent.layout.width);
+        onClearanceChange?.(e.nativeEvent.layout.height + Math.max(insets.bottom, 12) + 4 + 8);
+      }}
       style={[
         {
           position: 'absolute', left: 14, right: 14, bottom: Math.max(insets.bottom, 12) + 4, zIndex: 20,
