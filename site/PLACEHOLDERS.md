@@ -6,7 +6,8 @@ The owner also confirmed the localized public operator names on 2026-09-25:
 English `anas akkari`, Hebrew `אנס עקארי`, Arabic `انس عكاري`.
 The support and privacy addresses were configured as free aliases on the existing
 owner Workspace mailbox on 2026-09-25. Admin Console confirmed both saved;
-end-to-end test delivery and owner monitoring confirmation remain pending.
+internal test delivery was verified in recipient-level Workspace logs.
+Owner monitoring confirmation remains pending.
 Only the effective-date token stays unfinished until publication is approved; domain approval is not
 approval to publish the legal documents.
 
@@ -65,7 +66,8 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 - **Configured:** `support@maybesitter.com`, an alias on the existing owner
   Workspace mailbox. Admin Console confirmed the saved configuration on
-  2026-09-25. Delivery testing and owner monitoring confirmation are still pending.
+  2026-09-25. Internal delivery test passed on 2026-09-25 (Workspace: Delivered to Gmail
+  mailbox). Owner monitoring confirmation is still pending.
   Existing Google Workspace MX records were preserved.
 - **Where it appears:**
   - `index.html`, `ar/index.html`, `he/index.html` — the footer ("Questions and feedback")
@@ -76,7 +78,8 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 - **Configured:** `privacy@maybesitter.com`, an alias on the same existing owner
   Workspace mailbox. Admin Console confirmed the saved configuration on
-  2026-09-25. Delivery testing and owner monitoring confirmation are still pending;
+  2026-09-25. Internal delivery test passed on 2026-09-25 (Workspace: Delivered to Gmail
+  mailbox). Owner monitoring confirmation is still pending;
   this is the address a data subject writes to, so it must actually be read.
 - **Where it appears:**
   - `{en,ar,he}/privacy.html` — "Who we are", "Your rights", "Age", "Early-access sign-up"
