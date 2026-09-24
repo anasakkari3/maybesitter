@@ -41,12 +41,13 @@
  * they guard against — a person woken twice — is the failure people turn
  * notifications off over.
  *
- * **What neither layer covers, stated plainly:** a crash *between* the plan
- * write and the push. The claim has advanced, the document exists, and nobody
- * is told — and no replay exists that would notice, because `createIfAbsent`
- * makes a replay *safe* without making one *happen*. That is one lost morning
- * per crash, recovered by the user opening the app. UC-3.0b (#184) landed a
- * dedupe lock, not a queue, so this is still open.
+ * **What neither layer covered:** a crash *between* the plan write and the
+ * push, a push that threw, and a push quiet hours suppressed. The claim had
+ * advanced, the document existed, and nobody was told — `createIfAbsent` makes
+ * a replay *safe* without making one *happen*. #431 closes all three with one
+ * mechanism: the plan is created carrying a push-pending marker, and the same
+ * sweep re-arms a push-only retry from it (`planPushRetry.ts`, whose header
+ * has the exactly-once argument and the late-delivery cutoff).
  *
  * ── The account's clock, read at delivery rather than at the PUT ──
  *
@@ -117,6 +118,13 @@ import {
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
 import type { MessagingClient } from '../../push/pushService';
 import { planReadyPushSender } from './planReadyPush';
+import {
+  deliverPlanPush,
+  firstPushPending,
+  planPushDedupeKey,
+  runPlanPushRetries,
+  type PlanPushPending,
+} from './planPushRetry';
 import { composeCurrentUserState } from '../../userState/userStateService';
 
 /** Accounts examined per tick. The issue's batch size. */
@@ -126,8 +134,10 @@ export const DAILY_PLAN_BATCH = 50;
  * The notification a finished plan sends.
  *
  * `dedupeKey` is `plan:{date}`, so even a push layer that is retried at its own
- * level sends one. `planReadyMessage` turns this into UC-3.0b (#184)'s
- * `PushMessage`; `locale` is the plan's, so the text matches the explanation.
+ * level sends one. A push retry after a send that *threw* carries
+ * `plan:{date}:retry{n}` instead (#431, `planPushDedupeKey`).
+ * `planReadyMessage` turns this into UC-3.0b (#184)'s `PushMessage`;
+ * `locale` is the plan's, so the text matches the explanation.
  */
 export interface PlanReadyNotice {
   readonly uid: string;
@@ -591,12 +601,21 @@ async function storeFirstPlan(
   date: string,
   settings: Pick<PlanSettings, 'timezone'>,
   deps: DailyPlanDeps,
+  /**
+   * The push this plan will owe, for a caller that is about to send one
+   * (#431). Written in the same write as the plan, so a crash after it cannot
+   * leave a plan that nobody knows still needs its push. Asked for after the
+   * compose, so its lease starts when the plan is stored rather than when the
+   * compose began.
+   */
+  pushPending?: () => PlanPushPending,
 ): Promise<{ created: boolean; stored: StoredDailyPlan }> {
   const storage = storageOf(deps);
   const existing = await readStoredPlan(uid, date, storage);
   if (existing) return { created: false, stored: existing };
 
-  const document = await composeDailyPlan(uid, date, settings, 1, deps);
+  const composed = await composeDailyPlan(uid, date, settings, 1, deps);
+  const document: StoredDailyPlan = pushPending ? { ...composed, pushPending: pushPending() } : composed;
   const { created, stored } = await createIfAbsent(uid, document, storage);
   if (!created) return { created: false, stored };
 
@@ -676,41 +695,49 @@ export async function buildAndStoreDailyPlan(
   deps: DailyPlanDeps = {},
 ): Promise<DailyPlanBuild> {
   const storage = storageOf(deps);
-  const { created, stored } = await storeFirstPlan(claim.uid, claim.date, claim.settings, deps);
+  const clock = deps.now ?? (() => new Date());
+  const { created, stored } = await storeFirstPlan(
+    claim.uid,
+    claim.date,
+    claim.settings,
+    deps,
+    () => firstPushPending(clock()),
+  );
 
   if (!created) {
     return { uid: claim.uid, date: claim.date, created: false, pushed: false, stored };
   }
 
-  const sender = deps.push ?? planReadyPushSender({
-    storage,
-    ...(deps.messaging ? { messaging: deps.messaging } : {}),
-    now: deps.now ?? (() => new Date()),
-  });
   // The plan exists from here on, whatever the push does. A push that throws —
   // FCM's `internal-error`, an unreadable device registry — used to escape this
   // function, so the tick counted the account `failed` and not `built` while
   // `plans/{date}` sat in storage. It is logged, reported as not pushed, and
-  // does not fail the account. It is not retried: `nextRunAt` has moved, and
-  // a retry is the quiet-hours question (#426 review F5), not this one.
-  let pushed = false;
-  try {
-    const outcome = await sender({
+  // does not fail the account. And since #431 it is not lost either: the plan
+  // was stored owing attempt 1 of its push, `deliverPlanPush` records what this
+  // attempt came to, and the sweep retries push-only from there.
+  const { pushed } = await deliverPlanPush(
+    {
       uid: claim.uid,
-      kind: 'plan_ready',
-      dedupeKey: `plan:${stored.date}`,
-      data: { planDate: stored.date },
-      respectQuietHours: true,
-      urgency: 'normal',
+      date: stored.date,
+      attempt: 1,
+      dedupeKey: planPushDedupeKey(stored.date, 0),
       locale: stored.locale,
-    });
-    pushed = !outcome || outcome.status === 'sent';
-  } catch (error) {
-    // No uid, as with every other line this job logs.
-    console.error('[internal/jobs/daily-plan] push_failed', error instanceof Error ? error.name : 'unknown');
-  }
+    },
+    planPushSenderOf(deps),
+    clock(),
+    storage,
+  );
 
   return { uid: claim.uid, date: claim.date, created: true, pushed, stored };
+}
+
+/** The injected sender, or the production one bound to this build's storage. */
+function planPushSenderOf(deps: DailyPlanDeps): PlanPushSender {
+  return deps.push ?? planReadyPushSender({
+    storage: storageOf(deps),
+    ...(deps.messaging ? { messaging: deps.messaging } : {}),
+    now: deps.now ?? (() => new Date()),
+  });
 }
 
 export interface DailyPlanTickTotals {
@@ -726,6 +753,14 @@ export interface DailyPlanTickTotals {
    * had no reachable device, was in quiet hours, or has asked not to be pushed.
    */
   pushed: number;
+  /**
+   * Push-only retries of plans built earlier (#431): attempts this tick sent,
+   * the ones delivered, and pending pushes it gave up. Never counted in
+   * `built` or `pushed`, which stay about this tick's own builds.
+   */
+  retried: number;
+  retryPushed: number;
+  retryDropped: number;
   failed: number;
 }
 
@@ -770,7 +805,9 @@ export async function listDueAccounts(
  */
 export async function runDailyPlanTick(options: DailyPlanTickOptions = {}): Promise<DailyPlanTickTotals> {
   const now = (options.now ?? (() => new Date()))();
-  const totals: DailyPlanTickTotals = { due: 0, claimed: 0, built: 0, pushed: 0, failed: 0 };
+  const totals: DailyPlanTickTotals = {
+    due: 0, claimed: 0, built: 0, pushed: 0, retried: 0, retryPushed: 0, retryDropped: 0, failed: 0,
+  };
   const due = await listDueAccounts(now, options, options.limit ?? DAILY_PLAN_BATCH);
   totals.due = due.length;
 
@@ -797,6 +834,26 @@ export async function runDailyPlanTick(options: DailyPlanTickOptions = {}): Prom
       // identifier in a log line that a support conversation never needs.
       console.error('[internal/jobs/daily-plan] one account failed', error);
     }
+  }
+
+  // The push-only half (#431), after the builds so a plan this tick stored
+  // is never retried by the same tick: its lease has only just begun. Its own
+  // try/catch, so a sweep query Firestore refuses (the index is an owner
+  // deploy) costs the retries, never the mornings built above.
+  try {
+    const retries = await runPlanPushRetries(
+      now,
+      planPushSenderOf(options),
+      storageOf(options),
+      options.limit ?? DAILY_PLAN_BATCH,
+    );
+    totals.retried = retries.retried;
+    totals.retryPushed = retries.retryPushed;
+    totals.retryDropped = retries.retryDropped;
+    totals.failed += retries.failed;
+  } catch (error) {
+    totals.failed += 1;
+    console.error('[internal/jobs/daily-plan] the pending-push sweep failed', error instanceof Error ? error.name : 'unknown');
   }
   return totals;
 }

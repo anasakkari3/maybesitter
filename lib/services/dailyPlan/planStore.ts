@@ -34,6 +34,7 @@ import type { Plan, PlanDiff, PlanningConfig, PlanningConstraints } from '../../
 import type { ReplanPolicyReason, UserControlMode } from '../../../src/contracts/v1/replanContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { UserLocale } from '../../storage/userDocument';
+import type { PlanPushPending } from './planPushRetry';
 import { createHash, randomUUID } from 'node:crypto';
 
 export type DailyPlanStatus = 'proposed' | 'accepted' | 'edited' | 'dismissed';
@@ -153,6 +154,16 @@ export interface StoredDailyPlan {
    * and is dropped the next time a rejection is written.
    */
   readonly rejectedProposals?: readonly RejectedProposalMark[];
+  /**
+   * The morning push this plan still owes (#431). Server-only bookkeeping,
+   * never in the DTO; see `planPushRetry.ts`.
+   *
+   * Written in the same write that creates the plan, removed — absent, never
+   * null — by a confirmed send or a deliberate drop. Carried by every
+   * `{ ...current }` rewrite, so an edit or an automatic replan keeps it; a
+   * user's own rebuild drops it, and so should: they are looking at the plan.
+   */
+  readonly pushPending?: PlanPushPending;
 }
 
 /**
