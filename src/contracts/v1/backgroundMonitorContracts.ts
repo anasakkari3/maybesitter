@@ -27,8 +27,10 @@
  * Every string below is therefore either an identifier this system minted, an
  * instant, or a value from a closed vocabulary declared in this file or in
  * `watcherContracts`. `label` and `purpose` are **codes, not sentences**: the
- * client localizes them. A human-readable name for a monitor would need a
- * title on the watcher, which `WatcherDefinition` does not have.
+ * client localizes them. The one exception is `title`: the name the user gave
+ * the watcher (`WatcherDefinition.label`, #527), their own words shown back to
+ * them. It is never provider-authored, and it is a separate field so that
+ * `label` stays a code the client can always localize.
  */
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';
 
@@ -89,6 +91,8 @@ export interface BackgroundMonitorView {
    * vocabularies. Not a title — see the file note.
    */
   readonly label: string;
+  /** The name the user gave the watcher, or null when they gave none. Rendered verbatim. */
+  readonly title: string | null;
   readonly status: BackgroundMonitorStatus;
   readonly purpose: BackgroundMonitorPurpose;
   /**
@@ -260,7 +264,10 @@ export interface BackgroundMonitorHistoryItem {
   readonly itemId: string;
   readonly monitorId: string;
   readonly watcherId: string;
+  /** The same `<provider>:<signalKind>` code as `BackgroundMonitorView.label`. */
   readonly label: string;
+  /** The user's name for the watcher, as on `BackgroundMonitorView.title`. */
+  readonly title: string | null;
   readonly occurredAt: string;
   readonly kind: BackgroundMonitorHistoryKind;
   readonly status: BackgroundMonitorStatus;
