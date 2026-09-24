@@ -14,7 +14,12 @@ import type { PlanItemChange, PlanningItem, TimeInterval, UnscheduledItem } from
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { withinMaxShift } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
-import { effectiveSchedule, planUnderKeptRemovals } from './planActions';
+import {
+  effectiveSchedule,
+  offerCollidesWithFixedTime,
+  planUnderKeptRemovals,
+  type FixedTimeInForce,
+} from './planActions';
 import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from './planStore';
 
 export interface PlanItemDto {
@@ -276,14 +281,24 @@ function proposalChangeDto(change: PlanItemChange, titles: ReadonlyMap<string, s
  * `now` is the moment the reader is asking at, because an offer expires with
  * its day (#611 guards): a patch of yesterday's plan is withheld here exactly
  * as `acceptPlanProposal` refuses it.
+ *
+ * `taken` is the time taken on the day now (`fixedTimeForOffer`). An offer
+ * that would put a task on a meeting or a pinned commitment is withheld too,
+ * by the check `acceptPlanProposal` refuses on (`offerCollidesWithFixedTime`).
+ * Shown, it would be a button that fails until the tick replaces the offer,
+ * and the tick replaces it only when a change row for that time arrives. The
+ * reader sees the plan in force instead; the offer stays stored, and the tick
+ * still supersedes it.
  */
 export function pendingProposalToDto(
   stored: StoredDailyPlan,
   titles: ReadonlyMap<string, string>,
   now: Date,
+  taken: readonly FixedTimeInForce[],
 ): PendingPlanProposalDto | null {
   const proposal = pendingProposalOf(stored, now);
   if (proposal === null) return null;
+  if (offerCollidesWithFixedTime(stored, proposal, taken)) return null;
   // The day the patch would produce, as accepting it installs it: the
   // person's removals stay off it (#610). `changes` is the diff of that same
   // visible day, so the two agree on which items the offer is about.

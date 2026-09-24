@@ -3,6 +3,7 @@ import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../lib/services/dailyPlan/planSettings';
 import { readStoredPlan } from '../../../../../../lib/services/dailyPlan/planStore';
 import { pendingProposalToDto, planToDto } from '../../../../../../lib/services/dailyPlan/planDto';
+import { fixedTimeForOffer } from '../../../../../../lib/services/dailyPlan/planActions';
 import { titlesOf } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
 import { loadDomainState } from '../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../lib/storage';
@@ -42,10 +43,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   if (!stored) return mobileError('no plan for that date', 404);
 
   const state = await loadDomainState(getStorage(), user.uid);
-  const titles = titlesOf(Object.values(state.commitments));
+  const commitments = Object.values(state.commitments);
+  const titles = titlesOf(commitments);
+  // The time taken now, read only when there is a live offer to check against
+  // it (#611 guards): an offer that would land on it is withheld.
+  const now = new Date();
+  const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
     plan: planToDto(stored, titles),
-    proposal: pendingProposalToDto(stored, titles, new Date()),
+    proposal: pendingProposalToDto(stored, titles, now, taken),
   });
 }

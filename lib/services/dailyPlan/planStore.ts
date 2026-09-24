@@ -33,6 +33,7 @@ import { PLANS, PLAN_EVENTS } from '../../storage/paths';
 import type { Plan, PlanDiff, PlanningConfig, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
 import type { ReplanPolicyReason, UserControlMode } from '../../../src/contracts/v1/replanContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
+import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
 import type { UserLocale } from '../../storage/userDocument';
 import type { PlanPushPending } from './planPushRetry';
 import { createHash, randomUUID } from 'node:crypto';
@@ -259,7 +260,37 @@ export interface StoredPlanProposal {
    * the whole batch the replan request subsumed.
    */
   readonly causeChangeIds: readonly string[];
+  /**
+   * What each cause was about, so it can be re-read after its change row is
+   * drained (#611 guards): the replan tick re-resolves these to decide whether
+   * an old cause still blocks something a superseding offer moves (else it is
+   * not carried over), and whether any cause still collides with the visible
+   * day (else the offer is withdrawn).
+   *
+   * Ids only, as `PlanningStateChange` carries them: a change id, a source
+   * kind and an entity id. Absent on offers stored before this field existed,
+   * which the tick then treats the way it did before.
+   */
+  readonly causeRefs?: readonly ProposalCauseRef[];
 }
+
+/** One cause of an offer, as the tick needs to re-read it. Ids only. */
+export interface ProposalCauseRef {
+  readonly changeId: string;
+  readonly source: PlanningStateChange['source'];
+  readonly entityId: string;
+}
+
+/**
+ * The most change ids one offer names as its causes (#611 guards).
+ *
+ * A backstop, not the rule. The rule is that a run adds causes only for
+ * changes that contradicted a placement, that a kept offer adds none, and that
+ * a carried cause about an entity already named is not named twice. The cap
+ * is sized for one bulk re-sync's burst (every row of one burst is named, as
+ * #527 requires), and bounds the document if everything else fails.
+ */
+export const MAX_PROPOSAL_CAUSES = 50;
 
 /**
  * The instant an unanswered proposal on this plan stops being an offer: the

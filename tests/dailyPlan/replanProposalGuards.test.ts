@@ -27,6 +27,7 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
+import ts from 'typescript';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -34,7 +35,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
 import { PLANNING_STATE_CHANGES, PUSH_LOG, docIdForKey, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor } from '../support/fakeAuth.ts';
-import { persistParticipantState } from '../../lib/services/mobile/participantState.ts';
+import { loadDomainState, persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import {
   buildAndStoreDailyPlan,
@@ -42,6 +43,7 @@ import {
   savePlanSettings,
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import {
+  MAX_PROPOSAL_CAUSES,
   listPlanEvents,
   planPath,
   proposalExpiresAt,
@@ -331,26 +333,51 @@ test('1: no production code chooses a control mode', () => {
     for (const entry of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
       const relative = join(dir, entry.name);
       if (entry.isDirectory()) walk(relative);
-      else if (/\.tsx?$/.test(entry.name)) {
-        // Code only: a comment that names the seam chooses nothing.
-        const code = readFileSync(join(ROOT, relative), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-        sources.push({ file: relative, text: code });
-      }
+      else if (/\.tsx?$/.test(entry.name)) sources.push({ file: relative, text: readFileSync(join(ROOT, relative), 'utf8') });
     }
   };
   walk('lib');
   walk('src');
-  // A mode reaches the policy only through `policyConfig`, and the only
-  // files that name it are the two that carry it through: the pipeline that
-  // falls back to the default, and the service that forwards a caller's.
+
+  // Every call of the tick or of the per-account run, found in the syntax
+  // tree rather than by searching text, so a call spelled across lines, with
+  // a spread or through a wrapper still counts.
+  const TARGETS = new Set(['runContinuousReplanTick', 'processStateChangesForUser']);
+  const calls: Array<{ file: string; callee: string; args: readonly ts.Expression[]; inside: string | null; node: ts.CallExpression; source: ts.SourceFile }> = [];
+  for (const { file, text } of sources) {
+    const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, file.endsWith('x') ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const visit = (node: ts.Node, inside: string | null): void => {
+      const name = ts.isFunctionDeclaration(node) && node.name ? node.name.text : inside;
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && TARGETS.has(node.expression.text)) {
+        calls.push({ file, callee: node.expression.text, args: node.arguments, inside: name, node, source });
+      }
+      ts.forEachChild(node, (child) => visit(child, name));
+    };
+    visit(source, null);
+  }
+
+  // Outside the service, exactly one caller: the scheduled route, which
+  // passes no options object at all.
+  const service = join('lib', 'services', 'dailyPlan', 'continuousReplanService.ts');
+  const outside = calls.filter((call) => call.file !== service);
   assert.deepEqual(
-    sources.filter(({ text }) => /\bpolicyConfig\b/.test(text)).map(({ file }) => file).sort(),
-    [join('lib', 'planning', 'replan', 'continuousReplanPipeline.ts'), join('lib', 'services', 'dailyPlan', 'continuousReplanService.ts')],
+    outside.map((call) => [call.file, call.callee, call.args.length]),
+    [[join('lib', 'jobs', 'internalJobs.ts'), 'runContinuousReplanTick', 0]],
   );
-  // And the scheduled route calls the tick bare.
-  const jobs = readFileSync(join(ROOT, 'lib', 'jobs', 'internalJobs.ts'), 'utf8');
-  assert.match(jobs, /runContinuousReplanTick\(\)/);
-  assert.equal(jobs.split('runContinuousReplanTick(').length - 1, 1, 'one call, and it is the bare one');
+  // Inside it, the tick is the one caller of the per-account run, and the
+  // only mode it can pass on is the one its own caller gave it.
+  const inside = calls.filter((call) => call.file === service);
+  assert.deepEqual(inside.map((call) => [call.callee, call.inside]), [['processStateChangesForUser', 'runContinuousReplanTick']]);
+  const forwarded = inside[0]!.node.getText(inside[0]!.source);
+  assert.doesNotMatch(forwarded, /userControlMode|automatic_time_only|silent_auto/);
+  assert.match(forwarded, /policyConfig: options\.policyConfig/);
+
+  // And no code outside the pipeline and the service names the seam at all.
+  const code = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  assert.deepEqual(
+    sources.filter(({ text }) => /\bpolicyConfig\b/.test(code(text))).map(({ file }) => file).sort(),
+    [join('lib', 'planning', 'replan', 'continuousReplanPipeline.ts'), service],
+  );
 });
 
 /* ══ 2. Compare-and-set against the calendar ═══════════════════════ */
@@ -510,30 +537,115 @@ test('2: a meeting that arrives after the acceptance is caught by the next tick 
   });
 });
 
-test('2: an offer whose meeting was cancelled is withdrawn, and the withdrawal is not a rejection', async () => {
+/*
+ * Withdrawal is decided by the conflict, not by the re-solve. After the day's
+ * first slot has started, every solve moves something (work is not placed in
+ * the past, #500), so waiting for a re-solve that changes nothing would keep
+ * an offer about a deleted meeting alive all day. So each case runs the tick
+ * some minutes after the offer was solved.
+ */
+for (const minutes of [5, 20, 45]) {
+  test(`2: an offer whose meeting was deleted is withdrawn ${minutes} minutes on, and the withdrawal is not a rejection`, async () => {
+    await withStorage(async (storage) => {
+      const uid = `user_guard_withdrawn_${minutes}`;
+      const before = await seedAccount(storage, uid);
+      await offerForMeeting(storage, uid);
+      const proposedEntries = typesOf(await listPlanEvents(uid, storage), 'plan_proposed');
+
+      // The meeting is deleted: its block is gone and a row says so.
+      await syncCalendar(storage, uid, []);
+      await storeChange(storage, uid, 'chg-meeting-gone', 'busy-meeting', minutesAfterMorning(minutes));
+      const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(minutes) });
+      assert.equal(totals.withdrawn, 1, JSON.stringify(totals));
+      assert.equal(totals.proposed, 0, 'and no drift-only offer takes its place');
+
+      const after = await readStoredPlan(uid, DATE, storage);
+      assert.equal(after!.proposal ?? null, null, 'an offer to move tasks off a meeting that no longer exists must go');
+      assert.equal(after!.generation, before.generation);
+      assert.deepEqual(after!.plan, before.plan);
+      assert.equal(after!.rejectedProposals, undefined, 'the person declined nothing');
+      const events = await listPlanEvents(uid, storage);
+      assert.equal(typesOf(events, 'plan_proposal_rejected'), 0);
+      assert.equal(typesOf(events, 'plan_proposed'), proposedEntries, 'and nothing new was offered');
+      assert.equal(await pendingChanges(storage, uid), 0);
+    });
+  });
+}
+
+test('2: an offer whose meeting still blocks the day is not withdrawn by an unrelated change', async () => {
   await withStorage(async (storage) => {
-    const uid = 'user_guard_withdrawn';
-    const before = await seedAccount(storage, uid);
+    const uid = 'user_guard_not_withdrawn';
+    await seedAccount(storage, uid);
     await offerForMeeting(storage, uid);
-    const proposedEntries = typesOf(await listPlanEvents(uid, storage), 'plan_proposed');
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-evening', interval: EVENING }]);
+    await storeChange(storage, uid, 'chg-evening', 'busy-evening', minutesAfterMorning(20));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(20) });
+    assert.equal(totals.withdrawn, 0, JSON.stringify(totals));
+    assert.ok((await readStoredPlan(uid, DATE, storage))!.proposal, 'the first task still sits under the meeting');
+  });
+});
 
-    // The meeting is deleted: its block is gone and a row says so. The tick
-    // runs at the same moment, so the re-solve is not also moved by time
-    // having passed (a later solve starts the day later, #500, and would
-    // replace the offer rather than withdraw it).
-    await syncCalendar(storage, uid, []);
-    await storeChange(storage, uid, 'chg-meeting-gone', 'busy-meeting');
-    await runContinuousReplanTick({ storage, now: MORNING });
+/*
+ * No calendar source writes change rows yet, so a meeting can land on an
+ * offer with nothing to tell the tick. The plan GET withholds such an offer
+ * by the check accept refuses on, so the person is never shown a button that
+ * fails until midnight; the offer stays stored for the tick to replace.
+ */
+test('2: the plan GET withholds an offer a meeting has landed on, and shows one nothing sits on', async () => {
+  await withStorage(async (storage) => {
+    const uid = uidFor('GuardGetCollision');
+    const auth = installFakeAuth();
+    try {
+      await seedAccount(storage, uid);
+      const offer = await offerForMeeting(storage, uid);
+      const at = minutesAfterMorning(10).toISOString();
 
-    const after = await readStoredPlan(uid, DATE, storage);
-    assert.equal(after!.proposal ?? null, null, 'an offer to move tasks off a meeting that no longer exists must go');
-    assert.equal(after!.generation, before.generation);
-    assert.deepEqual(after!.plan, before.plan);
-    assert.equal(after!.rejectedProposals, undefined, 'the person declined nothing');
-    const events = await listPlanEvents(uid, storage);
-    assert.equal(typesOf(events, 'plan_proposal_rejected'), 0);
-    assert.equal(typesOf(events, 'plan_proposed'), proposedEntries, 'and nothing new was offered');
-    assert.equal(await pendingChanges(storage, uid), 0);
+      await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-evening', interval: EVENING }]);
+      const clear = await getPlan(uid, at);
+      assert.equal(clear.body.proposal?.proposalId, offer.proposalId, 'a meeting the offer moves nothing onto hides nothing');
+
+      // No row, no tick: only the calendar changed.
+      await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-on-offer', interval: ON_OFFER }]);
+      const hidden = await getPlan(uid, at);
+      assert.equal(hidden.status, 200);
+      assert.equal(hidden.body.proposal, null, 'an offer that would put a task on a meeting is not shown');
+      assert.equal((await readStoredPlan(uid, DATE, storage))!.proposal?.proposalId, offer.proposalId, 'it stays stored for the tick to replace');
+    } finally {
+      auth.restore();
+    }
+  });
+});
+
+/** Adds a commitment pinned to `startsAt`, confirmed, after the plan was built. */
+async function pinCommitment(storage: StorageAdapter, uid: string, id: string, startsAt: string): Promise<void> {
+  let state = await loadDomainState(storage, uid);
+  state = applyDomainCommand(state, {
+    type: 'CreateDraft',
+    now: MORNING.toISOString(),
+    commitment: { id, kind: 'task', title: id, timeSpec: { kind: 'scheduled_event', dueAt: startsAt, endAt: null, remindAt: startsAt, allDay: false, timezone: TZ } },
+    draftStatus: 'pending_confirmation',
+  }).newState;
+  state = applyDomainCommand(state, { type: 'ConfirmCommitment', commitmentId: id, now: MORNING.toISOString(), reminders: [] }).newState;
+  await persistParticipantState(uid, state);
+}
+
+test('2: a commitment pinned onto the offer after it was solved refuses the accept and hides the offer', async () => {
+  await withStorage(async (storage) => {
+    const uid = uidFor('GuardPinned');
+    const auth = installFakeAuth();
+    try {
+      await seedAccount(storage, uid);
+      await offerForMeeting(storage, uid);
+      // An appointment at 07:30, where the offer puts c. Not a calendar block.
+      await pinCommitment(storage, uid, 'cmt_pinned', ON_OFFER.startsAt);
+      const before = await readStoredPlan(uid, DATE, storage);
+
+      assert.equal(await refusalOf(acceptPlanProposal(uid, DATE, { storage, now: () => minutesAfterMorning(10) })), 'stale_proposal');
+      assert.deepEqual(await readStoredPlan(uid, DATE, storage), before, 'a refusal writes nothing');
+      assert.equal((await getPlan(uid, minutesAfterMorning(10).toISOString())).body.proposal, null);
+    } finally {
+      auth.restore();
+    }
   });
 });
 
@@ -574,6 +686,34 @@ function racingAfterPlanRead(storage: StorageAdapter, uid: string, competing: ()
   };
   return { storage: racing, fired: () => fired };
 }
+
+test('2: declining names the offer on screen, and a newer one is neither cleared nor remembered as declined', async () => {
+  await withStorage(async (storage) => {
+    const uid = uidFor('GuardRejectProposalId');
+    const auth = installFakeAuth();
+    try {
+      await seedAccount(storage, uid);
+      const offer = await offerForMeeting(storage, uid);
+      const at = minutesAfterMorning(10).toISOString();
+      const before = await readStoredPlan(uid, DATE, storage);
+      const ledger = await listPlanEvents(uid, storage);
+
+      const stale = await act(uid, at, { action: 'reject_proposal', proposalId: 'prp_the_one_on_screen_before' });
+      assert.equal(stale.status, 422);
+      assert.equal(stale.body.reason, 'stale_proposal');
+      assert.deepEqual(await readStoredPlan(uid, DATE, storage), before, 'the offer the person did not see stays, unmarked');
+      assert.deepEqual(await listPlanEvents(uid, storage), ledger, 'and no decision is recorded');
+
+      const named = await act(uid, at, { action: 'reject_proposal', proposalId: offer.proposalId });
+      assert.equal(named.status, 200, JSON.stringify(named.body));
+      const after = await readStoredPlan(uid, DATE, storage);
+      assert.equal(after!.proposal ?? null, null);
+      assert.equal(after!.rejectedProposals?.length, 1);
+    } finally {
+      auth.restore();
+    }
+  });
+});
 
 /*
  * The offer is part of the state a run judged against. Here the run re-solves
@@ -636,6 +776,123 @@ test('3: an offer that replaces an unanswered one names the replaced offer\'s ca
     const decision = (await listPlanEvents(uid, storage)).find((event) => event.type === 'plan_proposal_accepted');
     assert.deepEqual(decision?.causeChangeIds, ['chg-late', 'chg-meeting'], 'and so does the person\'s answer');
     assert.deepEqual((await readStoredPlan(uid, DATE, storage))!.causeChangeIds, ['chg-late', 'chg-meeting']);
+  });
+});
+
+test('3: two meetings that both still block what the offer moves keep both causes through a later re-solve', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_causes_both';
+    await seedAccount(storage, uid);
+    await offerForMeeting(storage, uid);
+    await syncCalendar(storage, uid, [
+      { blockId: 'busy-meeting', interval: MEETING },
+      { blockId: 'busy-late', interval: ON_LAST },
+    ]);
+    await storeChange(storage, uid, 'chg-late', 'busy-late', minutesAfterMorning(5));
+    await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
+    const second = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.deepEqual(second.causeChangeIds, ['chg-late', 'chg-meeting']);
+
+    // Forty minutes on, the first slot is in the past and an unrelated row
+    // makes the tick re-solve: the new placement differs, and both meetings
+    // still sit on the path of a task it moves.
+    await syncCalendar(storage, uid, [
+      { blockId: 'busy-meeting', interval: MEETING },
+      { blockId: 'busy-late', interval: ON_LAST },
+      { blockId: 'busy-evening', interval: EVENING },
+    ]);
+    await storeChange(storage, uid, 'chg-evening', 'busy-evening', minutesAfterMorning(40));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(40) });
+    const third = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.equal(totals.proposed, 1, `the premise: a new offer replaced the old one: ${JSON.stringify(totals)}`);
+    assert.notEqual(third.proposalId, second.proposalId);
+    assert.deepEqual(third.causeChangeIds, ['chg-late', 'chg-meeting']);
+    assert.deepEqual(third.causeRefs?.map((ref) => ref.entityId), ['busy-late', 'busy-meeting']);
+  });
+});
+
+test('3: an unrelated meeting is not named as a cause of the offer, nor of the plan it installs', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_causes_unrelated';
+    await seedAccount(storage, uid);
+    await offerForMeeting(storage, uid);
+
+    // A meeting at 16:00, which overlaps nothing the day or the offer places.
+    // Forty minutes on, so the re-solve drifts (#500) and a new offer is
+    // stored: the case where this run's rows could be named.
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-evening', interval: EVENING }]);
+    await storeChange(storage, uid, 'chg-evening', 'busy-evening', minutesAfterMorning(40));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(40) });
+    assert.equal(totals.proposed, 1, `the premise: a new offer replaced the old one: ${JSON.stringify(totals)}`);
+
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.deepEqual(offer.causeChangeIds, ['chg-meeting'], 'the evening meeting moved nothing');
+    await acceptPlanProposal(uid, DATE, { storage, now: () => minutesAfterMorning(41) });
+    assert.deepEqual((await readStoredPlan(uid, DATE, storage))!.causeChangeIds, ['chg-meeting']);
+    const decision = (await listPlanEvents(uid, storage)).find((event) => event.type === 'plan_proposal_accepted');
+    assert.deepEqual(decision?.causeChangeIds, ['chg-meeting']);
+  });
+});
+
+test('3: a cause whose meeting was deleted is not carried into the next offer', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_causes_dropped';
+    await seedAccount(storage, uid);
+    await offerForMeeting(storage, uid);
+    await syncCalendar(storage, uid, [
+      { blockId: 'busy-meeting', interval: MEETING },
+      { blockId: 'busy-late', interval: ON_LAST },
+    ]);
+    await storeChange(storage, uid, 'chg-late', 'busy-late', minutesAfterMorning(5));
+    await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
+    assert.deepEqual((await readStoredPlan(uid, DATE, storage))!.proposal!.causeChangeIds, ['chg-late', 'chg-meeting']);
+
+    // The second meeting is deleted. The first still blocks a, so the offer
+    // stands and is re-solved; the deleted one must not be named any more.
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }]);
+    await storeChange(storage, uid, 'chg-late-gone', 'busy-late', minutesAfterMorning(40));
+    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(40) });
+    assert.equal(totals.withdrawn, 0, JSON.stringify(totals));
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.deepEqual(offer.causeChangeIds, ['chg-meeting']);
+    assert.deepEqual(offer.causeRefs, [{ changeId: 'chg-meeting', source: 'calendar', entityId: 'busy-meeting' }]);
+  });
+});
+
+test('3: an offer names at most MAX_PROPOSAL_CAUSES changes', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_causes_cap';
+    await seedAccount(storage, uid);
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }]);
+    for (let index = 0; index < MAX_PROPOSAL_CAUSES + 10; index += 1) {
+      await storeChange(storage, uid, `chg-burst-${String(index).padStart(3, '0')}`, 'busy-meeting', new Date(MORNING.getTime() + index * 500));
+    }
+    await runContinuousReplanTick({ storage, now: minutesAfterMorning(1) });
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.equal(offer.causeChangeIds.length, MAX_PROPOSAL_CAUSES);
+    assert.equal(offer.causeRefs?.length, MAX_PROPOSAL_CAUSES);
+  });
+});
+
+test('3: a meeting re-announced on every tick does not pile up causes', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_guard_causes_resync';
+    await seedAccount(storage, uid);
+    await offerForMeeting(storage, uid);
+    // Eight ticks, five minutes apart, each with one more row about the same
+    // meeting. Past 06:30 the re-solve also drifts (#500) and replaces the
+    // offer, so both the kept and the superseded path are walked.
+    const outcomes = { kept: 0, proposed: 0 };
+    for (let tick = 1; tick <= 8; tick += 1) {
+      await storeChange(storage, uid, `chg-resync-${tick}`, 'busy-meeting', minutesAfterMorning(5 * tick));
+      const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(5 * tick) });
+      outcomes.kept += totals.kept;
+      outcomes.proposed += totals.proposed;
+      const offer = (await readStoredPlan(uid, DATE, storage))!.proposal;
+      assert.ok(offer, `tick ${tick}: the first task is still under the meeting, so an offer stands`);
+      assert.deepEqual(offer.causeChangeIds, ['chg-meeting'], `tick ${tick}: one meeting, one cause`);
+    }
+    assert.ok(outcomes.kept > 0 && outcomes.proposed > 0, `the premise: both paths were walked: ${JSON.stringify(outcomes)}`);
   });
 });
 
@@ -765,12 +1022,11 @@ test('5: a re-sync of the same meeting in a later tick keeps the offer on the ta
     await storeChange(storage, uid, 'chg-meeting', 'busy-meeting', minutesAfterMorning(5));
     const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
     assert.equal(totals.replanRequired, 1, `the premise: the tick solved again: ${JSON.stringify(totals)}`);
+    assert.equal(totals.kept, 1, 'counted as kept');
+    assert.equal(totals.proposed, 0, 'not as a new offer');
 
     const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
-    assert.equal(offer.proposalId, first.proposalId, 'the same question keeps its identity');
-    assert.equal(offer.proposedAt, first.proposedAt);
-    assert.deepEqual(offer.plan, first.plan);
-    assert.ok(first.causeChangeIds.every((id) => offer.causeChangeIds.includes(id)));
+    assert.deepEqual(offer, first, 'the same question, kept exactly as it was: id, time, placement and causes');
     const events = await listPlanEvents(uid, storage);
     assert.equal(events.filter((event) => event.type === 'plan_proposed' && event.proposalId !== undefined).length, 1, 'one question, one entry');
     assert.equal(await pendingChanges(storage, uid), 0);

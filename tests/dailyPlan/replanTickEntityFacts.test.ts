@@ -167,7 +167,7 @@ function outcomePlan(stored: StoredDailyPlan): Plan | null {
   return stored.generation > 1 ? stored.plan : null;
 }
 
-const ZERO = { examined: 0, replanRequired: 0, autoApplied: 0, proposed: 0, stale: 0, noEffect: 0, failed: 0, skipped: 0 };
+const ZERO = { examined: 0, replanRequired: 0, autoApplied: 0, proposed: 0, kept: 0, withdrawn: 0, stale: 0, noEffect: 0, failed: 0, skipped: 0 };
 
 /**
  * The mode that was the default until #611's council decision, passed
@@ -1026,7 +1026,7 @@ test('#610: the proposal the client is shown leaves out tasks the person removed
     const uid = 'user_610_dto_removed';
     await proposeOverRemoval(storage, uid);
 
-    const dto = pendingProposalToDto((await readStoredPlan(uid, DATE, storage))!, new Map(), MORNING);
+    const dto = pendingProposalToDto((await readStoredPlan(uid, DATE, storage))!, new Map(), MORNING, []);
     assert.ok(dto);
     assert.ok(!dto.scheduled.some((item) => item.itemId === 'cmt_c'), 'a removed task must not be shown as proposed');
     assert.ok(!dto.unscheduled.some((item) => item.itemId === 'cmt_c'));

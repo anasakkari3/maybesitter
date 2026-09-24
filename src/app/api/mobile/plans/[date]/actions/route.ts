@@ -9,6 +9,7 @@ import {
   acceptPlanProposal,
   dismissPlan,
   editPlan,
+  fixedTimeForOffer,
   parseEdit,
   parseProtection,
   rejectPlanProposal,
@@ -50,7 +51,9 @@ export const dynamic = 'force-dynamic';
  * Since the #611 guards, `stale_proposal` on accept also covers an offer
  * whose day is over, one a meeting has landed on since it was solved, and one
  * replaced by a newer offer than the `proposalId` the client names. The body
- * may carry that `proposalId`; without it, whatever is pending is accepted.
+ * of either answer may carry that `proposalId`; without it, whatever is
+ * pending is answered. A declined offer the client did not name is refused as
+ * `stale_proposal` too, and is not remembered as declined.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ date: string }> }) {
   let user;
@@ -78,12 +81,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
     else if (body.action === 'protect') {
       const outcome = await setBlockProtection(user.uid, date, parseProtection(body));
       stored = outcome?.stored ?? null;
-    } else if (body.action === 'accept_proposal') {
+    } else if (body.action === 'accept_proposal' || body.action === 'reject_proposal') {
       // The offer the client was shown, when it names one (#611 guards): a
-      // proposal replaced since is refused rather than installed unseen.
-      stored = await acceptPlanProposal(user.uid, date, typeof body.proposalId === 'string' ? { proposalId: body.proposalId } : {});
+      // proposal replaced since is refused, never installed or remembered as
+      // declined unseen.
+      const shown = typeof body.proposalId === 'string' ? { proposalId: body.proposalId } : {};
+      stored = body.action === 'accept_proposal'
+        ? await acceptPlanProposal(user.uid, date, shown)
+        : await rejectPlanProposal(user.uid, date, shown);
     }
-    else if (body.action === 'reject_proposal') stored = await rejectPlanProposal(user.uid, date);
     else return mobileError(`Unknown plan action: ${String(body.action)}`);
   } catch (error) {
     if (error instanceof PlanEditRejected) {
@@ -109,13 +115,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
 
   if (!stored) return mobileError('no plan for that date', 404);
   const state = await loadDomainState(getStorage(), user.uid);
-  const titles = titlesOf(Object.values(state.commitments));
+  const commitments = Object.values(state.commitments);
+  const titles = titlesOf(commitments);
+  // The time taken now, read only when there is a live offer to check against
+  // it (#611 guards): an offer that would land on it is withheld.
+  const now = new Date();
+  const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
     plan: planToDto(stored, titles),
     // The same key GET answers with, on every action: a client that has just
     // accepted or rejected a patch learns from its own response that the offer
     // is gone, instead of re-fetching to find out.
-    proposal: pendingProposalToDto(stored, titles, new Date()),
+    proposal: pendingProposalToDto(stored, titles, now, taken),
   });
 }

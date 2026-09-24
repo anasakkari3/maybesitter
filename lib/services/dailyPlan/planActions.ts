@@ -63,6 +63,7 @@ import {
   proposalFingerprint,
   proposalHasExpired,
   readStoredPlan,
+  type StoredPlanProposal,
   replaceStoredPlan,
   type DailyPlanStatus,
   type PlanEdits,
@@ -72,7 +73,9 @@ import {
 } from './planStore';
 import { MAX_PLAN_GENERATIONS_PER_DAY } from './planSettings';
 import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
-import { dayHorizon } from './buildDailyPlan';
+import { buildDailyPlanInput, dayHorizon } from './buildDailyPlan';
+import { loadDomainState } from '../mobile/participantState';
+import type { Commitment } from '../../../src/domain/stateMachine';
 import { composeDailyPlan, type DailyPlanDeps } from './dailyPlanService';
 
 export type PlanEditReason =
@@ -677,10 +680,10 @@ export function planUnderKeptRemovals(plan: Plan, removals: readonly string[]): 
  *
  * Since the #611 guards `stale_proposal` also covers three more cases, each
  * refused without writing anything and without recording a rejection: the
- * offer's day is over (`proposalHasExpired`); a meeting now sits on one of
- * its placements (`patchCollidesWithBusyTime`, the council's
- * compare-and-set against the calendar); and the caller named an offer that a
- * newer one has replaced (`proposalId`).
+ * offer's day is over (`proposalHasExpired`); a meeting or a pinned
+ * commitment now sits on one of its placements (`offerCollidesWithFixedTime`,
+ * the council's compare-and-set against the calendar); and the caller named an
+ * offer that a newer one has replaced (`proposalId`).
  *
  * ── The guard is the stronger one, and it is the write's own ─────
  *
@@ -753,49 +756,111 @@ export function planUnderKeptRemovals(plan: Plan, removals: readonly string[]): 
  *    (`planActivity.ts`), and #527's history does not read it, so neither
  *    surface counts the acceptance twice.
  */
-export interface AcceptPlanProposalOptions extends PlanActionOptions {
+export interface ProposalAnswerOptions extends PlanActionOptions {
   /**
    * The offer the person was shown, when the client names it (#611 guards).
    *
    * A newer proposal replaces an unanswered one (supersede, don't stack), so
    * the offer in the document when the tap arrives may not be the offer that
-   * was on screen. Named, a different one is refused as `stale_proposal`
-   * rather than installed unseen. Optional: a client that does not send it
-   * accepts whatever is pending, as before.
+   * was on screen. Named, a different one is refused as `stale_proposal`:
+   * never installed unseen, and never remembered as declined when the person
+   * never saw it. Optional: a client that does not send it answers whatever is
+   * pending, as before.
    */
   readonly proposalId?: string;
 }
 
+/** One blocking interval of the day as the planner would read it now. */
+export interface FixedTimeInForce {
+  readonly interval: TimeInterval;
+  /** The pinned commitment it comes from; null for calendar busy time. */
+  readonly sourceCommitmentId: string | null;
+}
+
 /**
- * Whether any placement of the patch sits on busy time in force now (#611
+ * The time the planner would treat as taken on this plan's day, now (#611
  * guards, the council's "compare-and-set on accept").
  *
- * The patch was solved against the calendar as it stood then, and a meeting
- * that has landed on one of its placements since is, until the replan tick
- * next runs, visible only here. So the patch's day — as accepting it would
- * install it, the person's removals kept off it — is checked against the busy
- * time the planner itself reads (`readBusyBlocksForPlanning`: the same
- * all-day rule, the same blocking intervals). Reserved intervals, as the
- * impact evaluator compares them.
+ * Through the planner's own fixed-time projection, `buildDailyPlanInput`'s
+ * `fixedEvents`: calendar busy blocks (`readBusyBlocksForPlanning`, with the
+ * all-day rule) and pinned commitments (`scheduled_event`, `postponedUntil`,
+ * anything else `fixedStartOf` pins, with `fixedEndFor`'s length). Only that
+ * projection is run, not the whole request builder: the routine, the focus
+ * hint and the plan-layer projection shape where floating work may go, and
+ * none of them adds taken time.
+ *
+ * `commitments` may be passed by a caller that has already loaded them.
+ */
+export async function fixedTimeInForce(
+  uid: string,
+  stored: Pick<StoredDailyPlan, 'date' | 'timezone'>,
+  now: string,
+  deps: { readonly storage?: StorageAdapter; readonly commitments?: readonly Commitment[] } = {},
+): Promise<FixedTimeInForce[]> {
+  const storage = deps.storage ?? getStorage();
+  const commitments = deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments);
+  const busyBlocks = await readBusyBlocksForPlanning(uid, dayHorizon(stored.date, stored.timezone), { storage });
+  const { constraints } = buildDailyPlanInput({
+    uid,
+    date: stored.date,
+    timezone: stored.timezone,
+    commitments,
+    busyBlocks,
+    profile: null,
+    focusHint: null,
+    builtAt: now,
+  });
+  return constraints.fixedEvents
+    .filter((event) => event.blocking)
+    .map((event) => ({ interval: event.interval, sourceCommitmentId: event.sourceCommitmentId }));
+}
+
+/**
+ * The same, for a reader that only needs it when there is a live offer to
+ * check: nothing is read otherwise.
+ */
+export async function fixedTimeForOffer(
+  uid: string,
+  stored: StoredDailyPlan,
+  now: Date,
+  deps: { readonly storage?: StorageAdapter; readonly commitments?: readonly Commitment[] } = {},
+): Promise<FixedTimeInForce[]> {
+  if (pendingProposalOf(stored, now) === null) return [];
+  return fixedTimeInForce(uid, stored, now.toISOString(), deps);
+}
+
+/**
+ * Whether any placement of the offer sits on time taken now (#611 guards).
+ *
+ * The offer was solved against the day as it stood then; a meeting or a pinned
+ * commitment that has landed on one of its placements since would put two
+ * things in one slot if it were accepted. So the offer's day, as accepting it
+ * installs it (the person's removals kept off it), is checked against
+ * `fixedTimeInForce`. Reserved intervals, as the impact evaluator compares
+ * them. An item never collides with its own pin.
  *
  * A collision, not a fingerprint: a meeting added elsewhere in the day moves
- * nothing the patch does, and refusing the offer over it would leave the
- * person a button that cannot be pressed until the next tick.
+ * nothing the offer does, and refusing it over that would leave the person a
+ * button that cannot be pressed until the next tick.
+ *
+ * `acceptPlanProposal` refuses on it, and `pendingProposalToDto` withholds the
+ * offer on it: one answer to "can this still be accepted", in both places.
  */
-function patchCollidesWithBusyTime(
-  current: StoredDailyPlan,
-  proposal: NonNullable<StoredDailyPlan['proposal']>,
-  busy: readonly TimeInterval[],
+export function offerCollidesWithFixedTime(
+  stored: Pick<StoredDailyPlan, 'edits'>,
+  proposal: StoredPlanProposal,
+  fixed: readonly FixedTimeInForce[],
 ): boolean {
-  if (busy.length === 0) return false;
-  const day = planUnderKeptRemovals(proposal.plan, current.edits.removals);
-  return day.scheduled.some((item) => busy.some((interval) => intervalsOverlap(item.reservedInterval, interval)));
+  if (fixed.length === 0) return false;
+  const day = planUnderKeptRemovals(proposal.plan, stored.edits.removals);
+  return day.scheduled.some((item) => fixed.some((taken) =>
+    taken.sourceCommitmentId !== item.itemId && intervalsOverlap(item.reservedInterval, taken.interval)));
 }
 
 export async function acceptPlanProposal(
   uid: string,
   date: string,
-  options: AcceptPlanProposalOptions = {},
+  options: ProposalAnswerOptions = {},
 ): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let rejection: PlanProposalRejected | null = null;
@@ -804,7 +869,7 @@ export async function acceptPlanProposal(
   const decisionId = randomUUID();
 
   /**
-   * The busy time in force, read before the transaction because the mutator
+   * The time taken now, read before the transaction because the mutator
    * is synchronous. Both orderings are then safe. A meeting written before
    * this read is seen and refuses the patch. One written after it is ordered
    * after the acceptance: its change row is judged by the next tick against
@@ -814,10 +879,7 @@ export async function acceptPlanProposal(
    * judged against the plan it replaced.
    */
   const before = await readStoredPlan(uid, date, options.storage);
-  const busy: TimeInterval[] = before
-    ? (await readBusyBlocksForPlanning(uid, dayHorizon(date, before.timezone), { storage: options.storage }))
-      .map((block) => ({ startsAt: block.startsAt, endsAt: block.endsAt }))
-    : [];
+  const taken = before ? await fixedTimeInForce(uid, before, at, { storage: options.storage }) : [];
 
   const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
     // Re-read inside the transaction, and everything below is derived from
@@ -847,8 +909,8 @@ export async function acceptPlanProposal(
      * accounts for it. Clearing it here would lose the conflicts the patch was
      * solving too: their change rows were drained when it was stored.
      */
-    if (patchCollidesWithBusyTime(current, proposal, busy)) {
-      rejection = new PlanProposalRejected('stale_proposal', 'the calendar has changed under the proposed times');
+    if (offerCollidesWithFixedTime(current, proposal, taken)) {
+      rejection = new PlanProposalRejected('stale_proposal', 'the day has changed under the proposed times');
       return null;
     }
     rejection = null;
@@ -944,7 +1006,7 @@ export async function acceptPlanProposal(
 export async function rejectPlanProposal(
   uid: string,
   date: string,
-  options: PlanActionOptions = {},
+  options: ProposalAnswerOptions = {},
 ): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
   let rejection: PlanProposalRejected | null = null;
@@ -959,6 +1021,14 @@ export async function rejectPlanProposal(
     // rejection, because expiry is not an answer.
     if (proposal === null || proposalHasExpired(current, at)) {
       rejection = new PlanProposalRejected('no_proposal', 'there is no proposed change to reject for this plan');
+      return null;
+    }
+    // The person declined the offer they were shown (#611 guards). If a newer
+    // one has replaced it, nothing is written: the newer one was never seen,
+    // so it must not be remembered as declined, and the one that was seen is
+    // already gone.
+    if (options.proposalId !== undefined && options.proposalId !== proposal.proposalId) {
+      rejection = new PlanProposalRejected('stale_proposal', 'a newer proposed change has replaced the one being declined');
       return null;
     }
     rejection = null;
