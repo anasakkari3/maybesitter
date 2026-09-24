@@ -97,6 +97,12 @@ export const PLAN_IMPACT_REASONS = Object.freeze([
   'outside_horizon',
   /** A blocking interval overlaps a scheduled block's reserved interval. */
   'overlaps_scheduled_block',
+  /**
+   * The entity blocks nothing now, and the time it used to block had already
+   * ended when the change was judged (#611). Nothing is ever placed in the
+   * past, so the freed time is nothing the planner can use.
+   */
+  'freed_time_in_past',
   /** A planner input moved and no rule above could clear it. */
   'planner_input_changed',
   /**

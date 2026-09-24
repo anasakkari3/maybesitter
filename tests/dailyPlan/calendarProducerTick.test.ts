@@ -363,18 +363,27 @@ test('P2: a meeting moved within next week (old id freed, new id taken) leaves t
   });
 });
 
-test('P2: an ICS refresh that drops a lecture which ended yesterday leaves today\'s offer as it is', async () => {
-  await withWorld('ProducerIcsEnded', async ({ storage, uid, setClock }) => {
-    resetFieldEncryptionForTests();
+/**
+ * A feed with one lecture (and one next week), subscribed at `subscribeAt`; an
+ * offer made for the standup at +6 min; then the scheduled refresh at
+ * `refreshAt`, by which time the lecture has ended and dropped out of the
+ * feed's window (it starts at `now`), and the tick a minute later.
+ */
+async function icsRefreshDropsEndedLecture(
+  world: World,
+  options: { readonly lecture: TimeInterval; readonly subscribeAt: Date; readonly refreshAt: Date },
+): Promise<{ totals: Awaited<ReturnType<typeof runContinuousReplanTick>>; before: { proposalId: string; proposed: number } }> {
+  const { storage, uid, setClock } = world;
+  resetFieldEncryptionForTests();
+  try {
     const kms = createInMemoryKms();
-    let feedNow = new Date('2026-09-14T08:00:00.000Z');
+    let feedNow = options.subscribeAt;
     const stamp = (iso: string) => iso.replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-    const lecture = (uid: string, at: TimeInterval) => [
-      'BEGIN:VEVENT', `UID:${uid}`, 'SUMMARY:Lecture', 'DTSTAMP:20260901T080000Z',
+    const vevent = (id: string, at: TimeInterval) => [
+      'BEGIN:VEVENT', `UID:${id}`, 'SUMMARY:Lecture', 'DTSTAMP:20260901T080000Z',
       `DTSTART:${stamp(at.startsAt)}`, `DTEND:${stamp(at.endsAt)}`, 'END:VEVENT',
     ];
-    const YESTERDAY: TimeInterval = { startsAt: '2026-09-14T10:00:00.000Z', endsAt: '2026-09-14T12:00:00.000Z' };
-    const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...lecture('lec-1', YESTERDAY), ...lecture('lec-2', NEXT_WEEK), 'END:VCALENDAR', ''].join('\r\n');
+    const body = ['BEGIN:VCALENDAR', 'VERSION:2.0', ...vevent('lec-1', options.lecture), ...vevent('lec-2', NEXT_WEEK), 'END:VCALENDAR', ''].join('\r\n');
     const deps = {
       now: () => feedNow,
       encryption: { kms, env: { NODE_ENV: 'test', [KMS_KEY_ENV_VAR]: kms.keyName } as NodeJS.ProcessEnv },
@@ -383,39 +392,100 @@ test('P2: an ICS refresh that drops a lecture which ended yesterday leaves today
       fetch: async () => ({ notModified: false as const, body, etag: null, lastModified: null }),
     };
 
-    const before = await (async () => {
-      await seedAccount(storage, uid);
-      // Subscribed yesterday morning: both lectures are busy time.
-      const created = await createIcsFeed(uid, { url: 'https://moodle.univ.example/export?authtoken=T0KEN' }, deps);
-      assert.equal(created.preview.busyBlocks, 2);
-      const offer = await (async () => {
-        setClock(minutesAfterMorning(1));
-        await runContinuousReplanTick({ storage, now: minutesAfterMorning(1) });
-        assert.deepEqual(await pendingRows(storage, uid), [], 'fixture: the subscribe rows were drained');
-        await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }]);
-        setClock(minutesAfterMorning(6));
-        const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(6) });
-        assert.equal(totals.proposed, 1, JSON.stringify(totals));
-        return (await readStoredPlan(uid, DATE, storage))!.proposal!;
-      })();
-      return { feedId: created.feed.feedId, proposalId: offer.proposalId, proposed: await offersMade(storage, uid) };
-    })();
+    await seedAccount(storage, uid);
+    const created = await createIcsFeed(uid, { url: 'https://moodle.univ.example/export?authtoken=T0KEN' }, deps);
+    assert.equal(created.preview.busyBlocks, 2, 'fixture: both lectures are busy time at subscribe');
+    setClock(minutesAfterMorning(1));
+    await runContinuousReplanTick({ storage, now: minutesAfterMorning(1) });
+    assert.deepEqual(await pendingRows(storage, uid), [], 'fixture: the subscribe rows were drained');
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }]);
+    setClock(minutesAfterMorning(6));
+    const offered = await runContinuousReplanTick({ storage, now: minutesAfterMorning(6) });
+    assert.equal(offered.proposed, 1, JSON.stringify(offered));
+    const before = { proposalId: (await readStoredPlan(uid, DATE, storage))!.proposal!.proposalId, proposed: await offersMade(storage, uid) };
 
-    // This morning's scheduled refresh: yesterday's lecture has ended and
-    // falls out of the feed's window.
-    feedNow = minutesAfterMorning(40);
+    feedNow = options.refreshAt;
     setClock(feedNow);
-    const refreshed = await refreshIcsFeed(uid, before.feedId, { manual: false }, deps);
-    assert.equal(refreshed.outcome, 'updated');
-    assert.equal((await icsBusyBlocks(uid, before.feedId, { now: () => feedNow })).length, 1);
-    assert.equal((await pendingRows(storage, uid)).length, 1, 'the ended lecture\'s removal is announced');
+    assert.equal((await refreshIcsFeed(uid, created.feed.feedId, { manual: false }, deps)).outcome, 'updated');
+    assert.equal((await icsBusyBlocks(uid, created.feed.feedId, { now: () => feedNow })).length, 1, 'the ended lecture left the feed');
+    assert.equal((await pendingRows(storage, uid)).length, 1, 'and its removal is announced');
 
-    setClock(minutesAfterMorning(41));
-    const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(41) });
+    const tickAt = new Date(options.refreshAt.getTime() + 60_000);
+    setClock(tickAt);
+    return { totals: await runContinuousReplanTick({ storage, now: tickAt }), before };
+  } finally {
+    resetFieldEncryptionForTests();
+  }
+}
+
+test('P2: an ICS refresh that drops a lecture which ended yesterday leaves today\'s offer as it is', async () => {
+  await withWorld('ProducerIcsEnded', async (world) => {
+    const { totals, before } = await icsRefreshDropsEndedLecture(world, {
+      lecture: { startsAt: '2026-09-14T10:00:00.000Z', endsAt: '2026-09-14T12:00:00.000Z' },
+      subscribeAt: new Date('2026-09-14T08:00:00.000Z'),
+      refreshAt: minutesAfterMorning(40),
+    });
     assert.equal(totals.noEffect, 1, JSON.stringify(totals));
     assert.equal(totals.stale + totals.proposed + totals.kept + totals.withdrawn, 0, JSON.stringify(totals));
-    await assertOfferUntouched(storage, uid, before);
-    resetFieldEncryptionForTests();
+    await assertOfferUntouched(world.storage, world.uid, before);
+  });
+});
+
+/*
+ * The same class on the plan's own day (#645 review, round 2). The feed's
+ * window starts at `now`, so every six-hourly refresh drops the lectures that
+ * ended earlier today. Freed time in the past is nothing the planner can use,
+ * yet `PLAN_STALE` re-solved the pending offer, and #500's earliest start then
+ * moved its placements: the offer was replaced several times a day.
+ */
+test('P2: an ICS refresh at 14:00 that drops a lecture which ended at 12:00 today leaves the offer as it is', async () => {
+  await withWorld('ProducerIcsEndedToday', async (world) => {
+    const { totals, before } = await icsRefreshDropsEndedLecture(world, {
+      // 11:00–12:00 in Jerusalem: after the morning's tasks, ended by 14:00.
+      lecture: { startsAt: `${DATE}T08:00:00.000Z`, endsAt: `${DATE}T09:00:00.000Z` },
+      subscribeAt: new Date(MORNING),
+      // 14:00 in Jerusalem.
+      refreshAt: new Date(`${DATE}T11:00:00.000Z`),
+    });
+    assert.equal(totals.noEffect, 1, `freed time in the past frees nothing usable: ${JSON.stringify(totals)}`);
+    assert.equal(totals.stale + totals.proposed + totals.kept + totals.withdrawn, 0, JSON.stringify(totals));
+    await assertOfferUntouched(world.storage, world.uid, before);
+  });
+});
+
+test('P2: a meeting removed after it ended is NO_EFFECT, and the offer is still withdrawn when that leaves the day without a conflict', async () => {
+  await withWorld('ProducerEndedWithdraws', async ({ storage, uid, setClock }) => {
+    const before = await withOfferPending(storage, uid, setClock);
+    // 10:00 in Jerusalem: the standup (09:00–09:30) is over, and is deleted.
+    const at = minutesAfterMorning(60);
+    setClock(at);
+    await phoneSyncAll(uid, [{ nativeId: REVIEW, at: NEXT_WEEK }]);
+    const totals = await runContinuousReplanTick({ storage, now: new Date(at.getTime() + 60_000) });
+    assert.equal(totals.noEffect, 1, JSON.stringify(totals));
+    assert.equal(totals.withdrawn, 1, `withdrawal is judged on the facts of the day, not on the verdict: ${JSON.stringify(totals)}`);
+    const stored = (await readStoredPlan(uid, DATE, storage))!;
+    assert.equal(stored.proposal ?? null, null);
+    assert.deepEqual(stored.rejectedProposals ?? [], []);
+    assert.equal(await offersMade(storage, uid), before.proposed);
+  });
+});
+
+test('P2 control: removing a meeting that is still in progress is still judged', async () => {
+  await withWorld('ProducerInProgressRemoval', async ({ storage, uid, setClock }) => {
+    const before = await withOfferPending(storage, uid, setClock);
+    // 14:00–15:00 in Jerusalem, and it is 14:30 when the meeting is cancelled.
+    const AFTERNOON: TimeInterval = { startsAt: `${DATE}T11:00:00.000Z`, endsAt: `${DATE}T12:00:00.000Z` };
+    setClock(minutesAfterMorning(40));
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }, { nativeId: REVIEW, at: NEXT_WEEK }, { nativeId: 'evt-afternoon', at: AFTERNOON }]);
+    setClock(minutesAfterMorning(41));
+    await runContinuousReplanTick({ storage, now: minutesAfterMorning(41) });
+    const at = new Date(`${DATE}T11:30:00.000Z`);
+    setClock(at);
+    await phoneSyncAll(uid, [{ nativeId: STANDUP, at: ON_TASK }, { nativeId: REVIEW, at: NEXT_WEEK }]);
+    const totals = await runContinuousReplanTick({ storage, now: new Date(at.getTime() + 60_000) });
+    assert.equal(totals.stale, 1, `half an hour of it is still ahead: ${JSON.stringify(totals)}`);
+    assert.equal(totals.noEffect, 0);
+    assert.ok(before.proposalId, 'fixture');
   });
 });
 
