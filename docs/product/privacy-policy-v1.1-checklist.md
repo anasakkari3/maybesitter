@@ -81,8 +81,12 @@ Do not equate a pseudonymous receipt with “no data retained.”
   `mobile/src/features/settings/TrustScreen.tsx` renders the Trust link when
   a valid configured legal URL exists. The deletion-instructions HTML exists
   in all three locales. Their deployment must be checked separately.
-- Domain and contact tokens were filled in #648. The effective date remains
-  unresolved; no publication or mailbox-operability claim follows from the text.
+- Domain and contact tokens were filled in #648. Both aliases passed internal
+  delivery checks in Workspace recipient logs. On 2026-09-25 the owner explicitly
+  accepted human responsibility for monitoring both addresses and handling support,
+  privacy and account/data deletion requests. This is an operational commitment,
+  not automated handling or a newly agreed response deadline. The effective date
+  remains unresolved, and publication still needs separate approval.
 - Approve final enabled-release disclosures and v1.1 effective date; determine
   the notice process for policy/terms changes. Do not promise an automatic
   in-app notice or next-sign-in notice without implementing/operating it.
