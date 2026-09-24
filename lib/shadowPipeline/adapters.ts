@@ -8,16 +8,17 @@
  *
  * ── Which entry point each adapter binds to, and why that one ────────────
  *
- * `INTELLIGENCE_MODULE_CONTRACTS` names an `entryPoint` for five of the eight,
- * and those five are bound verbatim:
+ * `INTELLIGENCE_MODULE_CONTRACTS` names an `entryPoint` for six of the eight,
+ * and those six are bound verbatim:
  *
+ *   priority       `lib/priority/priorityScorer#rankPriorities`
  *   decomposition  `lib/decomposition/engine#proposeDecomposition`
  *   planning       `lib/planning/scheduler#schedulePlan`
  *   recommendation `lib/recommendation#selectRecommendation`
  *   coaching       `lib/coaching#deliverCoaching`
  *   safety         `lib/safety#evaluateSafetyGate`
  *
- * The other three need a decision, and the decisions are stated here rather
+ * The other two need a decision, and the decisions are stated here rather
  * than buried:
  *
  *  - **capture** — the registry's capture descriptor names *no* entry point; it
@@ -40,15 +41,11 @@
  *    the shadow chain needs its read half, and narrowing is how you take a read
  *    half from a type that also has a write half.
  *
- *  - **priority** — the registry calls it `not_implemented_in_sprint_00` and
- *    names no entry point, so `SHADOW_MODULE_ROLES` calls it a placeholder and
- *    the orchestrator skips it before any adapter is consulted. The adapter
- *    below exists and refuses, so that "the placeholder was skipped" is a
- *    property of the orchestrator that a test can break by removing the skip —
- *    rather than a hole where an adapter should be. **Note for integration:**
- *    `lib/priority/priorityScorer.ts` is real and shipped; the registry
- *    descriptor is stale. Updating it is `moduleContracts`' owner's call, not
- *    this track's, and until it happens the honest chain skips the stage.
+ * **priority** was a placeholder in both the registry and `SHADOW_MODULE_ROLES`
+ * until #131 flipped the two together; `lib/priority/priorityScorer.ts` had
+ * been real and shipped all along. Its adapter ranks the scores the seed
+ * already carries — see `priorityAdapter` for why it neither re-derives them
+ * nor feeds recommendation.
  *
  * ── Why coaching and safety both call the gateway ────────────────────────
  *
@@ -78,6 +75,7 @@ import {
   type ShadowPipelineModule,
 } from '../../src/contracts/v1/shadowPipelineContracts';
 import { extract } from '../../src/extraction/ruleBasedExtractor';
+import { rankPriorities } from '../priority/priorityScorer';
 import { proposeDecomposition } from '../decomposition/engine';
 import { schedulePlan } from '../planning/scheduler/scheduler';
 import { currentFingerprints } from '../recommendation/selector/candidates';
@@ -208,18 +206,27 @@ function memoryAdapter(deps: ShadowAdapterDeps): ShadowModuleAdapter {
 }
 
 /**
- * Priority: the registry's placeholder.
+ * Priority: the seed's scores, ranked.
  *
- * Never invoked — the orchestrator skips placeholders before consulting an
- * adapter — and it refuses rather than returning something, so that removing
- * the skip produces a loud failure instead of a plausible stub answer silently
- * counted as a contribution.
+ * `rankPriorities({ scored: seed.priorityScores })` and nothing else, for two
+ * reasons that are both about what a shadow run is allowed to change:
+ *
+ *  - **The scores are not re-derived.** The seed already carries them — the
+ *    caller scored its own commitments — so scoring again here would invent an
+ *    input the caller supplied, and a shadow ranking over different scores
+ *    than the live path used would compare two different questions.
+ *  - **Recommendation does not read this payload.** It keeps reading
+ *    `deps.seed.priorityScores` directly, exactly as it did while priority was
+ *    a placeholder. Rewiring a downstream module's input is a behaviour change,
+ *    and shadow mode exists so that none are made; this stage records what the
+ *    ranking was, with its own budget and digest, and changes nothing after it.
+ *
+ * No proposal: a ranking has no effect target. It is read, never written.
  */
-function priorityAdapter(): ShadowModuleAdapter {
+function priorityAdapter(deps: ShadowAdapterDeps): ShadowModuleAdapter {
   return async () => {
-    throw new Error(
-      'the priority module is a placeholder in INTELLIGENCE_MODULE_CONTRACTS and must be skipped, not invoked',
-    );
+    const ranked = rankPriorities({ scored: deps.seed.priorityScores });
+    return contributed('priority', ranked, deps);
   };
 }
 
@@ -446,7 +453,7 @@ export function createShadowAdapterSet(
   const adapters: Record<ShadowPipelineModule, ShadowModuleAdapter> = {
     capture: captureAdapter(deps),
     memory: memoryAdapter(deps),
-    priority: priorityAdapter(),
+    priority: priorityAdapter(deps),
     decomposition: decompositionAdapter(deps),
     planning: planningAdapter(deps),
     recommendation: recommendationAdapter(deps),

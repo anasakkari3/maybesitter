@@ -14,6 +14,7 @@ import { PLANNING_SCHEMA_VERSION } from '../../src/contracts/v1/planningContract
 import { RECOMMENDATION_SCHEMA_VERSION } from '../../src/contracts/v1/recommendationContracts.ts';
 import { SAFETY_SCHEMA_VERSION } from '../../src/contracts/v1/safetyContracts.ts';
 import { COACHING_SCHEMA_VERSION } from '../../src/contracts/v1/coachingContracts.ts';
+import { PRIORITY_SCHEMA_VERSION } from '../../src/contracts/v1/priorityContracts.ts';
 import { buildHealthConnectReadinessSnapshot } from '../../lib/integrations/readiness/healthConnect.ts';
 import {
   HEALTH_CONNECT_MINIMUM_READ_PERMISSIONS,
@@ -157,7 +158,11 @@ test('module contracts execute with typed provenance envelope', async () => {
   //
   // The slot has moved twice for exactly that reason: `recommendation` gave it
   // up when #34 landed, `coaching` when #38 did. `feedback` holds it now, and
-  // the placeholders remaining beside it are `priority` and `evaluation`.
+  // the one placeholder remaining beside it is `evaluation` — #131 moved
+  // `priority` to implemented and did not need to move this slot, because the
+  // slot was never `priority`'s. Checked, not assumed: `feedback` is not in the
+  // shadow chain, its descriptor was not touched, and it still answers the
+  // sentinel below.
   const pending = await INTELLIGENCE_MODULE_CONTRACTS.feedback.execute({
     scopeId: 'scope',
     input: { payload: {} },
@@ -211,6 +216,24 @@ test('the safety module descriptor matches the safety schema version', async () 
   // planning pins above.
   assert.equal(output.schemaVersion, SAFETY_SCHEMA_VERSION);
   assert.equal(output.entryPoint, 'lib/safety#evaluateSafetyGate');
+});
+
+test('the priority module descriptor matches the priority schema version', async () => {
+  const result = await INTELLIGENCE_MODULE_CONTRACTS.priority.execute({
+    provenance: { traceId: 't', producedAt: '2026-09-24T00:00:00.000Z', source: 'system', confidence: null },
+    input: {},
+  } as never);
+  assert.equal(result.ok, true);
+  const output = result.ok
+    ? (result.output as { status: string; schemaVersion: string; entryPoint: string })
+    : { status: '', schemaVersion: '', entryPoint: '' };
+  // Issue #131 moved `priority` from placeholder to implemented. `moduleContracts`
+  // spells the version out as a literal like its siblings (see the comment
+  // there for why the cycle is prospective for priority rather than present);
+  // this is what keeps the two spellings from drifting apart.
+  assert.equal(output.status, 'implemented');
+  assert.equal(output.schemaVersion, PRIORITY_SCHEMA_VERSION);
+  assert.equal(output.entryPoint, 'lib/priority/priorityScorer#rankPriorities');
 });
 
 test('the planning module descriptor matches the planning schema version', async () => {

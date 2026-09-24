@@ -214,7 +214,7 @@ export const SHADOW_SLO_METRIC_EXEMPTIONS: readonly {
   Object.freeze({
     metric: 'pipeline_degraded_rate' as const,
     reason:
-      'priority is a placeholder in SHADOW_MODULE_ROLES, so no Sprint 11 run can be complete and this rate is 1.0 by construction; an SLO on it would page continuously and be silenced in week one',
+      'until #131 priority was a placeholder in SHADOW_MODULE_ROLES, so every run was degraded and this rate was 1.0 by construction (an SLO on it would have paged continuously); runs can be complete now, but no baseline of this rate has been measured over a chain that can complete, and a threshold chosen before one exists would be a guess, so it stays unpaged until one is',
   }),
   Object.freeze({
     metric: 'module_fallback_rate' as const,
@@ -303,6 +303,11 @@ export const SHADOW_SLO_CATALOG: readonly ShadowSloCatalogEntry[] = Object.freez
       // Sufficiency is now counted in runs for every metric (see
       // `Measurement.sufficiencyCount`), so this is a plain run count and the
       // rate keeps its per-execution denominator.
+      //
+      // #131 made the chain execute eight modules rather than seven (priority
+      // had been skipped in every run as a placeholder). This floor did not
+      // move, because it is in runs; the executions reported beside it did —
+      // twenty clean runs are now 160 of them, not 140.
       minimumSampleCount: 20,
       owner: BACKEND,
       killSwitchModule: 'coaching',

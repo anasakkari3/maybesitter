@@ -31,7 +31,8 @@ import {
   nonContributingModules,
   type ShadowPipelineModule,
 } from '../../src/contracts/v1/shadowPipelineContracts.ts';
-import { createShadowAdapterSet } from '../../lib/shadowPipeline/adapters.ts';
+import { createShadowAdapterSet, type ShadowRecommendationPayload } from '../../lib/shadowPipeline/adapters.ts';
+import { rankPriorities } from '../../lib/priority/priorityScorer.ts';
 import { canonicalize, type ShadowMemoryReader, type ShadowRunSeed } from '../../lib/shadowPipeline/seed.ts';
 import { createShadowPipelineRun } from '../../lib/shadowPipeline/orchestrator.ts';
 import { createShadowRunLedger } from '../../lib/shadowPipeline/ports.ts';
@@ -209,14 +210,19 @@ test('the real chain runs end to end and emits a bundle its checkers report noth
   assert.deepEqual(checkShadowInertness(bundle), []);
 });
 
-test('every implemented module contributes, and only the placeholder does not', async () => {
+test('every module contributes over a valid seed, so the real run is complete', async () => {
+  // Was `every implemented module contributes, and only the placeholder does
+  // not`, expecting `['priority']` and `degraded`. #131 implemented the
+  // priority stage; with no placeholder left, the real chain over a valid seed
+  // has no non-contributor at all, and says so as `complete`.
   const { bundle } = await runRealChain();
   assert.deepEqual(
     nonContributingModules(bundle.outcome),
-    ['priority'],
+    [],
     'a real module failed to contribute over a valid seed',
   );
-  assert.equal(bundle.outcome.completeness, 'degraded');
+  assert.equal(bundle.outcome.completeness, 'complete');
+  assert.equal(bundle.outcome.degradation, null);
   assert.notEqual(bundle.outcome.deliverable, null);
 });
 
@@ -319,27 +325,72 @@ test('the memory retrieval is scoped and carries the seed instant, never a clock
   assert.deepEqual(reader.queries(), [{ scopeId: 'scope-a', now: NOW }]);
 });
 
-/* ── Priority: the placeholder is refused, not stubbed ───────────── */
+/* ── Priority: the seed's scores, ranked, and read by nobody ─────── */
 
-test('the priority adapter refuses to be invoked, and the orchestrator never invokes it', async () => {
-  const { bundle, adapters } = await runRealChain();
-  assert.equal(bundle.outcome.moduleOutcomes.priority.reason, 'module_placeholder');
+test('the priority adapter ranks the seed\'s scores and nothing else', async () => {
+  // Replaces `the priority adapter refuses to be invoked, and the orchestrator
+  // never invokes it`: #131 implemented the stage, and the placeholder-skip
+  // half of that test now lives in orchestrator.test.ts against a synthetic
+  // placeholder, whose stub adapter still throws if invoked.
+  //
+  // Scores deliberately out of rank order, so a stage that passed them through
+  // unsorted — or re-scored them into some other order — is caught.
+  const scores = [score('c-bravo', 10), score('c-alpha', 40)];
+  const { bundle, ledger } = await runRealChain({ seed: seed({ priorityScores: scores }) });
 
-  // Called directly, it throws. If someone removes the orchestrator's
-  // placeholder skip, the stage becomes `unavailable` and loudly wrong rather
-  // than a plausible stub answer counted as a contribution.
-  await assert.rejects(
-    () =>
-      adapters.priority({
-        module: 'priority',
-        runId: 'run-x',
-        scopeId: 'scope-a',
-        startedAt: NOW,
-        budgetMs: 250,
-        runtimeDecision: { version: 'v1', module: 'priority', mode: 'enabled', allowsModelExecution: true },
-      }),
-    /placeholder/,
+  const outcome = bundle.outcome.moduleOutcomes.priority;
+  assert.equal(outcome.status, 'completed');
+  assert.equal(outcome.contributed, true);
+
+  const ranked = ledger.readPayload('priority') as readonly { commitmentId: string }[];
+  assert.deepEqual(ranked, rankPriorities({ scored: scores }));
+  assert.deepEqual(
+    ranked.map((entry) => entry.commitmentId),
+    ['c-alpha', 'c-bravo'],
+    'the priority stage did not rank the scores the seed carried',
   );
+  // Ranked, not re-derived: the entries are the caller's scores, unchanged.
+  assert.deepEqual([...ranked].sort((a, b) => a.commitmentId.localeCompare(b.commitmentId)), [
+    scores[1],
+    scores[0],
+  ]);
+  assert.equal(outcome.outputDigest, createTestDigest().hash(canonicalize(ranked)));
+
+  // A ranking has no effect target: nothing is proposed in priority's name.
+  const proposals = bundle.outcome.deliverable?.proposedEffects ?? [];
+  assert.deepEqual(proposals.filter((proposal) => proposal.proposedBy === 'priority'), []);
+  assert.deepEqual(checkShadowTrace(bundle.trace, bundle.outcome), []);
+});
+
+test('recommendation reads the seed\'s scores, not the priority stage, so the flip changed no downstream input', async () => {
+  // Shadow mode makes no behaviour changes, and rewiring recommendation onto the
+  // priority stage's payload would be one. So recommendation must answer the
+  // same whether the priority stage contributed or failed outright.
+  const normal = await runRealChain();
+  const clock = createTestClock(NOW);
+  const deadline = createTestDeadline({ clock });
+  const digest = createTestDigest();
+  const ledger = createShadowRunLedger();
+  const adapters = createShadowAdapterSet({ seed: seed(), ledger, digest, memory: emptyReader() });
+  const withoutPriority = await createShadowPipelineRun({ clock, deadline, digest, ledger })(
+    testInput({ controls: testControls() }),
+    {
+      ...adapters,
+      priority: async () => {
+        throw new Error('forced failure in priority');
+      },
+    },
+  );
+
+  assert.equal(withoutPriority.outcome.moduleOutcomes.priority.contributed, false);
+  assert.equal(withoutPriority.outcome.moduleOutcomes.recommendation.status, 'completed');
+  assert.equal(
+    withoutPriority.outcome.moduleOutcomes.recommendation.outputDigest,
+    normal.bundle.outcome.moduleOutcomes.recommendation.outputDigest,
+    'recommendation answered differently when the priority stage did not contribute',
+  );
+  const payload = ledger.readPayload('recommendation') as ShadowRecommendationPayload;
+  assert.deepEqual(payload, normal.ledger.readPayload('recommendation'));
 });
 
 test('decomposition takes the deterministic path, and its provenance says so', async () => {
@@ -428,8 +479,9 @@ test('degradation sweep over the real adapters: one failing module still answers
   // chaining. This sweeps it with the real adapter set in place and one adapter
   // replaced, which proves the *composition* survives: real payloads flow up to
   // the break, and everything downstream of it explains itself.
+  // All eight since #131; `priority` was skipped here while it was a
+  // placeholder with no adapter to break.
   for (const failing of SHADOW_PIPELINE_CHAIN) {
-    if (failing === 'priority') continue;
 
     const clock = createTestClock(NOW);
     const deadline = createTestDeadline({ clock });

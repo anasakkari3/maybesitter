@@ -279,13 +279,13 @@ export type {
  * The modules a shadow run walks, in execution order.
  *
  * Capture through Coaching, as the issue names it, plus the two the chain
- * cannot honestly skip. `priority` is in the chain although
- * `INTELLIGENCE_MODULE_CONTRACTS` still describes it as
- * `not_implemented_in_sprint_00`: a placeholder in the chain is the honest
- * modelling of where it actually sits, and pretending the chain runs
- * memory → decomposition would hide the gap rather than report it. See
- * `SHADOW_MODULE_ROLES` for how a placeholder is handled — it can never report
- * `completed`.
+ * cannot honestly skip. `priority` sat in the chain as a placeholder while
+ * `INTELLIGENCE_MODULE_CONTRACTS` described it as `not_implemented_in_sprint_00`
+ * — a placeholder in the chain was the honest modelling of where it sat, and
+ * pretending the chain ran memory → decomposition would have hidden the gap
+ * rather than reported it. #131 made it implemented in both tables at once.
+ * See `SHADOW_MODULE_ROLES` for how a placeholder is handled — it can never
+ * report `completed`.
  *
  * `safety` runs **after** `coaching` and not before it, because the gate is
  * defined over a candidate output and there is no candidate until coaching has
@@ -294,15 +294,16 @@ export type {
  * Safety gateway allows it"). It is last in the chain and first in
  * consequence — see `SHADOW_MODULE_FAILURE_STANCE`.
  *
- * **A consequence worth stating rather than discovering:** because `priority`
- * is a placeholder and a placeholder can never report `completed`, no run in
- * this sprint can be `completeness: 'complete'`. The best a Sprint 11 shadow run
- * achieves is `degraded` with `priority` skipped for `module_placeholder` — and
- * that is the honest answer, not a defect. `complete` exists in the union
- * because the chain will one day have no stubs in it, and because a
- * `COMPLETE_WITH_NON_CONTRIBUTOR` finding needs a shape to be about. The
- * contract test pins this: a run that claims completion while the chain contains
- * a placeholder is reported.
+ * **A consequence worth stating rather than discovering:** a placeholder can
+ * never report `completed`, so a chain containing one can never produce a
+ * `completeness: 'complete'` run. That was every Sprint 11 run: `priority` was
+ * the placeholder, and the best a run achieved was `degraded` with `priority`
+ * skipped for `module_placeholder`. Since #131 the chain has no stubs in it, so
+ * a run in which every module contributes is `complete` — the day this comment
+ * used to anticipate. The rule itself is unchanged, and the contract test still
+ * pins it against a synthetic placeholder (the chain's type admits only real
+ * modules, so the test supplies a role table with one slot stubbed): a run that
+ * claims completion while the chain contains a placeholder is reported.
  *
  * `lifeState`, `feedback` and `evaluation` are deliberately absent.
  * `lifeState` is a projection a caller reads, not a stage a run walks;
@@ -341,7 +342,7 @@ export const SHADOW_PIPELINE_CHAIN_POSITION: Readonly<Record<ShadowPipelineModul
   });
 
 /**
- * Whether a module has a real implementation behind it in this sprint.
+ * Whether a module has a real implementation behind it.
  *
  * Read off `INTELLIGENCE_MODULE_CONTRACTS`' descriptors rather than guessed,
  * and restated here as data rather than derived at runtime, because deriving it
@@ -357,14 +358,29 @@ export const SHADOW_PIPELINE_CHAIN_POSITION: Readonly<Record<ShadowPipelineModul
  * handling — the alternative, quietly counting a placeholder as a contributor,
  * would make `completeness: 'complete'` mean "seven modules ran and one
  * returned a stub".
+ *
+ * **Every entry is `implemented` since #131**, which flipped `priority` here and
+ * in `INTELLIGENCE_MODULE_CONTRACTS` in one commit;
+ * `tests/shadowPipeline/registryDrift.test.ts` fails if the two ever disagree.
+ * The `placeholder` role stays in the union and stays handled: a module can
+ * enter the chain before its implementation does, and the handling for that
+ * day must not be code nobody has run. The orchestrator
+ * (`ShadowOrchestratorDeps.roles`) and `checkShadowPipelineOutcome` therefore
+ * each accept a role table, defaulting to this one, and the tests exercise the
+ * placeholder path through a synthetic table in
+ * `tests/fixtures/shadowSyntheticPlaceholder.ts`. No production caller passes
+ * one.
  */
 export type ShadowModuleRole = 'implemented' | 'placeholder';
 
-export const SHADOW_MODULE_ROLES: Readonly<Record<ShadowPipelineModule, ShadowModuleRole>> =
+/** A role for every module in the chain. `SHADOW_MODULE_ROLES` is the real one. */
+export type ShadowModuleRoleTable = Readonly<Record<ShadowPipelineModule, ShadowModuleRole>>;
+
+export const SHADOW_MODULE_ROLES: ShadowModuleRoleTable =
   Object.freeze({
     capture: 'implemented',
     memory: 'implemented',
-    priority: 'placeholder',
+    priority: 'implemented',
     decomposition: 'implemented',
     planning: 'implemented',
     recommendation: 'implemented',
@@ -425,10 +441,12 @@ export const SHADOW_MODULE_FAILURE_STANCE: Readonly<
  *   - `memory` (400) — a bounded retrieval over a file-backed store. If it is
  *     slower than this the store is the problem, and waiting longer converts a
  *     store problem into a pipeline problem.
- *   - `priority` (250) — a placeholder returning a stub. Deliberately the
- *     smallest budget in the chain: a stub that needs a quarter-second is a
- *     defect, and a generous budget on a placeholder is a budget nobody
- *     revisits when the real implementation lands.
+ *   - `priority` (250) — a sort over scores the caller already computed
+ *     (`rankPriorities`); no scoring, no I/O. The smallest budget in the chain
+ *     because it is the least work in the chain. Set while priority was a
+ *     placeholder, with the note that a generous budget on a stub is a budget
+ *     nobody revisits when the real implementation lands — #131 revisited it
+ *     and kept it: a quarter-second is still generous for a sort.
  *   - `decomposition` (1200) — rules detector plus splits over one commitment's
  *     text; the second-largest because it is the second text-shaped stage.
  *   - `planning` (900) — constraint normalisation and placement over a bounded
@@ -662,8 +680,10 @@ export const SHADOW_MODULE_STATUSES = Object.freeze([
  * The five this file adds are the ones a *pipeline* has and a single module
  * does not:
  *
- *   - `module_placeholder`          — the module is `placeholder` in
- *                                     `SHADOW_MODULE_ROLES`. Named separately
+ *   - `module_placeholder`          — the module is `placeholder` in the
+ *                                     run's role table (`SHADOW_MODULE_ROLES`
+ *                                     unless a test supplies a synthetic
+ *                                     one). Named separately
  *                                     from `module_unavailable` because "no
  *                                     implementation exists yet" and "the
  *                                     implementation did not answer" are
@@ -2351,8 +2371,9 @@ export type ShadowPipelineRun = (
  *                               produced nothing, so there is nothing to hash.
  * - `MODULE_ELAPSED_INVALID`  — elapsed time not a non-negative finite number.
  * - `PLACEHOLDER_MODULE_CLAIMS_COMPLETION`
- *                             — a module `SHADOW_MODULE_ROLES` calls a
- *                               placeholder reporting `completed`. The honest
+ *                             — a module the role table (`SHADOW_MODULE_ROLES`
+ *                               by default) calls a placeholder reporting
+ *                               `completed`. The honest
  *                               handling of a stub in the chain: it may be
  *                               `skipped` with `module_placeholder`, never
  *                               "done".
@@ -3229,6 +3250,13 @@ export function checkShadowInertness(value: unknown): readonly ShadowPipelineDef
  */
 export function checkShadowPipelineOutcome(
   outcome: ShadowPipelineOutcome,
+  /**
+   * Which modules are placeholders. Only `PLACEHOLDER_MODULE_CLAIMS_COMPLETION`
+   * reads it. Defaults to the real table, and every production caller uses the
+   * default; the parameter exists so the placeholder rule can be exercised
+   * against a synthetic placeholder now that no real chain module is one (#131).
+   */
+  roles: ShadowModuleRoleTable = SHADOW_MODULE_ROLES,
 ): readonly ShadowPipelineDefect[] {
   if (!isRecord(outcome)) {
     return [defect('OUTCOME_UNREADABLE', 'an outcome was checked that is not an outcome-shaped object')];
@@ -3354,7 +3382,7 @@ export function checkShadowPipelineOutcome(
       );
     }
 
-    if (SHADOW_MODULE_ROLES[module] === 'placeholder' && status === 'completed') {
+    if (roles[module] === 'placeholder' && status === 'completed') {
       defects.push(
         defect(
           'PLACEHOLDER_MODULE_CLAIMS_COMPLETION',

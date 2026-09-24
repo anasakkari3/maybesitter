@@ -43,7 +43,10 @@ runs, and that separation is deliberate: a floor expressed in executions rises
 out of reach exactly when the pipeline degrades and executes fewer of them. This
 floor was 160, then 140, before that was measured — twenty runs of a coaching
 timeout scored 0.167 against the 0.02 threshold and reported `inconclusive`,
-because a degraded run executes six modules rather than seven. "Have we seen
+because a degraded run executes six modules rather than seven. (That was the
+seven-module chain. Since #131 `priority` executes too: a clean run executes
+eight modules and that degraded run seven, so twenty clean runs report 160
+executions. The floor, being runs, did not move.) "Have we seen
 enough traffic to judge?" is a question about runs; "what is the rate?" is a
 question about executions.
 
@@ -54,8 +57,11 @@ gate look calmer the more often it failed to answer.
 **Two metrics in the contract vocabulary deliberately have no SLO**, and the
 test requires each to be named with a reason rather than silently unwatched:
 
-- `pipeline_degraded_rate` — `priority` is a placeholder, so no Sprint 11 run
-  can be `complete` and this rate is 1.0 by construction.
+- `pipeline_degraded_rate` — until #131 `priority` was a placeholder, so no
+  run could be `complete` and this rate was 1.0 by construction. Runs can be
+  complete now, but no baseline of this rate has been measured over a chain
+  that can complete, and a threshold chosen before one exists would be a
+  guess — so it stays unpaged until one is.
 - `module_fallback_rate` — a fallback is the kill switch working. Paging on it
   would page you for your own mitigation.
 
@@ -108,17 +114,20 @@ The documented stance per module, asserted one module at a time by
 | --- | --- | --- | --- |
 | `capture` | rules_only_fallback | fell_back | kill_switch_active |
 | `memory` | rules_only_fallback | fell_back | kill_switch_active |
-| `priority` | skipped_no_fallback | skipped | kill_switch_active |
+| `priority` | rules_only_fallback | fell_back | kill_switch_active |
 | `decomposition` | rules_only_fallback | fell_back | kill_switch_active |
 | `planning` | rules_only_fallback | fell_back | kill_switch_active |
 | `recommendation` | rules_only_fallback | fell_back | kill_switch_active |
 | `coaching` | rules_only_fallback | fell_back | kill_switch_active |
 | `safety` | rules_only_fallback | fell_back | kill_switch_active |
 
-`priority` is the exception because it is a placeholder: there is no rules-only
-mode for a stub to fall back into, so the honest record is `skipped`. When a
-placeholder's switch is thrown the recorded reason is `kill_switch_active` and
-not `module_placeholder` — the operator's action is what explains *this* run.
+No module is `skipped_no_fallback` today. That stance is for a placeholder:
+there is no rules-only mode for a stub to fall back into, so the honest record
+is `skipped`. `priority` held it until #131 made it implemented; it is a sort
+over scores the caller supplied, so under its switch it answers rules-only like
+the rest. If a placeholder ever enters the chain again and its switch is thrown,
+the recorded reason is `kill_switch_active` and not `module_placeholder` — the
+operator's action is what explains *this* run.
 
 The kill switch outranks the feature flag. If both are set the trace says
 `kill_switch_active`, which is what you want to see when you are trying to
