@@ -1,8 +1,10 @@
 # Placeholders the owner must fill in
 
-Every token below is written **literally** in the site files so it is greppable and
-obviously unfinished. Nothing here was invented by Claude — no domain, no legal name
-and no email address appears anywhere in `site/`.
+The owner purchased **maybesitter.com** and approved it as the project domain on
+2026-09-25 (#333). Its domain token is resolved in the public site files.
+The remaining identity, contact and effective-date tokens stay literal and
+unfinished until their actual values are confirmed; domain approval is not
+approval to publish the legal documents.
 
 Find them all at any time:
 
@@ -10,16 +12,17 @@ Find them all at any time:
 git grep -nE '\{\{(DOMAIN|LEGAL_NAME|SUPPORT_EMAIL|PRIVACY_EMAIL|EFFECTIVE_DATE)\}\}' -- site/
 ```
 
-Replace them all at once (macOS `sed`), after you have decided the real values:
+Replace them all at once (macOS `sed`), after you have decided the real values.
+The following is a template: replace `Your Full Legal Name` and
+`APPROVED_PUBLICATION_DATE` before running it, and verify both role addresses.
 
 ```bash
 cd site
 grep -rl '{{' . --include='*.html' --include='*.md' --include='*.txt' --include='*.xml' | xargs sed -i '' \
-  -e 's/{{DOMAIN}}/maybesitter.app/g' \
   -e 's/{{LEGAL_NAME}}/Your Full Legal Name/g' \
-  -e 's/{{SUPPORT_EMAIL}}/support@maybesitter.app/g' \
-  -e 's/{{PRIVACY_EMAIL}}/privacy@maybesitter.app/g' \
-  -e 's/{{EFFECTIVE_DATE}}/2026-09-24/g'
+  -e 's/{{SUPPORT_EMAIL}}/support@maybesitter.com/g' \
+  -e 's/{{PRIVACY_EMAIL}}/privacy@maybesitter.com/g' \
+  -e 's/{{EFFECTIVE_DATE}}/APPROVED_PUBLICATION_DATE/g'
 ```
 
 Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains.
@@ -28,9 +31,9 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 ### `{{DOMAIN}}`
 
-- **What to put there:** the bare domain you bought, with no scheme and no trailing
-  slash — for example `maybesitter.app`. Issue #137 decides `maybesitter.app` first,
-  then `maybesitter.co`, then `getmaybesitter.com`.
+- **Resolved:** `maybesitter.com`, approved by the owner on 2026-09-25 and
+  confirmed in the authenticated Cloudflare account. This supersedes the earlier
+  `.app`/`.co` suggestions. The public files already use this value.
 - **Where it appears:**
   - `en/privacy.html` — "Who we are", "Account deletion"
   - `ar/privacy.html` — «مين احنا»، «حذف الحساب»
@@ -45,8 +48,8 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
   - The canonical and hreflang URLs assume the domain serves the site at its root, with
     `trailingSlash: false` (so `/ar`, not `/ar/`).
 - **Note:** the deletion URLs (`{{DOMAIN}}/en/delete-account` and the ar/he variants)
-  point at the page owned by UC-4.3b (#179). That page does not exist yet. Ship it
-  before, or at the same time as, the store listings that link to it.
+  point at the pages owned by UC-4.3b (#179), which already exist in all three
+  languages. Publish them with the approved privacy and terms pages.
 
 ### `{{LEGAL_NAME}}`
 
@@ -60,8 +63,9 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 ### `{{SUPPORT_EMAIL}}`
 
-- **What to put there:** the `support@<domain>` role alias you create in Cloudflare
-  Email Routing (step 2 of the issue). Never your personal address.
+- **What to put there:** the monitored `support@maybesitter.com` role address.
+  The domain currently uses Google Workspace MX records; verify or configure the
+  address there without replacing those MX records. Never use a personal address.
 - **Where it appears:**
   - `index.html`, `ar/index.html`, `he/index.html` — the footer ("Questions and feedback")
   - `{en,ar,he}/privacy.html` — "Who we are"
@@ -69,7 +73,7 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
 
 ### `{{PRIVACY_EMAIL}}`
 
-- **What to put there:** the `privacy@<domain>` role alias. This is the address a data
+- **What to put there:** the monitored `privacy@maybesitter.com` role address. This is the address a data
   subject writes to, so it must actually be read.
 - **Where it appears:**
   - `{en,ar,he}/privacy.html` — "Who we are", "Your rights", "Age", "Early-access sign-up"

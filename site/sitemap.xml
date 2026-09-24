@@ -2,87 +2,87 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>https://{{DOMAIN}}/</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/"/>
+    <loc>https://maybesitter.com/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/ar</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/"/>
+    <loc>https://maybesitter.com/ar</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/he</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/"/>
+    <loc>https://maybesitter.com/he</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/en/privacy</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/privacy"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/privacy"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/privacy"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/privacy"/>
+    <loc>https://maybesitter.com/en/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/privacy"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/privacy"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/ar/privacy</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/privacy"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/privacy"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/privacy"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/privacy"/>
+    <loc>https://maybesitter.com/ar/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/privacy"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/privacy"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/he/privacy</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/privacy"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/privacy"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/privacy"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/privacy"/>
+    <loc>https://maybesitter.com/he/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/privacy"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/privacy"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/en/terms</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/terms"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/terms"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/terms"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/terms"/>
+    <loc>https://maybesitter.com/en/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/terms"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/terms"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/ar/terms</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/terms"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/terms"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/terms"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/terms"/>
+    <loc>https://maybesitter.com/ar/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/terms"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/terms"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/he/terms</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/terms"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/terms"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/terms"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/terms"/>
+    <loc>https://maybesitter.com/he/terms</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/terms"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/terms"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/en/delete-account</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/delete-account"/>
+    <loc>https://maybesitter.com/en/delete-account</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/delete-account"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/ar/delete-account</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/delete-account"/>
+    <loc>https://maybesitter.com/ar/delete-account</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/delete-account"/>
   </url>
   <url>
-    <loc>https://{{DOMAIN}}/he/delete-account</loc>
-    <xhtml:link rel="alternate" hreflang="en" href="https://{{DOMAIN}}/en/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="ar" href="https://{{DOMAIN}}/ar/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="he" href="https://{{DOMAIN}}/he/delete-account"/>
-    <xhtml:link rel="alternate" hreflang="x-default" href="https://{{DOMAIN}}/en/delete-account"/>
+    <loc>https://maybesitter.com/he/delete-account</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://maybesitter.com/en/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="he" href="https://maybesitter.com/he/delete-account"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/delete-account"/>
   </url>
 </urlset>
