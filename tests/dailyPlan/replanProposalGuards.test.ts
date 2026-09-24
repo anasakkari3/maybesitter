@@ -1,3 +1,6 @@
+import { schedulePlan } from '../../lib/planning/scheduler/index.ts';
+import { replayStoredPlan, editPlan, PlanEditRejected, fixedTimeForOffer } from '../../lib/services/dailyPlan/planActions.ts';
+import { explanationFactsFrom, templateExplanation } from '../../lib/services/dailyPlan/explanationValidator.ts';
 /**
  * The guards #611's council decision set before the calendar producer lands.
  *
@@ -1146,7 +1149,11 @@ test('5: a re-sync of the same meeting in a later tick keeps the offer on the ta
     assert.equal(totals.proposed, 0, 'not as a new offer');
 
     const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
-    assert.deepEqual(offer, first, 'the same question, kept exactly as it was: id, time, placement and causes');
+    assert.deepEqual({ ...offer, plan: first.plan, solveInputs: first.solveInputs }, first,
+      'the same question retains id, time and causes while refreshing exact solve inputs');
+    assert.deepEqual(offer.plan.scheduled, first.plan.scheduled);
+    assert.ok(offer.solveInputs);
+    assert.deepEqual(schedulePlan(offer.solveInputs.constraints, offer.solveInputs.config), offer.plan);
     const events = await listPlanEvents(uid, storage);
     assert.equal(events.filter((event) => event.type === 'plan_proposed' && event.proposalId !== undefined).length, 1, 'one question, one entry');
     assert.equal(await pendingChanges(storage, uid), 0);
@@ -1198,4 +1205,114 @@ test('6: the replan service has no path to the push sender', () => {
   const text = readFileSync(join(ROOT, 'lib', 'services', 'dailyPlan', 'continuousReplanService.ts'), 'utf8');
   assert.doesNotMatch(text, /from ['"][^'"]*push[^'"]*['"]/i, 'no import of a push module');
   assert.doesNotMatch(text, /\b(sendToUser|planReadyPushSender|PlanPushSender)\b/);
+});
+
+
+test('#586: accepted real offer installs replayable metadata, current busy time and a fresh visible-day explanation', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_metadata_accept';
+    await seedAccount(storage, uid);
+    const before = (await readStoredPlan(uid, DATE, storage))!;
+    // A kept removal must not appear in the renewed narrative.
+    await storage.set(planPath(uid, DATE), { ...before, edits: { moves: [], removals: ['cmt_c'] },
+      explanation: { text: 'Superseded 09:00 story', locale: 'en', source: 'model', validated: true } });
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }]);
+    await storeChange(storage, uid, 'chg-meeting', 'busy-meeting');
+    await runContinuousReplanTick({ storage, now: MORNING });
+    const offered = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.ok(offered.solveInputs);
+    const after = (await acceptPlanProposal(uid, DATE, { storage, now: () => MORNING }))!;
+    assert.deepEqual(after.constraints, offered.solveInputs.constraints);
+    assert.deepEqual(after.config, offered.solveInputs.config);
+    assert.equal(after.inputDigest, offered.plan.inputDigest);
+    assert.notEqual(after.inputDigest, before.inputDigest);
+    assert.deepEqual(replayStoredPlan(after), after.plan);
+    assert.deepEqual(after.edits.removals, ['cmt_c']);
+    const visible = { ...after.plan, scheduled: after.plan.scheduled.filter((item) => item.itemId !== 'cmt_c'),
+      unscheduled: after.plan.unscheduled.filter((item) => item.itemId !== 'cmt_c') };
+    assert.equal(after.explanation.text, templateExplanation(explanationFactsFrom(visible, new Map(), TZ, after.locale)));
+    assert.equal(after.explanation.source, 'template');
+    await assert.rejects(editPlan(uid, DATE, { moves: [{ itemId: 'cmt_a', startsAt: MEETING.startsAt, endsAt: MEETING.endsAt }], removals: [] }, { storage, now: () => MORNING }),
+      (error: unknown) => error instanceof PlanEditRejected && error.reason === 'overlaps_fixed_event');
+    const events = await listPlanEvents(uid, storage);
+    assert.equal(events.find((event) => event.type === 'plan_regenerated')!.inputDigest, after.inputDigest);
+    assert.equal(events.find((event) => event.type === 'plan_proposal_accepted')!.inputDigest, before.inputDigest);
+  });
+});
+
+test('#586: old offers refuse without writes, remain rejectable, and a same-placement solve repairs their snapshot without offer churn', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_metadata_legacy';
+    await seedAccount(storage, uid);
+    const first = await offerForMeeting(storage, uid);
+    const { solveInputs: _snapshot, ...legacy } = first;
+    const current = (await readStoredPlan(uid, DATE, storage))!;
+    const old = { ...current, proposal: legacy };
+    await storage.set(planPath(uid, DATE), old);
+    const ledger = await listPlanEvents(uid, storage);
+    assert.equal(await refusalOf(acceptPlanProposal(uid, DATE, { storage, now: () => MORNING })), 'stale_proposal');
+    assert.deepEqual(await readStoredPlan(uid, DATE, storage), old);
+    assert.deepEqual(await listPlanEvents(uid, storage), ledger);
+    // No pending row means no promise of an automatic legacy refresh.
+    assert.equal(await pendingChanges(storage, uid), 0);
+    await runContinuousReplanTick({ storage, now: MORNING });
+    assert.deepEqual((await readStoredPlan(uid, DATE, storage))!.proposal, legacy);
+    await storeChange(storage, uid, 'chg-meeting', 'busy-meeting');
+    const totals = await runContinuousReplanTick({ storage, now: MORNING });
+    assert.equal(totals.kept, 1);
+    const refreshed = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.equal(refreshed.proposalId, first.proposalId);
+    assert.equal(refreshed.proposedAt, first.proposedAt);
+    assert.deepEqual(refreshed.plan.scheduled, first.plan.scheduled);
+    assert.deepEqual(refreshed.causeRefs, first.causeRefs);
+    assert.ok(refreshed.solveInputs);
+    assert.deepEqual(await listPlanEvents(uid, storage), ledger);
+    await storage.set(planPath(uid, DATE), old);
+    await rejectPlanProposal(uid, DATE, { storage, now: () => MORNING });
+    assert.equal((await readStoredPlan(uid, DATE, storage))!.proposal, null);
+  });
+});
+
+
+test('#586: a timezone change installs and explains the offered solve zone', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_metadata_timezone';
+    const before = await seedAccount(storage, uid);
+    const account = await storage.get<Record<string, unknown>>(userDoc(uid));
+    await storage.set(userDoc(uid), { ...account, timezone: 'UTC' });
+    const late = { startsAt: `${DATE}T22:00:00.000Z`, endsAt: `${DATE}T22:30:00.000Z` };
+    await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-late', interval: late }]);
+    await storeChange(storage, uid, 'chg-meeting', 'busy-meeting');
+    const totals = await runContinuousReplanTick({ storage, now: MORNING });
+    assert.equal(totals.proposed, 1);
+    const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
+    assert.equal(offer.solveInputs!.constraints.timezone, 'UTC');
+    const taken = await fixedTimeForOffer(uid, (await readStoredPlan(uid, DATE, storage))!, MORNING, { storage });
+    assert.ok(taken.some((event) => event.interval.startsAt === late.startsAt), 'GET checks the offered zone day, including time beyond the old day');
+    assert.equal(before.timezone, TZ);
+    const after = (await acceptPlanProposal(uid, DATE, { storage, now: () => MORNING }))!;
+    assert.equal(after.timezone, 'UTC');
+    assert.equal(after.explanation.text, templateExplanation(explanationFactsFrom(after.plan, new Map(), 'UTC', after.locale)));
+    assert.notEqual(after.explanation.text, templateExplanation(explanationFactsFrom(after.plan, new Map(), TZ, after.locale)));
+    assert.deepEqual(replayStoredPlan(after), after.plan);
+  });
+});
+
+
+test('#586: same-ID solve-zone refresh during acceptance refuses against the old busy-time horizon', async () => {
+  await withStorage(async (storage) => {
+    const uid = 'user_metadata_zone_race';
+    await seedAccount(storage, uid);
+    const first = await offerForMeeting(storage, uid);
+    const current = (await readStoredPlan(uid, DATE, storage))!;
+    const newer = { ...current, proposal: { ...first, solveInputs: {
+      ...first.solveInputs!, constraints: { ...first.solveInputs!.constraints, timezone: 'UTC' },
+    } } };
+    const ledger = await listPlanEvents(uid, storage);
+    const race = racingAfterPlanRead(storage, uid, () => storage.set(planPath(uid, DATE), newer));
+    assert.equal(await refusalOf(acceptPlanProposal(uid, DATE, { storage: race.storage, now: () => MORNING })), 'stale_proposal');
+    assert.equal(race.fired(), true);
+    assert.deepEqual(await readStoredPlan(uid, DATE, storage), newer);
+    assert.deepEqual(await listPlanEvents(uid, storage), ledger);
+  });
 });
