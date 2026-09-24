@@ -210,7 +210,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
        * normalized readiness snapshot rather than raw HealthKit samples.
        */
       NSHealthShareUsageDescription:
-        'MaybeSitter reads only the sleep, heart and step summaries you allow, then stores a readiness band instead of raw Health data.',
+        'MaybeSitter reads the sleep, heart and step data you allow, then turns it into a readiness summary that we store instead of raw Health data.',
     },
     // Standard HTTPS only, so the app is outside the US export-compliance
     // question App Store Connect asks on every single upload.
@@ -500,19 +500,19 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // prebuild; without this the pods link dynamically and the app crashes on
     // launch. The deployment target follows the Firebase Apple SDK's minimum.
     /*
-     * On-device dictation (UC-2.3, #163).
+     * System dictation (UC-2.3, #163).
      *
      * The plugin adds `RECORD_AUDIO` and the Android `<queries>` entry a
      * `RecognitionService` needs to be discoverable at all. Both permission
-     * strings say what actually happens: the device turns speech into text, and
-     * MaybeSitter is handed the text. It never receives the audio, and saying so
-     * in the prompt is the only place most people will ever read it.
+     * strings describe tap-to-dictate and the system service, which may process
+     * speech online when on-device recognition is unavailable. The app receives
+     * text; MaybeSitter servers are not sent the audio.
      */
     ['expo-speech-recognition', {
       microphonePermission:
-        'MaybeSitter uses the microphone only while you hold the mic button to dictate a reminder.',
+        'MaybeSitter uses the microphone when you choose voice dictation to add a commitment. You can stop dictation with a tap.',
       speechRecognitionPermission:
-        'Your device turns your speech into text. MaybeSitter never receives the audio.',
+        'The system dictation service turns your speech into text and may process it online. MaybeSitter servers do not receive the audio.',
       androidSpeechServicePackages: ['com.google.android.googlequicksearchbox', 'com.google.android.as'],
     }],
     /*
@@ -549,9 +549,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      */
     ['expo-calendar', {
       calendarPermission:
-        'MaybeSitter adds the commitments you confirm to a calendar you choose, and reads when '
-        + 'you are busy — the times only, never the titles — so it can plan around them and warn '
-        + 'you about a clash.',
+        'MaybeSitter adds the commitments you confirm to a calendar you choose, and uses your busy '
+        + 'times to plan around them and warn you about clashes. When reading your busy times, '
+        + 'we do not send calendar event titles to our servers.',
       remindersPermission: false,
     }],
     // The date and time pickers on the capture review sheet (UC-2.4, #164).

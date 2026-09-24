@@ -267,7 +267,7 @@ describe('iOS hardening', () => {
       expect(entitlements['com.apple.developer.healthkit']).toBe(true);
       expect(entitlements).not.toHaveProperty('com.apple.developer.healthkit.access');
       expect(purpose).toContain('MaybeSitter');
-      expect(purpose).toContain('readiness band');
+      expect(purpose).toContain('readiness summary');
       expect(purpose).toContain('instead of raw Health data');
     }
   });
