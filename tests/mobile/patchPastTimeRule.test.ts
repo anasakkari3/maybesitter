@@ -26,7 +26,15 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyCommand, configureCommandService } from '../../lib/services/commandService.ts';
-import { getCommitment, patchCommitment } from '../../lib/services/mobile/commitmentService.ts';
+import {
+  applyCommitmentAction,
+  getCommitment,
+  LATE_TAP_DEFER_MS,
+  patchCommitment,
+  postponeCommitment,
+} from '../../lib/services/mobile/commitmentService.ts';
+import { applyParticipantCommands } from '../../lib/services/mobile/participantState.ts';
+import { isPastCommitmentTime, isPastOrNow } from '../../lib/services/commitments/timeRules.ts';
 import { InvalidEditError, validateEdit } from '../../lib/services/captureBoundary/applyEdits.ts';
 import { createEmptyDomainState, type Command } from '../../src/domain/stateMachine.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -259,5 +267,117 @@ test('the route answers a past time with the refusal shape every other /api/mobi
     assert.equal(accepted.status, 200);
   } finally {
     cleanup();
+  }
+});
+
+/**
+ * Two boundaries, one millisecond apart, both named (#385).
+ *
+ * A due time of exactly `now` is a time the user picked and is allowed
+ * (`isPastCommitmentTime`, `<`). A postpone to exactly `now` asks for "later"
+ * and moves nothing, so it is refused (`isPastOrNow`, `<=`). The difference is
+ * one millisecond, so every case below sits on it rather than an hour away:
+ * an hour's margin would pass under either operator and pin nothing.
+ */
+const MS = 1;
+const atMs = (ms: number): string => new Date(NOW.getTime() + ms).toISOString();
+
+test('the two rules differ at exactly now and nowhere else', () => {
+  // Admission: exactly now is not past; one millisecond before is.
+  assert.equal(isPastCommitmentTime(NOW, NOW), false);
+  assert.equal(isPastCommitmentTime(NOW.getTime() - MS, NOW), true);
+  assert.equal(isPastCommitmentTime(NOW.getTime() + MS, NOW), false);
+  // Postpone: exactly now is too early; one millisecond after is not.
+  assert.equal(isPastOrNow(NOW, NOW), true);
+  assert.equal(isPastOrNow(NOW.getTime() - MS, NOW), true);
+  assert.equal(isPastOrNow(NOW.getTime() + MS, NOW), false);
+});
+
+test('a due time of exactly now is admitted, and one millisecond before is refused, on both paths', async () => {
+  const knownItems = new Set(['item-1']);
+  const edit = (resolvedTime: string) => ({ itemId: 'item-1', resolvedTime });
+
+  seedCommitment(48, null);
+  assert.equal(validateEdit(edit(atMs(0)), knownItems, NOW).resolvedTime, atMs(0));
+  assert.equal((await patchCommitment(ID, { dueDate: atMs(0) }, NOW)).timeSpec.dueAt, atMs(0));
+
+  seedCommitment(48, null);
+  assert.throws(() => validateEdit(edit(atMs(-MS)), knownItems, NOW), InvalidEditError);
+  await assert.rejects(patchCommitment(ID, { dueDate: atMs(-MS) }, NOW), /dueDate must not be in the past/);
+  assert.equal((await getCommitment(ID))?.timeSpec.dueAt, at(48));
+});
+
+test('postponing to exactly now is refused in-process, and nothing is written', async () => {
+  seedCommitment(48, 46);
+  await assert.rejects(postponeCommitment(ID, atMs(0), NOW), /^Error: postponedUntil must be after now$/);
+  const untouched = await getCommitment(ID);
+  assert.equal(untouched?.postponedUntil ?? null, null);
+  assert.notEqual(untouched?.currentAckState, 'postponed');
+
+  const postponed = await postponeCommitment(ID, atMs(MS), NOW);
+  assert.equal(postponed.postponedUntil, atMs(MS));
+  assert.equal(postponed.currentAckState, 'postponed');
+});
+
+/**
+ * The call the actions route makes, with the clock injected — the route reads
+ * `new Date()` itself, so the exact millisecond is only reachable here.
+ */
+const POSTPONER = uidFor('PostponeBoundaryUser');
+const POSTPONE_ID = 'cmt_postpone_boundary';
+
+async function seedForParticipant(): Promise<void> {
+  await applyParticipantCommands(POSTPONER, [
+    {
+      type: 'CreateDraft',
+      now: at(-72),
+      commitment: {
+        id: POSTPONE_ID, kind: 'task', title: 'Call the clinic',
+        timeSpec: { kind: 'due_by', dueAt: at(3), timezone: TIMEZONE },
+      },
+    } as Command,
+    { type: 'ConfirmCommitment', commitmentId: POSTPONE_ID, now: at(-71) } as Command,
+  ]);
+}
+
+test('an in-app postpone to exactly now is answered with the 400 refusal, not a 409 or a no-op', async () => {
+  setStorageForTests(createMemoryStorage());
+  try {
+    await seedForParticipant();
+    const input = { participantId: POSTPONER, now: NOW };
+    // The message the route turns into a 400. Without the service's rule the
+    // state machine's own guard answers instead, as an invalid transition.
+    await assert.rejects(
+      applyCommitmentAction(POSTPONE_ID, 'postpone', { ...input, postponedUntil: atMs(0) }),
+      (error: unknown) => error instanceof Error
+        && error.constructor === Error
+        && error.message === 'postponedUntil must be after now',
+    );
+    assert.equal((await getCommitment(POSTPONE_ID, { participantId: POSTPONER }))?.postponedUntil ?? null, null);
+
+    const { commitment } = await applyCommitmentAction(POSTPONE_ID, 'postpone', { ...input, postponedUntil: atMs(MS) });
+    assert.equal(commitment.postponedUntil, atMs(MS));
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('a Later from the outbox naming exactly now defers by the default; one millisecond later is honoured as sent', async () => {
+  setStorageForTests(createMemoryStorage());
+  try {
+    await seedForParticipant();
+    const atNow = await applyCommitmentAction(POSTPONE_ID, 'postpone', {
+      postponedUntil: atMs(0), clientActionId: '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', participantId: POSTPONER, now: NOW,
+    });
+    assert.equal(atNow.commitment.postponedUntil, atMs(LATE_TAP_DEFER_MS));
+
+    const later = new Date(NOW.getTime() + HOUR);
+    const justAfter = await applyCommitmentAction(POSTPONE_ID, 'postpone', {
+      postponedUntil: new Date(later.getTime() + MS).toISOString(),
+      clientActionId: '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e', participantId: POSTPONER, now: later,
+    });
+    assert.equal(justAfter.commitment.postponedUntil, new Date(later.getTime() + MS).toISOString());
+  } finally {
+    resetStorageForTests();
   }
 });

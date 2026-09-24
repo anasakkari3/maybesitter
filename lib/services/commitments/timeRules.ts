@@ -78,3 +78,39 @@ export function isPastCommitmentTime(instant: Date | number, now: Date): boolean
   const millis = instant instanceof Date ? instant.getTime() : instant;
   return millis < now.getTime();
 }
+
+/**
+ * The wording a postpone to a time not after now has always been refused
+ * with, by the service and by the state machine's own `Postpone` guard alike.
+ */
+export function notAfterNowMessage(field: string): string {
+  return `${field} must be after now`;
+}
+
+/**
+ * Whether an instant is too early to postpone a commitment to (#385).
+ *
+ * This is one millisecond stricter than `isPastCommitmentTime`, and on
+ * purpose: exactly `now` is refused here and allowed there. The two answer
+ * different questions.
+ *
+ * - A due time of exactly `now` is a time the user picked. It names a real
+ *   moment, and a reminder at it can still fire, so `isPastCommitmentTime`
+ *   keeps the boundary exclusive.
+ * - A postpone to exactly `now` asks for "later" and moves nothing. The
+ *   commitment would come back at the moment it was put off. That is not a
+ *   postpone, so the boundary is inclusive.
+ *
+ * Do not "tidy" `postponeCommitment` onto `isPastCommitmentTime`. That lets a
+ * postpone-to-now through, and the state machine's own `Postpone` guard
+ * (`src/domain/stateMachine.ts`, the same `<=`) does not answer it with this
+ * refusal. The in-process command service turns that guard into a silent
+ * no-op, and the participant path turns it into an invalid-transition 409
+ * rather than the 400 the client reads. The client's picker mirrors this rule
+ * too: `isPostponable` in `mobile/src/features/commitments/postpone.ts` accepts
+ * only `ms > now`.
+ */
+export function isPastOrNow(instant: Date | number, now: Date): boolean {
+  const millis = instant instanceof Date ? instant.getTime() : instant;
+  return millis <= now.getTime();
+}

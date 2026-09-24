@@ -21,6 +21,8 @@ import {
 import { getStorage } from '../../storage';
 import {
   isPastCommitmentTime,
+  isPastOrNow,
+  notAfterNowMessage,
   pastTimeMessage,
   reminderLeadNoLongerFitsMessage,
 } from '../commitments/timeRules';
@@ -742,7 +744,8 @@ export async function postponeCommitment(
   options: CommitmentMutationOptions = {},
 ): Promise<Commitment> {
   const parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
-  if (parsed.getTime() <= now.getTime()) throw new Error('postponedUntil must be after now');
+  // Stricter than a due time by one millisecond, deliberately: see `isPastOrNow` (#385).
+  if (isPastOrNow(parsed, now)) throw new Error(notAfterNowMessage('postponedUntil'));
   const command: Command = {
     type: 'Postpone',
     commitmentId: id,
@@ -848,11 +851,11 @@ function commandFor(
   if (action === 'cancel') return { type: 'Drop', commitmentId: id, now: now.toISOString() };
   if (action === 'aware') return { type: 'MarkAware', commitmentId: id, now: now.toISOString(), source: 'reminder' };
   let parsed = parseIsoInstant(postponedUntil, 'postponedUntil');
-  if (parsed.getTime() <= now.getTime()) {
+  if (isPastOrNow(parsed, now)) {
     // A Later pressed offline and delivered after its own instant (#200). The
     // person asked for "later", not for nothing: defer from now by the button's
     // default rather than refusing a tap the outbox would then drop.
-    if (!fromOutbox) throw new Error('postponedUntil must be after now');
+    if (!fromOutbox) throw new Error(notAfterNowMessage('postponedUntil'));
     parsed = new Date(now.getTime() + LATE_TAP_DEFER_MS);
   }
   return { type: 'Postpone', commitmentId: id, postponedUntil: parsed.toISOString(), now: now.toISOString() };
