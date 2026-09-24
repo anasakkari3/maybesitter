@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const script = fileURLToPath(new URL('../../infra/cloudrun/ai-cost-alerts.sh', import.meta.url));
 const output = execFileSync('bash', [script, 'print'], { encoding: 'utf8' });
 const commands = output.replace(/\\(.)/g, '$1');
-const policies = Array.from(output.matchAll(/--policy-from-file=- <<EOF\n([\s\S]*?)  EOF/g))
+const policies = Array.from(output.matchAll(/--policy-from-file=- <<EOF\n([\s\S]*?)^EOF$/gm))
   .map((match) => JSON.parse(match[1]));
 const condition = (name: string) => {
   const policy = policies.find((entry) => entry.displayName === name);
@@ -93,4 +93,30 @@ test('instance ceiling sums across revisions before the fifteen-minute retest', 
   assert.equal(c.duration, '900s');
   assert.equal(c.comparison, 'COMPARISON_GTE');
   assert.ok(2 + 1 >= c.thresholdValue); // Neither revision alone is at 3.
+});
+
+test('printed commands execute as shell with four independently valid policy inputs', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ai-alerts-print-test-'));
+  const log = join(dir, 'calls.jsonl');
+  try {
+    writeFileSync(join(dir, 'gcloud'), `#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+const policy = args.includes('--policy-from-file=-') ? JSON.parse(fs.readFileSync(0, 'utf8')) : null;
+fs.appendFileSync(process.env.ALERT_TEST_LOG, JSON.stringify({args, policy})+'\\n');
+`, { mode: 0o755 });
+    execFileSync('bash', ['-e'], {
+      input: output,
+      env: { ...process.env, PATH: `${dir}:${dirname(process.execPath)}:${process.env.PATH}`, ALERT_TEST_LOG: log },
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    const calls = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.deepEqual(calls.filter(c => c.policy).map(c => c.policy), policies);
+    assert.equal(calls.filter(c => c.policy).length, 4);
+    assert.ok(calls.some(c => c.args[0] === 'billing'));
+    assert.equal(calls.filter(c => c.args[0] === 'firestore').length, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

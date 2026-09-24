@@ -109,7 +109,7 @@ JSON
   if [ "${MODE}" = "print" ]; then
     printf '  gcloud alpha monitoring policies create --project=%s --policy-from-file=- <<EOF\n' "${PROJECT_ID}"
     sed 's/^/  /' "${file}"
-    printf '  EOF\n'
+    printf 'EOF\n'
   else
     gcloud alpha monitoring policies create --project="${PROJECT_ID}" --policy-from-file="${file}"
   fi
