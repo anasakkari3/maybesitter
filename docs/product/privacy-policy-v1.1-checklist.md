@@ -69,7 +69,7 @@ inspection on 2026-09-25 found receipt TTL active but **no accountDeletions TTL
 policy**. The owner must resolve that operational gap before publication; this
 draft does not authorize enabling a TTL policy. The same inspection found a
 seven-day PITR window, no configured backup schedules and 30-day retention for
-the default log bucket. Provider retention still requires separate evidence.
+the default log bucket. Firebase’s [published retention information](https://firebase.google.com/support/privacy), checked on 2026-09-25, states that Crashlytics retains crash data and associated identifiers for 90 days **before removal begins** from live and backup systems. This is not a guarantee of completed removal by day 90. The account-deletion implementation does not delete Crashlytics reports; store linkage declarations still require release-specific review.
 Incomplete/stuck deletion jobs can retain the UID for resumption. Early-access
 website registrations are separate records, not automatically removed by an
 app-account deletion.
