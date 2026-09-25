@@ -133,8 +133,15 @@ describe('the Share Sheet rows', () => {
     expect(within(screen.getByTestId('integration-whatsapp')).getByTestId('row-status-VIA_SHARE')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('integration-whatsapp'));
     const guide = screen.getByTestId('share-guide-whatsapp');
+    // Only the verified path: Export chat → Without media → MaybeSitter, with
+    // the Android "More" hop. The unverified long-press alternative is gone.
     expect(within(guide).getByText(en.xWhatsappStep2)).toBeTruthy();
-    expect(within(guide).getByText(en.xWhatsappGuideOr)).toBeTruthy();
+    expect(en.xWhatsappStep2).toMatch(/⋮ → More → Export chat/);
+    expect(within(guide).getByText(en.xWhatsappStep3)).toBeTruthy();
+    expect(en.xWhatsappStep3).toMatch(/Without media/);
+    expect(within(guide).getAllByLabelText(/^\d\. /)).toHaveLength(3);
+    expect(within(guide).queryByText(/long-press/i)).toBeNull();
+    expect(Object.keys(en)).not.toContain('xWhatsappGuideOr');
     // Still the integrations page underneath: the row opened the guide, not the Add hub.
     expect(screen.getByTestId('product-integrations')).toBeTruthy();
     expect(screen.queryByTestId('product-add')).toBeNull();

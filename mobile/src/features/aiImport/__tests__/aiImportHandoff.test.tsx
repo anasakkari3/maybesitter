@@ -71,6 +71,32 @@ it('the button copies first, then opens the ChatGPT app link, and returning show
   await waitFor(() => expect(screen.getByTestId('ai-import-paste')).toBeTruthy());
 });
 
+it('after the assistant opened, the paste step can copy the question again', async () => {
+  await render(wrap(<AiImportFlow onDone={() => undefined} onCancel={() => undefined} />));
+  await fireEvent.press(screen.getByTestId('ai-import-pick-chatgpt'));
+  await fireEvent.press(screen.getByTestId('ai-import-go'));
+  await waitFor(() => expect(screen.getByTestId('ai-import-paste-copy')).toBeTruthy());
+  await fireEvent.press(screen.getByTestId('ai-import-paste-copy'));
+  await waitFor(() => expect(order).toEqual(['copy', 'open https://chatgpt.com/app', 'copy']));
+  // Still on the paste step: copying again is not a new handoff.
+  expect(screen.getByTestId('ai-import-paste')).toBeTruthy();
+});
+
+it('a second tap while the first open is in flight does nothing', async () => {
+  let finish: (value: true) => void = () => undefined;
+  openURL.mockImplementation((url: string) => { order.push(`open ${url}`); return new Promise(resolve => { finish = resolve; }); });
+  await render(wrap(<AiImportFlow onDone={() => undefined} onCancel={() => undefined} />));
+  await fireEvent.press(screen.getByTestId('ai-import-pick-chatgpt'));
+  await fireEvent.press(screen.getByTestId('ai-import-go'));
+  await waitFor(() => expect(openURL).toHaveBeenCalledTimes(1));
+  await fireEvent.press(screen.getByTestId('ai-import-go'));
+  await fireEvent.press(screen.getByTestId('ai-import-go'));
+  expect(order).toEqual(['copy', 'open https://chatgpt.com/app']);
+  finish(true);
+  await waitFor(() => expect(screen.getByTestId('ai-import-paste')).toBeTruthy());
+  expect(openURL).toHaveBeenCalledTimes(1);
+});
+
 it('falls back to the in-app browser only when the OS refuses the link', async () => {
   openURL.mockRejectedValueOnce(new Error('no handler'));
   await render(wrap(<AiImportFlow onDone={() => undefined} onCancel={() => undefined} />));

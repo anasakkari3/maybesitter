@@ -19,8 +19,11 @@ import { NumberedSteps } from '../../ui/steps';
 export type ShareGuideKind = 'whatsapp' | 'files';
 
 const STEPS = {
-  whatsapp: { title: 'xWhatsappGuideTitle', steps: ['xWhatsappStep1', 'xWhatsappStep2', 'xShareStepPick'], or: 'xWhatsappGuideOr' },
-  files: { title: 'xFilesGuideTitle', steps: ['xFilesStep1', 'xFilesStep2', 'xShareStepPick'], or: null },
+  // Only the export path, which is verified end to end: WhatsApp exports a
+  // .zip (iOS) or .txt (Android) the share extension accepts. Forwarding
+  // single messages differs by platform and message type, so it is not taught.
+  whatsapp: { title: 'xWhatsappGuideTitle', steps: ['xWhatsappStep1', 'xWhatsappStep2', 'xWhatsappStep3'] },
+  files: { title: 'xFilesGuideTitle', steps: ['xFilesStep1', 'xFilesStep2', 'xShareStepPick'] },
 } as const;
 
 export function ShareGuideSheet({ kind, onClose }: { kind: ShareGuideKind; onClose: () => void }) {
@@ -41,7 +44,6 @@ export function ShareGuideSheet({ kind, onClose }: { kind: ShareGuideKind; onClo
         <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 20 + insets.bottom, gap: 16 }}>
           <Txt role="section">{t[guide.title]}</Txt>
           <NumberedSteps steps={guide.steps.map(key => t[key])} />
-          {guide.or ? <Txt role="supporting" color={p.mu}>{t[guide.or]}</Txt> : null}
           <Pill testID="share-guide-close" label={t.ok} onPress={onClose} />
         </ScrollView>
       </Animated.View>
