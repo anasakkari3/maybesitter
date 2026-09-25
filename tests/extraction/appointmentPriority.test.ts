@@ -344,13 +344,23 @@ test('clarify: a free-text answer that states another date replaces the day, and
   assert.equal(answered.dateEstimated, false);
 });
 
-test('clarify: an answer that leaves no day drops the stale day and its guess', async () => {
+test('clarify: an answer whose reading carries no local day drops the stale day and its guess', async () => {
   const { store, contract, item, question } = await proposeOwnerSentence();
-  const noDay = extract('call the plumber', context);
+  // An instant with no wall-clock day beside it: nothing says which day the
+  // card should call ours, so it says nothing rather than the old Sunday.
+  const timed = extract('call the plumber', context);
   const next = await answerClarification(
-    { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'whenever' },
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'at 10' },
     clarifyOptions,
-    { store, recordEvent: () => {}, extractor: async (text) => ({ result: { ...noDay, rawText: text }, engine: 'rule-based', fallbackReason: null }) },
+    {
+      store,
+      recordEvent: () => {},
+      extractor: async (text) => ({
+        result: { ...timed, rawText: text, localTimeSpec: null, timeEvidence: 'hhmm', dueAt: '2026-09-24T07:00:00.000Z', remindAt: '2026-09-24T07:00:00.000Z' },
+        engine: 'rule-based',
+        fallbackReason: null,
+      }),
+    },
   );
   const answered = next.items[0]!;
   assert.equal(answered.resolvedDate, undefined);
