@@ -91,7 +91,10 @@ Do not equate a pseudonymous receipt with “no data retained.”
   delivery checks in Workspace recipient logs. On 2026-09-25 the owner explicitly
   accepted human responsibility for monitoring both addresses and handling support,
   privacy and account/data deletion requests. This is an operational commitment,
-  not automated handling or a newly agreed response deadline. The effective date
+  not automated handling. In a subsequent explicit decision on 2026-09-25, the
+  owner approved responding to and following up on privacy requests received at
+  `privacy@maybesitter.com` within 30 days of receipt. This does not guarantee
+  completion of every deletion or technical action within that period. The effective date
   remains unresolved, and publication still needs separate approval.
 - Approve final enabled-release disclosures and v1.1 effective date; determine
   the notice process for policy/terms changes. Do not promise an automatic
