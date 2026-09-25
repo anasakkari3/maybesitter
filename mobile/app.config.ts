@@ -287,9 +287,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
        * UC-4.3b (#179).
        *
        * Every entry is `Tracking: false`, because none of it is used to track.
-       * Crash data currently declares `linked: false`. The app wrapper does
-       * not call `setUserId`, but that alone does not establish the SDK's full
-       * identifier/linkage behavior. Final store review remains under #327.
+       * Crash data is not linked to identity. The app wrapper never supplies
+       * a user id or account data, and FirebaseCrashlytics' bundled privacy
+       * manifest declares CrashData not linked, for App Functionality. The
+       * release declaration decision is recorded under #327.
        *
        * Both Crashlytics and Firebase Messaging are installed. See #327's
        * factual reconciliation in docs/release/STORE_PRIVACY_DECLARATIONS.md.
@@ -320,7 +321,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         collected('NSPrivacyCollectedDataTypeDeviceID'),
         // Captures, and the commitments made from them.
         collected('NSPrivacyCollectedDataTypeOtherUserContent'),
-        // Existing linkage declaration; final SDK/store review remains under #327.
+        // Crash diagnosis only; no account identifier is attached (#327).
         collected('NSPrivacyCollectedDataTypeCrashData', { linked: false }),
         /*
          * The calendar link (UC-3.1, #185).

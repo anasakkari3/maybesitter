@@ -283,6 +283,24 @@ describe('iOS hardening', () => {
       NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
     });
   });
+
+  it('pins the owner-approved Device ID and Crash data declarations (#327)', () => {
+    const collected = configs.production.ios.privacyManifests?.NSPrivacyCollectedDataTypes ?? [];
+    const byType = (type: string) => collected.find(entry => entry.NSPrivacyCollectedDataType === type);
+
+    expect(byType('NSPrivacyCollectedDataTypeDeviceID')).toEqual({
+      NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeDeviceID',
+      NSPrivacyCollectedDataTypeLinked: true,
+      NSPrivacyCollectedDataTypeTracking: false,
+      NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+    });
+    expect(byType('NSPrivacyCollectedDataTypeCrashData')).toEqual({
+      NSPrivacyCollectedDataType: 'NSPrivacyCollectedDataTypeCrashData',
+      NSPrivacyCollectedDataTypeLinked: false,
+      NSPrivacyCollectedDataTypeTracking: false,
+      NSPrivacyCollectedDataTypePurposes: ['NSPrivacyCollectedDataTypePurposeAppFunctionality'],
+    });
+  });
 });
 
 describe('Android hardening', () => {
