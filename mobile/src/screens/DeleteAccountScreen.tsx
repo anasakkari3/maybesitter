@@ -27,7 +27,7 @@ import { TaskHeader } from '../ui/taskHeader';
  * else, so dismissing the alert makes zero network calls. A test asserts it.
  */
 export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
-  const { t, p } = useApp();
+  const { t, p, rtl } = useApp();
   const { repository } = useAuth();
   const online = useIsOnline();
   const { phase, requestDeletion, retryAfterReauth, cancelReauth } = useAccountDeletion();
@@ -113,6 +113,8 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
                   fontSize: 16,
                   color: p.tx,
                   minHeight: 52,
+                  // A TextInput takes the physical edge; the root's `direction` does not move it.
+                  textAlign: rtl ? 'right' : 'left',
                 }}
               />
               <Pill

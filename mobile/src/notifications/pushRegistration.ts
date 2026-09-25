@@ -109,6 +109,30 @@ export async function registerDeviceForPush(
 }
 
 /**
+ * Tells the server this phone may now be pushed to, right after a grant
+ * (first iPhone run, L7 review).
+ *
+ * The device row is written at sign-in and on a token refresh. A phone signed
+ * in before it was ever asked was written as `denied` (see
+ * `reportablePermission`), and a grant from the in-app prompt changed nothing
+ * on the server until the next cold launch — on iOS, often days — so the
+ * `plan_ready` push and the Must backup push skipped a phone that allowed
+ * them. Both prompt paths call this with what the phone answered. It
+ * registers only when the answer changed to one the server pushes to, so a
+ * "no", or a toggle that found the permission already granted, writes
+ * nothing.
+ */
+export async function refreshPushAfterPrompt(
+  before: NotificationPermission | null,
+  after: NotificationPermission,
+  deps: PushRegistrationDeps = createPushRegistrationDeps(),
+): Promise<RegistrationOutcome | null> {
+  if (after === before) return null;
+  if (after !== 'granted' && after !== 'provisional') return null;
+  return registerDeviceForPush(deps);
+}
+
+/**
  * Forgets this device, in the order that actually works.
  *
  * The `DELETE` goes first, while the session is still valid — after sign-out

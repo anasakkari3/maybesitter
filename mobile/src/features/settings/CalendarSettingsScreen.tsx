@@ -1,20 +1,44 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, View } from 'react-native';
+import { ActivityIndicator, Linking, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
-import { useSetCalendarWriteTarget, useToday, useUpcoming } from '../../api/queries';
+import { useSetCalendarWriteTarget, useToday, useTrust, useTrustAction, useUpcoming } from '../../api/queries';
 import {
   useCalendarSettings,
   useDeviceCalendarSync,
 } from '../calendar/useDeviceCalendarSync';
-import { deviceCalendar, type CalendarAccess, type WritableCalendar } from '../calendar/deviceCalendar';
-import { loadChosenCalendarId, saveChosenCalendarId } from '../../lib/deviceSettings/calendarDevice';
+import {
+  deviceCalendar,
+  type CalendarAccess,
+  type DeviceEventCalendar,
+  type WritableCalendar,
+} from '../calendar/deviceCalendar';
+import {
+  loadChosenCalendarId,
+  loadExcludedCalendarIds,
+  saveChosenCalendarId,
+  saveExcludedCalendarIds,
+} from '../../lib/deviceSettings/calendarDevice';
 import { calendarReadEnabled, calendarWriteEnabled, icsFeedsEnabled } from '../../config/env';
 import { useBusyBlocks, useBusyCalendar } from '../calendar/useBusyCalendar';
 import { fill } from '../../i18n/strings';
+import { SectionLabel } from '../../ui/chrome';
+
+/** The key a calendar with no account is grouped under. */
+const OTHER_SOURCE = 'other';
+
+/** Calendars by account, in the order the phone lists them. */
+export function groupByAccount(calendars: readonly DeviceEventCalendar[]): { source: string; calendars: DeviceEventCalendar[] }[] {
+  const groups = new Map<string, DeviceEventCalendar[]>();
+  for (const calendar of calendars) {
+    const source = calendar.sourceName?.trim() || OTHER_SOURCE;
+    groups.set(source, [...(groups.get(source) ?? []), calendar]);
+  }
+  return [...groups.entries()].map(([source, list]) => ({ source, calendars: list }));
+}
 
 /**
  * Settings → Calendar (UC-3.1, #185).
@@ -57,6 +81,22 @@ import { fill } from '../../i18n/strings';
  * governs reading is not here at all: it is the Trust Center's calendar
  * consent, which is where every other "may we use this" lives.
  *
+ * ── The calendars already on the phone come first (first iPhone run, L7) ──
+ *
+ * "I have many calendars connected to my email; they should show up here, I
+ * shouldn't have to fill anything in." They do: an account added in the
+ * phone's own settings — Google, Outlook, iCloud — reaches this app through
+ * the OS calendar. So the top of the screen is reading, with its switch here
+ * as well as in the Trust Center, and once the phone allows it every event
+ * calendar is listed by account with a switch that stays on until the user
+ * turns it off. The choice is kept on this phone (`calendarDevice.ts`; a
+ * calendar id means nothing elsewhere) and the busy read skips those
+ * calendars. Turning reading on asks the phone first: recording the consent
+ * alone left the sync failing, silently, as `denied`.
+ *
+ * The university calendar link (ICS, UC-3.4) is a secondary row at the
+ * bottom, named for what it is. Most people's calendars are already listed.
+ *
  * The Android caveat is written on the screen rather than only in an issue.
  * `isCurrentUser` is iOS-only, so a meeting somebody declined still counts as
  * busy on Android, and a product that quietly counted a refused invitation as
@@ -71,9 +111,14 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const sync = useDeviceCalendarSync([today.data, upcoming.data]);
   const busyCalendar = useBusyCalendar();
   const busyBlocks = useBusyBlocks();
+  const trust = useTrust();
+  const trustAction = useTrustAction();
+  const consented = trust.data?.trust?.calendarConsent === true;
 
   const [access, setAccess] = useState<CalendarAccess | null>(null);
   const [calendars, setCalendars] = useState<WritableCalendar[]>([]);
+  const [phoneCalendars, setPhoneCalendars] = useState<DeviceEventCalendar[] | null>(null);
+  const [excluded, setExcluded] = useState<string[]>([]);
   const [chosen, setChosen] = useState<string | null>(null);
   const [removed, setRemoved] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -93,18 +138,58 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     }
   }, []);
 
+  const loadPhoneCalendars = useCallback(async () => {
+    try {
+      setPhoneCalendars(await deviceCalendar.listEventCalendars());
+    } catch {
+      setPhoneCalendars([]);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const current = await deviceCalendar.getAccess();
       const stored = await loadChosenCalendarId();
+      const off = await loadExcludedCalendarIds();
       if (cancelled) return;
       setAccess(current);
       setChosen(stored);
-      if (current === 'granted') await loadCalendars();
+      setExcluded(off);
+      if (current === 'granted') await Promise.all([loadCalendars(), loadPhoneCalendars()]);
     })();
     return () => { cancelled = true; };
-  }, [loadCalendars]);
+  }, [loadCalendars, loadPhoneCalendars]);
+
+  /** Asks the phone if it has not answered yet; reads the calendars on a yes. */
+  const askPhone = useCallback(async (): Promise<CalendarAccess> => {
+    const answer = access === 'granted' ? 'granted' : await deviceCalendar.requestAccess();
+    setAccess(answer);
+    if (answer === 'granted') await Promise.all([loadCalendars(), loadPhoneCalendars()]);
+    return answer;
+  }, [access, loadCalendars, loadPhoneCalendars]);
+
+  /**
+   * Reading on: the phone is asked first, then the consent is recorded.
+   *
+   * Recorded even when the phone says no. The consent also covers the
+   * university calendar link, which needs no phone permission, and a no here
+   * is shown with the way to phone settings rather than rolled back — the
+   * same rule the reminders switch follows.
+   */
+  const changeRead = useCallback(async (next: boolean): Promise<boolean> => {
+    if (next) await askPhone();
+    await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next });
+    return true;
+  }, [askPhone, trustAction]);
+
+  /** One calendar on or off for busy time; the next read already knows. */
+  const toggleCalendar = useCallback(async (calendarId: string, on: boolean) => {
+    const next = on ? excluded.filter((id) => id !== calendarId) : [...excluded, calendarId];
+    setExcluded(next);
+    await saveExcludedCalendarIds(next);
+    void busyCalendar.syncNow('refresh');
+  }, [busyCalendar, excluded]);
 
   /**
    * Turning it on: ask the OS first, and write the setting only if it said yes.
@@ -158,10 +243,133 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   }, [busyCalendar]);
 
   const denied = access === 'denied';
+  // What reading needs, all three: the build, the consent and the phone. The
+  // list and its switches show only then — a list of calendars with their
+  // switches on while nothing is read looks connected and is not (review I1).
+  const reading = calendarReadEnabled() && consented && access === 'granted';
+  // Anything short of that, on a build that reads and a phone that has not
+  // said no: one button that does all of it.
+  const canAllow = calendarReadEnabled() && trust.data !== undefined && access !== null && !denied && !reading;
+  const [allowing, setAllowing] = useState(false);
+  const allow = useCallback(async () => {
+    setAllowing(true);
+    try {
+      await changeRead(true);
+    } catch {
+      // The switch above shows the same failure on its next attempt; the
+      // button simply stays, because nothing changed.
+    } finally {
+      setAllowing(false);
+    }
+  }, [changeRead]);
 
   return (
     <Screen pinned={<SettingsHeader title={t.calendarWriteTitle} onBack={onBack} />}>
       <ScreenScroll>
+
+        {/* Reading first: the calendars already on the phone (L7). */}
+        <Card pad={0} style={{ overflow: 'hidden' }}>
+          <ServerToggle
+            title={t.calendarReadTitle}
+            body={t.calendarReadBody}
+            value={consented}
+            disabled={!calendarReadEnabled() || trust.data === undefined}
+            onChange={changeRead}
+            testID="calendar-read-toggle"
+          />
+          {calendarReadEnabled() ? null : (
+            <View style={{ paddingHorizontal: 18, paddingVertical: 12 }}>
+              <Txt size={13} color={p.mu} lh={1.5} testID="calendar-read-unavailable">
+                {t.calendarReadUnavailable}
+              </Txt>
+            </View>
+          )}
+          <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 4 }}>
+            <Txt role="action">{t.calendarDeviceTitle}</Txt>
+            <Txt role="supporting" color={p.mu}>{t.calendarDeviceHint}</Txt>
+          </View>
+          {canAllow ? (
+            <View style={{ paddingHorizontal: 18, paddingBottom: 16 }}>
+              <Btn
+                label={t.calendarDeviceAllow}
+                testID="calendar-read-allow"
+                disabled={allowing}
+                onPress={() => void allow()}
+                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}
+              >
+                <Txt size={15} weight={600} color={p.onAccent}>{t.calendarDeviceAllow}</Txt>
+              </Btn>
+            </View>
+          ) : null}
+          {reading && phoneCalendars !== null && phoneCalendars.length === 0 ? (
+            <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
+              <Txt size={13} color={p.mu} testID="calendar-device-none">{t.calendarDeviceNone}</Txt>
+            </View>
+          ) : null}
+          {reading && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars: list }) => (
+            <View key={source} testID={`calendar-account-${source}`} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingHorizontal: 18, paddingTop: 12 }}>
+              <SectionLabel>{source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source}</SectionLabel>
+              {list.map((calendar) => {
+                const on = !excluded.includes(calendar.id);
+                return (
+                  <View key={calendar.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52 }}>
+                    <Txt role="body" style={{ flex: 1 }}>{calendar.title}</Txt>
+                    <Switch
+                      testID={`calendar-device-${calendar.id}`}
+                      accessibilityRole="switch"
+                      accessibilityLabel={`${calendar.title}, ${source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source}`}
+                      accessibilityState={{ checked: on }}
+                      value={on}
+                      trackColor={{ false: p.ln, true: p.ac }}
+                      onValueChange={(next) => void toggleCalendar(calendar.id, next)}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          )) : null}
+        </Card>
+
+        {denied ? (
+          <Card pad={18} style={{ gap: 12 }}>
+            <Txt size={15} color={p.mu} lh={1.5} testID="calendar-permission-denied">
+              {t.calendarPermissionDenied}
+            </Txt>
+            <Btn
+              label={t.notifOpenSettings}
+              testID="calendar-open-settings"
+              onPress={() => void Linking.openSettings()}
+              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+            >
+              <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
+            </Btn>
+          </Card>
+        ) : null}
+
+        {/* What has been read, and the way to stop and delete it (UC-3.2, #186). */}
+        <Card pad={18} style={{ gap: 12 }}>
+          <Txt size={13} color={p.mu} testID="calendar-busy-count">
+            {fill(t.calendarBusyCount, { n: busyBlocks.length })}
+          </Txt>
+          <Txt size={13} color={p.mu} lh={1.5} testID="calendar-declined-note">{t.calendarDeclinedNote}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5}>{t.calendarDisconnectBody}</Txt>
+          <Btn
+            label={t.calendarDisconnectAction}
+            testID="calendar-disconnect"
+            onPress={() => void disconnect()}
+            disabled={disconnecting}
+            style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+          >
+            {disconnecting
+              ? <ActivityIndicator testID="calendar-disconnect-busy" color={p.ac} />
+              : <Txt size={15} color={p.ac}>{t.calendarDisconnectAction}</Txt>}
+          </Btn>
+          {disconnected === null ? null : (
+            <Txt size={13} color={p.mu} lh={1.5} testID="calendar-disconnect-result">
+              {disconnected === 'done' ? t.calendarDisconnectDone : t.calendarDisconnectFailed}
+            </Txt>
+          )}
+        </Card>
 
         <Card pad={0} style={{ overflow: 'hidden' }}>
           <ServerToggle
@@ -183,22 +391,6 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
             </Txt>
           </Card>
         )}
-
-        {denied ? (
-          <Card pad={18} style={{ gap: 12 }}>
-            <Txt size={15} color={p.mu} lh={1.5} testID="calendar-permission-denied">
-              {t.calendarPermissionDenied}
-            </Txt>
-            <Btn
-              label={t.notifOpenSettings}
-              testID="calendar-open-settings"
-              onPress={() => void Linking.openSettings()}
-              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
-            >
-              <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
-            </Btn>
-          </Card>
-        ) : null}
 
         {on && !denied ? (
           <Card pad={0} style={{ overflow: 'hidden' }}>
@@ -238,46 +430,6 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
           </Card>
         ) : null}
 
-        {/* Subscribed calendar links (UC-3.4, #188). Absent, not disabled, when
-            the build does not have the feature. */}
-        {icsFeedsEnabled() && onFeeds ? (
-          <Card pad={0} style={{ overflow: 'hidden' }}>
-            <SettingsRow label={t.icsFeedsEntry} value={t.icsFeedsEntryBody} onPress={onFeeds} testID="calendar-feeds-entry" />
-          </Card>
-        ) : null}
-
-        {/* What is read, as opposed to what is written (UC-3.2, #186). */}
-        <Card pad={18} style={{ gap: 12 }}>
-          <Txt size={15}>{t.calendarReadTitle}</Txt>
-          <Txt size={13} color={p.mu} lh={1.5}>{t.calendarReadBody}</Txt>
-          {calendarReadEnabled() ? null : (
-            <Txt size={13} color={p.mu} lh={1.5} testID="calendar-read-unavailable">
-              {t.calendarReadUnavailable}
-            </Txt>
-          )}
-          <Txt size={13} color={p.mu} testID="calendar-busy-count">
-            {fill(t.calendarBusyCount, { n: busyBlocks.length })}
-          </Txt>
-          <Txt size={13} color={p.mu} lh={1.5} testID="calendar-declined-note">{t.calendarDeclinedNote}</Txt>
-          <Txt size={13} color={p.mu} lh={1.5}>{t.calendarDisconnectBody}</Txt>
-          <Btn
-            label={t.calendarDisconnectAction}
-            testID="calendar-disconnect"
-            onPress={() => void disconnect()}
-            disabled={disconnecting}
-            style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
-          >
-            {disconnecting
-              ? <ActivityIndicator testID="calendar-disconnect-busy" color={p.ac} />
-              : <Txt size={15} color={p.ac}>{t.calendarDisconnectAction}</Txt>}
-          </Btn>
-          {disconnected === null ? null : (
-            <Txt size={13} color={p.mu} lh={1.5} testID="calendar-disconnect-result">
-              {disconnected === 'done' ? t.calendarDisconnectDone : t.calendarDisconnectFailed}
-            </Txt>
-          )}
-        </Card>
-
         <Card pad={18} style={{ gap: 12 }}>
           <Txt size={13} color={p.mu} lh={1.5}>{t.calendarRemoveBody}</Txt>
           <Btn
@@ -295,6 +447,15 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
             <Txt size={13} color={p.mu} testID="calendar-removed-count">{t.calendarRemoveDone}</Txt>
           )}
         </Card>
+
+        {/* A university calendar link (UC-3.4, #188), secondary on purpose:
+            the phone's own calendars are listed above with nothing to fill in.
+            Absent, not disabled, when the build does not have the feature. */}
+        {icsFeedsEnabled() && onFeeds ? (
+          <Card pad={0} style={{ overflow: 'hidden', paddingHorizontal: 18 }}>
+            <SettingsRow first label={t.calendarUniLinkEntry} sub={t.icsFeedsEntryBody} onPress={onFeeds} testID="calendar-feeds-entry" />
+          </Card>
+        ) : null}
       </ScreenScroll>
     </Screen>
   );

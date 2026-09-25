@@ -14,16 +14,19 @@
  * on the list is categorised. One chip is not a choice, so the bar renders
  * nothing rather than a single tappable "All" that does nothing.
  *
- * ── RTL comes from the writing system, not from a flag here ──────
+ * ── RTL: reversed here, because nothing else reverses it ─────────
  *
- * `I18nManager` flips the row for Arabic and Hebrew, so the chips are laid out
- * in source order and the platform reverses them. Reversing the array here as
- * well would put "All" back on the left in the one place it must not be.
+ * Direction in this app is style-only — the root View's `direction`, never
+ * `I18nManager` — and a horizontal ScrollView lays its content out left to
+ * right under it. So `DirectionalScrollRow` reverses the chips for Arabic and
+ * Hebrew and opens the row at its end, putting "All" at the right edge where
+ * reading starts (first iPhone run, L7).
  */
 import React from 'react';
-import { ScrollView, View } from 'react-native';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Pill } from '../../ui/primitives';
+import { DirectionalScrollRow } from '../../ui/directionalScroll';
 import type { CategoryChip } from './categoryFilter';
 
 /** The copy key for each chip. Total, so a new category cannot render as a code. */
@@ -55,8 +58,7 @@ export function CategoryBar({
 
   return (
     <View testID="category-bar">
-      <ScrollView
-        horizontal
+      <DirectionalScrollRow
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ gap: 8, paddingVertical: 2 }}
         // The row is a filter, not a page: keep the list reachable by a flick
@@ -75,7 +77,7 @@ export function CategoryBar({
             pad={14}
           />
         ))}
-      </ScrollView>
+      </DirectionalScrollRow>
     </View>
   );
 }

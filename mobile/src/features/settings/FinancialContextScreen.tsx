@@ -105,7 +105,10 @@ function Line({ label, amount, testID }: {
 }
 
 export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
-  const { t, p } = useApp();
+  const { t, p, rtl } = useApp();
+  // A TextInput is not mirrored by the root's `direction` the way a Text is:
+  // it takes the physical edge (first iPhone run, L7).
+  const inputAlign = { textAlign: rtl ? 'right' as const : 'left' as const, writingDirection: rtl ? 'rtl' as const : 'ltr' as const };
   const context = useFinancialContext();
   const connection = useFinancialConnection();
   const connect = useConnectFinancialSource();
@@ -212,15 +215,15 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
           <Txt size={15} weight={600}>{t.financialAddBillTitle}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.financialAddBillBody}</Txt>
           <TextInput testID="financial-bill-label" value={billLabel} onChangeText={setBillLabel} placeholder={t.financialAddBillLabel} placeholderTextColor={p.mu}
-            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TextInput testID="financial-bill-amount" value={billAmount} onChangeText={setBillAmount} keyboardType="decimal-pad" placeholder={t.financialAddBillAmount} placeholderTextColor={p.mu}
-              style={{ flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+              style={{ flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
             <TextInput testID="financial-bill-currency" value={billCurrency} onChangeText={setBillCurrency} autoCapitalize="characters" maxLength={3} placeholder="USD" placeholderTextColor={p.mu}
-              style={{ width: 82, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+              style={{ width: 82, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           </View>
           <TextInput testID="financial-bill-date" value={billDate} onChangeText={setBillDate} keyboardType="numbers-and-punctuation" placeholder={t.financialAddBillDate} placeholderTextColor={p.mu}
-            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left' }} />
+            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           <Btn label={t.financialAddBillSave} testID="financial-bill-save" onPress={() => void saveBill()}
             disabled={saveObligation.isPending || !billLabel.trim() || !billAmount.trim() || !billDate.trim()}
             style={{ minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}>
@@ -291,7 +294,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
             placeholderTextColor={p.mu}
             style={{
               minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln,
-              paddingHorizontal: 14, color: p.tx, textAlign: 'left',
+              paddingHorizontal: 14, color: p.tx, ...inputAlign,
             }}
           />
           <Btn

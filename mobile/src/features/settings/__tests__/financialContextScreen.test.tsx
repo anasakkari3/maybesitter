@@ -10,7 +10,10 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
@@ -280,5 +283,27 @@ describe('the source', () => {
     await waitFor(() => expect(screen.getByTestId('financial-cash')).toBeTruthy());
     expect(screen.getByTestId('financial-connection-state').props.children).toBe(en.financialSourceNone);
     expect(screen.getByTestId('financial-connect-toggle')).toBeTruthy();
+  });
+});
+
+describe('in Arabic', () => {
+  /*
+   * First iPhone run: every field on this screen was hard-coded to
+   * `textAlign: 'left'`, so Arabic typed into them started at the wrong edge.
+   * A TextInput is not mirrored by the root's `direction` the way a Text is.
+   */
+  afterEach(async () => {
+    await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY);
+  });
+
+  it('starts every field on the right', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
+    for (const id of ['financial-bill-label', 'financial-bill-amount', 'financial-bill-currency', 'financial-bill-date', 'financial-correction-input']) {
+      const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
+      expect([id, style.textAlign]).toEqual([id, 'right']);
+      expect([id, style.writingDirection]).toEqual([id, 'rtl']);
+    }
   });
 });

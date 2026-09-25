@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
+import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { type Strings } from '../../i18n/strings';
 import { Btn, Card, Txt } from '../../ui/primitives';
+import { DirectionalScrollRow } from '../../ui/directionalScroll';
 import { OnboardingChrome } from './OnboardingChrome';
 import { VoiceButton } from '../capture/voice/VoiceButton';
 import { createSpeechCaptureService, SpeechEventBridge } from '../capture/voice/speechService';
@@ -89,7 +90,6 @@ export function SetupLifeStep({
   const cap = asked.kind === 'narrative' ? MAX_LIFE_ANSWER_LENGTH : MAX_ANSWER_LENGTH;
   const title = copy[asked.promptKey];
   const input = useRef<TextInput>(null);
-  const promptRow = useRef<ScrollView>(null);
   const [activePrompt, setActivePrompt] = useState<keyof Strings | null>(null);
 
   // The same language rule as the capture composer: the one the user last
@@ -170,17 +170,15 @@ export function SetupLifeStep({
           took four lines and pushed the composer below the fold. In Arabic and
           Hebrew the row reads from the right: a horizontal ScrollView lays out
           left to right even under an RTL root, so the prompts are reversed and
-          the row opens scrolled to its end, putting prompt 1 at the right. */}
-      <ScrollView
-        ref={promptRow}
-        horizontal
+          the row opens scrolled to its end, putting prompt 1 at the right
+          (`DirectionalScrollRow`, shared with the category chips and week strip). */}
+      <DirectionalScrollRow
         showsHorizontalScrollIndicator={false}
         style={{ marginHorizontal: -20, flexGrow: 0 }}
         contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
-        onContentSizeChange={() => { if (rtl) promptRow.current?.scrollToEnd({ animated: false }); }}
         testID="setup-life-prompts"
       >
-        {(rtl ? [...promptKeys].reverse() : promptKeys).map((key) => {
+        {promptKeys.map((key) => {
           const n = promptKeys.indexOf(key);
           const active = activePrompt === key;
           return (
@@ -207,7 +205,7 @@ export function SetupLifeStep({
             </Btn>
           );
         })}
-      </ScrollView>
+      </DirectionalScrollRow>
 
       <Card pad={16} style={{ gap: 12 }} testID="setup-life-composer">
         <VoiceButton

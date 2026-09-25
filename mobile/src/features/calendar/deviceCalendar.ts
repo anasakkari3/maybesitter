@@ -65,6 +65,20 @@ export interface WritableCalendar {
   sourceName: string | null;
 }
 
+/**
+ * A calendar on this phone, for the settings list of what busy time is read
+ * from (first iPhone run, L7). Every event calendar — the accounts added in
+ * the phone's own settings (Google, Outlook, iCloud) arrive here through the
+ * OS, which is why the user never has to type anything in.
+ */
+export interface DeviceEventCalendar {
+  id: string;
+  title: string;
+  color: string | null;
+  /** The account it belongs to: what the list is grouped by. */
+  sourceName: string | null;
+}
+
 /** One event, as this app writes it. Nothing here is ever read back out. */
 export interface CalendarEventDraft {
   title: string;
@@ -111,6 +125,8 @@ export interface DeviceCalendar {
   requestAccess(): Promise<CalendarAccess>;
   /** The calendars the picker may offer: event calendars this app can modify. */
   listWritableCalendars(): Promise<WritableCalendar[]>;
+  /** Every event calendar on the phone, writable or not, with its account. */
+  listEventCalendars(): Promise<DeviceEventCalendar[]>;
   /** Creates the event and answers with its id. */
   createEvent(calendarId: string, draft: CalendarEventDraft): Promise<string>;
   /** Moves or retitles an existing event. `not_found` when it is gone. */
@@ -158,6 +174,8 @@ export interface BusyReadOptions {
   ownEventIds?: ReadonlySet<string>;
   /** Injected so a test is not at the mercy of the second it runs in. */
   now?: Date;
+  /** Calendars the user switched off in Calendar settings; never read. */
+  excludedCalendarIds?: ReadonlySet<string>;
 }
 
 /**
@@ -280,6 +298,20 @@ export const deviceCalendar: DeviceCalendar = {
     }
   },
 
+  async listEventCalendars() {
+    try {
+      const calendars = await Calendar.getCalendars(Calendar.EntityTypes.EVENT);
+      return calendars.map((calendar) => ({
+        id: calendar.id,
+        title: calendar.title,
+        color: calendar.color ?? null,
+        sourceName: calendar.source?.name ?? calendar.ownerAccount ?? null,
+      }));
+    } catch (error) {
+      throw failureFrom(error, 'permission_denied');
+    }
+  },
+
   async createEvent(calendarId, draft) {
     try {
       const calendar = await Calendar.ExpoCalendar.get(calendarId);
@@ -330,7 +362,10 @@ export const deviceCalendar: DeviceCalendar = {
       // UC-3.1's picker filter exists for a different question — which calendar
       // may be written into.
       const calendars = await Calendar.getCalendars(Calendar.EntityTypes.EVENT);
-      const ids = calendars.map((calendar) => calendar.id);
+      // Less the ones the user switched off in Calendar settings (L7): an
+      // excluded calendar is not read at all, not read and then dropped.
+      const excluded = options.excludedCalendarIds ?? new Set<string>();
+      const ids = calendars.map((calendar) => calendar.id).filter((id) => !excluded.has(id));
       if (ids.length === 0) return [];
 
       const start = new Date(now);

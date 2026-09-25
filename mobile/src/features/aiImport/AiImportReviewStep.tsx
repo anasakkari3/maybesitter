@@ -185,7 +185,7 @@ function CandidateRow({
   onToggle: (index: number) => void;
   onEdit: (index: number, content: string) => void;
 }) {
-  const { t, p } = useApp();
+  const { t, p, rtl } = useApp();
   const [editing, setEditing] = React.useState(false);
 
   const relationLabel = candidate.relation === 'update'
@@ -230,7 +230,7 @@ function CandidateRow({
           onChangeText={(value) => onEdit(index, value)}
           multiline
           testID={`ai-import-candidate-${index}-input`}
-          style={{ color: p.tx, fontSize: 15, minHeight: 44, borderWidth: 1, borderColor: p.ln, borderRadius: 12, padding: 10 }}
+          style={{ color: p.tx, fontSize: 15, minHeight: 44, borderWidth: 1, borderColor: p.ln, borderRadius: 12, padding: 10, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }}
         />
       ) : (
         <Btn
