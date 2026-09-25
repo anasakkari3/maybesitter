@@ -97,6 +97,9 @@
     "moduleNameMapper": {
       "^@expo-google-fonts/.*$": "<rootDir>/src/design/__mocks__/expoGoogleFonts.js"
     },
+    "modulePaths": [
+      "<rootDir>/node_modules"
+    ],
     "setupFiles": [
       "<rootDir>/jest.setup.js"
     ],

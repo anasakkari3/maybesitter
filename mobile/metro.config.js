@@ -22,4 +22,13 @@ config.watchFolders = [
   path.join(repoRoot, 'src', 'contracts', 'v1'),
 ];
 
+// Those files sit outside `mobile/`, so Metro's walk up from them never
+// reaches `mobile/node_modules` — and CI installs nothing at the root. Their
+// dependencies (Babel's `@babel/runtime` helpers included) resolve against the
+// app's own install, the one place a mobile build is guaranteed to have.
+config.resolver.nodeModulesPaths = [
+  path.join(__dirname, 'node_modules'),
+  ...(config.resolver.nodeModulesPaths ?? []),
+];
+
 module.exports = config;

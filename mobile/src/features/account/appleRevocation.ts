@@ -34,7 +34,9 @@ export class AppleRevocationFailed extends Error {
 
 /** Accounts that signed in with Apple, alone or alongside another provider. */
 export function signedInWithApple(user: AuthUser | null): boolean {
-  return user?.providerIds.includes('apple.com') ?? false;
+  // Exact equality per provider id. `providerIds` is a list of Firebase
+  // provider ids, and an id that merely contains the text is not Apple's.
+  return user?.providerIds.some(providerId => providerId === 'apple.com') ?? false;
 }
 
 export function recordAppleRevocationFailure(stage: AppleRevocationStage): void {

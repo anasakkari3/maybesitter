@@ -14,6 +14,7 @@ import { AccountDeletionProvider } from '../AccountDeletionProvider';
 import { AccountDeletedGate } from '../AccountDeletedGate';
 import { DeleteAccountScreen } from '../../../screens/DeleteAccountScreen';
 import { setCrashReporterForTests, type CrashReporter } from '../../../lib/crash';
+import { signedInWithApple } from '../appleRevocation';
 import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
 
@@ -238,5 +239,25 @@ describe('accounts that did not sign in with Apple', () => {
     expect(repository.appleRevocations).toEqual([]);
     expect(timeline).toEqual(['server:DELETE']);
     expect(reported).toEqual([]);
+  });
+});
+
+describe('which accounts count as Sign in with Apple', () => {
+  it('matches the provider id exactly, never a look-alike', () => {
+    expect(signedInWithApple(userWith(['apple.com']))).toBe(true);
+    expect(signedInWithApple(userWith(['password', 'apple.com']))).toBe(true);
+    for (const lookAlike of ['apple.com.example', 'notapple.com', 'https://apple.com', 'apple.co', 'APPLE.COM', ' apple.com']) {
+      expect({ lookAlike, apple: signedInWithApple(userWith([lookAlike])) }).toEqual({ lookAlike, apple: false });
+    }
+    expect(signedInWithApple(null)).toBe(false);
+  });
+
+  it('a look-alike provider gets no Apple sheet and no revocation', async () => {
+    respondWith({ status: 200, body: RECEIPT_BODY });
+    await renderFor(['password', 'https://apple.com']);
+    await confirmDeletion();
+    await waitFor(() => expect(screen.getByTestId('account-deleted')).toBeTruthy());
+    expect(repository.calls.map(c => c.method)).not.toContain('reauthenticateWithApple');
+    expect(repository.appleRevocations).toEqual([]);
   });
 });
