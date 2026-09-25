@@ -16,7 +16,7 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import { WatchBuilderScreen } from '../WatcherScreens';
 import * as watcherEndpoints from '../../../api/endpoints/watchers';
-import response from './watcher-route-response.json';
+import response from '../../../api/__fixtures__/watchers.created.json';
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const user = { uid: 'watch-builder-user', email: null, emailVerified: true, displayName: null, providerIds: ['password'] };
