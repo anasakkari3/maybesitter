@@ -156,7 +156,11 @@ export function sourceHintFor(files: readonly { fileName?: string | null }[], te
   if (names.some((name) => name.includes('whatsapp') || name.includes('_chat'))) return 'whatsapp';
   if (names.some((name) => name.endsWith('.eml') || name.endsWith('.emlx'))) return 'email';
   // WhatsApp's own "share text" carries its export header even without a file.
-  if (text && /^\s*\[?\d{1,2}[./]\d{1,2}[./]\d{2,4}[,\s]/.test(text)) return 'whatsapp';
+  // The digits are ASCII, Arabic-Indic or Persian and the separator after the
+  // date is a comma or «،»: an Arabic-locale iPhone writes
+  // «[١٢/٠٨/٢٠٢٦، ١٤:٠٣:١١]», and `\d` never sees it (#401). The server's
+  // `whatsappParser` reads all three digit sets; this hint has to agree.
+  if (text && /^\s*\[?[\d٠-٩۰-۹]{1,2}[./][\d٠-٩۰-۹]{1,2}[./][\d٠-٩۰-۹]{2,4}[,،\s]/.test(text)) return 'whatsapp';
   /*
    * A selection out of Gmail, Outlook or Apple Mail arrives as bare text with
    * no file and no name to read, so the *shape* is the only thing left to read

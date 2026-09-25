@@ -105,7 +105,7 @@ function confidenceForModality(modality: CandidateModality): number {
 const TIME_PATTERNS: { pattern: RegExp; precision: CandidatePrecision }[] = [
   { pattern: mk(['بكرا', 'بكره', 'tomorrow', 'מחר']), precision: 'day' },
   { pattern: mk(['الأسبوع\\s+الجاي', 'next\\s+week', 'שבוע\\s+הבא']), precision: 'day' },
-  { pattern: mk(['الساعة\\s+\\d{1,2}', 'at\\s+\\d{1,2}', 'בשעה\\s+\\d{1,2}']), precision: 'exact' },
+  { pattern: mk(['الساعة\\s+[\\d٠-٩۰-۹]{1,2}', 'at\\s+[\\d٠-٩۰-۹]{1,2}', 'בשעה\\s+[\\d٠-٩۰-۹]{1,2}']), precision: 'exact' },
   { pattern: mk(['الخميس', 'Thursday', 'יום\\s+חמישי']), precision: 'day' },
   { pattern: mk(['الجمعة', 'Friday', 'יום\\s+שישי']), precision: 'day' },
   { pattern: mk(['بعد\\s+بكرا', 'day\\s+after\\s+tomorrow', 'מחרתיים']), precision: 'day' },

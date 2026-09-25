@@ -229,3 +229,45 @@ test('the whole evidence ladder, in one table', () => {
     assert.equal(timeOfDayEvidence(text), expected, text);
   }
 });
+
+test('reconcile: negated requests in all three languages force negated_request flag and cap confidence (#401)', () => {
+  const modelOutput = (title: string) => ({
+    type: 'task',
+    action: title,
+    title,
+    person: null,
+    dueAt: null,
+    remindAt: null,
+    localTimeSpec: null,
+    priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'movable',
+    confidence: { overall: 0.95, type: 0.95, action: 0.95, time: 0.95, priority: 0.8 },
+    missingFields: [],
+    ambiguityFlags: [],
+    explicitReminderRequest: false,
+    explicitPressureRequest: false,
+  });
+
+  for (const text of [
+    "don't remind me about gym",
+    'لا تذكرني بالجيم بعد اليوم',
+    'لا تذكريني بالجيم بعد اليوم',
+    'ما بدي تذكير بهالموضوع',
+    'אל תזכיר לי יותר על החדר כושר',
+    'אל תזכירי לי יותר על החדר כושר',
+    'תזכיר לי not to worry about it',
+  ]) {
+    const res = validateExtractionResult(modelOutput(text), text, berlin);
+    assert.ok(res.ambiguityFlags.includes('negated_request'), `${text} missing negated_request flag`);
+    assert.ok(res.confidence.overall <= 0.55, `${text} confidence not capped: ${res.confidence.overall}`);
+  }
+
+  const cleanAr = validateExtractionResult(modelOutput('ذكرني بالجيم بكرا'), 'ذكرني بالجيم بكرا', berlin);
+  assert.ok(!cleanAr.ambiguityFlags.includes('negated_request'));
+  assert.equal(cleanAr.confidence.overall, 0.95);
+
+  const cleanHe = validateExtractionResult(modelOutput('תזכיר לי מחר על החדר כושר'), 'תזכיר לי מחר על החדר כושר', berlin);
+  assert.ok(!cleanHe.ambiguityFlags.includes('negated_request'));
+  assert.equal(cleanHe.confidence.overall, 0.95);
+});
+

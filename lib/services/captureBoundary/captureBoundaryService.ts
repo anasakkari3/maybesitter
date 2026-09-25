@@ -125,7 +125,7 @@ function splitInput(raw: string): string[] {
     .replace(/،+/g, '|')
     .split('|')
     .map((part) => part.trim())
-    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم\b|ו)\s*/i, '').trim())
+    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ])|ו)\s*/i, '').trim())
     .filter(Boolean);
   return segments.length > 0 ? segments : [raw];
 }

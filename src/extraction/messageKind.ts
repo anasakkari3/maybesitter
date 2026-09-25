@@ -68,8 +68,8 @@ const NEGATED = new RegExp([
   // negation on the English side of «תזכיר לי not to worry about it», where a
   // same-script pattern never sees it.
   /(?:תזכיר לי|תזכירי לי|ذكرني|ذكريني|remind me)\s+not\b/.source,
-  /لا تذكرني|ما تذكرني|بلا تذكير|مش بدي تذكير|ما بديش تذكير|بطل تذكرني/.source,
-  /אל תזכיר לי|לא צריך להזכיר|תפסיק להזכיר/.source,
+  /لا تذكرني|لا تذكريني|ما تذكرني|ما تذكريني|بلا تذكير|مش بدي تذكير|ما بدي تذكير|ما بديش تذكير|بطل تذكرني|بطلي تذكريني/.source,
+  /אל תזכיר לי|אל תזכירי לי|לא צריך להזכיר|תפסיק להזכיר|תפסיקי להזכיר/.source,
 ].join('|'), 'i');
 
 /** A greeting, or the opening of small talk. */
@@ -90,9 +90,17 @@ const GREETING = new RegExp([
 const QUESTION_MARK = /[?؟]\s*$/;
 const INTERROGATIVE = new RegExp([
   /^\s*(?:what|what'?s|how|when|where|why|who|which|can you|could you|do you|does|is there|are there)\b/.source,
-  /^\s*(?:شو|شنو|إيش|ايش|كيف|كيفية|وين|فين|ليش|لماذا|مين|من هو|متى|إمتى|امتى|هل|أين)\b/.source,
-  /^\s*(?:מה|איך|מתי|איפה|למה|מי|האם|כמה)\b/.source,
-].join('|'), 'i');
+  // Not `\b` after the Arabic and Hebrew openers: JS word boundaries are
+  // defined over `[A-Za-z0-9_]`, so «متى» followed by a space is *not* a
+  // boundary and «متى الاجتماع» was read as a request — and became a
+  // commitment titled "متى الاجتماع" (#401). The boundary is "not another
+  // letter or digit", which is what `\b` means and cannot say here, and it
+  // still keeps «كيفك» (a greeting) from reading as «كيف» (a question).
+  // Written as strings: the `u` flag these need is not available to a regex
+  // literal under this tsconfig's target, and the compiled RegExp carries it.
+  '^\\s*(?:شو|شنو|إيش|ايش|كيف|كيفية|وين|فين|ليش|لماذا|مين|من هو|متى|إمتى|امتى|هل|أين)(?![\\p{L}\\p{N}])',
+  '^\\s*(?:מה|איך|מתי|איפה|למה|מי|האם|כמה)(?![\\p{L}\\p{N}])',
+].join('|'), 'iu');
 
 /**
  * First-person state, feeling or narration: something is being told, not asked.

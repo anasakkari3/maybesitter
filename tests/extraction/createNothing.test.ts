@@ -31,6 +31,8 @@ const NOTHING: Array<[string, string, string]> = [
   ['question ar', 'شو الطقس بكرا؟', 'question'],
   ['question he', 'מה השעה?', 'question'],
   ['question mixed', 'شو رأيك بالـ app؟', 'question'],
+  ['question ar no mark', 'متى الاجتماع', 'question'],
+  ['question he no mark', 'מתי הפגישה', 'question'],
   ['feeling en', 'feeling pretty tired lately', 'informational'],
   ['feeling ar', 'حسّيت بضغط اليوم من الشغل', 'informational'],
   ['feeling he', 'אני מרגיש עייף היום', 'informational'],
@@ -41,7 +43,10 @@ const NOTHING: Array<[string, string, string]> = [
   ['forwarded', 'FWD: the meeting was cancelled last week', 'past_event'],
   ['negated en', "don't remind me anymore", 'negated_request'],
   ['negated ar', 'لا تذكرني بالجيم بعد اليوم', 'negated_request'],
+  ['negated ar fem', 'لا تذكريني بالجيم بعد اليوم', 'negated_request'],
+  ['negated ar dialect', 'ما بدي تذكير بهالموضوع', 'negated_request'],
   ['negated he', 'אל תזכיר לי יותר על החדר כושר', 'negated_request'],
+  ['negated he fem', 'אל תזכירי לי יותר על החדר כושר', 'negated_request'],
   ['negated mixed', 'תזכיר לי not to worry about it', 'negated_request'],
 ];
 
@@ -194,6 +199,45 @@ test('createNothing: a negated request is refused by type, not by message', asyn
       return true;
     },
   );
+});
+
+test('createNothing: a negated request is refused in Arabic, Hebrew, and English (#401)', async () => {
+  const dummyExtractor = async (text: string) => ({
+    result: {
+      ...extract(text, context),
+      type: 'task' as const,
+      action: text,
+      title: text,
+      confidence: { overall: 0.9, type: 0.9, action: 0.9, time: 0.9, priority: 0.9 },
+      ambiguityFlags: [],
+    },
+    engine: 'ollama' as const,
+    fallbackReason: null,
+  });
+
+  for (const text of [
+    "don't remind me anymore",
+    'لا تذكرني بالجيم بعد اليوم',
+    'لا تذكريني بالجيم بعد اليوم',
+    'ما بدي تذكير بهالموضوع',
+    'אל תזכיר לי יותר על החדר כושר',
+    'אל תזכירי לי יותר על החדר כושר',
+    'תזכיר לי not to worry about it',
+  ]) {
+    await assert.rejects(
+      () => guardedMobileExtract(text, context, {}, dummyExtractor),
+      (error: unknown) => {
+        assert.ok(error instanceof NegatedRequestError, `${text}: got ${(error as Error)?.name}`);
+        return true;
+      },
+    );
+  }
+
+  const innocentAr = await guardedMobileExtract('ذكرني بالجيم بكرا', context, {}, dummyExtractor);
+  assert.equal(innocentAr.result.title, 'ذكرني بالجيم بكرا');
+
+  const innocentHe = await guardedMobileExtract('תזכיר לי מחר על החדר כושר', context, {}, dummyExtractor);
+  assert.equal(innocentHe.result.title, 'תזכיר לי מחר על החדר כושר');
 });
 
 test('createNothing: a greeting that also carries a request keeps the request', async () => {
