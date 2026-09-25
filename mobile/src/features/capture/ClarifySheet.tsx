@@ -4,6 +4,7 @@ import { useApp } from '../../state/AppContext';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import { CLARIFICATION_FREE_TEXT_MAX, optionLabel, questionText } from './clarificationCopy';
+import { CIVIL_ZONE, civilDate, formatDate } from '../../i18n/format';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
 
 /**
@@ -36,13 +37,13 @@ export function ClarifySheet({
   onAnswer(answer: { optionId?: string; freeText?: string }): void;
   onSkip(): void;
 }) {
-  const { t, tr, p, rtl, script } = useApp();
+  const { t, tr, p, rtl, script, lang } = useApp();
   const [freeText, setFreeText] = useState('');
   const strings = t as unknown as Record<string, string>;
   const question = item.clarification;
   if (!question) return null;
 
-  const heading = questionText(question.questionKey, question.params, strings);
+  const heading = questionText(question.questionKey, question.params, strings, (key) => formatDate(civilDate(key), 'weekday', { locale: lang, timeZone: CIVIL_ZONE }));
   // A key this build has no words for. Rendering the key, or the raw params,
   // would put an internal token in front of somebody.
   if (!heading) return null;
