@@ -420,13 +420,12 @@ export async function handleMaintenanceRequest(request: HeaderBearing, deps: Int
  * "every refusal looks identical" 401 -- see `handleDailyPlanRequest`'s own
  * comment; there is deliberately no second implementation of the check.
  *
- * This module does not add the actual `src/app/api/internal/jobs/
- * football-sync/route.ts` file or a `infra/scheduler.sh` entry that calls
- * it -- Task 9's brief scoped this file's job to registering the handler,
- * not to standing up the route tree or wiring Cloud Scheduler. Until a
- * follow-up does both, this function is reachable from code (and from
- * tests) but not yet from the internet, so nothing runs nightly on its own
- * yet -- see the Task 9 report's "concerns" for this gap named explicitly.
+ * The route file (`src/app/api/internal/jobs/football-sync/route.ts`) and the
+ * nightly `football-sync-daily-*` entry in `infra/scheduler.sh` both exist, so
+ * this handler is what Cloud Scheduler actually calls. Without
+ * `FOOTBALL_DATA_API_KEY` on the service the job reports `{ enabled: false }`
+ * and does nothing — see `runFootballSyncJob` for why a missing key is a quiet
+ * no-op rather than a 5xx.
  */
 export async function handleFootballSyncRequest(request: HeaderBearing, deps: InternalJobsDeps = {}): Promise<Response> {
   const auth = await authorizeSchedulerRequest(request, authOptions(deps));
