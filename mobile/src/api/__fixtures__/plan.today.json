@@ -38,7 +38,11 @@
     ],
     "unscheduled": [],
     "edited": false,
-    "protections": []
+    "protections": [],
+    "fixed": [],
+    "inputsChanged": false,
+    "rebuildsLeft": 4,
+    "workingEndsAt": "2026-08-09T09:00:00.000Z"
   },
   "proposal": null
 }

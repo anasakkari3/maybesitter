@@ -13,11 +13,13 @@
 import type { PlanItemChange, PlanningItem, TimeInterval, UnscheduledItem } from '../../../src/contracts/v1/planningContracts';
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { withinMaxShift } from '../../planning/scheduler';
-import { toEpochMs } from '../../planning/shared/time';
+import { normalizeWorkingWindows } from '../../planning/constraints';
+import { intervalsOverlap, toEpochMs } from '../../planning/shared/time';
 import {
   effectiveSchedule,
   offerCollidesWithFixedTime,
   planUnderKeptRemovals,
+  rebuildsLeftOf,
   type FixedTimeInForce,
 } from './planActions';
 import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from './planStore';
@@ -92,9 +94,78 @@ export interface DailyPlanDto {
   readonly edited: boolean;
   /** The blocks whose position is the user's (or a policy's) decision (#522). */
   readonly protections: readonly BlockProtectionDto[];
+  /**
+   * The day's commitments pinned to a time, in time order (L5).
+   *
+   * The planner reads them as fixed events and places floating work around
+   * them, so `scheduled` never lists them — and a plan that showed only
+   * `scheduled` left a person's 14:00 appointment off their own day. Rows of
+   * the `scheduled` shape; the client renders them as fixed, not movable.
+   * Calendar busy time is not here: it carries no title of the person's.
+   */
+  readonly fixed: readonly PlanItemDto[];
+  /**
+   * The day's commitments have changed since this plan was built, and it was
+   * not rebuilt because the person has touched it (`planRefresh.ts`). The
+   * client offers the rebuild. False on every answer except `GET` and build.
+   */
+  readonly inputsChanged: boolean;
+  /**
+   * Rebuilds still available today, as the server's cap counts them. Not
+   * derivable from `generation` alone any more: a generation the automatic
+   * refresh wrote is not a rebuild the person spent.
+   */
+  readonly rebuildsLeft: number;
+  /**
+   * When the last of the day's working hours ends, or null when the plan has
+   * none. A plan built after it has nothing left to place, and the client says
+   * so rather than showing an empty day.
+   */
+  readonly workingEndsAt: string | null;
 }
 
-export function planToDto(stored: StoredDailyPlan, titles: ReadonlyMap<string, string>): DailyPlanDto {
+/** The end of the day's last working window, as an instant; null when there is none. */
+function workingEndsAtOf(stored: StoredDailyPlan): string | null {
+  const { windows } = normalizeWorkingWindows(stored.constraints.workingWindows, stored.constraints.horizon, stored.config);
+  let latest: number | null = null;
+  for (const window of windows) {
+    const end = toEpochMs(window.interval.endsAt);
+    if (latest === null || end > latest) latest = end;
+  }
+  return latest === null ? null : new Date(latest).toISOString();
+}
+
+/** The pinned commitments that fall on the plan's day. See `DailyPlanDto.fixed`. */
+function fixedRowsOf(stored: StoredDailyPlan, titles: ReadonlyMap<string, string>): PlanItemDto[] {
+  const fixedBlockBySource = new Map((stored.blocks ?? [])
+    .filter((block) => block.mobility === 'fixed')
+    .map((block) => [block.source.id, block.blockId] as const));
+  const horizon = stored.constraints.horizon;
+  return stored.constraints.fixedEvents
+    .flatMap((event) => {
+      const itemId = event.sourceCommitmentId;
+      if (itemId === null || !intervalsOverlap(event.interval, horizon)) return [];
+      return [{
+        itemId,
+        title: titles.get(itemId) ?? null,
+        startsAt: event.interval.startsAt,
+        endsAt: event.interval.endsAt,
+        blockId: fixedBlockBySource.get(itemId) ?? null,
+      }];
+    })
+    .sort((left, right) => toEpochMs(left.startsAt) - toEpochMs(right.startsAt));
+}
+
+export interface PlanDtoOptions {
+  /** `CurrentPlan.inputsChanged`, for the two routes that read through `planRefresh`. */
+  readonly inputsChanged?: boolean;
+}
+
+export function planToDto(
+  stored: StoredDailyPlan,
+  titles: ReadonlyMap<string, string>,
+  options: PlanDtoOptions = {},
+): DailyPlanDto {
   // Indexed once. `blockId` is needed on every scheduled and unscheduled row,
   // and a find() per row would be quadratic over a day that can hold dozens.
   const blockByItemId = new Map((stored.blocks ?? [])
@@ -141,6 +212,10 @@ export function planToDto(stored: StoredDailyPlan, titles: ReadonlyMap<string, s
         maxShiftMinutes: protection.maxShiftMinutes,
       }];
     }),
+    fixed: fixedRowsOf(stored, titles),
+    inputsChanged: options.inputsChanged ?? false,
+    rebuildsLeft: rebuildsLeftOf(stored),
+    workingEndsAt: workingEndsAtOf(stored),
   };
 }
 

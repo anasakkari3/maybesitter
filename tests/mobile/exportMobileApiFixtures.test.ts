@@ -1643,6 +1643,34 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         request('/api/mobile/plans/2026-08-10/build', { body: {} }),
         dateParams('2026-08-10'),
       ));
+
+      // L5: a commitment pinned to a time on that day, captured after the
+      // plan was built. The plan is untouched, so reading it refreshes it (a
+      // new generation that spends no rebuild), and the pinned commitment is
+      // a `fixed` row rather than missing from the day. Recorded so the
+      // client's `fixed` row schema is pinned by a real, non-empty answer.
+      const pinned = applyDomainCommand(await readParticipantState(USER), {
+        type: 'CreateDraft',
+        now: REFERENCE_TIME,
+        commitment: {
+          id: 'plan_fixture_pinned',
+          kind: 'task',
+          title: 'Dentist',
+          timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-10T11:00:00.000Z', remindAt: '2026-08-10T11:00:00.000Z', timezone: 'Asia/Jerusalem' },
+        },
+        draftStatus: 'pending_confirmation',
+      }).newState;
+      await persistParticipantState(USER, applyDomainCommand(pinned, {
+        type: 'ConfirmCommitment', commitmentId: 'plan_fixture_pinned', now: REFERENCE_TIME, reminders: [],
+      }).newState);
+      const refreshed = await record('plan.refreshedWithFixed', 200, await planGet(
+        request('/api/mobile/plans/2026-08-10'),
+        dateParams('2026-08-10'),
+      ));
+      const refreshedPlan = refreshed.plan as { generation: number; fixed: Array<{ itemId: string }>; rebuildsLeft: number };
+      assert.equal(refreshedPlan.generation, 2, 'the stale, untouched plan was not refreshed on read');
+      assert.deepEqual(refreshedPlan.fixed.map((row) => row.itemId), ['plan_fixture_pinned']);
+      assert.equal(refreshedPlan.rebuildsLeft, 4, 'the automatic refresh was charged as a rebuild');
     } finally {
       mock.timers.reset();
     }

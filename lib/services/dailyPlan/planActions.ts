@@ -1104,6 +1104,21 @@ export async function rejectPlanProposal(
   return outcome?.stored ?? null;
 }
 
+/**
+ * The generations of this day the person (or a replan they could answer)
+ * produced: every generation except the ones the automatic refresh of a
+ * stale, untouched plan wrote (`planRefresh.ts`). The rebuild cap counts
+ * these, so a refresh nobody asked for never costs a rebuild.
+ */
+export function userGenerationsOf(stored: Pick<StoredDailyPlan, 'generation' | 'automaticGenerations'>): number {
+  return stored.generation - (stored.automaticGenerations ?? 0);
+}
+
+/** Rebuilds still available today, as the cap in `regeneratePlan` counts them. */
+export function rebuildsLeftOf(stored: Pick<StoredDailyPlan, 'generation' | 'automaticGenerations'>): number {
+  return Math.max(0, MAX_PLAN_GENERATIONS_PER_DAY - userGenerationsOf(stored));
+}
+
 export type RegenerateOutcome =
   | { readonly ok: true; readonly stored: StoredDailyPlan }
   | { readonly ok: false; readonly reason: 'not_found' | 'limit_reached' | 'raced' };
@@ -1114,7 +1129,9 @@ export type RegenerateOutcome =
  * Capped at `MAX_PLAN_GENERATIONS_PER_DAY` documents for the day — the morning
  * build plus `MAX_PLAN_REBUILDS_PER_DAY` rebuilds. The cap is read from the
  * stored `generation` rather than from a counter of its own, so it cannot
- * drift away from the number of plans that were actually built.
+ * drift away from the number of plans that were actually built — less the
+ * generations the automatic refresh wrote (`userGenerationsOf`), which the
+ * person never asked for.
  *
  * **Known cost, not fixed here:** the model is called by `composeDailyPlan`
  * before the compare-and-set below, so two devices asking at once spend two
@@ -1130,9 +1147,9 @@ export async function regeneratePlan(
 ): Promise<RegenerateOutcome> {
   const current = await readStoredPlan(uid, date, deps.storage);
   if (!current) return { ok: false, reason: 'not_found' };
-  if (current.generation >= MAX_PLAN_GENERATIONS_PER_DAY) return { ok: false, reason: 'limit_reached' };
+  if (rebuildsLeftOf(current) === 0) return { ok: false, reason: 'limit_reached' };
 
-  const rebuilt = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
+  const composed = await composeDailyPlan(uid, date, { timezone: current.timezone }, current.generation + 1, deps, {
     previousGeneration: current.generation,
     previousInputDigest: current.inputDigest,
     // `?? []` for documents written before blocks existed (#521): the new
@@ -1140,6 +1157,11 @@ export async function regeneratePlan(
     // the provenance carry-forward has nothing to read.
     previousBlocks: current.blocks ?? [],
   });
+  // The refreshes already written today stay uncounted after a rebuild, or
+  // the rebuild would charge the person for them retroactively.
+  const rebuilt: StoredDailyPlan = current.automaticGenerations
+    ? { ...composed, automaticGenerations: current.automaticGenerations }
+    : composed;
   const stored = await replaceStoredPlan(uid, rebuilt, current.generation, deps.storage);
   if (!stored) return { ok: false, reason: 'raced' };
 

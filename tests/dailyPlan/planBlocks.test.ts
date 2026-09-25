@@ -262,11 +262,13 @@ test('a move through the actions route lands on the block and never on the sourc
     }), params(DATE));
     assert.equal(response.status, 200);
     const body = await response.json() as { plan: Record<string, unknown> };
-    // The DTO now includes the block protection list (#522), but otherwise
-    // answers what it answered before blocks existed.
+    // The DTO now includes the block protection list (#522) and, additively,
+    // the day's pinned commitments, the stale flag, the rebuilds left and the
+    // end of the working hours (L5), but otherwise answers what it answered
+    // before blocks existed.
     assert.deepEqual(
       Object.keys(body.plan).sort(),
-      ['acceptedAt', 'date', 'edited', 'explanation', 'generatedAt', 'generation', 'inputDigest', 'protections', 'scheduled', 'status', 'timezone', 'unscheduled'].sort(),
+      ['acceptedAt', 'date', 'edited', 'explanation', 'fixed', 'generatedAt', 'generation', 'inputDigest', 'inputsChanged', 'protections', 'rebuildsLeft', 'scheduled', 'status', 'timezone', 'unscheduled', 'workingEndsAt'].sort(),
     );
 
     const after = await readStoredPlan(USER, DATE);

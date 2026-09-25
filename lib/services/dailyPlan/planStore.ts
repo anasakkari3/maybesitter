@@ -179,6 +179,16 @@ export interface StoredDailyPlan {
    * user's own rebuild drops it, and so should: they are looking at the plan.
    */
   readonly pushPending?: PlanPushPending;
+  /**
+   * How many of this day's generations were written by the automatic refresh
+   * of a stale, untouched plan (`planRefresh.ts`) rather than asked for.
+   *
+   * The rebuild cap is read from `generation` (`MAX_PLAN_GENERATIONS_PER_DAY`),
+   * and a refresh the person never asked for must not spend one of their
+   * rebuilds, so the cap subtracts this (`userGenerationsOf`). Absent means
+   * zero. Carried by every `{ ...current }` rewrite and by `regeneratePlan`.
+   */
+  readonly automaticGenerations?: number;
 }
 
 /**

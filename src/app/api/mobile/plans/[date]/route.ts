@@ -1,7 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../lib/services/dailyPlan/planSettings';
-import { readStoredPlan } from '../../../../../../lib/services/dailyPlan/planStore';
+import { readCurrentPlan } from '../../../../../../lib/services/dailyPlan/planRefresh';
 import { pendingProposalToDto, planToDto } from '../../../../../../lib/services/dailyPlan/planDto';
 import { fixedTimeForOffer } from '../../../../../../lib/services/dailyPlan/planActions';
 import { titlesOf } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
@@ -27,6 +27,11 @@ export const dynamic = 'force-dynamic';
  * rather than inside `planToDto` so that mapper stays pure and synchronous —
  * `DailyPlanDto` is the plan in force, and the offer is a sibling of it, not
  * part of it.
+ *
+ * The plan is read through `readCurrentPlan` (L5): one built before the day's
+ * commitments changed is rebuilt if the person has not touched it, and comes
+ * back flagged `inputsChanged` if they have. Answering the stored document as
+ * stored is how a plan built before the first capture stayed empty all day.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ date: string }> }) {
   let user;
@@ -39,11 +44,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   const { date } = await params;
   if (!isPlanDate(date)) return mobileError('date must be YYYY-MM-DD');
 
-  const stored = await readStoredPlan(user.uid, date);
-  if (!stored) return mobileError('no plan for that date', 404);
-
   const state = await loadDomainState(getStorage(), user.uid);
   const commitments = Object.values(state.commitments);
+  const current = await readCurrentPlan(user.uid, date, { commitments });
+  if (!current) return mobileError('no plan for that date', 404);
+  const { stored, inputsChanged } = current;
   const titles = titlesOf(commitments);
   // The time taken now, read only when there is a live offer to check against
   // it (#611 guards): an offer that would land on it is withheld.
@@ -51,7 +56,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
-    plan: planToDto(stored, titles),
+    plan: planToDto(stored, titles, { inputsChanged }),
     proposal: pendingProposalToDto(stored, titles, now, taken),
   });
 }

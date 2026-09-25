@@ -126,6 +126,7 @@ import {
   type PlanPushPending,
 } from './planPushRetry';
 import { composeCurrentUserState } from '../../userState/userStateService';
+import { refreshStalePlan } from './planRefresh';
 
 /** Accounts examined per tick. The issue's batch size. */
 export const DAILY_PLAN_BATCH = 50;
@@ -662,15 +663,29 @@ function nextCivilDate(date: string): string {
  * It does not claim the delivery and does not touch `planSettings`. A tick that
  * later claims this morning meets the stored document in `createIfAbsent`,
  * reports `created: false`, and so sends nothing.
+ *
+ * A stored plan comes back as a reader sees it (`refreshStalePlan`): rebuilt
+ * when the day's commitments have changed since it was built and the person
+ * has not touched it, flagged `inputsChanged` when they have. Returning it
+ * untouched is what left a plan built before the first capture empty for the
+ * rest of the day.
  */
 export async function buildDailyPlanOnDemand(
   uid: string,
   date: string,
   deps: DailyPlanDeps = {},
-): Promise<DailyPlanBuild> {
-  // A stored plan is returned whatever its date: reading it costs nothing.
+): Promise<DailyPlanBuild & { readonly inputsChanged: boolean }> {
+  // A stored plan is returned whatever its date; `refreshStalePlan` decides
+  // whether it is still the day's (and never rebuilds a past one).
   const existing = await readStoredPlan(uid, date, storageOf(deps));
-  if (existing) return { uid, date, created: false, pushed: false, stored: existing };
+  if (existing) {
+    const current = await refreshStalePlan(uid, existing, {
+      storage: storageOf(deps),
+      ...(deps.now ? { now: deps.now } : {}),
+      ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}),
+    });
+    return { uid, date, created: false, pushed: false, stored: current.stored, inputsChanged: current.inputsChanged };
+  }
 
   // Creating one is refused outside the account's today and tomorrow, before
   // anything is composed. Here and not in the route, so no caller skips it;
@@ -680,7 +695,7 @@ export async function buildDailyPlanOnDemand(
   if (date !== today && date !== nextCivilDate(today)) throw new PlanDateOutOfRangeError(date);
 
   const { created, stored } = await storeFirstPlan(uid, date, settings, deps);
-  return { uid, date, created, pushed: false, stored };
+  return { uid, date, created, pushed: false, stored, inputsChanged: false };
 }
 
 /**
