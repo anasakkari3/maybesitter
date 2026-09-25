@@ -49,7 +49,7 @@
     "verify:live-providers": "node --no-warnings --loader ./scripts/ts-resolver.mjs scripts/verify-live-providers.ts"
   },
   "dependencies": {
-    "@google-cloud/kms": "^6.1.0",
+    "@google-cloud/kms": "^6.2.0",
     "@google/genai": "^2.22.0",
     "firebase-admin": "^14.4.0",
     "google-auth-library": "^10.9.1",
