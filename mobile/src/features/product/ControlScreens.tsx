@@ -13,7 +13,7 @@ import {
 import { PlanProposalRefusedError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
-import { calendarReadEnabled, calendarWriteEnabled, shareIntakeEnabled } from '../../config/env';
+import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
 import { LANGUAGE_ENDONYM } from '../../i18n/language';
 import { isolate } from '../../i18n/bidi';
 import { dayKey, formatTimeRange } from '../../i18n/format';
@@ -22,7 +22,8 @@ import { BrandMark } from '../../ui/brand';
 import { Pill, Txt } from '../../ui/primitives';
 import { Dialog } from '../../ui/dialog';
 import { ProductActions, ProductPage, ProductSection, ProductRow } from '../../ui/product';
-import { capabilities as cap } from './capabilities';
+import { capabilities as cap, shareCapability } from './capabilities';
+import { ShareGuideSheet, type ShareGuideKind } from './ShareGuideSheet';
 
 export function MyMaybeSitterScreen() {
   const { t, actions, lang } = useApp();
@@ -39,41 +40,46 @@ export function MyMaybeSitterScreen() {
       <ProductRow title={t.settingsRoutine} body={t.settingsRoutineSub} icon="calendar" onPress={() => actions.go('routineSettings')} />
       <ProductRow title={t.xPersonalization} icon="person" onPress={() => actions.go('personalization')} />
     </ProductSection>
-    <ProductSection title={t.xPersonality} body={t.xFuturePreference} status={cap.assistantPersonality} icon="spark">
+    <ProductSection title={t.xPersonality} status={cap.assistantPersonality} icon="spark">
       <ProductRow title={t.xAssistantName} body="MaybeSitter" status={cap.assistantName} />
     </ProductSection>
   </ProductPage>;
 }
 
+/** A row's action only when it has one: a Coming-soon row is not a button. */
+const when = (status: string, action: () => void) => status === 'COMING_SOON' ? undefined : action;
+
 export function IntegrationsScreen() {
   const { t, actions } = useApp();
-  const deviceAvailable = calendarReadEnabled() || calendarWriteEnabled();
-  return <ProductPage id="integrations" title={t.xIntegrations} subtitle={t.xIntegrationsBody}>
-    <ProductRow id="integration-device" title={t.xDeviceCalendar} body={t.xDeviceBody} icon="calendar" status={deviceAvailable ? 'AVAILABLE' : 'COMING_SOON'} onPress={() => actions.go('calendarSettings')} />
-    <ProductRow id="integration-google" title="Google Calendar" body={t.xGoogleBody} icon="calendar" status={cap.googleCalendar} onPress={() => actions.go('googleIntegration')} />
-    <ProductRow title="Gmail" body={t.xGmailBody} icon="file" status={cap.gmail} />
-    <ProductRow title="WhatsApp" body={t.xWhatsappBody} icon="link" status={cap.whatsappConnection} onPress={() => actions.go('addToMaybeSitter')} />
-    <ProductRow title="Google Drive" body={t.xDriveBody} icon="file" status={cap.drive} />
-    <ProductRow title={t.xHealth} body={t.xHealthBody} icon="habit" onPress={() => actions.go('readinessSettings')} />
-    <ProductRow title={t.xLocation} body={t.xLocationBody} icon="goal" status={cap.location} />
+  const [guide, setGuide] = React.useState<ShareGuideKind | null>(null);
+  const deviceStatus = calendarReadEnabled() || calendarWriteEnabled() ? 'AVAILABLE' as const : 'COMING_SOON' as const;
+  const share = shareCapability();
+  return <ProductPage id="integrations" title={t.xIntegrations} subtitle={t.xIntegrationsBody}
+    overlay={guide ? <ShareGuideSheet kind={guide} onClose={() => setGuide(null)} /> : null}>
+    <ProductRow id="integration-device" title={t.xDeviceCalendar} body={t.xDeviceBody} icon="calendar" status={deviceStatus} onPress={when(deviceStatus, () => actions.go('calendarSettings'))} />
+    <ProductRow id="integration-whatsapp" title="WhatsApp" body={t.xWhatsappBody} icon="link" status={share} onPress={when(share, () => setGuide('whatsapp'))} />
+    {/* Google Calendar works today through the phone's calendar, which the
+        page explains; the direct connection is its Coming-soon section. */}
+    <ProductRow id="integration-google" title="Google Calendar" body={t.xGoogleBody} icon="calendar" onPress={() => actions.go('googleIntegration')} />
+    <ProductRow title={t.xHealth} icon="habit" onPress={() => actions.go('readinessSettings')} />
     <ProductRow title={t.settingsSources} body={t.settingsSourcesSub} icon="link" onPress={() => actions.go('sources')} />
+    <ProductRow title="Gmail" icon="file" status={cap.gmail} />
+    <ProductRow title="Google Drive" icon="file" status={cap.drive} />
+    <ProductRow title={t.xLocation} icon="goal" status={cap.location} />
   </ProductPage>;
 }
 
 export function GoogleIntegrationScreen() {
   const { t, actions } = useApp();
   return <ProductPage id="google" title={t.xGoogleDetail}>
-    <ProductSection title="Google Calendar" body={t.xGoogleBody} icon="calendar" status={cap.googleCalendar}>
+    <ProductSection title="Google Calendar" body={t.xGoogleBody} icon="calendar">
       <Pill testID="google-device-settings" label={t.calendarWriteTitle} kind="accent" onPress={() => actions.go('calendarSettings')} />
     </ProductSection>
-    <ProductSection title={t.xDirectConnection} icon="link" status={cap.googleCalendar}>
-      <ProductRow title={t.xSyncNow} status={cap.googleCalendar} icon="watch" />
-      <ProductRow title={t.xWriteBack} status={cap.googleCalendar} icon="calendar" />
-    </ProductSection>
+    <ProductSection title={t.xDirectConnection} icon="link" status={cap.googleCalendar} />
     <ProductSection title={t.xPrivacy} body={t.xCalendarPrivacy} icon="shield">
       <Pill label={t.sTrust} kind="outline" onPress={() => actions.go('trust')} />
     </ProductSection>
-    <ProductRow title="Gmail" body={t.xGmailBody} icon="file" status={cap.gmail} />
+    <ProductRow title="Gmail" icon="file" status={cap.gmail} />
   </ProductPage>;
 }
 
@@ -83,18 +89,22 @@ export function ActionModesScreen() {
   return <ProductPage id="modes" title={t.xModes} subtitle={t.xModesBody}>
     <ProductRow id="mode-quick" title={t.xQuick} body={t.xQuickBody} icon="spark" onPress={() => actions.go('capture')} />
     <ProductRow id="mode-plan" title={t.xPlanner} body={t.xPlannerBody} icon="calendar" onPress={() => actions.openPlan(dayKey(new Date(), zone))} />
-    <ProductSection title={t.xWeekly} body={t.xWeeklyBody} icon="goal" status={cap.weeklyMode} />
+    <ProductSection title={t.xWeekly} icon="goal" status={cap.weeklyMode} />
   </ProductPage>;
 }
 
 export function AddToMaybeSitterScreen() {
   const { t, actions } = useApp();
   const zone = useTimeZone();
-  return <ProductPage id="add" title={t.xAdd} subtitle={t.xAddBody}>
-    <ProductSection title={t.xShareGuide} body={shareIntakeEnabled() ? t.xShareGuideBody : t.shareUnavailable} icon="link" status={shareIntakeEnabled() ? 'AVAILABLE' : 'COMING_SOON'}>
-      <ProductRow title={t.xPhotos} body={t.xShareGuideBody} icon="photo" status={shareIntakeEnabled() ? 'AVAILABLE' : 'COMING_SOON'} />
+  const [guide, setGuide] = React.useState<ShareGuideKind | null>(null);
+  const share = shareCapability();
+  return <ProductPage id="add" title={t.xAdd} subtitle={t.xAddBody}
+    overlay={guide ? <ShareGuideSheet kind={guide} onClose={() => setGuide(null)} /> : null}>
+    <ProductSection title={t.xShareGuide} body={share === 'COMING_SOON' ? undefined : t.xShareGuideBody} icon="link">
+      <ProductRow id="add-whatsapp" title="WhatsApp" icon="link" status={share} onPress={when(share, () => setGuide('whatsapp'))} />
+      <ProductRow id="add-pdf" title={t.xFiles} icon="file" status={share} onPress={when(share, () => setGuide('files'))} />
+      <ProductRow id="add-photos" title={t.xPhotos} icon="photo" status={share} onPress={when(share, () => setGuide('files'))} />
       <ProductRow title={t.xCamera} icon="photo" status={cap.camera} />
-      <ProductRow id="add-pdf" title={t.xFiles} body={shareIntakeEnabled() ? t.xShareGuideBody : t.shareUnavailable} icon="file" status={shareIntakeEnabled() ? 'AVAILABLE' : cap.pdf} onPress={() => actions.go('pdfReview')} />
     </ProductSection>
     <ProductRow id="add-capture" title={t.xQuick} body={t.xQuickBody} icon="check" onPress={() => actions.go('capture')} />
     <ProductRow title={t.xPlanner} icon="calendar" onPress={() => actions.openPlan(dayKey(new Date(), zone))} />
@@ -220,21 +230,6 @@ export function PatchReviewScreen() {
   </ProductPage>;
 }
 
-export function PdfReviewScreen() {
-  const { t, actions } = useApp();
-  const intake = shareIntakeEnabled();
-  return <ProductPage id="pdf" title={t.xPDF} subtitle={t.xPDFBody}>
-    <ProductSection title={t.xFiles} body={intake ? t.xShareGuideBody : t.xPDFLimits} icon="file" status={intake ? 'AVAILABLE' : cap.pdf} />
-    <ProductSection title={t.reviewTitle} body={t.xGroupingFuture} icon="file">
-      {[t.xExams, t.xAssignments, t.xDeadlines, t.xLectures].map(title => <ProductRow key={title} title={title} status="COMING_SOON" icon="calendar" />)}
-    </ProductSection>
-    <ProductSection title={t.xPDFProblems} icon="shield">
-      {[t.xUnreadable, t.xTooLarge, t.xUnsupported, t.xPartial].map(body => <Txt key={body} role="supporting">{body}</Txt>)}
-    </ProductSection>
-    <Pill label={t.xQuick} kind="outline" onPress={() => actions.go('capture')} />
-  </ProductPage>;
-}
-
 export function HabitDetailScreen() {
   const { t, p, rtl, actions } = useApp();
   const query = useHabits();
@@ -299,7 +294,7 @@ export function HabitDetailScreen() {
       {create.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
       <ProductActions><Pill testID="habit-create-confirm" label={t.xCreateHabit} disabled={!title.trim() || create.isPending} onPress={save} /><Pill label={t.cancel} kind="outline" disabled={create.isPending} onPress={() => setAdding(false)} /></ProductActions>
     </ProductSection> : <Pill testID="habit-create" label={t.xCreateHabit} onPress={() => setAdding(true)} />}
-    <ProductSection title={t.xOccurrences} body={t.xHabitOccurrencesUnavailable} icon="check" status="COMING_SOON" />
+    <ProductSection title={t.xOccurrences} icon="check" status="COMING_SOON" />
     <Pill label={t.settingsRoutine} kind="outline" onPress={() => actions.go('routineSettings')} />
   </ProductPage>;
 }

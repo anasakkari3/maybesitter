@@ -5,7 +5,7 @@ export const SCREEN_FLOWS = {
   myMaybeSitter: 'home', integrations: 'integrations', googleIntegration: 'integrations',
   actionModes: 'settings', addToMaybeSitter: 'capture', goalExecution: 'goal_execution',
   personalization: 'settings', patchReview: 'planning', backgroundActivity: 'settings',
-  pdfReview: 'import', habitDetail: 'habits', watchBuilder: 'settings',
+  habitDetail: 'habits', watchBuilder: 'settings',
   commitments: 'commitments', contextualAssistant: 'assistant', today: 'home',
   calendar: 'calendar', settings: 'settings', details: 'commitments', capture: 'capture',
   share: 'import', calendarDemo: 'excluded', deleteAccount: 'excluded', trust: 'settings',
