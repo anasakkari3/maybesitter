@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
+import { RequestBodyTooLargeError, readBoundedText, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 import {
   applyWatcherPatch,
   parseWatcherId,
@@ -40,7 +41,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   // An empty body means "pause" — the common case, and the one the button
   // sends. Anything present must be a boolean `paused` and nothing else.
   let paused = true;
-  const raw = await request.text();
+  let raw: string;
+  try {
+    raw = await readBoundedText(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
+    throw error;
+  }
   if (raw.trim().length > 0) {
     let body: unknown;
     try {

@@ -7,6 +7,7 @@ import {
   type ReminderSettings,
   type ReminderSettingsInput,
 } from '../../../../../../lib/services/mobile/reminderSettingsService';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,8 +42,9 @@ export async function PUT(request: Request) {
 
   let body: Record<string, unknown>;
   try {
-    body = await request.json() as Record<string, unknown>;
-  } catch {
+    body = await readJsonBody(request) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) {

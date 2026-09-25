@@ -8,6 +8,7 @@ import {
 } from '../../../../../../../lib/memoryGrowth/suggestionService';
 import { moduleDisabledResponse } from '../../../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,8 +41,9 @@ export async function POST(request: Request, context: RouteContext) {
 
   let body: { decision?: unknown; fingerprint?: unknown; language?: unknown };
   try {
-    body = await request.json() as typeof body;
-  } catch {
+    body = await readJsonBody(request) as typeof body;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

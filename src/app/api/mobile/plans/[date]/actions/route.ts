@@ -20,6 +20,7 @@ import { titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanS
 import { loadDomainState } from '../../../../../../../lib/services/mobile/participantState';
 import { getStorage } from '../../../../../../../lib/storage';
 import type { StoredDailyPlan } from '../../../../../../../lib/services/dailyPlan/planStore';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,8 +69,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
 
   let body: { action?: unknown; proposalId?: unknown };
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

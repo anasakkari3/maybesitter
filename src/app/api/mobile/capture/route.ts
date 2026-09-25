@@ -3,6 +3,7 @@ import { proposeMobileCapture } from '../../../../../lib/services/mobile/mobileC
 import { CaptureInputTooLargeError } from '../../../../../lib/services/captureBoundary/captureBoundaryService';
 import { mobileError } from '../../../../../lib/services/mobile/response';
 import { recordTraceStage, resolveTraceSessionId, stage } from '../../../../../lib/alphaTrace/traceRecorder';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,10 +17,14 @@ export async function POST(request: Request) {
 
   let body: Record<string, unknown>;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
+  // `null`, a number or an array is JSON too, and reading `.sessionId` off
+  // `null` was a 500. The same 400 as a body that is not JSON at all.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return mobileError('Invalid JSON request body');
 
   // The scope is the uid. This route used to fall back to a single shared
   // participant literal, on one global state, whenever no pilot environment
