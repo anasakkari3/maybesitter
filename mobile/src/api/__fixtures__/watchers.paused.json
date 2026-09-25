@@ -2,22 +2,23 @@
   "success": true,
   "watcher": {
     "watcherId": "wtc_00000000-0000-4000-8000-000000000001",
-    "enabled": true,
-    "status": "active",
+    "enabled": false,
+    "label": null,
+    "status": "paused",
     "blockedReason": null,
     "source": {
-      "provider": "subjective",
+      "provider": "maybesitter",
       "connectionId": null,
       "signalKind": "readiness",
-      "subjectRef": "expansion-verification"
+      "subjectRef": "self"
     },
     "condition": {
       "kind": "digest_changed"
     },
-    "effect": "update_context",
+    "effect": "notify",
     "createdBy": "user",
-    "createdAt": "2026-09-23T00:00:00.000Z",
-    "updatedAt": "2026-09-23T00:00:00.000Z",
+    "createdAt": "2026-08-09T09:00:00.000Z",
+    "updatedAt": "2026-08-09T09:00:00.000Z",
     "lastObservedAt": null,
     "lastFiredAt": null,
     "fireCount": 0

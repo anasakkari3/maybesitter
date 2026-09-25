@@ -391,6 +391,10 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   }
 
   const scopeId = scopeIdFrom(input.scopeId, context);
+  // The typed answer is read by the engine the capture itself may use (#161):
+  // the metered model only when this account's AI consent is granted, the
+  // rules otherwise. Decided here from the stored consent, never the request.
+  const consent = context.participantId ? await getAiConsent(context.participantId) : 'declined';
 
   return answerClarification(
     {
@@ -408,6 +412,9 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     {
       store,
       extractor: guardedMobileExtract,
+      ...(context.participantId && consent === 'granted'
+        ? { llmProvider: captureLlmProvider(context.participantId), ...engineLabel() }
+        : {}),
       recordEvent: (event) => appendClarificationEvent(scopeId, event),
     },
   );

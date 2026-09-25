@@ -1,6 +1,8 @@
 import type { Strings } from '../../i18n/strings';
 import {
+  CaptureConfirmRefusedError,
   ContractError,
+  FeatureUnavailableError,
   ForbiddenError,
   IcsFeedRefusedError,
   InputTooLargeError,
@@ -51,8 +53,16 @@ const FORBIDDEN_REASONS: readonly string[] = [
   'feature_disabled',
 ];
 
-/** The reason a 403 carried, when the product has a screen for it. */
+/**
+ * The reason a 403 carried, when the product has a screen for it.
+ *
+ * A module the server has switched off answers 404 `feature_unavailable`
+ * (`moduleGate.ts`) where a withdrawn feature answers 403 `feature_disabled`.
+ * To the person they are the same thing — not available yet, and nothing a
+ * Retry can change — so both are that one state.
+ */
 export function forbiddenReason(error: unknown): ForbiddenReason | null {
+  if (error instanceof FeatureUnavailableError) return 'feature_disabled';
   if (!(error instanceof ForbiddenError)) return null;
   const reason = error.reason ?? '';
   return FORBIDDEN_REASONS.includes(reason) ? (reason as ForbiddenReason) : null;
@@ -73,6 +83,15 @@ const ICS_FEED_KEYS: Partial<Record<IcsFeedRefusedError['reason'], UserFacingKey
   feed_not_found: 'icsFeedsErrChanged',
   encryption_unavailable: 'icsFeedsErrUnavailable',
   feature_disabled: 'icsFeedsUnavailable',
+};
+
+/** One sentence per confirm refusal. A lost write is ours, not theirs. */
+const CAPTURE_CONFIRM_KEYS: Record<CaptureConfirmRefusedError['failureCode'], UserFacingKey> = {
+  proposal_not_found: 'captureConfirmExpired',
+  proposal_rejected: 'captureConfirmNothingReady',
+  invalid_selection: 'captureConfirmNothingReady',
+  invalid_edit: 'captureConfirmBadEdit',
+  persistence_failed: 'errorsServer',
 };
 
 /**
@@ -132,8 +151,15 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   if (error instanceof ServerError || error instanceof ServiceUnavailableError || error instanceof ContractError) {
     return 'errorsServer';
   }
+  // A refused capture confirm, by the reason the server gave (#252). Each one
+  // asks something different of the person; "that didn't work" asked nothing.
+  if (error instanceof CaptureConfirmRefusedError) return CAPTURE_CONFIRM_KEYS[error.failureCode];
+  // A typed clarification answer nothing could be read out of. The question
+  // is still up, so the sentence points at it.
+  if (error instanceof ValidationError && error.reason === 'answer_not_understood') return 'clarifyNotUnderstood';
   if (error instanceof ValidationError) return 'errorsValidation';
   if (error instanceof UnauthorizedError) return 'authSessionExpired';
+  if (error instanceof FeatureUnavailableError) return 'errorsFeatureDisabled';
   if (error instanceof NotFoundError) return 'errorsNotFound';
   const reason = forbiddenReason(error);
   if (reason === 'revoked') return 'authSignedOutRevoked';

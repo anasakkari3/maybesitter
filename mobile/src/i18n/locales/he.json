@@ -1386,5 +1386,11 @@
   "aiImportSummaryNewN": "{n, plural, one{דבר חדש אחד} two{שני דברים חדשים} other{# דברים חדשים}}",
   "aiImportSummaryUpdatesN": "{n, plural, one{עדכון אחד} two{שני עדכונים} other{# עדכונים}}",
   "aiImportSummaryConflictsN": "{n, plural, one{אחד שדורש החלטה שלך} two{שניים שדורשים החלטה שלך} other{# שדורשים החלטה שלך}}",
-  "obSetupGapsHeadingN": "{n, plural, one{למדנו לא מעט — נשאר דבר אחד.} two{למדנו לא מעט — נשארו שניים.} other{למדנו לא מעט — נשארו # דברים.}}"
+  "obSetupGapsHeadingN": "{n, plural, one{למדנו לא מעט — נשאר דבר אחד.} two{למדנו לא מעט — נשארו שניים.} other{למדנו לא מעט — נשארו # דברים.}}",
+  "captureConfirmExpired": "ההצעה פגה. חזור ושלח אותה שוב.",
+  "captureConfirmNothingReady": "עדיין אין מה לשמור. ענה על השאלה או ערוך.",
+  "captureConfirmBadEdit": "שינוי אחד לא נשמר. בדוק את הכותרת והשעה.",
+  "clarifyNotUnderstood": "לא הבנתי. בחר אפשרות או נסה שוב.",
+  "clarifySkip": "לדלג",
+  "readinessNoCheckIn": "עוד לא דיווחת על אנרגיה. בחר מספר למעלה."
 }

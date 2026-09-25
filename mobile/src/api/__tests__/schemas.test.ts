@@ -64,6 +64,7 @@ import {
 } from '../schemas/calendar';
 import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
 import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readiness';
+import { watcherChangedSchema, watcherListSchema } from '../schemas/watchers';
 import {
   financialConnectionSchema,
   financialContextResponseSchema,
@@ -236,8 +237,18 @@ const CASES: Array<[string, z.ZodType]> = [
   ['goal.confirmed', goalConfirmResponseSchema],
   ['goal.regenerated', goalGraphResponseSchema],
   ['goal.unlinked', goalUnlinkResponseSchema],
+  // Both states the energy screen meets, from the route (#readiness): a new
+  // account's `freshness: 'missing'` and the snapshot's string `version`
+  // were what the old hand-written fixture got wrong.
   ['readiness.current', readinessResponseSchema],
+  ['readiness.missing', readinessResponseSchema],
   ['readiness.saved', readinessSavedSchema],
+  // "تابعلي" (#525). `label: null` is what the route sends for a watcher
+  // nobody named; the schema refused it and every create looked failed.
+  ['watchers.created', watcherChangedSchema],
+  ['watchers.paused', watcherChangedSchema],
+  ['watchers.resumed', watcherChangedSchema],
+  ['watchers.list', watcherListSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
   // Subscribed calendar feeds (UC-3.4, #188). The schemas are strict: a

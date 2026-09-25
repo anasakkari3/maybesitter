@@ -13,8 +13,8 @@ import { getWeeklySummary, listActivity } from '../endpoints/activity';
 import { getReadiness, putSubjectiveEnergy } from '../endpoints/readiness';
 import { buildTimePatch } from '../../features/commitments/timePatch';
 import { nextStepResponseSchema } from '../schemas/nextStep';
-import { createReadinessWatcher } from '../endpoints/watchers';
-import watcherResponse from '../../features/product/__tests__/watcher-route-response.json';
+import { createReadinessWatcher, pauseWatcher } from '../endpoints/watchers';
+import watcherResponse from '../__fixtures__/watchers.created.json';
 import { createMemory, keepMemorySuggestion } from '../endpoints/profile';
 import { createHabit } from '../endpoints/habits';
 
@@ -98,6 +98,16 @@ describe('watchers', () => {
       source: { provider: 'maybesitter', signalKind: 'readiness', subjectRef: 'self' },
       effect: 'notify',
     });
+  });
+
+  it('reads the pause and the resume the route actually sends, unnamed watcher included', async () => {
+    serve(fixture('watchers.paused'));
+    const paused = await pauseWatcher(watcherResponse.watcher.watcherId, true);
+    expect(paused.watcher.label).toBeNull();
+    expect(paused.watcher.status).toBe('paused');
+    serve(fixture('watchers.resumed'));
+    const resumed = await pauseWatcher(watcherResponse.watcher.watcherId, false);
+    expect(resumed.watcher.enabled).toBe(true);
   });
 });
 

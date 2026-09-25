@@ -24,6 +24,7 @@ import { busyAt } from '../features/calendar/conflicts';
 import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
 import { postManualBusy } from '../api/endpoints/calendar';
 import type { CaptureProposalItem } from '../api/schemas/capture';
+import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import type { ShareProposal, ShareDocumentFacts } from '../api/schemas/share';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 
@@ -57,6 +58,9 @@ export function ReviewScreen() {
   const [answering, setAnswering] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
+  // Why the last answer to a question did not land, by item, so the line sits
+  // under the question it belongs to and leaves with it.
+  const [clarifyError, setClarifyError] = useState<{ itemId: string; key: UserFacingKey } | null>(null);
   const strings = t as unknown as Record<string, string>;
   // The local cache, not a request (UC-3.2, #186). A chip that had to wait for
   // the network would appear after the user had already pressed Confirm.
@@ -185,10 +189,12 @@ export function ReviewScreen() {
 
   const answer = (itemId: string, value: { optionId?: string; freeText?: string }) => {
     setAnswering(true);
-    void flow.clarify(itemId, value).then(() => {
-      // A failure leaves the question up. Clearing it would look like the
-      // answer landed.
+    setClarifyError(null);
+    void flow.clarify(itemId, value).then((outcome) => {
+      // A failure leaves the question up, and says so. Clearing it would look
+      // like the answer landed; leaving it silently looked like nothing happened.
       setAnswering(false);
+      if (!outcome.ok) setClarifyError({ itemId, key: outcome.messageKey });
     });
   };
 
@@ -284,10 +290,12 @@ export function ReviewScreen() {
         {asking ? (
           <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
             <ClarifySheet
+              key={asking.itemId}
               item={asking}
               position={unclarified.length - waiting.length + 1}
               total={unclarified.length}
               busy={answering}
+              error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
               onAnswer={(value) => answer(asking.itemId, value)}
               onSkip={() => {
                 // "Leave it without a time" is an answer (#474). When the
@@ -312,7 +320,7 @@ export function ReviewScreen() {
 
         {state.status === 'confirmFailed' ? (
           <View style={{ backgroundColor: p.wms, borderRadius: 18, padding: 14 }} testID="review-confirm-failed">
-            <Txt size={14} color={p.wm}>{t.errorsGeneric}</Txt>
+            <Txt size={14} color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt>
           </View>
         ) : null}
 

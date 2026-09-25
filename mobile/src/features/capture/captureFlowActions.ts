@@ -20,7 +20,8 @@ import {
   type CaptureItemEdit,
   type CaptureState,
 } from './captureMachine';
-import type { UserFacingKey } from '../../api/ui/userFacingMessage';
+import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
+import { CaptureConfirmRefusedError } from '../../api/errors';
 import type { CaptureConfirmation, CaptureProposal } from '../../api/schemas/capture';
 
 /** The calls the flow is allowed to make. Nothing else reaches the network. */
@@ -55,7 +56,11 @@ export type AnalyzeOutcome =
 
 export type ConfirmOutcome =
   | { ok: true; confirmation: CaptureConfirmation }
-  | { ok: false; reason: string };
+  /**
+   * `reason` is the machine code (the server's `failureCode`, or the error's
+   * class); `messageKey` is the line the review screen shows for it.
+   */
+  | { ok: false; reason: string; messageKey: UserFacingKey };
 
 /** What Undo managed. A partial result is reported as partial. */
 export interface UndoOutcome {
@@ -96,11 +101,21 @@ export async function confirmCapture(
     // route answers 404/400 now *and* the body still carries the truth, so both
     // are checked rather than one being trusted.
     if (!confirmation.success) {
-      return { ok: false, reason: confirmation.failureCode ?? 'confirmation_failed' };
+      return confirmation.failureCode
+        ? { ok: false, reason: confirmation.failureCode, messageKey: userFacingMessageKey(new CaptureConfirmRefusedError(confirmation.failureCode)) }
+        : { ok: false, reason: 'confirmation_failed', messageKey: 'errorsGeneric' };
     }
     return { ok: true, confirmation };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.name : 'confirmation_failed' };
+    // The refusal's own code when the server gave one, so the line says what
+    // to do about *this* failure rather than "that didn't work" for all of them.
+    return {
+      ok: false,
+      reason: error instanceof CaptureConfirmRefusedError
+        ? error.failureCode
+        : error instanceof Error ? error.name : 'confirmation_failed',
+      messageKey: userFacingMessageKey(error),
+    };
   }
 }
 

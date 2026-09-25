@@ -1383,5 +1383,11 @@
   "aiImportSummaryNewN": "{n, plural, zero{ما في شي جديد} one{شي جديد واحد} two{شيّين جديدين} few{# أشياء جديدة} many{# شي جديد} other{# شي جديد}}",
   "aiImportSummaryUpdatesN": "{n, plural, zero{ما في تحديثات} one{تحديث واحد} two{تحديثين} few{# تحديثات} many{# تحديثًا} other{# تحديث}}",
   "aiImportSummaryConflictsN": "{n, plural, zero{ما في شي مختلف} one{وحدة بدها قرارك} two{تنتين بدهم قرارك} few{# بدهم قرارك} many{# بدهم قرارك} other{# بدهم قرارك}}",
-  "obSetupGapsHeadingN": "{n, plural, zero{عرفنا مشوار كبير.} one{عرفنا مشوار كبير — ضلّ شي واحد.} two{عرفنا مشوار كبير — ضلّ شيّين.} few{عرفنا مشوار كبير — ضلّ # أشياء.} many{عرفنا مشوار كبير — ضلّ # شي.} other{عرفنا مشوار كبير — ضلّ # شي.}}"
+  "obSetupGapsHeadingN": "{n, plural, zero{عرفنا مشوار كبير.} one{عرفنا مشوار كبير — ضلّ شي واحد.} two{عرفنا مشوار كبير — ضلّ شيّين.} few{عرفنا مشوار كبير — ضلّ # أشياء.} many{عرفنا مشوار كبير — ضلّ # شي.} other{عرفنا مشوار كبير — ضلّ # شي.}}",
+  "captureConfirmExpired": "هالاقتراح خلص وقته. ارجع وابعته كمان مرّة.",
+  "captureConfirmNothingReady": "لسّا ما في إشي جاهز للحفظ. جاوب السؤال أو عدّلها.",
+  "captureConfirmBadEdit": "في تعديل ما انحفظ. شوف العنوان والوقت.",
+  "clarifyNotUnderstood": "ما فهمتها. اختار من الخيارات أو جرّب كمان مرّة.",
+  "clarifySkip": "تخطّاها",
+  "readinessNoCheckIn": "لسّا ما سجّلت طاقتك. اختار رقم من فوق."
 }

@@ -7,7 +7,7 @@ import { pauseWatcher, deleteWatcher } from '../../../api/endpoints/watchers';
 import { backgroundActivitySchema, backgroundAttributionSchema } from '../../../api/schemas/backgroundActivity';
 import { setBackgroundActivityPaused } from '../../../api/endpoints/backgroundActivity';
 import { backgroundActivityKey, monitoringKey, useSetBackgroundActivityPaused, useWatcherAction, watcherKey } from '../useWatchers';
-import response from './watcher-route-response.json';
+import response from '../../../api/__fixtures__/watchers.created.json';
 
 jest.mock('../../../api/queries', () => ({ useUid: () => 'account-a' }));
 jest.mock('../../../api/endpoints/watchers', () => ({ pauseWatcher: jest.fn(), deleteWatcher: jest.fn(), listWatchers: jest.fn() }));
