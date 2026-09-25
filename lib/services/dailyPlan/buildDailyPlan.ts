@@ -55,7 +55,7 @@ import type {
   WorkingWindow,
 } from '../../../src/contracts/v1/planningContracts';
 import type { ScheduleBlockSources } from '../../planning/scheduler/blocks';
-import { instantFromResolution, resolveLocalTime, toEpochMs, toInstant, weekdayAt } from '../../planning/shared/time';
+import { instantFromResolution, intervalsOverlap, resolveLocalTime, toEpochMs, toInstant, weekdayAt } from '../../planning/shared/time';
 import { DEFAULT_FIXED_EVENT_MINUTES, fixedEndFor } from '../timeCollision';
 
 // Re-exported so existing callers (and `tests/dailyPlan/fixedEventDuration.test.ts`)
@@ -478,4 +478,20 @@ export function dailyPlanScheduleSources(constraints: PlanningConstraints): Sche
       ? []
       : [[event.eventId, { kind: 'commitment' as const, id: event.sourceCommitmentId }] as const])),
   };
+}
+
+/**
+ * The fixed events a pinned commitment put on *this* day (L5).
+ *
+ * `buildDailyPlanInput` emits a fixed event for every pinned commitment that is
+ * not behind the day, next week's included: outside the horizon it blocks
+ * nothing, so the solver is indifferent to it. A reader asking "what is pinned
+ * to a time today" — the plan screen's fixed rows, the refresh's staleness
+ * check — is not, and filters here, by overlap with the day's horizon.
+ */
+export function pinnedEventsOnDay(
+  events: readonly FixedEvent[],
+  horizon: { readonly startsAt: Instant; readonly endsAt: Instant },
+): FixedEvent[] {
+  return events.filter((event) => event.sourceCommitmentId !== null && intervalsOverlap(event.interval, horizon));
 }

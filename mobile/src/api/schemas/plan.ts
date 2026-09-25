@@ -156,6 +156,34 @@ export const dailyPlanSchema = z.object({
   protections: z.array(blockProtectionSchema),
   /** Pending continuous-replan patch joined from the response envelope. */
   proposal: pendingPlanProposalSchema.nullable().optional(),
+  /**
+   * The day's commitments pinned to a time, in time order (L5). The planner
+   * places floating work around them, so `scheduled` never lists them; the
+   * screen shows them as fixed rows between the movable ones.
+   *
+   * This field and the three below are additive on the server, so each is
+   * optional here: a server that predates them still parses, and reads as
+   * "nothing pinned, nothing changed, the cap from `generation`".
+   */
+  fixed: z.array(planItemSchema).optional(),
+  /**
+   * The day's commitments changed after this plan was built, and the server
+   * did not rebuild it because the person already accepted, dismissed or
+   * edited it. The screen points at "New plan" rather than changing anything.
+   */
+  inputsChanged: z.boolean().optional(),
+  /**
+   * Rebuilds left today, as the server's cap counts them. An automatic refresh
+   * of an untouched plan is a generation that is not a rebuild, so this can
+   * no longer be derived from `generation` alone. Absent on an older server.
+   */
+  rebuildsLeft: z.number().int().nonnegative().optional(),
+  /**
+   * When the day's last working window ends (an instant), or null when the
+   * plan has none. After it, an empty plan means "today is over", not "nothing
+   * to do". Absent on an older server.
+   */
+  workingEndsAt: isoDateTime.nullable().optional(),
 });
 
 export type DailyPlan = z.infer<typeof dailyPlanSchema>;

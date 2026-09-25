@@ -1,15 +1,15 @@
 {
   "success": true,
   "plan": {
-    "date": "2026-08-09",
+    "date": "2026-08-10",
     "timezone": "Asia/Jerusalem",
-    "status": "accepted",
-    "generation": 1,
+    "status": "proposed",
+    "generation": 2,
     "inputDigest": "0000000000000000000000000000000000000000000000000000000000000000",
     "generatedAt": "2026-08-09T08:00:00.000Z",
-    "acceptedAt": "2026-08-09T09:00:00.000Z",
+    "acceptedAt": null,
     "explanation": {
-      "text": "I placed 3 things between 11:00 and 12:30.",
+      "text": "I placed 3 things between 09:00 and 10:30.",
       "locale": "en",
       "source": "template"
     },
@@ -17,7 +17,7 @@
       {
         "itemId": "plan_fixture_0",
         "title": "Write the summary",
-        "startsAt": "2026-08-09T08:00:00.000Z",
+        "startsAt": "2026-08-09T09:00:00.000Z",
         "endsAt": "2026-08-09T09:00:00.000Z",
         "blockId": "block:commitment:plan_fixture_0"
       },
@@ -39,7 +39,15 @@
     "unscheduled": [],
     "edited": false,
     "protections": [],
-    "fixed": [],
+    "fixed": [
+      {
+        "itemId": "plan_fixture_pinned",
+        "title": "Dentist",
+        "startsAt": "2026-08-09T09:00:00.000Z",
+        "endsAt": "2026-08-09T09:00:00.000Z",
+        "blockId": "block:commitment:plan_fixture_pinned"
+      }
+    ],
     "inputsChanged": false,
     "rebuildsLeft": 4,
     "workingEndsAt": "2026-08-09T09:00:00.000Z"

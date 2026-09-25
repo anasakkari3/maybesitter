@@ -180,6 +180,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.protected', planResponseSchema],
   ['plan.withProposal', planResponseSchema],
   ['plan.built', planResponseSchema],
+  ['plan.refreshedWithFixed', planResponseSchema],
   ['plan.cause', planCauseResponseSchema],
   // "The plan was put on screen" (#533): the acknowledgement carries nothing
   // back; the append to the plan ledger is the point of the call.

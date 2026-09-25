@@ -13,11 +13,16 @@
 import type { PlanItemChange, PlanningItem, TimeInterval, UnscheduledItem } from '../../../src/contracts/v1/planningContracts';
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { withinMaxShift } from '../../planning/scheduler';
+import { normalizeWorkingWindows } from '../../planning/constraints';
 import { toEpochMs } from '../../planning/shared/time';
+import type { FixedEvent } from '../../../src/contracts/v1/planningContracts';
+import type { Commitment } from '../../../src/domain/stateMachine';
+import { buildDailyPlanInput, pinnedEventsOnDay } from './buildDailyPlan';
 import {
   effectiveSchedule,
   offerCollidesWithFixedTime,
   planUnderKeptRemovals,
+  rebuildsLeftOf,
   type FixedTimeInForce,
 } from './planActions';
 import { pendingProposalOf, type StoredDailyPlan, type StoredPlanProposal } from './planStore';
@@ -92,9 +97,109 @@ export interface DailyPlanDto {
   readonly edited: boolean;
   /** The blocks whose position is the user's (or a policy's) decision (#522). */
   readonly protections: readonly BlockProtectionDto[];
+  /**
+   * The day's commitments pinned to a time, in time order (L5).
+   *
+   * The planner reads them as fixed events and places floating work around
+   * them, so `scheduled` never lists them — and a plan that showed only
+   * `scheduled` left a person's 14:00 appointment off their own day. Rows of
+   * the `scheduled` shape; the client renders them as fixed, not movable.
+   * Calendar busy time is not here: it carries no title of the person's.
+   */
+  readonly fixed: readonly PlanItemDto[];
+  /**
+   * The day's commitments have changed since this plan was built, and it was
+   * not rebuilt because the person has touched it (`planRefresh.ts`). The
+   * client offers the rebuild. False on every answer except `GET` and build.
+   */
+  readonly inputsChanged: boolean;
+  /**
+   * Rebuilds still available today, as the server's cap counts them. Not
+   * derivable from `generation` alone any more: a generation the automatic
+   * refresh wrote is not a rebuild the person spent.
+   */
+  readonly rebuildsLeft: number;
+  /**
+   * When the last of the day's working hours ends, or null when the plan has
+   * none. A plan built after it has nothing left to place, and the client says
+   * so rather than showing an empty day.
+   */
+  readonly workingEndsAt: string | null;
 }
 
-export function planToDto(stored: StoredDailyPlan, titles: ReadonlyMap<string, string>): DailyPlanDto {
+/** The end of the day's last working window, as an instant; null when there is none. */
+function workingEndsAtOf(stored: StoredDailyPlan): string | null {
+  const { windows } = normalizeWorkingWindows(stored.constraints.workingWindows, stored.constraints.horizon, stored.config);
+  let latest: number | null = null;
+  for (const window of windows) {
+    const end = toEpochMs(window.interval.endsAt);
+    if (latest === null || end > latest) latest = end;
+  }
+  return latest === null ? null : new Date(latest).toISOString();
+}
+
+/**
+ * The pinned commitments that fall on the plan's day. See `DailyPlanDto.fixed`.
+ *
+ * From the commitments as they are **now** when the caller has them (every
+ * route does), not from the stored request: a pinned commitment is not a
+ * placement decision, so showing the current one overwrites nothing. A plan
+ * the person accepted this morning still shows the appointment they captured
+ * at noon, and stops showing the one they finished. The stored request stays
+ * what the plan was solved against; it is only the fallback here.
+ */
+function fixedRowsOf(
+  stored: StoredDailyPlan,
+  titles: ReadonlyMap<string, string>,
+  commitments: readonly Commitment[] | undefined,
+): PlanItemDto[] {
+  const fixedBlockBySource = new Map((stored.blocks ?? [])
+    .filter((block) => block.mobility === 'fixed')
+    .map((block) => [block.source.id, block.blockId] as const));
+  const events: readonly FixedEvent[] = commitments === undefined
+    ? stored.constraints.fixedEvents
+    : buildDailyPlanInput({
+      // The scope is `${uid}:${date}` (`buildDailyPlanInput`); only the
+      // pinned events are read back, and they do not carry it.
+      uid: stored.constraints.scopeId.slice(0, stored.constraints.scopeId.lastIndexOf(':')),
+      date: stored.date,
+      timezone: stored.timezone,
+      commitments,
+      busyBlocks: [],
+      profile: null,
+      focusHint: null,
+      builtAt: stored.generatedAt,
+    }).constraints.fixedEvents;
+  return pinnedEventsOnDay(events, stored.constraints.horizon)
+    .flatMap((event) => {
+      const itemId = event.sourceCommitmentId;
+      if (itemId === null) return [];
+      return [{
+        itemId,
+        title: titles.get(itemId) ?? null,
+        startsAt: event.interval.startsAt,
+        endsAt: event.interval.endsAt,
+        blockId: fixedBlockBySource.get(itemId) ?? null,
+      }];
+    })
+    .sort((left, right) => toEpochMs(left.startsAt) - toEpochMs(right.startsAt));
+}
+
+export interface PlanDtoOptions {
+  /** `CurrentPlan.inputsChanged`, for the two routes that read through `planRefresh`. */
+  readonly inputsChanged?: boolean;
+  /**
+   * The account's commitments as they are now. When given, `fixed` is read
+   * from them rather than from the stored request (`fixedRowsOf`).
+   */
+  readonly commitments?: readonly Commitment[];
+}
+
+export function planToDto(
+  stored: StoredDailyPlan,
+  titles: ReadonlyMap<string, string>,
+  options: PlanDtoOptions = {},
+): DailyPlanDto {
   // Indexed once. `blockId` is needed on every scheduled and unscheduled row,
   // and a find() per row would be quadratic over a day that can hold dozens.
   const blockByItemId = new Map((stored.blocks ?? [])
@@ -141,6 +246,10 @@ export function planToDto(stored: StoredDailyPlan, titles: ReadonlyMap<string, s
         maxShiftMinutes: protection.maxShiftMinutes,
       }];
     }),
+    fixed: fixedRowsOf(stored, titles, options.commitments),
+    inputsChanged: options.inputsChanged ?? false,
+    rebuildsLeft: rebuildsLeftOf(stored),
+    workingEndsAt: workingEndsAtOf(stored),
   };
 }
 

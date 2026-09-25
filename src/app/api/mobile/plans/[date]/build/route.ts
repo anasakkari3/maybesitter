@@ -19,7 +19,9 @@ export const dynamic = 'force-dynamic';
  * The same build the morning job runs, through the same function, minus the
  * push. Idempotent: a date that already has a plan answers 200 with that plan
  * and spends nothing, so a double tap or a retry after a lost response is safe.
- * The answer is the shape `GET /api/mobile/plans/[date]` returns.
+ * The answer is the shape `GET /api/mobile/plans/[date]` returns — including
+ * `GET`'s refresh of a stale, untouched plan (L5), which the service applies
+ * to a stored plan before answering it.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ date: string }> }) {
   let user;
@@ -33,8 +35,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   if (!isPlanDate(date)) return mobileError('date must be YYYY-MM-DD');
 
   let stored;
+  let inputsChanged;
   try {
-    ({ stored } = await buildDailyPlanOnDemand(user.uid, date));
+    ({ stored, inputsChanged } = await buildDailyPlanOnDemand(user.uid, date));
   } catch (error) {
     if (error instanceof PlanDateOutOfRangeError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
@@ -56,5 +59,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
    * two different shapes, or the second one grows a branch for a key the first
    * never sends.
    */
-  return Response.json({ success: true, plan: planToDto(stored, titles), proposal: pendingProposalToDto(stored, titles, now, taken) });
+  return Response.json({ success: true, plan: planToDto(stored, titles, { inputsChanged, commitments }), proposal: pendingProposalToDto(stored, titles, now, taken) });
 }
