@@ -1214,7 +1214,7 @@
   "xHabitTitle": "שם ההרגל",
   "xHabitTitlePlaceholder": "מה תרצו לעשות באופן קבוע?",
   "xHabitConfirmationBody": "בחרו תדירות ומשך לפני שההרגל מתחיל לשריין זמן בתוכניות.",
-  "xTimesPerWeek": "{count} פעמים בשבוע",
+  "xTimesPerWeek": "{count}× בשבוע",
   "xMinutes": "{count} דקות",
   "xFlexible": "גמיש",
   "xProtectedFlexible": "להגן לאחר התזמון",

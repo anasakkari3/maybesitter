@@ -1211,7 +1211,7 @@
   "xHabitTitle": "اسم العادة",
   "xHabitTitlePlaceholder": "شو بدك تعمل بشكل متكرر؟",
   "xHabitConfirmationBody": "اختار التكرار والمدّة قبل ما العادة تبدأ تحجز وقت بخططك.",
-  "xTimesPerWeek": "{count} مرّات بالأسبوع",
+  "xTimesPerWeek": "{count}× بالأسبوع",
   "xMinutes": "{count} دقيقة",
   "xFlexible": "مرنة",
   "xProtectedFlexible": "احميها بعد الجدولة",

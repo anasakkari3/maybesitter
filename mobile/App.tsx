@@ -4,7 +4,7 @@ import { useFonts } from 'expo-font';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { apiLocale } from './src/i18n/locale';
-import { AppProvider } from './src/state/AppContext';
+import { AppProvider, useApp } from './src/state/AppContext';
 import { ApiProvider } from './src/api/ui/ApiProvider';
 import { AccountDeletionProvider } from './src/features/account/AccountDeletionProvider';
 import { AccountDeletedGate } from './src/features/account/AccountDeletedGate';
@@ -63,36 +63,57 @@ function AppTree() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        {/* A fresh install picks its language before anything else renders
-            (#469). Above AuthProvider on purpose: sign-in is the first screen
-            that has words on it, and they should already be the right ones. */}
-        <LanguageGate>
-          {/* Auth sits inside AppProvider so the sign-in screen is themed and
-              localised the same way every other screen is. */}
-          <AuthProvider>
-            {/* Inside AuthProvider: the API layer takes its bearer from the
-                repository, and clears every cached row when the uid changes. */}
-            <ClarityProvider>
-              <ApiProvider>
-                <AccountDeletionProvider>
-                  {/* Outside AuthGate on purpose: a successful deletion removes
-                      the Firebase user, so the gate flips to sign-in in the same
-                      frame — and the receipt the user is owed would vanish with
-                      it (UC-1.5 #149). */}
-                  <AccountDeletedGate>
-                    {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
-                        into the slot it has always had. A signed-in user who has
-                        not been through the consent screen does not reach Root. */}
-                    <OnboardingGate>
-                      <Root />
-                    </OnboardingGate>
-                  </AccountDeletedGate>
-                </AccountDeletionProvider>
-              </ApiProvider>
-            </ClarityProvider>
-          </AuthProvider>
-        </LanguageGate>
+        <DirectionRoot>
+          {/* A fresh install picks its language before anything else renders
+              (#469). Above AuthProvider on purpose: sign-in is the first screen
+              that has words on it, and they should already be the right ones. */}
+          <LanguageGate>
+            {/* Auth sits inside AppProvider so the sign-in screen is themed and
+                localised the same way every other screen is. */}
+            <AuthProvider>
+              {/* Inside AuthProvider: the API layer takes its bearer from the
+                  repository, and clears every cached row when the uid changes. */}
+              <ClarityProvider>
+                <ApiProvider>
+                  <AccountDeletionProvider>
+                    {/* Outside AuthGate on purpose: a successful deletion removes
+                        the Firebase user, so the gate flips to sign-in in the same
+                        frame — and the receipt the user is owed would vanish with
+                        it (UC-1.5 #149). */}
+                    <AccountDeletedGate>
+                      {/* The sign-in gate, with UC-2.R1 (#171)'s onboarding composed
+                          into the slot it has always had. A signed-in user who has
+                          not been through the consent screen does not reach Root. */}
+                      <OnboardingGate>
+                        <Root />
+                      </OnboardingGate>
+                    </AccountDeletedGate>
+                  </AccountDeletionProvider>
+                </ApiProvider>
+              </ClarityProvider>
+            </AuthProvider>
+          </LanguageGate>
+        </DirectionRoot>
       </AppProvider>
     </SafeAreaProvider>
   );
 }
+
+/**
+ * Wraps the entire screen hierarchy inside `AppProvider` with the active Yoga
+ * layout direction (`rtl` or `ltr`).
+ *
+ * Pre-root lifecycle gates (`LanguageStep`, `SignInScreen`, `EmailAuthScreen`,
+ * `AccountDeletedScreen`, and `OnboardingFlow`) mount above `src/Root.tsx`.
+ * Without a direction-aware wrapper here, their flex layouts and text alignment
+ * default to LTR even when Arabic or Hebrew is selected.
+ */
+function DirectionRoot({ children }: { children: React.ReactNode }) {
+  const { rtl, p } = useApp();
+  return (
+    <View testID="direction-root" style={{ flex: 1, backgroundColor: p.bg, direction: rtl ? 'rtl' : 'ltr' }}>
+      {children}
+    </View>
+  );
+}
+
