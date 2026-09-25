@@ -1,13 +1,18 @@
 /**
  * What this installation knows about its own calendar writing (UC-3.1, #185).
  *
- * Three values, all of them device facts rather than account facts, which is
+ * Four values, all of them device facts rather than account facts, which is
  * why they are here and not on the server:
  *
  *   `writerId`        who this installation is, so the account can tell two
  *                     phones apart
  *   `calendarId`      which calendar on *this* device the user picked
  *   `writtenEventIds` the events this installation put there
+ *   `excludedCalendarIds` the calendars on this phone the user switched off
+ *                     for busy time (first iPhone run, L7). Calendar ids
+ *                     only — never a title, an account name or an event — and
+ *                     meaningless on any other phone, which is why they are
+ *                     not on the account.
  *
  * ── `writerId`, and the `installationId` this is not ─────────────
  *
@@ -44,6 +49,7 @@ import * as Crypto from 'expo-crypto';
 export const WRITER_ID_KEY = 'calendar.writerId.v1';
 export const CALENDAR_ID_KEY = 'calendar.calendarId.v1';
 export const WRITTEN_EVENT_IDS_KEY = 'calendar.writtenEventIds.v1';
+export const EXCLUDED_CALENDAR_IDS_KEY = 'calendar.excludedCalendarIds.v1';
 
 /** How many event ids are kept. Beyond this the oldest are dropped. */
 const MAX_WRITTEN_EVENT_IDS = 2000;
@@ -143,5 +149,30 @@ export async function forgetWrittenEventId(eventId: string): Promise<void> {
   } catch {
     // Leaving a stale id behind makes #186 skip an event that is no longer
     // ours. Harmless: it is not in the calendar any more either.
+  }
+}
+
+/** The calendars on this phone the user switched off for busy time. */
+export async function loadExcludedCalendarIds(): Promise<string[]> {
+  try {
+    const raw = await AsyncStorage.getItem(EXCLUDED_CALENDAR_IDS_KEY);
+    if (raw === null) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Ids and nothing else, rebuilt on the way out: see `calendarBusy.ts` for
+    // why a stored value is never trusted to have the shape we wrote.
+    return [...new Set(parsed.filter((id): id is string => typeof id === 'string' && id !== ''))];
+  } catch {
+    // Unreadable reads as "none switched off": every calendar counts as busy,
+    // which costs a redundant hint rather than a missed clash.
+    return [];
+  }
+}
+
+export async function saveExcludedCalendarIds(ids: readonly string[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(EXCLUDED_CALENDAR_IDS_KEY, JSON.stringify([...new Set(ids)]));
+  } catch {
+    // The switch still shows the choice for this session.
   }
 }

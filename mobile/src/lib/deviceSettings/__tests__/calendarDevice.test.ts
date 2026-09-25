@@ -19,11 +19,13 @@ import {
   WRITTEN_EVENT_IDS_KEY,
   forgetWrittenEventId,
   loadChosenCalendarId,
+  loadExcludedCalendarIds,
   loadWrittenEventIds,
   rememberWrittenEventId,
   resetWriterIdCache,
   resolveWriterId,
   saveChosenCalendarId,
+  saveExcludedCalendarIds,
 } from '../calendarDevice';
 
 beforeEach(async () => {
@@ -106,5 +108,26 @@ describe('the events this installation wrote', () => {
   it('keeps only strings out of a list that has been tampered with', async () => {
     await AsyncStorage.setItem(WRITTEN_EVENT_IDS_KEY, JSON.stringify(['evt-1', 7, null, 'evt-2']));
     expect(await loadWrittenEventIds()).toEqual(['evt-1', 'evt-2']);
+  });
+});
+
+describe('calendars switched off for busy time (first iPhone run, L7)', () => {
+  it('is none until the user switches one off', async () => {
+    expect(await loadExcludedCalendarIds()).toEqual([]);
+  });
+
+  it('round-trips, without duplicates', async () => {
+    await saveExcludedCalendarIds(['a', 'b', 'a']);
+    expect(await loadExcludedCalendarIds()).toEqual(['a', 'b']);
+  });
+
+  it('keeps ids only, whatever else was written there', async () => {
+    await AsyncStorage.setItem('calendar.excludedCalendarIds.v1', JSON.stringify(['a', 7, { title: 'Oncology' }, '']));
+    expect(await loadExcludedCalendarIds()).toEqual(['a']);
+  });
+
+  it('reads an unreadable value as none switched off', async () => {
+    await AsyncStorage.setItem('calendar.excludedCalendarIds.v1', '{not json');
+    expect(await loadExcludedCalendarIds()).toEqual([]);
   });
 });

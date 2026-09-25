@@ -47,7 +47,7 @@ describe('text fields in Arabic start on the right', () => {
   it.each([
     ['ar', 'right', 'rtl'],
     ['en', 'left', 'ltr'],
-  ] as const)('%s: the commitments search', async (lang, align, direction) => {
+  ] as ['ar' | 'en', string, string][])('%s: the commitments search', async (lang, align, direction) => {
     await show(lang, <CommitmentsScreen />);
     expect(await screen.findByTestId('commitments-search')).toBeTruthy();
     expect(styleOf('commitments-search').textAlign).toBe(align);

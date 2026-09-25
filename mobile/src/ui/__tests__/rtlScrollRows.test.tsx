@@ -52,7 +52,7 @@ describe('the category chips', () => {
     ['ar', ['family', 'work', 'all']],
     ['he', ['family', 'work', 'all']],
     ['en', ['all', 'work', 'family']],
-  ] as const)('%s: "All" sits where reading starts', async (lang, order) => {
+  ] as ['ar' | 'he' | 'en', string[]][])('%s: "All" sits where reading starts', async (lang, order) => {
     await inLanguage(lang, <CategoryBar chips={CHIPS} selected="all" onSelect={() => {}} />);
     await waitFor(() => expect(screen.queryAllByTestId(/^category-chip-/).length).toBe(3));
     const ids = screen.getAllByTestId(/^category-chip-/).map(node => String(node.props.testID).replace('category-chip-', ''));
@@ -108,7 +108,7 @@ describe('DirectionalScrollRow', () => {
   it.each([
     ['ar', ['c', 'b', 'a'], 1],
     ['en', ['a', 'b', 'c'], 0],
-  ] as const)('%s: order, and whether it opens at the end', async (lang, order, scrolls) => {
+  ] as ['ar' | 'en', string[], number][])('%s: order, and whether it opens at the end', async (lang, order, scrolls) => {
     const scrollToEnd = jest.spyOn(ScrollView.prototype, 'scrollToEnd').mockImplementation(() => {});
     await inLanguage(lang, (
       <DirectionalScrollRow testID="row">

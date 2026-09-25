@@ -103,6 +103,40 @@ describe('the window that is asked for', () => {
   });
 });
 
+describe('calendars the user switched off (first iPhone run, L7)', () => {
+  it('skips a calendar switched off in Calendar settings', async () => {
+    await deviceCalendar.fetchBusyBlocks({ now: NOW, excludedCalendarIds: new Set(['cal-subscribed']) });
+    expect(mockListEvents.mock.calls[0]![0]).toEqual(['cal-writable']);
+  });
+
+  it('asks nothing when every calendar is switched off', async () => {
+    expect(await deviceCalendar.fetchBusyBlocks({
+      now: NOW, excludedCalendarIds: new Set(['cal-writable', 'cal-subscribed']),
+    })).toEqual([]);
+    expect(mockListEvents).not.toHaveBeenCalled();
+  });
+});
+
+describe('listing the calendars on this phone', () => {
+  it('lists every event calendar with its account, writable or not', async () => {
+    mockGetCalendars.mockResolvedValue([
+      { id: 'a', title: 'Work', color: '#f00', allowsModifications: true, source: { name: 'Google' } },
+      { id: 'b', title: 'Holidays', allowsModifications: false, source: { name: 'Subscribed Calendars' } },
+      { id: 'c', title: 'Home', allowsModifications: true, ownerAccount: 'me@icloud.com' },
+    ]);
+    expect(await deviceCalendar.listEventCalendars()).toEqual([
+      { id: 'a', title: 'Work', color: '#f00', sourceName: 'Google' },
+      { id: 'b', title: 'Holidays', color: null, sourceName: 'Subscribed Calendars' },
+      { id: 'c', title: 'Home', color: null, sourceName: 'me@icloud.com' },
+    ]);
+  });
+
+  it('is a permission error when the phone says no', async () => {
+    mockGetCalendars.mockRejectedValue(new Error('Calendar permission not authorized'));
+    await expect(deviceCalendar.listEventCalendars()).rejects.toMatchObject({ reason: 'permission_denied' });
+  });
+});
+
 describe('what comes back', () => {
   it('is busy blocks and not events', async () => {
     mockListEvents.mockResolvedValue([event()]);

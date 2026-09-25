@@ -71,7 +71,7 @@ describe('SettingsRow', () => {
   it.each([
     ['ar', '15,5 8,12 15,19'],
     ['en', '9,5 16,12 9,19'],
-  ] as const)('%s: icon, words, then a chevron pointing onward', async (lang, points) => {
+  ] as ['ar' | 'en', string][])('%s: icon, words, then a chevron pointing onward', async (lang, points) => {
     await inLanguage(lang, <SettingsRow label="Calendar" sub="On" icon="calendar" onPress={() => {}} testID="row" />);
     await waitFor(() => expect(screen.queryByTestId('row')).not.toBeNull());
     const row = screen.getByLabelText('Calendar');
@@ -93,7 +93,7 @@ describe('ProductRow', () => {
   it.each([
     ['ar', '15,5 8,12 15,19'],
     ['en', '9,5 16,12 9,19'],
-  ] as const)('%s: icon, words, then a chevron pointing onward', async (lang, points) => {
+  ] as ['ar' | 'en', string][])('%s: icon, words, then a chevron pointing onward', async (lang, points) => {
     await inLanguage(lang, <ProductRow title="Trust" body="What it knows" icon="shield" onPress={() => {}} id="prow" />);
     await waitFor(() => expect(screen.queryByTestId('prow')).not.toBeNull());
     const row = screen.getByTestId('prow');

@@ -1,7 +1,7 @@
 import { ClarityConsent } from '../../clarity/ClarityConsent';
 import { useClarityConsent } from '../../clarity/ClarityProvider';
 import React, { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
@@ -22,6 +22,7 @@ import { Dialog } from '../../ui/dialog';
 import { SectionLabel, TextLink } from '../../ui/chrome';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { PilotIncidentInput } from '../../api/schemas/trust';
+import { deviceCalendar, type CalendarAccess } from '../calendar/deviceCalendar';
 
 const INCIDENT_SURFACES: readonly PilotIncidentInput['surface'][] = ['capture', 'recommendation', 'calendar', 'analytics', 'account'];
 const INCIDENT_CATEGORIES: readonly PilotIncidentInput['category'][] = ['reliability', 'privacy', 'safety', 'consent', 'other'];
@@ -75,6 +76,8 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
+  // The phone's answer to the calendar question, once this screen has asked.
+  const [calendarAccess, setCalendarAccess] = useState<CalendarAccess | null>(null);
 
   const versions = consents.data?.currentVersions;
   const context = {
@@ -193,8 +196,28 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             body={t.trustCalendarNotConnected}
             value={state?.calendarConsent === true}
             disabled={state === undefined}
-            onChange={next => record(trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next }))}
+            onChange={async next => {
+              // On the way on, ask the phone first (first iPhone run, L7):
+              // recording the consent alone left the busy read failing,
+              // silently, as `denied`. `requestAccess` only prompts when the
+              // phone has not answered; after that it reports the answer.
+              if (next) setCalendarAccess(await deviceCalendar.requestAccess());
+              return record(trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next }));
+            }}
           />
+          {calendarAccess === 'denied' ? (
+            <View style={{ paddingHorizontal: 18, paddingTop: 12, gap: 10 }}>
+              <Txt size={13} color={p.mu} lh={1.5} testID="trust-calendar-denied">{t.calendarPermissionDenied}</Txt>
+              <Btn
+                label={t.notifOpenSettings}
+                testID="trust-calendar-open-settings"
+                onPress={() => void Linking.openSettings()}
+                style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln }}
+              >
+                <Txt size={14} color={p.ac}>{t.notifOpenSettings}</Txt>
+              </Btn>
+            </View>
+          ) : null}
           {/* The switch records consent; connecting the calendar is done in
               Calendar settings, which is one tap from here (Round 2). */}
           <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>

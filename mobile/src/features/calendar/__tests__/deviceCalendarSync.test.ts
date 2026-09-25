@@ -307,6 +307,7 @@ function recorder(options: {
     },
     requestAccess: async () => options.access ?? 'granted',
     listWritableCalendars: async () => [],
+    listEventCalendars: async () => [],
     // UC-3.2 (#186) widened the interface. The write sync never reads busy
     // time, and answering with an empty list rather than a throw keeps that a
     // statement about this fake's *calls* rather than about its failures.
