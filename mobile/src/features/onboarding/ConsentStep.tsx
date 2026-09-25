@@ -195,6 +195,7 @@ function ChoiceButton({
     <Btn
       onPress={onPress}
       label={label}
+      accessibilityState={{ selected }}
       scaleTo={0.97}
       style={{
         flex: 1,

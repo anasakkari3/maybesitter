@@ -102,6 +102,8 @@ export function RoutineStep({
                 <Btn
                   key={option}
                   label={label}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
                   scaleTo={0.98}
                   // Pressing the chosen option again clears it. The survey is
                   // skippable, so "I would rather not say this one" has to be
