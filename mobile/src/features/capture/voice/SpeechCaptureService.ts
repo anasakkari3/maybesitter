@@ -37,6 +37,13 @@ export type SpeechStatus =
    */
   | 'noSpeech'
   /**
+   * Dictation is switched off on this phone (Siri & Dictation off, speech
+   * recognition restricted, or its assets missing). Not retryable by tapping
+   * again, and not the app's microphone permission: the fix is in Settings,
+   * so the mic stays and a short line points there.
+   */
+  | 'dictationOff'
+  /**
    * This attempt failed (audio busy, network, the speech service restarted).
    * Retryable: the mic stays, with a short "try again" line. Only a device with
    * no recogniser (`unavailable`) or without this language

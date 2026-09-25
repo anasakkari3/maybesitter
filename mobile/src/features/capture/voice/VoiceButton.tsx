@@ -209,8 +209,9 @@ function StopGlyph({ color }: { color: string }) {
  * The one short line under the mic, for the states that need words.
  *
  * Idle says nothing. Listening says how to finish. A failed attempt and a quiet
- * room say to try again; the mic stays. A refused microphone says so and offers
- * the only place that can change it. Announced to screen readers, since each
+ * room say to try again; the mic stays. A refused microphone, and dictation
+ * switched off on the phone, each say so and offer the only place that can
+ * change it: Settings. Announced to screen readers, since each
  * appears without the user touching it.
  */
 export function VoiceNote({ status }: { status: SpeechStatus }) {
@@ -221,10 +222,10 @@ export function VoiceNote({ status }: { status: SpeechStatus }) {
   }, [line, status]);
   if (!line) return null;
 
-  if (status === 'permissionDenied') {
+  if (status === 'permissionDenied' || status === 'dictationOff') {
     return (
       <View style={{ gap: 4, alignItems: 'flex-start' }} accessibilityLiveRegion="polite">
-        <Txt size={13} color={p.mu} testID="voice-denied">{line}</Txt>
+        <Txt size={13} color={p.mu} testID={status === 'dictationOff' ? 'voice-dictation-off' : 'voice-denied'}>{line}</Txt>
         <Btn
           testID="voice-open-settings"
           label={t.notifOpenSettings}
@@ -252,6 +253,7 @@ function noteFor(status: SpeechStatus, t: ReturnType<typeof useApp>['t']): strin
     case 'failed': return t.voiceFailed;
     case 'noSpeech': return t.voiceNoSpeech;
     case 'permissionDenied': return t.voiceDenied;
+    case 'dictationOff': return t.voiceDictationOff;
     case 'localeUnavailable': return t.voiceLocaleUnavailable;
     default: return null;
   }

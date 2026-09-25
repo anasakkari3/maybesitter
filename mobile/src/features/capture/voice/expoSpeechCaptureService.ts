@@ -88,7 +88,8 @@ export const MAX_DICTATION_MS = 120_000;
  * Which of our statuses an error code means.
  *
  * `not-allowed` is the user; `language-not-supported` is this language on this
- * device; `no-speech` is a quiet room. Everything else — audio busy, the
+ * device; `no-speech` is a quiet room; `service-not-allowed` is dictation
+ * switched off in the phone's settings. Everything else — audio busy, the
  * speech service restarting, the network, Siri's service being unreachable —
  * is this attempt failing, and the next tap may well work. Those are `failed`
  * (retryable), never `unavailable`: a mic that vanishes after one hiccup cannot
@@ -102,6 +103,10 @@ export function statusForErrorCode(code: string | undefined): SpeechStatus {
       return 'localeUnavailable';
     case 'no-speech':
       return 'noSpeech';
+    // Siri & Dictation off, recognition restricted, or assets not installed.
+    // Tapping again cannot fix it; Settings can, so it gets its own line.
+    case 'service-not-allowed':
+      return 'dictationOff';
     default:
       return 'failed';
   }

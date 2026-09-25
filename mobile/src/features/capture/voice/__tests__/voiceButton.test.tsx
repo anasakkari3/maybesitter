@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { Linking } from 'react-native';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import en from '../../../../i18n/locales/en.json';
+import ar from '../../../../i18n/locales/ar.json';
+import he from '../../../../i18n/locales/he.json';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../../state/AppContext';
 import { VoiceButton } from '../VoiceButton';
@@ -171,6 +173,8 @@ describe('a refused microphone', () => {
   it('says so in a short line, offers Settings, and keeps the mic to try again', async () => {
     const service = answering('permissionDenied');
     const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined as never);
+    // The RN preset's Linking is already a jest.fn, so spyOn reuses it: start from zero.
+    openSettings.mockClear();
     await show({ service });
     await fireEvent.press(screen.getByTestId('voice-button'));
     await waitFor(() => expect(screen.queryByTestId('voice-denied')).not.toBeNull());
@@ -181,6 +185,34 @@ describe('a refused microphone', () => {
     expect(openSettings).toHaveBeenCalledTimes(1);
     // Coming back from Settings with access granted, the next tap has to work.
     expect(screen.queryByTestId('voice-button')).not.toBeNull();
+  });
+});
+
+describe('dictation switched off on the phone', () => {
+  it('says so, offers Settings, keeps the mic, and does not say "try again"', async () => {
+    const service = answering('dictationOff');
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined as never);
+    // The RN preset's Linking is already a jest.fn, so spyOn reuses it: start from zero.
+    openSettings.mockClear();
+    await show({ service });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(screen.queryByTestId('voice-dictation-off')).not.toBeNull());
+
+    expect(screen.getByTestId('voice-dictation-off').props.children).toBe(en.voiceDictationOff);
+    expect(screen.queryByText(en.voiceFailed)).toBeNull();
+    await fireEvent.press(screen.getByTestId('voice-open-settings'));
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('voice-button')).not.toBeNull();
+  });
+});
+
+describe('the mic\'s own words', () => {
+  it('describe tap to start and tap to stop — there is no hold-to-talk', () => {
+    for (const [lang, strings] of Object.entries({ en, ar, he })) {
+      const words = strings.tapToTalk;
+      expect({ lang, words }).not.toEqual({ lang, words: expect.stringMatching(/hold|خلّي إصبعك|תחזיק/i) });
+    }
+    expect(en.tapToTalk).toMatch(/stop/i);
   });
 });
 

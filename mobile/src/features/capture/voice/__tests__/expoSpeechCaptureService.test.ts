@@ -328,7 +328,7 @@ describe('errors', () => {
   });
 
   it('a transient failure is retryable, not a missing feature (the mic used to vanish)', () => {
-    for (const code of ['audio-capture', 'network', 'busy', 'interrupted', 'service-not-allowed']) {
+    for (const code of ['audio-capture', 'network', 'busy', 'interrupted']) {
       expect(statusForErrorCode(code)).toBe('failed');
     }
   });
@@ -349,6 +349,15 @@ describe('errors', () => {
     emit('error', { error: 'network' });
     expect(finals).toEqual(['call Dana']);
     expect(statuses.at(-1)).toBe('failed');
+  });
+
+  it('dictation switched off on the phone is its own state, not "try again"', async () => {
+    // Siri & Dictation off / recognition restricted: tapping again cannot fix
+    // it, so a retry line would send the user round in circles.
+    expect(statusForErrorCode('service-not-allowed')).toBe('dictationOff');
+    await service('en').start(callbacks());
+    emit('error', { error: 'service-not-allowed' });
+    expect(statuses.at(-1)).toBe('dictationOff');
   });
 
   it('says it heard nothing, rather than going quiet', async () => {
