@@ -9,9 +9,17 @@ owner Workspace mailbox on 2026-09-25. Admin Console confirmed both saved;
 internal test delivery was verified in recipient-level Workspace logs.
 On 2026-09-25, the owner explicitly accepted human operational responsibility
 for monitoring both addresses and handling support, privacy and account/data
-deletion requests. This is an owner commitment, not an automated service guarantee.
+deletion requests. The owner separately approved a human operational commitment
+to respond to and follow up on privacy requests received at privacy@maybesitter.com
+within 30 days of receipt. This does not guarantee completion of every deletion
+or technical action during that period. It is not an automated service guarantee.
 Only the effective-date token stays unfinished until publication is approved; domain approval is not
 approval to publish the legal documents.
+The owner also approved the material-change process on 2026-09-25: update the
+document version and effective date on the website and, before a material change
+takes effect, email affected users at the address linked to their account when a
+valid contact address is available. No in-app notice is promised while no such
+workflow exists.
 
 Find them all at any time:
 
