@@ -13,8 +13,9 @@ deletion requests. The owner separately approved a human operational commitment
 to respond to and follow up on privacy requests received at privacy@maybesitter.com
 within 30 days of receipt. This does not guarantee completion of every deletion
 or technical action during that period. It is not an automated service guarantee.
-Only the effective-date token stays unfinished until publication is approved; domain approval is not
-approval to publish the legal documents.
+The owner approved publication of the English and Arabic legal documents on
+2026-09-25, which is their effective date. The Hebrew documents retain the
+effective-date token until native Hebrew linguistic review and publication.
 The owner also approved the material-change process on 2026-09-25: update the
 document version and effective date on the website and, before a material change
 takes effect, email affected users at the address linked to their account when a
@@ -27,16 +28,13 @@ Find them all at any time:
 git grep -nE '\{\{(DOMAIN|LEGAL_NAME|SUPPORT_EMAIL|PRIVACY_EMAIL|EFFECTIVE_DATE)\}\}' -- site/
 ```
 
-Replace them all at once (macOS `sed`), after you have decided the real values.
-The following is a template: replace `APPROVED_PUBLICATION_DATE` before running it, after owner approval of publication. Delivery verification and the owner monitoring commitment are recorded above.
+Do not replace the remaining Hebrew effective-date token until native Hebrew
+linguistic review and publication approval are recorded. The English and Arabic
+documents already contain their actual publication date.
 
-```bash
-cd site
-grep -rl '{{' . --include='*.html' --include='*.md' --include='*.txt' --include='*.xml' | xargs sed -i '' \
-  -e 's/{{EFFECTIVE_DATE}}/APPROVED_PUBLICATION_DATE/g'
-```
-
-Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains.
+After Hebrew approval, replace only the Hebrew tokens, rerun
+`./check-links.sh --local`, and confirm no placeholder remains in the files being
+published.
 
 ## The tokens
 
@@ -95,13 +93,14 @@ Then re-run `./check-links.sh --local` and grep again to confirm no `{{` remains
   - `{en,ar,he}/privacy.html` — "Who we are", "Your rights", "Age", "Early-access sign-up"
   - `{en,ar,he}/terms.html` — "Contact"
 
-### `{{EFFECTIVE_DATE}}`
+### `{{EFFECTIVE_DATE}}` (Hebrew only)
 
-- **What to put there:** the date the policy actually goes live, as `YYYY-MM-DD`. Use
-  the publish date, not the drafting date, and do not backdate it.
+- **What to put there:** the date the Hebrew policy actually goes live, as
+  `YYYY-MM-DD`. Use that publish date, not the drafting date, and do not backdate it.
 - **Where it appears:**
-  - `{en,ar,he}/privacy.html` — the header line and the closing "Changes" paragraph
-  - `{en,ar,he}/terms.html` — the header line and the closing "Contact" paragraph
+  - `he/privacy.html` — the header line and the closing "Changes" paragraph
+  - `he/terms.html` — the header line and the closing "Contact" paragraph
+  - `he/delete-account.html` — the header line
 
 ## Not a placeholder — leave exactly as written
 

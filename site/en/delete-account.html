@@ -8,18 +8,16 @@
 <link rel="canonical" href="https://maybesitter.com/en/delete-account">
 <link rel="alternate" hreflang="en" href="https://maybesitter.com/en/delete-account">
 <link rel="alternate" hreflang="ar" href="https://maybesitter.com/ar/delete-account">
-<link rel="alternate" hreflang="he" href="https://maybesitter.com/he/delete-account">
 <link rel="alternate" hreflang="x-default" href="https://maybesitter.com/en/delete-account">
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/legal.css">
 </head>
 <body>
 <header>
   <h1>Delete your account</h1>
-  <p class="meta">Version 1.1 DRAFT · Effective date pending: {{EFFECTIVE_DATE}}</p>
+  <p class="meta">Version 1.1 · Effective 2026-09-25</p>
 </header>
 
 <main>
-  <p class="callout">Draft for owner and legal review. Not approved for publication; Hebrew language review is also pending.</p>
   <p class="lede">Account deletion removes the live account and its content, subject to completion of the deletion steps. Retained proof records, recovery data and external-provider handling are explained below. A completed deletion cannot be undone.</p>
 
   <h2>From inside the app</h2>
@@ -51,7 +49,7 @@
     <li>After account deletion, a pseudonymous deletion receipt is marked for expiry after 400 days and a deletion-job record after 30 days. These configured expiry periods are not a guarantee of the exact purge time. They retain a keyed hash rather than your raw account ID; the completed job no longer contains your UID. These records support proof of deletion and safe repeat requests.</li>
     <li>An incomplete or stuck deletion job can still contain the account UID so the deletion can be resumed. Completed jobs receive a 30-day expiry timestamp. Firestore TTL for that field was verified active in production on 25 September 2026; deletion after expiry is asynchronous, not a guarantee of removal exactly on day 30.</li>
     <li>Early-access website registrations are separate from an app account and are not automatically removed by account deletion. To request removal, use the contact route in the privacy policy.</li>
-    <li>Production recording is currently disabled. In enabled builds, recording requires a separate opt-in for the current signed-in session; analytics consent does not enable it. Clarity receives masked screen layout, taps, navigation and SDK device/session metadata. Text and images are masked, and WebView recording is disabled. Revoking consent stops future capture. Deleting your MaybeSitter account does not delete recordings already uploaded to Clarity. Production replay must remain disabled until the owner approves and publishes its retention period and deletion-request process. These decisions are still pending; this draft does not promise a retention period.</li>
+    <li>Production recording is currently disabled. In enabled builds, recording requires a separate opt-in for the current signed-in session; analytics consent does not enable it. Clarity receives masked screen layout, taps, navigation and SDK device/session metadata. Text and images are masked, and WebView recording is disabled. Revoking consent stops future capture. Deleting your MaybeSitter account does not delete recordings already uploaded to Clarity. Production replay must remain disabled until the owner approves and publishes its retention period and deletion-request process. These decisions are still pending; this page does not promise a retention period.</li>
   </ul>
 
   <h2>Questions</h2>
