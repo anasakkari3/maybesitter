@@ -1,56 +1,51 @@
 /**
- * The capture command is not part of the title (L4, fix round 2).
+ * The capture command is not part of the title (L4, fix rounds 2 and 3).
  *
  * The owner said «سجّل موعد دكتور يوم الأحد» and the card read «سجّل موعد
- * دكتور»: "record" was an instruction to the app, not the thing to do. Both
- * engines' titles pass through `stripCaptureCommand` — the rules path in
- * `cleanAction`, the model's answer in the schema validator — so the same
- * sentence gets the same title whichever engine answered.
+ * دكتور»: "record" was an instruction to the app, not the thing to do.
  *
- * ── Only when the verb is an instruction to us ─────────────────────
+ * ══ AN ALLOWLIST, NOT A GUESS (controller ruling, fix round 3) ════
  *
- * Every one of these verbs is also an ordinary task. «سجّل بالنادي» is "sign
- * up at the gym", «اكتب التقرير» is "write the report", «حط الغسيل» is "put
- * the laundry in", "add milk to the list", «לרשום את הילד לחוג» is "register
- * the kid". So:
+ * Round 2 stripped «سجّل» unless a preposition followed, and review found the
+ * everyday sentences where «سجّل» *is* the task: «سجّل الأولاد بالمدرسة»
+ * (register the kids), «سجّل حلقة البودكاست» (record the episode), «سجّل
+ * المصاريف» (log the expenses), «سجّل الدخول» (log in). The card showed a noun
+ * phrase with no action. So the verb goes only when what follows is itself a
+ * commitment:
  *
- *   «سجّل», «ذكّرني»   stripped at the start, unless their own complement
- *                     follows — a preposition or a place («سجّل بالنادي»,
- *                     «سجل في دورة»);
- *   «حط», «ضيف», «اكتب» stripped only with «لي»/«عندك» or a colon after them:
- *                     «حط لي موعد», «اكتب: موعد»;
- *   note/add          only as "note:", "add:", "note that", "add a reminder";
- *                     "remind me about/of" as well;
- *   «תרשום/תרשמי»      only with «לי» or a colon.
+ *   ar  «سجّل/سجل/ذكّرني/ذكرني/حطلي/اكتبلي» (or «سجّل لي», «اكتب لي», «حط لي»)
+ *       followed by «موعد», «تذكير», «ملاحظة», an appointment noun from the
+ *       priority lexicon («دكتور», «امتحان», «مقابلة», «اجتماع»…), «عندي», or
+ *       a first-person clause «إني/انو/إنه …» (the conjunction goes too);
+ *   en  "remind me to/about/of …", "note: …", "add: …";
+ *   he  «תזכיר לי ש…/ל…», «תרשום לי ש…», «תרשום לי: …», and «תרשום לי» or
+ *       «תזכיר לי» before an appointment noun («תור», «פגישה», «מבחן»…).
  *
- * Only at the start, only when something is left after it. A title that
- * would be emptied comes back unchanged.
+ * Everything else keeps its verb. A Hebrew title never starts with «את» (the
+ * object marker): if that is what would remain, nothing is stripped.
+ *
+ * Used on both engines. On the model path the validator passes the model's
+ * own title through here, so a model title is only ever changed when it
+ * starts with one of these shapes — never rewritten otherwise.
  */
 
 const A = '(?![\\p{L}\\p{M}])';
 
-/** «سجّل موعد…» — but not «سجّل بالنادي», «سجل في دورة», «سجل حالك». */
-const AR_RECORD = new RegExp(
-  `^\\s*(?:سجّل|سجل|سجّلي|سجلي|ذكّرني|ذكّريني)${A}(?:\\s+(?:لي|إلي|الي|عندك))?\\s*[:،,]?\\s+(?!ب|لل|عال|(?:في|فيه|ع|على|عند|مع|حالي|حالك|نفسي|نفسك|اسمي|اسمك)${A})`,
-  'u',
-);
+const AR_VERB = '(?:سجّل|سجل|سجّلي|سجلي|ذكّرني|ذكرني|ذكّريني|ذكريني|حطلي|حطّلي|اكتبلي|سجللي|سجّللي|(?:سجّل|سجل|حط|حطّ|اكتب)\\s+(?:لي|إلي))';
+const AR_COMMITMENT = '(?:و?(?:ال)?(?:موعد|موعدي|تذكير|ملاحظة|ملاحظه|دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى|امتحان|إمتحان|مقابلة|مقابله|طيارة|طيارتي|طيران|محكمة|محكمه|جلسة|اجتماع|فحص|تحليل)|عندي)';
+const AR_FIRST_PERSON = '(?:إنّي|إني|اني|إنه|إنّه|انه|انو|إنو|إنّو)';
 
-/** «حط لي…», «ضيف لي…», «اكتب: …» — the object pronoun or the colon is the tell. */
-const AR_NOTE = new RegExp(
-  `^\\s*(?:حطّ|حط|حطّي|حطي|ضيف|ضيفي|اكتب|اكتبي|اكتبلي|حطلي|ضيفلي)${A}(?:\\s+(?:لي|إلي|الي|عندك)\\s*[:،,]?|\\s*[:،,])\\s*`,
-  'u',
-);
-/** The fused forms carry the «لي» already: «حطلي موعد». */
-const AR_NOTE_FUSED = new RegExp(`^\\s*(?:اكتبلي|حطلي|ضيفلي|سجللي|سجّللي)${A}\\s*[:،,]?\\s*`, 'u');
-
-const EN_NOTE = /^\s*(?:please\s+)?(?:(?:note|add|reminder)\s*:\s*|note\s+that\s+|note\s+down\s*:?\s*|add\s+a\s+reminder(?:\s+(?:to|for|about))?\s*:?\s*|remind\s+me\s+(?:about|of)\s+)/i;
-
-const HE_NOTE = new RegExp(`^\\s*(?:תרשום|תרשמי|תרשמו)${A}(?:\\s+לי\\s*[:,]?|\\s*[:,])\\s*`, 'u');
+const COMMANDS: readonly RegExp[] = [
+  // «سجّل إني …» — the conjunction goes with the verb.
+  new RegExp(`^\\s*${AR_VERB}${A}\\s*[:،,]?\\s*${AR_FIRST_PERSON}${A}\\s*`, 'u'),
+  // «سجّل موعد …» — only the verb goes; the commitment is the title.
+  new RegExp(`^\\s*${AR_VERB}${A}\\s*[:،,]?\\s*(?=${AR_COMMITMENT}${A})`, 'u'),
+  /^\s*(?:please\s+)?(?:remind\s+me\s+(?:to|about|of)\s+|note\s*:\s*|add\s*:\s*)/i,
+  new RegExp(`^\\s*(?:תזכיר|תזכירי|תרשום|תרשמי)\\s+לי\\s*(?::\\s*|ש(?=\\S)|(?=ל\\S)|\\s(?=(?:תור|פגישה|מבחן|בחינה|ראיון|טיסה|דיון)${A}))`, 'u'),
+];
 
 /** Spaces and punctuation, which do not count as "more content". */
 const LEFTOVER_NOISE = new RegExp('[\\s\\p{P}]', 'gu');
-
-const COMMANDS: readonly RegExp[] = [AR_RECORD, AR_NOTE_FUSED, AR_NOTE, EN_NOTE, HE_NOTE];
 
 export function stripCaptureCommand(title: string): string {
   if (typeof title !== 'string') return title;
@@ -58,9 +53,9 @@ export function stripCaptureCommand(title: string): string {
     const match = command.exec(title);
     if (!match) continue;
     const rest = title.slice(match[0].length).trim();
-    // Only when followed by more content: «سجّل» alone stays «سجّل».
-    if (rest.replace(LEFTOVER_NOISE, '').length >= 2) return rest;
-    return title;
+    // Only when followed by more content, and never onto the object marker.
+    if (rest.replace(LEFTOVER_NOISE, '').length < 2 || /^את\s/.test(rest)) return title;
+    return rest;
   }
   return title;
 }

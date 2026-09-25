@@ -292,10 +292,12 @@ function cleanAction(raw: string): string {
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')
-    .replace(/^\s*(ذكرني اني|ذكرني|ذكريني|بدي|لازم|محتاج|احتاج|علي|عليّ)\s+/i, '')
+    // «ذكرني ليش» is a question to answer, not a reminder to strip (L4).
+    .replace(/^\s*(ذكرني اني|ذكرني|ذكريني|بدي|لازم|محتاج|احتاج|علي|عليّ)\s+(?!(?:ليش|ليه|شو|مين|وين|كيف|قديش|امتى|إمتى|ايمتى|إيمتى|متى)(?:\s|$))/i, '')
     .replace(/^\s*(ضروري|مستعجل|مهم|لازم|يمكن|عادي|مش ضروري)[:\s-]+/i, '')
     .replace(/\s+(ضروري|مستعجل|مهم|لازم|يمكن|عادي|مش ضروري)\s*$/i, '')
-    .replace(/^\s*(?:בבקשה\s+)?(תזכיר לי ש|תזכירי לי ש|להזכיר לי ש|תזכיר לי|תזכירי לי|להזכיר לי|אני צריך|אני צריכה|צריך|צריכה|אני חייב|אני חייבת|חייב|חייבת|אני רוצה|רוצה)\s+/i, '')
+    // Never onto the object marker: «תזכיר לי את הילד…» keeps its verb (L4).
+    .replace(/^\s*(?:בבקשה\s+)?(תזכיר לי ש|תזכירי לי ש|להזכיר לי ש|תזכיר לי|תזכירי לי|להזכיר לי|אני צריך|אני צריכה|צריך|צריכה|אני חייב|אני חייבת|חייב|חייבת|אני רוצה|רוצה)\s+(?!את\s)/i, '')
     .replace(/^\s*(דחוף|חשוב|קריטי|חובה|אולי|לא דחוף|אפשר)[:\s-]+/i, '')
     .replace(/\s+(דחוף|חשוב|קריטי|חובה|אולי|לא דחוף|אפשר)\s*$/i, '')
     .replace(/\s+/g, ' ')

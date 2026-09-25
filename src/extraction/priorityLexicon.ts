@@ -116,7 +116,7 @@ const ARRANGING = new RegExp(
   [
     '\\b(?:call(?:ed|ing|s)?|phon(?:e|ed|ing)|ring|rang|email(?:ed|ing|s)?|e-mail|text(?:ed|ing)?|messag(?:e|ed|ing)|book(?:ed|ing|s)?|schedul(?:e|ed|ing)|arrang(?:e|ed|ing)|confirm(?:ed|ing)?|send|sent|mail(?:ed)?|forward(?:ed)?|give|hand|pay|buy|order)\\b',
     '\\bmake\\s+(?:an?\\s+|the\\s+)?(?:\\w+\\s+)?(?:appointment|appt)\\b',
-    words(['احجز', 'أحجز', 'حجزت', 'بحجز', 'نحجز', 'احجزي', 'اتصل', 'أتصل', 'اتصلت', 'بتصل', 'اتصلي', 'رن', 'رنّ', 'كلّم', 'كلم', 'أكلم', 'اكلم', 'بكلم', 'احكي', 'أحكي', 'ابعت', 'ابعث', 'أبعت', 'بعتت', 'بعثت', 'أرسل', 'ارسل', 'راسل', 'اكتب', 'أكتب', 'ثبّت', 'ثبت', 'أكّد', 'أكد', 'اكد', 'اشتري', 'أشتري', 'جيب', 'اجيب', 'هدية', 'ادفع', 'أدفع']),
+    words(['احجز', 'أحجز', 'حجزت', 'بحجز', 'نحجز', 'احجزي', 'اتصل', 'أتصل', 'اتصلت', 'بتصل', 'اتصلي', 'رن', 'رنّ', 'كلّم', 'كلم', 'أكلم', 'اكلم', 'بكلم', 'احكي', 'أحكي', 'ابعت', 'ابعث', 'أبعت', 'بعتت', 'بعثت', 'أرسل', 'ارسل', 'راسل', 'اكتب', 'أكتب', 'ثبّت', 'ثبت', 'أكّد', 'أكد', 'اكد', 'اشتري', 'أشتري', 'جيب', 'اجيب', 'أجيب', 'هدية', 'ادفع', 'أدفع']),
     words(['اعمل\\s+موعد', 'أعمل\\s+موعد', 'اطلب\\s+موعد', 'أطلب\\s+موعد', 'آخد\\s+موعد', 'اخد\\s+موعد', 'أخذ\\s+موعد', 'اخذ\\s+موعد']),
     words(['להתקשר', 'תתקשר', 'תתקשרי', 'התקשרתי', 'להזמין', 'תזמין', 'הזמנתי', 'לקבוע', 'תקבע', 'תקבעי', 'קבעתי', 'לתאם', 'תתאם', 'לשלוח', 'תשלח', 'שלחתי', 'לכתוב', 'לקנות', 'תקנה', 'לשלם']),
   ].join('|'),
@@ -142,6 +142,26 @@ const ATTEND_VERB = new RegExp(
     `${B}(?:رايح|رايحة|رايحه|رايحين|بروح|بروحي|منروح|أروح|اروح|نروح|(?:رح|لازم)\\s+(?:أروح|اروح|روح|نروح))\\s+(?:لل|ل|لعند\\s+ال|لعند\\s+|عند\\s+ال|عند\\s+|عال|على\\s+ال|ع\\s+ال)?(?:دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى|مشفى)${A}`,
     `${B}(?:הולך|הולכת|הולכים|אלך|ללכת|נוסע|נוסעת)\\s+(?:ל|אל\\s+)ה?(?:רופא|רופאה|רופאת|מרפאה|מרפאת|בית\\s+חולים)${A}`,
     "\\b(?:going|go|heading|head)\\s+to\\s+(?:the\\s+|my\\s+)?(?:doctor|doctor's|dentist|dentist's|gp|clinic|hospital)\\b",
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * Going there, but not for an appointment (fix round 3, N-2): its website or
+ * car park, an errand ("to pick up the prescription", «أجيب الدوا من عند
+ * الدكتور», «להביא לו עוגה»), dinner at a doctor's house, or a doctor who is
+ * family or a friend («عندي دكتور بالعيلة»). Any of these declines.
+ */
+const NOT_THE_APPOINTMENT = new RegExp(
+  [
+    "\\b(?:doctor|dentist|gp|clinic|hospital|physio|therapist|orthodontist)(?:'s)?\\s+(?:website|web\\s*site|site|office|portal|number|phone|parking|page|app|email|address)\\b",
+    '\\b(?:website|portal|parking)\\b',
+    '\\bto\\s+(?:pick\\s+up|drop\\s+off|get|grab|collect|fetch|return|deliver)\\b',
+    '\\b(?:dinner|lunch|breakfast|party|birthday|drinks)\\b',
+    `${B}من\\s+عند\\s+(?:ال)?(?:دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى)${A}`,
+    `${B}عندي\\s+(?:ال)?(?:دكتور|دكتورة|طبيب|طبيبة)\\s+(?:بالعيلة|بالعيله|بالعائلة|صاحب|صاحبي|قريب|قريبي|بالجيرة|بالجيره|جار|جاري)${A}`,
+    words(['آخد', 'اخد', 'آخذ', 'اخذ', 'أوصّل', 'اوصّل', 'أوصل', 'اوصل', 'وصّل', 'أسلّم', 'اسلّم', 'أسلم', 'اسلم', 'أرجّع', 'ارجع', 'عالعشا', 'عالغدا', 'عالفطور', 'عالقهوة', 'عزومة', 'نتعشى', 'نتغدى', 'سهرة', 'عيد\\s+ميلاد']),
+    words(['להביא', 'לקחת', 'לאסוף', 'להחזיר', 'להוריד', 'למסור', 'עוגה', 'ארוחת', 'מסיבה', 'יום\\s+הולדת']),
   ].join('|'),
   'iu',
 );
@@ -177,7 +197,7 @@ export function isFixedAppointment(rawText: string, time: FixedTime): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
   if (!time.hasDay && !time.hasClock) return false;
   const text = rawText.trim();
-  if (ARRANGING.test(text) || LOOSE_NOUN.test(text)) return false;
+  if (ARRANGING.test(text) || LOOSE_NOUN.test(text) || NOT_THE_APPOINTMENT.test(text)) return false;
   if (NEGATED.test(text.replace(DONT_FORGET, ' '))) return false;
   const attends = ATTEND_VERB.test(text);
   if (RECIPIENT.test(text) && !attends) return false;
