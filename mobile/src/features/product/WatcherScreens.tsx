@@ -29,7 +29,7 @@ export function BackgroundActivityScreen() {
     : t.xNotObserved;
   return <ProductPage id="background" title={t.xBackground} subtitle={t.xBackgroundBody} overlay={deleting ? <Dialog title={t.xRemoveWatch} body={t.xRemoveWatchBody} confirmLabel={t.memoryDelete} cancelLabel={t.cancel}
       onCancel={() => setDeleting(null)} onConfirm={() => { action.mutate({ id: deleting, action: 'delete' }); setDeleting(null); }} /> : null}>
-    <ProductSection title={t.xBackground} body={t.xBackgroundBody} icon="shield">
+    <ProductSection title={t.xBackground} icon="shield">
       <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
         <ServerToggle title={t.xPause} body={t.xWatchLimits} testID="monitoring-pause" value={query.data?.paused ?? false} disabled={query.data === undefined} onChange={async paused => {
           await setMonitoring.mutateAsync(paused);
