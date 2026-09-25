@@ -153,6 +153,7 @@ export function SetupChatStep({
               label={label}
               accessibilityRole="button"
               scaleTo={0.98}
+              hitSlop={6}
               onPress={() => setAnswer(clampAnswer(label, cap))}
               style={{
                 minHeight: 40,

@@ -7,6 +7,7 @@ import {
 } from '../../../../../../lib/services/mobile/seedService';
 import { moduleDisabledResponse } from '../../../../../../lib/services/mobile/moduleGate';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,8 +43,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   let body: Record<string, unknown>;
   try {
-    body = await request.json() as Record<string, unknown>;
-  } catch {
+    body = await readJsonBody(request) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

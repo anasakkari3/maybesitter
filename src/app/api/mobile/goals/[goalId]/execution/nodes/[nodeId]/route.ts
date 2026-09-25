@@ -11,6 +11,7 @@ import {
   MemoryNotFoundError,
   unlinkGoalGraphNode,
 } from '../../../../../../../../../lib/services/mobile/goalGraphService';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,8 +47,9 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

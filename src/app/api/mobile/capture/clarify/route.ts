@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../li
 import { ClarifyError } from '../../../../../../lib/services/captureBoundary';
 import { clarifyMobileCapture } from '../../../../../../lib/services/mobile/mobileCaptureService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,8 +28,9 @@ export async function POST(request: Request) {
 
   let body: Record<string, unknown>;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

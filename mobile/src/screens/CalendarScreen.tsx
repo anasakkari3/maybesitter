@@ -126,7 +126,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           eyebrowTestID="calendar-range"
           title={t.calendarTitle}
           end={(
-            <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
+            <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" hitSlop={8} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
               <SettingsIcon color={p.mu} knob={p.sf} />
             </Btn>
           )}
@@ -242,7 +242,7 @@ function DayCell({
     <Btn
       testID={`calendar-day-${key}`}
       onPress={onPress}
-      label={formatDate(date, 'weekday', options)}
+      label={`${formatDate(date, 'weekday', options)} ${formatDate(date, 'dayNumber', options)}`}
       accessibilityState={{ selected }}
       scaleTo={0.94}
       style={{ ...(stacked ? { width: 62 * scale } : { flex: 1 }), alignItems: 'center', gap: 2, paddingTop: 8, paddingBottom: 10, paddingHorizontal: 4, borderRadius: 16, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 88 }}

@@ -22,6 +22,7 @@
  * user-agent, cookie or visitor identifier is ever read into it.
  */
 import { createHash } from 'node:crypto';
+import { RequestBodyTooLargeError, readJsonBody } from '../net/requestBody';
 import {
   EARLY_ACCESS_RATE_LIMITS,
   EARLY_ACCESS_REGISTRATIONS,
@@ -171,29 +172,9 @@ export function validateEarlyAccess(body: Record<string, unknown>): Validation {
 const respond = (body: unknown, status: number, extra: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra } });
 
-class BodyTooLarge extends Error {}
-
+/** The shared streaming reader (`lib/net/requestBody.ts`), at this form's own 4 KiB bound. */
 async function boundedJson(request: Request): Promise<unknown> {
-  const reader = request.body?.getReader();
-  if (!reader) throw new SyntaxError('empty body');
-  const decoder = new TextDecoder();
-  let length = 0;
-  let text = '';
-  try {
-    for (;;) {
-      const part = await reader.read();
-      if (part.done) break;
-      length += part.value.byteLength;
-      if (length > EARLY_ACCESS_BODY_LIMIT_BYTES) {
-        await reader.cancel();
-        throw new BodyTooLarge();
-      }
-      text += decoder.decode(part.value, { stream: true });
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return JSON.parse(text + decoder.decode());
+  return readJsonBody(request, { limitBytes: EARLY_ACCESS_BODY_LIMIT_BYTES });
 }
 
 /**
@@ -234,7 +215,7 @@ export async function handleEarlyAccess(request: Request, options: EarlyAccessOp
   try {
     body = await boundedJson(request);
   } catch (error) {
-    if (error instanceof BodyTooLarge) return respond({ error: 'payload_too_large' }, 413);
+    if (error instanceof RequestBodyTooLargeError) return respond({ error: 'payload_too_large' }, 413);
     return respond({ error: 'invalid_json' }, 400);
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) return respond({ error: 'invalid_json' }, 400);

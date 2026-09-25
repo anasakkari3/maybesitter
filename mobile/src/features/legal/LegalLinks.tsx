@@ -43,6 +43,7 @@ export function LegalLinks() {
           key={key}
           // `link`, not `button`: VoiceOver and TalkBack then say "link", which
           // is what tells somebody they are about to leave the app.
+          accessibilityRole="link"
           label={`${label}. ${t.legalOpensInBrowser}`}
           scaleTo={0.98}
           onPress={() => {
@@ -55,12 +56,13 @@ export function LegalLinks() {
             paddingVertical: 16,
             paddingHorizontal: 18,
             minHeight: 52,
+            gap: 12,
             borderTopWidth: 1,
             borderTopColor: p.ln,
             borderBottomWidth: index < rows.length - 1 ? 0 : 0,
           }}
         >
-          <Txt size={15} testID={`settings-${key === 'privacy' ? 'privacy-policy' : 'terms'}`}>{label}</Txt>
+          <Txt size={15} style={{ flexShrink: 1 }} testID={`settings-${key === 'privacy' ? 'privacy-policy' : 'terms'}`}>{label}</Txt>
           <Txt size={13} color={p.mu}>{t.legalOpensInBrowser}</Txt>
         </Btn>
       ))}

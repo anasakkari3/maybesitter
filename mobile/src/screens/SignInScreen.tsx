@@ -81,14 +81,26 @@ export function SignInScreen({
           concatenated across a bidi run. */}
       <View testID="signin-legal-notice" style={{ marginTop: 28, alignItems: 'center' }}>
         <Txt size={12} color={p.mu} align="center">{t.authLegalNote}</Txt>
-        <View style={{ flexDirection: 'row', gap: 20, marginTop: 10 }}>
+        <View style={{ flexDirection: 'row', gap: 24, marginTop: 10 }}>
           {legal.privacy ? (
-            <Btn label={t.authPrivacy} onPress={() => void openLegal(legal.privacy)}>
+            <Btn
+              label={t.authPrivacy}
+              accessibilityRole="link"
+              onPress={() => void openLegal(legal.privacy)}
+              hitSlop={8}
+              style={{ minHeight: 44, justifyContent: 'center' }}
+            >
               <Txt size={13} weight={600} color={p.ac}>{t.authPrivacy}</Txt>
             </Btn>
           ) : null}
           {legal.terms ? (
-            <Btn label={t.authTerms} onPress={() => void openLegal(legal.terms)}>
+            <Btn
+              label={t.authTerms}
+              accessibilityRole="link"
+              onPress={() => void openLegal(legal.terms)}
+              hitSlop={8}
+              style={{ minHeight: 44, justifyContent: 'center' }}
+            >
               <Txt size={13} weight={600} color={p.ac}>{t.authTerms}</Txt>
             </Btn>
           ) : null}

@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../../../lib/services/mobile/response';
+import { RequestBodyTooLargeError, readBoundedText, requestBodyTooLargeResponse } from '../../../../../../../../lib/net/requestBody';
 import {
   GoalGraphRequestError,
   goalGraphRequestResponse,
@@ -48,9 +49,10 @@ export async function POST(request: Request, context: RouteContext) {
   // common case and a client should not have to send `{}` to ask for it.
   let body: unknown = {};
   try {
-    const text = await request.text();
+    const text = await readBoundedText(request);
     if (text.trim() !== '') body = JSON.parse(text);
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

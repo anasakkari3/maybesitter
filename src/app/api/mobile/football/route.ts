@@ -6,6 +6,7 @@ import { setUserLocale } from '../../../../../lib/storage/userLocale';
 const TITLE_LANGUAGES: readonly ClubLanguage[] = ['ar', 'he', 'en'];
 import { getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
 import { listActiveFixtureCommitments, projectFixturesForUser } from '../../../../../lib/football/projectFixtures';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,8 +78,9 @@ export async function PUT(request: Request) {
 
   let body: { clubIds?: unknown; locale?: unknown };
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

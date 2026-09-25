@@ -169,7 +169,8 @@ export function MemorySection({ onOpen }: { onOpen?: (() => void) | undefined } 
               testID="memory-delete-all"
               scaleTo={0.98}
               onPress={() => setConfirmAll(true)}
-              style={{ alignItems: 'flex-start', minHeight: 32 }}
+              hitSlop={8}
+              style={{ alignItems: 'flex-start', minHeight: 44, justifyContent: 'center' }}
             >
               <Txt size={14} color={p.wm}>{t.memoryDeleteAll}</Txt>
             </Btn>

@@ -83,7 +83,8 @@ export function FeedbackFlagButton({ proposalId, commitmentId }: {
         testID="next-step-flag"
         label={t.flagOpen}
         onPress={() => setOpen(true)}
-        style={{ alignSelf: 'flex-start', paddingVertical: 6 }}
+        hitSlop={10}
+        style={{ alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' }}
       >
         <Txt size={12} color={p.mu}>{t.flagOpen}</Txt>
       </Btn>

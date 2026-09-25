@@ -9,6 +9,7 @@ import {
   type AlphaFeedbackStore,
 } from '../../../../../../lib/alphaFeedback/alphaFeedbackStore';
 import { recordTraceStage, stage } from '../../../../../../lib/alphaTrace/traceRecorder';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,8 +33,9 @@ export async function POST(request: Request) {
 
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobilePilotErrorResponse(new Error('invalid_json'));
   }
 

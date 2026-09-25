@@ -3,6 +3,7 @@ import { UnsupportedConsentVersionError } from '../../../../../../lib/consents/c
 import { setRecommendationConsent } from '../../../../../../lib/consents/recommendationConsentService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import type { ConsentLocale, ConsentPlatform } from '../../../../../../src/contracts/v1/consentContracts';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,8 +31,9 @@ export async function PUT(request: Request) {
 
   let body: { state?: unknown; version?: unknown; locale?: unknown; platform?: unknown };
   try {
-    body = await request.json() as typeof body;
-  } catch {
+    body = await readJsonBody(request) as typeof body;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 
