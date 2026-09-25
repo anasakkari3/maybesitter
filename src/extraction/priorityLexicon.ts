@@ -25,10 +25,12 @@
  *     "court hearing", «תור לרופא», «יש לי מבחן», or the noun opening the note
  *     ("dentist tomorrow at 4pm", «امتحان رياضيات الأحد»);
  *   - anything that makes it someone else's appointment, or no appointment —
- *     the professional as a recipient («للدكتور», "send/email/call the
- *     doctor"), a negation or cancellation, arranging it (book, call, «احجز»),
- *     or a loose-noun context (prices, basketball, watch, study, notes,
- *     deadline) — declines outright.
+ *     contacting or arranging it (send/email/call, book, «احجز», «ابعت»), a
+ *     negation or cancellation, or a loose-noun context (prices, basketball,
+ *     watch, study, notes, deadline) — declines outright;
+ *   - the professional as a bare recipient («للدكتور») declines too, unless an
+ *     attend verb says the user is going («رايح للدكتور», «הולך לרופא») —
+ *     fix round 2. "Don't forget the dentist" is not a negation.
  *
  * A miss leaves the level where it always was (Should, and editable). A false
  * hit marks a plain task as a Must. When in doubt, this returns false.
@@ -42,7 +44,7 @@ function words(list: readonly string[]): string {
 }
 
 /** The note may open with a command word before the appointment itself. */
-const LEAD = '^\\s*(?:(?:please\\s+)?(?:remind\\s+me(?:\\s+(?:about|of))?|reminder|note|add)\\s*:?\\s*|(?:ذكرني|ذكريني|سجّل|سجل|سجلي|سجّلي|ضيف|ضيفي)\\s+|(?:תזכיר\\s+לי|תזכירי\\s+לי|לרשום|תרשום|תוסיף)\\s+)?';
+const LEAD = '^\\s*(?:(?:please\\s+)?(?:remind\\s+me(?:\\s+(?:about|of))?|reminder|note|add|(?:don\'?t|do\\s+not)\\s+forget(?:\\s+about)?)\\s*:?\\s*|(?:لا|ما)\\s+تنس(?:ى|ي|ا)?\\s+|אל\\s+תשכח(?:י|ו)?\\s+(?:את\\s+)?|(?:ذكرني|ذكريني|سجّل|سجل|سجلي|سجّلي|ضيف|ضيفي)\\s+|(?:תזכיר\\s+לי|תזכירי\\s+לי|לרשום|תרשום|תוסיף)\\s+)?';
 
 const EN_MEDICAL = "(?:doctor|doctor's|dr|gp|dentist|dentist's|orthodontist|physio|therapist|clinic|hospital|optician|dermatologist|pediatrician|paediatrician|vet)";
 const AR_MEDICAL = '(?:دكتور|دكتورة|الدكتور|الدكتورة|طبيب|طبيبة|الطبيب|الطبيبة|أسنان|اسنان|الأسنان|الاسنان|عيادة|عياده|العيادة|العياده|مستشفى|المستشفى|مشفى|المشفى)';
@@ -114,14 +116,40 @@ const ARRANGING = new RegExp(
   [
     '\\b(?:call(?:ed|ing|s)?|phon(?:e|ed|ing)|ring|rang|email(?:ed|ing|s)?|e-mail|text(?:ed|ing)?|messag(?:e|ed|ing)|book(?:ed|ing|s)?|schedul(?:e|ed|ing)|arrang(?:e|ed|ing)|confirm(?:ed|ing)?|send|sent|mail(?:ed)?|forward(?:ed)?|give|hand|pay|buy|order)\\b',
     '\\bmake\\s+(?:an?\\s+|the\\s+)?(?:\\w+\\s+)?(?:appointment|appt)\\b',
-    '\\bfor\\s+(?:the\\s+|my\\s+)?(?:doctor|dentist|dr)\\b',
     words(['احجز', 'أحجز', 'حجزت', 'بحجز', 'نحجز', 'احجزي', 'اتصل', 'أتصل', 'اتصلت', 'بتصل', 'اتصلي', 'رن', 'رنّ', 'كلّم', 'كلم', 'أكلم', 'اكلم', 'بكلم', 'احكي', 'أحكي', 'ابعت', 'ابعث', 'أبعت', 'بعتت', 'بعثت', 'أرسل', 'ارسل', 'راسل', 'اكتب', 'أكتب', 'ثبّت', 'ثبت', 'أكّد', 'أكد', 'اكد', 'اشتري', 'أشتري', 'جيب', 'اجيب', 'هدية', 'ادفع', 'أدفع']),
     words(['اعمل\\s+موعد', 'أعمل\\s+موعد', 'اطلب\\s+موعد', 'أطلب\\s+موعد', 'آخد\\s+موعد', 'اخد\\s+موعد', 'أخذ\\s+موعد', 'اخذ\\s+موعد']),
-    // The professional as the recipient: «للدكتور», «لدكتور».
-    `${B}لل?(?:دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى)${A}`,
     words(['להתקשר', 'תתקשר', 'תתקשרי', 'התקשרתי', 'להזמין', 'תזמין', 'הזמנתי', 'לקבוע', 'תקבע', 'תקבעי', 'קבעתי', 'לתאם', 'תתאם', 'לשלוח', 'תשלח', 'שלחתי', 'לכתוב', 'לקנות', 'תקנה', 'לשלם']),
   ].join('|'),
   'iu',
+);
+
+/**
+ * The professional as a recipient: «للدكتور», "a gift for the doctor". Not an
+ * appointment — unless an attend verb says the user is the one going there
+ * (`ATTEND_VERB`), because «رايح للدكتور» is the commonest way to say it.
+ */
+const RECIPIENT = new RegExp(
+  [
+    `${B}لل?(?:دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى)${A}`,
+    '\\bfor\\s+(?:the\\s+|my\\s+)?(?:doctor|dentist|dr)\\b',
+  ].join('|'),
+  'iu',
+);
+
+/** The user going there: «رايح للدكتور», «بروح عالعيادة», «הולכת לרופא». */
+const ATTEND_VERB = new RegExp(
+  [
+    `${B}(?:رايح|رايحة|رايحه|رايحين|بروح|بروحي|منروح|أروح|اروح|نروح|(?:رح|لازم)\\s+(?:أروح|اروح|روح|نروح))\\s+(?:لل|ل|لعند\\s+ال|لعند\\s+|عند\\s+ال|عند\\s+|عال|على\\s+ال|ع\\s+ال)?(?:دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى|مشفى)${A}`,
+    `${B}(?:הולך|הולכת|הולכים|אלך|ללכת|נוסע|נוסעת)\\s+(?:ל|אל\\s+)ה?(?:רופא|רופאה|רופאת|מרפאה|מרפאת|בית\\s+חולים)${A}`,
+    "\\b(?:going|go|heading|head)\\s+to\\s+(?:the\\s+|my\\s+)?(?:doctor|doctor's|dentist|dentist's|gp|clinic|hospital)\\b",
+  ].join('|'),
+  'iu',
+);
+
+/** "Don't forget the dentist" is a reminder, not a negation. */
+const DONT_FORGET = new RegExp(
+  `\\b(?:don'?t|do\\s+not)\\s+forget\\b|${B}(?:لا|ما)\\s+تنس(?:ى|ي|ا)?${A}|${B}אל\\s+תשכח(?:י|ו)?${A}`,
+  'giu',
 );
 
 /** The noun is there, and it is not an appointment being attended. */
@@ -149,7 +177,10 @@ export function isFixedAppointment(rawText: string, time: FixedTime): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
   if (!time.hasDay && !time.hasClock) return false;
   const text = rawText.trim();
-  if (NEGATED.test(text) || ARRANGING.test(text) || LOOSE_NOUN.test(text)) return false;
-  if (ATTENDING.test(text)) return true;
+  if (ARRANGING.test(text) || LOOSE_NOUN.test(text)) return false;
+  if (NEGATED.test(text.replace(DONT_FORGET, ' '))) return false;
+  const attends = ATTEND_VERB.test(text);
+  if (RECIPIENT.test(text) && !attends) return false;
+  if (attends || ATTENDING.test(text)) return true;
   return time.hasClock && MEETING.test(text);
 }

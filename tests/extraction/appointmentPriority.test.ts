@@ -60,6 +60,24 @@ const RAISED: readonly string[] = [
   'عندي موعد يوم الأحد',
   'יש לי תור ביום ראשון',
   'אצל הרופא ביום ראשון בשעה 10:00',
+  // fix round 2: the owner's own ways of saying they are going
+  'رايح للدكتور يوم الأحد',
+  'رايحة للدكتور بكرا الساعة 10 الصبح',
+  'بروح عالدكتور يوم الأحد',
+  'بروح عند الدكتور بكرا',
+  'عندي دكتور يوم الأحد',
+  'عندي موعد عند الدكتور يوم الأحد',
+  'عندي موعد الطبيب يوم الخميس',
+  'عندي موعد طبيب الأسنان بكرا',
+  'موعدي مع الدكتور يوم الأحد',
+  'יש לי תור לרופא ביום ראשון',
+  'הולך לרופא ביום ראשון',
+  'הולכת לרופאת שיניים מחר בבוקר',
+  'going to the doctor on Sunday',
+  "doctor's appointment on Sunday",
+  'dentist appointment tomorrow at 9am',
+  "don't forget the dentist on Sunday",
+  'do not forget the doctor tomorrow at 10am',
 ];
 
 const NOT_RAISED: readonly string[] = [
@@ -115,6 +133,22 @@ const NOT_RAISED: readonly string[] = [
   'לעמוד בתור בדואר ביום ראשון',
   // «كلم» inside «كلمة» is not a call, and a word is not an appointment
   'اكتب كلمة للحفلة يوم الأحد',
+  // fix round 2: an attend word does not rescue contacting or a negation
+  'رايح أبعت للدكتور الملف يوم الأحد',
+  'بروح أتصل بالدكتور بكرا',
+  "don't call the dentist on Sunday",
+  "don't forget to email the doctor on Sunday",
+  'going to cancel the dentist on Sunday',
+  'הולך לשלוח לרופא את הטופס ביום ראשון',
+  // «للدكتور» alone is still a recipient
+  'ورقة للدكتور يوم الأحد',
+  // a recipient beside an appointment word: an errand for it, not the visit
+  'card for the dentist appointment on Sunday',
+  // attending, but to contact or deliver: still excluded
+  'going to the doctor to send the forms on Sunday',
+  'رايح للدكتور ابعت الملف يوم الأحد',
+  // a loose noun around an attend word
+  'رايح اشوف أسعار الطيارة يوم الأحد',
 ];
 
 for (const phrase of RAISED) {
@@ -365,4 +399,68 @@ test('clarify: an answer whose reading carries no local day drops the stale day 
   const answered = next.items[0]!;
   assert.equal(answered.resolvedDate, undefined);
   assert.equal(answered.dateEstimated, undefined);
+});
+
+// ── Fix round 2: the capture command is not part of the title ──────────
+
+const TITLES: ReadonlyArray<[string, string]> = [
+  ['سجّل موعد دكتور يوم الأحد', 'موعد دكتور'],
+  ['سجل موعد دكتور يوم الأحد', 'موعد دكتور'],
+  ['ذكّرني موعد دكتور يوم الأحد', 'موعد دكتور'],
+  ['سجّل لي موعد دكتور يوم الأحد', 'موعد دكتور'],
+  ['حط لي موعد دكتور يوم الأحد', 'موعد دكتور'],
+  ['اكتب: موعد دكتور يوم الأحد', 'موعد دكتور'],
+  ['ضيف لي موعد دكتور يوم الأحد', 'موعد دكتور'],
+  ['note: dentist on Sunday', 'dentist'],
+  ['add: dentist on Sunday', 'dentist'],
+  ['remind me about the dentist on Sunday', 'the dentist'],
+  ['תרשום לי תור לרופא ביום ראשון', 'תור לרופא'],
+  ['תזכיר לי תור לרופא ביום ראשון', 'תור לרופא'],
+];
+
+for (const [text, title] of TITLES) {
+  test(`rules title: «${text}» → «${title}»`, () => {
+    assert.equal(extract(text, context).title, title);
+  });
+}
+
+/** The verb *is* the task: signing up, writing, putting, adding something. */
+const VERB_IS_THE_TASK: ReadonlyArray<[string, string]> = [
+  ['سجّل بالنادي يوم الأحد', 'سجّل بالنادي'],
+  ['سجل في دورة السباحة يوم الأحد', 'سجل في دورة السباحة'],
+  ['اكتب التقرير يوم الأحد', 'اكتب التقرير'],
+  ['حط الغسيل يوم الأحد', 'حط الغسيل'],
+  ['ضيف جاي يوم الأحد', 'ضيف جاي'],
+  ['add milk to the list on Sunday', 'add milk to the list'],
+  ['note the meter reading on Sunday', 'note the meter reading'],
+  ['לרשום את הילד לחוג ביום ראשון', 'לרשום את הילד לחוג'],
+];
+
+for (const [text, title] of VERB_IS_THE_TASK) {
+  test(`rules title: «${text}» keeps its verb`, () => {
+    assert.equal(extract(text, context).title, title);
+  });
+}
+
+test('rules title: a command with nothing after it is left alone', () => {
+  assert.equal(extract('سجّل يوم الأحد', context).title, 'سجّل');
+  // Stripping "note:" here would leave an empty title.
+  assert.equal(extract('اكتب: يوم الأحد', context).title, 'اكتب:');
+  assert.equal(extract('note: on Sunday', context).title, 'note:');
+});
+
+test('validator title: the model\'s «سجّل موعد دكتور» loses the command, the gym sign-up keeps it', () => {
+  const said = validateExtractionResult(
+    { ...modelSays('high', 'inferred', null), title: 'سجّل موعد دكتور', action: 'سجّل موعد دكتور' },
+    'سجّل موعد دكتور يوم الأحد',
+    context,
+  );
+  assert.equal(said.title, 'موعد دكتور');
+  assert.equal(said.action, 'موعد دكتور');
+  const gym = validateExtractionResult(
+    { ...modelSays('normal', 'default', null), title: 'سجّل بالنادي', action: 'سجّل بالنادي' },
+    'سجّل بالنادي يوم الأحد',
+    context,
+  );
+  assert.equal(gym.title, 'سجّل بالنادي');
 });

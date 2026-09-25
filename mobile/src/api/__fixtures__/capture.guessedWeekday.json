@@ -5,7 +5,7 @@
   "items": [
     {
       "itemId": "00000000-0000-4000-8000-000000000002",
-      "title": "سجّل موعد دكتور",
+      "title": "موعد دكتور",
       "resolvedTime": null,
       "needsClarification": true,
       "priority": "high",
@@ -17,7 +17,7 @@
         "field": "time",
         "questionKey": "ask_time",
         "params": {
-          "title": "سجّل موعد دكتور",
+          "title": "موعد دكتور",
           "date": "2026-08-16"
         },
         "options": [

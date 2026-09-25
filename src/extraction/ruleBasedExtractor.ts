@@ -18,6 +18,7 @@ import {
   readWeekdayReference,
 } from './weekdayLexicon';
 import { isFixedAppointment } from './priorityLexicon';
+import { stripCaptureCommand } from './captureCommand';
 
 export { CLOCK_PATTERN_SOURCES, RANGE_PATTERN_SOURCES } from './timeLexicon';
 
@@ -286,7 +287,8 @@ function stripTiming(text: string): string {
 }
 
 function cleanAction(raw: string): string {
-  return stripTiming(raw)
+  // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
+  return stripCaptureCommand(stripTiming(raw))
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')

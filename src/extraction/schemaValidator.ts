@@ -28,6 +28,7 @@ import {
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
 import { modelDateIsWeekdayGuess } from './weekdayLexicon';
 import { isFixedAppointment } from './priorityLexicon';
+import { stripCaptureCommand } from './captureCommand';
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -77,6 +78,10 @@ function isoStringOrNull(value: unknown, field: string): string | null {
   const ts = Date.parse(s);
   if (isNaN(ts)) throw new ValidationError(`${field} must be a valid date`);
   return new Date(ts).toISOString();
+}
+
+function commandFree(value: string | null): string | null {
+  return value === null ? null : stripCaptureCommand(value);
 }
 
 function boolOrDefault(value: unknown, fallback: boolean): boolean {
@@ -357,8 +362,10 @@ export function validateExtractionResult(
   // ── assemble ──────────────────────────────────────────────────────────
   return {
     type,
-    action: stringOrNull(raw['action']),
-    title: stringOrNull(raw['title']),
+    // The model may keep «سجّل» in its title as the rules path used to; the
+    // same function takes it off both (L4, fix round 2).
+    action: commandFree(stringOrNull(raw['action'])),
+    title: commandFree(stringOrNull(raw['title'])),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
     remindAt: time.remindAt,

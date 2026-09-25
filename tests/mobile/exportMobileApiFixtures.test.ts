@@ -627,11 +627,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
     assert.equal(doctor.status, 'needs_clarification');
     const doctorItems = doctor.items as Array<{
-      itemId: string; resolvedTime: string | null; resolvedDate?: string; dateEstimated?: boolean; priority?: string;
+      itemId: string; title: string; resolvedTime: string | null; resolvedDate?: string; dateEstimated?: boolean; priority?: string;
       clarification: { questionId: string; questionKey: string; params: Record<string, string>; options: Array<{ optionId: string }> } | null;
     }>;
     assert.equal(doctorItems.length, 1);
     const doctorItem = doctorItems[0]!;
+    // «سجّل» was an instruction to the app, not part of the task (round 2).
+    assert.equal(doctorItem.title, 'موعد دكتور');
     assert.equal(doctorItem.resolvedTime, null);
     assert.equal(doctorItem.resolvedDate, '2026-08-16');
     assert.equal(doctorItem.dateEstimated, true);
