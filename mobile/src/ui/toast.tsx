@@ -44,11 +44,12 @@ export function ToastHost() {
   return (
     <Animated.View
       pointerEvents="box-none"
+      accessibilityLiveRegion="polite"
       style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 84, zIndex: 35, alignItems: 'center', opacity }}
     >
       <Btn
         testID="toast"
-        label={toast.text}
+        label={toast.undo ? `${toast.text}. ${t.undo}` : toast.text}
         onPress={() => { if (toast.undo) toast.undo(); actions.dismissToast(toast.id); }}
         scaleTo={0.98}
         style={{ backgroundColor: p.ink, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, maxWidth: '100%', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 }}

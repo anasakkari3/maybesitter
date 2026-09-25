@@ -189,15 +189,16 @@ export function SetupLifeStep({
               testID={`setup-life-prompt-${n + 1}`}
               label={copy[key]}
               scaleTo={0.98}
+              hitSlop={6}
               onPress={() => {
                 setActivePrompt(key);
                 input.current?.focus();
               }}
               style={{
-                minHeight: 36,
+                minHeight: 40,
                 justifyContent: 'center',
                 paddingHorizontal: 14,
-                paddingVertical: 7,
+                paddingVertical: 8,
                 borderRadius: 999,
                 backgroundColor: active ? p.acs : p.sf2,
               }}
@@ -221,7 +222,8 @@ export function SetupLifeStep({
           label={t.obSetupLifeType}
           onPress={() => input.current?.focus()}
           scaleTo={0.99}
-          style={{ alignItems: 'center', minHeight: 32, justifyContent: 'center' }}
+          hitSlop={8}
+          style={{ alignItems: 'center', minHeight: 44, justifyContent: 'center' }}
         >
           <Txt size={14} color={p.mu}>{t.obSetupLifeType}</Txt>
         </Btn>

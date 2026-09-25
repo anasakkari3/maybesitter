@@ -172,7 +172,7 @@ function PostponeSheet() {
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <Btn
               testID="postpone-pick-date"
-              label={t.editItemDate}
+              label={instant ? `${t.editItemDate}: ${formatDate(instant, 'short', { locale: lang, timeZone: timezone })}` : t.editItemDate}
               onPress={() => setPicking('date')}
               style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
             >
@@ -180,7 +180,7 @@ function PostponeSheet() {
             </Btn>
             <Btn
               testID="postpone-pick-time"
-              label={t.editItemTime}
+              label={instant ? `${t.editItemTime}: ${formatTime(instant, { locale: lang, timeZone: timezone })}` : t.editItemTime}
               onPress={() => setPicking('time')}
               style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
             >
@@ -373,6 +373,7 @@ function EditSheet() {
       <Txt size={13} color={p.mu}>{t.editFieldTitle}</Txt>
       <TextInput
         testID="edit-title"
+        accessibilityLabel={t.editFieldTitle}
         value={title}
         onChangeText={setTitle}
         multiline
@@ -388,8 +389,9 @@ function EditSheet() {
             testID={`edit-priority-${option}`}
             label={LEVEL_LABEL(t)[option]}
             accessibilityRole="radio"
+            accessibilityState={{ checked: option === level }}
             onPress={() => setLevel(option)}
-            style={[{ flex: 1, backgroundColor: option === level ? p.sf : 'transparent', borderRadius: 999, paddingVertical: 10, alignItems: 'center', minHeight: 40, justifyContent: 'center' }, option === level ? cardShadow(p) : null]}
+            style={[{ flex: 1, backgroundColor: option === level ? p.sf : 'transparent', borderRadius: 999, paddingVertical: 10, alignItems: 'center', minHeight: 44, justifyContent: 'center' }, option === level ? cardShadow(p) : null]}
           >
             <Txt size={14} weight={option === level ? 600 : 400} color={option === level ? p.tx : p.mu}>{LEVEL_LABEL(t)[option]}</Txt>
           </Btn>
@@ -402,6 +404,8 @@ function EditSheet() {
           <Txt size={13}>{t.editItemNoTime}</Txt>
           <Switch
             testID="edit-no-time"
+            accessibilityRole="switch"
+            accessibilityLabel={t.editItemNoTime}
             value={!hasTime}
             onValueChange={(off) => {
               // Turning it back on offers the time the item had, or an hour
@@ -417,7 +421,7 @@ function EditSheet() {
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Btn
             testID="edit-pick-date"
-            label={t.editItemDate}
+            label={instant ? `${t.editItemDate}: ${formatDate(instant, 'short', { locale: lang, timeZone: timezone })}` : t.editItemDate}
             onPress={() => setPicking('date')}
             style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
           >
@@ -425,7 +429,7 @@ function EditSheet() {
           </Btn>
           <Btn
             testID="edit-pick-time"
-            label={t.editItemTime}
+            label={instant ? `${t.editItemTime}: ${formatTime(instant, { locale: lang, timeZone: timezone })}` : t.editItemTime}
             onPress={() => setPicking('time')}
             style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
           >

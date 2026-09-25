@@ -104,9 +104,11 @@ export function AboutYouReviewStep({
               <Btn
                 testID={`about-review-tick-${index}`}
                 label={suggestion.content}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: choice.accepted }}
                 onPress={() => update(index, { accepted: !choice.accepted })}
                 scaleTo={0.9}
-                hitSlop={8}
+                hitSlop={12}
                 style={{
                   width: 26, height: 26, borderRadius: 13, marginTop: 2,
                   borderWidth: 2, borderColor: choice.accepted ? p.ac : p.ln,

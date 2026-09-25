@@ -133,6 +133,7 @@ export function CaptureScreen() {
                 testID="capture-ai-off"
                 label={`${t.captureAiOff}. ${t.captureAiOffHint}`}
                 onPress={() => actions.go('trust')}
+                hitSlop={8}
                 style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}
               >
                 <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt>

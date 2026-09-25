@@ -259,6 +259,7 @@ function Ready({
           <Txt size={13} color={p.mu}>{t.nextStepEditTitle}</Txt>
           <TextInput
             testID="next-step-edit-input"
+            accessibilityLabel={t.nextStepEditTitle}
             value={draft}
             onChangeText={setDraft}
             multiline

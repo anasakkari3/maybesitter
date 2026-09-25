@@ -107,6 +107,7 @@ export function EditProposalItemSheet({
       <Txt size={13} color={p.mu}>{t.editItemName}</Txt>
       <TextInput
         testID="edit-item-title"
+        accessibilityLabel={t.editItemName}
         value={title}
         onChangeText={setTitle}
         maxLength={MAX_TITLE_LENGTH}
@@ -115,13 +116,14 @@ export function EditProposalItemSheet({
       />
 
       <Txt size={13} color={p.mu}>{t.editFieldPriority}</Txt>
-      <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', gap: 8 }}>
         {(['high', 'normal', 'low'] as const).map((level) => (
           <Btn
             key={level}
             testID={`edit-item-priority-${level}`}
             label={PRIORITY_LABEL(t)[level]}
             accessibilityRole="radio"
+            accessibilityState={{ checked: level === priority }}
             onPress={() => setPriority(level)}
             style={{ flex: 1, backgroundColor: level === priority ? p.acs : p.sf2, borderRadius: 999, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
           >
@@ -136,6 +138,8 @@ export function EditProposalItemSheet({
           <Txt size={13}>{t.editItemNoTime}</Txt>
           <Switch
             testID="edit-item-no-time"
+            accessibilityRole="switch"
+            accessibilityLabel={t.editItemNoTime}
             value={!hasTime}
             onValueChange={(off) => setLocal(off ? '' : (originalLocal || localDateTimeFor(new Date(Date.now() + 3600_000), timezone)))}
           />
@@ -146,7 +150,7 @@ export function EditProposalItemSheet({
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <Btn
             testID="edit-item-pick-date"
-            label={t.editItemDate}
+            label={instant ? `${t.editItemDate}: ${formatDate(instant, 'short', { locale: lang, timeZone: timezone })}` : t.editItemDate}
             onPress={() => setPicking('date')}
             style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
           >
@@ -154,7 +158,7 @@ export function EditProposalItemSheet({
           </Btn>
           <Btn
             testID="edit-item-pick-time"
-            label={t.editItemTime}
+            label={instant ? `${t.editItemTime}: ${formatTime(instant, { locale: lang, timeZone: timezone })}` : t.editItemTime}
             onPress={() => setPicking('time')}
             style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
           >
