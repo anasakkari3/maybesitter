@@ -19,8 +19,8 @@ export type AppState = {
   /**
    * The navigation history (Round 2, Phase B): a tab, a stack per tab, and
    * an optional task over it. See src/state/navigation.ts. `screen`,
-   * `detailId` and `planDate` below are *derived* from it after every
-   * change, so the screens keep reading the fields they always read.
+   * `detailId`, `planDate` and `goalId` below are *derived* from it after
+   * every change, so the screens keep reading the fields they always read.
    */
   nav: nav.Nav;
   screen: Screen;
@@ -52,19 +52,21 @@ export type AppState = {
   detailId: string | null;
   /** Derived from `nav`: the `YYYY-MM-DD` the plan screen is showing, or null when it is closed. */
   planDate: string | null;
+  /** Derived from `nav`: the goal the Goals screen has open, or null on its list. */
+  goalId: string | null;
 };
 
-/** Recompute the three derived fields from the history. Every nav change goes through here. */
+/** Recompute the derived fields from the history. Every nav change goes through here. */
 function withNav(st: AppState, next: nav.Nav): AppState {
   const d = nav.derive(next);
-  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, showTabs: d.showTabs };
+  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, goalId: d.goalId, showTabs: d.showTabs };
 }
 
 const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
   sheet: null, toast: null,
-  selDay: 0, detailId: null, planDate: null,
+  selDay: 0, detailId: null, planDate: null, goalId: null,
 };
 
 function useAppModel() {
@@ -149,6 +151,12 @@ function useAppModel() {
     resetForNewUser,
     /** A tab switches, a task opens, anything else is pushed onto the current tab. */
     go: (screen: Screen) => move(n => nav.go(n, screen)),
+    /** The tab bar: switch tabs, keeping each tab's stack where it was left. */
+    switchTab: (tab: nav.Tab) => move(n => nav.switchTab(n, tab)),
+    /** Hand the screen on top over to another (a finished flow to its result); back skips the flow. */
+    replace: (screen: Screen) => move(n => nav.replace(n, { name: screen })),
+    /** One goal on the Goals screen, as its own step: every back closes it before leaving Goals. */
+    openGoal: (id: string) => move(n => nav.push(n, { name: 'goalExecution', goalId: id })),
     /** One step back through the history. At a tab root this is a no-op; `canGoBack` says so. */
     back: () => move(nav.back),
     canGoBack: () => nav.canGoBack(s.nav),

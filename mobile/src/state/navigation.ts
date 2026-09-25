@@ -33,7 +33,7 @@ import type { Screen } from './types';
 export type Tab = 'today' | 'calendar' | 'settings';
 export const TABS: readonly Tab[] = ['today', 'calendar', 'settings'];
 
-export type Entry = { name: Screen; detailId?: string; planDate?: string };
+export type Entry = { name: Screen; detailId?: string; planDate?: string; goalId?: string };
 
 export type Nav = {
   tab: Tab;
@@ -50,10 +50,15 @@ export type Nav = {
 const TASKS: ReadonlySet<Screen> = new Set<Screen>(['capture', 'share', 'deleteAccount', 'calendarDemo']);
 
 /**
- * Where a pushed screen lives. Settings leaves belong to the settings tab
- * wherever they are asked for — capture's "why are you asking" link opens
- * Trust *in Settings*, and back from there is Settings, not capture. Details
- * and the plan belong to whichever tab asked for them.
+ * Where a settings leaf *arrives* from outside (a link or a notification):
+ * the Settings tab, with the Settings root underneath.
+ *
+ * A leaf *pushed* from inside the app is not moved here. It used to be —
+ * Goals → Knows, Plan → notification settings, capture's "why are you asking"
+ * → Trust all jumped to the Settings tab on a fresh stack, so back landed on
+ * a Settings root the user never saw, and the tab they came from kept a
+ * half-walked stack to reopen later. A push now stays on the tab it was made
+ * from, so back is always the screen the user was just on.
  */
 const SETTINGS_LEAVES: ReadonlySet<Screen> = new Set<Screen>([
   'myMaybeSitter', 'integrations', 'googleIntegration', 'personalization', 'backgroundActivity',
@@ -73,12 +78,13 @@ export function isTask(name: Screen): boolean {
 }
 
 /** What is on screen, and the parameters it was opened with. */
-export function derive(nav: Nav): { screen: Screen; detailId: string | null; planDate: string | null; showTabs: boolean } {
+export function derive(nav: Nav): { screen: Screen; detailId: string | null; planDate: string | null; goalId: string | null; showTabs: boolean } {
   const top = nav.task ?? nav.stacks[nav.tab][nav.stacks[nav.tab].length - 1] ?? null;
   return {
     screen: top?.name ?? nav.tab,
     detailId: top?.detailId ?? null,
     planDate: top?.planDate ?? null,
+    goalId: top?.goalId ?? null,
     showTabs: nav.task === null && nav.stacks[nav.tab].length === 0,
   };
 }
@@ -107,17 +113,39 @@ export function switchTab(nav: Nav, tab: Tab): Nav {
   return { tab, stacks, task: null };
 }
 
-/** Push onto the current tab. A task, if one is open, is closed first: the pushed screen is where the user is going. */
+/** Two entries are the same step when the screen and every parameter match. */
+function sameEntry(a: Entry, b: Entry): boolean {
+  return a.name === b.name && a.detailId === b.detailId && a.planDate === b.planDate && a.goalId === b.goalId;
+}
+
+/**
+ * Push onto the current tab — whatever the screen, settings leaves included —
+ * so back returns to the screen the user was on. A task, if one is open, is
+ * closed first: the pushed screen is where the user is going.
+ *
+ * A screen that is already in this tab's stack is returned to, not pushed a
+ * second time: Background activity → builder → Create → Background activity
+ * would otherwise be `[activity, builder, activity]`, and back would walk
+ * through a builder that is already finished. The screen on top is the same
+ * rule's simplest case — a double tap on a row must not need two backs.
+ */
 export function push(nav: Nav, entry: Entry): Nav {
-  const tab = SETTINGS_LEAVES.has(entry.name) ? 'settings' : nav.tab;
-  const base = tab === nav.tab ? nav.stacks[tab] : [];
-  // Pushing the screen already on top is a no-op, not a duplicate: a double
-  // tap on a row must not need two backs to undo.
-  const top = base[base.length - 1];
-  if (top && top.name === entry.name && top.detailId === entry.detailId && top.planDate === entry.planDate) {
-    return { ...nav, tab, task: null };
-  }
-  return { tab, stacks: { ...nav.stacks, [tab]: [...base, entry] }, task: null };
+  const tab = nav.tab;
+  const stack = nav.stacks[tab];
+  const at = stack.findIndex((e) => sameEntry(e, entry));
+  const next = at === -1 ? [...stack, entry] : stack.slice(0, at + 1);
+  return { tab, stacks: { ...nav.stacks, [tab]: next }, task: null };
+}
+
+/**
+ * Leave the screen on top for another, in its place: a finished flow (the
+ * watch builder after Create) hands over to its result, and back from the
+ * result skips the flow. Same no-duplicate rule as `push`.
+ */
+export function replace(nav: Nav, entry: Entry): Nav {
+  if (nav.task) return push(nav, entry);
+  const stack = nav.stacks[nav.tab];
+  return push({ ...nav, stacks: { ...nav.stacks, [nav.tab]: stack.slice(0, -1) } }, entry);
 }
 
 /** Open a task over the current tab. Opening the same task again keeps the one that is open. */
@@ -132,11 +160,23 @@ export function closeTask(nav: Nav): Nav {
 }
 
 /**
+ * Open a tab's root from inside the app — «شوف يومي» on the assistant, "see
+ * all" on Today. The person asked for that root, so it is what shows, and
+ * the stack they left on the tab they were on is closed: otherwise tapping
+ * that tab later reopens a screen from the middle of an abandoned walk.
+ * (A tap on the tab bar is `switchTab`, which keeps every stack.)
+ */
+export function goToRoot(nav: Nav, tab: Tab): Nav {
+  return { tab, stacks: { ...nav.stacks, [nav.tab]: [], [tab]: [] }, task: null };
+}
+
+/**
  * Go somewhere by name, the way Round 1's `go(screen)` was called from
- * everywhere. A tab switches; a task opens; anything else is pushed.
+ * everywhere. A tab root opens (see `goToRoot`); a task opens; anything else
+ * is pushed onto the current tab.
  */
 export function go(nav: Nav, name: Screen): Nav {
-  if (isTab(name)) return switchTab(nav, name);
+  if (isTab(name)) return goToRoot(nav, name);
   if (isTask(name)) return openTask(nav, { name });
   return push(nav, { name });
 }
