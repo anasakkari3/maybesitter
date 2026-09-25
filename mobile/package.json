@@ -59,7 +59,7 @@
     "@types/jest": "29.5.14",
     "@types/js-yaml": "^4.0.9",
     "@types/react": "~19.2.2",
-    "eslint": "^9.0.0",
+    "eslint": "^10.11.0",
     "eslint-config-expo": "~57.0.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-i18next": "^6.1.5",
