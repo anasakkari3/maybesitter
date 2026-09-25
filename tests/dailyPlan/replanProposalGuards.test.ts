@@ -1,5 +1,5 @@
 import { schedulePlan } from '../../lib/planning/scheduler/index.ts';
-import { replayStoredPlan, editPlan, PlanEditRejected, fixedTimeForOffer } from '../../lib/services/dailyPlan/planActions.ts';
+import { replayPlanSolveInputs, replayStoredPlan, editPlan, PlanEditRejected, fixedTimeForOffer } from '../../lib/services/dailyPlan/planActions.ts';
 import { explanationFactsFrom, templateExplanation } from '../../lib/services/dailyPlan/explanationValidator.ts';
 /**
  * The guards #611's council decision set before the calendar producer lands.
@@ -80,11 +80,11 @@ const DATE = '2026-09-15';
 const MORNING = new Date('2026-09-15T06:00:00.000Z');
 const TASKS = ['cmt_a', 'cmt_b', 'cmt_c'] as const;
 const CALENDAR = 'device:calendar-1';
-/** The first task's slot. Its offer: a@06:30, b@07:00, c@07:30. */
+/** The first task's slot. Its local offer keeps b/c and moves only a. */
 const MEETING: TimeInterval = { startsAt: `${DATE}T06:00:00.000Z`, endsAt: `${DATE}T06:30:00.000Z` };
 /** Where that offer puts c, and past the end of the visible day (c ends at 07:30). */
 const ON_OFFER: TimeInterval = { startsAt: `${DATE}T07:30:00.000Z`, endsAt: `${DATE}T08:00:00.000Z` };
-/** The last task's slot on the visible day, and b's in the offer. */
+/** The last task's slot on the visible day, and c's in the offer. */
 const ON_LAST: TimeInterval = { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` };
 /** Inside the day, clear of every placement any offer here makes. */
 const EVENING: TimeInterval = { startsAt: `${DATE}T16:00:00.000Z`, endsAt: `${DATE}T17:00:00.000Z` };
@@ -201,8 +201,8 @@ async function offerForMeeting(storage: StorageAdapter, uid: string): Promise<St
   assert.ok(offer, 'fixture: the tick stored no offer');
   assert.deepEqual(
     offer.plan.scheduled.map((item) => [item.itemId, item.interval.startsAt]),
-    [['cmt_a', `${DATE}T06:30:00.000Z`], ['cmt_b', `${DATE}T07:00:00.000Z`], ['cmt_c', `${DATE}T07:30:00.000Z`]],
-    'fixture: the offer slides every task by half an hour',
+    [['cmt_b', `${DATE}T06:30:00.000Z`], ['cmt_c', `${DATE}T07:00:00.000Z`], ['cmt_a', `${DATE}T07:30:00.000Z`]],
+    'fixture: the offer moves only the task the meeting displaced',
   );
   assert.deepEqual(offer.causeChangeIds, ['chg-meeting']);
   return offer;
@@ -604,7 +604,7 @@ test('2: a call that lands while the offer is kept is named, and deleting the fi
     await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-call', interval: CALL }]);
     await storeChange(storage, uid, 'chg-call', 'busy-call', minutesAfterMorning(5));
     const kept = await runContinuousReplanTick({ storage, now: minutesAfterMorning(5) });
-    assert.equal(kept.kept, 1, `fixture: the re-solve lands on the offer's placement: ${JSON.stringify(kept)}`);
+    assert.equal(kept.kept, 1, `fixture: the call leaves the offered placement valid: ${JSON.stringify(kept)}`);
     const named = (await readStoredPlan(uid, DATE, storage))!.proposal!;
     assert.equal(named.proposalId, first.proposalId, 'kept: the same offer');
     assert.equal(named.proposedAt, first.proposedAt);
@@ -861,7 +861,7 @@ test('3: an offer that replaces an unanswered one names the replaced offer\'s ca
   });
 });
 
-test('3: two meetings that both still block what the offer moves keep both causes through a later re-solve', async () => {
+test('3: two blocking causes stay attached when an unrelated later change keeps the offer', async () => {
   await withStorage(async (storage) => {
     const uid = 'user_guard_causes_both';
     await seedAccount(storage, uid);
@@ -875,9 +875,8 @@ test('3: two meetings that both still block what the offer moves keep both cause
     const second = (await readStoredPlan(uid, DATE, storage))!.proposal!;
     assert.deepEqual(second.causeChangeIds, ['chg-late', 'chg-meeting']);
 
-    // Forty minutes on, the first slot is in the past and an unrelated row
-    // makes the tick re-solve: the new placement differs, and both meetings
-    // still sit on the path of a task it moves.
+    // Forty minutes on, an unrelated row must not churn the question merely
+    // because the clock advanced. Both real causes remain attached.
     await syncCalendar(storage, uid, [
       { blockId: 'busy-meeting', interval: MEETING },
       { blockId: 'busy-late', interval: ON_LAST },
@@ -886,8 +885,8 @@ test('3: two meetings that both still block what the offer moves keep both cause
     await storeChange(storage, uid, 'chg-evening', 'busy-evening', minutesAfterMorning(40));
     const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(40) });
     const third = (await readStoredPlan(uid, DATE, storage))!.proposal!;
-    assert.equal(totals.proposed, 1, `the premise: a new offer replaced the old one: ${JSON.stringify(totals)}`);
-    assert.notEqual(third.proposalId, second.proposalId);
+    assert.equal(totals.kept, 1, JSON.stringify(totals));
+    assert.equal(third.proposalId, second.proposalId);
     assert.deepEqual(third.causeChangeIds, ['chg-late', 'chg-meeting']);
     assert.deepEqual(third.causeRefs?.map((ref) => ref.entityId), ['busy-late', 'busy-meeting']);
   });
@@ -899,13 +898,12 @@ test('3: an unrelated meeting is not named as a cause of the offer, nor of the p
     await seedAccount(storage, uid);
     await offerForMeeting(storage, uid);
 
-    // A meeting at 16:00, which overlaps nothing the day or the offer places.
-    // Forty minutes on, so the re-solve drifts (#500) and a new offer is
-    // stored: the case where this run's rows could be named.
+    // A meeting at 16:00 overlaps nothing the day or the offer places. Even
+    // forty minutes later, it must neither rename nor churn the offer.
     await syncCalendar(storage, uid, [{ blockId: 'busy-meeting', interval: MEETING }, { blockId: 'busy-evening', interval: EVENING }]);
     await storeChange(storage, uid, 'chg-evening', 'busy-evening', minutesAfterMorning(40));
     const totals = await runContinuousReplanTick({ storage, now: minutesAfterMorning(40) });
-    assert.equal(totals.proposed, 1, `the premise: a new offer replaced the old one: ${JSON.stringify(totals)}`);
+    assert.equal(totals.kept, 1, JSON.stringify(totals));
 
     const offer = (await readStoredPlan(uid, DATE, storage))!.proposal!;
     assert.deepEqual(offer.causeChangeIds, ['chg-meeting'], 'the evening meeting moved nothing');
@@ -1001,8 +999,8 @@ test('3: a meeting re-announced on every tick does not pile up causes', async ()
     await seedAccount(storage, uid);
     await offerForMeeting(storage, uid);
     // Eight ticks, five minutes apart, each with one more row about the same
-    // meeting. Past 06:30 the re-solve also drifts (#500) and replaces the
-    // offer, so both the kept and the superseded path are walked.
+    // meeting. The local path keeps the same question even after 06:30;
+    // advancing the clock alone must not churn unrelated work into a new one.
     const outcomes = { kept: 0, proposed: 0 };
     for (let tick = 1; tick <= 8; tick += 1) {
       await storeChange(storage, uid, `chg-resync-${tick}`, 'busy-meeting', minutesAfterMorning(5 * tick));
@@ -1013,7 +1011,7 @@ test('3: a meeting re-announced on every tick does not pile up causes', async ()
       assert.ok(offer, `tick ${tick}: the first task is still under the meeting, so an offer stands`);
       assert.deepEqual(offer.causeChangeIds, ['chg-meeting'], `tick ${tick}: one meeting, one cause`);
     }
-    assert.ok(outcomes.kept > 0 && outcomes.proposed > 0, `the premise: both paths were walked: ${JSON.stringify(outcomes)}`);
+    assert.deepEqual(outcomes, { kept: 8, proposed: 0 });
   });
 });
 
@@ -1153,7 +1151,7 @@ test('5: a re-sync of the same meeting in a later tick keeps the offer on the ta
       'the same question retains id, time and causes while refreshing exact solve inputs');
     assert.deepEqual(offer.plan.scheduled, first.plan.scheduled);
     assert.ok(offer.solveInputs);
-    assert.deepEqual(schedulePlan(offer.solveInputs.constraints, offer.solveInputs.config), offer.plan);
+    assert.deepEqual(replayPlanSolveInputs(offer.solveInputs), offer.plan);
     const events = await listPlanEvents(uid, storage);
     assert.equal(events.filter((event) => event.type === 'plan_proposed' && event.proposalId !== undefined).length, 1, 'one question, one entry');
     assert.equal(await pendingChanges(storage, uid), 0);
