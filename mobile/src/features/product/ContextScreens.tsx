@@ -15,7 +15,7 @@ import { durationText } from '../memory/memoryProvenance';
 import { toViewModel } from '../commitments/model';
 import { ServerToggle } from '../settings/ServerToggle';
 import { Btn, Card, Pill, Txt, textAlignment } from '../../ui/primitives';
-import { ProductPage, ProductSection, ProductRow, ProductActions, PreviewAction } from '../../ui/product';
+import { ProductPage, ProductSection, ProductRow, ProductActions } from '../../ui/product';
 import { capabilities as cap } from './capabilities';
 import type { Commitment } from '../../api/schemas/common';
 
@@ -94,7 +94,7 @@ export function PersonalizationScreen() {
         <Pill label={t.memoryEdit} kind="outline" onPress={() => actions.go('memory')} />
       </ProductSection>
     </QueryBoundary>}
-    <ProductRow title={t.xExport} body={t.xExportBody} icon="file" status={cap.export} />
+    <ProductRow title={t.xExport} icon="file" status={cap.export} />
     <ProductRow title={t.memoryDeleteAll} body={t.memoryDeleteAllAlso} icon="shield" onPress={() => actions.go('memory')} />
     <ProductRow title={t.sTrust} icon="shield" onPress={() => actions.go('trust')} />
   </ProductPage>;
@@ -150,7 +150,7 @@ export function ContextualAssistantScreen() {
       </ProductSection>
     </QueryBoundary>
     <ProductActions><Pill label={t.xAgenda} kind="outline" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="outline" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>
-    <ProductSection title={t.xPrepare} body={t.xPrepareBody} icon="spark" status={cap.assistantPreparation}><PreviewAction label={t.xPrepare} /></ProductSection>
+    <ProductSection title={t.xPrepare} icon="spark" status={cap.assistantPreparation} />
     <ProductRow id="assistant-modes" title={t.xModes} body={t.xModesBody} onPress={() => actions.go('actionModes')} />
     <ProductRow title={t.xGoals} icon="goal" status={cap.goals} onPress={() => actions.go('goalExecution')} />
     <ProductRow title={t.xWatch} icon="watch" status={cap.watcherBuilder} onPress={() => actions.go('watchBuilder')} />

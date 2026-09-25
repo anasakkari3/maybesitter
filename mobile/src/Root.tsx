@@ -46,7 +46,7 @@ import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
 
-import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, PdfReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
+import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
 import { PersonalizationScreen, CommitmentsScreen, ContextualAssistantScreen } from './features/product/ContextScreens';
 import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product/WatcherScreens';
 
@@ -147,7 +147,6 @@ export function Root() {
 {s.screen === 'personalization' && <PersonalizationScreen />}
 {s.screen === 'patchReview' && <PatchReviewScreen />}
 {s.screen === 'backgroundActivity' && <BackgroundActivityScreen />}
-{s.screen === 'pdfReview' && <PdfReviewScreen />}
 {s.screen === 'habitDetail' && <HabitDetailScreen />}
 {s.screen === 'watchBuilder' && <WatchBuilderScreen />}
 {s.screen === 'commitments' && <CommitmentsScreen />}

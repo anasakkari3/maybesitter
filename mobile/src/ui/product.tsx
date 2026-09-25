@@ -2,7 +2,7 @@ import React, { createContext, useContext } from 'react';
 import { View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { useApp } from '../state/AppContext';
-import { Btn, Card, Pill, Txt } from './primitives';
+import { Btn, Card, Txt } from './primitives';
 import { Screen, ScreenScroll } from './screen';
 import { BrandLockup } from './brand';
 import { BackButton } from './chrome';
@@ -32,11 +32,11 @@ export function ProductIcon({ name = 'spark', quiet = false }: { name?: ProductI
     <Svg width={25} height={25} viewBox="0 0 24 24"><Path d={paths[name]} fill="none" stroke={quiet ? p.mu : p.ac} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" /></Svg>
   </View>;
 }
-export function AvailabilityBadge({ status }: { status: Availability }) {
+export function AvailabilityBadge({ status, testID }: { status: Availability; testID?: string }) {
   const { t, p } = useApp();
   const future = status === 'COMING_SOON';
-  const available = status === 'LIVE' || status === 'AVAILABLE';
-  return <View style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: future ? p.sf2 : available ? p.successSoft : p.wms }}>
+  const available = status === 'LIVE' || status === 'AVAILABLE' || status === 'VIA_SHARE';
+  return <View testID={testID ?? `availability-${status}`} style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: future ? p.sf2 : available ? p.successSoft : p.wms }}>
     <Txt role="metadata" color={future ? p.mu : available ? p.success : p.wm}>{t[availabilityKey[status]]}</Txt>
   </View>;
 }
@@ -60,19 +60,21 @@ export function ProductPage({ title, subtitle, children, id, overlay }: { title:
 export function ProductSection({ title, body, icon, status, children }: { title: string; body?: string | undefined; icon?: ProductIconName; status?: Availability; children?: React.ReactNode }) {
   const { p } = useApp();
   const stacked = useLayoutMode() !== 'normal';
-  return <Card style={{ gap: 16 }}>
+  // The section's testID carries its status so the capability guard can find
+  // a Coming-soon section and prove nothing inside it can be pressed.
+  return <Card style={{ gap: 16 }} testID={status ? `product-section-${status}` : undefined}>
     <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 14, alignItems: 'flex-start' }}>
       {icon ? <ProductIcon name={icon} /> : null}
       <View style={{ flex: stacked ? undefined : 1, gap: 6 }}>
         <Txt role="section">{title}</Txt>
         {body ? <Txt role="supporting" color={p.mu}>{body}</Txt> : null}
-        {status ? <AvailabilityBadge status={status} /> : null}
+        {status ? <AvailabilityBadge status={status} testID={`section-status-${status}`} /> : null}
       </View>
     </View>
     <GroupedRows.Provider value={true}>{children}</GroupedRows.Provider>
   </Card>;
 }
-export function ProductRow({ title, body, icon = 'spark', onPress, status, id }: { title: string; body?: string | undefined; icon?: ProductIconName; onPress?: () => void; status?: Availability; id?: string }) {
+export function ProductRow({ title, body, icon = 'spark', onPress, status, id }: { title: string; body?: string | undefined; icon?: ProductIconName; onPress?: (() => void) | undefined; status?: Availability; id?: string }) {
   const { p, rtl } = useApp();
   const grouped = useContext(GroupedRows);
   const stacked = useLayoutMode() !== 'normal';
@@ -81,7 +83,7 @@ export function ProductRow({ title, body, icon = 'spark', onPress, status, id }:
     <View style={{ flex: stacked ? undefined : 1, gap: 5, alignItems: 'flex-start' }}>
       <Txt role="card">{title}</Txt>
       {body ? <Txt role="supporting" color={p.mu}>{body}</Txt> : null}
-      {status ? <AvailabilityBadge status={status} /> : null}
+      {status ? <AvailabilityBadge status={status} testID={`row-status-${status}`} /> : null}
     </View>
     {onPress && !stacked ? <ChevronIcon color={p.mu} rtl={rtl} /> : null}
   </>;
@@ -97,8 +99,4 @@ export function PreviewNotice() {
 export function ProductActions({ children }: { children: React.ReactNode }) {
   const stacked = useLayoutMode() !== 'normal';
   return <View style={{ flexDirection: stacked ? 'column' : 'row', flexWrap: 'wrap', gap: 10 }}>{children}</View>;
-}
-export function PreviewAction({ label }: { label: string }) {
-  const { t } = useApp();
-  return <Pill label={`${label} · ${t.xSoon}`} disabled kind="outline" />;
 }

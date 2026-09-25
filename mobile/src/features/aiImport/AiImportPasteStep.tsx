@@ -26,7 +26,7 @@ import { Footer, PrimaryButton, SecondaryButton } from './AiImportButtons';
  * candidates are editable, and that is where an edit means something.
  */
 export function AiImportPasteStep({
-  text, pasteEmpty, readFailed, reading, onPaste, onRead, onBack,
+  text, pasteEmpty, readFailed, reading, onPaste, onRead, onCopyAgain, onBack,
 }: {
   text: string;
   pasteEmpty: boolean;
@@ -34,6 +34,8 @@ export function AiImportPasteStep({
   reading: boolean;
   onPaste: () => void;
   onRead: () => void;
+  /** The clipboard may have been overwritten in the other app. */
+  onCopyAgain: () => void;
   onBack: () => void;
 }) {
   const { t, p } = useApp();
@@ -69,6 +71,7 @@ export function AiImportPasteStep({
           onPress={onRead}
           testID="ai-import-read"
         />
+        <SecondaryButton label={t.aiImportHandoffCopyAgain} onPress={onCopyAgain} testID="ai-import-paste-copy" />
         <SecondaryButton label={t.back} onPress={onBack} testID="ai-import-paste-back" />
       </Footer>
     </View>

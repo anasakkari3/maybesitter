@@ -1,5 +1,5 @@
 import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
-import React, { useCallback, useReducer } from 'react';
+import React, { useCallback, useReducer, useRef } from 'react';
 import * as Clipboard from 'expo-clipboard';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
@@ -48,20 +48,40 @@ export function AiImportFlow({
     try {
       await Clipboard.setStringAsync(buildAssistantPrompt(t));
     } catch {
-      // A refused pasteboard is not the end of anything: the question is on
-      // screen in a card the user can select.
+      // A refused pasteboard is not the end of anything: when opening fails
+      // the question is shown in a card the user can select, and the paste
+      // step offers to copy it again.
     }
   }, [t]);
 
-  const pick = useCallback(async (assistant: ImportAssistant) => {
+  // Picking only chooses. The steps are read here, before anything leaves
+  // the app: copying and switching apps in the same tap meant the
+  // instructions were first seen after coming back (first iPhone run).
+  const pick = useCallback((assistant: ImportAssistant) => {
     dispatch({ type: 'pick', assistant });
-    // The clipboard first, always. If the handoff opens the browser and the
-    // copy had not happened yet, the user arrives at their assistant with
-    // nothing to paste.
-    await copyPrompt();
-    const outcome = await openAssistant(ASSISTANTS[assistant].url);
-    if (outcome === 'failed') dispatch({ type: 'openFailed' });
-  }, [copyPrompt]);
+  }, []);
+
+  // One handoff at a time: a second tap while the OS is still switching apps
+  // would copy and open the assistant twice.
+  const handingOff = useRef(false);
+  const handOff = useCallback(async () => {
+    if (!state.assistant || handingOff.current) return;
+    handingOff.current = true;
+    try {
+      // The clipboard first, always. If the handoff opens the browser and the
+      // copy had not happened yet, the user arrives at their assistant with
+      // nothing to paste.
+      await copyPrompt();
+      const url = ASSISTANTS[state.assistant].url;
+      // Nothing to open for an unnamed assistant: the copy was the handoff.
+      const outcome = url === null ? 'copied' : await openAssistant(url);
+      // Opened (or copied): coming back lands on the paste step. Failed: the
+      // step stays and shows the question to copy by hand.
+      dispatch(outcome === 'failed' ? { type: 'openFailed' } : { type: 'handedOff' });
+    } finally {
+      handingOff.current = false;
+    }
+  }, [copyPrompt, state.assistant]);
 
   const paste = useCallback(async () => {
     const result = await readClipboardText(undefined, { maxLength: MAX_IMPORT_LENGTH });
@@ -118,13 +138,14 @@ export function AiImportFlow({
       {refusal ? <Notice text={refusal} testID="ai-import-refused" /> : null}
 
       {state.status === 'pick' ? (
-        <AiImportPickStep onPick={(assistant) => void pick(assistant)} />
+        <AiImportPickStep onPick={pick} />
       ) : null}
 
       {state.status === 'handoff' && state.assistant ? (
         <AiImportHandoffStep
           assistant={state.assistant}
           openFailed={state.openFailed}
+          onHandOff={() => void handOff()}
           onCopyAgain={() => void copyPrompt()}
           onReady={() => dispatch({ type: 'handedOff' })}
         />
@@ -138,6 +159,7 @@ export function AiImportFlow({
           reading={state.status === 'reading'}
           onPaste={() => void paste()}
           onRead={read}
+          onCopyAgain={() => void copyPrompt()}
           onBack={onCancel}
         />
       ) : null}
