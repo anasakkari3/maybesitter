@@ -31,7 +31,7 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -192,13 +192,36 @@ const MEMORY_ID = /^mem_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const STABLE_INSTANT = '2026-08-09T09:00:00.000Z';
 /**
- * Today's UTC day, as a daily counter names it (`users/{uid}/usage/
- * account_export-<yyyy-mm-dd>`, written by the export route's rate limit and
- * then carried in the export itself). Rewritten to the reference day so the
- * `account.export` fixture does not change every midnight.
+ * A daily-action counter in the export (`users/{uid}/usage/<action>-<yyyy-mm-dd>`,
+ * written by the export route's own rate limit, `reserveDailyAction`). Its id
+ * and its `date` field carry the real day the test ran, so they are pinned to
+ * the reference day — and only they: see `stabiliseDailyCounters`.
  */
-const TODAY_UTC = new Date().toISOString().slice(0, 10);
+const DAILY_COUNTER_ID = /^([a-z][a-z0-9_]*)-(\d{4}-\d{2}-\d{2})$/;
 const STABLE_DAY = '2026-08-09';
+
+/**
+ * Pins the day in the export's daily usage counters, by shape and by place.
+ *
+ * Only documents in `collections.usage` whose id is `<action>-<yyyy-mm-dd>`
+ * are touched: the id's day, and a `date` field equal to that same day. Every
+ * other string in the export — including one that happens to be today's date —
+ * is recorded as the route returned it. Keyed on the id's own day rather than
+ * on "today", so a run that crosses midnight records the same file.
+ */
+function stabiliseDailyCounters(body: Record<string, unknown>): Record<string, unknown> {
+  const collections = body.collections as Record<string, unknown> | undefined;
+  const usage = collections?.usage;
+  if (!Array.isArray(usage)) return body;
+  const pinned = usage.map((doc: { id?: unknown; data?: Record<string, unknown> }) => {
+    const match = typeof doc?.id === 'string' ? DAILY_COUNTER_ID.exec(doc.id) : null;
+    if (!match) return doc;
+    const day = match[2]!;
+    const data = doc.data && doc.data.date === day ? { ...doc.data, date: STABLE_DAY } : doc.data;
+    return { ...doc, id: `${match[1]}-${STABLE_DAY}`, data };
+  });
+  return { ...body, collections: { ...collections, usage: pinned } };
+}
 /**
  * A plan's `inputDigest` (#194): sha256 hex over the planning request, so it
  * moves with the capture's random commitment ids and would otherwise rewrite
@@ -221,8 +244,6 @@ function stabilise(value: unknown, counters: Map<string, number>): unknown {
   }
   if (typeof value !== 'string') return value;
   if (INSTANT.test(value)) return value === REFERENCE_TIME ? value : STABLE_INSTANT;
-  if (value === TODAY_UTC) return STABLE_DAY;
-  if (value.endsWith(`-${TODAY_UTC}`)) return `${value.slice(0, -TODAY_UTC.length)}${STABLE_DAY}`;
   // An activity cursor names a record, `<instant>|<id>` (#201). Opaque to the
   // client, but it carries a real clock and a fresh id.
   const cursor = /^([^|]+)\|([^|]+)$/.exec(value);
@@ -397,14 +418,19 @@ function shareRequest(text: string): Request {
  * client will actually see. A 500 written to disk would be a schema the app
  * then validates against forever.
  */
-async function record(name: string, expectedStatus: number, response: Response): Promise<Record<string, unknown>> {
+async function record(
+  name: string,
+  expectedStatus: number,
+  response: Response,
+  pin: (body: Record<string, unknown>) => Record<string, unknown> = (body) => body,
+): Promise<Record<string, unknown>> {
   const body = await response.json() as Record<string, unknown>;
   assert.equal(
     response.status,
     expectedStatus,
     `${name}: expected ${expectedStatus}, got ${response.status} — ${JSON.stringify(body)}`,
   );
-  const stable = stabilise(body, new Map());
+  const stable = stabilise(pin(body), new Map());
   writeFileSync(join(FIXTURES, `${name}.json`), `${JSON.stringify(stable, null, 2)}\n`, 'utf8');
   // The live body is returned, not the normalised one: the rest of this test
   // chains real ids into the next call.
@@ -1718,8 +1744,20 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await getStorage().set(userSubDoc(EXPORT_USER, COMMITMENTS, 'fixture-export-commitment'), {
       id: 'fixture-export-commitment', title: 'Call the bank', status: 'active',
     });
-    const exported = await record('account.export', 200, await accountExportGet(request('/api/mobile/account/export', { uid: EXPORT_USER })));
+    const exported = await record(
+      'account.export', 200,
+      await accountExportGet(request('/api/mobile/account/export', { uid: EXPORT_USER })),
+      stabiliseDailyCounters,
+    );
     assert.equal((exported.account as { uid: string }).uid, EXPORT_USER);
+    // The recorded file carries the pinned day, whatever day this ran on.
+    const recordedExport = JSON.parse(readFileSync(join(FIXTURES, 'account.export.json'), 'utf8')) as {
+      collections: { usage: Array<{ id: string; data: { date: string } }> };
+    };
+    assert.deepEqual(
+      recordedExport.collections.usage.map(doc => [doc.id, doc.data.date]),
+      [[`account_export-${STABLE_DAY}`, STABLE_DAY]],
+    );
 
     // ── Health → energy: the snapshot the phone sends (HealthKit) ──
     // Built by the same `buildHealthKitReadinessSnapshot` the phone's adapter
@@ -1819,4 +1857,43 @@ test('exports a fixture for every /api/mobile call the React Native client makes
   } finally {
     teardown();
   }
+});
+
+test('the export fixture pins only the daily usage counter\'s day, and pins it the same across a midnight', () => {
+  const exportOn = (day: string) => ({
+    exportedAt: `${day}T23:59:59.000Z`,
+    collections: {
+      usage: [
+        { id: `account_export-${day}`, data: { calls: 1, date: day } },
+        // Not a daily counter: no `<action>-<day>` id, so untouched.
+        { id: 'llm-tokens', data: { calls: 3, date: day } },
+      ],
+      plans: [{ id: day, data: { date: day, title: `Trip ends ${day}`, ref: `plan-${day}` } }],
+      stats: [{ id: 'activity', data: { lastDay: day } }],
+    },
+  });
+  const before = stabiliseDailyCounters(exportOn('2026-09-25'));
+  const after = stabiliseDailyCounters(exportOn('2026-09-26'));
+
+  // The counter is pinned by its own day, not by "today": both sides of a
+  // midnight record the same counter.
+  const usageOf = (body: Record<string, unknown>) => (body.collections as { usage: unknown[] }).usage[0];
+  assert.deepEqual(usageOf(before), { id: `account_export-${STABLE_DAY}`, data: { calls: 1, date: STABLE_DAY } });
+  assert.deepEqual(usageOf(after), usageOf(before));
+
+  // Everything else that happens to hold a day is recorded as the route sent it.
+  const other = (body: Record<string, unknown>) => {
+    const collections = body.collections as Record<string, unknown[]>;
+    return { second: collections.usage[1], plans: collections.plans, stats: collections.stats, exportedAt: body.exportedAt };
+  };
+  const untouched = exportOn('2026-09-25');
+  assert.deepEqual(other(before), {
+    second: untouched.collections.usage[1],
+    plans: untouched.collections.plans,
+    stats: untouched.collections.stats,
+    exportedAt: untouched.exportedAt,
+  });
+  // And the generic stabiliser no longer knows anything about days.
+  assert.equal(stabilise('2026-09-25', new Map()), '2026-09-25');
+  assert.equal(stabilise(`plan-${new Date().toISOString().slice(0, 10)}`, new Map()), `plan-${new Date().toISOString().slice(0, 10)}`);
 });
