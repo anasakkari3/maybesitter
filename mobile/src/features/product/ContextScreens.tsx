@@ -18,6 +18,7 @@ import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ProductPage, ProductSection, ProductRow, ProductActions } from '../../ui/product';
 import { capabilities as cap } from './capabilities';
 import type { Commitment } from '../../api/schemas/common';
+import { ExportDataRow } from '../account/ExportDataRow';
 
 export function uniqueCommitments(items: readonly Commitment[]) {
   return [...new Map(items.map(item => [item.id, item])).values()];
@@ -94,7 +95,7 @@ export function PersonalizationScreen() {
         <Pill label={t.memoryEdit} kind="outline" onPress={() => actions.go('memory')} />
       </ProductSection>
     </QueryBoundary>}
-    <ProductRow title={t.xExport} icon="file" status={cap.export} />
+    <ExportDataRow />
     <ProductRow title={t.memoryDeleteAll} body={t.memoryDeleteAllAlso} icon="shield" onPress={() => actions.go('memory')} />
     <ProductRow title={t.sTrust} icon="shield" onPress={() => actions.go('trust')} />
   </ProductPage>;

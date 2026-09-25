@@ -61,6 +61,13 @@ const BREADCRUMBS = [
    * what was on screen when it happened is not ours to put in a crash log.
    */
   'render_failed',
+  /**
+   * Revoking a Sign in with Apple account's tokens before deletion did not
+   * land (App Store rule 5.1.1(v)). The deletion went ahead regardless; this
+   * is how an operator learns the Firebase Apple provider needs attention.
+   * Never the code, never the SDK's message — only that it happened.
+   */
+  'apple_revocation_failed',
 ] as const;
 export type CrashBreadcrumb = (typeof BREADCRUMBS)[number];
 

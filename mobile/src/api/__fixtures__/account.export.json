@@ -1,0 +1,102 @@
+{
+  "exportedAt": "2026-08-09T09:00:00.000Z",
+  "schemaVersion": "account-export-v1",
+  "account": {
+    "uid": "ExportFixtureUserxxxxxxxxxxx",
+    "profile": {
+      "uid": "ExportFixtureUserxxxxxxxxxxx",
+      "timezone": "Asia/Jerusalem",
+      "trust": {
+        "version": "v1",
+        "participantId": "ExportFixtureUserxxxxxxxxxxx",
+        "recommendationConsent": false,
+        "analyticsConsent": false,
+        "calendarConsent": false,
+        "firstValueAt": null,
+        "quietMode": false,
+        "revokedAt": null,
+        "deletedAt": null,
+        "updatedAt": "2026-08-09T09:00:00.000Z"
+      },
+      "updatedAt": "2026-08-09T09:00:00.000Z"
+    }
+  },
+  "collections": {
+    "providerConnections": [],
+    "commitments": [
+      {
+        "id": "fixture-export-commitment",
+        "data": {
+          "id": "fixture-export-commitment",
+          "title": "Call the bank",
+          "status": "active"
+        }
+      }
+    ],
+    "intentSeeds": [],
+    "goalGraphLinks": [],
+    "habits": [],
+    "habitOccurrences": [],
+    "reminders": [],
+    "escalationStates": [],
+    "events": [],
+    "recommendationActions": [],
+    "commitmentActionReceipts": [],
+    "nextStepDecisions": [],
+    "auditEvents": [],
+    "actionGatewayAuditEvents": [],
+    "memory": [],
+    "feedbackEvents": [],
+    "feedbackBaselines": [],
+    "consents": [],
+    "studyResponses": [],
+    "alphaTraces": [],
+    "alphaFeedback": [],
+    "behaviorFeedback": [],
+    "pressureDelivery": [],
+    "clarifications": [],
+    "clarificationEvents": [],
+    "analyticsEvents": [],
+    "captureProposals": [],
+    "profileProposals": [],
+    "aiContextImports": [],
+    "memoryDismissals": [],
+    "usage": [
+      {
+        "id": "account_export-2026-08-09",
+        "data": {
+          "calls": 1,
+          "date": "2026-08-09",
+          "updatedAt": "2026-08-09T09:00:00.000Z",
+          "expireAt": "2026-08-09T09:00:00.000Z"
+        }
+      }
+    ],
+    "plans": [],
+    "planEvents": [],
+    "stats": [],
+    "deviceCalendarLinks": [],
+    "footballFollows": [],
+    "externalTaskRefs": [],
+    "financialInputs": [],
+    "calendarSources": [],
+    "busyBlocks": [],
+    "icsFeeds": [],
+    "icsFeedItems": [],
+    "devices": [],
+    "pushLog": [],
+    "hardReminders": [],
+    "watchers": [],
+    "watcherEvents": [],
+    "watcherProposals": [],
+    "watcherNotifications": [],
+    "planningStateChanges": [],
+    "packInstallations": [],
+    "jobs": [],
+    "incidents": []
+  },
+  "excluded": {
+    "providerCredentials": "encrypted OAuth access and refresh tokens: a secret held on the person's behalf, not a record of them",
+    "providerOAuthStates": "an in-flight OAuth authorization holding a PKCE verifier: a secret with a lifetime of minutes"
+  }
+}

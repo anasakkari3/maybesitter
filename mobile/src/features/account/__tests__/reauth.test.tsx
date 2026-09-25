@@ -262,7 +262,12 @@ describe('re-authenticating and asking again', () => {
 
     await fireEvent.press(screen.getByLabelText(en.accountReauthAppleAction));
     await waitFor(() => expect(screen.getByTestId('account-deleted')).toBeTruthy());
-    expect(repository.reauthentications).toEqual(['apple.com']);
+    // Two sheets here only because this server refuses even a fresh Apple
+    // sign-in: an Apple account is asked for one sheet at confirmation (its
+    // code revokes the account's Apple tokens, App Store 5.1.1(v)), and the
+    // recent-login prompt is the second. The tokens are revoked once.
+    expect(repository.reauthentications).toEqual(['apple.com', 'apple.com']);
+    expect(repository.appleRevocations).toEqual(['fake-apple-code-1']);
     expect(requests.filter(m => m === 'DELETE')).toHaveLength(2);
   });
 

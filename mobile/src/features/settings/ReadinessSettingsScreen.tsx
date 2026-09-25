@@ -5,6 +5,7 @@ import { useReadiness, useSaveSubjectiveEnergy } from '../../api/queries';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
+import { HealthDataCard } from '../readiness/HealthDataCard';
 
 const ENERGY = [1, 2, 3, 4, 5] as const;
 const BAND_COPY = {
@@ -107,6 +108,8 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
             </View>
           )}
         </Card>
+
+        <HealthDataCard />
 
         <Txt size={12} color={p.mu} lh={1.5}>{t.readinessPrivacyNote}</Txt>
       </ScreenScroll>

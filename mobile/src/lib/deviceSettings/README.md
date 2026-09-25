@@ -51,3 +51,10 @@ same reason the language preference is:
 
 Anything new here needs the same argument made in its own header, or it belongs
 on the account instead.
+
+- **`healthConnection.ts`** (Health → energy) — whether this installation reads
+  Apple Health for this account, and when it last tried: a boolean and one
+  instant, keyed by account. The HealthKit grant is a fact about this phone and
+  iOS never tells an app a read was refused, so "turned on here" can only be
+  remembered here. No sample, score or band is stored: the summary goes to the
+  server and is read back from there. Disconnect removes it.

@@ -15,7 +15,7 @@ export const capabilities = {
   gmail: 'COMING_SOON', googleCalendar: 'COMING_SOON', drive: 'COMING_SOON',
   location: 'COMING_SOON', camera: 'COMING_SOON',
   goals: 'LIVE', habits: 'LIVE', planDiff: 'LIVE',
-  watcherBuilder: 'LIVE', watcherManagement: 'LIVE', export: 'COMING_SOON',
+  watcherBuilder: 'LIVE', watcherManagement: 'LIVE', export: 'LIVE',
 } as const satisfies Record<string, Availability>;
 
 /** What arrives through the Share Sheet. It exists only in a build whose

@@ -53,7 +53,7 @@ import {
   promoteSeed,
 } from './endpoints/seeds';
 import type { SeedStatus } from './schemas/seeds';
-import { getReadiness, putSubjectiveEnergy } from './endpoints/readiness';
+import { getReadiness, postNativeReadiness, putSubjectiveEnergy } from './endpoints/readiness';
 import {
   connectFinancialSource,
   deleteFinancialField,
@@ -937,6 +937,20 @@ export function useSaveSubjectiveEnergy() {
   const uid = useUid();
   return useMutation({
     mutationFn: (input: { energy: 1 | 2 | 3 | 4 | 5; observedAt: string }) => putSubjectiveEnergy(input),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.readiness(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+    },
+  });
+}
+
+/** Sends a HealthKit readiness summary, then re-reads what the plan can use. */
+export function useSendNativeReadiness() {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (snapshot: { readonly sourceKinds: readonly string[] }) => postNativeReadiness(snapshot),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.readiness(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });

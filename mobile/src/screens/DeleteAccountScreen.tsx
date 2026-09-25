@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { useSingleFlight } from '../auth/useSingleFlight';
 import { useAccountDeletion } from '../features/account/AccountDeletionProvider';
 import { ReauthCancelled } from '../features/account/reauthenticate';
+import type { AppleReauthentication } from '../auth/types';
 import { useIsOnline } from '../api/ui/OfflineBanner';
 import { accountDeletionUrl } from '../config/env';
 import { Card, Pill, Txt } from '../ui/primitives';
@@ -53,6 +54,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
     (provider: 'password' | 'google.com' | 'apple.com') =>
       run(async () => {
         setReauthFailed(false);
+        let apple: AppleReauthentication | undefined;
         try {
           if (provider === 'password') {
             await repository.reauthenticateWithPassword(password);
@@ -62,7 +64,9 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
           } else if (provider === 'google.com') {
             await repository.reauthenticateWithGoogle();
           } else {
-            await repository.reauthenticateWithApple();
+            // Its one-time code goes straight to the retry, which revokes the
+            // account's Apple tokens with it. Held for this call only.
+            apple = await repository.reauthenticateWithApple();
           }
           // `auth_time` is fresh on the account now, but the cached ID token
           // still carries the old claim until it is re-minted.
@@ -76,7 +80,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
         }
         // One deliberate attempt, from a place the user just acted. Not a
         // retry queue, and not automatic.
-        await retryAfterReauth();
+        await retryAfterReauth(apple);
       }),
     [run, repository, password, retryAfterReauth],
   );

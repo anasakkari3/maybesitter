@@ -48,6 +48,12 @@ export interface AppleCredential {
   rawNonce: string;
   /** Apple sends the name on the first authorisation only, and never again. */
   fullName: string | null;
+  /**
+   * The one-time code Apple issues with every authorisation. Short-lived and
+   * single-use; its only use here is revoking the account's Apple tokens on
+   * deletion. Never stored, never logged.
+   */
+  authorizationCode: string | null;
 }
 
 /**
@@ -85,6 +91,7 @@ export async function requestAppleCredential(): Promise<AppleCredential | null> 
       identityToken: credential.identityToken,
       rawNonce,
       fullName: joinName(credential.fullName),
+      authorizationCode: credential.authorizationCode ?? null,
     };
   } catch (error) {
     // `ERR_REQUEST_CANCELED` is the user dismissing the sheet. It is a
