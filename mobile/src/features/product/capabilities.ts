@@ -9,7 +9,7 @@ export const capabilities = {
   whatsappConnection: 'COMING_SOON', location: 'COMING_SOON',
   camera: 'COMING_SOON', filePicker: 'COMING_SOON', pdf: 'COMING_SOON',
   goals: 'LIVE', habits: 'LIVE', planDiff: 'LIVE',
-  watcherBuilder: 'LIVE', watcherManagement: 'LIVE', export: 'COMING_SOON',
+  watcherBuilder: 'LIVE', watcherManagement: 'LIVE', export: 'LIVE',
 } as const satisfies Record<string, Availability>;
 export const availabilityKey = {
   LIVE: 'xLive', AVAILABLE: 'xLive', COMING_SOON: 'xSoon', BETA: 'xBeta',

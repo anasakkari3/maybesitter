@@ -61,11 +61,28 @@ export interface FederatedAuth {
  * They resolve when `auth_time` is fresh, reject with `ReauthCancelled` when
  * the user backed out, and reject with the provider's own error otherwise.
  */
+/** What a fresh Apple re-authentication hands back. Held for one call only. */
+export interface AppleReauthentication {
+  authorizationCode: string | null;
+}
+
 export interface ReauthenticatingAuth {
   /** The password is an argument. It is never stored and never logged. */
   reauthenticateWithPassword(password: string): Promise<void>;
   reauthenticateWithGoogle(): Promise<void>;
-  reauthenticateWithApple(): Promise<void>;
+  /**
+   * Resolves with the fresh authorisation's one-time `authorizationCode`, the
+   * only thing that can revoke the account's Apple tokens (App Store rule
+   * 5.1.1(v) for Sign in with Apple accounts). The code is a return value and
+   * nothing else: the caller hands it to `revokeAppleToken` and drops it.
+   */
+  reauthenticateWithApple(): Promise<AppleReauthentication>;
+  /**
+   * Revokes the Apple tokens Firebase holds for the signed-in user, with a
+   * code from `reauthenticateWithApple`. Must run while the Firebase user
+   * still exists — before the server deletes it.
+   */
+  revokeAppleToken(authorizationCode: string): Promise<void>;
   /**
    * Forces a token refresh so the *next* request carries the fresh
    * `auth_time`. Firebase updates `auth_time` on re-authentication, but the

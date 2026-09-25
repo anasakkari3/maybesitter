@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
@@ -6,7 +6,10 @@ import { forgetValidators } from '../../api/queries';
 import { deleteAccount } from '../../api/endpoints/account';
 import { RecentLoginRequiredError } from '../../api/errors';
 import type { DeletionReceipt } from '../../api/schemas/account';
-import { reauthProviderFor, type ReauthProvider } from './reauthenticate';
+import { ReauthCancelled, reauthProviderFor, type ReauthProvider } from './reauthenticate';
+import type { AppleReauthentication } from '../../auth/types';
+import { recordAppleRevocationFailure, revokeAppleTokens, signedInWithApple } from './appleRevocation';
+import { clearHealthConnection } from '../../lib/deviceSettings/healthConnection';
 
 /**
  * Deleting the account, and holding the receipt long enough for the user to
@@ -44,8 +47,12 @@ export interface AccountDeletionModel {
    * alert — this function makes the request immediately.
    */
   requestDeletion(): Promise<void>;
-  /** After a successful re-authentication, ask again. Deliberate, not a retry. */
-  retryAfterReauth(): Promise<void>;
+  /**
+   * After a successful re-authentication, ask again. Deliberate, not a retry.
+   * An Apple re-authentication passes its result, so its one-time code can
+   * revoke the account's Apple tokens without a second sheet.
+   */
+  retryAfterReauth(apple?: AppleReauthentication): Promise<void>;
   /** The user backed out of re-authentication. Nothing was deleted. */
   cancelReauth(): void;
   /** Dismisses the receipt; the app is already signed out behind it. */
@@ -57,10 +64,12 @@ const Ctx = createContext<AccountDeletionModel | null>(null);
 
 export function AccountDeletionProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
-  const { user, signOut } = useAuth();
+  const { user, signOut, repository } = useAuth();
   const { resetForNewUser } = useApp().actions;
   const [phase, setPhase] = useState<DeletionPhase>({ kind: 'idle' });
   const [receipt, setReceipt] = useState<DeletionReceipt | null>(null);
+  /** Whether this account's Apple tokens are already revoked in this flow. */
+  const appleRevoked = useRef(false);
 
   /**
    * Everything this account left in memory, in one place.
@@ -77,15 +86,54 @@ export function AccountDeletionProvider({ children }: { children: React.ReactNod
     resetForNewUser();
   }, [queryClient, resetForNewUser]);
 
-  const run = useCallback(async () => {
+  /**
+   * Revokes Sign in with Apple before the server deletes the Firebase user,
+   * which is the last moment Firebase can still act for it (see
+   * `appleRevocation.ts`). Answers `false` only when the user backed out of
+   * the Apple sheet: that is a decision not to go on, and nothing is deleted.
+   * Every other failure is recorded and the deletion continues.
+   */
+  const revokeAppleIfNeeded = useCallback(async (apple?: AppleReauthentication): Promise<boolean> => {
+    if (!signedInWithApple(user) || appleRevoked.current) return true;
+    let grant = apple;
+    if (!grant) {
+      try {
+        grant = await repository.reauthenticateWithApple();
+      } catch (error) {
+        if (error instanceof ReauthCancelled) return false;
+        // No Apple sheet here (Android has no Apple flow) or it failed: the
+        // deletion still goes ahead, without a revocation.
+        recordAppleRevocationFailure('credential_unavailable');
+        return true;
+      }
+      // The sheet was also a fresh sign-in; re-mint the token so the deletion
+      // call carries the new `auth_time`. Outside the try above on purpose: a
+      // refresh that fails must not cost the revocation, because the code in
+      // hand is still good. If the server then asks for a recent login, the
+      // prompt handles it as it does for every account.
+      await repository.refreshIdentity().catch(() => undefined);
+    }
+    appleRevoked.current = await revokeAppleTokens(grant.authorizationCode, code => repository.revokeAppleToken(code));
+    return true;
+  }, [repository, user]);
+
+  const run = useCallback(async (apple?: AppleReauthentication) => {
     setPhase({ kind: 'deleting' });
     try {
+      if (!(await revokeAppleIfNeeded(apple))) {
+        setPhase({ kind: 'idle' });
+        return;
+      }
       const result = await deleteAccount();
 
       // Order matters. The account is already gone server-side, so nothing
       // here may make another authenticated request — the token in hand is
       // dead and the generic 401 path would read it as an expired session.
       purgeEverything();
+      // This device's own per-account key: whether Health was connected here.
+      // A deleted account's uid must not stay on the phone in a key name.
+      // Awaited before the sign-out; it never throws.
+      if (user) await clearHealthConnection(user.uid);
       setReceipt(result);
       setPhase({ kind: 'idle' });
       // Last: this flips the gate, and the receipt above it is what the user
@@ -104,13 +152,16 @@ export function AccountDeletionProvider({ children }: { children: React.ReactNod
       // trying again is safe and is what the copy asks for.
       setPhase({ kind: 'failed', message: 'accountDeleteFailed' });
     }
-  }, [purgeEverything, signOut, user]);
+  }, [purgeEverything, revokeAppleIfNeeded, signOut, user]);
 
   const value = useMemo<AccountDeletionModel>(
     () => ({
       phase,
       receipt,
-      requestDeletion: run,
+      requestDeletion: () => {
+        appleRevoked.current = false;
+        return run();
+      },
       retryAfterReauth: run,
       cancelReauth: () => setPhase({ kind: 'idle' }),
       acknowledgeReceipt: () => setReceipt(null),

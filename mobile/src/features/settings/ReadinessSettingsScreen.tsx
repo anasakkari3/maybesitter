@@ -5,6 +5,7 @@ import { useReadiness, useSaveSubjectiveEnergy } from '../../api/queries';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
+import { HealthDataCard } from '../readiness/HealthDataCard';
 
 const ENERGY = [1, 2, 3, 4, 5] as const;
 const BAND_COPY = {
@@ -22,7 +23,7 @@ const SOURCE_COPY = {
 const FRESHNESS_COPY = {
   fresh: 'readinessFreshnessFresh',
   stale: 'readinessFreshnessStale',
-  none: 'readinessFreshnessNone',
+  missing: 'readinessFreshnessNone',
 } as const;
 
 export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
@@ -35,7 +36,7 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
   const currentEnergy = snapshot?.subjective?.energy ?? null;
   const band = snapshot?.band ?? 'unknown';
   const selectedSource = readiness.data?.selectedSource ?? 'none';
-  const freshness = readiness.data?.freshness ?? 'none';
+  const freshness = readiness.data?.freshness ?? 'missing';
 
   const chooseEnergy = async (energy: 1 | 2 | 3 | 4 | 5) => {
     setFailed(false);
@@ -101,6 +102,8 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
             </View>
           )}
         </Card>
+
+        <HealthDataCard />
 
         <Txt size={12} color={p.mu} lh={1.5}>{t.readinessPrivacyNote}</Txt>
       </ScreenScroll>
