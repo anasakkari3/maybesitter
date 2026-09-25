@@ -113,3 +113,87 @@ test('the deployer may pass firebase-tools\' API-enabled check before deploying 
     assert.match(read('infra/bootstrap.sh'), /add_role "\$\{DEPLOYER_SA\}" roles\/serviceusage\.serviceUsageConsumer/);
   }
 });
+
+test('the memory module is on for staging and explicitly off for production', () => {
+  // UC-2.7a (#167). The owner approved memory for staging only; production
+  // stays off until that changes deliberately. `MAYBESITTER_KILL_SWITCH_MEMORY`
+  // is belt and braces the same way `MAYBESITTER_AI_DISABLED` is above the
+  // model provider: the feature flag already keeps memory off in production,
+  // and the kill switch is a second, independent block.
+  const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
+  const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
+
+  assert.match(staging, /MAYBESITTER_FEATURE_MEMORY=true/, 'staging does not enable memory');
+  assert.match(staging, /MAYBESITTER_KILL_SWITCH_MEMORY=false/, 'staging leaves no explicit kill switch for an incident');
+
+  assert.match(production, /MAYBESITTER_FEATURE_MEMORY=false/, 'production enables memory without an explicit owner decision');
+  assert.match(production, /MAYBESITTER_KILL_SWITCH_MEMORY=true/, 'production has no independent block on memory');
+});
+
+// ── Same-digest production promotion ────────────────────────────────────
+
+const buildStep = () => {
+  const start = workflow.indexOf('Build and push the image');
+  const end = workflow.indexOf('- name:', workflow.indexOf('\n', start));
+  return workflow.slice(start, end);
+};
+
+const resolveStep = () => {
+  const start = workflow.indexOf('Resolve the staging image');
+  const end = workflow.indexOf('Smoke test the new revision');
+  return workflow.slice(start, end);
+};
+
+const deployStep = () => {
+  const start = workflow.indexOf('Deploy (behind a tag');
+  const end = workflow.indexOf('Smoke test the new revision');
+  return workflow.slice(start, end);
+};
+
+test('production does not rebuild the image', () => {
+  // A rebuild from the same commit is not guaranteed byte-identical to what
+  // staging already pushed and smoke-tested — Docker layer timestamps and
+  // base-image resolution are not pinned bit-for-bit — so rebuilding on
+  // promote can silently deploy bytes staging never ran.
+  assert.match(buildStep(), /if:\s*env\.TARGET == 'staging'/, 'the build step is not gated to staging');
+
+  assert.notEqual(workflow.indexOf('Resolve the staging image'), -1, 'there is no production digest-resolution step');
+  assert.match(resolveStep(), /if:\s*env\.TARGET == 'production'/, 'the resolve step is not gated to production');
+  assert.doesNotMatch(resolveStep(), /docker build/, 'production still builds its own image');
+});
+
+test('production resolves the digest of the commit tag staging pushed', () => {
+  assert.match(
+    resolveStep(),
+    /IMAGE_URI="\$\{REGION\}-docker\.pkg\.dev\/\$\{PROJECT_ID\}\/\$\{REPOSITORY\}\/\$\{IMAGE\}:\$\{GITHUB_SHA\}"/,
+    'production does not resolve the commit tag staging pushed',
+  );
+  assert.match(
+    resolveStep(),
+    /gcloud artifacts docker images describe "\$\{IMAGE_URI\}"/,
+    'production does not look up the pushed image by its commit tag',
+  );
+});
+
+test('production fails with a clear message when no staging image exists for this commit', () => {
+  assert.match(resolveStep(), /Deploy staging for this commit first/i, 'a missing staging image does not tell the operator what to do');
+  assert.match(resolveStep(), /exit 1/, 'a missing staging image does not fail the run');
+});
+
+test('production verifies staging is actually serving the digest it promotes, not merely that one was pushed', () => {
+  // A tag can be pushed by a staging deploy that then failed its own smoke
+  // test, or be superseded by a later push before this run started. Promotion
+  // must check what staging is serving, not just what once reached the
+  // registry.
+  assert.match(resolveStep(), /maybesitter-api-staging/, 'production never looks at the staging service');
+  assert.match(resolveStep(), /select\(\.percent == 100\)/, 'production does not find the revision actually serving traffic');
+  assert.match(resolveStep(), /"\$\{STAGING_IMAGE\}"\s*!=\s*"\$\{IMAGE_DIGEST\}"/, 'production does not compare against the resolved digest');
+});
+
+test('the deploy step sources its image from whichever of build or resolve ran', () => {
+  assert.match(
+    deployStep(),
+    /steps\.build\.outputs\.image_digest \|\| steps\.resolve\.outputs\.image_digest/,
+    'the deploy step cannot get an image on a production run',
+  );
+});

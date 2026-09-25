@@ -70,6 +70,9 @@ jobs:
 
       - name: Build and push the image
         id: build
+        # Staging only. Production never builds its own image — see the next
+        # step — so this cannot run on a production dispatch even by mistake.
+        if: env.TARGET == 'staging'
         run: |
           IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
           docker build --build-arg "GIT_SHA=${GITHUB_SHA}" -t "${IMAGE_URI}" .
@@ -77,6 +80,42 @@ jobs:
           DIGEST="$(gcloud artifacts docker images describe "${IMAGE_URI}" --format='value(image_summary.digest)')"
           echo "image_uri=${IMAGE_URI}" >>"${GITHUB_OUTPUT}"
           echo "image_digest=${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}@${DIGEST}" >>"${GITHUB_OUTPUT}"
+
+      - name: Resolve the staging image for production (same-digest promotion)
+        id: resolve
+        if: env.TARGET == 'production'
+        run: |
+          # Production never builds its own image. A rebuild from the same
+          # commit is not guaranteed to produce the same digest — Docker layer
+          # timestamps and base-image resolution are not pinned bit-for-bit —
+          # so "rebuild on promote" could silently deploy bytes staging never
+          # ran or smoke-tested. Production instead resolves the digest the
+          # staging deploy of this exact commit already pushed, and deploys
+          # that digest unchanged.
+          IMAGE_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:${GITHUB_SHA}"
+          if ! DIGEST="$(gcloud artifacts docker images describe "${IMAGE_URI}" --format='value(image_summary.digest)' 2>&1)"; then
+            echo "::error::no image was pushed for ${GITHUB_SHA} (${IMAGE_URI}). Deploy staging for this commit first."
+            exit 1
+          fi
+          IMAGE_DIGEST="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}@${DIGEST}"
+
+          # And staging must actually be *running* it, not merely have pushed
+          # it once: a staging deploy that failed its own smoke test, or was
+          # superseded by a later push before this dispatch ran, must not let
+          # production promote unverified bytes.
+          STAGING_REVISION="$(gcloud run services describe maybesitter-api-staging --region "${REGION}" --format=json \
+            | jq -r '.status.traffic[]? | select(.percent == 100) | .revisionName')"
+          if [ -z "${STAGING_REVISION}" ]; then
+            echo "::error::staging has no revision serving 100% traffic. Deploy staging for this commit first."
+            exit 1
+          fi
+          STAGING_IMAGE="$(gcloud run revisions describe "${STAGING_REVISION}" --region "${REGION}" --format='value(spec.containers[0].image)')"
+          if [ "${STAGING_IMAGE}" != "${IMAGE_DIGEST}" ]; then
+            echo "::error::staging is serving ${STAGING_IMAGE}, not ${IMAGE_DIGEST}. Deploy staging for this commit first."
+            exit 1
+          fi
+
+          echo "image_digest=${IMAGE_DIGEST}" >>"${GITHUB_OUTPUT}"
 
       - name: Deploy (behind a tag once the service exists)
         id: deploy
@@ -102,9 +141,11 @@ jobs:
             TRAFFIC_FLAGS=(--no-traffic --tag "sha-${GITHUB_SHA::7}")
           fi
           # The image is deployed by digest, so production runs the exact bytes
-          # staging ran. flags.sh prints one flag per word, hence unquoted.
+          # staging ran: `build` set it on a staging run, `resolve` on a
+          # production run — exactly one of the two runs, per the `if:` above.
+          # flags.sh prints one flag per word, hence unquoted.
           gcloud run deploy "${SERVICE}" \
-            --image "${{ steps.build.outputs.image_digest }}" \
+            --image "${{ steps.build.outputs.image_digest || steps.resolve.outputs.image_digest }}" \
             --region "${REGION}" \
             ${TRAFFIC_FLAGS[@]+"${TRAFFIC_FLAGS[@]}"} \
             $(bash infra/cloudrun/flags.sh "${TARGET}")

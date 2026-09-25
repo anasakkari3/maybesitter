@@ -23,8 +23,8 @@ is for test accounts only**.
 1. GitHub Actions authenticates through Workload Identity Federation. There is
    no service-account key anywhere: the pool is pinned to this repository on
    `refs/heads/main`.
-2. The image is built from the repository `Dockerfile` and pushed to Artifact
-   Registry as `…/maybesitter/api:<sha>`.
+2. **Staging** builds the image from the repository `Dockerfile` and pushes it
+   to Artifact Registry as `…/maybesitter/api:<sha>`.
 3. It deploys **without traffic**, behind the revision tag `sha-<short>`.
 4. The tagged revision is probed: `/api/health/ready` must return `ready:true`,
    and `/api/health` must report the same commit that was built.
@@ -32,8 +32,22 @@ is for test accounts only**.
 6. Firestore rules and indexes are deployed from `firestore.rules` and
    `firestore.indexes.json`.
 
-Production deploys the **image digest** staging ran, not a rebuilt tag, so the
-promoted bytes are the tested bytes.
+**Production never builds.** A rebuild from the same commit is not guaranteed
+to reproduce the same image digest — Docker layer timestamps and base-image
+resolution are not pinned bit-for-bit — so "rebuild on promote" could silently
+deploy bytes staging never ran or smoke-tested. Instead, a production run:
+
+- resolves the digest of `…/maybesitter/api:<sha>` — the tag the staging
+  deploy of this exact commit already pushed — and fails with a clear message
+  if no such tag exists ("deploy staging for this commit first");
+- checks that staging's service is **currently serving** that digest at 100%
+  traffic (not merely that the tag was pushed once — a staging deploy can push
+  an image and then fail its own smoke test, or be superseded by a later push
+  before the production run starts) and fails the same way if it is not;
+- deploys that exact, already-tested digest, unchanged.
+
+So a production dispatch always deploys the bytes staging is currently
+running for that commit — never a fresh build, and never an untested digest.
 
 ## Rollback
 
@@ -59,6 +73,15 @@ cannot drift:
   keeps the bill near zero; max doubles as a cost circuit-breaker.
 - `--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6`
 - Secrets only through `--set-secrets`, never plain env.
+- `MAYBESITTER_FEATURE_MEMORY=true` on staging only (owner decision,
+  2026-09-25): it gates `/api/mobile/memory` and `/api/mobile/profile/*`
+  (goals, personalization, routine sync, setup-chat describe, AI context
+  import), and those paths call the hosted model, which is a spending
+  decision the same way `MAYBESITTER_LLM_PROVIDER` is. Production sets it to
+  `false` explicitly (matching the module default) and additionally sets
+  `MAYBESITTER_KILL_SWITCH_MEMORY=true` as a second, independent block —
+  the same belt-and-braces shape as `MAYBESITTER_AI_DISABLED` next to
+  `MAYBESITTER_LLM_PROVIDER=none`.
 
 ## Adding a secret
 
