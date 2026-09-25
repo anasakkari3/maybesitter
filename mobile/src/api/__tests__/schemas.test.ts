@@ -71,6 +71,7 @@ import {
   financialManualSavedSchema,
 } from '../schemas/financial';
 import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
+import { accountExportSchema } from '../schemas/accountExport';
 import {
   icsDeadlineDecidedSchema,
   icsFeedCreatedSchema,
@@ -125,6 +126,12 @@ const CASES: Array<[string, z.ZodType]> = [
   ['commitments.notFound', errorBodySchema],
   ['commitments.stale', staleCommitmentSchema],
   ['commitments.invalidTransition', invalidTransitionSchema],
+  // "Export my data" (#174 step 7): the envelope the share sheet is handed.
+  ['account.export', accountExportSchema],
+  // Health → energy: the POST the energy screen sends from HealthKit, and the
+  // read after it, whose source is now the device's summary.
+  ['readiness.healthSaved', readinessSavedSchema],
+  ['readiness.fromHealth', readinessResponseSchema],
   ['consents.unanswered', consentsViewSchema],
   ['consents.answered', consentsViewSchema],
   ['consents.aiRecorded', aiConsentUpdatedSchema],

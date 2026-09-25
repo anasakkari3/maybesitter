@@ -184,7 +184,11 @@ test('every mobile route file exists and is enumerated', () => {
   // background monitoring activity timeline (all five dated row types) and the
   // second exposes which monitor/watcher caused a daily plan replan. Both resolve
   // their caller from the verified token and forbid cross-account leaks.
-  assert.equal(files.length, 79, `found:\n${files.join('\n')}`);
+  // Eighty with "export my data" (#174 step 7): `GET /api/mobile/account/
+  // export`. It answers with everything one account holds in one response,
+  // which makes it the single most valuable read on this list to reach without
+  // a token; it takes the uid from the verified token and nowhere else.
+  assert.equal(files.length, 80, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

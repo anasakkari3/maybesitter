@@ -40,7 +40,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { EVENTS, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, EVENTS, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -143,6 +143,12 @@ import {
 import { POST as hardReceiptsPost } from '../../src/app/api/mobile/reminders/receipts/route.ts';
 import { POST as devicesPost } from '../../src/app/api/mobile/devices/route.ts';
 import { DELETE as deviceDelete } from '../../src/app/api/mobile/devices/[installationId]/route.ts';
+import { GET as accountExportGet } from '../../src/app/api/mobile/account/export/route.ts';
+import {
+  GET as readinessHealthGet,
+  POST as readinessHealthPost,
+} from '../../src/app/api/mobile/readiness/route.ts';
+import { buildHealthKitReadinessSnapshot } from '../../lib/integrations/readiness/healthkit.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import {
   buildAndStoreDailyPlan,
@@ -1693,6 +1699,46 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       }),
       { params: Promise.resolve({ installationId: INSTALLATION }) },
     ));
+
+    // ── "export my data" (#174 step 7) ─────────────────────────────
+    // Its own account with one known document, so the fixture is the
+    // envelope the phone parses and not a dump of everything above.
+    const EXPORT_USER = uidFor('ExportFixtureUser');
+    await getStorage().set(userDoc(EXPORT_USER), { uid: EXPORT_USER, timezone: 'Asia/Jerusalem' });
+    await getStorage().set(userSubDoc(EXPORT_USER, COMMITMENTS, 'fixture-export-commitment'), {
+      id: 'fixture-export-commitment', title: 'Call the bank', status: 'active',
+    });
+    const exported = await record('account.export', 200, await accountExportGet(request('/api/mobile/account/export', { uid: EXPORT_USER })));
+    assert.equal((exported.account as { uid: string }).uid, EXPORT_USER);
+
+    // ── Health → energy: the snapshot the phone sends (HealthKit) ──
+    // Built by the same `buildHealthKitReadinessSnapshot` the phone's adapter
+    // runs, then POSTed exactly as `postNativeReadiness` sends it, so the saved
+    // answer and the read after it are the ones the energy screen meets.
+    const HEALTH_USER = uidFor('HealthFixtureUser');
+    await getStorage().set(userDoc(HEALTH_USER), { uid: HEALTH_USER, timezone: 'Asia/Jerusalem' });
+    const healthNow = new Date();
+    const healthSnapshot = buildHealthKitReadinessSnapshot({
+      scopeId: 'device',
+      computedAt: healthNow.toISOString(),
+      windowStart: new Date(healthNow.getTime() - 24 * 3_600_000).toISOString(),
+      windowEnd: healthNow.toISOString(),
+      sleep: {
+        observedAt: new Date(healthNow.getTime() - 3_600_000).toISOString(),
+        sleepStart: new Date(healthNow.getTime() - 9 * 3_600_000).toISOString(),
+        sleepEnd: new Date(healthNow.getTime() - 3_600_000).toISOString(),
+        totalSleepMinutes: 450,
+      },
+      heart: { observedAt: new Date(healthNow.getTime() - 3_600_000).toISOString(), restingHeartRate: 58, hrvMilliseconds: 42 },
+      activity: { observedAt: healthNow.toISOString(), stepCount: 4200 },
+    });
+    await record('readiness.healthSaved', 200, await readinessHealthPost(request('/api/mobile/readiness', {
+      body: { snapshot: healthSnapshot },
+      uid: HEALTH_USER,
+    })));
+    const fromHealth = await record('readiness.fromHealth', 200, await readinessHealthGet(request('/api/mobile/readiness', { uid: HEALTH_USER })));
+    assert.equal(fromHealth.selectedSource, 'recent_readiness');
+    assert.deepEqual((fromHealth.readiness as { sourceKinds: string[] }).sourceKinds, ['healthkit']);
 
     // ── the refusals every screen must be able to render ───────────
     const unauthenticated = await commitmentGet(
