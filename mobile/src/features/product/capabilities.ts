@@ -55,7 +55,7 @@ export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen | null;
   drive: { screen: null, api: null },
   location: { screen: null, api: null },
   camera: { screen: null, api: null },
-  export: { screen: null, api: null },
+  export: { screen: 'personalization', api: '/api/mobile/account/export' },
 };
 
 export const availabilityKey = {

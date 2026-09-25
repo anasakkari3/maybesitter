@@ -202,7 +202,7 @@ describe('the capability table', () => {
     const soon = keys.filter(key => status(key) === 'COMING_SOON').sort();
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
     expect(soon).toEqual([
-      'assistantName', 'assistantPersonality', 'assistantPreparation', 'camera', 'drive', 'export', 'files',
+      'assistantName', 'assistantPersonality', 'assistantPreparation', 'camera', 'drive', 'files',
       'gmail', 'googleCalendar', 'location', 'photos', 'weeklyMode', 'whatsapp',
     ]);
   });
