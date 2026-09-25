@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { compareByCodePoint } from '../planning/shared/compare';
 
 export type ResearchCohort = 'commercial' | 'fast_research';
 export type CurrentWorkflow = 'paper' | 'calendar' | 'todo_app' | 'chat_ai' | 'notes' | 'memory' | 'other';
@@ -163,14 +164,18 @@ function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value && typeof value === 'object') {
     return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareByCodePoint(left, right))
       .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(',')}}`;
   }
   return JSON.stringify(value);
 }
 
 function semanticChecksum<T>(records: readonly T[], id: (record: T) => string): string {
-  const canonical = [...records].sort((left, right) => id(left).localeCompare(id(right))).map(canonicalJson).join('\n');
+  // Code-point order, never the host locale: this checksum's job is to prove
+  // two runs saw the same data, and ids come from free-form CSV intake
+  // (`int-002` vs `Int-003` flips under tr-TR), so a locale-aware sort made
+  // identical data hash differently on a Turkish host (#121).
+  const canonical = [...records].sort((left, right) => compareByCodePoint(id(left), id(right))).map(canonicalJson).join('\n');
   return createHash('sha256').update(canonical).digest('hex');
 }
 

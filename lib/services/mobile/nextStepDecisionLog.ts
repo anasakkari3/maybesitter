@@ -6,6 +6,7 @@ import {
   userCol,
 } from '../../storage';
 import type { NextStepDecision } from '../../../src/contracts/v1/nextStepContracts';
+import { parseIsoInstant } from './time';
 
 /**
  * What the user answered to a next step, and for how long it counts
@@ -141,8 +142,13 @@ export const DEFER_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 export function resolveDeferUntil(requested: unknown, now: Date): string {
   const fallback = new Date(now.getTime() + DEFER_DEFAULT_MS).toISOString();
   if (typeof requested !== 'string') return fallback;
-  const parsed = Date.parse(requested);
-  if (!Number.isFinite(parsed)) return fallback;
+  // An offset-less value is UTC, not the server's zone (#121); see `time.ts`.
+  let parsed: number;
+  try {
+    parsed = parseIsoInstant(requested, 'deferUntil').getTime();
+  } catch {
+    return fallback;
+  }
   if (parsed <= now.getTime()) return fallback;
   if (parsed > now.getTime() + DEFER_MAX_MS) return fallback;
   return new Date(parsed).toISOString();

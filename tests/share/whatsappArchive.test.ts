@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
 import {
   MAX_COMPRESSION_RATIO,
+  MAX_ENTRIES,
   MAX_ENTRY_BYTES,
   readChatArchive,
 } from '../../lib/services/share/chatArchive.ts';
@@ -239,4 +240,21 @@ test('`_chat.txt` is preferred over another text file in the same archive', () =
     { name: '_chat.txt', data: encoder.encode(IOS_ENGLISH) },
   ]);
   assert.equal(readChatArchive(archive).text, IOS_ENGLISH);
+});
+
+/**
+ * An entry-count bomb is refused from the end-of-central-directory record.
+ *
+ * Ten thousand attachments cost a megabyte of archive and nothing else — none
+ * is ever inflated — but a central directory is walked entry by entry, and the
+ * cap is what keeps that walk bounded by something other than the 25 MB body
+ * limit. Measured for #400: the refusal reads one 16-bit field, no entry.
+ */
+test('an archive with more entries than a chat export could have is refused before its directory is walked', () => {
+  const entries = [{ name: '_chat.txt', data: encoder.encode(IOS_ENGLISH) }];
+  for (let index = 0; index < MAX_ENTRIES + 1; index += 1) entries.push({ name: `IMG-${index}.jpg`, data: JPEG });
+  assert.equal(reasonOf(() => readChatArchive(buildZip(entries))), 'archive_too_many_entries');
+  // The boundary is real: exactly the cap still parses.
+  const atCap = entries.slice(0, MAX_ENTRIES);
+  assert.equal(readChatArchive(buildZip(atCap)).mediaEntries, MAX_ENTRIES - 1);
 });

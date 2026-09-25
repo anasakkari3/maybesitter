@@ -10,6 +10,7 @@ import {
   type KnownExternalTaskProviderKind,
 } from '../../../src/contracts/v1/externalTaskContracts';
 import type { IntegrationProviderIdentity } from '../../../src/contracts/v1/integrationConnectionContracts';
+import { compareByCodePoint } from '../../planning/shared/compare';
 
 export interface ExternalTaskProviderPayload {
   readonly provider: KnownExternalTaskProviderKind;
@@ -47,7 +48,7 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (value !== null && typeof value === 'object') {
     return `{${Object.entries(value)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareByCodePoint(left, right))
       .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
       .join(',')}}`;
   }

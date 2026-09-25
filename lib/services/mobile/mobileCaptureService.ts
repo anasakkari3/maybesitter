@@ -3,6 +3,7 @@ import type {
   CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
 import { createHash } from 'crypto';
+import { compareByCodePoint } from '../../planning/shared/compare';
 import {
   analyticsContextFrom,
   emitAnalyticsEvent,
@@ -111,7 +112,8 @@ function selectedIdsFrom(input: MobileConfirmInput): string[] {
  * order the client happened to collect them share a key rather than persisting
  * twice.
  */
-function idempotencyKeyFor(
+/** Exported for the host-locale probe in `tests/contract/persistedOutputLocale.test.ts`. */
+export function idempotencyKeyFor(
   proposalId: string,
   scopeId: string,
   selectedItemIds: string[],
@@ -120,7 +122,9 @@ function idempotencyKeyFor(
 ): string {
   if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
   const stableEdits = [...edits]
-    .sort((a, b) => a.itemId.localeCompare(b.itemId))
+    // Code-point order: the key is hashed and stored, and `localeCompare` would
+    // make it depend on the serving host's locale (#121).
+    .sort((a, b) => compareByCodePoint(a.itemId, b.itemId))
     .map((edit) => ({
       itemId: edit.itemId,
       ...(edit.title !== undefined ? { title: edit.title } : {}),

@@ -227,11 +227,13 @@ export async function listBackgroundActivityHistory(
     filtered = filtered.filter((i) => i.kind === options.kind);
   }
 
-  // Sort newest first by occurredAt, tie-broken deterministically on itemId
+  // Sort newest first by occurredAt, tie-broken deterministically on itemId.
+  // Code-unit order, not `localeCompare`: the list is truncated below, so a
+  // host-locale tie-break would decide which rows the user sees (#121).
   filtered.sort((left, right) => {
     const timeDiff = Date.parse(right.occurredAt) - Date.parse(left.occurredAt);
     if (timeDiff !== 0 && !Number.isNaN(timeDiff)) return timeDiff;
-    return left.itemId.localeCompare(right.itemId);
+    return left.itemId < right.itemId ? -1 : left.itemId > right.itemId ? 1 : 0;
   });
 
   const limit = boundedLimit(options.limit);
