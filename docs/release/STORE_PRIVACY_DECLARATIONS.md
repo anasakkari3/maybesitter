@@ -12,9 +12,12 @@ Those documents also have dated evidence; code and final release evidence take
 precedence. Production Clarity remains disabled in `mobile/eas.json`; the SDK
 is installed and its disclosure must be considered before enabling replay.
 
-This document does not establish console availability, submission, legal
-approval, or owner sign-off. #327 still requires an explicit owner decision
-for each data type and matching console forms through the store follow-up.
+The owner approved Privacy Policy v1.1 on 2026-09-25 as the description of the
+current product behavior and data practices. That policy names the FCM device
+token and the unlinked Crashlytics installation record. #327 therefore keeps
+both implemented types and pins the exact store declarations below. This does
+not establish console availability or submission; #331 carries these answers
+into the two store forms when the developer accounts exist.
 
 ---
 
@@ -45,18 +48,17 @@ answers must not be reused as current answers for features added since then.
 The old “dependencies missing” premise is superseded. No collection or
 manifest behavior is changed by this reconciliation.
 
-| Type | Current code evidence | Existing iOS app declaration (unchanged) | Remaining decision/evidence |
+| Type | Current code and SDK evidence | Owner-approved iOS declaration | Store follow-up |
 |---|---|---|---|
-| Device ID | `@react-native-firebase/messaging` is installed and configured. In API mode, `registerDeviceForPush` sends the FCM token and persistent installation ID to `/api/mobile/devices`, under the authenticated account. Registration reports permission state, including denied; it is not conditional on notification permission being granted. | `DeviceID`, linked, App Functionality, tracking false | Owner to record the declaration decision and reconcile both console forms with the release binary. The reason to remove it cannot be “the dependency is absent.” |
-| Crash data | Crashlytics is installed and configured. `firebase.json` enables native auto-collection; the JS initializer sets collection off in development and on otherwise. The wrapper allowlists attribute keys and breadcrumb names and does not call `setUserId`. | `CrashData`, not linked, App Functionality, tracking false | Owner to explicitly confirm purpose/linkage after reviewing the installed SDK's collection and the final release configuration, then match the console forms. |
+| Device ID | `@react-native-firebase/messaging` is installed and configured. In API mode, `registerDeviceForPush` sends the FCM token and persistent installation ID to `/api/mobile/devices`, under the authenticated account. FirebaseMessaging's bundled privacy manifest also declares Device ID for App Functionality. Because MaybeSitter stores the registration under the signed-in uid, the app-level answer is linked even though the SDK's own manifest is not linked. | **Keep:** `DeviceID`, linked, App Functionality, tracking false | Enter the same answer in App Store Connect and “Device or other IDs” in Play Data safety under #331. |
+| Crash data | Crashlytics is installed and configured. `firebase.json` enables native auto-collection; the JS initializer sets collection off in development and on otherwise. The wrapper allowlists attributes and breadcrumbs and never supplies a user id or account data. FirebaseCrashlytics' bundled privacy manifest declares Crash Data not linked, for App Functionality, with tracking false. | **Keep:** `CrashData`, not linked, App Functionality, tracking false | Enter the same answer in App Store Connect and “Crash logs” in Play Data safety under #331. |
 
-The absence of an app `setUserId` call is **not proof of anonymity or absence of
-SDK-generated identifiers**, nor does it independently establish the store's
-“not linked” answer. The existing `linked: false` value is reported above, not
-newly approved here. App wrapper tests cannot establish the native SDK's full
-payload or a final store declaration. `recordError` forwards the supplied
-Error; this reconciliation makes no new claim that every possible error
-payload has been inspected.
+The Crashlytics answer does not claim that the SDK creates no identifiers. It
+creates Crashlytics and Firebase installation identifiers, retains associated
+crash data for 90 days, and uses them to group reports. “Not linked” here means
+neither the app nor the SDK attaches those reports to the MaybeSitter account
+or another real-world identity. `recordError` still forwards the supplied
+Error; the wrapper's content controls remain part of the release review.
 
 Source checks: `mobile/package.json`, `mobile/app.config.ts`,
 `mobile/firebase.json`, `mobile/src/lib/crash.ts`,
@@ -130,9 +132,9 @@ status; consult the expansion delta and source.
 **Tracking: No**, for every type. There is no ATT prompt and no tracking
 domain, which the manifest already states.
 
-Current additions to reconcile (§2): Identifiers → Device ID and Diagnostics
-→ Crash Data. The app manifest declares the former linked and the latter not
-linked; this records existing values, not final owner approval.
+Approved additions (§2): Identifiers → Device ID (linked, App Functionality)
+and Diagnostics → Crash Data (not linked, App Functionality). Neither is used
+for tracking.
 
 ---
 
@@ -145,16 +147,16 @@ linked; this records existing values, not final owner approval.
 | User id | `UserID`, linked | Identifiers → User ID | Personal info → User IDs | **yes** |
 | Captures and commitments | `OtherUserContent`, linked | User Content → Other | App activity → Other UGC | **yes** |
 | Product interaction | `ProductInteraction`, linked, analytics | Usage Data → Product Interaction | App activity → App interactions | **yes, consent-gated** |
-| Device id (FCM / installation) | `DeviceID`, linked | Identifiers → Device ID; final answer pending | Device or other IDs; final answer pending | **yes — September 24**, §2 |
-| Crash data | `CrashData`, **not linked** (existing flag, not newly approved) | Diagnostics → Crash Data; linkage review pending | Crash logs; final answer pending | **yes — September 24**, §2 |
+| Device id (FCM / installation) | `DeviceID`, linked, App Functionality | Identifiers → Device ID, linked, App Functionality | Device or other IDs, collected for App functionality, not shared | **yes — September 24**, §2 |
+| Crash data | `CrashData`, **not linked**, App Functionality | Diagnostics → Crash Data, not linked, App Functionality | Crash logs, collected for App functionality, not shared | **yes — September 24**, §2 |
 | Photos / Files | absent | absent | absent | no — S3 #183 |
 | Calendar | absent | absent | absent | no — S3 #185/#186 |
 | Audio | absent | absent | absent | no, and not after #163 |
 | Location | absent | absent | absent | no |
 
 This is not a complete current-binary matrix: all other rows retain the dated
-baseline, including its absent/“no” entries. §2 supersedes the old missing-SDK
-blockers but does not satisfy #327 owner sign-off or console submission.
+baseline, including its absent/“no” entries. §2 satisfies #327's two owner
+decisions; console entry and final-binary reconciliation remain under #331.
 
 ---
 
@@ -206,7 +208,7 @@ therefore #158. The config test is the part that can run today; it checks what
 
 | Item | Required evidence / dependency |
 |---|---|
-| #327 final decision | Owner comment naming Device ID and Crash data outcomes; SDK linkage/purpose review, especially Crash data; matching declaration and console forms |
+| #327 decision | Complete: keep Device ID linked and Crash Data not linked; both App Functionality, tracking false. #331 owns matching console entry. |
 | Submitting either declaration | Authenticated store access and completed account prerequisites (#158), current release inventory and owner-approved answers; repository text is not submission evidence |
 | Public deletion/privacy URLs | Domain and published legal pages (#137 / #333); verify actual URLs, not placeholders |
 | Expansion and replay declarations | Reconcile the expansion delta, Clarity policy, enabled release configuration, and archived binary; do not reuse historical feature deferrals above |
