@@ -127,6 +127,19 @@ test('V03 intake: cells that look like direct identifiers are rejected', () => {
   assert.equal(result.rows.length, 0);
 });
 
+test('V03 intake: a phone number is a direct identifier in every digit script (#401)', () => {
+  // `\d` is ASCII-only. A tracker filled in on an Arabic-locale machine writes
+  // «+٩٧٢٥٤١٢٣٤٥٦٧», and the cell passed while «+972541234567» was refused.
+  for (const phone of ['+972541234567', '+٩٧٢٥٤١٢٣٤٥٦٧', '+۹۷۲۵۴۱۲۳۴۵۶۷']) {
+    const result = parseInterviewTracker(interviewCsv([interviewLine(1, { primary_coder: phone })]));
+    assert.ok(result.issues.some((issue) => /direct identifier/.test(issue.message)), `${phone}: ${JSON.stringify(result.issues)}`);
+    assert.equal(result.rows.length, 0, phone);
+  }
+  // A pseudonymous code with a short digit run is not a phone number.
+  const clean = parseInterviewTracker(interviewCsv([interviewLine(1, { primary_coder: 'coder-٠١٢' })]));
+  assert.ok(!clean.issues.some((issue) => /direct identifier/.test(issue.message)), JSON.stringify(clean.issues));
+});
+
 test('V03 intake: consent, adult confirmation, and cohort eligibility are required to code an interview', () => {
   const missingConsent = parseInterviewTracker(interviewCsv([interviewLine(1, { research_consent_recorded: 'no' })]));
   assert.ok(missingConsent.issues.some((issue) => /research consent must be recorded/.test(issue.message)));

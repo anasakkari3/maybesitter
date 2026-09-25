@@ -225,8 +225,11 @@ export function validateExtractionResult(
   }
   const lowerRawText = rawText.toLowerCase();
   const rawTextHasNegatedReminder =
-    /\b(don't|dont|do not|not)\s+(remind|remember|bug)\b/.test(lowerRawText) ||
-    /\b(remind me|remember to|bug me)\s+not\b/.test(lowerRawText);
+    /\b(don't|dont|do not|not|never|no need to|stop)\s+(remind|remember|bug|schedule|add|create|notify)\b/.test(lowerRawText) ||
+    /\b(remind me|remember to|bug me)\s+not\b/.test(lowerRawText) ||
+    /(?:תזכיר לי|תזכירי לי|ذكرني|ذكريني|remind me)\s+not\b/.test(lowerRawText) ||
+    /(لا تذكرني|لا تذكريني|ما تذكرني|ما تذكريني|بلا تذكير|مش بدي تذكير|ما بدي تذكير|ما بديش تذكير|بطل تذكرني|بطلي تذكريني)/.test(lowerRawText) ||
+    /(אל תזכיר לי|אל תזכירי לי|לא צריך להזכיר|תפסיק להזכיר|תפסיקי להזכיר)/.test(lowerRawText);
 
   // ── type ─────────────────────────────────────────────────────────────────
   const type = stringOrNull(raw['type']) as ExtractionType | null;

@@ -149,7 +149,11 @@ const EXPLICIT_SCHEDULING = new RegExp([
  * cannot turn a prompt injection into a stored sentence the user then sees
  * offered back as their own intent.
  */
-const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|policy)|(?:system|developer)\s*:/i;
+const INJECTION = new RegExp([
+  /(?:ignore|disregard|override).{0,40}(?:instruction|system|policy)|(?:system|developer)\s*:/.source,
+  /(?:[أاتني]?تجاهل|انس|تجاوز).{0,40}(?:التعليمات|التوجيهات|البرومبت|أوامر|النظام(?!\s+(?:الغذائي|الصحي|القديم)))/.source,
+  /(?:התעלם|תתעלם|להתעלם|עקוף).{0,40}(?:הוראות|מערכת)/.source,
+].join('|'), 'i');
 
 /** What the detector found: a kind, and nothing else. */
 export interface UnresolvedIntentReading {

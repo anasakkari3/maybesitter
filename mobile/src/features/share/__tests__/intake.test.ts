@@ -208,6 +208,17 @@ describe('where it came from', () => {
     expect(sourceHintFor([], 'Call the dentist tomorrow')).toBe('unknown');
   });
 
+  it('reads the header an Arabic-locale iPhone writes, in Arabic-Indic digits (#401)', () => {
+    // `\d` is ASCII-only, so «[١٢/٠٨/٢٠٢٦، ١٤:٠٣:١١]» was read as plain text
+    // while the same export in ASCII digits was WhatsApp. The server's parser
+    // reads all three digit scripts; the hint has to agree with it.
+    expect(sourceHintFor([], '[١٢/٠٨/٢٠٢٦، ١٤:٠٣:١١] دانا: بشوفك الساعة ٦')).toBe('whatsapp');
+    expect(sourceHintFor([], '[۱۲/۰۸/۲۰۲۶, ۱۴:۰۳:۱۱] دانا: بشوفك الساعة ٦')).toBe('whatsapp');
+    expect(sourceHintFor([], '[12/08/2026, 14:03:11] דנה: נתראה בשש')).toBe('whatsapp');
+    // A date-less Arabic sentence with digits in it is not an export.
+    expect(sourceHintFor([], 'اتصل بالبنك بكرا الساعة ٦')).toBe('unknown');
+  });
+
   it('reads the shape of an email out of shared text with no file at all (#192)', () => {
     // A selection out of Gmail or Apple Mail arrives as bare text: no file, no
     // name, nothing to read but the shape. `emailTextDetector.ts` decides, and

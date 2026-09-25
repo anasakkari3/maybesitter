@@ -317,7 +317,9 @@ const CODER_ID = /^[a-z0-9][a-z0-9_-]{1,31}$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const EVIDENCE_REF = /^research:\/\/[a-z0-9/_-]+$/;
 /** Anything that looks like a direct identifier must never reach a tracker cell. */
-const FORBIDDEN_VALUE = /@|\+\d{6,}|\bhttps?:\/\//i;
+// `\d` is ASCII-only: a phone number written «+٩٧٢٥٤...» in Arabic-Indic or
+// Persian digits is still a direct identifier, and it passed (#401).
+const FORBIDDEN_VALUE = /@|\+[\d٠-٩۰-۹]{6,}|\bhttps?:\/\//i;
 
 /** RFC 4180 subset: quoted fields, doubled quotes inside them, CRLF or LF line endings. */
 export function parseCsv(text: string): string[][] {

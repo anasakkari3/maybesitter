@@ -99,6 +99,26 @@ test('extraction: temporal detection for الساعة', () => {
   assert.equal(candidates[0].temporal!.precision, 'exact');
 });
 
+test('extraction: temporal detection for الساعة with Arabic-Indic digits (#401)', () => {
+  const candidates = extractCandidatesRuleBased('خلص الخميس الساعة ٧', { now });
+  assert.ok(candidates[0].temporal);
+  assert.equal(candidates[0].temporal!.rawText, 'الساعة ٧');
+  assert.equal(candidates[0].temporal!.precision, 'exact');
+
+  const innocent = extractCandidatesRuleBased('الساعة كبيرة كتير', { now });
+  assert.equal(innocent[0]?.temporal, undefined);
+});
+
+test('extraction: temporal detection for בשעה with Hebrew and non-ASCII digits (#401)', () => {
+  const candidates = extractCandidatesRuleBased('בטוח בשעה ٧', { now });
+  assert.ok(candidates[0].temporal);
+  assert.equal(candidates[0].temporal!.rawText, 'בשעה ٧');
+  assert.equal(candidates[0].temporal!.precision, 'exact');
+
+  const innocent = extractCandidatesRuleBased('בשעה טובה ומוצלחת', { now });
+  assert.equal(innocent[0]?.temporal, undefined);
+});
+
 test('extraction: evidence span covers full text', () => {
   const text = 'يمكن أزور خالي';
   const candidates = extractCandidatesRuleBased(text, { now });

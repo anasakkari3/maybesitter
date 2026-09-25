@@ -21,8 +21,13 @@ export class NegatedRequestError extends Error {
   }
 }
 
-const NEGATED_REQUEST =
-  /\b(?:don't|dont|do not|never|no need to)\s+(?:remind|remember|schedule|add|create|notify)\b/i;
+const NEGATED_REQUEST = new RegExp([
+  /\b(?:don't|dont|do not|never|no need to|stop)\s+(?:remind|remember|schedule|add|create|notify|bug)\b/.source,
+  /\b(?:remind me|remember to|bug me)\s+not\b/.source,
+  /(?:תזכיר לי|תזכירי לי|ذكرني|ذكريني|remind me)\s+not\b/.source,
+  /لا تذكرني|لا تذكريني|ما تذكرني|ما تذكريني|بلا تذكير|مش بدي تذكير|ما بدي تذكير|ما بديش تذكير|بطل تذكرني|بطلي تذكريني/.source,
+  /אל תזכיר לי|אל תזכירי לי|לא צריך להזכיר|תפסיק להזכיר|תפסיקי להזכיר/.source,
+].join('|'), 'i');
 
 type MobileExtractor = (
   rawText: string,
