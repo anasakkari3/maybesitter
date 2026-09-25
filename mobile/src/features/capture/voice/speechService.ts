@@ -46,6 +46,8 @@ export function SpeechEventBridge(): null {
   useSpeechRecognitionEvent('result', (event) => emit('result', event as SpeechRecognitionEventLike));
   useSpeechRecognitionEvent('error', (event) => emit('error', event as unknown as SpeechRecognitionEventLike));
   useSpeechRecognitionEvent('end', () => emit('end', {}));
+  // "Heard audio, recognised nothing": the service says so instead of going quiet.
+  useSpeechRecognitionEvent('nomatch', () => emit('nomatch', {}));
   return null;
 }
 
