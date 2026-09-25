@@ -18,6 +18,7 @@ import assert from 'node:assert/strict';
 import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { buildPrompt } from '../../src/extraction/ollamaExtractor.ts';
+import { stripCaptureCommand } from '../../src/extraction/captureCommand.ts';
 import { answerClarification, proposeCapture, MemoryCaptureProposalStore, TransactionalCapturePersistenceAdapter } from '../../lib/services/captureBoundary/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { ExtractionContext } from '../../src/extraction/extractionTypes.ts';
@@ -471,6 +472,14 @@ const VERB_IS_THE_TASK: ReadonlyArray<[string, string]> = [
   ['اكتب لي رسالة لأمي يوم الأحد', 'اكتب لي رسالة لأمي'],
   ['תרשום לי את הילד לחוג ביום ראשון', 'תרשום לי את הילד לחוג'],
   ['תזכיר לי את הילד לחוג ביום ראשון', 'תזכיר לי את הילד לחוג'],
+  // Fix round 4 (C-2): a noun that starts with ש is not the subordinator.
+  // («חשוב» at the end is read as the importance, so the rules row uses another noun.)
+  ['תרשום לי שיעור פסנתר ביום ראשון', 'תרשום לי שיעור פסנתר'],
+  ['תרשום לי שיחה עם דני ביום ראשון', 'תרשום לי שיחה עם דני'],
+  ['תרשום לי שולחן חדש ביום ראשון', 'תרשום לי שולחן חדש'],
+  ['תרשום לי שמלה לחתונה ביום ראשון', 'תרשום לי שמלה לחתונה'],
+  ['תזכיר לי שיעורי בית ביום ראשון', 'שיעורי בית'],
+  ['תרשום לי שכירות הדירה ביום ראשון', 'תרשום לי שכירות הדירה'],
   ['سجّل بالنادي يوم الأحد', 'سجّل بالنادي'],
   ['سجل في دورة السباحة يوم الأحد', 'سجل في دورة السباحة'],
   ['اكتب التقرير يوم الأحد', 'اكتب التقرير'],
@@ -539,3 +548,43 @@ test('no Hebrew title starts with the object marker «את»', () => {
     assert.doesNotMatch(extract(text, context).title ?? '', /^את\s/, text);
   }
 });
+
+// ── Fix round 4 (C-2): «ש» comes off only as a subordinator ────────────
+
+const HE_S_NOUNS: readonly string[] = [
+  'תרשום לי שיעור חשוב',
+  'תרשום לי שיחה עם דני',
+  'תרשום לי שולחן חדש',
+  'תרשום לי שמלה לחתונה',
+  'תזכיר לי שיעורי בית',
+  'תרשום לי שכירות הדירה',
+];
+
+for (const title of HE_S_NOUNS) {
+  test(`command strip: «${title}» is not cut into a non-word`, () => {
+    assert.equal(stripCaptureCommand(title), title);
+    // The rules path keeps the ש-word whole too: never «יעור», «ולחן».
+    const noun = title.split(' ')[2]!;
+    assert.ok((extract(`${title} ביום ראשון`, context).title ?? '').split(' ').includes(noun), noun);
+    const model = validateExtractionResult(
+      { ...modelSays('normal', 'default', null), title, action: title },
+      `${title} ביום ראשון`,
+      context,
+    );
+    assert.equal(model.title, title);
+  });
+}
+
+const HE_CLAUSES: ReadonlyArray<[string, string]> = [
+  ['תרשום לי: שיעור חשוב', 'שיעור חשוב'],
+  ['תרשום לי שיש תור לרופא', 'יש תור לרופא'],
+  ['תזכיר לי שאני צריך להתקשר לדני', 'אני צריך להתקשר לדני'],
+  ['תזכיר לי שמחר יש מבחן', 'מחר יש מבחן'],
+  ['תרשום לי שצריך לשלם ארנונה', 'צריך לשלם ארנונה'],
+];
+
+for (const [title, rest] of HE_CLAUSES) {
+  test(`command strip: «${title}» → «${rest}»`, () => {
+    assert.equal(stripCaptureCommand(title), rest);
+  });
+}

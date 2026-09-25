@@ -18,7 +18,8 @@
  *       priority lexicon («دكتور», «امتحان», «مقابلة», «اجتماع»…), «عندي», or
  *       a first-person clause «إني/انو/إنه …» (the conjunction goes too);
  *   en  "remind me to/about/of …", "note: …", "add: …";
- *   he  «תזכיר לי ש…/ל…», «תרשום לי ש…», «תרשום לי: …», and «תרשום לי» or
+ *   he  «תזכיר לי ש…/ל…», «תרשום לי ש…» (ש only before a clause opener —
+ *       «שיש», «שאני», «שמחר» — never off a noun like «שיעור»), «תרשום לי: …», and «תרשום לי» or
  *       «תזכיר לי» before an appointment noun («תור», «פגישה», «מבחן»…).
  *
  * Everything else keeps its verb. A Hebrew title never starts with «את» (the
@@ -35,13 +36,23 @@ const AR_VERB = '(?:سجّل|سجل|سجّلي|سجلي|ذكّرني|ذكرني|
 const AR_COMMITMENT = '(?:و?(?:ال)?(?:موعد|موعدي|تذكير|ملاحظة|ملاحظه|دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى|امتحان|إمتحان|مقابلة|مقابله|طيارة|طيارتي|طيران|محكمة|محكمه|جلسة|اجتماع|فحص|تحليل)|عندي)';
 const AR_FIRST_PERSON = '(?:إنّي|إني|اني|إنه|إنّه|انه|انو|إنو|إنّو)';
 
+/**
+ * What may follow the subordinator «ש-» for it to be one (fix round 4, C-2).
+ *
+ * `ש(?=\\S)` took the ש off any word that starts with one: «תרשום לי שיעור
+ * חשוב» became «יעור חשוב», «שיחה» «יחה», «שולחן» «ולחן». ש is a prefix only
+ * when what is left is a closed-class word that opens a clause — a pronoun,
+ * יש/אין, a modal, a time word. Anything else keeps the whole title.
+ */
+const HE_CLAUSE_OPENER = '(?:יש|אין|אני|אתה|את|הוא|היא|אנחנו|אתם|אתן|הם|הן|צריך|צריכה|צריכים|צריכות|חייב|חייבת|חייבים|מחר|מחרתיים|היום|הערב|ביום|בשבוע|בעוד|יהיה|תהיה|יהיו|לא)';
+
 const COMMANDS: readonly RegExp[] = [
   // «سجّل إني …» — the conjunction goes with the verb.
   new RegExp(`^\\s*${AR_VERB}${A}\\s*[:،,]?\\s*${AR_FIRST_PERSON}${A}\\s*`, 'u'),
   // «سجّل موعد …» — only the verb goes; the commitment is the title.
   new RegExp(`^\\s*${AR_VERB}${A}\\s*[:،,]?\\s*(?=${AR_COMMITMENT}${A})`, 'u'),
   /^\s*(?:please\s+)?(?:remind\s+me\s+(?:to|about|of)\s+|note\s*:\s*|add\s*:\s*)/i,
-  new RegExp(`^\\s*(?:תזכיר|תזכירי|תרשום|תרשמי)\\s+לי\\s*(?::\\s*|ש(?=\\S)|(?=ל\\S)|\\s(?=(?:תור|פגישה|מבחן|בחינה|ראיון|טיסה|דיון)${A}))`, 'u'),
+  new RegExp(`^\\s*(?:תזכיר|תזכירי|תרשום|תרשמי)\\s+לי\\s*(?::\\s*|\\s?ש(?=${HE_CLAUSE_OPENER}${A})|(?=ל\\S)|\\s(?=(?:תור|פגישה|מבחן|בחינה|ראיון|טיסה|דיון)${A}))`, 'u'),
 ];
 
 /** Spaces and punctuation, which do not count as "more content". */
