@@ -61,6 +61,7 @@ import {
   type CoachingDefect,
   type CoachingOutput,
 } from '../../../src/contracts/v1/coachingContracts';
+import { matchingVariants, normalizeForComparison } from '../../../src/contracts/v1/safetyContracts';
 
 /**
  * The shortest identifier this scan will look for.
@@ -130,14 +131,26 @@ function escapeForPattern(value: string): string {
  */
 export function containsToken(text: string, word: string): boolean {
   if (typeof text !== 'string' || typeof word !== 'string' || word.length === 0) return false;
+  // Both sides are folded the way `lib/safety`'s `matchesAny` folds its input
+  // (#617): NFKC, format characters, case and whitespace. Tested raw, a
+  // fullwidth `ｔｒａｃｋｉｎｇ` or a `tra<U+200B>cking` read as clean while a
+  // person read the forbidden word. The word is folded too, so a lexicon entry
+  // typed with a no-break space or a compatibility form still matches prose.
+  const needle = normalizeForComparison(word);
+  if (needle.length === 0) return false;
   // Anchored at **both** ends. The right-open form caught bare stems and also
   // fired on `shameless`, `logician`, `storefront`, `notebook`. The list spells
   // every inflection instead, so nothing is lost by closing this.
   const pattern = new RegExp(
-    `(^|[^\\p{L}\\p{N}])${escapeForPattern(word)}([^\\p{L}\\p{N}]|$)`,
+    `(^|[^\\p{L}\\p{N}])${escapeForPattern(needle)}([^\\p{L}\\p{N}]|$)`,
     'iu',
   );
-  return pattern.test(text);
+  // Every variant, because a format character removed and one replaced by a
+  // space leave different bypasses — `safetyContracts` records the two cases.
+  for (const variant of matchingVariants(text)) {
+    if (pattern.test(variant)) return true;
+  }
+  return false;
 }
 
 /**

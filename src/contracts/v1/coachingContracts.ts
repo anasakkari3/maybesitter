@@ -1352,13 +1352,13 @@ export const COACHING_FORBIDDEN_LANGUAGE = Object.freeze({
     'create', 'creates', 'created', 'creating',
     'schedule', 'schedules', 'scheduled', 'scheduling',
     'remind', 'reminds', 'reminded', 'reminding', 'reminder', 'reminders',
-    'track', 'tracks', 'tracked', 'tracking',
+    'track', 'tracks', 'tracked', 'tracking', 'tracker', 'trackers',
     'log', 'logs', 'logged', 'logging',
     'note', 'notes', 'noted', 'noting',
     'monitor', 'monitors', 'monitored', 'monitoring',
     'watch', 'watches', 'watched', 'watching',
     'record', 'records', 'recorded', 'recording',
-    'store', 'stores', 'stored', 'storing',
+    'store', 'stores', 'stored', 'storing', 'storage',
     'keep an eye', 'keeps an eye', 'keeping an eye',
     // No `keep track` family: the word `track` already catches every one of
     // them under closed matching, and #37's per-word sweep reports a masked

@@ -139,6 +139,7 @@ import {
   type Recommendation,
   type SupportReason,
 } from '../../../src/contracts/v1/recommendationContracts';
+import { matchingVariants, normalizeForComparison } from '../../../src/contracts/v1/safetyContracts';
 import { compareByCodePoint } from '../../planning/shared/compare';
 
 export const COACHING_RUBRIC_VERSION = '1.0.0' as const;
@@ -928,9 +929,17 @@ export function affixVariants(locale: CoachingLocale, phrase: string): readonly 
  */
 export function matchesPhrase(text: unknown, phrase: string): boolean {
   if (typeof text !== 'string' || typeof phrase !== 'string') return false;
-  const foldedPhrase = fold(phrase);
+  // Both sides are folded the way `lib/safety`'s `matchesAny` folds its input
+  // (#617) before the word-run fold: NFKC, format characters, case and
+  // whitespace. A fullwidth or zero-width-split spelling otherwise read as
+  // clean here exactly as it did in #38's `containsToken`.
+  const foldedPhrase = fold(normalizeForComparison(phrase));
   if (foldedPhrase.trim().length === 0) return false;
-  return fold(text).includes(foldedPhrase);
+  const variants = matchingVariants(text);
+  for (let index = 0; index < variants.length; index += 1) {
+    if (fold(variants[index]).includes(foldedPhrase)) return true;
+  }
+  return false;
 }
 
 /**

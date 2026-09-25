@@ -307,6 +307,18 @@ test('phrase matching is word-anchored, not a substring scan', () => {
   assert.equal(matchesPhrase('כרגע', 'כרגיל'), false);
 });
 
+test('phrase matching folds the text the way the safety gateway does (#617)', () => {
+  // The rubric had its own copy of the word matcher and it carried the same
+  // defect as #38's: a fullwidth or zero-width-split spelling read as clean.
+  assert.equal(matchesPhrase('I am ｔｒａｃｋｉｎｇ that one.', 'tracking'), true, 'fullwidth letters must fold to the listed word');
+  assert.equal(matchesPhrase('I am tra​cking that one.', 'tracking'), true, 'a zero-width space inside the word must not hide it');
+  assert.equal(matchesPhrase('I keep tabs on it.', 'keep tabs'), true, 'the stored phrase is folded as well as the text');
+  assert.deepEqual(matchedPhrases('en', 'I have set up a tracker for that.', PERSISTENCE_LEXICON.en), ['tracker']);
+  assert.deepEqual(matchedPhrases('en', 'That is in storage now.', PERSISTENCE_LEXICON.en), ['storage']);
+  // Folding must not reopen the word boundary.
+  assert.equal(matchesPhrase('The ｓｔｏｒｅｆｒｏｎｔ is open.', 'store'), false);
+});
+
 test('phrase matching is total: no input shape raises', () => {
   assert.equal(matchesPhrase(null, 'lazy'), false);
   assert.equal(matchesPhrase(42, 'lazy'), false);
