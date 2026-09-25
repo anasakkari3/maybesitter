@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
@@ -476,12 +476,6 @@ export function useProposeFromShare() {
 }
 
 /**
- * The confirm.
- *
- * The idempotency key is minted here, once per call, from `expo-crypto`. It is
- * not retried and not queued: see `queryClient.ts` for why.
- */
-/**
  * Answers one clarification (UC-2.5, #165).
  *
  * Not retried, like the confirm: an answer is a decision about a commitment,
@@ -495,15 +489,51 @@ export function useClarifyCapture() {
   });
 }
 
+type ConfirmInput = {
+  proposalId: string;
+  itemIds: string[];
+  edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
+};
+
+/**
+ * What one confirm *means*: the proposal, the selection and the edits, in an
+ * order that does not depend on how the screen collected them.
+ */
+export function confirmIntent(input: ConfirmInput): string {
+  const edits = [...(input.edits ?? [])]
+    .sort((a, b) => a.itemId.localeCompare(b.itemId))
+    .map(edit => [edit.itemId, edit.title ?? null, edit.resolvedTime === undefined ? '∅' : edit.resolvedTime, edit.priority ?? null]);
+  return JSON.stringify([input.proposalId, [...input.itemIds].sort(), edits]);
+}
+
+/**
+ * The confirm.
+ *
+ * The idempotency key is minted from `expo-crypto` once per *intent*, not per
+ * press. A confirm the server committed but whose answer never arrived (a
+ * client timeout) is pressed again by the person; a new key made that second
+ * press a different request, and the server — which had already recorded the
+ * first — refused it, so a save that worked was reported as failed. The same
+ * proposal, selection and edits reuse the key and get the first result back;
+ * a changed selection or edit is a new intent and gets a new key (#164).
+ *
+ * It is still never retried automatically and never queued: see
+ * `queryClient.ts` for why. The key only makes the person's own retry safe.
+ */
 export function useConfirmCapture() {
   const client = useQueryClient();
   const uid = useUid();
+  const keys = useRef(new Map<string, string>());
   return useMutation({
-    mutationFn: (input: {
-      proposalId: string;
-      itemIds: string[];
-      edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
-    }) => confirmCapture({ ...input, idempotencyKey: Crypto.randomUUID() }),
+    mutationFn: (input: ConfirmInput) => {
+      const intent = confirmIntent(input);
+      let idempotencyKey = keys.current.get(intent);
+      if (!idempotencyKey) {
+        idempotencyKey = Crypto.randomUUID();
+        keys.current.set(intent, idempotencyKey);
+      }
+      return confirmCapture({ ...input, idempotencyKey });
+    },
     onSuccess: () => invalidateCommitments(client, uid),
   });
 }
