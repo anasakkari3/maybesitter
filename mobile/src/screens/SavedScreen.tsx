@@ -85,7 +85,7 @@ export function SavedScreen() {
           </Txt>
           {!fully ? (
             <Txt size={14} color={p.mu} align="center" testID="saved-undo-partial">
-              {fill(t.undonePartialBody, { titles: stillSavedTitles.join('، ') })}
+              {fill(t.undonePartialBody, { titles: stillSavedTitles.join(lang === 'ar' ? '، ' : ', ') })}
             </Txt>
           ) : null}
         </ScrollView>
