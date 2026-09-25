@@ -15,19 +15,17 @@
 <body>
 <header>
   <h1>Privacy Policy</h1>
-  <p class="meta">Version 1.0 · Effective {{EFFECTIVE_DATE}}</p>
+  <p class="meta">Version 1.1 DRAFT · Effective date pending: {{EFFECTIVE_DATE}}</p>
 </header>
 
 <main>
+  <p class="callout">Draft for owner and legal review. Not approved for publication; Hebrew language review is also pending.</p>
   <p class="lede">
     MaybeSitter is a planner and reminders app. It keeps the commitments you confirm and reminds
     you before they are due, when notifications are enabled. This policy explains, service by service, what we collect, why, where it
     is stored and how to get rid of it.
   </p>
-  <p>
-    Two things are true everywhere in this document: your data is stored in the European Union,
-    and a commitment you capture is saved to your account only after you confirm it.
-  </p>
+  <p>A captured commitment becomes a commitment in your account only after confirmation. Temporary capture proposals are stored while you review them and have an expiry; this is separate from confirming a commitment.</p>
 
   <h2>Who we are</h2>
   <p>
@@ -75,19 +73,7 @@
   </p>
 
   <h2>Vertex AI Gemini</h2>
-  <p>
-    Some features use Google's Gemini models through Vertex AI: turning what you captured into
-    a clear commitment, suggesting a sensible time, and understanding content you share.
-  </p>
-  <p>
-    Capture text, transcripts and shared content are sent to Gemini <strong>only after you give
-    AI consent inside the app</strong>. Google acts as our processor for these requests, and the
-    data is not used to train Google's models.
-  </p>
-  <p>
-    You can withdraw AI consent at any time in the Trust Center. MaybeSitter then falls back to
-    on-device rules, which are simpler but send nothing to a model.
-  </p>
+  <p>Cloud AI processing depends on the build and server configuration and your AI consent. The production deployment configuration currently disables the Gemini provider. Where enabled, capture text (including text transcribed from speech or shared for capture) and optional self-description text used by those AI features are sent through Google Cloud Vertex AI after consent. Withdrawing consent prevents subsequent model requests. Capture can use a deterministic server-side fallback; this does not mean all processing happens on your device.</p>
 
   <h2>Speech</h2>
   <p>
@@ -104,10 +90,7 @@
   <p>MaybeSitter can look at your calendar so it does not remind you in the middle of something.</p>
 
   <h3>Device calendars</h3>
-  <p>
-    Device calendars are read as busy time only. We read when you are busy, not what you are
-    doing.
-  </p>
+  <p>With your permission, the device calendar API returns event data locally. The app filters out titles, notes, locations and attendees before uploading busy intervals. It can also write and update commitments you choose to sync to a selected device calendar.</p>
 
   <h3>Google Calendar</h3>
   <p>If you connect Google Calendar, MaybeSitter requests exactly two scopes:</p>
@@ -143,32 +126,16 @@
   </p>
 
   <h2>Share to MaybeSitter</h2>
-  <p>
-    You can share text, a link or a screenshot from another app into MaybeSitter. That content is
-    processed only at the moment you share it.
-  </p>
-  <p>
-    We treat shared content as untrusted: instructions embedded in it are never followed as
-    commands. Nothing from a share is saved to your account until you confirm it.
-  </p>
+  <p>Shared content is treated as untrusted input. Reviewing a share can create a temporary stored proposal; a commitment is created only after you confirm it.</p>
 
   <h2>FCM</h2>
-  <p>
-    Reminders are delivered through Firebase Cloud Messaging. For this we store one push token
-    per device. The token is used to deliver your reminders and for nothing else — no marketing,
-    no third-party messages. Removing the app or signing out invalidates the token.
-  </p>
+  <p>Reminders use Firebase Cloud Messaging. Device registration stores a push token, an installation ID and notification permission state under your account. Sign-out attempts to deregister the device and delete its push token; this can fail and is not a guarantee of immediate provider-side invalidation. Uninstalling the app does not guarantee immediate removal of its server registration.</p>
 
   <h2>Crashlytics</h2>
-  <p>
-    When the app crashes, Firebase Crashlytics sends us the crash trace, your device model, the
-    OS version and a random installation ID. This is not linked to your account and is kept for
-    90 days.
-  </p>
-  <p>
-    Crash reporting is on in released versions of the app. It is separate from analytics: the
-    analytics setting below does not switch it on or off.
-  </p>
+  <p>The app does not explicitly attach an account ID to Crashlytics reports, but SDK installation identifiers and device metadata exist. <a href="https://firebase.google.com/support/privacy">Firebase states</a> that crash data and associated identifiers are retained for 90 days before removal from live and backup systems begins. This is not a guarantee that removal is complete on day 90. Deleting your MaybeSitter account does not itself delete these reports.</p>
+  <h2>Optional Microsoft Clarity replay</h2>
+  <p>Production recording is currently disabled. In enabled builds, recording requires a separate opt-in for the current signed-in session; analytics consent does not enable it. Clarity receives masked screen layout, taps, navigation and SDK device/session metadata. Text and images are masked, and WebView recording is disabled. Revoking consent stops future capture. Deleting your MaybeSitter account does not delete recordings already uploaded to Clarity.</p>
+  <p>Production replay must remain disabled until the owner approves and publishes its retention period and deletion-request process. These decisions are still pending; this draft does not promise a retention period.</p>
 
   <h2>Analytics</h2>
   <p>
@@ -213,11 +180,12 @@
     <li>In the app, under Settings.</li>
     <li>On the web, at <code>maybesitter.com/en/delete-account</code>.</li>
   </ul>
-  <p>
-    Deletion removes your account and your content. It is completed within 30 days, and backup
-    copies expire within 30 days of that. Deletion is permanent; we cannot restore a deleted
-    account.
-  </p>
+  <p>Account deletion removes the live account and its content, subject to completion of the deletion steps. Retained proof records, recovery data and external-provider handling are explained on the <a href="/en/delete-account">deletion page</a>. A completed deletion cannot be undone.</p>
+
+  <p>After account deletion, a pseudonymous deletion receipt is marked for expiry after 400 days and a deletion-job record after 30 days. These configured expiry periods are not a guarantee of the exact purge time. They retain a keyed hash rather than your raw account ID; the completed job no longer contains your UID. These records support proof of deletion and safe repeat requests.</p>
+
+  <p>An incomplete or stuck deletion job can still contain the account UID so the deletion can be resumed. Completed jobs receive a 30-day expiry timestamp. Firestore TTL for that field was verified active in production on 25 September 2026; deletion after expiry is asynchronous, not a guarantee of removal exactly on day 30.</p>
+  <p>Early-access website registrations are separate from an app account and are not automatically removed by account deletion. To request removal, use the contact route in the privacy policy.</p>
 
   <h2>Your rights</h2>
   <p>You have the right to:</p>
@@ -263,12 +231,8 @@
   </p>
 
   <h2>Changes to this policy</h2>
-  <p>
-    When this policy changes we update the version number and the effective date at the top of
-    this page. For any change that materially affects how we use your data, we notify you in the
-    app before it takes effect, and where the change requires it we ask for your consent again.
-  </p>
-  <p>This is version 1.0, effective {{EFFECTIVE_DATE}}.</p>
+  <p>This draft has not taken effect. The owner must approve its effective date and the method for notifying users of material changes before publication. An automatic in-app policy-change notice is not established by this draft.</p>
+  <p>Version 1.1 DRAFT · Effective date pending: {{EFFECTIVE_DATE}}</p>
 </main>
 
 <footer>

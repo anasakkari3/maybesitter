@@ -15,36 +15,19 @@
 <body>
 <header>
   <h1>Delete your account</h1>
-  <p class="meta">Effective {{EFFECTIVE_DATE}}</p>
+  <p class="meta">Version 1.1 DRAFT · Effective date pending: {{EFFECTIVE_DATE}}</p>
 </header>
 
 <main>
-  <p class="lede">
-    You can delete your MaybeSitter account and everything in it at any time, without asking
-    anyone. This page exists so you can find out how without installing the app.
-  </p>
+  <p class="callout">Draft for owner and legal review. Not approved for publication; Hebrew language review is also pending.</p>
+  <p class="lede">Account deletion removes the live account and its content, subject to completion of the deletion steps. Retained proof records, recovery data and external-provider handling are explained below. A completed deletion cannot be undone.</p>
 
   <h2>From inside the app</h2>
-  <p>
-    <strong>Settings → Trust centre → Delete my account.</strong> It asks you to confirm, then
-    deletes immediately and shows you a receipt with a reference you can keep.
-  </p>
-  <p>
-    If you signed in with Apple, this also revokes MaybeSitter's access to your Apple ID, so it
-    disappears from Settings → Apple ID → Sign in with Apple on your device.
-  </p>
+  <p>Start in Settings → Trust centre → Delete my account. After confirmation, the app requests account deletion. A completed request returns a receipt; interrupted requests can remain pending and require retry or operator follow-up.</p>
+  <p>Account deletion attempts to revoke external provider grants, including applicable Apple access. A revocation can fail while account deletion completes; its outcome is recorded on the receipt for follow-up.</p>
 
   <h2>If you no longer have the app</h2>
-  <p>
-    Email <a href="mailto:support@maybesitter.com">support@maybesitter.com</a> <strong>from the address you
-    signed in with</strong>, with the subject <em>Delete my MaybeSitter account</em>.
-  </p>
-  <p>
-    We reply from that address only, and we do it within 30 days. We ask you to write from the
-    signed-in address for one reason: it is how we know the request is yours. If you cannot,
-    tell us and we will find another way to check — we will not simply take your word for it,
-    because doing that for you means doing it for anyone who claims to be you.
-  </p>
+  <p>If you no longer have the app, email <a href="mailto:support@maybesitter.com">support@maybesitter.com</a> from the address you signed in with, requesting account deletion. Ownership must be verified before deletion. The operator monitors this mailbox and handles support, privacy and account/data deletion requests.</p>
 
   <h2>What is deleted</h2>
   <ul>
@@ -53,8 +36,7 @@
     <li>Everything MaybeSitter remembered about you: your routine answers and every memory
       fact, including the ones you edited.</li>
     <li>Your consents, your settings and your feedback history.</li>
-    <li>Any calendar data imported to your account, and the permission to read your calendar,
-      which is revoked.</li>
+    <li>Every calendar record imported into the account is included in account-data deletion. External grant revocation is attempted and its result is recorded.</li>
     <li>Your device's notification token.</li>
   </ul>
   <p>
@@ -62,19 +44,15 @@
     you — which is the point.
   </p>
 
-  <h2>What is not deleted, and for how long</h2>
+  <h2>Retained records and pending retention decisions</h2>
   <ul>
-    <li><strong>Encrypted backups, up to 30 days.</strong> They exist so a failure on our side
-      cannot lose everyone's data. They are overwritten on that cycle and are never read to
-      restore a deleted account.</li>
-    <li><strong>Crash reports, up to 90 days.</strong>
-      These are not linked to your identity — no account id is attached — so there is nothing
-      in them to find you by.</li>
+    <li>Production Firestore currently has a seven-day point-in-time recovery window. This is separate from deletion of the live account tree; it is not a promise that every external provider deletes its copies at the same time.</li>
+    <li>The app does not explicitly attach an account ID to Crashlytics reports, but SDK installation identifiers and device metadata exist. <a href="https://firebase.google.com/support/privacy">Firebase states</a> that crash data and associated identifiers are retained for 90 days before removal from live and backup systems begins. This is not a guarantee that removal is complete on day 90. Deleting your MaybeSitter account does not itself delete these reports.</li>
+    <li>After account deletion, a pseudonymous deletion receipt is marked for expiry after 400 days and a deletion-job record after 30 days. These configured expiry periods are not a guarantee of the exact purge time. They retain a keyed hash rather than your raw account ID; the completed job no longer contains your UID. These records support proof of deletion and safe repeat requests.</li>
+    <li>An incomplete or stuck deletion job can still contain the account UID so the deletion can be resumed. Completed jobs receive a 30-day expiry timestamp. Firestore TTL for that field was verified active in production on 25 September 2026; deletion after expiry is asynchronous, not a guarantee of removal exactly on day 30.</li>
+    <li>Early-access website registrations are separate from an app account and are not automatically removed by account deletion. To request removal, use the contact route in the privacy policy.</li>
+    <li>Production recording is currently disabled. In enabled builds, recording requires a separate opt-in for the current signed-in session; analytics consent does not enable it. Clarity receives masked screen layout, taps, navigation and SDK device/session metadata. Text and images are masked, and WebView recording is disabled. Revoking consent stops future capture. Deleting your MaybeSitter account does not delete recordings already uploaded to Clarity. Production replay must remain disabled until the owner approves and publishes its retention period and deletion-request process. These decisions are still pending; this draft does not promise a retention period.</li>
   </ul>
-  <p>
-    We are naming these because a deletion page that says "everything is gone" and quietly
-    keeps backups is the kind of accurate-sounding sentence nobody can check.
-  </p>
 
   <h2>Questions</h2>
   <p>
