@@ -24,7 +24,8 @@ site/
   {en,ar,he}/privacy.html        privacy policy
   {en,ar,he}/terms.html          terms of use
   {en,ar,he}/delete-account.html account and data deletion (#179)
-  styles.css                     shared stylesheet
+  styles.css                     landing-page compatibility stylesheet
+  legal.css                      published legal-page stylesheet
   landing.css  landing.js        landing pages only
   robots.txt  sitemap.xml        crawl hygiene (no programmatic SEO)
   check-links.sh                 verification script (HTTP and --local modes, claims scan)
@@ -50,8 +51,9 @@ early-access page deployed around 2026-09-13 from a local commit that never reac
 - counts page views and clicks through `/api/early-access/events`;
 - posts sign-ups to a Cloud Run endpoint that is not on `main` (see `SIGNUP_CONTRACT.md`).
 
-This folder is the canonical replacement. Deploying it is an owner action, blocked on the
-checklist below.
+This folder is the canonical source. The owner authorized publication of the
+English and Arabic legal and account-deletion pages on 2026-09-25. The Hebrew
+documents remain unpublished pending native linguistic review.
 
 ## Message test
 
@@ -69,26 +71,26 @@ link taps each platform reports are the denominator.
 
 ## Deploy checklist (owner)
 
-Do not deploy while any item is open:
+Before a full-site replacement, complete every item below. A scoped legal-page
+deployment may preserve the existing landing page and publish only approved files.
 
 1. **Sign-up endpoint** on `main` per `SIGNUP_CONTRACT.md` (backend). Without it the form
    cannot save anything.
 2. **Domain** bought and connected (#137); `{{DOMAIN}}` replaced.
 3. **Role aliases** `support@` and `privacy@` created; `{{SUPPORT_EMAIL}}` and
    `{{PRIVACY_EMAIL}}` replaced. No personal address, ever.
-4. `{{LEGAL_NAME}}` and `{{EFFECTIVE_DATE}}` decided.
+4. `{{LEGAL_NAME}}` and the effective date decided for every published locale.
 5. **Hebrew native review** of `he/index.html` and the new Hebrew privacy paragraphs (#335).
    The landing page carries a `NATIVE-REVIEW-REQUIRED` comment until then.
-6. `./check-links.sh --local` passes and `git grep '{{' -- site/` is empty.
+6. `./check-links.sh --local` passes and no placeholder appears in a published file.
 
 Deploying replaces the live page, which also removes the personal address from it.
 
 ## Before you publish: fill in the placeholders
 
-The pages contain five literal tokens — `{{DOMAIN}}`, `{{LEGAL_NAME}}`,
-`{{SUPPORT_EMAIL}}`, `{{PRIVACY_EMAIL}}` and `{{EFFECTIVE_DATE}}`. **The site is not
-publishable until they are replaced.** See [PLACEHOLDERS.md](PLACEHOLDERS.md) for what each
-one means, where it appears, and a one-liner that replaces them all.
+The domain, operator name, contact addresses and English/Arabic effective date
+are resolved. `{{EFFECTIVE_DATE}}` remains only in the unpublished Hebrew legal
+documents. See [PLACEHOLDERS.md](PLACEHOLDERS.md).
 
 Check none are left:
 
@@ -155,12 +157,11 @@ Google Workspace mailbox; recipient-level delivery logs verified both on
 2026-09-25. Preserve the existing Google Workspace MX and SPF records; do not
 replace them with Cloudflare Email Routing. See [PLACEHOLDERS.md](PLACEHOLDERS.md).
 
-The default Firebase site already serves an older early-access release. A full
-`firebase deploy --only hosting` from this checkout would replace that live site.
-Before any public deployment, prepare and review the exact asset/config diff,
-preserve its early-access form and `/api/early-access/events` route, and obtain
-owner approval for the publication. Neither the domain purchase nor a code merge
-constitutes policy approval. Do not bind an unfinished legal draft to the domain.
+The default Firebase site already serves an older early-access release. A scoped
+deployment must preserve that landing page, its early-access form and both
+early-access API routes. The owner approved publication of the English and Arabic
+legal documents on 2026-09-25. Do not publish the Hebrew drafts before native
+linguistic approval.
 
 After the final site and legal text are approved:
 
@@ -168,8 +169,9 @@ After the final site and legal text are approved:
 2. Copy the exact verification and serving records shown by Firebase to Cloudflare,
    preserving all mail records; follow Firebase's current certificate instructions.
 3. Wait for domain verification and certificate issuance.
-4. Run `site/check-links.sh https://maybesitter.com` and verify all nine legal and
-   deletion URLs, plus Arabic/Hebrew rendering. Record actual HTTP and TLS results.
+4. Run public verification against `https://maybesitter.com`; verify the six
+   approved English/Arabic legal and deletion URLs, redirects, Arabic RTL, HTTP,
+   and TLS. Verify all nine after Hebrew publication.
 
 ## Search Console (owner)
 
@@ -194,13 +196,13 @@ Include no email addresses, IDs or screenshots containing personal data.
 - The Google Limited Use sentence in the Calendars section is quoted verbatim in English on
   all three pages because Google's review requires that exact wording. Do not translate or
   reword it; the ar/he pages carry a clearly-marked unofficial translation beside it.
-- The legal text is a **v1.1 draft**, pending owner approval (#326) and proficient
-  Hebrew review. Technical review is not legal or linguistic approval.
+- The English and Arabic legal text is owner-approved v1.1, effective 2026-09-25.
+  The Hebrew legal text remains a draft pending proficient native review.
   UC-4.3b (#179) owns `/{en,ar,he}/delete-account`, which the privacy pages already link to.
 - Any new data flow added to the product must be reflected here. The policy is the public
   promise every later issue has to keep.
 
 ## Not done here
 
-Legal review. The owner may choose to have a lawyer review the text before publishing;
-this draft is not legal advice.
+Native Hebrew linguistic review remains outstanding. The repository does not
+claim that owner approval is legal advice.

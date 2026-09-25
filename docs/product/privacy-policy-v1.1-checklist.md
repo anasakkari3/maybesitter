@@ -1,10 +1,11 @@
-# Privacy policy v1.1 — factual draft checklist (#177, #333)
+# Privacy policy v1.1 — factual and publication checklist (#177, #333)
 
-**DRAFT — not owner/legal approval or publication evidence.** Reconciled on
-2026-09-25 against the implementation at `3f64a8ca`. The site policy and deletion
-pages are v1.1 drafts with `{{EFFECTIVE_DATE}}` unresolved. Arabic and Hebrew
-changes in this draft require review; native Hebrew approval is still pending.
-The earlier permission-copy approval does not approve these policy drafts.
+Reconciled on 2026-09-25 against the implementation at `3f64a8ca`. On
+2026-09-25 the owner approved the English and Arabic Privacy Policy v1.1,
+the minimum matching changes to the Terms and account-deletion pages, and their
+publication with that date as the effective date. Native Hebrew linguistic
+approval remains pending; the Hebrew documents remain drafts and are excluded
+from this publication.
 
 Repository implementation, enabled release configuration and deployed evidence
 are distinct. Do not describe an installed dependency or implemented adapter as
@@ -40,7 +41,7 @@ recordings. See `docs/operations/CLARITY.md` and `mobile/src/clarity/`.
 
 **Before any enabled production release:** the owner must decide and publish
 Clarity retention and the deletion-request process, reconcile store declarations,
-and attach applicable native replay evidence. This draft invents neither a
+and attach applicable native replay evidence. The English and Arabic policy invents neither a
 retention period nor an operator SLA. Historical notes in the operating document
 are SHA-scoped and are not a current pass or failure for every later build.
 
@@ -94,19 +95,19 @@ Do not equate a pseudonymous receipt with “no data retained.”
   not automated handling. In a subsequent explicit decision on 2026-09-25, the
   owner approved responding to and following up on privacy requests received at
   `privacy@maybesitter.com` within 30 days of receipt. This does not guarantee
-  completion of every deletion or technical action within that period. The effective date
-  remains unresolved, and publication still needs separate approval.
-- Approve final enabled-release disclosures and v1.1 effective date. On
-  2026-09-25 the owner approved the following material-change process: update
+  completion of every deletion or technical action within that period. The owner
+  approved publication of the English and Arabic v1.1 documents effective
+  2026-09-25. Native Hebrew linguistic approval remains pending.
+- On 2026-09-25 the owner approved the following material-change process: update
   the document version and effective date on the website, then email affected
   users at the address linked to their account, when a valid contact address is
   available, before the change takes effect. No in-app notice is promised while
   no such workflow exists.
 - Verify SDK retention/linkage, backup/log retention and deployed TTL policies.
 - Finish Clarity retention/deletion decisions before enabling production replay.
-- Obtain legal/owner review and native Hebrew review, and reconcile the store
-  console forms. This checklist supplies implementation facts, not legal advice
-  or an approval of any data category, purpose, linkage flag or console answer.
+- Obtain native Hebrew linguistic review and reconcile the store console forms.
+  This checklist supplies implementation facts, not legal advice or an approval
+  of any data category, purpose, linkage flag or console answer.
 
 The older future-flow table was removed because its absence claims for speech,
 device calendar, share, FCM, widgets and Crashlytics no longer match the code.

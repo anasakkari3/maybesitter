@@ -226,7 +226,7 @@ run_local() {
   fi
 
   local asset
-  for asset in styles.css landing.css landing.js robots.txt sitemap.xml; do
+  for asset in styles.css legal.css landing.css landing.js robots.txt sitemap.xml; do
     if [ -f "${SCRIPT_DIR}/${asset}" ]; then
       ok "${asset} — file exists"
     else
