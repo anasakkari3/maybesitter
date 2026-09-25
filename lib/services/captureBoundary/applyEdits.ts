@@ -35,7 +35,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { isPastCommitmentTime } from '../commitments/timeRules';
-import { isDateOnly } from '../mobile/time';
+import { isDateOnly, parseIsoInstant } from '../mobile/time';
 
 export class InvalidEditError extends Error {
   constructor(readonly itemId: string, readonly field: string, readonly detail: string) {
@@ -117,8 +117,15 @@ export function validateEdit(
       if (isDateOnly(edit.resolvedTime)) {
         throw new InvalidEditError(edit.itemId, 'resolvedTime', 'a date with no time of day');
       }
-      const parsed = Date.parse(edit.resolvedTime);
-      if (!Number.isFinite(parsed)) throw new InvalidEditError(edit.itemId, 'resolvedTime', 'not an instant');
+      // `parseIsoInstant`, not `Date.parse`: an offset-less datetime is read
+      // as UTC rather than as the server's zone, so the stored instant is the
+      // same on a developer's machine and on Cloud Run (#121).
+      let parsed: number;
+      try {
+        parsed = parseIsoInstant(edit.resolvedTime, 'resolvedTime').getTime();
+      } catch {
+        throw new InvalidEditError(edit.itemId, 'resolvedTime', 'not an instant');
+      }
       // A reminder in the past is one that will never fire, and saving it
       // silently is worse than refusing it. The comparison itself is shared
       // with `PATCH /api/mobile/commitments/:id` (#352) so that the two paths

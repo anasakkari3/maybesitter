@@ -34,6 +34,7 @@
  * a fact a human confirmed. Unless the user chose `replace`, both survive.
  */
 import { randomUUID } from 'node:crypto';
+import { compareByCodePoint } from '../../planning/shared/compare';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/shareProvider';
@@ -173,12 +174,18 @@ function proposalPath(uid: string, proposalId: string): string {
  * batch written at one instant comes back in a different order on every read.
  * The selection of *which* forty records the model sees has to be stable across
  * reads or the same paste yields different relations each time.
+ *
+ * Code-point order throughout: the list is truncated to the first
+ * `MAX_EXISTING_MEMORY_RECORDS`, so a host-locale collation would decide
+ * *which* records the model sees. The content tie-break is a selection
+ * order, never a display order, so code points are the right answer (#121).
+ * Exported for the probe in `tests/contract/persistedOutputLocale.test.ts`.
  */
-function byListOrder(a: RuntimeMemoryRecord, b: RuntimeMemoryRecord): number {
-  return b.observedAt.localeCompare(a.observedAt)
-    || b.createdAt.localeCompare(a.createdAt)
-    || a.content.localeCompare(b.content)
-    || a.id.localeCompare(b.id);
+export function byListOrder(a: RuntimeMemoryRecord, b: RuntimeMemoryRecord): number {
+  return compareByCodePoint(b.observedAt, a.observedAt)
+    || compareByCodePoint(b.createdAt, a.createdAt)
+    || compareByCodePoint(a.content, b.content)
+    || compareByCodePoint(a.id, b.id);
 }
 
 /**
