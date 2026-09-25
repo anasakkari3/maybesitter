@@ -1,25 +1,40 @@
 {
   "readiness": {
-    "version": 1,
+    "version": "v1",
     "schemaVersion": "readiness-v1",
-    "scopeId": "fixture-user",
-    "computedAt": "2026-09-17T06:30:00.000Z",
-    "windowStart": "2026-09-16T06:30:00.000Z",
-    "windowEnd": "2026-09-17T06:30:00.000Z",
-    "band": "steady",
-    "score": 0.64,
+    "scopeId": "ReadinessFixtureUserxxxxxxxx",
+    "computedAt": "2026-08-09T09:00:00.000Z",
+    "windowStart": "2026-08-09T09:00:00.000Z",
+    "windowEnd": "2026-08-09T09:00:00.000Z",
+    "band": "high",
+    "score": 0.75,
     "normalizedSignals": {},
     "subjective": {
       "energy": 4,
-      "observedAt": "2026-09-17T06:25:00.000Z"
+      "observedAt": "2026-08-09T09:00:00.000Z"
     },
     "derived": {
-      "readinessBand": "steady",
-      "confidence": 0.8
+      "readinessBand": "high",
+      "confidence": 1
     },
-    "signals": [],
-    "sourceKinds": ["subjective"],
-    "missingSourceKinds": ["healthkit", "health_connect", "whoop"]
+    "signals": [
+      {
+        "signalId": "subjective-energy-current",
+        "source": {
+          "kind": "subjective"
+        },
+        "metric": "subjective_energy",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "normalizedScore": 0.75,
+        "nativeValue": 4,
+        "nativeUnit": "score_0_1",
+        "confidence": 1
+      }
+    ],
+    "sourceKinds": [
+      "subjective"
+    ],
+    "missingSourceKinds": []
   },
   "selectedSource": "current_subjective",
   "freshness": "fresh"

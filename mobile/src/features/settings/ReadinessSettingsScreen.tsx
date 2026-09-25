@@ -22,7 +22,7 @@ const SOURCE_COPY = {
 const FRESHNESS_COPY = {
   fresh: 'readinessFreshnessFresh',
   stale: 'readinessFreshnessStale',
-  none: 'readinessFreshnessNone',
+  missing: 'readinessFreshnessNone',
 } as const;
 
 export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
@@ -35,7 +35,7 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
   const currentEnergy = snapshot?.subjective?.energy ?? null;
   const band = snapshot?.band ?? 'unknown';
   const selectedSource = readiness.data?.selectedSource ?? 'none';
-  const freshness = readiness.data?.freshness ?? 'none';
+  const freshness = readiness.data?.freshness ?? 'missing';
 
   const chooseEnergy = async (energy: 1 | 2 | 3 | 4 | 5) => {
     setFailed(false);
@@ -64,6 +64,8 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
                   testID={`readiness-energy-${energy}`}
                   onPress={() => void chooseEnergy(energy)}
                   disabled={save.isPending}
+                  // The chosen level is announced, not only coloured.
+                  accessibilityState={{ selected: active, disabled: save.isPending }}
                   style={{
                     flex: 1,
                     minHeight: 44,
@@ -89,6 +91,10 @@ export function ReadinessSettingsScreen({ onBack }: { onBack: () => void }) {
             <Txt size={13} color={p.mu} testID="readiness-loading">{t.readinessLoading}</Txt>
           ) : readiness.isError ? (
             <Txt size={13} color={p.mu} testID="readiness-unavailable">{t.readinessUnavailable}</Txt>
+          ) : freshness === 'missing' ? (
+            // Nobody has checked in yet. That is where every account starts,
+            // not a failure, and the buttons above are how it ends.
+            <Txt size={13} color={p.mu} testID="readiness-no-check-in">{t.readinessNoCheckIn}</Txt>
           ) : (
             <View style={{ gap: 6 }}>
               <Txt size={14} testID="readiness-band">{t[BAND_COPY[band]]}</Txt>

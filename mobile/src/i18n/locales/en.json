@@ -1377,5 +1377,11 @@
   "aiImportSummaryNewN": "{n, plural, =0{nothing new} one{# new thing} other{# new things}}",
   "aiImportSummaryUpdatesN": "{n, plural, =0{no updates} one{# update} other{# updates}}",
   "aiImportSummaryConflictsN": "{n, plural, =0{nothing that disagrees} one{# that needs your choice} other{# that need your choice}}",
-  "obSetupGapsHeadingN": "{n, plural, =0{We learned quite a bit already.} one{We learned quite a bit — just one thing left.} other{We learned quite a bit — just # things left.}}"
+  "obSetupGapsHeadingN": "{n, plural, =0{We learned quite a bit already.} one{We learned quite a bit — just one thing left.} other{We learned quite a bit — just # things left.}}",
+  "captureConfirmExpired": "This suggestion expired. Go back and send it again.",
+  "captureConfirmNothingReady": "Nothing is ready to save yet. Answer the question or edit it.",
+  "captureConfirmBadEdit": "One change couldn't be saved. Check the title and time.",
+  "clarifyNotUnderstood": "Didn't catch that. Pick an option or try again.",
+  "clarifySkip": "Skip",
+  "readinessNoCheckIn": "No check-in yet. Pick a number above."
 }

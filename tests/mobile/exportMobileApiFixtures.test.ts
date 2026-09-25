@@ -151,6 +151,9 @@ import {
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { appendPlanEvent, planPath, readStoredPlan, storePlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
+import { GET as readinessGet, PUT as readinessPut } from '../../src/app/api/mobile/readiness/route.ts';
+import { GET as watchersGet, POST as watchersPost } from '../../src/app/api/mobile/watchers/route.ts';
+import { POST as watcherPausePost } from '../../src/app/api/mobile/watchers/[id]/pause/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -183,6 +186,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PREFIXED_ID = /^(next-step|fbk|incident|flag)[-_][0-9a-f]+$/i;
 /** `mem_<uuid>` — a runtime memory id (#167). Keeps its prefix and its shape. */
 const MEMORY_ID = /^mem_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * `wtc_<uuid>` — a watcher id (#525). Keeps its prefix and its shape; an id
+ * this file already wrote as a stable literal is left exactly as it is.
+ */
+const WATCHER_ID = /^wtc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const STABLE_WATCHER_ID = /^wtc_00000000-0000-4000-8000-\d{12}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const STABLE_INSTANT = '2026-08-09T09:00:00.000Z';
 /**
@@ -215,6 +224,7 @@ function stabilise(value: unknown, counters: Map<string, number>): unknown {
   }
   if (DIGEST.test(value)) return STABLE_DIGEST;
   if (MEMORY_ID.test(value)) return `mem_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
+  if (WATCHER_ID.test(value) && !STABLE_WATCHER_ID.test(value)) return `wtc_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
   if (UUID.test(value)) return stableId('00000000-0000-4000-8000-', 12, counters);
   const prefixed = PREFIXED_ID.exec(value);
   if (prefixed) return `${prefixed[1]}${value.includes('_') ? '_' : '-'}${'0'.repeat(16)}`;
@@ -1700,6 +1710,54 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       params(commitmentId),
     );
     await record('errors.unauthorized', 401, unauthenticated);
+
+    // ── readiness (the energy screen) ──────────────────────────────
+    // Recorded from the route for both states the screen meets: an account
+    // that has never checked in, and the same account right after a check-in.
+    // The hand-written fixture this replaces said `version: 1` and a freshness
+    // of `none` — values the server never sends — so the client schema agreed
+    // with it and refused every real answer.
+    const READINESS_USER = uidFor('ReadinessFixtureUser');
+    await getStorage().set(userDoc(READINESS_USER), { uid: READINESS_USER, timezone: 'Asia/Jerusalem' });
+    const missing = await record('readiness.missing', 200, await readinessGet(request('/api/mobile/readiness', { uid: READINESS_USER })));
+    assert.equal(missing.freshness, 'missing');
+    assert.equal(missing.readiness, null);
+    await record('readiness.saved', 200, await readinessPut(request('/api/mobile/readiness', {
+      method: 'PUT',
+      body: { energy: 4, observedAt: new Date().toISOString() },
+      uid: READINESS_USER,
+    })));
+    const current = await record('readiness.current', 200, await readinessGet(request('/api/mobile/readiness', { uid: READINESS_USER })));
+    assert.equal(current.freshness, 'fresh');
+    assert.equal((current.readiness as { subjective?: { energy?: number } }).subjective?.energy, 4);
+
+    // ── watchers ("تابعلي", #525) ─────────────────────────────────
+    // Created with the exact body `createReadinessWatcher` sends, so the
+    // fixture is the answer the phone actually gets — `label: null` included,
+    // which the client schema refused, so every create looked failed and each
+    // retry made another watcher.
+    const WATCHER_USER = uidFor('WatcherFixtureUser');
+    const created = await record('watchers.created', 201, await watchersPost(request('/api/mobile/watchers', {
+      body: {
+        enabled: true,
+        source: { provider: 'maybesitter', connectionId: null, signalKind: 'readiness', subjectRef: 'self' },
+        condition: { kind: 'digest_changed' },
+        effect: 'notify',
+        createdBy: 'user',
+      },
+      uid: WATCHER_USER,
+    })));
+    const watcherId = (created.watcher as { watcherId: string; label: unknown }).watcherId;
+    assert.equal((created.watcher as { label: unknown }).label, null);
+    await record('watchers.paused', 200, await watcherPausePost(
+      request(`/api/mobile/watchers/${watcherId}/pause`, { body: { paused: true }, uid: WATCHER_USER }),
+      params(watcherId),
+    ));
+    await record('watchers.resumed', 200, await watcherPausePost(
+      request(`/api/mobile/watchers/${watcherId}/pause`, { body: { paused: false }, uid: WATCHER_USER }),
+      params(watcherId),
+    ));
+    await record('watchers.list', 200, await watchersGet(request('/api/mobile/watchers', { uid: WATCHER_USER })));
 
     // ── the Gemini capture (#160, #338) ────────────────────────────
     // Last, and with the environment restored straight afterwards, so every
