@@ -82,8 +82,8 @@ describe('the picture', () => {
   it('shows the buffer, the band and when it was true', async () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-buffer')).toBeTruthy());
-    // The fixture is overdrawn on purpose: -62,200 minor units.
-    expect(screen.getByTestId('financial-buffer').props.children).toContain('-622.00');
+    // The fixture is overdrawn on purpose: -262,200 minor units, recorded as of the fixture's reference time.
+    expect(screen.getByTestId('financial-buffer').props.children).toContain('-2,622.00');
     expect(screen.getByTestId('financial-band').props.children).toBe(en.financialBandNegative);
     expect(screen.getByTestId('financial-as-of')).toBeTruthy();
   });

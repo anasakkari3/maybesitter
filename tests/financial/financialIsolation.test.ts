@@ -186,3 +186,45 @@ test('an amount with no currency behind it is refused, not quietly swallowed', a
     teardown();
   }
 });
+
+test('the context route builds the state as of the referenceTime the client sends, and refuses a malformed one', async () => {
+  const teardown = setup();
+  try {
+    await connectionPost(request(ALICE, 'connection', { method: 'POST' }));
+
+    // The sandbox keeps the card on the 25th and the salary on the 28th of the
+    // month `asOf` falls in, so the same account reads differently on the 9th
+    // and on the 26th. Without `referenceTime` the route answered for the
+    // server's wall clock alone, and the recorded fixture changed shape with
+    // the day of the month.
+    const early = await contextGet(request(ALICE, 'context?referenceTime=2026-08-09T08:00:00.000Z'));
+    assert.equal(early.status, 200);
+    const earlyState = (await early.json() as { state: { asOf: string; upcomingObligations: unknown[] } }).state;
+    assert.equal(earlyState.asOf, '2026-08-09T08:00:00.000Z');
+
+    const late = await contextGet(request(ALICE, 'context?referenceTime=2026-08-26T08:00:00.000Z'));
+    const lateState = (await late.json() as { state: { asOf: string; upcomingObligations: unknown[] } }).state;
+    assert.equal(lateState.asOf, '2026-08-26T08:00:00.000Z');
+    assert.notEqual(
+      earlyState.upcomingObligations.length,
+      lateState.upcomingObligations.length,
+      'the two reference times must produce different states, or the parameter is not reaching the builder',
+    );
+
+    // Same shape as the same input on a later day: the clock is not read.
+    const again = await contextGet(request(ALICE, 'context?referenceTime=2026-08-09T08:00:00.000Z'));
+    const againState = (await again.json() as { state: unknown }).state;
+    assert.deepEqual(againState, earlyState);
+
+    const bad = await contextGet(request(ALICE, 'context?referenceTime=yesterday'));
+    assert.equal(bad.status, 400);
+
+    // No parameter: the server clock, stamped into the response.
+    const now = await contextGet(request(ALICE, 'context'));
+    assert.equal(now.status, 200);
+    const stamped = (await now.json() as { state: { asOf: string } }).state.asOf;
+    assert.ok(Math.abs(Date.parse(stamped) - Date.now()) < 60_000);
+  } finally {
+    teardown();
+  }
+});

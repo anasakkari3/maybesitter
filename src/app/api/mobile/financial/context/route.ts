@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../li
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { storageFailureCause } from '../../../../../../lib/storage/storageAdapter';
 import { readFinancialState } from '../../../../../../lib/services/financial/financialStateService';
+import { dateFromOptionalIso } from '../../../../../../lib/services/mobile/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,8 +24,22 @@ export async function GET(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
+  // `asOf` comes from the request when the client says when "now" is, the same
+  // `referenceTime` the Today and Upcoming lists take, and from the server
+  // clock otherwise. Without it the response depended on the wall clock alone:
+  // the sandbox keeps rent on the 1st, the card on the 25th and the salary on
+  // the 28th, so the recorded fixture changed shape with the day of the month
+  // and `exportMobileApiFixtures` rewrote it on every run.
+  let asOf: Date;
   try {
-    const state = await readFinancialState({ uid: user.uid, asOf: new Date().toISOString() });
+    const { searchParams } = new URL(request.url);
+    asOf = dateFromOptionalIso(searchParams.get('referenceTime'), new Date(), 'referenceTime');
+  } catch {
+    return mobileError('referenceTime must be an ISO instant', 400);
+  }
+
+  try {
+    const state = await readFinancialState({ uid: user.uid, asOf: asOf.toISOString() });
     return Response.json({ success: true, state });
   } catch (error) {
     /*
