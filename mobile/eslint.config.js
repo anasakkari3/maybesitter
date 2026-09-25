@@ -31,6 +31,16 @@ module.exports = defineConfig([
           message:
             'Use the start/end form (paddingStart, marginEnd, borderStartWidth…) so Arabic and Hebrew mirror correctly.',
         },
+        {
+          // A literal physical alignment is the one style the root `direction`
+          // cannot mirror: a TextInput set to 'left' starts Arabic on the wrong
+          // edge (first iPhone run). The computed form — `rtl ? 'right' :
+          // 'left'`, or `textAlignment(…)` for a Text — is what is allowed.
+          selector:
+            "Property[key.name='textAlign'][value.type='Literal'][value.value=/^(left|right)$/], Property[key.name='textAlign'] > TSAsExpression > Literal[value=/^(left|right)$/]",
+          message:
+            "Compute the edge from the language (`rtl ? 'right' : 'left'` for a TextInput, `textAlignment()` for a Text) so Arabic and Hebrew start on the right.",
+        },
       ],
     },
   },

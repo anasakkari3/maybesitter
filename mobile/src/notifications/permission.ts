@@ -6,8 +6,10 @@
  * The system prompt can be shown once per install. Spending it at cold start,
  * or during onboarding before there is a single commitment to be reminded
  * about, is spending it on the version of the question most likely to be
- * answered no — and there is no second version. So this is called from exactly
- * one place: the moment the user turns gentle reminders on.
+ * answered no — and there is no second version. So it is called when the user
+ * turns something that rings on in Settings, and right after they confirm
+ * their first commitment that has a time (`firstMomentPrompt.ts`): gentle
+ * reminders default on at the server, so the switch alone never asked.
  * `onboardingFlow.test.tsx` asserts at the source that nothing under
  * `src/features/onboarding` can reach it.
  *

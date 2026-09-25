@@ -14,7 +14,7 @@ import { memorySentence } from '../memory/memoryDisplay';
 import { durationText } from '../memory/memoryProvenance';
 import { toViewModel } from '../commitments/model';
 import { ServerToggle } from '../settings/ServerToggle';
-import { Btn, Card, Pill, Txt, textAlignment } from '../../ui/primitives';
+import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ProductPage, ProductSection, ProductRow, ProductActions, PreviewAction } from '../../ui/product';
 import { capabilities as cap } from './capabilities';
 import type { Commitment } from '../../api/schemas/common';
@@ -62,7 +62,7 @@ export function PersonalizationScreen() {
           {editing === suggestion.fingerprint ? <View style={{ gap: 12 }}>
             <Txt role="supporting" color={p.mu}>{t.xEditLearningBody}</Txt>
             <TextInput testID="personalization-edit-input" accessibilityLabel={t.memoryEdit} value={draft} onChangeText={setDraft} maxLength={200} multiline
-              style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: textAlignment('start', rtl, Platform.OS) }} />
+              style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
             {create.error ? <Txt color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
             <ProductActions><Pill label={t.memorySave} testID="personalization-edit-save" disabled={create.isPending || !draft.trim()} onPress={() => {
               create.mutate({ kind: 'preference', content: draft.trim(), language: lang }, { onSuccess: () => { setEditing(null); setDraft(''); actions.toast(t.xPreferenceSaved); } });
@@ -111,7 +111,7 @@ export function CommitmentsScreen() {
   return <ProductPage id="commitments" title={t.xCommitments} subtitle={t.xCurrentHorizon}>
     <ProductActions><Pill label={t.tabCalendar} kind="outline" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="soft" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>
     <TextInput testID="commitments-search" accessibilityLabel={t.xSearch} placeholder={t.xSearch} placeholderTextColor={p.mu}
-      value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 18, padding: 16, minHeight: 52, fontSize: 17, color: p.tx, textAlign: textAlignment('start', rtl, Platform.OS) }} />
+      value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 18, padding: 16, minHeight: 52, fontSize: 17, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
     <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8 }}>
       {(['all','active','done'] as const).map(key => <Btn key={key} label={key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone} accessibilityRole="radio" accessibilityState={{ checked: filter === key }}
         onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? p.acs : p.sf, borderRadius: 16, padding: 14, minHeight: 48, flex: stacked ? undefined : 1, alignItems: 'center' }}>

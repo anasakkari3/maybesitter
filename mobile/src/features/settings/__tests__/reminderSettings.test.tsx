@@ -23,6 +23,9 @@ import { NotificationsSettingsScreen } from '../NotificationsSettingsScreen';
 import en from '../../../i18n/locales/en.json';
 import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as permission from '../../../notifications/permission';
+import * as deviceEndpoints from '../../../api/endpoints/devices';
+import * as messaging from '@react-native-firebase/messaging';
+import { resetInstallationIdForTests } from '../../../lib/installationId';
 import settingsFixture from '../../../api/__fixtures__/reminders.settingsSaved.json';
 import * as profileEndpoints from '../../../api/endpoints/profile';
 import * as exactAlarms from '../../../notifications/exactAlarms';
@@ -79,6 +82,9 @@ beforeEach(() => {
   jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(ROUTINE_PROFILE as never);
   jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
   jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('granted');
+  resetInstallationIdForTests();
+  jest.spyOn(messaging, 'getToken').mockResolvedValue('a-real-looking-fcm-token-aaaaaaaaaaaaaaaaaaaaaaa' as never);
+  jest.spyOn(deviceEndpoints, 'registerDevice').mockResolvedValue({ success: true, ok: true } as never);
 });
 
 afterEach(async () => {
@@ -177,6 +183,76 @@ describe('the OS prompt', () => {
     expect(screen.queryByText(en.notifDenied)).not.toBeNull();
     // And the way to change the answer is still on the screen.
     expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull();
+  });
+});
+
+describe('the way to phone settings (first iPhone run, L7)', () => {
+  /*
+   * Soft reminders are on by default on the server, so the switch showed "on"
+   * and the one place the phone could ever be asked was a switch nobody
+   * needed to touch. Meanwhile "Open phone settings" was always on screen —
+   * sending somebody the phone had never asked to a toggle that does not
+   * exist yet. Settings is for undoing a no; a phone that has not been asked
+   * is asked, here, in the app.
+   */
+  it('is not offered to a phone that has never been asked; the app asks instead', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('undetermined');
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).toBeNull());
+    expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+  });
+
+  it('is not offered when the phone already allows notifications', async () => {
+    await show();
+    await readySwitch();
+    await waitFor(() => expect(permission.getNotificationPermission).toHaveBeenCalled());
+    expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+    expect(screen.queryByTestId('notifications-allow')).toBeNull();
+  });
+
+  it('tells the server right after a yes, once, and not after a no (L7 review)', async () => {
+    jest.spyOn(permission, 'getNotificationPermission')
+      .mockResolvedValueOnce('undetermined')
+      .mockResolvedValue('granted');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    expect(deviceEndpoints.registerDevice).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
+    expect(((deviceEndpoints.registerDevice as jest.Mock).mock.calls[0]![0] as { pushPermission: string }).pushPermission)
+      .toBe('granted');
+  });
+
+  it('registers nothing when the phone says no', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('undetermined');
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('denied');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(deviceEndpoints.registerDevice).not.toHaveBeenCalled();
+  });
+
+  it('is offered once the phone has said no', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
+    const open = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+    expect(screen.queryByTestId('notifications-allow')).toBeNull();
+    await fireEvent.press(screen.getByTestId('notifications-open-settings'));
+    expect(open).toHaveBeenCalledTimes(1);
+    // `Linking.openSettings` is already a jest.fn in the RN preset, so spyOn
+    // hands back that same function and `restoreAllMocks` keeps its calls.
+    // Cleared here so a later case counting its own presses starts at zero.
+    open.mockClear();
   });
 });
 
@@ -492,7 +568,10 @@ describe('the kill switch', () => {
     process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS = 'false';
     try {
       await show();
-      await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+      // The plan card is the rest of the screen, rendered once the plan read
+      // lands. (This waited on the phone-settings button until L7 made that
+      // button appear only after a no.)
+      await waitFor(() => expect(screen.queryByTestId('plan-settings')).not.toBeNull());
       expect(screen.queryByTestId('gentle-reminders-switch')).toBeNull();
       expect(screen.queryByTestId('reminder-lead-60')).toBeNull();
     } finally {
