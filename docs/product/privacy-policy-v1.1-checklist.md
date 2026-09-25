@@ -96,9 +96,12 @@ Do not equate a pseudonymous receipt with “no data retained.”
   `privacy@maybesitter.com` within 30 days of receipt. This does not guarantee
   completion of every deletion or technical action within that period. The effective date
   remains unresolved, and publication still needs separate approval.
-- Approve final enabled-release disclosures and v1.1 effective date; determine
-  the notice process for policy/terms changes. Do not promise an automatic
-  in-app notice or next-sign-in notice without implementing/operating it.
+- Approve final enabled-release disclosures and v1.1 effective date. On
+  2026-09-25 the owner approved the following material-change process: update
+  the document version and effective date on the website, then email affected
+  users at the address linked to their account, when a valid contact address is
+  available, before the change takes effect. No in-app notice is promised while
+  no such workflow exists.
 - Verify SDK retention/linkage, backup/log retention and deployed TTL policies.
 - Finish Clarity retention/deletion decisions before enabling production replay.
 - Obtain legal/owner review and native Hebrew review, and reconcile the store
