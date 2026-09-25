@@ -39,6 +39,8 @@ export async function POST(
     if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
+  // `null` is JSON; reading `.action` off it was a 500 rather than this 400.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return mobileError('Invalid JSON request body');
 
   if (!ACTIONS.includes(body.action as CommitmentActionName)) {
     return mobileError(`Unknown commitment action: ${String(body.action)}`);

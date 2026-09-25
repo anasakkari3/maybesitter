@@ -18,8 +18,13 @@
  *  1. A `Content-Length` over the limit is refused before a byte is read.
  *  2. Otherwise the body is streamed with a byte counter and cancelled the
  *     moment the count passes the limit — a lying or absent `Content-Length`
- *     does not get past this, and at most `limit + one chunk` bytes are ever
- *     held.
+ *     does not get past this, and at most `limit + 1` bytes are ever held.
+ *     The bytes are copied into one growing buffer as they arrive; the chunk
+ *     objects themselves are not kept. That matters: a body sent as 262,145
+ *     one-byte HTTP chunks costs a Uint8Array view per chunk, and holding
+ *     them in an array until the count passed the limit measured at
+ *     +164 MiB RSS per request — the very allocation this module exists to
+ *     refuse. With the copy it is one buffer of at most `limit + 1` bytes.
  *  3. Only then is the text parsed. A parse failure surfaces as the same
  *     `SyntaxError` `request.json()` throws, so every route's existing 400
  *     mapping is unchanged; only `RequestBodyTooLargeError` is new, and a
@@ -37,10 +42,22 @@
  *
  * `lib/earlyAccess/service.ts` had the streaming counter first (4 KiB, for the
  * public landing form) and now calls this module, so there is one reader.
+ *
+ * ── What this does not bound: time ───────────────────────────────
+ *
+ * There is no idle-read timeout here, exactly as there was none in
+ * `request.json()` before. A client that opens a body and trickles it is cut
+ * by Node's `server.requestTimeout` (300 s by default) and, before that, by
+ * Cloud Run's `--timeout=60`, which is the effective backstop in production.
+ * A per-read timer is a separate change with its own tests; it is deliberately
+ * not built here.
  */
 
 /** The bound every mobile JSON route reads under unless it says otherwise. */
 export const DEFAULT_BODY_LIMIT_BYTES = 256 * 1024;
+
+/** The first allocation for a body whose length is not declared. */
+const INITIAL_BUFFER_BYTES = 16 * 1024;
 
 export interface ReadBodyOptions {
   /** The most bytes this read will hold. Defaults to `DEFAULT_BODY_LIMIT_BYTES`. */
@@ -100,34 +117,42 @@ export async function readBoundedBytes(request: Request, options?: ReadBodyOptio
   const reader = request.body?.getReader();
   if (!reader) return new Uint8Array(0);
 
-  const chunks: Uint8Array[] = [];
+  // One buffer, sized from the declared length when there is one (already
+  // known to be within the limit) and grown by doubling otherwise, never past
+  // `limit + 1`: the one extra byte is what proves the body is over. Each
+  // chunk is copied in and dropped, so a body sent as a million tiny chunks
+  // costs a million short-lived views and one buffer, not a million retained
+  // objects.
+  const declared = Number.parseInt(request.headers.get('content-length') ?? '', 10);
+  const ceiling = limit + 1;
+  let buffer = new Uint8Array(Math.min(ceiling, Number.isFinite(declared) && declared > 0 ? declared : INITIAL_BUFFER_BYTES));
   let length = 0;
   try {
     for (;;) {
       const part = await reader.read();
       if (part.done) break;
-      length += part.value.byteLength;
-      if (length > limit) {
+      const chunk = part.value;
+      if (length + chunk.byteLength > limit) {
         // Cancel before throwing: the source stops being pulled, and the
-        // chunks already held are the most this request will ever cost.
+        // buffer already held is the most this request will ever cost.
         await reader.cancel().catch(() => undefined);
         throw new RequestBodyTooLargeError(limit, false);
       }
-      chunks.push(part.value);
+      if (length + chunk.byteLength > buffer.byteLength) {
+        const grown = new Uint8Array(Math.min(ceiling, Math.max(buffer.byteLength * 2, length + chunk.byteLength)));
+        grown.set(buffer.subarray(0, length));
+        buffer = grown;
+      }
+      buffer.set(chunk, length);
+      length += chunk.byteLength;
     }
   } finally {
     reader.releaseLock();
   }
 
-  // Always a fresh ArrayBuffer-backed array: a reader chunk may be a view over
-  // a larger buffer, and `Response` needs a plain one.
-  const joined = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return joined;
+  // A fresh, exactly-sized, ArrayBuffer-backed array: `Response` needs a plain
+  // one, and the growth slack is not kept alive behind the result.
+  return buffer.slice(0, length);
 }
 
 /**

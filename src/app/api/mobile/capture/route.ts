@@ -22,6 +22,9 @@ export async function POST(request: Request) {
     if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
+  // `null`, a number or an array is JSON too, and reading `.sessionId` off
+  // `null` was a 500. The same 400 as a body that is not JSON at all.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return mobileError('Invalid JSON request body');
 
   // The scope is the uid. This route used to fall back to a single shared
   // participant literal, on one global state, whenever no pilot environment

@@ -40,6 +40,8 @@ export async function PUT(request: Request) {
     if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
+  // `null` is JSON; reading `.enabled` off it was a 500 rather than this 400.
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return mobileError('Invalid JSON request body');
 
   // `enabled` may be left out only by a write that is about the replanning
   // switch (#523) — which then leaves the morning delivery untouched. Every

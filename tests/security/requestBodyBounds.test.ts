@@ -135,14 +135,30 @@ test('A. the share route parses only bytes it has already counted', () => {
   assert.match(source, /RequestBodyTooLargeError/, 'the byte-bound refusal is mapped, not swallowed');
 });
 
-test('A. every file that uses the bounded reader lets the 413 through', () => {
+/**
+ * Per occurrence, not per file. An import alone, or one mapped read next to a
+ * second read inside a bare `catch {}`, would satisfy "the file mentions the
+ * error"; what has to hold is that every read has a mapping. The check is
+ * the count: `instanceof RequestBodyTooLargeError` at least as many times as
+ * the reader is called. (`tsc` has no `noUnusedLocals`, so a dead import is
+ * not caught anywhere else.)
+ */
+const TOO_LARGE_MAPPING = /\binstanceof\s+RequestBodyTooLargeError\b/g;
+const BOUNDED_READ_ALL = /\bread(?:JsonBody|BoundedText|BoundedBytes)\s*\(/g;
+
+test('A. every call of the bounded reader has its own 413 mapping', () => {
   const swallowing: string[] = [];
+  let reads = 0;
   for (const file of scanned) {
     if (file === HELPER) continue;
     const source = codeOnly(readFileSync(join(ROOT, file), 'utf8'));
-    if (!BOUNDED_READ.test(source)) continue;
-    if (!/\bRequestBodyTooLargeError\b/.test(source)) swallowing.push(file);
+    const calls = (source.match(BOUNDED_READ_ALL) ?? []).length;
+    if (calls === 0) continue;
+    reads += calls;
+    const mappings = (source.match(TOO_LARGE_MAPPING) ?? []).length;
+    if (mappings < calls) swallowing.push(`${file}: ${calls} bounded read(s), ${mappings} instanceof RequestBodyTooLargeError`);
   }
+  assert.ok(reads >= 50, `the mobile surface reads through the helper (${reads} calls found)`);
   assert.deepEqual(swallowing, [], `bounded read whose 413 a bare catch would swallow:\n${swallowing.join('\n')}`);
 });
 
@@ -481,6 +497,270 @@ test('C. a multipart share under the bound still parses through the bounded path
     // this route could not parse answers 400 "not a readable multipart form".
     assert.notEqual(response.status, 400, `share answered ${response.status}: ${await response.text()}`);
     assert.notEqual(response.status, 413);
+  } finally {
+    end();
+  }
+});
+
+/* ─────────────────────── B'. the chunk-object hole ─────────────────────── */
+
+/**
+ * A body sent as one-byte chunks is the cheap way to make a byte counter
+ * expensive: 262,145 chunks is 262,145 `Uint8Array` views. A reader that
+ * keeps them in an array until the count passes the limit measured +164 MiB
+ * RSS and ~450 ms per request through a real HTTP server — forty of those on
+ * a 1Gi instance is the outage this module exists to prevent. The reader
+ * copies each chunk into one growing buffer instead, so the views are
+ * garbage the moment they are read.
+ *
+ * The assertion is on `process.memoryUsage()`: `arrayBuffers` is exact
+ * (every view's backing store counts until it is collected, and they are
+ * collected only if nothing holds them), `heapUsed` is a ceiling loose
+ * enough for a scavenge to be pending. The mutation this was written
+ * against — `chunks.push(part.value)` — measured +71 MiB heap here.
+ */
+const MiB = 1024 * 1024;
+
+/**
+ * A full collection on demand, without a runner flag. The measurement is
+ * taken at the *peak* of the read — inside the stream, as the limit+1-th byte
+ * is delivered — after a collection, so what is counted is what the reader
+ * is holding alive at that moment: one buffer here, 262,145 views for the
+ * shape this guards against. A before/after delta would instead measure
+ * whatever garbage the runner has not collected yet, which is why the
+ * bounds are on live memory at the peak and not on raw growth.
+ */
+async function forceGc(): Promise<void> {
+  const [{ default: v8 }, { default: vm }] = await Promise.all([import('node:v8'), import('node:vm')]);
+  v8.setFlagsFromString('--expose-gc');
+  (vm.runInNewContext('gc') as () => void)();
+}
+
+interface PeakSample { heapUsed: number; arrayBuffers: number }
+
+function liveDelta(before: NodeJS.MemoryUsage, peak: PeakSample | null): { heapMiB: number; arrayBuffersMiB: number } {
+  assert.ok(peak, 'the peak was sampled');
+  return { heapMiB: (peak!.heapUsed - before.heapUsed) / MiB, arrayBuffersMiB: (peak!.arrayBuffers - before.arrayBuffers) / MiB };
+}
+
+/**
+ * `totalBytes` one-byte chunks, each a fresh view as a socket delivers them,
+ * with no read-ahead. `onLast` runs as the final chunk is about to be
+ * delivered, i.e. at the reader's peak.
+ */
+function oneByteChunks(totalBytes: number, onLast: () => Promise<void> = async () => undefined): { request: Request; pulled: () => number } {
+  let sent = 0;
+  let pulls = 0;
+  const one = new Uint8Array([0x78]);
+  const stream = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (sent >= totalBytes) {
+        controller.close();
+        return;
+      }
+      pulls += 1;
+      sent += 1;
+      if (sent === totalBytes) await onLast();
+      controller.enqueue(one.slice());
+    },
+  }, { highWaterMark: 0 });
+  const request = new Request(URL_, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: stream,
+    ...({ duplex: 'half' } as object),
+  });
+  return { request, pulled: () => pulls };
+}
+
+test("B'. a limit+1 body sent as one-byte chunks holds one buffer at its peak, not one object per chunk", async (t) => {
+  const limit = DEFAULT_BODY_LIMIT_BYTES;
+  let peak: PeakSample | null = null;
+  const { request, pulled } = oneByteChunks(limit + 1, async () => {
+    await forceGc();
+    peak = process.memoryUsage();
+  });
+  await forceGc();
+  const before = process.memoryUsage();
+  await assert.rejects(readBoundedBytes(request, { limitBytes: limit }), RequestBodyTooLargeError);
+  assert.equal(pulled(), limit + 1, 'it read exactly limit + 1 one-byte chunks before refusing');
+  const { heapMiB, arrayBuffersMiB } = liveDelta(before, peak);
+  t.diagnostic(`one-byte chunks, limit+1: live at peak heap +${heapMiB.toFixed(1)} MiB, arrayBuffers +${arrayBuffersMiB.toFixed(1)} MiB`);
+  // Measured live at the peak: +2.6 MiB heap / +0.3 MiB arrayBuffers; the
+  // retaining shape (`chunks.push(part.value)`) measured +61.6 MiB heap.
+  assert.ok(heapMiB < 16, `${heapMiB.toFixed(1)} MiB live on the heap at the peak (bound 16)`);
+  assert.ok(arrayBuffersMiB < 4, `${arrayBuffersMiB.toFixed(1)} MiB live in arrayBuffers at the peak (bound 4)`);
+});
+
+test("B'. ten such bodies at once hold a few MiB at the peak (the retaining shape measured +682 MiB)", async (t) => {
+  const limit = DEFAULT_BODY_LIMIT_BYTES;
+  let peak: PeakSample | null = null;
+  // Sampled as the first stream reaches its last byte; the other nine are
+  // within a few pulls of theirs, the microtask queue being round-robin.
+  const requests = Array.from({ length: 10 }, () => oneByteChunks(limit + 1, async () => {
+    if (peak) return;
+    await forceGc();
+    peak = process.memoryUsage();
+  }).request);
+  await forceGc();
+  const before = process.memoryUsage();
+  const outcomes = await Promise.allSettled(requests.map((request) => readBoundedBytes(request, { limitBytes: limit })));
+  for (const outcome of outcomes) {
+    assert.equal(outcome.status, 'rejected');
+    assert.ok((outcome as PromiseRejectedResult).reason instanceof RequestBodyTooLargeError);
+  }
+  const { heapMiB, arrayBuffersMiB } = liveDelta(before, peak);
+  t.diagnostic(`ten concurrent one-byte-chunk bodies: live at peak heap +${heapMiB.toFixed(1)} MiB, arrayBuffers +${arrayBuffersMiB.toFixed(1)} MiB`);
+  assert.ok(heapMiB < 48, `${heapMiB.toFixed(1)} MiB live on the heap at the peak of ten concurrent reads (bound 48)`);
+  assert.ok(arrayBuffersMiB < 16, `${arrayBuffersMiB.toFixed(1)} MiB live in arrayBuffers (ten buffers at most; bound 16)`);
+});
+
+test("B'. the same body through node:http as raw 1-byte chunked frames", async (t) => {
+  const { createServer } = await import('node:http');
+  const { connect } = await import('node:net');
+  const { Readable } = await import('node:stream');
+  const limit = DEFAULT_BODY_LIMIT_BYTES;
+
+  let before: NodeJS.MemoryUsage | null = null;
+  let peak: PeakSample | null = null;
+  let delivered = 0;
+  let bodyChunks = 0;
+  const server = createServer(async (req, res) => {
+    await forceGc();
+    before = process.memoryUsage();
+    // The socket's bytes, sampled as the limit+1-th arrives: the reader's peak.
+    const sampled = (Readable.toWeb(req) as ReadableStream<Uint8Array>).pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+      async transform(chunk, controller) {
+        bodyChunks += 1;
+        delivered += chunk.byteLength;
+        if (peak === null && delivered >= limit + 1) {
+          await forceGc();
+          peak = process.memoryUsage();
+        }
+        controller.enqueue(chunk);
+      },
+    }));
+    const request = new Request(`http://127.0.0.1${req.url ?? '/'}`, {
+      method: 'POST',
+      headers: req.headers as Record<string, string>,
+      body: sampled,
+      ...({ duplex: 'half' } as object),
+    });
+    let status = 200;
+    try {
+      await readJsonBody(request, { limitBytes: limit });
+    } catch (error) {
+      status = error instanceof RequestBodyTooLargeError ? 413 : 400;
+    }
+    res.writeHead(status, { connection: 'close' });
+    res.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = (server.address() as { port: number }).port;
+
+  try {
+    const status = await new Promise<number>((resolve, reject) => {
+      const socket = connect(port, '127.0.0.1');
+      let response = '';
+      socket.on('error', reject);
+      socket.on('data', (data) => { response += data.toString('latin1'); });
+      socket.on('close', () => {
+        const match = /^HTTP\/1\.1 (\d{3})/.exec(response);
+        if (match) resolve(Number(match[1]));
+        else reject(new Error(`no status line in: ${response.slice(0, 80)}`));
+      });
+      socket.on('connect', () => {
+        socket.write('POST /api/mobile/anything HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\n\r\n');
+        // limit + 1 one-byte frames, batched on the wire but each its own
+        // HTTP chunk, which is how the parser delivers them.
+        const frame = '1\r\nx\r\n';
+        const batch = frame.repeat(4096);
+        let remaining = limit + 1;
+        const pump = (): void => {
+          while (remaining > 0) {
+            const n = Math.min(4096, remaining);
+            remaining -= n;
+            const ok = socket.write(n === 4096 ? batch : frame.repeat(n));
+            if (!ok) {
+              socket.once('drain', pump);
+              return;
+            }
+          }
+          socket.write('0\r\n\r\n');
+        };
+        pump();
+      });
+    });
+    assert.equal(status, 413);
+    assert.ok(bodyChunks > 1000, `the parser delivered the body in ${bodyChunks} pieces, not one`);
+    const { heapMiB, arrayBuffersMiB } = liveDelta(before!, peak);
+    t.diagnostic(`node:http, ${bodyChunks} body pieces: live at peak heap +${heapMiB.toFixed(1)} MiB, arrayBuffers +${arrayBuffersMiB.toFixed(1)} MiB`);
+    assert.ok(heapMiB < 16, `${heapMiB.toFixed(1)} MiB live on the heap at the peak in the handler (bound 16)`);
+    assert.ok(arrayBuffersMiB < 4, `${arrayBuffersMiB.toFixed(1)} MiB live in arrayBuffers at the peak (bound 4)`);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("B'. the reader keeps no per-chunk array", () => {
+  const source = codeOnly(readFileSync(join(ROOT, HELPER), 'utf8'));
+  const body = source.slice(source.indexOf('function readBoundedBytes'), source.indexOf('function readBoundedText'));
+  assert.doesNotMatch(body, /Uint8Array\[\]|\.push\(/, 'chunks are copied into one buffer, never collected');
+  assert.match(body, /buffer\.set\(chunk, length\)/);
+});
+
+/* ─────────────────────── D. a JSON body that is not an object ─────────────────────── */
+
+/**
+ * `null`, `7` and `[]` are JSON, so the reader hands them over and the route
+ * reads `.sessionId` / `.action` / `.enabled` off them — a 500, on main as
+ * on this branch. The answer is the route's own 400 for a body it cannot
+ * read, the one `readiness` already gives.
+ */
+async function nullBodyIs400(
+  run: (request: Request) => Promise<Response>,
+  method: string,
+  path: string,
+): Promise<void> {
+  for (const literal of ['null', '7', '[]', '"text"']) {
+    const response = await run(new Request(`${BASE}${path}`, {
+      method,
+      headers: { authorization: `Bearer ${tokenFor(USER)}`, 'content-type': 'application/json' },
+      body: literal,
+    }));
+    assert.equal(response.status, 400, `${method} ${path} with body ${literal} answered ${response.status}`);
+    assert.deepEqual(await response.json(), { success: false, error: 'Invalid JSON request body' });
+  }
+}
+
+test('D. POST /api/mobile/capture answers 400, not 500, to a JSON null body', async () => {
+  begin({});
+  try {
+    await nullBodyIs400(capturePost, 'POST', '/api/mobile/capture');
+  } finally {
+    end();
+  }
+});
+
+test('D. POST /api/mobile/commitments/{id}/actions answers 400, not 500, to a JSON null body', async () => {
+  const { POST: commitmentActionPost } = await import('../../src/app/api/mobile/commitments/[id]/actions/route.ts');
+  begin({});
+  try {
+    await nullBodyIs400(
+      (request) => commitmentActionPost(request, { params: Promise.resolve({ id: 'c-1' }) }),
+      'POST',
+      '/api/mobile/commitments/c-1/actions',
+    );
+  } finally {
+    end();
+  }
+});
+
+test('D. PUT /api/mobile/settings/plan answers 400, not 500, to a JSON null body', async () => {
+  const { PUT: planSettingsPut } = await import('../../src/app/api/mobile/settings/plan/route.ts');
+  begin({});
+  try {
+    await nullBodyIs400(planSettingsPut, 'PUT', '/api/mobile/settings/plan');
   } finally {
     end();
   }
