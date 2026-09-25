@@ -152,8 +152,8 @@ export function Root() {
 {s.screen === 'watchBuilder' && <WatchBuilderScreen />}
 {s.screen === 'commitments' && <CommitmentsScreen />}
 {s.screen === 'contextualAssistant' && <ContextualAssistantScreen />}
-          {s.screen === 'today' && <TodayScreen key="today" />}
-          {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
+          {s.screen === 'today' && <TodayScreen key="today" tabClearance={tabClearance} />}
+          {s.screen === 'calendar' && <CalendarScreen key="calendar" tabClearance={tabClearance} />}
           {s.screen === 'settings' && <SettingsScreen key="settings" tabClearance={tabClearance} />}
           {s.screen === 'deleteAccount' && (
             <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.back()} />

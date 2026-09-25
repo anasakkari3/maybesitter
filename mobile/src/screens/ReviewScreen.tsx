@@ -1,6 +1,6 @@
 import { useLayoutMode } from '../theme/textScale';
 import React, { useMemo, useState } from 'react';
-import { ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
@@ -257,7 +257,11 @@ export function ReviewScreen() {
           <Pill testID="capture-discard-confirm" label={t.captureDiscardConfirm} onPress={leave} kind="warm" />
         </View>
       ) : (
-        <>
+        <KeyboardAvoidingView
+          testID="review-kav"
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
       <ScrollView
         testID="review-scroll"
         keyboardShouldPersistTaps="handled"
@@ -457,7 +461,7 @@ export function ReviewScreen() {
       </ScrollView>
 
       {!scrollActions ? confirmationActions : null}
-        </>
+        </KeyboardAvoidingView>
       )}
     </ScreenIn>
   );

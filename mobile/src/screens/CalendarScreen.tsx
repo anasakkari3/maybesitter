@@ -51,7 +51,7 @@ import { cardShadow } from '../theme/tokens';
  * the strip does too. Cells are day *keys* — calendar arithmetic with no time
  * in it — which is why a DST change cannot shorten a day here.
  */
-export function CalendarScreen() {
+export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
   const { s, t, p, lang, actions } = useApp();
   const timezone = useTimeZone();
   const stacked = useLayoutMode() !== 'normal';
@@ -116,7 +116,8 @@ export function CalendarScreen() {
   return (
     <Screen>
       <ScreenScroll
-        bottom={130}
+        testID="calendar-scroll"
+        bottom={tabClearance}
         topGap={8}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
