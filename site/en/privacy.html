@@ -184,7 +184,7 @@
 
   <p>After account deletion, a pseudonymous deletion receipt is marked for expiry after 400 days and a deletion-job record after 30 days. These configured expiry periods are not a guarantee of the exact purge time. They retain a keyed hash rather than your raw account ID; the completed job no longer contains your UID. These records support proof of deletion and safe repeat requests.</p>
 
-  <p>An incomplete or stuck deletion job can still contain the account UID so the deletion can be resumed. The 30-day expiry field on completed jobs is currently a configured target, not an active Firestore TTL policy; the operator must resolve and verify that retention before publication.</p>
+  <p>An incomplete or stuck deletion job can still contain the account UID so the deletion can be resumed. Completed jobs receive a 30-day expiry timestamp. Firestore TTL for that field was verified active in production on 25 September 2026; deletion after expiry is asynchronous, not a guarantee of removal exactly on day 30.</p>
   <p>Early-access website registrations are separate from an app account and are not automatically removed by account deletion. To request removal, use the contact route in the privacy policy.</p>
 
   <h2>Your rights</h2>

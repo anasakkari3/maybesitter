@@ -65,9 +65,15 @@ Two retained records must be disclosed alongside backup/crash handling:
 These are expiry settings (`RECEIPT_RETENTION_MS`, `JOB_RETENTION_MS`), not proof
 of an exact runtime purge deadline. `infra/firestore-ttl.sh` declares TTL setup;
 verify deployed policies before making a purge-time promise. Read-only production
-inspection on 2026-09-25 found receipt TTL active but **no accountDeletions TTL
-policy**. The owner must resolve that operational gap before publication; this
-draft does not authorize enabling a TTL policy. The same inspection found a
+inspection on 2026-09-25 initially found receipt TTL active but no accountDeletions
+TTL policy. The owner then explicitly authorized permanent production TTL for
+`accountDeletions.expiresAt` only, with operating spend up to USD1/month for that
+purpose; any scope expansion or higher cost needs new approval. The single policy
+was enabled and verified **ACTIVE** on 2026-09-25. The collection-group aggregate
+was zero before activation; all five existing TTL policies remained unchanged.
+This verifies policy activation, not a timed deletion of a real record. TTL expiry
+is asynchronous and does not guarantee removal exactly on day 30. The authorization
+is not a provider-enforced billing cap. The same read-only inspection found a
 seven-day PITR window, no configured backup schedules and 30-day retention for
 the default log bucket. Firebase’s [published retention information](https://firebase.google.com/support/privacy), checked on 2026-09-25, states that Crashlytics retains crash data and associated identifiers for 90 days **before removal begins** from live and backup systems. This is not a guarantee of completed removal by day 90. The account-deletion implementation does not delete Crashlytics reports; store linkage declarations still require release-specific review.
 Incomplete/stuck deletion jobs can retain the UID for resumption. Early-access
