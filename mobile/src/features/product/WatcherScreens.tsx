@@ -95,7 +95,7 @@ export function WatchBuilderScreen() {
       <Txt role="supporting">{t[effectKeys[effect]]}</Txt><AvailabilityBadge status="LIVE" />
     </Card>
     {create.error ? <Txt color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
-    <Pill testID="watch-create" label={t.xCreateWatch} disabled={create.isPending} onPress={() => create.mutate(effect, { onSuccess: () => actions.go('backgroundActivity') })} />
+    <Pill testID="watch-create" label={t.xCreateWatch} disabled={create.isPending} onPress={() => create.mutate(effect, { onSuccess: () => actions.replace('backgroundActivity') })} />
   </ProductPage>;
 }
 function Choice({ title, checked, onPress, id }: { title: string; checked: boolean; onPress: () => void; id?: string }) {
