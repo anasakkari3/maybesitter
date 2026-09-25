@@ -19,6 +19,7 @@ import {
   requestNotificationPermission,
   type NotificationPermission,
 } from '../../notifications/permission';
+import { refreshPushAfterPrompt } from '../../notifications/pushRegistration';
 import { softRemindersEnabled } from '../../config/env';
 import { quietChoiceFor, quietWindowFor, type QuietChoice } from '../routine/routineProfile';
 import { timeShowing, timeShown } from '../plan/pickerClock';
@@ -200,8 +201,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
    */
   const askForPermission = async (): Promise<void> => {
     const read = ++permissionRead.current;
+    const before = osPermission;
     const status = await requestNotificationPermission();
     if (read === permissionRead.current) setOsPermission(status);
+    // A yes reaches the server's device row now, not at the next cold launch.
+    await refreshPushAfterPrompt(before, status);
   };
 
   const setEnabled = async (next_: boolean): Promise<boolean> => {

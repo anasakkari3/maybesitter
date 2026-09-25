@@ -56,6 +56,7 @@ function trustWith(calendarConsent: boolean) {
 }
 
 let client: QueryClient;
+let consent = true;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 
 beforeEach(async () => {
@@ -75,8 +76,13 @@ beforeEach(async () => {
   jest.spyOn(calendarEndpoints, 'postCalendarBusy').mockResolvedValue({
     success: true, blocks: 0, source: { sourceId: 'device:x', lastSyncedAt: null, windowStart: null, windowEnd: null },
   } as never);
-  jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(true) as never);
-  jest.spyOn(trustEndpoints, 'updateTrust').mockResolvedValue(trustWith(true) as never);
+  consent = true;
+  // The server as a store: what the switch writes is what the next read says.
+  jest.spyOn(trustEndpoints, 'getTrust').mockImplementation((async () => trustWith(consent)) as never);
+  jest.spyOn(trustEndpoints, 'updateTrust').mockImplementation((async (action: { granted: boolean }) => {
+    consent = action.granted;
+    return trustWith(consent);
+  }) as never);
   jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('granted');
   jest.spyOn(deviceCalendar, 'requestAccess').mockResolvedValue('granted');
   jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([]);
@@ -160,7 +166,7 @@ describe('the calendars on this phone', () => {
 
 describe('turning reading on from here', () => {
   it('asks the phone, once, and records the consent', async () => {
-    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(false) as never);
+    consent = false;
     jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('undetermined');
     await show();
     await waitFor(() => expect(screen.getByTestId('calendar-read-toggle').props.accessibilityState?.disabled).toBe(false));
@@ -173,6 +179,31 @@ describe('turning reading on from here', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
   });
 
+  it('with reading off, lists nothing and offers Allow, even when the phone already allows it (review I1)', async () => {
+    consent = false;
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-allow')).not.toBeNull());
+    await waitFor(() => expect(deviceCalendar.getAccess).toHaveBeenCalled());
+    // Nothing that looks connected while nothing is read.
+    expect(screen.queryByTestId('calendar-device-g-work')).toBeNull();
+    expect(screen.queryByTestId('calendar-account-anas@gmail.com')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('calendar-read-allow'));
+    // Allow is the whole of "turn reading on": the consent is recorded too.
+    await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }));
+    await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
+    expect(screen.queryByTestId('calendar-read-allow')).toBeNull();
+  });
+
+  it('with the read flag off, lists nothing and offers no Allow', async () => {
+    process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ = 'false';
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-unavailable')).not.toBeNull());
+    await waitFor(() => expect(deviceCalendar.getAccess).toHaveBeenCalled());
+    expect(screen.queryByTestId('calendar-device-g-work')).toBeNull();
+    expect(screen.queryByTestId('calendar-read-allow')).toBeNull();
+  });
+
   it('asks a phone that has consent recorded but was never asked', async () => {
     jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('undetermined');
     await show();
@@ -183,7 +214,7 @@ describe('turning reading on from here', () => {
   });
 
   it('says so, with the way to phone settings, when the phone says no', async () => {
-    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(false) as never);
+    consent = false;
     jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('undetermined');
     jest.spyOn(deviceCalendar, 'requestAccess').mockResolvedValue('denied');
     const open = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);

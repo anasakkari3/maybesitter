@@ -144,7 +144,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           <Card pad={0} style={{ paddingVertical: 14, paddingHorizontal: 10 }}>
             {/* Today reads first: at the right in Arabic and Hebrew. A horizontal
                 ScrollView ignores the root's `direction`, so the row mirrors itself. */}
-            <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 4 }}>
+            <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 4 }} itemStyle={stacked ? undefined : { flex: 1 }}>
               {keys.map((key, offset) => (
                 <DayCell
                   key={key}

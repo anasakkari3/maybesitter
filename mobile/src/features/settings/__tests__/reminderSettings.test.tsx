@@ -23,6 +23,9 @@ import { NotificationsSettingsScreen } from '../NotificationsSettingsScreen';
 import en from '../../../i18n/locales/en.json';
 import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as permission from '../../../notifications/permission';
+import * as deviceEndpoints from '../../../api/endpoints/devices';
+import * as messaging from '@react-native-firebase/messaging';
+import { resetInstallationIdForTests } from '../../../lib/installationId';
 import settingsFixture from '../../../api/__fixtures__/reminders.settingsSaved.json';
 import * as profileEndpoints from '../../../api/endpoints/profile';
 import * as exactAlarms from '../../../notifications/exactAlarms';
@@ -79,6 +82,9 @@ beforeEach(() => {
   jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(ROUTINE_PROFILE as never);
   jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
   jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('granted');
+  resetInstallationIdForTests();
+  jest.spyOn(messaging, 'getToken').mockResolvedValue('a-real-looking-fcm-token-aaaaaaaaaaaaaaaaaaaaaaa' as never);
+  jest.spyOn(deviceEndpoints, 'registerDevice').mockResolvedValue({ success: true, ok: true } as never);
 });
 
 afterEach(async () => {
@@ -209,6 +215,30 @@ describe('the way to phone settings (first iPhone run, L7)', () => {
     await waitFor(() => expect(permission.getNotificationPermission).toHaveBeenCalled());
     expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
     expect(screen.queryByTestId('notifications-allow')).toBeNull();
+  });
+
+  it('tells the server right after a yes, once, and not after a no (L7 review)', async () => {
+    jest.spyOn(permission, 'getNotificationPermission')
+      .mockResolvedValueOnce('undetermined')
+      .mockResolvedValue('granted');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    expect(deviceEndpoints.registerDevice).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
+    expect(((deviceEndpoints.registerDevice as jest.Mock).mock.calls[0]![0] as { pushPermission: string }).pushPermission)
+      .toBe('granted');
+  });
+
+  it('registers nothing when the phone says no', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('undetermined');
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('denied');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(deviceEndpoints.registerDevice).not.toHaveBeenCalled();
   });
 
   it('is offered once the phone has said no', async () => {

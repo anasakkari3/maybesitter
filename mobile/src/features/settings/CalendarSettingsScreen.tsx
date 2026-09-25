@@ -243,6 +243,25 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   }, [busyCalendar]);
 
   const denied = access === 'denied';
+  // What reading needs, all three: the build, the consent and the phone. The
+  // list and its switches show only then — a list of calendars with their
+  // switches on while nothing is read looks connected and is not (review I1).
+  const reading = calendarReadEnabled() && consented && access === 'granted';
+  // Anything short of that, on a build that reads and a phone that has not
+  // said no: one button that does all of it.
+  const canAllow = calendarReadEnabled() && trust.data !== undefined && access !== null && !denied && !reading;
+  const [allowing, setAllowing] = useState(false);
+  const allow = useCallback(async () => {
+    setAllowing(true);
+    try {
+      await changeRead(true);
+    } catch {
+      // The switch above shows the same failure on its next attempt; the
+      // button simply stays, because nothing changed.
+    } finally {
+      setAllowing(false);
+    }
+  }, [changeRead]);
 
   return (
     <Screen pinned={<SettingsHeader title={t.calendarWriteTitle} onBack={onBack} />}>
@@ -269,24 +288,25 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
             <Txt role="action">{t.calendarDeviceTitle}</Txt>
             <Txt role="supporting" color={p.mu}>{t.calendarDeviceHint}</Txt>
           </View>
-          {access === 'undetermined' ? (
+          {canAllow ? (
             <View style={{ paddingHorizontal: 18, paddingBottom: 16 }}>
               <Btn
                 label={t.calendarDeviceAllow}
                 testID="calendar-read-allow"
-                onPress={() => void askPhone()}
+                disabled={allowing}
+                onPress={() => void allow()}
                 style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}
               >
                 <Txt size={15} weight={600} color={p.onAccent}>{t.calendarDeviceAllow}</Txt>
               </Btn>
             </View>
           ) : null}
-          {access === 'granted' && phoneCalendars !== null && phoneCalendars.length === 0 ? (
+          {reading && phoneCalendars !== null && phoneCalendars.length === 0 ? (
             <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
               <Txt size={13} color={p.mu} testID="calendar-device-none">{t.calendarDeviceNone}</Txt>
             </View>
           ) : null}
-          {access === 'granted' && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars: list }) => (
+          {reading && phoneCalendars ? groupByAccount(phoneCalendars).map(({ source, calendars: list }) => (
             <View key={source} testID={`calendar-account-${source}`} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingHorizontal: 18, paddingTop: 12 }}>
               <SectionLabel>{source === OTHER_SOURCE ? t.calendarDeviceSourceOther : source}</SectionLabel>
               {list.map((calendar) => {

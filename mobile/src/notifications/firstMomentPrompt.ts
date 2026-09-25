@@ -32,6 +32,7 @@ import { useEffect, useRef } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { captureConfirmationSchema } from '../api/schemas/capture';
 import { getNotificationPermission, requestNotificationPermission } from './permission';
+import { refreshPushAfterPrompt } from './pushRegistration';
 
 /** True for a confirm that saved at least one commitment with a time. */
 export function isTimedConfirmation(data: unknown): boolean {
@@ -54,7 +55,8 @@ export async function askAtFirstMoment(remindersWanted: boolean): Promise<void> 
   if (askedThisSession || !remindersWanted) return;
   askedThisSession = true;
   if ((await getNotificationPermission()) !== 'undetermined') return;
-  await requestNotificationPermission();
+  // A yes goes to the server now, not at the next cold launch.
+  await refreshPushAfterPrompt('undetermined', await requestNotificationPermission());
 }
 
 /**

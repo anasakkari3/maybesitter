@@ -13,6 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { cleanup, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
 import * as permission from '../permission';
+import * as deviceEndpoints from '../../api/endpoints/devices';
+import * as messaging from '@react-native-firebase/messaging';
+import { resetInstallationIdForTests } from '../../lib/installationId';
 import confirmation from '../../api/__fixtures__/capture.confirmation.json';
 import confirmationFailed from '../../api/__fixtures__/capture.confirmationFailed.json';
 import { isTimedConfirmation, resetFirstMomentPromptForTests, useNotificationPromptAtFirstMoment } from '../firstMomentPrompt';
@@ -26,6 +29,9 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
   jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('undetermined');
   jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
+  resetInstallationIdForTests();
+  jest.spyOn(messaging, 'getToken').mockResolvedValue('a-real-looking-fcm-token-aaaaaaaaaaaaaaaaaaaaaaa' as never);
+  jest.spyOn(deviceEndpoints, 'registerDevice').mockResolvedValue({ success: true, ok: true } as never);
 });
 
 afterEach(async () => {
@@ -83,6 +89,27 @@ describe('the first confirmed commitment with a time', () => {
   it('does not ask an account that turned reminders off', async () => {
     await run([confirmation], false);
     expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+  });
+});
+
+describe('the server hears about a yes (L7 review)', () => {
+  it('registers the device once, as granted, right after the phone says yes', async () => {
+    // Undetermined when asked; granted when the registration reads it back.
+    jest.spyOn(permission, 'getNotificationPermission')
+      .mockResolvedValueOnce('undetermined')
+      .mockResolvedValue('granted');
+    await run([confirmation, confirmation]);
+    await waitFor(() => expect(deviceEndpoints.registerDevice).toHaveBeenCalledTimes(1));
+    const sent = (deviceEndpoints.registerDevice as jest.Mock).mock.calls[0]![0] as { pushPermission: string };
+    expect(sent.pushPermission).toBe('granted');
+  });
+
+  it('registers nothing after a no', async () => {
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('denied');
+    await run([confirmation]);
+    await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(deviceEndpoints.registerDevice).not.toHaveBeenCalled();
   });
 });
 

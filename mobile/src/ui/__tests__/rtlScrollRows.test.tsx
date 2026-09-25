@@ -12,7 +12,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { ScrollView } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -93,6 +93,15 @@ describe('the week strip', () => {
     return screen.getAllByTestId(/^calendar-day-\d/).map(node => String(node.props.testID).replace('calendar-day-', ''));
   }
 
+  it('ar: each day keeps its share of the week (the cells are flex: 1)', async () => {
+    await showCalendar('ar');
+    for (const cell of screen.getAllByTestId(/^calendar-day-\d/)) {
+      let wrapper = cell.parent;
+      while (wrapper && (wrapper.type !== 'View' || wrapper.props.testID === cell.props.testID)) wrapper = wrapper.parent;
+      expect(StyleSheet.flatten(wrapper?.props.style)).toMatchObject({ flex: 1, direction: 'rtl' });
+    }
+  });
+
   it('ar: today is the last child, so it lands on the right', async () => {
     const days = await showCalendar('ar');
     expect(days).toEqual([...days].sort().reverse());
@@ -120,5 +129,59 @@ describe('DirectionalScrollRow', () => {
     scrollToEnd.mockClear();
     await fireEvent(screen.getByTestId('row'), 'contentSizeChange', 600, 40);
     expect(scrollToEnd).toHaveBeenCalledTimes(scrolls);
+  });
+});
+
+describe('a row that fits on screen, and one that does not (review I2)', () => {
+  /*
+   * Reversing and scrolling to the end only helps a row wider than the screen:
+   * a short row cannot scroll, so its reversed chips would sit at the left.
+   * Under RTL the content box is therefore laid out explicitly left to right
+   * (one flip, not the root's plus the ScrollView's) and packed to the right
+   * end, and each item gets its right-to-left direction back inside. Jest has
+   * no layout, so this pins the style contract; the device check is owed.
+   */
+  const contentOf = () => StyleSheet.flatten(screen.getByTestId('row').props.contentContainerStyle) as Record<string, unknown>;
+
+  it('ar, three short chips: packed to the right edge, each item still right-to-left', async () => {
+    await inLanguage('ar', (
+      <DirectionalScrollRow testID="row" contentContainerStyle={{ gap: 8 }}>
+        {['a', 'b', 'c'].map(id => <Txt key={id} testID={`item-${id}`}>{id}</Txt>)}
+      </DirectionalScrollRow>
+    ));
+    await waitFor(() => expect(screen.queryAllByTestId(/^item-/).length).toBe(3));
+    expect(contentOf()).toMatchObject({ gap: 8, flexGrow: 1, justifyContent: 'flex-end', direction: 'ltr' });
+    for (const id of ['a', 'b', 'c']) {
+      // The nearest host View above the item is its wrapper.
+      let wrapper = screen.getByTestId(`item-${id}`).parent;
+      while (wrapper && (wrapper.type !== 'View' || wrapper.props.testID === `item-${id}`)) wrapper = wrapper.parent;
+      expect(StyleSheet.flatten(wrapper?.props.style)).toMatchObject({ direction: 'rtl' });
+    }
+  });
+
+  it('ar, a row wider than the screen: the same box, opened at its end', async () => {
+    const scrollToEnd = jest.spyOn(ScrollView.prototype, 'scrollToEnd').mockImplementation(() => {});
+    const ids = Array.from({ length: 12 }, (_, n) => `chip${n}`);
+    await inLanguage('ar', (
+      <DirectionalScrollRow testID="row">
+        {ids.map(id => <Txt key={id} testID={`item-${id}`}>{id}</Txt>)}
+      </DirectionalScrollRow>
+    ));
+    await waitFor(() => expect(screen.queryAllByTestId(/^item-/).length).toBe(12));
+    expect(contentOf()).toMatchObject({ flexGrow: 1, justifyContent: 'flex-end', direction: 'ltr' });
+    scrollToEnd.mockClear();
+    await fireEvent(screen.getByTestId('row'), 'contentSizeChange', 2400, 40);
+    expect(scrollToEnd).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId(/^item-/)[0]!.props.testID).toBe('item-chip11');
+  });
+
+  it('en: left alone — no forced direction, no packing', async () => {
+    await inLanguage('en', (
+      <DirectionalScrollRow testID="row" contentContainerStyle={{ gap: 8 }}>
+        {['a', 'b'].map(id => <Txt key={id} testID={`item-${id}`}>{id}</Txt>)}
+      </DirectionalScrollRow>
+    ));
+    await waitFor(() => expect(screen.queryAllByTestId(/^item-/).length).toBe(2));
+    expect(contentOf()).toEqual({ gap: 8 });
   });
 });
