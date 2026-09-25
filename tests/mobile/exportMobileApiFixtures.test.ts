@@ -925,7 +925,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       method: 'PUT',
       body: {
         label: 'Semester B tuition', category: 'tuition',
-        dueAt: '2026-10-10T00:00:00.000Z', amountMinorUnits: 200_000, currency: 'ILS',
+        dueAt: '2026-08-20T00:00:00.000Z', amountMinorUnits: 200_000, currency: 'ILS',
       },
     }));
 
@@ -935,7 +935,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     assert.equal((financialManual.manual as { fields: unknown[] }).fields.length, 1);
 
     const financialContext = await record(
-      'financial.context', 200, await financialContextGet(request('/api/mobile/financial/context')),
+      'financial.context', 200, await financialContextGet(request(`/api/mobile/financial/context?referenceTime=${REFERENCE_TIME}`)),
     );
     const financialState = financialContext.state as {
       cashAvailable: unknown; conflicts: unknown[]; upcomingObligations: unknown[];
