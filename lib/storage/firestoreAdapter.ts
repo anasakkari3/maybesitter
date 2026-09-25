@@ -40,6 +40,65 @@ const NAMED_DATABASE = /^[a-z][a-z0-9-]{2,61}[a-z0-9]$/;
 /** gRPC `ABORTED`: the transaction lost its race and the retry budget is spent. */
 const GRPC_ABORTED = 10;
 
+/** gRPC `INVALID_ARGUMENT`: a request the database refuses — or, see below, a transaction it closed. */
+const GRPC_INVALID_ARGUMENT = 3;
+
+/**
+ * The database's words for a transaction it has already closed (#419).
+ *
+ * Production says the referenced transaction "has expired"; the emulator says
+ * "Transaction is invalid or closed." Both arrive as `INVALID_ARGUMENT`, the
+ * status of a write that will never be accepted, and both mean the opposite:
+ * the transaction lost a race, and a fresh one may win it.
+ *
+ * The SDK already re-runs a transaction on production's wording
+ * (`isRetryableTransactionError` in @google-cloud/firestore matches
+ * `/transaction has expired/`) and lets the emulator's escape, so the same code
+ * retries on real Firestore and fails against the emulator.
+ */
+const CLOSED_TRANSACTION = /transaction (?:has expired|is invalid or closed)/i;
+
+/** `INVALID_ARGUMENT` that is really a closed transaction: a lost race, not a bad request. */
+export function isClosedTransactionError(error: unknown): boolean {
+  return grpcStatusOf(error) === GRPC_INVALID_ARGUMENT
+    && error instanceof Error
+    && CLOSED_TRANSACTION.test(error.message);
+}
+
+/**
+ * Runs a transaction again from scratch when the database closed the last
+ * one underneath its own reads (#419).
+ *
+ * `attempt` is one whole `db.runTransaction`, the SDK's `ABORTED` retries
+ * included. What it cannot retry is this: a transactional read that waits
+ * behind another transaction's locks is aborted by the server at its lock
+ * timeout — a stream that dies before its headers. gax's stream retry
+ * (`retry-request`) reads that as "no response" and re-issues the identical
+ * read, same transaction id, a couple of seconds later. By then the server
+ * has closed the transaction and answers `INVALID_ARGUMENT`, which the SDK
+ * treats as a bad argument: no further attempt, whatever was left of the
+ * budget. It is the CI failure this issue records, at one run in N, 9 s in.
+ *
+ * A closed transaction is a lost race, so it costs one attempt from the same
+ * budget the SDK uses, and the total number of runs stays bounded. Nothing is
+ * waited between runs: by the time the error arrives, the transaction it
+ * raced has long committed, and a fresh run that collides again is retried by
+ * the SDK. The callback must be pure to re-run — the seam's rule already.
+ */
+export async function retryClosedTransaction<R>(
+  attempt: (run: number) => Promise<R>,
+  maxAttempts: number = MAX_TRANSACTION_ATTEMPTS,
+): Promise<R> {
+  for (let run = 1; ; run += 1) {
+    try {
+      return await attempt(run);
+    } catch (error) {
+      if (run < maxAttempts && isClosedTransactionError(error)) continue;
+      throw error;
+    }
+  }
+}
+
 /**
  * Which Firestore database this process uses (UC-1.0a #140, UC-1.0d #143).
  *
@@ -203,10 +262,10 @@ export class FirestoreStorageAdapter implements StorageAdapter {
   async runTransaction<R>(fn: (tx: StorageTransaction) => Promise<R>): Promise<R> {
     const db = this.db;
     try {
-      return await db.runTransaction(
+      return await retryClosedTransaction(() => db.runTransaction(
         async (tx) => fn(new FirestoreTransaction(db, tx)),
         { maxAttempts: MAX_TRANSACTION_ATTEMPTS },
-      );
+      ));
     } catch (error) {
       /*
        * Contention says so, in the same words the memory adapter uses (#419).
@@ -226,6 +285,14 @@ export class FirestoreStorageAdapter implements StorageAdapter {
       if (grpcStatusOf(error) === GRPC_ABORTED) {
         throw new StorageContentionError(
           `Firestore aborted the transaction after ${MAX_TRANSACTION_ATTEMPTS} attempts: ${(error as Error).message}`,
+          MAX_TRANSACTION_ATTEMPTS,
+        );
+      }
+      // A closed transaction that survived `retryClosedTransaction` lost every
+      // run in the budget: contention too, in the memory adapter's words.
+      if (isClosedTransactionError(error)) {
+        throw new StorageContentionError(
+          `Firestore closed the transaction under ${MAX_TRANSACTION_ATTEMPTS} attempts: ${(error as Error).message}`,
           MAX_TRANSACTION_ATTEMPTS,
         );
       }
