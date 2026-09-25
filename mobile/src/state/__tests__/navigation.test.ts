@@ -82,11 +82,13 @@ describe('tabs', () => {
     expect(derive(n)).toMatchObject({ screen: 'today', showTabs: true });
   });
 
-  it('a settings leaf asked for from another tab opens in Settings, with Settings underneath', () => {
-    const n = go(initialNav, 'trust'); // capture's "why are you asking?" does this
-    expect(n.tab).toBe('settings');
+  it('a settings leaf asked for from another tab opens on that tab, and back is where the user was (L6)', () => {
+    // It used to jump to Settings on a fresh stack, so back landed on a
+    // Settings root the user never saw. See navigationLoops.test.ts (c).
+    const n = go(initialNav, 'trust');
+    expect(n.tab).toBe('today');
     expect(screenOf(n)).toBe('trust');
-    expect(screenOf(back(n))).toBe('settings');
+    expect(derive(back(n))).toMatchObject({ screen: 'today', showTabs: true });
   });
 });
 

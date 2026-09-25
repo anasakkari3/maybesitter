@@ -31,16 +31,18 @@ type DraftSelection = { as: 'commitment' } | { as: 'habit'; count: number; durat
 type Notice = 'saved' | 'partial' | 'stale' | 'refused' | 'unlinked' | null;
 
 export function GoalExecutionScreen() {
-  const { t, p, rtl, lang, actions } = useApp();
+  const { t, p, rtl, lang, actions, s } = useApp();
   const memory = useMemory();
   const create = useCreateMemory();
   const [draft, setDraft] = React.useState('');
-  const [openGoal, setOpenGoal] = React.useState<{ id: string; title: string } | null>(null);
-  useClarityStage(openGoal ? null : 'goal_list');
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
+  // The open goal is a step in the navigation history, not local state, so the
+  // header back, the in-page back and Android's back all close it first (L6).
+  const openGoal = s.goalId ? { id: s.goalId, title: goals.find(goal => goal.id === s.goalId)?.content ?? '' } : null;
+  useClarityStage(openGoal ? null : 'goal_list');
 
   return <ProductPage id="goals" title={t.xGoals} {...(openGoal ? {} : { subtitle: t.xGoalBody })}>
-    {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={() => setOpenGoal(null)} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
+    {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={actions.back} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
       // Goals are kept in memory. With memory switched off on the server there
       // is nowhere to save one, so the screen says so once instead of offering
       // an input whose save can only fail.
@@ -71,7 +73,7 @@ export function GoalExecutionScreen() {
             title={isolate(goal.content)}
             body={t.xGoalOpen}
             icon="goal"
-            onPress={() => setOpenGoal({ id: goal.id, title: goal.content })}
+            onPress={() => actions.openGoal(goal.id)}
           />)}
           <Pill label={t.memoryScreenTitle} kind="outline" onPress={() => actions.go('knows')} />
         </ProductSection>

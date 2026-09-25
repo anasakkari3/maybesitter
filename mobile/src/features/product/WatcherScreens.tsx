@@ -85,7 +85,8 @@ export function WatchBuilderScreen() {
     if (creating.current) return;
     creating.current = true;
     create.mutate(effect, {
-      onSuccess: () => actions.go('backgroundActivity'),
+      // The finished builder hands its place to Background activity (L6).
+      onSuccess: () => actions.replace('backgroundActivity'),
       onSettled: () => { creating.current = false; },
     });
   };
