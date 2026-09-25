@@ -13,9 +13,18 @@
 # Usage:
 #   infra/scheduler.sh staging
 #   infra/scheduler.sh production
+#   infra/scheduler.sh --check staging
+#   infra/scheduler.sh --check production
 set -euo pipefail
 
-TARGET="${1:?usage: scheduler.sh staging|production}"
+MODE="apply"
+if [ "${1:-}" = "--check" ]; then
+  MODE="check"
+  shift
+fi
+
+TARGET="${1:?usage: scheduler.sh [--check] staging|production}"
+[ "$#" -eq 1 ] || { echo "usage: scheduler.sh [--check] staging|production" >&2; exit 2; }
 PROJECT_ID="${PROJECT_ID:-maybesitter-app}"
 REGION="${REGION:-europe-west1}"
 SCHEDULER_SA="maybesitter-scheduler@${PROJECT_ID}.iam.gserviceaccount.com"
@@ -27,6 +36,9 @@ case "${TARGET}" in
 esac
 
 command -v gcloud >/dev/null 2>&1 || { echo "missing required tool: gcloud" >&2; exit 1; }
+if [ "${MODE}" = "check" ]; then
+  command -v jq >/dev/null 2>&1 || { echo "missing required tool: jq" >&2; exit 1; }
+fi
 
 BASE_URL="$(gcloud run services describe "${SERVICE}" \
   --region "${REGION}" --project "${PROJECT_ID}" --format='value(status.url)')"
@@ -49,16 +61,38 @@ echo "service ${SERVICE} -> ${BASE_URL}"
 #
 # `--update-env-vars` leaves every other variable alone, and re-running with
 # the same values is harmless.
-echo "setting the scheduler identity on ${SERVICE}"
-gcloud run services update "${SERVICE}" \
-  --region "${REGION}" --project "${PROJECT_ID}" \
-  --update-env-vars="MAYBESITTER_SCHEDULER_SA_EMAIL=${SCHEDULER_SA},MAYBESITTER_INTERNAL_AUDIENCE=${BASE_URL}" \
-  >/dev/null
+CHECK_FAILURES=0
+check_equal() { # label, actual, expected
+  local label="$1" actual="$2" expected="$3"
+  if [ "${actual}" = "${expected}" ]; then
+    printf 'OK   %s\n' "${label}"
+  else
+    printf 'FAIL %s (actual=%q expected=%q)\n' "${label}" "${actual}" "${expected}" >&2
+    CHECK_FAILURES=$((CHECK_FAILURES + 1))
+  fi
+}
+
+if [ "${MODE}" = "check" ]; then
+  SERVICE_JSON="$(gcloud run services describe "${SERVICE}" \
+    --region "${REGION}" --project "${PROJECT_ID}" --format=json)"
+  LIVE_SCHEDULER_SA="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "MAYBESITTER_SCHEDULER_SA_EMAIL") | .value][0] // ""' <<<"${SERVICE_JSON}")"
+  LIVE_AUDIENCE="$(jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "MAYBESITTER_INTERNAL_AUDIENCE") | .value][0] // ""' <<<"${SERVICE_JSON}")"
+  check_equal "${SERVICE} scheduler caller" "${LIVE_SCHEDULER_SA}" "${SCHEDULER_SA}"
+  check_equal "${SERVICE} scheduler audience" "${LIVE_AUDIENCE}" "${BASE_URL}"
+else
+  echo "setting the scheduler identity on ${SERVICE}"
+  gcloud run services update "${SERVICE}" \
+    --region "${REGION}" --project "${PROJECT_ID}" \
+    --update-env-vars="MAYBESITTER_SCHEDULER_SA_EMAIL=${SCHEDULER_SA},MAYBESITTER_INTERNAL_AUDIENCE=${BASE_URL}" \
+    >/dev/null
+fi
 
 # The audience is the service URL: a token minted for staging cannot be
 # replayed against production.
-upsert_job() { # name, schedule, path, timezone, description
+upsert_job() { # name, schedule, path, timezone, description, retry-count, retry-duration, min-backoff, max-backoff
   local name="$1" schedule="$2" path="$3" timezone="$4" description="$5"
+  local retry_count="${6:-0}" retry_duration="${7:-0s}"
+  local min_backoff="${8:-5s}" max_backoff="${9:-60s}"
   local uri="${BASE_URL}${path}"
   local -a args=(
     --location="${REGION}"
@@ -70,8 +104,41 @@ upsert_job() { # name, schedule, path, timezone, description
     --oidc-service-account-email="${SCHEDULER_SA}"
     --oidc-token-audience="${BASE_URL}"
     --attempt-deadline=60s
+    --max-retry-attempts="${retry_count}"
+    --max-retry-duration="${retry_duration}"
+    --min-backoff="${min_backoff}"
+    --max-backoff="${max_backoff}"
+    --max-doublings=3
     --description="${description}"
   )
+
+  if [ "${MODE}" = "check" ]; then
+    local live
+    if ! live="$(gcloud scheduler jobs describe "${name}" --location="${REGION}" --project="${PROJECT_ID}" --format=json 2>/dev/null)"; then
+      printf 'FAIL scheduler job %s is missing\n' "${name}" >&2
+      CHECK_FAILURES=$((CHECK_FAILURES + 1))
+      return
+    fi
+    check_equal "${name} state" "$(jq -r '.state // ""' <<<"${live}")" "ENABLED"
+    check_equal "${name} schedule" "$(jq -r '.schedule // ""' <<<"${live}")" "${schedule}"
+    check_equal "${name} timezone" "$(jq -r '.timeZone // ""' <<<"${live}")" "${timezone}"
+    check_equal "${name} method" "$(jq -r '.httpTarget.httpMethod // ""' <<<"${live}")" "POST"
+    check_equal "${name} target" "$(jq -r '.httpTarget.uri // ""' <<<"${live}")" "${uri}"
+    check_equal "${name} OIDC caller" "$(jq -r '.httpTarget.oidcToken.serviceAccountEmail // ""' <<<"${live}")" "${SCHEDULER_SA}"
+    check_equal "${name} OIDC audience" "$(jq -r '.httpTarget.oidcToken.audience // ""' <<<"${live}")" "${BASE_URL}"
+    check_equal "${name} attempt deadline" "$(jq -r '.attemptDeadline // ""' <<<"${live}")" "60s"
+    check_equal "${name} retry count" "$(jq -r '.retryConfig.retryCount // 0 | tostring' <<<"${live}")" "${retry_count}"
+    check_equal "${name} retry duration" "$(jq -r '.retryConfig.maxRetryDuration // "0s"' <<<"${live}")" "${retry_duration}"
+    # Backoff values have no effect when retry_count is zero, so accept the
+    # API's defaults for frequent sweeps. For a retrying daily job they are
+    # operational behavior and must match the manifest exactly.
+    if [ "${retry_count}" -gt 0 ]; then
+      check_equal "${name} minimum backoff" "$(jq -r '.retryConfig.minBackoffDuration // ""' <<<"${live}")" "${min_backoff}"
+      check_equal "${name} maximum backoff" "$(jq -r '.retryConfig.maxBackoffDuration // ""' <<<"${live}")" "${max_backoff}"
+      check_equal "${name} max doublings" "$(jq -r '.retryConfig.maxDoublings // 0 | tostring' <<<"${live}")" "3"
+    fi
+    return
+  fi
 
   if gcloud scheduler jobs describe "${name}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
     echo "updating ${name}"
@@ -174,12 +241,21 @@ upsert_job "ics-feed-refresh-${SUFFIX}" "*/30 * * * *" "/api/internal/calendar/i
 # instead of shared, football-sync's must stay above 45s or the budget it was
 # built around stops meaning anything.
 upsert_job "football-sync-daily-${SUFFIX}" "0 1 * * *" "/api/internal/jobs/football-sync" "Asia/Jerusalem" \
-  "Daily MaybeSitter football fixture sync (${TARGET})"
+  "Daily MaybeSitter football fixture sync (${TARGET})" 3 900s 30s 300s
 
 # Nightly maintenance at 03:17 local: off-peak, and not on the hour, so it does
 # not pile onto every other cron in the world.
 upsert_job "maintenance-daily-${SUFFIX}" "17 3 * * *" "/api/internal/jobs/maintenance" "Asia/Jerusalem" \
-  "Daily MaybeSitter maintenance (${TARGET})"
+  "Daily MaybeSitter maintenance (${TARGET})" 3 900s 30s 300s
+
+if [ "${MODE}" = "check" ]; then
+  if [ "${CHECK_FAILURES}" -eq 0 ]; then
+    printf '\nscheduler check: all checks passed for %s\n' "${TARGET}"
+    exit 0
+  fi
+  printf '\nscheduler check: %d check(s) failed for %s\n' "${CHECK_FAILURES}" "${TARGET}" >&2
+  exit 1
+fi
 
 cat <<EOF
 

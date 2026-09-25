@@ -2,17 +2,16 @@
 
 Issue: UC-1.0d (#143). Bootstrap and identities come from UC-1.0a (#140).
 
-> **Status: not yet executed.** `.github/workflows/deploy.yml` is committed
-> with a `workflow_dispatch` trigger only and has never run. It cannot run
-> until the owner finishes #140 (gcloud installed, authenticated,
-> `infra/bootstrap.sh` run, the two repository variables set). The container
-> image itself is built and tested locally in CI on every PR.
+> **Status (2026-09-25):** merges to `main` deploy staging through keyless
+> Workload Identity Federation. Production remains an explicit manual dispatch
+> through the protected `production` environment and requires the owner's
+> review. Do not infer production readiness from a successful staging run.
 
 ## Environments
 
 | | Service | Firestore database | Traffic |
 |---|---|---|---|
-| Staging | `maybesitter-api-staging` | `staging` | manual dispatch |
+| Staging | `maybesitter-api-staging` | `staging` | every merge to `main`, or manual dispatch |
 | Production | `maybesitter-api` | `(default)` | manual dispatch, GitHub environment `production` requires the owner's approval |
 
 Both run in `europe-west1`. Firebase Auth is shared between them, so **staging
@@ -107,10 +106,16 @@ signature, `aud` pinned to the service's own URL, and the caller's email.
 
 | Job | Schedule | Endpoint |
 |---|---|---|
-| `jobs-tick-{staging,prod}` | `* * * * *` | `/api/internal/jobs/run` |
+| `jobs-tick-{staging,prod}` | `* * * * *` UTC | `/api/internal/jobs/run` |
+| `daily-plan-tick-{staging,prod}` | `* * * * *` UTC | `/api/internal/jobs/daily-plan` |
+| `hard-reminders-tick-{staging,prod}` | `* * * * *` UTC | `/api/internal/jobs/hard-reminders` |
+| `watcher-sweep-{staging,prod}` | `* * * * *` UTC | `/api/internal/jobs/watchers` |
+| `replan-tick-{staging,prod}` | `*/5 * * * *` UTC | `/api/internal/jobs/replan` |
+| `ics-feed-refresh-{staging,prod}` | `*/30 * * * *` UTC | `/api/internal/calendar/ics/refresh` |
+| `football-sync-daily-{staging,prod}` | `0 1 * * *` Asia/Jerusalem | `/api/internal/jobs/football-sync` |
 | `maintenance-daily-{staging,prod}` | `17 3 * * *` Asia/Jerusalem | `/api/internal/jobs/maintenance` |
 
-`infra/scheduler.sh <staging|production>` creates both jobs idempotently, and
+`infra/scheduler.sh <staging|production>` creates all eight jobs idempotently, and
 sets the two variables the routes need:
 
 | Variable | Value | Why it is set there and not in `flags.sh` |
@@ -118,7 +123,26 @@ sets the two variables the routes need:
 | `MAYBESITTER_SCHEDULER_SA_EMAIL` | `maybesitter-scheduler@<project>.iam.gserviceaccount.com` | the only caller these routes accept |
 | `MAYBESITTER_INTERNAL_AUDIENCE` | the service's own URL | Cloud Run only assigns the URL at the first deploy, so it cannot be a static flag — and the URL embeds the project number, which is not committed |
 
-**So the order is: deploy the service, then run `infra/scheduler.sh`.** Until
+Every job has a 60-second attempt deadline. The frequent sweeps have zero
+immediate retries because the next scheduled sweep is the retry and overlapping
+retries can skip that next cadence. The two daily jobs retry up to three times
+inside 15 minutes, with 30–300 second backoff, because otherwise one transient
+5xx would defer the work for a full day.
+
+Before applying anything, the read-only check verifies the Cloud Run identity
+variables plus every job's enabled state, schedule, target, method, OIDC caller,
+audience, deadline and retry policy:
+
+```bash
+infra/scheduler.sh --check staging
+infra/scheduler.sh --check production
+```
+
+The checks never update a service or create/update a job. Applying a Scheduler
+manifest creates recurring-cost jobs and invokes Cloud Run, so do not run the
+non-`--check` form without the owner's financial approval.
+
+**The order is: deploy the service, then run `infra/scheduler.sh`.** Until
 that has run, the routes answer `503` and nothing is executed: they fail
 closed, so skipping this step stops scheduled work rather than leaving it
 open. Reading a failed `gcloud scheduler jobs run`: `503` means the
@@ -133,3 +157,27 @@ that replaces: the `Scheduler` class that polled every 30 seconds was only
 ever constructed from tests, and `/api/reminders/run` returns a snapshot
 without advancing any reminder. This closes a gap rather than replacing a
 mechanism that was running in production.
+
+## Firestore TTL
+
+The retention manifest is `infra/firestore-ttl.sh`. Verify each database
+without changing it:
+
+```bash
+infra/firestore-ttl.sh --project maybesitter-app --database staging --check
+infra/firestore-ttl.sh --project maybesitter-app --database '(default)' --check
+```
+
+The apply form enables every missing policy. Firestore bills TTL-driven deletes,
+and enabling a policy can make already-expired documents eligible for bulk
+deletion, so a failed check is a financial gate rather than permission to apply.
+
+## Monitoring preparation
+
+`bash infra/cloudrun/ai-cost-alerts.sh print` emits the notification-channel,
+Cloud Run 5xx-ratio, max-instance saturation, Vertex usage, global-refusal,
+budget-threshold and TTL commands without changing cloud state. The generated
+policies are regression-tested by `tests/infra/aiCostAlerts.test.ts`. The
+`apply` form creates a user-defined log metric and related monitoring resources;
+run it only after approving the possible Observability charges and supplying an
+owner-controlled notification email.
