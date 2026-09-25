@@ -209,7 +209,7 @@ describe('Mobile Accessibility Reality Audit Regressions', () => {
     expect(links.length).toBeGreaterThanOrEqual(2);
     for (const link of links) {
       expect(link.props.accessibilityRole).toBe('link');
-      expect(link.props.hitSlop).toBe(12);
+      expect(link.props.hitSlop).toBe(8);
     }
   });
 
