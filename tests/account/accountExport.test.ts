@@ -32,6 +32,9 @@ import { TOP_LEVEL_USER_COLLECTIONS } from '../../lib/account/topLevelUserData.t
 import {
   ACCOUNT_EXPORT_SCHEMA_VERSION,
   EXPORT_EXCLUDED_COLLECTIONS,
+  EXPORT_INTERNAL_FIELDS,
+  EXPORT_MAX_CHARS,
+  MAX_EXPORTS_PER_DAY,
   ExportTooLargeError,
   buildAccountExport,
   redactForExport,
@@ -119,6 +122,55 @@ test('no secret travels: tokens, PKCE verifiers, KMS envelopes and FCM tokens ar
   assert.equal(exported.collections[COMMITMENTS]![0]!.data.title, 'Call the bank');
 });
 
+test('secret names are matched in any case or separator, and a token container is dropped', () => {
+  const stored = {
+    access_token: 'SECRET-1', refresh_token: 'SECRET-2', id_token: 'SECRET-3', 'ID-Token': 'SECRET-4',
+    apiKey: 'SECRET-5', api_key: 'SECRET-6', privateKey: 'SECRET-7', private_key: 'SECRET-8',
+    secret: 'SECRET-9', clientSecret: 'SECRET-10', client_secret: 'SECRET-11', password: 'SECRET-12',
+    Password: 'SECRET-13', credentials: { user: 'SECRET-14' }, tokens: { access: 'SECRET-15', refresh: 'SECRET-16' },
+    code_verifier: 'SECRET-17', AuthorizationCode: 'SECRET-18',
+    nested: [{ oauth: { refresh_token: 'SECRET-19' } }],
+    // Counts and ordinary words are the person's data and stay.
+    inputTokens: 1180, outputTokens: 96, title: 'Call the bank', keyword: 'bank', passwordless: true,
+  };
+  const clean = redactForExport(stored) as Record<string, unknown>;
+  assert.doesNotMatch(JSON.stringify(clean), /SECRET-/);
+  assert.deepEqual(clean, {
+    nested: [{ oauth: {} }], inputTokens: 1180, outputTokens: 96, title: 'Call the bank', keyword: 'bank', passwordless: true,
+  });
+});
+
+test('only plain records are walked: class instances and cycles are dropped, not descended into', () => {
+  class DocumentReferenceLike {
+    readonly path = 'users/other/commitments/x';
+    readonly _firestore = { settings: { credentials: { private_key: 'SECRET-KEY' } } };
+  }
+  const cyclic: Record<string, unknown> = { title: 'loop' };
+  cyclic.self = cyclic;
+  const clean = redactForExport({ ref: new DocumentReferenceLike(), cyclic, bytes: new Uint8Array([1, 2]) }) as Record<string, unknown>;
+  assert.deepEqual(clean, { cyclic: { title: 'loop' } });
+});
+
+test('operator fields are dropped from the records that carry them, and nothing else is', async () => {
+  const storage = createMemoryStorage();
+  await storage.set(userDoc(OWNER), { uid: OWNER });
+  await storage.set(`${JOBS}/job_1`, {
+    id: 'job_1', uid: OWNER, jobType: 'daily_plan', status: 'failed',
+    lastError: 'INTERNAL: stack at runner', claimedBy: 'instance-7f3a', dedupeKey: 'dk_abc',
+  });
+  await storage.set(`${INCIDENTS}/inc_1`, { incidentId: 'inc_1', participantId: OWNER, status: 'open', ownerId: 'operator_42' });
+  await storage.set(userSubDoc(OWNER, ICS_FEEDS, 'feed'), { label: 'Moodle', hostHash: 'h'.repeat(64), etag: 'W/"1"', lastModified: 'Tue', status: 'ok' });
+  await storage.set(userSubDoc(OWNER, PROVIDER_CONNECTIONS, 'conn'), { provider: 'google', credentialRef: { vault: 'kms', keyId: 'k1', version: null } });
+
+  const { collections } = await buildAccountExport(OWNER, { storage });
+
+  assert.deepEqual(collections[JOBS]![0]!.data, { id: 'job_1', uid: OWNER, jobType: 'daily_plan', status: 'failed' });
+  assert.deepEqual(collections[INCIDENTS]![0]!.data, { incidentId: 'inc_1', participantId: OWNER, status: 'open' });
+  assert.deepEqual(collections[ICS_FEEDS]![0]!.data, { label: 'Moodle', status: 'ok' });
+  assert.deepEqual(collections[PROVIDER_CONNECTIONS]![0]!.data, { provider: 'google' });
+  assert.deepEqual(Object.keys(EXPORT_INTERNAL_FIELDS).sort(), [ICS_FEEDS, INCIDENTS, JOBS, PROVIDER_CONNECTIONS].sort());
+});
+
 test('a Firestore Timestamp becomes an instant rather than its internals', () => {
   const stamp = { _seconds: 1, _nanoseconds: 0, toDate: () => new Date('2026-09-25T10:00:00.000Z') };
   assert.deepEqual(redactForExport({ expiresAt: stamp }), { expiresAt: '2026-09-25T10:00:00.000Z' });
@@ -203,6 +255,50 @@ test('GET /api/mobile/account/export refuses without a token', async () => {
   try {
     const response = await exportGet(exportRequest(null));
     assert.equal(response.status, 401);
+  } finally {
+    end();
+  }
+});
+
+test('GET /api/mobile/account/export allows three a day per account, then 429s — and another account is unaffected', async () => {
+  const storage = createMemoryStorage();
+  const owner = uidFor('ExportLimited');
+  const other = uidFor('ExportUnaffected');
+  await seedEverywhere(storage, owner);
+  await seedEverywhere(storage, other);
+  begin(storage);
+  try {
+    assert.equal(MAX_EXPORTS_PER_DAY, 3);
+    for (let call = 1; call <= MAX_EXPORTS_PER_DAY; call += 1) {
+      assert.equal((await exportGet(exportRequest(owner))).status, 200, `call ${call} was refused`);
+    }
+    const refused = await exportGet(exportRequest(owner));
+    assert.equal(refused.status, 429);
+    assert.equal(refused.headers.get('cache-control'), 'no-store');
+    // The same shape as the other daily-action 429s (profile/import).
+    assert.deepEqual(await refused.json(), {
+      success: false, error: 'too many exports today', reason: 'export_rate_limited', maxPerDay: MAX_EXPORTS_PER_DAY,
+    });
+    assert.equal((await exportGet(exportRequest(other))).status, 200);
+  } finally {
+    end();
+  }
+});
+
+test('GET /api/mobile/account/export answers 413 export_too_large when the account is over the cap', async () => {
+  const storage = createMemoryStorage();
+  const owner = uidFor('ExportTooLarge');
+  await storage.set(userDoc(owner), { uid: owner });
+  // Nine one-megabyte documents: past the size cap without ten thousand writes.
+  const chunk = 'x'.repeat(Math.ceil(EXPORT_MAX_CHARS / 8));
+  for (let index = 0; index < 9; index += 1) {
+    await storage.set(userSubDoc(owner, COMMITMENTS, `big${index}`), { title: chunk });
+  }
+  begin(storage);
+  try {
+    const response = await exportGet(exportRequest(owner));
+    assert.equal(response.status, 413);
+    assert.deepEqual(await response.json(), { success: false, error: 'export too large', reason: 'export_too_large' });
   } finally {
     end();
   }

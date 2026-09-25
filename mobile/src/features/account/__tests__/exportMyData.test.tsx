@@ -126,6 +126,16 @@ describe('export my data', () => {
     expect(mockFiles.size).toBe(0);
   });
 
+  it('says the daily limit is reached on a 429 export_rate_limited, and writes nothing', async () => {
+    responses = [{ status: 429, body: { success: false, error: 'too many exports today', reason: 'export_rate_limited', maxPerDay: 3 } }];
+    const share = jest.fn(async () => undefined);
+    await show(share);
+    await fireEvent.press(screen.getByTestId('export-my-data'));
+    await waitFor(() => expect(screen.getByText(en.exportDataRateLimited)).toBeTruthy());
+    expect(share).not.toHaveBeenCalled();
+    expect(mockFiles.size).toBe(0);
+  });
+
   it('sweeps an export a killed process left behind before writing the next', async () => {
     mockFiles.set('file:///cache/maybesitter-export-2026-01-01.json', '{"left":"behind"}');
     mockFiles.set('file:///cache/someone-elses-file.json', 'keep');

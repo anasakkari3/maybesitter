@@ -36,6 +36,9 @@
  */
 import { getStorage } from '../storage';
 import {
+  ICS_FEEDS,
+  INCIDENTS,
+  PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
   USER_SCOPED_COLLECTIONS,
@@ -44,9 +47,21 @@ import {
   userDoc,
 } from '../storage/paths';
 import type { StorageAdapter } from '../storage/storageAdapter';
+import { JOBS } from '../scheduler/storageSchedulerStore';
 import { TOP_LEVEL_USER_COLLECTIONS } from './topLevelUserData';
 
 export const ACCOUNT_EXPORT_SCHEMA_VERSION = 'account-export-v1';
+
+/**
+ * Exports per account per UTC day, enforced by the route with
+ * `reserveDailyAction(uid, 'account_export', …)`.
+ *
+ * The most expensive read in the API — every collection, up to the document
+ * cap — and a copy of a whole account in one response, so a looping client or
+ * a stolen token must not be able to repeat it without limit. Three is more
+ * than a person needs and too few to mirror an account with.
+ */
+export const MAX_EXPORTS_PER_DAY = 3;
 
 /** The most documents one export will carry. A real account is far below it. */
 export const EXPORT_MAX_DOCUMENTS = 10_000;
@@ -64,11 +79,45 @@ export const EXPORT_EXCLUDED_COLLECTIONS: Readonly<Record<string, string>> = Obj
 });
 
 /**
- * Field names that hold a secret wherever they appear. `token` catches
- * `fcmToken`, `accessToken`, `refreshToken`, `idToken` and a bare `token`;
- * a plural such as `inputTokens` is a count and is kept.
+ * Whether a field name holds a secret, wherever it appears.
+ *
+ * Matched on the name folded to lowercase with `_`, `-` and spaces removed, so
+ * `refreshToken`, `refresh_token` and `Refresh-Token` are one name. A name
+ * ending in `token`/`tokens` is dropped unless its value is a plain number —
+ * `inputTokens: 1180` is a count; `tokens: { access, refresh }` is not.
  */
-const SECRET_FIELD = /(?:^|[a-z])(?:token|Token)$|^(?:authorizationCode|codeVerifier|pkceVerifier|verifier|secret|clientSecret|password|pepper|subjectHash|wrappedDek|ciphertext)$/;
+const SECRET_SUFFIXES = ['secret', 'password', 'apikey', 'privatekey', 'secretkey', 'credentials', 'credential'] as const;
+const SECRET_NAMES = new Set([
+  'authorizationcode', 'codeverifier', 'pkceverifier', 'verifier', 'pepper', 'subjecthash', 'wrappeddek', 'ciphertext',
+]);
+
+export function normaliseFieldName(key: string): string {
+  return key.toLowerCase().replace(/[\s_-]+/g, '');
+}
+
+function isSecretField(key: string, value: unknown): boolean {
+  const name = normaliseFieldName(key);
+  if (SECRET_NAMES.has(name)) return true;
+  if (SECRET_SUFFIXES.some((suffix) => name.endsWith(suffix))) return true;
+  if (name.endsWith('token') || name.endsWith('tokens')) return typeof value !== 'number';
+  return false;
+}
+
+/**
+ * Operator fields on records that are the person's, dropped by collection.
+ *
+ * Not secrets, but not the person's data either: which server instance claimed
+ * a job and why it failed, which operator owns an incident, where a provider
+ * grant is filed in the vault, and a feed's host hash and HTTP cache
+ * validators. The brief's "internal fields" line; each name is checked against
+ * its collection's own record shape in `tests/account/accountExport.test.ts`.
+ */
+export const EXPORT_INTERNAL_FIELDS: Readonly<Record<string, readonly string[]>> = Object.freeze({
+  [JOBS]: ['lastError', 'claimedBy', 'dedupeKey'],
+  [INCIDENTS]: ['ownerId'],
+  [ICS_FEEDS]: ['hostHash', 'etag', 'lastModified'],
+  [PROVIDER_CONNECTIONS]: ['credentialRef'],
+});
 
 export interface AccountExportDocument {
   id: string;
@@ -112,32 +161,61 @@ function isEncryptedEnvelope(value: Record<string, unknown>): boolean {
   return 'wrappedDek' in value || ('ciphertext' in value && 'iv' in value);
 }
 
+/** A record the way Firestore and JSON hand one back, not a class instance. */
+function isPlainObject(value: object): value is Record<string, unknown> {
+  const proto = Object.getPrototypeOf(value) as unknown;
+  return proto === Object.prototype || proto === null;
+}
+
 /**
  * The stored value as plain JSON, with every secret removed.
  *
  * Firestore hands back its own `Timestamp` for a `Date` it stored (TTL fields
  * are written that way), so anything with a `toDate()` becomes an instant.
+ * Only plain objects and arrays are walked: a class instance (a
+ * `DocumentReference`, a byte buffer) is not the person's data and may reach
+ * the database client itself, so it is dropped rather than descended into. A
+ * cycle is dropped at the point it repeats.
  */
-export function redactForExport(value: unknown): unknown {
+export function redactForExport(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString();
-  if (Array.isArray(value)) return value.map(redactForExport).filter((item) => item !== undefined);
-  if (typeof value === 'object') {
-    const toDate = (value as { toDate?: unknown }).toDate;
-    if (typeof toDate === 'function') return redactForExport((toDate as () => Date).call(value));
-    if (ArrayBuffer.isView(value)) return undefined;
-    const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-      if (SECRET_FIELD.test(key)) continue;
-      if (item && typeof item === 'object' && !Array.isArray(item) && isEncryptedEnvelope(item as Record<string, unknown>)) continue;
-      const clean = redactForExport(item);
-      if (clean !== undefined) out[key] = clean;
+  if (typeof value !== 'object') return undefined; // functions, symbols, bigints, undefined
+  const toDate = (value as { toDate?: unknown }).toDate;
+  if (!Array.isArray(value) && typeof toDate === 'function') {
+    try {
+      return redactForExport((toDate as () => unknown).call(value), seen);
+    } catch {
+      return undefined;
     }
+  }
+  if (seen.has(value)) return undefined;
+  if (Array.isArray(value)) {
+    seen.add(value);
+    const out = value.map((item) => redactForExport(item, seen)).filter((item) => item !== undefined);
+    seen.delete(value);
     return out;
   }
-  // Functions, symbols, bigints and undefined are not data.
-  return undefined;
+  if (!isPlainObject(value)) return undefined;
+  seen.add(value);
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (isSecretField(key, item)) continue;
+    if (item && typeof item === 'object' && !Array.isArray(item) && isPlainObject(item) && isEncryptedEnvelope(item)) continue;
+    const clean = redactForExport(item, seen);
+    if (clean !== undefined) out[key] = clean;
+  }
+  seen.delete(value);
+  return out;
+}
+
+function withoutInternalFields(collection: string, data: Record<string, unknown>): Record<string, unknown> {
+  const internal = EXPORT_INTERNAL_FIELDS[collection];
+  if (!internal) return data;
+  const out = { ...data };
+  for (const field of internal) delete out[field];
+  return out;
 }
 
 export interface BuildAccountExportOptions {
@@ -162,11 +240,11 @@ export async function buildAccountExport(uid: string, options: BuildAccountExpor
   let remaining = maxDocuments;
   let chars = 0;
 
-  const take = (rows: Array<{ id: string; data: unknown }>): AccountExportDocument[] => {
+  const take = (collection: string, rows: Array<{ id: string; data: unknown }>): AccountExportDocument[] => {
     if (rows.length > remaining) throw new ExportTooLargeError('documents');
     remaining -= rows.length;
     return rows.map((row) => {
-      const data = (redactForExport(row.data) ?? {}) as Record<string, unknown>;
+      const data = withoutInternalFields(collection, (redactForExport(row.data) ?? {}) as Record<string, unknown>);
       chars += row.id.length + JSON.stringify(data).length;
       if (chars > maxChars) throw new ExportTooLargeError('size');
       return { id: row.id, data };
@@ -180,11 +258,11 @@ export async function buildAccountExport(uid: string, options: BuildAccountExpor
   const collections: Record<string, AccountExportDocument[]> = {};
   for (const name of exportedUserCollections()) {
     const rows = await storage.list<unknown>(userCol(uid, name), { limit: remaining + 1 });
-    collections[name] = take(rows);
+    collections[name] = take(name, rows);
   }
   for (const { collection, field } of exportedTopLevelCollections()) {
     const rows = await storage.list<unknown>(collection, { where: [[field, '==', uid]], limit: remaining + 1 });
-    collections[collection] = take(rows);
+    collections[collection] = take(collection, rows);
   }
 
   return {

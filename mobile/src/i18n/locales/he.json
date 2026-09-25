@@ -374,6 +374,7 @@
   "exportDataPreparing": "מכינים את העותק...",
   "exportDataFailed": "הייצוא לא הצליח. נסה שוב בעוד רגע.",
   "exportDataTooLarge": "הנתונים גדולים מדי לייצוא מהאפליקציה. פנה אלינו ונשלח אותם.",
+  "exportDataRateLimited": "ייצאת 3 פעמים היום. נסה שוב מחר.",
   "exportDataShareTitle": "הנתונים שלי מ־MaybeSitter",
   "knowsTitle": "מה MaybeSitter יודע",
   "knowsCommitments": "מחויבויות שאישרת",

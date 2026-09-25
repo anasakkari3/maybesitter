@@ -15,6 +15,8 @@ import { AccountDeletedGate } from '../AccountDeletedGate';
 import { DeleteAccountScreen } from '../../../screens/DeleteAccountScreen';
 import { setCrashReporterForTests, type CrashReporter } from '../../../lib/crash';
 import { signedInWithApple } from '../appleRevocation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { HEALTH_CONNECTION_KEY_PREFIX } from '../../../lib/deviceSettings/healthConnection';
 import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
 
@@ -259,5 +261,32 @@ describe('which accounts count as Sign in with Apple', () => {
     await waitFor(() => expect(screen.getByTestId('account-deleted')).toBeTruthy());
     expect(repository.calls.map(c => c.method)).not.toContain('reauthenticateWithApple');
     expect(repository.appleRevocations).toEqual([]);
+  });
+});
+
+describe('what a failed refresh and a finished deletion leave behind', () => {
+  it('still revokes with the code in hand when the token refresh after the Apple sheet fails', async () => {
+    respondWith({ status: 200, body: RECEIPT_BODY });
+    await renderFor(['apple.com']);
+    repository.failNext('refreshIdentity', new Error('network'));
+    await confirmDeletion();
+
+    await waitFor(() => expect(screen.getByTestId('account-deleted')).toBeTruthy());
+    expect(repository.appleRevocations).toEqual(['fake-apple-code-1']);
+    expect(timeline).toEqual(['revokeAppleToken', 'server:DELETE']);
+    expect(reported).toEqual([]);
+  });
+
+  it('removes this device\'s Health connection key for the deleted account, and leaves other accounts\' keys', async () => {
+    await AsyncStorage.setItem(`${HEALTH_CONNECTION_KEY_PREFIX}alice`, JSON.stringify({ connected: true, lastAttemptAt: null }));
+    await AsyncStorage.setItem(`${HEALTH_CONNECTION_KEY_PREFIX}bob`, JSON.stringify({ connected: true, lastAttemptAt: null }));
+    respondWith({ status: 200, body: RECEIPT_BODY });
+    await renderFor(['password']);
+    await confirmDeletion();
+
+    await waitFor(() => expect(screen.getByTestId('account-deleted')).toBeTruthy());
+    expect(await AsyncStorage.getItem(`${HEALTH_CONNECTION_KEY_PREFIX}alice`)).toBeNull();
+    expect(await AsyncStorage.getItem(`${HEALTH_CONNECTION_KEY_PREFIX}bob`)).not.toBeNull();
+    await AsyncStorage.clear();
   });
 });

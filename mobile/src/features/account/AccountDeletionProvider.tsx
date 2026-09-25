@@ -9,6 +9,7 @@ import type { DeletionReceipt } from '../../api/schemas/account';
 import { ReauthCancelled, reauthProviderFor, type ReauthProvider } from './reauthenticate';
 import type { AppleReauthentication } from '../../auth/types';
 import { recordAppleRevocationFailure, revokeAppleTokens, signedInWithApple } from './appleRevocation';
+import { clearHealthConnection } from '../../lib/deviceSettings/healthConnection';
 
 /**
  * Deleting the account, and holding the receipt long enough for the user to
@@ -98,9 +99,6 @@ export function AccountDeletionProvider({ children }: { children: React.ReactNod
     if (!grant) {
       try {
         grant = await repository.reauthenticateWithApple();
-        // The sheet was also a fresh sign-in; re-mint the token so the
-        // deletion call carries the new `auth_time`.
-        await repository.refreshIdentity();
       } catch (error) {
         if (error instanceof ReauthCancelled) return false;
         // No Apple sheet here (Android has no Apple flow) or it failed: the
@@ -108,6 +106,12 @@ export function AccountDeletionProvider({ children }: { children: React.ReactNod
         recordAppleRevocationFailure('credential_unavailable');
         return true;
       }
+      // The sheet was also a fresh sign-in; re-mint the token so the deletion
+      // call carries the new `auth_time`. Outside the try above on purpose: a
+      // refresh that fails must not cost the revocation, because the code in
+      // hand is still good. If the server then asks for a recent login, the
+      // prompt handles it as it does for every account.
+      await repository.refreshIdentity().catch(() => undefined);
     }
     appleRevoked.current = await revokeAppleTokens(grant.authorizationCode, code => repository.revokeAppleToken(code));
     return true;
@@ -126,6 +130,10 @@ export function AccountDeletionProvider({ children }: { children: React.ReactNod
       // here may make another authenticated request — the token in hand is
       // dead and the generic 401 path would read it as an expired session.
       purgeEverything();
+      // This device's own per-account key: whether Health was connected here.
+      // A deleted account's uid must not stay on the phone in a key name.
+      // Awaited before the sign-out; it never throws.
+      if (user) await clearHealthConnection(user.uid);
       setReceipt(result);
       setPhase({ kind: 'idle' });
       // Last: this flips the gate, and the receipt above it is what the user

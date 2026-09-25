@@ -268,7 +268,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             disabled={exportData.phase === 'preparing'}
             onPress={() => void exportData.start()}
           />
-          {exportData.phase === 'failed' || exportData.phase === 'tooLarge' ? (
+          {exportData.phase === 'failed' || exportData.phase === 'tooLarge' || exportData.phase === 'rateLimited' ? (
             <Txt size={13} color={p.wm} testID="trust-export-failed">{exportPhaseCopy(exportData.phase, t)}</Txt>
           ) : null}
         </Card>

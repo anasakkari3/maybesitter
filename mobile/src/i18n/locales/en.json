@@ -371,6 +371,7 @@
   "exportDataPreparing": "Preparing your copy...",
   "exportDataFailed": "The export didn't work. Try again in a moment.",
   "exportDataTooLarge": "Your data is too big to export from the app. Contact us and we'll send it.",
+  "exportDataRateLimited": "You've exported 3 times today. Try again tomorrow.",
   "exportDataShareTitle": "My MaybeSitter data",
   "knowsTitle": "What MaybeSitter knows",
   "knowsCommitments": "Commitments you confirmed",

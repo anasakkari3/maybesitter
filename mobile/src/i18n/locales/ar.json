@@ -371,6 +371,7 @@
   "exportDataPreparing": "عم نجهّز النسخة...",
   "exportDataFailed": "ما زبط التصدير. جرّب كمان شوي.",
   "exportDataTooLarge": "بياناتك أكبر من إنها تتصدّر من التطبيق. احكي معنا ومنبعتلك ياها.",
+  "exportDataRateLimited": "صدّرت ٣ مرات اليوم. جرّب بكرا.",
   "exportDataShareTitle": "بياناتي من MaybeSitter",
   "knowsTitle": "شو بيعرف MaybeSitter",
   "knowsCommitments": "التزامات أكّدتها",

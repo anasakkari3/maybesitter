@@ -1,5 +1,6 @@
-import { ExportTooLargeError, buildAccountExport } from '../../../../../../lib/account/accountExport';
+import { ExportTooLargeError, MAX_EXPORTS_PER_DAY, buildAccountExport } from '../../../../../../lib/account/accountExport';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
+import { reserveDailyAction } from '../../../../../../lib/llm/usageGuard';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,21 @@ export async function GET(request: Request): Promise<Response> {
     user = await requireMobileUser(request, { forceRevocationCheck: true });
   } catch (error) {
     return mobileAuthErrorResponse(error);
+  }
+
+  // Fails closed: a counter that cannot be read refuses rather than waves the
+  // export through, as every other daily action does.
+  const reservation = await reserveDailyAction(user.uid, 'account_export', MAX_EXPORTS_PER_DAY);
+  if (reservation !== 'ok') {
+    return Response.json(
+      {
+        success: false,
+        error: 'too many exports today',
+        reason: 'export_rate_limited',
+        maxPerDay: MAX_EXPORTS_PER_DAY,
+      },
+      { status: 429, headers: { 'Cache-Control': 'no-store' } },
+    );
   }
 
   try {

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext';
 import { getAccountExport } from '../../api/endpoints/accountExport';
-import { InputTooLargeError } from '../../api/errors';
+import { InputTooLargeError, QuotaExceededError } from '../../api/errors';
 import { shareExportFile, type ShareFile } from '../../lib/dataExportFile';
 
 /**
@@ -11,7 +11,7 @@ import { shareExportFile, type ShareFile } from '../../lib/dataExportFile';
  * nowhere else — not the query cache, not state. What stays behind is the
  * phase, so the row can say what happened.
  */
-export type ExportPhase = 'idle' | 'preparing' | 'failed' | 'tooLarge';
+export type ExportPhase = 'idle' | 'preparing' | 'failed' | 'tooLarge' | 'rateLimited';
 
 export function useExportMyData(share?: ShareFile | undefined) {
   const { t } = useApp();
@@ -33,7 +33,13 @@ export function useExportMyData(share?: ShareFile | undefined) {
       );
       setPhase('idle');
     } catch (error) {
-      setPhase(error instanceof InputTooLargeError ? 'tooLarge' : 'failed');
+      // 413 is the account over the server's cap; 429 is the daily limit
+      // (`export_rate_limited`, three a day). Anything else: try again.
+      setPhase(
+        error instanceof InputTooLargeError ? 'tooLarge'
+          : error instanceof QuotaExceededError ? 'rateLimited'
+            : 'failed',
+      );
     } finally {
       running.current = false;
     }
@@ -45,11 +51,13 @@ export function useExportMyData(share?: ShareFile | undefined) {
 /** The line under the title for each phase. */
 export function exportPhaseCopy(phase: ExportPhase, t: {
   exportDataBody: string; exportDataPreparing: string; exportDataFailed: string; exportDataTooLarge: string;
+  exportDataRateLimited: string;
 }): string {
   switch (phase) {
     case 'preparing': return t.exportDataPreparing;
     case 'failed': return t.exportDataFailed;
     case 'tooLarge': return t.exportDataTooLarge;
+    case 'rateLimited': return t.exportDataRateLimited;
     default: return t.exportDataBody;
   }
 }

@@ -27,6 +27,11 @@
  * press rather than at startup means an old build fails this one action,
  * cleanly, instead of failing to launch.
  *
+ * Only the library is used, never its config plugin. The plugin's
+ * share-into feature rewrites incoming Android SEND intents to VIEW once its
+ * `share_into_scheme` resource exists, which would break expo-share-intent's
+ * capture. Do not add `expo-sharing` to the app config's plugins.
+ *
  * Nothing here logs: a path names the file, and the file is the account.
  */
 import { File, Paths } from 'expo-file-system';

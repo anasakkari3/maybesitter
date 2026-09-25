@@ -192,6 +192,14 @@ const MEMORY_ID = /^mem_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const STABLE_INSTANT = '2026-08-09T09:00:00.000Z';
 /**
+ * Today's UTC day, as a daily counter names it (`users/{uid}/usage/
+ * account_export-<yyyy-mm-dd>`, written by the export route's rate limit and
+ * then carried in the export itself). Rewritten to the reference day so the
+ * `account.export` fixture does not change every midnight.
+ */
+const TODAY_UTC = new Date().toISOString().slice(0, 10);
+const STABLE_DAY = '2026-08-09';
+/**
  * A plan's `inputDigest` (#194): sha256 hex over the planning request, so it
  * moves with the capture's random commitment ids and would otherwise rewrite
  * the plan fixtures on every run.
@@ -213,6 +221,8 @@ function stabilise(value: unknown, counters: Map<string, number>): unknown {
   }
   if (typeof value !== 'string') return value;
   if (INSTANT.test(value)) return value === REFERENCE_TIME ? value : STABLE_INSTANT;
+  if (value === TODAY_UTC) return STABLE_DAY;
+  if (value.endsWith(`-${TODAY_UTC}`)) return `${value.slice(0, -TODAY_UTC.length)}${STABLE_DAY}`;
   // An activity cursor names a record, `<instant>|<id>` (#201). Opaque to the
   // client, but it carries a real clock and a fresh id.
   const cursor = /^([^|]+)\|([^|]+)$/.exec(value);
