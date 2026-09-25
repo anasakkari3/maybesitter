@@ -3,7 +3,7 @@ import { Platform, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useConsents, useSetPersonalizationConsent, useCreateMemory, useMemory, useMemorySuggestion, useToday, useUpcoming } from '../../api/queries';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { apiLocale } from '../../i18n/locale';
 import { formatDate, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
@@ -48,7 +48,12 @@ export function PersonalizationScreen() {
         }} />
     </Card>
     </QueryBoundary>
-    <QueryBoundary isPending={memory.isPending} error={memory.error} onRetry={() => void memory.refetch()}>
+    {/* Memory switched off on the server is a state, not a failure: the
+        section says it isn't available rather than putting an error box
+        under the toggle, and offers no Retry that could not change it. */}
+    {forbiddenReason(memory.error) === 'feature_disabled' ? (
+      <ProductSection title={t.xLearned} body={t.errorsFeatureDisabled} icon="person" />
+    ) : <QueryBoundary isPending={memory.isPending} error={memory.error} onRetry={() => void memory.refetch()}>
       <ProductSection title={t.xLearned} body={t.memorySuggestionsLede} icon="person">
         {suggestions.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoLearning}</Txt> : null}
         {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
@@ -88,7 +93,7 @@ export function PersonalizationScreen() {
           body={formatDate(new Date(item.createdAt), 'short', { locale: lang, timeZone: zone })} icon="check" onPress={() => actions.go('memory')} />)}
         <Pill label={t.memoryEdit} kind="outline" onPress={() => actions.go('memory')} />
       </ProductSection>
-    </QueryBoundary>
+    </QueryBoundary>}
     <ProductRow title={t.xExport} body={t.xExportBody} icon="file" status={cap.export} />
     <ProductRow title={t.memoryDeleteAll} body={t.memoryDeleteAllAlso} icon="shield" onPress={() => actions.go('memory')} />
     <ProductRow title={t.sTrust} icon="shield" onPress={() => actions.go('trust')} />

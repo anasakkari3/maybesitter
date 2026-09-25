@@ -15,7 +15,7 @@ import {
 import type { GoalConfirmationSelection } from '../../api/endpoints/goals';
 import type { GoalGraph } from '../../api/schemas/goals';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { isolate } from '../../i18n/bidi';
 import { formatNumber } from '../../i18n/format';
 import { fill } from '../../i18n/strings';
@@ -40,7 +40,12 @@ export function GoalExecutionScreen() {
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
 
   return <ProductPage id="goals" title={t.xGoals} {...(openGoal ? {} : { subtitle: t.xGoalBody })}>
-    {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={() => setOpenGoal(null)} /> : <>
+    {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={() => setOpenGoal(null)} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
+      // Goals are kept in memory. With memory switched off on the server there
+      // is nowhere to save one, so the screen says so once instead of offering
+      // an input whose save can only fail.
+      <ProductSection title={t.xAddGoal} body={t.errorsFeatureDisabled} icon="goal" />
+    ) : <>
       <ProductSection title={t.xAddGoal} body={t.xAddGoalBody} icon="goal">
         <TextInput
           testID="goal-add-input"

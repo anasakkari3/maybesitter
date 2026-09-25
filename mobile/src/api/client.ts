@@ -13,6 +13,9 @@ import {
   RecentLoginRequiredError,
   NetworkError,
   NotFoundError,
+  FeatureUnavailableError,
+  CaptureConfirmRefusedError,
+  CAPTURE_CONFIRM_FAILURE_CODES,
   PlanEditRefusedError,
   PlanProposalRefusedError,
   ServerError,
@@ -230,6 +233,16 @@ function planEditRefusal(body: unknown, message: string): Error {
   return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId);
 }
 
+/** The confirm route's refusal body — `success: false` and a known code — or null. */
+function captureConfirmRefusal(status: number, body: unknown): CaptureConfirmRefusedError | null {
+  if (status !== 400 && status !== 404) return null;
+  if (!body || typeof body !== 'object') return null;
+  const record = body as { success?: unknown; failureCode?: unknown };
+  if (record.success !== false || typeof record.failureCode !== 'string') return null;
+  const code = CAPTURE_CONFIRM_FAILURE_CODES.find(candidate => candidate === record.failureCode);
+  return code ? new CaptureConfirmRefusedError(code) : null;
+}
+
 function errorForStatus(status: number, body: unknown): Error {
   const { message, reason } = refusal(body);
   // The calendar feed routes (UC-3.4, #188) answer with their own reason at
@@ -237,6 +250,10 @@ function errorForStatus(status: number, body: unknown): Error {
   // body is parsed rather than trusted, like every other refusal here.
   const icsRefusal = icsFeedRefusalSchema.safeParse(body);
   if (icsRefusal.success) return new IcsFeedRefusedError(icsRefusal.data.reason, icsRefusal.data.detail ?? null);
+  // A refused capture confirm keeps its `failureCode` (#252): the reason is
+  // the sentence the person needs, and the 404/400 classes below drop it.
+  const confirmRefusal = captureConfirmRefusal(status, body);
+  if (confirmRefusal) return confirmRefusal;
   switch (status) {
     case 400:
       // The deletion route's own refusal, so the screen can say what to do
@@ -248,6 +265,9 @@ function errorForStatus(status: number, body: unknown): Error {
     case 403:
       return new ForbiddenError(message, reason);
     case 404:
+      // A module the server has switched off (`moduleGate.ts`). Not "gone":
+      // it was never on, and it reads as a disabled feature does.
+      if (reason === 'feature_unavailable') return new FeatureUnavailableError(message);
       return new NotFoundError(message);
     case 409:
       return conflictFor(body);
