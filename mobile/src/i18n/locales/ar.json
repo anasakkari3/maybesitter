@@ -414,6 +414,8 @@
   "notifQuietLate": "٢٣:٣٠ – ٠٨:٣٠",
   "notifQuietNone": "ولا إشي",
   "notifDenied": "تلفونك محطوط إنه ما يعرض إشي من MaybeSitter. بتقدر تغيّرها من إعدادات التلفون.",
+  "notifAllowBody": "التذكيرات شغّالة، بس تلفونك لسّا ما سمحلها.",
+  "notifAllowAction": "اسمح بالإشعارات",
   "notifSaveFailed": "ما انحفظت. جرّب كمان شوي.",
   "notifChannelHard": "تذكيرات الضروري",
   "notifActionDone": "تمّت",

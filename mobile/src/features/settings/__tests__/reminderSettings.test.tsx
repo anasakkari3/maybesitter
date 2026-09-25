@@ -180,6 +180,52 @@ describe('the OS prompt', () => {
   });
 });
 
+describe('the way to phone settings (first iPhone run, L7)', () => {
+  /*
+   * Soft reminders are on by default on the server, so the switch showed "on"
+   * and the one place the phone could ever be asked was a switch nobody
+   * needed to touch. Meanwhile "Open phone settings" was always on screen —
+   * sending somebody the phone had never asked to a toggle that does not
+   * exist yet. Settings is for undoing a no; a phone that has not been asked
+   * is asked, here, in the app.
+   */
+  it('is not offered to a phone that has never been asked; the app asks instead', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('undetermined');
+    jest.spyOn(permission, 'requestNotificationPermission').mockResolvedValue('granted');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+    expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
+
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).toBeNull());
+    expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+  });
+
+  it('is not offered when the phone already allows notifications', async () => {
+    await show();
+    await readySwitch();
+    await waitFor(() => expect(permission.getNotificationPermission).toHaveBeenCalled());
+    expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+    expect(screen.queryByTestId('notifications-allow')).toBeNull();
+  });
+
+  it('is offered once the phone has said no', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
+    const open = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+    expect(screen.queryByTestId('notifications-allow')).toBeNull();
+    await fireEvent.press(screen.getByTestId('notifications-open-settings'));
+    expect(open).toHaveBeenCalledTimes(1);
+    // `Linking.openSettings` is already a jest.fn in the RN preset, so spyOn
+    // hands back that same function and `restoreAllMocks` keeps its calls.
+    // Cleared here so a later case counting its own presses starts at zero.
+    open.mockClear();
+  });
+});
+
 describe('the controls', () => {
   it('sends the lead time the user picked', async () => {
     await show();
@@ -492,7 +538,10 @@ describe('the kill switch', () => {
     process.env.EXPO_PUBLIC_FEATURE_SOFT_REMINDERS = 'false';
     try {
       await show();
-      await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+      // The plan card is the rest of the screen, rendered once the plan read
+      // lands. (This waited on the phone-settings button until L7 made that
+      // button appear only after a no.)
+      await waitFor(() => expect(screen.queryByTestId('plan-settings')).not.toBeNull());
       expect(screen.queryByTestId('gentle-reminders-switch')).toBeNull();
       expect(screen.queryByTestId('reminder-lead-60')).toBeNull();
     } finally {

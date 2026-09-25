@@ -414,6 +414,8 @@
   "notifQuietLate": "23:30 – 08:30",
   "notifQuietNone": "None",
   "notifDenied": "Your phone is set to show nothing from MaybeSitter. You can change that in phone settings.",
+  "notifAllowBody": "Reminders are on, but your phone hasn't allowed them yet.",
+  "notifAllowAction": "Allow notifications",
   "notifSaveFailed": "That did not save. Try again in a moment.",
   "notifChannelHard": "Must reminders",
   "notifActionDone": "Done",

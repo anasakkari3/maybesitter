@@ -417,6 +417,8 @@
   "notifQuietLate": "23:30 – 08:30",
   "notifQuietNone": "אין",
   "notifDenied": "הטלפון שלך מוגדר לא להציג דבר מ-MaybeSitter. אפשר לשנות את זה בהגדרות הטלפון.",
+  "notifAllowBody": "התזכורות פועלות, אבל הטלפון עוד לא אישר אותן.",
+  "notifAllowAction": "לאשר התראות",
   "notifSaveFailed": "זה לא נשמר. נסה שוב בעוד רגע.",
   "notifChannelHard": "תזכורות חובה",
   "notifActionDone": "בוצע",

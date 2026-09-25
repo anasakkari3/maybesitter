@@ -33,14 +33,18 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
  * reminders (UC-2.R4 #174, with the controls from UC-3.11 #196) and the
  * morning plan (UC-3.10b, #195).
  *
- * ── This screen owns the OS prompt, and only here ────────────────
+ * ── The OS prompt: here, and after the first timed confirm ──────
  *
  * iOS allows one permission prompt per install. It is asked at the moment the
  * user turns something that rings **on** — the version of the question a
  * person is most likely to say yes to, because they have just asked for the
  * thing it is about. Onboarding deliberately does not ask
  * (`onboardingFlow.test.tsx` asserts it at the source), and nothing asks at
- * cold start.
+ * cold start. The one other place is `notifications/firstMomentPrompt.ts`,
+ * right after the first confirmed commitment with a time — reminders default
+ * on, so this switch alone was never touched. And when something rings but
+ * the phone was never asked, this screen asks in the app; "Open phone
+ * settings" is shown only after a no, the one answer only Settings can undo.
  *
  * A denial is not an error and is not a rollback. The setting is what the user
  * wants; the permission is what the phone currently allows. So the switch
@@ -155,6 +159,12 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   // Must warning is up it already says notifications are off, so the same
   // fact is not stated twice on one screen.
   const permissionDenied = osPermission === 'denied' && ringBlocked === null;
+  // Something that rings is on and the phone has never been asked (first
+  // iPhone run, L7): soft reminders default on at the server, so the switch
+  // that asks was never touched. The app asks here, in the app — phone
+  // settings is only for undoing a no, and has no switch to show before one.
+  const needsAsking = osPermission === 'undetermined' && !killed
+    && (current?.softEnabled === true || planSettings.data?.enabled === true);
 
   const plan = planSettings.data ?? null;
   const zone = plan?.timezone ?? device;
@@ -571,14 +581,32 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           <Txt size={13} color={p.wm} testID="notifications-save-failed">{t.notifSaveFailed}</Txt>
         ) : null}
 
-        <Btn
-          label={t.notifOpenSettings}
-          testID="notifications-open-settings"
-          onPress={() => void Linking.openSettings()}
-          style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
-        >
-          <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
-        </Btn>
+        {needsAsking ? (
+          <Card pad={18} style={{ gap: 12 }} testID="notifications-not-asked">
+            <Txt size={13} color={p.mu} lh={1.5}>{t.notifAllowBody}</Txt>
+            <Btn
+              label={t.notifAllowAction}
+              testID="notifications-allow"
+              onPress={() => void askForPermission()}
+              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}
+            >
+              <Txt size={15} weight={600} color={p.onAccent}>{t.notifAllowAction}</Txt>
+            </Btn>
+          </Card>
+        ) : null}
+
+        {/* Only for a no: it is the one place a no can be undone. Before the
+            phone has been asked there is no switch there to find. */}
+        {osPermission === 'denied' ? (
+          <Btn
+            label={t.notifOpenSettings}
+            testID="notifications-open-settings"
+            onPress={() => void Linking.openSettings()}
+            style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+          >
+            <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
+          </Btn>
+        ) : null}
       </ScreenScroll>
     </Screen>
   );
