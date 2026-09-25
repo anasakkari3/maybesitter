@@ -1,0 +1,68 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "needs_clarification",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "سجّل موعد دكتور",
+      "resolvedTime": null,
+      "needsClarification": true,
+      "priority": "high",
+      "priorityEstimated": true,
+      "resolvedDate": "2026-08-16",
+      "dateEstimated": true,
+      "clarification": {
+        "questionId": "00000000-0000-4000-8000-000000000003",
+        "field": "time",
+        "questionKey": "ask_time",
+        "params": {
+          "title": "سجّل موعد دكتور",
+          "date": "2026-08-16"
+        },
+        "options": [
+          {
+            "optionId": "morning",
+            "labelKey": "morning",
+            "labelParams": {},
+            "value": {
+              "localTime": "09:00",
+              "localDate": "2026-08-16"
+            }
+          },
+          {
+            "optionId": "afternoon",
+            "labelKey": "afternoon",
+            "labelParams": {},
+            "value": {
+              "localTime": "14:00",
+              "localDate": "2026-08-16"
+            }
+          },
+          {
+            "optionId": "evening",
+            "labelKey": "evening",
+            "labelParams": {},
+            "value": {
+              "localTime": "19:00",
+              "localDate": "2026-08-16"
+            }
+          },
+          {
+            "optionId": "none",
+            "labelKey": "noTime",
+            "labelParams": {},
+            "value": {}
+          }
+        ],
+        "allowFreeText": true
+      }
+    }
+  ],
+  "seeds": [],
+  "provenance": {
+    "requestedEngine": "rules",
+    "executedEngine": "rule-based",
+    "fallbackUsed": true
+  }
+}

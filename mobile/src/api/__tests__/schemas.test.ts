@@ -106,6 +106,10 @@ const CASES: Array<[string, z.ZodType]> = [
   // updated proposal, not an acknowledgement (#165).
   ['capture.needsClarification', captureProposalSchema],
   ['capture.clarified', captureProposalSchema],
+  // The owner's «سجّل موعد دكتور يوم الأحد» (L4): a guessed day on an item
+  // still waiting on its hour, then the same item answered.
+  ['capture.guessedWeekday', captureProposalSchema],
+  ['capture.guessedWeekdayClarified', captureProposalSchema],
   // The same schema again, over a proposal the model answered (#338). Without
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.

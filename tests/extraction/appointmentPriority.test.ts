@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { buildPrompt } from '../../src/extraction/ollamaExtractor.ts';
-import { proposeCapture, MemoryCaptureProposalStore, TransactionalCapturePersistenceAdapter } from '../../lib/services/captureBoundary/index.ts';
+import { answerClarification, proposeCapture, MemoryCaptureProposalStore, TransactionalCapturePersistenceAdapter } from '../../lib/services/captureBoundary/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { ExtractionContext } from '../../src/extraction/extractionTypes.ts';
 
@@ -53,6 +53,13 @@ const RAISED: readonly string[] = [
   'flight to Rome on Friday at 6pm',
   'court hearing on Tuesday',
   'meeting with Rami tomorrow at 10:00',
+  // fix round 1: still Must with the tighter frames
+  'I have my driving test on Friday at 9am',
+  'going to the dentist on Sunday',
+  'عند الدكتور يوم الأحد الساعة 10 الصبح',
+  'عندي موعد يوم الأحد',
+  'יש לי תור ביום ראשון',
+  'אצל הרופא ביום ראשון בשעה 10:00',
 ];
 
 const NOT_RAISED: readonly string[] = [
@@ -71,6 +78,43 @@ const NOT_RAISED: readonly string[] = [
   'احجز موعد دكتور يوم الأحد',
   'اتصل بالعيادة بكرا',
   'לקבוע תור לרופא ביום ראשון',
+  // ── Fix round 1 (I-1): precision over recall ──
+  // the professional as the recipient or object
+  'أرسل للدكتور الملف يوم الأحد',
+  'ابعت للدكتور التقرير بكرا',
+  'اشتري هدية للدكتور أحمد يوم الأحد',
+  'send the file to the doctor on Sunday',
+  'email the dentist on Monday at 10am',
+  'called the clinic on Sunday',
+  'booked the dentist for Monday',
+  'rescheduled the doctor to Sunday',
+  // negation and cancellation
+  'ما في دكتور يوم الأحد',
+  'لغيت موعد الدكتور يوم الأحد',
+  'ألغيت الامتحان يوم الخميس',
+  'Doctor appointment cancelled on Sunday',
+  'doctor appointment canceled on Sunday',
+  'cancel the dentist on Sunday',
+  'no meeting on Monday at 10am',
+  'התור לרופא ביום ראשון בוטל',
+  // loose nouns
+  'look up flight prices on Sunday',
+  'play at the basketball court on Friday',
+  'watch the interview on Sunday',
+  'grade the exams on Sunday',
+  'study for the exam on Sunday',
+  'hearing back from John on Monday',
+  'meeting notes due Sunday at 5pm',
+  'رحلة مع الشباب يوم الجمعة',
+  'موعد تسليم المشروع يوم الأحد',
+  'أدرس للامتحان يوم الأحد',
+  'اشوف أسعار الطيارة يوم الأحد',
+  'ללמוד למבחן ביום ראשון',
+  // Hebrew «בתור» is "as" or "in line", not «תור»
+  'להביא עוגה בתור מתנה ביום ראשון',
+  'לעמוד בתור בדואר ביום ראשון',
+  // «كلم» inside «كلمة» is not a call, and a word is not an appointment
+  'اكتب كلمة للحفلة يوم الأحد',
 ];
 
 for (const phrase of RAISED) {
@@ -138,7 +182,14 @@ test('validator: keeps a model\'s high/inferred for an appointment', () => {
 });
 
 test('validator: raises a model\'s default normal for a fixed appointment, as a guess', () => {
-  const result = validateExtractionResult(modelSays('normal', 'default', null), 'سجّل موعد دكتور يوم الأحد', context);
+  // The model's day-only answer, as the prompt asks for it: a date, no hour.
+  const result = validateExtractionResult(
+    modelSays('normal', 'default', { date: '2026-09-27', time: null, timezone: TZ }),
+    'سجّل موعد دكتور يوم الأحد',
+    context,
+  );
+  assert.equal(result.localTimeSpec?.date, '2026-09-27');
+  assert.equal(result.dateInferred, true);
   assert.equal(result.priority.level, 'high');
   assert.equal(result.priority.source, 'inferred');
 });
@@ -149,6 +200,24 @@ test('validator: does not overrule a low or an explicit normal', () => {
     validateExtractionResult(modelSays('normal', 'user_explicit', null), 'doctor on Sunday, not important', context).priority.level,
     'normal',
   );
+});
+
+test('validator: a malformed model date is dropped, not passed to the phone', () => {
+  const result = validateExtractionResult(
+    modelSays('normal', 'default', { date: 'next sunday', time: null, timezone: TZ }),
+    'سجّل موعد دكتور يوم الأحد',
+    context,
+  );
+  assert.equal(result.localTimeSpec, null);
+});
+
+test('validator: an informational answer is not raised, whatever its nouns', () => {
+  const result = validateExtractionResult(
+    { ...modelSays('normal', 'default', { date: '2026-09-27', time: '10:00', timezone: TZ }), type: 'informational_context' },
+    'موعد دكتور يوم الأحد الساعة 10 الصبح',
+    context,
+  );
+  assert.equal(result.priority.level, 'normal');
 });
 
 test('validator: does not raise a plain task', () => {
@@ -215,4 +284,75 @@ test('share allowlist: a malformed day is stripped and reported, not passed to t
   assert.equal(proposal.items[0]?.resolvedDate, undefined);
   assert.equal(proposal.items[0]?.dateEstimated, undefined);
   assert.ok(drops.some((drop) => drop.field === 'resolvedDate'));
+});
+
+// ── Fix round 1 (I-2): answering the question recomputes the date guess ──
+
+async function proposeOwnerSentence() {
+  const store = new MemoryCaptureProposalStore();
+  const contract = await proposeCapture(
+    'سجّل موعد دكتور يوم الأحد',
+    { now: context.now, timezone: TZ, scopeId: 'l4', requestedEngine: 'rules' },
+    { store, persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()) },
+  );
+  const item = contract.items[0]!;
+  return { store, contract, item, question: item.clarification! };
+}
+
+const clarifyOptions = { now: context.now, timezone: TZ, scopeId: 'l4' };
+
+test('clarify: picking an hour on the guessed Sunday keeps the day, still a guess', async () => {
+  const { store, contract, item, question } = await proposeOwnerSentence();
+  const option = question.options.find((candidate) => candidate.optionId === 'morning')!;
+  const next = await answerClarification(
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: option.optionId },
+    clarifyOptions,
+    { store, recordEvent: () => {} },
+  );
+  const answered = next.items[0]!;
+  assert.equal(answered.resolvedDate, '2026-09-27');
+  assert.equal(answered.dateEstimated, true);
+  assert.equal(answered.priorityEstimated, true);
+});
+
+test('clarify: a free-text answer that states another date replaces the day, and it is theirs', async () => {
+  const { store, contract, item, question } = await proposeOwnerSentence();
+  const stated = extract('موعد دكتور بكرا الساعة 10 الصبح', context);
+  const next = await answerClarification(
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: '٤/١٠ الساعة 10 الصبح' },
+    clarifyOptions,
+    {
+      store,
+      recordEvent: () => {},
+      // The model read the typed date; the rules path cannot.
+      extractor: async (text) => ({
+        result: {
+          ...stated,
+          rawText: text,
+          localTimeSpec: { date: '2026-10-04', time: '10:00', timezone: TZ },
+          dueAt: '2026-10-04T07:00:00.000Z',
+          remindAt: '2026-10-04T07:00:00.000Z',
+          dateInferred: false,
+        },
+        engine: 'gemini',
+        fallbackReason: null,
+      }),
+    },
+  );
+  const answered = next.items[0]!;
+  assert.equal(answered.resolvedDate, '2026-10-04');
+  assert.equal(answered.dateEstimated, false);
+});
+
+test('clarify: an answer that leaves no day drops the stale day and its guess', async () => {
+  const { store, contract, item, question } = await proposeOwnerSentence();
+  const noDay = extract('call the plumber', context);
+  const next = await answerClarification(
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'whenever' },
+    clarifyOptions,
+    { store, recordEvent: () => {}, extractor: async (text) => ({ result: { ...noDay, rawText: text }, engine: 'rule-based', fallbackReason: null }) },
+  );
+  const answered = next.items[0]!;
+  assert.equal(answered.resolvedDate, undefined);
+  assert.equal(answered.dateEstimated, undefined);
 });

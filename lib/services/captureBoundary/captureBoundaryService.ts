@@ -325,8 +325,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         priorityEstimated: extracted.result.priority.source !== 'user_explicit',
         // The day, even while the hour is still being asked for, and whether we
         // picked it — the same "said vs guessed" split as the priority (L4).
-        ...(extracted.result.localTimeSpec?.date
-          ? { resolvedDate: extracted.result.localTimeSpec.date, dateEstimated: extracted.result.dateInferred === true }
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(extracted.result.localTimeSpec?.date ?? '')
+          ? { resolvedDate: extracted.result.localTimeSpec!.date, dateEstimated: extracted.result.dateInferred === true }
           : {}),
         // The one question worth asking, chosen deterministically (#165). Null
         // when there is nothing worth asking, or when every sensible option has

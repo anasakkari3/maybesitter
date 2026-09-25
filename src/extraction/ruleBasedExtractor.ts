@@ -13,8 +13,8 @@ import {
 } from './timeLexicon';
 import {
   FOLLOWING_WEEK_STRIP_SOURCES,
+  WEEKDAY_MENTION_SOURCES,
   daysUntilWeekday,
-  namesCalendarDate,
   readWeekdayReference,
 } from './weekdayLexicon';
 import { isFixedAppointment } from './priorityLexicon';
@@ -180,10 +180,11 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   if (weekday) {
     targetDate = weekday.date;
     timeConfidence = 0.88;
-    // Every weekday-only day is a guess (rule 4) — unless the text said today,
-    // or also typed the calendar date, which this parser cannot read but the
-    // user can see.
-    dateInferred = weekday.daysAhead !== 0 && !namesCalendarDate(raw);
+    // Every weekday day is a guess (rule 4) unless the text said today. That
+    // includes a sentence that also typed a date this parser cannot read
+    // ("the 4th"): the Sunday picked here may not be it, and saying so is the
+    // honest answer.
+    dateInferred = weekday.daysAhead !== 0;
   }
 
   if (!targetDate && clock) {
@@ -262,25 +263,20 @@ function stripTiming(text: string): string {
   // "The one after" phrases whole, before the bare day names below take their
   // weekday and leave «اللي بعد الجاي» behind in the title.
   for (const source of FOLLOWING_WEEK_STRIP_SOURCES) {
-    stripped = stripped.replace(new RegExp(source, 'gi'), ' ');
+    stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
   }
   stripped = stripped
     .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
     .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|العصر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
     .replace(/(?:^|[\s,.،])(?:מחרתיים|מחר|היום|הערב|הלילה|בבוקר|בוקר|אחרי הצהריים|אחה"צ|בצהריים|צהריים|בערב|ערב|בלילה|לילה|חצות)(?=$|[\s,.،])/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
-    .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
-    // Arabic embeds the day inside the sentence — «يوم الأحد الجاي» — where
-    // English trails it. Take the whole phrase, or removing just the day name
-    // leaves «يوم ... الجاي» and the user sees their sentence with a hole in it.
-    .replace(
-      /(?:يوم\s+)?(?:الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)(?:\s+(?:الجاي|الجاية|الجايه|الجاي|القادم|القادمة|الماضي|الماضية))?/gi,
-      ' '
-    )
-    .replace(
-      /(?:(?:ביום|יום)\s+|ב)?(?:ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?:\s+(?:הבא|הבאה|הקרוב|הקרובה))?/gi,
-      ' '
-    );
+    .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ');
+  // Arabic and Hebrew day names, as whole words and with «يوم» and «الجاي»
+  // around them — the same tokenizer that resolves them, so «الأحداث» and
+  // «הראשון» stay in the title exactly as they are not read as days.
+  for (const source of WEEKDAY_MENTION_SOURCES) {
+    stripped = stripped.replace(new RegExp(source, 'gu'), ' ');
+  }
   // Ranges before the clocks inside them: taking "2pm" first would leave
   // "meeting from to" as the title.
   for (const source of [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES]) {

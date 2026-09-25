@@ -26,7 +26,7 @@ import {
   timeOfDayEvidence,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
-import { namesCalendarDate, namesOtherRelativeDay, resolveWeekdayDate } from './weekdayLexicon';
+import { modelDateIsWeekdayGuess } from './weekdayLexicon';
 import { isFixedAppointment } from './priorityLexicon';
 
 export class ValidationError extends Error {
@@ -92,13 +92,22 @@ function isRecord(value: unknown): value is Record<string, any> {
 }
 
 
-/** The `localTimeSpec` the model returned, or null when it returned none. */
+/**
+ * The `localTimeSpec` the model returned, or null when it returned none.
+ *
+ * A day with no hour is kept (L4). The prompt tells the model to answer
+ * "Sunday" with `time: null`, and this used to drop the whole spec for it — so
+ * on the model path the Sunday it had picked vanished, and the review card had
+ * no day to show or to call a guess. The date has to be a real `YYYY-MM-DD`:
+ * it now reaches the phone as `resolvedDate`, whose schema would refuse the
+ * whole proposal over a malformed one.
+ */
 function localTimeSpecFrom(raw: unknown): LocalTimeSpec | null {
   if (!isRecord(raw)) return null;
   const date = stringOrNull(raw['date']);
   const time = stringOrNull(raw['time']);
   const timezone = stringOrNull(raw['timezone']);
-  if (!date || !time || !timezone) return null;
+  if (!date || !timezone || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`))) return null;
   return { date, time, timezone };
 }
 
@@ -210,42 +219,6 @@ export function reconcileLocalTimeSpec(
 }
 
 /**
- * Holds the model to the weekday rule in `weekdayLexicon.ts` (L4).
- *
- * The model is told the rule, but a model asked for "Sunday" on a Sunday can
- * still answer today — and the same sentence must not mean two different days
- * depending on which engine answered. So when the text names a weekday and
- * nothing that could be the date instead (a typed calendar date, tomorrow),
- * the day is the rule's and the instant is recomputed on it.
- *
- * A time the model read is kept; only the day moves. `dateInferred` records
- * whether the day is the rule's guess, for the review card to say so.
- */
-export function applyWeekdayRule(
-  time: ReconciledTime,
-  rawText: string,
-  context?: ExtractionContext,
-): ReconciledTime & { dateInferred: boolean } {
-  const zone = context?.timezone || time.localTimeSpec?.timezone || 'UTC';
-  const untouched = { ...time, dateInferred: false };
-  // A typed calendar date, or tomorrow, beside the weekday may be the real
-  // date: that is the model's call, not the rule's.
-  if (!context?.now || namesCalendarDate(rawText) || namesOtherRelativeDay(rawText)) return untouched;
-  const weekday = resolveWeekdayDate(rawText, context.now, zone);
-  if (!weekday) return untouched;
-  const clock = time.localTimeSpec?.time ?? null;
-  const instant = clock ? instantFromLocal(weekday.date, clock, zone) : null;
-  const moved = instant ? instant.toISOString() : null;
-  return {
-    ...time,
-    dueAt: time.dueAt && moved ? moved : time.dueAt,
-    remindAt: time.remindAt && moved ? moved : time.remindAt,
-    localTimeSpec: { date: weekday.date, time: clock, timezone: zone },
-    dateInferred: weekday.inferred,
-  };
-}
-
-/**
  * Validate and normalise raw JSON (already parsed) from the LLM into a well-typed ExtractionResult.
  *
  * @param raw     - The parsed JSON object from the LLM response
@@ -333,19 +306,21 @@ export function validateExtractionResult(
   // ── time ──────────────────────────────────────────────────────────────
   // Deterministic, and after everything else: the model's instant is an input
   // here, not the answer (#162).
-  const time = applyWeekdayRule(
-    reconcileLocalTimeSpec(
-      {
-        dueAt: isoStringOrNull(raw['dueAt'], 'dueAt'),
-        remindAt: isoStringOrNull(raw['remindAt'], 'remindAt'),
-        localTimeSpec: localTimeSpecFrom(raw['localTimeSpec']),
-      },
-      rawText,
-      context,
-    ),
+  const time = reconcileLocalTimeSpec(
+    {
+      dueAt: isoStringOrNull(raw['dueAt'], 'dueAt'),
+      remindAt: isoStringOrNull(raw['remindAt'], 'remindAt'),
+      localTimeSpec: localTimeSpecFrom(raw['localTimeSpec']),
+    },
     rawText,
     context,
   );
+  // The model's date is never moved here (controller ruling, L4 fix round 1):
+  // an override built on a word list moved correct dates — "the first report"
+  // became a Sunday. The same tokenizer only *marks* a date that came from a
+  // whole-word weekday and nothing else, so the review card can say it was
+  // guessed and offer the week after.
+  const dateInferred = modelDateIsWeekdayGuess(rawText, time.localTimeSpec?.date);
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);
   }
@@ -355,7 +330,8 @@ export function validateExtractionResult(
   // review card still says so. A level the user stated, or a low the model
   // read, is theirs and is not touched.
   if (
-    priority.level === 'normal'
+    (type === 'task' || type === 'follow_up')
+    && priority.level === 'normal'
     && priority.source !== 'user_explicit'
     && isFixedAppointment(rawText, { hasDay: Boolean(time.localTimeSpec?.date), hasClock: Boolean(time.localTimeSpec?.time) })
   ) {
@@ -388,7 +364,7 @@ export function validateExtractionResult(
     remindAt: time.remindAt,
     localTimeSpec: time.localTimeSpec,
     timeEvidence: time.timeEvidence,
-    dateInferred: time.dateInferred,
+    dateInferred,
     priority,
     flexibility,
     category,

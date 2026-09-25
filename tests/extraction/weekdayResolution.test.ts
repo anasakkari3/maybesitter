@@ -16,7 +16,10 @@
  *     «مش هالأحد، اللي بعده», «الأحد اللي بعد الجاي», "the Sunday after next",
  *     «בעוד שבוע ביום ראשון»;
  *   - «اليوم/هلأ» naming today's weekday keeps today;
- *   - every weekday-only resolution is marked as an inferred date.
+ *   - every weekday-only resolution is marked as an inferred date;
+ *   - on the model path the validator never moves the model's date: it only
+ *     marks one that came from a whole-word weekday and nothing else
+ *     (fix round 1, C-1).
  *
  * Every case runs against a fixed clock, once for each day of the week.
  */
@@ -149,7 +152,7 @@ test('resolver: resolves in the user\'s zone, not UTC', () => {
   assert.equal(resolveWeekdayDate('الأحد', sundayJustAfterMidnight, TZ)?.date, '2026-09-27');
 });
 
-// ── The model path is held to the same rule ────────────────────────────
+// ── The model path: marked, never moved (fix round 1, C-1) ─────────────
 
 function modelSays(localTimeSpec: Record<string, unknown> | null, over: Record<string, unknown> = {}) {
   return {
@@ -171,53 +174,134 @@ function modelSays(localTimeSpec: Record<string, unknown> | null, over: Record<s
   };
 }
 
-test('validator: a model that resolves «الأحد» to today on a Sunday is corrected to next Sunday', () => {
-  const result = validateExtractionResult(
-    modelSays({ date: WEEK[0], time: '10:00', timezone: TZ }),
-    'موعد دكتور يوم الأحد الساعة 10 الصبح',
-    at(WEEK[0]!),
-  );
-  assert.equal(result.localTimeSpec?.date, '2026-09-27');
-  assert.equal(result.localTimeSpec?.time, '10:00');
-  assert.equal(result.dateInferred, true);
-});
-
-test('validator: the instant moves with the corrected day', () => {
-  const result = validateExtractionResult(
-    modelSays(
-      { date: WEEK[0], time: '10:00', timezone: TZ },
-      { dueAt: '2026-09-20T07:00:00.000Z', remindAt: '2026-09-20T07:00:00.000Z' },
-    ),
-    'موعد دكتور يوم الأحد الساعة 10 الصبح',
-    at(WEEK[0]!),
-  );
-  assert.equal(result.dueAt, '2026-09-27T07:00:00.000Z');
-  assert.equal(result.remindAt, '2026-09-27T07:00:00.000Z');
-});
-
-test('validator: a day-only weekday is kept as a day and marked inferred', () => {
+test('validator: a Sunday the model resolved from «الأحد» is kept as the model said, and marked a guess', () => {
   const result = validateExtractionResult(modelSays(null), 'سجّل موعد دكتور يوم الأحد', at(WEEK[3]!));
-  assert.equal(result.localTimeSpec?.date, '2026-09-27');
-  assert.equal(result.localTimeSpec?.time, null);
+  // Day-only model answers keep no day at all unless the model named one.
+  assert.equal(result.dateInferred, false);
+  const named = validateExtractionResult(
+    modelSays({ date: '2026-09-27', time: '10:00', timezone: TZ }, { dueAt: '2026-09-27T07:00:00.000Z', remindAt: '2026-09-27T07:00:00.000Z' }),
+    'موعد دكتور يوم الأحد الساعة 10 الصبح',
+    at(WEEK[3]!),
+  );
+  assert.equal(named.localTimeSpec?.date, '2026-09-27');
+  assert.equal(named.dateInferred, true);
+});
+
+test('validator: never moves the model\'s date, even to follow the rule', () => {
+  // On a Sunday the rule says next Sunday; a model that answered today keeps
+  // today. The chip still says it was a guess, and +7 is one tap.
+  const result = validateExtractionResult(
+    modelSays({ date: WEEK[0], time: '18:00', timezone: TZ }, { dueAt: '2026-09-20T15:00:00.000Z', remindAt: '2026-09-20T15:00:00.000Z' }),
+    'موعد دكتور يوم الأحد الساعة 6 المسا',
+    at(WEEK[0]!),
+  );
+  assert.equal(result.localTimeSpec?.date, WEEK[0]);
+  assert.equal(result.dueAt, '2026-09-20T15:00:00.000Z');
   assert.equal(result.dateInferred, true);
 });
 
-test('validator: a stated calendar date is left to the model and not called a guess', () => {
-  const result = validateExtractionResult(
-    modelSays({ date: '2026-10-04', time: '10:00', timezone: TZ }),
-    'dentist Sunday 4/10 at 10:00',
-    at(WEEK[3]!),
-  );
-  assert.equal(result.localTimeSpec?.date, '2026-10-04');
-  assert.notEqual(result.dateInferred, true);
+/**
+ * The review's probes: the model's date is right, and the text either has no
+ * weekday at all (a word that contains one) or states the date some other way.
+ * Clock: Wednesday 2026-09-23. Every one must come back with the model's date
+ * and instant untouched, and not called a guess.
+ */
+const MODEL_RIGHT: ReadonlyArray<[string, string, string]> = [
+  // [text, model's date, model's time]
+  ['לשלוח את הדוח הראשון היום בשעה 17:00', '2026-09-23', '17:00'],
+  ['לסיים את הפרק השני היום בשעה 17:00', '2026-09-23', '17:00'],
+  ['לסיים את הפרק השני בשעה 17:00', '2026-09-23', '17:00'],
+  ['اشتري الاثنين اليوم الساعة 5 المسا', '2026-09-23', '17:00'],
+  ['اشتري الاثنين الساعة 5 المسا', '2026-09-23', '17:00'],
+  ['أتابع الأحداث الساعة 5 المسا', '2026-09-23', '17:00'],
+  ['نزّل النسخة الأحدث الساعة 5 المسا', '2026-09-23', '17:00'],
+  ['موعد دكتور الأحد ٤/١٠ الساعة 10 الصبح', '2026-10-04', '10:00'],
+  ['doctor on Sunday the 4th at 10am', '2026-10-04', '10:00'],
+  ['doctor on Sunday 4th at 10am', '2026-10-04', '10:00'],
+  ['dentist in two weeks on Sunday at 10am', '2026-10-04', '10:00'],
+  ['موعد دكتور بعد أسبوعين يوم الأحد الساعة 10 الصبح', '2026-10-04', '10:00'],
+  ['תור לרופא בעוד שבועיים ביום ראשון בשעה 10:00', '2026-10-04', '10:00'],
+  ['dentist next month, first Sunday, at 10am', '2026-10-04', '10:00'],
+  ['dentist on Sunday October 4 at 10am', '2026-10-04', '10:00'],
+  ['dentist Sunday 4/10 at 10:00', '2026-10-04', '10:00'],
+];
+
+for (const [text, date, time] of MODEL_RIGHT) {
+  test(`validator: «${text}» keeps the model's ${date} ${time}, not flagged`, () => {
+    const instant = new Date(`${date}T${time}:00+03:00`).toISOString();
+    const result = validateExtractionResult(
+      modelSays({ date, time, timezone: TZ }, { dueAt: instant, remindAt: instant }),
+      text,
+      at(WEEK[3]!),
+    );
+    assert.equal(result.localTimeSpec?.date, date);
+    assert.equal(result.dueAt, instant);
+    assert.equal(result.remindAt, instant);
+    assert.equal(result.dateInferred, false);
+  });
+}
+
+// ── The rules path cannot misfire on those words either ────────────────
+
+const NOT_A_WEEKDAY: readonly string[] = [
+  'לשלוח את הדוח הראשון',
+  'לסיים את הפרק השני',
+  'اشتري الاثنين',
+  'قسّم الكيك بين الاثنين',
+  'أتابع الأحداث',
+  'نزّل النسخة الأحدث',
+  'להביא עוגה בתור מתנה',
+  'השבת שלום',
+];
+
+for (const text of NOT_A_WEEKDAY) {
+  test(`rules: «${text}» names no weekday`, () => {
+    assert.equal(readWeekdayReference(text), null);
+    const result = extract(text, at(WEEK[3]!));
+    assert.notEqual(result.dateInferred, true);
+    assert.equal(result.localTimeSpec, null);
+  });
+}
+
+test('rules: words that contain a day name stay whole in the title', () => {
+  assert.equal(extract('أتابع الأحداث الساعة 5 المسا', at(WEEK[3]!)).title, 'أتابع الأحداث');
+  assert.equal(extract('לסיים את הפרק השני מחר בערב', at(WEEK[3]!)).title, 'לסיים את הפרק השני');
 });
 
-test('validator: "tomorrow" beside a weekday is the model\'s call, not overruled', () => {
-  const result = validateExtractionResult(
-    modelSays({ date: WEEK[4], time: '09:00', timezone: TZ }),
-    'tomorrow at 09:00 prepare slides for Sunday',
-    at(WEEK[3]!),
-  );
-  assert.equal(result.localTimeSpec?.date, WEEK[4]);
-  assert.notEqual(result.dateInferred, true);
+const IS_A_WEEKDAY: ReadonlyArray<[string, number]> = [
+  ['يوم الاثنين', 1],
+  ['الاثنين الجاي', 1],
+  ['مقابلة الاثنين الساعة 11', 1],
+  ['لازم ترجّع الاستمارة قبل الاثنين', 1],
+  ['حتى الاثنين', 1],
+  ['والخميس', 4],
+  ['ביום שני', 1],
+  ['יום רביעי הבא', 3],
+  ['בשבת', 6],
+  ['on Friday', 5],
+];
+
+for (const [text, weekday] of IS_A_WEEKDAY) {
+  test(`tokenizer: «${text}» is weekday ${weekday}`, () => {
+    assert.equal(readWeekdayReference(text)?.weekday, weekday);
+  });
+}
+
+test('rules: a weekday beside a date the rules cannot read is still called a guess', () => {
+  // "the 4th" is not parsed here; the Sunday picked may not be it.
+  assert.equal(extract('dentist on Sunday the 4th', at(WEEK[3]!)).dateInferred, true);
+});
+
+// ── Clock edges, pinned (review M-2) ───────────────────────────────────
+
+test('resolver: 23:30 Saturday in Jerusalem → tomorrow is Sunday', () => {
+  assert.deepEqual(resolveWeekdayDate('dentist on Sunday', new Date('2026-09-26T20:30:00Z'), TZ), { date: '2026-09-27', inferred: true });
+});
+
+test('resolver: the Sunday DST ends in London is today, so the answer is +7', () => {
+  assert.equal(resolveWeekdayDate('dentist on Sunday', new Date('2026-10-25T00:30:00Z'), 'Europe/London')?.date, '2026-11-01');
+});
+
+test('resolver: Saturday evening in Los Angeles is Sunday in UTC; Sunday is still tomorrow', () => {
+  assert.equal(resolveWeekdayDate('dentist on Sunday', new Date('2026-09-27T03:30:00Z'), 'America/Los_Angeles')?.date, '2026-09-27');
 });
