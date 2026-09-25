@@ -119,10 +119,14 @@ deleted. Run it for each database — the script defaults to `(default)`, so
 staging needs its own run:
 
 ```bash
-infra/firestore-ttl.sh --project maybesitter-app --dry-run      # see what it will do
-infra/firestore-ttl.sh --project maybesitter-app                # production, (default)
+infra/firestore-ttl.sh --project maybesitter-app --check                    # production, read-only
+infra/firestore-ttl.sh --project maybesitter-app --database staging --check # staging, read-only
+infra/firestore-ttl.sh --project maybesitter-app --dry-run                  # print apply commands
+# Apply only after approving billed TTL deletes and the deletion of any
+# already-expired documents:
+infra/firestore-ttl.sh --project maybesitter-app
 infra/firestore-ttl.sh --project maybesitter-app --database staging
-gcloud firestore fields ttls list --project=maybesitter-app     # verify: all three ACTIVE
+gcloud firestore fields ttls list --project=maybesitter-app     # verify: every required policy ACTIVE
 ```
 
 It is idempotent. Re-run it whenever a store adds a collection with an

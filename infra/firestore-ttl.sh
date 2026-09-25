@@ -30,7 +30,7 @@
 # idempotent: enabling a TTL that is already enabled is not an error.
 #
 # Usage:
-#   infra/firestore-ttl.sh [--project PROJECT_ID] [--database DATABASE] [--dry-run]
+#   infra/firestore-ttl.sh [--project PROJECT_ID] [--database DATABASE] [--dry-run|--check]
 #
 # Verify afterwards with:
 #   gcloud firestore fields ttls list --project=PROJECT_ID
@@ -39,6 +39,7 @@ set -euo pipefail
 PROJECT="${MAYBESITTER_GCP_PROJECT:-${GOOGLE_CLOUD_PROJECT:-maybesitter-app}}"
 DATABASE="${MAYBESITTER_FIRESTORE_DATABASE:-(default)}"
 DRY_RUN=false
+CHECK=false
 
 # The field every TTL-bearing document carries. It must be a timestamp: a
 # policy on a string field is accepted and then never deletes anything, which
@@ -85,6 +86,10 @@ while [ "$#" -gt 0 ]; do
       DRY_RUN=true
       shift
       ;;
+    --check)
+      CHECK=true
+      shift
+      ;;
     -h | --help)
       usage
       exit 0
@@ -97,18 +102,50 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ "${DRY_RUN}" = true ] && [ "${CHECK}" = true ]; then
+  echo "--dry-run and --check are mutually exclusive" >&2
+  exit 2
+fi
+
 if ! command -v gcloud > /dev/null 2>&1; then
   echo "gcloud is not installed or not on PATH" >&2
   exit 1
 fi
+if [ "${CHECK}" = true ] && ! command -v jq > /dev/null 2>&1; then
+  echo "jq is not installed or not on PATH" >&2
+  exit 1
+fi
 
-echo "Enabling Firestore TTL on '${TTL_FIELD}'"
+TTL_JSON=""
+CHECK_FAILURES=0
+if [ "${CHECK}" = true ]; then
+  TTL_JSON="$(gcloud firestore fields ttls list \
+    --project="${PROJECT}" --database="${DATABASE}" --format=json)"
+fi
+
+if [ "${CHECK}" = true ]; then
+  echo "Checking Firestore TTL on '${TTL_FIELD}'"
+else
+  echo "Enabling Firestore TTL on '${TTL_FIELD}'"
+fi
 echo "  project:  ${PROJECT}"
 echo "  database: ${DATABASE}"
 echo
 
 for group in "${COLLECTION_GROUPS[@]}"; do
   echo "→ ${group}"
+  if [ "${CHECK}" = true ]; then
+    state="$(jq -r --arg group "${group}" --arg field "${TTL_FIELD}" \
+      '[.[] | select((.name | endswith("/collectionGroups/" + $group + "/fields/" + $field))) | .ttlConfig.state][0] // "MISSING"' \
+      <<<"${TTL_JSON}")"
+    if [ "${state}" = "ACTIVE" ]; then
+      echo "  ACTIVE"
+    else
+      echo "  ${state}" >&2
+      CHECK_FAILURES=$((CHECK_FAILURES + 1))
+    fi
+    continue
+  fi
   if [ "$DRY_RUN" = true ]; then
     echo "  (dry run) gcloud firestore fields ttls update ${TTL_FIELD}" \
       "--collection-group=${group} --enable-ttl --project=${PROJECT} --database=${DATABASE}"
@@ -125,6 +162,16 @@ for group in "${COLLECTION_GROUPS[@]}"; do
     --database="${DATABASE}" \
     --quiet
 done
+
+if [ "${CHECK}" = true ]; then
+  echo
+  if [ "${CHECK_FAILURES}" -eq 0 ]; then
+    echo "TTL check: all policies are active"
+    exit 0
+  fi
+  echo "TTL check: ${CHECK_FAILURES} required policy/policies are not active" >&2
+  exit 1
+fi
 
 echo
 echo "Done. Confirm with:"
