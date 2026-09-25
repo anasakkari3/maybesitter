@@ -7,7 +7,9 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { Linking } from 'react-native';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import en from '../../../../i18n/locales/en.json';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../../state/AppContext';
 import { VoiceButton } from '../VoiceButton';
@@ -29,7 +31,8 @@ class FakeService implements SpeechCaptureService {
   status: SpeechStatus = 'idle';
   started = 0;
   stopped = 0;
-  private callbacks: SpeechCaptureCallbacks = {};
+  cancelled = 0;
+  protected callbacks: SpeechCaptureCallbacks = {};
 
   async start(callbacks: SpeechCaptureCallbacks): Promise<void> {
     this.started += 1;
@@ -44,8 +47,28 @@ class FakeService implements SpeechCaptureService {
     this.callbacks.onStatus?.('idle');
   }
 
+  async cancel(): Promise<void> {
+    this.cancelled += 1;
+  }
+
   emitPartial(text: string) { this.callbacks.onPartial?.(text); }
   emitFinal(text: string) { this.callbacks.onFinal?.(text); }
+  emitStatus(status: SpeechStatus) {
+    this.status = status;
+    this.callbacks.onStatus?.(status);
+  }
+}
+
+/** A recogniser whose start answers with one fixed status. */
+function answering(status: SpeechStatus) {
+  return new (class extends FakeService {
+    override async start(callbacks: SpeechCaptureCallbacks): Promise<void> {
+      this.started += 1;
+      this.callbacks = callbacks;
+      this.status = status;
+      callbacks.onStatus?.(status);
+    }
+  })();
 }
 
 let onPartial: ReturnType<typeof jest.fn<(t: string) => void>>;
@@ -145,17 +168,136 @@ describe('what it does with words', () => {
 });
 
 describe('a refused microphone', () => {
-  it('says so instead of showing a button that cannot work', async () => {
-    class Denied extends FakeService {
-      override async start(callbacks: SpeechCaptureCallbacks): Promise<void> {
-        this.status = 'permissionDenied';
-        callbacks.onStatus?.('permissionDenied');
-      }
-    }
-    const service = new Denied();
+  it('says so in a short line, offers Settings, and keeps the mic to try again', async () => {
+    const service = answering('permissionDenied');
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined as never);
     await show({ service });
     await fireEvent.press(screen.getByTestId('voice-button'));
     await waitFor(() => expect(screen.queryByTestId('voice-denied')).not.toBeNull());
-    expect(screen.queryByTestId('voice-button')).toBeNull();
+
+    // Not the privacy sentence: it did not say what was wrong or how to fix it.
+    expect(screen.getByTestId('voice-denied').props.children).toBe(en.voiceDenied);
+    await fireEvent.press(screen.getByTestId('voice-open-settings'));
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    // Coming back from Settings with access granted, the next tap has to work.
+    expect(screen.queryByTestId('voice-button')).not.toBeNull();
+  });
+});
+
+describe('a failed attempt (the mic used to vanish)', () => {
+  it('keeps the mic and says to try again', async () => {
+    const service = new FakeService();
+    await show({ service });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(service.started).toBe(1));
+    await React.act(async () => { service.emitStatus('failed'); });
+
+    expect(screen.queryByTestId('voice-button')).not.toBeNull();
+    expect(screen.getByTestId('voice-note').props.children).toBe(en.voiceFailed);
+  });
+
+  it('says it heard nothing, instead of going quiet', async () => {
+    const service = new FakeService();
+    await show({ service });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(service.started).toBe(1));
+    await React.act(async () => { service.emitStatus('noSpeech'); });
+
+    expect(screen.queryByTestId('voice-button')).not.toBeNull();
+    expect(screen.getByTestId('voice-note').props.children).toBe(en.voiceNoSpeech);
+  });
+
+  it('hides the mic only when the language cannot be dictated here, and says why', async () => {
+    const service = answering('localeUnavailable');
+    await show({ service });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(screen.queryByTestId('voice-button')).toBeNull());
+    expect(screen.getByTestId('voice-note').props.children).toBe(en.voiceLocaleUnavailable);
+  });
+
+  it('starts fresh when it is handed a new recogniser (another language)', async () => {
+    const first = answering('failed');
+    const view = await show({ service: first });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(screen.queryByTestId('voice-note')).not.toBeNull());
+
+    const second = new FakeService();
+    await view.rerender(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <VoiceButton service={second} onPartial={onPartial} onFinal={onFinal} />
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    expect(screen.queryByTestId('voice-note')).toBeNull();
+    expect(screen.queryByTestId('voice-button')).not.toBeNull();
+  });
+
+  it('comes back after a hide when the new recogniser can listen', async () => {
+    const first = answering('localeUnavailable');
+    const view = await show({ service: first });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(screen.queryByTestId('voice-button')).toBeNull());
+
+    await view.rerender(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <VoiceButton service={new FakeService()} onPartial={onPartial} onFinal={onFinal} />
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    expect(screen.queryByTestId('voice-button')).not.toBeNull();
+  });
+});
+
+describe('while listening', () => {
+  it('is a Stop control, named as one', async () => {
+    const service = new FakeService();
+    await show({ service });
+    expect(screen.getByTestId('voice-button').props.accessibilityLabel).toBe(en.tapToTalk);
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(screen.queryByTestId('voice-stop-glyph')).not.toBeNull());
+    expect(screen.getByTestId('voice-button').props.accessibilityLabel).toBe(en.stopReview);
+    expect(screen.getByTestId('voice-note').props.children).toBe(en.voiceListening);
+  });
+
+  it('ignores a second press while the first start is still in flight', async () => {
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => { open = resolve; });
+    const service = new (class extends FakeService {
+      override async start(callbacks: SpeechCaptureCallbacks): Promise<void> {
+        this.started += 1;
+        this.callbacks = callbacks;
+        this.status = 'requestingPermission';
+        callbacks.onStatus?.('requestingPermission');
+        await gate;
+        this.status = 'listening';
+        callbacks.onStatus?.('listening');
+      }
+    })();
+    await show({ service });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await React.act(async () => { open(); });
+    expect(service.started).toBe(1);
+    expect(service.stopped).toBe(0);
+  });
+
+  it('tells the caller a dictation is starting, before any words', async () => {
+    const onStart = jest.fn<() => void>();
+    const service = new FakeService();
+    await show({ service, onStart });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(service.started).toBe(1));
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets go of the microphone when the screen goes away', async () => {
+    const service = new FakeService();
+    const view = await show({ service });
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(service.started).toBe(1));
+    await view.unmount();
+    expect(service.cancelled).toBe(1);
   });
 });
