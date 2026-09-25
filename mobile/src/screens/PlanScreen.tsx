@@ -339,8 +339,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
       {/* The day changed after the person made this plan theirs (L5). The
           server kept their plan rather than overwrite it; this says so and
           points at the rebuild, which stays their decision. Warm sand marks
-          attention; the words carry it, not the colour. */}
-      {plan.inputsChanged && !readOnly ? (
+          attention; the words carry it, not the colour. Not shown once the
+          day's rebuilds are spent: it would point at a disabled button. */}
+      {plan.inputsChanged && !readOnly && !capReached ? (
         <Card pad={16} testID="plan-inputs-changed">
           <View style={{ flexDirection: 'row', gap: 10 }}>
             <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.wm, marginTop: 8 }} />

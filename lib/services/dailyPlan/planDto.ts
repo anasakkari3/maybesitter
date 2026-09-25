@@ -14,7 +14,10 @@ import type { PlanItemChange, PlanningItem, TimeInterval, UnscheduledItem } from
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { withinMaxShift } from '../../planning/scheduler';
 import { normalizeWorkingWindows } from '../../planning/constraints';
-import { intervalsOverlap, toEpochMs } from '../../planning/shared/time';
+import { toEpochMs } from '../../planning/shared/time';
+import type { FixedEvent } from '../../../src/contracts/v1/planningContracts';
+import type { Commitment } from '../../../src/domain/stateMachine';
+import { buildDailyPlanInput, pinnedEventsOnDay } from './buildDailyPlan';
 import {
   effectiveSchedule,
   offerCollidesWithFixedTime,
@@ -135,16 +138,42 @@ function workingEndsAtOf(stored: StoredDailyPlan): string | null {
   return latest === null ? null : new Date(latest).toISOString();
 }
 
-/** The pinned commitments that fall on the plan's day. See `DailyPlanDto.fixed`. */
-function fixedRowsOf(stored: StoredDailyPlan, titles: ReadonlyMap<string, string>): PlanItemDto[] {
+/**
+ * The pinned commitments that fall on the plan's day. See `DailyPlanDto.fixed`.
+ *
+ * From the commitments as they are **now** when the caller has them (every
+ * route does), not from the stored request: a pinned commitment is not a
+ * placement decision, so showing the current one overwrites nothing. A plan
+ * the person accepted this morning still shows the appointment they captured
+ * at noon, and stops showing the one they finished. The stored request stays
+ * what the plan was solved against; it is only the fallback here.
+ */
+function fixedRowsOf(
+  stored: StoredDailyPlan,
+  titles: ReadonlyMap<string, string>,
+  commitments: readonly Commitment[] | undefined,
+): PlanItemDto[] {
   const fixedBlockBySource = new Map((stored.blocks ?? [])
     .filter((block) => block.mobility === 'fixed')
     .map((block) => [block.source.id, block.blockId] as const));
-  const horizon = stored.constraints.horizon;
-  return stored.constraints.fixedEvents
+  const events: readonly FixedEvent[] = commitments === undefined
+    ? stored.constraints.fixedEvents
+    : buildDailyPlanInput({
+      // The scope is `${uid}:${date}` (`buildDailyPlanInput`); only the
+      // pinned events are read back, and they do not carry it.
+      uid: stored.constraints.scopeId.slice(0, stored.constraints.scopeId.lastIndexOf(':')),
+      date: stored.date,
+      timezone: stored.timezone,
+      commitments,
+      busyBlocks: [],
+      profile: null,
+      focusHint: null,
+      builtAt: stored.generatedAt,
+    }).constraints.fixedEvents;
+  return pinnedEventsOnDay(events, stored.constraints.horizon)
     .flatMap((event) => {
       const itemId = event.sourceCommitmentId;
-      if (itemId === null || !intervalsOverlap(event.interval, horizon)) return [];
+      if (itemId === null) return [];
       return [{
         itemId,
         title: titles.get(itemId) ?? null,
@@ -159,6 +188,11 @@ function fixedRowsOf(stored: StoredDailyPlan, titles: ReadonlyMap<string, string
 export interface PlanDtoOptions {
   /** `CurrentPlan.inputsChanged`, for the two routes that read through `planRefresh`. */
   readonly inputsChanged?: boolean;
+  /**
+   * The account's commitments as they are now. When given, `fixed` is read
+   * from them rather than from the stored request (`fixedRowsOf`).
+   */
+  readonly commitments?: readonly Commitment[];
 }
 
 export function planToDto(
@@ -212,7 +246,7 @@ export function planToDto(
         maxShiftMinutes: protection.maxShiftMinutes,
       }];
     }),
-    fixed: fixedRowsOf(stored, titles),
+    fixed: fixedRowsOf(stored, titles, options.commitments),
     inputsChanged: options.inputsChanged ?? false,
     rebuildsLeft: rebuildsLeftOf(stored),
     workingEndsAt: workingEndsAtOf(stored),

@@ -189,6 +189,16 @@ export interface StoredDailyPlan {
    * zero. Carried by every `{ ...current }` rewrite and by `regeneratePlan`.
    */
   readonly automaticGenerations?: number;
+  /**
+   * The person accepted a replan offer on this day's plan (#587). Set by
+   * `acceptPlanProposal`, carried by every `{ ...current }` rewrite. It makes
+   * the plan theirs: the automatic refresh of a stale plan (`planRefresh.ts`)
+   * never replaces one, because a rebuild would undo the placement they
+   * accepted. (A decline is already on the document as `rejectedProposals`,
+   * which the refresh reads the same way.) A person's own rebuild starts a
+   * new proposal without it.
+   */
+  readonly proposalAnswered?: boolean;
 }
 
 /**

@@ -982,6 +982,8 @@ export async function acceptPlanProposal(
         updatedAt: at,
         causeChangeIds: proposal.causeChangeIds,
         proposal: null,
+        // The person accepted (#587): the plan is theirs from here on (L5).
+        proposalAnswered: true,
       },
       result: null,
       // Both in this commit. See "What the ledger says" above.
@@ -1085,6 +1087,10 @@ export async function rejectPlanProposal(
       }].slice(-MAX_REJECTED_PROPOSALS)
       : remembered;
     return {
+      // A live decline is remembered in `rejectedProposals`, which is also
+      // what makes the plan the person's for the automatic refresh (L5,
+      // `planIsUntouched`). A stale one described a state no longer in force,
+      // so there is nothing of theirs on the plan for a refresh to undo.
       next: { ...current, proposal: null, updatedAt: at, rejectedProposals },
       result: null,
       ledger: [preparePlanEvent(uid, {

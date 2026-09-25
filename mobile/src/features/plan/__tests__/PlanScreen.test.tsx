@@ -1035,6 +1035,15 @@ describe('when the day changed under a plan the person already touched (L5)', ()
     expect(screen.queryByText(en.planInputsChanged)).not.toBeNull();
   });
 
+  it('says nothing when the day\'s rebuilds are spent: there is nothing to press', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({
+      status: 'accepted', acceptedAt: '2026-08-09T06:00:00.000Z', inputsChanged: true, generation: 5,
+    }) as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-regenerate-capped')).not.toBeNull();
+    expect(screen.queryByTestId('plan-inputs-changed')).toBeNull();
+  });
+
   it('says nothing when nothing changed', async () => {
     await loaded();
     expect(screen.queryByTestId('plan-inputs-changed')).toBeNull();

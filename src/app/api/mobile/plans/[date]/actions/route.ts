@@ -123,7 +123,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
-    plan: planToDto(stored, titles),
+    plan: planToDto(stored, titles, { commitments }),
     // The same key GET answers with, on every action: a client that has just
     // accepted or rejected a patch learns from its own response that the offer
     // is gone, instead of re-fetching to find out.

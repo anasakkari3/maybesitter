@@ -56,7 +56,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ date
   const taken = await fixedTimeForOffer(user.uid, stored, now, { storage: getStorage(), commitments });
   return Response.json({
     success: true,
-    plan: planToDto(stored, titles, { inputsChanged }),
+    plan: planToDto(stored, titles, { inputsChanged, commitments }),
     proposal: pendingProposalToDto(stored, titles, now, taken),
   });
 }

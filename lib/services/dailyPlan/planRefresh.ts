@@ -79,13 +79,15 @@ import {
   schedulePlan,
 } from '../../planning/scheduler';
 import type { FixedEvent, PlanningConstraints, PlanningItem } from '../../../src/contracts/v1/planningContracts';
+import { toEpochMs } from '../../planning/shared/time';
 import type { Commitment } from '../../../src/domain/stateMachine';
 import { loadDomainState } from '../mobile/participantState';
-import { buildDailyPlanInput, dailyPlanScheduleSources, type BusyBlockReader } from './buildDailyPlan';
+import { buildDailyPlanInput, dailyPlanScheduleSources, pinnedEventsOnDay, type BusyBlockReader } from './buildDailyPlan';
 import { composeDailyPlanRequest } from './dailyPlanService';
 import {
   NO_EDITS,
   mutateStoredPlan,
+  pendingProposalOf,
   preparePlanEvent,
   readStoredPlan,
   type StoredDailyPlan,
@@ -105,24 +107,36 @@ export interface PlanRefreshDeps {
 export interface CurrentPlan {
   readonly stored: StoredDailyPlan;
   /**
-   * The day's commitments no longer match what this plan was built from, and
-   * it was not rebuilt because the person has touched it. False for a plan
-   * that is current, including one this read just refreshed.
+   * Something landed on this plan's day since it was built — a commitment
+   * added to the day, or one whose time moved into or within it — and the plan
+   * was not rebuilt because the person has touched it. A commitment completed,
+   * deleted or moved off the day does not raise it: the plan's rows already
+   * show it gone, and "something new" would be false. False for a plan that
+   * is current, including one this read just refreshed.
    */
   readonly inputsChanged: boolean;
 }
 
 /**
  * Whether the person has done anything to this plan: accepted or dismissed
- * it, moved or removed something, or protected a block. Any one of them makes
- * the plan theirs, and an automatic write must not replace it.
+ * it, moved or removed something, protected a block, or answered a replan
+ * offer on it (`proposalAnswered` for an acceptance, `rejectedProposals` for
+ * a decline) — or an offer is waiting for their answer (#587, #611). Any one
+ * of them makes the plan theirs, and an automatic write must not replace it:
+ * a rebuild composes the whole current request, so it would install the
+ * calendar move a declined offer proposed, drop the marks that keep it from
+ * being offered again, undo a placement the person accepted, or discard an
+ * offer they have not seen.
  */
-export function planIsUntouched(stored: StoredDailyPlan): boolean {
+export function planIsUntouched(stored: StoredDailyPlan, now: Date): boolean {
   return stored.status === 'proposed'
     && stored.acceptedAt === null
     && stored.edits.moves.length === 0
     && stored.edits.removals.length === 0
-    && (stored.blocks ?? []).every((block) => protectionOf(block) === null);
+    && (stored.blocks ?? []).every((block) => protectionOf(block) === null)
+    && stored.proposalAnswered !== true
+    && (stored.rejectedProposals ?? []).length === 0
+    && pendingProposalOf(stored, now) === null;
 }
 
 /** An item as the day's commitments decide it; see the header for what is held equal. */
@@ -140,9 +154,13 @@ function commitmentShapeOf(item: PlanningItem): PlanningItem {
   };
 }
 
-/** The pinned commitments. Busy time is the replan tick's (#611). */
-function pinnedEventsOf(events: readonly FixedEvent[]): FixedEvent[] {
-  return events.filter((event) => event.sourceCommitmentId !== null);
+/**
+ * The pinned commitments on the plan's own day. Busy time is the replan
+ * tick's (#611), and a commitment pinned to another day blocks nothing on this
+ * one: counting next week's dentist made every timed capture rebuild today.
+ */
+function pinnedEventsOf(frame: StoredDailyPlan, events: readonly FixedEvent[]): FixedEvent[] {
+  return pinnedEventsOnDay(events, frame.constraints.horizon);
 }
 
 /**
@@ -153,9 +171,25 @@ function commitmentDigest(frame: StoredDailyPlan, constraints: PlanningConstrain
   return planningInputDigest({
     ...frame.constraints,
     workingWindows: [],
-    fixedEvents: pinnedEventsOf(constraints.fixedEvents),
+    fixedEvents: pinnedEventsOf(frame, constraints.fixedEvents),
     items: constraints.items.map(commitmentShapeOf),
   }, frame.config);
+}
+
+/** The request the day's commitments produce now, for the comparisons below. */
+function currentRequestOf(uid: string, stored: StoredDailyPlan, commitments: readonly Commitment[]): PlanningConstraints {
+  return buildDailyPlanInput({
+    uid,
+    date: stored.date,
+    timezone: stored.timezone,
+    commitments,
+    // Only the pinned commitments and the items are compared, and neither
+    // reads the busy time, the routine or the clock.
+    busyBlocks: [],
+    profile: null,
+    focusHint: null,
+    builtAt: stored.generatedAt,
+  }).constraints;
 }
 
 /**
@@ -167,19 +201,45 @@ export function planInputsChanged(
   stored: StoredDailyPlan,
   commitments: readonly Commitment[],
 ): boolean {
-  const { constraints: current } = buildDailyPlanInput({
-    uid,
-    date: stored.date,
-    timezone: stored.timezone,
-    commitments,
-    // Only the pinned commitments and the items are compared, and neither
-    // reads the busy time, the routine or the clock.
-    busyBlocks: [],
-    profile: null,
-    focusHint: null,
-    builtAt: stored.generatedAt,
-  });
+  const current = currentRequestOf(uid, stored, commitments);
   return commitmentDigest(stored, current) !== commitmentDigest(stored, stored.constraints);
+}
+
+/**
+ * Whether something *landed* on the day since the plan was built: a
+ * commitment that is on the day now and was not (added, or moved onto it, or
+ * turned from floating into pinned or back), or one whose time on the day
+ * moved (a new deadline, a new pinned interval).
+ *
+ * Removals are deliberately not an answer here. Completing, deleting or
+ * snoozing a commitment off the day changes the digest, but the plan already
+ * shows it gone, and telling the person something new arrived — and nudging
+ * them to spend a capped rebuild on it — would be false. Priority is not a
+ * time. This is what `inputsChanged` means on a plan the person has touched.
+ */
+export function dayGainedOrMoved(
+  uid: string,
+  stored: StoredDailyPlan,
+  commitments: readonly Commitment[],
+): boolean {
+  const current = currentRequestOf(uid, stored, commitments);
+  const floatingBefore = new Map(stored.constraints.items.map((item) => [item.itemId, item.deadlineAt] as const));
+  for (const item of current.items) {
+    if (!floatingBefore.has(item.itemId)) return true;
+    const before = floatingBefore.get(item.itemId) ?? null;
+    const after = item.deadlineAt ?? null;
+    if ((before === null) !== (after === null)) return true;
+    if (before !== null && after !== null && toEpochMs(before) !== toEpochMs(after)) return true;
+  }
+  const pinnedBefore = new Map(pinnedEventsOf(stored, stored.constraints.fixedEvents)
+    .map((event) => [event.sourceCommitmentId, event.interval] as const));
+  for (const event of pinnedEventsOf(stored, current.fixedEvents)) {
+    const before = pinnedBefore.get(event.sourceCommitmentId);
+    if (before === undefined) return true;
+    if (toEpochMs(before.startsAt) !== toEpochMs(event.interval.startsAt)
+      || toEpochMs(before.endsAt) !== toEpochMs(event.interval.endsAt)) return true;
+  }
+  return false;
 }
 
 /** The calendar date after a `YYYY-MM-DD`. Civil arithmetic, no zone. */
@@ -202,7 +262,9 @@ function stillTheStateJudged(current: StoredDailyPlan, judged: StoredDailyPlan):
     && current.acceptedAt === judged.acceptedAt
     && isDeepStrictEqual(current.edits, judged.edits)
     && isDeepStrictEqual(current.blocks ?? [], judged.blocks ?? [])
-    && (current.proposal?.proposalId ?? null) === (judged.proposal?.proposalId ?? null);
+    && (current.proposal?.proposalId ?? null) === (judged.proposal?.proposalId ?? null)
+    && current.proposalAnswered === judged.proposalAnswered
+    && (current.rejectedProposals ?? []).length === (judged.rejectedProposals ?? []).length;
 }
 
 /**
@@ -220,7 +282,9 @@ export async function refreshStalePlan(
 
   const commitments = deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments);
   if (!planInputsChanged(uid, stored, commitments)) return { stored, inputsChanged: false };
-  if (!planIsUntouched(stored)) return { stored, inputsChanged: true };
+  if (!planIsUntouched(stored, now)) {
+    return { stored, inputsChanged: dayGainedOrMoved(uid, stored, commitments) };
+  }
 
   const nowIso = now.toISOString();
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));

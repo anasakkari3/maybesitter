@@ -33,7 +33,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
-import { userDoc } from '../../lib/storage/paths.ts';
+import { PLANNING_STATE_CHANGES, docIdForKey, userCol, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { loadDomainState, persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import {
@@ -41,7 +41,7 @@ import {
   createEmptyDomainState,
   type DomainState,
 } from '../../src/domain/stateMachine.ts';
-import { listPlanEvents, planPath, readStoredPlan } from '../../lib/services/dailyPlan/planStore.ts';
+import { listPlanEvents, planPath, readStoredPlan, storePlanProposal, type StoredPlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
 import { MAX_PLAN_REBUILDS_PER_DAY } from '../../lib/services/dailyPlan/planSettings.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
 import { POST as buildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
@@ -49,6 +49,11 @@ import { POST as regeneratePost } from '../../src/app/api/mobile/plans/[date]/re
 import { POST as actionPost } from '../../src/app/api/mobile/plans/[date]/actions/route.ts';
 import { acceptPlan } from '../../lib/services/dailyPlan/planActions.ts';
 import { refreshStalePlan } from '../../lib/services/dailyPlan/planRefresh.ts';
+import { diffPlans } from '../../lib/planning/scheduler/index.ts';
+import { runContinuousReplanTick } from '../../lib/services/dailyPlan/continuousReplanService.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
+import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
+import type { Plan, TimeInterval } from '../../src/contracts/v1/planningContracts.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const TZ = 'Asia/Jerusalem';
@@ -163,6 +168,58 @@ async function captureAndConfirm(
 
 /** Today, 18:00 in Jerusalem. */
 const DUE_TODAY = '2026-09-15T15:00:00.000Z';
+
+type LaterCommand =
+  | { type: 'Complete' }
+  | { type: 'Drop' }
+  | { type: 'Postpone'; postponedUntil: string };
+
+/** One more domain command on a commitment the account holds. */
+async function applyTo(storage: StorageAdapter, id: string, command: LaterCommand, at: Date): Promise<void> {
+  const state = await loadDomainState(storage, USER);
+  const now = at.toISOString();
+  const next = command.type === 'Postpone'
+    ? applyDomainCommand(state, { type: 'Postpone', commitmentId: id, postponedUntil: command.postponedUntil, now })
+    : applyDomainCommand(state, { type: command.type, commitmentId: id, now });
+  await persistParticipantState(USER, next.newState);
+}
+
+function shifted(interval: TimeInterval, minutes: number): TimeInterval {
+  const by = (at: string) => new Date(Date.parse(at) + minutes * 60_000).toISOString();
+  return { startsAt: by(interval.startsAt), endsAt: by(interval.endsAt) };
+}
+
+/** A live replan offer on the current generation: every placement an hour later. */
+async function offerShift(storage: StorageAdapter): Promise<StoredPlanProposal> {
+  const stored = (await readStoredPlan(USER, DATE, storage))!;
+  const plan: Plan = {
+    ...stored.plan,
+    scheduled: stored.plan.scheduled.map((item) => ({
+      itemId: item.itemId,
+      interval: shifted(item.interval, 60),
+      reservedInterval: shifted(item.reservedInterval, 60),
+    })),
+  };
+  const proposal: StoredPlanProposal = {
+    proposalId: 'prp_l5',
+    proposedAt: MORNING.toISOString(),
+    baseGeneration: stored.generation,
+    baseInputDigest: stored.inputDigest,
+    plan,
+    solveInputs: { constraints: stored.constraints, config: stored.config },
+    diff: diffPlans(stored.plan, plan),
+    reason: 'user_requires_confirmation',
+    userControlMode: 'always_require_confirmation',
+    causeChangeIds: ['chg-calendar-moved'],
+  };
+  assert.ok(await storePlanProposal(USER, DATE, proposal, storage), 'the setup is wrong: no offer stored');
+  return proposal;
+}
+
+async function accept(): Promise<void> {
+  const response = await actionPost(request(`/api/mobile/plans/${DATE}/actions`, { action: 'accept' }), params(DATE));
+  assert.equal(response.status, 200, 'the setup is wrong: the plan was not accepted');
+}
 
 /* ── 1. The literal repro ──────────────────────────────────────── */
 
@@ -351,6 +408,233 @@ test('a past day\'s plan is never rebuilt', async () => {
     const read = await readPlan(DATE);
     assert.equal(read.body.plan.generation, 1);
     assert.equal(read.body.plan.scheduled.length, 0);
+  });
+});
+
+/* ── Fix round 1 ──────────────────────────────────────────────── */
+
+test('I1: a commitment timed for next week leaves today\'s untouched plan alone', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    const built = await build();
+    setClock(LATER);
+    await captureAndConfirm(storage, 'cmt_dentist', 'Dentist', { kind: 'scheduled_event', dueAt: '2026-09-22T11:00:00.000Z' }, LATER);
+
+    const read = await readPlan();
+    assert.equal(read.body.plan.generation, 1, 'next week\'s appointment rebuilt today\'s plan');
+    assert.deepEqual(read.body.plan.scheduled, built.body.plan.scheduled, 'today\'s placement moved');
+    assert.deepEqual(read.body.plan.fixed, [], 'next week\'s appointment is on today');
+    assert.equal(read.body.plan.inputsChanged, false);
+  });
+});
+
+test('I2: on an accepted plan, finishing, dropping or snoozing a commitment off the day raises no notice', async () => {
+  const cases: Array<[string, LaterCommand]> = [
+    ['complete', { type: 'Complete' }],
+    ['drop (delete)', { type: 'Drop' }],
+    ['snooze to tomorrow', { type: 'Postpone', postponedUntil: '2026-09-16T07:00:00.000Z' }],
+  ];
+  for (const [label, command] of cases) {
+    await withHarness(async ({ storage }) => {
+      await seedAccount(storage);
+      await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+      await build();
+      await accept();
+      setClock(LATER);
+      await applyTo(storage, 'cmt_report', command, LATER);
+
+      const read = await readPlan();
+      assert.equal(read.body.plan.generation, 1);
+      assert.equal(read.body.plan.inputsChanged, false, `${label} told the person something new arrived`);
+    });
+  }
+});
+
+test('I2: on an accepted plan, a commitment added to the day or re-timed within it raises the notice', async () => {
+  // Added: covered for accept/edit/dismiss above. Re-timed: a pinned
+  // commitment moved to later the same day.
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_dentist', 'Dentist', { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z' }, MORNING);
+    await build();
+    await accept();
+    setClock(LATER);
+    await applyTo(storage, 'cmt_dentist', { type: 'Postpone', postponedUntil: '2026-09-15T13:00:00.000Z' }, LATER);
+
+    const read = await readPlan();
+    assert.equal(read.body.plan.generation, 1);
+    assert.equal(read.body.plan.inputsChanged, true, 'a pinned time moved within the day and nobody was told');
+  });
+  // Added with no date at all: an undated commitment that matters joins the day.
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await build();
+    await accept();
+    setClock(LATER);
+    await captureAndConfirm(storage, 'cmt_undated', 'Undated thing', { kind: 'due_by', dueAt: null }, LATER);
+    const read = await readPlan();
+    assert.equal(read.body.plan.inputsChanged, true, 'an undated commitment joined the day and nobody was told');
+  });
+  // Snoozed onto the day: a floating commitment pinned to later today.
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await build();
+    await accept();
+    setClock(LATER);
+    await applyTo(storage, 'cmt_report', { type: 'Postpone', postponedUntil: '2026-09-15T13:00:00.000Z' }, LATER);
+    const read = await readPlan();
+    assert.equal(read.body.plan.inputsChanged, true);
+  });
+});
+
+test('I3: a declined replan offer makes the plan the person\'s: no refresh, the decline is remembered', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await build();
+    await offerShift(storage);
+    const declined = await actionPost(request(`/api/mobile/plans/${DATE}/actions`, { action: 'reject_proposal' }), params(DATE));
+    assert.equal(declined.status, 200, 'the setup is wrong: the offer was not declined');
+    const before = (await readStoredPlan(USER, DATE, storage))!;
+    assert.equal(before.rejectedProposals?.length, 1);
+
+    setClock(LATER);
+    await captureAndConfirm(storage, 'cmt_second', 'Second thing', { kind: 'due_by', dueAt: DUE_TODAY }, LATER);
+    const read = await readPlan();
+    assert.equal(read.body.plan.generation, before.generation, 'a refresh replaced a plan whose offer the person declined');
+    assert.deepEqual((await readStoredPlan(USER, DATE, storage))!.rejectedProposals, before.rejectedProposals, 'the decline was forgotten');
+    assert.equal(read.body.plan.inputsChanged, true);
+  });
+});
+
+test('I3 (the review\'s probe): a plan carrying a decline mark is not refreshed, and the mark survives', async () => {
+  // A document declined before `proposalAnswered` existed carries only the mark.
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await build();
+    const stored = (await readStoredPlan(USER, DATE, storage))!;
+    const marks = [{ baseGeneration: stored.generation, baseInputDigest: stored.inputDigest, fingerprint: 'declined-shift' }];
+    await storage.set(planPath(USER, DATE), { ...stored, rejectedProposals: marks });
+
+    setClock(LATER);
+    await captureAndConfirm(storage, 'cmt_second', 'Second thing', { kind: 'due_by', dueAt: DUE_TODAY }, LATER);
+    const read = await readPlan();
+    assert.equal(read.body.plan.generation, 1, 'the refresh rebuilt a plan the person had declined an offer on');
+    assert.deepEqual((await readStoredPlan(USER, DATE, storage))!.rejectedProposals, marks);
+  });
+});
+
+test('I3: an accepted replan offer makes the plan the person\'s: no refresh undoes it', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await build();
+    await offerShift(storage);
+    const accepted = await actionPost(request(`/api/mobile/plans/${DATE}/actions`, { action: 'accept_proposal' }), params(DATE));
+    assert.equal(accepted.status, 200, 'the setup is wrong: the offer was not accepted');
+    const installed = (await readStoredPlan(USER, DATE, storage))!;
+    assert.equal(installed.status, 'proposed', 'the setup is wrong: accepting an offer does not accept the day');
+
+    setClock(LATER);
+    await captureAndConfirm(storage, 'cmt_second', 'Second thing', { kind: 'due_by', dueAt: DUE_TODAY }, LATER);
+    const read = await readPlan();
+    assert.equal(read.body.plan.generation, installed.generation, 'a refresh undid the placement the person accepted');
+    assert.deepEqual((await readStoredPlan(USER, DATE, storage))!.plan, installed.plan);
+  });
+});
+
+test('I3: a pending offer is not discarded by a refresh', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await build();
+    const offer = await offerShift(storage);
+
+    await captureAndConfirm(storage, 'cmt_second', 'Second thing', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    const read = await readPlan();
+    assert.equal(read.body.plan.generation, 1, 'a refresh replaced a plan with an offer waiting on it');
+    assert.equal((await readStoredPlan(USER, DATE, storage))!.proposal?.proposalId, offer.proposalId, 'the offer was discarded');
+  });
+});
+
+test('I4: an accepted plan shows a commitment timed later today, and drops a finished one', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_dentist', 'Dentist', { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z' }, MORNING);
+    await build();
+    await accept();
+    setClock(LATER);
+    await captureAndConfirm(storage, 'cmt_call', 'Call mum', { kind: 'scheduled_event', dueAt: '2026-09-15T14:00:00.000Z' }, LATER);
+    await applyTo(storage, 'cmt_dentist', { type: 'Complete' }, LATER);
+
+    const read = await readPlan();
+    assert.equal(read.body.plan.status, 'accepted');
+    assert.equal(read.body.plan.generation, 1, 'the accepted plan itself must not change');
+    assert.deepEqual(read.body.plan.fixed.map((row) => [row.itemId, row.title]), [['cmt_call', 'Call mum']]);
+    // And the solve the plan stands on is untouched.
+    const stored = (await readStoredPlan(USER, DATE, storage))!;
+    assert.ok(stored.constraints.fixedEvents.some((event) => event.sourceCommitmentId === 'cmt_dentist'));
+  });
+});
+
+test('concurrent reads of a stale plan write one generation', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await build();
+    setClock(LATER);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, LATER);
+
+    const [left, right] = await Promise.all([readPlan(), readPlan()]);
+    assert.equal(left.body.plan.generation, 2);
+    assert.equal(right.body.plan.generation, 2);
+    const stored = (await readStoredPlan(USER, DATE, storage))!;
+    assert.equal(stored.generation, 2);
+    assert.equal(stored.automaticGenerations, 1);
+    assert.equal((await listPlanEvents(USER, storage)).filter((event) => event.type === 'plan_regenerated').length, 1);
+  });
+});
+
+test('a replan tick that solved against the plan a refresh replaced writes nothing', async () => {
+  await withHarness(async ({ storage }) => {
+    await seedAccount(storage);
+    await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    await build();
+    const first = (await readStoredPlan(USER, DATE, storage))!;
+    const placed = first.plan.scheduled[0]!.interval;
+    await captureAndConfirm(storage, 'cmt_second', 'Second thing', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
+    // A meeting on the placed item, announced to the tick the way a calendar write announces it.
+    await replaceBusyBlocksAsFixture(USER, 'device:cal-1', { startsAt: `${DATE}T00:00:00.000Z`, endsAt: '2026-09-17T00:00:00.000Z' }, [{
+      blockId: 'busy-meeting', sourceId: 'device:cal-1', sourceKind: 'device' as const,
+      startAt: placed.startsAt, endAt: placed.endsAt, allDay: false,
+    }], { storage });
+    await storage.set(userSubDoc(USER, PLANNING_STATE_CHANGES, docIdForKey('chg-meeting')), {
+      schemaVersion: 'planning-state-change-v1', changeId: 'chg-meeting', scopeId: USER, source: 'calendar',
+      entityId: 'busy-meeting', occurredAt: MORNING.toISOString(), changedFields: ['interval', 'blocking'],
+      beforeDigest: null, afterDigest: 'digest-busy-meeting', provenanceRef: 'calendar:refresh-1',
+    } satisfies PlanningStateChange);
+
+    // The refresh lands after the tick has read the plan and before it writes.
+    let fired = false;
+    const racing: StorageAdapter = Object.create(storage);
+    racing.get = async <T>(path: string): Promise<T | null> => {
+      const snapshot = await storage.get<T>(path);
+      if (path === planPath(USER, DATE) && !fired) {
+        fired = true;
+        await refreshStalePlan(USER, first, { storage, now: () => MORNING });
+      }
+      return snapshot;
+    };
+    await runContinuousReplanTick({ storage: racing, now: MORNING });
+
+    assert.ok(fired, 'the setup is wrong: the tick never read the plan');
+    const stored = (await readStoredPlan(USER, DATE, storage))!;
+    assert.equal(stored.generation, 2, 'the refresh did not land');
+    assert.equal(stored.automaticGenerations, 1);
+    assert.equal(stored.proposal ?? null, null, 'the tick stored an offer against the plan the refresh replaced');
+    assert.equal((await storage.list(userCol(USER, PLANNING_STATE_CHANGES))).length, 1, 'the change was drained without being judged against the plan in force');
   });
 });
 
