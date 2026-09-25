@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { BrandLockup } from '../../ui/brand';
@@ -47,10 +47,15 @@ export function OnboardingChrome({
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <View
-        testID={testID}
-        style={{ flex: 1, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}
+      <KeyboardAvoidingView
+        testID={testID ? `${testID}-kav` : 'onboarding-kav'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
       >
+        <View
+          testID={testID}
+          style={{ flex: 1, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }}
+        >
         {/* A row of segments rather than a percentage bar: four steps is few
             enough to show as four, and it mirrors without any RTL arithmetic. */}
         <View
@@ -122,6 +127,7 @@ export function OnboardingChrome({
           ) : null}
         </View>
       </View>
-    </ScreenIn>
-  );
+    </KeyboardAvoidingView>
+  </ScreenIn>
+);
 }

@@ -59,7 +59,7 @@ import { Screen, ScreenScroll } from '../ui/screen';
  *
  * The primary card, and only when it has a reason worth giving.
  */
-export function TodayScreen() {
+export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
   const { t, tr, p, lang, actions } = useApp();
   const timezone = useTimeZone();
   const today = useToday();
@@ -152,7 +152,8 @@ export function TodayScreen() {
       )}
     >
       <ScreenScroll
-        bottom={130}
+        testID="today-scroll"
+        bottom={tabClearance}
         topGap={8}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
