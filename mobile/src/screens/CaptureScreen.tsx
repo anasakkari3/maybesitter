@@ -1,16 +1,19 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { MAX_CAPTURE_LENGTH, wantsDiscardConfirmation } from '../features/capture/captureMachine';
 import { noCommitmentLine } from '../features/capture/noCommitment';
-import { EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
+import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
 import { readClipboardText, type ClipboardImport } from '../features/capture/clipboardImport';
 import { fill } from '../i18n/strings';
 import { family, LINE_HEIGHT } from '../theme/fonts';
 import { useLayoutMode } from '../theme/textScale';
-import { VoiceButton } from '../features/capture/voice/VoiceButton';
+import { VoiceButton, VoiceNote } from '../features/capture/voice/VoiceButton';
+import { appendDictation } from '../features/capture/voice/dictationText';
+import type { SpeechStatus } from '../features/capture/voice/SpeechCaptureService';
 import { createSpeechCaptureService, SpeechEventBridge } from '../features/capture/voice/speechService';
 import { VoiceLanguageChip } from '../features/capture/voice/VoiceLanguageChip';
 import { speechLanguageForTag } from '../features/capture/voice/speechLocale';
@@ -54,12 +57,28 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
  * a pasted capture is in the identical composer state a typed one is in, and
  * goes through the same analyze → review → confirm machine. Nothing about it
  * reaches the server any sooner than typed text does.
+ *
+ * ── Dictation adds, it does not replace ──────────────────────────
+ *
+ * Each dictation appends to what the field held when it started; its partials
+ * replace only its own words. Typing "A" and saying "B c" gives "A B c", and
+ * a second dictation appends again.
+ *
+ * ── The keyboard never covers Analyze ────────────────────────────
+ *
+ * Analyze and the mic live in a footer outside the ScrollView, inside the
+ * KeyboardAvoidingView, so the keyboard pushes them up instead of hiding them.
+ * The field has a maxHeight and scrolls itself, so a long draft cannot push
+ * its own caret under the keyboard. Hints and examples scroll.
  */
 export function CaptureScreen() {
   const { t, p, rtl, script, lang, actions } = useApp();
   const flow = useCaptureFlow();
   const stacked = useLayoutMode() !== 'normal';
+  const insets = useSafeAreaInsets();
+  const keyboardShown = useKeyboardShown();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState<SpeechStatus>('idle');
   /**
    * What the last deliberate clipboard read found, while it is being reviewed.
    *
@@ -96,6 +115,14 @@ export function CaptureScreen() {
   const strings = t as unknown as Record<string, string>;
   const { state } = flow;
 
+  // What the field held when this dictation started. Refs written in effects
+  // and handlers, never during render.
+  const latestText = useRef(state.text);
+  useEffect(() => { latestText.current = state.text; }, [state.text]);
+  const dictationBase = useRef('');
+  const onDictationStart = () => { dictationBase.current = latestText.current; };
+  const onDictated = (spoken: string) => flow.setText(appendDictation(dictationBase.current, spoken));
+
   const leave = () => {
     flow.close();
     setConfirmingDiscard(false);
@@ -112,13 +139,16 @@ export function CaptureScreen() {
 
   const tooLong = state.text.length > MAX_CAPTURE_LENGTH;
   const canAnalyze = state.text.trim().length > 0 && !tooLong && state.status !== 'analyzing';
+  const failed = isFailedStatus(state.status) ? state.status : null;
+  const composing = !confirmingDiscard && !clipboard && failed === null
+    && state.status !== 'analyzing' && state.status !== 'noCommitment';
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       {/* Renders nothing; it gives the recogniser's hooks a component to live
           in so the service can stay a plain object (UC-2.3, #163). */}
       <SpeechEventBridge />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView testID="capture-kav" style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <TaskHeader
           pill={t.cancel}
           onPill={requestClose}
@@ -141,8 +171,10 @@ export function CaptureScreen() {
           }
         />
         <ScrollView
+          testID="capture-scroll"
           keyboardShouldPersistTaps="handled"
-          contentContainerStyle={{ flexGrow: 1, paddingTop: 16, paddingHorizontal: 16, paddingBottom: 34, gap: 14 }}
+          // The footer owns the bottom inset while composing.
+          contentContainerStyle={{ flexGrow: 1, paddingTop: 16, paddingHorizontal: 16, paddingBottom: composing ? 16 : 34, gap: 14 }}
         >
           {confirmingDiscard ? (
             <View style={{ flex: 1, justifyContent: 'center', gap: 14 }} testID="capture-discard">
@@ -169,94 +201,125 @@ export function CaptureScreen() {
             </View>
           ) : state.status === 'noCommitment' ? (
             <NothingFound line={noCommitmentLine(state.proposal?.noCommitmentReason, strings)} onClose={leave} />
-          ) : state.status === 'networkError' || state.status === 'validationError'
-            || state.status === 'extractionFailed' || state.status === 'refused' ? (
+          ) : failed !== null ? (
               <Failed
-                status={state.status}
+                status={failed}
                 messageKey={state.messageKey}
                 onRetry={() => void flow.analyze()}
                 onBack={() => flow.backToComposer()}
               />
           ) : (
-            <>
-              <View style={{ flex: 1, gap: 16 }}>
-                <Txt role="section" style={{ paddingHorizontal: 4 }}>{t.sayItLikeYouThink}</Txt>
-                <View>
-                  <TextInput
-                    testID="capture-input"
-                    value={state.text}
-                    onChangeText={flow.setText}
-                    placeholder={t.typePlaceholder}
-                    placeholderTextColor={p.mu}
-                    autoFocus
-                    multiline
-                    textAlignVertical="top"
-                    accessibilityLabel={t.sayItLikeYouThink}
-                    style={[
-                      {
-                        minHeight: 160, backgroundColor: p.sf, borderWidth: 1,
-                        borderColor: tooLong ? p.wm : p.lnStrong, borderRadius: 24,
-                        paddingTop: 18, paddingHorizontal: 18, paddingBottom: 34,
-                        fontSize: 20, lineHeight: Math.round(20 * LINE_HEIGHT[script]), color: p.tx, fontFamily: family(400, script),
-                        textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
-                      },
-                    ]}
-                  />
-                  {/* Inside the field's bottom corner (Round 2), and only as
-                      the limit gets close: a counter on an empty field is a
-                      rule nobody asked about yet. */}
-                  {state.text.length > MAX_CAPTURE_LENGTH - 200 ? (
-                    <Txt size={11} color={tooLong ? p.wm : p.mu} latin testID="capture-counter" style={{ position: 'absolute', bottom: 12, end: 18 }}>
-                      {fill(t.captureCounter, { n: String(state.text.length) })}
-                    </Txt>
-                  ) : null}
-                </View>
+            <View style={{ flex: 1, gap: 16 }}>
+              <Txt role="section" style={{ paddingHorizontal: 4 }}>{t.sayItLikeYouThink}</Txt>
+              <View>
+                <TextInput
+                  testID="capture-input"
+                  value={state.text}
+                  onChangeText={flow.setText}
+                  placeholder={t.typePlaceholder}
+                  placeholderTextColor={p.mu}
+                  autoFocus
+                  multiline
+                  // Capped, and scrolls itself: a long draft keeps its caret
+                  // in view instead of growing under the keyboard.
+                  scrollEnabled
+                  textAlignVertical="top"
+                  accessibilityLabel={t.sayItLikeYouThink}
+                  style={[
+                    {
+                      minHeight: 140, maxHeight: stacked ? 260 : 220, backgroundColor: p.sf, borderWidth: 1,
+                      borderColor: tooLong ? p.wm : p.lnStrong, borderRadius: 24,
+                      paddingTop: 18, paddingHorizontal: 18, paddingBottom: 34,
+                      fontSize: 20, lineHeight: Math.round(20 * LINE_HEIGHT[script]), color: p.tx, fontFamily: family(400, script),
+                      textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
+                    },
+                  ]}
+                />
+                {/* Inside the field's bottom corner (Round 2), and only as
+                    the limit gets close: a counter on an empty field is a
+                    rule nobody asked about yet. */}
+                {state.text.length > MAX_CAPTURE_LENGTH - 200 ? (
+                  <Txt size={11} color={tooLong ? p.wm : p.mu} latin testID="capture-counter" style={{ position: 'absolute', bottom: 12, end: 18 }}>
+                    {fill(t.captureCounter, { n: String(state.text.length) })}
+                  </Txt>
+                ) : null}
+              </View>
 
-                {/* The three ways in besides typing, as one row: speak, paste,
-                    and which language the mic listens for. Each fills the
-                    field and nothing more — the clipboard is read here and
-                    only here, on that press. */}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                  <VoiceButton
-                    service={speech}
-                    autoFocus={state.inputMode === 'voice'}
-                    onPartial={flow.setText}
-                    onFinal={flow.setText}
-                  />
-                  <Btn
-                    testID="capture-paste"
-                    label={t.capturePaste}
-                    onPress={() => { void pasteFromClipboard(); }}
-                    style={{ flexGrow: 1, minHeight: 48, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' }}
-                  >
-                    <Txt role="supporting" weight={600}>{t.capturePaste}</Txt>
-                  </Btn>
+              {/* Paste reads the clipboard here and only here, on that press,
+                  and fills the field and nothing more. */}
+              <Btn
+                testID="capture-paste"
+                label={t.capturePaste}
+                onPress={() => { void pasteFromClipboard(); }}
+                style={{ minHeight: 48, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' }}
+              >
+                <Txt role="supporting" weight={600}>{t.capturePaste}</Txt>
+              </Btn>
+
+              {/* One hint line and three examples. The share hint, two more
+                  chips and a chip repeating the placeholder used to stack up
+                  here and push the field under the keyboard. */}
+              {state.text.length === 0 ? <View style={{ gap: 8 }}>
+                <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.tryOne}</Txt>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {COMPOSER_EXAMPLE_KEYS.map((key) => (
+                    <Btn
+                      key={key}
+                      testID={`capture-example-${key}`}
+                      label={exampleText(key, t)}
+                      onPress={() => flow.setText(exampleText(key, t))}
+                      style={{ borderWidth: 1, borderColor: p.ln, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', ...(stacked ? { width: '100%' } : {}) }}
+                    >
+                      <Txt role="supporting" color={p.mu}>{exampleText(key, t)}</Txt>
+                    </Btn>
+                  ))}
+                </View>
+              </View> : null}
+
+              <Txt size={12} color={p.mu} align="center" lh={1.5}>{t.privacyText}</Txt>
+            </View>
+          )}
+        </ScrollView>
+
+        {composing ? (
+          // Pinned above the keyboard: the KeyboardAvoidingView lifts this,
+          // the ScrollView above it shrinks.
+          <View
+            testID="capture-footer"
+            style={{
+              paddingHorizontal: 16, paddingTop: 10,
+              // The home indicator matters only while the keyboard is down.
+              paddingBottom: keyboardShown ? 10 : Math.max(insets.bottom, 12),
+              gap: 8, backgroundColor: p.bg,
+              borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: p.ln,
+            }}
+          >
+            <VoiceNote status={voiceStatus} />
+            <View style={stacked
+              ? { gap: 10, alignItems: 'stretch' }
+              : { flexDirection: 'row', alignItems: 'center', gap: 10 }}
+            >
+              {/* The mic and which language it listens for. Each fills the
+                  field and nothing more. */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <VoiceButton
+                  service={speech}
+                  showNote={false}
+                  autoFocus={state.inputMode === 'voice'}
+                  onStart={onDictationStart}
+                  onStatusChange={setVoiceStatus}
+                  onPartial={onDictated}
+                  onFinal={onDictated}
+                />
+                {/* A language chooser beside a mic this device cannot offer is a
+                    setting for nothing. */}
+                {voiceStatus !== 'unavailable' ? (
                   <VoiceLanguageChip
                     value={speechLang}
                     onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
                   />
-                </View>
-                <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.captureShareHint}</Txt>
-
-                {state.text.length === 0 ? <View style={{ gap: 8 }}>
-                  <Txt size={12} color={p.mu} style={{ paddingHorizontal: 4 }}>{t.tryOne}</Txt>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                    {EXAMPLE_KEYS.map((key) => (
-                      <Btn
-                        key={key}
-                        testID={`capture-example-${key}`}
-                        label={exampleText(key, t)}
-                        onPress={() => flow.setText(exampleText(key, t))}
-                        style={{ borderWidth: 1, borderColor: p.ln, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', ...(stacked ? { width: '100%' } : {}) }}
-                      >
-                        <Txt role="supporting" color={p.mu}>{exampleText(key, t)}</Txt>
-                      </Btn>
-                    ))}
-                  </View>
-                </View> : null}
+                ) : null}
               </View>
-
-              <Txt size={12} color={p.mu} align="center" lh={1.5}>{t.privacyText}</Txt>
               <Pill
                 testID="capture-analyze"
                 label={t.analyze}
@@ -264,13 +327,33 @@ export function CaptureScreen() {
                 disabled={!canAnalyze}
                 size={17}
                 pad={14}
+                style={stacked ? undefined : { flex: 1 }}
               />
-            </>
-          )}
-        </ScrollView>
+            </View>
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
     </ScreenIn>
   );
+}
+
+/** Whether the software keyboard is up, so the footer can drop the home-indicator inset. */
+function useKeyboardShown(): boolean {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const ios = Platform.OS === 'ios';
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setShown(true));
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setShown(false));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
+  return shown;
+}
+
+type FailedStatus = 'networkError' | 'validationError' | 'extractionFailed' | 'refused';
+
+function isFailedStatus(status: string): status is FailedStatus {
+  return status === 'networkError' || status === 'validationError'
+    || status === 'extractionFailed' || status === 'refused';
 }
 
 /**
@@ -322,7 +405,7 @@ function NothingFound({ line, onClose }: { line: string; onClose: () => void }) 
 function Failed({
   status, messageKey, onRetry, onBack,
 }: {
-  status: 'networkError' | 'validationError' | 'extractionFailed' | 'refused';
+  status: FailedStatus;
   messageKey: UserFacingKey | null;
   onRetry: () => void;
   onBack: () => void;
