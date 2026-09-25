@@ -215,9 +215,9 @@ function placementOf(plan: Plan, itemId: string): TimeInterval | null {
   return plan.scheduled.find((entry) => entry.itemId === itemId)?.interval ?? null;
 }
 
-/* ── The control: the fixture really does move the middle task ──── */
+/* ── The local path freezes work the change did not touch ───────── */
 
-test('control: without a protection the meeting slides the middle task by half an hour', async () => {
+test('a local meeting conflict takes the incremental path and moves only the hit task', async () => {
   await withStorage(async (storage) => {
     const uid = 'user_replan_unprotected';
     const before = await seedAccount(storage, uid);
@@ -227,17 +227,15 @@ test('control: without a protection the meeting slides the middle task by half a
     }, 'fixture: the middle task must start at 06:30');
 
     const report = await replan(storage, uid, AUTO_APPLY);
+    assert.equal(report.replanMode, 'incremental');
     assert.equal(report.pipelineResult.policyDecision?.action, 'auto_apply');
     assert.equal(report.planStored, true);
 
     const after = await readStoredPlan(uid, DATE, storage);
     assert.equal(after?.generation, 2);
-    // If this ever stops holding, the protected cases below prove nothing:
-    // they would pass because the change never reached the middle task.
-    assert.deepEqual(placementOf(after!.plan, PROTECTED), {
-      startsAt: `${DATE}T07:00:00.000Z`,
-      endsAt: `${DATE}T07:30:00.000Z`,
-    });
+    assert.notDeepEqual(placementOf(after!.plan, 'cmt_a'), placementOf(before.plan, 'cmt_a'));
+    assert.deepEqual(placementOf(after!.plan, PROTECTED), placementOf(before.plan, PROTECTED));
+    assert.deepEqual(placementOf(after!.plan, 'cmt_c'), placementOf(before.plan, 'cmt_c'));
   });
 });
 
@@ -305,20 +303,10 @@ test('a protected block the user dragged is measured from where they put it, not
   });
 });
 
-test('an unprotected drag is not an anchor, and the replan charges its return to the planner\'s slot', async () => {
-  // The other half of the rule above, pinned because it is a decision: only a
-  // protection makes the solver honour a placement. An ordinary drag is not
-  // anchored, so the solve puts the task back where the planner wants it.
-  //
-  // What changed with #610 is how that is measured. Installing a replan drops
-  // the person's moves (`editsSurvivingReschedule`, the rule accepting a patch
-  // already followed), so the task really does leave the slot the person
-  // dragged it to. The diff reads the visible day, and it reports that move
-  // and charges it to the churn budget. Reporting it as `unchanged` would let
-  // auto-apply undo a drag without asking.
+test('a local incremental replan freezes an unrelated user-edited block', async () => {
   await withStorage(async (storage) => {
     const uid = 'user_replan_unprotected_dragged';
-    const before = await seedAccount(storage, uid);
+    await seedAccount(storage, uid);
     const dragged: TimeInterval = { startsAt: `${DATE}T09:00:00.000Z`, endsAt: `${DATE}T09:30:00.000Z` };
     assert.ok(await editPlan(uid, DATE, {
       moves: [{ itemId: PROTECTED, startsAt: dragged.startsAt, endsAt: dragged.endsAt }],
@@ -328,13 +316,12 @@ test('an unprotected drag is not an anchor, and the replan charges its return to
     const report = await replan(storage, uid, TIME_ONLY, {
       meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
     });
-    // Not an anchor: the solve places the task where the planner first put it.
-    assert.deepEqual(placementOf(report.pipelineResult.newPlan!, PROTECTED), placementOf(before.plan, PROTECTED));
-    // Measured on the visible day: from where the person put it, back to there.
+    assert.equal(report.replanMode, 'incremental');
+    assert.deepEqual(placementOf(report.pipelineResult.newPlan!, PROTECTED), dragged);
     assert.deepEqual(placementOf(report.pipelineResult.basePlan!, PROTECTED), dragged);
     const change = report.pipelineResult.diff?.changes.find((entry) => entry.itemId === PROTECTED);
-    assert.equal(change?.kind, 'moved');
-    assert.equal(report.pipelineResult.policyDecision?.action, 'propose_for_review', 'a 150-minute undo of a drag is not applied silently');
+    assert.equal(change?.kind, 'unchanged');
+    assert.equal(report.pipelineResult.policyDecision?.action, 'auto_apply');
   });
 });
 
@@ -412,6 +399,7 @@ test('readiness is read at the replan\'s clock, not carried over from the mornin
       now: later,
       meeting: { startsAt: `${DATE}T07:00:00.000Z`, endsAt: `${DATE}T07:30:00.000Z` },
     });
+    assert.equal(report.replanMode, 'full_fallback', 'a global readiness delta must not be frozen out');
     const solved = report.pipelineResult.newPlan;
     assert.ok(solved && solved.scheduled.length > 0, 'the replan must have produced a plan');
     for (const entry of solved.scheduled) {

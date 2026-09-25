@@ -34,6 +34,7 @@ import type { Plan, PlanDiff, PlanningConfig, PlanningConstraints } from '../../
 import type { ReplanPolicyReason, UserControlMode } from '../../../src/contracts/v1/replanContracts';
 import type { ScheduleBlock } from '../../../src/contracts/v1/scheduleBlockContracts';
 import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
+import type { ImpactClosure } from '../../planning/incremental/impactClosure';
 import type { UserLocale } from '../../storage/userDocument';
 import type { PlanPushPending } from './planPushRetry';
 import { createHash, randomUUID } from 'node:crypto';
@@ -60,6 +61,16 @@ export interface PlanMove {
 export interface PlanEdits {
   readonly moves: readonly PlanMove[];
   readonly removals: readonly string[];
+}
+
+/** Exact inputs needed to deterministically replay an incremental solve. */
+export interface IncrementalSolveSnapshot {
+  readonly basePlan: Plan;
+  readonly baseBlocks: readonly ScheduleBlock[];
+  readonly closure: ImpactClosure;
+  readonly baseGeneration: number;
+  readonly resultGeneration: number;
+  readonly causeChangeIds: readonly string[];
 }
 
 export const NO_EDITS: PlanEdits = Object.freeze({ moves: [], removals: [] });
@@ -102,6 +113,8 @@ export interface StoredDailyPlan {
    */
   readonly constraints: PlanningConstraints;
   readonly config: PlanningConfig;
+  /** Present only when this generation was produced by the incremental engine. */
+  readonly incrementalSolve?: IncrementalSolveSnapshot | null;
   readonly explanation: StoredExplanation;
   readonly edits: PlanEdits;
   readonly generatedAt: string;
@@ -253,6 +266,7 @@ export interface StoredPlanProposal {
   readonly solveInputs?: {
     readonly constraints: PlanningConstraints;
     readonly config: PlanningConfig;
+    readonly incrementalSolve?: IncrementalSolveSnapshot | null;
   };
   /** The existing diff contract, not a second one (#523's `PlanDiff` step). */
   readonly diff: PlanDiff;

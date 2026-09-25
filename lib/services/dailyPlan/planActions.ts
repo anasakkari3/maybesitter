@@ -54,6 +54,7 @@ import { getStorage, type StorageAdapter } from '../../storage';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { earliestLedgerAcceptance, planEventAsRecord } from '../activity/planActivity';
 import { applyEditsToBlocks, protectionAfterMove, protectionOf, schedulePlan } from '../../planning/scheduler';
+import { planIncrementalPatch } from '../../planning/incremental/freezeResolve';
 import { randomUUID } from 'node:crypto';
 import {
   MAX_REJECTED_PROPOSALS,
@@ -962,6 +963,7 @@ export async function acceptPlanProposal(
         plan: proposal.plan,
         constraints: proposal.solveInputs.constraints,
         config: proposal.solveInputs.config,
+        incrementalSolve: proposal.solveInputs.incrementalSolve ?? null,
         timezone: proposal.solveInputs.constraints.timezone,
         inputDigest: proposal.plan.inputDigest,
         explanation: replanExplanation(planUnderKeptRemovals(proposal.plan, edits.removals), { ...current, timezone: proposal.solveInputs.constraints.timezone }),
@@ -1147,7 +1149,27 @@ export async function regeneratePlan(
   return { ok: true, stored };
 }
 
-/** Re-runs the scheduler on a stored request. Used by tests to prove replay. */
+/** Re-runs the exact solver path recorded with a proposal. */
+export function replayPlanSolveInputs(inputs: NonNullable<StoredPlanProposal['solveInputs']>): Plan {
+  const incremental = inputs.incrementalSolve ?? null;
+  if (incremental === null) return schedulePlan(inputs.constraints, inputs.config);
+  return planIncrementalPatch({
+    basePlan: incremental.basePlan,
+    baseBlocks: incremental.baseBlocks,
+    closure: incremental.closure,
+    nextConstraints: inputs.constraints,
+    config: inputs.config,
+    baseGeneration: incremental.baseGeneration,
+    resultGeneration: incremental.resultGeneration,
+    causeChangeIds: incremental.causeChangeIds,
+  }).plan;
+}
+
+/** Re-runs the solver path that produced a stored generation. */
 export function replayStoredPlan(stored: StoredDailyPlan): Plan {
-  return schedulePlan(stored.constraints, stored.config);
+  return replayPlanSolveInputs({
+    constraints: stored.constraints,
+    config: stored.config,
+    incrementalSolve: stored.incrementalSolve ?? null,
+  });
 }

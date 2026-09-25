@@ -50,6 +50,7 @@ import {
   proposalFingerprint,
   proposalWasRejected,
   readStoredPlan,
+  type IncrementalSolveSnapshot,
   type ProposalCauseRef,
   type StoredDailyPlan,
   type StoredPlanProposal,
@@ -73,11 +74,22 @@ import {
   reconcileScheduleBlocks,
   schedulePlan,
 } from '../../planning/scheduler';
+import { computeImpactClosure } from '../../planning/incremental/impactClosure';
+import { planIncrementalPatch } from '../../planning/incremental/freezeResolve';
 import { composeCurrentUserState, type CurrentUserState } from '../../userState/userStateService';
 import { executeContinuousReplanPipeline } from '../../planning/replan';
 import { resolveChangedEntityFacts, type EntityFactsByChangeId } from './changedEntityFacts';
 import type { PlanningStateChange } from '../../../src/contracts/v1/watcherContracts';
-import type { Plan, PlannedItem, TimeInterval } from '../../../src/contracts/v1/planningContracts';
+import type {
+  FixedEvent,
+  Plan,
+  PlannedItem,
+  PlanningConfig,
+  PlanningConstraints,
+  PlanningItem,
+  TimeInterval,
+} from '../../../src/contracts/v1/planningContracts';
+import type { IncrementalPatchMode } from '../../../src/contracts/v1/incrementalReplanContracts';
 import { ownershipOf } from '../../../src/contracts/v1/scheduleBlockContracts';
 import { intervalsOverlap, toEpochMs } from '../../planning/shared/time';
 import { compareByCodePoint } from '../../planning/shared/compare';
@@ -127,6 +139,100 @@ export interface ContinuousReplanUserReport {
    * run stored no offer and touched none.
    */
   readonly offerOutcome: 'offered' | 'kept' | 'withdrawn' | null;
+  /** How the planner produced the candidate, or null when no solve ran. */
+  readonly replanMode: IncrementalPatchMode | null;
+}
+
+interface IncrementalImpactInputs {
+  readonly changedBlockIds: readonly string[];
+  readonly changedFixedEvents: readonly FixedEvent[];
+}
+
+function itemWithoutPlanLayerAndClockFloor(
+  item: PlanningItem,
+): Omit<PlanningItem, 'protection' | 'earliestStartAt'> {
+  const { protection: _protection, earliestStartAt: _clockFloor, ...rest } = item;
+  return rest;
+}
+
+/** The fresh request differs only where the declared local causes allow it. */
+function requestDeltaIsLocal(
+  changes: readonly PlanningStateChange[],
+  stored: StoredDailyPlan,
+  next: PlanningConstraints,
+  config: PlanningConfig,
+): boolean {
+  if (!isDeepStrictEqual(stored.config, config)) return false;
+  const { items: oldItems, fixedEvents: oldEvents, ...oldFrame } = stored.constraints;
+  const { items: nextItems, fixedEvents: nextEvents, ...nextFrame } = next;
+  if (!isDeepStrictEqual(oldFrame, nextFrame)) return false;
+
+  const commitmentIds = new Set(
+    changes.filter((change) => change.source === 'commitment').map((change) => change.entityId),
+  );
+  const oldById = new Map(oldItems.map((item) => [item.itemId, item] as const));
+  const nextById = new Map(nextItems.map((item) => [item.itemId, item] as const));
+  const itemIds = new Set([...Array.from(oldById.keys()), ...Array.from(nextById.keys())]);
+  for (const itemId of Array.from(itemIds)) {
+    const before = oldById.get(itemId);
+    const after = nextById.get(itemId);
+    if (commitmentIds.has(itemId)) continue;
+    if (!before || !after) return false;
+    // Protection is plan-layer state projected at solve time. It is safe here:
+    // an unaffected protected/user-owned block remains frozen, while an
+    // impacted one is solved under the fresh protection constraint.
+    // The clock floor is also safe to ignore for unaffected existing blocks:
+    // they may have started already, while only the impacted set is being
+    // placed again. Readiness buffers and every other item constraint remain
+    // part of the comparison and force a full solve when they move globally.
+    if (!isDeepStrictEqual(itemWithoutPlanLayerAndClockFloor(before), itemWithoutPlanLayerAndClockFloor(after))) return false;
+  }
+
+  const hasCalendarCause = changes.some((change) => change.source === 'calendar');
+  return hasCalendarCause || isDeepStrictEqual(oldEvents, nextEvents);
+}
+
+/**
+ * Translate the normalized causes into the incremental engine's deliberately
+ * smaller vocabulary. Returning null is the safe, explicit full-replan path:
+ * an unknown or broad source must never be mistaken for a local edit and then
+ * frozen out of the solve.
+ */
+function incrementalImpactInputs(
+  changes: readonly PlanningStateChange[],
+  factsByChangeId: EntityFactsByChangeId,
+  stored: StoredDailyPlan,
+): IncrementalImpactInputs | null {
+  const blocksBySource = new Map(stored.blocks.map((block) => [block.source.id, block] as const));
+  const changedBlockIds = new Set<string>();
+  const changedFixedEvents: FixedEvent[] = [];
+
+  for (const change of changes) {
+    if (change.source === 'commitment') {
+      const block = blocksBySource.get(change.entityId);
+      if (!block) return null;
+      changedBlockIds.add(block.blockId);
+      continue;
+    }
+    if (change.source === 'calendar') {
+      const facts = factsByChangeId.get(change.changeId) ?? null;
+      if (!facts?.blocking || facts.interval === null) return null;
+      changedFixedEvents.push({
+        eventId: `replan-change:${change.changeId}`,
+        interval: facts.interval,
+        sourceCommitmentId: null,
+        blocking: true,
+      });
+      continue;
+    }
+    return null;
+  }
+
+  if (changedBlockIds.size === 0 && changedFixedEvents.length === 0) return null;
+  return {
+    changedBlockIds: Array.from(changedBlockIds).sort(compareByCodePoint),
+    changedFixedEvents,
+  };
 }
 
 /**
@@ -315,6 +421,23 @@ function planAsProtectionsHoldIt(stored: StoredDailyPlan): Plan {
 function visiblePlanOf(stored: StoredDailyPlan): Plan {
   const held = planAsProtectionsHoldIt(stored);
   return { ...held, scheduled: effectiveSchedule({ ...stored, plan: held }) };
+}
+
+/**
+ * The complete day the incremental engine freezes. User moves are positions
+ * and must be retained; removals remain solver inputs and are filtered only
+ * from the visible diff/install view, just as on the full-planner path.
+ */
+function incrementalBasePlanOf(stored: StoredDailyPlan): Plan {
+  const held = planAsProtectionsHoldIt(stored);
+  return {
+    ...held,
+    scheduled: effectiveSchedule({
+      ...stored,
+      plan: held,
+      edits: { ...stored.edits, removals: [] },
+    }),
+  };
 }
 
 /**
@@ -542,6 +665,7 @@ export async function processStateChangesForUser(
       userState: null,
       skipped: null,
       offerOutcome: null,
+      replanMode: null,
     };
   }
 
@@ -598,6 +722,7 @@ export async function processStateChangesForUser(
       userState: null,
       skipped: 'continuous_replan_disabled',
       offerOutcome: null,
+      replanMode: null,
     };
   }
 
@@ -641,6 +766,7 @@ export async function processStateChangesForUser(
       userState: null,
       skipped: 'plan_dismissed',
       offerOutcome: null,
+      replanMode: null,
     };
   }
 
@@ -704,6 +830,7 @@ export async function processStateChangesForUser(
       userState: await userStateAfter(pipelineResult),
       skipped: null,
       offerOutcome: null,
+      replanMode: null,
     };
   }
 
@@ -781,9 +908,77 @@ export async function processStateChangesForUser(
 
   // Planner solve closure. The diff is visible day against visible day
   // (#610): the plan as it would read once installed, measured against the
-  // plan as the person sees it now.
+  // plan as the person sees it now. A local cause goes through #524's
+  // freeze/re-solve engine. Anything the normalized causes cannot map
+  // completely takes the canonical full path. With an offer on the table, a
+  // cause that contradicts only that offer does too: freezing against the
+  // visible day cannot localize a placement that is not installed yet.
   const removals = storedPlan?.edits.removals ?? [];
-  const planner = () => {
+  const incrementalBasePlan = incrementalBasePlanOf(storedPlan);
+  let replanMode: IncrementalPatchMode | null = null;
+  let incrementalSolve: IncrementalSolveSnapshot | null = null;
+  let reusedPendingSolveInputs: StoredPlanProposal['solveInputs'] | null = null;
+  const planner = (causeChangeIds: readonly string[]) => {
+    const causes = new Set(causeChangeIds);
+    const relevantChanges = rawChanges.filter((change) => causes.has(change.changeId));
+    const incrementalInputs = requestDeltaIsLocal(relevantChanges, storedPlan, constraints, config)
+      ? incrementalImpactInputs(relevantChanges, entityFactsByChangeId, storedPlan)
+      : null;
+    if (incrementalInputs !== null) {
+      // A fresh local signal can hit the visible day while adding no conflict
+      // to the offer already on the table (for example, a short call wholly
+      // inside the meeting that caused the offer). Keep that exact, replayable
+      // question instead of letting overlapping fixed events force a full
+      // solve that churns unrelated work into a different offer.
+      if (relevantChanges.every((change) => change.source === 'calendar')
+        && pending?.solveInputs
+        && !scheduleCollidesWithFixedTime(pending.plan.scheduled, constraints.fixedEvents)) {
+        reusedPendingSolveInputs = pending.solveInputs;
+        incrementalSolve = pending.solveInputs.incrementalSolve ?? null;
+        replanMode = incrementalSolve === null ? 'full_fallback' : 'incremental';
+        const plan = pending.plan;
+        return { plan, diff: diffPlans(basePlan!, planUnderKeptRemovals(plan, removals)) };
+      }
+      const closure = computeImpactClosure({
+        blocks: storedPlan.blocks,
+        items: constraints.items,
+        changedBlockIds: incrementalInputs.changedBlockIds,
+        changedFixedEvents: incrementalInputs.changedFixedEvents,
+        resourceDependenciesOrder: config.resourceDependenciesOrder,
+      });
+      // A cause that hits only the pending offer cannot be localized against
+      // the day in force. Re-solving it incrementally would freeze the very
+      // offered placement it invalidated out of sight.
+      if (pending !== null && closure.impactedBlockIds.length === 0) {
+        replanMode = 'full_fallback';
+        incrementalSolve = null;
+        const plan = schedulePlan(constraints, config);
+        return { plan, diff: diffPlans(basePlan!, planUnderKeptRemovals(plan, removals)) };
+      }
+      const result = planIncrementalPatch({
+        basePlan: incrementalBasePlan,
+        baseBlocks: storedPlan.blocks,
+        closure,
+        nextConstraints: constraints,
+        config,
+        baseGeneration: storedPlan.generation,
+        resultGeneration: storedPlan.generation + 1,
+        causeChangeIds,
+      });
+      replanMode = result.patch.mode;
+      incrementalSolve = {
+        basePlan: incrementalBasePlan,
+        baseBlocks: storedPlan.blocks,
+        closure,
+        baseGeneration: storedPlan.generation,
+        resultGeneration: storedPlan.generation + 1,
+        causeChangeIds: [...causeChangeIds],
+      };
+      const plan = result.plan;
+      return { plan, diff: diffPlans(basePlan!, planUnderKeptRemovals(plan, removals)) };
+    }
+    replanMode = 'full_fallback';
+    incrementalSolve = null;
     const plan = schedulePlan(constraints, config);
     return basePlan ? { plan, diff: diffPlans(basePlan, planUnderKeptRemovals(plan, removals)) } : { plan };
   };
@@ -957,6 +1152,7 @@ export async function processStateChangesForUser(
           plan: newPlan,
           constraints,
           config,
+          incrementalSolve,
           timezone: constraints.timezone,
           inputDigest: newPlan.inputDigest,
           explanation: replanExplanation(planUnderKeptRemovals(newPlan, edits.removals), { ...current, timezone: constraints.timezone }),
@@ -1018,7 +1214,7 @@ export async function processStateChangesForUser(
         baseGeneration: storedPlan.generation,
         baseInputDigest: storedPlan.inputDigest,
         plan: pipelineResult.newPlan,
-        solveInputs: { constraints, config },
+        solveInputs: reusedPendingSolveInputs ?? { constraints, config, incrementalSolve },
         diff: pipelineResult.policyDecision.diff,
         reason: pipelineResult.policyDecision.reason,
         userControlMode: pipelineResult.policyDecision.userControlMode,
@@ -1145,6 +1341,7 @@ export async function processStateChangesForUser(
     userState,
     skipped: null,
     offerOutcome,
+    replanMode,
   };
 }
 
