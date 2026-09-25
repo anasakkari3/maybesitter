@@ -5,14 +5,14 @@
   "items": [
     {
       "itemId": "00000000-0000-4000-8000-000000000002",
-      "title": "call Dana",
+      "title": "موعد دكتور",
       "resolvedTime": "2026-08-09T09:00:00.000Z",
       "needsClarification": false,
-      "priority": "normal",
+      "priority": "high",
       "priorityEstimated": true,
       "clarification": null,
-      "resolvedDate": "2026-08-10",
-      "dateEstimated": false
+      "resolvedDate": "2026-08-16",
+      "dateEstimated": true
     }
   ],
   "seeds": [],

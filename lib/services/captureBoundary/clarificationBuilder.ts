@@ -225,7 +225,9 @@ export function buildClarification(
       questionId: randomUUID(),
       field: 'time',
       questionKey: 'ask_time',
-      params: { title },
+      // The day the hour is for, when there is one, so the question can say
+      // which Sunday it means (L4). A key, not prose: the phone formats it.
+      params: localDate ? { title, date: localDate } : { title },
       options,
       allowFreeText: true,
     };

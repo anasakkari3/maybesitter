@@ -10,12 +10,13 @@ import { intlLocale, type Locale } from './locale';
  */
 export type FormatOptions = { locale: Locale; timeZone: string };
 
-export type DateStyle = 'short' | 'weekday' | 'weekdayShort' | 'dayNumber' | 'full';
+export type DateStyle = 'short' | 'weekday' | 'weekdayShort' | 'weekdayName' | 'dayNumber' | 'full';
 
 const DATE_STYLES: Record<DateStyle, Intl.DateTimeFormatOptions> = {
   short: { month: 'short', day: 'numeric' }, // MMM d
   weekday: { weekday: 'long', month: 'short', day: 'numeric' }, // EEEE, MMM d
   weekdayShort: { weekday: 'short' }, // EEE, for the week strip
+  weekdayName: { weekday: 'long' }, // EEEE, for "the Sunday after"
   dayNumber: { day: 'numeric' }, // d, for the day circle
   full: { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }, // EEEE, MMMM d, yyyy
 };
@@ -102,4 +103,23 @@ export function formatRelativeDay(date: Date, options: FormatOptions & { now?: D
   if (diff === 1) return t('tomorrow');
   if (diff === -1) return t('yesterday');
   return formatDate(date, 'weekday', { locale, timeZone });
+}
+
+/**
+ * A day key (`YYYY-MM-DD`, the user's own date) as the review card says it:
+ * "Today" / "Tomorrow", otherwise the weekday *with* its date (L4).
+ *
+ * The date is not optional past tomorrow. "Sunday" alone could be this one or
+ * next, and the product picked one — the user has to be able to see which.
+ * Today and tomorrow are compared on the device's clock; the date itself is a
+ * civil date and is printed in UTC so no zone can move it.
+ */
+export function formatDayKey(key: string, options: FormatOptions & { now?: Date }): string {
+  const { locale, timeZone } = options;
+  const today = dayKey(options.now ?? new Date(), timeZone);
+  const diff = Math.round((Date.parse(`${key}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  const t = tFor(locale);
+  if (diff === 0) return t('today');
+  if (diff === 1) return t('tomorrow');
+  return formatDate(civilDate(key), 'weekday', { locale, timeZone: CIVIL_ZONE });
 }

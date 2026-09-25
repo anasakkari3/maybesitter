@@ -50,6 +50,24 @@ export interface CaptureProposalItemContract {
    */
   priorityEstimated?: boolean;
   /**
+   * The local day the item lands on, `YYYY-MM-DD` on the user's clock (L4).
+   *
+   * Sent because `resolvedTime` is null for an item still waiting on its hour,
+   * and "doctor on Sunday" with no hour used to reach the review card as "no
+   * time" — the Sunday the product had picked was invisible. Absent when the
+   * capture named no day.
+   */
+  resolvedDate?: string;
+  /**
+   * True when `resolvedDate` is the product's guess — a weekday name resolved
+   * to one particular week — rather than a day the person stated (L4).
+   *
+   * The same mechanism as `priorityEstimated`: the review card marks it with
+   * the guessed chip and offers the same weekday one week later. Present
+   * exactly when `resolvedDate` is.
+   */
+  dateEstimated?: boolean;
+  /**
    * The one question worth asking about this item (UC-2.5, #165).
    *
    * Declared here rather than only produced: `captureBoundaryService` has been

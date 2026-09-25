@@ -357,6 +357,7 @@ export async function answerClarification(
     priorityEstimated: answered.priority.source !== 'user_explicit',
     clarification: null,
   };
+  items[index] = withDateGuess(items[index]!, answered, result);
 
   const contract: CaptureProposalContract = {
     ...stored.contract,
@@ -397,3 +398,26 @@ export async function answerClarification(
 
 /** A question id, for a builder that needs one. Kept here so tests can stub it. */
 export const newQuestionId = (): string => randomUUID();
+
+/**
+ * The answered item's day, and whether it is still our guess (L4, fix round 1).
+ *
+ * Recomputed from the answer, like `priorityEstimated`: a free-text answer can
+ * name another day, and an option can land on a different date from the one
+ * guessed. Kept a guess only while the day is still the one the weekday name
+ * produced; dropped when the answer left no day at all.
+ */
+function withDateGuess(
+  item: CaptureProposalContract['items'][number],
+  answered: ExtractionResult,
+  before: ExtractionResult,
+): CaptureProposalContract['items'][number] {
+  const { resolvedDate: _date, dateEstimated: _estimated, ...rest } = item;
+  const date = answered.localTimeSpec?.date;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return rest;
+  // A free-text answer is re-extracted, so its own flag is the truth. An option
+  // answer carries the original flag, which holds only for the original day.
+  const reextracted = answered.rawText !== before.rawText;
+  const stillGuessed = answered.dateInferred === true && (reextracted || date === before.localTimeSpec?.date);
+  return { ...rest, resolvedDate: date, dateEstimated: stillGuessed };
+}

@@ -3,8 +3,8 @@ import { Platform, Switch, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
-import { formatDate, formatTime } from '../../i18n/format';
-import { ltr } from '../../i18n/strings';
+import { CIVIL_ZONE, civilDate, formatDate, formatTime, shiftDayKey } from '../../i18n/format';
+import { fill, ltr } from '../../i18n/strings';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import { MAX_TITLE_LENGTH, type CaptureItemEdit } from './captureMachine';
@@ -100,6 +100,26 @@ export function EditProposalItemSheet({
 
   const pickerValue = instant ?? new Date();
 
+  // A weekday we guessed (L4): the day on screen, and the same weekday a week
+  // later as one tap. Offered while the day is still the one we picked.
+  const shownDay = hasTime ? local.slice(0, 10) : item.resolvedDate;
+  const weekLater = item.dateEstimated && item.resolvedDate && shownDay === item.resolvedDate
+    ? shiftDayKey(item.resolvedDate, 7)
+    : null;
+  const civil = { locale: lang, timeZone: CIVIL_ZONE };
+  const moveWeekLater = React.useCallback(() => {
+    if (!weekLater) return;
+    if (hasTime) {
+      setLocal(`${weekLater}${local.slice(10)}`);
+    } else {
+      // No hour yet: land on the later day and ask for the hour right away,
+      // rather than saving a time nobody chose.
+      setLocal(startingLocal(weekLater, Date.now(), timezone));
+      setPicking('time');
+    }
+    setPastTime(false);
+  }, [hasTime, local, timezone, weekLater]);
+
   return (
     <View style={{ gap: 14 }} testID="edit-item-sheet">
       <Txt size={22} weight={600} lh={1.5}>{t.editItemTitle}</Txt>
@@ -141,7 +161,7 @@ export function EditProposalItemSheet({
             accessibilityRole="switch"
             accessibilityLabel={t.editItemNoTime}
             value={!hasTime}
-            onValueChange={(off) => setLocal(off ? '' : (originalLocal || localDateTimeFor(new Date(Date.now() + 3600_000), timezone)))}
+            onValueChange={(off) => setLocal(off ? '' : (originalLocal || startingLocal(item.needsClarification ? item.resolvedDate : undefined, Date.now(), timezone)))}
           />
         </View>
       </View>
@@ -165,6 +185,21 @@ export function EditProposalItemSheet({
             <Txt size={14} latin>{instant ? ltr(formatTime(instant, { locale: lang, timeZone: timezone })) : t.editItemTime}</Txt>
           </Btn>
         </View>
+      ) : null}
+
+      {!hasTime && item.needsClarification && item.resolvedDate ? (
+        <Txt size={14} testID="edit-item-proposed-day">{formatDate(civilDate(item.resolvedDate), 'weekday', civil)}</Txt>
+      ) : null}
+
+      {weekLater ? (
+        <Btn
+          testID="edit-item-week-later"
+          label={`${fill(t.editItemWeekLater, { day: formatDate(civilDate(weekLater), 'weekdayName', civil) })}, ${formatDate(civilDate(weekLater), 'weekday', civil)}`}
+          onPress={moveWeekLater}
+          style={{ alignSelf: 'flex-start', backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, justifyContent: 'center' }}
+        >
+          <Txt size={14}>{fill(t.editItemWeekLater, { day: formatDate(civilDate(weekLater), 'weekdayName', civil) })}</Txt>
+        </Btn>
       ) : null}
 
       {picking ? (
@@ -207,6 +242,17 @@ export function EditProposalItemSheet({
       </View>
     </View>
   );
+}
+
+/**
+ * The time a switched-on clock starts at: an hour from `now`, on the day the
+ * item already has (L4). It used to start on *today* for a "Sunday" item, so
+ * the day the product had proposed silently jumped when the user asked for a
+ * time. `now` is passed in from the tap, so no clock is read while rendering.
+ */
+function startingLocal(day: string | undefined, now: number, timezone: string): string {
+  const soon = localDateTimeFor(new Date(now + 3600_000), timezone);
+  return day ? `${day}${soon.slice(10)}` : soon;
 }
 
 const PRIORITY_LABEL = (t: { todayGroupMust: string; todayGroupShould: string; todayGroupNice: string }) => ({

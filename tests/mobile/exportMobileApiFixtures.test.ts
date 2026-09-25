@@ -625,6 +625,44 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       },
     })));
 
+    // ── the owner's first-run sentence (L4) ────────────────────────
+    // «سجّل موعد دكتور يوم الأحد», literally, through the real route. The
+    // reference time is a Sunday, so this is also the "not today" rule: the
+    // answer is next Sunday, one item, `needs_clarification`, a Must we
+    // guessed, a day we guessed, and an hour question that names that day.
+    // Day keys are not normalised — only instants are — so `resolvedDate`
+    // below is the real one, beside a `resolvedTime` the exporter rewrote.
+    const doctor = await record('capture.guessedWeekday', 200, await capturePost(request('/api/mobile/capture', {
+      body: { text: 'سجّل موعد دكتور يوم الأحد', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    assert.equal(doctor.status, 'needs_clarification');
+    const doctorItems = doctor.items as Array<{
+      itemId: string; title: string; resolvedTime: string | null; resolvedDate?: string; dateEstimated?: boolean; priority?: string;
+      clarification: { questionId: string; questionKey: string; params: Record<string, string>; options: Array<{ optionId: string }> } | null;
+    }>;
+    assert.equal(doctorItems.length, 1);
+    const doctorItem = doctorItems[0]!;
+    // «سجّل» was an instruction to the app, not part of the task (round 2).
+    assert.equal(doctorItem.title, 'موعد دكتور');
+    assert.equal(doctorItem.resolvedTime, null);
+    assert.equal(doctorItem.resolvedDate, '2026-08-16');
+    assert.equal(doctorItem.dateEstimated, true);
+    assert.equal(doctorItem.priority, 'high');
+    assert.equal(doctorItem.clarification?.questionKey, 'ask_time');
+    assert.equal(doctorItem.clarification?.params.date, '2026-08-16');
+    const morning = doctorItem.clarification!.options.find((option) => option.optionId === 'morning');
+    assert.ok(morning, 'the hour question offers a morning on that Sunday');
+    await record('capture.guessedWeekdayClarified', 200, await clarifyPost(request('/api/mobile/capture/clarify', {
+      body: {
+        proposalId: doctor.proposalId,
+        itemId: doctorItem.itemId,
+        questionId: doctorItem.clarification!.questionId,
+        optionId: morning.optionId,
+        referenceTime: REFERENCE_TIME,
+        timezone: 'Asia/Jerusalem',
+      },
+    })));
+
     // ── share intake (UC-3.0, #183) ────────────────────────────────
     // The same proposal shape as `capture.proposal`, plus the `share`
     // envelope. Generated from a real multipart body.

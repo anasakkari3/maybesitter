@@ -44,6 +44,14 @@ export const captureProposalSchema = z.object({
        */
       priorityEstimated: z.boolean().optional(),
       /**
+       * The day the item lands on, `YYYY-MM-DD` on the user's clock (L4) —
+       * present even while `resolvedTime` is null because the hour is still
+       * being asked for, so the card can show *which* Sunday.
+       */
+      resolvedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+      /** True when that day is our guess from a weekday name, not their words. */
+      dateEstimated: z.boolean().optional(),
+      /**
        * The one question to ask about this item (UC-2.5, #165).
        *
        * Keys and parameters, never a sentence: the phone renders the question
