@@ -19,7 +19,7 @@ export type AppState = {
   /**
    * The navigation history (Round 2, Phase B): a tab, a stack per tab, and
    * an optional task over it. See src/state/navigation.ts. `screen`,
-   * `detailId`, `planDate` and `goalId` below are *derived* from it after
+   * `detailId`, `planDate`, `goalId` and `taskResumed` below are *derived* from it after
    * every change, so the screens keep reading the fields they always read.
    */
   nav: nav.Nav;
@@ -54,19 +54,25 @@ export type AppState = {
   planDate: string | null;
   /** Derived from `nav`: the goal the Goals screen has open, or null on its list. */
   goalId: string | null;
+  /**
+   * Derived from `nav`: the open task is showing again after back from a
+   * screen opened over it (capture → Trust → back). Capture keeps its draft
+   * then; only a fresh open starts a new one.
+   */
+  taskResumed: boolean;
 };
 
 /** Recompute the derived fields from the history. Every nav change goes through here. */
 function withNav(st: AppState, next: nav.Nav): AppState {
   const d = nav.derive(next);
-  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, goalId: d.goalId, showTabs: d.showTabs };
+  return { ...st, nav: next, screen: d.screen, detailId: d.detailId, planDate: d.planDate, goalId: d.goalId, taskResumed: d.taskResumed, showTabs: d.showTabs };
 }
 
 const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
   sheet: null, toast: null,
-  selDay: 0, detailId: null, planDate: null, goalId: null,
+  selDay: 0, detailId: null, planDate: null, goalId: null, taskResumed: false,
 };
 
 function useAppModel() {

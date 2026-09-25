@@ -6,7 +6,7 @@
  * is already in the stack is returned to, never pushed a second time.
  */
 import { describe, expect, it } from '@jest/globals';
-import { back, derive, go, initialNav, openTask, push, replace, switchTab, type Nav } from '../navigation';
+import { back, closeTask, derive, go, initialNav, openTask, push, replace, switchTab, type Nav } from '../navigation';
 
 const names = (n: Nav, tab = n.tab) => n.stacks[tab].map((e) => e.name);
 const screenOf = (n: Nav) => derive(n).screen;
@@ -82,11 +82,42 @@ describe('c. a settings leaf opened from Today or Calendar stays on that tab', (
     n = back(n); expect(screenOf(n)).toBe('contextualAssistant');
   });
 
-  it('capture\'s "why are you asking" opens Trust over the tab capture was opened on', () => {
-    const n = go(openTask(push(initialNav, { name: 'plan', planDate: '2026-09-25' }), { name: 'capture' }), 'trust');
+});
+
+describe('a screen opened from a task keeps the task open underneath', () => {
+  for (const task of ['capture', 'share'] as const) {
+    it(`${task} → Trust → Knows → back → back is ${task} again, resumed, on the same tab`, () => {
+      const under = push(initialNav, { name: 'plan', planDate: '2026-09-25' });
+      let n = go(go(openTask(under, { name: task }), 'trust'), 'knows');
+      expect(derive(n)).toMatchObject({ screen: 'knows', showTabs: false });
+      expect(n.task?.name).toBe(task);
+      expect(n.stacks).toEqual(under.stacks);
+      n = back(n);
+      expect(screenOf(n)).toBe('trust');
+      n = back(n);
+      expect(derive(n)).toMatchObject({ screen: task, taskResumed: true, showTabs: false });
+      n = back(n);
+      expect(derive(n)).toMatchObject({ screen: 'plan', planDate: '2026-09-25' });
+    });
+  }
+
+  it('a fresh open of capture is not resumed', () => {
+    expect(derive(openTask(initialNav, { name: 'capture' })).taskResumed).toBe(false);
+    const again = openTask(closeTask(back(go(openTask(initialNav, { name: 'capture' }), 'trust'))), { name: 'capture' });
+    expect(derive(again).taskResumed).toBe(false);
+  });
+
+  it('opening the open task from a screen over it returns to it, resumed', () => {
+    const n = go(go(openTask(initialNav, { name: 'capture' }), 'trust'), 'capture');
+    expect(derive(n)).toMatchObject({ screen: 'capture', taskResumed: true });
+    expect(n.over).toEqual([]);
+  });
+
+  it('a tab tap from over a task leaves both', () => {
+    const n = switchTab(go(openTask(initialNav, { name: 'capture' }), 'trust'), 'calendar');
     expect(n.task).toBeNull();
-    expect(n.tab).toBe('today');
-    expect(derive(back(n))).toMatchObject({ screen: 'plan', planDate: '2026-09-25' });
+    expect(n.over).toEqual([]);
+    expect(derive(n)).toMatchObject({ screen: 'calendar', showTabs: true });
   });
 });
 
