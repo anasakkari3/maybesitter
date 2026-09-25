@@ -32,6 +32,7 @@ import { editRefusalOf, unplacedReason } from '../features/plan/reasons';
 import { canRegenerate, rebuildsLeft } from '../features/plan/regenerateCap';
 import { moveKeepingLength } from '../features/plan/optimisticEdit';
 import { useOneAtATime } from '../features/plan/oneAtATime';
+import { dayAfter, planRows, workingHoursOver } from '../features/plan/lateDay';
 import {
   reportPlanDecision,
   reportPlanEdited,
@@ -274,8 +275,15 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   const refusal = editRefusalOf(edit.error);
   // A 429 means another device spent the last rebuild between this screen's
   // read and this tap. The cap copy is the same either way.
-  const capReached = !canRegenerate(plan.generation) || rebuild.error instanceof QuotaExceededError;
-  const left = rebuildsLeft(plan.generation);
+  // The server's count when it sends one (L5): a generation its automatic
+  // refresh wrote is not a rebuild the person spent. From the generation
+  // otherwise, for a server that predates it.
+  const left = plan.rebuildsLeft ?? rebuildsLeft(plan.generation);
+  const capReached = (plan.rebuildsLeft !== undefined ? left === 0 : !canRegenerate(plan.generation))
+    || rebuild.error instanceof QuotaExceededError;
+  // The day in time order: placed work and what is pinned to a time (L5).
+  const rows = useMemo(() => planRows(plan), [plan]);
+  const hoursOver = workingHoursOver(plan, new Date());
 
   const heading = useMemo(
     () => formatRelativeDay(civilDate(plan.date), {
@@ -328,14 +336,35 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
       ) : null}
       {proposal ? <Txt size={13} color={p.mu} style={{ paddingHorizontal: 4 }} testID="plan-proposal-note">{t.suggestionNote}</Txt> : null}
 
+      {/* The day changed after the person made this plan theirs (L5). The
+          server kept their plan rather than overwrite it; this says so and
+          points at the rebuild, which stays their decision. Warm sand marks
+          attention; the words carry it, not the colour. */}
+      {plan.inputsChanged && !readOnly ? (
+        <Card pad={16} testID="plan-inputs-changed">
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.wm, marginTop: 8 }} />
+            <Txt size={14} lh={1.5} style={{ flex: 1 }}>{t.planInputsChanged}</Txt>
+          </View>
+        </Card>
+      ) : null}
+
       <SectionLabel>{t.planOrderTitle}</SectionLabel>
-      {plan.scheduled.length === 0 ? (
+      {/* Nothing placed after the day's hours is not an empty day: it is a
+          day that is over. It says so, and offers tomorrow (L5). */}
+      {plan.scheduled.length === 0 && hoursOver ? (
+        <DayOver date={plan.date} readOnly={readOnly} />
+      ) : null}
+      {rows.length === 0 && !hoursOver ? (
         <Card pad={18}>
           <Txt size={14} color={p.mu} testID="plan-nothing-placed">{t.planNothingPlaced}</Txt>
         </Card>
-      ) : (
+      ) : null}
+      {rows.length > 0 ? (
         <View style={{ gap: 10 }}>
-          {plan.scheduled.map(item => (
+          {rows.map(({ kind, item }) => kind === 'fixed' ? (
+            <FixedRow key={`fixed-${item.itemId}`} item={item} zone={zone} />
+          ) : (
             <PlannedRow
               key={item.itemId}
               item={item}
@@ -374,7 +403,7 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             />
           ))}
         </View>
-      )}
+      ) : null}
 
       {/* A refusal with no row to sit under still has to be shown somewhere.
           Two ways that happens: it is about no item in particular (an empty
@@ -488,6 +517,86 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           <Txt size={13} color={p.wm} testID="plan-regenerate-error">{userFacingMessage(rebuild.error, t)}</Txt>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+/**
+ * The day's hours are over and nothing was placed (L5): one line, and the way
+ * to tomorrow. Building tomorrow is the same idempotent build the empty state
+ * offers, for the next date, and the screen then moves to that plan.
+ */
+function DayOver({ date, readOnly }: { date: string; readOnly: boolean }) {
+  const { t, p, actions } = useApp();
+  const tomorrow = dayAfter(date);
+  const build = useBuildPlan(tomorrow);
+  const building = useOneAtATime();
+  return (
+    <Card pad={18} testID="plan-day-over">
+      <View style={{ gap: 12, alignItems: 'flex-start' }}>
+        <Txt size={15} lh={1.5}>{t.planDayOver}</Txt>
+        {readOnly ? null : (
+          <Pill
+            label={t.planBuildTomorrowCta}
+            size={15}
+            pad={12}
+            testID="plan-build-tomorrow"
+            disabled={build.isPending}
+            style={{ paddingHorizontal: 22 }}
+            onPress={() => {
+              if (!building.enter()) return;
+              build.mutate(undefined, {
+                onSuccess: () => actions.openPlan(tomorrow),
+                onSettled: building.leave,
+              });
+            }}
+          />
+        )}
+        {build.error ? (
+          <Txt size={13} color={p.wm} testID="plan-build-tomorrow-error">{userFacingMessage(build.error, t)}</Txt>
+        ) : null}
+      </View>
+    </Card>
+  );
+}
+
+/**
+ * A commitment pinned to a time today (L5).
+ *
+ * The planner places floating work around it and never moves it, so the row
+ * is not a button: nothing opens, nothing drags. It reads as the placed rows
+ * do — time, bar, title, range — on the quieter surface with a lighter bar
+ * and the «ثابت» tag, so the difference is in words as well as in tone. One
+ * accessible element, so a screen reader says the whole row once.
+ */
+function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
+  const { t, p, lang } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
+  const start = new Date(item.startsAt);
+  const when = item.startsAt === item.endsAt
+    ? formatTime(start, { locale: lang, timeZone: zone })
+    : formatTimeRange(start, new Date(item.endsAt), { locale: lang, timeZone: zone });
+  const title = item.title ?? t.planRemovedItem;
+  return (
+    <View
+      testID={`plan-fixed-${item.itemId}`}
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`${title}, ${when}, ${t.planItemFixed}`}
+    >
+      <Card pad={0} style={{ backgroundColor: p.sf2 }}>
+        <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 16, minHeight: 56 }}>
+          <Txt size={13} weight={600} latin color={p.mu} testID={`plan-fixed-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
+          {!stacked ? <View style={{ width: 2, alignSelf: 'stretch', borderRadius: 2, backgroundColor: p.ln, minHeight: 28 }} /> : null}
+          <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4, alignItems: 'flex-start' }}>
+            <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Txt size={12} color={p.mu} latin>{when}</Txt>
+              <Tag kind="fixed" label={t.planItemFixed} />
+            </View>
+          </View>
+        </View>
+      </Card>
     </View>
   );
 }

@@ -15,10 +15,12 @@ import type { DailyPlan, PlanSettings } from '../../../api/schemas/plan';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { withHermesIntl } from '../../../testing/hermesIntl';
 import { deferred } from '../../../testing/deferred';
+import { dayKey } from '../../../i18n/format';
 import { isolateAuto } from '../../../i18n/bidi';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 import todayFixture from '../../../api/__fixtures__/plan.today.json';
+import refreshedFixture from '../../../api/__fixtures__/plan.refreshedWithFixed.json';
 import trustFixture from '../../../api/__fixtures__/trust.state.json';
 import ackFixture from '../../../api/__fixtures__/analytics.ack.json';
 
@@ -52,7 +54,13 @@ const DATE = '2026-08-09';
 const BASE = todayFixture.plan as DailyPlan;
 
 function planWith(over: Partial<DailyPlan> = {}): DailyPlan {
-  return { ...BASE, ...over };
+  // A plan at another generation is a plan with another count of rebuilds
+  // left, as the server answers it (L5). Keeping the fixture's count beside a
+  // changed generation would be a state the server never sends.
+  const rebuildsLeft = over.generation !== undefined && over.rebuildsLeft === undefined
+    ? { rebuildsLeft: Math.max(0, 5 - over.generation) }
+    : {};
+  return { ...BASE, ...rebuildsLeft, ...over };
 }
 
 /** The trust record, with one answer changed: analytics consent. */
@@ -955,5 +963,127 @@ describe('what the screen reports about what somebody did', () => {
       await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
       expect(screen.queryByTestId('plan-edit-error')).toBeNull();
     });
+  });
+});
+
+/*
+ * L5's cases sit at the end of the file on purpose: React's `useId` counter
+ * runs across every mount in the file, and the Arabic layout snapshot above
+ * records ids from it. Mounting more screens before it renames an SVG
+ * gradient and nothing else.
+ */
+describe('what is pinned to a time today (L5)', () => {
+  // 10:00 and 11:00 UTC; the fixture's placed items sit at 08:00–09:00.
+  const DENTIST = {
+    itemId: 'fx1', title: 'Dentist', blockId: 'block:commitment:fx1',
+    startsAt: '2026-08-09T08:30:00.000Z', endsAt: '2026-08-09T09:00:00.000Z',
+  };
+  const LATE = {
+    itemId: 'fx2', title: 'Call mum', blockId: null,
+    startsAt: '2026-08-09T15:00:00.000Z', endsAt: '2026-08-09T15:30:00.000Z',
+  };
+
+  it('shows a pinned commitment as a fixed row, in time order among the placed ones', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ fixed: [LATE, DENTIST] }) as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-fixed-fx1')).not.toBeNull();
+    expect(screen.queryByTestId('plan-fixed-fx2')).not.toBeNull();
+    // Order on screen: every row's testID in render order.
+    const order = JSON.stringify(screen.toJSON()).match(/plan-(item|fixed)-(fx\d|plan_fixture_\d)"/g)!
+      .map(id => id.replace(/"$/, ''));
+    expect(order).toEqual([
+      'plan-item-plan_fixture_0', 'plan-fixed-fx1', 'plan-item-plan_fixture_1',
+      'plan-item-plan_fixture_2', 'plan-fixed-fx2',
+    ]);
+  });
+
+  it('cannot be opened, moved or taken off, and says it is fixed', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ fixed: [DENTIST] }) as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-open-fx1')).toBeNull();
+    const row = screen.getByTestId('plan-fixed-fx1');
+    expect(row.props.accessible).toBe(true);
+    expect(row.props.accessibilityLabel).toContain('Dentist');
+    expect(row.props.accessibilityLabel).toContain(en.planItemFixed);
+  });
+
+  it('is not "nothing placed today" when the only thing on the day is pinned', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ scheduled: [], fixed: [DENTIST] }) as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-nothing-placed')).toBeNull();
+    expect(screen.queryByTestId('plan-fixed-fx1')).not.toBeNull();
+  });
+
+  it('says nothing is placed only when nothing is placed and nothing is pinned', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ scheduled: [], fixed: [] }) as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-nothing-placed')).not.toBeNull();
+  });
+
+  it('parses the server\'s real answer with a pinned row, and shows it', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(refreshedFixture.plan as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-fixed-plan_fixture_pinned')).not.toBeNull();
+  });
+});
+
+describe('when the day changed under a plan the person already touched (L5)', () => {
+  it('says so, and points at the rebuild', async () => {
+    jest.spyOn(planEndpoints, 'getPlan')
+      .mockResolvedValue(planWith({ status: 'accepted', acceptedAt: '2026-08-09T06:00:00.000Z', inputsChanged: true }) as never);
+    await loaded();
+    expect(screen.queryByText(en.planInputsChanged)).not.toBeNull();
+  });
+
+  it('says nothing when nothing changed', async () => {
+    await loaded();
+    expect(screen.queryByTestId('plan-inputs-changed')).toBeNull();
+  });
+
+  it('counts rebuilds as the server does, not from the generation', async () => {
+    // Generation 2 written by the automatic refresh: not a rebuild the person spent.
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ generation: 2, rebuildsLeft: 4 }) as never);
+    await loaded();
+    expect(screen.getByTestId('plan-regenerate-left').props.children).toContain('4');
+  });
+});
+
+describe('a plan built after the day\'s hours (L5)', () => {
+  function today(): string {
+    return dayKey(new Date(), BASE.timezone);
+  }
+
+  it('says the day is over and offers tomorrow, instead of an empty day', async () => {
+    const date = today();
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({
+      date, scheduled: [], fixed: [], workingEndsAt: new Date(Date.now() - 60_000).toISOString(),
+    }) as never);
+    await show(date);
+    await waitFor(() => expect(screen.queryByTestId('plan-day-over')).not.toBeNull());
+    expect(screen.queryByText(en.planDayOver)).not.toBeNull();
+    expect(screen.queryByTestId('plan-nothing-placed')).toBeNull();
+  });
+
+  it('builds tomorrow\'s plan when asked', async () => {
+    const date = today();
+    const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+    const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({
+      date, scheduled: [], fixed: [], workingEndsAt: new Date(Date.now() - 60_000).toISOString(),
+    }) as never);
+    await show(date);
+    await waitFor(() => expect(screen.queryByTestId('plan-build-tomorrow')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('plan-build-tomorrow'));
+    await waitFor(() => expect(planEndpoints.buildPlan).toHaveBeenCalledWith(tomorrow));
+  });
+
+  it('is an ordinary empty day while the hours are still running', async () => {
+    const date = today();
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({
+      date, scheduled: [], fixed: [], workingEndsAt: new Date(Date.now() + 3_600_000).toISOString(),
+    }) as never);
+    await show(date);
+    await waitFor(() => expect(screen.queryByTestId('plan-nothing-placed')).not.toBeNull());
+    expect(screen.queryByTestId('plan-day-over')).toBeNull();
   });
 });
