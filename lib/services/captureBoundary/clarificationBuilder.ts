@@ -76,6 +76,24 @@ function dayFor(time: string, context: ClarificationContext): string | null {
   return localDay(context, 1);
 }
 
+/**
+ * The day a local time should land on, preferring the day the item already
+ * named when that time on it is still ahead (#165).
+ *
+ * Exported for the free-text answer: "in the evening" typed into the box has to
+ * land on the same day the Evening button would have, or the two ways of giving
+ * one answer disagree about when it is.
+ */
+export function dayForAnswer(
+  time: string,
+  preferredDate: string | null,
+  context: ClarificationContext,
+): string | null {
+  if (preferredDate && isFuture(preferredDate, time, context)) return preferredDate;
+  const day = dayFor(time, context);
+  return day && isFuture(day, time, context) ? day : null;
+}
+
 /** The local hour a resolved instant fell on, or null. */
 function resolvedLocalTime(result: ExtractionResult, context: ClarificationContext): string | null {
   if (result.localTimeSpec?.time) return result.localTimeSpec.time;

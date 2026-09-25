@@ -1,15 +1,18 @@
 import { randomUUID } from 'crypto';
-import { instantFromLocal } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, instantFromLocal, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
-import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
-import { extractWithFallback } from '../../../src/extraction/extractionService';
+import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
+import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
+  CAPTURE_EDIT_TITLE_MAX,
   CLARIFICATION_FREE_TEXT_MAX,
   type CaptureProposalContract,
+  type ClarificationContract,
 } from '../../../src/contracts/v1/captureContracts';
+import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
-import { buildClarification } from './clarificationBuilder';
+import { dayForAnswer } from './clarificationBuilder';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
 /**
@@ -35,7 +38,22 @@ import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStor
  * "make it 9" is not a title. It is re-extracted together with the original
  * segment so the extractor resolves it the same way it resolves everything
  * else — including the injection screen, which a raw splice past the extractor
- * would have skipped.
+ * would have skipped. It is read by the same engine the capture was: the
+ * model when this account's AI consent allows it, the rules when it does not.
+ *
+ * ── An answer settles the question it answers ───────────────────
+ *
+ * Only the field that was asked about is taken from the answer: a time answer
+ * moves the time and leaves the title the user saw alone. And the user's
+ * explicit answer is what settles it — not the extractor's confidence, which
+ * it did not change. An item flagged for low confidence and then told "in the
+ * evening" used to come back still flagged, with no question left to ask and
+ * no command, so nothing could be saved (the dead end found on the first
+ * device run). After an accepted answer an item is confirmable, with commands.
+ *
+ * An answer nothing can be read out of is refused as `answer_not_understood`
+ * *before* the round is spent, so the question stays up and the person can
+ * pick an option instead.
  */
 export type ClarifyFailure =
   | 'proposal_not_found'
@@ -44,7 +62,9 @@ export type ClarifyFailure =
   | 'already_clarified'
   | 'answer_required'
   | 'free_text_too_long'
-  | 'option_not_found';
+  | 'option_not_found'
+  /** Free text that answered nothing the question asked. The round is not spent. */
+  | 'answer_not_understood';
 
 export interface ClarifyInput {
   proposalId: string;
@@ -63,6 +83,14 @@ export interface ClarifyOptions {
 export interface ClarifyDependencies {
   store: CaptureProposalStore;
   extractor?: typeof extractWithFallback;
+  /**
+   * The model, when this account's AI consent allows one — the same provider
+   * the capture was read with. Absent means the rules read the answer, and
+   * nothing is sent anywhere: the default is never a model call.
+   */
+  llmProvider?: ExtractAndMapOptions['llmProvider'];
+  llmEngine?: ExtractAndMapOptions['llmEngine'];
+  controls?: RuntimeControlSnapshot;
   /**
    * Where the answer is written down.
    *
@@ -128,6 +156,125 @@ function withResolvedTime(
   } as ExtractionResult;
 }
 
+/**
+ * Drafts an answer left flagged, made confirmable.
+ *
+ * The extractor's confidence measured how well *it* read the sentence; once
+ * the person has answered the question it was unsure about, a score below the
+ * policy's floor is no longer a reason to hold the item back. And what is
+ * still missing after the one round (a follow-up's person, a time the
+ * question was not about) is the review screen's to show and the edit sheet's
+ * to fix. It is not a reason to strand the item: the user sees it and presses
+ * Confirm themselves, so `pending_confirmation` is exactly what it is.
+ */
+function settleDrafts(commands: readonly Command[]): Command[] {
+  return commands.map((command) => (
+    command.type === 'CreateDraft' && command.draftStatus !== 'pending_confirmation'
+      ? { ...command, draftStatus: 'pending_confirmation' as const }
+      : command
+  ));
+}
+
+const TIME_FIELDS: ReadonlySet<ClarificationContract['field']> = new Set<ClarificationContract['field']>(['time', 'time_period', 'which_day']);
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
+
+/** The time the answer named, applied to the item it answers and nothing else. */
+function withTimeFrom(result: ExtractionResult, source: ExtractionResult): ExtractionResult {
+  return {
+    ...result,
+    dueAt: source.dueAt ?? source.remindAt,
+    remindAt: source.remindAt ?? source.dueAt,
+    localTimeSpec: source.localTimeSpec,
+    timeEvidence: source.timeEvidence,
+  };
+}
+
+/**
+ * Reads a typed answer, and applies what it says to the field that was asked.
+ *
+ * The original text and the answer are re-read together, by the engine the
+ * capture was allowed: the model under this account's consent, otherwise the
+ * rules. Then only the asked field is taken:
+ *
+ *   a time question   the time the re-read found; failing that, a bare part of
+ *                     the day ("بالمسا", "in the evening") on the day the
+ *                     matching option would have used. The title stays.
+ *   the action        the re-read's action when it found one; failing that,
+ *                     the answer itself — it is the user's reply to "what do
+ *                     you want to do?", screened by the same re-read and held
+ *                     to the edit sheet's title bounds.
+ *
+ * Anything else is `answer_not_understood`, with the round intact.
+ */
+async function readFreeTextAnswer(
+  result: ExtractionResult,
+  question: ClarificationContract,
+  freeText: string,
+  options: ClarifyOptions,
+  dependencies: ClarifyDependencies,
+): Promise<ExtractionResult> {
+  const extractor = dependencies.extractor ?? extractWithFallback;
+  const rulesOnly = resolveModuleRuntime('capture', dependencies.controls).mode === 'rules_only';
+  // The original text plus what they added, read together. Splicing the words
+  // straight into a field would skip the injection screen and the time
+  // lexicon both.
+  const combined = `${result.rawText ?? ''}\n${freeText}`.trim();
+  const extracted = await extractor(combined, { now: options.now, timezone: options.timezone }, {
+    // Never the extractor's default: with no provider it would try a local
+    // model, which is neither the consented engine nor the rules.
+    llmProvider: !rulesOnly && dependencies.llmProvider
+      ? dependencies.llmProvider
+      : async () => { throw new Error('rules-only runtime'); },
+    ...(dependencies.llmEngine ? { llmEngine: dependencies.llmEngine } : {}),
+  });
+  if (extracted.fallbackReason?.startsWith('prompt_injection')) throw new ClarifyError('answer_not_understood');
+  const reread = extracted.result;
+  const readable = reread.type === 'task' || reread.type === 'follow_up';
+
+  if (TIME_FIELDS.has(question.field)) {
+    if (readable && (reread.remindAt || reread.dueAt)) return withTimeFrom(result, reread);
+    const hour = dayPartHour(freeText);
+    if (hour !== null) {
+      const time = `${String(hour).padStart(2, '0')}:00`;
+      const preferred = result.localTimeSpec?.date
+        ?? (result.remindAt || result.dueAt
+          ? localTimeSpecFor(new Date(Date.parse((result.remindAt || result.dueAt)!)), options.timezone)?.date ?? null
+          : null);
+      const day = dayForAnswer(time, preferred, { now: options.now, timezone: options.timezone });
+      if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
+    }
+    throw new ClarifyError('answer_not_understood');
+  }
+
+  // The action question.
+  const action = reread.action?.trim() ?? '';
+  if (readable && action.length >= 3) {
+    return {
+      ...result,
+      action,
+      title: (reread.title || action).trim(),
+      type: reread.type,
+      person: reread.person ?? result.person,
+      // A time the re-read found is kept only when the item had none; the
+      // question was not about it.
+      ...(result.remindAt || result.dueAt ? {} : {
+        dueAt: reread.dueAt, remindAt: reread.remindAt, localTimeSpec: reread.localTimeSpec, timeEvidence: reread.timeEvidence,
+      }),
+      ambiguityFlags: result.ambiguityFlags.filter((flag) => flag !== 'vague_action' && flag !== 'no_action_verb'),
+    };
+  }
+  if (freeText.length >= 3 && freeText.length <= CAPTURE_EDIT_TITLE_MAX && !CONTROL_CHARACTERS.test(freeText)) {
+    return {
+      ...result,
+      type: result.type === 'follow_up' ? 'follow_up' : 'task',
+      action: freeText,
+      title: freeText,
+      ambiguityFlags: result.ambiguityFlags.filter((flag) => flag !== 'vague_action' && flag !== 'no_action_verb'),
+    };
+  }
+  throw new ClarifyError('answer_not_understood');
+}
+
 export async function answerClarification(
   input: ClarifyInput,
   options: ClarifyOptions,
@@ -174,13 +321,7 @@ export async function answerClarification(
       : withResolvedTime(result, appliedLocal(result, option.value), options.timezone);
     answerKind = 'option';
   } else {
-    const extractor = dependencies.extractor ?? extractWithFallback;
-    // The original text plus what they added, read together. Splicing the words
-    // straight into a field would skip the injection screen and the time
-    // lexicon both.
-    const combined = `${result.rawText ?? ''}\n${freeText}`.trim();
-    const extracted = await extractor(combined, { now: options.now, timezone: options.timezone });
-    answered = extracted.result;
+    answered = await readFreeTextAnswer(result, question, freeText, options, dependencies);
     answerKind = 'free_text';
   }
 
@@ -195,25 +336,25 @@ export async function answerClarification(
   // `pending_confirmation`, like any other answered item, so the confirm
   // activates it. A confirm-time edit with a title and no time is still refused:
   // only this explicit answer settles.
-  const noTimeCommands = noTime
-    ? applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString()), { resolvedTime: null })
-      .map((command) => (command.type === 'CreateDraft' ? { ...command, draftStatus: 'pending_confirmation' as const } : command))
-    : [];
+  const answeredCommands = noTime
+    ? settleDrafts(applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString()), { resolvedTime: null }))
+    : settleDrafts(mapExtractionToCommand(answered, options.now.toISOString()));
 
-  // One round. Whether it worked or not, this item does not get asked again.
-  const stillUnclear = noTime
-    ? noTimeCommands.length === 0
-    : decideExtractionDisposition(answered) === 'needs_clarification';
+  // Never resolved with nothing to persist. An item marked answered with zero
+  // commands is a Confirm the server then refuses with `invalid_selection`;
+  // refusing the answer instead keeps the question, and the round, for another
+  // try.
+  if (answeredCommands.length === 0) throw new ClarifyError('answer_not_understood');
+
   const items = [...stored.contract.items];
   items[index] = {
     ...item,
     title: (answered.title || answered.action || item.title).trim(),
-    resolvedTime: stillUnclear ? null : answered.remindAt || answered.dueAt,
-    needsClarification: stillUnclear,
+    resolvedTime: answered.remindAt || answered.dueAt || null,
+    // Settled: the question it had was the one it needed, and it is answered.
+    needsClarification: false,
     priority: answered.priority.level,
     priorityEstimated: answered.priority.source !== 'user_explicit',
-    // Null rather than a second question: the app falls back to #164's edit
-    // sheet, which can express anything a question cannot.
     clarification: null,
   };
 
@@ -227,10 +368,7 @@ export async function answerClarification(
   };
 
   const commands = new Map(stored.commandsByItemId);
-  commands.set(
-    input.itemId,
-    stillUnclear ? [] : noTime ? noTimeCommands : mapExtractionToCommand(answered, options.now.toISOString()),
-  );
+  commands.set(input.itemId, answeredCommands);
   const results = new Map(stored.resultsByItemId);
   results.set(input.itemId, answered);
 
