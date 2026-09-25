@@ -1,5 +1,6 @@
 import { deleteAccount, subjectHashFor, subjectTag } from '../../../../../lib/account/accountDeletion';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,8 +39,9 @@ export async function DELETE(request: Request) {
 
   let body: { confirmation?: unknown };
   try {
-    body = await request.json() as { confirmation?: unknown };
-  } catch {
+    body = await readJsonBody(request) as { confirmation?: unknown };
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return Response.json({ success: false, error: 'Invalid JSON request body' }, { status: 400 });
   }
   if (body?.confirmation !== CONFIRMATION) {

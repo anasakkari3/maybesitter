@@ -11,6 +11,7 @@ import {
   MAX_IMPORTS_PER_DAY,
   isImportAssistant,
 } from '../../../../../../src/profile/aiContextImportContracts';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,8 +53,9 @@ export async function POST(request: Request) {
 
   let body: { text?: unknown; assistant?: unknown };
   try {
-    body = await request.json() as typeof body;
-  } catch {
+    body = await readJsonBody(request) as typeof body;
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

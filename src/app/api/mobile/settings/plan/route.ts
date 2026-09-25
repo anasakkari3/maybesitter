@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../li
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { PlanSettingsValidationError, type PlanSettings } from '../../../../../../lib/services/dailyPlan/planSettings';
 import { readPlanSettings, savePlanSettings } from '../../../../../../lib/services/dailyPlan/dailyPlanService';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,8 +35,9 @@ export async function PUT(request: Request) {
 
   let body: { enabled?: unknown; deliveryLocalTime?: unknown; continuousReplanEnabled?: unknown };
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

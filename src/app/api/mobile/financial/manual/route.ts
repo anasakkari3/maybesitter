@@ -12,6 +12,7 @@ import { StoredManualFinancialStore } from '../../../../../../lib/services/finan
 import { knownFinancialCurrency } from '../../../../../../lib/services/financial/financialStateService';
 import { FINANCIAL_FIELD_AUTHORITY } from '../../../../../../src/contracts/v1/financialContracts';
 import { getStorage } from '../../../../../../lib/storage';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,8 +82,9 @@ export async function PUT(request: Request) {
 
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

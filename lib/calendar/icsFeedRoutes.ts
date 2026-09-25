@@ -15,6 +15,7 @@
  */
 import { authorizeSchedulerRequest, schedulerAuthErrorResponse, type HeaderBearing, type OidcVerify } from '../auth/schedulerOidc';
 import { readTrust } from '../pilot/pilotTrustStore';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../net/requestBody';
 import {
   createIcsFeed,
   decideIcsDeadline,
@@ -61,6 +62,7 @@ async function guarded(
     return await run(uid);
   } catch (error) {
     if (error instanceof IcsFeedError) return refusal(error);
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     console.error('[mobile/calendar/ics] unexpected failure', error instanceof Error ? error.name : 'unknown');
     return Response.json({ success: false, error: 'internal_error', reason: 'internal_error' }, { status: 500 });
   }
@@ -68,8 +70,9 @@ async function guarded(
 
 async function jsonBody(request: Request): Promise<unknown> {
   try {
-    return await request.json();
-  } catch {
+    return await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) throw error;
     throw new IcsFeedError('invalid_request');
   }
 }

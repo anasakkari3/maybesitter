@@ -8,8 +8,12 @@
  *  2. the declared body size, so a 30 MB upload is refused by a header rather
  *     than after it has been received;
  *  3. authentication, before a single byte is parsed;
- *  4. `formData()`, which is the first thing that costs memory;
- *  5. the service, which sniffs, classifies, meters and reads.
+ *  4. the received body size, counted while it streams and cancelled at the
+ *     bound, so a lying or absent `Content-Length` buffers at most the bound
+ *     plus one chunk — never the 32 MiB Cloud Run lets through;
+ *  5. `formData()` over those bounded bytes, which is the first thing that
+ *     costs memory;
+ *  6. the service, which sniffs, classifies, meters and reads.
  *
  * Putting auth after the size check is deliberate and is the one place this
  * differs from every other mobile route: an unauthenticated 30 MB body should
@@ -33,6 +37,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { recordTraceStage, stage } from '../../../../../../lib/alphaTrace/traceRecorder';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
+import { RequestBodyTooLargeError, readBoundedBytes } from '../../../../../../lib/net/requestBody';
 import { shareDisabledResponse } from '../../../../../../lib/services/share/shareFlags';
 import {
   MAX_TOTAL_BYTES,
@@ -52,6 +57,17 @@ export const dynamic = 'force-dynamic';
 /** The multipart field files arrive under. Repeated, one part per file. */
 const FILE_FIELD = 'files';
 
+/**
+ * What a multipart body may carry beyond the files themselves: the boundary
+ * lines and part headers, plus the `text`, `timezone`, `referenceTime` and
+ * `sourceHint` fields. Raw text is bounded at `MAX_SHARE_RAW_TEXT_CHARACTERS`
+ * (20,000 characters, at most 80 KB) by the service; 1 MiB covers that and
+ * the framing many times over without changing which shares the service
+ * accepts — a share that fits this stream bound but not `MAX_TOTAL_BYTES` is
+ * still refused by the service on the bytes it actually received.
+ */
+const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
+
 function tooLarge(): Response {
   return Response.json(
     { success: false, error: 'the share is larger than this route accepts', reason: 'file_too_large', maxBytes: MAX_TOTAL_BYTES },
@@ -62,10 +78,12 @@ function tooLarge(): Response {
 /**
  * Refuses an over-sized body from its declared length.
  *
- * A lying `Content-Length` is not a hole: the service adds up the bytes it
- * actually received and refuses on the same rule. This is the cheap half, and
- * it is the half that stops a deliberate 30 MB upload from being buffered
- * before anyone says no.
+ * A lying `Content-Length` is not a hole: `readBoundedBytes` counts the bytes
+ * actually received and cancels the stream at `MAX_TOTAL_BYTES` plus the
+ * multipart allowance, and the service adds up the file bytes and refuses on
+ * the same rule. This is the cheap half, and it is the half that stops a
+ * deliberate 30 MB upload from being buffered before anyone says no — and the
+ * half that runs before authentication.
  */
 function declaredTooLarge(request: Request): boolean {
   const raw = request.headers.get('content-length');
@@ -129,8 +147,13 @@ export async function POST(request: Request) {
 
   let form: FormData;
   try {
-    form = await request.formData();
-  } catch {
+    // The bytes first, counted as they arrive, and only then the multipart
+    // parse over a body this route has already agreed to hold. `formData()`
+    // on the original request would buffer whatever the client sent.
+    const bytes = await readBoundedBytes(request, { limitBytes: MAX_TOTAL_BYTES + MULTIPART_OVERHEAD_BYTES });
+    form = await new Response(bytes, { headers: { 'content-type': request.headers.get('content-type') ?? '' } }).formData();
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return tooLarge();
     // A body that is not multipart, or one that was cut off mid-upload. Both
     // are a request this route cannot read, and neither is worth two messages.
     return mobileError('the request body was not a readable multipart form');

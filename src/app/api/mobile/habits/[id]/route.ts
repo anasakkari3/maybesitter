@@ -15,6 +15,7 @@ import {
   removeHabitWithOccurrences,
   todayLocalDateFor,
 } from '../../../../../../lib/services/habits/habitService';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,8 +54,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   let body: unknown;
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

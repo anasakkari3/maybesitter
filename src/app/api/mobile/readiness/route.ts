@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../lib/services/mobile/response';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 import {
   composeCurrentUserState,
   saveNormalizedReadinessSnapshot,
@@ -9,10 +10,16 @@ import type { ReadinessSnapshot } from '../../../../../src/contracts/v1/readines
 
 export const dynamic = 'force-dynamic';
 
-async function bodyOf(request: Request): Promise<unknown> {
+/**
+ * The parsed body, `null` when it is not JSON (each caller answers its own
+ * 400 for that), or the 413 `Response` when it is over the byte bound — which
+ * a caller must return as-is rather than read as a body.
+ */
+async function bodyOf(request: Request): Promise<unknown | Response> {
   try {
-    return await request.json();
-  } catch {
+    return await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return null;
   }
 }
@@ -53,7 +60,9 @@ export async function PUT(request: Request): Promise<Response> {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  const body = record(await bodyOf(request));
+  const read = await bodyOf(request);
+  if (read instanceof Response) return read;
+  const body = record(read);
   if (!body) return mobileError('Invalid JSON request body');
   try {
     const result = await saveSubjectiveEnergyCheckIn(user.uid, {
@@ -77,7 +86,9 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     return mobileAuthErrorResponse(error);
   }
-  const body = record(await bodyOf(request));
+  const read = await bodyOf(request);
+  if (read instanceof Response) return read;
+  const body = record(read);
   const snapshot = record(body?.snapshot);
   if (!snapshot) return mobileError('Invalid JSON request body');
   const kinds = Array.isArray(snapshot.sourceKinds) ? snapshot.sourceKinds : [];

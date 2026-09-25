@@ -13,6 +13,7 @@ import {
 } from '../../../../../../../lib/services/mobile/preconditions';
 import { commitmentToMobileDto, mobileError } from '../../../../../../../lib/services/mobile/response';
 import { getDeviceCalendarLink } from '../../../../../../../lib/services/calendar/deviceCalendarLinks';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,8 +34,9 @@ export async function POST(
   const { id } = await params;
   let body: { action?: unknown; postponedUntil?: unknown; clientActionId?: unknown };
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 

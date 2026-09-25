@@ -5,6 +5,7 @@ import {
   readCalendarSettings,
   saveCalendarWriteTarget,
 } from '../../../../../../lib/services/calendar/calendarSettings';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,8 +42,9 @@ export async function PUT(request: Request) {
 
   let body: { writeTarget?: unknown };
   try {
-    body = await request.json();
-  } catch {
+    body = await readJsonBody(request);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return mobileError('Invalid JSON request body');
   }
 
