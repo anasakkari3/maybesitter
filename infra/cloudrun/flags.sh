@@ -23,6 +23,10 @@ case "${TARGET}" in
     llm_provider="gemini"
     # UC-4.5 (#181): the model is on here, so the brakes have to be too.
     ai_disabled="false"
+    # UC-2.7a (#167): the memory module, on staging only (owner decision,
+    # 2026-09-25). See the "Memory module" comment block below.
+    memory_feature="true"
+    memory_kill_switch="false"
     ;;
   production)
     max_instances=3
@@ -32,6 +36,8 @@ case "${TARGET}" in
     # Belt and braces. The provider is already `none`, and this is the switch an
     # operator flips without a code change if that ever stops being true.
     ai_disabled="true"
+    memory_feature="false"
+    memory_kill_switch="true"
     ;;
   *)
     echo "unknown target: ${TARGET} (expected staging or production)" >&2
@@ -76,6 +82,30 @@ esac
 # the reviewed generic behaviour rather than something invented from nothing.
 # `MAYBESITTER_EXPERIMENT_NEXT_STEP_ARMS` stays unset: there is no trial.
 #
+# ── Memory module (UC-2.7a #167) ────────────────────────────────────────────
+#
+# `memory` gates `/api/mobile/memory` and `/api/mobile/profile/*` (goals,
+# personalization, routine sync, setup-chat describe, AI context import).
+# Unlike the next step above, this one is not deterministic-and-local: memory
+# candidates and the AI context import call the hosted model, which is a
+# spending decision the same way `llm_provider` is.
+#
+# The owner approved memory for staging only (2026-09-25); production stays
+# off until that is revisited deliberately. `memory_feature=false` in
+# production matches `MODULE_FEATURE_FLAG_DEFAULTS.memory` in
+# `src/contracts/v1/runtimeControls.ts`, so this line changes no behaviour —
+# it is written explicitly so the decision is visible on the deployed
+# service's own env vars rather than resting on a default nobody reading
+# `gcloud run services describe` would see.
+#
+# `memory_kill_switch=true` in production is belt and braces, the same shape
+# as `ai_disabled` above: the feature flag already keeps memory off, and the
+# kill switch is a second, independent block, so a future accidental
+# `MAYBESITTER_FEATURE_MEMORY=true` on production cannot turn it on by
+# itself. Staging sets the switch explicitly to `false` for the opposite
+# reason `MAYBESITTER_KILL_SWITCH_RECOMMENDATION` does: the switch an
+# operator flips in an incident is already present on the service.
+#
 # CPU throttling is the Cloud Run default and is not passed explicitly: the flag
 # to *disable* it (--no-cpu-throttling) is the one that costs money, and it is
 # absent.
@@ -105,6 +135,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_PROVIDER=${llm_provider},MAYBESITTER_LLM_MODEL=gemini-2.5-flash,MAYBESITTER_VERTEX_LOCATION=${REGION},MAYBESITTER_GCP_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_TIMEOUT_MS=8000,MAYBESITTER_LLM_MAX_RETRIES=1,MAYBESITTER_AI_DISABLED=${ai_disabled},MAYBESITTER_LLM_DAILY_CALL_CAP=60,MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000,MAYBESITTER_LLM_MINUTE_CALL_CAP=8,MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000,MAYBESITTER_FEATURE_RECOMMENDATION=true,MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false,MAYBESITTER_NEXT_STEP_ARM=personalized" \
+  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_PROVIDER=${llm_provider},MAYBESITTER_LLM_MODEL=gemini-2.5-flash,MAYBESITTER_VERTEX_LOCATION=${REGION},MAYBESITTER_GCP_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_TIMEOUT_MS=8000,MAYBESITTER_LLM_MAX_RETRIES=1,MAYBESITTER_AI_DISABLED=${ai_disabled},MAYBESITTER_LLM_DAILY_CALL_CAP=60,MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000,MAYBESITTER_LLM_MINUTE_CALL_CAP=8,MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000,MAYBESITTER_FEATURE_RECOMMENDATION=true,MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false,MAYBESITTER_NEXT_STEP_ARM=personalized,MAYBESITTER_FEATURE_MEMORY=${memory_feature},MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch}" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest"
 printf '\n'

@@ -434,6 +434,30 @@ test('with the memory feature off every route is a 404 and nothing is written', 
   }
 });
 
+test('deploy readiness for staging: a goal, the memory list, and the routine survey all succeed with the flag on', async () => {
+  // Evidence gate for the L1 infra lane (#167 staging rollout, 2026-09-25):
+  // before `MAYBESITTER_FEATURE_MEMORY=true` reaches a real deployment, this
+  // pins the exact trio the deploy depends on actually working with the flag
+  // on, in one flow, rather than trusting that scattered single-purpose tests
+  // above add up to the same guarantee.
+  begin('true');
+  try {
+    const created = await memoryPost(request(OWNER, '/api/mobile/memory', {
+      body: { kind: 'goal', content: 'Finish the thesis', language: 'en' },
+    }));
+    assert.equal(created.status, 201, 'POST /api/mobile/memory kind "goal" did not succeed with the flag on');
+
+    const listed = await memoryGet(request(OWNER, '/api/mobile/memory'));
+    assert.equal(listed.status, 200, 'GET /api/mobile/memory did not succeed with the flag on');
+    assert.equal((await json(listed)).items.length, 1);
+
+    const routine = await routinePut(request(OWNER, '/api/mobile/profile/routine', { body: ROUTINE, method: 'PUT' }));
+    assert.equal(routine.status, 200, 'PUT /api/mobile/profile/routine did not succeed with the flag on');
+  } finally {
+    end();
+  }
+});
+
 test('the kill switch closes the routes even with the feature flag on', async () => {
   begin('true');
   const previousKill = process.env.MAYBESITTER_KILL_SWITCH_MEMORY;
