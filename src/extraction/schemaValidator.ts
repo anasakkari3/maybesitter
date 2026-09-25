@@ -26,6 +26,8 @@ import {
   timeOfDayEvidence,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
+import { namesCalendarDate, namesOtherRelativeDay, resolveWeekdayDate } from './weekdayLexicon';
+import { isFixedAppointment } from './priorityLexicon';
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -208,6 +210,42 @@ export function reconcileLocalTimeSpec(
 }
 
 /**
+ * Holds the model to the weekday rule in `weekdayLexicon.ts` (L4).
+ *
+ * The model is told the rule, but a model asked for "Sunday" on a Sunday can
+ * still answer today — and the same sentence must not mean two different days
+ * depending on which engine answered. So when the text names a weekday and
+ * nothing that could be the date instead (a typed calendar date, tomorrow),
+ * the day is the rule's and the instant is recomputed on it.
+ *
+ * A time the model read is kept; only the day moves. `dateInferred` records
+ * whether the day is the rule's guess, for the review card to say so.
+ */
+export function applyWeekdayRule(
+  time: ReconciledTime,
+  rawText: string,
+  context?: ExtractionContext,
+): ReconciledTime & { dateInferred: boolean } {
+  const zone = context?.timezone || time.localTimeSpec?.timezone || 'UTC';
+  const untouched = { ...time, dateInferred: false };
+  // A typed calendar date, or tomorrow, beside the weekday may be the real
+  // date: that is the model's call, not the rule's.
+  if (!context?.now || namesCalendarDate(rawText) || namesOtherRelativeDay(rawText)) return untouched;
+  const weekday = resolveWeekdayDate(rawText, context.now, zone);
+  if (!weekday) return untouched;
+  const clock = time.localTimeSpec?.time ?? null;
+  const instant = clock ? instantFromLocal(weekday.date, clock, zone) : null;
+  const moved = instant ? instant.toISOString() : null;
+  return {
+    ...time,
+    dueAt: time.dueAt && moved ? moved : time.dueAt,
+    remindAt: time.remindAt && moved ? moved : time.remindAt,
+    localTimeSpec: { date: weekday.date, time: clock, timezone: zone },
+    dateInferred: weekday.inferred,
+  };
+}
+
+/**
  * Validate and normalise raw JSON (already parsed) from the LLM into a well-typed ExtractionResult.
  *
  * @param raw     - The parsed JSON object from the LLM response
@@ -273,7 +311,7 @@ export function validateExtractionResult(
     ? prioritySourceRaw
     : 'default';
 
-  const priority: ExtractionResult['priority'] = {
+  let priority: ExtractionResult['priority'] = {
     level: priorityLevel,
     source: prioritySource,
     pressureAllowed: false,
@@ -295,17 +333,33 @@ export function validateExtractionResult(
   // ── time ──────────────────────────────────────────────────────────────
   // Deterministic, and after everything else: the model's instant is an input
   // here, not the answer (#162).
-  const time = reconcileLocalTimeSpec(
-    {
-      dueAt: isoStringOrNull(raw['dueAt'], 'dueAt'),
-      remindAt: isoStringOrNull(raw['remindAt'], 'remindAt'),
-      localTimeSpec: localTimeSpecFrom(raw['localTimeSpec']),
-    },
+  const time = applyWeekdayRule(
+    reconcileLocalTimeSpec(
+      {
+        dueAt: isoStringOrNull(raw['dueAt'], 'dueAt'),
+        remindAt: isoStringOrNull(raw['remindAt'], 'remindAt'),
+        localTimeSpec: localTimeSpecFrom(raw['localTimeSpec']),
+      },
+      rawText,
+      context,
+    ),
     rawText,
     context,
   );
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);
+  }
+
+  // The rules fallback for the prompt's appointment guidance (L4). A model that
+  // left a fixed appointment at its default is raised — as a guess, so the
+  // review card still says so. A level the user stated, or a low the model
+  // read, is theirs and is not touched.
+  if (
+    priority.level === 'normal'
+    && priority.source !== 'user_explicit'
+    && isFixedAppointment(rawText, { hasDay: Boolean(time.localTimeSpec?.date), hasClock: Boolean(time.localTimeSpec?.time) })
+  ) {
+    priority = { ...priority, level: 'high', source: 'inferred' };
   }
   if (!time.remindAt && !time.dueAt && !missingFields.includes('time')) missingFields.push('time');
 
@@ -334,6 +388,7 @@ export function validateExtractionResult(
     remindAt: time.remindAt,
     localTimeSpec: time.localTimeSpec,
     timeEvidence: time.timeEvidence,
+    dateInferred: time.dateInferred,
     priority,
     flexibility,
     category,

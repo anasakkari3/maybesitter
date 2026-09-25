@@ -49,6 +49,10 @@ export const ALLOWED_ITEM_FIELDS: readonly string[] = [
   'needsClarification',
   'priority',
   'priorityEstimated',
+  // The day and whether it was guessed (L4). Without these here a share naming
+  // a weekday lost its whole item as `unknown_field`.
+  'resolvedDate',
+  'dateEstimated',
   'clarification',
 ];
 
@@ -430,6 +434,16 @@ export function applyShareActionAllowlist<T>(raw: unknown): ShareAllowlistResult
       }
     }
     if (owns(candidate, 'priorityEstimated')) item.priorityEstimated = candidate.priorityEstimated === true;
+    // A day key and its flag travel together, or neither does: a guess flag
+    // with no day would mark nothing, and a day without it would read as stated.
+    if (owns(candidate, 'resolvedDate')) {
+      if (typeof candidate.resolvedDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(candidate.resolvedDate)) {
+        item.resolvedDate = candidate.resolvedDate;
+        item.dateEstimated = candidate.dateEstimated === true;
+      } else {
+        report('resolvedDate');
+      }
+    }
     if (owns(candidate, 'clarification')) {
       const clarification = rebuildClarification(candidate.clarification, report);
       if (clarification !== undefined) item.clarification = clarification;

@@ -11,6 +11,13 @@ import {
   timeOfDayEvidence,
   type TimeEvidence,
 } from './timeLexicon';
+import {
+  FOLLOWING_WEEK_STRIP_SOURCES,
+  daysUntilWeekday,
+  namesCalendarDate,
+  readWeekdayReference,
+} from './weekdayLexicon';
+import { isFixedAppointment } from './priorityLexicon';
 
 export { CLOCK_PATTERN_SOURCES, RANGE_PATTERN_SOURCES } from './timeLexicon';
 
@@ -32,62 +39,13 @@ const PARSER_VERSION = 'rule-v1-core';
  * looking anyway.
  */
 const NO_CATEGORY = { category: null, categoryConfidence: 0 } as const;
-const WEEKDAYS: Record<string, number> = {
-  sunday: 0,
-  monday: 1,
-  tuesday: 2,
-  wednesday: 3,
-  thursday: 4,
-  friday: 5,
-  saturday: 6,
-};
-
-const AR_WEEKDAYS: Record<string, number> = {
-  'الأحد': 0,
-  'الاحد': 0,
-  'الاثنين': 1,
-  'الإثنين': 1,
-  'الأثنين': 1,
-  'الثلاثاء': 2,
-  'الثلثاء': 2,
-  'الأربعاء': 3,
-  'الاربعاء': 3,
-  'الخميس': 4,
-  'الجمعة': 5,
-  'السبت': 6,
-};
-
-const AR_WEEKDAY_RE = /(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)/;
-
-const HE_WEEKDAYS: Record<string, number> = {
-  'ראשון': 0,
-  'שני': 1,
-  'שלישי': 2,
-  'רביעי': 3,
-  'חמישי': 4,
-  'שישי': 5,
-  'שבת': 6,
-};
-
-const HE_WEEKDAY_RE = /(?:(?:ביום|יום)\s+|ב)?(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?=$|[\s,.،])/;
-
 const INFORMATIONAL_RE =
   /\b(waiting on|for your information|fyi|just so you know|asked me about|told me about)\b|(سألتني|سألني|تسألني|مستني|مستنية|بانتظار|ينتظر|تنتظر|قالت لي|قال لي)|(מחכה|מחכים|שאל אותי|שאלה אותי|ביקש ממני)|(i|we) had a (nice|great|good|bad|tiring|long|busy|rough) (day|week|morning|afternoon|evening|night)\b/i;
-
-function addDays(date: Date, days: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
 
 function setTime(date: Date, hour: number, minute = 0): Date {
   const next = new Date(date);
   next.setHours(hour, minute, 0, 0);
   return next;
-}
-
-function nextWeekday(from: Date, weekday: number): Date {
-  return addDays(from, (weekday - from.getDay() + 7) % 7);
 }
 
 /* ── Timezone-aware date math ──────────────────────────────────────
@@ -138,11 +96,18 @@ function setTimeTz(date: Date, hour: number, minute: number, timeZone: string): 
   return fromWallClock({ ...parts, hour, minute, second: 0 }, timeZone);
 }
 
-function nextWeekdayTz(from: Date, weekday: number, timeZone: string): Date {
+/**
+ * The date a weekday name means, by the rule in `weekdayLexicon.ts`: the
+ * nearest one that is not today, a week later only when the text says "the one
+ * after", and today only when the text says today.
+ */
+function weekdayTargetTz(from: Date, currentText: string, timeZone: string): { date: Date; daysAhead: number } | null {
+  const reference = readWeekdayReference(currentText);
+  if (!reference) return null;
   const parts = wallClockParts(from, timeZone);
   const currentWeekday = new Date(Date.UTC(parts.year, parts.month, parts.day)).getUTCDay();
-  const diff = (weekday - currentWeekday + 7) % 7;
-  return addDaysTz(from, diff, timeZone);
+  const daysAhead = daysUntilWeekday(currentWeekday, reference);
+  return { date: addDaysTz(from, daysAhead, timeZone), daysAhead };
 }
 
 function resolveTimezone(context: ExtractionContext): string {
@@ -172,6 +137,8 @@ interface ParsedTime {
   /** Why the time was believed, or why there is none. */
   evidence: TimeEvidence;
   localTimeSpec: LocalTimeSpec | null;
+  /** The day came from a weekday name alone, so it is the product's guess. */
+  dateInferred: boolean;
 }
 
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
@@ -181,6 +148,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   const clock = parseClock(raw);
   let targetDate: Date | null = null;
   let timeConfidence = 0;
+  let dateInferred = false;
 
   if (
     /\btoday\b/.test(lower) ||
@@ -208,16 +176,14 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     timeConfidence = 0.9;
   }
 
-  const weekday =
-    lower.match(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/) ||
-    lower.match(AR_WEEKDAY_RE) ||
-    lower.match(HE_WEEKDAY_RE);
+  const weekday = weekdayTargetTz(now, raw, tz);
   if (weekday) {
-    const day = WEEKDAYS[weekday[1]] ?? AR_WEEKDAYS[weekday[1]] ?? HE_WEEKDAYS[weekday[1]];
-    if (day !== undefined) {
-      targetDate = nextWeekdayTz(now, day, tz);
-      timeConfidence = 0.88;
-    }
+    targetDate = weekday.date;
+    timeConfidence = 0.88;
+    // Every weekday-only day is a guess (rule 4) — unless the text said today,
+    // or also typed the calendar date, which this parser cannot read but the
+    // user can see.
+    dateInferred = weekday.daysAhead !== 0 && !namesCalendarDate(raw);
   }
 
   if (!targetDate && clock) {
@@ -228,7 +194,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   const evidence = timeOfDayEvidence(raw);
 
   if (!targetDate) {
-    return { dueAt: null, remindAt: null, confidence: 0.1, evidence, localTimeSpec: null };
+    return { dueAt: null, remindAt: null, confidence: 0.1, evidence, localTimeSpec: null, dateInferred: false };
   }
 
   // The hour has to come from the sentence. It used to come from `?? 18`, so
@@ -269,6 +235,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
       confidence: 0.1,
       evidence,
       localTimeSpec: day ? { ...day, time: null } : null,
+      dateInferred,
     };
   }
 
@@ -283,6 +250,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     confidence,
     evidence,
     localTimeSpec: localTimeSpecFor(withTime, tz),
+    dateInferred,
   };
 }
 
@@ -290,7 +258,13 @@ function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
   // the clock patterns below strip a spoken hour out of the title exactly as
   // they strip a typed one.
-  let stripped = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text))
+  let stripped = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text));
+  // "The one after" phrases whole, before the bare day names below take their
+  // weekday and leave «اللي بعد الجاي» behind in the title.
+  for (const source of FOLLOWING_WEEK_STRIP_SOURCES) {
+    stripped = stripped.replace(new RegExp(source, 'gi'), ' ');
+  }
+  stripped = stripped
     .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
     .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|العصر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
     .replace(/(?:^|[\s,.،])(?:מחרתיים|מחר|היום|הערב|הלילה|בבוקר|בוקר|אחרי הצהריים|אחה"צ|בצהריים|צהריים|בערב|ערב|בלילה|לילה|חצות)(?=$|[\s,.،])/gi, ' ')
@@ -330,7 +304,7 @@ function cleanAction(raw: string): string {
     .trim();
 }
 
-function inferPriority(raw: string): ExtractionResult['priority'] {
+function inferPriority(raw: string, time: ParsedTime): ExtractionResult['priority'] {
   const lower = raw.toLowerCase();
   const pressureImplied = /\b(push me|bug me|don't let me|dont let me|do not let me)\b/.test(lower);
   if (/\b(maybe|probably|sometime|optional)\b/.test(lower) || /(مش ضروري|يمكن|عادي)/.test(lower) || /(?:^|[\s,.،])(אולי|לא דחוף)(?=$|[\s,.،])/.test(lower)) {
@@ -338,6 +312,12 @@ function inferPriority(raw: string): ExtractionResult['priority'] {
   }
   if (/\b(urgent|asap|critical|important|must)\b/.test(lower) || /(ضروري|مستعجل|مهم|لازم)/.test(lower) || /(?:^|[\s,.،])(דחוף|חשוב|קריטי|חובה)(?=$|[\s,.،])/.test(lower) || pressureImplied) {
     return { level: 'high', source: pressureImplied ? 'inferred' : 'user_explicit', pressureAllowed: false, pressureImplied };
+  }
+  // A doctor, an exam, a flight on a fixed day is not a "should" (L4). It is
+  // still our reading, not their words — `inferred`, so the review card marks
+  // it as a guess they can change.
+  if (isFixedAppointment(raw, { hasDay: Boolean(time.localTimeSpec?.date), hasClock: Boolean(time.localTimeSpec?.time) })) {
+    return { level: 'high', source: 'inferred', pressureAllowed: false, pressureImplied: false };
   }
   return { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false };
 }
@@ -419,7 +399,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
   const missingFields: ExtractionResult['missingFields'] = [];
   const ambiguityFlags: ExtractionResult['ambiguityFlags'] = [];
   const parsedTime = parseDateTime(raw, context);
-  const priority = inferPriority(raw);
+  const priority = inferPriority(raw, parsedTime);
 
   if (/\band\b.+\b(remind me|i need to|follow up|call|email|text)\b/.test(lower)) {
     ambiguityFlags.push('multiple_commitments');
@@ -443,6 +423,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       remindAt: parsedTime.remindAt,
       localTimeSpec: parsedTime.localTimeSpec,
       timeEvidence: parsedTime.evidence,
+      dateInferred: parsedTime.dateInferred,
       priority,
       flexibility: 'movable',
       ...NO_CATEGORY,
@@ -512,6 +493,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     remindAt: parsedTime.remindAt,
     localTimeSpec: parsedTime.localTimeSpec,
     timeEvidence: parsedTime.evidence,
+    dateInferred: parsedTime.dateInferred,
     priority,
     flexibility: weak ? 'soft' : 'movable',
     ...NO_CATEGORY,
