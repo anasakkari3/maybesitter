@@ -15,8 +15,9 @@
  *                             «וצריך»; «وعندي» / «ויש לי» only onto an
  *                             appointment noun or a time (C1)
  *   a sentence end . ! ? ؟     only when the next sentence starts with an
- *                             explicit request marker (CL1 round 4, N1) and
- *                             the one before it is not a bare request
+ *                             explicit request marker (CL1 round 4, N1) or an
+ *                             errand verb (round 5), and the one before it is
+ *                             not a bare request
  *
  * A bare «و» is never a boundary: «أحمد وسامي» is one errand.
  *
@@ -180,11 +181,35 @@ const POSSESSION_OPENER = new RegExp(
   'iu',
 );
 
+/**
+ * A sentence that starts with an errand verb opens a clause too (CL1 round 5):
+ * "buy rice. Call mom", «…يوم الأحد. أدفع فاتورة الكهربا», "… Pay the bill
+ * tomorrow" are two commitments, and read as one clause the model is asked
+ * for one object and drops the second — D1's shape without «و».
+ *
+ * The same closed verb lists as `hasActionEvidence`, less the verbs that just
+ * as often restate the appointment before them — go, see, meet, visit, check,
+ * get there, «أروح», «أزور», «أشوف», «راجع» — and less the forms that are also
+ * common nouns or words: a bare «خلص» ("done"), «كلم» ("word"), «برد»
+ * ("cold"). An Arabic verb needs its person prefix (أ/ا/إ/ن/ب) unless it is a
+ * doubled imperative («جيب», «كلّم», «خلّص»). Hebrew is a list of forms, not
+ * the ל-/ת- shape, which also catches «לובי», «תרופה», «תאריך».
+ */
+const SENTENCE_VERB_OPENER = new RegExp(
+  '^(?:' + [
+    `(?:[أاإن]|ب(?!ردّ?${A}))(?:دفع|تصل|شتري|بعت|بعث|خلص|خلّص|جيب|حجز|رد|ردّ|كلم|كلّم|حكي|نظف|نضف|نظّف|نضّف|كتب|جدد|جدّد|صلح|صلّح|طبخ|غسل|رتب|رتّب|وصّل|سلم|سلّم|جهز|جهّز|حضّر|طبع|سأل|قدّم|لغي)${A}`,
+    `(?:جيب|كلّم|خلّص|ردّ|جهّز|حضّر|رتّب|نظّف|نضّف|صلّح|جدّد|سلّم|وصّل)${A}`,
+    '(?:please\\s+)?(?:call|phone|ring|text|email|e-mail|message|reply|write|send|mail|buy|grab|pick\\s+up|pickup|order|pay|book|schedule|reschedule|cancel|renew|submit|finish|complete|prepare|fix|repair|clean|wash|cook|bring|take|drop\\s+off|collect|print|apply|register|confirm|ask|tell|feed|install|pack|deliver|invite)\\b',
+    `(?:לקנות|לשלם|להתקשר|לשלוח|להזמין|לקבוע|לסיים|להגיש|לאסוף|לכתוב|לענות|לחדש|לבטל|להביא|לנקות|לתקן|לבשל|לכבס|להדפיס|תתקשר|תתקשרי|תקנה|תקני|תשלם|תשלמי|תשלח|תשלחי|תזמין|תזמיני|תקבע|תקבעי|תאסוף|תאספי|תביא|תביאי|תכתוב|תכתבי|תענה|תעני|תבטל|תבטלי|תחדש|תחדשי|אתקשר|אקנה|אשלם|אשלח|אזמין|אקבע|אאסוף|אביא|אכתוב|אענה|אבטל)${A}`,
+  ].join('|') + ')',
+  'iu',
+);
+
 /** Whether a sentence opens a clause of its own, after `previous`. */
 function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
   if (!text) return false;
-  if (SENTENCE_OPENER.test(text)) return true;
+  if (SENTENCE_OPENER.test(text) || SENTENCE_VERB_OPENER.test(text)) return true;
   const possession = POSSESSION_OPENER.exec(text);
   if (!possession) return false;
   return !commitmentNounsOf(previous).has(normalizeNoun(possession[1]!.trim()));

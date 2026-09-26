@@ -452,8 +452,8 @@ test('R2 C1: the reviewer’s split probes, clause by clause', async () => {
     ['call the bank re: acc. no. 1234. then pay rent', 2],
     ['meet Sam at St. George hotel at 5', 1],
     ['Fix the U.S. visa form tomorrow', 1],
-    // Round 4 (N1): no marker after the full stop, so no new clause.
-    ['buy 2.5 kg rice. Call mom', 1],
+    // Round 5: a sentence that starts with an errand verb opens a clause.
+    ['buy 2.5 kg rice. Call mom', 2],
     ['pay 12. 50 shekel tomorrow', 1],
     ['هل بتقدر تذكرني بكرا؟ لازم أتصل بسامي', 1],
     ['visit the Jr. League at 3 p.m. tomorrow', 1],
@@ -974,9 +974,9 @@ test('R4 N1: a sentence opens a new clause only when it starts with an explicit 
     ['Call mom tomorrow. Sam said it is urgent', 1],
     ['Dentist tomorrow at 5pm. Parking is on level 2', 1],
     ['Call mom. Grandma is visiting Sunday', 1],
-    // No marker, no new clause — the ruling: everything else attaches.
-    ['buy 2.5 kg rice. Call mom', 1],
-    ['Book the dentist on Sunday. Pay the electricity bill tomorrow at 5pm', 1],
+    // A second errand said as a bare verb opens a clause since round 5.
+    ['buy 2.5 kg rice. Call mom', 2],
+    ['Book the dentist on Sunday. Pay the electricity bill tomorrow at 5pm', 2],
     // A marker opens one, in all three languages, with or without «و» / "and" / «ו».
     ['سجّل موعد دكتور يوم الأحد. بدي أدفع فاتورة الكهربا', 2],
     ['سجّل موعد دكتور يوم الأحد. وبدي أدفع فاتورة الكهربا', 2],
@@ -1323,4 +1323,120 @@ test('R4 N3: every model call of a capture, repairs and re-asks included, fits 1
   // A lone model-bound clause in a longer capture is on the batch deadline, not 8 s.
   await run("call mom tomorrow at 6pm; I'm waiting for the doctor to reply", (user) => JSON.stringify(singles['call mom tomorrow at 6pm'] ?? payload(user)), () => 1_000);
   assert.equal(seen.length, 1);
+});
+
+// ── Round 5 (coordinator: D1 shape after N1; weekday on the single prompt) ──
+
+const D1_SHAPES = [
+  'buy rice. Call mom',
+  'سجّل موعد دكتور يوم الأحد. أدفع فاتورة الكهربا قبل آخر الشهر',
+  'Book the dentist on Sunday. Pay the electricity bill tomorrow',
+] as const;
+
+test('R5 1: a sentence that starts with an errand verb opens a new clause; nouns, places, times and restatements still attach', async () => {
+  const { splitCaptureClauses } = await import('../../src/extraction/clauseSplitter.ts');
+  const cases: ReadonlyArray<readonly [string, number]> = [
+    ...D1_SHAPES.map((text) => [text, 2] as const),
+    ['buy 2.5 kg rice. Call mom', 2],
+    // Arabic: first-person imperfect, «ب» present and imperative forms.
+    ['عندي موعد دكتور بكرا. أشتري دوا من الصيدلية', 2],
+    ['عندي موعد دكتور بكرا. أتصل بسامي', 2],
+    ['عندي موعد دكتور بكرا. أبعت الإيميل لسامي', 2],
+    ['عندي موعد دكتور بكرا. اشتري خبز', 2],
+    ['عندي موعد دكتور بكرا. اتصل بسامي', 2],
+    ['عندي موعد دكتور بكرا. ادفع الفاتورة', 2],
+    ['عندي موعد دكتور بكرا. ابعت الإيميل', 2],
+    ['عندي موعد دكتور بكرا. وبدفع الفاتورة', 2],
+    // English imperatives.
+    ['Meeting with Sam on Sunday. Email Dana the report', 2],
+    ['Meeting with Sam on Sunday. Text Dana', 2],
+    ['Meeting with Sam on Sunday. Pick up the kids at 4', 2],
+    ['Meeting with Sam on Sunday. Please send the invoice', 2],
+    ['Meeting with Sam on Sunday. And book a table', 2],
+    // Hebrew infinitive, future/imperative and first-person forms.
+    ['פגישה עם סמי מחר. תתקשר לאמא', 2],
+    ['פגישה עם סמי מחר. לקנות חלב', 2],
+    ['פגישה עם סמי מחר. ולשלם את חשבון החשמל', 2],
+    ['פגישה עם סמי מחר. אשלח לו את הדוח', 2],
+    // Still one: every N1 row…
+    ['عندي موعد دكتور بكرا. الموعد الساعة 5 المسا', 1],
+    ['اجتماع مع سامي الأحد. الاجتماع الساعة 10 الصبح', 1],
+    ['Meeting with Sam on Sunday. Meeting at 10am', 1],
+    ['Interview on Tuesday. Zoom at 3pm', 1],
+    ['Meeting with Sam on Sunday. Office at 10am', 1],
+    ['Doctor tomorrow. Dr Haddad at 4pm', 1],
+    ['Dentist appointment tomorrow. Clinic on Main street at 5pm', 1],
+    ['Meeting with Sam on Sunday. The meeting is at 10am', 1],
+    ['פגישה עם סמי מחר. לובי המלון ב-5', 1],
+    ['Call mom tomorrow. Sam said it is urgent', 1],
+    ['Dentist tomorrow at 5pm. Parking is on level 2', 1],
+    ['Call mom. Grandma is visiting Sunday', 1],
+    ['call mom tomorrow. She is sick', 1],
+    ['اجتماع مع سامي الأحد. بالمكتب', 1],
+    // …and a verb that restates the appointment rather than adding an errand.
+    ['Meeting with Sam on Sunday. Meet at 10am', 1],
+    ['Doctor tomorrow. See Dr Haddad at 4pm', 1],
+    ['Doctor tomorrow. Get there by 4', 1],
+    ['عندي موعد دكتور بكرا. أروح الساعة 5', 1],
+    ['عندي موعد دكتور بكرا. خلص', 1],
+    ['פגישה עם סמי מחר. תור ב-5', 1],
+    ['פגישה עם סמי מחר. תרופה לפני', 1],
+    [UAT_SIX, 6],
+  ];
+  for (const [text, count] of cases) {
+    assert.equal(splitCaptureClauses(text).length, count, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
+  }
+});
+
+test('R5 1: the three D1-shape captures give two items on the rules path', async () => {
+  for (const text of D1_SHAPES) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items.length, 2, `${text} → ${JSON.stringify(contract.items.map((item) => item.title))}`);
+  }
+});
+
+test('R5 2: the single-clause prompt carries today’s weekday and the next seven dates', async () => {
+  const { buildPrompt } = await import('../../src/extraction/ollamaExtractor.ts');
+  const prompt = buildPrompt('Interview on Tuesday. Zoom at 3pm', context);
+  const instructions = prompt.slice(0, prompt.lastIndexOf('\nBEGIN_UNTRUSTED_USER_MESSAGE\n'));
+  assert.match(instructions, /Today on the user's clock is Saturday 2026-09-26\./);
+  assert.match(instructions, /Tuesday 2026-09-29/);
+});
+
+const ROUND5 = JSON.parse(readFileSync(new URL('./fixtures/uat-2026-09-26-gemini.json', import.meta.url), 'utf8')) as {
+  batchesRound5: Array<{ clauses: string[]; answer: unknown }>;
+  singleInterview: { clause: string; round4: unknown; round5: unknown };
+};
+
+test('R5 1: Gemini’s recorded answers for the three D1-shape captures give two items each on the model path', async () => {
+  const expected: Record<string, string[]> = {
+    'buy rice. Call mom': ['Buy rice', 'Call mom'],
+    'سجّل موعد دكتور يوم الأحد. أدفع فاتورة الكهربا قبل آخر الشهر': ['موعد دكتور', 'أدفع فاتورة الكهربا'],
+    'Book the dentist on Sunday. Pay the electricity bill tomorrow': ['Book the dentist', 'Pay the electricity bill'],
+  };
+  for (const text of D1_SHAPES) {
+    const model = scriptedModel(
+      (clauses) => ROUND5.batchesRound5.find((batch) => JSON.stringify(batch.clauses) === JSON.stringify(clauses))?.answer ?? new LLMUnavailableError('provider_error'),
+      () => new LLMUnavailableError('provider_error'),
+    );
+    const { contract } = await proposeScripted(text, model);
+    assert.deepEqual(model.log.map((call) => call.shape), ['batch'], text);
+    assert.deepEqual(contract.items.map((item) => item.title), expected[text], text);
+    assert.equal(contract.provenance.executedEngine, 'gemini', text);
+    assert.equal(contract.provenance.fallbackUsed, false, text);
+  }
+});
+
+test('R5 2: with the calendar lines Gemini dates "Interview on Tuesday" the Tuesday, flagged a guess; a model date is never moved', async () => {
+  const { clause, round4, round5 } = ROUND5.singleInterview;
+  const answering = (answer: unknown) => scriptedModel(() => new LLMUnavailableError('provider_error'), () => answer);
+  const after = await proposeScripted(clause, answering(round5));
+  assert.equal(after.contract.items.length, 1);
+  assert.equal(after.contract.items[0]!.resolvedDate, '2026-09-29');
+  assert.equal(after.contract.items[0]!.dateEstimated, true, 'a date named only by its weekday is a guess');
+  assert.equal(after.contract.items[0]!.resolvedTime, '2026-09-29T12:00:00.000Z');
+  // The round-4 answer (no calendar lines) put it on Wednesday; the validator
+  // keeps the model's date as it is — it flags, it never moves (L4).
+  const before = await proposeScripted(clause, answering(round4));
+  assert.equal(before.contract.items[0]!.resolvedDate, '2026-09-30');
 });

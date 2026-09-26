@@ -640,6 +640,9 @@ function instructionLines(context: ExtractionContext): string[] {
 export function buildPrompt(rawText: string, context: ExtractionContext): string {
   return [
     ...instructionLines(context),
+    // The same calendar the batch prompt carries (CL1 round 5): asked alone,
+    // the model dated "Interview on Tuesday" a Wednesday.
+    ...calendarLines(context),
     `Required JSON shape: ${JSON.stringify(requestedShape(context))}`,
     'BEGIN_UNTRUSTED_USER_MESSAGE',
     JSON.stringify(rawText),
@@ -652,10 +655,12 @@ const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', '
 /**
  * Today on the user's clock, and the next seven dates by weekday (CL1 review,
  * I4). Read six clauses at once, the model resolved «يوم الأحد» to a Monday
- * and invented a day for a clause that named none; asked one clause at a time
- * it did not. The dates are computed here, not by the model.
+ * and invented a day for a clause that named none. Asked one clause at a time
+ * it dated "Interview on Tuesday" a Wednesday (live, CL1 round 4), so the
+ * single prompt carries it too (round 5). The dates are computed here, not by
+ * the model.
  */
-function batchCalendarLines(context: ExtractionContext): string[] {
+function calendarLines(context: ExtractionContext): string[] {
   const zone = context.timezone || 'UTC';
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(context.now);
   const [year, month, day] = today.split('-').map(Number) as [number, number, number];
@@ -687,7 +692,7 @@ export function buildBatchPrompt(clauses: readonly string[], context: Extraction
     ...instructionLines(context),
     'BATCH MODE: the untrusted data is a JSON array of separate clauses from one message.',
     'Read each clause on its own, as though it were the whole message: never carry a time, a day, a person or an action from one clause into another.',
-    ...batchCalendarLines(context),
+    ...calendarLines(context),
     'A clause that names no day and no time gets localTimeSpec, dueAt and remindAt all null. Never give a clause a date it does not state.',
     'Arabic «المسا», «مساءً», «بالمسا» with no hour is 18:00; «الصبح» is 09:00; «العصر» is 15:00.',
     'Return one JSON object whose only key is items: an array with exactly one extraction object per clause, in the same order. Every rule and allowed key above applies to each extraction object.',

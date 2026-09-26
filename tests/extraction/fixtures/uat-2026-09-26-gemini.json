@@ -903,5 +903,309 @@
         ]
       }
     }
-  ]
+  ],
+  "_about_round5": "CL1 round 5, recorded 2026-09-26 with scripts/live-capture-check.ts --record: the three D1-shape captures (a second errand as a bare verb after a full stop), each read as one batch of two clauses; and the single-clause answer for \"Interview on Tuesday. Zoom at 3pm\" before (round 4, no calendar lines in the single prompt) and after (round 5) the calendar lines.",
+  "batchesRound5": [
+    {
+      "clauses": [
+        "buy rice.",
+        "Call mom"
+      ],
+      "answer": {
+        "items": [
+          {
+            "clauseIndex": 0,
+            "type": "task",
+            "action": "buy",
+            "title": "Buy rice",
+            "person": null,
+            "dueAt": null,
+            "remindAt": null,
+            "localTimeSpec": null,
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": null,
+            "categoryConfidence": 0,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.5,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "clauseIndex": 1,
+            "type": "task",
+            "action": "Call",
+            "title": "Call mom",
+            "person": "mom",
+            "dueAt": null,
+            "remindAt": null,
+            "localTimeSpec": null,
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "family",
+            "categoryConfidence": 0.9,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.5,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          }
+        ]
+      }
+    },
+    {
+      "clauses": [
+        "سجّل موعد دكتور يوم الأحد.",
+        "أدفع فاتورة الكهربا قبل آخر الشهر"
+      ],
+      "answer": {
+        "items": [
+          {
+            "clauseIndex": 0,
+            "type": "task",
+            "action": "سجّل",
+            "title": "سجّل موعد دكتور",
+            "person": null,
+            "dueAt": "2026-09-27T07:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-27",
+              "time": "09:00",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "health",
+            "categoryConfidence": 0.5,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 1,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [
+              "vague_time"
+            ],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "clauseIndex": 1,
+            "type": "task",
+            "action": "أدفع",
+            "title": "أدفع فاتورة الكهربا",
+            "person": null,
+            "dueAt": "2026-09-30T21:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-30",
+              "time": "23:59",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "finance",
+            "categoryConfidence": 0.5,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 1,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          }
+        ]
+      }
+    },
+    {
+      "clauses": [
+        "Book the dentist on Sunday.",
+        "Pay the electricity bill tomorrow"
+      ],
+      "answer": {
+        "items": [
+          {
+            "clauseIndex": 0,
+            "type": "task",
+            "action": "Book",
+            "title": "Book the dentist",
+            "person": null,
+            "dueAt": "2026-09-27T07:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-27",
+              "time": ".",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "health",
+            "categoryConfidence": 0.5,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 1,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [
+              "vague_time"
+            ],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "clauseIndex": 1,
+            "type": "task",
+            "action": "Pay",
+            "title": "Pay the electricity bill",
+            "person": null,
+            "dueAt": "2026-09-27T07:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-27",
+              "time": ".",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "finance",
+            "categoryConfidence": 0.5,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 1,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [
+              "vague_time"
+            ],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          }
+        ]
+      }
+    }
+  ],
+  "singleInterview": {
+    "clause": "Interview on Tuesday. Zoom at 3pm",
+    "round4": {
+      "type": "task",
+      "action": "Interview",
+      "title": "Interview",
+      "person": null,
+      "dueAt": "2026-09-30T12:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-30",
+        "time": "15:00",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "high",
+        "source": "inferred",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "soft",
+      "category": null,
+      "categoryConfidence": 0,
+      "confidence": {
+        "overall": 0.9,
+        "type": 1,
+        "action": 0.9,
+        "time": 1,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    },
+    "round5": {
+      "type": "task",
+      "action": "Interview",
+      "title": "Interview",
+      "person": null,
+      "dueAt": "2026-09-29T12:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-29",
+        "time": "15:00",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "high",
+        "source": "inferred",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "soft",
+      "category": null,
+      "categoryConfidence": 0,
+      "confidence": {
+        "overall": 0.9,
+        "type": 1,
+        "action": 0.9,
+        "time": 1,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    }
+  }
 }
