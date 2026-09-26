@@ -15,7 +15,7 @@ name: The next step, accepted and dismissed
 # ── It never implies it has acted ──────────────────────────────────
 # Unconditional, on every proposal. If this line is missing the card is
 # claiming more than the contract allows.
-- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- assertVisible: 'هاد اقتراح. لسّا ما تغيّر إشي.'
 
 # ── The reason is in the user's language ───────────────────────────
 - tapOn:
