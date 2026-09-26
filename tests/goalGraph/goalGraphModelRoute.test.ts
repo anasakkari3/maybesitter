@@ -32,6 +32,8 @@ import { GET as executionGet } from '../../src/app/api/mobile/goals/[goalId]/exe
 import { POST as generatePost } from '../../src/app/api/mobile/goals/[goalId]/execution/generate/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/goals/[goalId]/execution/confirm/route.ts';
 import { POST as regeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/regenerate/route.ts';
+import { DELETE as memoryDelete, PATCH as memoryPatch } from '../../src/app/api/mobile/memory/[id]/route.ts';
+import { GET as exportGet } from '../../src/app/api/mobile/account/export/route.ts';
 import { RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2, UAT_GOAL, seedGoal } from './goalGraphSupport.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
@@ -224,4 +226,87 @@ test('without AI consent the goal never reaches the model, and the steps are the
   assert.equal(graph.provenance.stepSource, 'template');
   assert.equal(graph.provenance.stepSourceReason, 'consent_required');
   assert.ok(proposals(graph).length >= 2);
+});
+
+/* ── The goal goes, its proposals go (CL3 round 2, review C-1) ─────── */
+
+async function withMemoryOn<T>(work: () => Promise<T>): Promise<T> {
+  const previous = { flag: process.env.MAYBESITTER_FEATURE_MEMORY, kill: process.env.MAYBESITTER_KILL_SWITCH_MEMORY };
+  process.env.MAYBESITTER_FEATURE_MEMORY = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_MEMORY = 'false';
+  try {
+    return await work();
+  } finally {
+    if (previous.flag === undefined) delete process.env.MAYBESITTER_FEATURE_MEMORY;
+    else process.env.MAYBESITTER_FEATURE_MEMORY = previous.flag;
+    if (previous.kill === undefined) delete process.env.MAYBESITTER_KILL_SWITCH_MEMORY;
+    else process.env.MAYBESITTER_KILL_SWITCH_MEMORY = previous.kill;
+  }
+}
+
+async function exportedProposals(): Promise<unknown[]> {
+  const response = await exportGet(req('/api/mobile/account/export', undefined, 'GET'));
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  // Neither the collection nor a step's words may survive into the export.
+  assert.equal(text.includes('حدد ميزات التطبيق الأساسية'), false, 'a deleted goal\u2019s step is in the export');
+  const exported = JSON.parse(text) as { collections: Record<string, unknown[]> };
+  return exported.collections.goalGraphProposals ?? [];
+}
+
+async function generateTwoReadings(goalId: string): Promise<void> {
+  await generatePost(req(`/api/mobile/goals/${goalId}/execution/generate`, {}), context(goalId));
+  await regeneratePost(req(`/api/mobile/goals/${goalId}/execution/regenerate`, { fromGeneration: 1 }), context(goalId));
+  assert.equal((await getStorage().list(userCol(USER, GOAL_GRAPH_PROPOSALS))).length, 2);
+}
+
+test('deleting the goal through the memory route removes its step proposals, and the export has none', async (t) => {
+  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2]);
+  t.after(teardown);
+  await generateTwoReadings(goalId);
+
+  await withMemoryOn(async () => {
+    const response = await memoryDelete(req(`/api/mobile/memory/${goalId}`, undefined, 'DELETE'), { params: Promise.resolve({ id: goalId }) });
+    assert.equal(response.status, 200);
+  });
+  assert.deepEqual(await getStorage().list(userCol(USER, GOAL_GRAPH_PROPOSALS)), []);
+  assert.deepEqual(await exportedProposals(), []);
+});
+
+test('editing the goal through the memory route removes the old wording\u2019s proposals', async (t) => {
+  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2]);
+  t.after(teardown);
+  await generateTwoReadings(goalId);
+
+  const edited = await withMemoryOn(async () => {
+    const response = await memoryPatch(
+      req(`/api/mobile/memory/${goalId}`, { content: 'أطلق تطبيقي على المتجر قبل الصيف' }, 'PATCH'),
+      { params: Promise.resolve({ id: goalId }) },
+    );
+    assert.equal(response.status, 200);
+    return (await body(response)).memory as { id: string };
+  });
+  assert.notEqual(edited.id, goalId, 'an edit is expected to supersede under a new id');
+  assert.deepEqual(await getStorage().list(userCol(USER, GOAL_GRAPH_PROPOSALS)), []);
+  assert.deepEqual(await exportedProposals(), []);
+});
+
+/* ── Confirm only resolves the reading the user reviewed (review M-3) ── */
+
+test('a node id from another reading, or one no reading contains, is refused and creates nothing', async (t) => {
+  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2]);
+  t.after(teardown);
+  const first = await body(await generatePost(req(`/api/mobile/goals/${goalId}/execution/generate`, {}), context(goalId)));
+  await regeneratePost(req(`/api/mobile/goals/${goalId}/execution/regenerate`, { fromGeneration: 1 }), context(goalId));
+  const g1Node = proposals(first.graph)[0].nodeId;
+
+  for (const [generation, nodeId] of [[2, g1Node], [1, 'g1.step.m000000000000'], [7, 'g7.step.m000000000000']] as const) {
+    const answer = await body(await confirmPost(req(`/api/mobile/goals/${goalId}/execution/confirm`, {
+      generation,
+      selections: [{ nodeId, as: 'commitment' }],
+    }), context(goalId)));
+    assert.deepEqual(answer.created, [], `${nodeId} at generation ${generation} created something`);
+    assert.deepEqual(answer.refused.map((item: { code: string }) => item.code), ['unknown_node']);
+  }
+  assert.deepEqual(await getStorage().list(userCol(USER, COMMITMENTS)), []);
 });

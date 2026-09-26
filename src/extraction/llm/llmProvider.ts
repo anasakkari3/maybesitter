@@ -127,6 +127,13 @@ export interface LlmStructuredRequest {
   timeoutMs?: number;
   /** Aborted when the caller's request is. */
   signal?: AbortSignal;
+  /**
+   * `false` when the caller budgets its own attempts, so `withSingleRetry`
+   * makes exactly one. The goal planner answers a person holding a phone that
+   * gives up at 15 s; a provider retry stacked under its own register retry
+   * would double every slow attempt (CL3 review, I-1). Absent means retried.
+   */
+  retry?: boolean;
 }
 
 export interface LlmProvider {

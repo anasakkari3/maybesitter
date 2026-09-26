@@ -414,3 +414,232 @@ test('spoken Arabic, Hebrew and English answers cost exactly one call', async ()
     assert.equal(requests.length, 1, `${language} was asked twice`);
   }
 });
+
+/* ── The phone's 15 s (CL3 round 2, review I-1) ────────────────────── */
+
+test('the whole model budget fits inside the phone’s request timeout', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { GOAL_STEPS_ATTEMPT_TIMEOUT_MS, GOAL_STEPS_DEADLINE_MS } = await import('../../lib/services/mobile/goalStepModel.ts');
+  const client = readFileSync(new URL('../../mobile/src/api/client.ts', import.meta.url), 'utf8');
+  const phone = Number(/REQUEST_TIMEOUT_MS\s*=\s*([\d_]+)/.exec(client)?.[1].replaceAll('_', ''));
+  assert.equal(phone, 15_000);
+  assert.ok(GOAL_STEPS_ATTEMPT_TIMEOUT_MS <= 5_500);
+  // Four seconds for auth, stores and the network around the model.
+  assert.ok(GOAL_STEPS_DEADLINE_MS + 4_000 <= phone, `deadline ${GOAL_STEPS_DEADLINE_MS} leaves no room under ${phone}`);
+});
+
+test('a model that never answers gets the template steps inside the deadline, not a failure', async () => {
+  let calls = 0;
+  // Ignores its signal entirely: only the service's own deadline can end it.
+  const hang: ShareStructuredGenerator = () => {
+    calls += 1;
+    return new Promise(() => undefined);
+  };
+  const { storage, goal } = await seedGoal(UAT_GOAL, { language: 'ar' });
+  const startedAt = Date.now();
+  const graph = await generateGoalGraph(OWNER, goal.id, NOW, {
+    storage,
+    goalStepModel: createGoalStepModel(OWNER, { generate: hang, deadlineMs: 150, timeoutMs: 100 }),
+  });
+  const elapsed = Date.now() - startedAt;
+  assert.ok(elapsed < 1_000, `generate took ${elapsed} ms`);
+  assert.equal(calls, 1);
+  assert.equal(graph.provenance.stepSource, 'template');
+  assert.equal(graph.provenance.stepSourceReason, 'deadline');
+  assert.ok(stepsOf(graph).length >= 2);
+});
+
+test('a timed-out attempt is not retried by the provider: one Vertex request, then the template', async () => {
+  // The configured provider is wrapped in `withSingleRetry`, and `timeout` is
+  // retryable. Stacked under the register retry that was up to four Vertex
+  // requests for one press; the planner budgets its own attempts instead.
+  const { createGeminiProvider, withSingleRetry } = await import('../../src/extraction/llm/index.ts');
+  let starts = 0;
+  const slowVertex = (input: { config: Record<string, unknown> }) => {
+    starts += 1;
+    const signal = input.config.abortSignal as AbortSignal;
+    return new Promise<never>((_, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    });
+  };
+  const provider = withSingleRetry(createGeminiProvider({ generate: slowVertex as never }), { maxRetries: 1, delayMs: () => 0 });
+  const generate = shareLlmProvider(OWNER, {
+    provider,
+    consent: async () => 'granted',
+    reserve: async () => 'ok',
+    commit: async () => undefined,
+    log: () => undefined,
+    purpose: 'goal_decomposition',
+  });
+  const startedAt = Date.now();
+  const outcome = await createGoalStepModel(OWNER, { generate, deadlineMs: 2_000, timeoutMs: 100 })({
+    goalText: UAT_GOAL, language: 'ar', previousTitles: [],
+  });
+  const elapsed = Date.now() - startedAt;
+  assert.equal(outcome.reason, 'timeout');
+  assert.deepEqual(outcome.steps, []);
+  assert.equal(starts, 1, `${starts} Vertex requests for one timed-out attempt`);
+  assert.ok(elapsed < 1_000, `answered after ${elapsed} ms`);
+});
+
+test('through the real provider stack, a slow register retry ends at the deadline with one request per attempt', async () => {
+  // Worst case of one press: the first answer is formal Arabic, so the
+  // register retry fires, and Vertex then never answers. Two attempts, one
+  // Vertex request each, nothing started after the user was answered.
+  const { createGeminiProvider, withSingleRetry } = await import('../../src/extraction/llm/index.ts');
+  const starts: number[] = [];
+  const slowVertex = (input: { config: Record<string, unknown> }) => {
+    starts.push(Date.now());
+    if (starts.length === 1) return Promise.resolve({ text: FORMAL_AR, modelVersion: 'gemini-2.5-flash' });
+    const signal = input.config.abortSignal as AbortSignal;
+    return new Promise<never>((_, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    });
+  };
+  const provider = withSingleRetry(createGeminiProvider({ generate: slowVertex as never }), { maxRetries: 1, delayMs: () => 0 });
+  const generate = shareLlmProvider(OWNER, {
+    provider,
+    consent: async () => 'granted',
+    reserve: async () => 'ok',
+    commit: async () => undefined,
+    log: () => undefined,
+    purpose: 'goal_decomposition',
+  });
+  const startedAt = Date.now();
+  const outcome = await createGoalStepModel(OWNER, { generate, deadlineMs: 2_300, timeoutMs: 5_000 })({
+    goalText: UAT_GOAL, language: 'ar', previousTitles: [],
+  });
+  const answeredAt = Date.now();
+  // Still formal and no second answer: the template's cue, never a failure.
+  assert.equal(outcome.reason, 'register_formal');
+  assert.deepEqual(outcome.steps, []);
+  // The retry is only started with 2 s left, so the deadline is 2.3 s here.
+  assert.ok(answeredAt - startedAt < 2_900, `answered after ${answeredAt - startedAt} ms`);
+  // Wait well past the deadline: nothing may start after the answer.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(starts.length, 2, `${starts.length} Vertex requests for two attempts`);
+  assert.ok(starts.every((at) => at <= answeredAt), 'a Vertex request started after the user was answered');
+});
+
+test('a caller’s abort is not retried by the provider, so the deadline really stops the spend', async () => {
+  const { createGeminiProvider, withSingleRetry, LLMUnavailableError } = await import('../../src/extraction/llm/index.ts');
+  let starts = 0;
+  const slowVertex = (input: { config: Record<string, unknown> }) => {
+    starts += 1;
+    const signal = input.config.abortSignal as AbortSignal;
+    return new Promise<never>((_, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    });
+  };
+  const provider = withSingleRetry(createGeminiProvider({ generate: slowVertex as never }), { maxRetries: 1, delayMs: () => 0 });
+  const caller = new AbortController();
+  setTimeout(() => caller.abort(), 30);
+  await assert.rejects(
+    provider.generateStructured({
+      system: 's', parts: [{ kind: 'text', text: 'x' }], responseSchema: {}, purpose: 'goal_decomposition', uid: OWNER,
+      timeoutMs: 400, signal: caller.signal,
+    }),
+    (error: unknown) => error instanceof LLMUnavailableError && error.reason === 'aborted',
+  );
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(starts, 1, 'the provider retried a request its caller had abandoned');
+
+  // Each half on its own, so neither can hide behind the other. The bare
+  // provider reports the caller's abort as `aborted` (not the retryable
+  // `timeout`), and a signal that already fired starts no request at all.
+  const bare = createGeminiProvider({ generate: slowVertex as never });
+  const later = new AbortController();
+  setTimeout(() => later.abort(), 30);
+  await assert.rejects(
+    bare.generateStructured({
+      system: 's', parts: [{ kind: 'text', text: 'x' }], responseSchema: {}, purpose: 'goal_decomposition', uid: OWNER,
+      timeoutMs: 400, signal: later.signal,
+    }),
+    (error: unknown) => error instanceof LLMUnavailableError && error.reason === 'aborted',
+  );
+  const before = starts;
+  await assert.rejects(
+    bare.generateStructured({
+      system: 's', parts: [{ kind: 'text', text: 'x' }], responseSchema: {}, purpose: 'goal_decomposition', uid: OWNER,
+      timeoutMs: 400, signal: AbortSignal.abort(),
+    }),
+    (error: unknown) => error instanceof LLMUnavailableError && error.reason === 'aborted',
+  );
+  assert.equal(starts, before, 'a request was started for a caller that had already gone');
+});
+
+/* ── No dates in a step's words (CL3 round 2, review I-2) ──────────── */
+
+test('a step whose words carry a date, a time or a deadline is dropped as dated', async () => {
+  const { namesADate } = await import('../../lib/goalGraph/goalStepPlan.ts');
+  // The review's probes, verbatim, then the same shapes in each language.
+  const dated = [
+    'Submit the build by March 3',
+    'Finish the design by Friday at 5pm',
+    'Call the clinic on 12/10',
+    'خلّص التصميم قبل ١٥ تشرين',
+    'ابعت التطبيق للمراجعة بآخر الشهر',
+    'Finish by the end of the month',
+    'Meet at 10:30',
+    'خلّص الصفحة لحد بكرا',
+    'ابعت المسودة يوم الخميس',
+    'اتصل بالعيادة الساعة ٥',
+    'לסיים את הפרק עד סוף החודש',
+    'לשלוח טיוטה במרץ',
+    'לפגוש את המנחה ביום שני',
+  ];
+  for (const title of dated) assert.equal(namesADate(title), true, `not caught: ${title}`);
+  // Steps Gemini really wrote in the live runs, and the prompt's own examples:
+  // none of them names a date, and none may be lost to this check.
+  const clean = [
+    'شوف شو بدّك من التطبيق بالزبط', 'خلّص فقرة وحدة كل يوم الصبح', 'اسأل أختك إذا بتساعدك بالترتيب',
+    'صوّر لقطات شاشة للتطبيق', 'حدّد المنصة اللي بدّك تستخدمها', 'Schedule first training run',
+    'Choose a target race date', 'Stretch after each run', 'You may need a dentist', 'Read 20 pages',
+    'להקצות זמן כתיבה יומי', 'לכתוב טיוטה ראשונה של פרק',
+  ];
+  for (const title of clean) assert.equal(namesADate(title), false, `wrongly caught: ${title}`);
+
+  const result = validateGoalStepDraft({ steps: [
+    { title: 'Submit the build by March 3', kind: 'commitment', when: 'this_month' },
+    { title: 'Call the clinic on 12/10', kind: 'commitment', when: 'today' },
+    { title: 'Register a developer account', kind: 'commitment', when: 'today' },
+    { title: 'Take store screenshots of the app', kind: 'commitment', when: 'this_week' },
+  ] }, { goalText: 'Launch my app', language: 'en' });
+  assert.deepEqual(result.steps.map((step) => step.title), ['Register a developer account', 'Take store screenshots of the app']);
+  assert.equal(result.dropped.dated, 2);
+});
+
+/* ── Round 2 minors ─────────────────────────────────────────────────── */
+
+test('a habit template names no count and no duration, so it agrees with any cadence the person picks', () => {
+  for (const [goal, language] of [
+    [UAT_GOAL, 'ar'], ['أتعلّم إسباني', 'ar'], ['بيت مرتّب', 'ar'],
+    ['לסיים את התזה עד מרץ', 'he'], ['ללמוד ספרדית', 'he'], ['בית מסודר', 'he'],
+    ['Finish the thesis by March', 'en'], ['Learn Spanish', 'en'], ['A tidy flat', 'en'],
+  ] as const) {
+    for (const step of templateGoalSteps(goal, language).filter((item) => item.suggestedAs === 'habit')) {
+      const withoutGoal = step.title.replace(/[«“"][^»”"]*[»”"]/g, '');
+      assert.doesNotMatch(withoutGoal, /[0-9\u0660-\u0669]|hour|minute|once|ساعة|دقيقة|مرة وحدة|مرّة وحدة|يوم|שעה|דקות|פעם אחת|פעם בשבוע|כל יום/i, step.title);
+    }
+  }
+});
+
+test('when the goal’s own sentence splits, its clauses come first and the model only adds', async () => {
+  const { SPLITTABLE_GOAL } = await import('./goalGraphSupport.ts');
+  const answer = JSON.stringify({ steps: [
+    { title: 'Build the landing page', kind: 'commitment', when: 'this_week' },
+    { title: 'Write the launch email', kind: 'commitment', when: 'this_week' },
+    { title: 'Ask two friends to test checkout', kind: 'commitment', when: 'this_month' },
+  ] });
+  const { generate } = recordedGenerator([answer]);
+  const { storage, goal } = await seedGoal(SPLITTABLE_GOAL, { language: 'en' });
+  const graph = await generateGoalGraph(OWNER, goal.id, NOW, { storage, goalStepModel: createGoalStepModel(OWNER, { generate }) });
+
+  assert.equal(graph.provenance.stepSource, 'sentence_and_model');
+  const steps = stepsOf(graph);
+  assert.deepEqual(steps.slice(0, 2).map((node) => [node.stepId, node.inferred]), [['s1', false], ['s2', false]]);
+  assert.ok(steps[0].sourceSpans.length > 0, 'the user’s own clause lost its span');
+  // The model's copy of a stated clause is not offered twice.
+  assert.deepEqual(steps.slice(2).map((node) => node.title), ['Write the launch email', 'Ask two friends to test checkout']);
+  assert.ok(graph.edges.some((edge) => edge.kind === 'depends_on'), 'the stated order between clauses was lost');
+});

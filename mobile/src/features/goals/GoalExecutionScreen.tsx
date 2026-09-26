@@ -197,7 +197,7 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
               ? generate.mutate(undefined, { onSuccess: beginReview })
               : regenerate.mutate(canonicalGraph?.generation ?? generation, { onSuccess: beginReview })}
           />
-          {generate.error || regenerate.error ? <View testID="goal-generate-failed" style={{ gap: 4 }}>
+          {generate.error || regenerate.error ? <View testID="goal-generate-failed" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ gap: 4 }}>
             <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
             <Txt role="metadata" color={p.mu}>{userFacingMessage(generate.error ?? regenerate.error, t)}</Txt>
           </View> : null}
@@ -306,7 +306,7 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
     })}
     {checkpoints.length > 0 ? <Card style={{ gap: 8 }}><Txt role="label">{t.xCheckpoints}</Txt>{checkpoints.map(node => <ProductRow key={node.nodeId} title={isolate(node.title)} icon="goal" />)}</Card> : null}
     {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
-    {regenerateError ? <View testID="goal-generate-failed" style={{ gap: 4 }}>
+    {regenerateError ? <View testID="goal-generate-failed" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ gap: 4 }}>
       <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
       <Txt role="metadata" color={p.mu}>{userFacingMessage(regenerateError, t)}</Txt>
     </View> : null}

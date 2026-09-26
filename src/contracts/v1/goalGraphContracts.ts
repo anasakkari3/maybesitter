@@ -158,11 +158,15 @@ export type GoalStepSuggestedWhen = typeof GOAL_STEP_SUGGESTED_WHEN[number];
  * - `model`    — the goal planner model proposed them, and they passed
  *                `validateGoalStepDraft`. Stored per generation, so a confirm
  *                resolves the same steps the user reviewed.
+ * - `sentence_and_model` — the sentence split, and its clauses come first;
+ *                the model's steps that are not the same clauses follow,
+ *                up to six in all. The model adds; it never replaces what
+ *                the person already wrote.
  * - `template` — neither of the above produced steps, so a deterministic
  *                starting point for the goal's shape was offered instead of
  *                an empty screen.
  */
-export type GoalStepSource = 'sentence' | 'model' | 'template';
+export type GoalStepSource = 'sentence' | 'sentence_and_model' | 'model' | 'template';
 
 /**
  * A reference, and deliberately nothing more.

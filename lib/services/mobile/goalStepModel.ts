@@ -42,8 +42,20 @@ import {
 export const GOAL_STEPS_MAX_GOAL_CHARACTERS = 1_000;
 /** Six short steps in JSON. Generous, because a truncated answer is a failure. */
 export const GOAL_STEPS_MAX_OUTPUT_TOKENS = 1_024;
-/** The person is watching a spinner after pressing a button. */
-export const GOAL_STEPS_TIMEOUT_MS = 20_000;
+/**
+ * One model attempt. The capture path's own ceiling, and about twice the
+ * slowest live answer seen for this prompt (2.9 s).
+ */
+export const GOAL_STEPS_ATTEMPT_TIMEOUT_MS = 5_500;
+/**
+ * Everything the model may take for one generate, retries included (CL3
+ * review, I-1). The phone gives up at 15 s (`REQUEST_TIMEOUT_MS`); this leaves
+ * four seconds for auth, the stores, the graph and the network either side.
+ * When it runs out the answer is the template, never a failure.
+ */
+export const GOAL_STEPS_DEADLINE_MS = 11_000;
+/** Below this much time left, a register retry is not started at all. */
+const GOAL_STEPS_MIN_ATTEMPT_MS = 2_000;
 
 export interface GoalStepPlanRequest {
   readonly goalText: string;
@@ -80,8 +92,8 @@ const LEVANTINE_EXAMPLES = [
   'Arabic register: write each step the way a friend from Amman, Beirut or Damascus would say it out loud, not the way a textbook or a manual would write it.',
   'Prefer everyday verbs such as «حطّ», «ابعت», «شوف», «جرّب», «خلّص», «اسأل», «فرجي», «جيب», «رتّب», and spoken words such as «اللي», «شي», «هلّق», «بدّك», «لحالك».',
   'Examples of the register, for different goals:',
-  '- goal «أرتّب البيت قبل العيد»: «حطّ قائمة بالغرف اللي بدها ترتيب» / «فضّي خزانتك من الأواعي اللي ما بتلبسها» / «اسأل أختك إذا بتساعدك السبت»',
-  '- goal «أخلّص الرسالة»: «اكتب رؤوس أقلام للفصل الجاي» / «ابعت المسودة للدكتور يشوفها» / «خلّص فقرة وحدة كل يوم الصبح»',
+  '- goal «أرتّب البيت قبل العيد»: «حطّ قائمة بالغرف اللي بدها ترتيب» / «فضّي خزانتك من الأواعي اللي ما بتلبسها» / «اسأل أختك إذا بتساعدك بالترتيب»',
+  '- goal «أخلّص الرسالة»: «اكتب رؤوس أقلام للفصل الجاي» / «ابعت المسودة للدكتور يشوفها» / «اقرا مصدر جديد كم مرة بالأسبوع»',
   'Never write formal constructions: «قم بـ», «يجب», «ينبغي», «كيفية», «سوف», «لم», «هذا/هذه», «الذي/التي», «شيء», «الآن».',
 ].join('\n');
 
@@ -100,6 +112,7 @@ export function goalStepsSystemPrompt(language: GoalStepLanguage, retryFormal = 
     'No numbering, no emoji, no explanations, no dates or clock times, no links, and no names of people who are not in the goal.',
     'Never give medical, legal or financial advice, and never suggest anything unsafe.',
     'kind is "habit" only for something repeated every week, otherwise "commitment". At most two habits.',
+    'A habit\'s title says what to repeat, never how often or for how long: the person chooses that.',
     'when is "today", "this_week" or "this_month" for when the step would sensibly start, or "none" if it does not matter.',
     `Write every step in ${LANGUAGE_NAMES[language]}.`,
     ...(language === 'ar' ? [LEVANTINE_EXAMPLES] : []),
@@ -111,7 +124,10 @@ export function goalStepsSystemPrompt(language: GoalStepLanguage, retryFormal = 
 export interface GoalStepModelOptions {
   /** Injected by tests. Production takes the gated, metered generator. */
   readonly generate?: ShareStructuredGenerator;
+  /** Per attempt. Defaults to `GOAL_STEPS_ATTEMPT_TIMEOUT_MS`. */
   readonly timeoutMs?: number;
+  /** For the whole request. Defaults to `GOAL_STEPS_DEADLINE_MS`. */
+  readonly deadlineMs?: number;
 }
 
 function none(reason: string, model: string | null = null): GoalStepPlanOutcome {
@@ -128,6 +144,22 @@ export function createGoalStepModel(uid: string, options: GoalStepModelOptions =
     // read one is paying to be attacked.
     if (detectPromptInjection(goalText) !== null) return none('injection_suspected');
 
+    // One deadline for the whole request, retries included. Aborting the
+    // signal stops the call in flight *and* the provider's own retry of it,
+    // so nothing keeps spending after the user has been answered.
+    const deadlineMs = options.deadlineMs ?? GOAL_STEPS_DEADLINE_MS;
+    const attemptMs = options.timeoutMs ?? GOAL_STEPS_ATTEMPT_TIMEOUT_MS;
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    let expired!: () => void;
+    const deadline = new Promise<never>((_, reject) => {
+      expired = () => reject(new LLMUnavailableError('deadline'));
+    });
+    deadline.catch(() => undefined);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; expired(); controller.abort(); }, deadlineMs);
+    const remaining = (): number => deadlineMs - (Date.now() - startedAt);
+
     const parts = [wrapUntrustedShared(goalText)];
     const previous = request.previousTitles.filter((title) => title.trim().length > 0).slice(0, 12);
     if (previous.length > 0) parts.push(wrapUntrustedShared(previous.join('\n')));
@@ -136,18 +168,23 @@ export function createGoalStepModel(uid: string, options: GoalStepModelOptions =
       let text: string;
       let model: string | null = null;
       try {
-        const response = await generate({
+        const response = await Promise.race([generate({
           system: goalStepsSystemPrompt(request.language, retryFormal),
           parts,
           responseSchema: toVertexSchema(GOAL_STEPS_SCHEMA),
           maxOutputTokens: GOAL_STEPS_MAX_OUTPUT_TOKENS,
-          timeoutMs: options.timeoutMs ?? GOAL_STEPS_TIMEOUT_MS,
-        });
+          timeoutMs: Math.max(1, Math.min(attemptMs, remaining())),
+          signal: controller.signal,
+          // One Vertex request per attempt. The register retry below is the
+          // only second attempt, and the deadline decides whether it happens.
+          retry: false,
+        }), deadline]);
         text = response.text;
         model = response.model;
       } catch (error) {
         // The reason code only. A provider error can quote the request, and
         // the request is somebody's goal.
+        if (timedOut) return none('deadline');
         return none(error instanceof LLMUnavailableError ? error.reason : 'provider_error');
       }
 
@@ -166,18 +203,31 @@ export function createGoalStepModel(uid: string, options: GoalStepModelOptions =
       return Object.freeze({ steps: Object.freeze(steps), reason: null, model });
     };
 
-    const first = await attempt(false);
-    if (request.language !== 'ar' || !first.steps.some((step) => hasFormalArabic(step.title))) return first;
+    try {
+      const first = await attempt(false);
+      if (request.language !== 'ar' || !first.steps.some((step) => hasFormalArabic(step.title))) return first;
 
-    // Formal Arabic came back. Asked once more, with the register named; this
-    // is a second metered call through the same gate, never a third.
-    const second = await attempt(true);
-    const spoken = second.steps.filter((step) => !hasFormalArabic(step.title));
-    if (spoken.length >= GOAL_STEPS_MIN) {
-      return Object.freeze({ steps: Object.freeze(spoken), reason: null, model: second.model });
+      const spokenOf = (outcome: GoalStepPlanOutcome) => outcome.steps.filter((step) => !hasFormalArabic(step.title));
+      // Formal Arabic came back. Asked once more, with the register named —
+      // a second metered call through the same gate, never a third, and only
+      // when the deadline leaves room for it.
+      if (remaining() >= GOAL_STEPS_MIN_ATTEMPT_MS) {
+        const second = await attempt(true);
+        const spoken = spokenOf(second);
+        if (spoken.length >= GOAL_STEPS_MIN) {
+          return Object.freeze({ steps: Object.freeze(spoken), reason: null, model: second.model });
+        }
+      }
+      // No time to ask again, or still formal: keep the first answer's spoken
+      // steps if there are enough, else the template, which is Levantine.
+      const kept = spokenOf(first);
+      if (kept.length >= GOAL_STEPS_MIN) {
+        return Object.freeze({ steps: Object.freeze(kept), reason: null, model: first.model });
+      }
+      return none('register_formal', first.model);
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
     }
-    // Still formal, or the retry failed: the template, which is Levantine, is
-    // a better screen than steps in a register the app does not speak.
-    return none(second.reason ?? 'register_formal', second.model ?? first.model);
   };
 }

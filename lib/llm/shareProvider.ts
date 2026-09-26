@@ -98,6 +98,8 @@ export type ShareStructuredGenerator = (request: {
    * through: a share the user backed out of should stop costing money.
    */
   readonly signal?: AbortSignal;
+  /** `false`: no provider-level retry; the caller budgets its own attempts. */
+  readonly retry?: boolean;
 }) => Promise<ShareStructuredResponse>;
 
 export interface ShareProviderOptions {
@@ -199,6 +201,7 @@ export function shareLlmProvider(uid: string, options: ShareProviderOptions = {}
         ...(request.maxOutputTokens === undefined ? {} : { maxOutputTokens: request.maxOutputTokens }),
         ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
         ...(request.signal ? { signal: request.signal } : {}),
+        ...(request.retry === false ? { retry: false } : {}),
       });
       await commit(uid, { promptTokens: response.promptTokens, outputTokens: response.outputTokens });
       log({

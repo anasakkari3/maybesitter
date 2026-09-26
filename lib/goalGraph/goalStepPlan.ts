@@ -38,8 +38,10 @@ import { docIdForKey } from '../storage/paths';
  *
  * v2 (CL3 round 1): Levantine few-shot examples, and a register check that
  * asks once more when the Arabic comes back formal.
+ * v3 (CL3 round 2): a habit's title names no frequency or duration, and the
+ * examples say no weekday.
  */
-export const GOAL_STEPS_PROMPT_VERSION = 'goal-steps-v2';
+export const GOAL_STEPS_PROMPT_VERSION = 'goal-steps-v3';
 
 /** Fewer than this many usable steps is not a plan; the fallback is used. */
 export const GOAL_STEPS_MIN = 2;
@@ -175,6 +177,65 @@ const UNSAFE = [
   /[<>{}[\]`\\]/,
 ];
 
+/*
+ * ── No dates in a title (CL3 round 2, review I-2) ────────────────
+ *
+ * #526 forbids invented deadlines, and the structured fields already have
+ * nowhere to put one — but a title is free text, and it becomes the
+ * commitment's title verbatim on confirm. "Submit the build by March 3" would
+ * put a date in somebody's list that they never set. So a step whose words
+ * name a date, a clock time, a month, a weekday, or "by/before/قبل/لحد/עד"
+ * followed by a time word is dropped as `dated`. Timing belongs in
+ * `suggestedWhen`, which is a hint and schedules nothing.
+ *
+ * Written without the `u` flag or look-behind, to stay inside the compile
+ * target; a letter boundary is "not preceded by a letter" spelled as a group.
+ */
+const DIGIT = '[0-9٠-٩۰-۹]';
+const NOT_AR = '(?:^|[^\u0621-\u064A])';
+const AR_END = '(?![\u0621-\u064A])';
+const AR_PREFIX = '[وفبل]?(?:ال)?';
+const AR_MONTHS = [
+  'كانون', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين',
+  'يناير', 'فبراير', 'مارس', 'أبريل', 'إبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر',
+].join('|');
+const AR_WEEKDAYS = 'السبت|الأحد|الاحد|الاثنين|الإثنين|التنين|الثلاثاء|التلاتا|الأربعاء|الاربعا|الخميس|الجمعة|الجمعه';
+/** قبل، لحد، لحتى، لغاية، حتى، بحلول، بآخر، آخر، بنهاية، نهاية، خلال */
+const AR_BY = 'قبل|لحد|لحتى|لغاية|حتى|بحلول|بآخر|آخر|بنهاية|نهاية|خلال';
+/** الشهر، الأسبوع، الجمعة (week), السنة، بكرا، بكرة، اليوم، الصيف، الشتا، العيد */
+const AR_TIME_WORDS = 'الشهر|الأسبوع|الاسبوع|الجمعة|السنة|السنه|بكرا|بكرة|اليوم|الصيف|الشتا|العيد|هالشهر|هالأسبوع|هالجمعة';
+const HE_MONTHS = 'ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר';
+const HE = 'א-ת';
+const EN_MONTHS = 'January|February|March|April|June|July|August|September|Sept|October|November|December|Jan|Feb|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec';
+const EN_WEEKDAYS = 'monday|tuesday|wednesday|thursday|friday|saturday|sunday';
+
+const DATED: readonly RegExp[] = [
+  // 12/10, 3.4, 2027-01-05, ١٥/٣ — and a clock time, 5:30, ٥:٣٠.
+  new RegExp(`${DIGIT}{1,4}\\s*[/.\\-:]\\s*${DIGIT}{1,4}`),
+  // 5pm, 10 am, ٥ الصبح is fine but «الساعة ٥» is a time.
+  new RegExp(`${DIGIT}\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)(?![a-z])`, 'i'),
+  new RegExp(`الساعة\\s*${DIGIT}`),
+  new RegExp(`ב?שעה\\s*${DIGIT}`),
+  // Month names. "May" only beside a number, so the modal verb is left alone.
+  new RegExp(`\\b(?:${EN_MONTHS})\\b`),
+  new RegExp(`\\bMay\\s+${DIGIT}|${DIGIT}\\s+May\\b`),
+  new RegExp(`${NOT_AR}${AR_PREFIX}(?:${AR_MONTHS})${AR_END}`),
+  new RegExp(`(?:^|[^${HE}])[בלומה]?(?:${HE_MONTHS})(?![${HE}])`),
+  // Weekdays.
+  new RegExp(`\\b(?:${EN_WEEKDAYS})\\b`, 'i'),
+  new RegExp(`${NOT_AR}[وفبل]?(?:يوم\\s+)?(?:${AR_WEEKDAYS})${AR_END}`),
+  new RegExp(`יום\\s+(?:ראשון|שני|שלישי|רביעי|חמישי|שישי)|(?:^|[^${HE}])[בלומה]?שבת(?![${HE}])`),
+  // "by / before / until" + a time word or a number.
+  new RegExp(`\\b(?:by|before|until|till|no later than|due)\\s+(?:the\\s+)?(?:end\\s+of\\s+(?:the\\s+)?)?(?:tomorrow|tonight|today|next|this|week|month|year|weekend|noon|midnight|${DIGIT})`, 'i'),
+  new RegExp(`${NOT_AR}(?:${AR_BY})\\s+(?:(?:آخر|نهاية)\\s+)?(?:${AR_TIME_WORDS}|${DIGIT})`),
+  new RegExp(`(?:^|[^${HE}])(?:עד|לפני|בתוך|תוך)\\s+(?:סוף\\s+)?(?:מחר|הערב|השבוע|החודש|השנה|סוף|${DIGIT})`),
+];
+
+/** True when a step's words name a date, a time, or a deadline. */
+export function namesADate(title: string): boolean {
+  return DATED.some((pattern) => pattern.test(title));
+}
+
 /**
  * Advice rather than a step. Matched on the whole key, so a real step that
  * happens to contain "start" is untouched; what is refused is a step that is
@@ -284,6 +345,7 @@ export function validateGoalStepDraft(
     if (key.split(' ').length < 2 || GENERIC_KEYS.has(key)) { drop('generic'); continue; }
     // The goal restated is not a step towards it.
     if (key === goalKey) { drop('restates_goal'); continue; }
+    if (namesADate(title)) { drop('dated'); continue; }
     if (seen.has(key)) { drop('duplicate'); continue; }
     seen.add(key);
     accepted.push(Object.freeze({
@@ -331,51 +393,51 @@ const TEMPLATES: Readonly<Record<GoalStepLanguage, Readonly<Record<GoalShape, re
     dated: [
       { title: 'قسّم «{goal}» لتلات مراحل، ولكل مرحلة موعد', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
       { title: 'حدّد أول مرحلة من «{goal}» وشو لازم يخلص فيها', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
-      { title: 'اشتغل على «{goal}» ساعة بوقت ثابت كل أسبوع', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'اشتغل على «{goal}» كم مرة بالأسبوع', suggestedAs: 'habit', suggestedWhen: null },
     ],
     recurring: [
       { title: 'جهّز اللي بتحتاجه لـ«{goal}»', suggestedAs: 'commitment', suggestedWhen: 'today' },
-      { title: 'خصّص وقت ثابت بالأسبوع لـ«{goal}»', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'خصّص وقت لـ«{goal}» كم مرة بالأسبوع', suggestedAs: 'habit', suggestedWhen: null },
       { title: 'حدّد كيف بتعرف إنك تقدّمت بـ«{goal}» بعد شهر', suggestedAs: 'commitment', suggestedWhen: 'this_month' },
     ],
     open: [
       { title: 'اكتب شو يعني إنك خلّصت «{goal}»', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
       { title: 'اختار أول خطوة صغيرة لـ«{goal}» واشتغل عليها ربع ساعة', suggestedAs: 'commitment', suggestedWhen: 'today' },
-      { title: 'راجع تقدّمك بـ«{goal}» مرة بالأسبوع', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'اشتغل على «{goal}» شوي كم مرة بالأسبوع', suggestedAs: 'habit', suggestedWhen: null },
     ],
   },
   he: {
     dated: [
       { title: 'לחלק את "{goal}" לשלושה שלבים, עם תאריך לכל שלב', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
       { title: 'לבחור את השלב הראשון של "{goal}" ומה סוגר אותו', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
-      { title: 'לעבוד על "{goal}" שעה בזמן קבוע כל שבוע', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'לעבוד על "{goal}" כמה פעמים בשבוע', suggestedAs: 'habit', suggestedWhen: null },
     ],
     recurring: [
       { title: 'להכין את מה שצריך בשביל "{goal}"', suggestedAs: 'commitment', suggestedWhen: 'today' },
-      { title: 'לקבוע זמן קבוע בשבוע בשביל "{goal}"', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'לפנות זמן ל"{goal}" כמה פעמים בשבוע', suggestedAs: 'habit', suggestedWhen: null },
       { title: 'להחליט איך נראית התקדמות ב"{goal}" בעוד חודש', suggestedAs: 'commitment', suggestedWhen: 'this_month' },
     ],
     open: [
       { title: 'לכתוב מה זה אומר לסיים את "{goal}"', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
       { title: 'לבחור צעד ראשון קטן ל"{goal}" ולעבוד עליו רבע שעה', suggestedAs: 'commitment', suggestedWhen: 'today' },
-      { title: 'לבדוק את ההתקדמות ב"{goal}" פעם בשבוע', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'להקדיש קצת זמן ל"{goal}" כמה פעמים בשבוע', suggestedAs: 'habit', suggestedWhen: null },
     ],
   },
   en: {
     dated: [
       { title: 'Split “{goal}” into three stages, each with a date', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
       { title: 'Pick the first stage of “{goal}” and what finishes it', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
-      { title: 'Work on “{goal}” for an hour at a set time each week', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'Work on “{goal}” a few times a week', suggestedAs: 'habit', suggestedWhen: null },
     ],
     recurring: [
       { title: 'Get what you need for “{goal}” ready', suggestedAs: 'commitment', suggestedWhen: 'today' },
-      { title: 'Block a set weekly time for “{goal}”', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'Make time for “{goal}” a few times a week', suggestedAs: 'habit', suggestedWhen: null },
       { title: 'Decide what a month of progress on “{goal}” looks like', suggestedAs: 'commitment', suggestedWhen: 'this_month' },
     ],
     open: [
       { title: 'Write down what done looks like for “{goal}”', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
       { title: 'Pick one small first step for “{goal}” and give it 15 minutes', suggestedAs: 'commitment', suggestedWhen: 'today' },
-      { title: 'Review your progress on “{goal}” once a week', suggestedAs: 'habit', suggestedWhen: null },
+      { title: 'Give “{goal}” a little time a few times a week', suggestedAs: 'habit', suggestedWhen: null },
     ],
   },
 };
@@ -418,6 +480,11 @@ function shapeOf(goalText: string, language: GoalStepLanguage): GoalShape {
  * slot; anything else gets "say what done looks like" and a fifteen-minute
  * first step. Each quotes the goal, so a step confirmed into a commitment
  * still says what it is for when it turns up in a list on its own.
+ *
+ * A habit template names no count and no duration ("a few times a week"):
+ * the review screen preselects a cadence the person then changes, and a
+ * title that said "an hour, once a week" would contradict the 3×30 it opens
+ * on (CL3 round 2, review M-2).
  */
 export function templateGoalSteps(goalText: string, language: GoalStepLanguage): readonly GoalStepDraft[] {
   const shape = shapeOf(goalText, language);

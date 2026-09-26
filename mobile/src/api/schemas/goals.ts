@@ -51,7 +51,7 @@ export const goalGraphSchema = z.object({
     decompositionProposalId: z.string(),
     decompositionOutcome: z.enum(['decomposed', 'atomic', 'rejected']),
     // Optional so a server from before CL3 still parses.
-    stepSource: z.enum(['sentence', 'model', 'template']).optional(),
+    stepSource: z.enum(['sentence', 'sentence_and_model', 'model', 'template']).optional(),
   }).passthrough(),
 });
 

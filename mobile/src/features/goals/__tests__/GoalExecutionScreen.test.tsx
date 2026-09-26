@@ -245,6 +245,9 @@ it('keeps a failed generation apart from an empty one', async () => {
   mockGenerateError = new Error('offline');
   await openGoal();
   expect(screen.getByTestId('goal-generate-failed')).toBeTruthy();
+  // Announced, not only shown: a screen-reader user pressed a button and waits.
+  expect(screen.getByTestId('goal-generate-failed').props.accessibilityRole).toBe('alert');
+  expect(screen.getByTestId('goal-generate-failed').props.accessibilityLiveRegion).toBe('polite');
   expect(screen.getByText(strings.en.xGoalGenerateFailed)).toBeTruthy();
   expect(screen.queryByTestId('goal-proposal-empty')).toBeNull();
   expect(screen.queryByText(strings.en.xGoalProposalEmpty)).toBeNull();

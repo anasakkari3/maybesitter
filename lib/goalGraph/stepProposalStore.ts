@@ -24,6 +24,7 @@ import {
   docIdForKey,
   getStorage,
   requireUserId,
+  userCol,
   userSubDoc,
   type StorageAdapter,
 } from '../storage';
@@ -52,6 +53,12 @@ export interface GoalStepProposalStore {
    * kept — so two concurrent `generate`s agree on one answer.
    */
   putIfAbsent(scopeId: string, proposal: StoredGoalStepProposal): Promise<StoredGoalStepProposal>;
+  /**
+   * Removes every stored reading of these goals, at every generation. The
+   * memory delete and edit paths call it: a proposal is a model's paraphrase
+   * of the goal, and it must not outlive the goal it paraphrases.
+   */
+  deleteForGoals(scopeId: string, goalMemoryIds: readonly string[]): Promise<number>;
 }
 
 export function goalTextKeyFor(goalText: string): string {
@@ -96,6 +103,21 @@ class StorageGoalStepProposalStore implements GoalStepProposalStore {
       tx.set<StoredGoalStepProposal>(path, proposal);
       return proposal;
     });
+  }
+
+  async deleteForGoals(scopeId: string, goalMemoryIds: readonly string[]): Promise<number> {
+    if (goalMemoryIds.length === 0) return 0;
+    const wanted = new Set(goalMemoryIds);
+    const collection = userCol(requireUserId(scopeId), GOAL_GRAPH_PROPOSALS);
+    let removed = 0;
+    for (const row of await this.storage.list<StoredGoalStepProposal>(collection)) {
+      // By the field, not by recomputing ids: every generation of the goal
+      // goes, including ones this process never saw written.
+      if (!wanted.has(row.data.goalMemoryId)) continue;
+      await this.storage.delete(`${collection}/${row.id}`);
+      removed += 1;
+    }
+    return removed;
   }
 }
 

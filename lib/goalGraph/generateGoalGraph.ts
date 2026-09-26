@@ -72,7 +72,9 @@ import {
 } from './ids';
 import { validateGoalExecutionGraph } from './validateGoalGraph';
 import {
+  GOAL_STEPS_MAX,
   GOAL_STEPS_MIN,
+  goalStepKeyOf,
   goalStepLanguageOf,
   templateGoalSteps,
   type GoalStepDraft,
@@ -211,11 +213,12 @@ export async function generateGoalExecutionGraph(
     ? request.plannedSteps
     : null;
   let stepSource: GoalStepSource;
-  if (planned) {
-    stepSource = 'model';
-    pushPlanned(planned);
-  } else if (proposal.outcome === 'decomposed') {
-    stepSource = 'sentence';
+  // The user's own clauses come first whenever the sentence splits (CL3
+  // round 2, review M-1): "build the landing page, then set up payments" is
+  // a plan the person already wrote, and a model may add to it, never replace
+  // it. Only when the sentence does not split do the model's steps stand alone.
+  if (proposal.outcome === 'decomposed') {
+    stepSource = planned ? 'sentence_and_model' : 'sentence';
     for (const step of proposal.steps) {
       nodes.push({
         nodeId: stepNodeIdFor(generation, step.stepId),
@@ -249,6 +252,20 @@ export async function generateGoalExecutionGraph(
         });
       }
     }
+    if (planned) {
+      // A model step that restates a clause — the same words, or words one
+      // of the clauses already contains — is the user's step, not a new one.
+      const stated = proposal.steps.map((step) => ` ${goalStepKeyOf(step.title)} `);
+      const restates = (title: string): boolean => {
+        const key = ` ${goalStepKeyOf(title)} `;
+        return stated.some((clause) => clause.includes(key) || key.includes(clause));
+      };
+      const room = Math.max(0, GOAL_STEPS_MAX - proposal.steps.length);
+      pushPlanned(planned.filter((step) => !restates(step.title)).slice(0, room));
+    }
+  } else if (planned) {
+    stepSource = 'model';
+    pushPlanned(planned);
   } else {
     // The sentence does not split and no model step is available. A goal
     // with no step at all is a screen with nothing to press (first phone
