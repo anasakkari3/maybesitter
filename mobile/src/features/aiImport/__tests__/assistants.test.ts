@@ -22,21 +22,30 @@ describe('the assistants', () => {
 
   it('opens only https', () => {
     for (const assistant of IMPORT_ASSISTANTS) {
-      const url = ASSISTANTS[assistant].url;
-      if (url === null) continue;
-      expect(url.startsWith('https://')).toBe(true);
+      for (const url of [ASSISTANTS[assistant].appUrl, ASSISTANTS[assistant].webUrl]) {
+        if (url === null) continue;
+        expect(url.startsWith('https://')).toBe(true);
+      }
     }
   });
 
-  it('opens paths the vendors\' apps claim (AASA, checked 2026-09-25)', () => {
+  it('tries paths the vendors\' apps claim (AASA, checked 2026-09-25)', () => {
     // chatgpt.com claims /app, not /: the bare domain always opened Safari.
-    expect(ASSISTANTS.chatgpt.url).toBe('https://chatgpt.com/app');
-    expect(ASSISTANTS.claude.url).toBe('https://claude.ai/new');
+    expect(ASSISTANTS.chatgpt.appUrl).toBe('https://chatgpt.com/app');
+    expect(ASSISTANTS.claude.appUrl).toBe('https://claude.ai/new');
+  });
+
+  it('falls back to the web chat, not an app path that redirects to the store (CL2b, #21)', () => {
+    // Without the app, chatgpt.com/app answers 302 → apps.apple.com.
+    expect(ASSISTANTS.chatgpt.webUrl).toBe('https://chatgpt.com/');
+    expect(ASSISTANTS.claude.webUrl).toBe('https://claude.ai/new');
+    expect(ASSISTANTS.gemini.webUrl).toBe('https://gemini.google.com/app');
   });
 
   it('has nothing to open for an unnamed assistant', () => {
     // "Another assistant" is a real choice: the prompt is still worth copying.
-    expect(ASSISTANTS.other.url).toBeNull();
+    expect(ASSISTANTS.other.appUrl).toBeNull();
+    expect(ASSISTANTS.other.webUrl).toBeNull();
   });
 
   it('has a label key for each one', () => {
