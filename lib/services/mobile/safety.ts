@@ -31,9 +31,23 @@ export class NegatedRequestError extends Error {
  * unchanged and carries nothing the user wrote.
  */
 export class PastCommitmentTimeError extends Error {
-  constructor(message: string) {
+  /**
+   * What the guarded extractor read, so the boundary can offer that same
+   * reading without its hour (CL1 round 3, M5) rather than re-reading the
+   * clause with an unguarded extractor — which skipped the negation check,
+   * relabelled provenance, and could pick a *future* reading of an ambiguous
+   * hour and propose it unasked.
+   *
+   * Not enumerable: it holds the user's text, and an error is the kind of
+   * object that ends up in a log. `util.inspect` and `JSON.stringify` both
+   * skip it.
+   */
+  declare readonly extracted: ExtractWithFallbackResult | undefined;
+
+  constructor(message: string, extracted?: ExtractWithFallbackResult) {
     super(message);
     this.name = 'PastCommitmentTimeError';
+    Object.defineProperty(this, 'extracted', { value: extracted, enumerable: false });
   }
 }
 
@@ -59,10 +73,10 @@ type MobileExtractor = (
  * `must not be in the past` was first phrased and the PATCH boundary had to
  * match it by hand to stay consistent.
  */
-function assertSafeTime(value: string | null, now: Date, field: string): void {
+function assertSafeTime(value: string | null, now: Date, field: string, extracted?: ExtractWithFallbackResult): void {
   if (!value) return;
   const parsed = parseIsoInstant(value, field);
-  if (isPastCommitmentTime(parsed, now)) throw new PastCommitmentTimeError(pastTimeMessage(field));
+  if (isPastCommitmentTime(parsed, now)) throw new PastCommitmentTimeError(pastTimeMessage(field), extracted);
 }
 
 export async function guardedMobileExtract(
@@ -80,8 +94,8 @@ export async function guardedMobileExtract(
     throw new NegatedRequestError();
   }
 
-  assertSafeTime(extracted.result.dueAt, context.now, 'dueAt');
-  assertSafeTime(extracted.result.remindAt, context.now, 'remindAt');
+  assertSafeTime(extracted.result.dueAt, context.now, 'dueAt', extracted);
+  assertSafeTime(extracted.result.remindAt, context.now, 'remindAt', extracted);
 
   return extracted;
 }

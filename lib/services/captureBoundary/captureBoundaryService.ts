@@ -459,15 +459,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let standIn = false;
       let passedHour = false;
       if (outcome.kind === 'error') {
-        // The guarded extractor refuses a time that has gone by throwing, and
-        // keeps nothing it read. In a capture of several clauses the clause is
-        // read again by the rules — no second model call — and offered without
-        // its hour, below. Alone, the refusal stands.
-        if (!(outcome.error instanceof PastCommitmentTimeError) || !several) throw outcome.error;
-        extracted = await extractWithFallback(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
-        // The one guard the unguarded re-read skips (review, M5).
-        if (extracted.result.ambiguityFlags.includes('negated_request')) throw new NegatedRequestError();
-        standIn = true;
+        // The guarded extractor refuses a time that has gone by with the
+        // reading it refused (CL1 round 3, M5): past its negation check,
+        // named by the engine that read it. In a capture of several clauses
+        // that reading is offered without its hour, below, and the user is
+        // asked for one — never a later reading picked for them. Alone, the
+        // refusal stands.
+        const refused = outcome.error instanceof PastCommitmentTimeError ? outcome.error.extracted : undefined;
+        if (!refused || !several) throw outcome.error;
+        extracted = refused;
         passedHour = true;
       } else {
         extracted = outcome.extracted;

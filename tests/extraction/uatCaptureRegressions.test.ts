@@ -739,3 +739,133 @@ test('R2 I1: a typed hour read by the model keeps the doctor on the Sunday the c
   const named = await answerFor(UAT_SIX, (title) => title === 'موعد دكتور', () => ({ freeText: 'الأحد اللي بعد الجاي الساعة 10 الصبح' }), recordedModel().provider, movedTheDay);
   assert.equal(named.timeSpec.dueAt, '2026-10-04T07:00:00.000Z');
 });
+
+// ── Round 3 (review minors M2, M3, M5, M8) ──────────────────────────────
+
+test('R3 M2: a captured fixed event is planned at the event, not at its reminder', async () => {
+  const run = await propose('dentist tomorrow at 9am');
+  const [captured] = await confirmAll(run);
+  assert.equal(captured!.timeSpec.kind, 'scheduled_event');
+  assert.equal(captured!.timeSpec.dueAt, '2026-09-27T06:00:00.000Z');
+  // A 60-minute reminder lead, the way the edit route keeps one.
+  await run.persistence.persistAtomically([{
+    type: 'UpdateCommitment', commitmentId: captured!.id, now: NOW.toISOString(),
+    updates: { timeSpec: { remindAt: '2026-09-27T05:00:00.000Z' } },
+  }]);
+  const commitments = Object.values((await run.persistence.snapshot()).commitments);
+  assert.equal(commitments[0]!.timeSpec.remindAt, '2026-09-27T05:00:00.000Z');
+  const { pinnedEventsOnDay } = await import('../../lib/services/dailyPlan/buildDailyPlan.ts');
+  const input = buildDailyPlanInput({
+    uid: 'cl1-uat', date: '2026-09-27', timezone: TZ, commitments, busyBlocks: [], profile: null, builtAt: NOW.toISOString(),
+  });
+  const rows = pinnedEventsOnDay(input.constraints.fixedEvents, input.constraints.horizon);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.interval.startsAt, '2026-09-27T06:00:00.000Z', 'the fixed row is at 09:00, not the 08:00 reminder');
+});
+
+test('R3 M3: multi-dot and one-letter abbreviations are not sentence ends', async () => {
+  const { splitCaptureClauses } = await import('../../src/extraction/clauseSplitter.ts');
+  for (const [text, count] of [
+    ['Fix the U.S. visa form tomorrow', 1],
+    ['meet Sam at 9 a.m. tomorrow at the office', 1],
+    ['meet at 9 a.m. tomorrow. Call mom', 2],
+    ['call the bank about acc. no. 1234 tomorrow', 1],
+    ['bring e.g. milk and bread tomorrow', 1],
+    ['ذكرني الساعة 5 م. أتصل بأمي', 1],
+    ['الاجتماع الساعة 9 ص. بكرا بالمكتب', 1],
+    ['موعد مع د. أحمد بكرا الساعة 5', 1],
+    // An initial before a name that reads like a verb: without the one-letter
+    // rule "Smith tomorrow" would open a clause of its own.
+    ['email J. Smith about the report tomorrow', 1],
+  ] as const) {
+    assert.equal(splitCaptureClauses(text).length, count, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
+  }
+});
+
+/** The passed clause read by a model through the guarded extractor, as on the phone. */
+async function proposeGuarded(text: string, answer: (clause: string) => unknown) {
+  const { guardedMobileExtract } = await import('../../lib/services/mobile/safety.ts');
+  const model = modelAnswering(answer);
+  const contract = await proposeCapture(
+    text,
+    { now: NOW, timezone: TZ, scopeId: 'cl1-uat', requestedEngine: 'model' },
+    {
+      store: new MemoryCaptureProposalStore(),
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+      extractor: guardedMobileExtract,
+      llmProvider: model.provider,
+      llmEngine: 'gemini',
+    },
+  );
+  return { contract, model };
+}
+
+const PASSED = 'بدي أشتري خبز بكرا، وذكرني أتصل بأمي اليوم الساعة 9 الصبح';
+const bread = () => taskFor('أشتري خبز', { localTimeSpec: { date: '2026-09-27', time: null, timezone: TZ } });
+/** The model's reading of the passed clause: 09:00 today, an hour ago. */
+const passedCall = (extra: Record<string, unknown> = {}) => taskFor('اتصال بالوالدة', {
+  dueAt: '2026-09-26T06:00:00Z', remindAt: '2026-09-26T06:00:00Z',
+  localTimeSpec: { date: '2026-09-26', time: '09:00', timezone: TZ }, explicitReminderRequest: true, ...extra,
+});
+
+test('R3 M5: a passed hour is offered from the guarded model reading, asked, and labelled by the model', async () => {
+  const { contract, model } = await proposeGuarded(PASSED, (clause) => (clause.includes('خبز') ? bread() : passedCall()));
+  assert.equal(model.calls(), 1, 'no second read of the passed clause');
+  assert.deepEqual(contract.items.map((item) => item.title), ['أشتري خبز', 'اتصال بالوالدة'], 'the model’s own title, not a rules re-read');
+  const call = contract.items[1]!;
+  assert.equal(call.needsClarification, true);
+  assert.equal(call.resolvedTime, null);
+  assert.equal(call.resolvedDate, '2026-09-26');
+  assert.equal(call.clarification?.questionKey, 'ask_time');
+  assert.equal(contract.provenance.executedEngine, 'gemini');
+  assert.equal(contract.provenance.fallbackUsed, false);
+});
+
+test('R3 M5: a passed clause the model read as a negation stays refused, not offered', async () => {
+  const { contract } = await proposeGuarded(PASSED, (clause) => (
+    clause.includes('خبز') ? bread() : passedCall({ ambiguityFlags: ['negated_request'] })
+  ));
+  assert.deepEqual(contract.items.map((item) => item.title), ['أشتري خبز']);
+});
+
+test('R3 M5: an ambiguous passed hour is asked about, never swapped for a later reading', async () => {
+  // «الساعة 9» with no half of the day, at 10:00: 21:00 is a reading too, and
+  // proposing it would be choosing for the user. The item asks, and offers it.
+  const { contract } = await proposeGuarded('بدي أشتري خبز بكرا، وذكرني أتصل بأمي الساعة 9', (clause) => (
+    clause.includes('خبز') ? bread() : passedCall({ ambiguityFlags: ['vague_time'] })
+  ));
+  const call = contract.items[1]!;
+  assert.equal(call.needsClarification, true);
+  assert.equal(call.resolvedTime, null);
+  assert.ok((call.clarification?.options ?? []).some((option) => option.value.localTime), 'the question offers a time');
+});
+
+test('R3 M8: provenance is model-first, whatever order the clauses fell back in', async () => {
+  // The first call fails and its clauses go to the rules; the second answers.
+  let call = 0;
+  const provider = async (prompt: string): Promise<string> => {
+    call += 1;
+    if (call === 1) throw new LLMUnavailableError('timeout');
+    const payload = payloadOf(prompt) as string[];
+    return JSON.stringify({ items: payload.map((clause) => RECORDED[clause]) });
+  };
+  const late = await propose(UAT_SIX, provider);
+  assert.equal(late.contract.items.length, 6);
+  assert.equal(late.contract.provenance.executedEngine, 'gemini', 'a model answer names the capture even when it came last');
+  assert.equal(late.contract.provenance.fallbackUsed, true);
+  // The other order: the model answers first, the rules read the last three.
+  let second = 0;
+  const earlyOnly = async (prompt: string): Promise<string> => {
+    second += 1;
+    if (second === 2) throw new LLMUnavailableError('timeout');
+    const payload = payloadOf(prompt) as string[];
+    return JSON.stringify({ items: payload.map((clause) => RECORDED[clause]) });
+  };
+  const early = await propose(UAT_SIX, earlyOnly);
+  assert.equal(early.contract.provenance.executedEngine, 'gemini', 'rules reading the last clause do not rename the capture');
+  assert.equal(early.contract.provenance.fallbackUsed, true);
+  // And when the model answered nothing at all, the rules are named.
+  const none = await propose(UAT_SIX, async () => { throw new LLMUnavailableError('timeout'); });
+  assert.equal(none.contract.provenance.executedEngine, 'rule-based');
+  assert.equal(none.contract.provenance.fallbackUsed, true);
+});
