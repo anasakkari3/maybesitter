@@ -1,0 +1,131 @@
+{
+  "success": false,
+  "error": "that day already has a plan",
+  "reason": "already_planned",
+  "week": {
+    "today": "2026-08-09",
+    "timezone": "Asia/Jerusalem",
+    "days": [
+      {
+        "date": "2026-08-09",
+        "state": "planned",
+        "items": [
+          {
+            "itemId": "plan_fixture_0",
+            "title": "Write the summary",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "reason": null
+          },
+          {
+            "itemId": "plan_fixture_1",
+            "title": "Call the bank",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T08:00:00.000Z",
+            "reason": null
+          }
+        ],
+        "fixed": [],
+        "unplaced": []
+      },
+      {
+        "date": "2026-08-10",
+        "state": "planned",
+        "items": [
+          {
+            "itemId": "plan_fixture_0",
+            "title": "Write the summary",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "reason": null
+          },
+          {
+            "itemId": "plan_fixture_1",
+            "title": "Call the bank",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "reason": null
+          },
+          {
+            "itemId": "plan_fixture_2",
+            "title": "Book the train",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "reason": null
+          }
+        ],
+        "fixed": [
+          {
+            "itemId": "plan_fixture_pinned",
+            "title": "Dentist",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z"
+          }
+        ],
+        "unplaced": []
+      },
+      {
+        "date": "2026-08-11",
+        "state": "accepted",
+        "items": [
+          {
+            "itemId": "plan_fixture_week_open",
+            "title": "Return the library books",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "reason": null
+          }
+        ],
+        "fixed": [],
+        "unplaced": []
+      },
+      {
+        "date": "2026-08-12",
+        "state": "proposed",
+        "items": [
+          {
+            "itemId": "plan_fixture_week_due",
+            "title": "Renew the passport",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "reason": "due"
+          }
+        ],
+        "fixed": [],
+        "unplaced": []
+      },
+      {
+        "date": "2026-08-13",
+        "state": "proposed",
+        "items": [
+          {
+            "itemId": "00000000-0000-4000-8000-000000000001",
+            "title": "Send the report to Sami",
+            "startsAt": "2026-08-09T09:00:00.000Z",
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "reason": "due"
+          }
+        ],
+        "fixed": [],
+        "unplaced": []
+      },
+      {
+        "date": "2026-08-14",
+        "state": "proposed",
+        "items": [],
+        "fixed": [],
+        "unplaced": []
+      },
+      {
+        "date": "2026-08-15",
+        "state": "proposed",
+        "items": [],
+        "fixed": [],
+        "unplaced": []
+      }
+    ],
+    "moves": [],
+    "drops": [],
+    "waiting": 0
+  }
+}
