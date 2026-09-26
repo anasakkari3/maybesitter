@@ -93,3 +93,24 @@ export const MODEL_ENABLED = readRuntimeControls({ MAYBESITTER_FEATURE_DECOMPOSI
 export function stubProvider(draft: DecompositionModelDraft): DecompositionModelProvider {
   return { propose: async () => draft };
 }
+
+/** The goal from the first phone run (UAT 2026-09-26, shots 72–73), verbatim. */
+export const UAT_GOAL = 'أطلق تطبيقي على المتجر قبل نهاية السنة';
+
+/**
+ * What gemini-2.5-flash (Vertex, europe-west1) actually answered for
+ * `UAT_GOAL` with prompt `goal-steps-v1` (before the Levantine examples of
+ * round 1 — neutral formal-leaning Arabic), recorded by
+ * `scripts/verify-goal-steps-live.ts` on 2026-09-26. Generation 1, then the
+ * regeneration (which is shown generation 1's titles as "already suggested").
+ * Verbatim model text, so a test built on it is a test of the real shape.
+ */
+export const RECORDED_GOAL_STEPS_G1 = '{"steps": [{"title": "حدد ميزات التطبيق الأساسية", "kind": "commitment", "when": "today"}, {"title": "صمم واجهة المستخدم الأولية", "kind": "commitment", "when": "this_week"}, {"title": "اكتب الكود الأساسي للتطبيق", "kind": "commitment", "when": "this_month"}, {"title": "اختبر وظائف التطبيق الرئيسية", "kind": "commitment", "when": "this_month"}, {"title": "جهز وصف التطبيق والصور", "kind": "commitment", "when": "this_month"}]}';
+export const RECORDED_GOAL_STEPS_G2 = '{"steps": [{"title": "راجع متطلبات المتجر الفنية", "kind": "commitment", "when": "this_week"}, {"title": "سجل حساب مطور", "kind": "commitment", "when": "this_week"}, {"title": "جهز ملفات التطبيق للإرسال", "kind": "commitment", "when": "this_week"}, {"title": "أرسل التطبيق للمراجعة", "kind": "commitment", "when": "this_month"}, {"title": "تابع حالة المراجعة", "kind": "habit", "when": "this_month"}]}';
+
+/**
+ * The same model's answer for `UAT_GOAL` with prompt `goal-steps-v2` (CL3
+ * round 1: Levantine examples), recorded verbatim on 2026-09-26. One call; no
+ * formal marker, so no retry.
+ */
+export const RECORDED_GOAL_STEPS_V2 = '{"steps": [{"title": "شوف شو بدّك من التطبيق بالزبط", "kind": "commitment", "when": "today"}, {"title": "اعمل قائمة بالميزات الأساسية", "kind": "commitment", "when": "this_week"}, {"title": "جرّب تصمم واجهة بسيطة", "kind": "commitment", "when": "this_week"}, {"title": "اسأل حدا خبير عن رأيه", "kind": "commitment", "when": "this_month"}, {"title": "بلّش اكتب الكود الأساسي", "kind": "commitment", "when": "this_month"}]}';

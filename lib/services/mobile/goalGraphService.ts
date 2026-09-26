@@ -24,10 +24,13 @@
  * is the shipped default — rebuilding reproduces exactly what `generate`
  * returned, so a confirm operates on the graph the user reviewed.
  *
- * With a model enabled the rebuild may differ, and the failure is safe rather
- * than silent: a selected node the rebuilt graph does not contain is refused
- * as `unknown_node` and creates nothing. Closing that gap is what persisting
- * the graph buys, and it is the follow-up this slice names.
+ * With a model enabled the rebuild would differ, so the model's answer is the
+ * one input that *is* kept (CL3): `generate` and `regenerate` ask the goal
+ * planner model once per generation and store its validated steps in
+ * `goalGraphProposals`; every other path — the execution read, `confirm` —
+ * rebuilds from that stored answer and never calls a model. A selected node
+ * the rebuilt graph still does not contain is refused as `unknown_node` and
+ * creates nothing.
  */
 import type {
   GoalConfirmationResult,
@@ -52,6 +55,20 @@ import {
 } from '../../goalGraph/generateGoalGraph';
 import type { DecompositionEngineDependencies } from '../../decomposition/engine';
 import { MemoryNotFoundError, readOwnedMemory, type MemoryServiceOptions } from './memoryService';
+import { GOAL_GRAPH_FIRST_GENERATION } from '../../../src/contracts/v1/goalGraphContracts';
+import type { RuntimeMemoryRecord } from '../../../src/contracts/v1/memoryContracts';
+import {
+  GOAL_STEPS_PROMPT_VERSION,
+  goalStepLanguageOf,
+  type GoalStepDraft,
+} from '../../goalGraph/goalStepPlan';
+import {
+  GOAL_STEP_PROPOSAL_SCHEMA_VERSION,
+  createStorageGoalStepProposalStore,
+  goalTextKeyFor,
+  type GoalStepProposalStore,
+} from '../../goalGraph/stepProposalStore';
+import { createGoalStepModel, type GoalStepModel } from './goalStepModel';
 
 export { GoalGraphGenerationError };
 
@@ -63,6 +80,70 @@ export interface GoalGraphServiceOptions extends MemoryServiceOptions {
   readonly generation?: number;
   readonly links?: GoalNodeLinkStore;
   readonly habits?: HabitServices;
+  /**
+   * The goal planner model. Consulted only by `generate` and `regenerate`,
+   * and only when this generation has no stored answer. Defaults to the
+   * consent-gated, metered model for this account.
+   */
+  readonly goalStepModel?: GoalStepModel;
+  readonly proposals?: GoalStepProposalStore;
+}
+
+/** How far back a regeneration looks for steps it should not repeat. */
+const PREVIOUS_GENERATIONS_CONSIDERED = 3;
+
+/**
+ * The planner model's steps for this goal at this generation, and why not
+ * when there are none.
+ *
+ * `mayAsk` is the whole policy: only a request that is *for* a new reading —
+ * `generate`, `regenerate` — may spend a model call. A read or a confirm that
+ * finds nothing stored rebuilds from the sentence or the template, which is
+ * exactly what `generate` answered in that case.
+ */
+async function plannedStepsFor(
+  uid: string,
+  goal: RuntimeMemoryRecord,
+  generation: number,
+  at: string,
+  options: GoalGraphServiceOptions,
+  mayAsk: boolean,
+): Promise<{ steps: readonly GoalStepDraft[] | null; reason: string | null }> {
+  // Anything the generator is about to refuse gets no model call first.
+  if (goal.kind !== 'goal' || goal.status !== 'active' || typeof goal.content !== 'string'
+    || goal.content.trim().length === 0 || !Number.isInteger(generation)
+    || generation < GOAL_GRAPH_FIRST_GENERATION) {
+    return { steps: null, reason: 'not_a_confirmed_goal' };
+  }
+  const store = options.proposals ?? createStorageGoalStepProposalStore(options.storage);
+  const stored = await store.get(uid, goal.id, generation, goal.content);
+  if (stored) return { steps: stored.steps, reason: null };
+  if (!mayAsk) return { steps: null, reason: 'no_stored_model_steps' };
+
+  const previousTitles: string[] = [];
+  for (let back = generation - 1; back >= Math.max(GOAL_GRAPH_FIRST_GENERATION, generation - PREVIOUS_GENERATIONS_CONSIDERED); back -= 1) {
+    const earlier = await store.get(uid, goal.id, back, goal.content);
+    for (const step of earlier?.steps ?? []) previousTitles.push(step.title);
+  }
+
+  const model = options.goalStepModel ?? createGoalStepModel(uid);
+  const outcome = await model({
+    goalText: goal.content,
+    language: goalStepLanguageOf(goal.content, goal.language),
+    previousTitles,
+  });
+  if (outcome.steps.length === 0) return { steps: null, reason: outcome.reason ?? 'model_declined' };
+  const kept = await store.putIfAbsent(uid, {
+    schemaVersion: GOAL_STEP_PROPOSAL_SCHEMA_VERSION,
+    goalMemoryId: goal.id,
+    generation,
+    goalTextKey: goalTextKeyFor(goal.content),
+    steps: outcome.steps,
+    promptVersion: GOAL_STEPS_PROMPT_VERSION,
+    model: outcome.model,
+    createdAt: at,
+  });
+  return { steps: kept.steps, reason: null };
 }
 
 /**
@@ -93,16 +174,21 @@ export async function readGoalExecutionGraph(
   goalId: string,
   at: string,
   options: GoalGraphServiceOptions = {},
+  mayAskModel = false,
 ): Promise<GoalExecutionGraph> {
   // Throws MemoryNotFoundError for another account's id, a revoked record, or
   // one that does not exist — all three answer 404, which is the only answer
   // that does not tell a stranger whether the id is real.
   const goal = await readOwnedMemory(uid, goalId, options);
+  const generation = options.generation ?? GOAL_GRAPH_FIRST_GENERATION;
+  const planned = await plannedStepsFor(uid, goal, generation, at, options, mayAskModel);
   const { graph, violations } = await generateGoalExecutionGraph({
     goal,
     generatedAt: at,
     generation: options.generation,
     requestedEngine: options.requestedEngine,
+    plannedSteps: planned.steps,
+    plannedStepsReason: planned.reason,
   }, options.engine ?? {});
   if (violations.length > 0) {
     throw new GoalGraphInvalidError(violations.map((violation) => violation.code));
@@ -188,7 +274,7 @@ export async function generateGoalGraph(
   at: string,
   options: GoalGraphServiceOptions = {},
 ): Promise<GoalExecutionGraph> {
-  return readGoalExecutionGraph(uid, goalId, at, options);
+  return readGoalExecutionGraph(uid, goalId, at, options, true);
 }
 
 /**
@@ -208,7 +294,7 @@ export async function regenerateGoalGraph(
   fromGeneration: number,
   options: GoalGraphServiceOptions = {},
 ): Promise<GoalExecutionGraph> {
-  return readGoalExecutionGraph(uid, goalId, at, { ...options, generation: fromGeneration + 1 });
+  return readGoalExecutionGraph(uid, goalId, at, { ...options, generation: fromGeneration + 1 }, true);
 }
 
 /**

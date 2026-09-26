@@ -534,6 +534,7 @@ function deletionReceipt(): ShadowStudyDeletionReceipt {
       remainingAiContextImportCount: 0,
       remainingMemoryDismissalCount: 0,
       remainingFootballFollowsCount: 0,
+      remainingGoalStepProposalCount: 0,
       remainingPersistedProfileCount: 0,
       emptyStateDigest: DIGEST,
     },

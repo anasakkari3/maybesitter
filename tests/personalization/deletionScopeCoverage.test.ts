@@ -27,6 +27,7 @@ import {
   FEEDBACK_BASELINES,
   FEEDBACK_EVENTS,
   FOOTBALL_FOLLOWS,
+  GOAL_GRAPH_PROPOSALS,
   MEMORY,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
@@ -54,6 +55,9 @@ const PURGED: ReadonlySet<string> = new Set([
   AI_CONTEXT_IMPORTS,
   MEMORY_DISMISSALS,
   FOOTBALL_FOLLOWS,
+  // Unconfirmed goal steps a model or template proposed (CL3): inferred
+  // suggestions, not the user's work. The work they confirmed stays.
+  GOAL_GRAPH_PROPOSALS,
 ]);
 
 /**

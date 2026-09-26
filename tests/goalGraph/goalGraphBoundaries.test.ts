@@ -62,6 +62,7 @@ function ownFiles(): string[] {
 function generationFiles(): string[] {
   return [
     join(graphDir, 'generateGoalGraph.ts'),
+    join(graphDir, 'goalStepPlan.ts'),
     join(graphDir, 'ids.ts'),
     join(graphDir, 'validateGoalGraph.ts'),
     contractPath,
@@ -254,7 +255,9 @@ test('the generation policy says what this slice does, as data', () => {
   assert.deepEqual({ ...GOAL_GRAPH_GENERATION_POLICY }, {
     readonly: true,
     writesCanonicalState: false,
-    persists: false,
+    // CL3: the goal planner model's validated steps are kept per generation,
+    // so a confirm resolves what the user reviewed. Still nothing canonical.
+    persists: 'model_steps_only',
     resolvesTiming: false,
     reachesScheduler: false,
   });
@@ -299,6 +302,22 @@ test('unlinking cannot reach the canonical work it names', () => {
         !path.includes(forbidden),
         `linkStore reaches ${path.replace(repoRoot, '.')}, so an unlink could cascade`,
       );
+    }
+  }
+});
+
+test('the goal planner model and its store cannot reach canonical work either (CL3)', () => {
+  // The store writes one collection of proposals and nothing else; the model
+  // wrapper reaches a model only through the consent-gated, metered seam.
+  const FORBIDDEN = ['participantState', 'habits/habitStore', 'commandService', 'domain/stateMachine', 'planning/scheduler'];
+  const closure = importClosure([
+    join(graphDir, 'stepProposalStore.ts'),
+    join(repoRoot, 'lib', 'services', 'mobile', 'goalStepModel.ts'),
+  ]);
+  assert.ok(closure.some((path) => path.endsWith(join('lib', 'llm', 'shareProvider.ts'))), 'the model is not behind the gated provider');
+  for (const path of closure) {
+    for (const forbidden of FORBIDDEN) {
+      assert.ok(!path.includes(forbidden), `the goal planner reaches ${path.replace(repoRoot, '.')} via ${forbidden}`);
     }
   }
 });

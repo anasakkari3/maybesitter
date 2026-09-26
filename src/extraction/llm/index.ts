@@ -66,14 +66,14 @@ export function withSingleRetry(
   const delayMs = options.delayMs ?? (() => RETRY_BASE_MS + Math.floor(Math.random() * RETRY_JITTER_MS));
 
   /** One attempt loop, whichever call shape is being retried. */
-  async function attempt<T>(run: () => Promise<T>): Promise<T> {
+  async function attempt<T>(run: () => Promise<T>, allowed = retries): Promise<T> {
     let lastError: unknown;
-    for (let tries = 0; tries <= retries; tries += 1) {
+    for (let tries = 0; tries <= allowed; tries += 1) {
       try {
         return await run();
       } catch (error) {
         lastError = error;
-        if (tries === retries || !isRetryable(error)) break;
+        if (tries === allowed || !isRetryable(error)) break;
         await sleep(delayMs());
       }
     }
@@ -90,7 +90,8 @@ export function withSingleRetry(
     // less. Leaving it unretried would have made the one call shape that needs
     // a second attempt the only one without one.
     generateStructured(request: LlmStructuredRequest): Promise<LlmResponse> {
-      return attempt(() => provider.generateStructured(request));
+      // A caller that budgets its own attempts gets exactly one here.
+      return attempt(() => provider.generateStructured(request), request.retry === false ? 0 : retries);
     },
   };
 }

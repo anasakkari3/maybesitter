@@ -28,7 +28,9 @@ export type LlmPurpose =
   /** One shared thing, read once (UC-3.0, #183). */
   | 'share_extraction'
   /** A profile another AI assistant wrote about the user, read once. */
-  | 'ai_context_import';
+  | 'ai_context_import'
+  /** Proposing first steps for a goal the user saved (CL3). */
+  | 'goal_decomposition';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 
@@ -125,6 +127,13 @@ export interface LlmStructuredRequest {
   timeoutMs?: number;
   /** Aborted when the caller's request is. */
   signal?: AbortSignal;
+  /**
+   * `false` when the caller budgets its own attempts, so `withSingleRetry`
+   * makes exactly one. The goal planner answers a person holding a phone that
+   * gives up at 15 s; a provider retry stacked under its own register retry
+   * would double every slow attempt (CL3 review, I-1). Absent means retried.
+   */
+  retry?: boolean;
 }
 
 export interface LlmProvider {
