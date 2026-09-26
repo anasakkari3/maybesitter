@@ -48,7 +48,6 @@ import {
   firstActionSentence,
   normalizeMeetingTranscript,
   type MeetingActionCandidate,
-  type MeetingCommitmentProposal,
   type UntrustedMeetingContext,
 } from '../../integrations/meetings/meetingIntelligence';
 import { MEETING_PREP_SCHEMA, buildMeetingPrepPrompt } from '../../integrations/meetings/meetingPrepPrompt';
@@ -61,7 +60,10 @@ import {
   type CaptureProposalStore,
 } from '../captureBoundary';
 import type { StorageAdapter } from '../../storage';
-import { normalizeTimezone } from './time';
+import { localDayKey, localMidnightOf, normalizeTimezone } from './time';
+import { readReminderSettings } from './reminderSettingsService';
+import { instantFromLocal } from '../../../src/extraction/timeLexicon';
+import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 
 /** How long before the meeting the prep step is due. */
 export const MEETING_PREP_LEAD_MINUTES = 60;
@@ -178,8 +180,13 @@ export function schedulePrepAt(start: Date, now: Date, quietHours: QuietHours): 
 export interface MeetingPrepSummary {
   /** Which item in `proposal.items` is the prep step. Always the first. */
   readonly itemId: string;
-  /** When it is due, and when its reminder is set for. */
+  /** When its reminder rings: the chosen prep instant. */
   readonly remindAt: string;
+  /**
+   * When it is due: one reminder lead after `remindAt`, never after the start,
+   * so the phone's own reminder (`dueAt − lead`) rings at `remindAt` (I-1).
+   */
+  readonly dueAt: string;
   /** Minutes between that and the meeting's start. */
   readonly leadMinutes: number;
   readonly adjustment: PrepAdjustment;
@@ -200,6 +207,8 @@ export interface MeetingPrepOptions {
   generate?: ShareStructuredGenerator;
   consent?: (uid: string) => Promise<AiConsentState>;
   quietHours?: QuietHours;
+  /** The account's reminder lead, in minutes. Read from its settings when absent. */
+  softLeadMinutes?: number;
 }
 
 /** The notes, a segment per line, as the meeting pipeline expects them. */
@@ -225,19 +234,23 @@ function actionFrom(value: unknown): string | null {
   return length >= 2 && length <= MAX_MEETING_ACTION_LENGTH ? action : null;
 }
 
-interface ModelCandidates {
-  readonly prep: string;
-  readonly followUps: readonly { action: string; deadlineAt: string | null }[];
+/** One follow-up as the model gave it, before it is checked. */
+interface ModelFollowUp {
+  readonly action: string;
+  readonly date: string | null;
+  readonly time: string | null;
 }
 
-/**
- * The model's answer, or null when there is nothing usable in it.
- *
- * A follow-up deadline is kept only when it is a real instant after the
- * meeting and within the same horizon a meeting may be prepared in; anything
- * else becomes "no time", which is an honest thing for a follow-up to have.
- */
-function parseModelAnswer(text: string, after: Date, now: Date): ModelCandidates | null {
+interface ModelCandidates {
+  readonly prep: string;
+  readonly followUps: readonly ModelFollowUp[];
+}
+
+const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** The model's answer, or null when there is no usable prep step in it. */
+function parseModelAnswer(text: string): ModelCandidates | null {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -248,20 +261,52 @@ function parseModelAnswer(text: string, after: Date, now: Date): ModelCandidates
   const record = raw as { prepStep?: { action?: unknown }; followUps?: unknown };
   const prep = actionFrom(record.prepStep?.action);
   if (!prep) return null;
-  const horizon = after.getTime() + MEETING_PREP_MAX_DAYS_AHEAD * 24 * 60 * MINUTE;
-  const followUps = (Array.isArray(record.followUps) ? record.followUps : []).flatMap((entry) => {
-    const item = entry as { action?: unknown; deadlineAt?: unknown };
+  const followUps = (Array.isArray(record.followUps) ? record.followUps : []).flatMap((entry): ModelFollowUp[] => {
+    const item = entry as { action?: unknown; deadlineDate?: unknown; deadlineTime?: unknown };
     const action = actionFrom(item?.action);
     if (!action) return [];
-    const deadline = typeof item.deadlineAt === 'string' ? instant(item.deadlineAt) : null;
-    const usable = deadline && deadline.getTime() > after.getTime() && deadline.getTime() > now.getTime() && deadline.getTime() <= horizon;
-    return [{ action, deadlineAt: usable ? deadline!.toISOString() : null }];
+    const date = typeof item.deadlineDate === 'string' && LOCAL_DATE.test(item.deadlineDate.trim()) ? item.deadlineDate.trim() : null;
+    const time = typeof item.deadlineTime === 'string' && LOCAL_TIME.test(item.deadlineTime.trim()) ? item.deadlineTime.trim() : null;
+    return [{ action, date, time }];
   });
   return { prep, followUps };
 }
 
+/** When a follow-up is due: an instant, a whole day, or nothing. */
+type FollowUpWhen =
+  | { readonly kind: 'instant'; readonly dueAt: string }
+  | { readonly kind: 'day'; readonly date: string; readonly dueAt: string }
+  | { readonly kind: 'none' };
+
+/**
+ * A follow-up's day and hour, kept only when they can be believed (M-3).
+ *
+ * The hour is kept only when the notes write a clock time at all — «يوم الأحد
+ * الصبح» names a day and a part of it, and the model filling in 07:00 is a
+ * guess the prompt forbids and this enforces. Without an hour the follow-up is
+ * an all-day commitment on that day, which is how a day with no chosen hour is
+ * stored everywhere else (`TimeSpec.allDay`). A day before the meeting, or
+ * beyond the horizon a meeting may be prepared in, is no day at all.
+ */
+function followUpWhen(followUp: ModelFollowUp, valid: ValidMeetingPrepInput, now: Date, clockWritten: boolean): FollowUpWhen {
+  if (!followUp.date) return { kind: 'none' };
+  const after = (valid.end ?? valid.start).getTime();
+  const horizon = after + MEETING_PREP_MAX_DAYS_AHEAD * 24 * 60 * MINUTE;
+  if (followUp.time && clockWritten) {
+    const at = instantFromLocal(followUp.date, followUp.time, valid.timezone);
+    if (at && at.getTime() > after && at.getTime() > now.getTime() && at.getTime() <= horizon) {
+      return { kind: 'instant', dueAt: at.toISOString() };
+    }
+    return { kind: 'none' };
+  }
+  const meetingDay = localDayKey(valid.start, valid.timezone);
+  if (followUp.date < meetingDay) return { kind: 'none' };
+  const midnight = localMidnightOf(followUp.date, valid.timezone);
+  if (Date.parse(midnight) > horizon) return { kind: 'none' };
+  return { kind: 'day', date: followUp.date, dueAt: midnight };
+}
+
 async function askModel(
-  uid: string,
   context: UntrustedMeetingContext,
   valid: ValidMeetingPrepInput,
   now: Date,
@@ -282,7 +327,7 @@ async function askModel(
       maxOutputTokens: PREP_MAX_OUTPUT_TOKENS,
       timeoutMs: PREP_TIMEOUT_MS,
     });
-    return parseModelAnswer(response.text, valid.end ?? valid.start, now);
+    return parseModelAnswer(response.text);
   } catch {
     // No model, no consent, over a cap, a timeout, or the kill switch. The
     // provider already logged which, without the notes; to the person they
@@ -290,6 +335,10 @@ async function askModel(
     return null;
   }
 }
+
+type StepTime =
+  | { readonly kind: 'due_by'; readonly dueAt: string; readonly remindAt: string | null; readonly allDay: boolean }
+  | { readonly kind: 'unscheduled' };
 
 /**
  * The commands one proposed item confirms into.
@@ -300,7 +349,7 @@ async function askModel(
  * person would confirm it and never see it. A meeting step is something they
  * are about to agree to by name; it has nothing left to clarify.
  */
-function commandsFor(proposal: MeetingCommitmentProposal, dueAt: string | null, timezone: string, now: Date): Command[] {
+function commandsFor(title: string, when: StepTime, timezone: string, now: Date): Command[] {
   return [{
     type: 'CreateDraft',
     now: now.toISOString(),
@@ -308,18 +357,32 @@ function commandsFor(proposal: MeetingCommitmentProposal, dueAt: string | null, 
     commitment: {
       id: randomUUID(),
       kind: 'task',
-      title: proposal.candidate.action,
+      title,
       description: null,
       person: null,
       priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
       category: null,
-      timeSpec: dueAt
-        // The prep step is due when it should be done by, and reminded then:
-        // confirming it schedules that one reminder.
-        ? { kind: 'due_by', dueAt, remindAt: dueAt, timezone }
+      timeSpec: when.kind === 'due_by'
+        ? { kind: 'due_by', dueAt: when.dueAt, remindAt: when.remindAt, allDay: when.allDay, timezone }
         : { kind: 'unscheduled', dueAt: null, remindAt: null, timezone },
     },
   }];
+}
+
+/**
+ * When the prep step is *due*, given when its reminder should ring (I-1).
+ *
+ * The phone rings for a commitment at `dueAt − softLeadMinutes` and reads
+ * nothing else (`mobile/src/features/reminders/reminderInputs.ts`, `startOf`).
+ * So the step is due one lead after the chosen prep instant: the phone's own
+ * reminder then rings at exactly that instant — the hour before the meeting,
+ * already moved out of quiet hours — and the server's `remindAt` agrees with
+ * it. Never later than the start: a prep step due after the meeting began
+ * would be a step for a meeting that is over, and would sit on Today as not
+ * yet late while the meeting is already happening.
+ */
+export function prepDueAt(start: Date, prepAt: Date, softLeadMinutes: number): Date {
+  return new Date(Math.min(start.getTime(), prepAt.getTime() + softLeadMinutes * MINUTE));
 }
 
 export async function prepareMeeting(uid: string, input: MeetingPrepInput, options: MeetingPrepOptions = {}): Promise<MeetingPrepResult> {
@@ -342,40 +405,58 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   const consent = await (options.consent ?? getAiConsent)(uid);
   const requestedEngine: 'model' | 'rules' = consent === 'granted' && context.injectionSignals.length === 0 ? 'model' : 'rules';
   const answered = requestedEngine === 'model'
-    ? await askModel(uid, context, valid, now, options.generate ?? shareLlmProvider(uid, { purpose: 'meeting_prep' }))
+    ? await askModel(context, valid, now, options.generate ?? shareLlmProvider(uid, { purpose: 'meeting_prep' }))
     : null;
 
   const prepAction = answered?.prep ?? firstActionSentence(valid.notes);
   // `validateMeetingPrepInput` refused empty notes, so there is a sentence.
   if (!prepAction) throw new MeetingPrepInputError('notes_required');
 
-  const quietHours = options.quietHours ?? await readQuietHours(uid, options.storage ? { storage: options.storage } : {});
+  const storageOption = options.storage ? { storage: options.storage } : {};
+  const quietHours = options.quietHours ?? await readQuietHours(uid, storageOption);
+  const softLeadMinutes = options.softLeadMinutes ?? (await readReminderSettings(uid, storageOption)).softLeadMinutes;
   const due = schedulePrepAt(valid.start, now, quietHours);
+  const prepDue = prepDueAt(valid.start, due.at, softLeadMinutes);
 
-  const allSegments = context.transcript ? segmentsOf(valid.notes).map((_, index) => index) : [];
+  // A clock time anywhere in the notes is what lets a follow-up keep an hour.
+  const clockWritten = countTimeExpressions(valid.notes) > 0;
+  const followUps = (answered?.followUps ?? []).map((followUp) => ({ followUp, when: followUpWhen(followUp, valid, now, clockWritten) }));
+  const whenByKey = new Map(followUps.map(({ followUp, when }) => [
+    `${followUp.action.toLowerCase()}\0${when.kind === 'none' ? '' : when.dueAt}`, when,
+  ]));
+
+  const allSegments = segmentsOf(valid.notes).map((_, index) => index);
   const candidate = (action: string, deadlineAt: string | null): Omit<MeetingActionCandidate, 'candidateId'> => ({
     owner: null, action, deadlineAt, confidence: answered ? 0.8 : 0.6, sourceSegmentIndexes: allSegments,
   });
   const plan = createMeetingPrepProposals(
     context,
     candidate(prepAction, due.at.toISOString()),
-    (answered?.followUps ?? []).map((followUp) => candidate(followUp.action, followUp.deadlineAt)),
+    followUps.map(({ followUp, when }) => candidate(followUp.action, when.kind === 'none' ? null : when.dueAt)),
   );
 
   const items: CaptureProposalContract['items'] = [];
   const commandsByItemId = new Map<string, readonly Command[]>();
-  for (const proposal of [plan.prep, ...plan.followUps]) {
+  const push = (title: string, item: Omit<CaptureProposalContract['items'][number], 'itemId' | 'title' | 'needsClarification' | 'priority' | 'priorityEstimated'>, when: StepTime) => {
     const itemId = randomUUID();
-    const dueAt = proposal.candidate.deadlineAt;
-    items.push({
-      itemId,
-      title: proposal.candidate.action,
-      resolvedTime: dueAt,
-      needsClarification: false,
-      priority: 'normal',
-      priorityEstimated: true,
-    });
-    commandsByItemId.set(itemId, commandsFor(proposal, dueAt, valid.timezone, now));
+    items.push({ itemId, title, ...item, needsClarification: false, priority: 'normal', priorityEstimated: true });
+    commandsByItemId.set(itemId, commandsFor(title, when, valid.timezone, now));
+  };
+  // The prep step: shown at, and reminded at, the prep instant; due one lead later.
+  push(plan.prep.candidate.action, { resolvedTime: due.at.toISOString() }, {
+    kind: 'due_by', dueAt: prepDue.toISOString(), remindAt: due.at.toISOString(), allDay: false,
+  });
+  for (const proposal of plan.followUps) {
+    const when = whenByKey.get(`${proposal.candidate.action.toLowerCase()}\0${proposal.candidate.deadlineAt ?? ''}`) ?? { kind: 'none' as const };
+    if (when.kind === 'instant') {
+      push(proposal.candidate.action, { resolvedTime: when.dueAt }, { kind: 'due_by', dueAt: when.dueAt, remindAt: when.dueAt, allDay: false });
+    } else if (when.kind === 'day') {
+      push(proposal.candidate.action, { resolvedTime: null, resolvedDate: when.date, dateEstimated: false }, {
+        kind: 'due_by', dueAt: when.dueAt, remindAt: null, allDay: true,
+      });
+    } else {
+      push(proposal.candidate.action, { resolvedTime: null }, { kind: 'unscheduled' });
+    }
   }
 
   const executedEngine: NonNullable<CaptureProposalContract['provenance']>['executedEngine'] = answered
@@ -405,6 +486,7 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     prep: {
       itemId: items[0]!.itemId,
       remindAt: due.at.toISOString(),
+      dueAt: prepDue.toISOString(),
       leadMinutes: Math.round((valid.start.getTime() - due.at.getTime()) / MINUTE),
       adjustment: due.adjustment,
       startAt: valid.start.toISOString(),

@@ -13,8 +13,15 @@ export const meetingPrepResponseSchema = z.object({
   success: z.literal(true),
   proposal: captureProposalSchema,
   prep: z.object({
+    /** The first item of `proposal.items`, always. */
     itemId: z.string(),
+    /** When its reminder rings: the chosen prep instant. */
     remindAt: isoDateTime,
+    /**
+     * When it is due: one reminder lead after `remindAt`, never after the
+     * start, so the phone's own reminder (`dueAt − lead`) rings at `remindAt`.
+     */
+    dueAt: isoDateTime,
     leadMinutes: z.number().int(),
     /**
      * Why the prep step is not simply an hour before: `short_notice` when the

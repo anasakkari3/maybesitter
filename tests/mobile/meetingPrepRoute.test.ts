@@ -50,15 +50,19 @@ export class GoogleGenAI {
 type Stub = (input: { config: Record<string, unknown>; contents: unknown }) => Promise<unknown>;
 type StubGlobals = typeof globalThis & { __maybesitterPrepGenerate?: Stub };
 
-/** What Gemini answered for a note like this one, in the schema the route asks for. */
+/**
+ * What Gemini answered, verbatim, in the live run of this prompt
+ * (gemini-2.5-flash, europe-west1; scratchpad/sdd/reports/CL5a-live-run-round1b.txt):
+ * one prep step, and a follow-up with a day and no hour, because the notes
+ * said «يوم الأحد الصبح» and wrote no clock time.
+ */
+const LIVE_ANSWER_TEXT = '{"prepStep": {"action": "أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير"}, "followUps": [{"action": "أبعت الملخص لسامي", "deadlineDate": "2026-10-04", "deadlineTime": null}]}';
 const RECORDED_ANSWER = {
-  text: JSON.stringify({
-    prepStep: { action: 'راجع أرقام المصاريف واطبع التقرير' },
-    followUps: [{ action: 'ابعت الملخص لسامي', deadlineAt: null }],
-  }),
+  text: LIVE_ANSWER_TEXT,
   modelVersion: 'gemini-2.5-flash',
-  usageMetadata: { promptTokenCount: 612, candidatesTokenCount: 48 },
+  usageMetadata: { promptTokenCount: 574, candidatesTokenCount: 65 },
 };
+const PREP_TITLE = 'أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير';
 
 function withGemini(): { calls: Array<{ config: Record<string, unknown>; contents: unknown }>; restore: () => void } {
   const calls: Array<{ config: Record<string, unknown>; contents: unknown }> = [];
@@ -232,8 +236,11 @@ test('with consent, the recorded Gemini answer becomes a prep step and a follow-
     assert.deepEqual(body.proposal.provenance, { requestedEngine: 'model', executedEngine: 'gemini', fallbackUsed: false });
     assert.equal(body.proposal.items.length, 2);
     assert.equal(body.proposal.items[0].itemId, body.prep.itemId);
-    assert.equal(body.proposal.items[0].title, 'راجع أرقام المصاريف واطبع التقرير');
+    assert.equal(body.proposal.items[0].title, PREP_TITLE);
+    assert.equal(body.proposal.items[1].title, 'أبعت الملخص لسامي');
+    assert.equal(body.proposal.items[1].resolvedTime, null, 'a day with no written hour is not given one');
     assert.equal(Date.parse(body.prep.remindAt), Date.parse(times.startAt) - 60 * MINUTE);
+    assert.equal(body.prep.dueAt, times.startAt, 'the phone rings at dueAt − 60, so dueAt is the start');
     assert.equal(body.prep.leadMinutes, 60);
 
     // Cost attribution rides the call's own log line: the meeting feature,
@@ -255,8 +262,7 @@ test('with consent, the recorded Gemini answer becomes a prep step and a follow-
     const today = await json(await todayGet(new Request(`${BASE}/api/mobile/commitments/today?timezone=Asia/Jerusalem`, { headers })));
     const upcoming = await json(await upcomingGet(new Request(`${BASE}/api/mobile/commitments/upcoming?timezone=Asia/Jerusalem`, { headers })));
     const titles = [...today.items, ...upcoming.items].map((item: { title: string }) => item.title);
-    assert.ok(titles.includes('راجع أرقام المصاريف واطبع التقرير'), `the prep step is on no list: ${JSON.stringify(titles)}`);
-    assert.ok(titles.includes('ابعت الملخص لسامي'), 'the follow-up is on no list');
+    assert.ok(titles.includes(PREP_TITLE), `the prep step is on no list: ${JSON.stringify(titles)}`);
   } finally {
     gemini.restore();
     end();

@@ -85,7 +85,7 @@ function prepared(): MeetingPrepResponse {
         { ...fixture.proposal.items[1]!, itemId: 'follow-1', title: 'Send the summary to Sami' },
       ],
     },
-    prep: { ...fixture.prep, itemId: 'prep-1', remindAt, startAt: START, endAt: END },
+    prep: { ...fixture.prep, itemId: 'prep-1', remindAt, dueAt: START, startAt: START, endAt: END },
   };
 }
 
@@ -246,5 +246,64 @@ describe('review and confirm', () => {
     await fireEvent.press(screen.getByTestId('review-confirm'));
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(confirm.mock.calls[0]![0]).toMatchObject({ proposalId: 'p-meeting', itemIds: ['prep-1', 'follow-1'] });
+  });
+});
+
+describe('an appointment, and a step moved by quiet hours', () => {
+  it('a dentist is «the appointment» in the sheet and in review, not «the meeting»', async () => {
+    const dentist = meeting({ id: 'c-dentist', title: 'dentist 4pm' });
+    jest.spyOn(commitmentEndpoints, 'getCommitment').mockResolvedValue({ data: dentist, etag: null } as never);
+    jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue(prepared());
+    await show({ today: [dentist], aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-item-c-dentist'));
+    await waitFor(() => expect(screen.getByTestId('details-prepare')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('details-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-sheet')).toBeTruthy());
+    expect(screen.getByText(en.xPrepareQuestionAppointment)).toBeTruthy();
+    expect(screen.queryByText(en.xPrepareQuestion)).toBeNull();
+    expect(String(screen.getByTestId('meeting-prep-when').props.children)).toMatch(/^Appointment: /);
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(screen.getByTestId('review-source-meeting')).toBeTruthy());
+    expect(screen.getByText(en.reviewSourceAppointment)).toBeTruthy();
+  });
+
+  it('the meeting sheet never reads "Meeting at Tomorrow"', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-when')).toBeTruthy());
+    const when = String(screen.getByTestId('meeting-prep-when').props.children);
+    expect(when).toMatch(/^Meeting: /);
+    expect(when).not.toMatch(/ at /);
+  });
+
+  it('when quiet hours moved the prep step, review says where to, in one line', async () => {
+    // The evening before, as `schedulePrepAt` moves it when the hour before
+    // falls inside quiet hours.
+    const moved = prepared();
+    const eveningBefore = new Date(mockStart.getTime() - 10 * HOUR).toISOString();
+    jest.spyOn(meetingEndpoints, 'prepareMeeting')
+      .mockResolvedValue({ ...moved, prep: { ...moved.prep, remindAt: eveningBefore, adjustment: 'quiet_hours' } });
+    await show({ aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(screen.getByTestId('review-prep-quiet-moved')).toBeTruthy());
+    const line = String(screen.getByTestId('review-prep-quiet-moved').props.children);
+    expect(line.startsWith(en.reviewPrepQuietMoved.replace('{time}', ''))).toBe(true);
+    const hhmm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Jerusalem' }).format(new Date(eveningBefore));
+    expect(line).toContain(hhmm);
+  });
+
+  it('with no move, review has no quiet-hours line', async () => {
+    jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue(prepared());
+    await show({ aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(screen.getByTestId('review-source-meeting')).toBeTruthy());
+    expect(screen.queryByTestId('review-prep-quiet-moved')).toBeNull();
   });
 });

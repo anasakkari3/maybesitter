@@ -14,8 +14,9 @@
  * commitment:
  *
  *   ar  «سجّل/سجل/ذكّرني/ذكرني/حطلي/اكتبلي» (or «سجّل لي», «اكتب لي», «حط لي»)
- *       followed by «موعد», «تذكير», «ملاحظة», an appointment noun from the
- *       priority lexicon («دكتور», «امتحان», «مقابلة», «اجتماع»…), «عندي», or
+ *       followed by «موعد», «تذكير», «ملاحظة», an appointment noun from
+ *       `lexicon/appointmentNouns.ts` («دكتور», «امتحان», «مقابلة», «اجتماع»,
+ *       «ميتنغ»…; the phone reads the same list), «عندي», or
  *       a first-person clause «إني/انو/إنه …» (the conjunction goes too);
  *   en  "remind me to/about/of …", "note: …", "add: …";
  *   he  «תזכיר לי ש…/ל…», «תרשום לי ש…» (ש only before a clause opener —
@@ -30,10 +31,13 @@
  * starts with one of these shapes — never rewritten otherwise.
  */
 
+import { APPOINTMENT_NOUNS } from './lexicon/appointmentNouns';
+
 const A = '(?![\\p{L}\\p{M}])';
 
 const AR_VERB = '(?:سجّل|سجل|سجّلي|سجلي|ذكّرني|ذكرني|ذكّريني|ذكريني|حطلي|حطّلي|اكتبلي|سجللي|سجّللي|(?:سجّل|سجل|حط|حطّ|اكتب)\\s+(?:لي|إلي))';
-const AR_COMMITMENT = '(?:و?(?:ال)?(?:موعد|موعدي|تذكير|ملاحظة|ملاحظه|دكتور|دكتورة|طبيب|طبيبة|عيادة|عياده|مستشفى|امتحان|إمتحان|مقابلة|مقابله|طيارة|طيارتي|طيران|محكمة|محكمه|جلسة|اجتماع|فحص|تحليل)|عندي)';
+// A reminder or a note, or an appointment noun (`lexicon/appointmentNouns.ts`, shared with the phone).
+const AR_COMMITMENT = `(?:و?(?:ال)?(?:${['تذكير', 'ملاحظة', 'ملاحظه', ...APPOINTMENT_NOUNS.ar].join('|')})|عندي)`;
 const AR_FIRST_PERSON = '(?:إنّي|إني|اني|إنه|إنّه|انه|انو|إنو|إنّو)';
 
 /**
@@ -52,7 +56,7 @@ const COMMANDS: readonly RegExp[] = [
   // «سجّل موعد …» — only the verb goes; the commitment is the title.
   new RegExp(`^\\s*${AR_VERB}${A}\\s*[:،,]?\\s*(?=${AR_COMMITMENT}${A})`, 'u'),
   /^\s*(?:please\s+)?(?:remind\s+me\s+(?:to|about|of)\s+|note\s*:\s*|add\s*:\s*)/i,
-  new RegExp(`^\\s*(?:תזכיר|תזכירי|תרשום|תרשמי)\\s+לי\\s*(?::\\s*|\\s?ש(?=${HE_CLAUSE_OPENER}${A})|(?=ל\\S)|\\s(?=(?:תור|פגישה|מבחן|בחינה|ראיון|טיסה|דיון)${A}))`, 'u'),
+  new RegExp(`^\\s*(?:תזכיר|תזכירי|תרשום|תרשמי)\\s+לי\\s*(?::\\s*|\\s?ש(?=${HE_CLAUSE_OPENER}${A})|(?=ל\\S)|\\s(?=(?:${APPOINTMENT_NOUNS.he.join('|')})${A}))`, 'u'),
 ];
 
 /** Spaces and punctuation, which do not count as "more content". */

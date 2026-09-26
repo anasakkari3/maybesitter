@@ -276,7 +276,19 @@ export function ReviewScreen() {
         {state.source === 'meeting' ? (
           <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source-meeting">
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
-            <Txt size={13} color={p.mu} style={{ flex: 1 }}>{t.reviewSourceMeeting}</Txt>
+            <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
+              <Txt size={13} color={p.mu}>{state.meeting?.appointment ? t.reviewSourceAppointment : t.reviewSourceMeeting}</Txt>
+              {/* Quiet hours moved the prep step (to the evening before, or to
+                  when they end): one line says where to, so a step at 21:55
+                  the night before does not arrive unexplained (CL5a M-8). */}
+              {state.meeting?.adjustment === 'quiet_hours' ? (
+                <Txt size={13} color={p.mu} testID="review-prep-quiet-moved">
+                  {fill(t.reviewPrepQuietMoved, {
+                    time: `${formatRelativeDay(new Date(state.meeting.remindAt), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(state.meeting.remindAt), { locale: lang, timeZone: timezone }))}`,
+                  })}
+                </Txt>
+              ) : null}
+            </View>
           </View>
         ) : null}
         {state.source === 'share' ? (

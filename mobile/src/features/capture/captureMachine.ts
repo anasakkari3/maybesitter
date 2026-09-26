@@ -95,6 +95,20 @@ export type CaptureSource = 'tab' | 'widget' | 'share' | 'notification' | 'meeti
 /** How an analyze failed, before it becomes a status. */
 export type CaptureFailureKind = 'network' | 'validation' | 'extraction' | 'refused';
 
+/**
+ * What «حضّرني» said about the proposal it handed to review (CL5a).
+ *
+ * Only what the review shows: whether the prep step was moved out of quiet
+ * hours, and to when, and whether the thing prepared for is an appointment
+ * rather than a meeting. Never the notes.
+ */
+export interface MeetingReviewContext {
+  /** The prep step's own reminder instant, after any quiet-hours move. */
+  readonly remindAt: string;
+  readonly adjustment: 'none' | 'short_notice' | 'quiet_hours' | 'quiet_hours_unavoidable';
+  readonly appointment: boolean;
+}
+
 /** Which input the user was offered first. */
 export type CaptureInputMode = 'text' | 'voice';
 
@@ -128,6 +142,8 @@ export interface CaptureState {
   status: CaptureStatus;
   source: CaptureSource;
   inputMode: CaptureInputMode;
+  /** Set only when «حضّرني» opened this review (`source: 'meeting'`). */
+  meeting?: MeetingReviewContext;
   /** What the user typed or dictated. The only copy, and it is in memory. */
   text: string;
   /** The server's proposal. Null until one comes back. */
@@ -172,7 +188,7 @@ export interface CaptureState {
 }
 
 export type CaptureEvent =
-  | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode }
+  | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode; meeting?: MeetingReviewContext }
   | { type: 'textChanged'; text: string }
   | { type: 'analyzeStarted' }
   | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
@@ -394,8 +410,10 @@ function statusForProposal(proposal: CaptureProposal): CaptureStatus {
 
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
   switch (event.type) {
-    case 'open':
-      return initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode);
+    case 'open': {
+      const opened = initialCaptureState(event.source ?? state.source, event.inputMode ?? state.inputMode);
+      return event.meeting ? { ...opened, meeting: event.meeting } : opened;
+    }
 
     case 'textChanged': {
       // Truncated here rather than refused, so a long paste keeps its beginning

@@ -188,7 +188,53 @@ function meetingBlock(): { startAt: string; endAt: string } {
   const start = Date.now() + 3 * 3_600_000;
   return { startAt: new Date(start).toISOString(), endAt: new Date(start + 45 * 60_000).toISOString() };
 }
-const MEETING_NOTE = 'اجتماع مع المدير عن ميزانية الربع الجاي.\nبدي أراجع أرقام المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي.';
+/** The live run's note (CL5a-live-run-round1b.txt): a day for the follow-up, and no clock time. */
+const MEETING_NOTE = 'اجتماع بكرا مع مدير القسم عن ميزانية الربع الجاي، وبدو يشوف ليش المصاريف زادت.\nبدي أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير قبل ما أفوت.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.';
+
+/** The local day `days` after an instant, in Jerusalem. */
+function jerusalemDay(instant: string, days = 0): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(Date.parse(instant) + days * 86_400_000));
+}
+
+/**
+ * Keeps what a meeting-prep response says about itself (CL5a M-5).
+ *
+ * `stabilise` renumbers every uuid it meets and collapses every instant to one
+ * value, which records a response the server never sends: `prep.itemId` stops
+ * naming the first item, and the prep step's reminder, its due time and the
+ * meeting's start all read as the same instant. Here the relations are put
+ * back: the id, and every instant and day as an offset from the stable start.
+ */
+function pinMeetingPrep(live: Record<string, unknown>, stable: Record<string, unknown>): Record<string, unknown> {
+  const liveProposal = live.proposal as { items: Array<{ resolvedTime: string | null; resolvedDate?: string }> };
+  const liveStart = Date.parse((live.prep as { startAt: string }).startAt);
+  const stableStart = Date.parse(STABLE_INSTANT);
+  const shift = (instant: string | null) => (instant === null ? null : new Date(stableStart + Date.parse(instant) - liveStart).toISOString());
+  const startDay = jerusalemDay(new Date(liveStart).toISOString());
+  const shiftDay = (day: string) => jerusalemDay(STABLE_INSTANT, Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${startDay}T00:00:00Z`)) / 86_400_000));
+  const proposal = stable.proposal as { items: Array<Record<string, unknown>> };
+  const prep = live.prep as Record<string, string | null>;
+  return {
+    ...stable,
+    proposal: {
+      ...proposal,
+      items: proposal.items.map((item, index) => ({
+        ...item,
+        resolvedTime: shift(liveProposal.items[index]!.resolvedTime),
+        ...(liveProposal.items[index]!.resolvedDate ? { resolvedDate: shiftDay(liveProposal.items[index]!.resolvedDate!) } : {}),
+      })),
+    },
+    prep: {
+      ...(stable.prep as Record<string, unknown>),
+      itemId: proposal.items[0]!.itemId,
+      remindAt: shift(prep.remindAt),
+      dueAt: shift(prep.dueAt),
+      startAt: shift(prep.startAt),
+      endAt: shift(prep.endAt),
+    },
+  };
+}
 
 const FIXTURES = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -445,6 +491,7 @@ async function record(
   expectedStatus: number,
   response: Response,
   pin: (body: Record<string, unknown>) => Record<string, unknown> = (body) => body,
+  after: (live: Record<string, unknown>, stable: Record<string, unknown>) => Record<string, unknown> = (_live, stable) => stable,
 ): Promise<Record<string, unknown>> {
   const body = await response.json() as Record<string, unknown>;
   assert.equal(
@@ -452,7 +499,7 @@ async function record(
     expectedStatus,
     `${name}: expected ${expectedStatus}, got ${response.status} — ${JSON.stringify(body)}`,
   );
-  const stable = stabilise(pin(body), new Map());
+  const stable = after(body, stabilise(pin(body), new Map()) as Record<string, unknown>);
   writeFileSync(join(FIXTURES, `${name}.json`), `${JSON.stringify(stable, null, 2)}\n`, 'utf8');
   // The live body is returned, not the normalised one: the rest of this test
   // chains real ids into the next call.
@@ -1325,7 +1372,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     await record('meetings.prepared', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
       body: { notes: MEETING_NOTE, ...meetingBlock(), timezone: 'Asia/Jerusalem' },
       uid: MEETING_USER,
-    })));
+    })), undefined, pinMeetingPrep);
     // The refusal the sheet renders when the meeting is about to start.
     await record('meetings.tooSoon', 400, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
       body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 60_000).toISOString(), timezone: 'Asia/Jerusalem' },
@@ -1956,6 +2003,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const previousLocation = process.env.MAYBESITTER_VERTEX_LOCATION;
     let vertexCalls = 0;
     let meetingCalls = 0;
+    let meetingFollowUpDay = '';
     const removeStub = installVertexStub(async (input) => {
       vertexCalls += 1;
       // The prompt is split at BEGIN_UNTRUSTED_USER_MESSAGE before it gets
@@ -1971,12 +2019,15 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       if (String((input.config as { systemInstruction?: unknown }).systemInstruction).includes('get ready for one meeting')) {
         meetingCalls += 1;
         return {
+          // The live run's answer (CL5a-live-run-round1b.txt), verbatim except
+          // the day: there it was the Sunday after the meeting, here it is the
+          // day a week after this run's block, so the fixture does not age.
           text: JSON.stringify({
-            prepStep: { action: 'راجع أرقام المصاريف واطبع التقرير' },
-            followUps: [{ action: 'ابعت الملخص لسامي', deadlineAt: null }],
+            prepStep: { action: 'أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير' },
+            followUps: [{ action: 'أبعت الملخص لسامي', deadlineDate: meetingFollowUpDay, deadlineTime: null }],
           }),
           modelVersion: 'gemini-2.5-flash',
-          usageMetadata: { promptTokenCount: 612, candidatesTokenCount: 48 },
+          usageMetadata: { promptTokenCount: 574, candidatesTokenCount: 65 },
         };
       }
       return {
@@ -2015,14 +2066,19 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
         uid: MEETING_USER,
       }));
+      const block = meetingBlock();
+      meetingFollowUpDay = jerusalemDay(block.startAt, 7);
       const prepared = await record('meetings.preparedGemini', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
-        body: { notes: MEETING_NOTE, ...meetingBlock(), timezone: 'Asia/Jerusalem' },
+        body: { notes: MEETING_NOTE, ...block, timezone: 'Asia/Jerusalem' },
         uid: MEETING_USER,
-      })));
+      })), undefined, pinMeetingPrep);
       assert.equal(meetingCalls, 1, 'the meeting prep never reached the provider');
       const preparedProposal = prepared.proposal as { items: unknown[]; provenance: { executedEngine: string } };
       assert.equal(preparedProposal.provenance.executedEngine, 'gemini');
       assert.equal(preparedProposal.items.length, 2);
+      // A day and no hour, because the notes wrote no clock time (M-3).
+      assert.equal((prepared.proposal as { items: Array<{ resolvedTime: unknown; resolvedDate?: unknown }> }).items[1]!.resolvedTime, null);
+      assert.equal((prepared.proposal as { items: Array<{ resolvedDate?: unknown }> }).items[1]!.resolvedDate, meetingFollowUpDay);
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;

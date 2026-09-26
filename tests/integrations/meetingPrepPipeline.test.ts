@@ -32,11 +32,14 @@ import {
 import {
   MEETING_PREP_LEAD_MINUTES,
   MeetingPrepInputError,
+  prepDueAt,
   prepareMeeting,
   schedulePrepAt,
 } from '../../lib/services/mobile/meetingPrepService.ts';
+import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import { confirmMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
+import { listTodayRanked, listUpcomingRanked } from '../../lib/services/mobile/commitmentService.ts';
 import { CaptureInputTooLargeError } from '../../lib/services/captureBoundary/index.ts';
 import { NO_QUIET_HOURS, type QuietHours } from '../../lib/push/quietHours.ts';
 import { uidFor } from '../support/fakeAuth.ts';
@@ -59,7 +62,7 @@ function end(): void {
 /** The model, recorded: one prep step and one follow-up, as the schema asks. */
 function recordedModel(answer: unknown = {
   prepStep: { action: 'راجع أرقام المصاريف واطبع التقرير' },
-  followUps: [{ action: 'ابعت الملخص لسامي', deadlineAt: null }],
+  followUps: [{ action: 'ابعت الملخص لسامي', deadlineDate: null, deadlineTime: null }],
 }) {
   const calls: Array<{ system: string; text: string }> = [];
   const generate = (async (request: { system: string; parts: readonly { kind: string; text?: string }[] }) => {
@@ -258,24 +261,65 @@ test('a model answer with no usable prep step falls back to the rules, and says 
   } finally { end(); }
 });
 
-test('a follow-up deadline before the meeting, or unreadable, is dropped rather than trusted', async () => {
+// A fixed clock for the tests that name days: Thursday 1 October 2026, 09:00
+// in Jerusalem, and a meeting at 12:00 the same day.
+const THURSDAY = new Date('2026-10-01T06:00:00.000Z');
+const THURSDAY_MEETING = { startAt: '2026-10-01T09:00:00.000Z', endAt: '2026-10-01T09:45:00.000Z', timezone: 'Asia/Jerusalem' };
+
+test('a follow-up keeps a written hour; a day before the meeting, or no day, is no time at all', async () => {
   begin();
   try {
-    const now = new Date(Date.now());
-    const input = inputFor(now);
-    const after = new Date(Date.parse(input.endAt) + 24 * 60 * MINUTE).toISOString();
+    const notes = 'Budget review with finance.\nPrint the report.\nSend the summary on Sunday at 4pm.';
     const model = recordedModel({
       prepStep: { action: 'Print the report' },
       followUps: [
-        { action: 'Send the summary', deadlineAt: after },
-        { action: 'Book a follow-up', deadlineAt: now.toISOString() },
-        { action: 'Email finance', deadlineAt: 'next week' },
+        { action: 'Send the summary', deadlineDate: '2026-10-04', deadlineTime: '16:00' },
+        { action: 'Book a follow-up', deadlineDate: '2026-09-30', deadlineTime: null },
+        { action: 'Email finance', deadlineDate: 'next week', deadlineTime: null },
       ],
     });
-    const { proposal } = await prepareMeeting(UID, input, { now, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS });
-    assert.deepEqual(proposal.items.map((item) => item.resolvedTime === null ? null : Date.parse(item.resolvedTime)), [
-      Date.parse(input.startAt) - 60 * MINUTE, Date.parse(after), null, null,
+    const { proposal } = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING }, {
+      now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
+    });
+    assert.deepEqual(proposal.items.map((item) => [item.title, item.resolvedTime, item.resolvedDate ?? null]), [
+      ['Print the report', '2026-10-01T08:00:00.000Z', null],
+      // 16:00 on Sunday in Jerusalem (UTC+3).
+      ['Send the summary', '2026-10-04T13:00:00.000Z', null],
+      ['Book a follow-up', null, null],
+      ['Email finance', null, null],
     ]);
+  } finally { end(); }
+});
+
+test('«يوم الأحد الصبح» names a day, not an hour: the follow-up is all-day on Sunday, whatever hour the model guessed', async () => {
+  begin();
+  try {
+    const notes = 'اجتماع مع المدير عن الميزانية.\nبدي أراجع المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.';
+    // The shape the live run answered with (CL5a-live-run.txt): the model
+    // turned «الصبح» into 07:00. The notes write no clock time, so it goes.
+    const model = recordedModel({
+      prepStep: { action: 'أراجع المصاريف وأطبع التقرير' },
+      followUps: [{ action: 'أبعت الملخص لسامي', deadlineDate: '2026-10-04', deadlineTime: '07:00' }],
+    });
+    const { proposal } = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING }, {
+      now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
+    });
+    const followUp = proposal.items[1]!;
+    assert.equal(followUp.resolvedTime, null);
+    assert.equal(followUp.resolvedDate, '2026-10-04');
+
+    const result = await confirmMobileCapture(
+      { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
+      { participantId: UID },
+    );
+    assert.equal(result.success, true);
+    const state = await getParticipantStateSnapshot(UID);
+    const stored = state.commitments[result.persisted.find((item) => item.itemId === followUp.itemId)!.commitmentId]!;
+    assert.equal(stored.status, 'active');
+    assert.equal(stored.timeSpec.allDay, true);
+    // Local midnight of Sunday in Jerusalem, with nobody's hour on it.
+    assert.equal(stored.timeSpec.dueAt, '2026-10-03T21:00:00.000Z');
+    assert.equal(stored.timeSpec.remindAt, null);
   } finally { end(); }
 });
 
@@ -314,13 +358,18 @@ test('refusals: no notes, notes past the capture limit, a block too soon, a bloc
   } finally { end(); }
 });
 
-test('confirmed through the capture confirm, the prep step is an active commitment with its reminder', async () => {
+test('confirmed through the capture confirm, the prep step is due at the start and reminded an hour before it', async () => {
   begin();
   try {
     const now = new Date(Date.now());
-    const { proposal, prep } = await prepareMeeting(UID, inputFor(now), {
+    const input = inputFor(now);
+    // No settings stored: the account's lead is the default hour.
+    const { proposal, prep } = await prepareMeeting(UID, input, {
       now, generate: recordedModel().generate, consent: granted, quietHours: NO_QUIET_HOURS,
     });
+    const start = Date.parse(input.startAt);
+    assert.equal(Date.parse(prep.remindAt), start - 60 * MINUTE);
+    assert.equal(Date.parse(prep.dueAt), start, 'the phone rings at dueAt − 60: dueAt must be the start');
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
       { participantId: UID },
@@ -330,11 +379,66 @@ test('confirmed through the capture confirm, the prep step is an active commitme
     const state = await getParticipantStateSnapshot(UID);
     const prepCommitment = state.commitments[result.persisted.find((item) => item.itemId === prep.itemId)!.commitmentId]!;
     assert.equal(prepCommitment.status, 'active');
-    assert.equal(prepCommitment.timeSpec.dueAt, prep.remindAt);
+    assert.equal(prepCommitment.timeSpec.dueAt, prep.dueAt);
     assert.equal(prepCommitment.timeSpec.remindAt, prep.remindAt);
-    assert.equal(Object.values(state.reminders).filter((reminder) => reminder.commitmentId === prepCommitment.id).length, 1);
+    const reminders = Object.values(state.reminders).filter((reminder) => reminder.commitmentId === prepCommitment.id);
+    assert.deepEqual(reminders.map((reminder) => reminder.scheduledFor), [prep.remindAt]);
     const followUp = state.commitments[result.persisted.find((item) => item.itemId !== prep.itemId)!.commitmentId]!;
     assert.equal(followUp.status, 'active');
     assert.equal(followUp.timeSpec.kind, 'unscheduled');
   } finally { end(); }
+});
+
+test('between its reminder and the meeting, the prep step is not overdue on the lists; after the start it is', async () => {
+  const previous = process.env.MAYBESITTER_FEATURE_PRIORITY;
+  process.env.MAYBESITTER_FEATURE_PRIORITY = 'true';
+  begin();
+  try {
+    const now = new Date(Date.now());
+    const input = inputFor(now);
+    const { proposal, prep } = await prepareMeeting(UID, input, { now, consent: declined, quietHours: NO_QUIET_HOURS });
+    const result = await confirmMobileCapture(
+      { proposalId: proposal.proposalId, itemIds: [prep.itemId] },
+      { participantId: UID },
+    );
+    assert.equal(result.success, true);
+    const id = result.persisted[0]!.commitmentId;
+    const start = Date.parse(input.startAt);
+    const codesAt = async (at: number) => {
+      const options = { participantId: UID, timezone: input.timezone, now: new Date(at) };
+      const [today, upcoming] = await Promise.all([listTodayRanked(options), listUpcomingRanked(options)]);
+      const ranked = today.ranking.get(id) ?? upcoming.ranking.get(id);
+      assert.ok(ranked, 'the prep step is on neither list');
+      return ranked.reasonCodes;
+    };
+    // Half an hour before the meeting: the reminder has rung, the step is still on time.
+    assert.ok(!(await codesAt(start - 30 * MINUTE)).includes('overdue'), 'overdue before the meeting has started');
+    assert.ok((await codesAt(start + MINUTE)).includes('overdue'));
+  } finally {
+    end();
+    if (previous === undefined) delete process.env.MAYBESITTER_FEATURE_PRIORITY;
+    else process.env.MAYBESITTER_FEATURE_PRIORITY = previous;
+  }
+});
+
+test('with a 15-minute reminder lead, the prep step is due 45 minutes before the start, so the phone still rings an hour before', async () => {
+  begin();
+  try {
+    await saveReminderSettings(UID, { softLeadMinutes: 15 }, new Date().toISOString());
+    const now = new Date(Date.now());
+    const input = inputFor(now);
+    const { prep } = await prepareMeeting(UID, input, { now, consent: declined, quietHours: NO_QUIET_HOURS });
+    const start = Date.parse(input.startAt);
+    assert.equal(Date.parse(prep.remindAt), start - 60 * MINUTE);
+    assert.equal(Date.parse(prep.dueAt), start - 45 * MINUTE);
+  } finally { end(); }
+});
+
+test('moved to the evening before by quiet hours, the prep step is due one lead after that, not at the meeting', () => {
+  const start = new Date('2026-09-28T04:00:00.000Z'); // 07:00 in Jerusalem, quiet until 07:30
+  const due = schedulePrepAt(start, new Date('2026-09-27T12:00:00.000Z'), JERUSALEM_QUIET);
+  assert.equal(due.at.toISOString(), '2026-09-27T19:25:00.000Z');
+  assert.equal(prepDueAt(start, due.at, 60).toISOString(), '2026-09-27T20:25:00.000Z');
+  // And never after the start, whatever the lead.
+  assert.equal(prepDueAt(start, new Date(start.getTime() - 10 * MINUTE), 60).toISOString(), start.toISOString());
 });

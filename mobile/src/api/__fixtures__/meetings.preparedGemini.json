@@ -7,16 +7,18 @@
     "items": [
       {
         "itemId": "00000000-0000-4000-8000-000000000002",
-        "title": "راجع أرقام المصاريف واطبع التقرير",
-        "resolvedTime": "2026-08-09T09:00:00.000Z",
+        "title": "أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير",
+        "resolvedTime": "2026-08-09T08:00:00.000Z",
         "needsClarification": false,
         "priority": "normal",
         "priorityEstimated": true
       },
       {
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "title": "ابعت الملخص لسامي",
+        "title": "أبعت الملخص لسامي",
         "resolvedTime": null,
+        "resolvedDate": "2026-08-16",
+        "dateEstimated": false,
         "needsClarification": false,
         "priority": "normal",
         "priorityEstimated": true
@@ -30,11 +32,12 @@
     }
   },
   "prep": {
-    "itemId": "00000000-0000-4000-8000-000000000004",
-    "remindAt": "2026-08-09T09:00:00.000Z",
+    "itemId": "00000000-0000-4000-8000-000000000002",
+    "remindAt": "2026-08-09T08:00:00.000Z",
+    "dueAt": "2026-08-09T09:00:00.000Z",
     "leadMinutes": 60,
     "adjustment": "none",
     "startAt": "2026-08-09T09:00:00.000Z",
-    "endAt": "2026-08-09T09:00:00.000Z"
+    "endAt": "2026-08-09T09:45:00.000Z"
   }
 }

@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   for (const item of proposal.items) {
     console.log(`  • ${item.title}   [${item.resolvedTime ?? 'no time'}]${item.itemId === prep.itemId ? '  ← prep step' : ''}`);
   }
-  console.log(`── prep: remindAt=${prep.remindAt} leadMinutes=${prep.leadMinutes} adjustment=${prep.adjustment}`);
+  console.log(`── prep: remindAt=${prep.remindAt} dueAt=${prep.dueAt} leadMinutes=${prep.leadMinutes} adjustment=${prep.adjustment}`);
 
   const confirmed = await confirmMobileCapture(
     { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   const state = await getParticipantStateSnapshot(uid);
   for (const commitment of Object.values(state.commitments)) {
     const reminders = Object.values(state.reminders).filter((reminder) => reminder.commitmentId === commitment.id);
-    console.log(`  ✓ ${commitment.status} ${commitment.title} dueAt=${commitment.timeSpec.dueAt ?? '-'} reminders=${reminders.map((r) => r.scheduledFor).join(',') || '-'}`);
+    console.log(`  ✓ ${commitment.status} ${commitment.title} dueAt=${commitment.timeSpec.dueAt ?? '-'} allDay=${commitment.timeSpec.allDay} reminders=${reminders.map((r) => r.scheduledFor).join(',') || '-'}`);
   }
 
   const rulesUid = `${uid}Rules`;

@@ -4,7 +4,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppProvider } from '../../../state/AppContext';
+import { AppProvider, useApp } from '../../../state/AppContext';
+import { Text } from 'react-native';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
@@ -1001,7 +1002,9 @@ describe('what is pinned to a time today (L5)', () => {
     jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ fixed: [DENTIST] }) as never);
     await loaded();
     expect(screen.queryByTestId('plan-open-fx1')).toBeNull();
-    const row = screen.getByTestId('plan-fixed-fx1');
+    // The row's words are one accessible element (a «حضّرني» button, when
+    // there is one, sits beside them: CL5a).
+    const row = screen.getByTestId('plan-fixed-text-fx1');
     expect(row.props.accessible).toBe(true);
     expect(row.props.accessibilityLabel).toContain('Dentist');
     expect(row.props.accessibilityLabel).toContain(en.planItemFixed);
@@ -1094,5 +1097,46 @@ describe('a plan built after the day\'s hours (L5)', () => {
     await show(date);
     await waitFor(() => expect(screen.queryByTestId('plan-nothing-placed')).not.toBeNull());
     expect(screen.queryByTestId('plan-day-over')).toBeNull();
+  });
+});
+
+describe('«حضّرني» on a meeting or an appointment pinned to the plan (CL5a)', () => {
+  // Later today in real time: the offer depends on the meeting not having started.
+  const soon = new Date(Math.ceil((Date.now() + 3 * 3_600_000) / 300_000) * 300_000);
+  const DENTIST_SOON = {
+    itemId: 'fx-soon', title: 'Dentist', blockId: null,
+    startsAt: soon.toISOString(), endsAt: new Date(soon.getTime() + 30 * 60_000).toISOString(),
+  };
+  const ERRAND_SOON = { ...DENTIST_SOON, itemId: 'fx-errand', title: 'Call mum' };
+
+  /** What the sheet host would open on. */
+  function Probe() {
+    const { s } = useApp();
+    return <Text testID="prep-probe">{JSON.stringify(s.meetingPrep ?? null)}</Text>;
+  }
+
+  it('offers it on the appointment, not on the errand, and opens the sheet on that appointment', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ fixed: [DENTIST_SOON, ERRAND_SOON] }) as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}>
+              <PlanScreen date={DATE} onBack={() => {}} />
+              <Probe />
+            </QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId('plan-fixed-fx-soon')).not.toBeNull());
+    expect(screen.queryByTestId('plan-fixed-prepare-fx-errand')).toBeNull();
+    const button = screen.getByTestId('plan-fixed-prepare-fx-soon');
+    // Named by its time out loud; the visible word is the same on every row.
+    expect(button.props.accessibilityLabel).toContain('Prepare me for');
+    await fireEvent.press(button);
+    await waitFor(() => expect(JSON.parse(String(screen.getByTestId('prep-probe').props.children))).toEqual({
+      startAt: DENTIST_SOON.startsAt, endAt: DENTIST_SOON.endsAt, appointment: true,
+    }));
   });
 });

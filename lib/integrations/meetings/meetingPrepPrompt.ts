@@ -12,7 +12,7 @@
  */
 import { MAX_MEETING_ACTION_LENGTH, MAX_MEETING_FOLLOW_UPS } from './meetingIntelligence';
 
-export const MEETING_PREP_PROMPT_VERSION = 'meeting-prep-v1';
+export const MEETING_PREP_PROMPT_VERSION = 'meeting-prep-v2';
 
 const BEGIN = 'BEGIN_UNTRUSTED_USER_MESSAGE';
 const END = 'END_UNTRUSTED_USER_MESSAGE';
@@ -32,7 +32,10 @@ export const MEETING_PREP_SCHEMA = {
         type: 'object',
         properties: {
           action: { type: 'string' },
-          deadlineAt: { type: ['string', 'null'] },
+          // A day, and an hour only when one is written: a date alone is an
+          // all-day follow-up, never a guessed 07:00 (CL5a M-3).
+          deadlineDate: { type: ['string', 'null'] },
+          deadlineTime: { type: ['string', 'null'] },
         },
         required: ['action'],
       },
@@ -70,7 +73,9 @@ export function buildMeetingPrepPrompt(input: MeetingPrepPromptInput): string {
     'Return:',
     `- prepStep: exactly ONE concrete thing they can do before the meeting to be ready for it. At most ${MAX_MEETING_ACTION_LENGTH} characters, starting with a verb, in the same language and dialect as the notes.`,
     `- followUps: at most ${MAX_MEETING_FOLLOW_UPS} things the notes say must happen AFTER the meeting. An empty list when the notes name none. Never invent one.`,
-    '- deadlineAt: an ISO 8601 instant with an offset, ONLY when the notes name a day or time for that follow-up. Otherwise null. Never guess.',
+    '- deadlineDate: "YYYY-MM-DD" on the local calendar, ONLY when the notes name a day for that follow-up (a date, a weekday, "tomorrow"). Otherwise null.',
+    '  A follow-up happens after the meeting, so a weekday name ("Sunday", «الأحد», «יום ראשון») means the first such day AFTER the meeting\'s own day.',
+    '- deadlineTime: "HH:mm" (24-hour, local), ONLY when the notes write a clock time for it, as a number or a spoken hour ("at 4", «الساعة ٤», «بثلاث»). A part of the day is NOT a clock time: "morning", «الصبح», «العصر», «בבוקר» all give null. Never guess an hour.',
     '',
     'Only what the notes say or clearly ask for. No advice, no encouragement, no therapy language.',
     'Never coordinate with, message or assign anything to other people: a follow-up is only something this person does.',

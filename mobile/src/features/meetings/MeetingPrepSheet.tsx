@@ -47,11 +47,14 @@ export function MeetingPrepSheet() {
   const tooLong = notes.length > MAX_CAPTURE_LENGTH;
   const start = new Date(target.startAt);
   const when = `${formatRelativeDay(start, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(start, { locale: lang, timeZone: timezone }))}`;
+  // A dentist or an exam is «الموعد», not «الاجتماع» (the target says which).
+  const appointment = target.appointment === true;
+  const question = appointment ? t.xPrepareQuestionAppointment : t.xPrepareQuestion;
   // The one refusal with a sentence of its own: the meeting started while the
   // sheet was open. Everything else is the shared copy table's.
   const problem = prepare.error
     ? (prepare.error instanceof ValidationError && prepare.error.reason === 'meeting_too_soon'
-      ? t.xPrepareTooSoon
+      ? (appointment ? t.xPrepareTooSoonAppointment : t.xPrepareTooSoon)
       : userFacingMessage(prepare.error, t))
     : null;
 
@@ -62,7 +65,11 @@ export function MeetingPrepSheet() {
         // Into review, as a share arrives there: the flow is reset and holds
         // this proposal before the capture task opens, so it does not start
         // on an empty composer.
-        flow.adoptProposal(result.proposal, 'meeting');
+        flow.adoptProposal(result.proposal, 'meeting', {
+          remindAt: result.prep.remindAt,
+          adjustment: result.prep.adjustment,
+          appointment,
+        });
         actions.go('capture');
       },
     });
@@ -71,8 +78,8 @@ export function MeetingPrepSheet() {
   return (
     <View style={{ gap: 14 }} testID="meeting-prep-sheet">
       <View style={{ gap: 4, alignItems: 'flex-start' }}>
-        <View accessibilityRole="header"><Txt role="section" testID="meeting-prep-question">{t.xPrepareQuestion}</Txt></View>
-        <Txt size={14} color={p.mu} testID="meeting-prep-when">{fill(t.xPrepareWhen, { time: when })}</Txt>
+        <View accessibilityRole="header"><Txt role="section" testID="meeting-prep-question">{question}</Txt></View>
+        <Txt size={14} color={p.mu} testID="meeting-prep-when">{fill(appointment ? t.xPrepareWhenAppointment : t.xPrepareWhen, { time: when })}</Txt>
       </View>
 
       <View>
@@ -82,7 +89,7 @@ export function MeetingPrepSheet() {
           onChangeText={setNotes}
           placeholder={t.xPreparePlaceholder}
           placeholderTextColor={p.mu}
-          accessibilityLabel={t.xPrepareQuestion}
+          accessibilityLabel={question}
           multiline
           scrollEnabled
           autoFocus

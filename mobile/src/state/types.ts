@@ -152,7 +152,12 @@ export type Sheet =
  * The meeting a «حضّرني» sheet is about: a busy block's times, or a
  * commitment's. Times only — a calendar event's title is never read.
  */
-export type MeetingPrepTarget = { startAt: string; endAt: string | null };
+export type MeetingPrepTarget = {
+  startAt: string;
+  endAt: string | null;
+  /** The person's title names an appointment (a dentist, an exam), not a meeting: the sheet says «الموعد». */
+  appointment?: true;
+};
 
 /**
  * A write that worked, said once at the bottom of the screen (Round 2). It

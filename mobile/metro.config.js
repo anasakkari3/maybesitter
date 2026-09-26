@@ -4,7 +4,8 @@
 // build their snapshot with the server's own normalizer
 // (`lib/integrations/{healthkit,healthConnect,readiness}`) and its contract
 // types (`src/contracts/v1`), so the phone and the route agree on the shape by
-// construction rather than by a copy. Metro only resolves files inside its
+// construction rather than by a copy. The same goes for the extractor's
+// appointment nouns (`src/extraction/lexicon`), a data-only file. Metro only resolves files inside its
 // watch folders, and without these the bundle fails the moment a screen
 // imports the adapter. The list is exactly those directories: nothing else in
 // the server tree is reachable from the app.
@@ -20,6 +21,9 @@ config.watchFolders = [
   path.join(repoRoot, 'lib', 'integrations', 'healthConnect'),
   path.join(repoRoot, 'lib', 'integrations', 'readiness'),
   path.join(repoRoot, 'src', 'contracts', 'v1'),
+  // The appointment nouns the extractor strips «سجّل» before, read by the
+  // meeting-prep entry on Details (CL5a): one list, not a second copy.
+  path.join(repoRoot, 'src', 'extraction', 'lexicon'),
 ];
 
 // Those files sit outside `mobile/`, so Metro's walk up from them never
