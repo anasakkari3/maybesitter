@@ -1,5 +1,6 @@
 /**
- * The Google OAuth 2.0 client (Gmail Phase B, connect flow).
+ * The Google OAuth 2.0 client (Gmail Phase B connect flow; CL6a widened it to
+ * the one grant Calendar, Gmail and Drive share).
  *
  * The first implementation of `ProviderOAuthClient` in this repository. It
  * implements that interface and nothing wider: `beginProviderOAuth` /
@@ -53,23 +54,37 @@
  * body. `GoogleOAuthError` below carries an OAuth error *code* and a status,
  * both drawn from closed sets, and never `error_description`, which is
  * free-form text from Google that has been observed to echo request content.
+ *
+ * ── Who the grant belongs to (CL6a review) ───────────────────────
+ *
+ * The Phase B draft named the account from Gmail's `users.getProfile`. That
+ * only works when the grant carries a Gmail scope, and a person who connects
+ * Calendar alone holds `calendar.freebusy` and nothing that can read a
+ * profile — the connect would fail on its last step, after consent. Every
+ * authorization now also asks for `openid` and `userinfo.email` (neither is a
+ * sensitive scope), and the identity is the OpenID `sub` from the userinfo
+ * endpoint: stable across address changes, and the same whichever feature was
+ * connected first.
  */
-import { createGmailTransport } from './gmailTransport';
-import type { ProviderOAuthClient } from '../../providers/providerOAuthLifecycle';
-import type { ProviderOAuthTokenSet } from '../../providers/providerRuntime';
-import type { IntegrationProviderIdentity } from '../../../../src/contracts/v1/integrationConnectionContracts';
+import type { ProviderOAuthClient } from '../providers/providerOAuthLifecycle';
+import type { ProviderOAuthTokenSet } from '../providers/providerRuntime';
+import type { IntegrationProviderIdentity } from '../../../src/contracts/v1/integrationConnectionContracts';
 
 export const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 export const GOOGLE_REVOCATION_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
+/** OpenID Connect userinfo (G3: https://developers.google.com/identity/openid-connect/openid-connect). */
+export const GOOGLE_USERINFO_ENDPOINT = 'https://openidconnect.googleapis.com/v1/userinfo';
 
 /**
- * The authorization endpoint, carrying the two parameters `beginProviderOAuth`
+ * The authorization endpoint, carrying the three parameters `beginProviderOAuth`
  * cannot add. See the module comment: without `access_type=offline` there is
  * no refresh token, and the flow is then broken in a way that only shows up an
- * hour after a successful connect.
+ * hour after a successful connect. `include_granted_scopes=true` is Google's
+ * incremental authorization (G1): turning Gmail on after Calendar returns one
+ * token carrying both, rather than a token that has quietly lost Calendar.
  */
 export const GOOGLE_AUTHORIZATION_ENDPOINT =
-  'https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent';
+  'https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&prompt=consent&include_granted_scopes=true';
 
 /** How long one call to Google may take before it is aborted. */
 export const GOOGLE_OAUTH_REQUEST_TIMEOUT_MS = 10_000;
@@ -150,7 +165,7 @@ function canonicalStatusFor(code: GoogleOAuthErrorCode, responseStatus: number):
 }
 
 /**
- * The grant Google returned reaches a different mailbox than the one this
+ * The grant Google returned reaches a different Google account than the one this
  * account is already connected to.
  *
  * Its own type rather than a borrowed `invalid_grant`: Google did not refuse
@@ -160,7 +175,7 @@ function canonicalStatusFor(code: GoogleOAuthErrorCode, responseStatus: number):
  */
 export class GoogleAccountMismatchError extends Error {
   constructor() {
-    super('google account does not match the connected mailbox');
+    super('google account does not match the connected account');
     this.name = 'GoogleAccountMismatchError';
   }
 }
@@ -173,7 +188,8 @@ export interface GoogleOAuthClientDeps {
   readonly timeoutMs?: number;
   readonly now?: () => Date;
   /**
-   * When set, `loadIdentity` refuses a grant for any other mailbox.
+   * When set, `loadIdentity` refuses a grant for any other Google account
+   * (compared on the OpenID `sub`).
    *
    * This is what makes "a mismatched account is refused and stores nothing"
    * true rather than hopeful: `completeProviderOAuth` calls `loadIdentity`
@@ -353,38 +369,49 @@ export function createGoogleOAuthClient(deps: GoogleOAuthClientDeps): ProviderOA
     },
 
     async loadIdentity(tokenSet): Promise<IntegrationProviderIdentity> {
-      // The same Gmail transport production reads with — same HTTP path, same
-      // retries, same bounds, same redaction. Not a second client.
-      const profile = await createGmailTransport({
-        accessToken: async () => tokenSet.accessToken,
-        fetchImpl: deps.fetchImpl,
-        timeoutMs: deps.timeoutMs,
-      }).getProfile();
-
-      const account = normalizeGoogleAccount(profile.emailAddress);
-      // The transport already rejects a profile with no address, so this is
-      // belt and braces — but it fails closed, which is the direction that
-      // matters: an empty address must never compare equal to anything.
-      if (!account) throw new GoogleAccountMismatchError();
-
-      // Refused *before* `completeProviderOAuth` reaches the vault or the
-      // connection store, which is what makes a mismatch store nothing.
-      if (deps.requireAccountId !== undefined
-        && normalizeGoogleAccount(deps.requireAccountId) !== account) {
+      const controller = new AbortController();
+      const timer = setTimeout(
+        () => controller.abort(new DOMException('google userinfo request timed out', 'TimeoutError')),
+        timeoutMs,
+      );
+      let response: Response;
+      try {
+        response = await fetchImpl(GOOGLE_USERINFO_ENDPOINT, {
+          method: 'GET',
+          headers: { authorization: `Bearer ${tokenSet.accessToken}`, accept: 'application/json' },
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+      if (!response.ok) {
+        // The resource-endpoint language: 401 already means "this token is no
+        // good", so the status is canonical as it stands.
+        throw new GoogleOAuthError('unknown_error', response.status, response.status);
+      }
+      let raw: unknown = null;
+      try {
+        raw = await response.json();
+      } catch {
+        raw = null;
+      }
+      const sub = isRecord(raw) && nonEmptyString(raw.sub) ? raw.sub.trim() : '';
+      // Fails closed: an identity with no subject must never compare equal to
+      // anything, least of all to "no account required".
+      if (!sub) throw new GoogleAccountMismatchError();
+      if (deps.requireAccountId !== undefined && deps.requireAccountId !== sub) {
+        // Refused *before* `completeProviderOAuth` reaches the vault or the
+        // connection store, which is what makes a mismatch store nothing.
         throw new GoogleAccountMismatchError();
       }
-
+      const email = isRecord(raw) && nonEmptyString(raw.email) ? normalizeGoogleAccount(raw.email) : null;
       return Object.freeze({
         provider: 'google',
-        // The mailbox address, and deliberately so. It is the only field any
-        // Gmail response carries that names the account (CONTRACT.md §2). A
-        // stable opaque id would need an OpenID `sub`, which needs the
-        // `openid` scope on the consent screen — more than a read-only mail
-        // integration should ask for. The cost is recorded rather than hidden:
-        // if a user's address changes, this reads as a different account.
-        providerAccountId: account,
+        providerAccountId: sub,
         providerSpaceId: null,
-        displayName: profile.emailAddress,
+        // The address the person will recognise on the connection row. Not an
+        // identifier: two addresses can name one `sub` over time.
+        displayName: email,
       });
     },
 

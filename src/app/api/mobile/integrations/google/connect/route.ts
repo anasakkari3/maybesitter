@@ -1,22 +1,22 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
-import {
-  beginGoogleConnect,
-  GoogleConnectError,
-} from '../../../../../../../lib/integrations/gmail/production/googleConnectService';
-import { getStorage } from '../../../../../../../lib/storage';
+import { beginGoogleConnect } from '../../../../../../../lib/integrations/google/googleConnectService';
+import { isGoogleFeature } from '../../../../../../../lib/integrations/google/googleConfig';
+import { googleFailureResponse, invalidGoogleRequest } from '../../../../../../../lib/integrations/google/googleRouteSupport';
+import { googleRuntime } from '../../../../../../../lib/integrations/google/googleRuntime';
+import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Start connecting a Gmail account (Gmail Phase B).
+ * Start connecting one Google feature: `{ feature: 'calendar' | 'gmail' | 'drive' }`.
  *
- * Returns the URL the app opens. The app must then intercept the redirect and
- * POST `code` and `state` to the callback with its own bearer token — see the
- * module comment on `googleConnectService` for why the callback cannot be a
- * plain browser GET.
+ * Returns the URL the app opens in an auth session, and the app-scheme URL
+ * that session waits for. The app then POSTs the `code` and `state` it was
+ * handed to `/callback` with its own bearer — see `googleConnectService` for
+ * why the exchange cannot happen on the browser's redirect.
  *
- * POST rather than GET because it writes: every call mints a new state and
- * stores an in-flight authorization record.
+ * POST because it writes: every call mints a state and stores an in-flight
+ * authorization.
  */
 export async function POST(request: Request) {
   let user;
@@ -26,28 +26,19 @@ export async function POST(request: Request) {
     return mobileAuthErrorResponse(error);
   }
 
+  let body: unknown;
   try {
-    const begun = await beginGoogleConnect(user.uid, { storage: getStorage() });
-    return Response.json({ success: true, ...begun });
+    body = await readJsonBody(request);
   } catch (error) {
-    return googleConnectErrorResponse(error);
+    if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
+    return invalidGoogleRequest();
   }
-}
+  const feature = typeof body === 'object' && body !== null ? (body as { feature?: unknown }).feature : undefined;
+  if (!isGoogleFeature(feature)) return invalidGoogleRequest();
 
-/**
- * One shape for every refusal: `reason` is the machine-readable code and
- * `error` is the same string, matching what the rest of `/api/mobile` returns.
- * Nothing derived from Google's response body ever reaches it.
- */
-export function googleConnectErrorResponse(error: unknown): Response {
-  if (error instanceof GoogleConnectError) {
-    return Response.json(
-      { success: false, error: error.reason, reason: error.reason },
-      { status: error.status },
-    );
+  try {
+    return Response.json({ success: true, ...(await beginGoogleConnect(user.uid, feature, googleRuntime())) });
+  } catch (error) {
+    return googleFailureResponse(error);
   }
-  return Response.json(
-    { success: false, error: 'provider_unavailable', reason: 'provider_unavailable' },
-    { status: 502 },
-  );
 }
