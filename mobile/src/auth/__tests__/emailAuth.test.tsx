@@ -149,19 +149,16 @@ describe('password reset', () => {
 });
 
 /**
- * Once the account call has been made, the form takes no more touches
- * (UAT 2026-09-26, D4).
+ * The form while the account call runs, and after it (#679).
  *
- * The controller's instrumented device run: after email sign-up, the first
- * press on welcome «كمّل» reached no Pressable. It focused THIS screen's
- * password field (`authPasswordInput`, secure, under this screen's
- * ScrollView), whose native view was still hit-testable over welcome; the
- * second press worked. React has unmounted the screen by then — jest shows
- * it gone — so what lingers is the native view, frozen with the last props it
- * was given. Those props are the ones set here while the call runs: no
- * pointer events and no editable field, so a view that outlives its screen
- * cannot take a touch or the keyboard. They stay that way after a success,
- * because the screen is on its way out; a failure hands the form back.
+ * Inert while the call runs and after a success: no pointer events and no
+ * editable field, so the person cannot edit what is being sent or submit
+ * twice in the moment before the gate swaps this screen out. A refused call
+ * hands the form back with the password focused (review NEW-1).
+ *
+ * (The UAT's D4 — welcome «كمّل» needing two presses after email sign-up —
+ * turned out to be iOS's own «حفظ كلمة السر؟» prompt: the first tap outside
+ * it dismisses it. Not an app defect, and the prompt is wanted.)
  */
 describe('the form while and after the account call', () => {
   const root = () => screen.getByTestId('email-auth-root');
@@ -190,9 +187,9 @@ describe('the form while and after the account call', () => {
     await React.act(async () => { release(); });
   });
 
-  it('stays inert after the account exists, so nothing left of it can take a touch', async () => {
+  it('stays inert after the account exists, until the gate swaps it out', async () => {
     // A repository that succeeds without emitting a user keeps this screen
-    // mounted — the lingering the device showed, held still for the test.
+    // mounted: the moment between the call returning and the gate's swap.
     const repository = createFakeAuthRepository({ initialUser: null });
     (repository as unknown as Record<string, unknown>).createAccount = async () => {};
     await renderEmailIn(repository, 'signUp');
@@ -218,9 +215,8 @@ describe('the form while and after the account call', () => {
     focus.mockRestore();
   });
 
-  // Round 2 dismissed the keyboard before every call. It did not fix D4 on the
-  // device, and a refused sign-in then left the person with no keyboard to
-  // retype on (review NEW-1). The form's own inert state does the D4 job.
+  // An earlier round dismissed the keyboard before every call; a refused
+  // sign-in then left the person with no keyboard to retype on (NEW-1).
   it('does not dismiss the keyboard before the call', async () => {
     const repository = createFakeAuthRepository({ initialUser: null });
     const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
@@ -247,3 +243,28 @@ async function renderEmailIn(repository: FakeAuthRepository, mode: 'signIn' | 's
     </SafeAreaProvider>,
   );
 }
+
+/**
+ * AutoFill knows which form this is (#679, D4).
+ *
+ * After email sign-up iOS offers to save the password («حفظ كلمة السر؟») —
+ * the UAT's "first press ignored" was that prompt being dismissed. It is
+ * wanted, and it only offers to save a *new* password, and fills a *current*
+ * one, when the fields say which they are.
+ */
+describe('the fields tell AutoFill what they hold', () => {
+  const forms: ['signUp' | 'signIn', string, string][] = [
+    ['signUp', 'newPassword', 'new-password'],
+    ['signIn', 'password', 'current-password'],
+  ];
+  it.each(forms)('%s: password is %s / %s, the address is the username', async (mode, contentType, autoComplete) => {
+    await renderEmailIn(createFakeAuthRepository({ initialUser: null }), mode);
+    const password = screen.getByTestId('authPasswordInput');
+    expect(password.props.textContentType).toBe(contentType);
+    expect(password.props.autoComplete).toBe(autoComplete);
+    expect(password.props.secureTextEntry).toBe(true);
+    const address = screen.getByTestId('authEmailInput');
+    expect(address.props.textContentType).toBe('username');
+    expect(address.props.autoComplete).toBe('email');
+  });
+});

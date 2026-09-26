@@ -328,7 +328,7 @@ export function CaptureScreen() {
                 testID="capture-analyze"
                 label={t.analyze}
                 // The field unmounts as analyzing starts; let go of it while
-                // it is still on screen, or its blur has nowhere to land (D4).
+                // it is still on screen, so the keyboard leaves with it.
                 onPress={() => { Keyboard.dismiss(); void flow.analyze(); }}
                 disabled={!canAnalyze}
                 size={17}

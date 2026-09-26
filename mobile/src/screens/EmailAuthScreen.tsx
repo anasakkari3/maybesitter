@@ -43,12 +43,12 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
   /**
    * The account call succeeded, and this screen is on its way out.
    *
-   * With `busy`, this makes the form inert: no pointer events on the screen
-   * and no editable field. On the device (UAT 2026-09-26, D4) this screen's
-   * password field stayed hit-testable over welcome after email sign-up —
-   * React had unmounted the screen, the native view had not gone, frozen with
-   * its last props — and the first press on «كمّل» went to it. Those last
-   * props are the ones set here, so what outlives the screen takes nothing.
+   * With `busy`, this makes the form inert: no pointer events and no editable
+   * field while the call runs, and none after it succeeds. `busy` alone drops
+   * back to false when the call returns — `createAccount` still waits on the
+   * verification email — and the form would take edits and a second submit in
+   * the moment before the gate swaps the screen out. A refused call hands the
+   * form back.
    */
   const [signedIn, setSignedIn] = useState(false);
   const inert = busy || signedIn;

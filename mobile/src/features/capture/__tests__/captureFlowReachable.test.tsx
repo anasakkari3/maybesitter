@@ -170,10 +170,9 @@ describe('the flow is reachable from the tab bar', () => {
   });
 
   // The composer's field is focused (autoFocus) and unmounts the moment
-  // analyzing starts; a TextInput unmounting while focused sends its native
-  // blur to a view already deleted. Released first, while it is on screen, so
-  // Review's first press is not spent on the keyboard (D4, same class as the
-  // email sign-up screen).
+  // analyzing starts. It is released first, while it is on screen, so the
+  // keyboard goes down with the composer instead of after it and Review opens
+  // with no keyboard state left over.
   it('lets go of the keyboard before the text is sent', async () => {
     const order: string[] = [];
     jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => { order.push('dismiss'); });

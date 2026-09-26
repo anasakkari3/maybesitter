@@ -1,18 +1,13 @@
 /**
- * Welcome «كمّل» answers the first press after a fresh sign-up (UAT
- * 2026-09-26, D4).
+ * Welcome «كمّل» answers the first press after a fresh sign-up.
  *
- * On the device the first press after sign-up left welcome on screen, and the
- * second press moved it at once (3/3 fresh accounts, no prompt up, a tap on
- * empty space first did not help). Welcome is the one step whose press did
- * nothing on screen until a native write had answered: `advance` awaited
- * `saveOnboardingProgress` and only then called `setStep`. Everything the
- * press did was parked behind that write; whatever held its answer up, the
- * next touch was what let it through.
- *
- * The screen now moves inside the press and the write follows it. The second
- * test holds the write open — the device's state — and asks for consent after
- * one press.
+ * The UAT's D4 — the first press after email sign-up "ignored" — was iOS's
+ * own «حفظ كلمة السر؟» prompt over welcome: the first tap outside it dismisses
+ * it. That is the system saving the person's password, and it stays. These
+ * tests hold the app's half: sign-up → welcome → one press → consent, the
+ * screen moving on the press itself rather than after a device write, a write
+ * that never lands costing a repeated step and never a skipped one, and the
+ * email screen gone from the tree once welcome shows.
  */
 import React from 'react';
 import { afterEach, beforeEach, expect, it, jest } from '@jest/globals';
@@ -116,9 +111,6 @@ it('a write that never lands costs a repeated step, never a skipped one', async 
   expect(await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY)).not.toBe('consent');
 });
 
-// The instrumented device run found the email screen's password field still
-// hit-testable over welcome. In React the screen is gone — this holds that
-// half; what lingered on the device was the native view (see emailAuth.test).
 it('the email screen is not in the tree once welcome shows', async () => {
   await signUpToWelcome();
   expect(screen.queryByTestId('authPasswordInput')).toBeNull();

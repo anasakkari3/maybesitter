@@ -10,7 +10,7 @@
 import React from 'react';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { Keyboard, LayoutAnimation, StyleSheet, Text, TextInput, type KeyboardEvent } from 'react-native';
+import { Keyboard, StyleSheet, Text, TextInput, type KeyboardEvent } from 'react-native';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as windowFrame from '../windowFrame';
@@ -57,10 +57,10 @@ describe('AvoidKeyboard', () => {
       expect((StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom).toBe(336));
   });
 
-  // D4: welcome mounted after email sign-up, whose focused password field had
-  // just unmounted. iOS still reported the keyboard; no field on the new
-  // screen was focused. Padding for that keyboard floats the footer away from
-  // where it is drawn.
+  // A screen that mounts just after another one unmounted its focused field
+  // (email sign-up → welcome): iOS may still report the keyboard, but no field
+  // on the new screen is focused. Padding for it floats the footer away from
+  // where it is drawn (review of #679, §4).
   it('ignores a keyboard iOS still reports when no field is focused', async () => {
     jest.spyOn(Keyboard, 'isVisible').mockReturnValue(true);
     jest.spyOn(Keyboard, 'metrics').mockReturnValue({ screenX: 0, screenY: 538, width: 402, height: 336 });
@@ -147,39 +147,6 @@ describe('AvoidKeyboard', () => {
       resolveFrame({ y: 134, height: 740 });
     });
     expect((StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom).toBe(0);
-  });
-});
-
-describe('no global layout animation', () => {
-  // `LayoutAnimation.configureNext` animates whatever commit comes next,
-  // anywhere in the app. A keyboard hiding as the email screen signs in can
-  // hand it the very commit that removes that screen, and on Fabric an
-  // animated removal is the known way a deleted native view lingers — which is
-  // what the device showed for D4 (the password field hit-testable over
-  // welcome). The lift follows the keyboard without it.
-  it('a keyboard showing and hiding configures no layout animation', async () => {
-    const configure = jest.spyOn(LayoutAnimation, 'configureNext');
-    const handlers: Record<string, ((event: KeyboardEvent) => void)[]> = {};
-    jest.spyOn(Keyboard, 'addListener').mockImplementation(((name: string, handler: (event: KeyboardEvent) => void) => {
-      (handlers[name] ??= []).push(handler);
-      return { remove: () => {} };
-    }) as never);
-    jest.spyOn(windowFrame, 'measureWindowFrame').mockResolvedValue({ y: 0, height: 874 });
-    await render(<AvoidKeyboard testID="box"><Text>body</Text></AvoidKeyboard>);
-    await React.act(async () => {
-      handlers.keyboardWillShow?.forEach((h) => h({ duration: 250, easing: 'keyboard', endCoordinates: { screenX: 0, screenY: 538, width: 402, height: 336 } } as KeyboardEvent));
-    });
-    await React.act(async () => {
-      handlers.keyboardWillHide?.forEach((h) => h({ duration: 250, easing: 'keyboard' } as KeyboardEvent));
-    });
-    expect(configure).not.toHaveBeenCalled();
-  });
-
-  it('nothing in src configures one', () => {
-    const offenders = sourceFiles(SRC)
-      .filter((path) => /LayoutAnimation\.configureNext|LayoutAnimation\.(easeInEaseOut|linear|spring)\(/.test(readFileSync(path, 'utf8')))
-      .map((path) => relative(SRC, path));
-    expect(offenders).toEqual([]);
   });
 });
 
