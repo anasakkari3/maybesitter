@@ -70,10 +70,12 @@ test('a captured commitment that lands on a projected match is warned about, nam
   );
   assert.equal(result.success, true);
 
-  // Sanity: this is the shape capture really writes -- not a scheduled event.
+  // Sanity: this is the shape capture really writes. "at 8pm" is a time to do
+  // it at, so it is a scheduled event since CL1 (D2); "by 8pm" would be a
+  // `due_by`, and the warning below fires for either.
   const state = await readParticipantState(USER);
   const captured = state.commitments[result.persisted[0]!.commitmentId]!;
-  assert.equal(captured.timeSpec.kind, 'due_by');
+  assert.equal(captured.timeSpec.kind, 'scheduled_event');
   assert.equal(captured.timeSpec.dueAt, '2026-10-25T20:00:00.000Z');
 
   assert.equal(result.collisions.length, 1);
@@ -118,9 +120,10 @@ test('moving a commitment onto the match through the edit route returns the warn
 
 // ── Residual R3: two deadlines at the same time are not a clash ─────────
 //
-// Capture cannot tell "at 5pm" from "by 5pm" -- both are `due_by`. Two
-// deadlines due at the same hour are an ordinary Friday, not a double
+// Two deadlines due at the same hour are an ordinary Friday, not a double
 // booking, so a warning needs at least one real fixed event on one side.
+// Capture now tells "at 5pm" (a scheduled event) from "by 5pm" (a `due_by`,
+// CL1 D2), so the deadlines here say "by" -- the case this rule is about.
 test('two captured deadlines at the same time do not warn about each other', async () => {
   const capture = async (text: string) => {
     const proposal = await proposeMobileCapture(
@@ -132,8 +135,8 @@ test('two captured deadlines at the same time do not warn about each other', asy
       { participantId: USER },
     );
   };
-  const first = await capture('Pay the rent tomorrow at 5pm');
-  const second = await capture('Submit the report tomorrow at 5pm');
+  const first = await capture('Pay the rent by tomorrow 5pm');
+  const second = await capture('Submit the report by tomorrow 5pm');
   assert.equal(first.success && second.success, true);
   const state = await readParticipantState(USER);
   const dues = [first, second].map((r) => state.commitments[r.persisted[0]!.commitmentId]!.timeSpec);

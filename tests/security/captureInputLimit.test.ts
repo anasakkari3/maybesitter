@@ -460,7 +460,10 @@ test('I: a capture at exactly the cap yields a confirmable item, in English and 
       dependencies as never,
     );
     assert.equal(proposal.status, 'proposed', `${language} at the cap was not proposed`);
-    assert.equal(proposal.items.length, 1);
+    // The reminder is its own clause: a sentence end splits a capture since
+    // CL1 (D1), so the padding after «. » is read as a second clause of its
+    // own rather than swallowed into this one. The reminder is still first.
+    assert.match(proposal.items[0]?.title ?? '', /doctor|بالدكتور/, `${language}: the first item is not the reminder`);
     assert.equal(proposal.items[0]?.needsClarification, false, `${language} at the cap needs clarification, so it is not confirmable`);
   }
 });

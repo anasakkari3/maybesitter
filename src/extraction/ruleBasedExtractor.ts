@@ -8,6 +8,7 @@ import {
   normalizeArabicDigits,
   normalizeSpokenArabicHours,
   normalizeSpokenHebrewHours,
+  timeAnchorOf,
   timeOfDayEvidence,
   type TimeEvidence,
 } from './timeLexicon';
@@ -433,6 +434,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       explicitReminderRequest,
       explicitPressureRequest,
       rawText: raw,
+      timeAnchor: timeAnchorOf(raw),
       parserVersion: PARSER_VERSION,
     };
   }
@@ -503,6 +505,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     explicitReminderRequest,
     explicitPressureRequest,
     rawText: raw,
+    // «الساعة 5» is a time to do it at, «قبل الخميس» a limit (CL1, D2).
+    timeAnchor: timeAnchorOf(raw),
     parserVersion: PARSER_VERSION,
   };
 }

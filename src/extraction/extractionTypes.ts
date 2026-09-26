@@ -77,6 +77,16 @@ export interface ExtractionResult {
    * predates it meant.
    */
   dateInferred?: boolean;
+  /**
+   * What the stated time is to the person (CL1, D2; `timeAnchorOf` in
+   * `timeLexicon.ts`): `event` — a clock time to do it at («الساعة 5», "at
+   * 5pm"), which becomes a `scheduled_event` the planner keeps where it is;
+   * `deadline` — a limit ("by", «قبل», «עד»), which stays a `due_by`.
+   *
+   * Optional: absent or null means a deadline, which is what every producer
+   * that predates it wrote.
+   */
+  timeAnchor?: 'event' | 'deadline' | null;
   priority: {
     level: 'low' | 'normal' | 'high';
     source: 'default' | 'inferred' | 'user_explicit';

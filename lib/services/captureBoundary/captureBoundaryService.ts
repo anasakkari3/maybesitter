@@ -78,10 +78,19 @@ const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|pol
 /**
  * How many segments of one capture may reach the model.
  *
- * Five. Beyond that the marginal segment is almost always a list item the rule
- * based extractor reads just as well, and the cost is per call.
+ * Eight. Beyond that the marginal segment is almost always a list item the rule
+ * based extractor reads just as well, and the cost is per call — still under
+ * the per-user daily call cap (`usageGuard.ts`), which is what bounds spend.
+ *
+ * It was five, and the first phone run's capture named six commitments once
+ * its sentences were split (CL1): the sixth went to the rules, which titled it
+ * «أخلص تقرير الشغل قبل», and relabelled the whole proposal `rule-based` with
+ * `fallbackUsed` — a spoken day's list is routinely six.
  */
-const MAX_MODEL_SEGMENTS = 5;
+const MAX_MODEL_SEGMENTS = 8;
+
+/** Refuses at once, so the extraction service answers with the rules. */
+const RULES_ONLY_PROVIDER = async (): Promise<string> => { throw new Error('rules-only runtime'); };
 
 /**
  * The capture is longer than the server will read (#508).
@@ -116,6 +125,20 @@ export class CaptureInputTooLargeError extends Error {
  */
 function splitInput(raw: string): string[] {
   const segments = raw
+    // A sentence end is a clause boundary (CL1, D1). It was not, so «…يوم
+    // الأحد. وبدي أدفع فاتورة الكهربا…» reached the model as one clause, a
+    // model asked for one object answered with the doctor, and the bill was
+    // gone with nothing to say so. The mark stays on its clause — a question
+    // is read as one by `classifyMessageKind`, and a seed keeps the sentence
+    // as typed — and an abbreviation or an initial ("Dr. Haddad", "a.m.") is
+    // not a sentence end.
+    .replace(/(\S*?)([.!?؟]+)(\s+)/g, (match, word: string, stop: string) =>
+      (stop === '.' && ABBREVIATION.test(word) ? match : `${word}${stop}|`))
+    // «و» is not a connector (below), but «و» straight onto «بدي / لازم /
+    // ذكرني / عندي» opens a new commitment — how an unpunctuated, dictated
+    // list runs on — and so does "and I need to" / «וצריך». The «و» goes; the
+    // word after it stays, because «ذكرني» is what makes a clause a reminder.
+    .replace(CLAUSE_OPENER, '|')
     .replace(/[;\n]+/g, '|')
     .replace(/\s+(?:and then|then|also)\s+/gi, '|')
     // «وبعدين»/«وبعدها»/«وكمان» (and then / and after / and also), and Hebrew
@@ -129,6 +152,33 @@ function splitInput(raw: string): string[] {
     .filter(Boolean);
   return segments.length > 0 ? segments : [raw];
 }
+
+/**
+ * The word before a «.» that is not a sentence end: a title, a Latin
+ * abbreviation, or a single letter (an initial, «م.»). Only ever consulted for
+ * «.» — `?` and `!` always end a sentence.
+ */
+// Built from a string: the root `tsconfig.json` targets ES5, which refuses the
+// `u` flag on a literal (the runtime is Node 24).
+const ABBREVIATION = new RegExp('^(?:[("\'«]*)(?:dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|no|approx|[ap]\\.m|e\\.g|i\\.e|\\p{L})$', 'iu');
+
+/**
+ * «و» onto a word that opens a commitment, in the three languages (CL1, D1).
+ *
+ * Arabic: «وبدي / ولازم / وذكرني / وعندي» and their forms. English: "and I
+ * need to / have to / must / and remind me". Hebrew: «וצריך / ותזכיר / ויש
+ * לי». The opener word itself is left in the next clause by the lookahead.
+ * A bare «و» joining two nouns — «خبز وحليب», «أحمد وسامي» — never matches:
+ * the word after it has to be one of these.
+ */
+const CLAUSE_OPENER = new RegExp(
+  [
+    '(?:^|[\\s,،|]+)و(?=(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|ذكرني|ذكّرني|ذكريني|ذكّريني|عندي|عندنا)(?![\\p{L}\\p{M}]))',
+    '\\s+and\\s+(?=(?:remind\\s+me|i\\s+(?:need|have)\\s+to|i\\s+must|i\'ve\\s+got\\s+to)\\b)',
+    '\\s+ו(?=(?:צריך|צריכה|תזכיר|תזכירי|יש\\s+לי)(?![\\p{L}\\p{M}]))',
+  ].join('|'),
+  'giu',
+);
 
 /**
  * Why this segment produced nothing, or why it is being refused (UC-2.6, #166).
@@ -292,15 +342,37 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       continue;
     }
     try {
-      const extracted = await extractor(segment, context, {
-        llmProvider: rulesOnly ? async () => { throw new Error('rules-only runtime'); } : dependencies.llmProvider,
+      let extracted = await extractor(segment, context, {
+        llmProvider: rulesOnly ? RULES_ONLY_PROVIDER : dependencies.llmProvider,
         llmEngine: dependencies.llmEngine,
       });
+      let failure = semanticFailure(extracted.result, options.now);
+      /*
+       * The model found nothing in a clause that asks for something, beside
+       * clauses that did produce items (CL1, D1). Left alone, the proposal
+       * shows the others and this one is gone with nothing to say so — the
+       * silent half of a dropped commitment. The rules read the same clause
+       * instead; if they also find nothing, nothing is invented.
+       *
+       * Only in a capture of several clauses: alone, a no-commitment answer
+       * is shown to the user as one, which is not silent.
+       */
+      if (
+        failure === 'no_commitment'
+        && segments.length > 1
+        && extracted.engine !== 'rule-based'
+        && classifyMessageKind(segment) === 'request'
+      ) {
+        const recovered = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+        if (semanticFailure(recovered.result, options.now) === null) {
+          extracted = recovered;
+          failure = null;
+        }
+      }
       // Whatever actually answered, named. It used to be flattened to 'ollama'
       // because that was the only model there was.
       executedEngine = extracted.engine;
       fallbackUsed ||= Boolean(extracted.fallbackReason);
-      const failure = semanticFailure(extracted.result, options.now);
       if (failure === 'no_commitment') {
         noCommitmentReason ??= noCommitmentReasonFrom(segment, extracted.result, extracted.fallbackReason);
         continue;

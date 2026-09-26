@@ -491,7 +491,9 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
   const allDay = patchedAllDay(current, input, dueAt, hasAllDay);
 
   return {
-    kind: dueAt || remindAt ? 'due_by' : 'unscheduled',
+    // Moving a fixed-time commitment keeps it fixed (CL1, D2); only clearing
+    // its time makes it anything else.
+    kind: !(dueAt || remindAt) ? 'unscheduled' : current.kind === 'scheduled_event' ? 'scheduled_event' : 'due_by',
     dueAt,
     endAt: patchedEndAt(current, input, dueAt, hasEndDate, allDay),
     remindAt,

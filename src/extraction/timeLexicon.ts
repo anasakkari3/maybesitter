@@ -234,6 +234,48 @@ export function forbidsResolvedTime(rawText: string): boolean {
 }
 
 /**
+ * A word that makes a stated time a limit rather than an appointment (CL1, D2):
+ * "by 5", "before Thursday", «قبل الخميس», «لحد الساعة 5», «עד 17:00».
+ * Whole words only, so «قبلها» and "abyss" are not read as one.
+ */
+const DEADLINE_MARKER = new RegExp(
+  [
+    /\b(?:by|before|until|till|til|due|deadline|no\s+later\s+than)\b/.source,
+    '(?<![\\p{L}\\p{M}])(?:قبل|لحد|لحدّ|لغاية|لغايه|حتى|حتّى|أقصاه|اقصاه)(?![\\p{L}\\p{M}])',
+    '(?<![\\p{L}\\p{M}])(?:עד|לפני|לא\\s+יאוחר)(?![\\p{L}\\p{M}])',
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * What a stated time is to the person: the time to do it at, or a limit.
+ *
+ * `event` — a clock time with nothing making it a limit: «أشتري دوا … الساعة
+ * 5», "buy medicine at 5pm", «לקנות תרופה ב-17:00». The user means to do it
+ * then, so the planner must keep it there. Capture wrote every one of these as
+ * a `due_by`, which the planner reads as a deadline and floats ahead of — the
+ * medicine landed at 15:30.
+ *
+ * `deadline` — a limit word anywhere in the text: "by 5pm", «قبل الخميس الساعة
+ * 5», «עד 17:00». Anywhere rather than next to the time on purpose: a deadline
+ * is what capture always wrote, so a stray «قبل» costs nothing but the old
+ * behaviour.
+ *
+ * `null` — no clock time at all: a day, or a part of the day ("tomorrow
+ * evening"), which is a window, not a time to be at. Also the old behaviour.
+ *
+ * A range ("from 2 to 4", «من الساعة 2 للساعة 4») is an event even though
+ * "to"/«حتى»/«עד» appear in it: it has a start.
+ */
+export function timeAnchorOf(rawText: string): 'event' | 'deadline' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(rawText)));
+  if (RANGE_PATTERN_SOURCES.some((source) => new RegExp(source, 'i').test(text))) return 'event';
+  if (DEADLINE_MARKER.test(text)) return 'deadline';
+  return CLOCK_PATTERN_SOURCES.some((source) => new RegExp(source, 'i').test(text)) ? 'event' : null;
+}
+
+/**
  * The hour a named daypart means, or null when the text names none.
  *
  * Checked in the order a longer phrase must beat a shorter one: "bعد الظهر"
