@@ -33,6 +33,11 @@ import {
   CAPTURE_EDIT_TITLE_MIN,
   type CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
+import {
+  LocationTriggerValidationError,
+  parseLocationTrigger,
+  type LocationTrigger,
+} from '../../../src/contracts/v1/locationTriggerContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { isPastCommitmentTime } from '../commitments/timeRules';
 import { isDateOnly, parseIsoInstant } from '../mobile/time';
@@ -57,6 +62,8 @@ export interface NormalisedEdit {
   title?: string;
   resolvedTime?: string | null;
   priority?: 'low' | 'normal' | 'high';
+  /** `null` is "no place reminder", which a new commitment has anyway. */
+  locationTrigger?: LocationTrigger | null;
 }
 
 /**
@@ -144,6 +151,21 @@ export function validateEdit(
     normalised.priority = edit.priority;
   }
 
+  if (edit.locationTrigger !== undefined) {
+    if (edit.locationTrigger === null) {
+      normalised.locationTrigger = null;
+    } else {
+      try {
+        normalised.locationTrigger = parseLocationTrigger(edit.locationTrigger);
+      } catch (error) {
+        if (error instanceof LocationTriggerValidationError) {
+          throw new InvalidEditError(edit.itemId, 'locationTrigger', error.field);
+        }
+        throw error;
+      }
+    }
+  }
+
   return normalised;
 }
 
@@ -162,7 +184,10 @@ type CreateDraft = Extract<Command, { type: 'CreateDraft' }>;
  * nothing to remind anyone about is how a reminder silently never fires.
  */
 export function applyEditToCommands(commands: readonly Command[], edit: NormalisedEdit): Command[] {
-  if (edit.title === undefined && edit.resolvedTime === undefined && edit.priority === undefined) {
+  if (
+    edit.title === undefined && edit.resolvedTime === undefined && edit.priority === undefined
+    && !edit.locationTrigger
+  ) {
     return [...commands];
   }
 
@@ -197,6 +222,7 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
             },
           }
           : {}),
+        ...(edit.locationTrigger ? { locationTrigger: edit.locationTrigger } : {}),
         timeSpec,
       },
     };

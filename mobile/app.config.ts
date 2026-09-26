@@ -555,6 +555,60 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         + 'we do not send calendar event titles to our servers.',
       remindersPermission: false,
     }],
+    /*
+     * Place reminders — "remind me when I arrive / leave" (closure CL4).
+     *
+     * ── What is watched, and what is not ─────────────────────────
+     *
+     * Region monitoring only: the OS watches a circle around each place the
+     * user saved and wakes the app when they cross it. Nothing here starts
+     * continuous tracking (`startLocationUpdatesAsync` is never called), and
+     * the coordinates never leave the phone — the server stores only that a
+     * commitment has a place reminder (`locationTriggerContracts.ts`). Which
+     * is also why `NSPrivacyCollectedDataTypes` above has no location entry:
+     * Apple's "collected" means sent off the device, and nothing is.
+     *
+     * ── `isIosBackgroundLocationEnabled: true`, and why ──────────
+     *
+     * CoreLocation's region monitoring does not itself need
+     * `UIBackgroundModes: location`, and the council asked for it to be left
+     * out. expo-location's implementation does need it: `startGeofencingAsync`
+     * refuses with `LocationUpdatesUnavailable` unless the mode is declared
+     * (`ios/LocationModule.swift`, the `hasBackgroundModeEnabled("location")`
+     * guard), and its consumer sets `allowsBackgroundLocationUpdates = YES`
+     * (`ios/TaskConsumers/EXGeofencingTaskConsumer.m`), which CoreLocation
+     * treats as a fatal inconsistency without the mode. So the mode is the
+     * price of using the maintained library rather than a hand-written native
+     * module; the behaviour is still regions only.
+     *
+     * ── Android ──────────────────────────────────────────────────
+     *
+     * Fine/coarse location and `ACCESS_BACKGROUND_LOCATION`, which Android 10+
+     * requires for a geofence to fire while the app is not in front and which
+     * needs the Play Console location declaration. No foreground service:
+     * geofences are delivered by Play services, so `FOREGROUND_SERVICE_LOCATION`
+     * would be a permission held for nothing.
+     *
+     * `motionUsagePermission: false` removes the plugin's default English
+     * `NSMotionUsageDescription`: nothing here reads motion, and a purpose string
+     * for a sensor the app never opens is a question at review.
+     *
+     * The Arabic and Hebrew strings are in `locales/native/{ar,he}.json`.
+     */
+    ['expo-location', {
+      locationWhenInUsePermission:
+        'MaybeSitter uses your location to save a place you name, like Home or Work. The location stays on your phone.',
+      locationAlwaysAndWhenInUsePermission:
+        'MaybeSitter notices when you arrive at or leave a place you saved, so it can remind you even when the app '
+        + 'is closed. Your location stays on your phone and is never sent to our servers.',
+      locationAlwaysPermission:
+        'MaybeSitter notices when you arrive at or leave a place you saved, so it can remind you even when the app '
+        + 'is closed. Your location stays on your phone and is never sent to our servers.',
+      motionUsagePermission: false,
+      isIosBackgroundLocationEnabled: true,
+      isAndroidBackgroundLocationEnabled: true,
+      isAndroidForegroundServiceEnabled: false,
+    }],
     // The date and time pickers on the capture review sheet (UC-2.4, #164).
     // A config plugin rather than autolinking alone, because the Android side
     // needs its own theme resources merged into the manifest.

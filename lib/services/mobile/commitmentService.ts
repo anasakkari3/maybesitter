@@ -7,6 +7,7 @@ import {
   type CommitmentCategory,
   type CommitmentCategorySource,
 } from '../../../src/contracts/v1/categoryContracts';
+import { parseLocationTrigger, type LocationTrigger } from '../../../src/contracts/v1/locationTriggerContracts';
 import { resolveModuleRuntime } from '../../../src/contracts/v1/runtimeControls';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
 import { collisionsForCommitment, type CollisionWarning } from '../timeCollision';
@@ -57,6 +58,12 @@ export interface PatchCommitmentInput {
    * theirs and neither can be overwritten by a later inference.
    */
   category?: unknown;
+  /**
+   * The place reminder (closure CL4): `{ kind, placeId, label }`, or `null` to
+   * remove it. Coordinates are refused, not dropped — see
+   * `locationTriggerContracts.ts`.
+   */
+  locationTrigger?: unknown;
   dueDate?: unknown;
   /**
    * When the commitment stops (#185). An instant, or `null` for "no end".
@@ -634,6 +641,12 @@ function categoryPatchFrom(
   return { category: value, categorySource: 'user_explicit' };
 }
 
+function locationTriggerPatchFrom(value: unknown): { locationTrigger?: LocationTrigger | null } {
+  if (value === undefined) return {};
+  if (value === null) return { locationTrigger: null };
+  return { locationTrigger: parseLocationTrigger(value) };
+}
+
 function stringField(value: unknown, field: string): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string') throw new Error(`${field} must be a string`);
@@ -657,6 +670,7 @@ export async function patchCommitment(
     // different things to the state machine and writing `category: undefined`
     // would put the key there (#415).
     ...categoryPatchFrom(input.category),
+    ...locationTriggerPatchFrom(input.locationTrigger),
     timeSpec: patchTimeSpec(current.timeSpec, input, now),
   };
 

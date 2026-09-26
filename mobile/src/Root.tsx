@@ -45,6 +45,8 @@ import { WidgetSettingsScreen } from './features/widget/WidgetSettingsScreen';
 import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
+import { PlaceRemindersMount } from './features/places/PlaceRemindersMount';
+import { PlacesScreen } from './features/places/PlacesScreen';
 
 import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
 import { PersonalizationScreen, CommitmentsScreen, ContextualAssistantScreen } from './features/product/ContextScreens';
@@ -128,6 +130,7 @@ export function Root() {
               rather than on a screen because a reminder has to be scheduled and
               a tap has to be routed whatever the user is looking at. */}
           <RemindersMount />
+          <PlaceRemindersMount />
           {/* Also draws nothing (UC-3.2, #186). It keeps the busy times this
               phone reads in step with the calendar, for the whole session:
               the conflict chips are on Today and on the review card, and both
@@ -217,6 +220,7 @@ export function Root() {
           {s.screen === 'widgetSettings' && (
             <WidgetSettingsScreen key="widgetSettings" onBack={() => latest.current.back()} />
           )}
+          {s.screen === 'places' && <PlacesScreen key="places" onBack={() => latest.current.back()} />}
           {s.screen === 'about' && <AboutScreen key="about" onBack={() => latest.current.back()} />}
           {s.screen === 'langAppearance' && <LangAppearanceScreen key="langAppearance" onBack={() => latest.current.back()} />}
           {s.screen === 'account' && <AccountScreen key="account" onBack={() => latest.current.back()} />}

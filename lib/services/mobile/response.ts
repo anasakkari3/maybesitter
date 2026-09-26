@@ -40,6 +40,9 @@ export function commitmentToMobileDto(
     category: commitment.category,
     categorySource: commitment.categorySource,
     timeSpec: commitment.timeSpec,
+    // The place reminder (closure CL4), only when there is one. Kind, the
+    // phone's opaque place id and the place's name — never a coordinate.
+    ...(commitment.locationTrigger ? { locationTrigger: commitment.locationTrigger } : {}),
     currentAckState: commitment.currentAckState,
     postponedUntil: commitment.postponedUntil,
     createdAt: commitment.createdAt,

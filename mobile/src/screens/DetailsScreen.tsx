@@ -17,6 +17,7 @@ import { activityKindLabel } from '../features/activity/ActivityScreen';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
+import { PlaceReminderSection } from '../features/places/PlaceReminderSection';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
@@ -163,6 +164,9 @@ export function DetailsScreen() {
 
                 {/* What else is happening then (UC-3.2, #186), as a note. */}
                 <BusyConflictChip blocks={view.shownAt ? busyAt(view.shownAt, busy) : []} testID="details-busy" />
+
+                {/* "Remind me when I arrive / leave" (closure CL4). */}
+                {query.data ? <PlaceReminderSection commitment={query.data} canEdit={safeCommitmentPatchEnabled() && open} /> : null}
 
                 {!open ? <Txt size={13} color={p.mu} testID="details-closed-note">{t.detailsClosedNote}</Txt> : null}
 

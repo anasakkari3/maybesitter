@@ -353,11 +353,12 @@ describe('Android hardening', () => {
       'android.permission.SYSTEM_ALERT_WINDOW',
       'android.permission.QUERY_ALL_PACKAGES',
       'android.permission.MANAGE_EXTERNAL_STORAGE',
-      // Background location, SMS and call log: MaybeSitter reads none of them,
-      // and each is a separate Play declaration with its own review.
-      'android.permission.ACCESS_BACKGROUND_LOCATION',
-      'android.permission.ACCESS_FINE_LOCATION',
-      'android.permission.ACCESS_COARSE_LOCATION',
+      // SMS and call log: MaybeSitter reads none of them, and each is a
+      // separate Play declaration with its own review. Location left this list
+      // with place reminders (closure CL4) — see the case below, which pins
+      // exactly the location permissions that feature holds.
+      'android.permission.FOREGROUND_SERVICE_LOCATION',
+      'android.permission.ACTIVITY_RECOGNITION',
       'android.permission.READ_SMS',
       'android.permission.RECEIVE_SMS',
       'android.permission.SEND_SMS',
@@ -370,6 +371,23 @@ describe('Android hardening', () => {
       for (const permission of forbidden) {
         expect(requested).not.toContain(permission);
       }
+    }
+  });
+
+  /**
+   * Place reminders (closure CL4): exactly the location permissions geofencing
+   * needs, and no foreground service. Background location is what lets a
+   * geofence fire while the app is not in front on Android 10+, and it carries
+   * a Play Console declaration — an owner task, recorded in the lane report.
+   */
+  it('holds the location permissions place reminders need, and no location foreground service', () => {
+    for (const profile of PROFILES) {
+      const requested = configs[profile].android.permissions ?? [];
+      expect(requested.filter(permission => /LOCATION/.test(permission)).sort()).toEqual([
+        'android.permission.ACCESS_BACKGROUND_LOCATION',
+        'android.permission.ACCESS_COARSE_LOCATION',
+        'android.permission.ACCESS_FINE_LOCATION',
+      ]);
     }
   });
 
@@ -711,6 +729,32 @@ describe('the app as a person sees it (UC-4.1, #176)', () => {
     for (const file of ['src/i18n/locales/en.json', 'src/i18n/locales/ar.json', 'src/i18n/locales/he.json',
       'locales/native/ar.json', 'locales/native/he.json']) {
       expect(`${file}:${readFileSync(join(ROOT, file), 'utf8').includes('Maybesitter')}`).toBe(`${file}:false`);
+    }
+  });
+});
+
+/**
+ * Place reminders on iOS (closure CL4).
+ *
+ * Region monitoring with an "Always" grant. The background mode is here only
+ * because expo-location's geofencing refuses to start without it (see the
+ * comment on the plugin in `app.config.ts`); the purpose strings say that the
+ * location stays on the phone, and there is no motion string for a sensor the
+ * app never opens.
+ */
+describe('place reminders', () => {
+  it('declares the location strings, the background mode geofencing needs, and nothing for motion', () => {
+    for (const profile of PROFILES) {
+      const plist = configs[profile].ios.infoPlist ?? {};
+      expect(plist.UIBackgroundModes).toEqual(expect.arrayContaining(['remote-notification', 'location']));
+      for (const key of [
+        'NSLocationWhenInUseUsageDescription',
+        'NSLocationAlwaysAndWhenInUseUsageDescription',
+        'NSLocationAlwaysUsageDescription',
+      ]) {
+        expect(String(plist[key] ?? '')).toMatch(/stays on your phone/);
+      }
+      expect(plist.NSMotionUsageDescription).toBeUndefined();
     }
   });
 });

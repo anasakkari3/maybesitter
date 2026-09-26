@@ -13,7 +13,7 @@ export const capabilities = {
   assistantPreparation: 'COMING_SOON', weeklyMode: 'COMING_SOON',
   assistantPersonality: 'COMING_SOON', assistantName: 'COMING_SOON',
   gmail: 'COMING_SOON', googleCalendar: 'COMING_SOON', drive: 'COMING_SOON',
-  location: 'COMING_SOON', camera: 'COMING_SOON',
+  location: 'LIVE', camera: 'COMING_SOON',
   goals: 'LIVE', habits: 'LIVE', planDiff: 'LIVE',
   watcherBuilder: 'LIVE', watcherManagement: 'LIVE', export: 'LIVE',
 } as const satisfies Record<string, Availability>;
@@ -53,7 +53,9 @@ export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen | null;
   gmail: { screen: null, api: null },
   googleCalendar: { screen: null, api: null },
   drive: { screen: null, api: null },
-  location: { screen: null, api: null },
+  // Place reminders (closure CL4): the places live on the phone; the account
+  // learns only that a commitment has one, through the commitment's PATCH.
+  location: { screen: 'places', api: '/api/mobile/commitments/[id]' },
   camera: { screen: null, api: null },
   export: { screen: 'personalization', api: '/api/mobile/account/export' },
 };

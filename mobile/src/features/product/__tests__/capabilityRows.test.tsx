@@ -203,7 +203,7 @@ describe('the capability table', () => {
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
     expect(soon).toEqual([
       'assistantName', 'assistantPersonality', 'assistantPreparation', 'camera', 'drive', 'files',
-      'gmail', 'googleCalendar', 'location', 'photos', 'weeklyMode', 'whatsapp',
+      'gmail', 'googleCalendar', 'photos', 'weeklyMode', 'whatsapp',
     ]);
   });
 });

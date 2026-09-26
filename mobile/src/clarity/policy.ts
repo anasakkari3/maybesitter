@@ -12,7 +12,7 @@ export const SCREEN_FLOWS = {
   knows: 'memory', memory: 'memory', aiImport: 'ai_import', feedbackHistory: 'settings',
   activity: 'activity', routineSettings: 'settings', readinessSettings: 'excluded',
   financialContext: 'excluded', notificationsSettings: 'permissions',
-  calendarSettings: 'integrations', widgetSettings: 'settings', footballSettings: 'settings',
+  calendarSettings: 'integrations', widgetSettings: 'settings', places: 'excluded', footballSettings: 'settings',
   calendarFeeds: 'integrations', categorySettings: 'settings', langAppearance: 'settings',
   account: 'excluded', sources: 'integrations', about: 'settings', seeds: 'commitments', plan: 'daily_plan',
 } as const satisfies Record<Screen, string>;
