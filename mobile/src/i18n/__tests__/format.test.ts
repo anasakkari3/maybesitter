@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { formatDate, formatNumber, formatRelativeDay, formatTime, formatTimeRange } from '../format';
+import { formatClockRange, formatDate, formatDayRange, formatNumber, formatRelativeDay, formatTime, formatTimeRange } from '../format';
 import { LOCALES, intlLocale, type Locale } from '../locale';
 import ar from '../locales/ar.json';
 import en from '../locales/en.json';
@@ -137,5 +137,47 @@ describe('formatTimeRange', () => {
   it('uses Latin digits in Arabic', () => {
     const end = new Date(INSTANT.getTime() + 60 * 60_000);
     expect(formatTimeRange(INSTANT, end, { locale: 'ar', timeZone: 'Asia/Jerusalem' })).not.toMatch(ARABIC_INDIC);
+  });
+
+  // UAT 2026-09-26: the plan card drew «16:00–15:30» in Arabic while the
+  // calendar's busy rows drew «15:30–16:00». One rule, in every language: the
+  // start first, and the whole range one left-to-right isolate.
+  it('is one left-to-right unit, start first, in every language', () => {
+    const end = new Date(INSTANT.getTime() + 60 * 60_000);
+    for (const locale of LOCALES) {
+      expect(formatTimeRange(INSTANT, end, { locale, timeZone: 'Asia/Jerusalem' })).toBe('\u206621:30–22:30\u2069');
+    }
+  });
+});
+
+describe('formatClockRange', () => {
+  it('matches formatTimeRange for a stored wall-clock window', () => {
+    expect(formatClockRange('22:30', '07:30')).toBe('\u206622:30–07:30\u2069');
+  });
+});
+
+describe('formatDayRange', () => {
+  const RLI = '\u2067';
+  const LRI = '\u2066';
+  const FSI = '\u2068';
+  const PDI = '\u2069';
+
+  // UAT 2026-09-26, #16, shot 83: «سبتمبر – 2 أكتوبر 26». The whole range sat in
+  // one left-to-right isolate, so the Arabic run inside it reversed around the
+  // dash. Each date is its own isolate; the range runs in the language's way.
+  it('Arabic: right-to-left as a whole, first date first, each date whole', () => {
+    expect(formatDayRange('2026-09-26', '2026-10-02', { locale: 'ar' }))
+      .toBe(`${RLI}${FSI}26 سبتمبر${PDI} – ${FSI}2 أكتوبر${PDI}${PDI}`);
+  });
+
+  it('Hebrew: right-to-left too', () => {
+    const out = formatDayRange('2026-09-26', '2026-10-02', { locale: 'he' });
+    expect(out.startsWith(`${RLI}${FSI}26`)).toBe(true);
+    expect(out.endsWith(`${PDI}${PDI}`)).toBe(true);
+  });
+
+  it('English: left-to-right', () => {
+    expect(formatDayRange('2026-09-26', '2026-10-02', { locale: 'en' }))
+      .toBe(`${LRI}${FSI}Sep 26${PDI} – ${FSI}Oct 2${PDI}${PDI}`);
   });
 });

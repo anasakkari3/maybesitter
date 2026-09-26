@@ -12,7 +12,7 @@ import {
   useSaveReminderSettings,
 } from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
-import { dayKey, formatRelativeDay, formatTime } from '../../i18n/format';
+import { dayKey, formatClockRange, formatRelativeDay, formatTime } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
 import {
   getNotificationPermission,
@@ -185,11 +185,13 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     followUp: t.notifCeilingFollowUp,
     hard: t.notifCeilingHard,
   };
-  const quietLabel: Record<QuietChoice, string> = {
-    none: t.notifQuietNone,
-    early: t.notifQuietEarly,
-    standard: t.notifQuietStandard,
-    late: t.notifQuietLate,
+  // Built from the window the chip saves, so the label cannot drift from it,
+  // and in the app's one time-range style: Latin digits, one left-to-right
+  // unit. The copy used to spell these out per language, and Arabic's said
+  // «٢٢:٣٠ – ٠٧:٣٠» beside every other time's «09:00» (UAT 2026-09-26).
+  const quietLabel = (choice: QuietChoice): string => {
+    const window = quietWindowFor(choice);
+    return window ? formatClockRange(window.start, window.end) : t.notifQuietNone;
   };
 
   /**
@@ -349,7 +351,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               {QUIET_CHOICES.map(choice => (
                 <Pill
                   key={choice}
-                  label={quietLabel[choice]}
+                  label={quietLabel(choice)}
                   kind={quietChoice === choice ? 'accent' : 'outline'}
                   size={14}
                   pad={12}

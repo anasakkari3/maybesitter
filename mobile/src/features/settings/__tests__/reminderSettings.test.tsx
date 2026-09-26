@@ -21,6 +21,8 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { NotificationsSettingsScreen } from '../NotificationsSettingsScreen';
 import en from '../../../i18n/locales/en.json';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as permission from '../../../notifications/permission';
 import * as deviceEndpoints from '../../../api/endpoints/devices';
@@ -254,6 +256,25 @@ describe('the way to phone settings (first iPhone run, L7)', () => {
     // Cleared here so a later case counting its own presses starts at zero.
     open.mockClear();
   });
+});
+
+describe('quiet-hours chips', () => {
+  // UAT 2026-09-26 (D6, shot 84): the Arabic chips read «٢٢:٣٠ – ٠٧:٣٠» while
+  // every other time in the app is Latin («09:00»). One rule: Latin digits,
+  // the range as one left-to-right unit, built from the window it saves.
+  afterEach(async () => { await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY); });
+
+  for (const lang of ['ar', 'en', 'he'] as const) {
+    it(`${lang}: Latin digits, start before end, one left-to-right unit`, async () => {
+      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+      await show();
+      await waitFor(() => expect(screen.queryByTestId('reminder-quiet-standard')).not.toBeNull());
+      const label = (id: string) => screen.getByTestId(`reminder-quiet-${id}`).props.accessibilityLabel as string;
+      await waitFor(() => expect(label('standard')).toBe('\u206622:30–07:30\u2069'));
+      expect(label('early')).toBe('\u206621:30–06:30\u2069');
+      expect(label('late')).toBe('\u206623:30–08:30\u2069');
+    });
+  }
 });
 
 describe('the controls', () => {

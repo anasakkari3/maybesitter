@@ -1,6 +1,6 @@
-import { isolate } from './bidi';
+import { isolate, isolateAuto } from './bidi';
 import { tFor } from './index';
-import { intlLocale, type Locale } from './locale';
+import { intlLocale, isRtl, type Locale } from './locale';
 
 /**
  * Every formatter takes an explicit timeZone. Never let `Intl` fall back to the
@@ -54,19 +54,41 @@ export function formatTime(date: Date, { locale, timeZone }: FormatOptions): str
   return new Intl.DateTimeFormat(intlLocale(locale), { ...TIME_STYLE, timeZone }).format(date);
 }
 
+/**
+ * "15:30–16:00", as one left-to-right unit in every language.
+ *
+ * The app's rule for a time range (AGENTS.md: times inside Arabic go through
+ * `ltr()`): start on the left, the same shape it has in English and the same
+ * one the calendar's busy rows draw. Built by hand, not with `formatRange`:
+ * Hermes does not implement that everywhere, and where it does, its bare
+ * "15:30–16:00" dropped into an Arabic line reads right-to-left — the plan
+ * card showed «16:00–15:30» (UAT 2026-09-26) while the busy rows beside it
+ * showed the other order.
+ */
 export function formatTimeRange(start: Date, end: Date, { locale, timeZone }: FormatOptions): string {
   const fmt = new Intl.DateTimeFormat(intlLocale(locale), { ...TIME_STYLE, timeZone });
-  // Hermes' Intl is backed by the platform and does not implement formatRange
-  // everywhere, so fall back to two isolated times. The isolates stop "18:00"
-  // and "19:30" swapping places inside an Arabic line.
-  if (typeof fmt.formatRange === 'function') {
-    try {
-      return fmt.formatRange(start, end);
-    } catch {
-      // fall through
-    }
-  }
-  return `${isolate(fmt.format(start))}–${isolate(fmt.format(end))}`;
+  return isolate(`${fmt.format(start)}–${fmt.format(end)}`);
+}
+
+/**
+ * A wall-clock window stored as `HH:MM` strings — quiet hours — in the same
+ * style as `formatTimeRange`: "22:30–07:30", one left-to-right unit.
+ */
+export function formatClockRange(start: string, end: string): string {
+  return isolate(`${start}–${end}`);
+}
+
+/**
+ * "26 Sep – 2 Oct" for two civil day keys, in the reading order of `locale`.
+ *
+ * Each date is its own first-strong isolate, so «26 سبتمبر» stays one piece,
+ * and the whole range runs in the language's direction. Wrapping it all in a
+ * left-to-right isolate (what the week header did) reversed the Arabic run
+ * around the dash: «سبتمبر – 2 أكتوبر 26» (UAT 2026-09-26, #16).
+ */
+export function formatDayRange(firstKey: string, lastKey: string, { locale }: { locale: Locale }): string {
+  const day = (key: string) => isolateAuto(formatDate(civilDate(key), 'short', { locale, timeZone: CIVIL_ZONE }));
+  return isolate(`${day(firstKey)} – ${day(lastKey)}`, isRtl(locale) ? 'rtl' : 'ltr');
 }
 
 export function formatNumber(

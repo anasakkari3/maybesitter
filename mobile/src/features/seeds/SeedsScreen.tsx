@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { formatDate } from '../../i18n/format';
-import { ltr } from '../../i18n/strings';
+import { isolateAuto } from '../../i18n/bidi';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
@@ -95,7 +95,7 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
         {statusLine ? <Txt size={12} color={p.mu}>{statusLine}</Txt> : null}
         {hasRevisit(seed) ? (
           <Txt size={12} color={p.mu} testID={`seed-revisit-${seed.seedId}`}>
-            {(t.seedRevisitOn ?? '').replace('{date}', ltr(formatDate(new Date(seed.revisitAt as string), 'short', { locale: lang as never, timeZone })))}
+            {(t.seedRevisitOn ?? '').replace('{date}', isolateAuto(formatDate(new Date(seed.revisitAt as string), 'short', { locale: lang as never, timeZone })))}
           </Txt>
         ) : null}
         {failed ? (

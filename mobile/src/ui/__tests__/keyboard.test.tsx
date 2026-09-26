@@ -16,7 +16,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import * as windowFrame from '../windowFrame';
 import { AvoidKeyboard, keyboardOverlap } from '../keyboard';
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => { jest.restoreAllMocks(); });
 
 const SRC = join(__dirname, '..', '..');
 
