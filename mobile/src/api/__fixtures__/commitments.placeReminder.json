@@ -1,0 +1,38 @@
+{
+  "id": "00000000-0000-4000-8000-000000000001",
+  "kind": "task",
+  "title": "Call the dentist",
+  "description": null,
+  "person": null,
+  "status": "active",
+  "priority": {
+    "level": "normal",
+    "source": "default",
+    "pressureAllowed": false,
+    "pressureLevel": "none"
+  },
+  "category": null,
+  "categorySource": "inferred",
+  "timeSpec": {
+    "kind": "due_by",
+    "dueAt": "2026-08-09T09:00:00.000Z",
+    "endAt": null,
+    "remindAt": "2026-08-09T09:00:00.000Z",
+    "allDay": false,
+    "timezone": "Asia/Jerusalem"
+  },
+  "locationTrigger": {
+    "kind": "arrive",
+    "placeId": "place_home",
+    "label": "Home"
+  },
+  "currentAckState": "not_seen",
+  "postponedUntil": null,
+  "createdAt": "2026-08-09T08:00:00.000Z",
+  "updatedAt": "2026-08-09T09:00:00.000Z",
+  "confirmedAt": "2026-08-09T09:00:00.000Z",
+  "completedAt": null,
+  "droppedAt": null,
+  "deviceCalendarLink": null,
+  "collisions": []
+}

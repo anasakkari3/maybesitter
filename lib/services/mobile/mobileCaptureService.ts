@@ -154,6 +154,7 @@ function editsFrom(value: unknown): CaptureItemEditContract[] {
       ...(edit.title !== undefined ? { title: edit.title as string } : {}),
       ...(edit.resolvedTime !== undefined ? { resolvedTime: edit.resolvedTime as string | null } : {}),
       ...(edit.priority !== undefined ? { priority: edit.priority as 'low' | 'normal' | 'high' } : {}),
+      ...(edit.locationTrigger !== undefined ? { locationTrigger: edit.locationTrigger } : {}),
     }];
   });
 }
