@@ -10,11 +10,11 @@
 import React from 'react';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { Keyboard, StyleSheet, Text, type KeyboardEvent } from 'react-native';
+import { Keyboard, StyleSheet, Text, TextInput, type KeyboardEvent } from 'react-native';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as windowFrame from '../windowFrame';
-import { AvoidKeyboard, keyboardOverlap } from '../keyboard';
+import { AvoidKeyboard, ENTRANCE_SETTLE_MS, keyboardOverlap } from '../keyboard';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -48,12 +48,80 @@ describe('AvoidKeyboard', () => {
   it('lifts for a keyboard that was already up when it mounted', async () => {
     // A screen swapped in under a focused field gets no show event.
     jest.spyOn(Keyboard, 'isVisible').mockReturnValue(true);
+    jest.spyOn(TextInput.State, 'currentlyFocusedInput').mockReturnValue({} as never);
     jest.spyOn(Keyboard, 'metrics').mockReturnValue({ screenX: 0, screenY: 538, width: 402, height: 336 });
     jest.spyOn(windowFrame, 'measureWindowFrame').mockResolvedValue({ y: 134, height: 740 });
     await render(<AvoidKeyboard testID="box" style={{ flex: 1 }}><Text>body</Text></AvoidKeyboard>);
     await fireEvent(screen.getByTestId('box'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 402, height: 740 } } });
     await waitFor(() =>
       expect((StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom).toBe(336));
+  });
+
+  // D4: welcome mounted after email sign-up, whose focused password field had
+  // just unmounted. iOS still reported the keyboard; no field on the new
+  // screen was focused. Padding for that keyboard floats the footer away from
+  // where it is drawn.
+  it('ignores a keyboard iOS still reports when no field is focused', async () => {
+    jest.spyOn(Keyboard, 'isVisible').mockReturnValue(true);
+    jest.spyOn(Keyboard, 'metrics').mockReturnValue({ screenX: 0, screenY: 538, width: 402, height: 336 });
+    jest.spyOn(TextInput.State, 'currentlyFocusedInput').mockReturnValue(null as never);
+    const measure = jest.spyOn(windowFrame, 'measureWindowFrame').mockResolvedValue({ y: 134, height: 740 });
+    await render(<AvoidKeyboard testID="box"><Text>body</Text></AvoidKeyboard>);
+    await fireEvent(screen.getByTestId('box'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 402, height: 740 } } });
+    await React.act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect((StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom).toBe(0);
+    expect(measure).not.toHaveBeenCalled();
+  });
+
+  it('measures again once the screen\'s entrance has settled (review M-1)', async () => {
+    jest.useFakeTimers();
+    try {
+      const handlers: Record<string, ((event: KeyboardEvent) => void)[]> = {};
+      jest.spyOn(Keyboard, 'addListener').mockImplementation(((name: string, handler: (event: KeyboardEvent) => void) => {
+        (handlers[name] ??= []).push(handler);
+        return { remove: () => {} };
+      }) as never);
+      // Mid-entrance the view sits 7pt low; settled, it does not.
+      const measure = jest.spyOn(windowFrame, 'measureWindowFrame')
+        .mockResolvedValueOnce({ y: 141, height: 740 })
+        .mockResolvedValue({ y: 134, height: 740 });
+      await render(<AvoidKeyboard testID="box"><Text>body</Text></AvoidKeyboard>);
+      await React.act(async () => {
+        handlers.keyboardWillShow?.forEach((h) => h({ endCoordinates: { screenX: 0, screenY: 538, width: 402, height: 336 } } as KeyboardEvent));
+      });
+      const pad = () => (StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom;
+      expect(pad()).toBe(343);
+      await React.act(async () => { jest.advanceTimersByTime(ENTRANCE_SETTLE_MS); });
+      expect(measure).toHaveBeenCalledTimes(2);
+      expect(pad()).toBe(336);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('follows the keyboard changing height while it stays up (review M-2)', async () => {
+    const handlers: Record<string, ((event: KeyboardEvent) => void)[]> = {};
+    jest.spyOn(Keyboard, 'addListener').mockImplementation(((name: string, handler: (event: KeyboardEvent) => void) => {
+      (handlers[name] ??= []).push(handler);
+      return { remove: () => {} };
+    }) as never);
+    jest.spyOn(windowFrame, 'measureWindowFrame').mockResolvedValue({ y: 0, height: 874 });
+    await render(<AvoidKeyboard testID="box"><Text>body</Text></AvoidKeyboard>);
+    const pad = () => (StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom;
+    await React.act(async () => {
+      handlers.keyboardWillShow?.forEach((h) => h({ endCoordinates: { screenX: 0, screenY: 538, width: 402, height: 336 } } as KeyboardEvent));
+    });
+    expect(pad()).toBe(336);
+    // The emoji keyboard is taller; iOS posts only a frame change.
+    await React.act(async () => {
+      handlers.keyboardWillChangeFrame?.forEach((h) => h({ endCoordinates: { screenX: 0, screenY: 494, width: 402, height: 380 } } as KeyboardEvent));
+    });
+    expect(pad()).toBe(380);
+  });
+
+  it('fills its parent, so padding cannot grow it (review M-4)', async () => {
+    await render(<AvoidKeyboard testID="box"><Text>body</Text></AvoidKeyboard>);
+    expect((StyleSheet.flatten(screen.getByTestId('box').props.style) as { flex: number }).flex).toBe(1);
   });
 
   it('keeps the caller\'s style', async () => {

@@ -327,7 +327,9 @@ export function CaptureScreen() {
               <Pill
                 testID="capture-analyze"
                 label={t.analyze}
-                onPress={() => void flow.analyze()}
+                // The field unmounts as analyzing starts; let go of it while
+                // it is still on screen, or its blur has nowhere to land (D4).
+                onPress={() => { Keyboard.dismiss(); void flow.analyze(); }}
                 disabled={!canAnalyze}
                 size={17}
                 pad={14}

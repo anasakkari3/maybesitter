@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { ScrollView, TextInput, View } from 'react-native';
+import { Keyboard, ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { useSingleFlight } from '../auth/useSingleFlight';
@@ -69,6 +69,14 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
       }
     }
     setErrorKey(null);
+    // Let go of the focused field now, while it is on screen. A successful
+    // sign-in swaps this screen out in the commit that says who is signed in,
+    // and a TextInput unmounting while focused sends its native blur to a view
+    // that same commit deletes — the blur never lands. After email sign-up
+    // the next screen's first press, welcome «كمّل», did nothing on the device
+    // and the second worked (UAT 2026-09-26, D4). A validation error above
+    // keeps the keyboard: that person is about to type again.
+    Keyboard.dismiss();
     // `run` refuses a second submit while the first is in flight, so a double
     // tap is one account rather than two attempts.
     await run(async () => {

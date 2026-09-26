@@ -1,5 +1,6 @@
 import React from 'react';
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
+import { Keyboard } from 'react-native';
 import { fireEvent, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../state/AppContext';
@@ -144,5 +145,69 @@ describe('password reset', () => {
     await renderEmail(createFakeAuthRepository({ initialUser: null }));
     await press(en.authForgotPassword);
     expect(screen.queryByLabelText(en.authPasswordLabel)).toBeNull();
+  });
+});
+
+/**
+ * The focused field lets go before the account exists (UAT 2026-09-26, D4).
+ *
+ * A successful sign-up swaps this screen for onboarding in the same commit
+ * that tells the app who is signed in. React Native's TextInput, unmounting
+ * while focused, sends its native `blur` from the unmount itself — to a view
+ * that commit is deleting, where the command has nowhere to land. The
+ * password field was focused for every email sign-up, and the next screen's
+ * first press — welcome «كمّل», in the footer at the bottom where the
+ * keyboard's region lives — did nothing (3/3 on the device; the second press
+ * worked, an empty tap first did not help). So the field is released while it
+ * is still on screen: before the network call whose answer unmounts it.
+ */
+describe('the focused field is released before the screen can go', () => {
+  // Jest's TextInput is a mock that tracks no focus, so the release is read
+  // where the app asks for it: `Keyboard.dismiss()`, which blurs whatever
+  // field is focused — here, while it is still mounted.
+  const cases: ['signUp' | 'signIn', 'createAccount' | 'signInWithEmail'][] = [
+    ['signUp', 'createAccount'],
+    ['signIn', 'signInWithEmail'],
+  ];
+  it.each(cases)('%s: the keyboard is dismissed before %s is called', async (mode, method) => {
+    const repository = createFakeAuthRepository({ initialUser: null });
+    const order: string[] = [];
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => { order.push('dismiss'); });
+    const original = repository[method].bind(repository);
+    (repository as unknown as Record<string, unknown>)[method] = async (...args: unknown[]) => {
+      order.push(method);
+      return (original as (...a: unknown[]) => Promise<void>)(...args);
+    };
+    try {
+      await render(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <AppProvider>
+            <AuthProvider repository={repository} isDevBundle={false}>
+              <EmailAuthScreen onBack={() => {}} initialMode={mode} />
+            </AuthProvider>
+          </AppProvider>
+        </SafeAreaProvider>,
+      );
+      await type(en.authEmailLabel, 'someone@example.com');
+      await type(en.authPasswordLabel, VALID_PASSWORD);
+      await press(mode === 'signUp' ? en.authModeSignUp : en.authModeSignIn);
+      expect(order).toEqual(['dismiss', method]);
+    } finally {
+      dismiss.mockRestore();
+    }
+  });
+
+  it('keeps the keyboard for a mistake the person is about to fix', async () => {
+    const repository = createFakeAuthRepository({ initialUser: null });
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    try {
+      await renderEmail(repository);
+      await type(en.authEmailLabel, 'not-an-email');
+      await type(en.authPasswordLabel, VALID_PASSWORD);
+      await press(en.authModeSignIn);
+      expect(dismiss).not.toHaveBeenCalled();
+    } finally {
+      dismiss.mockRestore();
+    }
   });
 });

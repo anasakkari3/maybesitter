@@ -15,10 +15,13 @@ type Bundle = Record<string, unknown>;
 
 /** Constructions spoken Levantine does not use. */
 const MSA: readonly RegExp[] = [
-  /(^|[\s«(])(لم|لن|سوف|ليس|لدينا|لديك|لديه)\s/, // negation / possession
-  /(^|[\s«(])(هذا|هذه|الذي|التي|الذين)([\s.،؟]|$)/, // demonstratives / relatives
-  /(^|[\s«(])يُ/, // passive prefix
-  /(^|\s)يتم\s/,
+  // Each also with a و-/ف- prefix: «ولم», «وهذا».
+  /(^|[\s«({])[وف]?(لم|لن|سوف|ليس|لدينا|لديك|لديه)\s/, // negation / possession
+  /(^|[\s«({])[وف]?(هذا|هذه|الذي|التي|الذين)([\s.،؟]|$)/, // demonstratives / relatives
+  /(^|[\s«({])[وف]?[يت]ُ/, // passive: «يُحفظ», «تُصمَّم»
+  /(^|\s)[وف]?(يتم|سيتم|تم)\s/, // «تم» without the shadda is the formal passive
+  /(^|[\s«({])جاري\s/, // «جاري التحديث»
+  /(اثنان|اثنتان|شيئان|شيئًا)/, // formal numerals and duals
 ];
 
 /**
