@@ -1,12 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
-  LayoutAnimation,
   Platform,
   TextInput,
   View,
-  type KeyboardEvent,
-  type LayoutAnimationType,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
@@ -54,10 +51,12 @@ export function AvoidKeyboard({
   children,
   style,
   testID,
+  pointerEvents,
 }: {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  pointerEvents?: 'auto' | 'none';
 }) {
   const ref = useRef<View>(null);
   const [inset, setInset] = useState(0);
@@ -66,7 +65,11 @@ export function AvoidKeyboard({
   const keyboardTop = useRef<number | null>(null);
   const live = useRef(true);
 
-  const update = useCallback(async (animation?: { duration: number; easing: LayoutAnimationType }) => {
+  // No `LayoutAnimation`: it animates the next commit anywhere in the app, and
+  // a keyboard hiding as a screen signs in hands it that screen's removal. On
+  // Fabric an animated removal is the known way a deleted native view lingers
+  // — which is what the device showed for D4. The lift is immediate.
+  const update = useCallback(async () => {
     const top = keyboardTop.current;
     let next = 0;
     if (top !== null) {
@@ -77,10 +80,6 @@ export function AvoidKeyboard({
     }
     if (next === insetRef.current) return;
     insetRef.current = next;
-    if (animation && animation.duration > 0) {
-      const duration = Math.max(animation.duration, 10);
-      LayoutAnimation.configureNext({ duration, update: { duration, type: animation.easing } });
-    }
     setInset(next);
   }, []);
 
@@ -96,10 +95,6 @@ export function AvoidKeyboard({
       ? Keyboard.metrics()
       : undefined;
     if (metrics) keyboardTop.current = metrics.screenY;
-    const animationOf = (event: KeyboardEvent) => ({
-      duration: event.duration ?? 0,
-      easing: (event.easing && event.easing in LayoutAnimation.Types ? event.easing : 'keyboard') as LayoutAnimationType,
-    });
     // A show usually lands inside the screen's entrance (`ScreenIn`, 340ms of
     // translate and scale). A transform fires no layout, so the first
     // measurement would stand until the next keyboard event; measure again
@@ -109,9 +104,9 @@ export function AvoidKeyboard({
       if (settle) clearTimeout(settle);
       settle = setTimeout(() => { settle = null; if (keyboardTop.current !== null) void update(); }, ENTRANCE_SETTLE_MS);
     };
-    const moved = (event: KeyboardEvent) => {
+    const moved = (event: { endCoordinates: { screenY: number } }) => {
       keyboardTop.current = event.endCoordinates.screenY;
-      void update(animationOf(event));
+      void update();
       measureAgainLater();
     };
     // `WillChangeFrame` too: the keyboard changes height while it stays up
@@ -121,10 +116,10 @@ export function AvoidKeyboard({
     const change = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
       if (keyboardTop.current !== null) moved(event);
     });
-    const hide = Keyboard.addListener('keyboardWillHide', (event) => {
+    const hide = Keyboard.addListener('keyboardWillHide', () => {
       keyboardTop.current = null;
       if (settle) { clearTimeout(settle); settle = null; }
-      void update(event ? animationOf(event) : undefined);
+      void update();
     });
     if (metrics) measureAgainLater();
     return () => {
@@ -140,6 +135,7 @@ export function AvoidKeyboard({
     <View
       ref={ref}
       testID={testID}
+      pointerEvents={pointerEvents}
       // A banner appearing or going away moves this view; measure again.
       onLayout={() => { if (keyboardTop.current !== null) void update(); }}
       style={[{ flex: 1 }, style, { paddingBottom: inset }]}

@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { Keyboard, ScrollView, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { useSingleFlight } from '../auth/useSingleFlight';
@@ -40,6 +40,27 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
   const { busy, run } = useSingleFlight();
   const [errorKey, setErrorKey] = useState<AuthMessageKey | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  /**
+   * The account call succeeded, and this screen is on its way out.
+   *
+   * With `busy`, this makes the form inert: no pointer events on the screen
+   * and no editable field. On the device (UAT 2026-09-26, D4) this screen's
+   * password field stayed hit-testable over welcome after email sign-up —
+   * React had unmounted the screen, the native view had not gone, frozen with
+   * its last props — and the first press on «كمّل» went to it. Those last
+   * props are the ones set here, so what outlives the screen takes nothing.
+   */
+  const [signedIn, setSignedIn] = useState(false);
+  const inert = busy || signedIn;
+  const passwordRef = useRef<TextInput>(null);
+  // Bumped by a refused call; acted on once the fields are editable again.
+  const [refused, setRefused] = useState(0);
+  const refocused = useRef(0);
+  useEffect(() => {
+    if (inert || refused === refocused.current) return;
+    refocused.current = refused;
+    passwordRef.current?.focus();
+  }, [inert, refused]);
 
   const title = mode === 'reset' ? t.authResetTitle : mode === 'signUp' ? t.authModeSignUp : t.authModeSignIn;
   const submitLabel = busy
@@ -69,14 +90,6 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
       }
     }
     setErrorKey(null);
-    // Let go of the focused field now, while it is on screen. A successful
-    // sign-in swaps this screen out in the commit that says who is signed in,
-    // and a TextInput unmounting while focused sends its native blur to a view
-    // that same commit deletes — the blur never lands. After email sign-up
-    // the next screen's first press, welcome «كمّل», did nothing on the device
-    // and the second worked (UAT 2026-09-26, D4). A validation error above
-    // keeps the keyboard: that person is about to type again.
-    Keyboard.dismiss();
     // `run` refuses a second submit while the first is in flight, so a double
     // tap is one account rather than two attempts.
     await run(async () => {
@@ -91,10 +104,15 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
           await repository.signInWithEmail(address, password);
         }
         // A success clears the password from state at once; the gate swaps
-        // this screen out on the auth change that follows.
+        // this screen out on the auth change that follows. Until it does —
+        // and in whatever native view outlives it — the form stays inert.
         setPassword('');
+        if (mode !== 'reset') setSignedIn(true);
       } catch (error) {
         setErrorKey(authErrorKey(error));
+        // The fields were locked for the call; once they are editable again
+        // the password takes the keyboard back, ready to retype.
+        if (mode !== 'reset') setRefused(count => count + 1);
       }
     });
   }, [run, email, password, mode, repository]);
@@ -117,7 +135,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
   };
 
   return (
-    <AvoidKeyboard style={{ flex: 1, backgroundColor: p.bg }}>
+    <AvoidKeyboard testID="email-auth-root" pointerEvents={inert ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: p.bg }}>
       <TaskHeader pill={t.back} onPill={onBack} title={t.authEmailTitle} />
       <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
         <Txt size={22} weight={600}>{title}</Txt>
@@ -143,7 +161,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
             // live (OWNER-A1 #137); until then this is simply inert.
             textContentType="username"
             autoComplete="email"
-            editable={!busy}
+            editable={!inert}
             style={inputStyle}
           />
         </View>
@@ -153,6 +171,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
             <Txt size={13} color={p.mu}>{t.authPasswordLabel}</Txt>
             <TextInput
               testID="authPasswordInput"
+              ref={passwordRef}
               accessibilityLabel={t.authPasswordLabel}
               value={password}
               onChangeText={setPassword}
@@ -161,7 +180,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
               autoCorrect={false}
               textContentType={mode === 'signUp' ? 'newPassword' : 'password'}
               autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
-              editable={!busy}
+              editable={!inert}
               style={inputStyle}
             />
             <Txt size={12} color={p.mu}>{fill(t.authPasswordHint, { n: MIN_PASSWORD_LENGTH })}</Txt>

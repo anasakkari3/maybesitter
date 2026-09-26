@@ -66,7 +66,10 @@ export function authEmulatorUrl(input: AuthEmulatorInput): string | null {
 
 /** `host:port`, lower-cased, or null if it is not a local emulator address. */
 function authEmulatorHost(raw: string | null | undefined): string | null {
-  const value = (raw ?? '').trim();
+  // `typeof`, not `??`: a Debug build crashed here with "undefined is not a
+  // function" when the configured value was not a string. Anything that is
+  // not one is not an address.
+  const value = (typeof raw === 'string' ? raw : '').trim();
   if (value === '') return null;
   let url: URL;
   try {
@@ -84,7 +87,7 @@ function authEmulatorHost(raw: string | null | undefined): string | null {
 }
 
 function apiHostIsLocal(apiBaseUrl: string | null | undefined): boolean {
-  const raw = (apiBaseUrl ?? '').trim();
+  const raw = (typeof apiBaseUrl === 'string' ? apiBaseUrl : '').trim();
   if (raw === '') return false;
   let url: URL;
   try {

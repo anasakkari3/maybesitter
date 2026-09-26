@@ -46,7 +46,9 @@ Rules the design fixes, which code must keep:
 - Respect reduce-motion (`useReducedMotion` in `src/ui/motion.tsx`).
 - A screen with a keyboard wraps its body in `AvoidKeyboard` (`src/ui/keyboard.tsx`),
   never a bare `KeyboardAvoidingView`: that one measures against its parent and
-  under-pads by whatever chrome sits above it (the verify-email banner).
+  under-pads by whatever chrome sits above it (the verify-email banner). No
+  `LayoutAnimation` anywhere: it animates the next commit app-wide, including a
+  screen swap (a census test holds both).
 
 ## Layout
 

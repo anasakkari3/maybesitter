@@ -115,3 +115,12 @@ it('a write that never lands costs a repeated step, never a skipped one', async 
   // is still ahead of it.
   expect(await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY)).not.toBe('consent');
 });
+
+// The instrumented device run found the email screen's password field still
+// hit-testable over welcome. In React the screen is gone — this holds that
+// half; what lingered on the device was the native view (see emailAuth.test).
+it('the email screen is not in the tree once welcome shows', async () => {
+  await signUpToWelcome();
+  expect(screen.queryByTestId('authPasswordInput')).toBeNull();
+  expect(screen.queryByTestId('authEmailInput')).toBeNull();
+});
