@@ -1170,7 +1170,10 @@ test('R4 N2: a misaligned batch with no time left goes to the rules with the evi
   );
   const { contract } = await proposeScripted(text, model);
   assert.deepEqual(model.log.map((call) => call.shape), ['batch'], 'no single call past the budget');
-  assert.deepEqual(contract.items.map((item) => item.title), ['call mom', 'buy bread']);
+  // Round 6 (NEW-1): the model read no clause of this capture, so it reads as
+  // it does without consent — the remark is offered as a question, not dropped.
+  assert.deepEqual(contract.items.map((item) => [item.title, item.needsClarification]), [['call mom', true], ['she is sick', true], ['buy bread', true]]);
+  assert.equal(contract.provenance.executedEngine, 'rule-based');
   assert.equal(contract.provenance.fallbackUsed, true);
 });
 
@@ -1202,18 +1205,23 @@ const PARTIAL_ANSWERS: Record<string, unknown> = {
   'dentist on Tuesday at 9am': timedTask('dentist', '2026-09-29', '09:00'), 'pay rent by Friday': timedTask('pay rent', '2026-10-02', null), 'email Sam': taskFor('email Sam'),
 };
 
-test('R4 N4: a timed-out chunk is read by the rules only where a clause asks for something — no “she is sick” item', async () => {
+test('R4 N4: a timed-out chunk is read by the rules; a clause that asks for nothing is a question, never a confirmed item', async () => {
   const chunkOne = scriptedModel(
     (clauses) => (clauses.includes('call mom tomorrow') ? new LLMUnavailableError('timeout') : { items: withIndex(clauses.map((clause) => PARTIAL_ANSWERS[clause])) }),
     () => new LLMUnavailableError('provider_error'),
   );
   const first = await proposeScripted(PARTIAL_SIX, chunkOne);
-  assert.deepEqual(first.contract.items.map((item) => item.title), ['call mom', 'buy bread', 'dentist', 'pay rent', 'email Sam']);
+  // Round 6 (NEW-1): "she is sick" is kept as a question rather than dropped;
+  // the two real clauses of its chunk stand on their own evidence.
+  assert.deepEqual(first.contract.items.map((item) => item.title), ['call mom', 'she is sick', 'buy bread', 'dentist', 'pay rent', 'email Sam']);
+  assert.equal(first.contract.items[1]!.needsClarification, true);
   assert.equal(first.contract.provenance.executedEngine, 'gemini');
   assert.equal(first.contract.provenance.fallbackUsed, true);
+  // Every chunk down is a capture-wide failure: the rules path, ungated.
   const bothDown = scriptedModel(() => new LLMUnavailableError('timeout'), () => new LLMUnavailableError('timeout'));
   const second = await proposeScripted(PARTIAL_SIX, bothDown);
-  assert.deepEqual(second.contract.items.map((item) => item.title), ['call mom', 'buy bread', 'dentist', 'pay rent', 'email Sam']);
+  const rules = await propose(PARTIAL_SIX);
+  assert.deepEqual(second.contract.items.map((item) => [item.title, item.needsClarification]), rules.contract.items.map((item) => [item.title, item.needsClarification]));
   assert.equal(second.contract.provenance.executedEngine, 'rule-based');
 });
 
@@ -1350,7 +1358,8 @@ test('R5 1: a sentence that starts with an errand verb opens a new clause; nouns
     // English imperatives.
     ['Meeting with Sam on Sunday. Email Dana the report', 2],
     ['Meeting with Sam on Sunday. Text Dana', 2],
-    ['Meeting with Sam on Sunday. Pick up the kids at 4', 2],
+    // Round 6: a clock with no day after a day with no clock restates it (NEW-2).
+    ['Meeting with Sam on Sunday. Pick up the kids at 4', 1],
     ['Meeting with Sam on Sunday. Please send the invoice', 2],
     ['Meeting with Sam on Sunday. And book a table', 2],
     // Hebrew infinitive, future/imperative and first-person forms.
@@ -1439,4 +1448,432 @@ test('R5 2: with the calendar lines Gemini dates "Interview on Tuesday" the Tues
   // keeps the model's date as it is — it flags, it never moves (L4).
   const before = await proposeScripted(clause, answering(round4));
   assert.equal(before.contract.items[0]!.resolvedDate, '2026-09-30');
+});
+
+// ── Round 6 (controller rulings on re-review 2: NEW-1, NEW-2, M-a, M-b, bare hour) ──
+
+/** What a proposal offers the user, in a form two proposals compare by. */
+const offered = (contract: Awaited<ReturnType<typeof proposeCapture>>) => ({
+  status: contract.status,
+  items: contract.items.map((item) => ({
+    title: item.title,
+    resolvedTime: item.resolvedTime ?? null,
+    resolvedDate: item.resolvedDate ?? null,
+    needsClarification: item.needsClarification,
+    priority: item.priority,
+  })),
+});
+
+async function proposeWith(text: string, dependencies: Partial<Parameters<typeof proposeCapture>[2]>, requestedEngine: 'model' | 'rules' = 'model', extra: Partial<Parameters<typeof proposeCapture>[1]> = {}) {
+  const { guardedMobileExtract } = await import('../../lib/services/mobile/safety.ts');
+  const store = new MemoryCaptureProposalStore();
+  const contract = await proposeCapture(
+    text,
+    { now: NOW, timezone: TZ, scopeId: 'cl1-uat', requestedEngine, ...extra },
+    {
+      store,
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+      extractor: guardedMobileExtract,
+      ...dependencies,
+    } as Parameters<typeof proposeCapture>[2],
+  );
+  return { contract, store };
+}
+
+/** The same capture from a user without AI consent — the rules path. */
+const noConsent = (text: string) => proposeWith(text, {}, 'rules');
+
+// NEW-1 — a capture-wide refusal reads exactly like the rules path.
+
+const NEW1_CAPTURES = [
+  'call mom tomorrow; rent due Friday; dinner with Sam Friday at 8',
+  'ذكرني أتصل بأمي بكرا، فاتورة الكهربا قبل آخر الشهر، عشا مع سامي الجمعة الساعة 8',
+  'להתקשר לאמא מחר; חשבון חשמל עד סוף החודש; ארוחת ערב עם סמי ביום שישי ב-8',
+  'התקשר לאמא מחר; חשבון חשמל עד סוף החודש; ארוחת ערב עם סמי ביום שישי ב-8',
+  "Mom's birthday Friday\nDana's wedding Saturday\nbuy a gift",
+  "Dinner with Sam on Friday. I'll pick him up at 7pm",
+  UAT_SIX,
+] as const;
+
+/** The review's noun-phrase commitments: each must survive every refusal. */
+const NEW1_MUST_KEEP: Record<string, readonly string[]> = {
+  [NEW1_CAPTURES[0]]: ['call mom', 'rent due', 'dinner with Sam'],
+  [NEW1_CAPTURES[1]]: ['أتصل بأمي', 'فاتورة الكهربا قبل آخر الشهر', 'عشا مع سامي'],
+  [NEW1_CAPTURES[2]]: ['להתקשר לאמא', 'חשבון חשמל עד סוף החודש', 'ארוחת עם סמי'],
+  [NEW1_CAPTURES[3]]: ['התקשר לאמא', 'חשבון חשמל עד סוף החודש', 'ארוחת עם סמי'],
+  [NEW1_CAPTURES[4]]: ["Mom's birthday", "Dana's wedding", 'buy a gift'],
+  [NEW1_CAPTURES[5]]: ["Dinner with Sam I'll pick him up"],
+  [NEW1_CAPTURES[6]]: ['موعد دكتور', 'أدفع فاتورة الكهربا قبل آخر الشهر', 'أرد على إيميل سامي بخصوص المشروع', 'أتصل بأمي', 'عندي تمرين بالجيم', 'أخلص تقرير الشغل'],
+};
+
+/** The real metered provider, with its storage seams faked. */
+async function meteredProvider(overrides: Record<string, unknown>) {
+  const { captureLlmProvider } = await import('../../lib/llm/captureProvider.ts');
+  const unreachable = async () => { throw new Error('the model must not be reached'); };
+  return captureLlmProvider('cl1-new1', {
+    provider: { name: 'gemini', generateJson: unreachable, generateStructured: unreachable },
+    consent: async () => 'granted',
+    reserve: async () => 'ok',
+    log: () => undefined,
+    commit: async () => undefined,
+    ...overrides,
+  } as Parameters<typeof captureLlmProvider>[1]);
+}
+
+const CAPTURE_WIDE_REFUSALS: ReadonlyArray<readonly [string, () => Promise<(prompt: string) => Promise<string>>, (() => () => void)?]> = [
+  ['ai_disabled (the #181 kill switch)', () => meteredProvider({}), () => {
+    const before = process.env.MAYBESITTER_AI_DISABLED;
+    process.env.MAYBESITTER_AI_DISABLED = 'true';
+    return () => { if (before === undefined) delete process.env.MAYBESITTER_AI_DISABLED; else process.env.MAYBESITTER_AI_DISABLED = before; };
+  }],
+  ['cost_cap:user_daily', () => meteredProvider({ reserve: async () => 'user_cap' })],
+  ['cost_cap:global_daily', () => meteredProvider({ reserve: async () => 'global_cap' })],
+  ['cost_cap:user_minute', () => meteredProvider({ reserve: async () => 'user_minute_cap' })],
+  ['usage_guard_unavailable', () => meteredProvider({ reserve: async () => 'unavailable' })],
+  ['provider_none', () => meteredProvider({ provider: { name: 'none', generateJson: async () => { throw new Error('none'); }, generateStructured: async () => { throw new Error('none'); } } })],
+  ['every chunk timed out', () => meteredProvider({
+    provider: {
+      name: 'gemini',
+      generateJson: async () => { throw new LLMUnavailableError('timeout'); },
+      generateStructured: async () => { throw new LLMUnavailableError('timeout'); },
+    },
+  })],
+];
+
+test('R6 NEW-1: a capture-wide refusal — kill switch, caps, guard down, no provider, every chunk timed out — reads exactly like the rules path', async () => {
+  for (const text of NEW1_CAPTURES) {
+    const rules = offered((await noConsent(text)).contract);
+    for (const title of NEW1_MUST_KEEP[text]!) {
+      assert.ok(rules.items.some((item) => item.title === title), `rules path keeps ${title} from ${text}`);
+    }
+    for (const [label, makeProvider, arrange] of CAPTURE_WIDE_REFUSALS) {
+      const restore = arrange?.();
+      try {
+        const { contract } = await proposeWith(text, { llmProvider: await makeProvider(), llmEngine: 'gemini' });
+        assert.deepEqual(offered(contract), rules, `${label}: ${text}`);
+        assert.equal(contract.provenance.executedEngine, 'rule-based', label);
+        assert.equal(contract.provenance.fallbackUsed, true, label);
+      } finally {
+        restore?.();
+      }
+    }
+  }
+});
+
+test('R6 NEW-1: "Dinner with Sam on Friday. I\'ll pick him up at 7pm" with the model down is one item on Friday at 19:00, never no_commitment', async () => {
+  const { contract } = await proposeWith(NEW1_CAPTURES[5], { llmProvider: await meteredProvider({ reserve: async () => 'user_cap' }), llmEngine: 'gemini' });
+  assert.equal(contract.status, 'proposed');
+  assert.equal(contract.items.length, 1);
+  assert.equal(contract.items[0]!.resolvedTime, '2026-10-02T16:00:00.000Z');
+});
+
+test('R6 NEW-1: in a partial timeout a clause with no action evidence is kept as a question, never dropped', async () => {
+  // The review's clauses in the chunk that timed out, beside two the model answered.
+  const answered: Record<string, unknown> = { 'buy bread tomorrow': timedTask('buy bread', '2026-09-27', null), 'email Sam': taskFor('email Sam') };
+  for (const text of NEW1_CAPTURES) {
+    const { splitCaptureClauses } = await import('../../src/extraction/clauseSplitter.ts');
+    const own = splitCaptureClauses(text);
+    // Padded to three so the review's clauses fill the first chunk exactly.
+    const padded = [...own, 'call dad tomorrow', 'pay the rent by Friday'].slice(0, Math.max(3, own.length));
+    const capture = [...padded, 'buy bread tomorrow', 'email Sam'].join('; ');
+    const clauses = splitCaptureClauses(capture);
+    assert.deepEqual(clauses, [...padded, 'buy bread tomorrow', 'email Sam'], capture);
+    const model = scriptedModel(
+      (batch) => (batch.includes('email Sam') ? { items: withIndex(batch.map((clause) => answered[clause])) } : new LLMUnavailableError('timeout')),
+      () => new LLMUnavailableError('timeout'),
+    );
+    const { contract, store } = await proposeWith(capture, { llmProvider: model.provider, llmEngine: 'gemini', clock: () => model.clock.now });
+    const rules = offered((await noConsent(padded.join('; '))).contract);
+    const titles = contract.items.map((item) => item.title);
+    for (const item of rules.items) {
+      assert.ok(titles.includes(item.title), `${item.title} is kept from ${capture} → ${JSON.stringify(titles)}`);
+    }
+    for (const title of NEW1_MUST_KEEP[text]!) assert.ok(titles.includes(title), `${title} kept in ${capture}`);
+    assert.ok(titles.includes('buy bread') && titles.includes('email Sam'), capture);
+    assert.equal(contract.provenance.executedEngine, 'gemini');
+    assert.equal(contract.provenance.fallbackUsed, true);
+    const stored = (await store.get(contract.proposalId))!;
+    const { hasActionEvidence } = await import('../../src/extraction/clauseSplitter.ts');
+    for (const item of contract.items) {
+      const clause = stored.resultsByItemId?.get(item.itemId)?.rawText ?? '';
+      if (padded.includes(clause) && !hasActionEvidence(clause)) {
+        assert.equal(item.needsClarification, true, `gated «${clause}» is a question`);
+        assert.equal(item.resolvedTime, null, clause);
+        assert.deepEqual(stored.commandsByItemId.get(item.itemId), [], `gated «${clause}» writes nothing until answered`);
+      }
+    }
+  }
+  // The literal gated rows: each is an item needing clarification.
+  const literal = scriptedModel(
+    (batch) => (batch.includes('email Sam') ? { items: withIndex(batch.map((clause) => answered[clause])) } : new LLMUnavailableError('timeout')),
+    () => new LLMUnavailableError('timeout'),
+  );
+  const { contract } = await proposeWith(`${NEW1_CAPTURES[0]}; buy bread tomorrow; email Sam`, { llmProvider: literal.provider, llmEngine: 'gemini', clock: () => literal.clock.now });
+  const dinner = contract.items.find((item) => item.title === 'dinner with Sam');
+  assert.ok(dinner, 'dinner with Sam is kept');
+  assert.equal(dinner.needsClarification, true);
+  assert.ok(contract.items.find((item) => item.title === 'rent due')?.needsClarification);
+});
+
+// NEW-2 — a restatement attaches; an opener splits only onto an object.
+
+const NEW2_ROWS: ReadonlyArray<readonly [string, string]> = [
+  // The review's table: rules path, [input, the appointment's instant or day].
+  ['عندي موعد دكتور بكرا. بدي أكون هناك الساعة 5 المسا', '2026-09-27T14:00:00.000Z'],
+  ['عندي موعد دكتور بكرا. لازم أوصل الساعة 5 المسا', '2026-09-27T14:00:00.000Z'],
+  ['I have a dentist appointment tomorrow. I have to be there at 4:30pm', '2026-09-27T13:30:00.000Z'],
+  ["Meeting with Sam on Sunday. I'll be there at 10", '2026-09-27T07:00:00.000Z'],
+  ['Interview on Tuesday. I will join at 3pm', '2026-09-29T12:00:00.000Z'],
+  ['פגישה עם סמי ביום ראשון. אני צריך להגיע ב-10 בבוקר', '2026-09-27T07:00:00.000Z'],
+  ['Job interview on Tuesday. Call at 3pm', '2026-09-29T12:00:00.000Z'],
+  ['Meeting with Sam Sunday. Call is at 10am', '2026-09-27T07:00:00.000Z'],
+  ['اجتماع مع سامي يوم الأحد. نحكي الساعة 10 الصبح', '2026-09-27T07:00:00.000Z'],
+  ['اجتماع مع سامي الأحد. أحكي معه الساعة 10', '2026-09-27T07:00:00.000Z'],
+  ['Dentist tomorrow. Book at 4pm', '2026-09-27T13:00:00.000Z'],
+  // The noun sentences the English homographs split.
+  ['Meeting with Sam on Sunday. Email has the address', '2026-09-27'],
+  ['Dinner with Sam Friday. Book is on the table', '2026-10-02'],
+  ['Dentist tomorrow at 5. Text reminder says 4:45', '2026-09-27'],
+  ['School pickup tomorrow. Pickup at 3:15', '2026-09-27'],
+  ['Flight on Sunday. Take off at 6am', '2026-09-27T03:00:00.000Z'],
+  // The reviewer's remaining over-split probes.
+  ['Interview on Tuesday. Call at 3pm', '2026-09-29T12:00:00.000Z'],
+  ['Sync with Dana tomorrow. Call at 3', '2026-09-27'],
+  ["Party at Dana's on Friday. Order is ready at 7", '2026-10-02'],
+  ['Dentist tomorrow. I need to be there at 4:30', '2026-09-27'],
+  ['Dentist tomorrow. I have to leave at 4', '2026-09-27'],
+  ['موعد الدكتور بكرا. بدي أروح عليه الساعة 5', '2026-09-27'],
+  ['موعد الدكتور بكرا. لازم أكون هناك الساعة 5', '2026-09-27'],
+  ['תור לרופא מחר. אני צריך להיות שם ב-5', '2026-09-27'],
+  ['مقابلة شغل يوم الثلاثاء. بتصلوا فيي الساعة 3 العصر', '2026-09-29T12:00:00.000Z'],
+  ["Dinner with Sam on Friday. I'll pick him up at 7pm", '2026-10-02T16:00:00.000Z'],
+];
+
+test('R6 NEW-2: every restatement and noun sentence from the review stays one clause', async () => {
+  const { splitCaptureClauses } = await import('../../src/extraction/clauseSplitter.ts');
+  for (const [text] of NEW2_ROWS) {
+    assert.equal(splitCaptureClauses(text).length, 1, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
+  }
+});
+
+test('R6 NEW-2: on the rules path each row is one item on the appointment’s day — nothing proposed today', async () => {
+  for (const [text, at] of NEW2_ROWS) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items.length, 1, `${text} → ${JSON.stringify(contract.items.map((item) => [item.title, item.resolvedTime]))}`);
+    const item = contract.items[0]!;
+    if (at.includes('T')) assert.equal(item.resolvedTime, at, text);
+    else assert.equal((item.resolvedTime ?? item.resolvedDate ?? '').slice(0, 10) === at || item.resolvedDate === at, true, `${text} → ${item.resolvedTime ?? item.resolvedDate}`);
+  }
+});
+
+test('R6 NEW-2: on the model path the restatement reaches the model with its appointment', async () => {
+  for (const [text] of NEW2_ROWS.slice(0, 11)) {
+    const model = modelAnswering(() => taskFor('appointment'));
+    await propose(text, model.provider);
+    assert.deepEqual(model.asked, [text]);
+  }
+});
+
+test('R6 NEW-2: an opener splits only when an object follows it; a second errand with its own day or no clock still splits', async () => {
+  const { splitCaptureClauses } = await import('../../src/extraction/clauseSplitter.ts');
+  const cases: ReadonlyArray<readonly [string, number]> = [
+    // An object after the opener: split.
+    ['buy rice. Call mom', 2],
+    ['Meeting with Sam on Sunday. Email Dana the report', 2],
+    ['Meeting with Sam on Sunday. Text Dana', 2],
+    ['Meeting with Sam on Sunday. Please send the invoice', 2],
+    ['Meeting with Sam on Sunday. And book a table', 2],
+    ['Meeting with Sam on Sunday. Remind me to call mom', 2],
+    ["Meeting with Sam on Sunday. Don't forget the milk", 2],
+    ["Meeting with Sam on Sunday. I'll call mom tomorrow", 2],
+    ['Meeting with Sam on Sunday. Take out the trash', 2],
+    ['Book the dentist on Sunday. Pay the electricity bill tomorrow at 5pm', 2],
+    ['سجّل موعد دكتور يوم الأحد. أدفع فاتورة الكهربا قبل آخر الشهر', 2],
+    ['عندي موعد دكتور بكرا. أتصل بسامي', 2],
+    ['עם סמי מחר. תתקשר לאמא', 2],
+    ['פגישה עם סמי מחר. אשלח לו את הדוח', 2],
+    // A copula, a preposition or a time after the opener: attach.
+    ['buy rice. Call is at 10am', 1],
+    ['buy rice. Email has the address', 1],
+    ['buy rice. Book is on the table', 1],
+    ['buy rice. Order is ready', 1],
+    ['buy rice. Take off at 6am', 1],
+    ['buy rice. Call at 3pm', 1],
+    ['buy rice. Text reminder says 4:45', 1],
+    ['buy rice. I will be there', 1],
+    ['اشتري خبز. أحكي معه بعدين', 1],
+    ['اشتري خبز. نحكي الساعة 10', 1],
+    ['לקנות חלב. אני צריך להיות שם', 1],
+    // The ruling's accepted price: a day without a clock, then a clock without a day.
+    ['Dentist on Sunday. Call mom at 5', 1],
+    ['Meeting with Sam on Sunday. Pick up the kids at 4', 1],
+  ];
+  for (const [text, count] of cases) {
+    assert.equal(splitCaptureClauses(text).length, count, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
+  }
+});
+
+// M-a — an echoed index is checked against the clause's own clock time.
+
+test('R6 M-a: a batch numbered as a counter over a mis-split is caught by its clock times and re-asked', async () => {
+  const model = scriptedModel(
+    () => ({ items: [
+      { clauseIndex: 0, ...taskFor('call Dana') },
+      { clauseIndex: 1, ...taskFor('email Sam') },
+      { clauseIndex: 2, ...timedTask('dentist', '2026-09-29', '09:00') },
+    ] }),
+    (clause) => SHIFT_SINGLES[clause],
+  );
+  const { drafts } = await proposeScripted(SHIFT, model);
+  assert.deepEqual(model.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
+  assert.deepEqual(drafts.map((draft) => [draft.title, draft.rawText]), [
+    ['call Dana and email Sam', 'call Dana and email Sam'],
+    ['dentist', 'dentist on Tuesday at 9am'],
+    ['pay rent', 'pay rent by Friday at 5pm'],
+  ]);
+});
+
+test('R6 M-a: a rotation labelled by position is caught by its clock times and re-asked; each item keeps its own time', async () => {
+  const EN = 'call mom tomorrow at 6pm; dentist on Tuesday at 9am; pay rent by Friday at 5pm';
+  const singles: Record<string, unknown> = {
+    'call mom tomorrow at 6pm': timedTask('call mom', '2026-09-27', '18:00'),
+    'dentist on Tuesday at 9am': timedTask('dentist', '2026-09-29', '09:00'),
+    'pay rent by Friday at 5pm': timedTask('pay rent', '2026-10-02', '17:00'),
+  };
+  const model = scriptedModel(
+    () => ({ items: [
+      { clauseIndex: 0, ...(singles['pay rent by Friday at 5pm'] as object) },
+      { clauseIndex: 1, ...(singles['call mom tomorrow at 6pm'] as object) },
+      { clauseIndex: 2, ...(singles['dentist on Tuesday at 9am'] as object) },
+    ] }),
+    (clause) => singles[clause],
+  );
+  const { drafts } = await proposeScripted(EN, model);
+  assert.equal(model.log.filter((call) => call.shape === 'single').length, 3);
+  assert.deepEqual(drafts.map((draft) => [draft.title, draft.rawText, draft.dueAt]), [
+    ['call mom', 'call mom tomorrow at 6pm', '2026-09-27T15:00:00.000Z'],
+    ['dentist', 'dentist on Tuesday at 9am', '2026-09-29T06:00:00.000Z'],
+    ['pay rent', 'pay rent by Friday at 5pm', '2026-10-02T14:00:00.000Z'],
+  ]);
+});
+
+test('R6 M-a: the batch prompt says clauseIndex echoes the clause, not the object’s place', async () => {
+  const { buildBatchPrompt } = await import('../../src/extraction/ollamaExtractor.ts');
+  const prompt = buildBatchPrompt(['a', 'b'], context);
+  const instructions = prompt.slice(0, prompt.lastIndexOf('\nBEGIN_UNTRUSTED_USER_MESSAGE\n'));
+  assert.match(instructions, /an object that reads clause k carries k, even if it is not the k-th object/);
+  assert.doesNotMatch(instructions, /0 for the first clause, 1 for the second, and so on/);
+});
+
+// M-b — the 12 s budget runs from the request's start, storage reads included.
+
+test('R6 M-b: time spent before the capture (auth, consent read) shrinks every deadline', async () => {
+  const model = scriptedModel(
+    (clauses) => ({ items: withIndex(clauses.map((clause) => taskFor(clause))) }),
+    (clause) => taskFor(clause),
+    { now: 10_000 },
+  );
+  await proposeWith('call mom tomorrow; buy bread tomorrow; email Sam', { llmProvider: model.provider, llmEngine: 'gemini', clock: () => model.clock.now }, 'model', { requestStartedAt: 6_000 } as Partial<Parameters<typeof proposeCapture>[1]>);
+  // 4 s already gone: 8000 left, one retry and the back-off → (8000 − 750) / 2.
+  assert.equal(model.log[0]!.options?.timeoutMs, 3_625);
+});
+
+test('R6 M-b: the consent read and the usage reservation of each call count against the budget', async () => {
+  const { captureLlmProvider } = await import('../../lib/llm/captureProvider.ts');
+  const { consentGatedProvider } = await import('../../lib/llm/consentGatedProvider.ts');
+  const { CAPTURE_SERVER_BUDGET_MS, RETRY_BACKOFF_MAX_MS } = await import('../../lib/services/captureBoundary/captureBoundaryService.ts');
+  const clock = { now: 0 };
+  const seen: Array<{ at: number; timeoutMs: number | undefined }> = [];
+  const EN = 'call mom tomorrow at 6pm; dentist on Tuesday at 9am; pay rent by Friday at 5pm';
+  const singles: Record<string, unknown> = {
+    'call mom tomorrow at 6pm': timedTask('call mom', '2026-09-27', '18:00'),
+    'dentist on Tuesday at 9am': timedTask('dentist', '2026-09-29', '09:00'),
+    'pay rent by Friday at 5pm': timedTask('pay rent', '2026-10-02', '17:00'),
+  };
+  const slow = <T>(ms: number, value: T) => async () => { clock.now += ms; return value; };
+  const inner = {
+    name: 'gemini' as const,
+    generateJson: async () => { throw new Error('not used'); },
+    generateStructured: async (request: { parts: Array<{ kind: string; text?: string }>; timeoutMs?: number }) => {
+      seen.push({ at: clock.now, timeoutMs: request.timeoutMs });
+      const clauses = payloadOf(request.parts[0]!.text ?? '') as string[];
+      return { text: JSON.stringify({ items: withIndex(clauses.map((clause) => singles[clause])) }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    },
+  };
+  const provider = captureLlmProvider('cl1-mb', {
+    // The gate's own consent read (1.5 s), inside the provider…
+    provider: consentGatedProvider('cl1-mb', { provider: inner as never, consent: slow(1_500, 'granted') as never, now: () => clock.now }),
+    // …after the capture provider's consent read (1.5 s) and reservation (2 s).
+    consent: slow(1_500, 'granted') as never,
+    reserve: slow(2_000, 'ok') as never,
+    log: () => undefined,
+    commit: async () => undefined,
+    now: () => new Date(clock.now),
+  });
+  const { contract } = await proposeWith(EN, { llmProvider: provider, llmEngine: 'gemini', clock: () => clock.now });
+  assert.equal(contract.items.length, 3);
+  assert.equal(seen.length, 1);
+  const call = seen[0]!;
+  assert.equal(call.at, 5_000, 'the model is reached after 5 s of storage reads');
+  // 5500 sized at 0 ms, less 3500 ms of the capture provider's reads and 1500 ms of the gate's.
+  assert.equal(call.timeoutMs, 500);
+  assert.ok(call.at + 2 * (call.timeoutMs ?? Infinity) + RETRY_BACKOFF_MAX_MS <= CAPTURE_SERVER_BUDGET_MS, `deadline ${call.timeoutMs} at ${call.at} ms outruns the budget`);
+  // Reads that eat the whole budget leave no call at all: the rules answer.
+  clock.now = 0;
+  seen.length = 0;
+  const starved = captureLlmProvider('cl1-mb', {
+    provider: inner as never,
+    consent: slow(4_000, 'granted') as never,
+    reserve: slow(4_000, 'ok') as never,
+    log: () => undefined,
+    commit: async () => undefined,
+    now: () => new Date(clock.now),
+  });
+  const late = await proposeWith(EN, { llmProvider: starved, llmEngine: 'gemini', clock: () => clock.now });
+  assert.equal(seen.length, 0, 'no model call once the reads left under the minimum deadline');
+  assert.equal(late.contract.items.length, 3);
+  assert.equal(late.contract.provenance.executedEngine, 'rule-based');
+});
+
+// A bare hour on the rules path is asked about, never read as the morning.
+
+test('R6 bare hour: «موعد الدكتور بكرا. أروح عليه الساعة 5» asks صبح or مسا instead of proposing 05:00', async () => {
+  const text = 'موعد الدكتور بكرا. أروح عليه الساعة 5';
+  const { contract } = await propose(text);
+  assert.equal(contract.items.length, 1);
+  const item = contract.items[0]!;
+  assert.equal(item.needsClarification, true);
+  assert.equal(item.resolvedTime, null);
+  assert.equal(item.resolvedDate, '2026-09-27');
+  assert.equal(item.clarification?.questionKey, 'ask_am_pm');
+  assert.equal(item.clarification?.field, 'time_period');
+  assert.equal(item.clarification?.allowFreeText, false);
+  assert.deepEqual(item.clarification?.options.map((option) => [option.optionId, option.value.localDate, option.value.localTime]), [
+    ['am', '2026-09-27', '05:00'],
+    ['pm', '2026-09-27', '17:00'],
+  ]);
+  // Answered «مسا», it is the doctor at 17:00, kept there.
+  const { timeSpec } = await answerFor(text, () => true, () => ({ optionId: 'pm' }));
+  assert.equal(timeSpec.kind, 'scheduled_event');
+  assert.equal(timeSpec.dueAt, '2026-09-27T14:00:00.000Z');
+});
+
+test('R6 bare hour: with a period word the hour resolves, and a bare hour past six is kept as before', async () => {
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['موعد الدكتور بكرا. أروح عليه الساعة 5 المسا', '2026-09-27T14:00:00.000Z'],
+    ['موعد الدكتور بكرا. أروح عليه الساعة 5 الصبح', '2026-09-27T02:00:00.000Z'],
+    ['موعد الدكتور بكرا. أروح عليه الساعة 3 بعد الضهر', '2026-09-27T12:00:00.000Z'],
+    ['موعد الدكتور بكرا الساعة 10', '2026-09-27T07:00:00.000Z'],
+  ];
+  for (const [text, at] of rows) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items.length, 1, text);
+    assert.equal(contract.items[0]!.resolvedTime, at, text);
+    assert.equal(contract.items[0]!.needsClarification, false, text);
+  }
+  for (const text of ['لازم أشتري خبز بكرا الساعة 5', 'dentist tomorrow at 5', 'תור לרופא מחר ב-5']) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items[0]!.needsClarification, true, text);
+    assert.equal(contract.items[0]!.clarification?.questionKey, 'ask_am_pm', text);
+  }
 });

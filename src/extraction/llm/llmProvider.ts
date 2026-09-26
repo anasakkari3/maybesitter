@@ -207,6 +207,15 @@ export const CAPTURE_BATCH_TIMEOUT_MS = 5_500;
  * budget and the retry cannot drift apart.
  */
 export const RETRY_BACKOFF_MAX_MS = 750;
+
+/**
+ * The shortest deadline worth giving a capture call (CL1 round 4, N3; round
+ * 6, M-b). A clause read alone took 1.6–3.1 s live; below two seconds a call
+ * is more likely to time out than to answer, and the rules answer at once.
+ * Read by the capture boundary when it sizes a call and by the capture
+ * provider after its own storage reads have eaten into that size.
+ */
+export const CAPTURE_MIN_CALL_TIMEOUT_MS = 2_000;
 export type LLMProviderFunction = (prompt: string, options?: LLMCallOptions) => Promise<string>;
 
 export function providerFunction(

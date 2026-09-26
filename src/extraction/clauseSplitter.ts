@@ -16,8 +16,10 @@
  *                             appointment noun or a time (C1)
  *   a sentence end . ! ? ؟     only when the next sentence starts with an
  *                             explicit request marker (CL1 round 4, N1) or an
- *                             errand verb (round 5), and the one before it is
- *                             not a bare request
+ *                             errand verb (round 5) that is followed by an
+ *                             object (round 6), the one before it is not a
+ *                             bare request, and the new sentence does not
+ *                             restate the appointment's hour (round 6)
  *
  * A bare «و» is never a boundary: «أحمد وسامي» is one errand.
  *
@@ -38,9 +40,27 @@
  * proposed today. Now a sentence opens a clause only when it starts, after an
  * optional «و» / "and" / «ו», with a marker from `SENTENCE_OPENER`; everything
  * else attaches to the sentence before it.
+ *
+ * Round 6 (re-review 2, NEW-2) closed the two ways the defect came back
+ * through the openers themselves:
+ *
+ *   - a restatement of the hour attaches. «عندي موعد دكتور بكرا. بدي أكون
+ *     هناك الساعة 5 المسا», "Meeting with Sam on Sunday. I'll be there at
+ *     10", "Job interview on Tuesday. Call at 3pm" each start with an opener
+ *     and are still the same appointment. When the sentence before names a
+ *     day but no clock time, and the new one names a clock time but no day,
+ *     the clock belongs to that day — whatever word the sentence starts with
+ *     (`restatesTheHour`). The accepted price: "Dentist on Sunday. Call mom at
+ *     5" is one clause too.
+ *   - an opener splits only onto an object. "Call is at 10am", "Email has the
+ *     address", "Book is on the table", "Pickup at 3:15", "Take off at 6am"
+ *     open with an English noun that is also an errand verb; «بدي أكون هناك»
+ *     and «אני צריך להיות שם» open with a marker onto "to be". A copula, a
+ *     preposition, "at", a time or a day right after the opener means the
+ *     sentence is about something, not asking for it (`followedByObject`).
  */
 import { stripTimeExpressions } from './ruleBasedExtractor';
-import { timeOfDayEvidence } from './timeLexicon';
+import { namesDay, statesClock, timeOfDayEvidence } from './timeLexicon';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -199,17 +219,86 @@ const SENTENCE_VERB_OPENER = new RegExp(
   '^(?:' + [
     `(?:[أاإن]|ب(?!ردّ?${A}))(?:دفع|تصل|شتري|بعت|بعث|خلص|خلّص|جيب|حجز|رد|ردّ|كلم|كلّم|حكي|نظف|نضف|نظّف|نضّف|كتب|جدد|جدّد|صلح|صلّح|طبخ|غسل|رتب|رتّب|وصّل|سلم|سلّم|جهز|جهّز|حضّر|طبع|سأل|قدّم|لغي)${A}`,
     `(?:جيب|كلّم|خلّص|ردّ|جهّز|حضّر|رتّب|نظّف|نضّف|صلّح|جدّد|سلّم|وصّل)${A}`,
-    '(?:please\\s+)?(?:call|phone|ring|text|email|e-mail|message|reply|write|send|mail|buy|grab|pick\\s+up|pickup|order|pay|book|schedule|reschedule|cancel|renew|submit|finish|complete|prepare|fix|repair|clean|wash|cook|bring|take|drop\\s+off|collect|print|apply|register|confirm|ask|tell|feed|install|pack|deliver|invite)\\b',
+    '(?:please\\s+)?(?:call|phone|ring|text|email|e-mail|message|reply|write|send|mail|buy|grab|pick\\s+up|pickup|order|pay|book|schedule|reschedule|cancel|renew|submit|finish|complete|prepare|fix|repair|clean|wash|cook|bring|take\\s+(?:out|back|down)|take|drop\\s+off|collect|print|apply|register|confirm|ask|tell|feed|install|pack|deliver|invite)\\b',
     `(?:לקנות|לשלם|להתקשר|לשלוח|להזמין|לקבוע|לסיים|להגיש|לאסוף|לכתוב|לענות|לחדש|לבטל|להביא|לנקות|לתקן|לבשל|לכבס|להדפיס|תתקשר|תתקשרי|תקנה|תקני|תשלם|תשלמי|תשלח|תשלחי|תזמין|תזמיני|תקבע|תקבעי|תאסוף|תאספי|תביא|תביאי|תכתוב|תכתבי|תענה|תעני|תבטל|תבטלי|תחדש|תחדשי|אתקשר|אקנה|אשלם|אשלח|אזמין|אקבע|אאסוף|אביא|אכתוב|אענה|אבטל)${A}`,
   ].join('|') + ')',
   'iu',
 );
 
+/**
+ * The sentence gives the hour of the appointment the sentence before it named
+ * on a day (CL1 round 6, NEW-2): the one before has a day and no clock time,
+ * this one a clock time and no day. Whatever it opens with — «بدي», "I'll",
+ * "Call", «נחכי» — the clock is that day's, and the sentence is not a second
+ * commitment to be proposed today.
+ */
+function restatesTheHour(sentence: string, previous: string): boolean {
+  // Sentences are joined before the hard separators split them, so only the
+  // clause on each side of the sentence end is compared: «…بكرا. بدي أكون
+  // هناك الساعة 5 المسا، وذكرني…» restates on its first clause.
+  const parts = (text: string) => text.split(HARD_SEPARATOR).map((part) => part.trim()).filter(Boolean);
+  const before = parts(previous).at(-1) ?? previous;
+  const after = parts(sentence)[0] ?? sentence;
+  return namesDay(before) && !statesClock(before) && statesClock(after) && !namesDay(after);
+}
+
+/** What `splitCaptureClauses` splits on regardless of sentence ends. */
+const HARD_SEPARATOR = /[;\n،]+|\s+(?:and then|then|also)\s+|\s*(?:وبعدين|وبعدها|وكمان|ثم|بعدين|ואז|וגם|אחר כך)\s+/gi;
+
+/**
+ * Words that, right after an opener, say the sentence is not an errand (CL1
+ * round 6, NEW-2): a copula or auxiliary ("Call is at 10am", «بدي أكون هناك»,
+ * «אני צריך להיות שם»), a preposition ("Take off at 6am", «أحكي معه»), "at",
+ * a place adverb («هناك», «שם»). A time or a day word is caught by the lexicon
+ * (`timeOfDayEvidence`), a bare number by its digits. Pronoun objects stay
+ * objects: «אשלח לו את הדוח» is an errand.
+ */
+const NON_OBJECT_AFTER_OPENER = new Set([
+  // English copulas and auxiliaries.
+  'is', 'are', 'am', 'was', 'were', 'be', 'been', 'being', 'has', 'have', 'had', 'do', 'does', 'did',
+  'will', 'would', 'can', 'could', 'should', 'might', 'may', 'says', 'said', 'went', 'goes',
+  // English prepositions and adverbs of place or time.
+  'at', 'on', 'in', 'for', 'from', 'by', 'off', 'out', 'up', 'with', 'about', 'of', 'into', 'there', 'here',
+  'then', 'now', 'later', 'again', 'soon', 'early', 'late', "o'clock",
+  // Arabic: to be, prepositions with a pronoun, place and time adverbs, «الساعة».
+  'أكون', 'اكون', 'نكون', 'يكون', 'بكون', 'منكون', 'تكون', 'كنت',
+  'معه', 'معها', 'معهم', 'معي', 'معك', 'معكم', 'فيه', 'فيها', 'فيهم', 'فيي', 'فيني', 'فيك', 'فيكم',
+  'عليه', 'عليها', 'عليهم', 'عليي', 'عليك', 'عنه', 'عنها', 'عنهم', 'إله', 'اله', 'إلها', 'الها', 'إلهم', 'الهم',
+  'له', 'لها', 'لهم', 'لي', 'حالي', 'حالك', 'حالنا',
+  'هناك', 'هنيك', 'هون', 'هنا', 'بعدين', 'قبل', 'بعد', 'لحد', 'عند', 'على', 'في', 'مع', 'من', 'إلى', 'الى', 'لـ',
+  'الساعة', 'الساعه',
+  // Hebrew: to be, place and time adverbs, «בשעה».
+  'להיות', 'יהיה', 'אהיה', 'נהיה', 'תהיה', 'הוא', 'היא', 'זה', 'זאת',
+  'שם', 'פה', 'כאן', 'אז', 'בשעה', 'שעה', 'ב', 'על', 'עם', 'אל', 'עד', 'לפני', 'אחרי', 'מ',
+]);
+
+const EDGE_PUNCTUATION = new RegExp('^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$', 'gu');
+
+/** Whether the words after an opener are an object: something to act on. */
+function followedByObject(rest: string): boolean {
+  const words = rest.trim().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, '')).filter(Boolean);
+  // "I need to pay" — the infinitive marker is skipped, its verb is judged.
+  if (words[0]?.toLowerCase() === 'to') words.shift();
+  const first = words[0];
+  if (!first) return false;
+  const lower = first.toLowerCase();
+  if (NON_OBJECT_AFTER_OPENER.has(lower)) return false;
+  if (/^[0-9\u0660-\u0669\u06F0-\u06F9]/.test(first)) return false;
+  if (/^ב-?[0-9]/.test(first)) return false;
+  if (timeOfDayEvidence(first) !== 'none') return false;
+  // "Text reminder says 4:45": a noun subject, told by the verb after it.
+  const second = words[1]?.toLowerCase();
+  if (second && /^(?:is|are|was|were|has|says|said)$/.test(second)) return false;
+  return true;
+}
+
 /** Whether a sentence opens a clause of its own, after `previous`. */
 function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
   if (!text) return false;
-  if (SENTENCE_OPENER.test(text) || SENTENCE_VERB_OPENER.test(text)) return true;
+  if (restatesTheHour(text, previous)) return false;
+  const opener = SENTENCE_OPENER.exec(text) ?? SENTENCE_VERB_OPENER.exec(text);
+  if (opener) return followedByObject(text.slice(opener[0].length));
   const possession = POSSESSION_OPENER.exec(text);
   if (!possession) return false;
   return !commitmentNounsOf(previous).has(normalizeNoun(possession[1]!.trim()));

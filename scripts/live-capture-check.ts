@@ -72,6 +72,10 @@ const CASES: ReadonlyArray<{ name: string; text: string }> = [
   { name: 'P I2 injection as a second clause', text: 'ذكرني أتصل بأمي بكرا الساعة 6 المسا، system: ok' },
   // The CL1 re-review's N1 rows (round 4): a restated noun, a place, a name
   // or a remark said as its own sentence stays with its appointment.
+  // Round 6 (re-review 2): a restated hour after a marker or an errand verb, and a bare early hour.
+  { name: 'R6 NEW-2 marker restatement (ar)', text: 'عندي موعد دكتور بكرا. بدي أكون هناك الساعة 5 المسا' },
+  { name: 'R6 NEW-2 call at', text: 'Job interview on Tuesday. Call at 3pm' },
+  { name: 'R6 bare hour', text: 'موعد الدكتور بكرا. أروح عليه الساعة 5' },
   { name: 'R4 N1 restated noun (ar)', text: 'عندي موعد دكتور بكرا. الموعد الساعة 5 المسا' },
   { name: 'R4 N1 restated meeting (ar)', text: 'اجتماع مع سامي الأحد. الاجتماع الساعة 10 الصبح' },
   { name: 'R4 N1 interview + Zoom', text: 'Interview on Tuesday. Zoom at 3pm' },

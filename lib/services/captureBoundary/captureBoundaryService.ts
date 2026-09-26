@@ -1,13 +1,13 @@
 import { createHash, randomUUID } from 'crypto';
 import { extractWithFallback, type ExtractAndMapOptions, type ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
 import { buildBatchPrompt } from '../../../src/extraction/ollamaExtractor';
-import { CAPTURE_BATCH_TIMEOUT_MS, LLMUnavailableError, RETRY_BACKOFF_MAX_MS } from '../../../src/extraction/llm/llmProvider';
+import { CAPTURE_BATCH_TIMEOUT_MS, CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, RETRY_BACKOFF_MAX_MS } from '../../../src/extraction/llm/llmProvider';
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
 import { hasActionEvidence, hasRequestEvidence, splitCaptureClauses } from '../../../src/extraction/clauseSplitter';
-import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { localTimeSpecFor, statedClockHours } from '../../../src/extraction/timeLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
@@ -81,6 +81,13 @@ export interface ProposeCaptureOptions {
   timezone: string;
   scopeId: string;
   requestedEngine?: 'model' | 'rules';
+  /**
+   * When the request this capture answers began, on `dependencies.clock`
+   * (CL1 round 6, M-b). The 12 s budget runs from here, so the auth check
+   * and the consent read that came before `proposeCapture` count against
+   * it; absent, the budget starts when this function does.
+   */
+  requestStartedAt?: number;
 }
 
 const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|policy)|(?:system|developer)\s*:/i;
@@ -131,12 +138,8 @@ export const MAX_MODEL_CALLS_PER_CAPTURE = 5;
 export const CAPTURE_SERVER_BUDGET_MS = 12_000;
 export { RETRY_BACKOFF_MAX_MS };
 
-/**
- * The shortest deadline worth giving a call. A clause read alone took
- * 1.6–3.1 s live (CL1 rounds 2–3); below two seconds a call is more likely to
- * time out than to answer, and the rules answer at once.
- */
-const MIN_CALL_TIMEOUT_MS = 2_000;
+/** The shortest deadline worth giving a call: `CAPTURE_MIN_CALL_TIMEOUT_MS`. */
+const MIN_CALL_TIMEOUT_MS = CAPTURE_MIN_CALL_TIMEOUT_MS;
 
 /**
  * Clauses per model call; the calls of one capture run at the same time.
@@ -170,8 +173,16 @@ export function chunkSizes(total: number, max: number): number[] {
  * chunk's objects is used: paired by position alone, a model that split one
  * clause in two silently dropped the last commitment and gave its neighbours
  * each other's day, anchor and priority.
+ *
+ * The echo is checked against the clause's content too (round 6, M-a). A
+ * model that numbers its objects by their place rather than by the clause
+ * they read satisfies the index check by construction; the one thing a
+ * clause and its answer must share is the hour, when the clause states one.
+ * An object whose clock time is not among its clause's stated hours is a
+ * mismatch, and the chunk is re-asked.
  */
-function alignedItems(text: string, size: number): Record<string, unknown>[] | null {
+function alignedItems(text: string, clauses: readonly string[], timezone: string): Record<string, unknown>[] | null {
+  const size = clauses.length;
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -186,9 +197,33 @@ function alignedItems(text: string, size: number): Record<string, unknown>[] | n
     if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
     const { clauseIndex, ...extraction } = item as Record<string, unknown>;
     if (clauseIndex !== position) return null;
+    if (!clockAgrees(extraction, clauses[position]!, timezone)) return null;
     aligned.push(extraction);
   }
   return aligned;
+}
+
+/**
+ * The object's clock time, if it has one, is an hour the clause states
+ * (CL1 round 6, M-a). A clause with no clock time constrains nothing: the
+ * model may put «المسا» at 18:00. Compared modulo twelve, since «الساعة 5»
+ * is 17:00 as often as 05:00.
+ */
+function clockAgrees(extraction: Record<string, unknown>, clause: string, timezone: string): boolean {
+  const stated = statedClockHours(clause);
+  if (stated.size === 0) return true;
+  const spec = extraction['localTimeSpec'] as { time?: unknown } | null | undefined;
+  let time = typeof spec?.time === 'string' ? spec.time : null;
+  if (!time) {
+    const iso = [extraction['remindAt'], extraction['dueAt']].find((value): value is string => typeof value === 'string');
+    if (!iso) return true;
+    const instant = new Date(iso);
+    if (Number.isNaN(instant.getTime())) return true;
+    time = localTimeSpecFor(instant, timezone)?.time ?? null;
+  }
+  const hour = time ? Number.parseInt(time.slice(0, 2), 10) : NaN;
+  if (!Number.isFinite(hour)) return true;
+  return stated.has(hour % 12);
 }
 
 /**
@@ -259,7 +294,7 @@ function createClauseBatch(
       }
       send(buildBatchPrompt(chunk.map(([index]) => clauses[index]!), context), 'batch').then(
         (text) => {
-          const items = alignedItems(text, chunk.length);
+          const items = alignedItems(text, chunk.map(([index]) => clauses[index] ?? ''), context.timezone ?? 'UTC');
           if (items) {
             chunk.forEach(([, waiter], position) => waiter.resolve(JSON.stringify(items[position])));
             return;
@@ -394,6 +429,19 @@ function noCommitmentReasonFrom(
   return 'low_confidence';
 }
 
+/**
+ * A clock time the rules read with no meridiem, in the hours where the
+ * morning reading is the unlikely one (CL1 round 6): «الساعة 5», "at 5",
+ * «ב-5» — one to six, and the sentence named no part of the day.
+ */
+function isBareEarlyHour(result: ExtractionResult): boolean {
+  if (result.timeEvidence !== 'clock_marker') return false;
+  const time = result.localTimeSpec?.time;
+  if (!time) return false;
+  const hour = Number.parseInt(time.slice(0, 2), 10);
+  return hour >= 1 && hour <= 6;
+}
+
 function auditEvent(outcome: 'succeeded' | 'rejected' | 'failed' | 'fell_back', raw: string, now: Date, reasonCode?: string, itemCount?: number): AuditEventEnvelope {
   return createAuditEvent({
     eventId: randomUUID(),
@@ -427,7 +475,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    */
   if (raw.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const clock = dependencies.clock ?? Date.now;
-  const startedAt = clock();
+  // The budget runs from the request, not from here (CL1 round 6, M-b): the
+  // route's auth check and the consent read before this call are server time
+  // the phone is already waiting on.
+  const startedAt = options.requestStartedAt ?? clock();
   const requestedEngine = options.requestedEngine ?? 'model';
   const runtime = resolveModuleRuntime('capture', dependencies.controls);
   const forceRules = requestedEngine === 'rules' || runtime.mode === 'rules_only';
@@ -535,6 +586,23 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     }
   }));
 
+  /*
+   * Whether the model answered any clause of this capture (CL1 round 6,
+   * NEW-1). When it answered none — the kill switch, a spent daily, global or
+   * minute cap, the usage guard down, no provider configured, every chunk
+   * timed out — the capture is read exactly as it is for a user without AI
+   * consent: the rules, ungated. The evidence gate below is for a partial
+   * failure only, where the model read some clauses and one chunk of the
+   * same capture did not come back; gating a capture-wide refusal dropped
+   * "rent due Friday", «فاتورة الكهربا قبل آخر الشهر» and «חשבון חשמל עד סוף
+   * החודש» for consented users while the kill switch was on, with no sign.
+   */
+  const modelAnswered = outcomes.some((outcome, index) => {
+    if (!modelIndices.includes(index)) return false;
+    if (outcome.kind === 'extracted') return outcome.extracted.engine !== 'rule-based';
+    return outcome.kind === 'error' && outcome.error instanceof PastCommitmentTimeError && outcome.error.extracted?.engine !== undefined && outcome.error.extracted.engine !== 'rule-based';
+  });
+
   // Phase two: the answers, in the order the user said them.
   for (let index = 0; index < outcomes.length; index += 1) {
     const segment = segments[index]!;
@@ -551,6 +619,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // proposal: the model still read the capture (CL1 review, C2).
       let standIn = false;
       let passedHour = false;
+      // A rules reading the evidence gate did not clear (round 6, NEW-1): kept
+      // as a question, never dropped.
+      let gated = false;
       if (outcome.kind === 'error') {
         // The guarded extractor refuses a time that has gone by with the
         // reading it refused (CL1 round 3, M5): past its negation check,
@@ -566,25 +637,30 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         extracted = outcome.extracted;
       }
       /*
-       * The model was asked and did not answer — its call timed out, the
-       * budget ran out, or its answer could not be used — so the rules read
-       * the clause instead (CL1 round 4, N2 and N4). In a capture of several
-       * clauses the rules reading stands only on evidence that the clause
-       * asks for something: one timed-out call used to turn "she is sick"
-       * into an item beside the two real ones in its chunk. A capture of one
-       * clause is unchanged: what the user typed alone is the request.
+       * The model read the capture but not this clause — its chunk timed out,
+       * the budget ran out before its re-ask, or its answer could not be used
+       * — so the rules read the clause instead (CL1 round 4, N2 and N4). In a
+       * capture of several clauses that rules reading stands on its own only
+       * on evidence that the clause asks for something: one timed-out call
+       * used to turn "she is sick" into a confirmed item beside the two real
+       * ones in its chunk. Without that evidence the reading is offered as a
+       * question, never dropped (round 6, NEW-1): the user decides what it
+       * was. When the model answered nothing at all, there is no partial
+       * reading to protect and the rules stand as they do without consent
+       * (`modelAnswered`). A capture of one clause is unchanged: what the
+       * user typed alone is the request.
        */
       if (
         several
         && batch
+        && modelAnswered
         && modelIndices.includes(index)
         && extracted.engine === 'rule-based'
         && extracted.fallbackReason
         && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason)
         && !hasActionEvidence(segment)
       ) {
-        fallbackUsed = true;
-        continue;
+        gated = true;
       }
       let failure = semanticFailure(extracted.result, options.now);
       /*
@@ -650,7 +726,17 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         continue;
       }
       const disposition = decideExtractionDisposition(extracted.result);
-      const needsClarification = clearedPastTime || disposition === 'needs_clarification';
+      /*
+       * A bare early hour is asked about, not guessed (CL1 round 6, D2
+       * family). The rules read «الساعة 5» as 05:00 — a number the user said
+       * and a half of the day they did not — and proposed it as a time to be
+       * at. For one to six with no period word the morning reading is the
+       * unlikely one, so the clarification asks صبح or مسا (`ask_am_pm`,
+       * the question the review screen already renders); «الساعة 5 المسا»
+       * and «الساعة 10» resolve as before.
+       */
+      const bareEarlyHour = extracted.engine === 'rule-based' && isBareEarlyHour(extracted.result);
+      const needsClarification = clearedPastTime || gated || bareEarlyHour || disposition === 'needs_clarification';
       const itemId = randomUUID();
       items.push({
         itemId,

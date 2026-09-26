@@ -234,6 +234,53 @@ export function forbidsResolvedTime(rawText: string): boolean {
 }
 
 /**
+ * The text names a day — "tomorrow", «الأحد», «מחר» — whatever else it says.
+ * Unlike `timeOfDayEvidence`, which reports the strongest evidence only, this
+ * answers the day question on its own: «بكرا الساعة 5» names a day *and* a
+ * clock (CL1 round 6, NEW-2).
+ */
+export function namesDay(rawText: string): boolean {
+  return typeof rawText === 'string' && DAY_TOKEN.test(rawText);
+}
+
+/**
+ * The text states a clock time — a number read as an hour: «الساعة 5», "at
+ * 4:30pm", «ב-10». A part of the day alone («المسا») is not one.
+ */
+export function statesClock(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  // Not `timeOfDayEvidence`: that reports the strongest evidence, and a part
+  // of the day outranks the clock beside it — «الساعة 5 المسا» is `daypart`.
+  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(rawText)));
+  return HHMM.test(text) || AMPM.test(text) || CLOCK_MARKER.test(text);
+}
+
+/**
+ * The hours the text states as clock times, modulo twelve (CL1 round 6, M-a):
+ * "at 6pm" and «الساعة 18:00» both give 6. Used to check a model's answer
+ * against the clause it says it read — the hour is the one thing the two must
+ * share when the clause names one.
+ */
+export function statedClockHours(rawText: string): Set<number> {
+  const hours = new Set<number>();
+  if (typeof rawText !== 'string' || !rawText.trim()) return hours;
+  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(rawText)));
+  for (const source of CLOCK_PATTERN_SOURCES) {
+    const pattern = new RegExp(source, 'gi');
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match[0].length === 0) {
+        pattern.lastIndex += 1;
+        continue;
+      }
+      const digits = /[0-9]{1,2}/.exec(match[0]);
+      if (digits) hours.add(Number(digits[0]) % 12);
+    }
+  }
+  return hours;
+}
+
+/**
  * A word that makes a stated time a limit rather than an appointment (CL1, D2):
  * "by 5", "before Thursday", «قبل الخميس», «لحد الساعة 5», «עד 17:00».
  * Whole words only, so «قبلها» and "abyss" are not read as one.

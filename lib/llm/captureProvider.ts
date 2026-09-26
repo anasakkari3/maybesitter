@@ -21,6 +21,7 @@
  */
 import {
   CAPTURE_BATCH_TIMEOUT_MS,
+  CAPTURE_MIN_CALL_TIMEOUT_MS,
   LLMUnavailableError,
   type LLMCallOptions,
   type LLMProviderFunction,
@@ -117,6 +118,8 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
   const clock = options.now ?? (() => new Date());
 
   return async (prompt: string, callOptions: LLMCallOptions = {}): Promise<string> => {
+    // When this call began, before its own storage reads (CL1 round 6, M-b).
+    const calledAt = clock().getTime();
     // The kill switch, before anything else (#181). It is the one brake that
     // needs no code change and no console: every path falls back, and the
     // fallback is the rule-based extractor, which is a working product.
@@ -179,6 +182,35 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
     }
 
     const { system, user } = splitPrompt(prompt);
+    /*
+     * The deadline the caller gave is for the whole call, this function's own
+     * reads included (CL1 round 6, M-b). The consent read and the reservation
+     * above, and the gated provider's second consent read below, are
+     * Firestore round trips the capture's 12 s budget was not counting: the
+     * boundary measured its deadline before them and the model call ran with
+     * it whole. What they took comes off the deadline here; a call with less
+     * than the minimum left is not made, and the rules answer.
+     */
+    let timeoutMs = callOptions.timeoutMs;
+    if (timeoutMs !== undefined) {
+      timeoutMs -= clock().getTime() - calledAt;
+      if (timeoutMs < CAPTURE_MIN_CALL_TIMEOUT_MS) {
+        log({
+          event: 'llm_call',
+          purpose,
+          provider: provider.name,
+          model: process.env.MAYBESITTER_LLM_MODEL ?? '',
+          location: process.env.MAYBESITTER_VERTEX_LOCATION ?? '',
+          uidHash: uidHash(uid),
+          latencyMs: 0,
+          promptTokens: 0,
+          outputTokens: 0,
+          outcome: 'unavailable',
+          fallbackReason: 'capture_time_budget',
+        });
+        throw new LLMUnavailableError('capture_time_budget');
+      }
+    }
     const startedAt = Date.now();
     try {
       // A batch is every clause of one capture in one call (CL1 review, I4).
@@ -191,7 +223,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
       // takes the same route, because `generateJson` has no per-call
       // deadline: its 8 s, retried once, would outrun the phone's 15 s.
       const batch = callOptions.shape === 'batch' && purpose === 'capture_extraction';
-      const timed = callOptions.timeoutMs !== undefined && purpose === 'capture_extraction';
+      const timed = timeoutMs !== undefined && purpose === 'capture_extraction';
       const response = batch || timed
         ? await provider.generateStructured({
           system,
@@ -200,7 +232,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
           purpose,
           uid,
           maxOutputTokens: batch ? BATCH_MAX_OUTPUT_TOKENS : SINGLE_MAX_OUTPUT_TOKENS,
-          timeoutMs: callOptions.timeoutMs ?? BATCH_TIMEOUT_MS,
+          timeoutMs: timeoutMs ?? BATCH_TIMEOUT_MS,
         })
         : await provider.generateJson({
           system,
