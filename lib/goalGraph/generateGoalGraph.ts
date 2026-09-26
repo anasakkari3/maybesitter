@@ -56,6 +56,7 @@ import {
   type GoalGraphProvenance,
   type GoalGraphViolation,
   type GoalNode,
+  type GoalStepSource,
 } from '../../src/contracts/v1/goalGraphContracts';
 import type { RuntimeMemoryRecord } from '../../src/contracts/v1/memoryContracts';
 import {
@@ -70,6 +71,12 @@ import {
   stepNodeIdFor,
 } from './ids';
 import { validateGoalExecutionGraph } from './validateGoalGraph';
+import {
+  GOAL_STEPS_MIN,
+  goalStepLanguageOf,
+  templateGoalSteps,
+  type GoalStepDraft,
+} from './goalStepPlan';
 
 export class GoalGraphGenerationError extends Error {
   constructor(message: string) {
@@ -91,6 +98,15 @@ export interface GenerateGoalGraphRequest {
    * behaviour, kept rather than second-guessed here.
    */
   readonly requestedEngine?: 'model' | 'rules';
+  /**
+   * Steps the goal planner model proposed for this generation, already
+   * through `validateGoalStepDraft` (CL3). When there are at least
+   * `GOAL_STEPS_MIN`, they are the graph's steps; otherwise the sentence split
+   * or the template is. The caller fetched them — this function calls nothing.
+   */
+  readonly plannedSteps?: readonly GoalStepDraft[] | null;
+  /** Why there are no planned steps, as a code, carried to provenance. */
+  readonly plannedStepsReason?: string | null;
 }
 
 export interface GenerateGoalGraphResult {
@@ -160,7 +176,46 @@ export async function generateGoalExecutionGraph(
   }];
   const edges: GoalEdge[] = [];
 
-  if (proposal.outcome === 'decomposed') {
+  /**
+   * A planner step as a node: inferred, because nothing in the sentence says
+   * it, with no spans, and with the suggested kind and timing bucket carried
+   * for the review screen. `statedTiming` stays null — no step here states a
+   * time the goal's own words contain.
+   */
+  const pushPlanned = (steps: readonly GoalStepDraft[]): void => {
+    for (const planned of steps) {
+      const nodeId = stepNodeIdFor(generation, planned.stepId);
+      nodes.push({
+        nodeId,
+        kind: 'decomposition_step_proposal',
+        status: 'proposed',
+        stepId: planned.stepId,
+        title: planned.title,
+        sourceSpans: [],
+        inferred: true,
+        statedTiming: null,
+        statedOwner: null,
+        suggestedAs: planned.suggestedAs,
+        ...(planned.suggestedWhen ? { suggestedWhen: planned.suggestedWhen } : {}),
+      });
+      edges.push({
+        edgeId: edgeIdFor('contributes_to', nodeId, checkpointId),
+        kind: 'contributes_to',
+        fromNodeId: nodeId,
+        toNodeId: checkpointId,
+      });
+    }
+  };
+
+  const planned = request.plannedSteps && request.plannedSteps.length >= GOAL_STEPS_MIN
+    ? request.plannedSteps
+    : null;
+  let stepSource: GoalStepSource;
+  if (planned) {
+    stepSource = 'model';
+    pushPlanned(planned);
+  } else if (proposal.outcome === 'decomposed') {
+    stepSource = 'sentence';
     for (const step of proposal.steps) {
       nodes.push({
         nodeId: stepNodeIdFor(generation, step.stepId),
@@ -194,6 +249,12 @@ export async function generateGoalExecutionGraph(
         });
       }
     }
+  } else {
+    // The sentence does not split and no model step is available. A goal
+    // with no step at all is a screen with nothing to press (first phone
+    // run, shot 73), so it gets the deterministic start for its shape.
+    stepSource = 'template';
+    pushPlanned(templateGoalSteps(goalText, goalStepLanguageOf(goalText, goal.language)));
   }
 
   const provenance: GoalGraphProvenance = Object.freeze({
@@ -204,6 +265,8 @@ export async function generateGoalExecutionGraph(
     // The engine's findings, carried so an operator asking why a goal produced
     // one node has the answer without reading logs.
     violations: proposal.outcome === 'rejected' ? proposal.violations : Object.freeze([]),
+    stepSource,
+    stepSourceReason: planned ? null : request.plannedStepsReason ?? 'model_not_requested',
   });
 
   const graph: GoalExecutionGraph = Object.freeze({

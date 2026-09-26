@@ -1,0 +1,133 @@
+{
+  "success": true,
+  "graph": {
+    "version": "v1",
+    "schema": "goal-graph-v1",
+    "graphId": "0000000000000000000000000000000000000000000000000000000000000000",
+    "goalMemoryId": "mem_00000000-0000-4000-8000-000000000001",
+    "scopeId": "FixtureUserxxxxxxxxxxxxxxxxx",
+    "language": "ar",
+    "nodes": [
+      {
+        "nodeId": "g1.checkpoint.goal",
+        "kind": "checkpoint",
+        "status": "proposed",
+        "title": "أطلق تطبيقي على المتجر قبل نهاية السنة",
+        "statedTiming": null
+      },
+      {
+        "nodeId": "g1.step.m87bf35e7aca3",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "m87bf35e7aca3",
+        "title": "حدد ميزات التطبيق الأساسية",
+        "sourceSpans": [],
+        "inferred": true,
+        "statedTiming": null,
+        "statedOwner": null,
+        "suggestedAs": "commitment",
+        "suggestedWhen": "today"
+      },
+      {
+        "nodeId": "g1.step.m602477fc05aa",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "m602477fc05aa",
+        "title": "صمم واجهة المستخدم الأولية",
+        "sourceSpans": [],
+        "inferred": true,
+        "statedTiming": null,
+        "statedOwner": null,
+        "suggestedAs": "commitment",
+        "suggestedWhen": "this_week"
+      },
+      {
+        "nodeId": "g1.step.m24630d57cfea",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "m24630d57cfea",
+        "title": "اكتب الكود الأساسي للتطبيق",
+        "sourceSpans": [],
+        "inferred": true,
+        "statedTiming": null,
+        "statedOwner": null,
+        "suggestedAs": "commitment",
+        "suggestedWhen": "this_month"
+      },
+      {
+        "nodeId": "g1.step.mb6093a535192",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "mb6093a535192",
+        "title": "اختبر وظائف التطبيق الرئيسية",
+        "sourceSpans": [],
+        "inferred": true,
+        "statedTiming": null,
+        "statedOwner": null,
+        "suggestedAs": "commitment",
+        "suggestedWhen": "this_month"
+      },
+      {
+        "nodeId": "g1.step.m69f796f612f9",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "m69f796f612f9",
+        "title": "جهز وصف التطبيق والصور",
+        "sourceSpans": [],
+        "inferred": true,
+        "statedTiming": null,
+        "statedOwner": null,
+        "suggestedAs": "commitment",
+        "suggestedWhen": "this_month"
+      }
+    ],
+    "edges": [
+      {
+        "edgeId": "e.contributes_to.g1.step.m87bf35e7aca3.g1.checkpoint.goal",
+        "kind": "contributes_to",
+        "fromNodeId": "g1.step.m87bf35e7aca3",
+        "toNodeId": "g1.checkpoint.goal"
+      },
+      {
+        "edgeId": "e.contributes_to.g1.step.m602477fc05aa.g1.checkpoint.goal",
+        "kind": "contributes_to",
+        "fromNodeId": "g1.step.m602477fc05aa",
+        "toNodeId": "g1.checkpoint.goal"
+      },
+      {
+        "edgeId": "e.contributes_to.g1.step.m24630d57cfea.g1.checkpoint.goal",
+        "kind": "contributes_to",
+        "fromNodeId": "g1.step.m24630d57cfea",
+        "toNodeId": "g1.checkpoint.goal"
+      },
+      {
+        "edgeId": "e.contributes_to.g1.step.mb6093a535192.g1.checkpoint.goal",
+        "kind": "contributes_to",
+        "fromNodeId": "g1.step.mb6093a535192",
+        "toNodeId": "g1.checkpoint.goal"
+      },
+      {
+        "edgeId": "e.contributes_to.g1.step.m69f796f612f9.g1.checkpoint.goal",
+        "kind": "contributes_to",
+        "fromNodeId": "g1.step.m69f796f612f9",
+        "toNodeId": "g1.checkpoint.goal"
+      }
+    ],
+    "generatedAt": "2026-08-09T09:00:00.000Z",
+    "generation": 1,
+    "provenance": {
+      "decompositionProposalId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "decompositionOutcome": "atomic",
+      "decomposition": {
+        "requestedEngine": "model",
+        "executedEngine": "rules",
+        "fallbackUsed": true,
+        "fallbackReason": "rules_only_runtime:feature_disabled"
+      },
+      "atomicReason": "not_decomposable",
+      "violations": [],
+      "stepSource": "model",
+      "stepSourceReason": null
+    }
+  }
+}

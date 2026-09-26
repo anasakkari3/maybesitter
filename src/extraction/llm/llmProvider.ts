@@ -28,7 +28,9 @@ export type LlmPurpose =
   /** One shared thing, read once (UC-3.0, #183). */
   | 'share_extraction'
   /** A profile another AI assistant wrote about the user, read once. */
-  | 'ai_context_import';
+  | 'ai_context_import'
+  /** Proposing first steps for a goal the user saved (CL3). */
+  | 'goal_decomposition';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 

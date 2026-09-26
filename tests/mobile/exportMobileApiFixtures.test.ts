@@ -115,7 +115,7 @@ import { POST as goalGeneratePost } from '../../src/app/api/mobile/goals/[goalId
 import { POST as goalConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/execution/confirm/route.ts';
 import { POST as goalRegeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/regenerate/route.ts';
 import { PATCH as goalNodePatch } from '../../src/app/api/mobile/goals/[goalId]/execution/nodes/[nodeId]/route.ts';
-import { seedGoal, SPLITTABLE_GOAL } from '../goalGraph/goalGraphSupport.ts';
+import { RECORDED_GOAL_STEPS_G1, seedGoal, SPLITTABLE_GOAL, UAT_GOAL } from '../goalGraph/goalGraphSupport.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
 import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
 import {
@@ -1941,6 +1941,17 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         'string',
         'the capture prompt reached the provider without a system instruction',
       );
+      // The goal planner asks for `{ steps: [...] }`; everything else here is
+      // the capture extraction. Answered with what Gemini really returned for
+      // the UAT goal (CL3), so the goal fixture is the real shape.
+      const schema = (input.config as { responseSchema?: { properties?: Record<string, unknown> } }).responseSchema;
+      if (schema?.properties && 'steps' in schema.properties) {
+        return {
+          text: RECORDED_GOAL_STEPS_G1,
+          modelVersion: 'gemini-2.5-flash',
+          usageMetadata: { promptTokenCount: 388, candidatesTokenCount: 132 },
+        };
+      }
       return {
         text: geminiExtraction(),
         modelVersion: 'gemini-2.5-flash',
@@ -1970,6 +1981,20 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       assert.equal(geminiItems.length, 1);
       assert.equal(geminiItems[0]!.title, 'Call the dentist');
       assert.ok(geminiItems[0]!.resolvedTime, 'a Gemini proposal with no resolved time records nothing useful');
+
+      // ── a goal's steps from the planner model (CL3) ────────────────
+      // The same consented account as the capture above, so the model path
+      // is the one a consented user gets, and the fixture carries
+      // `suggestedAs` / `suggestedWhen` for the client schema to accept.
+      const { goal: uatGoal } = await seedGoal(UAT_GOAL, { scopeId: USER, language: 'ar', storage: getStorage() });
+      const geminiGoal = await record('goal.geminiGenerated', 200, await goalGeneratePost(
+        request(`/api/mobile/goals/${uatGoal.id}/execution/generate`, { body: {} }),
+        { params: Promise.resolve({ goalId: uatGoal.id }) },
+      ));
+      assert.equal(vertexCalls, 2, 'the goal never reached the provider');
+      const geminiGraph = geminiGoal.graph as { provenance: { stepSource: string }; nodes: Array<{ kind: string; suggestedAs?: string }> };
+      assert.equal(geminiGraph.provenance.stepSource, 'model');
+      assert.equal(geminiGraph.nodes.filter((node) => node.kind === 'decomposition_step_proposal').length, 5);
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;

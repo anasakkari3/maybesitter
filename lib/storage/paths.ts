@@ -442,6 +442,18 @@ export const INTENT_SEEDS = 'intentSeeds';
 export const GOAL_GRAPH_LINKS = 'goalGraphLinks';
 
 /**
+ * The goal planner model's validated steps for one reading of a goal (CL3).
+ *
+ * `users/{uid}/goalGraphProposals/{docIdForKey(goalId:generation)}`. The graph
+ * is still rebuilt on every read; what is kept is the one input to it that a
+ * rebuild cannot reproduce — a model's answer — so that a confirm resolves the
+ * steps the user reviewed rather than asking the model again and getting
+ * different ones. One small document per generation the user asked for, and
+ * nothing when the steps came from the sentence or a template.
+ */
+export const GOAL_GRAPH_PROPOSALS = 'goalGraphProposals';
+
+/**
  * Recurring demand on future time the user confirmed (#520).
  *
  * `users/{uid}/habits/{habitId}`, holding the rule only — "gym three times a
@@ -487,6 +499,7 @@ export const USER_SCOPED_COLLECTIONS = [
   COMMITMENTS,
   INTENT_SEEDS,
   GOAL_GRAPH_LINKS,
+  GOAL_GRAPH_PROPOSALS,
   HABITS,
   HABIT_OCCURRENCES,
   REMINDERS,

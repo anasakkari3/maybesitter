@@ -125,7 +125,44 @@ export interface DecompositionStepNode extends GoalNodeBase {
   readonly inferred: boolean;
   readonly statedTiming: string | null;
   readonly statedOwner: string | null;
+  /**
+   * What the step looks like it wants to become, when a goal planner proposed
+   * it (CL3). Absent on a step split out of the goal's own sentence, where the
+   * engine has no opinion. Only ever a default for the review screen: the user
+   * still picks commitment or habit, and a habit still needs the cadence they
+   * state — #520's rule does not bend because a model guessed "habit".
+   */
+  readonly suggestedAs?: GoalStepSuggestedKind;
+  /**
+   * A coarse "when would this fit" bucket for the review screen, or absent.
+   *
+   * Deliberately a closed vocabulary rather than a time: it is never resolved
+   * against a clock, never copied onto the commitment the step becomes, and
+   * never read by the planner. "No invented deadlines" holds because there is
+   * still nowhere on a node to put a date; this is a hint a person reads.
+   */
+  readonly suggestedWhen?: GoalStepSuggestedWhen;
 }
+
+/** One-off work, or something that repeats. */
+export type GoalStepSuggestedKind = 'commitment' | 'habit';
+
+/** The whole vocabulary of a suggested timing. Nothing finer exists. */
+export const GOAL_STEP_SUGGESTED_WHEN = Object.freeze(['today', 'this_week', 'this_month'] as const);
+export type GoalStepSuggestedWhen = typeof GOAL_STEP_SUGGESTED_WHEN[number];
+
+/**
+ * Where the step nodes of a graph came from (CL3).
+ *
+ * - `sentence` — the decomposition engine split the goal's own sentence.
+ * - `model`    — the goal planner model proposed them, and they passed
+ *                `validateGoalStepDraft`. Stored per generation, so a confirm
+ *                resolves the same steps the user reviewed.
+ * - `template` — neither of the above produced steps, so a deterministic
+ *                starting point for the goal's shape was offered instead of
+ *                an empty screen.
+ */
+export type GoalStepSource = 'sentence' | 'model' | 'template';
 
 /**
  * A reference, and deliberately nothing more.
@@ -215,6 +252,14 @@ export interface GoalGraphProvenance {
   readonly atomicReason: AtomicReason | null;
   /** The engine's own violations, when it rejected its attempt. Else empty. */
   readonly violations: readonly DecompositionViolation[];
+  /** Which reading the step nodes are (CL3). */
+  readonly stepSource: GoalStepSource;
+  /**
+   * Why the goal planner model did not supply the steps, as a reason code —
+   * `consent_required`, `provider_none`, `model_output_invalid:too_few`, … —
+   * or null when it did. Never the model's words and never the goal's.
+   */
+  readonly stepSourceReason: string | null;
 }
 
 export interface GoalExecutionGraph {
@@ -297,8 +342,14 @@ export const GOAL_GRAPH_GENERATION_POLICY = Object.freeze({
   readonly: true,
   /** It creates no Commitment, no Habit, no plan and no reminder. */
   writesCanonicalState: false,
-  /** It persists nothing at all, including the graph itself, in this slice. */
-  persists: false,
+  /**
+   * The graph itself is never stored. What is (CL3) is the goal planner
+   * model's validated step list for one generation, in `goalGraphProposals`,
+   * because a model does not answer the same way twice and a confirm has to
+   * resolve the steps the user actually reviewed. Nothing canonical, and
+   * nothing when the steps came from the sentence or a template.
+   */
+  persists: 'model_steps_only',
   /** It resolves no relative time and emits no computed date. */
   resolvesTiming: false,
   /** A graph node never reaches `schedulePlan`; only materialized work does. */

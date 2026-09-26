@@ -44,6 +44,7 @@ import {
   CONFIRMABLE_GOAL_NODE_KINDS,
   type GoalConfirmationRefusal,
   type GoalConfirmationResult,
+  type GoalEdge,
   type GoalExecutionGraph,
   type GoalNode,
   type GoalNodeLink,
@@ -68,7 +69,7 @@ import {
   goalNodeLinkIdFor,
   type GoalNodeLinkStore,
 } from './linkStore';
-import { goalNodeKeyOf } from './ids';
+import { edgeIdFor, goalNodeKeyOf, nodeIdFor } from './ids';
 
 export class GoalConfirmationError extends Error {
   constructor(message: string) {
@@ -319,6 +320,13 @@ async function createCommitment(scopeId: string, title: string, at: string): Pro
  * links across a regeneration: generation 2 mints `g2.step.s1` where the user
  * confirmed `g1.step.s1`, and both are the key `step.s1`.
  *
+ * A link whose node this reading does not contain is appended rather than
+ * dropped (CL3). With the sentence split that never happened — the same
+ * sentence gives the same keys — but a goal planner model's second reading
+ * proposes different steps, and a graph that silently lost the work the user
+ * already confirmed would be the regeneration criterion failing in the other
+ * direction. The appended node contributes to the checkpoint like any step.
+ *
  * Exported because the read path applies it to every graph it hands out, and a
  * second implementation would be a second answer to "what does a confirmed
  * graph look like".
@@ -327,19 +335,38 @@ export function applyLinksToGraph(
   graph: GoalExecutionGraph,
   links: readonly GoalNodeLink[],
 ): GoalExecutionGraph {
-  const byNodeKey = new Map(links.filter((link) => link.state === 'linked').map((link) => [link.nodeKey, link]));
+  const byNodeKey = new Map(links
+    .filter((link) => link.state === 'linked' && link.entityId !== null)
+    .map((link) => [link.nodeKey, link]));
   if (byNodeKey.size === 0) return graph;
+  const linkedNode = (nodeId: string, link: GoalNodeLink): GoalNode => (link.entityKind === 'habit'
+    ? { nodeId, kind: 'linked_habit', status: 'confirmed', habitId: link.entityId as string }
+    : { nodeId, kind: 'linked_commitment', status: 'confirmed', commitmentId: link.entityId as string });
+
+  const present = new Set(graph.nodes.map((node) => goalNodeKeyOf(node.nodeId)));
+  const nodes = graph.nodes.map((node): GoalNode => {
+    // Matched on the key, so a graph regenerated at generation 2 still finds
+    // the link a user confirmed against generation 1 — which is #526's
+    // "regeneration preserves already confirmed canonical links".
+    const link = byNodeKey.get(goalNodeKeyOf(node.nodeId));
+    return link ? linkedNode(node.nodeId, link) : node;
+  });
+  const edges: GoalEdge[] = [...graph.edges];
+  const checkpoint = graph.nodes.find((node) => node.kind === 'checkpoint');
+  for (const link of Array.from(byNodeKey.values())) {
+    if (present.has(link.nodeKey) || !checkpoint) continue;
+    const nodeId = nodeIdFor(graph.generation, link.nodeKey);
+    nodes.push(linkedNode(nodeId, link));
+    edges.push({
+      edgeId: edgeIdFor('contributes_to', nodeId, checkpoint.nodeId),
+      kind: 'contributes_to',
+      fromNodeId: nodeId,
+      toNodeId: checkpoint.nodeId,
+    });
+  }
   return Object.freeze({
     ...graph,
-    nodes: Object.freeze(graph.nodes.map((node): GoalNode => {
-      // Matched on the key, so a graph regenerated at generation 2 still finds
-      // the link a user confirmed against generation 1 — which is #526's
-      // "regeneration preserves already confirmed canonical links".
-      const link = byNodeKey.get(goalNodeKeyOf(node.nodeId));
-      if (!link || link.entityId === null) return node;
-      return link.entityKind === 'habit'
-        ? { nodeId: node.nodeId, kind: 'linked_habit', status: 'confirmed', habitId: link.entityId }
-        : { nodeId: node.nodeId, kind: 'linked_commitment', status: 'confirmed', commitmentId: link.entityId };
-    })),
+    nodes: Object.freeze(nodes),
+    edges: Object.freeze(edges),
   });
 }
