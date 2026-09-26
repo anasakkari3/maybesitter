@@ -221,10 +221,13 @@ export function dayGainedOrMoved(
   uid: string,
   stored: StoredDailyPlan,
   commitments: readonly Commitment[],
+  today: string | null = null,
 ): boolean {
   const current = currentRequestOf(uid, stored, commitments);
   const floatingBefore = new Map(stored.constraints.items.map((item) => [item.itemId, item.deadlineAt] as const));
+  const settled = settledByWeek(stored, today);
   for (const item of current.items) {
+    if (!floatingBefore.has(item.itemId) && settled.has(item.itemId)) continue;
     if (!floatingBefore.has(item.itemId)) return true;
     const before = floatingBefore.get(item.itemId) ?? null;
     const after = item.deadlineAt ?? null;
@@ -240,6 +243,25 @@ export function dayGainedOrMoved(
       || toEpochMs(before.endsAt) !== toEpochMs(event.interval.endsAt)) return true;
   }
   return false;
+}
+
+/**
+ * Floating work the week view already decided about for this day (CL5b): it
+ * belonged here when the week was planned and was left off on purpose —
+ * placed on another day, or past the day's one step. Its presence among the
+ * day's commitments is not news.
+ *
+ * Except work the week held for a day that has now passed. #383's rule is that
+ * yesterday's active work rolls into today, so once the day it was held for
+ * is behind `today`, it is on this day for real, and that is news.
+ */
+function settledByWeek(stored: StoredDailyPlan, today: string | null): Set<string> {
+  const week = stored.weekPlan;
+  if (!week) return new Set();
+  const rolledIn = new Set(week.heldElsewhere
+    .filter((held) => today !== null && held.date < today)
+    .map((held) => held.itemId));
+  return new Set(week.considered.filter((itemId) => !rolledIn.has(itemId)));
 }
 
 /** The calendar date after a `YYYY-MM-DD`. Civil arithmetic, no zone. */
@@ -283,7 +305,8 @@ export async function refreshStalePlan(
   const commitments = deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments);
   if (!planInputsChanged(uid, stored, commitments)) return { stored, inputsChanged: false };
   if (!planIsUntouched(stored, now)) {
-    return { stored, inputsChanged: dayGainedOrMoved(uid, stored, commitments) };
+    const today = localDateOf(now.toISOString(), stored.timezone);
+    return { stored, inputsChanged: dayGainedOrMoved(uid, stored, commitments, today) };
   }
 
   const nowIso = now.toISOString();

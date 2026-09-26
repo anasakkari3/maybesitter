@@ -188,7 +188,11 @@ test('every mobile route file exists and is enumerated', () => {
   // export`. It answers with everything one account holds in one response,
   // which makes it the single most valuable read on this list to reach without
   // a token; it takes the uid from the verified token and nowhere else.
-  assert.equal(files.length, 80, `found:\n${files.join('\n')}`);
+  // Eighty-two with weekly planning mode (CL5b): `POST /api/mobile/plans/week`
+  // and `POST /api/mobile/plans/week/accept`. The first answers a week of the
+  // caller's commitments by title; the second stores and accepts a day's plan,
+  // so an unguarded one would write a plan into an account that is not theirs.
+  assert.equal(files.length, 82, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

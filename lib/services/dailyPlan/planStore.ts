@@ -199,6 +199,28 @@ export interface StoredDailyPlan {
    * new proposal without it.
    */
   readonly proposalAnswered?: boolean;
+  /**
+   * How the week view decided this day, when the person accepted it there
+   * (CL5b). Absent on every plan built for its own day.
+   *
+   * A week day holds one step, and the rest of the day's work sits on other
+   * days or waits — so the day's commitments always say more than the plan
+   * does. `dayGainedOrMoved` reads this to tell that apart from something
+   * that really landed on the day since (`planRefresh.ts`); the morning job
+   * reads `announced` to say once, on the morning itself, that the plan the
+   * person accepted is today's.
+   */
+  readonly weekPlan?: WeekPlanOrigin;
+}
+
+/** See `StoredDailyPlan.weekPlan`. Ids and dates only. */
+export interface WeekPlanOrigin {
+  /** Floating work the daily rule put on this day when the week was planned. */
+  readonly considered: readonly string[];
+  /** Work the week placed on another of its days instead, and which day. */
+  readonly heldElsewhere: readonly { readonly itemId: string; readonly date: string }[];
+  /** The morning of this date has told the person about the plan. */
+  readonly announced: boolean;
 }
 
 /**
