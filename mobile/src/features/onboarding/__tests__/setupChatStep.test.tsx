@@ -17,7 +17,7 @@
 import React, { useState } from 'react';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { SetupChatStep } from '../SetupChatStep';
@@ -138,12 +138,12 @@ describe('answering', () => {
  * "long hours" *and* "every day is different"; the literal repro is two taps
  * on the same question, so these drive a stateful harness rather than a spy.
  */
-function Harness({ initial = EMPTY_SETUP_ANSWERS }: { initial?: SetupAnswers }) {
+function Harness({ initial = EMPTY_SETUP_ANSWERS, index = 1 }: { initial?: SetupAnswers; index?: number }) {
   const [answers, setAnswers] = useState<SetupAnswers>(initial);
   return (
     <SetupChatStep
       answers={answers}
-      index={1}
+      index={index}
       onChange={(update) => setAnswers(update)}
       onIndexChange={() => {}}
       onRead={() => {}}
@@ -153,11 +153,11 @@ function Harness({ initial = EMPTY_SETUP_ANSWERS }: { initial?: SetupAnswers }) 
   );
 }
 
-async function renderHarness(initial?: SetupAnswers) {
+async function renderHarness(initial?: SetupAnswers, index?: number) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
-        <Harness {...(initial ? { initial } : {})} />
+        <Harness {...(initial ? { initial } : {})} {...(index !== undefined ? { index } : {})} />
       </AppProvider>
     </SafeAreaProvider>,
   );
@@ -241,6 +241,62 @@ describe('over the cap', () => {
     await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
     expect(screen.queryByTestId('setup-answer-too-long')).toBeNull();
     expect(screen.getByLabelText(en.obSetupNext).props.accessibilityState).toMatchObject({ disabled: false });
+  });
+});
+
+/*
+ * Round 2 (review m3): "Nothing comes to mind" is the absence of an answer,
+ * so it cannot sit next to "Finished a course". Picking it clears the other
+ * chips; picking another chip clears it. Typed words are the user's and stay.
+ */
+describe('the "nothing comes to mind" chip', () => {
+  const NOTHING = 'setup-chip-done-5';
+
+  it('picking it clears the chips already picked', async () => {
+    await renderHarness(undefined, 3);
+    await fireEvent.press(screen.getByTestId('setup-chip-done-1'));
+    await fireEvent.press(screen.getByTestId('setup-chip-done-4'));
+    await fireEvent.press(screen.getByTestId(NOTHING));
+    expect(fieldValue()).toBe(en.obSetupDoneChip5);
+    expect(checked(NOTHING)).toBe(true);
+    expect(checked('setup-chip-done-1')).toBe(false);
+    expect(checked('setup-chip-done-4')).toBe(false);
+  });
+
+  it('picking another chip clears it', async () => {
+    await renderHarness(undefined, 3);
+    await fireEvent.press(screen.getByTestId(NOTHING));
+    await fireEvent.press(screen.getByTestId('setup-chip-done-2'));
+    expect(fieldValue()).toBe(en.obSetupDoneChip2);
+    expect(checked(NOTHING)).toBe(false);
+  });
+
+  it('keeps typed words when it clears the chips', async () => {
+    await renderHarness({ ...EMPTY_SETUP_ANSWERS, done: `Moved flat, ${en.obSetupDoneChip1}` }, 3);
+    await fireEvent.press(screen.getByTestId(NOTHING));
+    expect(fieldValue()).toBe(`Moved flat, ${en.obSetupDoneChip5}`);
+  });
+});
+
+/*
+ * Round 2 (review m4): `accessibilityLiveRegion` is Android-only, so VoiceOver
+ * never heard that the answer went over the cap — only a Next that stopped
+ * working. iOS is told once, when the line appears.
+ */
+describe('announcing the cap on iOS', () => {
+  it('announces the too-long line when a chip takes the answer over the cap, once', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    // Already a jest.fn in the RN preset: earlier over-cap cases' calls are on it.
+    announce.mockClear();
+    await renderHarness({ ...EMPTY_SETUP_ANSWERS, day: 'x'.repeat(140) });
+    expect(announce).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(en.obSetupTooLong);
+    // Taking it back under the cap says nothing more.
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    expect(announce).toHaveBeenCalledTimes(1);
+    announce.mockRestore();
   });
 });
 

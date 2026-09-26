@@ -5,7 +5,7 @@
  * onboarding chips («بفيق بكير، وصبحي مشغول») has a comma inside it.
  */
 import { describe, expect, it } from '@jest/globals';
-import { chipSeparator, hasChip, toggleChip } from '../chipText';
+import { chipSeparator, hasChip, toggleChip, toggleChipAmong } from '../chipText';
 import ar from '../../i18n/locales/ar.json';
 
 const SEP = chipSeparator('ar');
@@ -56,5 +56,25 @@ describe('hasChip', () => {
     expect(hasChip('مشي بالحارة', 'مشي')).toBe(false);
     expect(hasChip('بحب المشي', 'مشي')).toBe(false);
     expect(hasChip('قراءة، مشي', 'مشي')).toBe(true);
+  });
+});
+
+describe('toggleChipAmong (an exclusive chip)', () => {
+  const NONE = ar.obSetupDoneChip5; // «ما بخطر ببالي شي»
+  const chips = [ar.obSetupDoneChip1, ar.obSetupDoneChip2, NONE];
+  const rule = { chips, exclusive: [NONE] };
+
+  it('picking the exclusive chip clears the others and keeps typed words', () => {
+    expect(toggleChipAmong(`نقلت بيت، ${ar.obSetupDoneChip1}، ${ar.obSetupDoneChip2}`, NONE, SEP, rule))
+      .toBe(`نقلت بيت، ${NONE}`);
+  });
+
+  it('picking another chip clears the exclusive one', () => {
+    expect(toggleChipAmong(NONE, ar.obSetupDoneChip2, SEP, rule)).toBe(ar.obSetupDoneChip2);
+  });
+
+  it('taking a chip out touches nothing else', () => {
+    expect(toggleChipAmong(`${ar.obSetupDoneChip1}، ${ar.obSetupDoneChip2}`, ar.obSetupDoneChip1, SEP, rule))
+      .toBe(ar.obSetupDoneChip2);
   });
 });

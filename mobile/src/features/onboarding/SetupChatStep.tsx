@@ -1,9 +1,9 @@
-import React from 'react';
-import { TextInput, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { AccessibilityInfo, Platform, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { fill, type Strings } from '../../i18n/strings';
 import { Btn, Card, Txt } from '../../ui/primitives';
-import { chipSeparator, hasChip, toggleChip } from '../../ui/chipText';
+import { chipSeparator, hasChip, toggleChipAmong } from '../../ui/chipText';
 import { OnboardingChrome } from './OnboardingChrome';
 import { SetupLifeStep } from './SetupLifeStep';
 import type { SpeechCaptureService } from '../capture/voice/SpeechCaptureService';
@@ -102,6 +102,19 @@ export function SetupChatStep({
   const previous = previousQuestionIndex(index, questions);
   const answered = answeredCount(answers, questions);
 
+  // What the server's budget still allows here, after the narrative and the
+  // other answers — normally the full short cap.
+  const cap = answerCap(answers, question.id, t, questions);
+  const length = Array.from(answer).length;
+  const overCap = question.kind === 'short' && length > cap;
+
+  // The too-long line is a live region, which only Android announces. On iOS
+  // VoiceOver is told once, when the line appears, rather than finding out
+  // from a Next that stopped working (CL2b round 2).
+  useEffect(() => {
+    if (overCap && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(t.obSetupTooLong);
+  }, [overCap, t.obSetupTooLong]);
+
   // The first question is the life narrative, a screen of its own (#469
   // follow-up). Questions 2–5 keep the layout below.
   if (question.kind === 'narrative') {
@@ -122,17 +135,17 @@ export function SetupChatStep({
     );
   }
 
-  // What the server's budget still allows here, after the narrative and the
-  // other answers — normally the full short cap.
-  const cap = answerCap(answers, question.id, t, questions);
-
   const setAnswer = (text: string) =>
     onChange((current) => ({ ...current, [question.id]: text }));
+  const chipRule = {
+    chips: question.chipKeys.map((key) => copy[key]),
+    exclusive: (question.exclusiveChipKeys ?? []).map((key) => copy[key]),
+  };
   const toggle = (label: string) =>
-    onChange((current) => ({ ...current, [question.id]: toggleChip(current[question.id], label, chipSeparator(lang)) }));
-
-  const length = Array.from(answer).length;
-  const overCap = length > cap;
+    onChange((current) => ({
+      ...current,
+      [question.id]: toggleChipAmong(current[question.id], label, chipSeparator(lang), chipRule),
+    }));
 
   const primary = next !== null
     ? { label: t.obSetupNext, onPress: () => onIndexChange(next), disabled: overCap }

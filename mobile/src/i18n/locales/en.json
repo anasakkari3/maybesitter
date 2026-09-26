@@ -441,6 +441,7 @@
   "notifDenied": "Notifications are off in phone settings, so no reminders will arrive.",
   "notifIntroOn": "MaybeSitter reminds you at the times you chose, and never during your quiet hours.",
   "notifIntroAsk": "MaybeSitter reminds you at the times you chose. Your phone will ask when you turn reminders on.",
+  "notifIntroChecking": "Checking whether your phone allows notifications…",
   "notifBlockedByPhone": "Blocked in phone settings",
   "notifAllowBody": "Reminders are on, but your phone hasn't allowed them yet.",
   "notifAllowAction": "Allow notifications",

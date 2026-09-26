@@ -444,6 +444,7 @@
   "notifDenied": "ההתראות כבויות בהגדרות הטלפון, אז לא יגיעו תזכורות.",
   "notifIntroOn": "MaybeSitter מזכיר לך בזמנים שבחרת, ולעולם לא בשעות השקט שלך.",
   "notifIntroAsk": "MaybeSitter מזכיר לך בזמנים שבחרת. הטלפון ישאל כשמפעילים תזכורות.",
+  "notifIntroChecking": "בודקים אם הטלפון מאפשר התראות…",
   "notifBlockedByPhone": "חסום בהגדרות הטלפון",
   "notifAllowBody": "התזכורות פועלות, אבל הטלפון עוד לא אישר אותן.",
   "notifAllowAction": "לאשר התראות",

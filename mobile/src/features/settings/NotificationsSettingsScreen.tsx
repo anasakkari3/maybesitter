@@ -346,8 +346,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               </Btn>
             </View>
           ) : (
+            // Before the first read lands nothing is known, so nothing is
+            // claimed — not even for a frame (CL2b round 2).
             <Txt size={15} color={p.mu} lh={1.5}>
-              {osPermission === 'undetermined' ? t.notifIntroAsk : t.notifIntroOn}
+              {osPermission === null ? t.notifIntroChecking : osPermission === 'undetermined' ? t.notifIntroAsk : t.notifIntroOn}
             </Txt>
           )}
         </Card>

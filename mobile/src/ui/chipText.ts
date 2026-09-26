@@ -66,3 +66,28 @@ export function toggleChip(text: string, label: string, separator: string): stri
   // The last item: its comma is the one before it.
   return before.replace(COMMA, '').trimEnd();
 }
+
+/**
+ * `toggleChip` for a set of chips where some are exclusive (CL2b round 2).
+ *
+ * An exclusive chip — «ما بخطر ببالي شي», "nothing comes to mind" — is the
+ * absence of an answer, so it cannot stand next to one. Picking it takes the
+ * other chips out; picking any other chip takes it out. Typed words are the
+ * user's own and are never touched. Taking a chip out changes nothing else.
+ */
+export function toggleChipAmong(
+  text: string,
+  label: string,
+  separator: string,
+  rule: { chips: readonly string[]; exclusive: readonly string[] },
+): string {
+  if (hasChip(text, label)) return toggleChip(text, label, separator);
+  const clears = rule.exclusive.includes(label)
+    ? rule.chips.filter((chip) => chip !== label)
+    : rule.exclusive;
+  let kept = text;
+  for (const chip of clears) {
+    if (hasChip(kept, chip)) kept = toggleChip(kept, chip, separator);
+  }
+  return toggleChip(kept, label, separator);
+}

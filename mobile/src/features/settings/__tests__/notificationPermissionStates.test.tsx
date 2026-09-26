@@ -36,6 +36,11 @@ import * as profileEndpoints from '../../../api/endpoints/profile';
 import * as permission from '../../../notifications/permission';
 import reminderFixture from '../../../api/__fixtures__/reminders.settingsDefault.json';
 import type { PlanSettings } from '../../../api/schemas/plan';
+import { SettingsScreen } from '../../../screens/SettingsScreen';
+import * as trustEndpoints from '../../../api/endpoints/trust';
+import { deferred } from '../../../testing/deferred';
+import { ltr, fill } from '../../../i18n/strings';
+import type { NotificationPermission } from '../../../notifications/permission';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -205,5 +210,93 @@ describe('undetermined', () => {
     expect(within(screen.getByTestId('notifications-status')).queryByText(en.notifIntroAsk)).not.toBeNull();
     expect(screen.queryByTestId('notifications-allow')).toBeNull();
     expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+  });
+});
+
+/*
+ * Round 2 (review m1): before the first read lands the screen does not know
+ * what the phone allows, so it must not claim anything — not even for one
+ * frame. A denied user saw "reminds you at the times you chose" flash first.
+ */
+describe('before the phone has answered', () => {
+  it('shows a neutral checking line, not a claim, until the first read resolves', async () => {
+    const answer = deferred<NotificationPermission>();
+    jest.spyOn(permission, 'getNotificationPermission').mockReturnValue(answer.promise);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}>
+              <NotificationsSettingsScreen onBack={() => {}} />
+            </QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(permission.getNotificationPermission).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('gentle-reminders-switch').props.accessibilityState?.disabled).toBe(false));
+    // Asked, unanswered: nothing true can be said yet except that.
+    const status = screen.getByTestId('notifications-status');
+    expect(within(status).queryByText(en.notifIntroChecking)).not.toBeNull();
+    expect(screen.queryByText(en.notifIntroOn)).toBeNull();
+    expect(screen.queryByText(en.notifIntroAsk)).toBeNull();
+    expect(screen.queryByTestId('gentle-reminders-switch-blocked')).toBeNull();
+
+    await act(async () => { answer.resolve('denied'); });
+    await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+    expect(screen.queryByText(en.notifIntroChecking)).toBeNull();
+    expect(screen.queryByText(en.notifIntroOn)).toBeNull();
+  });
+});
+
+/*
+ * Round 2 (review m2): the Settings list's morning-plan row said "Arrives at
+ * 07:30" while the phone blocked every notification — a promise the phone
+ * would not keep. It says it is blocked instead, read the same way (mount
+ * and foreground).
+ */
+describe('the Settings list', () => {
+  async function showList() {
+    jest.spyOn(trustEndpoints, 'getTrust')
+      .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
+    jest.spyOn(profileEndpoints, 'listMemory').mockResolvedValue({ items: [], suggestions: [], adaptive: null } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}>
+              <SettingsScreen />
+            </QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(permission.getNotificationPermission).toHaveBeenCalled());
+  }
+  const arrives = fill(en.settingsMorningSub, { t: ltr(PLAN_ON.deliveryLocalTime) });
+
+  it('does not promise the morning note while the phone blocks notifications', async () => {
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
+    await showList();
+    await waitFor(() => expect(screen.queryByTestId('settings-morning-blocked')).not.toBeNull());
+    expect(screen.queryByText(arrives)).toBeNull();
+    expect(screen.getByTestId('settings-morning-blocked').props.children).toBe(en.notifBlockedByPhone);
+  });
+
+  it('says when it arrives once the phone allows it', async () => {
+    await showList();
+    await waitFor(() => expect(screen.queryByText(arrives)).not.toBeNull());
+    expect(screen.queryByTestId('settings-morning-blocked')).toBeNull();
+  });
+
+  it('clears the blocked line when the app comes back after the user allowed notifications', async () => {
+    const fire = captureAppState();
+    const read = jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
+    await showList();
+    await waitFor(() => expect(screen.queryByTestId('settings-morning-blocked')).not.toBeNull());
+    read.mockResolvedValue('granted');
+    await act(async () => { fire('active'); });
+    await waitFor(() => expect(screen.queryByText(arrives)).not.toBeNull());
+    expect(screen.queryByTestId('settings-morning-blocked')).toBeNull();
   });
 });
