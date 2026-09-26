@@ -245,6 +245,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['financial.connectionOff', financialConnectionSchema],
   ['habit.created', habitChangedSchema],
   ['goal.generated', goalGraphResponseSchema],
+  ['goal.geminiGenerated', goalGraphResponseSchema],
   ['goal.execution', goalExecutionResponseSchema],
   ['goal.confirmed', goalConfirmResponseSchema],
   ['goal.regenerated', goalGraphResponseSchema],

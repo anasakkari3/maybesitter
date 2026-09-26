@@ -24,6 +24,14 @@ describe('goal execution mobile contract', () => {
     expect(() => goalUnlinkResponseSchema.parse(require('../__fixtures__/goal.unlinked.json'))).not.toThrow();
   });
 
+  it('keeps the planner hints the real Gemini-backed route sends (CL3)', () => {
+    const { graph } = goalGraphResponseSchema.parse(require('../__fixtures__/goal.geminiGenerated.json'));
+    expect(graph.provenance.stepSource).toBe('model');
+    const steps = graph.nodes.filter(node => node.kind === 'decomposition_step_proposal');
+    expect(steps.length).toBeGreaterThanOrEqual(3);
+    expect(steps[0]).toEqual(expect.objectContaining({ suggestedAs: 'commitment', suggestedWhen: 'today' }));
+  });
+
   it('sends both local dates when requesting habit progress', async () => {
     mockApiRequest.mockResolvedValue({ success: true });
     await getGoalExecution('goal/one', 2, {
