@@ -68,7 +68,8 @@ export function BackgroundActivityScreen() {
     </ProductSection>
     <Pill testID="background-create" label={t.xWatch} onPress={() => actions.go('watchBuilder')} />
     <ProductSection title={t.xExplore} icon="link">
-      {[t.xFlight, t.xPackage, 'WHOOP', 'Notion', t.xLocation].map(title => <ProductRow key={title} title={title} status="COMING_SOON" icon="watch" />)}
+      {[t.xFlight, t.xPackage, 'WHOOP', 'Notion'].map(title => <ProductRow key={title} title={title} status="COMING_SOON" icon="watch" />)}
+      <ProductRow id="explore-location" title={t.xLocation} body={t.placesRowSub} status="LIVE" icon="goal" onPress={() => actions.go('places')} />
     </ProductSection>
 
   </ProductPage>;

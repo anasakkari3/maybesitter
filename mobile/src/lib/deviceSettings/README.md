@@ -49,6 +49,13 @@ same reason the language preference is:
   `calendarDevice.ts` also keeps which of this phone's calendars the user
   switched off for busy time (ids only). Each header makes the argument.
 
+- **`placeReminders.ts`** (closure CL4) — saved places (a name and a pin) and
+  the place reminders this phone is watching. The pins are the one thing the
+  server is forbidden to hold, so the phone is their only home; the armed list
+  carries the commitment title because a region crossing wakes the app with no
+  network to ask. Keyed by account or cleared with it on sign-out and account
+  deletion. The header makes the full argument.
+
 Anything new here needs the same argument made in its own header, or it belongs
 on the account instead.
 

@@ -556,10 +556,12 @@ export async function confirmCapture(
     if (stored_.length > 0) return edit ? applyEditToCommands(stored_, edit) : stored_;
     if (!edit?.title || !edit?.resolvedTime) return [];
     const item = stored.contract.items.find((candidate) => candidate.itemId === itemId);
-    return mapExtractionToCommand(
+    const completed = mapExtractionToCommand(
       manuallyCompleted(edit.title, edit.resolvedTime, edit.priority ?? item?.priority ?? 'normal'),
       now.toISOString(),
     );
+    // A place reminder chosen for it in review travels with it (closure CL4).
+    return edit.locationTrigger ? applyEditToCommands(completed, { locationTrigger: edit.locationTrigger }) : completed;
   };
 
   if (Array.from(selected).some((id) => !knownItemIds.has(id))) return failure('invalid_selection');

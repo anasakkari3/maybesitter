@@ -4,6 +4,7 @@ import type {
   CommitmentCategory,
   CommitmentCategorySource,
 } from '../contracts/v1/categoryContracts';
+import type { LocationTrigger } from '../contracts/v1/locationTriggerContracts';
 
 export type CommitmentKind = 'task' | 'follow_up';
 export type CommitmentStatus =
@@ -113,6 +114,13 @@ export interface Commitment {
    */
   categorySource: CommitmentCategorySource;
   timeSpec: TimeSpec;
+  /**
+   * "Remind me when I arrive / leave" (closure CL4). Absent when there is none.
+   *
+   * Only that the reminder exists, which way it fires and what the place is
+   * called — never where it is. See `locationTriggerContracts.ts`.
+   */
+  locationTrigger?: LocationTrigger;
   currentAckState: AckState;
   postponedUntil: string | null;
   createdAt: string;
@@ -186,6 +194,8 @@ export type CreateDraft = {
     priority?: Partial<Priority>;
     category?: CommitmentCategory | null;
     timeSpec?: Partial<TimeSpec>;
+    /** Set in review, before the commitment exists (closure CL4). */
+    locationTrigger?: LocationTrigger | null;
   };
   draftStatus?: Extract<CommitmentStatus, 'draft' | 'needs_clarification' | 'pending_confirmation'>;
 };
@@ -268,6 +278,11 @@ export type UpdateCommitment = {
      */
     categorySource?: CommitmentCategorySource;
     timeSpec?: Partial<TimeSpec>;
+    /**
+     * The place reminder (closure CL4). `null` removes it; leaving the key out
+     * means "do not touch it", the same split `category` makes.
+     */
+    locationTrigger?: LocationTrigger | null;
   };
 };
 
@@ -646,6 +661,7 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
         confirmedAt: null,
         completedAt: null,
         droppedAt: null,
+        ...(command.commitment.locationTrigger ? { locationTrigger: { ...command.commitment.locationTrigger } } : {}),
       };
       newState.commitments[commitment.id] = commitment;
       ensureEscalationState(newState, commitment.id);
@@ -852,13 +868,23 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
         ? incomingCategorySource
         : commitment.categorySource;
 
+      // Absent and `null` differ as they do for the category: absent is "not
+      // mentioned", `null` is the person removing the place reminder.
+      const triggerOffered = command.updates.locationTrigger !== undefined;
+      const nextTrigger = triggerOffered
+        ? (command.updates.locationTrigger ?? null)
+        : (commitment.locationTrigger ?? null);
+      const triggerChanged = triggerOffered
+        && JSON.stringify(commitment.locationTrigger ?? null) !== JSON.stringify(nextTrigger);
+
       if (
         commitment.title === nextTitle &&
         commitment.description === nextDescription &&
         commitment.person === nextPerson &&
         JSON.stringify(commitment.priority) === JSON.stringify(nextPriority) &&
         !categoryChanged &&
-        !timeSpecChanged
+        !timeSpecChanged &&
+        !triggerChanged
       ) {
         break;
       }
@@ -870,6 +896,10 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       commitment.category = nextCategory;
       commitment.categorySource = nextCategorySource;
       commitment.timeSpec = nextTimeSpec;
+      if (triggerChanged) {
+        if (nextTrigger) commitment.locationTrigger = { ...nextTrigger };
+        else delete commitment.locationTrigger;
+      }
       commitment.updatedAt = command.now;
       if (timeSpecChanged) {
         cancelOpenReminders(newState, commitment.id, command.now);

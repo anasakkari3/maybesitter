@@ -23,6 +23,7 @@ export interface ServerItemEdit {
   title?: string;
   resolvedTime?: string | null;
   priority?: 'high' | 'normal' | 'low';
+  locationTrigger?: { kind: 'arrive' | 'leave'; placeId: string; label: string };
 }
 
 export function toServerEdits(
@@ -33,6 +34,11 @@ export function toServerEdits(
     const payload: ServerItemEdit = { itemId };
     if (edit.title !== undefined) payload.title = edit.title;
     if (edit.priority !== undefined) payload.priority = edit.priority;
+    // The three fields by name, so nothing else about the place can ride along.
+    if (edit.locationTrigger) {
+      const { kind, placeId, label } = edit.locationTrigger;
+      payload.locationTrigger = { kind, placeId, label };
+    }
 
     if (edit.localDateTime !== undefined) {
       if (edit.localDateTime === '') {

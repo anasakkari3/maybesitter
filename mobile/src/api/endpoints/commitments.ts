@@ -1,5 +1,5 @@
 import { apiRequest, apiRequestTagged, type TaggedResult } from '../client';
-import { commitmentListSchema, commitmentSchema, type Commitment, type CommitmentList } from '../schemas/common';
+import { commitmentListSchema, commitmentSchema, type Commitment, type CommitmentList, type LocationTrigger } from '../schemas/common';
 import { commitmentActionResultSchema, commitmentDeleteResultSchema } from '../schemas/commitments';
 import type { TimePatch } from '../../features/commitments/timePatch';
 
@@ -41,6 +41,12 @@ export interface CommitmentPatch extends TimePatch {
    * the edit did not mention the category, `null` means the user cleared it.
    */
   category?: NonNullable<Commitment['category']> | null;
+  /**
+   * The place reminder (closure CL4), or `null` to remove it. Exactly the three
+   * fields of `LocationTrigger` — `placeReminderBody` builds it, so a place's
+   * coordinates cannot ride along.
+   */
+  locationTrigger?: LocationTrigger | null;
 }
 
 /**
