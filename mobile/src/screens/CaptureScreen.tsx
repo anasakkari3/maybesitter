@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Keyboard, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
@@ -26,6 +26,7 @@ import { Btn, Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
+import { AvoidKeyboard } from '../ui/keyboard';
 
 /**
  * The composer (UC-2.R2, #172).
@@ -67,7 +68,9 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
  * ── The keyboard never covers Analyze ────────────────────────────
  *
  * Analyze and the mic live in a footer outside the ScrollView, inside the
- * KeyboardAvoidingView, so the keyboard pushes them up instead of hiding them.
+ * keyboard-avoiding container (`AvoidKeyboard`), so the keyboard pushes them
+ * up instead of hiding them — measured in the window, so the email banner
+ * above this screen cannot throw it off.
  * The field has a maxHeight and scrolls itself, so a long draft cannot push
  * its own caret under the keyboard. Hints and examples scroll.
  */
@@ -148,7 +151,7 @@ export function CaptureScreen() {
       {/* Renders nothing; it gives the recogniser's hooks a component to live
           in so the service can stay a plain object (UC-2.3, #163). */}
       <SpeechEventBridge />
-      <KeyboardAvoidingView testID="capture-kav" style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <AvoidKeyboard testID="capture-kav" style={{ flex: 1 }}>
         <TaskHeader
           pill={t.cancel}
           onPill={requestClose}
@@ -283,7 +286,7 @@ export function CaptureScreen() {
         </ScrollView>
 
         {composing ? (
-          // Pinned above the keyboard: the KeyboardAvoidingView lifts this,
+          // Pinned above the keyboard: AvoidKeyboard lifts this,
           // the ScrollView above it shrinks.
           <View
             testID="capture-footer"
@@ -333,7 +336,7 @@ export function CaptureScreen() {
             </View>
           </View>
         ) : null}
-      </KeyboardAvoidingView>
+      </AvoidKeyboard>
     </ScreenIn>
   );
 }

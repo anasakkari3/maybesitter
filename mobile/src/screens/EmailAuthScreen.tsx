@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
+import { ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { useSingleFlight } from '../auth/useSingleFlight';
@@ -14,6 +14,7 @@ import {
 import { fill } from '../i18n/strings';
 import { Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
+import { AvoidKeyboard } from '../ui/keyboard';
 
 export type EmailAuthMode = 'signIn' | 'signUp' | 'reset';
 
@@ -108,7 +109,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: p.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AvoidKeyboard style={{ flex: 1, backgroundColor: p.bg }}>
       <TaskHeader pill={t.back} onPill={onBack} title={t.authEmailTitle} />
       <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
         <Txt size={22} weight={600}>{title}</Txt>
@@ -175,6 +176,6 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
           )}
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </AvoidKeyboard>
   );
 }
