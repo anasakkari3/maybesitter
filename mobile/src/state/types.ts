@@ -100,6 +100,9 @@ export type Screen =
   // Settings → Home screen widget (UC-3.R1, #203). Whether commitment titles
   // may appear on this phone's home and lock screens, with a preview.
   | 'widgetSettings'
+  // Settings → My places (closure CL4). Home, Work and the rest, pinned from
+  // where the phone is; the pins stay on the phone.
+  | 'places'
   // Settings → Football (football fixtures MVP, Task 11). Pick clubs, see
   // the matches following them just projected, dismiss the ones you don't want.
   | 'footballSettings'

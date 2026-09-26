@@ -26,6 +26,7 @@
  */
 import type { CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
+import type { LocationTrigger } from '../../api/schemas/common';
 
 /**
  * Where the flow is.
@@ -121,6 +122,12 @@ export interface CaptureItemEdit {
    */
   localDateTime?: string;
   priority?: 'high' | 'normal' | 'low';
+  /**
+   * The place reminder chosen for this card (closure CL4), or `null` once it
+   * was removed — edits merge, so a removal has to be a value. No coordinates:
+   * see `LocationTrigger`.
+   */
+  locationTrigger?: LocationTrigger | null;
 }
 
 export interface CaptureState {

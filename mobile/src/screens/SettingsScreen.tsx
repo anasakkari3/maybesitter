@@ -77,6 +77,7 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
             icon="calendar" testID="settings-morning"
           />
           <SettingsRow label={t.settingsWidget} sub={t.settingsWidgetSub} onPress={() => actions.go('widgetSettings')} icon="calendar" testID="settings-widget" />
+          <SettingsRow label={t.placesTitle} sub={t.placesRowSub} onPress={() => actions.go('places')} icon="goal" testID="settings-places" />
         </Group>
 
         <Group title={t.settingsGroupTrust}>

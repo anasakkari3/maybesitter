@@ -50,6 +50,17 @@ grep -q 'com.maybesitter.app.widget.NextStep' "$MERGED_MANIFEST" \
   && pass 'NextStep AppWidget receiver present' \
   || fail 'NextStep AppWidget receiver missing'
 
+# Place reminders (closure CL4): geofencing, and no location foreground service.
+grep -q 'ACCESS_BACKGROUND_LOCATION' "$MERGED_MANIFEST" \
+  && pass 'ACCESS_BACKGROUND_LOCATION present for place reminders' \
+  || fail 'ACCESS_BACKGROUND_LOCATION missing'
+
+if grep -q 'LocationTaskService\|FOREGROUND_SERVICE_LOCATION' "$MERGED_MANIFEST"; then
+  fail 'a location foreground service reached the merged manifest'
+else
+  pass 'no location foreground service'
+fi
+
 if [ "$failures" -gt 0 ]; then
   echo "Android manifest verification failed with $failures error(s)." >&2
   exit 1
