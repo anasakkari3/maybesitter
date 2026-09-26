@@ -70,10 +70,20 @@ async function main(): Promise<void> {
   }, new Date().toISOString());
   console.log(`goal: ${goalText}`);
 
-  // The production generator, wrapped only to print what Vertex returned.
+  // The production generator, wrapped only to print what Vertex returned, and
+  // to stop at a call budget when one is set (a register retry can double the
+  // two calls of one run). Past the budget the planner falls back exactly as
+  // it does for any provider error: the template, never a failure.
   const gated = shareLlmProvider(UID, { purpose: 'goal_decomposition' });
+  const maxCalls = Number(process.env.MAYBESITTER_LIVE_GOAL_STEPS_MAX_CALLS ?? Infinity);
+  let calls = 0;
   const goalStepModel = createGoalStepModel(UID, {
     generate: async (request) => {
+      calls += 1;
+      if (calls > maxCalls) {
+        console.log(`\n[vertex] call ${calls} skipped: MAYBESITTER_LIVE_GOAL_STEPS_MAX_CALLS=${maxCalls}`);
+        throw new Error('live call budget reached');
+      }
       const response = await gated(request);
       console.log(`\n[vertex] model=${response.model} latencyMs=${response.latencyMs} tokens=${response.promptTokens}/${response.outputTokens}`);
       console.log(`[vertex] raw=${response.text}`);

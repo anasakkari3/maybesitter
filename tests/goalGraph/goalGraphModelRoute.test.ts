@@ -34,7 +34,7 @@ import { POST as confirmPost } from '../../src/app/api/mobile/goals/[goalId]/exe
 import { POST as regeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/regenerate/route.ts';
 import { DELETE as memoryDelete, PATCH as memoryPatch } from '../../src/app/api/mobile/memory/[id]/route.ts';
 import { GET as exportGet } from '../../src/app/api/mobile/account/export/route.ts';
-import { RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2, UAT_GOAL, seedGoal } from './goalGraphSupport.ts';
+import { RECORDED_GOAL_STEPS_V4_G1, RECORDED_GOAL_STEPS_V4_G2, UAT_GOAL, seedGoal } from './goalGraphSupport.ts';
 
 const baseUrl = 'http://127.0.0.1:4321';
 const USER = uidFor('GoalModelRouteUser');
@@ -140,7 +140,7 @@ test('the UAT goal, generated with no model configured, offers steps rather than
 });
 
 test('with AI consent: generate → confirm (commitment + habit) → progress → regenerate, on the recorded Gemini answer', async (t) => {
-  const { goalId, calls, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2]);
+  const { goalId, calls, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_V4_G1, RECORDED_GOAL_STEPS_V4_G2]);
   t.after(teardown);
 
   const generated = await body(await generatePost(req(`/api/mobile/goals/${goalId}/execution/generate`, {}), context(goalId)));
@@ -148,11 +148,11 @@ test('with AI consent: generate → confirm (commitment + habit) → progress �
   assert.equal(generated.graph.provenance.stepSource, 'model');
   const steps = proposals(generated.graph);
   assert.deepEqual(steps.map((node) => node.title), [
-    'حدد ميزات التطبيق الأساسية',
-    'صمم واجهة المستخدم الأولية',
-    'اكتب الكود الأساسي للتطبيق',
-    'اختبر وظائف التطبيق الرئيسية',
-    'جهز وصف التطبيق والصور',
+    'شوف شو بدّك تحطّ بالتطبيق',
+    'اعمل قائمة بالميزات الأساسية',
+    'دوّر على مصمم واجهة مستخدم',
+    'بلّش اكتب الكود الأساسي',
+    'جرّب التطبيق على موبايلك',
   ]);
   assert.equal(steps[0].suggestedAs, 'commitment');
   assert.equal(steps[0].suggestedWhen, 'today');
@@ -189,7 +189,7 @@ test('with AI consent: generate → confirm (commitment + habit) → progress �
   assert.equal(calls.length, 1, 'confirm asked the model again');
   const commitmentId = confirmed.created.find((link: { entityKind: string }) => link.entityKind === 'commitment').entityId;
   const state = await getParticipantStateSnapshot(USER);
-  assert.equal(state.commitments[commitmentId]?.title, 'حدد ميزات التطبيق الأساسية');
+  assert.equal(state.commitments[commitmentId]?.title, 'شوف شو بدّك تحطّ بالتطبيق');
   assert.equal(state.commitments[commitmentId]?.status, 'active');
 
   const execution = await body(await executionGet(
@@ -209,7 +209,7 @@ test('with AI consent: generate → confirm (commitment + habit) → progress �
   ));
   assert.equal(calls.length, 2);
   assert.equal(regenerated.graph.generation, 2);
-  assert.equal(proposals(regenerated.graph)[0].title, 'راجع متطلبات المتجر الفنية');
+  assert.equal(proposals(regenerated.graph)[0].title, 'اعمل خطة تسويق صغيرة');
   assert.equal(
     regenerated.graph.nodes.filter((node: Node) => node.kind.startsWith('linked_')).length,
     2,
@@ -218,7 +218,7 @@ test('with AI consent: generate → confirm (commitment + habit) → progress �
 });
 
 test('without AI consent the goal never reaches the model, and the steps are the template', async (t) => {
-  const { goalId, calls, teardown } = await setup('declined', [RECORDED_GOAL_STEPS_G1]);
+  const { goalId, calls, teardown } = await setup('declined', [RECORDED_GOAL_STEPS_V4_G1]);
   t.after(teardown);
 
   const { graph } = await body(await generatePost(req(`/api/mobile/goals/${goalId}/execution/generate`, {}), context(goalId)));
@@ -249,7 +249,7 @@ async function exportedProposals(): Promise<unknown[]> {
   assert.equal(response.status, 200);
   const text = await response.text();
   // Neither the collection nor a step's words may survive into the export.
-  assert.equal(text.includes('حدد ميزات التطبيق الأساسية'), false, 'a deleted goal\u2019s step is in the export');
+  assert.equal(text.includes('شوف شو بدّك تحطّ بالتطبيق'), false, 'a deleted goal\u2019s step is in the export');
   const exported = JSON.parse(text) as { collections: Record<string, unknown[]> };
   return exported.collections.goalGraphProposals ?? [];
 }
@@ -261,7 +261,7 @@ async function generateTwoReadings(goalId: string): Promise<void> {
 }
 
 test('deleting the goal through the memory route removes its step proposals, and the export has none', async (t) => {
-  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2]);
+  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_V4_G1, RECORDED_GOAL_STEPS_V4_G2]);
   t.after(teardown);
   await generateTwoReadings(goalId);
 
@@ -274,7 +274,7 @@ test('deleting the goal through the memory route removes its step proposals, and
 });
 
 test('editing the goal through the memory route removes the old wording\u2019s proposals', async (t) => {
-  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2]);
+  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_V4_G1, RECORDED_GOAL_STEPS_V4_G2]);
   t.after(teardown);
   await generateTwoReadings(goalId);
 
@@ -294,7 +294,7 @@ test('editing the goal through the memory route removes the old wording\u2019s p
 /* ── Confirm only resolves the reading the user reviewed (review M-3) ── */
 
 test('a node id from another reading, or one no reading contains, is refused and creates nothing', async (t) => {
-  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_G1, RECORDED_GOAL_STEPS_G2]);
+  const { goalId, teardown } = await setup('granted', [RECORDED_GOAL_STEPS_V4_G1, RECORDED_GOAL_STEPS_V4_G2]);
   t.after(teardown);
   const first = await body(await generatePost(req(`/api/mobile/goals/${goalId}/execution/generate`, {}), context(goalId)));
   await regeneratePost(req(`/api/mobile/goals/${goalId}/execution/regenerate`, { fromGeneration: 1 }), context(goalId));

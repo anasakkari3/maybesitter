@@ -40,8 +40,11 @@ import { docIdForKey } from '../storage/paths';
  * asks once more when the Arabic comes back formal.
  * v3 (CL3 round 2): a habit's title names no frequency or duration, and the
  * examples say no weekday.
+ * v4 (CL3 round 3): the written to-do verbs («حدّد», «ابحث عن», «استخدم», …)
+ * are named with their spoken replacements, and so are the written adjective
+ * endings («المتاحة», «المستهدف», …).
  */
-export const GOAL_STEPS_PROMPT_VERSION = 'goal-steps-v3';
+export const GOAL_STEPS_PROMPT_VERSION = 'goal-steps-v4';
 
 /** Fewer than this many usable steps is not a plan; the fallback is used. */
 export const GOAL_STEPS_MIN = 2;
@@ -260,8 +263,15 @@ const GENERIC_KEYS: ReadonlySet<string> = new Set([
  * the formal-instruction shapes a model reaches for when it writes a to-do:
  * «قم بـ», «يجب», «ينبغي», «عليك أن», «كيفية», «لكي».
  *
- * Deliberately light. It catches the obvious, not the merely neutral: «حدّد»
- * and «اكتب» are imperatives in both registers and pass.
+ * The last three (CL3 round 3) are the written to-do verbs and adjective
+ * endings the round-2 live run came back with («حدد ميزات التطبيق الأساسية»,
+ * «ابحث عن منصات النشر المتاحة», «حدد الجمهور المستهدف»): nobody says them
+ * out loud, so a step with one was written, not spoken. Word-initial only, so
+ * «تحديد» and «بحث» inside a step are untouched.
+ *
+ * Still deliberately light. Neutral words that are said as well as written
+ * pass: «اكتب», «الأساسية» (in the recorded Levantine answer «اعمل قائمة
+ * بالميزات الأساسية») and «مناسب».
  */
 export const ARABIC_FORMAL_MARKERS: readonly RegExp[] = Object.freeze([
   /(^|[\s«({])[\u0648\u0641]?(\u0644\u0645|\u0644\u0646|\u0633\u0648\u0641|\u0644\u064A\u0633|\u0644\u062F\u064A\u0646\u0627|\u0644\u062F\u064A\u0643|\u0644\u062F\u064A\u0647)\s/,
@@ -272,6 +282,12 @@ export const ARABIC_FORMAL_MARKERS: readonly RegExp[] = Object.freeze([
   /(\u0627\u062B\u0646\u0627\u0646|\u0627\u062B\u0646\u062A\u0627\u0646|\u0634\u064A\u0626\u0627\u0646|\u0634\u064A\u0626\u064B\u0627)/,
   /(^|[\s«({])[\u0648\u0641]?\u0642\u064F?\u0645\s+\u0628/,
   /(^|[\s«({])[\u0648\u0641]?(\u064A\u062C\u0628|\u064A\u0646\u0628\u063A\u064A|\u0639\u0644\u064A\u0643\s+\u0623\u0646|\u0643\u064A\u0641\u064A\u0629|\u0644\u0643\u064A)([\s.\u060C]|$)/,
+  // «حدد»/«حدّد» …, «استخدم…»
+  /(^|[\s«({])[\u0648\u0641]?(\u062D\u062F\u0651?\u062F\s|\u0627\u0633\u062A\u062E\u062F\u0645)/,
+  // «ابحث عن», «احصل على», «تأكد من»/«تأكّد من»
+  /(^|[\s«({])[\u0648\u0641]?(\u0627\u0628\u062D\u062B\s+\u0639\u0646|\u0627\u062D\u0635\u0644\s+\u0639\u0644\u0649|\u062A\u0623\u0643\u0651?\u062F\s+\u0645\u0646)(\s|$)/,
+  // «المتاح/المتاحة», «المستهدف/المستهدفة»
+  /(^|[\s«({])(\u0627\u0644\u0645\u062A\u0627\u062D|\u0627\u0644\u0645\u0633\u062A\u0647\u062F\u0641)\u0629?([\s.\u060C\u061F]|$)/,
 ]);
 
 /** True when an Arabic step reads as formal Arabic rather than spoken. */
@@ -392,13 +408,13 @@ const TEMPLATES: Readonly<Record<GoalStepLanguage, Readonly<Record<GoalShape, re
   ar: {
     dated: [
       { title: 'قسّم «{goal}» لتلات مراحل، ولكل مرحلة موعد', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
-      { title: 'حدّد أول مرحلة من «{goal}» وشو لازم يخلص فيها', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
+      { title: 'اختار أول مرحلة من «{goal}» وشو لازم يخلص فيها', suggestedAs: 'commitment', suggestedWhen: 'this_week' },
       { title: 'اشتغل على «{goal}» كم مرة بالأسبوع', suggestedAs: 'habit', suggestedWhen: null },
     ],
     recurring: [
       { title: 'جهّز اللي بتحتاجه لـ«{goal}»', suggestedAs: 'commitment', suggestedWhen: 'today' },
       { title: 'خصّص وقت لـ«{goal}» كم مرة بالأسبوع', suggestedAs: 'habit', suggestedWhen: null },
-      { title: 'حدّد كيف بتعرف إنك تقدّمت بـ«{goal}» بعد شهر', suggestedAs: 'commitment', suggestedWhen: 'this_month' },
+      { title: 'قرّر كيف بتعرف إنك تقدّمت بـ«{goal}» بعد شهر', suggestedAs: 'commitment', suggestedWhen: 'this_month' },
     ],
     open: [
       { title: 'اكتب شو يعني إنك خلّصت «{goal}»', suggestedAs: 'commitment', suggestedWhen: 'this_week' },

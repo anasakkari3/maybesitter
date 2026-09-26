@@ -87,6 +87,11 @@ const LANGUAGE_NAMES: Readonly<Record<GoalStepLanguage, string>> = {
  * Arabic («حدد ميزات التطبيق الأساسية», «اختبر وظائف التطبيق الرئيسية»). The
  * examples are for a *different* goal on purpose, so the model learns the
  * register rather than copying steps into an app-launch goal.
+ *
+ * Round 3: with the examples alone the answer was neutral written Arabic
+ * («حدد ميزات التطبيق الأساسية», «ابحث عن منصات النشر المتاحة»), which no
+ * marker caught. The written to-do verbs and adjective endings are now named
+ * with what a speaker says instead, and `hasFormalArabic` catches them.
  */
 const LEVANTINE_EXAMPLES = [
   'Arabic register: write each step the way a friend from Amman, Beirut or Damascus would say it out loud, not the way a textbook or a manual would write it.',
@@ -95,6 +100,8 @@ const LEVANTINE_EXAMPLES = [
   '- goal «أرتّب البيت قبل العيد»: «حطّ قائمة بالغرف اللي بدها ترتيب» / «فضّي خزانتك من الأواعي اللي ما بتلبسها» / «اسأل أختك إذا بتساعدك بالترتيب»',
   '- goal «أخلّص الرسالة»: «اكتب رؤوس أقلام للفصل الجاي» / «ابعت المسودة للدكتور يشوفها» / «اقرا مصدر جديد كم مرة بالأسبوع»',
   'Never write formal constructions: «قم بـ», «يجب», «ينبغي», «كيفية», «سوف», «لم», «هذا/هذه», «الذي/التي», «شيء», «الآن».',
+  'Spoken Levantine does not use written to-do verbs. Replace them: «حدّد» → «قرّر» or «شوف شو», «ابحث عن» → «دوّر على», «استخدم» → «استعمل», «اختر» → «اختار» or «نقّي», «أنشئ» → «افتح» or «اعمل», «راجع» → «طلّع على», «احصل على» → «جيب», «تأكّد من» → «شيّك على».',
+  'Avoid written-Arabic adjective endings such as «الأساسية», «المتاحة», «المستهدف», «المناسب»: say it the spoken way («الأهم», «اللي موجودة», «اللي بدّك توصله», «اللي بيناسب»).',
 ].join('\n');
 
 /**
