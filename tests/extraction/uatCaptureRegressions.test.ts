@@ -1877,3 +1877,235 @@ test('R6 bare hour: with a period word the hour resolves, and a bare hour past s
     assert.equal(contract.items[0]!.clarification?.questionKey, 'ask_am_pm', text);
   }
 });
+
+// ── Round 7 (controller rulings on re-review 3: I-1, reminder openers, I-2, I-3) ──
+
+// I-1 — a request or reminder opener followed by a day word still opens a clause.
+
+const DAY_OPENER_ROWS: ReadonlyArray<readonly [string, readonly [string, string | null], readonly [string, string | null]]> = [
+  // [input, [first title, its day or instant], [second title, its day or instant]]
+  ['عندي موعد دكتور الأحد. ذكرني بكرا أدفع فاتورة الكهربا', ['عندي موعد دكتور', '2026-09-27'], ['أدفع فاتورة الكهربا', '2026-09-27']],
+  ['سجّل موعد دكتور يوم الأحد. وذكرني بكرا أدفع فاتورة الكهربا', ['موعد دكتور', '2026-09-27'], ['أدفع فاتورة الكهربا', '2026-09-27']],
+  ['Dentist on Sunday. Remind me tomorrow to pay the electricity bill', ['Dentist', '2026-09-27'], ['pay the electricity bill', '2026-09-27']],
+  ['Dentist on Sunday. Please remind me tomorrow to pay rent', ['Dentist', '2026-09-27'], ['pay rent', '2026-09-27']],
+  ['תור לרופא ביום ראשון. תזכיר לי מחר לשלם את חשבון החשמל', ['תור לרופא', '2026-09-27'], ['לשלם את חשבון החשמל', '2026-09-27']],
+  ['اجتماع مع سامي الأحد. بدي بكرا أشتري هدية لدانة', ['اجتماع مع سامي', '2026-09-27'], ['أشتري هدية لدانة', '2026-09-27']],
+  ['Meeting with Sam on Sunday. I need to tomorrow buy a gift', ['Meeting with Sam', '2026-09-27'], ['buy a gift', '2026-09-27']],
+  // An explicit reminder always opens a clause, even with a clock time and no day
+  // (re-review 3, m-3): the dentist must not take 18:00.
+  ['Dentist on Sunday. Remind me at 6pm to call mom', ['Dentist', '2026-09-27'], ['call mom', '2026-09-26T15:00:00.000Z']],
+  ['عندي موعد دكتور الأحد. ذكرني الساعة 6 المسا أتصل بأمي', ['عندي موعد دكتور', '2026-09-27'], ['أتصل بأمي', '2026-09-26T15:00:00.000Z']],
+  ['Dentist on Sunday. Remind me tonight to call mom', ['Dentist', '2026-09-27'], ['call mom', '2026-09-26T17:00:00.000Z']],
+  // «الساعة 9» with no day is today, and at 10:00 it has passed: asked for a new time today (round 1).
+  ['موعد الدكتور بكرا. ذكرني أتصل بالعيادة الساعة 9 أأكد', ['موعد الدكتور', '2026-09-27'], ['أتصل بالعيادة أأكد', '2026-09-26']],
+  ['תור לרופא ביום ראשון. תזכיר לי ב-6 בערב להתקשר לאמא', ['תור לרופא', '2026-09-27'], ['להתקשר לאמא', '2026-09-26T15:00:00.000Z']],
+];
+
+test('R7 I-1: a day word after «ذكرني» / "remind me" / «תזכיר לי» / «بدي» does not stop the opener — two clauses, two items', async () => {
+  const { splitCaptureClauses } = await import('../../src/extraction/clauseSplitter.ts');
+  for (const [text, first, second] of DAY_OPENER_ROWS) {
+    assert.equal(splitCaptureClauses(text).length, 2, `${text} → ${JSON.stringify(splitCaptureClauses(text))}`);
+    const { contract } = await propose(text);
+    const items = contract.items.map((item) => [item.title, item.resolvedTime ?? item.resolvedDate ?? null] as const);
+    assert.equal(items.length, 2, `${text} → ${JSON.stringify(items)}`);
+    assert.deepEqual(items[0], first, text);
+    assert.deepEqual(items[1], second, text);
+  }
+  // The restatement rows of round 6 still attach: none of them opens with a reminder.
+  for (const [text] of NEW2_ROWS) assert.equal(splitCaptureClauses(text).length, 1, text);
+  // A reminder left with no action still joins the sentence after it, and a
+  // trailing bare reminder joins the one before it rather than standing alone.
+  assert.deepEqual(splitCaptureClauses('remind me tomorrow. I need to call Sam'), ['remind me tomorrow. I need to call Sam']);
+  assert.deepEqual(splitCaptureClauses('Dentist on Sunday. Remind me tomorrow.'), ['Dentist on Sunday. Remind me tomorrow.']);
+});
+
+test('R7 I-1: on the model path the reminder reaches the model as its own clause, in one batch call', async () => {
+  const text = 'Dentist on Sunday. Remind me tomorrow to pay the electricity bill';
+  const model = modelAnswering((clause) => (clause.startsWith('Dentist') ? timedTask('Dentist', '2026-09-27', null) : timedTask('pay the electricity bill', '2026-09-27', null)));
+  const { contract } = await propose(text, model.provider);
+  assert.deepEqual(model.asked, ['Dentist on Sunday.', 'Remind me tomorrow to pay the electricity bill']);
+  assert.equal(model.calls(), 1);
+  assert.deepEqual(contract.items.map((item) => item.title), ['Dentist', 'pay the electricity bill']);
+});
+
+// I-2 — the clock guard rejects only a swap, never a correct answer.
+
+const CORRECT_ANSWERS: ReadonlyArray<readonly [string, unknown]> = [
+  ['call mom in 2 hours', timedTask('call mom', '2026-09-26', '12:00')],
+  ['ذكرني أتصل بأمي بعد ساعتين', timedTask('أتصل بأمي', '2026-09-26', '12:00')],
+  ['gym tomorrow at 17:30', timedTask('gym', '2026-09-27', '17:30')],
+  ['عندي دكتور بكرا الساعة 3 بعد الضهر', timedTask('دكتور', '2026-09-27', '15:00')],
+  ['عندي دكتور بكرا الساعة 4 ونص', timedTask('دكتور', '2026-09-27', '16:30')],
+  ['dentist tomorrow at 4:30', timedTask('dentist', '2026-09-27', '16:30')],
+  ['dentist tomorrow at 4:30pm', timedTask('dentist', '2026-09-27', '16:30')],
+  ['pay rent by Friday', timedTask('pay rent', '2026-10-02', null)],
+  ['عندي دكتور بكرا الساعة 5', timedTask('دكتور', '2026-09-27', '17:00')],
+  ['lunch tomorrow at 12', timedTask('lunch', '2026-09-27', '12:00')],
+  ['meeting tomorrow from 2 to 4pm', timedTask('meeting', '2026-09-27', '14:00')],
+  ['meeting tomorrow 2-4pm', timedTask('meeting', '2026-09-27', '14:00')],
+  ['عندي دكتور بكرا الساعة 5 إلا ربع', timedTask('دكتور', '2026-09-27', '16:45')],
+  ['תור לרופא מחר בשעה 5 פחות רבע', timedTask('תור', '2026-09-27', '16:45')],
+  ['dentist tomorrow at quarter to 5', timedTask('dentist', '2026-09-27', '16:45')],
+  ['pick up Dana tomorrow around 5-6pm', timedTask('pick up Dana', '2026-09-27', '17:00')],
+  ['meeting at 5pm tomorrow, remind me 30 minutes before', timedTask('meeting', '2026-09-27', '16:30')],
+  ['doctor tomorrow at 10am, be there 15 minutes early', timedTask('doctor', '2026-09-27', '09:45')],
+  ['call the bank tomorrow between 9 and 10', timedTask('call the bank', '2026-09-27', '09:00')],
+  ['flight tomorrow at 6:55, leave the house at 4', timedTask('flight', '2026-09-27', '06:55')],
+  ['عندي اجتماع بكرا من الساعة 2 للساعة 4', timedTask('اجتماع', '2026-09-27', '14:00')],
+  ['ذكرني الساعة 9 الصبح بموعد الساعة 11', timedTask('موعد', '2026-09-27', '11:00', { remindAt: new Date('2026-09-27T09:00:00+03:00').toISOString() })],
+];
+
+test('R7 I-2: a correct batch answer — a range, «إلا ربع», a reminder lead, an early arrival — is accepted in one call', async () => {
+  const bread = timedTask('buy bread', '2026-09-27', null);
+  for (const [clause, answer] of CORRECT_ANSWERS) {
+    const model = scriptedModel(
+      () => ({ items: [{ clauseIndex: 0, ...(answer as object) }, { clauseIndex: 1, ...bread }] }),
+      (asked) => (asked === 'buy bread tomorrow' ? bread : answer),
+    );
+    const { contract } = await proposeScripted(`${clause}; buy bread tomorrow`, model);
+    assert.deepEqual(model.log.map((call) => call.shape), ['batch'], `${clause} was re-asked`);
+    assert.equal(contract.items.length, 2, clause);
+  }
+});
+
+test('R7 I-2: six clauses with a range and a «quarter to» in each chunk give six timed items in two calls', async () => {
+  const answers: Record<string, unknown> = {
+    'meeting with Dana tomorrow from 2 to 4pm': timedTask('meeting with Dana', '2026-09-27', '14:00'),
+    'call mom tomorrow at 6pm': timedTask('call mom', '2026-09-27', '18:00'),
+    'pay rent by Friday at 5pm': timedTask('pay rent', '2026-10-02', '17:00'),
+    'عندي دكتور بكرا الساعة 5 إلا ربع': timedTask('دكتور', '2026-09-27', '16:45'),
+    'email Sam tomorrow at 9am': timedTask('email Sam', '2026-09-27', '09:00'),
+    'gym on Tuesday at 7pm': timedTask('gym', '2026-09-29', '19:00'),
+  };
+  const model = scriptedModel(
+    (clauses) => ({ items: withIndex(clauses.map((clause) => answers[clause])) }),
+    (clause) => answers[clause],
+  );
+  const { contract } = await proposeScripted(Object.keys(answers).join('; '), model);
+  assert.deepEqual(model.log.map((call) => call.shape), ['batch', 'batch']);
+  assert.equal(contract.status, 'proposed');
+  assert.deepEqual(contract.items.map((item) => item.resolvedTime), [
+    '2026-09-27T11:00:00.000Z', '2026-09-27T15:00:00.000Z', '2026-10-02T14:00:00.000Z',
+    '2026-09-27T13:45:00.000Z', '2026-09-27T06:00:00.000Z', '2026-09-29T16:00:00.000Z',
+  ]);
+  assert.ok(contract.items.every((item) => !item.needsClarification));
+});
+
+test('R7 I-2: the swap signatures are still re-asked — an hour that belongs to a sibling clause, or a missing hour a sibling carries', async () => {
+  // The reviewer's shapes from round 6: a counter-numbered mis-split and a positional rotation.
+  const misSplit = scriptedModel(
+    () => ({ items: [{ clauseIndex: 0, ...taskFor('call Dana') }, { clauseIndex: 1, ...taskFor('email Sam') }, { clauseIndex: 2, ...timedTask('dentist', '2026-09-29', '09:00') }] }),
+    (clause) => SHIFT_SINGLES[clause],
+  );
+  const first = await proposeScripted(SHIFT, misSplit);
+  assert.deepEqual(misSplit.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
+  assert.deepEqual(first.drafts.map((draft) => draft.title), ['call Dana and email Sam', 'dentist', 'pay rent']);
+  // The residual (re-review 3, m-1): the displaced object has no time and lands
+  // on a clause with no clock; its own clause's hour shows up on a sibling.
+  const T2 = 'call Dana and email Sam; dentist on Tuesday at 9am; pay rent by Friday';
+  const singles: Record<string, unknown> = {
+    'call Dana and email Sam': taskFor('call Dana and email Sam'),
+    'dentist on Tuesday at 9am': timedTask('dentist', '2026-09-29', '09:00'),
+    'pay rent by Friday': timedTask('pay rent', '2026-10-02', null),
+  };
+  const residual = scriptedModel(
+    () => ({ items: [{ clauseIndex: 0, ...taskFor('call Dana') }, { clauseIndex: 1, ...taskFor('email Sam') }, { clauseIndex: 2, ...timedTask('dentist', '2026-09-29', '09:00') }] }),
+    (clause) => singles[clause],
+  );
+  const second = await proposeScripted(T2, residual);
+  assert.deepEqual(residual.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
+  assert.deepEqual(second.drafts.map((draft) => [draft.title, draft.rawText]), [
+    ['call Dana and email Sam', 'call Dana and email Sam'],
+    ['dentist', 'dentist on Tuesday at 9am'],
+    ['pay rent', 'pay rent by Friday'],
+  ]);
+  // The missing-hour signature on its own: the displaced dentist lands on a
+  // clause that states the same hour, so only the hourless "email Sam" on the
+  // dentist's clause — with a sibling carrying its 9 — gives the swap away.
+  const T3 = 'call Dana and email Sam; dentist on Tuesday at 9am; pay rent by Friday at 9am';
+  const singles3: Record<string, unknown> = { ...singles, 'pay rent by Friday at 9am': timedTask('pay rent', '2026-10-02', '09:00') };
+  const missingHour = scriptedModel(
+    () => ({ items: [{ clauseIndex: 0, ...taskFor('call Dana') }, { clauseIndex: 1, ...taskFor('email Sam') }, { clauseIndex: 2, ...timedTask('dentist', '2026-09-29', '09:00') }] }),
+    (clause) => singles3[clause],
+  );
+  const third = await proposeScripted(T3, missingHour);
+  assert.deepEqual(missingHour.log.map((call) => call.shape), ['batch', 'single', 'single', 'single']);
+  assert.deepEqual(third.drafts.map((draft) => [draft.title, draft.rawText]), [
+    ['call Dana and email Sam', 'call Dana and email Sam'],
+    ['dentist', 'dentist on Tuesday at 9am'],
+    ['pay rent', 'pay rent by Friday at 9am'],
+  ]);
+});
+
+// I-3 — minutes without a period word, and a bare hour whose morning has passed.
+
+test('R7 I-3: a clock time with minutes and no period word, hours one to six, asks — and the options keep the minutes', async () => {
+  const rows: ReadonlyArray<readonly [string, string, string]> = [
+    ['dentist tomorrow at 4:30', '04:30', '16:30'],
+    ['dentist tomorrow at 5:00', '05:00', '17:00'],
+    ['عندي دكتور بكرا الساعة 4:30', '04:30', '16:30'],
+    ['عندي دكتور بكرا الساعة 5 ونص', '05:30', '17:30'],
+    ['عندي دكتور بكرا الساعة 5 إلا ربع', '04:45', '16:45'],
+    ['תור לרופא מחר ב-4:30', '04:30', '16:30'],
+    ['תור לרופא מחר בשעה 5 וחצי', '05:30', '17:30'],
+  ];
+  for (const [text, am, pm] of rows) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items.length, 1, text);
+    const item = contract.items[0]!;
+    assert.doesNotMatch(item.title, new RegExp('الساعة|ونص|וחצי|[0-9]'), `${text} → title «${item.title}» keeps a piece of the time`);
+    assert.equal(item.needsClarification, true, text);
+    assert.equal(item.resolvedTime, null, text);
+    assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
+    assert.deepEqual(item.clarification?.options.map((option) => [option.optionId, option.value.localDate, option.value.localTime]), [
+      ['am', '2026-09-27', am],
+      ['pm', '2026-09-27', pm],
+    ], text);
+  }
+  // A leading zero or a 24-hour clock is not ambiguous; a period word settles it.
+  for (const [text, at] of [
+    ['dentist tomorrow at 04:30', '2026-09-27T01:30:00.000Z'],
+    ['gym tomorrow at 17:30', '2026-09-27T14:30:00.000Z'],
+    ['dentist tomorrow at 4:30pm', '2026-09-27T13:30:00.000Z'],
+    ['عندي دكتور بكرا الساعة 4:30 المسا', '2026-09-27T13:30:00.000Z'],
+    ['عندي دكتور بكرا الساعة 5 ونص المسا', '2026-09-27T14:30:00.000Z'],
+  ] as const) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items[0]!.needsClarification, false, text);
+    assert.equal(contract.items[0]!.resolvedTime, at, text);
+  }
+});
+
+test('R7 I-3: a bare early hour today whose morning has passed reaches the am/pm question — with the afternoon as the only option — instead of rejecting the capture', async () => {
+  // Saturday 10:00: «الساعة 5» read as 05:00 today has already gone by.
+  for (const text of ['ذكرني أتصل بأمي الساعة 5', 'ذكرني أتصل بأمي اليوم الساعة 5', 'call mom today at 5', 'remind me to call mom at 4', 'תזכיר לי להתקשר לאמא היום ב-5', 'لازم أشتري دوا من الصيدلية اليوم الساعة 5']) {
+    // Through the guarded extractor the route uses (it refuses the passed
+    // hour itself) and through the bare boundary: the same question.
+    const guarded = await noConsent(text);
+    assert.equal(guarded.contract.status, 'needs_clarification', `${text} (guarded) → ${guarded.contract.status}`);
+    assert.equal(guarded.contract.items[0]?.clarification?.questionKey, 'ask_am_pm', `${text} (guarded)`);
+    const { contract } = await propose(text);
+    assert.equal(contract.status, 'needs_clarification', `${text} → ${contract.status}`);
+    assert.equal(contract.items.length, 1, text);
+    const item = contract.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
+    assert.equal(item.clarification?.options.length, 1, `${text}: only the afternoon is still ahead`);
+    assert.equal(item.clarification?.options[0]!.optionId, 'pm', text);
+    assert.equal(item.clarification?.options[0]!.value.localDate, '2026-09-26', text);
+    assert.equal(item.resolvedTime, null, text);
+  }
+  // Answered «مسا», it is a time to be at, today at 17:00 (or 16:00 for «at 4»).
+  const { timeSpec } = await answerFor('ذكرني أتصل بأمي الساعة 5', () => true, () => ({ optionId: 'pm' }));
+  assert.equal(timeSpec.kind, 'scheduled_event');
+  assert.equal(timeSpec.dueAt, '2026-09-26T14:00:00.000Z');
+  // Beside another clause the same question is asked, and the other clause is untouched.
+  const { contract } = await propose('ذكرني أتصل بأمي الساعة 5، وأشتري خبز بكرا');
+  // (The bread keeps its «و»: a bare «و» fused to a verb is never stripped from a title — «وصّل» is a verb of its own. Pre-existing, cosmetic.)
+  assert.deepEqual(contract.items.map((item) => [item.title, item.clarification?.questionKey ?? null, item.resolvedDate ?? null]), [
+    ['أتصل بأمي', 'ask_am_pm', '2026-09-26'],
+    ['وأشتري خبز', 'ask_time', '2026-09-27'],
+  ]);
+  // A passed hour that is not a bare early one is still refused alone, and asked for a new time beside others (rounds 1 and 3).
+  const late = await propose('ذكرني أتصل بأمي اليوم الساعة 9 الصبح');
+  assert.equal(late.contract.status, 'rejected');
+});

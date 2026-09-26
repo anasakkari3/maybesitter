@@ -174,12 +174,14 @@ export function chunkSizes(total: number, max: number): number[] {
  * clause in two silently dropped the last commitment and gave its neighbours
  * each other's day, anchor and priority.
  *
- * The echo is checked against the clause's content too (round 6, M-a). A
- * model that numbers its objects by their place rather than by the clause
- * they read satisfies the index check by construction; the one thing a
- * clause and its answer must share is the hour, when the clause states one.
- * An object whose clock time is not among its clause's stated hours is a
- * mismatch, and the chunk is re-asked.
+ * The echo is checked against the clause's content too (round 6, M-a; round
+ * 7, I-2). A model that numbers its objects by their place rather than by the
+ * clause they read satisfies the index check by construction. What gives a
+ * displaced object away is the swap signature (`swapped`): its hour is one
+ * a sibling clause states and its own does not, or it has no hour where its
+ * clause states one and a sibling object carries that hour. A correct answer
+ * that reads a range, «إلا ربع», a reminder lead or an early arrival differs
+ * from its clause's stated hour without matching a sibling's, and is kept.
  */
 function alignedItems(text: string, clauses: readonly string[], timezone: string): Record<string, unknown>[] | null {
   const size = clauses.length;
@@ -197,33 +199,44 @@ function alignedItems(text: string, clauses: readonly string[], timezone: string
     if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
     const { clauseIndex, ...extraction } = item as Record<string, unknown>;
     if (clauseIndex !== position) return null;
-    if (!clockAgrees(extraction, clauses[position]!, timezone)) return null;
     aligned.push(extraction);
   }
+  if (swapped(aligned, clauses, timezone)) return null;
   return aligned;
 }
 
 /**
- * The object's clock time, if it has one, is an hour the clause states
- * (CL1 round 6, M-a). A clause with no clock time constrains nothing: the
- * model may put «المسا» at 18:00. Compared modulo twelve, since «الساعة 5»
- * is 17:00 as often as 05:00.
+ * Whether some object of a chunk reads a sibling's clause (CL1 round 7,
+ * I-2). Hours compare modulo twelve, since «الساعة 5» is 17:00 as often as
+ * 05:00. A clause that states no clock time constrains nothing of its own.
  */
-function clockAgrees(extraction: Record<string, unknown>, clause: string, timezone: string): boolean {
-  const stated = statedClockHours(clause);
-  if (stated.size === 0) return true;
+function swapped(objects: readonly Record<string, unknown>[], clauses: readonly string[], timezone: string): boolean {
+  const stated = clauses.map((clause) => statedClockHours(clause));
+  const hours = objects.map((object) => objectHour(object, timezone));
+  return hours.some((hour, index) => {
+    const own = stated[index]!;
+    if (hour !== null) {
+      // An hour that is a sibling's and not its own.
+      return !own.has(hour) && stated.some((other, at) => at !== index && other.has(hour));
+    }
+    // No hour, where the clause states one and a sibling object carries it.
+    return own.size > 0 && hours.some((other, at) => at !== index && other !== null && own.has(other));
+  });
+}
+
+/** The object's local clock hour modulo twelve, or null when it has none. */
+function objectHour(extraction: Record<string, unknown>, timezone: string): number | null {
   const spec = extraction['localTimeSpec'] as { time?: unknown } | null | undefined;
   let time = typeof spec?.time === 'string' ? spec.time : null;
   if (!time) {
     const iso = [extraction['remindAt'], extraction['dueAt']].find((value): value is string => typeof value === 'string');
-    if (!iso) return true;
+    if (!iso) return null;
     const instant = new Date(iso);
-    if (Number.isNaN(instant.getTime())) return true;
+    if (Number.isNaN(instant.getTime())) return null;
     time = localTimeSpecFor(instant, timezone)?.time ?? null;
   }
   const hour = time ? Number.parseInt(time.slice(0, 2), 10) : NaN;
-  if (!Number.isFinite(hour)) return true;
-  return stated.has(hour % 12);
+  return Number.isFinite(hour) ? hour % 12 : null;
 }
 
 /**
@@ -387,15 +400,22 @@ function semanticFailure(result: ExtractionResult, now: Date): string | null {
  * The same reading with the hour that has already gone taken off (CL1, round
  * 1). The day is kept when it is today or later — «اليوم» is still what the
  * user said — so the clarification asks "what time today?".
+ *
+ * A bare early hour keeps its clock (round 7, I-3): «الساعة 5» at 10:00 read
+ * as 05:00 has passed only in the morning reading, and the question to ask
+ * is صبح or مسا — `buildClarification` offers the halves still ahead, so
+ * only the afternoon is left. Consistent with rounds 1 and 3: a passed hour
+ * is asked about, never swapped for a later reading picked for the user.
  */
 function withoutPastTime(result: ExtractionResult, now: Date, timezone: string): ExtractionResult {
   const today = localTimeSpecFor(now, timezone)?.date ?? null;
   const date = result.localTimeSpec?.date ?? null;
+  const keptClock = isBareEarlyHour(result) && date && today && date >= today ? result.localTimeSpec!.time : null;
   return {
     ...result,
     dueAt: null,
     remindAt: null,
-    localTimeSpec: date && today && date >= today ? { date, time: null, timezone } : null,
+    localTimeSpec: date && today && date >= today ? { date, time: keptClock, timezone } : null,
     // Kept: the hour is gone, not what it was. An «الساعة 9» re-asked is
     // still a time to be at once a new hour is picked (CL1 review, I1).
     missingFields: result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time'],
@@ -630,7 +650,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // asked for one — never a later reading picked for them. Alone, the
         // refusal stands.
         const refused = outcome.error instanceof PastCommitmentTimeError ? outcome.error.extracted : undefined;
-        if (!refused || !several) throw outcome.error;
+        if (!refused) throw outcome.error;
+        // Alone, the refusal stands — except for a bare early hour the rules
+        // read as the morning (round 7, I-3): «ذكرني أتصل بأمي الساعة 5» at
+        // 10:00 is a question about the half of the day, not a past time.
+        if (!several && !(refused.engine === 'rule-based' && isBareEarlyHour(refused.result))) throw outcome.error;
         extracted = refused;
         passedHour = true;
       } else {
@@ -702,10 +726,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        *
        * A prompt injection still rejects the whole capture — `semanticFailure`
        * reports it before a short title — and a capture of one clause is
-       * unchanged.
+       * unchanged, but for the bare early hour above (round 7, I-3).
        */
       let clearedPastTime = false;
-      if (several && (failure === 'past_time' || passedHour)) {
+      // The rules' morning reading of a bare early hour (round 7, I-3): the
+      // same question whether the guarded extractor refused it (`passedHour`)
+      // or the boundary's own past-time check did.
+      const bareEarlyHour = extracted.engine === 'rule-based' && isBareEarlyHour(extracted.result);
+      if ((several || passedHour || bareEarlyHour) && (failure === 'past_time' || passedHour)) {
         extracted = { ...extracted, result: withoutPastTime(extracted.result, options.now, options.timezone) };
         failure = semanticFailure(extracted.result, options.now);
         clearedPastTime = failure === null;
@@ -735,7 +763,6 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * the question the review screen already renders); «الساعة 5 المسا»
        * and «الساعة 10» resolve as before.
        */
-      const bareEarlyHour = extracted.engine === 'rule-based' && isBareEarlyHour(extracted.result);
       const needsClarification = clearedPastTime || gated || bareEarlyHour || disposition === 'needs_clarification';
       const itemId = randomUUID();
       items.push({

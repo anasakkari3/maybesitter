@@ -10,6 +10,8 @@ import {
   normalizeSpokenHebrewHours,
   timeAnchorOf,
   timeOfDayEvidence,
+  normalizeClockFractions,
+  normalizeClockText,
   type TimeEvidence,
 } from './timeLexicon';
 import {
@@ -117,7 +119,7 @@ function resolveTimezone(context: ExtractionContext): string {
 }
 
 function parseClock(raw: string): { hour: number; minute: number } | null {
-  const normalized = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw))).toLowerCase();
+  const normalized = normalizeClockText(raw).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
     normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/) ||
@@ -266,7 +268,9 @@ function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
   // the clock patterns below strip a spoken hour out of the title exactly as
   // they strip a typed one.
-  let stripped = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text));
+  // Digits are left as typed (a title keeps its «٢٠٠ شيكل»); only the
+  // spoken hours and fractions are rewritten so the clock patterns find them.
+  let stripped = normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text)));
   // "The one after" phrases whole, before the bare day names below take their
   // weekday and leave «اللي بعد الجاي» behind in the title.
   for (const source of FOLLOWING_WEEK_STRIP_SOURCES) {
@@ -567,8 +571,9 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
  */
 export function countTimeExpressions(raw: string): number {
   if (typeof raw !== 'string' || !raw.trim()) return 0;
-  // Count what the parser reads: «الساعة تسعة» and «בשעה תשע» both become 9.
-  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw)));
+  // Count what the parser reads: «الساعة تسعة» and «בשעה תשע» both become 9,
+  // «5 ونص» becomes 5:30.
+  const text = normalizeClockText(raw);
 
   // Count positions, not matches: two patterns can describe the same mention
   // ("at 9am" matches both the am-suffixed and the bare-hour shape), and

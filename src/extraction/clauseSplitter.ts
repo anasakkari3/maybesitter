@@ -277,8 +277,15 @@ const EDGE_PUNCTUATION = new RegExp('^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$', 'gu')
 /** Whether the words after an opener are an object: something to act on. */
 function followedByObject(rest: string): boolean {
   const words = rest.trim().split(/\s+/).map((word) => word.replace(EDGE_PUNCTUATION, '')).filter(Boolean);
-  // "I need to pay" — the infinitive marker is skipped, its verb is judged.
+  // A day word between the opener and its object is when, not what (CL1
+  // round 7, I-1): «ذكرني بكرا أدفع…», "Remind me tomorrow to pay…", «תזכיר
+  // לי מחר לשלם…», «بدي بكرا أشتري…». Skipped, and the word after it judged.
+  const skipDays = () => { while (words.length > 1 && timeOfDayEvidence(words[0]!) === 'day_only') words.shift(); };
+  skipDays();
+  // "I need to pay" — the infinitive marker is skipped, its verb is judged;
+  // "I need to tomorrow buy" puts the day after it.
   if (words[0]?.toLowerCase() === 'to') words.shift();
+  skipDays();
   const first = words[0];
   if (!first) return false;
   const lower = first.toLowerCase();
@@ -292,10 +299,28 @@ function followedByObject(rest: string): boolean {
   return true;
 }
 
+/**
+ * An explicit reminder said outright: «ذكرني», "remind me", «תזכיר לי», with
+ * the polite lead-ins the sentence openers accept (CL1 round 7). It always
+ * opens a clause of its own — it is never a restatement of the appointment
+ * before it, and what follows it ("at 6pm", "tomorrow") is when to remind,
+ * not a reason to attach: "Dentist on Sunday. Remind me at 6pm to call mom"
+ * is two commitments, and the dentist does not get 18:00.
+ */
+const EXPLICIT_REMINDER_OPENER = new RegExp(
+  '^(?:' + [
+    `(?:(?:ممكن|بتقدر|بتقدري|هل\\s+بتقدر|هل\\s+بتقدري|لو\\s+سمحت|بليز)\\s+)?(?:ذكرني|ذكّرني|ذكريني|ذكّريني|تذكرني|تذكريني)${A}`,
+    "(?:(?:please|can\\s+you|could\\s+you|would\\s+you)\\s+)?remind\\s+me\\b",
+    `(?:תזכיר|תזכירי)\\s+לי${A}`,
+  ].join('|') + ')',
+  'iu',
+);
+
 /** Whether a sentence opens a clause of its own, after `previous`. */
 function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
   if (!text) return false;
+  if (EXPLICIT_REMINDER_OPENER.test(text)) return true;
   if (restatesTheHour(text, previous)) return false;
   const opener = SENTENCE_OPENER.exec(text) ?? SENTENCE_VERB_OPENER.exec(text);
   if (opener) return followedByObject(text.slice(opener[0].length));
@@ -347,6 +372,13 @@ function sentencesOf(raw: string): string[] {
     } else {
       merged.push(sentence);
     }
+  }
+  // A bare reminder with nothing after it — "Dentist on Sunday. Remind me
+  // tomorrow." — is about the sentence before it (CL1 round 7): joined back
+  // rather than left as a clause with no action.
+  if (merged.length > 1 && isBareRequest(merged[merged.length - 1]!)) {
+    const last = merged.pop()!;
+    merged[merged.length - 1] = `${merged[merged.length - 1]} ${last}`;
   }
   return merged;
 }

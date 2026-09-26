@@ -152,9 +152,11 @@ const ROWS: readonly GuardRow[] = [
   {
     guard: 'src/extraction/timeLexicon.ts (timeOfDayEvidence hhmm)',
     bites: (text) => timeOfDayEvidence(text) === 'hhmm',
-    ar: 'الساعة ٥:٣٠',
-    he: 'בשעה ٥:٣٠',
-    en: 'at 5:30',
+    // A 24-hour clock. A bare `5:30` with no period word is a guess at the
+    // half of the day and reads as `clock_marker` since CL1 round 7 (I-3).
+    ar: 'الساعة ١٤:٣٠',
+    he: 'בשעה ١٤:٣٠',
+    en: 'at 14:30',
     innocentAr: 'الساعة الخامسة تقريبا',
     innocentHe: 'בערך בחמש',
   },

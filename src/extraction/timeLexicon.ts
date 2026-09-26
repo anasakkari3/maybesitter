@@ -127,6 +127,41 @@ export function normalizeSpokenHebrewHours(value: string): string {
 }
 
 /**
+ * A spoken fraction of the hour, written as minutes (CL1 round 7, I-3):
+ * «5 ونص» → 5:30, «5 وربع» → 5:15, «5 إلا ربع» → 4:45; «5 וחצי» → 5:30,
+ * «5 פחות רבע» → 4:45; "half past 5" → 5:30, "quarter to 5" → 4:45. Every
+ * clock reader — the parser, the evidence, the stated hours, the counter and
+ * the title stripper — runs this after the spoken hours, so «الساعة خمسة ونص»
+ * is one time of 5:30 to all of them, and the half hour is not lost on the
+ * way to the am/pm question.
+ */
+export function normalizeClockFractions(value: string): string {
+  const D = '([0-9\\u0660-\\u0669\\u06F0-\\u06F9]{1,2})';
+  const hourOf = (digits: string) => Number(normalizeArabicDigits(digits));
+  const before = (digits: string, minutes: string) => {
+    const hour = hourOf(digits);
+    return `${hour === 1 ? 12 : hour - 1}:${minutes}`;
+  };
+  return value
+    .replace(new RegExp(`${D}\\s*(?:و\\s*)?(?:نص|نصف)(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:30`)
+    .replace(new RegExp(`${D}\\s*(?:و\\s*)?ربع(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:15`)
+    .replace(new RegExp(`${D}\\s*(?:و\\s*)?(?:ثلث|تلت)(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:20`)
+    .replace(new RegExp(`${D}\\s*(?:إلا|الا|إلّا)\\s*ربع(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => before(d, '45'))
+    .replace(new RegExp(`${D}\\s*(?:إلا|الا|إلّا)\\s*(?:ثلث|تلت)(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => before(d, '40'))
+    .replace(new RegExp(`${D}\\s*וחצי(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:30`)
+    .replace(new RegExp(`${D}\\s*ורבע(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:15`)
+    .replace(new RegExp(`${D}\\s*פחות\\s*רבע(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => before(d, '45'))
+    .replace(new RegExp(`\\bhalf\\s+past\\s+${D}\\b`, 'giu'), (_, d: string) => `${hourOf(d)}:30`)
+    .replace(new RegExp(`\\b(?:a\\s+)?quarter\\s+past\\s+${D}\\b`, 'giu'), (_, d: string) => `${hourOf(d)}:15`)
+    .replace(new RegExp(`\\b(?:a\\s+)?quarter\\s+to\\s+${D}\\b`, 'giu'), (_, d: string) => before(d, '45'));
+}
+
+/** Every rewrite a clock reader needs, in order: digits, spoken hours, fractions. */
+export function normalizeClockText(value: string): string {
+  return normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(value))));
+}
+
+/**
  * What a single clock time looks like. `stripTiming` removes these from a
  * title and `countTimeExpressions` counts them; both read this one list, so
  * the two cannot drift apart. Stored as sources: every caller builds a fresh
@@ -135,11 +170,14 @@ export function normalizeSpokenHebrewHours(value: string): string {
 export const CLOCK_PATTERN_SOURCES: readonly string[] = [
   /\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
   /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/.source,
-  /\b\d{1,2}:\d{2}(?=$|[\s,.،])/.source,
   /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/.source,
   /(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/.source,
   /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source,
   /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
+  // Last, after the marked shapes: `stripTiming` runs these in order, and a
+  // bare `4:30` taken out first left «الساعة» behind in the title (CL1
+  // round 7). The counter anchors on digit positions, so its order is moot.
+  /\b\d{1,2}:\d{2}(?=$|[\s,.،])/.source,
 ];
 
 /**
@@ -155,6 +193,13 @@ export const RANGE_PATTERN_SOURCES: readonly string[] = [
 
 /** A 24-hour clock: `14:00`. Unambiguous by construction. */
 const HHMM = /\b\d{1,2}:\d{2}(?=$|[\s,.،])/;
+
+/**
+ * Minutes on a bare early hour (CL1 round 7, I-3): `4:30`, `5:00` — one digit,
+ * one to six, no leading zero. The colon does not say which half of the day;
+ * "at 4:30" is as ambiguous as "at 4". `04:30` and `16:30` are not.
+ */
+const BARE_EARLY_HHMM = /(?<![\d:])[1-6]:\d{2}(?=$|[\s,.،])/;
 
 /** An explicit meridiem, in any of the three languages. */
 const AMPM = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|[0-9]{1,2}(?::[0-9]{2})?\s*(?:صباحا|صباحاً|ص|مساءً|مساء|م)(?=$|[\s,.،])/i;
@@ -211,8 +256,12 @@ const DAY_TOKEN = new RegExp(
  */
 export function timeOfDayEvidence(rawText: string): TimeEvidence {
   if (typeof rawText !== 'string' || !rawText.trim()) return 'none';
-  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(rawText)));
-  if (HHMM.test(text)) return 'hhmm';
+  const text = normalizeClockText(rawText);
+  if (HHMM.test(text)) {
+    // Minutes on a bare early hour with no period word are a guess at the
+    // half of the day, like the bare hour itself (round 7, I-3).
+    return BARE_EARLY_HHMM.test(text) && !AMPM.test(text) && !DAYPART.test(text) ? 'clock_marker' : 'hhmm';
+  }
   if (AMPM.test(text)) return 'ampm';
   if (DAYPART.test(text)) return 'daypart';
   if (CLOCK_MARKER.test(text)) return 'clock_marker';
@@ -251,7 +300,7 @@ export function statesClock(rawText: string): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
   // Not `timeOfDayEvidence`: that reports the strongest evidence, and a part
   // of the day outranks the clock beside it — «الساعة 5 المسا» is `daypart`.
-  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(rawText)));
+  const text = normalizeClockText(rawText);
   return HHMM.test(text) || AMPM.test(text) || CLOCK_MARKER.test(text);
 }
 
@@ -264,7 +313,7 @@ export function statesClock(rawText: string): boolean {
 export function statedClockHours(rawText: string): Set<number> {
   const hours = new Set<number>();
   if (typeof rawText !== 'string' || !rawText.trim()) return hours;
-  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(rawText)));
+  const text = normalizeClockText(rawText);
   for (const source of CLOCK_PATTERN_SOURCES) {
     const pattern = new RegExp(source, 'gi');
     let match: RegExpExecArray | null;
