@@ -24,7 +24,11 @@ Rules the design fixes, which code must keep:
 - Arabic first (RTL), English mirrored. Direction is set once on the root view
   (`direction: 'rtl'`); use `start`/`end` offsets and `borderStart*`, never
   `left`/`right`, so layouts mirror without per-screen code.
-- Times and dates inside Arabic text go through `ltr()` from `src/i18n/strings.ts`.
+- Times and digits inside Arabic text go through `ltr()` from `src/i18n/strings.ts`;
+  a time range is one LTR unit (`formatTimeRange` / `formatClockRange`). A date
+  with a month name goes through `isolateAuto()`, a date range through
+  `formatDayRange()` — never `ltr()`, which reverses «26 سبتمبر». Digits are
+  Latin in every language (`INTL_LOCALE`), in copy too.
 - Inside a `Btn` (a `Pressable`), full-width text in a column aligns to the
   physical left even under `direction: 'rtl'`. Give start-aligned column
   content `alignItems: 'flex-start'` instead of relying on `textAlign`.
@@ -35,11 +39,14 @@ Rules the design fixes, which code must keep:
   a text label and uses the contrast-tested pair from `src/theme/tokens.ts`.
 - There is no "overdue". Only active, done, rearranged, dropped on purpose.
   «أسقطه بوعي» has the same weight as «تمّت».
-- Suggestions always say «هذا اقتراح. لم يتغيّر أي شيء بعد.» and nothing is
-  saved without an explicit confirm.
+- Suggestions always say «هاد اقتراح. لسّا ما تغيّر إشي.» (`suggestionNote`) and
+  nothing is saved without an explicit confirm.
 - Spoken Arabic for actions: تمّت · لسّا · احكيها · أسقطه بوعي.
 - Colours come from `src/theme/tokens.ts`; never hard-code hex in screens.
 - Respect reduce-motion (`useReducedMotion` in `src/ui/motion.tsx`).
+- A screen with a keyboard wraps its body in `AvoidKeyboard` (`src/ui/keyboard.tsx`),
+  never a bare `KeyboardAvoidingView`: that one measures against its parent and
+  under-pads by whatever chrome sits above it (the verify-email banner).
 
 ## Layout
 

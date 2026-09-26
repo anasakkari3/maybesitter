@@ -23,7 +23,7 @@ import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/sch
  *
  * ── It is a suggestion, and it says so every time ────────────────
  *
- * `suggestionNote` — «هذا اقتراح. لم يتغيّر أي شيء بعد.» — is not decoration
+ * `suggestionNote` — «هاد اقتراح. لسّا ما تغيّر إشي.» — is not decoration
  * and is not conditional. The contract says `persistence.occurred: false` and
  * `confirmationRequired: true` on every proposal; the line is that fact in
  * words. Round 2 adds the same fact as a *shape*: the card's edge is dashed in
