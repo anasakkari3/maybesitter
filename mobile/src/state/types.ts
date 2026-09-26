@@ -143,7 +143,16 @@ export type Sheet =
   | 'postpone'
   | 'edit'
   | 'confirmDrop'
-  | 'confirmDelete';
+  | 'confirmDelete'
+  // «حضّرني» (CL5a): notes about one meeting, for the block in
+  // `AppState.meetingPrep`.
+  | 'meetingPrep';
+
+/**
+ * The meeting a «حضّرني» sheet is about: a busy block's times, or a
+ * commitment's. Times only — a calendar event's title is never read.
+ */
+export type MeetingPrepTarget = { startAt: string; endAt: string | null };
 
 /**
  * A write that worked, said once at the bottom of the screen (Round 2). It

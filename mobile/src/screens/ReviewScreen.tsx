@@ -273,6 +273,12 @@ export function ReviewScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 20, gap: 12 }}
       >
+        {state.source === 'meeting' ? (
+          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source-meeting">
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
+            <Txt size={13} color={p.mu} style={{ flex: 1 }}>{t.reviewSourceMeeting}</Txt>
+          </View>
+        ) : null}
         {state.source === 'share' ? (
           <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source">
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />

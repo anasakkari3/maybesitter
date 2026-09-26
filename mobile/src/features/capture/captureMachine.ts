@@ -89,7 +89,8 @@ export type CaptureStatus =
  * How the flow was entered. `widget` and `share` arrive by deep link; only
  * `tab` and `notification` come from inside the app.
  */
-export type CaptureSource = 'tab' | 'widget' | 'share' | 'notification';
+/** `meeting`: a proposal «حضّرني» made (CL5a), handed to review like a share's. */
+export type CaptureSource = 'tab' | 'widget' | 'share' | 'notification' | 'meeting';
 
 /** How an analyze failed, before it becomes a status. */
 export type CaptureFailureKind = 'network' | 'validation' | 'extraction' | 'refused';

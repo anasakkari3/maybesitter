@@ -11,7 +11,7 @@ import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { useReducedTransparency } from '../theme/useReducedTransparency';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
-import type { Screen, Sheet, ThemePref, Toast } from './types';
+import type { MeetingPrepTarget, Screen, Sheet, ThemePref, Toast } from './types';
 import * as nav from './navigation';
 import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
@@ -39,6 +39,8 @@ export type AppState = {
   captureSource: CaptureSource;
   captureInput: CaptureInputMode;
   sheet: Sheet;
+  /** The meeting the «حضّرني» sheet is open for (CL5a). Set with the sheet, and only read by it. */
+  meetingPrep: MeetingPrepTarget | null;
   toast: Toast | null;
   /**
    * Which day of the week strip is open, as an offset from today (0 = today).
@@ -71,7 +73,7 @@ function withNav(st: AppState, next: nav.Nav): AppState {
 const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
-  sheet: null, toast: null,
+  sheet: null, meetingPrep: null, toast: null,
   selDay: 0, detailId: null, planDate: null, goalId: null, taskResumed: false,
 };
 
@@ -207,6 +209,8 @@ function useAppModel() {
     openEdit: () => set({ sheet: 'edit' }),
     openConfirmDrop: () => set({ sheet: 'confirmDrop' }),
     openConfirmDelete: () => set({ sheet: 'confirmDelete' }),
+    /** «حضّرني» (CL5a): the notes sheet, for one meeting's times. */
+    openMeetingPrep: (target: MeetingPrepTarget) => set({ sheet: 'meetingPrep', meetingPrep: target }),
     /**
      * The calm confirmation of a write that worked (Round 2): a line at the
      * bottom that fades on its own, carrying undo when the write can be

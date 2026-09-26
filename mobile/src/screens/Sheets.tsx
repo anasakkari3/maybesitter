@@ -19,6 +19,7 @@ import { Btn, Pill, Txt } from '../ui/primitives';
 import { Dialog } from '../ui/dialog';
 import { useSheetMotion } from '../ui/motion';
 import { useLayoutMode } from '../theme/textScale';
+import { MeetingPrepSheet } from '../features/meetings/MeetingPrepSheet';
 
 /*
  * The design's ClarifySheet and ReadingsSheet were here.
@@ -561,6 +562,7 @@ export function SheetHost() {
         <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 24 }}>
           {s.sheet === 'postpone' && <PostponeSheet />}
           {s.sheet === 'edit' && <EditSheet />}
+          {s.sheet === 'meetingPrep' && <MeetingPrepSheet />}
         </ScrollView>
       </Animated.View>
     </View>

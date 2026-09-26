@@ -151,7 +151,10 @@ export function ContextualAssistantScreen() {
       </ProductSection>
     </QueryBoundary>
     <ProductActions><Pill label={t.xAgenda} kind="outline" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="outline" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>
-    <ProductSection title={t.xPrepare} icon="spark" status={cap.assistantPreparation} />
+    {/* «حضّرني» (CL5a) starts from a meeting: a busy time on the Calendar
+        tab, where each one carries the button. The calendar is where the
+        person can see which meeting they mean; this screen cannot. */}
+    <ProductRow id="assistant-prepare" title={t.xPrepare} body={t.xPrepareBody} icon="spark" status={cap.assistantPreparation} onPress={() => actions.go('calendar')} />
     <ProductRow id="assistant-modes" title={t.xModes} body={t.xModesBody} onPress={() => actions.go('actionModes')} />
     <ProductRow title={t.xGoals} icon="goal" status={cap.goals} onPress={() => actions.go('goalExecution')} />
     <ProductRow title={t.xWatch} icon="watch" status={cap.watcherBuilder} onPress={() => actions.go('watchBuilder')} />
