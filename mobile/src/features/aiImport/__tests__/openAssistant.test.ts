@@ -14,6 +14,7 @@ import { Linking } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { openAssistant } from '../openAssistant';
+import type { ImportAssistant } from '../assistants';
 import type { UniversalLinkNativeModule } from '../../../../modules/universal-link';
 
 let openURL: jest.SpiedFunction<typeof Linking.openURL>;
@@ -47,11 +48,12 @@ describe('iOS', () => {
     expect(openBrowser).not.toHaveBeenCalled();
   });
 
-  it.each([
+  const cases: [ImportAssistant, string, string][] = [
     ['chatgpt', 'https://chatgpt.com/app', 'https://chatgpt.com/'],
     ['claude', 'https://claude.ai/new', 'https://claude.ai/new'],
     ['gemini', 'https://gemini.google.com/app', 'https://gemini.google.com/app'],
-  ] as const)('no %s app: opens the web chat, never the store-redirecting app path', async (assistant, appUrl, webUrl) => {
+  ];
+  it.each(cases)('no %s app: opens the web chat, never the store-redirecting app path', async (assistant, appUrl, webUrl) => {
     const { module, openUniversalLink } = native(false);
     const outcome = await openAssistant(assistant, { platform: 'ios', universalLink: module });
     expect(openUniversalLink).toHaveBeenCalledWith(appUrl);
