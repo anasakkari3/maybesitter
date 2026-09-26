@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000001",
+    "status": "proposed",
+    "items": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000002",
+        "title": "أراجع أرقام المصاريف وأطبع التقرير",
+        "resolvedTime": "2026-08-09T09:00:00.000Z",
+        "needsClarification": false,
+        "priority": "normal",
+        "priorityEstimated": true
+      }
+    ],
+    "seeds": [],
+    "provenance": {
+      "requestedEngine": "rules",
+      "executedEngine": "rule-based",
+      "fallbackUsed": false
+    }
+  },
+  "prep": {
+    "itemId": "00000000-0000-4000-8000-000000000003",
+    "remindAt": "2026-08-09T09:00:00.000Z",
+    "leadMinutes": 60,
+    "adjustment": "none",
+    "startAt": "2026-08-09T09:00:00.000Z",
+    "endAt": "2026-08-09T09:00:00.000Z"
+  }
+}

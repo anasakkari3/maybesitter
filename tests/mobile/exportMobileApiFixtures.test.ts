@@ -89,6 +89,7 @@ import { POST as describePost } from '../../src/app/api/mobile/profile/describe/
 import { POST as describeConfirmPost } from '../../src/app/api/mobile/profile/describe/confirm/route.ts';
 import { POST as importPost } from '../../src/app/api/mobile/profile/import/route.ts';
 import { POST as importConfirmPost } from '../../src/app/api/mobile/profile/import/confirm/route.ts';
+import { POST as meetingPreparePost } from '../../src/app/api/mobile/meetings/prepare/route.ts';
 import {
   DELETE as memoryDeleteAll,
   GET as memoryGet,
@@ -177,6 +178,17 @@ const WALL_CLOCK = new Date();
 const PATCHED_DUE_DATE = new Date(WALL_CLOCK.getTime() + 72 * 3_600_000).toISOString();
 const USER = uidFor('FixtureUser');
 const GOAL_USER = uidFor('GoalFixtureUser');
+/**
+ * «حضّرني» (CL5a) records under its own account, so its proposals and its
+ * daily counter change no other fixture — the account export in particular.
+ */
+const MEETING_USER = uidFor('MeetingFixtureUser');
+/** A block three hours from the real clock: the route refuses one that has started. */
+function meetingBlock(): { startAt: string; endAt: string } {
+  const start = Date.now() + 3 * 3_600_000;
+  return { startAt: new Date(start).toISOString(), endAt: new Date(start + 45 * 60_000).toISOString() };
+}
+const MEETING_NOTE = 'اجتماع مع المدير عن ميزانية الربع الجاي.\nبدي أراجع أرقام المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي.';
 
 const FIXTURES = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -1307,6 +1319,19 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       }),
     ));
 
+    // ── meeting prep «حضّرني» (CL5a) ───────────────────────────────
+    // No AI consent on this account, so this is the rules-only answer: one
+    // prep step read off the notes' first action sentence, and no follow-ups.
+    await record('meetings.prepared', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+      body: { notes: MEETING_NOTE, ...meetingBlock(), timezone: 'Asia/Jerusalem' },
+      uid: MEETING_USER,
+    })));
+    // The refusal the sheet renders when the meeting is about to start.
+    await record('meetings.tooSoon', 400, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+      body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 60_000).toISOString(), timezone: 'Asia/Jerusalem' },
+      uid: MEETING_USER,
+    })));
+
     // The survey's own facts, each with the provenance chip the screen renders.
     await record('memory.list', 200, await memoryGet(request('/api/mobile/memory')));
 
@@ -1930,6 +1955,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const previousProvider = process.env.MAYBESITTER_LLM_PROVIDER;
     const previousLocation = process.env.MAYBESITTER_VERTEX_LOCATION;
     let vertexCalls = 0;
+    let meetingCalls = 0;
     const removeStub = installVertexStub(async (input) => {
       vertexCalls += 1;
       // The prompt is split at BEGIN_UNTRUSTED_USER_MESSAGE before it gets
@@ -1941,6 +1967,18 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         'string',
         'the capture prompt reached the provider without a system instruction',
       );
+      // The meeting prep prompt asks for its own shape (CL5a).
+      if (String((input.config as { systemInstruction?: unknown }).systemInstruction).includes('get ready for one meeting')) {
+        meetingCalls += 1;
+        return {
+          text: JSON.stringify({
+            prepStep: { action: 'راجع أرقام المصاريف واطبع التقرير' },
+            followUps: [{ action: 'ابعت الملخص لسامي', deadlineAt: null }],
+          }),
+          modelVersion: 'gemini-2.5-flash',
+          usageMetadata: { promptTokenCount: 612, candidatesTokenCount: 48 },
+        };
+      }
       return {
         text: geminiExtraction(),
         modelVersion: 'gemini-2.5-flash',
@@ -1970,6 +2008,21 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       assert.equal(geminiItems.length, 1);
       assert.equal(geminiItems[0]!.title, 'Call the dentist');
       assert.ok(geminiItems[0]!.resolvedTime, 'a Gemini proposal with no resolved time records nothing useful');
+
+      // «حضّرني» with consent and a model (CL5a): one prep step, one follow-up.
+      await aiConsentPut(request('/api/mobile/consents/ai-processing', {
+        method: 'PUT',
+        body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+        uid: MEETING_USER,
+      }));
+      const prepared = await record('meetings.preparedGemini', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+        body: { notes: MEETING_NOTE, ...meetingBlock(), timezone: 'Asia/Jerusalem' },
+        uid: MEETING_USER,
+      })));
+      assert.equal(meetingCalls, 1, 'the meeting prep never reached the provider');
+      const preparedProposal = prepared.proposal as { items: unknown[]; provenance: { executedEngine: string } };
+      assert.equal(preparedProposal.provenance.executedEngine, 'gemini');
+      assert.equal(preparedProposal.items.length, 2);
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
