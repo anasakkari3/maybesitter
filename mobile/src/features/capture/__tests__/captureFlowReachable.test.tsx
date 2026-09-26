@@ -19,6 +19,7 @@ import * as textScale from '../../../theme/textScale';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react-native';
+import { Keyboard } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -166,6 +167,23 @@ describe('the flow is reachable from the tab bar', () => {
     // Both items the *server* returned, not a canned pair from a rule engine.
     expect(screen.queryByText('Hand in the report')).not.toBeNull();
     expect(screen.queryByText('Call Sami')).not.toBeNull();
+  });
+
+  // The composer's field is focused (autoFocus) and unmounts the moment
+  // analyzing starts. It is released first, while it is on screen, so the
+  // keyboard goes down with the composer instead of after it and Review opens
+  // with no keyboard state left over.
+  it('lets go of the keyboard before the text is sent', async () => {
+    const order: string[] = [];
+    jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => { order.push('dismiss'); });
+    jest.spyOn(captureEndpoints, 'proposeCapture').mockImplementation((async () => {
+      order.push('propose');
+      return proposal();
+    }) as never);
+    await openApp();
+    await enterCapture();
+    await typeAndAnalyze();
+    expect(order).toEqual(['dismiss', 'propose']);
   });
 
   it('sends the text the user typed, with a timezone and a reference time', async () => {

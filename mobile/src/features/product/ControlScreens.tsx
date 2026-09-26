@@ -15,7 +15,7 @@ import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
 import { LANGUAGE_ENDONYM } from '../../i18n/language';
-import { isolate } from '../../i18n/bidi';
+import { isolate, isolateAuto } from '../../i18n/bidi';
 import { dayKey, formatTimeRange } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { BrandMark } from '../../ui/brand';
@@ -31,7 +31,7 @@ export function MyMaybeSitterScreen() {
   return <ProductPage id="my" title={t.xMy} subtitle={t.xMyBody}>
     <View style={{ alignItems: 'center', gap: 10, paddingVertical: 12 }}><BrandMark size={76} /></View>
     <ProductSection title={t.accountTitle} icon="person">
-      <ProductRow title={t.xName} body={user?.displayName ? isolate(user.displayName) : t.xNotSet} icon="person" />
+      <ProductRow title={t.xName} body={user?.displayName ? isolateAuto(user.displayName) : t.xNotSet} icon="person" />
       <ProductRow title={t.accountTitle} body={user?.email ? isolate(user.email) : t.authSignedInPrivateApple} icon="shield" onPress={() => actions.go('account')} />
       <ProductRow title={t.settingsLangAppearance} body={LANGUAGE_ENDONYM[lang]} icon="spark" onPress={() => actions.go('langAppearance')} />
     </ProductSection>
@@ -191,7 +191,7 @@ export function PatchReviewScreen() {
   const protectionRow = (protection: NonNullable<typeof proposal>['protections'][number]) => <ProductRow
     key={protection.blockId}
     id={`patch-protection-${protection.blockId}`}
-    title={protection.title ? isolate(protection.title) : protection.itemId}
+    title={protection.title ? isolateAuto(protection.title) : protection.itemId}
     body={protection.overridden
       // What the user would give up, next to what they would get: the time
       // they protected, then the proposed one.
@@ -206,7 +206,7 @@ export function PatchReviewScreen() {
         <ProductSection title={t.xChanged} body={t[patchReasonKey(proposal.reason)]} icon="calendar" status="AVAILABLE">
           {proposal.changes.filter(change => change.kind !== 'unchanged').map(change => <ProductRow
             key={`${change.kind}-${change.itemId}`}
-            title={change.title ? isolate(change.title) : change.itemId}
+            title={change.title ? isolateAuto(change.title) : change.itemId}
             body={`${t.xBefore}: ${range(change.from)} · ${t.xAfter}: ${change.kind === 'removed' && change.to === null ? t.xUnplaced : range(change.to)}`}
             icon="calendar"
           />)}
@@ -266,7 +266,7 @@ export function HabitDetailScreen() {
   /> : null}>
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {items.length === 0 ? <ProductSection title={t.xHabits} body={t.xNoOccurrences} icon="habit" /> : null}
-      {items.map(habit => <ProductSection key={habit.habitId} title={isolate(habit.title)} icon="habit" status={habit.status === 'active' ? 'LIVE' : 'BLOCKED'}>
+      {items.map(habit => <ProductSection key={habit.habitId} title={isolateAuto(habit.title)} icon="habit" status={habit.status === 'active' ? 'LIVE' : 'BLOCKED'}>
         <ProductRow title={t.xCadence} body={habit.cadence.kind === 'weekly_count' ? String(habit.cadence.count) : habit.cadence.weekdays.join(' · ')} icon="calendar" />
         <ProductRow title={t.xDuration} body={`${habit.durationMinutes} min`} icon="watch" />
         <ProductRow title={t.xWindows} body={habit.preferredWindows.length > 0 ? habit.preferredWindows.map(window => `${window.start}–${window.end}`).join(' · ') : t.xNotSet} icon="watch" />

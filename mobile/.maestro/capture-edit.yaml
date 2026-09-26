@@ -27,7 +27,7 @@ name: Editing a proposed item before anything is saved
 # Nothing has been written yet, and the screen says so before it is touched.
 - assertVisible:
     id: 'review-note'
-- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- assertVisible: 'هاد اقتراح. لسّا ما تغيّر إشي.'
 
 # ── Open the edit sheet on whichever item came back ────────────────
 - tapOn:
@@ -78,7 +78,7 @@ name: Editing a proposed item before anything is saved
 - assertNotVisible:
     id: 'edit-item-sheet'
 - assertVisible: 'النهائي'
-- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- assertVisible: 'هاد اقتراح. لسّا ما تغيّر إشي.'
 
 # ── Cancelling a second edit changes nothing either ────────────────
 - tapOn:

@@ -66,16 +66,16 @@ describe('the other two count messages', () => {
   const he = tFor('he');
 
   it('inflects lockedTitle for the Arabic dual and for n>=11', () => {
-    expect(ar('lockedTitle', { n: 1 })).toBe('اليوم، شي واحد');
-    expect(ar('lockedTitle', { n: 2 })).toBe('اليوم، شيئان');
+    expect(ar('lockedTitle', { n: 1 })).toBe('اليوم، إشي واحد');
+    expect(ar('lockedTitle', { n: 2 })).toBe('اليوم، إشيين');
     expect(ar('lockedTitle', { n: 3 })).toBe('اليوم، 3 أشياء');
-    expect(ar('lockedTitle', { n: 11 })).toBe('اليوم، 11 شيئًا');
+    expect(ar('lockedTitle', { n: 11 })).toBe('اليوم، 11 إشي');
   });
 
   it('inflects progressWords', () => {
-    expect(ar('progressWords', { d: 0, n: 3 })).toBe('ما تمّ ولا شي من 3');
+    expect(ar('progressWords', { d: 0, n: 3 })).toBe('ما تمّ ولا إشي من 3');
     expect(ar('progressWords', { d: 1, n: 3 })).toBe('تمّ واحد من 3');
-    expect(ar('progressWords', { d: 2, n: 3 })).toBe('تمّ اثنان من 3');
+    expect(ar('progressWords', { d: 2, n: 3 })).toBe('تمّ تنين من 3');
     expect(ar('progressWords', { d: 3, n: 3 })).toBe('تمّت 3 من 3');
     expect(he('progressWords', { d: 2, n: 5 })).toBe('הושלמו שניים מתוך 5');
   });

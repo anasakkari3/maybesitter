@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { userFacingMessageKey } from '../../api/ui/userFacingMessage';
-import { isolate } from '../../i18n/bidi';
+import { isolateAuto } from '../../i18n/bidi';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { OnboardingChrome } from './OnboardingChrome';
 import { acceptedFrom, initialChoices, type AcceptedSuggestion, type ReviewChoice } from './aboutYou';
@@ -130,7 +130,7 @@ export function AboutYouReviewStep({
                   />
                 ) : (
                   <Txt size={15} lh={1.5} testID={`about-review-content-${index}`}>
-                    {isolate(choice.edited ?? suggestion.content)}
+                    {isolateAuto(choice.edited ?? suggestion.content)}
                   </Txt>
                 )}
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

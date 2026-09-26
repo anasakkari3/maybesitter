@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { isolate } from '../../i18n/bidi';
+import { isolateAuto } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Txt } from '../../ui/primitives';
@@ -71,7 +71,7 @@ export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
                   borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.ln,
                 }}
               >
-                <Txt size={15}>{isolate(strings[`feedbackOutcome_${row.outcome}`] ?? row.outcome)}</Txt>
+                <Txt size={15}>{isolateAuto(strings[`feedbackOutcome_${row.outcome}`] ?? row.outcome)}</Txt>
                 <Txt size={13} color={p.mu} latin>{formatDate(new Date(row.occurredAt), 'short', { locale: lang, timeZone })}</Txt>
                 {row.revokedAt ? (
                   <Txt size={13} color={p.mu} testID={`feedback-revoked-${row.id}`}>{t.feedbackRevoked}</Txt>
@@ -154,7 +154,7 @@ export function FeedbackHistoryScreen({ onBack }: { onBack: () => void }) {
                     {/* An answer this build has no words for is skipped rather
                         than printed as its enum. */}
                     <Txt size={15}>
-                      {isolate(strings[DECISION_KEY[decision.decision] ?? ''] ?? '')}
+                      {isolateAuto(strings[DECISION_KEY[decision.decision] ?? ''] ?? '')}
                     </Txt>
                     <Txt size={13} color={p.mu} latin>
                       {formatDate(new Date(decision.at), 'short', { locale: lang, timeZone })}

@@ -17,7 +17,10 @@ import { resetAuthForTests, setAuthRepository } from '../../api/auth';
 import type { AuthUser } from '../../auth/types';
 import { CalendarScreen } from '../CalendarScreen';
 import type { Commitment } from '../../api/schemas/common';
-import { dayKey, shiftDayKey } from '../../i18n/format';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CIVIL_ZONE, civilDate, dayKey, formatDate, shiftDayKey } from '../../i18n/format';
+import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
+import ar from '../../i18n/locales/ar.json';
 import en from '../../i18n/locales/en.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
@@ -158,6 +161,39 @@ describe('the open day', () => {
     // on. They must not disappear from the calendar entirely.
     await show([item('someday', null)], []);
     expect(screen.getByTestId('calendar-time-someday').props.children).toBe(en.noTimeYet);
+  });
+});
+
+describe('the week header', () => {
+  // UAT 2026-09-26, complaint #16, shot 83: «سبتمبر – 2 أكتوبر 26». The range
+  // was wrapped whole in a left-to-right isolate, so the Arabic run inside it
+  // reversed around the dash and the first day's number fell off the end.
+  const LRI = '\u2066';
+  const RLI = '\u2067';
+  const FSI = '\u2068';
+  const PDI = '\u2069';
+
+  afterEach(async () => { await AsyncStorage.clear(); });
+
+  it('in Arabic, reads first day – last day, each date whole', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await show([], []);
+    await waitFor(() => expect(screen.queryByText(ar.calendarTitle)).not.toBeNull());
+    const first = formatDate(civilDate(TODAY_KEY), 'short', { locale: 'ar', timeZone: CIVIL_ZONE });
+    const last = formatDate(civilDate(shiftDayKey(TODAY_KEY, 6)), 'short', { locale: 'ar', timeZone: CIVIL_ZONE });
+    const header = screen.getByTestId('calendar-range').props.children as string;
+    // Logical order, right-to-left as a whole, each date its own isolate.
+    expect(header).toBe(`${RLI}${FSI}${first}${PDI} – ${FSI}${last}${PDI}${PDI}`);
+    expect(header.startsWith(LRI)).toBe(false);
+  });
+
+  it('in English, stays left-to-right', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
+    await show([], []);
+    const first = formatDate(civilDate(TODAY_KEY), 'short', { locale: 'en', timeZone: CIVIL_ZONE });
+    const last = formatDate(civilDate(shiftDayKey(TODAY_KEY, 6)), 'short', { locale: 'en', timeZone: CIVIL_ZONE });
+    expect(screen.getByTestId('calendar-range').props.children)
+      .toBe(`${LRI}${FSI}${first}${PDI} – ${FSI}${last}${PDI}${PDI}`);
   });
 });
 

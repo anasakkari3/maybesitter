@@ -6,7 +6,7 @@ import { RefreshControl, View } from 'react-native';
 import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
-import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
+import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
 import { ltr } from '../i18n/strings';
 import { useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
@@ -111,8 +111,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
     void Promise.all([today.refetch(), upcoming.refetch()]).finally(() => setRefreshing(false));
   };
 
-  const range = `${formatDate(civilDate(keys[0]!), 'short', { locale: lang, timeZone: CIVIL_ZONE })} – ${
-    formatDate(civilDate(keys[STRIP_DAYS - 1]!), 'short', { locale: lang, timeZone: CIVIL_ZONE })}`;
+  const range = formatDayRange(keys[0]!, keys[STRIP_DAYS - 1]!, { locale: lang });
 
   return (
     <Screen>
@@ -123,7 +122,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
         <ScreenHeader
-          eyebrow={ltr(range)}
+          eyebrow={range}
           eyebrowTestID="calendar-range"
           title={t.calendarTitle}
           end={(
@@ -185,7 +184,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
               <View key={`busy-${row.block.nativeId}`} testID="calendar-busy-row" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
                 <Txt size={14} color={p.mu} style={{ flex: 1 }}>{t.calendarBusyLegend}</Txt>
                 <Txt size={12} color={p.mu} latin>
-                  {row.block.allDay ? '' : ltr(`${formatTime(new Date(row.block.startAt), { locale: lang, timeZone: timezone })}–${formatTime(new Date(row.block.endAt), { locale: lang, timeZone: timezone })}`)}
+                  {row.block.allDay ? '' : formatTimeRange(new Date(row.block.startAt), new Date(row.block.endAt), { locale: lang, timeZone: timezone })}
                 </Txt>
               </View>
             ) : ((item) => (
