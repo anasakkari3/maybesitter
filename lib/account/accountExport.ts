@@ -36,6 +36,7 @@
  */
 import { getStorage } from '../storage';
 import {
+  GOOGLE_PICKER_TICKETS,
   ICS_FEEDS,
   INCIDENTS,
   PROVIDER_CONNECTIONS,
@@ -76,6 +77,7 @@ export const EXPORT_MAX_CHARS = 8 * 1024 * 1024;
 export const EXPORT_EXCLUDED_COLLECTIONS: Readonly<Record<string, string>> = Object.freeze({
   [PROVIDER_CREDENTIALS]: 'encrypted OAuth access and refresh tokens: a secret held on the person\'s behalf, not a record of them',
   [PROVIDER_OAUTH_STATES]: 'an in-flight OAuth authorization holding a PKCE verifier: a secret with a lifetime of minutes',
+  [GOOGLE_PICKER_TICKETS]: 'a one-time, two-minute ticket that opens the Google Picker page: an access credential in waiting, not a record of the person',
 });
 
 /**

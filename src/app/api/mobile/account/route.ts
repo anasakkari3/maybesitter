@@ -1,6 +1,9 @@
 import { deleteAccount, subjectHashFor, subjectTag } from '../../../../../lib/account/accountDeletion';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
+// Registers the Google revocation with the deletion engine: deleting the
+// account withdraws the Google grant at Google, not only our copy of it.
+import '../../../../../lib/integrations/google/googleDeletionHook';
 
 export const dynamic = 'force-dynamic';
 
