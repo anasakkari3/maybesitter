@@ -33,8 +33,13 @@ import {
 } from '../../src/contracts/v1/goalGraphContracts';
 import { docIdForKey } from '../storage/paths';
 
-/** Which wording the planner model is asked with. Stored beside its answer. */
-export const GOAL_STEPS_PROMPT_VERSION = 'goal-steps-v1';
+/**
+ * Which wording the planner model is asked with. Stored beside its answer.
+ *
+ * v2 (CL3 round 1): Levantine few-shot examples, and a register check that
+ * asks once more when the Arabic comes back formal.
+ */
+export const GOAL_STEPS_PROMPT_VERSION = 'goal-steps-v2';
 
 /** Fewer than this many usable steps is not a plan; the fallback is used. */
 export const GOAL_STEPS_MIN = 2;
@@ -183,6 +188,35 @@ const GENERIC_KEYS: ReadonlySet<string> = new Set([
   'حافظ على الحماس', 'كون ملتزم', 'خليك ملتزم', 'فكر فيه', 'تابع تقدمك', 'لا تستسلم',
   'להתחיל', 'תתחיל', 'לתכנן', 'לעבוד על המטרה', 'להישאר ממוקד', 'להתמיד', 'לא לוותר',
 ]);
+
+/**
+ * Constructions spoken Levantine does not use, so a step containing one was
+ * written in formal Arabic (MSA).
+ *
+ * The first six mirror the bundle register check CL2a added to
+ * `mobile/src/i18n/__tests__/arabicRegister.test.ts`, so the steps a model
+ * writes are held to the same line as the copy the app ships. The rest are
+ * the formal-instruction shapes a model reaches for when it writes a to-do:
+ * «قم بـ», «يجب», «ينبغي», «عليك أن», «كيفية», «لكي».
+ *
+ * Deliberately light. It catches the obvious, not the merely neutral: «حدّد»
+ * and «اكتب» are imperatives in both registers and pass.
+ */
+export const ARABIC_FORMAL_MARKERS: readonly RegExp[] = Object.freeze([
+  /(^|[\s«({])[\u0648\u0641]?(\u0644\u0645|\u0644\u0646|\u0633\u0648\u0641|\u0644\u064A\u0633|\u0644\u062F\u064A\u0646\u0627|\u0644\u062F\u064A\u0643|\u0644\u062F\u064A\u0647)\s/,
+  /(^|[\s«({])[\u0648\u0641]?(\u0647\u0630\u0627|\u0647\u0630\u0647|\u0627\u0644\u0630\u064A|\u0627\u0644\u062A\u064A|\u0627\u0644\u0630\u064A\u0646)([\s.\u060C\u061F]|$)/,
+  /(^|[\s«({])[\u0648\u0641]?[\u064A\u062A]\u064F/,
+  /(^|\s)[\u0648\u0641]?(\u064A\u062A\u0645|\u0633\u064A\u062A\u0645|\u062A\u0645)\s/,
+  /(^|[\s«({])\u062C\u0627\u0631\u064A\s/,
+  /(\u0627\u062B\u0646\u0627\u0646|\u0627\u062B\u0646\u062A\u0627\u0646|\u0634\u064A\u0626\u0627\u0646|\u0634\u064A\u0626\u064B\u0627)/,
+  /(^|[\s«({])[\u0648\u0641]?\u0642\u064F?\u0645\s+\u0628/,
+  /(^|[\s«({])[\u0648\u0641]?(\u064A\u062C\u0628|\u064A\u0646\u0628\u063A\u064A|\u0639\u0644\u064A\u0643\s+\u0623\u0646|\u0643\u064A\u0641\u064A\u0629|\u0644\u0643\u064A)([\s.\u060C]|$)/,
+]);
+
+/** True when an Arabic step reads as formal Arabic rather than spoken. */
+export function hasFormalArabic(title: string): boolean {
+  return ARABIC_FORMAL_MARKERS.some((pattern) => pattern.test(title));
+}
 
 function scriptFits(title: string, language: GoalStepLanguage): boolean {
   const arabic = countOf(title, ARABIC_LETTER);

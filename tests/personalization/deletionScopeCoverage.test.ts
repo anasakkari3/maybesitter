@@ -27,6 +27,7 @@ import {
   FEEDBACK_BASELINES,
   FEEDBACK_EVENTS,
   FOOTBALL_FOLLOWS,
+  GOAL_GRAPH_PROPOSALS,
   MEMORY,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
@@ -54,6 +55,9 @@ const PURGED: ReadonlySet<string> = new Set([
   AI_CONTEXT_IMPORTS,
   MEMORY_DISMISSALS,
   FOOTBALL_FOLLOWS,
+  // Unconfirmed goal steps a model or template proposed (CL3): inferred
+  // suggestions, not the user's work. The work they confirmed stays.
+  GOAL_GRAPH_PROPOSALS,
 ]);
 
 /**
@@ -102,13 +106,6 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'pressing confirm, the same standing as the commitment on the other end of it. "Forget what you '
     + 'inferred about me" must not quietly detach somebody\u2019s goal from the work they chose to do '
     + 'for it; unlinking is the control beside the node, and account deletion takes the whole tree.',
-  goalGraphProposals:
-    'the steps the goal planner model offered for one reading of the user\u2019s own goal (CL3) \u2014 '
-    + 'short step titles, a suggested kind and timing bucket, the prompt version and the model name, '
-    + 'keyed by goal and generation. A proposal about the goal, not a belief about the person: the '
-    + 'same standing as `captureProposals`. It is kept so a confirm resolves the steps the user '
-    + 'reviewed; purging it here would make that confirm refuse every selection. Account deletion '
-    + 'takes the whole tree.',
   habits:
     'a rule the user confirmed about their own week (#520) — "gym three times a week", with the '
     + 'cadence and the duration they accepted by hand. It is their own content in the same sense a '

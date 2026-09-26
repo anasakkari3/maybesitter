@@ -16,11 +16,11 @@
         "statedTiming": null
       },
       {
-        "nodeId": "g1.step.m87bf35e7aca3",
+        "nodeId": "g1.step.m7955e3706319",
         "kind": "decomposition_step_proposal",
         "status": "proposed",
-        "stepId": "m87bf35e7aca3",
-        "title": "حدد ميزات التطبيق الأساسية",
+        "stepId": "m7955e3706319",
+        "title": "شوف شو بدّك من التطبيق بالزبط",
         "sourceSpans": [],
         "inferred": true,
         "statedTiming": null,
@@ -29,11 +29,11 @@
         "suggestedWhen": "today"
       },
       {
-        "nodeId": "g1.step.m602477fc05aa",
+        "nodeId": "g1.step.m7d0bcf630cd1",
         "kind": "decomposition_step_proposal",
         "status": "proposed",
-        "stepId": "m602477fc05aa",
-        "title": "صمم واجهة المستخدم الأولية",
+        "stepId": "m7d0bcf630cd1",
+        "title": "اعمل قائمة بالميزات الأساسية",
         "sourceSpans": [],
         "inferred": true,
         "statedTiming": null,
@@ -42,11 +42,24 @@
         "suggestedWhen": "this_week"
       },
       {
-        "nodeId": "g1.step.m24630d57cfea",
+        "nodeId": "g1.step.mf9b1066f2aed",
         "kind": "decomposition_step_proposal",
         "status": "proposed",
-        "stepId": "m24630d57cfea",
-        "title": "اكتب الكود الأساسي للتطبيق",
+        "stepId": "mf9b1066f2aed",
+        "title": "جرّب تصمم واجهة بسيطة",
+        "sourceSpans": [],
+        "inferred": true,
+        "statedTiming": null,
+        "statedOwner": null,
+        "suggestedAs": "commitment",
+        "suggestedWhen": "this_week"
+      },
+      {
+        "nodeId": "g1.step.mb149bb72096b",
+        "kind": "decomposition_step_proposal",
+        "status": "proposed",
+        "stepId": "mb149bb72096b",
+        "title": "اسأل حدا خبير عن رأيه",
         "sourceSpans": [],
         "inferred": true,
         "statedTiming": null,
@@ -55,24 +68,11 @@
         "suggestedWhen": "this_month"
       },
       {
-        "nodeId": "g1.step.mb6093a535192",
+        "nodeId": "g1.step.m0184ef6bedb5",
         "kind": "decomposition_step_proposal",
         "status": "proposed",
-        "stepId": "mb6093a535192",
-        "title": "اختبر وظائف التطبيق الرئيسية",
-        "sourceSpans": [],
-        "inferred": true,
-        "statedTiming": null,
-        "statedOwner": null,
-        "suggestedAs": "commitment",
-        "suggestedWhen": "this_month"
-      },
-      {
-        "nodeId": "g1.step.m69f796f612f9",
-        "kind": "decomposition_step_proposal",
-        "status": "proposed",
-        "stepId": "m69f796f612f9",
-        "title": "جهز وصف التطبيق والصور",
+        "stepId": "m0184ef6bedb5",
+        "title": "بلّش اكتب الكود الأساسي",
         "sourceSpans": [],
         "inferred": true,
         "statedTiming": null,
@@ -83,33 +83,33 @@
     ],
     "edges": [
       {
-        "edgeId": "e.contributes_to.g1.step.m87bf35e7aca3.g1.checkpoint.goal",
+        "edgeId": "e.contributes_to.g1.step.m7955e3706319.g1.checkpoint.goal",
         "kind": "contributes_to",
-        "fromNodeId": "g1.step.m87bf35e7aca3",
+        "fromNodeId": "g1.step.m7955e3706319",
         "toNodeId": "g1.checkpoint.goal"
       },
       {
-        "edgeId": "e.contributes_to.g1.step.m602477fc05aa.g1.checkpoint.goal",
+        "edgeId": "e.contributes_to.g1.step.m7d0bcf630cd1.g1.checkpoint.goal",
         "kind": "contributes_to",
-        "fromNodeId": "g1.step.m602477fc05aa",
+        "fromNodeId": "g1.step.m7d0bcf630cd1",
         "toNodeId": "g1.checkpoint.goal"
       },
       {
-        "edgeId": "e.contributes_to.g1.step.m24630d57cfea.g1.checkpoint.goal",
+        "edgeId": "e.contributes_to.g1.step.mf9b1066f2aed.g1.checkpoint.goal",
         "kind": "contributes_to",
-        "fromNodeId": "g1.step.m24630d57cfea",
+        "fromNodeId": "g1.step.mf9b1066f2aed",
         "toNodeId": "g1.checkpoint.goal"
       },
       {
-        "edgeId": "e.contributes_to.g1.step.mb6093a535192.g1.checkpoint.goal",
+        "edgeId": "e.contributes_to.g1.step.mb149bb72096b.g1.checkpoint.goal",
         "kind": "contributes_to",
-        "fromNodeId": "g1.step.mb6093a535192",
+        "fromNodeId": "g1.step.mb149bb72096b",
         "toNodeId": "g1.checkpoint.goal"
       },
       {
-        "edgeId": "e.contributes_to.g1.step.m69f796f612f9.g1.checkpoint.goal",
+        "edgeId": "e.contributes_to.g1.step.m0184ef6bedb5.g1.checkpoint.goal",
         "kind": "contributes_to",
-        "fromNodeId": "g1.step.m69f796f612f9",
+        "fromNodeId": "g1.step.m0184ef6bedb5",
         "toNodeId": "g1.checkpoint.goal"
       }
     ],

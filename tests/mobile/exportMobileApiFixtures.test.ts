@@ -115,7 +115,7 @@ import { POST as goalGeneratePost } from '../../src/app/api/mobile/goals/[goalId
 import { POST as goalConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/execution/confirm/route.ts';
 import { POST as goalRegeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/regenerate/route.ts';
 import { PATCH as goalNodePatch } from '../../src/app/api/mobile/goals/[goalId]/execution/nodes/[nodeId]/route.ts';
-import { RECORDED_GOAL_STEPS_G1, seedGoal, SPLITTABLE_GOAL, UAT_GOAL } from '../goalGraph/goalGraphSupport.ts';
+import { RECORDED_GOAL_STEPS_V2, seedGoal, SPLITTABLE_GOAL, UAT_GOAL } from '../goalGraph/goalGraphSupport.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
 import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
 import {
@@ -1947,7 +1947,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       const schema = (input.config as { responseSchema?: { properties?: Record<string, unknown> } }).responseSchema;
       if (schema?.properties && 'steps' in schema.properties) {
         return {
-          text: RECORDED_GOAL_STEPS_G1,
+          text: RECORDED_GOAL_STEPS_V2,
           modelVersion: 'gemini-2.5-flash',
           usageMetadata: { promptTokenCount: 388, candidatesTokenCount: 132 },
         };

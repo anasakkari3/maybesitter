@@ -44,6 +44,7 @@ import {
   OWNER,
   RECORDED_GOAL_STEPS_G1,
   RECORDED_GOAL_STEPS_G2,
+  RECORDED_GOAL_STEPS_V2,
   UAT_GOAL,
   seedGoal,
 } from './goalGraphSupport.ts';
@@ -321,4 +322,95 @@ test('an edited goal does not get the steps planned for its old wording', async 
   const graph = await generateGoalGraph(OWNER, goal.id, NOW, { storage, goalStepModel });
   assert.equal(requests.length, 2, 'the old answer was reused for a different goal text');
   assert.equal(graph.provenance.stepSource, 'model');
+});
+
+/* ── "Forget what you inferred" (CL3, round 1) ─────────────────────── */
+
+test('forget clears unconfirmed goal step proposals for every goal, and keeps the work the user confirmed', async (t) => {
+  const { deleteAllMemory } = await import('../../lib/services/mobile/memoryService.ts');
+  const { GOAL_GRAPH_LINKS } = await import('../../lib/storage/paths.ts');
+  const { storage, goal } = await seedGoal(UAT_GOAL, { scopeId: OWNER, language: 'ar' });
+  const { goal: second } = await seedGoal('أجهّز تطبيقي للنشر قبل الصيف', { scopeId: OWNER, language: 'ar', storage });
+  setStorageForTests(storage);
+  t.after(resetStorageForTests);
+  const { generate } = recordedGenerator([RECORDED_GOAL_STEPS_G1]);
+  const options = { storage, goalStepModel: createGoalStepModel(OWNER, { generate }), habits: createHabitServices(storage) };
+
+  const first = await generateGoalGraph(OWNER, goal.id, NOW, options);
+  await generateGoalGraph(OWNER, second.id, NOW, options);
+  await regenerateGoalGraph(OWNER, goal.id, NOW, 1, options);
+  assert.equal((await storage.list(userCol(OWNER, GOAL_GRAPH_PROPOSALS))).length, 3);
+  const confirmed = await confirmGoalGraphSelections(OWNER, goal.id, NOW, {
+    generation: 1,
+    selections: [
+      { nodeId: stepsOf(first)[0].nodeId, as: 'commitment' },
+      { nodeId: stepsOf(first)[1].nodeId, as: 'habit', habit: WEEKLY_TWICE },
+    ],
+  }, options);
+  assert.equal(confirmed.created.length, 2);
+
+  await deleteAllMemory(OWNER, NOW, { storage });
+
+  assert.deepEqual(await storage.list(userCol(OWNER, GOAL_GRAPH_PROPOSALS)), [], 'an inferred goal proposal survived "forget"');
+  const commitmentId = confirmed.created.find((link) => link.entityKind === 'commitment')!.entityId!;
+  const habitId = confirmed.created.find((link) => link.entityKind === 'habit')!.entityId!;
+  assert.equal((await getParticipantStateSnapshot(OWNER)).commitments[commitmentId]?.status, 'active');
+  assert.equal((await options.habits.habits.get(OWNER, habitId))?.title, 'صمم واجهة المستخدم الأولية');
+  assert.equal((await storage.list(userCol(OWNER, GOAL_GRAPH_LINKS))).length, 2);
+});
+
+/* ── Register (CL3, round 1) ───────────────────────────────────────── */
+
+const FORMAL_AR = JSON.stringify({ steps: [
+  { title: 'قم بتحديد ميزات التطبيق', kind: 'commitment', when: 'today' },
+  { title: 'يجب أن تصمم الواجهة', kind: 'commitment', when: 'this_week' },
+  { title: 'تعلّم كيفية رفع التطبيق', kind: 'commitment', when: 'this_month' },
+] });
+const SPOKEN_AR = JSON.stringify({ steps: [
+  { title: 'حطّ قائمة بالشاشات اللي ناقصة', kind: 'commitment', when: 'today' },
+  { title: 'ابعت النسخة لصاحبك يجرّبها', kind: 'commitment', when: 'this_week' },
+  { title: 'افتح حساب مطوّر على المتجر', kind: 'commitment', when: 'this_week' },
+] });
+
+test('the Arabic prompt carries Levantine examples; other languages do not', async () => {
+  const { goalStepsSystemPrompt } = await import('../../lib/services/mobile/goalStepModel.ts');
+  assert.match(goalStepsSystemPrompt('ar'), /«حطّ قائمة بالغرف اللي بدها ترتيب»/);
+  assert.doesNotMatch(goalStepsSystemPrompt('en'), /اللي/);
+  assert.doesNotMatch(goalStepsSystemPrompt('he'), /اللي/);
+  assert.doesNotMatch(goalStepsSystemPrompt('ar'), /previous answer was written in formal Arabic/);
+  assert.match(goalStepsSystemPrompt('ar', true), /previous answer was written in formal Arabic/);
+});
+
+test('formal Arabic steps are asked for once more, and the spoken answer is used', async () => {
+  const { generate, requests } = recordedGenerator([FORMAL_AR, SPOKEN_AR]);
+  const outcome = await createGoalStepModel(OWNER, { generate })({ goalText: UAT_GOAL, language: 'ar', previousTitles: [] });
+  assert.equal(requests.length, 2);
+  assert.match(requests[1].system, /previous answer was written in formal Arabic/);
+  assert.equal(outcome.reason, null);
+  assert.deepEqual(outcome.steps.map((step) => step.title), [
+    'حطّ قائمة بالشاشات اللي ناقصة', 'ابعت النسخة لصاحبك يجرّبها', 'افتح حساب مطوّر على المتجر',
+  ]);
+});
+
+test('formal twice falls back to the template, and never asks a third time', async () => {
+  const { generate, requests } = recordedGenerator([FORMAL_AR, FORMAL_AR, SPOKEN_AR]);
+  const { storage, goal } = await seedGoal(UAT_GOAL, { language: 'ar' });
+  const graph = await generateGoalGraph(OWNER, goal.id, NOW, { storage, goalStepModel: createGoalStepModel(OWNER, { generate }) });
+  assert.equal(requests.length, 2);
+  assert.equal(graph.provenance.stepSource, 'template');
+  assert.equal(graph.provenance.stepSourceReason, 'register_formal');
+});
+
+test('spoken Arabic, Hebrew and English answers cost exactly one call', async () => {
+  for (const [goalText, language, answer] of [
+    [UAT_GOAL, 'ar', SPOKEN_AR],
+    [UAT_GOAL, 'ar', RECORDED_GOAL_STEPS_G1],
+    [UAT_GOAL, 'ar', RECORDED_GOAL_STEPS_V2],
+    ['Run a half marathon', 'en', '{"steps":[{"title":"Research local half marathons","kind":"commitment","when":"this_week"},{"title":"Buy comfortable running shoes","kind":"commitment","when":"this_week"}]}'],
+  ] as const) {
+    const { generate, requests } = recordedGenerator([answer]);
+    const outcome = await createGoalStepModel(OWNER, { generate })({ goalText, language, previousTitles: [] });
+    assert.equal(outcome.reason, null);
+    assert.equal(requests.length, 1, `${language} was asked twice`);
+  }
 });

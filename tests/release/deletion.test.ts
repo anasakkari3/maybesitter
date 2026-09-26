@@ -163,6 +163,7 @@ test('a defective embedded personalization receipt is re-coded rather than swall
         // Task 7), so it has to be present and clean or this fixture would stop
         // testing "one defect for the blank scopeId" and start testing two.
         remainingFootballFollowsCount: 0,
+        remainingGoalStepProposalCount: 0,
         remainingPersistedProfileCount: 0,
         emptyStateDigest: 'deadbeefdeadbeef',
       } as unknown as PersonalizationDeletionReceipt),

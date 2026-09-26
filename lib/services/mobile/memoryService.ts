@@ -643,6 +643,7 @@ export async function deleteAllMemory(
     + receipt.remainingProfileProposalCount
     + receipt.remainingMemoryDismissalCount
     + receipt.remainingFootballFollowsCount
+    + receipt.remainingGoalStepProposalCount
     + (baseline === null ? 0 : 1);
   if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
     throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);
