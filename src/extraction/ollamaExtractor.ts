@@ -2,8 +2,9 @@ import { callOllama } from './localLLMProvider';
 import { validateExtractionResult } from './schemaValidator';
 import type { ExtractionContext, ExtractionResult } from './extractionTypes';
 import { COMMITMENT_CATEGORIES } from '../contracts/v1/categoryContracts';
+import type { LLMCallOptions } from './llm/llmProvider';
 
-export type LLMProviderFunction = (prompt: string, options?: { shape?: 'single' | 'batch' }) => Promise<string>;
+export type LLMProviderFunction = (prompt: string, options?: LLMCallOptions) => Promise<string>;
 
 export interface ExtractionAttemptTelemetry {
   schemaValid: boolean;
@@ -690,7 +691,9 @@ export function buildBatchPrompt(clauses: readonly string[], context: Extraction
     'A clause that names no day and no time gets localTimeSpec, dueAt and remindAt all null. Never give a clause a date it does not state.',
     'Arabic «المسا», «مساءً», «بالمسا» with no hour is 18:00; «الصبح» is 09:00; «العصر» is 15:00.',
     'Return one JSON object whose only key is items: an array with exactly one extraction object per clause, in the same order. Every rule and allowed key above applies to each extraction object.',
-    `Required JSON shape: ${JSON.stringify({ items: [requestedShape(context)] })}`,
+    'Each extraction object also carries clauseIndex: the 0-based position, in the array, of the clause it reads — 0 for the first clause, 1 for the second, and so on. clauseIndex is the one key allowed beyond those listed above.',
+    'Never answer one clause with two objects and never skip a clause: a clause naming two things still gets exactly one object, flagged multiple_commitments.',
+    `Required JSON shape: ${JSON.stringify({ items: [{ clauseIndex: 'integer, 0-based position of the clause', ...requestedShape(context) }] })}`,
     'BEGIN_UNTRUSTED_USER_MESSAGE',
     JSON.stringify(clauses),
     'END_UNTRUSTED_USER_MESSAGE',

@@ -184,7 +184,29 @@ export function structuredFromJson(
  */
 export interface LLMCallOptions {
   shape?: 'single' | 'batch';
+  /**
+   * How long this one call may take, in milliseconds (CL1 round 4, N3). The
+   * capture boundary sets it on every call of a multi-clause capture so that
+   * the call, its one retry and the back-off between them end inside the
+   * server's budget; absent, the provider's own default applies.
+   */
+  timeoutMs?: number;
 }
+
+/**
+ * How long one batched capture call may take (CL1 review, I4). The provider
+ * retries a timeout once, so two of these plus the back-off stay under the
+ * capture's 12 s server budget — the phone gives up at 15 s
+ * (`mobile/src/api/client.ts`). A three-clause call measured 3.3–4.6 s.
+ */
+export const CAPTURE_BATCH_TIMEOUT_MS = 5_500;
+
+/**
+ * The longest pause before the provider's one retry (`withSingleRetry`): a
+ * 250 ms base plus up to 500 ms of jitter. One number, so the capture's time
+ * budget and the retry cannot drift apart.
+ */
+export const RETRY_BACKOFF_MAX_MS = 750;
 export type LLMProviderFunction = (prompt: string, options?: LLMCallOptions) => Promise<string>;
 
 export function providerFunction(

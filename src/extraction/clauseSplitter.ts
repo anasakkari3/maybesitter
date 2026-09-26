@@ -14,9 +14,9 @@
  *   «و» onto an opener         «وبدي / ولازم / وذكرني», "and I need to",
  *                             «וצריך»; «وعندي» / «ויש לי» only onto an
  *                             appointment noun or a time (C1)
- *   a sentence end . ! ? ؟     only when the next sentence itself opens a
- *                             commitment and the one before it is not a bare
- *                             request (C1)
+ *   a sentence end . ! ? ؟     only when the next sentence starts with an
+ *                             explicit request marker (CL1 round 4, N1) and
+ *                             the one before it is not a bare request
  *
  * A bare «و» is never a boundary: «أحمد وسامي» is one errand.
  *
@@ -28,6 +28,15 @@
  * remark — «الساعة 5 المسا», «بالمكتب», "She is sick" — belongs to the one
  * before it. And a sentence that is only a request with no action — "can you
  * remind me tomorrow?" — belongs to the one after it.
+ *
+ * Round 4 (re-review N1) closed the list. Guessing whether a sentence "looks
+ * like" a commitment — a commitment noun with a time, any English first word
+ * that was not a pronoun — split restatements and places off the appointment
+ * they belonged to: «…بكرا. الموعد الساعة 5 المسا» and "Interview on Tuesday.
+ * Zoom at 3pm" each became an appointment with no time plus a second item
+ * proposed today. Now a sentence opens a clause only when it starts, after an
+ * optional «و» / "and" / «ו», with a marker from `SENTENCE_OPENER`; everything
+ * else attaches to the sentence before it.
  */
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { timeOfDayEvidence } from './timeLexicon';
@@ -75,44 +84,110 @@ export function hasRequestEvidence(clause: string): boolean {
   return COMMITMENT_NOUN.test(clause) && timeOfDayEvidence(clause) !== 'none';
 }
 
-/** Common errand verbs opening an Arabic sentence, imperative or first person. */
+/** Common errand verbs opening an Arabic clause, imperative or first person. */
 const AR_LEADING_VERB = new RegExp(
   `^(?:[أاإنب]?)(?:دفع|تصل|شتري|روح|بعت|بعث|خلص|خلّص|جيب|حجز|رد|ردّ|كلم|كلّم|حكي|زور|نظف|نضف|كتب|جدد|جدّد|صلح|صلّح|طبخ|غسل|رتب|رتّب|مرق|وصل|وصّل|سلم|سلّم|جهز|جهّز|حضر|حضّر|طبع|سأل|نزل|قدم|قدّم|لغي|شوف|راجع)${A}`,
   'u',
 );
 
-/** Words that open an English sentence without being its verb. */
-const EN_NON_VERB = new Set([
-  'i', "i'm", 'im', 'she', 'he', 'it', "it's", 'its', 'they', 'we', 'you', 'this', 'that', 'these', 'those',
-  'the', 'a', 'an', 'my', 'your', 'his', 'her', 'our', 'their', 'at', 'on', 'in', 'by', 'for', 'from', 'to',
-  'with', 'about', 'around', 'before', 'after', 'until', 'till', 'tomorrow', 'today', 'tonight', 'morning',
-  'afternoon', 'evening', 'night', 'next', 'then', 'also', 'and', 'or', 'but', 'so', 'no', 'yes', 'ok', 'okay',
-  'thanks', 'thank', 'is', 'was', 'are', 'were', 'will', 'would', 'should', 'could', 'can', 'maybe', 'probably',
-  'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'there', 'here', 'because',
-  'since', 'if', 'when', 'where', 'what', 'who', 'how', 'why', 'not', 'just', 'only', 'very', 'really', 'am',
-  'pm', 'noon', 'midnight', 'oclock', "o'clock", 'everything', 'all', 'some', 'nothing', 'hi', 'hey', 'hello',
-]);
+/** Common errand verbs opening an English clause — a closed list, never a stop list. */
+const EN_LEADING_VERB = new RegExp(
+  '^(?:please\\s+)?(?:call|phone|ring|text|email|e-mail|message|reply|answer|write|send|mail|post|buy|get|grab|pick|order|pay|book|schedule|reschedule|cancel|renew|submit|finish|complete|prepare|fix|repair|clean|wash|cook|visit|see|meet|go|drive|take|bring|return|drop|collect|check|review|read|study|practice|print|sign|file|apply|register|confirm|ask|tell|water|feed|walk|charge|update|install|pack|deliver|invite|plan|pickup)\\b',
+  'i',
+);
 
-/** Words that open a Hebrew sentence and look like a verb without being one. */
+/** Words that open a Hebrew clause and look like a verb without being one. */
 const HE_NON_VERB = new Set(['לפני', 'למחר', 'לגבי', 'ליד', 'לכן', 'למה', 'לפחות', 'תודה', 'תמיד', 'תור']);
 
 // Built from strings: the root `tsconfig.json` targets ES5, which refuses the
 // `u` flag on a literal (the runtime is Node 24).
-const LEADING_CONNECTOR = new RegExp('^[\\s,،]*(?:and\\s+|و|ו)?', 'iu');
-const NOT_WORD_CHAR = new RegExp("[^\\p{L}'’]", 'gu');
+const LEADING_CONNECTOR = new RegExp('^[\\s,،"\'«(]*(?:and\\s+|و|ו)?', 'iu');
 const NOT_LETTERS = new RegExp('[^\\p{L}]+', 'gu');
 const REMIND_WORD = /\b(?:remind|reminder)\b|تذكرني|تذكريني|תזכיר/i;
 
-/** Whether a sentence opens a commitment of its own. */
-function opensCommitment(sentence: string): boolean {
+/**
+ * Positive evidence that a clause asks for or names something to do, for the
+ * clauses the model never answered (CL1 round 4, N4): a request marker or a
+ * commitment noun with a time (`hasRequestEvidence`), or a clause that opens
+ * with an errand verb — «أشتري خبز», "call mom tomorrow", «לשלם חשבון».
+ *
+ * Wider than the recovery gate on purpose. There the model read the clause
+ * and said "nothing", and only a request said outright overrules it. Here the
+ * model said nothing at all — its call timed out — and "call mom tomorrow"
+ * has no request marker, so the recovery gate alone would drop it with its
+ * chunk. "She is sick" and "Parking is on level 2" still do not pass.
+ */
+export function hasActionEvidence(clause: string): boolean {
+  if (typeof clause !== 'string' || !clause.trim()) return false;
+  if (hasRequestEvidence(clause)) return true;
+  // With and without a leading «و» / «ו»: «وصّل أمي» starts with its verb.
+  return [clause.trim(), clause.replace(LEADING_CONNECTOR, '').trim()].some((text) => {
+    if (AR_LEADING_VERB.test(text) || EN_LEADING_VERB.test(text)) return true;
+    const first = (text.split(/\s+/)[0] ?? '').replace(NOT_LETTERS, '');
+    return /^[לת][א-ת]{3,}$/.test(first) && !HE_NON_VERB.has(first);
+  });
+}
+
+/** The commitment nouns of a clause, without «ال» / «ה» / «ו», lower-cased. */
+function commitmentNounsOf(text: string): Set<string> {
+  const found = new Set<string>();
+  const all = new RegExp(COMMITMENT_NOUN.source, 'giu');
+  let match: RegExpExecArray | null;
+  while ((match = all.exec(text)) !== null) found.add(normalizeNoun(match[0]!));
+  return found;
+}
+
+function normalizeNoun(noun: string): string {
+  return noun.toLowerCase().replace(/^ال/, '').replace(/^[הו]/, '').replace(/^appt$/, 'appointment');
+}
+
+/**
+ * How a sentence has to start to open a clause of its own (CL1 round 4, N1):
+ * the controller's closed list, after an optional «و» / "and" / «ו».
+ */
+const SENTENCE_OPENER = new RegExp(
+  '^(?:' + [
+    // Arabic: I want / I have to / remind me / note down / don't forget.
+    `(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|ذكرني|ذكّرني|ذكريني|ذكّريني|سجل|سجّل|سجلي|سجّلي|لا\\s+تنسى|لا\\s+تنسي|ما\\s+تنسى|ما\\s+تنسي)${A}`,
+    `(?:ممكن|بتقدر|بتقدري|هل\\s+بتقدر|هل\\s+بتقدري|لو\\s+سمحت|بليز)\\s+(?:تذكرني|تذكريني|ذكرني|ذكّرني|تسجل|تسجّل|تسجلي)${A}`,
+    // English: I need / I have to / I must / remind me / I want to / I'll / don't forget.
+    "(?:(?:please|can\\s+you|could\\s+you|would\\s+you)\\s+)?remind\\s+me\\b",
+    "i\\s+need\\b",
+    "i\\s+(?:have|'ve\\s+got|have\\s+got)\\s+to\\b",
+    "i've\\s+got\\s+to\\b",
+    "i\\s+must\\b",
+    "i\\s+want\\s+to\\b",
+    "i(?:'|’)ll\\b",
+    "i\\s+will\\b",
+    "(?:don(?:'|’)?t|do\\s+not)\\s+forget\\b",
+    "remember\\s+to\\b",
+    // Hebrew: I need / remind me / I want / not to forget.
+    `(?:אני\\s+)?(?:צריך|צריכה)${A}`,
+    `(?:תזכיר|תזכירי)\\s+לי${A}`,
+    `אני\\s+(?:רוצה)${A}`,
+    `(?:לא\\s+לשכוח|אל\\s+תשכח|אל\\s+תשכחי)${A}`,
+  ].join('|') + ')',
+  'iu',
+);
+
+/**
+ * «عندي» / "I have" / «יש לי» and the commitment noun after it: a new
+ * appointment only when that noun is not the one the sentence before already
+ * named — «عندي موعد دكتور بكرا. عندي موعد الساعة 5» is the same appointment.
+ */
+const POSSESSION_OPENER = new RegExp(
+  `^(?:(?:عندي|عندنا)\\s+|i\\s+(?:have|'ve\\s+got|have\\s+got)\\s+(?:a|an|the|my)?\\s*|i've\\s+got\\s+(?:a|an|the|my)?\\s*|יש\\s+לי\\s+)(${COMMITMENT_NOUN.source})`,
+  'iu',
+);
+
+/** Whether a sentence opens a clause of its own, after `previous`. */
+function opensCommitment(sentence: string, previous: string): boolean {
   const text = sentence.replace(LEADING_CONNECTOR, '').trim();
   if (!text) return false;
-  if (hasRequestEvidence(text)) return true;
-  if (AR_LEADING_VERB.test(text)) return true;
-  const first = text.split(/\s+/)[0]!.replace(NOT_WORD_CHAR, '').toLowerCase();
-  if (/^[a-z'’]{2,}$/.test(first)) return !EN_NON_VERB.has(first);
-  if (/^[לת][א-ת]{3,}$/.test(first)) return !HE_NON_VERB.has(first);
-  return false;
+  if (SENTENCE_OPENER.test(text)) return true;
+  const possession = POSSESSION_OPENER.exec(text);
+  if (!possession) return false;
+  return !commitmentNounsOf(previous).has(normalizeNoun(possession[1]!.trim()));
 }
 
 /** What is left of a request once its markers, times and punctuation go. */
@@ -153,7 +228,7 @@ function sentencesOf(raw: string): string[] {
   const merged: string[] = [];
   for (const sentence of sentences.filter(Boolean)) {
     const previous = merged[merged.length - 1];
-    if (previous !== undefined && (!opensCommitment(sentence) || isBareRequest(previous))) {
+    if (previous !== undefined && (!opensCommitment(sentence, previous) || isBareRequest(previous))) {
       merged[merged.length - 1] = `${previous} ${sentence}`;
     } else {
       merged.push(sentence);

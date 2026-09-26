@@ -20,6 +20,7 @@
  * "at most N calls a day" mean calls rather than captures.
  */
 import {
+  CAPTURE_BATCH_TIMEOUT_MS,
   LLMUnavailableError,
   type LLMCallOptions,
   type LLMProviderFunction,
@@ -82,12 +83,13 @@ export function splitPrompt(prompt: string): { system: string; user: string } {
  */
 export const BATCH_MAX_OUTPUT_TOKENS = 2048;
 /**
- * How long one batched call may take. The provider retries a timeout once, so
- * two of these plus the retry's back-off (≤ 0.75 s) stay under the phone's
- * 15 s request timeout (`mobile/src/api/client.ts`), with room for the rules
- * fallback. A three-clause call measured 3.3–4.6 s (CL1 round 2).
+ * How long one batched call may take when the caller does not say
+ * (`CAPTURE_BATCH_TIMEOUT_MS`). The capture boundary does say, on every call
+ * of a multi-clause capture: the time left in its budget (CL1 round 4, N3).
  */
-export const BATCH_TIMEOUT_MS = 5_500;
+export const BATCH_TIMEOUT_MS = CAPTURE_BATCH_TIMEOUT_MS;
+/** The ceiling on one clause's answer — the text path's own (1024). */
+const SINGLE_MAX_OUTPUT_TOKENS = 1024;
 
 export interface CaptureProviderOptions {
   provider?: LlmProvider;
@@ -183,15 +185,22 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
       // It goes through the structured call only for its larger output
       // ceiling — the text is the same framed prompt, one text part — and
       // it is gated, reserved, metered and logged exactly like any other call.
-      const response = callOptions.shape === 'batch' && purpose === 'capture_extraction'
+      //
+      // A single clause with a deadline of its own — a repair, a re-ask, or
+      // the one model-bound clause of a longer capture (CL1 round 4, N3) —
+      // takes the same route, because `generateJson` has no per-call
+      // deadline: its 8 s, retried once, would outrun the phone's 15 s.
+      const batch = callOptions.shape === 'batch' && purpose === 'capture_extraction';
+      const timed = callOptions.timeoutMs !== undefined && purpose === 'capture_extraction';
+      const response = batch || timed
         ? await provider.generateStructured({
           system,
           parts: [{ kind: 'text', text: user }],
-          responseSchema: GEMINI_BATCH_EXTRACTION_SCHEMA,
+          responseSchema: batch ? GEMINI_BATCH_EXTRACTION_SCHEMA : GEMINI_EXTRACTION_SCHEMA,
           purpose,
           uid,
-          maxOutputTokens: BATCH_MAX_OUTPUT_TOKENS,
-          timeoutMs: BATCH_TIMEOUT_MS,
+          maxOutputTokens: batch ? BATCH_MAX_OUTPUT_TOKENS : SINGLE_MAX_OUTPUT_TOKENS,
+          timeoutMs: callOptions.timeoutMs ?? BATCH_TIMEOUT_MS,
         })
         : await provider.generateJson({
           system,

@@ -26,6 +26,7 @@ import { createGeminiProvider, isRetryable } from './geminiProvider';
 import {
   LLMUnavailableError,
   NONE_PROVIDER,
+  RETRY_BACKOFF_MAX_MS,
   structuredFromJson,
   type LlmProvider,
   type LlmProviderName,
@@ -40,7 +41,9 @@ export { toVertexSchema } from './vertexSchema';
 
 export const DEFAULT_MAX_RETRIES = 1;
 const RETRY_BASE_MS = 250;
-const RETRY_JITTER_MS = 500;
+// Base + jitter never reaches `RETRY_BACKOFF_MAX_MS`: the capture boundary's
+// time budget counts the back-off at that ceiling (CL1 round 4, N3).
+const RETRY_JITTER_MS = RETRY_BACKOFF_MAX_MS - RETRY_BASE_MS;
 
 export function configuredProviderName(env: NodeJS.ProcessEnv = process.env): LlmProviderName {
   const raw = (env.MAYBESITTER_LLM_PROVIDER ?? '').trim();

@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from 'crypto';
 import { extractWithFallback, type ExtractAndMapOptions, type ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
 import { buildBatchPrompt } from '../../../src/extraction/ollamaExtractor';
-import { LLMUnavailableError } from '../../../src/extraction/llm/llmProvider';
+import { CAPTURE_BATCH_TIMEOUT_MS, LLMUnavailableError, RETRY_BACKOFF_MAX_MS } from '../../../src/extraction/llm/llmProvider';
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
-import { hasRequestEvidence, splitCaptureClauses } from '../../../src/extraction/clauseSplitter';
+import { hasActionEvidence, hasRequestEvidence, splitCaptureClauses } from '../../../src/extraction/clauseSplitter';
 import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
@@ -68,6 +68,12 @@ export interface CaptureBoundaryDependencies {
   /** Which engine `llmProvider` is, so provenance names it (UC-2.0, #160). */
   llmEngine?: ExtractAndMapOptions['llmEngine'];
   extractor?: typeof extractWithFallback;
+  /**
+   * The server clock the capture's model budget is measured on, in ms
+   * (CL1 round 4, N3). Injected only so a test can run the budget without
+   * waiting; production reads `Date.now`.
+   */
+  clock?: () => number;
 }
 
 export interface ProposeCaptureOptions {
@@ -103,48 +109,116 @@ type ClauseOutcome =
   | { kind: 'error'; error: unknown };
 
 /**
- * Calls one capture may make to the model, batch and repairs together
- * (CL1 review, I4). The per-user minute cap is eight; this leaves room for a
- * clarification and a second capture in the same minute.
+ * Calls one capture may make to the model: its batches, and the repairs and
+ * re-asks after them (CL1 review, I4; round 4, N2).
+ *
+ * Five. An ordinary capture makes one call per three clauses — two for six,
+ * three for eight. The rest is for a batch that came back misaligned, whose
+ * clauses are re-asked one by one (a chunk of three on top of two batches is
+ * five). The per-user minute cap is eight, which still leaves room for a
+ * typed clarification and a second capture in the same minute.
  */
-export const MAX_MODEL_CALLS_PER_CAPTURE = 3;
+export const MAX_MODEL_CALLS_PER_CAPTURE = 5;
+
+/**
+ * Server time one capture may spend waiting on the model (CL1 round 4, N3).
+ *
+ * The phone gives up at 15 s (`mobile/src/api/client.ts`); twelve leaves
+ * three for the network, storage and the rules. No call is started unless it
+ * can end inside the budget at its worst — its deadline twice (the provider
+ * retries a timeout once) plus the back-off between the two.
+ */
+export const CAPTURE_SERVER_BUDGET_MS = 12_000;
+export { RETRY_BACKOFF_MAX_MS };
+
+/**
+ * The shortest deadline worth giving a call. A clause read alone took
+ * 1.6–3.1 s live (CL1 rounds 2–3); below two seconds a call is more likely to
+ * time out than to answer, and the rules answer at once.
+ */
+const MIN_CALL_TIMEOUT_MS = 2_000;
 
 /**
  * Clauses per model call; the calls of one capture run at the same time.
  *
  * Three, measured live against gemini-2.5-flash in europe-west1 on the UAT's
  * six-clause capture (CL1 round 2): one call of six took 4.7–6.3 s, two calls
- * of three 3.3–4.6 s. The provider retries a timeout once, so a call has to
- * fit `BATCH_TIMEOUT_MS` twice inside the phone's 15 s — six at once does not.
- * With `MAX_MODEL_SEGMENTS` at eight, a capture makes at most three calls.
- * `MAYBESITTER_CAPTURE_CLAUSES_PER_CALL` overrides it for measurement.
+ * of three 3.3–4.6 s. With `MAX_MODEL_SEGMENTS` at eight, a capture makes at
+ * most three batch calls. `MAYBESITTER_CAPTURE_CLAUSES_PER_CALL` overrides it
+ * for measurement.
  */
 export const MAX_CLAUSES_PER_CALL = Number.parseInt(process.env.MAYBESITTER_CAPTURE_CLAUSES_PER_CALL ?? '', 10) || 3;
 
 type ProviderFunction = NonNullable<ExtractAndMapOptions['llmProvider']>;
 
 /**
- * One model call for every clause of a capture (CL1 review, I4).
+ * `total` clauses in calls of at most `max`, as even as they go: seven are
+ * 3, 2 and 2 — never 3, 3 and a lone 1 (CL1 round 4, N3).
+ */
+export function chunkSizes(total: number, max: number): number[] {
+  if (total <= 0) return [];
+  const count = Math.ceil(total / Math.max(1, max));
+  const base = Math.floor(total / count);
+  return Array.from({ length: count }, (_, index) => base + (index < total % count ? 1 : 0));
+}
+
+/**
+ * A batch answer's objects, but only when each one says it reads the clause
+ * at its own position (CL1 round 4, N2): exactly `size` objects, and object
+ * *i* carrying `clauseIndex: i`. Anything else — a clause answered twice, one
+ * skipped, the answers reordered, an index missing — is null, and none of the
+ * chunk's objects is used: paired by position alone, a model that split one
+ * clause in two silently dropped the last commitment and gave its neighbours
+ * each other's day, anchor and priority.
+ */
+function alignedItems(text: string, size: number): Record<string, unknown>[] | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const items = (parsed as { items?: unknown } | null)?.items;
+  if (!Array.isArray(items) || items.length !== size) return null;
+  const aligned: Record<string, unknown>[] = [];
+  for (let position = 0; position < size; position += 1) {
+    const item = items[position] as unknown;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    const { clauseIndex, ...extraction } = item as Record<string, unknown>;
+    if (clauseIndex !== position) return null;
+    aligned.push(extraction);
+  }
+  return aligned;
+}
+
+/**
+ * One model call for every three clauses of a capture (CL1 review, I4).
  *
  * Each clause runs the ordinary extractor with its own provider from
  * `providerFor`. The first time a clause's extractor asks the model, it is
  * held until every clause expected to reach the model has either asked too or
  * finished without asking (the injection screen, the negation guard) — then
- * the clauses that asked go to the model together, in one `batch` call, and
- * each gets back its own object, which its extractor validates against its own
- * text exactly as a single answer is.
+ * the clauses that asked go to the model together, in calls of at most
+ * `MAX_CLAUSES_PER_CALL` sent at the same time, and each gets back its own
+ * object, which its extractor validates against its own text exactly as a
+ * single answer is.
  *
- * One clause asking alone is sent the single prompt it built: nothing changes
- * for a one-clause capture. A second ask from the same clause is the
- * extractor's repair attempt, and goes to the model as a single call while the
- * capture is under `MAX_MODEL_CALLS_PER_CAPTURE`; past it, that clause falls
- * back to the rules like any other model failure.
+ * A batch answer is used only when every object echoes the clause it reads
+ * (`alignedItems`). When it does not, that chunk's clauses are asked again one
+ * by one; a clause the budget has no room for falls back to the rules like any
+ * other model failure, and the boundary then keeps it only on evidence that it
+ * asks for something (round 4, N2 and N4).
+ *
+ * Every call — first round, re-ask, the extractor's repair — goes out with the
+ * deadline the time budget can still afford (`callTimeout`), and none goes out
+ * past `MAX_MODEL_CALLS_PER_CAPTURE` (round 4, N3).
  */
 function createClauseBatch(
   inner: ProviderFunction,
   clauses: readonly string[],
   expected: readonly number[],
   context: ExtractionContext,
+  budget: { startedAt: number; clock: () => number },
 ) {
   type Waiter = { prompt: string; resolve: (text: string) => void; reject: (error: unknown) => void };
   const waiting = new Map<number, Waiter>();
@@ -153,37 +227,45 @@ function createClauseBatch(
   let fired = false;
   let calls = 0;
 
+  /** The deadline a call started now may have, or null when none fits. */
+  function callTimeout(): number | null {
+    const remaining = CAPTURE_SERVER_BUDGET_MS - (budget.clock() - budget.startedAt);
+    const timeout = Math.min(CAPTURE_BATCH_TIMEOUT_MS, Math.floor((remaining - RETRY_BACKOFF_MAX_MS) / 2));
+    return timeout >= MIN_CALL_TIMEOUT_MS ? timeout : null;
+  }
+
+  /** One call, if the capture's call and time budgets both still allow it. */
+  function send(prompt: string, shape: 'single' | 'batch'): Promise<string> {
+    if (calls >= MAX_MODEL_CALLS_PER_CAPTURE) return Promise.reject(new LLMUnavailableError('capture_call_budget'));
+    const timeoutMs = callTimeout();
+    if (timeoutMs === null) return Promise.reject(new LLMUnavailableError('capture_time_budget'));
+    calls += 1;
+    return inner(prompt, shape === 'batch' ? { shape, timeoutMs } : { timeoutMs });
+  }
+
   function fire(): void {
     if (fired) return;
     if (!expected.every((index) => waiting.has(index) || finished.has(index))) return;
     fired = true;
     const entries = Array.from(waiting.entries()).sort(([a], [b]) => a - b);
-    if (entries.length === 0) return;
-    // Balanced chunks of at most `MAX_CLAUSES_PER_CALL`, sent together.
-    const chunkCount = Math.ceil(entries.length / MAX_CLAUSES_PER_CALL);
-    const size = Math.ceil(entries.length / chunkCount);
-    for (let start = 0; start < entries.length; start += size) {
+    let start = 0;
+    for (const size of chunkSizes(entries.length, MAX_CLAUSES_PER_CALL)) {
       const chunk = entries.slice(start, start + size);
-      calls += 1;
+      start += size;
       if (chunk.length === 1) {
         const [, only] = chunk[0]!;
-        inner(only.prompt).then(only.resolve, only.reject);
+        send(only.prompt, 'single').then(only.resolve, only.reject);
         continue;
       }
-      inner(buildBatchPrompt(chunk.map(([index]) => clauses[index]!), context), { shape: 'batch' }).then(
+      send(buildBatchPrompt(chunk.map(([index]) => clauses[index]!), context), 'batch').then(
         (text) => {
-          let items: unknown[] | null = null;
-          try {
-            const parsed = JSON.parse(text) as { items?: unknown };
-            if (Array.isArray(parsed?.items) && parsed.items.length === chunk.length) items = parsed.items;
-          } catch {
-            items = null;
+          const items = alignedItems(text, chunk.length);
+          if (items) {
+            chunk.forEach(([, waiter], position) => waiter.resolve(JSON.stringify(items[position])));
+            return;
           }
-          chunk.forEach(([, waiter], position) => {
-            const item = items?.[position];
-            if (item && typeof item === 'object') waiter.resolve(JSON.stringify(item));
-            else waiter.reject(new LLMUnavailableError('batch_invalid'));
-          });
+          // Misaligned: re-asked clause by clause, each with its own prompt.
+          for (const [, waiter] of chunk) send(waiter.prompt, 'single').then(waiter.resolve, waiter.reject);
         },
         (error) => chunk.forEach(([, waiter]) => waiter.reject(error)),
       );
@@ -193,11 +275,8 @@ function createClauseBatch(
   return {
     providerFor(index: number): ProviderFunction {
       return (prompt: string) => {
-        if (asked.has(index) || fired) {
-          if (calls >= MAX_MODEL_CALLS_PER_CAPTURE) return Promise.reject(new LLMUnavailableError('capture_call_budget'));
-          calls += 1;
-          return inner(prompt);
-        }
+        // A second ask from the same clause is the extractor's repair.
+        if (asked.has(index) || fired) return send(prompt, 'single');
         asked.add(index);
         return new Promise<string>((resolve, reject) => {
           waiting.set(index, { prompt, resolve, reject });
@@ -347,6 +426,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * is offered to the extractor or to a model.
    */
   if (raw.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
+  const clock = dependencies.clock ?? Date.now;
+  const startedAt = clock();
   const requestedEngine = options.requestedEngine ?? 'model';
   const runtime = resolveModuleRuntime('capture', dependencies.controls);
   const forceRules = requestedEngine === 'rules' || runtime.mode === 'rules_only';
@@ -406,6 +487,16 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * reminder it obviously is.
    */
   const intents = segments.map((segment) => detectUnresolvedIntent(segment));
+  /*
+   * An injection in any clause rejects the capture before a single clause is
+   * read (CL1 round 4, N5). Checked only on the model's answer, a `system:`
+   * clause the model filed as context was dropped quietly — and, batched, it
+   * had already shared a prompt with up to two of the user's real clauses and
+   * could steer their titles, times and priority. The same pattern, the same
+   * `rejected` answer, now asked of the clause itself.
+   */
+  const injected = several && segments.some((segment) => INJECTION.test(segment));
+  if (injected) rejected = true;
 
   /*
    * Phase one: every clause is read at once, and the clauses that reach the
@@ -423,10 +514,12 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const modelIndices = segments
     .map((_, index) => index)
     .filter((index) => !intents[index] && !forceRules && index < MAX_MODEL_SEGMENTS);
-  const batch = dependencies.llmProvider && !forceRules
-    ? createClauseBatch(dependencies.llmProvider, segments, modelIndices, context)
+  // A capture of one clause is read exactly as it always was: one prompt, the
+  // provider's own deadline. Batching, and its budget, start at two.
+  const batch = dependencies.llmProvider && !forceRules && several
+    ? createClauseBatch(dependencies.llmProvider, segments, modelIndices, context, { startedAt, clock })
     : null;
-  const outcomes = await Promise.all(segments.map(async (segment, index): Promise<ClauseOutcome> => {
+  const outcomes = injected ? [] : await Promise.all(segments.map(async (segment, index): Promise<ClauseOutcome> => {
     if (intents[index]) return { kind: 'seed' };
     const rulesOnly = forceRules || index >= MAX_MODEL_SEGMENTS;
     try {
@@ -443,7 +536,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   }));
 
   // Phase two: the answers, in the order the user said them.
-  for (let index = 0; index < segments.length; index += 1) {
+  for (let index = 0; index < outcomes.length; index += 1) {
     const segment = segments[index]!;
     const outcome = outcomes[index]!;
     const intent = intents[index];
@@ -471,6 +564,27 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         passedHour = true;
       } else {
         extracted = outcome.extracted;
+      }
+      /*
+       * The model was asked and did not answer — its call timed out, the
+       * budget ran out, or its answer could not be used — so the rules read
+       * the clause instead (CL1 round 4, N2 and N4). In a capture of several
+       * clauses the rules reading stands only on evidence that the clause
+       * asks for something: one timed-out call used to turn "she is sick"
+       * into an item beside the two real ones in its chunk. A capture of one
+       * clause is unchanged: what the user typed alone is the request.
+       */
+      if (
+        several
+        && batch
+        && modelIndices.includes(index)
+        && extracted.engine === 'rule-based'
+        && extracted.fallbackReason
+        && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason)
+        && !hasActionEvidence(segment)
+      ) {
+        fallbackUsed = true;
+        continue;
       }
       let failure = semanticFailure(extracted.result, options.now);
       /*
