@@ -9,10 +9,10 @@
  *
  * ── A commitment is a point, not a block ────────────────────────
  *
- * `TodayScreen` says why at length: nothing in this product creates a
- * `scheduled_event`, the domain only ever emits `due_by` or `unscheduled`, and
+ * `TodayScreen` says why at length: a captured commitment names an instant —
+ * a `due_by`, or since CL1 a `scheduled_event` for "at 5" — and no end, so
  * a card drawn as a block would imply the user told us how long something
- * takes when they only said when it was due. So the question here is "is this
+ * takes when they only said when it was. So the question here is "is this
  * *instant* inside a busy interval", half-open like every other interval in the
  * product: a commitment at exactly 15:00 conflicts with 14:00–15:00 not at all
  * and with 15:00–16:00 completely.

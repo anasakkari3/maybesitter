@@ -1,9 +1,12 @@
 import { createHash, randomUUID } from 'crypto';
-import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
+import { extractWithFallback, type ExtractAndMapOptions, type ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
+import { buildBatchPrompt } from '../../../src/extraction/ollamaExtractor';
+import { LLMUnavailableError } from '../../../src/extraction/llm/llmProvider';
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
+import { hasRequestEvidence, splitCaptureClauses } from '../../../src/extraction/clauseSplitter';
 import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
@@ -93,6 +96,123 @@ const MAX_MODEL_SEGMENTS = 8;
 /** Refuses at once, so the extraction service answers with the rules. */
 const RULES_ONLY_PROVIDER = async (): Promise<string> => { throw new Error('rules-only runtime'); };
 
+/** What reading one clause came to, before the proposal is assembled. */
+type ClauseOutcome =
+  | { kind: 'seed' }
+  | { kind: 'extracted'; extracted: ExtractWithFallbackResult }
+  | { kind: 'error'; error: unknown };
+
+/**
+ * Calls one capture may make to the model, batch and repairs together
+ * (CL1 review, I4). The per-user minute cap is eight; this leaves room for a
+ * clarification and a second capture in the same minute.
+ */
+export const MAX_MODEL_CALLS_PER_CAPTURE = 3;
+
+/**
+ * Clauses per model call; the calls of one capture run at the same time.
+ *
+ * Three, measured live against gemini-2.5-flash in europe-west1 on the UAT's
+ * six-clause capture (CL1 round 2): one call of six took 4.7–6.3 s, two calls
+ * of three 3.3–4.6 s. The provider retries a timeout once, so a call has to
+ * fit `BATCH_TIMEOUT_MS` twice inside the phone's 15 s — six at once does not.
+ * With `MAX_MODEL_SEGMENTS` at eight, a capture makes at most three calls.
+ * `MAYBESITTER_CAPTURE_CLAUSES_PER_CALL` overrides it for measurement.
+ */
+export const MAX_CLAUSES_PER_CALL = Number.parseInt(process.env.MAYBESITTER_CAPTURE_CLAUSES_PER_CALL ?? '', 10) || 3;
+
+type ProviderFunction = NonNullable<ExtractAndMapOptions['llmProvider']>;
+
+/**
+ * One model call for every clause of a capture (CL1 review, I4).
+ *
+ * Each clause runs the ordinary extractor with its own provider from
+ * `providerFor`. The first time a clause's extractor asks the model, it is
+ * held until every clause expected to reach the model has either asked too or
+ * finished without asking (the injection screen, the negation guard) — then
+ * the clauses that asked go to the model together, in one `batch` call, and
+ * each gets back its own object, which its extractor validates against its own
+ * text exactly as a single answer is.
+ *
+ * One clause asking alone is sent the single prompt it built: nothing changes
+ * for a one-clause capture. A second ask from the same clause is the
+ * extractor's repair attempt, and goes to the model as a single call while the
+ * capture is under `MAX_MODEL_CALLS_PER_CAPTURE`; past it, that clause falls
+ * back to the rules like any other model failure.
+ */
+function createClauseBatch(
+  inner: ProviderFunction,
+  clauses: readonly string[],
+  expected: readonly number[],
+  context: ExtractionContext,
+) {
+  type Waiter = { prompt: string; resolve: (text: string) => void; reject: (error: unknown) => void };
+  const waiting = new Map<number, Waiter>();
+  const finished = new Set<number>();
+  const asked = new Set<number>();
+  let fired = false;
+  let calls = 0;
+
+  function fire(): void {
+    if (fired) return;
+    if (!expected.every((index) => waiting.has(index) || finished.has(index))) return;
+    fired = true;
+    const entries = Array.from(waiting.entries()).sort(([a], [b]) => a - b);
+    if (entries.length === 0) return;
+    // Balanced chunks of at most `MAX_CLAUSES_PER_CALL`, sent together.
+    const chunkCount = Math.ceil(entries.length / MAX_CLAUSES_PER_CALL);
+    const size = Math.ceil(entries.length / chunkCount);
+    for (let start = 0; start < entries.length; start += size) {
+      const chunk = entries.slice(start, start + size);
+      calls += 1;
+      if (chunk.length === 1) {
+        const [, only] = chunk[0]!;
+        inner(only.prompt).then(only.resolve, only.reject);
+        continue;
+      }
+      inner(buildBatchPrompt(chunk.map(([index]) => clauses[index]!), context), { shape: 'batch' }).then(
+        (text) => {
+          let items: unknown[] | null = null;
+          try {
+            const parsed = JSON.parse(text) as { items?: unknown };
+            if (Array.isArray(parsed?.items) && parsed.items.length === chunk.length) items = parsed.items;
+          } catch {
+            items = null;
+          }
+          chunk.forEach(([, waiter], position) => {
+            const item = items?.[position];
+            if (item && typeof item === 'object') waiter.resolve(JSON.stringify(item));
+            else waiter.reject(new LLMUnavailableError('batch_invalid'));
+          });
+        },
+        (error) => chunk.forEach(([, waiter]) => waiter.reject(error)),
+      );
+    }
+  }
+
+  return {
+    providerFor(index: number): ProviderFunction {
+      return (prompt: string) => {
+        if (asked.has(index) || fired) {
+          if (calls >= MAX_MODEL_CALLS_PER_CAPTURE) return Promise.reject(new LLMUnavailableError('capture_call_budget'));
+          calls += 1;
+          return inner(prompt);
+        }
+        asked.add(index);
+        return new Promise<string>((resolve, reject) => {
+          waiting.set(index, { prompt, resolve, reject });
+          fire();
+        });
+      };
+    },
+    /** This clause's extractor is done, whether or not it asked. */
+    settle(index: number): void {
+      finished.add(index);
+      fire();
+    },
+  };
+}
+
 /**
  * The capture is longer than the server will read (#508).
  *
@@ -111,75 +231,8 @@ export class CaptureInputTooLargeError extends Error {
   }
 }
 
-/**
- * One capture, split into the commitments it actually names.
- *
- * English connectors were the only ones here, so «بكرة الساعة 9 دكتور وبعدين
- * الساعة 3 الجامعة» — two appointments — arrived as one segment, and the second
- * time was dropped by the extractor's non-global match. The multi-time safety
- * valve then caught it and asked for clarification, which is safe but is the
- * product failing to read a perfectly ordinary sentence (#162 step 3).
- *
- * The Arabic comma «،» and the Hebrew connectors are here for the same reason.
- * A bare «و» (and) is deliberately *not* a connector: it joins words far more
- * often than clauses — «أحمد وسامي» is one errand, not two.
- */
-function splitInput(raw: string): string[] {
-  const segments = raw
-    // A sentence end is a clause boundary (CL1, D1). It was not, so «…يوم
-    // الأحد. وبدي أدفع فاتورة الكهربا…» reached the model as one clause, a
-    // model asked for one object answered with the doctor, and the bill was
-    // gone with nothing to say so. The mark stays on its clause — a question
-    // is read as one by `classifyMessageKind`, and a seed keeps the sentence
-    // as typed — and an abbreviation or an initial ("Dr. Haddad", "a.m.") is
-    // not a sentence end.
-    .replace(/(\S*?)([.!?؟]+)(\s+)/g, (match, word: string, stop: string) =>
-      (stop === '.' && ABBREVIATION.test(word) ? match : `${word}${stop}|`))
-    // «و» is not a connector (below), but «و» straight onto «بدي / لازم /
-    // ذكرني / عندي» opens a new commitment — how an unpunctuated, dictated
-    // list runs on — and so does "and I need to" / «וצריך». The «و» goes; the
-    // word after it stays, because «ذكرني» is what makes a clause a reminder.
-    .replace(CLAUSE_OPENER, '|')
-    .replace(/[;\n]+/g, '|')
-    .replace(/\s+(?:and then|then|also)\s+/gi, '|')
-    // «وبعدين»/«وبعدها»/«وكمان» (and then / and after / and also), and Hebrew
-    // «ואז»/«וגם». Each is a whole word, so «وكمانك» is untouched.
-    .replace(/\s*(?:وبعدين|وبعدها|وبعدين|وكمان|ثم|بعدين)\s+/g, '|')
-    .replace(/\s*(?:ואז|וגם|אחר כך)\s+/g, '|')
-    .replace(/،+/g, '|')
-    .split('|')
-    .map((part) => part.trim())
-    .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ])|ו)\s*/i, '').trim())
-    .filter(Boolean);
-  return segments.length > 0 ? segments : [raw];
-}
-
-/**
- * The word before a «.» that is not a sentence end: a title, a Latin
- * abbreviation, or a single letter (an initial, «م.»). Only ever consulted for
- * «.» — `?` and `!` always end a sentence.
- */
-// Built from a string: the root `tsconfig.json` targets ES5, which refuses the
-// `u` flag on a literal (the runtime is Node 24).
-const ABBREVIATION = new RegExp('^(?:[("\'«]*)(?:dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|no|approx|[ap]\\.m|e\\.g|i\\.e|\\p{L})$', 'iu');
-
-/**
- * «و» onto a word that opens a commitment, in the three languages (CL1, D1).
- *
- * Arabic: «وبدي / ولازم / وذكرني / وعندي» and their forms. English: "and I
- * need to / have to / must / and remind me". Hebrew: «וצריך / ותזכיר / ויש
- * לי». The opener word itself is left in the next clause by the lookahead.
- * A bare «و» joining two nouns — «خبز وحليب», «أحمد وسامي» — never matches:
- * the word after it has to be one of these.
- */
-const CLAUSE_OPENER = new RegExp(
-  [
-    '(?:^|[\\s,،|]+)و(?=(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|ذكرني|ذكّرني|ذكريني|ذكّريني|عندي|عندنا)(?![\\p{L}\\p{M}]))',
-    '\\s+and\\s+(?=(?:remind\\s+me|i\\s+(?:need|have)\\s+to|i\\s+must|i\'ve\\s+got\\s+to)\\b)',
-    '\\s+ו(?=(?:צריך|צריכה|תזכיר|תזכירי|יש\\s+לי)(?![\\p{L}\\p{M}]))',
-  ].join('|'),
-  'giu',
-);
+/** The clauses of one capture: `src/extraction/clauseSplitter.ts`. */
+const splitInput = splitCaptureClauses;
 
 /**
  * Why this segment produced nothing, or why it is being refused (UC-2.6, #166).
@@ -202,15 +255,37 @@ function semanticFailure(result: ExtractionResult, now: Date): string | null {
   // Gap A: the disposition policy would only file this as a note, so there is no
   // commitment in it however confident the extractor was about the sentence.
   if (decideExtractionDisposition(result) === 'store_note') return 'no_commitment';
+  // Before the title (CL1 review, I2): a multi-clause capture skips a clause
+  // with no usable title, and an injection whose model answer had a short or
+  // null title was skipped with it instead of rejecting the capture.
+  if (INJECTION.test(result.rawText)) return 'prompt_injection';
   const title = (result.title || result.action || '').trim();
   if (title.length < 3) return 'missing_title';
-  if (INJECTION.test(result.rawText)) return 'prompt_injection';
   const resolved = result.remindAt || result.dueAt;
   // Same rule as the capture edits and the mobile PATCH, asked in one place
   // (#352); only the answer differs, because a refusal here is a reason code
   // on a proposal rather than an error.
   if (resolved && isPastCommitmentTime(Date.parse(resolved), now)) return 'past_time';
   return null;
+}
+
+/**
+ * The same reading with the hour that has already gone taken off (CL1, round
+ * 1). The day is kept when it is today or later — «اليوم» is still what the
+ * user said — so the clarification asks "what time today?".
+ */
+function withoutPastTime(result: ExtractionResult, now: Date, timezone: string): ExtractionResult {
+  const today = localTimeSpecFor(now, timezone)?.date ?? null;
+  const date = result.localTimeSpec?.date ?? null;
+  return {
+    ...result,
+    dueAt: null,
+    remindAt: null,
+    localTimeSpec: date && today && date >= today ? { date, time: null, timezone } : null,
+    // Kept: the hour is gone, not what it was. An «الساعة 9» re-asked is
+    // still a time to be at once a new hour is picked (CL1 review, I1).
+    missingFields: result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time'],
+  };
 }
 
 /**
@@ -227,24 +302,6 @@ function semanticFailure(result: ExtractionResult, now: Date): string | null {
  * read well enough to propose anything for. `low_confidence` is the honest answer
  * there.
  */
-/**
- * The same reading with the hour that has already gone taken off (CL1, round
- * 1). The day is kept when it is today or later — «اليوم» is still what the
- * user said — so the clarification asks "what time today?".
- */
-function withoutPastTime(result: ExtractionResult, now: Date, timezone: string): ExtractionResult {
-  const today = localTimeSpecFor(now, timezone)?.date ?? null;
-  const date = result.localTimeSpec?.date ?? null;
-  return {
-    ...result,
-    dueAt: null,
-    remindAt: null,
-    localTimeSpec: date && today && date >= today ? { date, time: null, timezone } : null,
-    timeAnchor: null,
-    missingFields: result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time'],
-  };
-}
-
 function noCommitmentReasonFrom(
   segment: string,
   result: ExtractionResult,
@@ -330,53 +387,117 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   let noCommitmentReason: NoCommitmentReason | null = null;
 
   const segments = raw ? splitInput(raw) : [];
+  const several = segments.length > 1;
+  /*
+   * Unresolved intent is read before the extractor, not after it (#519).
+   *
+   * After would be the tidier place — "whatever produced no commitment, look
+   * at again" — and it is where three of the issue's six example sentences
+   * would in fact land. The other three do not. «אולי אני אגיש מועמדות» and
+   * "I'm waiting for the doctor to reply" are read by the rule-based
+   * extractor as tasks whose time is missing, so they arrive as items
+   * *needing clarification*: the product would answer somebody's "maybe" by
+   * asking them what time their maybe is. That is the failure this issue
+   * exists to remove, and it happens upstream of any no-commitment branch.
+   *
+   * The narrowing that makes this safe is in `detectUnresolvedIntent`: an
+   * explicit scheduling verb anywhere in the segment means it is a request
+   * and the detector declines, so «ممكن تذكرني بكرة الساعة ٩؟» stays the
+   * reminder it obviously is.
+   */
+  const intents = segments.map((segment) => detectUnresolvedIntent(segment));
+
+  /*
+   * Phase one: every clause is read at once, and the clauses that reach the
+   * model share one call (CL1 review, I4) — see `createClauseBatch`. One call
+   * per clause, one after another, spent the per-user minute budget on a
+   * single spoken list and ran a six-clause capture towards the phone's 15 s
+   * timeout. Each clause still goes through the whole extractor on its own:
+   * the injection screen, the negation guard and the past-time guard all run
+   * per clause, and a clause they stop never reaches the model.
+   *
+   * Past `MAX_MODEL_SEGMENTS` the remaining clauses go through the rules
+   * rather than being dropped: the user still gets their commitments, they
+   * are just read without the model.
+   */
+  const modelIndices = segments
+    .map((_, index) => index)
+    .filter((index) => !intents[index] && !forceRules && index < MAX_MODEL_SEGMENTS);
+  const batch = dependencies.llmProvider && !forceRules
+    ? createClauseBatch(dependencies.llmProvider, segments, modelIndices, context)
+    : null;
+  const outcomes = await Promise.all(segments.map(async (segment, index): Promise<ClauseOutcome> => {
+    if (intents[index]) return { kind: 'seed' };
+    const rulesOnly = forceRules || index >= MAX_MODEL_SEGMENTS;
+    try {
+      const extracted = await extractor(segment, context, {
+        llmProvider: rulesOnly ? RULES_ONLY_PROVIDER : batch ? batch.providerFor(index) : dependencies.llmProvider,
+        llmEngine: dependencies.llmEngine,
+      });
+      return { kind: 'extracted', extracted };
+    } catch (error) {
+      return { kind: 'error', error };
+    } finally {
+      batch?.settle(index);
+    }
+  }));
+
+  // Phase two: the answers, in the order the user said them.
   for (let index = 0; index < segments.length; index += 1) {
     const segment = segments[index]!;
-    // One paste can split into many segments, and each would otherwise be its
-    // own model call — so a single capture could cost a dozen (#160 step 7).
-    // Past the cap the remaining segments go through the rule-based extractor
-    // rather than being dropped: the user still gets their commitments, they
-    // are just read without the model.
-    const rulesOnly = forceRules || index >= MAX_MODEL_SEGMENTS;
-    /*
-     * Unresolved intent is read before the extractor, not after it (#519).
-     *
-     * After would be the tidier place — "whatever produced no commitment, look
-     * at again" — and it is where three of the issue's six example sentences
-     * would in fact land. The other three do not. «אולי אני אגיש מועמדות» and
-     * "I'm waiting for the doctor to reply" are read by the rule-based
-     * extractor as tasks whose time is missing, so they arrive as items
-     * *needing clarification*: the product would answer somebody's "maybe" by
-     * asking them what time their maybe is. That is the failure this issue
-     * exists to remove, and it happens upstream of any no-commitment branch.
-     *
-     * The narrowing that makes this safe is in `detectUnresolvedIntent`: an
-     * explicit scheduling verb anywhere in the segment means it is a request
-     * and the detector declines, so «ممكن تذكرني بكرة الساعة ٩؟» stays the
-     * reminder it obviously is.
-     */
-    const intent = detectUnresolvedIntent(segment);
-    if (intent) {
-      seeds.push({ seedItemId: randomUUID(), kind: intent.kind, summary: segment });
+    const outcome = outcomes[index]!;
+    const intent = intents[index];
+    if (intent || outcome.kind === 'seed') {
+      if (intent) seeds.push({ seedItemId: randomUUID(), kind: intent.kind, summary: segment });
       continue;
     }
     try {
-      const several = segments.length > 1;
-      let extracted: Awaited<ReturnType<typeof extractor>>;
-      try {
-        extracted = await extractor(segment, context, {
-          llmProvider: rulesOnly ? RULES_ONLY_PROVIDER : dependencies.llmProvider,
-          llmEngine: dependencies.llmEngine,
-        });
-      } catch (error) {
+      let extracted: ExtractWithFallbackResult;
+      // A rules reading standing in for one clause — a passed hour re-read, or
+      // a clause recovered from a model "nothing" — does not relabel the
+      // proposal: the model still read the capture (CL1 review, C2).
+      let standIn = false;
+      let passedHour = false;
+      if (outcome.kind === 'error') {
         // The guarded extractor refuses a time that has gone by throwing, and
         // keeps nothing it read. In a capture of several clauses the clause is
-        // read again by the rules — no second model call — so it can be
-        // offered without its hour, below. Alone, the refusal stands.
-        if (!(error instanceof PastCommitmentTimeError) || !several) throw error;
+        // read again by the rules — no second model call — and offered without
+        // its hour, below. Alone, the refusal stands.
+        if (!(outcome.error instanceof PastCommitmentTimeError) || !several) throw outcome.error;
         extracted = await extractWithFallback(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+        // The one guard the unguarded re-read skips (review, M5).
+        if (extracted.result.ambiguityFlags.includes('negated_request')) throw new NegatedRequestError();
+        standIn = true;
+        passedHour = true;
+      } else {
+        extracted = outcome.extracted;
       }
       let failure = semanticFailure(extracted.result, options.now);
+      /*
+       * The model found nothing in a clause that plainly asks for something,
+       * beside clauses that did produce items (CL1, D1). The rules read the
+       * same clause instead; if they also find nothing, nothing is invented.
+       *
+       * Only on positive evidence of a request (CL1 review, C2): an explicit
+       * request or obligation marker, or a commitment noun with a time. The
+       * message classifier answers `request` for anything it does not
+       * recognise, so gating on it turned the model's correct "nothing here"
+       * for «بالمكتب» or "She is sick" into an item — against #166's
+       * create-nothing contract. Without that evidence, the model wins.
+       */
+      if (
+        failure === 'no_commitment'
+        && several
+        && extracted.engine !== 'rule-based'
+        && hasRequestEvidence(segment)
+      ) {
+        const recovered = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+        if (semanticFailure(recovered.result, options.now) === null) {
+          extracted = recovered;
+          failure = null;
+          standIn = true;
+        }
+      }
       /*
        * One clause must not sink the others (CL1, round 1). «بدي أشتري خبز
        * بكرا، وذكرني أتصل بأمي اليوم الساعة 9 الصبح» sent at 10:00 was
@@ -389,42 +510,23 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        *   missing_title  there is nothing to name, so only that clause is
        *                  skipped.
        *
-       * A prompt injection still rejects the whole capture: that is unsafe,
-       * not merely unreadable. A capture of one clause is unchanged.
+       * A prompt injection still rejects the whole capture — `semanticFailure`
+       * reports it before a short title — and a capture of one clause is
+       * unchanged.
        */
       let clearedPastTime = false;
-      if (several && failure === 'past_time') {
+      if (several && (failure === 'past_time' || passedHour)) {
         extracted = { ...extracted, result: withoutPastTime(extracted.result, options.now, options.timezone) };
         failure = semanticFailure(extracted.result, options.now);
         clearedPastTime = failure === null;
       }
       if (several && failure === 'missing_title') continue;
-      /*
-       * The model found nothing in a clause that asks for something, beside
-       * clauses that did produce items (CL1, D1). Left alone, the proposal
-       * shows the others and this one is gone with nothing to say so — the
-       * silent half of a dropped commitment. The rules read the same clause
-       * instead; if they also find nothing, nothing is invented.
-       *
-       * Only in a capture of several clauses: alone, a no-commitment answer
-       * is shown to the user as one, which is not silent.
-       */
-      if (
-        failure === 'no_commitment'
-        && segments.length > 1
-        && extracted.engine !== 'rule-based'
-        && classifyMessageKind(segment) === 'request'
-      ) {
-        const recovered = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
-        if (semanticFailure(recovered.result, options.now) === null) {
-          extracted = recovered;
-          failure = null;
-        }
+      if (!standIn) {
+        // Whatever actually answered, named — and a model answer is never
+        // relabelled by a later clause the rules had to read.
+        if (extracted.engine !== 'rule-based' || executedEngine === 'rule-based') executedEngine = extracted.engine;
+        fallbackUsed ||= Boolean(extracted.fallbackReason);
       }
-      // Whatever actually answered, named. It used to be flattened to 'ollama'
-      // because that was the only model there was.
-      executedEngine = extracted.engine;
-      fallbackUsed ||= Boolean(extracted.fallbackReason);
       if (failure === 'no_commitment') {
         noCommitmentReason ??= noCommitmentReasonFrom(segment, extracted.result, extracted.fallbackReason);
         continue;

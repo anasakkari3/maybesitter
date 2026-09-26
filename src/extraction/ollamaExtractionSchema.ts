@@ -122,3 +122,10 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
  * rules while looking configured.
  */
 export const GEMINI_EXTRACTION_SCHEMA = toVertexSchema(OLLAMA_EXTRACTION_SCHEMA);
+
+/** `{"items":[…]}`: one extraction object per clause of a capture (CL1, I4). */
+export const GEMINI_BATCH_EXTRACTION_SCHEMA = toVertexSchema({
+  type: 'object',
+  properties: { items: { type: 'array', items: OLLAMA_EXTRACTION_SCHEMA } },
+  required: ['items'],
+});

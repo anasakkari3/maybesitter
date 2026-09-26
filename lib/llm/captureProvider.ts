@@ -21,6 +21,7 @@
  */
 import {
   LLMUnavailableError,
+  type LLMCallOptions,
   type LLMProviderFunction,
   type LlmProvider,
   type LlmPurpose,
@@ -28,7 +29,7 @@ import {
 import { getAiConsent } from '../consents/aiConsentService';
 import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProvider';
 import { PROFILE_EXTRACTION_SCHEMA } from '../../src/profile/profilePrompt';
-import { GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
+import { GEMINI_BATCH_EXTRACTION_SCHEMA, GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
 import { logLlmCall, uidHash } from './llmLog';
 import {
   aiDisabled,
@@ -75,6 +76,19 @@ export function splitPrompt(prompt: string): { system: string; user: string } {
   return { system: prompt.slice(0, match.index).trimEnd(), user: prompt.slice(match.index) };
 }
 
+/**
+ * The ceiling for one batched call (CL1 review, I4). An extraction object is
+ * about 250 output tokens; the boundary sends at most three clauses in a call.
+ */
+export const BATCH_MAX_OUTPUT_TOKENS = 2048;
+/**
+ * How long one batched call may take. The provider retries a timeout once, so
+ * two of these plus the retry's back-off (≤ 0.75 s) stay under the phone's
+ * 15 s request timeout (`mobile/src/api/client.ts`), with room for the rules
+ * fallback. A three-clause call measured 3.3–4.6 s (CL1 round 2).
+ */
+export const BATCH_TIMEOUT_MS = 5_500;
+
 export interface CaptureProviderOptions {
   provider?: LlmProvider;
   consent?: typeof getAiConsent;
@@ -100,7 +114,7 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
   const commit = options.commit ?? commitUsage;
   const clock = options.now ?? (() => new Date());
 
-  return async (prompt: string): Promise<string> => {
+  return async (prompt: string, callOptions: LLMCallOptions = {}): Promise<string> => {
     // The kill switch, before anything else (#181). It is the one brake that
     // needs no code change and no console: every path falls back, and the
     // fallback is the rule-based extractor, which is a working product.
@@ -165,13 +179,27 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
     const { system, user } = splitPrompt(prompt);
     const startedAt = Date.now();
     try {
-      const response = await provider.generateJson({
-        system,
-        user,
-        responseSchema: purpose === 'profile_extraction' ? PROFILE_EXTRACTION_SCHEMA : GEMINI_EXTRACTION_SCHEMA,
-        purpose,
-        uid,
-      });
+      // A batch is every clause of one capture in one call (CL1 review, I4).
+      // It goes through the structured call only for its larger output
+      // ceiling — the text is the same framed prompt, one text part — and
+      // it is gated, reserved, metered and logged exactly like any other call.
+      const response = callOptions.shape === 'batch' && purpose === 'capture_extraction'
+        ? await provider.generateStructured({
+          system,
+          parts: [{ kind: 'text', text: user }],
+          responseSchema: GEMINI_BATCH_EXTRACTION_SCHEMA,
+          purpose,
+          uid,
+          maxOutputTokens: BATCH_MAX_OUTPUT_TOKENS,
+          timeoutMs: BATCH_TIMEOUT_MS,
+        })
+        : await provider.generateJson({
+          system,
+          user,
+          responseSchema: purpose === 'profile_extraction' ? PROFILE_EXTRACTION_SCHEMA : GEMINI_EXTRACTION_SCHEMA,
+          purpose,
+          uid,
+        });
       // What it actually cost, recorded after the fact — the only point at which
       // the real number is known (#181). Awaited so a test can observe it, and
       // internally swallowing its own failures so it can never become the user's.

@@ -457,5 +457,222 @@
       "explicitReminderRequest": false,
       "explicitPressureRequest": false
     }
-  }
+  },
+  "batches": [
+    {
+      "clauses": [
+        "سجّل موعد دكتور يوم الأحد.",
+        "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+        "لازم أرد على إيميل سامي بخصوص المشروع"
+      ],
+      "answer": {
+        "items": [
+          {
+            "type": "task",
+            "action": "سجّل",
+            "title": "سجّل موعد دكتور",
+            "person": null,
+            "dueAt": "2026-09-27T06:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-27",
+              "time": "09:00",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "health",
+            "categoryConfidence": 1,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [
+              "vague_time"
+            ],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "type": "task",
+            "action": "أدفع",
+            "title": "أدفع فاتورة الكهربا",
+            "person": null,
+            "dueAt": null,
+            "remindAt": null,
+            "localTimeSpec": null,
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "finance",
+            "categoryConfidence": 1,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "type": "task",
+            "action": "أرد",
+            "title": "أرد على إيميل سامي",
+            "person": "سامي",
+            "dueAt": null,
+            "remindAt": null,
+            "localTimeSpec": null,
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "work",
+            "categoryConfidence": 1,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          }
+        ]
+      }
+    },
+    {
+      "clauses": [
+        "ذكرني أتصل بأمي بكرا المسا",
+        "عندي تمرين بالجيم يوم الثلاثاء الساعة 7 المسا",
+        "بدي أخلص تقرير الشغل قبل الخميس."
+      ],
+      "answer": {
+        "items": [
+          {
+            "type": "task",
+            "action": "أتصل",
+            "title": "أتصل بأمي",
+            "person": "أمي",
+            "dueAt": "2026-09-27T15:00:00Z",
+            "remindAt": "2026-09-27T15:00:00Z",
+            "localTimeSpec": {
+              "date": "2026-09-27",
+              "time": "18:00",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "family",
+            "categoryConfidence": 1,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": true,
+            "explicitPressureRequest": false
+          },
+          {
+            "type": "task",
+            "action": "تمرين",
+            "title": "تمرين بالجيم",
+            "person": null,
+            "dueAt": "2026-09-29T16:00:00Z",
+            "remindAt": "2026-09-29T16:00:00Z",
+            "localTimeSpec": {
+              "date": "2026-09-29",
+              "time": "19:00",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "high",
+              "source": "inferred",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": null,
+            "categoryConfidence": 0,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "type": "task",
+            "action": "أخلص",
+            "title": "أخلص تقرير الشغل",
+            "person": null,
+            "dueAt": "2026-10-01T03:00:00Z",
+            "remindAt": "2026-10-01T03:00:00Z",
+            "localTimeSpec": {
+              "date": "2026-10-01",
+              "time": "06:00",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "work",
+            "categoryConfidence": 1,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          }
+        ]
+      }
+    }
+  ],
+  "_about_batches": "Gemini batch answers (CL1 round 2): the literal UAT six-clause capture in two calls of three clauses, recorded 2026-09-26 with scripts/live-capture-check.ts --raw, prompt capture-v4 + batch mode."
 }

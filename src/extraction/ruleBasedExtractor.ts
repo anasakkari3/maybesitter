@@ -257,6 +257,11 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   };
 }
 
+/** A text with every time, day and part-of-day expression taken out. */
+export function stripTimeExpressions(text: string): string {
+  return stripTiming(text);
+}
+
 function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
   // the clock patterns below strip a spoken hour out of the title exactly as
@@ -310,8 +315,17 @@ function withoutDanglingLimit(title: string, raw: string): string {
   return followed && before ? before : title;
 }
 
+/**
+ * Sentence marks left in a title (CL1 review, I3). A clause keeps its own «.»
+ * so a seed is stored as typed, and once `stripTiming` took the time before
+ * it the title read «موعد دكتور .» — and « قبل .» hid the dangling «قبل» from
+ * the strip below, which is anchored at the end.
+ */
+const STRAY_MARKS = /(^|\s)[.!?؟،,;:]+(?=\s|$)|[.!?؟]+$/g;
+
 function cleanAction(raw: string): string {
-  return withoutDanglingLimit(cleanCommand(raw), raw);
+  const title = cleanCommand(raw).replace(STRAY_MARKS, '$1').replace(/\s+/g, ' ').trim();
+  return withoutDanglingLimit(title, raw);
 }
 
 function cleanCommand(raw: string): string {

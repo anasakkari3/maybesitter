@@ -176,7 +176,16 @@ export function structuredFromJson(
  * diff whose only effect is churn, so the new interface adapts to the old one
  * rather than replacing it.
  */
-export type LLMProviderFunction = (prompt: string) => Promise<string>;
+/**
+ * How one call is shaped (CL1 review, I4). `batch` asks for `{"items":[…]}` —
+ * one extraction object per clause of a capture, in one model call — and the
+ * provider answers it with the batch schema and a larger output ceiling.
+ * Absent means one object, which is every caller that predates it.
+ */
+export interface LLMCallOptions {
+  shape?: 'single' | 'batch';
+}
+export type LLMProviderFunction = (prompt: string, options?: LLMCallOptions) => Promise<string>;
 
 export function providerFunction(
   provider: LlmProvider,
