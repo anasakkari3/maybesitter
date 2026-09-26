@@ -116,13 +116,16 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
     setSelections({});
     setNotice(null);
   };
-  const toggle = (nodeId: string) => setSelections(current => {
-    if (current[nodeId]) {
+  // A step the planner suggested as a habit starts as one; the cadence is
+  // still the person's to pick before anything is saved.
+  const toggle = (node: ProposalNode) => setSelections(current => {
+    if (current[node.nodeId]) {
       const next = { ...current };
-      delete next[nodeId];
+      delete next[node.nodeId];
       return next;
     }
-    return { ...current, [nodeId]: { as: 'commitment' } };
+    const suggestedHabit = node.kind === 'decomposition_step_proposal' && node.suggestedAs === 'habit';
+    return { ...current, [node.nodeId]: suggestedHabit ? { as: 'habit', count: 3, durationMinutes: 30 } : { as: 'commitment' } };
   });
   const chooseKind = (nodeId: string, as: 'commitment' | 'habit') => setSelections(current => ({
     ...current,
@@ -194,14 +197,19 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
               ? generate.mutate(undefined, { onSuccess: beginReview })
               : regenerate.mutate(canonicalGraph?.generation ?? generation, { onSuccess: beginReview })}
           />
-          {generate.error || regenerate.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(generate.error ?? regenerate.error, t)}</Txt> : null}
+          {generate.error || regenerate.error ? <View testID="goal-generate-failed" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ gap: 4 }}>
+            <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
+            <Txt role="metadata" color={p.mu}>{userFacingMessage(generate.error ?? regenerate.error, t)}</Txt>
+          </View> : null}
         </ProductSection> : <ProposalReview
           graph={reviewGraph}
           proposals={proposals}
           checkpoints={checkpoints}
           selections={selections}
-          busy={confirm.isPending}
+          busy={confirm.isPending || regenerate.isPending}
           error={confirm.error}
+          regenerateError={regenerate.error}
+          onRegenerate={() => regenerate.mutate(reviewGraph.generation, { onSuccess: beginReview })}
           onToggle={toggle}
           onChooseKind={chooseKind}
           onUpdateHabit={updateHabit}
@@ -243,14 +251,24 @@ function NoticeCard({ notice }: { notice: Exclude<Notice, null> }) {
   return <Card testID={`goal-notice-${notice}`} style={{ gap: 6 }}><Txt role="supporting" color={notice === 'saved' || notice === 'unlinked' ? p.success : p.wm}>{copy}</Txt></Card>;
 }
 
-function ProposalReview({ graph, proposals, checkpoints, selections, busy, error, onToggle, onChooseKind, onUpdateHabit, onCancel, onConfirm }: {
+function suggestedWhenLabel(node: ProposalNode, t: { xGoalWhenToday: string; xGoalWhenThisWeek: string; xGoalWhenThisMonth: string }): string | null {
+  if (node.kind !== 'decomposition_step_proposal') return null;
+  return node.suggestedWhen === 'today' ? t.xGoalWhenToday
+    : node.suggestedWhen === 'this_week' ? t.xGoalWhenThisWeek
+      : node.suggestedWhen === 'this_month' ? t.xGoalWhenThisMonth
+        : null;
+}
+
+function ProposalReview({ graph, proposals, checkpoints, selections, busy, error, regenerateError, onRegenerate, onToggle, onChooseKind, onUpdateHabit, onCancel, onConfirm }: {
   graph: GoalGraph;
   proposals: readonly ProposalNode[];
   checkpoints: readonly Extract<GoalGraph['nodes'][number], { kind: 'checkpoint' }>[];
   selections: Record<string, DraftSelection>;
   busy: boolean;
   error: unknown;
-  onToggle: (nodeId: string) => void;
+  regenerateError: unknown;
+  onRegenerate: () => void;
+  onToggle: (node: ProposalNode) => void;
   onChooseKind: (nodeId: string, as: 'commitment' | 'habit') => void;
   onUpdateHabit: (nodeId: string, update: Partial<Extract<DraftSelection, { as: 'habit' }>>) => void;
   onCancel: () => void;
@@ -258,7 +276,7 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
 }) {
   const { t, p, lang } = useApp();
   return <ProductSection title={t.xGoalProposalTitle} body={t.xGoalProposalNotSaved} icon="spark">
-    {proposals.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xGoalProposalEmpty}</Txt> : proposals.map(node => {
+    {proposals.length === 0 ? <Txt testID="goal-proposal-empty" role="supporting" color={p.mu}>{t.xGoalProposalEmpty}</Txt> : proposals.map(node => {
       const selected = selections[node.nodeId];
       return <Card key={node.nodeId} style={{ gap: 10 }}>
         <ProductRow
@@ -266,10 +284,12 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
           title={isolate(node.title)}
           body={[
             selected ? t.xGoalSelected : t.xGoalSelectStep,
+            suggestedWhenLabel(node, t),
+            !selected && node.kind === 'decomposition_step_proposal' && node.suggestedAs === 'habit' ? t.xGoalSuggestedHabit : null,
             node.statedTiming ? `${t.xGoalStatedTiming}: ${isolate(node.statedTiming)}` : null,
           ].filter(Boolean).join(' · ')}
           icon={node.kind === 'milestone_proposal' ? 'goal' : 'check'}
-          onPress={() => onToggle(node.nodeId)}
+          onPress={() => onToggle(node)}
         />
         {selected ? <>
           <ProductActions>
@@ -286,8 +306,13 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
     })}
     {checkpoints.length > 0 ? <Card style={{ gap: 8 }}><Txt role="label">{t.xCheckpoints}</Txt>{checkpoints.map(node => <ProductRow key={node.nodeId} title={isolate(node.title)} icon="goal" />)}</Card> : null}
     {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
+    {regenerateError ? <View testID="goal-generate-failed" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ gap: 4 }}>
+      <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
+      <Txt role="metadata" color={p.mu}>{userFacingMessage(regenerateError, t)}</Txt>
+    </View> : null}
     <ProductActions>
       <Pill testID="goal-confirm-selected" label={t.xGoalConfirmSelected} disabled={busy || Object.keys(selections).length === 0} onPress={onConfirm} />
+      <Pill testID="goal-review-regenerate" label={t.xGoalSuggestOthers} kind="outline" disabled={busy} onPress={onRegenerate} />
       <Pill label={t.cancel} kind="outline" disabled={busy} onPress={onCancel} />
     </ProductActions>
     <Txt role="metadata" color={p.mu}>{fill(t.xGoalGeneration, { count: formatNumber(graph.generation, { locale: lang }) })}</Txt>

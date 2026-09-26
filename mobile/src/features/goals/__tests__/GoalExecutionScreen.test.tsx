@@ -14,6 +14,7 @@ const mockRegenerate = jest.fn<any>();
 const mockUnlink = jest.fn<any>();
 const mockRefetch = jest.fn<any>();
 const mockUseGoalExecution = jest.fn<any>();
+let mockGenerateError: unknown = null;
 
 const graph = (generation = 1, nodes: any[] = []) => ({
   version: 'v1', schema: 'goal-graph-v1', graphId: `graph-${generation}`, goalMemoryId: 'goal-1', scopeId: 'user-1',
@@ -40,7 +41,7 @@ jest.mock('../../../api/queries', () => ({
   }),
   useCreateMemory: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useGoalExecution: (...args: unknown[]) => mockUseGoalExecution(...args),
-  useGenerateGoalExecution: () => ({ mutate: mockGenerate, isPending: false, error: null }),
+  useGenerateGoalExecution: () => ({ mutate: mockGenerate, isPending: false, error: mockGenerateError }),
   useRegenerateGoalExecution: () => ({ mutate: mockRegenerate, isPending: false, error: null }),
   useConfirmGoalSelections: () => ({ mutate: mockConfirm, isPending: false, error: null }),
   useUnlinkGoalNode: () => ({ mutate: mockUnlink, isPending: false, error: null }),
@@ -63,6 +64,7 @@ async function openGoal(lang: Lang = 'en') {
 beforeEach(async () => {
   jest.clearAllMocks();
   await AsyncStorage.clear();
+  mockGenerateError = null;
   mockHabits = [];
   mockCommitment = undefined;
   execution = { data: { success: true, graph: graph(1, [proposal('g1.step.s1', 'Draft invitation')]), progress: baseProgress }, isPending: false, isFetching: false, error: null, refetch: mockRefetch };
@@ -196,6 +198,59 @@ it('says when generation returns no actionable proposal', async () => {
   await openGoal();
   await fireEvent.press(screen.getByTestId('goal-generate'));
   expect(screen.getByText(strings.en.xGoalProposalEmpty)).toBeTruthy();
+  expect(screen.queryByTestId('goal-generate-failed')).toBeNull();
+});
+
+/** A planner step as the server sends it (CL3): inferred, with its hints. */
+const planned = (id: string, title: string, suggestedAs: 'commitment' | 'habit', suggestedWhen?: string) => ({
+  ...proposal(id, title), inferred: true, suggestedAs, ...(suggestedWhen ? { suggestedWhen } : {}),
+});
+
+it('shows the planner’s timing hint and starts a suggested habit as a habit', async () => {
+  mockGenerate.mockImplementation((_input: unknown, options: any) => options.onSuccess(graph(1, [
+    planned('g1.step.ma', 'Register a developer account', 'commitment', 'today'),
+    planned('g1.step.mb', 'Test the build with two friends', 'habit'),
+  ])));
+  await openGoal();
+  await fireEvent.press(screen.getByTestId('goal-generate'));
+
+  expect(screen.getByText(new RegExp(strings.en.xGoalWhenToday))).toBeTruthy();
+  expect(screen.getByText(new RegExp(strings.en.xGoalSuggestedHabit))).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.ma'));
+  await fireEvent.press(screen.getByTestId('goal-proposal-g1.step.mb'));
+  // The habit's cadence is shown for the person to pick before anything saves.
+  expect(screen.getByText(strings.en.xHabitConfirmationBody)).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
+
+  expect(mockConfirm).toHaveBeenCalledWith({
+    generation: 1,
+    selections: [
+      { nodeId: 'g1.step.ma', as: 'commitment' },
+      { nodeId: 'g1.step.mb', as: 'habit', habit: expect.objectContaining({ cadence: { kind: 'weekly_count', count: 3 } }) },
+    ],
+  }, expect.any(Object));
+});
+
+it('asks for other suggestions from the review, from the reading on screen', async () => {
+  await openGoal();
+  await fireEvent.press(screen.getByTestId('goal-generate'));
+  await fireEvent.press(screen.getByTestId('goal-review-regenerate'));
+
+  expect(mockRegenerate).toHaveBeenCalledWith(1, expect.any(Object));
+  expect(screen.getByTestId('goal-proposal-g2.step.s2')).toBeTruthy();
+  expect(screen.queryByTestId('goal-proposal-g1.step.s1')).toBeNull();
+});
+
+it('keeps a failed generation apart from an empty one', async () => {
+  mockGenerateError = new Error('offline');
+  await openGoal();
+  expect(screen.getByTestId('goal-generate-failed')).toBeTruthy();
+  // Announced, not only shown: a screen-reader user pressed a button and waits.
+  expect(screen.getByTestId('goal-generate-failed').props.accessibilityRole).toBe('alert');
+  expect(screen.getByTestId('goal-generate-failed').props.accessibilityLiveRegion).toBe('polite');
+  expect(screen.getByText(strings.en.xGoalGenerateFailed)).toBeTruthy();
+  expect(screen.queryByTestId('goal-proposal-empty')).toBeNull();
+  expect(screen.queryByText(strings.en.xGoalProposalEmpty)).toBeNull();
 });
 
 describe.each([
