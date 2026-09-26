@@ -55,6 +55,18 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
  * every return to the foreground (#475), and when ringing is chosen but the
  * phone cannot ring, the Must control says so itself.
  *
+ * ── The phone's answer is the first thing on the screen ─────────
+ *
+ * Closure CL2b (#18, simulator shot 84): after a denial this screen opened on
+ * onboarding's «تلفونك رح يسألك قبل — مش هلّق» — true only before anybody had
+ * been asked — with the switch on in the accent, while the denied line and the
+ * settings link sat at the very bottom, under the whole morning-plan card. So
+ * the top card (`notifications-status`) now says what the phone allows:
+ * undetermined → the phone will ask (or, when something already rings, the
+ * in-app Allow); granted → what reminders do; denied → one short line and
+ * «افتح إعدادات التلفون». And every switch that is on while the phone blocks
+ * it carries `ServerToggle`'s blocked note, so it does not look effective.
+ *
  * ── Both switches ask, and that is not two prompts ───────────────
  *
  * #195 asked that turning the morning plan on route an *undetermined*
@@ -156,10 +168,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     mustSectionShown && ringing && (osPermission === 'denied' || osPermission === 'provisional')
       ? osPermission
       : null;
-  // The general line at the bottom, for every other denied case. When the
-  // Must warning is up it already says notifications are off, so the same
-  // fact is not stated twice on one screen.
-  const permissionDenied = osPermission === 'denied' && ringBlocked === null;
+  // Whenever the phone says no, the top card says so (CL2b #18). The Must
+  // warning, when it is up, adds only what that means for ringing.
+  const permissionDenied = osPermission === 'denied';
+  // The note on a switch that is on while the phone blocks it.
+  const blockedNote = permissionDenied ? t.notifBlockedByPhone : undefined;
   // Something that rings is on and the phone has never been asked (first
   // iPhone run, L7): soft reminders default on at the server, so the switch
   // that asks was never touched. The app asks here, in the app — phone
@@ -303,8 +316,42 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   return (
     <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
       <ScreenScroll>
-        <Card pad={18}>
-          <Txt size={15} color={p.mu} lh={1.5}>{t.obNotifBody}</Txt>
+        {/* What the phone allows, first (CL2b #18). */}
+        <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+          {permissionDenied ? (
+            <>
+              <View accessibilityLiveRegion="polite">
+                <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt>
+              </View>
+              {/* The one place a no can be undone. */}
+              <Btn
+                label={t.notifOpenSettings}
+                testID="notifications-open-settings"
+                onPress={() => void Linking.openSettings()}
+                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+              >
+                <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
+              </Btn>
+            </>
+          ) : needsAsking ? (
+            <View style={{ gap: 12 }} testID="notifications-not-asked">
+              <Txt size={15} color={p.mu} lh={1.5}>{t.notifAllowBody}</Txt>
+              <Btn
+                label={t.notifAllowAction}
+                testID="notifications-allow"
+                onPress={() => void askForPermission()}
+                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}
+              >
+                <Txt size={15} weight={600} color={p.onAccent}>{t.notifAllowAction}</Txt>
+              </Btn>
+            </View>
+          ) : (
+            // Before the first read lands nothing is known, so nothing is
+            // claimed — not even for a frame (CL2b round 2).
+            <Txt size={15} color={p.mu} lh={1.5}>
+              {osPermission === null ? t.notifIntroChecking : osPermission === 'undetermined' ? t.notifIntroAsk : t.notifIntroOn}
+            </Txt>
+          )}
         </Card>
 
         {/* The kill switch is a fact about this build, not a control: when it
@@ -321,6 +368,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               disabled={current === undefined}
               onChange={setEnabled}
               testID="gentle-reminders-switch"
+              blockedNote={blockedNote}
             />
           </Card>
         )}
@@ -485,6 +533,8 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             title={t.planMorningTitle}
             body={t.planMorningBody}
             value={plan?.enabled === true}
+            // The plan is still built; only its note cannot arrive.
+            blockedNote={blockedNote}
             // Nothing to write against until the server has answered once.
             disabled={plan === null}
             onChange={async next_ => {
@@ -578,39 +628,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           />
         ) : null}
 
-        {permissionDenied ? (
-          <Txt size={13} color={p.mu} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt>
-        ) : null}
         {failed ? (
           <Txt size={13} color={p.wm} testID="notifications-save-failed">{t.notifSaveFailed}</Txt>
         ) : null}
 
-        {needsAsking ? (
-          <Card pad={18} style={{ gap: 12 }} testID="notifications-not-asked">
-            <Txt size={13} color={p.mu} lh={1.5}>{t.notifAllowBody}</Txt>
-            <Btn
-              label={t.notifAllowAction}
-              testID="notifications-allow"
-              onPress={() => void askForPermission()}
-              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}
-            >
-              <Txt size={15} weight={600} color={p.onAccent}>{t.notifAllowAction}</Txt>
-            </Btn>
-          </Card>
-        ) : null}
-
-        {/* Only for a no: it is the one place a no can be undone. Before the
-            phone has been asked there is no switch there to find. */}
-        {osPermission === 'denied' ? (
-          <Btn
-            label={t.notifOpenSettings}
-            testID="notifications-open-settings"
-            onPress={() => void Linking.openSettings()}
-            style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
-          >
-            <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
-          </Btn>
-        ) : null}
       </ScreenScroll>
     </Screen>
   );

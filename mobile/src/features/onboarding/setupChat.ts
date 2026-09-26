@@ -44,10 +44,16 @@ export interface SetupQuestion {
   /** The heading on screen. */
   promptKey: keyof Strings;
   /**
-   * On a short question: starter sentences that replace the field. On the
-   * narrative: inspiration prompts that never touch the field.
+   * On a short question: sentences that combine in the field — a tap adds one
+   * after what is there, a second tap takes it out (CL2b, `ui/chipText.ts`).
+   * On the narrative: inspiration prompts that never touch the field.
    */
   chipKeys: readonly (keyof Strings)[];
+  /**
+   * Chips that mean "no answer" and so cannot combine with the others:
+   * picking one clears the rest, picking another clears it.
+   */
+  exclusiveChipKeys?: readonly (keyof Strings)[];
 }
 
 /** In the order the screen walks them. */
@@ -79,6 +85,8 @@ export const SETUP_QUESTIONS: readonly SetupQuestion[] = [
     labelKey: 'obSetupDoneLabel',
     promptKey: 'obSetupDonePrompt',
     chipKeys: ['obSetupDoneChip1', 'obSetupDoneChip2', 'obSetupDoneChip3', 'obSetupDoneChip4', 'obSetupDoneChip5'],
+    // «ما بخطر ببالي شي» — nothing to combine with.
+    exclusiveChipKeys: ['obSetupDoneChip5'],
   },
   {
     id: 'habits',

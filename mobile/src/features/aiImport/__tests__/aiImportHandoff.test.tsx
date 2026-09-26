@@ -19,6 +19,17 @@ import { strings, fill } from '../../../i18n/strings';
 import { AiImportFlow } from '../AiImportFlow';
 
 jest.mock('expo-clipboard', () => ({ setStringAsync: jest.fn(async () => true), getStringAsync: jest.fn(async () => '') }));
+// The native universal-link check (CL2b, #21): which assistants have their
+// app "installed" is set per test; by default none, so the web chat opens.
+const mockInstalledApps = new Set<string>();
+jest.mock('../../../../modules/universal-link', () => ({
+  universalLinkNativeModule: () => ({
+    openUniversalLink: async (url: string) => {
+      mockOrder.push(`app ${url}${mockInstalledApps.has(url) ? '' : ' (none)'}`);
+      return mockInstalledApps.has(url);
+    },
+  }),
+}));
 jest.mock('../../../api/queries', () => ({
   useImportAiContext: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useConfirmAiContextImport: () => ({ mutate: jest.fn(), isPending: false, error: null }),
@@ -34,13 +45,14 @@ const copy = () => Object.values(strings).find(t => screen.queryAllByText(t.aiIm
 
 let openURL: jest.SpiedFunction<typeof Linking.openURL>;
 let openBrowser: jest.SpiedFunction<typeof WebBrowser.openBrowserAsync>;
-const order: string[] = [];
+const mockOrder: string[] = [];
 
 beforeEach(() => {
   jest.clearAllMocks();
-  order.length = 0;
-  clipboard.mockImplementation(async () => { order.push('copy'); return true; });
-  openURL = jest.spyOn(Linking, 'openURL').mockImplementation(async (url: string) => { order.push(`open ${url}`); return true; });
+  mockOrder.length = 0;
+  mockInstalledApps.clear();
+  clipboard.mockImplementation(async () => { mockOrder.push('copy'); return true; });
+  openURL = jest.spyOn(Linking, 'openURL').mockImplementation(async (url: string) => { mockOrder.push(`open ${url}`); return true; });
   openBrowser = jest.spyOn(WebBrowser, 'openBrowserAsync').mockResolvedValue({ type: 'dismiss' } as never);
 });
 afterEach(() => { cleanup(); jest.restoreAllMocks(); clipboard.mockReset(); });
@@ -58,16 +70,26 @@ it('picking ChatGPT shows the three steps and does not copy or open anything yet
   expect(openBrowser).not.toHaveBeenCalled();
 });
 
-it('the button copies first, then opens the ChatGPT app link, and returning shows the paste step', async () => {
+it('the button copies first, then opens the installed ChatGPT app, and returning shows the paste step', async () => {
+  mockInstalledApps.add('https://chatgpt.com/app');
+  await render(wrap(<AiImportFlow onDone={() => undefined} onCancel={() => undefined} />));
+  await fireEvent.press(screen.getByTestId('ai-import-pick-chatgpt'));
+  await fireEvent.press(screen.getByTestId('ai-import-go'));
+
+  await waitFor(() => expect(screen.getByTestId('ai-import-paste')).toBeTruthy());
+  expect(mockOrder).toEqual(['copy', 'app https://chatgpt.com/app']);
+  // The installed app took it: no browser of either kind.
+  expect(openURL).not.toHaveBeenCalled();
+  expect(openBrowser).not.toHaveBeenCalled();
+});
+
+it('without the ChatGPT app, the button opens the web chat, not the store-redirecting app path (CL2b, #21)', async () => {
   await render(wrap(<AiImportFlow onDone={() => undefined} onCancel={() => undefined} />));
   await fireEvent.press(screen.getByTestId('ai-import-pick-chatgpt'));
   await fireEvent.press(screen.getByTestId('ai-import-go'));
 
   await waitFor(() => expect(openURL).toHaveBeenCalledTimes(1));
-  expect(order).toEqual(['copy', 'open https://chatgpt.com/app']);
-  // A claimed universal link goes to the installed app; the in-app browser
-  // could never open it, so it is not tried when the OS accepted the link.
-  expect(openBrowser).not.toHaveBeenCalled();
+  expect(mockOrder).toEqual(['copy', 'app https://chatgpt.com/app (none)', 'open https://chatgpt.com/']);
   await waitFor(() => expect(screen.getByTestId('ai-import-paste')).toBeTruthy());
 });
 
@@ -77,21 +99,21 @@ it('after the assistant opened, the paste step can copy the question again', asy
   await fireEvent.press(screen.getByTestId('ai-import-go'));
   await waitFor(() => expect(screen.getByTestId('ai-import-paste-copy')).toBeTruthy());
   await fireEvent.press(screen.getByTestId('ai-import-paste-copy'));
-  await waitFor(() => expect(order).toEqual(['copy', 'open https://chatgpt.com/app', 'copy']));
+  await waitFor(() => expect(mockOrder).toEqual(['copy', 'app https://chatgpt.com/app (none)', 'open https://chatgpt.com/', 'copy']));
   // Still on the paste step: copying again is not a new handoff.
   expect(screen.getByTestId('ai-import-paste')).toBeTruthy();
 });
 
 it('a second tap while the first open is in flight does nothing', async () => {
   let finish: (value: true) => void = () => undefined;
-  openURL.mockImplementation((url: string) => { order.push(`open ${url}`); return new Promise(resolve => { finish = resolve; }); });
+  openURL.mockImplementation((url: string) => { mockOrder.push(`open ${url}`); return new Promise(resolve => { finish = resolve; }); });
   await render(wrap(<AiImportFlow onDone={() => undefined} onCancel={() => undefined} />));
   await fireEvent.press(screen.getByTestId('ai-import-pick-chatgpt'));
   await fireEvent.press(screen.getByTestId('ai-import-go'));
   await waitFor(() => expect(openURL).toHaveBeenCalledTimes(1));
   await fireEvent.press(screen.getByTestId('ai-import-go'));
   await fireEvent.press(screen.getByTestId('ai-import-go'));
-  expect(order).toEqual(['copy', 'open https://chatgpt.com/app']);
+  expect(mockOrder).toEqual(['copy', 'app https://chatgpt.com/app (none)', 'open https://chatgpt.com/']);
   finish(true);
   await waitFor(() => expect(screen.getByTestId('ai-import-paste')).toBeTruthy());
   expect(openURL).toHaveBeenCalledTimes(1);
@@ -124,6 +146,6 @@ it('another assistant: the button only copies, and goes straight to paste', asyn
   expect(screen.getByText(t.aiImportCopyOnly)).toBeTruthy();
   await fireEvent.press(screen.getByTestId('ai-import-go'));
   await waitFor(() => expect(screen.getByTestId('ai-import-paste')).toBeTruthy());
-  expect(order).toEqual(['copy']);
+  expect(mockOrder).toEqual(['copy']);
   expect(openURL).not.toHaveBeenCalled();
 });

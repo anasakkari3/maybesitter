@@ -51,7 +51,10 @@ export function HealthDataCard({ nativeModule, platform, now }: {
 
   const statusKey = STATUS_COPY[state];
   const working = state === 'working';
-  const warn = state === 'noData' || state === 'denied' || state === 'failed';
+  // "No data yet" is not a problem to flag (closure CL2b, D5): Health is
+  // connected and simply has nothing from the last day. Only a refusal or a
+  // real failure takes the attention colour.
+  const warn = state === 'denied' || state === 'failed';
 
   return (
     <Card pad={18} style={{ gap: 10 }} testID="health-card">

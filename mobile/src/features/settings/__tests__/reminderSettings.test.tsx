@@ -504,8 +504,10 @@ describe('Must ringing when the phone will not ring (#475)', () => {
     // (f) The choice is not rolled back.
     expect(put).toHaveBeenCalledWith({ escalationCeiling: 'hard', hardEnabled: true });
     expect(put).not.toHaveBeenCalledWith(expect.objectContaining({ hardEnabled: false }));
-    // One warning for one condition.
-    expect(screen.queryByTestId('notifications-denied')).toBeNull();
+    // The phone's no is also the screen's first line now (closure CL2b #18:
+    // "whenever status is denied"); the Must warning adds what it means for
+    // ringing, at the control.
+    expect(within(screen.getByTestId('notifications-status')).queryByTestId('notifications-denied')).not.toBeNull();
 
     fireEvent.press(within(screen.getByTestId('must-reminders')).getByTestId('must-ring-open-settings'));
     expect(open).toHaveBeenCalledTimes(1);

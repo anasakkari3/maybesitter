@@ -4,6 +4,15 @@ import HealthKit
 public class HealthKitReadinessModule: Module {
   private let store = HKHealthStore()
   private let iso8601 = ISO8601DateFormatter()
+  // JavaScript's `toISOString()` always writes milliseconds (".000Z"), which
+  // the default formatter rejects. Closure CL2b (D5): every read threw
+  // InvalidHealthWindowException before a sample was asked for. Both forms
+  // are accepted now; output keeps the whole-second form above.
+  private let iso8601Fractional: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
 
   public func definition() -> ModuleDefinition {
     Name("HealthKitReadiness")
@@ -26,8 +35,8 @@ public class HealthKitReadinessModule: Module {
       guard
         let startValue = window["windowStart"],
         let endValue = window["windowEnd"],
-        let start = self.iso8601.date(from: startValue),
-        let end = self.iso8601.date(from: endValue),
+        let start = self.instant(startValue),
+        let end = self.instant(endValue),
         start < end
       else {
         throw InvalidHealthWindowException()
@@ -97,6 +106,10 @@ public class HealthKitReadinessModule: Module {
     @unknown default:
       return snapshot(state: "error", checkedAt: Date())
     }
+  }
+
+  private func instant(_ value: String) -> Date? {
+    iso8601.date(from: value) ?? iso8601Fractional.date(from: value)
   }
 
   private func snapshot(state: String, checkedAt: Date) -> [String: Any] {
@@ -189,7 +202,7 @@ public class HealthKitReadinessModule: Module {
         limit: HKObjectQueryNoLimit,
         sortDescriptors: [sort]
       ) { _, samples, error in
-        if let error = error { continuation.resume(throwing: error) }
+        if let error = error, !isHealthNoData(error) { continuation.resume(throwing: error) }
         else { continuation.resume(returning: (samples as? [T]) ?? []) }
       }
       store.execute(query)
@@ -221,7 +234,9 @@ public class HealthKitReadinessModule: Module {
         quantitySamplePredicate: predicate(start: start, end: end),
         options: .cumulativeSum
       ) { _, statistics, error in
-        if let error = error { continuation.resume(throwing: error) }
+        // A statistics query over a window with no samples does not return
+        // nil: it fails with `errorNoData`. That is "no steps", not an error.
+        if let error = error, !isHealthNoData(error) { continuation.resume(throwing: error) }
         else if let sum = statistics?.sumQuantity() {
           continuation.resume(returning: (sum.doubleValue(for: unit), end))
         } else {
@@ -231,6 +246,13 @@ public class HealthKitReadinessModule: Module {
       store.execute(query)
     }
   }
+}
+
+/// HealthKit's "nothing recorded in this window". An empty Health is an
+/// answer — no data yet — not a failed read (closure CL2b, D5). A free
+/// function so the query callbacks capture nothing.
+private func isHealthNoData(_ error: Error) -> Bool {
+  (error as? HKError)?.code == .errorNoData
 }
 
 private class InvalidHealthWindowException: Exception {
