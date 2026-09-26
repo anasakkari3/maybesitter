@@ -122,3 +122,26 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
  * rules while looking configured.
  */
 export const GEMINI_EXTRACTION_SCHEMA = toVertexSchema(OLLAMA_EXTRACTION_SCHEMA);
+
+/**
+ * `{"items":[…]}`: one extraction object per clause of a capture (CL1, I4),
+ * each echoing the 0-based position of the clause it reads (CL1 round 4, N2)
+ * — the boundary pairs an object with a clause only when the two agree.
+ */
+export const GEMINI_BATCH_EXTRACTION_SCHEMA = toVertexSchema({
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          clauseIndex: { type: 'integer', minimum: 0, description: 'The 0-based position, in the array of clauses, of the clause this object reads.' },
+          ...OLLAMA_EXTRACTION_SCHEMA.properties,
+        },
+        required: ['clauseIndex', ...OLLAMA_EXTRACTION_SCHEMA.required],
+      },
+    },
+  },
+  required: ['items'],
+});

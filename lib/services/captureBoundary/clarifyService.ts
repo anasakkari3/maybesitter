@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, instantFromLocal, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, instantFromLocal, localTimeSpecFor, timeAnchorOf } from '../../../src/extraction/timeLexicon';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
@@ -13,6 +13,7 @@ import {
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { dayForAnswer } from './clarificationBuilder';
+import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
 /**
@@ -178,6 +179,13 @@ function settleDrafts(commands: readonly Command[]): Command[] {
 const TIME_FIELDS: ReadonlySet<ClarificationContract['field']> = new Set<ClarificationContract['field']>(['time', 'time_period', 'which_day']);
 const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F]/;
 
+/** A limit word in the sentence or in the answer keeps a deadline; otherwise a time to be at. */
+function answeredTimeAnchor(rawText: string, freeText: string): 'event' | 'deadline' {
+  return timeAnchorOf(rawText) === 'deadline' || (freeText !== '' && timeAnchorOf(freeText) === 'deadline')
+    ? 'deadline'
+    : 'event';
+}
+
 /** The time the answer named, applied to the item it answers and nothing else. */
 function withTimeFrom(result: ExtractionResult, source: ExtractionResult): ExtractionResult {
   return {
@@ -232,6 +240,23 @@ async function readFreeTextAnswer(
   const readable = reread.type === 'task' || reread.type === 'follow_up';
 
   if (TIME_FIELDS.has(question.field)) {
+    // Asked for the hour of a day the item already has, and answered with an
+    // hour alone: the day stays the item's (CL1 round 2). Re-reading «سجّل
+    // موعد دكتور يوم الأحد» + «الساعة 10 الصبح», Gemini put the doctor on the
+    // Sunday after — the question was never about the day, and the review
+    // card had just shown the 27th. Only the time of day is taken from the
+    // re-read; a typed answer that names a day, or a "which day" question,
+    // still moves it.
+    const itemDate = result.localTimeSpec?.date ?? null;
+    const rereadTime = reread.localTimeSpec?.time ?? null;
+    if (
+      readable && (reread.remindAt || reread.dueAt)
+      && question.field !== 'which_day' && itemDate && rereadTime
+      && !readWeekdayReference(freeText) && !namesExplicitDate(freeText)
+    ) {
+      const day = dayForAnswer(rereadTime, itemDate, { now: options.now, timezone: options.timezone });
+      if (day) return withResolvedTime(result, { date: day, time: rereadTime }, options.timezone);
+    }
     if (readable && (reread.remindAt || reread.dueAt)) return withTimeFrom(result, reread);
     const hour = dayPartHour(freeText);
     if (hour !== null) {
@@ -323,6 +348,17 @@ export async function answerClarification(
   } else {
     answered = await readFreeTextAnswer(result, question, freeText, options, dependencies);
     answerKind = 'free_text';
+  }
+
+  // What the answered time is to the person (CL1 review, I1). The answer is a
+  // time of day; with no limit word in the sentence or in a typed answer —
+  // «قبل», "by", «עד» — it is a time to be *at*, so the doctor answered
+  // "morning" or «الساعة 10 الصبح» is a fixed event the planner keeps where
+  // it is. Without this every answered time became a `due_by` and the planner
+  // floated the appointment ahead as a deadline — D2's defect, through the one
+  // path the UAT doctor actually takes.
+  if (!noTime && (answered.dueAt || answered.remindAt)) {
+    answered = { ...answered, timeAnchor: answeredTimeAnchor(result.rawText, answerKind === 'free_text' ? freeText : '') };
   }
 
   // A "no specific time" answer settles the item (#474). The builder offers it

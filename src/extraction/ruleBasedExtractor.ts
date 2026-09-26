@@ -8,6 +8,7 @@ import {
   normalizeArabicDigits,
   normalizeSpokenArabicHours,
   normalizeSpokenHebrewHours,
+  timeAnchorOf,
   timeOfDayEvidence,
   type TimeEvidence,
 } from './timeLexicon';
@@ -256,6 +257,11 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   };
 }
 
+/** A text with every time, day and part-of-day expression taken out. */
+export function stripTimeExpressions(text: string): string {
+  return stripTiming(text);
+}
+
 function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
   // the clock patterns below strip a spoken hour out of the title exactly as
@@ -286,7 +292,43 @@ function stripTiming(text: string): string {
   return stripped.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * A limit word left at the end of a title once the time after it was taken
+ * out (CL1, round 1): «أخلص تقرير الشغل قبل الخميس» became «أخلص تقرير الشغل
+ * قبل», "finish the report by tomorrow" became "finish the report by".
+ */
+const DANGLING_LIMIT = new RegExp('(?:^|\\s)(قبل|لحد|لحدّ|لغاية|لغايه|حتى|حتّى|before|by|until|till|עד|לפני)$', 'iu');
+
+/**
+ * Only when the word was followed by something in what the user wrote — the
+ * time that `stripTiming` took — so a title that genuinely ends on one is
+ * kept. "Stop by" / "drop by" is a visit, not a deadline, and keeps its "by".
+ */
+function withoutDanglingLimit(title: string, raw: string): string {
+  const match = DANGLING_LIMIT.exec(title);
+  if (!match) return title;
+  const word = match[1]!;
+  const before = title.slice(0, match.index).trim();
+  if (/^by$/i.test(word) && /\b(?:stop|stopped|drop|dropped|pass|passed|come|came|swing|pop|go|went)$/i.test(before)) return title;
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const followed = new RegExp(`(?:^|[\\s,.،])${escaped}\\s+\\S`, 'iu').test(raw);
+  return followed && before ? before : title;
+}
+
+/**
+ * Sentence marks left in a title (CL1 review, I3). A clause keeps its own «.»
+ * so a seed is stored as typed, and once `stripTiming` took the time before
+ * it the title read «موعد دكتور .» — and « قبل .» hid the dangling «قبل» from
+ * the strip below, which is anchored at the end.
+ */
+const STRAY_MARKS = /(^|\s)[.!?؟،,;:]+(?=\s|$)|[.!?؟]+$/g;
+
 function cleanAction(raw: string): string {
+  const title = cleanCommand(raw).replace(STRAY_MARKS, '$1').replace(/\s+/g, ' ').trim();
+  return withoutDanglingLimit(title, raw);
+}
+
+function cleanCommand(raw: string): string {
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
   return stripCaptureCommand(stripTiming(raw))
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
@@ -433,6 +475,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       explicitReminderRequest,
       explicitPressureRequest,
       rawText: raw,
+      timeAnchor: timeAnchorOf(raw),
       parserVersion: PARSER_VERSION,
     };
   }
@@ -503,6 +546,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     explicitReminderRequest,
     explicitPressureRequest,
     rawText: raw,
+    // «الساعة 5» is a time to do it at, «قبل الخميس» a limit (CL1, D2).
+    timeAnchor: timeAnchorOf(raw),
     parserVersion: PARSER_VERSION,
   };
 }

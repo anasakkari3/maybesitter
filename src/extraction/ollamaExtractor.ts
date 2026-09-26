@@ -2,8 +2,9 @@ import { callOllama } from './localLLMProvider';
 import { validateExtractionResult } from './schemaValidator';
 import type { ExtractionContext, ExtractionResult } from './extractionTypes';
 import { COMMITMENT_CATEGORIES } from '../contracts/v1/categoryContracts';
+import type { LLMCallOptions } from './llm/llmProvider';
 
-export type LLMProviderFunction = (prompt: string) => Promise<string>;
+export type LLMProviderFunction = (prompt: string, options?: LLMCallOptions) => Promise<string>;
 
 export interface ExtractionAttemptTelemetry {
   schemaValid: boolean;
@@ -605,7 +606,8 @@ function categoryRules(context: ExtractionContext): readonly string[] {
   ];
 }
 
-export function buildPrompt(rawText: string, context: ExtractionContext): string {
+/** Everything the model is told before the untrusted data, single or batch. */
+function instructionLines(context: ExtractionContext): string[] {
   return [
     'SYSTEM ROLE: You are the deterministic MaybeSitter structured extraction engine.',
     `PROMPT VERSION: ${PROMPT_VERSION}`,
@@ -632,9 +634,73 @@ export function buildPrompt(rawText: string, context: ExtractionContext): string
     ...FEW_SHOTS,
     `Reference datetime: ${context.now.toISOString()}`,
     `Timezone: ${context.timezone || 'UTC'}`,
+  ];
+}
+
+export function buildPrompt(rawText: string, context: ExtractionContext): string {
+  return [
+    ...instructionLines(context),
+    // The same calendar the batch prompt carries (CL1 round 5): asked alone,
+    // the model dated "Interview on Tuesday" a Wednesday.
+    ...calendarLines(context),
     `Required JSON shape: ${JSON.stringify(requestedShape(context))}`,
     'BEGIN_UNTRUSTED_USER_MESSAGE',
     JSON.stringify(rawText),
+    'END_UNTRUSTED_USER_MESSAGE',
+  ].join('\n');
+}
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+
+/**
+ * Today on the user's clock, and the next seven dates by weekday (CL1 review,
+ * I4). Read six clauses at once, the model resolved «يوم الأحد» to a Monday
+ * and invented a day for a clause that named none. Asked one clause at a time
+ * it dated "Interview on Tuesday" a Wednesday (live, CL1 round 4), so the
+ * single prompt carries it too (round 5). The dates are computed here, not by
+ * the model.
+ */
+function calendarLines(context: ExtractionContext): string[] {
+  const zone = context.timezone || 'UTC';
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(context.now);
+  const [year, month, day] = today.split('-').map(Number) as [number, number, number];
+  const at = (offset: number) => new Date(Date.UTC(year, month - 1, day + offset));
+  const upcoming = [1, 2, 3, 4, 5, 6, 7]
+    .map((offset) => `${WEEKDAY_NAMES[at(offset).getUTCDay()]} ${at(offset).toISOString().slice(0, 10)}`)
+    .join(', ');
+  return [
+    `Today on the user's clock is ${WEEKDAY_NAMES[at(0).getUTCDay()]} ${today}. The next seven days are: ${upcoming}.`,
+  ];
+}
+
+/**
+ * Every clause of one capture, read in one call (CL1 review, I4).
+ *
+ * One call per clause spent the per-user minute budget on a single spoken list
+ * — six clauses, six calls, against a cap of eight — and was sequential, so a
+ * long capture ran past the phone's 15 s timeout. The rules are the same ones,
+ * word for word; the only additions say that the untrusted data is a list of
+ * separate clauses, each to be read as though it were the whole message, and
+ * that the answer is one object per clause, in order.
+ *
+ * Each clause's object is then validated exactly as a single answer is, against
+ * that clause's own text, so the reconciler and the no-invented-time rule see
+ * the same input they always did.
+ */
+export function buildBatchPrompt(clauses: readonly string[], context: ExtractionContext): string {
+  return [
+    ...instructionLines(context),
+    'BATCH MODE: the untrusted data is a JSON array of separate clauses from one message.',
+    'Read each clause on its own, as though it were the whole message: never carry a time, a day, a person or an action from one clause into another.',
+    ...calendarLines(context),
+    'A clause that names no day and no time gets localTimeSpec, dueAt and remindAt all null. Never give a clause a date it does not state.',
+    'Arabic «المسا», «مساءً», «بالمسا» with no hour is 18:00; «الصبح» is 09:00; «العصر» is 15:00.',
+    'Return one JSON object whose only key is items: an array with exactly one extraction object per clause, in the same order. Every rule and allowed key above applies to each extraction object.',
+    'Each extraction object also carries clauseIndex: the 0-based position, in the array, of the clause it reads — 0 for the first clause, 1 for the second, and so on. clauseIndex is the one key allowed beyond those listed above.',
+    'Never answer one clause with two objects and never skip a clause: a clause naming two things still gets exactly one object, flagged multiple_commitments.',
+    `Required JSON shape: ${JSON.stringify({ items: [{ clauseIndex: 'integer, 0-based position of the clause', ...requestedShape(context) }] })}`,
+    'BEGIN_UNTRUSTED_USER_MESSAGE',
+    JSON.stringify(clauses),
     'END_UNTRUSTED_USER_MESSAGE',
   ].join('\n');
 }
