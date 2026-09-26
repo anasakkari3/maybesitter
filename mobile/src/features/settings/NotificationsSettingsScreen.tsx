@@ -14,6 +14,7 @@ import {
 import { useTimeZone } from '../../i18n/timezone';
 import { dayKey, formatClockRange, formatRelativeDay, formatTime } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
+import { isolateAuto } from '../../i18n/bidi';
 import {
   getNotificationPermission,
   requestNotificationPermission,
@@ -172,7 +173,9 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
   const deliveryLocalTime = plan?.deliveryLocalTime ?? null;
 
   const next = plan?.nextRunAt
-    ? `${formatRelativeDay(new Date(plan.nextRunAt), { locale: lang, timeZone: zone })} · ${formatTime(new Date(plan.nextRunAt), { locale: lang, timeZone: zone })}`
+    // Only the time is left-to-right: the whole line in `ltr()` read
+    // «07:30 · الاثنين» in Arabic (review of #679).
+    ? `${formatRelativeDay(new Date(plan.nextRunAt), { locale: lang, timeZone: zone })} · ${ltr(formatTime(new Date(plan.nextRunAt), { locale: lang, timeZone: zone }))}`
     : null;
 
   const leadLabel: Record<number, string> = {
@@ -515,7 +518,7 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
           />
           {next ? (
             <View style={{ paddingHorizontal: 18, paddingBottom: 14 }}>
-              <Txt size={13} color={p.mu} testID="plan-next-run">{fill(t.planMorningNext, { when: ltr(next) })}</Txt>
+              <Txt size={13} color={p.mu} testID="plan-next-run">{fill(t.planMorningNext, { when: isolateAuto(next) })}</Txt>
             </View>
           ) : null}
           {/* ── Continuous replanning (#523, AC 9) ─────────────────────

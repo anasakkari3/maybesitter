@@ -7,7 +7,7 @@ import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessa
 import { apiLocale } from '../../i18n/locale';
 import { formatDate, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
-import { isolate } from '../../i18n/bidi';
+import { isolateAuto } from '../../i18n/bidi';
 import { fill } from '../../i18n/strings';
 import { useLayoutMode } from '../../theme/textScale';
 import { memorySentence } from '../memory/memoryDisplay';
@@ -59,12 +59,12 @@ export function PersonalizationScreen() {
         {suggestions.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoLearning}</Txt> : null}
         {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
         {suggestions.map(suggestion => <Card key={suggestion.fingerprint} style={{ gap: 12 }}>
-          <Txt role="card">{isolate(suggestion.ruleId === 'R2_defer_default'
+          <Txt role="card">{isolateAuto(suggestion.ruleId === 'R2_defer_default'
             ? fill(t.memorySuggestionDeferDefault, { duration: durationText(suggestion.deferMinutes, t as unknown as Record<string, string>) })
             : suggestion.ruleId === 'R3_plan_time'
               ? fill(t.memorySuggestionPlanTime, { time: suggestion.planTime })
               : fill(t.memorySuggestionFocusWindow, suggestion.window))}</Txt>
-          <Txt role="supporting" color={p.mu}>{isolate(fill(t.memorySuggestionEvidence, { days: suggestion.evidence.lookbackDays, total: suggestion.evidence.totalCount, matching: suggestion.evidence.matchingCount }))}</Txt>
+          <Txt role="supporting" color={p.mu}>{isolateAuto(fill(t.memorySuggestionEvidence, { days: suggestion.evidence.lookbackDays, total: suggestion.evidence.totalCount, matching: suggestion.evidence.matchingCount }))}</Txt>
           {editing === suggestion.fingerprint ? <View style={{ gap: 12 }}>
             <Txt role="supporting" color={p.mu}>{t.xEditLearningBody}</Txt>
             <TextInput testID="personalization-edit-input" accessibilityLabel={t.memoryEdit} value={draft} onChangeText={setDraft} maxLength={200} multiline
@@ -90,7 +90,7 @@ export function PersonalizationScreen() {
       </ProductSection>
       <ProductSection title={t.xUpdates} icon="watch">
         {recent.length === 0 ? <Txt role="supporting" color={p.mu}>{t.memoryScreenEmpty}</Txt> : null}
-        {recent.map(item => <ProductRow key={item.id} title={isolate(memorySentence({ content: item.content, strings: t as unknown as Record<string,string> }))}
+        {recent.map(item => <ProductRow key={item.id} title={isolateAuto(memorySentence({ content: item.content, strings: t as unknown as Record<string,string> }))}
           body={formatDate(new Date(item.createdAt), 'short', { locale: lang, timeZone: zone })} icon="check" onPress={() => actions.go('memory')} />)}
         <Pill label={t.memoryEdit} kind="outline" onPress={() => actions.go('memory')} />
       </ProductSection>
@@ -127,7 +127,7 @@ export function CommitmentsScreen() {
     <Pill label={reverse ? t.xSortLatest : t.xSortEarliest} kind="outline" testID="commitments-sort" onPress={() => setReverse(value => !value)} />
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
       {views.length === 0 ? <ProductSection title={t.xNoResults} icon="check" /> : null}
-      {views.map(item => <ProductRow key={item.id} id={`commitments-item-${item.id}`} title={isolate(item.title)} icon={item.status === 'done' ? 'check' : 'calendar'}
+      {views.map(item => <ProductRow key={item.id} id={`commitments-item-${item.id}`} title={isolateAuto(item.title)} icon={item.status === 'done' ? 'check' : 'calendar'}
         body={[item.status === 'done' ? t.xDone : t.xOpen, item.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : t.xUntimed].join(' · ')}
         onPress={() => actions.openDetail(item.id)} />)}
     </QueryBoundary>
@@ -146,7 +146,7 @@ export function ContextualAssistantScreen() {
     .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999'))[0];
   return <ProductPage id="assistant" title={t.xAssistant} subtitle={t.xAssistantBody}>
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
-      <ProductSection title={item ? isolate(item.title) : t.xNoContext} body={item?.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : undefined} icon="calendar">
+      <ProductSection title={item ? isolateAuto(item.title) : t.xNoContext} body={item?.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : undefined} icon="calendar">
         {item ? <Pill label={t.xOpenCommitment} testID="assistant-detail" onPress={() => actions.openDetail(item.id)} /> : <Pill label={t.xQuick} onPress={() => actions.go('capture')} />}
       </ProductSection>
     </QueryBoundary>

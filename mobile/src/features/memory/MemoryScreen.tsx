@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { isolate } from '../../i18n/bidi';
+import { isolateAuto } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { Btn, Card, Txt } from '../../ui/primitives';
@@ -301,7 +301,7 @@ function SuggestionsCard({
           style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}
         >
           <Txt size={15} lh={1.5} testID={`memory-suggestion-${suggestion.fingerprint}`}>
-            {isolate(suggestion.ruleId === 'R2_defer_default'
+            {isolateAuto(suggestion.ruleId === 'R2_defer_default'
               ? fill(strings.memorySuggestionDeferDefault ?? '', {
                 duration: durationText(suggestion.deferMinutes, strings),
               })
@@ -315,7 +315,7 @@ function SuggestionsCard({
                 }))}
           </Txt>
           <Txt size={13} color={p.mu} lh={1.5} testID={`memory-suggestion-evidence-${suggestion.fingerprint}`}>
-            {isolate(suggestion.ruleId === 'R2_defer_default'
+            {isolateAuto(suggestion.ruleId === 'R2_defer_default'
               ? fill(strings.memorySuggestionDeferEvidence ?? '', {
                 total: String(suggestion.evidence.totalCount),
                 matching: String(suggestion.evidence.matchingCount),
@@ -441,7 +441,7 @@ function MemoryDetailRow({
   return (
     <View style={{ paddingHorizontal: 18, paddingVertical: 14, gap: 8, borderTopWidth: 1, borderTopColor: p.ln }}>
       <Txt role="card" weight={500} testID={`memory-screen-item-${item.id}`}>
-        {isolate(memorySentence({ content: item.content, strings }))}
+        {isolateAuto(memorySentence({ content: item.content, strings }))}
       </Txt>
 
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -471,7 +471,7 @@ function MemoryDetailRow({
             <View key={line.key} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
               <Txt size={13} color={p.mu}>·</Txt>
               <Txt size={13} color={p.mu} lh={1.5} style={{ flex: 1 }} testID={`memory-evidence-${item.id}-${line.key}`}>
-                {isolate(line.text)}
+                {isolateAuto(line.text)}
               </Txt>
             </View>
           ))}

@@ -827,7 +827,7 @@
   "calendarDeviceAllow": "Allow calendar access",
   "calendarDeviceNone": "No calendars on this phone yet.",
   "calendarDeviceSourceOther": "On this phone",
-  "calendarDisconnectBody": "Deletes them from this phone and from your account.",
+  "calendarDisconnectBody": "Stops reading your calendar and deletes the busy times from this phone and your account.",
   "calendarDisconnectAction": "Disconnect and delete busy times",
   "calendarDisconnectDone": "Disconnected. The busy times are gone from this phone and from your account.",
   "calendarDisconnectFailed": "They were removed from this phone. Your account still has them — try again when you are back online.",

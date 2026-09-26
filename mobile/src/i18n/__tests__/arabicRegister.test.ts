@@ -36,6 +36,19 @@ describe('Arabic register', () => {
   });
 });
 
+describe('one spelling for "now"', () => {
+  // The bundle said «هلّق», «هلق», «هلأ» and «هلا» for the same word, sometimes
+  // on one screen («مش هلّق» beside «مش هلأ»). It is «هلّق».
+  it('every Arabic "now" is «هلّق»', () => {
+    const letters = '\u0621-\u064A\u064B-\u0652';
+    const variant = new RegExp(`(?<![${letters}])ل?هل(ق|أ|ا)(?![${letters}])`);
+    const offenders = Object.entries(ar as Bundle)
+      .filter(([, value]) => typeof value === 'string' && variant.test(value))
+      .map(([key]) => key);
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe('explanatory bodies are one short line', () => {
   const sentences = (text: string) => text.split(/[.!?؟](\s|$)/).filter((part) => part && part.trim().length > 0).length;
 

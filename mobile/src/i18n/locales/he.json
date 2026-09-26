@@ -830,7 +830,7 @@
   "calendarDeviceAllow": "לאשר גישה ליומן",
   "calendarDeviceNone": "עדיין אין יומנים בטלפון.",
   "calendarDeviceSourceOther": "בטלפון",
-  "calendarDisconnectBody": "מוחק אותם מהטלפון הזה ומהחשבון שלך.",
+  "calendarDisconnectBody": "מפסיק לקרוא את היומן ומוחק את הזמנים התפוסים מהטלפון הזה ומהחשבון שלך.",
   "calendarDisconnectAction": "נתק ומחק זמנים תפוסים",
   "calendarDisconnectDone": "נותק. הזמנים התפוסים נמחקו מהטלפון ומהחשבון.",
   "calendarDisconnectFailed": "הם הוסרו מהטלפון הזה. בחשבון שלך הם עדיין קיימים — נסה שוב כשתחזור לרשת.",

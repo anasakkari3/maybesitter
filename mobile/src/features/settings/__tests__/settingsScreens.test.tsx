@@ -264,9 +264,10 @@ describe('the answers you gave to next steps (#170, #174)', () => {
     } as never);
     await show(<FeedbackHistoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('history-decisions')).not.toBeNull());
-    // Isolated with U+2066/U+2069, like the outcome rows above it, so a Latin
-    // fragment cannot reverse inside an Arabic line.
-    expect(screen.queryByText(`\u2066${en.historyDecisionDefer}\u2069`)).not.toBeNull();
+    // Isolated, like the outcome rows above it, so it cannot reorder the line
+    // around it — and by its own first letter (U+2068), not forced
+    // left-to-right: a translated word is words (review of #679, bidi census).
+    expect(screen.queryByText(`\u2068${en.historyDecisionDefer}\u2069`)).not.toBeNull();
     expect(screen.queryByText('defer')).toBeNull();
   });
 

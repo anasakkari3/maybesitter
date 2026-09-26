@@ -6,7 +6,7 @@ import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { icsFeedsEnabled } from '../../config/env';
 import { fill } from '../../i18n/strings';
-import { isolate } from '../../i18n/bidi';
+import { isolate, isolateAuto } from '../../i18n/bidi';
 import { formatDate, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import {
@@ -248,7 +248,9 @@ function useWhen() {
   return (iso: string, allDay: boolean): string => {
     const date = new Date(iso);
     const day = formatDate(date, 'weekday', { locale: lang, timeZone });
-    return isolate(allDay ? day : `${day} ${formatTime(date, { locale: lang, timeZone })}`);
+    // The day is words, so its own first letter decides; only the time is
+    // held left-to-right.
+    return isolateAuto(allDay ? day : `${day} ${isolate(formatTime(date, { locale: lang, timeZone }))}`);
   };
 }
 
