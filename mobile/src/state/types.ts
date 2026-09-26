@@ -126,7 +126,11 @@ export type Screen =
   // rather than deriving one: the link names the day the plan is for, and a
   // screen that recomputed "today" would open a different plan from the one
   // the notification was about for anybody tapping it just after midnight.
-  | 'plan';
+  | 'plan'
+  // Weekly planning mode, «خطّط أسبوعي» (CL5b). One card per day for today
+  // and the six after it; reached from «اختار شو بدك تعمل» and from the
+  // Calendar tab's header. Pushed onto whichever tab it was opened from.
+  | 'weekPlan';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 

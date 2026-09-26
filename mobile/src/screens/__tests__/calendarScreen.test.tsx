@@ -10,7 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppProvider } from '../../state/AppContext';
+import { Text } from 'react-native';
+import { AppProvider, useApp } from '../../state/AppContext';
 import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../api/auth';
@@ -176,5 +177,32 @@ describe('failure', () => {
     );
     await waitFor(() => expect(screen.queryByTestId('query-loading')).toBeNull());
     expect(screen.queryByTestId(`calendar-day-${TODAY_KEY}`)).toBeNull();
+  });
+});
+
+describe('weekly planning mode (CL5b)', () => {
+  function Probe() {
+    const { s } = useApp();
+    return <Text testID="probe-screen">{s.screen}</Text>;
+  }
+
+  it('is reached from the Calendar tab\'s header, labelled in words', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><CalendarScreen /><Probe /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId(`calendar-day-${TODAY_KEY}`)).not.toBeNull());
+    const entry = screen.getByTestId('calendar-plan-week');
+    expect(entry.props.accessibilityRole).toBe('button');
+    expect(screen.getByText(en.weekTitle)).toBeTruthy();
+    await fireEvent.press(entry);
+    expect(screen.getByTestId('probe-screen').props.children).toBe('weekPlan');
   });
 });

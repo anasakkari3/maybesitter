@@ -14,7 +14,7 @@ export const SCREEN_FLOWS = {
   financialContext: 'excluded', notificationsSettings: 'permissions',
   calendarSettings: 'integrations', widgetSettings: 'settings', footballSettings: 'settings',
   calendarFeeds: 'integrations', categorySettings: 'settings', langAppearance: 'settings',
-  account: 'excluded', sources: 'integrations', about: 'settings', seeds: 'commitments', plan: 'daily_plan',
+  account: 'excluded', sources: 'integrations', about: 'settings', seeds: 'commitments', plan: 'daily_plan', weekPlan: 'planning',
 } as const satisfies Record<Screen, string>;
 
 export const STAGES = [

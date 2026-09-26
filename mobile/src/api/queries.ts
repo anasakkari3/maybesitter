@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
@@ -21,13 +21,16 @@ import { getWeeklySummary, listActivity } from './endpoints/activity';
 import { getCategoryPreferences, putCategoryPreferences } from './endpoints/categories';
 import type { CategoryPreferences } from './schemas/categories';
 import {
+  acceptWeekDay,
   actOnPlan,
   buildPlan,
   getPlan,
   getPlanSettings,
+  proposeWeek,
   putPlanSettings,
   regeneratePlan,
   type PlanEdit,
+  type WeekDecisions,
 } from './endpoints/plans';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, reportPilotIncident, updateTrust } from './endpoints/trust';
@@ -89,7 +92,7 @@ import type { PilotIncidentInput, TrustAction } from './schemas/trust';
 import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
-import { ForbiddenError, InvalidTransitionError, PlanProposalRefusedError, StaleCommitmentError } from './errors';
+import { ConflictError, ForbiddenError, InvalidTransitionError, PlanProposalRefusedError, StaleCommitmentError } from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
   createIcsFeed,
@@ -143,6 +146,12 @@ export const queryKeys = {
    * today's heading and a push for one date cannot show another's.
    */
   plan: (uid: string, date: string) => ['user', uid, 'plan', date] as const,
+  /**
+   * The week's proposals (CL5b), keyed by the decisions they were composed
+   * under: a move is a different week, not an edit of the cached one. Under
+   * `plan`, so everything that invalidates plans invalidates the week too.
+   */
+  week: (uid: string, decisions: string) => ['user', uid, 'plan', 'week', decisions] as const,
   planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
   reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
   readiness: (uid: string) => ['user', uid, 'readiness'] as const,
@@ -801,6 +810,54 @@ export function useRegeneratePlan(date: string) {
   return useMutation({
     mutationFn: (_: void) => regeneratePlan(date),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/** One stable string per set of decisions, for the week's query key. */
+export function weekDecisionsKey(decisions: WeekDecisions): string {
+  const moves = [...decisions.moves].map(move => `${move.itemId}>${move.date}`).sort();
+  const drops = [...decisions.drops].sort();
+  return JSON.stringify({ moves, drops });
+}
+
+/**
+ * The week's proposals under the person's decisions (CL5b).
+ *
+ * The previous week stays on screen while the next one is composed, so a move
+ * redraws in place instead of flashing a skeleton over the whole week.
+ */
+export function useWeek(decisions: WeekDecisions) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.week(uid, weekDecisionsKey(decisions)),
+    queryFn: () => proposeWeek(decisions),
+    enabled: uid !== 'signed-out',
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * "Save this day" (CL5b).
+ *
+ * The answer is the day's plan and the week after it: the plan goes into that
+ * date's plan query exactly as "Looks good" would put it, and the week into
+ * the query for the decisions it was saved under. Not retried, like every
+ * mutation here; the server refuses a second save of the same day with 409.
+ */
+export function useAcceptWeekDay(decisions: WeekDecisions) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: (date: string) => acceptWeekDay(date, decisions),
+    onSuccess: ({ plan, week }) => {
+      adoptPlan(client, uid, plan.date, plan);
+      client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), week);
+    },
+    onError: error => {
+      // The day got a plan somewhere else (the morning, another phone): the
+      // week on screen is stale, so it is read again.
+      if (error instanceof ConflictError) void client.invalidateQueries({ queryKey: ['user', uid, 'plan', 'week'] });
+    },
   });
 }
 

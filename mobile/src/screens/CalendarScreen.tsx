@@ -18,7 +18,7 @@ import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
-import { Btn, Card, Txt } from '../ui/primitives';
+import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { DirectionalScrollRow } from '../ui/directionalScroll';
 import { cardShadow } from '../theme/tokens';
 
@@ -127,9 +127,16 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           eyebrowTestID="calendar-range"
           title={t.calendarTitle}
           end={(
-            <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" hitSlop={8} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
-              <SettingsIcon color={p.mu} knob={p.sf} />
-            </Btn>
+            <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-end' : 'center', gap: 8, flexShrink: 1 }}>
+              {/* Weekly planning mode (CL5b): the week ahead is where somebody
+                  goes to plan it. A labelled pill, not an icon: the words are
+                  the affordance. At the large text sizes the two stack, so
+                  the label keeps its room and the title keeps its own. */}
+              <Pill label={t.weekTitle} kind="soft" size={14} pad={8} onPress={() => actions.go('weekPlan')} testID="calendar-plan-week" />
+              <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" hitSlop={8} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
+                <SettingsIcon color={p.mu} knob={p.sf} />
+              </Btn>
+            </View>
           )}
         />
         {trust.data && !calendarConnected ? (

@@ -4,15 +4,18 @@ import { join } from 'path';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import {
+  acceptWeekDay,
   actOnPlan,
   buildPlan,
   getPlan,
   getPlanSettings,
   markPlanOpened,
+  proposeWeek,
   putPlanSettings,
   regeneratePlan,
 } from '../endpoints/plans';
 import {
+  ConflictError,
   PlanEditRefusedError,
   PlanProposalRefusedError,
   QuotaExceededError,
@@ -282,6 +285,45 @@ describe('building a plan the morning has not reached (#477)', () => {
   it('refuses to build a request for a date that is not one', async () => {
     serve(fixture('plan.built'));
     await expect(buildPlan('../settings')).rejects.toBeInstanceOf(ValidationError);
+    expect(requests).toHaveLength(0);
+  });
+});
+
+describe('weekly planning mode (CL5b)', () => {
+  it('posts the decisions and reads the seven days back', async () => {
+    serve(fixture('plan.week'));
+    const week = await proposeWeek({ moves: [{ itemId: 'a', date: '2026-08-12' }], drops: ['b'] });
+    expect(requests[0]).toMatchObject({
+      url: 'http://localhost:3000/api/mobile/plans/week',
+      method: 'POST',
+      body: { moves: [{ itemId: 'a', date: '2026-08-12' }], drops: ['b'] },
+    });
+    expect(week.days).toHaveLength(7);
+    expect(week.days.map(day => day.state).slice(0, 2)).toEqual(['planned', 'planned']);
+    expect(week.days.some(day => day.state === 'proposed' && day.items.length === 1)).toBe(true);
+  });
+
+  it('saves a day with the decisions it was shown under, and reads the plan and the week back', async () => {
+    serve(fixture('plan.weekAccepted'));
+    const { plan, week } = await acceptWeekDay('2026-08-11', { moves: [], drops: [] });
+    expect(requests[0]).toMatchObject({
+      url: 'http://localhost:3000/api/mobile/plans/week/accept',
+      method: 'POST',
+      body: { date: '2026-08-11', moves: [], drops: [] },
+    });
+    expect(plan.date).toBe('2026-08-11');
+    expect(plan.status).toBe('accepted');
+    expect(week.days.find(day => day.date === '2026-08-11')!.state).toBe('accepted');
+  });
+
+  it('reads a day that already has a plan as a conflict', async () => {
+    serve(fixture('plan.weekAlreadyPlanned'), 409);
+    await expect(acceptWeekDay('2026-08-11', { moves: [], drops: [] })).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it('refuses to send a date that is not one', async () => {
+    serve(fixture('plan.weekAccepted'));
+    await expect(acceptWeekDay('tomorrow', { moves: [], drops: [] })).rejects.toBeInstanceOf(ValidationError);
     expect(requests).toHaveLength(0);
   });
 });
