@@ -137,20 +137,33 @@ export function normalizeSpokenHebrewHours(value: string): string {
  */
 export function normalizeClockFractions(value: string): string {
   const D = '([0-9\\u0660-\\u0669\\u06F0-\\u06F9]{1,2})';
+  // A fraction is a clock time only where a clock is being named: after a
+  // clock word, or before a part of the day. «3 ونص كيلو رز» and
+  // «150 ونص شيكل» are quantities and keep their words.
+  const LEAD =
+    '((?:الساعة|الساعه|عند|على)\\s*|\\b(?:at|by|around)\\s+|(?:בשעה|שעה|בסביבות|סביב|לקראת|עד)\\s*|(?<![\\p{L}\\p{M}])ב-?)';
+  const PERIOD =
+    '(?=\\s*(?:صباحا|صباحاً|الصبح|مساء|مساءً|المسا|المساء|بالليل|بعد\\s+الضهر|بعد\\s+الظهر|العصر|am|pm|בבוקר|בצהריים|אחרי\\s+הצהריים|בערב|בלילה)(?![\\p{L}\\p{M}]))';
   const hourOf = (digits: string) => Number(normalizeArabicDigits(digits));
   const before = (digits: string, minutes: string) => {
     const hour = hourOf(digits);
     return `${hour === 1 ? 12 : hour - 1}:${minutes}`;
   };
-  return value
-    .replace(new RegExp(`${D}\\s*(?:و\\s*)?(?:نص|نصف)(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:30`)
-    .replace(new RegExp(`${D}\\s*(?:و\\s*)?ربع(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:15`)
-    .replace(new RegExp(`${D}\\s*(?:و\\s*)?(?:ثلث|تلت)(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:20`)
-    .replace(new RegExp(`${D}\\s*(?:إلا|الا|إلّا)\\s*ربع(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => before(d, '45'))
-    .replace(new RegExp(`${D}\\s*(?:إلا|الا|إلّا)\\s*(?:ثلث|تلت)(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => before(d, '40'))
-    .replace(new RegExp(`${D}\\s*וחצי(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:30`)
-    .replace(new RegExp(`${D}\\s*ורבע(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => `${hourOf(d)}:15`)
-    .replace(new RegExp(`${D}\\s*פחות\\s*רבע(?![\\p{L}\\p{M}])`, 'gu'), (_, d: string) => before(d, '45'))
+  const inClock = (text: string, fraction: string, toClock: (digits: string) => string) =>
+    text
+      .replace(new RegExp(`${LEAD}${D}${fraction}(?![\\p{L}\\p{M}])`, 'giu'), (_, lead: string, d: string) => `${lead}${toClock(d)}`)
+      .replace(new RegExp(`(?<![\\d:\\p{L}\\p{M}])${D}${fraction}${PERIOD}`, 'giu'), (_, d: string) => toClock(d));
+  let out = value;
+  out = inClock(out, '\\s*(?:و\\s*)?(?:نص|نصف)', (d) => `${hourOf(d)}:30`);
+  out = inClock(out, '\\s*(?:و\\s*)?ربع', (d) => `${hourOf(d)}:15`);
+  out = inClock(out, '\\s*(?:و\\s*)?(?:ثلث|تلت)', (d) => `${hourOf(d)}:20`);
+  out = inClock(out, '\\s*(?:إلا|الا|إلّا)\\s*ربع', (d) => before(d, '45'));
+  out = inClock(out, '\\s*(?:إلا|الا|إلّا)\\s*(?:ثلث|تلت)', (d) => before(d, '40'));
+  out = inClock(out, '\\s*וחצי', (d) => `${hourOf(d)}:30`);
+  out = inClock(out, '\\s*ורבע', (d) => `${hourOf(d)}:15`);
+  out = inClock(out, '\\s*פחות\\s*רבע', (d) => before(d, '45'));
+  // "half past 5" and "quarter to 5" name a clock by themselves.
+  return out
     .replace(new RegExp(`\\bhalf\\s+past\\s+${D}\\b`, 'giu'), (_, d: string) => `${hourOf(d)}:30`)
     .replace(new RegExp(`\\b(?:a\\s+)?quarter\\s+past\\s+${D}\\b`, 'giu'), (_, d: string) => `${hourOf(d)}:15`)
     .replace(new RegExp(`\\b(?:a\\s+)?quarter\\s+to\\s+${D}\\b`, 'giu'), (_, d: string) => before(d, '45'));

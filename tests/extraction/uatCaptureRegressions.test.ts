@@ -2076,6 +2076,45 @@ test('R7 I-3: a clock time with minutes and no period word, hours one to six, as
   }
 });
 
+test('R8: a spoken fraction is a clock time only where a clock is named — «3 ونص كيلو» is a quantity, and the other clause keeps its hour', async () => {
+  // Rules path: a quantity is never asked «صبح ولا مسا» and keeps its words in the title.
+  for (const [text, title] of [
+    ['بدي أشتري 3 ونص كيلو رز بكرا', 'أشتري 3 ونص كيلو رز'],
+    ['اشتري 1 ونص لتر حليب بكرا', 'اشتري 1 ونص لتر حليب'],
+    ['بدي أشتري 2 ربع دجاج بكرا', 'أشتري 2 ربع دجاج'],
+    ['לקנות 2 וחצי קילו עגבניות מחר', 'לקנות 2 וחצי קילו עגבניות'],
+    ['بدي أدفع 150 ونص شيكل بكرا', 'أدفع 150 ونص شيكل'],
+  ] as const) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items.length, 1, text);
+    const item = contract.items[0]!;
+    assert.equal(item.title, title, text);
+    assert.notEqual(item.clarification?.questionKey, 'ask_am_pm', `${text} is asked am/pm for an hour nobody said`);
+    assert.equal(item.resolvedDate, '2026-09-27', text);
+  }
+  // Model path: the quantity adds no stated hour, so mom keeps her 18:00.
+  const mixed = await proposeGuarded('بدي أشتري 3 ونص كيلو رز بكرا، وذكرني أتصل بأمي الساعة 6 المسا', (clause) =>
+    clause.includes('رز') ? timedTask('أشتري 3 ونص كيلو رز', '2026-09-27', null) : timedTask('أتصل بأمي', '2026-09-26', '18:00'));
+  assert.deepEqual(mixed.contract.items.map((item) => [item.title, item.resolvedTime ?? null]), [
+    ['أشتري 3 ونص كيلو رز', null],
+    ['أتصل بأمي', '2026-09-26T15:00:00.000Z'],
+  ]);
+  // A model hour invented for a day-only clause is still stripped when the clause carries a quantity.
+  const invented = await proposeGuarded('بدي أشتري 3 ونص كيلو رز بكرا', () => timedTask('أشتري 3 ونص كيلو رز', '2026-09-27', '09:00'));
+  assert.equal(invented.contract.items[0]!.resolvedTime ?? null, null);
+  assert.equal(invented.contract.items[0]!.clarification?.questionKey, 'ask_time');
+  // A fraction after a clock word, or before a part of the day, is still a clock time.
+  for (const [text, at] of [
+    ['عندي دكتور بكرا 5 ونص المسا', '2026-09-27T14:30:00.000Z'],
+    ['عندي دكتور بكرا 5:30 المسا', '2026-09-27T14:30:00.000Z'],
+    ['عندي دكتور بكرا الساعة 5 ونص المسا', '2026-09-27T14:30:00.000Z'],
+    ['dentist tomorrow at half past 5 pm', '2026-09-27T14:30:00.000Z'],
+  ] as const) {
+    const { contract } = await propose(text);
+    assert.equal(contract.items[0]!.resolvedTime, at, text);
+  }
+});
+
 test('R7 I-3: a bare early hour today whose morning has passed reaches the am/pm question — with the afternoon as the only option — instead of rejecting the capture', async () => {
   // Saturday 10:00: «الساعة 5» read as 05:00 today has already gone by.
   for (const text of ['ذكرني أتصل بأمي الساعة 5', 'ذكرني أتصل بأمي اليوم الساعة 5', 'call mom today at 5', 'remind me to call mom at 4', 'תזכיר לי להתקשר לאמא היום ב-5', 'لازم أشتري دوا من الصيدلية اليوم الساعة 5']) {

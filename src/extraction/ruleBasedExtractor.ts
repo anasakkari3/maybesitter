@@ -122,8 +122,9 @@ function parseClock(raw: string): { hour: number; minute: number } | null {
   const normalized = normalizeClockText(raw).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
-    normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/) ||
-    normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/);
+    normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/) ||
+    // A bare hh:mm is read last, so a part of the day after it («5:30 المسا») is not lost.
+    normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/);
   if (!explicit) return null;
   let hour = Number(explicit[1]);
   const minute = explicit[2] ? Number(explicit[2]) : 0;
