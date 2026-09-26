@@ -516,6 +516,8 @@ const WRITERS: ReadonlyArray<readonly [file: string, inside: string, callee: str
   ['lib/calendar/icsFeeds.ts', 'applyClassification', 'replaceBusyBlocks', 'icsFeedLifecycle: #611 subscribe/refresh rows'],
   ['lib/calendar/icsFeeds.ts', 'removeFeedData', 'deleteBusySource', 'icsFeedLifecycle: #611 unsubscribe rows'],
   ['lib/calendar/manualBusy.ts', 'acceptLectureSessionsAsBusyBlocks', 'replaceBusyBlocks', 'writer: accepted lecture sessions (#191)'],
+  ['lib/integrations/google/googleCalendarBusy.ts', 'syncGoogleCalendarBusy', 'replaceBusyBlocks', 'googleConnectRoutes: freebusy mapping (CL6a)'],
+  ['lib/integrations/google/googleConnectService.ts', 'disconnectGoogle', 'deleteBusySource', 'googleConnectRoutes: disconnect (CL6a)'],
   ['src/app/api/mobile/calendar/busy/route.ts', 'DELETE', 'deleteBusySource', 'writer: the device disconnect route'],
   ['src/app/api/mobile/calendar/busy/route.ts', 'POST', 'replaceBusyBlocks', 'writer: the device busy route'],
   ['src/app/api/mobile/calendar/manual/route.ts', 'DELETE', 'deleteBusySource', 'writer: the manual busy route'],
