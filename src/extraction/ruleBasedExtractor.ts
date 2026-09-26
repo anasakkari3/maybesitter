@@ -287,7 +287,34 @@ function stripTiming(text: string): string {
   return stripped.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * A limit word left at the end of a title once the time after it was taken
+ * out (CL1, round 1): «أخلص تقرير الشغل قبل الخميس» became «أخلص تقرير الشغل
+ * قبل», "finish the report by tomorrow" became "finish the report by".
+ */
+const DANGLING_LIMIT = new RegExp('(?:^|\\s)(قبل|لحد|لحدّ|لغاية|لغايه|حتى|حتّى|before|by|until|till|עד|לפני)$', 'iu');
+
+/**
+ * Only when the word was followed by something in what the user wrote — the
+ * time that `stripTiming` took — so a title that genuinely ends on one is
+ * kept. "Stop by" / "drop by" is a visit, not a deadline, and keeps its "by".
+ */
+function withoutDanglingLimit(title: string, raw: string): string {
+  const match = DANGLING_LIMIT.exec(title);
+  if (!match) return title;
+  const word = match[1]!;
+  const before = title.slice(0, match.index).trim();
+  if (/^by$/i.test(word) && /\b(?:stop|stopped|drop|dropped|pass|passed|come|came|swing|pop|go|went)$/i.test(before)) return title;
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const followed = new RegExp(`(?:^|[\\s,.،])${escaped}\\s+\\S`, 'iu').test(raw);
+  return followed && before ? before : title;
+}
+
 function cleanAction(raw: string): string {
+  return withoutDanglingLimit(cleanCommand(raw), raw);
+}
+
+function cleanCommand(raw: string): string {
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
   return stripCaptureCommand(stripTiming(raw))
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')

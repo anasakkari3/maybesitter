@@ -21,6 +21,22 @@ export class NegatedRequestError extends Error {
   }
 }
 
+/**
+ * The extractor read a time that has already gone (CL1, round 1).
+ *
+ * Typed for the same reason as `NegatedRequestError`: the capture boundary has
+ * to tell it apart from an unsafe input. In a capture of several clauses, one
+ * clause whose hour has passed — «…وذكرني أتصل بأمي اليوم الساعة 9 الصبح» at
+ * 10:00 — used to reject the whole capture, the bread with it. The message is
+ * unchanged and carries nothing the user wrote.
+ */
+export class PastCommitmentTimeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PastCommitmentTimeError';
+  }
+}
+
 const NEGATED_REQUEST = new RegExp([
   /\b(?:don't|dont|do not|never|no need to|stop)\s+(?:remind|remember|schedule|add|create|notify|bug)\b/.source,
   /\b(?:remind me|remember to|bug me)\s+not\b/.source,
@@ -46,7 +62,7 @@ type MobileExtractor = (
 function assertSafeTime(value: string | null, now: Date, field: string): void {
   if (!value) return;
   const parsed = parseIsoInstant(value, field);
-  if (isPastCommitmentTime(parsed, now)) throw new Error(pastTimeMessage(field));
+  if (isPastCommitmentTime(parsed, now)) throw new PastCommitmentTimeError(pastTimeMessage(field));
 }
 
 export async function guardedMobileExtract(

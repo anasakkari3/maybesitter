@@ -27,7 +27,7 @@ import {
   timeOfDayEvidence,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
-import { modelDateIsWeekdayGuess, namesExplicitDate, readWeekdayReference } from './weekdayLexicon';
+import { modelDateIsWeekdayGuess, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
 import { isFixedAppointment } from './priorityLexicon';
 import { stripCaptureCommand } from './captureCommand';
 
@@ -312,7 +312,7 @@ export function validateExtractionResult(
   // ── time ──────────────────────────────────────────────────────────────
   // Deterministic, and after everything else: the model's instant is an input
   // here, not the answer (#162).
-  const time = reconcileLocalTimeSpec(
+  let time = reconcileLocalTimeSpec(
     {
       dueAt: isoStringOrNull(raw['dueAt'], 'dueAt'),
       remindAt: isoStringOrNull(raw['remindAt'], 'remindAt'),
@@ -326,7 +326,23 @@ export function validateExtractionResult(
   // became a Sunday. The same tokenizer only *marks* a date that came from a
   // whole-word weekday and nothing else, so the review card can say it was
   // guessed and offer the week after.
-  const dateInferred = modelDateIsWeekdayGuess(rawText, time.localTimeSpec?.date);
+  let dateInferred = modelDateIsWeekdayGuess(rawText, time.localTimeSpec?.date);
+  // The model named no day at all for a sentence that names a weekday (CL1,
+  // round 1). Gemini answered «سجّل موعد دكتور يوم الأحد» with
+  // `localTimeSpec: null`, so the review card had no Sunday to show and the
+  // time question could not name it. The day is filled by the rule the rules
+  // path uses (`resolveWeekdayDate`: the nearest one that is not today, a week
+  // later only for "the one after") and marked a guess. A date the model *did*
+  // return is never touched — only an absent one is filled — and a sentence
+  // that states its date some other way is left to the model.
+  if (!time.localTimeSpec?.date && context?.now && !namesExplicitDate(rawText)) {
+    const zone = context.timezone || 'UTC';
+    const weekday = resolveWeekdayDate(rawText, context.now, zone);
+    if (weekday) {
+      time = { ...time, localTimeSpec: { date: weekday.date, time: null, timezone: zone } };
+      dateInferred = weekday.inferred;
+    }
+  }
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);
   }

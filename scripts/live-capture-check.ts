@@ -99,7 +99,7 @@ async function main(): Promise<void> {
     console.log(`input: ${testCase.text}`);
     console.log(`status=${proposal.status} engine=${proposal.provenance.executedEngine} fallbackUsed=${proposal.provenance.fallbackUsed} modelCalls=${taps.length} items=${proposal.items.length}`);
     for (const item of proposal.items) {
-      console.log(`  - ${JSON.stringify({ title: item.title, resolvedTime: item.resolvedTime, resolvedDate: item.resolvedDate, priority: item.priority, priorityEstimated: item.priorityEstimated, needsClarification: item.needsClarification })}`);
+      console.log(`  - ${JSON.stringify({ title: item.title, resolvedTime: item.resolvedTime, resolvedDate: item.resolvedDate, dateEstimated: item.dateEstimated, priority: item.priority, priorityEstimated: item.priorityEstimated, needsClarification: item.needsClarification, ...(item.clarification ? { ask: item.clarification.questionKey, askDate: item.clarification.params?.date } : {}) })}`);
     }
     if (RAW) {
       for (const tap of taps) {

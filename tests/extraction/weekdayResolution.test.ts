@@ -176,8 +176,10 @@ function modelSays(localTimeSpec: Record<string, unknown> | null, over: Record<s
 
 test('validator: a Sunday the model resolved from «الأحد» is kept as the model said, and marked a guess', () => {
   const result = validateExtractionResult(modelSays(null), 'سجّل موعد دكتور يوم الأحد', at(WEEK[3]!));
-  // Day-only model answers keep no day at all unless the model named one.
-  assert.equal(result.dateInferred, false);
+  // A model that named no day gets the rules path's Sunday, marked a guess
+  // (CL1 round 1: Gemini answered the UAT doctor with no day). Was: no day.
+  assert.equal(result.localTimeSpec?.date, '2026-09-27');
+  assert.equal(result.dateInferred, true);
   const named = validateExtractionResult(
     modelSays({ date: '2026-09-27', time: '10:00', timezone: TZ }, { dueAt: '2026-09-27T07:00:00.000Z', remindAt: '2026-09-27T07:00:00.000Z' }),
     'موعد دكتور يوم الأحد الساعة 10 الصبح',

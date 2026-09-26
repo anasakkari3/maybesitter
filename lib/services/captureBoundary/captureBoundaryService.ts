@@ -4,6 +4,7 @@ import { decideExtractionDisposition } from '../../../src/extraction/extractionP
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
+import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
@@ -20,7 +21,7 @@ import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/inte
 import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
 import { isPastCommitmentTime } from '../commitments/timeRules';
-import { NegatedRequestError } from '../mobile/safety';
+import { NegatedRequestError, PastCommitmentTimeError } from '../mobile/safety';
 import { readCategoryPreferences } from '../categories/categoryPreferences';
 import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
@@ -226,6 +227,24 @@ function semanticFailure(result: ExtractionResult, now: Date): string | null {
  * read well enough to propose anything for. `low_confidence` is the honest answer
  * there.
  */
+/**
+ * The same reading with the hour that has already gone taken off (CL1, round
+ * 1). The day is kept when it is today or later — «اليوم» is still what the
+ * user said — so the clarification asks "what time today?".
+ */
+function withoutPastTime(result: ExtractionResult, now: Date, timezone: string): ExtractionResult {
+  const today = localTimeSpecFor(now, timezone)?.date ?? null;
+  const date = result.localTimeSpec?.date ?? null;
+  return {
+    ...result,
+    dueAt: null,
+    remindAt: null,
+    localTimeSpec: date && today && date >= today ? { date, time: null, timezone } : null,
+    timeAnchor: null,
+    missingFields: result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time'],
+  };
+}
+
 function noCommitmentReasonFrom(
   segment: string,
   result: ExtractionResult,
@@ -342,11 +361,44 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       continue;
     }
     try {
-      let extracted = await extractor(segment, context, {
-        llmProvider: rulesOnly ? RULES_ONLY_PROVIDER : dependencies.llmProvider,
-        llmEngine: dependencies.llmEngine,
-      });
+      const several = segments.length > 1;
+      let extracted: Awaited<ReturnType<typeof extractor>>;
+      try {
+        extracted = await extractor(segment, context, {
+          llmProvider: rulesOnly ? RULES_ONLY_PROVIDER : dependencies.llmProvider,
+          llmEngine: dependencies.llmEngine,
+        });
+      } catch (error) {
+        // The guarded extractor refuses a time that has gone by throwing, and
+        // keeps nothing it read. In a capture of several clauses the clause is
+        // read again by the rules — no second model call — so it can be
+        // offered without its hour, below. Alone, the refusal stands.
+        if (!(error instanceof PastCommitmentTimeError) || !several) throw error;
+        extracted = await extractWithFallback(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+      }
       let failure = semanticFailure(extracted.result, options.now);
+      /*
+       * One clause must not sink the others (CL1, round 1). «بدي أشتري خبز
+       * بكرا، وذكرني أتصل بأمي اليوم الساعة 9 الصبح» sent at 10:00 was
+       * `rejected` whole — the route answered 400 and the bread went with the
+       * call. In a capture of several clauses:
+       *
+       *   past_time      the clause is kept without the hour that has gone,
+       *                  as an item needing clarification, so the user picks
+       *                  a new time rather than losing the commitment;
+       *   missing_title  there is nothing to name, so only that clause is
+       *                  skipped.
+       *
+       * A prompt injection still rejects the whole capture: that is unsafe,
+       * not merely unreadable. A capture of one clause is unchanged.
+       */
+      let clearedPastTime = false;
+      if (several && failure === 'past_time') {
+        extracted = { ...extracted, result: withoutPastTime(extracted.result, options.now, options.timezone) };
+        failure = semanticFailure(extracted.result, options.now);
+        clearedPastTime = failure === null;
+      }
+      if (several && failure === 'missing_title') continue;
       /*
        * The model found nothing in a clause that asks for something, beside
        * clauses that did produce items (CL1, D1). Left alone, the proposal
@@ -382,7 +434,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         continue;
       }
       const disposition = decideExtractionDisposition(extracted.result);
-      const needsClarification = disposition === 'needs_clarification';
+      const needsClarification = clearedPastTime || disposition === 'needs_clarification';
       const itemId = randomUUID();
       items.push({
         itemId,
