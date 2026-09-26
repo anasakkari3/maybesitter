@@ -532,7 +532,6 @@ describe('the one question (#165)', () => {
     const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(answered() as never);
     await reachTheQuestion();
     await fireEvent.press(screen.getByTestId('clarify-option-o-evening'));
-    await fireEvent.press(screen.getByTestId('clarify-send'));
     await waitFor(() => expect(clarify).toHaveBeenCalled());
 
     const sent = clarify.mock.calls[0]![0] as { itemId: string; questionId: string; optionId?: string };
@@ -555,7 +554,6 @@ describe('the one question (#165)', () => {
     jest.spyOn(captureEndpoints, 'clarifyCapture').mockRejectedValue(new NetworkError('offline'));
     await reachTheQuestion();
     await fireEvent.press(screen.getByTestId('clarify-option-o-morning'));
-    await fireEvent.press(screen.getByTestId('clarify-send'));
     // Clearing it would look like the answer landed.
     await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).not.toBeNull());
   });

@@ -142,9 +142,7 @@ it('does not carry words typed for one question into the next', async () => {
   await show();
 
   await fireEvent.changeText(screen.getByTestId('clarify-free-text'), 'half-typed thought');
-  // "No specific time" still answers on tap, with the typed words left in the
-  // box; a time option would go into the box instead (CL2b).
-  await fireEvent.press(screen.getByTestId('clarify-option-none'));
+  await fireEvent.press(screen.getByTestId('clarify-option-evening'));
 
   await waitFor(() => expect(screen.getByText(t.clarifyAskDay)).toBeTruthy());
   expect(screen.getByTestId('clarify-free-text').props.value).toBe('');
@@ -158,7 +156,6 @@ it('labels the skip by what it does', async () => {
   expect(screen.getByText(t.skipNoTime)).toBeTruthy();
 
   await fireEvent.press(screen.getByTestId('clarify-option-evening'));
-  await fireEvent.press(screen.getByTestId('clarify-send'));
   await waitFor(() => expect(screen.getByText(t.clarifyAskDay)).toBeTruthy());
   // "Which day?" has no time-less answer: the pill must not promise one.
   expect(screen.queryByText(t.skipNoTime)).toBeNull();

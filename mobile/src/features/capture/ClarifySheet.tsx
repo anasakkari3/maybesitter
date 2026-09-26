@@ -3,7 +3,6 @@ import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
-import { chipSeparator, hasChip, toggleChip } from '../../ui/chipText';
 import { CLARIFICATION_FREE_TEXT_MAX, optionLabel, questionText } from './clarificationCopy';
 import { CIVIL_ZONE, civilDate, formatDate } from '../../i18n/format';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
@@ -24,27 +23,7 @@ import type { CaptureProposalItem } from '../../api/schemas/capture';
  *
  * The caller keys it by item id, so what was typed for one question never
  * carries into the next one's box.
- *
- * ── Options are one slot each; free text can combine them ────────
- *
- * By contract an option is one mutually exclusive value (one `optionId`, one
- * time). So where the question takes no free text (am/pm), a tap is the answer
- * and the options are radios. Where it does take free text, a tap writes the
- * option's words into the field instead of sending it (closure CL2b, complaint
- * #3), so somebody can say «الصبح، المسا»; a second tap takes it back out, and
- * «تمام» sends. A field holding exactly one option's words is sent as that
- * `optionId`, so the structured answer is kept whenever it is what was picked;
- * anything else is free text for the server to read. An option with no value
- * ("no specific time") is not a slot and cannot be combined with one: it is
- * still answered on tap.
  */
-type ClarificationOption = NonNullable<CaptureProposalItem['clarification']>['options'][number];
-
-/** A real time slot, as opposed to "no specific time", which carries no value. */
-function isSlot(option: ClarificationOption): boolean {
-  return Boolean(option.value.localTime || option.value.localDate);
-}
-
 export function ClarifySheet({
   item,
   position,
@@ -76,16 +55,10 @@ export function ClarifySheet({
   if (!heading) return null;
 
   const typed = freeText.trim();
-  // «تمام» with exactly one option's words in the field is that option.
-  const answerFor = (text: string): { optionId: string } | { freeText: string } => {
-    const only = question.options.find((option) =>
-      isSlot(option) && optionLabel(option.labelKey, option.labelParams, strings) === text);
-    return only ? { optionId: only.optionId } : { freeText: text };
-  };
   // Only a question that offers "no specific time" can be skipped *into* an
   // answer (#474); anywhere else skipping just sets the question aside, and a
   // pill promising "without a time" there would be a promise the tap breaks.
-  const skipsToNoTime = question.options.some((option) => !isSlot(option));
+  const skipsToNoTime = question.options.some((option) => !option.value.localTime && !option.value.localDate);
 
   return (
     <View style={{ gap: 14 }} testID="clarify-sheet">
@@ -102,25 +75,17 @@ export function ClarifySheet({
         {question.options.map((option) => {
           const label = optionLabel(option.labelKey, option.labelParams, strings);
           if (!label) return null;
-          const combines = question.allowFreeText && isSlot(option);
-          const checked = combines && hasChip(freeText, label);
           return (
             <Btn
               key={option.optionId}
               testID={`clarify-option-${option.optionId}`}
               label={label}
               disabled={busy}
-              accessibilityRole={combines ? 'checkbox' : 'radio'}
-              {...(combines ? { accessibilityState: { checked } } : {})}
-              onPress={combines
-                ? () => setFreeText((current) => toggleChip(current, label, chipSeparator(lang)))
-                : () => onAnswer({ optionId: option.optionId })}
-              style={{
-                backgroundColor: busy ? p.dis : checked ? p.acs : p.sf2,
-                borderRadius: 16, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center',
-              }}
+              accessibilityRole="radio"
+              onPress={() => onAnswer({ optionId: option.optionId })}
+              style={{ backgroundColor: busy ? p.dis : p.sf2, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center' }}
             >
-              <Txt size={15} weight={600} color={busy ? p.disTx : checked ? p.ac : p.tx}>{label}</Txt>
+              <Txt size={15} weight={600} color={busy ? p.disTx : p.tx}>{label}</Txt>
             </Btn>
           );
         })}
@@ -134,8 +99,7 @@ export function ClarifySheet({
               testID="clarify-free-text"
               value={freeText}
               onChangeText={setFreeText}
-              // Never below what the field holds: option taps are not cut.
-              maxLength={Math.max(CLARIFICATION_FREE_TEXT_MAX, Array.from(freeText).length)}
+              maxLength={CLARIFICATION_FREE_TEXT_MAX}
               placeholder={t.orTypeTime}
               placeholderTextColor={p.mu}
               style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, fontSize: 14, minHeight: 48, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
@@ -143,8 +107,8 @@ export function ClarifySheet({
             <Pill
               testID="clarify-send"
               label={t.ok}
-              disabled={busy || typed.length === 0 || Array.from(typed).length > CLARIFICATION_FREE_TEXT_MAX}
-              onPress={() => onAnswer(answerFor(typed))}
+              disabled={busy || typed.length === 0}
+              onPress={() => onAnswer({ freeText: typed })}
               size={14}
               pad={12}
             />

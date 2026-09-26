@@ -66,13 +66,8 @@ name: The one clarification, answered and skipped
     id: 'clarify-question'
 # Answering is still not saving. The notice stays up either way.
 - assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
-# A time question takes free text, so a time option goes into the field
-# (several can be combined) and «تمام» sends it (closure CL2b). "No specific
-# time" would answer on tap, so it is not the one tapped here.
 - tapOn:
-    id: 'clarify-option-(morning|afternoon|evening)'
-- tapOn:
-    id: 'clarify-send'
+    id: 'clarify-option-.*'
 
 # The answer landed: the question is gone, the card carries a time, and the
 # "needs a question" marker is not there any more.
