@@ -127,6 +127,7 @@ describe('«سجّل موعد دكتور يوم الأحد», as the route answe
     await reachReview();
     const itemId = guessed.items[0]!.itemId;
     await fireEvent.press(screen.getByTestId('clarify-option-morning'));
+    await fireEvent.press(screen.getByTestId('clarify-send'));
     await waitFor(() => expect(clarifySpy).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).toBeNull());
     expect(screen.queryByTestId(`review-date-estimated-${itemId}`)).not.toBeNull();

@@ -3,6 +3,7 @@ import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { fill, type Strings } from '../../i18n/strings';
 import { Btn, Card, Txt } from '../../ui/primitives';
+import { chipSeparator, hasChip, toggleChip } from '../../ui/chipText';
 import { OnboardingChrome } from './OnboardingChrome';
 import { SetupLifeStep } from './SetupLifeStep';
 import type { SpeechCaptureService } from '../capture/voice/SpeechCaptureService';
@@ -11,7 +12,6 @@ import {
   type SetupQuestion,
   answerCap,
   answeredCount,
-  clampAnswer,
   nextQuestionIndex,
   previousQuestionIndex,
   type SetupAnswers,
@@ -20,12 +20,21 @@ import {
 /**
  * The guided setup, one question per screen (UC-3.17, #469).
  *
- * ── A chip is a starter, not a choice ────────────────────────────
+ * ── Chips combine, and the field is the truth ────────────────────
  *
- * Tapping a chip puts its sentence in the field; the field stays editable
- * and typing over it is expected. So the "selected" look is derived from the
- * field, not from a separate selection: the moment the text no longer matches
- * a chip, no chip is lit, which is the truth.
+ * A chip is a checkbox that writes into the field (closure CL2b, complaint
+ * #3): tapping one adds its sentence after what is there, joined with the
+ * list comma («، »), and tapping it again takes it back out. A day can be
+ * "long hours" *and* "every day is different". The field stays editable and
+ * typing is expected, so the checked look is derived from the field
+ * (`hasChip`), not from a separate selection that could disagree with it.
+ *
+ * ── Over the cap blocks, it never cuts ───────────────────────────
+ *
+ * Chips are not clamped to the cap any more: cutting a chip the user chose
+ * would send words they never picked. Instead the field shows everything,
+ * the counter says it is over, one short line says so, and Next (or Read)
+ * waits until it is trimmed. Skip and Back still work.
  *
  * ── Skip is on every question ────────────────────────────────────
  *
@@ -82,7 +91,7 @@ export function SetupChatStep({
   /** The first question's recogniser; injected in tests. */
   speech?: SpeechCaptureService | undefined;
 }) {
-  const { t, p, rtl } = useApp();
+  const { t, p, rtl, lang } = useApp();
   // The question keys are plain sentences; the same view RoutineStep takes of
   // the copy, because a few other keys are lists and widen `t[key]`.
   const copy = t as unknown as Record<keyof Strings, string>;
@@ -119,11 +128,16 @@ export function SetupChatStep({
 
   const setAnswer = (text: string) =>
     onChange((current) => ({ ...current, [question.id]: text }));
+  const toggle = (label: string) =>
+    onChange((current) => ({ ...current, [question.id]: toggleChip(current[question.id], label, chipSeparator(lang)) }));
+
+  const length = Array.from(answer).length;
+  const overCap = length > cap;
 
   const primary = next !== null
-    ? { label: t.obSetupNext, onPress: () => onIndexChange(next) }
+    ? { label: t.obSetupNext, onPress: () => onIndexChange(next), disabled: overCap }
     : answered > 0
-      ? { label: reading ? t.obAboutReading : t.obSetupRead, onPress: onRead, disabled: reading }
+      ? { label: reading ? t.obAboutReading : t.obSetupRead, onPress: onRead, disabled: reading || overCap }
       : { label: t.obSetupFinish, onPress: onSkip };
 
   return (
@@ -145,16 +159,17 @@ export function SetupChatStep({
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {question.chipKeys.map((key, n) => {
           const label = copy[key];
-          const selected = answer === label;
+          const selected = hasChip(answer, label);
           return (
             <Btn
               key={key}
               testID={`setup-chip-${question.id}-${n + 1}`}
               label={label}
-              accessibilityRole="button"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: selected }}
               scaleTo={0.98}
               hitSlop={6}
-              onPress={() => setAnswer(clampAnswer(label, cap))}
+              onPress={() => toggle(label)}
               style={{
                 minHeight: 40,
                 justifyContent: 'center',
@@ -180,7 +195,10 @@ export function SetupChatStep({
           onChangeText={setAnswer}
           placeholder={t.obSetupPlaceholder}
           placeholderTextColor={p.mu}
-          maxLength={cap}
+          // Never below what the field already holds: a combined answer over
+          // the cap is shown whole (and blocks Next), not truncated by the
+          // platform under the user's eyes.
+          maxLength={Math.max(cap, length)}
           multiline
           editable={!reading}
           style={{
@@ -192,9 +210,14 @@ export function SetupChatStep({
           }}
         />
       </Card>
-      <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-        <Txt size={12} color={p.mu} latin testID="setup-answer-count">
-          {`${Array.from(answer).length} / ${cap}`}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <View style={{ flex: 1 }} accessibilityLiveRegion="polite">
+          {overCap ? (
+            <Txt size={13} color={p.wm} testID="setup-answer-too-long">{t.obSetupTooLong}</Txt>
+          ) : null}
+        </View>
+        <Txt size={12} color={overCap ? p.wm : p.mu} weight={overCap ? 600 : 400} latin testID="setup-answer-count">
+          {`${length} / ${cap}`}
         </Txt>
       </View>
 

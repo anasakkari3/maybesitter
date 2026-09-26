@@ -930,6 +930,7 @@
   "langContinue": "המשך",
   "obSetupQuestionOf": "שאלה {current} מתוך {total}",
   "obSetupPlaceholder": "או במילים שלך",
+  "obSetupTooLong": "ארוך מדי. קצרו קצת כדי להמשיך.",
   "obSetupNext": "הבא",
   "obSetupRead": "קרא את התשובות שלי",
   "obSetupFinish": "סיום בלי תשובות",

@@ -927,6 +927,7 @@
   "langContinue": "Continue",
   "obSetupQuestionOf": "Question {current} of {total}",
   "obSetupPlaceholder": "Or say it in your own words",
+  "obSetupTooLong": "Too long. Trim it a little to go on.",
   "obSetupNext": "Next",
   "obSetupRead": "Read my answers",
   "obSetupFinish": "Finish without answers",

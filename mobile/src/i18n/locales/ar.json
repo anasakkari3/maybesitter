@@ -927,6 +927,7 @@
   "langContinue": "كمّل",
   "obSetupQuestionOf": "سؤال {current} من {total}",
   "obSetupPlaceholder": "أو قولها بكلامك",
+  "obSetupTooLong": "الجواب طويل. قصّره شوي لتكمّل.",
   "obSetupNext": "التالي",
   "obSetupRead": "اقرا أجوبتي",
   "obSetupFinish": "خلّص بدون أجوبة",
