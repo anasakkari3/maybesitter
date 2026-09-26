@@ -152,9 +152,14 @@ export function Btn({
 type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'warmSolid' | 'ink' | 'ghost';
 
 export function Pill({
-  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID,
+  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID, accessibilityLabel,
 }: {
   label: string;
+  /**
+   * What a screen reader announces when the visible label alone is ambiguous:
+   * a list of pills that all read "Remove" says which one each removes.
+   */
+  accessibilityLabel?: string | undefined;
   onPress?: (() => void) | undefined;
   kind?: PillKind | undefined;
   style?: StyleProp<ViewStyle> | undefined;
@@ -184,7 +189,7 @@ export function Pill({
   return (
     <Btn
       onPress={disabled ? undefined : onPress}
-      label={label}
+      label={accessibilityLabel ?? label}
       disabled={disabled}
       testID={testID}
       style={[

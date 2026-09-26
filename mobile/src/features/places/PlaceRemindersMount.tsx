@@ -17,7 +17,8 @@ import {
   withArmedLock,
   type NotificationCopy,
 } from './placeReminderEngine';
-import { applyRegions } from './nativeLocation';
+import { applyRegions, isWatchingPlaces } from './nativeLocation';
+import { publishWatchStatus } from './placeReminderStatus';
 import { forgetPlaces, refreshLocationAccess, useLocationAccess, usePlaces } from './placesStore';
 
 export interface ReconcileInput {
@@ -31,6 +32,8 @@ export interface ReconcileInput {
 
 export interface ReconcileEffects {
   applyRegions: typeof applyRegions;
+  /** Whether the OS still holds the regions; checked when the signature matches. */
+  isWatching: typeof isWatchingPlaces;
   cancelScheduled(identifier: string): Promise<void>;
 }
 
@@ -65,23 +68,29 @@ export function reconcilePlaceReminders(input: ReconcileInput, effects: Reconcil
     }
 
     let registered = previous.registered;
-    if (signature !== previous.registered) {
+    // Same regions as last time: trust it only if the OS still holds them. A
+    // relaunch after the OS or the library dropped the task re-hands them.
+    const handOver = signature !== previous.registered || (regions.length > 0 && !(await effects.isWatching()));
+    if (handOver) {
       registered = (await effects.applyRegions(regions)) ? signature : null;
     }
-    await saveArmed({
+    const next = {
       ...previous,
       accountId: input.accountId,
       quiet: input.quiet,
       timeZone: input.timeZone,
       entries,
       registered,
-    });
+    };
+    await saveArmed(next);
+    publishWatchStatus(next);
     return { regions: regions.length, registered: registered === signature };
   });
 }
 
 const realEffects: ReconcileEffects = {
   applyRegions,
+  isWatching: isWatchingPlaces,
   async cancelScheduled(identifier) {
     await notificationsModule()?.cancelScheduledNotificationAsync(identifier);
   },
@@ -147,6 +156,7 @@ export function PlaceRemindersMount(): null {
         }
       }
       await applyRegions([]);
+      publishWatchStatus(null);
       if (uid) {
         await clearPlaceReminders(uid);
         forgetPlaces(uid);

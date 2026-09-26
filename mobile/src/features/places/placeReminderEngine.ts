@@ -112,15 +112,43 @@ export interface Region {
 }
 
 /**
- * The regions to hand the OS: every reminder that has not fired, capped at
- * the platform limit. Both edges are always watched — the side the phone is
- * on is how the first look is told apart from a crossing.
+ * What each armed reminder is doing on this phone.
+ *
+ * `watching` — the OS holds its region. `waiting` — it is past the platform's
+ * twenty-region cap, so it is not watched yet; it takes the first slot that
+ * frees (another reminder rings, or its commitment closes). `fired` — it rang
+ * once and never will again. The details screen draws each in words, so the
+ * cap is never a reminder that silently does not ring.
+ */
+export type WatchState = 'watching' | 'waiting' | 'fired';
+
+export function watchStates(entries: readonly ArmedReminder[]): Map<string, WatchState> {
+  const states = new Map<string, WatchState>();
+  let slots = 0;
+  for (const entry of entries) {
+    if (entry.firedAt !== null) {
+      states.set(entry.commitmentId, 'fired');
+    } else if (slots < MAX_REGIONS) {
+      states.set(entry.commitmentId, 'watching');
+      slots += 1;
+    } else {
+      states.set(entry.commitmentId, 'waiting');
+    }
+  }
+  return states;
+}
+
+/**
+ * The regions to hand the OS: the reminders `watchStates` calls watching.
+ * Both edges are always watched — the side the phone is on is how the first
+ * look is told apart from a crossing.
  */
 export function regionsFor(entries: readonly ArmedReminder[], places: readonly Place[]): Region[] {
   const placeById = new Map(places.map(place => [place.id, place]));
+  const states = watchStates(entries);
   const regions: Region[] = [];
   for (const entry of entries) {
-    if (entry.firedAt !== null) continue;
+    if (states.get(entry.commitmentId) !== 'watching') continue;
     const place = placeById.get(entry.placeId);
     if (!place) continue;
     regions.push({
@@ -131,7 +159,6 @@ export function regionsFor(entries: readonly ArmedReminder[], places: readonly P
       notifyOnEnter: true,
       notifyOnExit: true,
     });
-    if (regions.length >= MAX_REGIONS) break;
   }
   return regions;
 }

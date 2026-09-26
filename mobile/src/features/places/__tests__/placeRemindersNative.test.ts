@@ -1,7 +1,9 @@
 /**
  * Place reminders against the native seams (closure CL4): the permission
- * states, handing regions to the OS and taking them back, the task defined at
- * the entry point posting the notification, and sign-out leaving nothing.
+ * states, handing regions to the OS and taking them back, the twenty-region
+ * cap, the task posting the notification, and the stores clearing. That the
+ * entry module defines the task is `placeReminderEntry.test.ts`; that every
+ * sign-out runs the cleanup is `placeRemindersSignOut.test.tsx`.
  *
  * expo-location and expo-task-manager are replaced by fakes that record what
  * they were asked, so each case reads as the call the app made.
@@ -24,10 +26,12 @@ import {
   accessFrom,
   applyRegions,
   definePlaceReminderTask,
+  isWatchingPlaces,
   postPlaceNotification,
   requestAlwaysAccess,
 } from '../nativeLocation';
-import { GEOFENCE_ENTER, GEOFENCE_EXIT, PLACE_REMINDER_TASK, regionIdentifier } from '../placeReminderEngine';
+import { GEOFENCE_ENTER, GEOFENCE_EXIT, MAX_REGIONS, PLACE_REMINDER_TASK, regionIdentifier } from '../placeReminderEngine';
+import { resetWatchStatusForTests, watchStateOf } from '../placeReminderStatus';
 import { reconcilePlaceReminders, type ReconcileEffects } from '../PlaceRemindersMount';
 import { HOME_ID, pinPlaceHere, resetPlacesStoreForTests } from '../placesStore';
 
@@ -92,6 +96,7 @@ function commitment(id: string, extra: Partial<Commitment> = {}): Commitment {
 beforeEach(async () => {
   await AsyncStorage.clear();
   resetPlacesStoreForTests();
+  resetWatchStatusForTests();
   mockLocation.foreground = { granted: false, status: 'undetermined' };
   mockLocation.background = { granted: false, status: 'undetermined' };
   mockLocation.grantForeground = true;
@@ -131,6 +136,15 @@ describe('the permission states', () => {
     expect(await requestAlwaysAccess()).toBe('foreground');
   });
 
+  it('once "Always" was answered, the next save does not ask again (Android would reopen its settings page)', async () => {
+    mockLocation.foreground = { granted: true, status: 'granted' };
+    mockLocation.background = { granted: false, status: 'denied' };
+    expect(await requestAlwaysAccess()).toBe('foreground');
+    mockLocation.background = { granted: true, status: 'granted' };
+    expect(await requestAlwaysAccess()).toBe('always');
+    expect(mockLocation.calls).toEqual([]);
+  });
+
   it('saving a place is where "While Using" is asked, and a refusal saves nothing', async () => {
     mockLocation.grantForeground = false;
     expect(await pinPlaceHere('u1', { id: HOME_ID, kind: 'home', label: 'Home' })).toEqual({ ok: false, reason: 'denied' });
@@ -149,6 +163,7 @@ describe('the permission states', () => {
 describe('the regions the OS holds', () => {
   const effects = (overrides: Partial<ReconcileEffects> = {}) => ({
     applyRegions: jest.fn(applyRegions),
+    isWatching: jest.fn(isWatchingPlaces),
     cancelScheduled: jest.fn(async (_identifier: string) => undefined),
     ...overrides,
   });
@@ -200,7 +215,17 @@ describe('the regions the OS holds', () => {
     expect(Location.startGeofencingAsync).toHaveBeenCalledTimes(2);
   });
 
-  it('the task defined at the entry point posts the reminder when the phone crosses into the place', async () => {
+  it('after a relaunch, regions the OS no longer holds are handed over again, even with the same signature', async () => {
+    const fx = effects();
+    await reconcilePlaceReminders(input([withTrigger]), fx);
+    // The OS or the library dropped the task; the stored signature still matches.
+    mockLocation.started = false;
+    expect(await reconcilePlaceReminders(input([withTrigger]), fx)).toEqual({ regions: 1, registered: true });
+    expect(Location.startGeofencingAsync).toHaveBeenCalledTimes(2);
+    expect(mockLocation.started).toBe(true);
+  });
+
+  it('the place-reminder task posts the reminder when the phone crosses into the place', async () => {
     const schedule = jest.spyOn(Notifications, 'scheduleNotificationAsync').mockResolvedValue('id');
     await reconcilePlaceReminders(input([withTrigger]), effects());
     definePlaceReminderTask();
@@ -215,6 +240,56 @@ describe('the regions the OS holds', () => {
     expect(request.content.body).toBe('Arrived: Home');
     // The tap opens that commitment.
     expect(routeFromNotification(request.content.data)).toEqual({ kind: 'commitment', commitmentId: 'c1' });
+  });
+});
+
+describe('the twenty-region cap', () => {
+  const many = (count: number) => Array.from({ length: count }, (_, index) =>
+    commitment(`c${index + 1}`, { locationTrigger: { kind: 'arrive', placeId: HOME_ID, label: 'Home' } }));
+  const input = (commitments: Commitment[]) => ({
+    accountId: 'u1', commitments, places: [HOME],
+    copy: { arrive: (place: string) => `Arrived: ${place}`, leave: (place: string) => `Left: ${place}` },
+    quiet: null, timeZone: 'UTC',
+  });
+  const fx = () => ({ applyRegions, isWatching: isWatchingPlaces, cancelScheduled: async () => undefined });
+  const lastRegionIds = () => {
+    const calls = Location.startGeofencingAsync.mock.calls;
+    return (calls[calls.length - 1]![1] as { identifier: string }[]).map(region => region.identifier);
+  };
+
+  beforeEach(async () => {
+    mockLocation.foreground = { granted: true, status: 'granted' };
+    mockLocation.background = { granted: true, status: 'granted' };
+    await savePlaces('u1', [HOME]);
+  });
+
+  it('the one past the cap is waiting, not silently set — and is watched once a commitment closes', async () => {
+    const all = many(MAX_REGIONS + 1);
+    await reconcilePlaceReminders(input(all), fx());
+    expect(lastRegionIds()).toHaveLength(MAX_REGIONS);
+    expect(lastRegionIds()).not.toContain(regionIdentifier('c21'));
+    expect(watchStateOf('u1', 'c21')).toBe('waiting');
+    expect(watchStateOf('u1', 'c1')).toBe('watching');
+
+    await reconcilePlaceReminders(input([commitment('c1', { status: 'completed' }), ...all.slice(1)]), fx());
+    expect(lastRegionIds()).toHaveLength(MAX_REGIONS);
+    expect(lastRegionIds()).toContain(regionIdentifier('c21'));
+    expect(watchStateOf('u1', 'c21')).toBe('watching');
+  });
+
+  it('a reminder that rings frees its slot from inside the task, with the app closed', async () => {
+    jest.spyOn(Notifications, 'scheduleNotificationAsync').mockResolvedValue('id');
+    await reconcilePlaceReminders(input(many(MAX_REGIONS + 1)), fx());
+    definePlaceReminderTask();
+    const task = mockTasks.get(PLACE_REMINDER_TASK)!;
+    const region = { identifier: regionIdentifier('c1'), latitude: HOME.latitude, longitude: HOME.longitude, radius: 150 };
+    await task({ data: { eventType: GEOFENCE_EXIT, region }, error: null });
+    await task({ data: { eventType: GEOFENCE_ENTER, region }, error: null });
+
+    expect(watchStateOf('u1', 'c1')).toBe('fired');
+    expect(lastRegionIds()).not.toContain(regionIdentifier('c1'));
+    expect(lastRegionIds()).toContain(regionIdentifier('c21'));
+    expect(watchStateOf('u1', 'c21')).toBe('watching');
   });
 });
 

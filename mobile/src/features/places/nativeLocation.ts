@@ -10,8 +10,17 @@
 import { Linking } from 'react-native';
 import { notificationsModule } from '../../notifications/nativeModules';
 import { AWARENESS_CATEGORY_ID, AWARENESS_CHANNEL_ID } from '../../notifications/channels';
-import { loadArmed, saveArmed } from '../../lib/deviceSettings/placeReminders';
-import { handleGeofenceEvent, PLACE_REMINDER_TASK, type GeofenceDeps, type PlaceNotification, type Region } from './placeReminderEngine';
+import { loadArmed, loadPlaces, saveArmed, type ArmedStore } from '../../lib/deviceSettings/placeReminders';
+import {
+  handleGeofenceEvent,
+  PLACE_REMINDER_TASK,
+  regionsFor,
+  withArmedLock,
+  type GeofenceDeps,
+  type PlaceNotification,
+  type Region,
+} from './placeReminderEngine';
+import { publishWatchStatus } from './placeReminderStatus';
 
 type LocationModule = typeof import('expo-location');
 type TaskManagerModule = typeof import('expo-task-manager');
@@ -81,6 +90,11 @@ export async function requestForegroundAccess(): Promise<LocationAccess> {
  * Asks for "Always" — only when the first arrive/leave reminder is saved, with
  * the line on screen that says why. On iOS this is the system's upgrade
  * prompt; on Android 11+ the system sends the person to the permission page.
+ *
+ * Asked once: after any answer (the background status is no longer
+ * `undetermined`) this returns where things stand without asking. iOS would
+ * not show its prompt twice anyway; Android would send the person to its
+ * settings page on every save.
  */
 export async function requestAlwaysAccess(): Promise<LocationAccess> {
   const Location = locationModule();
@@ -88,6 +102,8 @@ export async function requestAlwaysAccess(): Promise<LocationAccess> {
   try {
     const foreground = await requestForegroundAccess();
     if (foreground !== 'foreground') return foreground;
+    const background = await Location.getBackgroundPermissionsAsync();
+    if (background.status !== 'undetermined') return accessFrom({ granted: true }, background);
     await Location.requestBackgroundPermissionsAsync();
     return await getLocationAccess();
   } catch {
@@ -134,6 +150,21 @@ export async function applyRegions(regions: readonly Region[]): Promise<boolean>
   }
 }
 
+/**
+ * Whether the OS is watching regions for the place-reminder task right now.
+ * A relaunch checks this rather than trusting the stored signature: if the OS
+ * or the library dropped the task, the regions are handed over again.
+ */
+export async function isWatchingPlaces(): Promise<boolean> {
+  const Location = locationModule();
+  if (!Location) return false;
+  try {
+    return await Location.hasStartedGeofencingAsync(PLACE_REMINDER_TASK);
+  } catch {
+    return false;
+  }
+}
+
 /** Posts the reminder: now, or at the end of quiet hours. Filed with the gentle reminders, so it has their buttons. */
 export async function postPlaceNotification(notification: PlaceNotification): Promise<void> {
   const Notifications = notificationsModule();
@@ -153,12 +184,35 @@ export async function postPlaceNotification(notification: PlaceNotification): Pr
   });
 }
 
+async function saveAndPublish(store: ArmedStore): Promise<void> {
+  await saveArmed(store);
+  publishWatchStatus(store);
+}
+
 export const geofenceDeps: GeofenceDeps = {
   load: loadArmed,
-  save: saveArmed,
+  save: saveAndPublish,
   notify: postPlaceNotification,
   now: () => new Date(),
 };
+
+/**
+ * After a reminder rings, from inside the task: its region is dropped and the
+ * first reminder waiting past the twenty-region cap takes the slot — with the
+ * app closed, not at the next launch. The pins are read from this account's
+ * on-device places; nothing leaves the phone.
+ */
+export function rearmFromStore(): Promise<void> {
+  return withArmedLock(async () => {
+    const store = await loadArmed();
+    if (!store) return;
+    const regions = regionsFor(store.entries, await loadPlaces(store.accountId));
+    const signature = JSON.stringify(regions);
+    if (signature === store.registered) return;
+    const registered = (await applyRegions(regions)) ? signature : null;
+    await saveAndPublish({ ...store, registered });
+  });
+}
 
 /**
  * From `index.ts`, at module scope, before the app registers: the OS wakes
@@ -167,7 +221,7 @@ export const geofenceDeps: GeofenceDeps = {
 export function definePlaceReminderTask(): void {
   try {
     taskManagerModule()?.defineTask(PLACE_REMINDER_TASK, async body => {
-      await handleGeofenceEvent(body, geofenceDeps);
+      if ((await handleGeofenceEvent(body, geofenceDeps)) === 'fired') await rearmFromStore();
     });
   } catch {
     // No native module.

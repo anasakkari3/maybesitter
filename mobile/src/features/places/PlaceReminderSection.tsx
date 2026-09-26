@@ -1,9 +1,11 @@
 /**
  * The place reminder on a commitment's details screen (closure CL4).
  *
- * Says what is set — "When you arrive: Work" — and whether this phone can keep
- * it: the place may be saved on another phone, or location may be off, and
- * both are said in words rather than left to fail silently. Adding, changing
+ * Says what is set — "When you arrive: Work" — and what this phone is doing
+ * with it, in words rather than left to fail silently: the place was removed
+ * here (the reminder is off; pick another), or is saved on another phone; it
+ * already rang (once only); location is not "Always" (paused); or it is past
+ * the twenty-region cap (waiting for a free slot). Adding, changing
  * and removing go through the commitment's own PATCH, so the account knows
  * the reminder exists and every phone draws it.
  */
@@ -28,11 +30,13 @@ import {
 } from './PlaceReminderEditor';
 import { useLocationAccess, usePlaces } from './placesStore';
 import { openLocationSettings } from './nativeLocation';
+import { useWatchState } from './placeReminderStatus';
 
 export function PlaceReminderSection({ commitment, canEdit }: { commitment: Commitment; canEdit: boolean }) {
   const { t, p, actions } = useApp();
   const accountId = useOptionalAuth()?.user?.uid ?? null;
-  const { places, loaded } = usePlaces(accountId);
+  const { places, removed, loaded } = usePlaces(accountId);
+  const watch = useWatchState(accountId, commitment.id);
   const access = useLocationAccess();
   const patch = usePatchCommitment();
   const trigger = commitment.locationTrigger ?? null;
@@ -43,6 +47,8 @@ export function PlaceReminderSection({ commitment, canEdit }: { commitment: Comm
   if (!trigger && !canEdit) return null;
 
   const local = trigger ? places.some(place => place.id === trigger.placeId) : false;
+  const gone = !!trigger && loaded && !local && removed.includes(trigger.placeId);
+  const paused = local && access !== 'always' && access !== 'checking';
 
   const save = async () => {
     if (!accountId || !draft || busy) return;
@@ -89,14 +95,20 @@ export function PlaceReminderSection({ commitment, canEdit }: { commitment: Comm
             <Txt size={15} weight={600} testID="details-place-summary">
               {fill(trigger.kind === 'arrive' ? t.placeReminderArriveAt : t.placeReminderLeaveFrom, { place: trigger.label })}
             </Txt>
-            {loaded && !local ? (
+            {gone ? (
+              <Txt size={13} color={p.wm} testID="details-place-gone">{t.placeReminderPlaceGone}</Txt>
+            ) : loaded && !local ? (
               <Txt size={13} color={p.mu} testID="details-place-other-phone">{t.placeReminderOtherPhone}</Txt>
-            ) : local && access !== 'always' && access !== 'checking' ? (
+            ) : local && watch === 'fired' ? (
+              <Txt size={13} color={p.mu} testID="details-place-fired">{t.placeReminderFired}</Txt>
+            ) : paused ? (
               <View style={{ gap: 8, alignItems: 'flex-start' }} testID="details-place-paused">
                 <Txt size={13} weight={600} color={p.wm}>{t.placeReminderPaused}</Txt>
                 <Txt size={13} color={p.mu}>{t.placeReminderPausedHint}</Txt>
                 <Pill testID="details-place-settings" label={t.notifOpenSettings} kind="outline" size={14} pad={12} onPress={openLocationSettings} />
               </View>
+            ) : local && watch === 'waiting' ? (
+              <Txt size={13} color={p.wm} testID="details-place-waiting">{t.placeReminderWaiting}</Txt>
             ) : null}
           </View>
         ) : null}
@@ -112,7 +124,11 @@ export function PlaceReminderSection({ commitment, canEdit }: { commitment: Comm
         ) : canEdit ? (
           trigger ? (
             <ActionRow>
-              <Pill testID="details-place-change" label={t.detailsEdit} kind="outline" size={14} pad={12} disabled={busy} onPress={() => setDraft(draftFrom(local ? trigger : null))} />
+              {gone ? (
+                <Pill testID="details-place-repick" label={t.placeReminderPickAnother} kind="outline" size={14} pad={12} disabled={busy} onPress={() => setDraft({ kind: trigger.kind, target: null })} />
+              ) : (
+                <Pill testID="details-place-change" label={t.detailsEdit} kind="outline" size={14} pad={12} disabled={busy} onPress={() => setDraft(draftFrom(local ? trigger : null))} />
+              )}
               <Pill testID="details-place-remove" label={t.placeReminderRemove} kind="ghost" size={14} pad={12} disabled={busy} onPress={() => void remove()} />
             </ActionRow>
           ) : (

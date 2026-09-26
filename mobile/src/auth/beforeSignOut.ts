@@ -14,13 +14,16 @@
  * The dependency points the way it should: notifications know about auth, auth
  * does not know about notifications.
  *
- * ── Only a sign-out the user asked for ───────────────────────────
+ * ── Every reason, and each task decides ──────────────────────────
  *
- * `session_expired`, `revoked` and `deleted` all mean the credential is
- * already gone, so a task that needs it would fail anyway — and
- * `signOutExpired` in `src/api/auth.ts` reaches the repository directly
- * without passing here at all. `AuthProvider` therefore runs these only for a
- * sign-out the person pressed.
+ * `AuthProvider.signOut` runs these for *every* reason — `user`, `deleted`
+ * (account deletion), `session_expired` and `revoked` — and `signOutExpired`
+ * / `signOutForbidden` in `src/api/auth.ts` run them too. A task that needs
+ * the credential (the device-row DELETE) checks the reason it is handed and
+ * skips when the credential is already gone; a task that only cleans the
+ * handset (the FCM token, the place reminders' regions, pins and cached
+ * titles) runs regardless, because that is the half that matters when
+ * somebody else is about to sign in on this phone.
  *
  * ── A task that fails never blocks the sign-out ──────────────────
  *

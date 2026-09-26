@@ -26,7 +26,11 @@ import type { CaptureItemEdit } from '../../capture/captureMachine';
 import type { CaptureProposalItem } from '../../../api/schemas/capture';
 import type { Commitment } from '../../../api/schemas/common';
 import { loadPlaces, savePlaces, type Place } from '../../../lib/deviceSettings/placeReminders';
-import { HOME_ID, resetPlacesStoreForTests } from '../placesStore';
+import { HOME_ID, removePlace, resetPlacesStoreForTests } from '../placesStore';
+import { reconcilePlaceReminders } from '../PlaceRemindersMount';
+import { applyRegions, geofenceDeps, isWatchingPlaces } from '../nativeLocation';
+import { GEOFENCE_ENTER, GEOFENCE_EXIT, MAX_REGIONS, handleGeofenceEvent, regionIdentifier } from '../placeReminderEngine';
+import { resetWatchStatusForTests } from '../placeReminderStatus';
 import { PlacesScreen } from '../PlacesScreen';
 import en from '../../../i18n/locales/en.json';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
@@ -121,6 +125,7 @@ beforeEach(async () => {
   setAuthRepository(repository);
   await AsyncStorage.clear();
   resetPlacesStoreForTests();
+  resetWatchStatusForTests();
   mockLocation.foreground = { granted: false, status: 'undetermined' };
   mockLocation.background = { granted: false, status: 'undetermined' };
   mockLocation.grantForeground = true;
@@ -209,6 +214,72 @@ describe('on the commitment', () => {
     await waitFor(() => expect(screen.getByTestId('details-place-other-phone')).toBeTruthy());
   });
 
+  it('a place removed on this phone says so, not "another phone", and offers another place', async () => {
+    await savePlaces(USER.uid, [HOME]);
+    await removePlace(USER.uid, HOME_ID);
+    resetPlacesStoreForTests();
+    mockLocation.foreground = { granted: true, status: 'granted' };
+    mockLocation.background = { granted: true, status: 'granted' };
+    await showDetails(commitment({ locationTrigger: { kind: 'leave', placeId: HOME_ID, label: 'Home' } }));
+    await waitFor(() => expect(screen.getByTestId('details-place-gone').props.children).toBe(en.placeReminderPlaceGone));
+    expect(screen.queryByTestId('details-place-other-phone')).toBeNull();
+    await fireEvent.press(screen.getByTestId('details-place-repick'));
+    // The same direction, a place still to choose.
+    expect(screen.getByTestId('place-kind-leave').props.accessibilityState?.checked).toBe(true);
+    expect(screen.getByTestId('details-place-save').props.accessibilityState?.disabled).toBe(true);
+  });
+
+  describe('what the reminder is doing on this phone', () => {
+    const trigger = { kind: 'arrive' as const, placeId: HOME_ID, label: 'Home' };
+    const reconcile = (commitments: Commitment[]) => reconcilePlaceReminders({
+      accountId: USER.uid, commitments, places: [HOME],
+      copy: { arrive: place => `Arrived: ${place}`, leave: place => `Left: ${place}` },
+      quiet: null, timeZone: 'UTC',
+    }, { applyRegions, isWatching: isWatchingPlaces, cancelScheduled: async () => undefined });
+
+    beforeEach(async () => {
+      await savePlaces(USER.uid, [HOME]);
+      mockLocation.foreground = { granted: true, status: 'granted' };
+      mockLocation.background = { granted: true, status: 'granted' };
+    });
+
+    it('past the twenty-region cap it says it is waiting for a free slot', async () => {
+      const others = Array.from({ length: MAX_REGIONS }, (_, index) => commitment({ id: `other-${index}`, locationTrigger: trigger }));
+      await reconcile([...others, commitment({ locationTrigger: trigger })]);
+      await showDetails(commitment({ locationTrigger: trigger }));
+      // Twenty-one commitments through the store: slower than the rest under load.
+      await waitFor(() => expect(screen.getByTestId('details-place-waiting').props.children).toBe(en.placeReminderWaiting), { timeout: 4000 });
+      expect(screen.queryByTestId('details-place-paused')).toBeNull();
+    });
+
+    it('within the cap it says nothing extra', async () => {
+      await reconcile([commitment({ locationTrigger: trigger })]);
+      await showDetails(commitment({ locationTrigger: trigger }));
+      await waitFor(() => expect(screen.getByTestId('details-place-summary')).toBeTruthy());
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(screen.queryByTestId('details-place-waiting')).toBeNull();
+      expect(screen.queryByTestId('details-place-fired')).toBeNull();
+    });
+
+    it('once it rang it says so: once only', async () => {
+      await reconcile([commitment({ locationTrigger: trigger })]);
+      const deps = { ...geofenceDeps, notify: async () => undefined };
+      const region = { identifier: regionIdentifier(ID) };
+      await handleGeofenceEvent({ data: { eventType: GEOFENCE_EXIT, region } }, deps);
+      expect(await handleGeofenceEvent({ data: { eventType: GEOFENCE_ENTER, region } }, deps)).toBe('fired');
+      await showDetails(commitment({ locationTrigger: trigger }));
+      await waitFor(() => expect(screen.getByTestId('details-place-fired').props.children).toBe(en.placeReminderFired));
+    });
+
+    it('after a relaunch, before any reconcile, the stored state is read', async () => {
+      const others = Array.from({ length: MAX_REGIONS }, (_, index) => commitment({ id: `other-${index}`, locationTrigger: trigger }));
+      await reconcile([...others, commitment({ locationTrigger: trigger })]);
+      resetWatchStatusForTests();
+      await showDetails(commitment({ locationTrigger: trigger }));
+      await waitFor(() => expect(screen.getByTestId('details-place-waiting')).toBeTruthy(), { timeout: 4000 });
+    });
+  });
+
   it('removing sends null', async () => {
     const patch = jest.spyOn(commitmentEndpoints, 'patchCommitment').mockResolvedValue({ data: commitment(), etag: 'W/"v2"' } as never);
     await showDetails(commitment({ locationTrigger: { kind: 'leave', placeId: 'place_elsewhere', label: 'Office' } }));
@@ -261,6 +332,7 @@ describe('My places', () => {
     expect(screen.getByTestId('places-home-state').props.children).toBe(en.xNotSet);
     await fireEvent.press(screen.getByTestId('places-home-pin'));
     await waitFor(() => expect(screen.getByTestId('places-home-state').props.children).toBe(en.placeSet));
+    expect(screen.getByTestId('places-home-remove').props.accessibilityLabel).toBe('Remove Home');
     expect(await loadPlaces(USER.uid)).toEqual([expect.objectContaining({ id: HOME_ID, kind: 'home', label: 'Home', latitude: 32.0853 })]);
     expect(mockLocation.calls).toEqual(['requestForeground', 'position']);
   });
@@ -273,6 +345,8 @@ describe('My places', () => {
     await fireEvent.press(screen.getByTestId('places-add-here'));
     await waitFor(() => expect(screen.getByText('Gym')).toBeTruthy());
     const [gym] = await loadPlaces(USER.uid);
+    // A screen reader hears which place each "Remove" removes.
+    expect(screen.getByTestId(`places-remove-${gym!.id}`).props.accessibilityLabel).toBe('Remove Gym');
     await fireEvent.press(screen.getByTestId(`places-remove-${gym!.id}`));
     await waitFor(() => expect(screen.queryByText('Gym')).toBeNull());
     expect(await loadPlaces(USER.uid)).toEqual([]);

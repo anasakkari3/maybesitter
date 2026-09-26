@@ -8,18 +8,27 @@
  */
 import { useEffect, useSyncExternalStore } from 'react';
 import * as Crypto from 'expo-crypto';
-import { loadPlaces, savePlaces, type Place, type PlaceKind } from '../../lib/deviceSettings/placeReminders';
+import { REMOVED_PLACES_MAX, loadPlacesDoc, savePlaces, type Place, type PlaceKind } from '../../lib/deviceSettings/placeReminders';
 import { currentPosition, getLocationAccess, requestForegroundAccess, type LocationAccess } from './nativeLocation';
 
-interface Snapshot { readonly loaded: boolean; readonly places: readonly Place[] }
-const EMPTY: Snapshot = Object.freeze({ loaded: false, places: Object.freeze([]) as readonly Place[] });
+interface Snapshot {
+  readonly loaded: boolean;
+  readonly places: readonly Place[];
+  /** Ids of places removed on this phone, so their reminders can say so. */
+  readonly removed: readonly string[];
+}
+const EMPTY: Snapshot = Object.freeze({
+  loaded: false,
+  places: Object.freeze([]) as readonly Place[],
+  removed: Object.freeze([]) as readonly string[],
+});
 
 const snapshots = new Map<string, Snapshot>();
 const listeners = new Set<() => void>();
 const loading = new Map<string, Promise<void>>();
 
-function publish(accountId: string, places: readonly Place[]): void {
-  snapshots.set(accountId, { loaded: true, places });
+function publish(accountId: string, places: readonly Place[], removed: readonly string[]): void {
+  snapshots.set(accountId, { loaded: true, places, removed });
   for (const listener of [...listeners]) listener();
 }
 
@@ -27,9 +36,9 @@ export function ensurePlacesLoaded(accountId: string): Promise<void> {
   if (snapshots.get(accountId)?.loaded) return Promise.resolve();
   const pending = loading.get(accountId);
   if (pending) return pending;
-  const next = loadPlaces(accountId).then(places => {
+  const next = loadPlacesDoc(accountId).then(doc => {
     loading.delete(accountId);
-    if (!snapshots.get(accountId)?.loaded) publish(accountId, places);
+    if (!snapshots.get(accountId)?.loaded) publish(accountId, doc.places, doc.removed);
   });
   loading.set(accountId, next);
   return next;
@@ -91,17 +100,22 @@ export async function pinPlaceHere(
     longitude: position.longitude,
     updatedAt: now().toISOString(),
   };
-  const next = [...placesSnapshot(accountId).places.filter(existing => existing.id !== place.id), place];
-  await savePlaces(accountId, next);
-  publish(accountId, next);
+  const current = placesSnapshot(accountId);
+  const next = [...current.places.filter(existing => existing.id !== place.id), place];
+  // Setting Home again after removing it brings its reminders back.
+  const removed = current.removed.filter(id => id !== place.id);
+  await savePlaces(accountId, next, removed);
+  publish(accountId, next, removed);
   return { ok: true, place };
 }
 
 export async function removePlace(accountId: string, id: string): Promise<void> {
   await ensurePlacesLoaded(accountId);
-  const next = placesSnapshot(accountId).places.filter(place => place.id !== id);
-  await savePlaces(accountId, next);
-  publish(accountId, next);
+  const current = placesSnapshot(accountId);
+  const next = current.places.filter(place => place.id !== id);
+  const removed = [...current.removed.filter(existing => existing !== id), id].slice(-REMOVED_PLACES_MAX);
+  await savePlaces(accountId, next, removed);
+  publish(accountId, next, removed);
 }
 
 /** After sign-out: nothing of the last account is left in memory. */

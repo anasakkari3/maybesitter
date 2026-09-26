@@ -98,16 +98,48 @@ export function parsePlaces(raw: string | null): Place[] {
   }
 }
 
-export async function loadPlaces(accountId: string): Promise<Place[]> {
+/** How many removed place ids are remembered. Old ones fall off the front. */
+export const REMOVED_PLACES_MAX = 50;
+
+/**
+ * The ids of places removed on this phone. A reminder naming one says "the
+ * place was removed, so the reminder is off" rather than "saved on another
+ * phone", which would be false here. Only the id is kept, never the pin.
+ */
+export function parseRemovedPlaces(raw: string | null): string[] {
+  if (!raw) return [];
   try {
-    return parsePlaces(await AsyncStorage.getItem(placesStorageKey(accountId)));
+    const value = JSON.parse(raw) as { version?: unknown; removed?: unknown };
+    if (value.version !== PLACES_VERSION || !Array.isArray(value.removed)) return [];
+    return value.removed.filter((id): id is string => typeof id === 'string' && id !== '').slice(-REMOVED_PLACES_MAX);
   } catch {
     return [];
   }
 }
 
-export async function savePlaces(accountId: string, places: readonly Place[]): Promise<void> {
-  await AsyncStorage.setItem(placesStorageKey(accountId), JSON.stringify({ version: PLACES_VERSION, places }));
+export interface PlacesDoc {
+  readonly places: Place[];
+  readonly removed: string[];
+}
+
+export async function loadPlacesDoc(accountId: string): Promise<PlacesDoc> {
+  try {
+    const raw = await AsyncStorage.getItem(placesStorageKey(accountId));
+    return { places: parsePlaces(raw), removed: parseRemovedPlaces(raw) };
+  } catch {
+    return { places: [], removed: [] };
+  }
+}
+
+export async function loadPlaces(accountId: string): Promise<Place[]> {
+  return (await loadPlacesDoc(accountId)).places;
+}
+
+export async function savePlaces(accountId: string, places: readonly Place[], removed: readonly string[] = []): Promise<void> {
+  await AsyncStorage.setItem(
+    placesStorageKey(accountId),
+    JSON.stringify({ version: PLACES_VERSION, places, removed: removed.slice(-REMOVED_PLACES_MAX) }),
+  );
 }
 
 function isArmed(value: unknown): value is ArmedReminder {

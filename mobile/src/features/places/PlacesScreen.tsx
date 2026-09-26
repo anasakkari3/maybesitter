@@ -10,6 +10,7 @@
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
+import { fill } from '../../i18n/strings';
 import { useOptionalAuth } from '../../auth/AuthProvider';
 import { family } from '../../theme/fonts';
 import { Card, Pill, Txt } from '../../ui/primitives';
@@ -86,7 +87,7 @@ export function PlacesScreen({ onBack }: { onBack: () => void }) {
           {others.map(place => (
             <View key={place.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 44 }}>
               <Txt size={15} style={{ flexShrink: 1 }}>{place.label}</Txt>
-              <Pill testID={`places-remove-${place.id}`} label={t.placeRemove} kind="ghost" size={14} pad={10} disabled={busy !== null} onPress={() => void remove(place.id)} />
+              <Pill testID={`places-remove-${place.id}`} label={t.placeRemove} accessibilityLabel={fill(t.placeRemoveNamed, { place: place.label })} kind="ghost" size={14} pad={10} disabled={busy !== null} onPress={() => void remove(place.id)} />
             </View>
           ))}
           <TextInput
@@ -121,7 +122,7 @@ function NamedPlace({ title, place, busy, disabled, onPin, onRemove, testID }: {
       </View>
       <ActionRow>
         <Pill testID={`${testID}-pin`} label={t.placeSetHere} kind="outline" size={14} pad={12} disabled={disabled} onPress={onPin} />
-        {place ? <Pill testID={`${testID}-remove`} label={t.placeRemove} kind="ghost" size={14} pad={12} disabled={disabled} onPress={onRemove} /> : null}
+        {place ? <Pill testID={`${testID}-remove`} label={t.placeRemove} accessibilityLabel={fill(t.placeRemoveNamed, { place: title })} kind="ghost" size={14} pad={12} disabled={disabled} onPress={onRemove} /> : null}
       </ActionRow>
     </Card>
   );
