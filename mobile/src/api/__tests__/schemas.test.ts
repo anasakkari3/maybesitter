@@ -126,6 +126,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['commitments.upcoming', commitmentListSchema],
   ['commitments.one', commitmentSchema],
   ['commitments.patched', commitmentSchema],
+  ['commitments.placeReminder', commitmentSchema],
   ['commitments.action', commitmentActionResultSchema],
   ['commitments.deleted', commitmentDeleteResultSchema],
   ['commitments.notFound', errorBodySchema],

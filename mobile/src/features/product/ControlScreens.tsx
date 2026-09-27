@@ -65,7 +65,7 @@ export function IntegrationsScreen() {
     <ProductRow title={t.settingsSources} body={t.settingsSourcesSub} icon="link" onPress={() => actions.go('sources')} />
     <ProductRow title="Gmail" icon="file" status={cap.gmail} />
     <ProductRow title="Google Drive" icon="file" status={cap.drive} />
-    <ProductRow title={t.xLocation} icon="goal" status={cap.location} />
+    <ProductRow id="integration-location" title={t.xLocation} body={t.placesRowSub} icon="goal" status={cap.location} onPress={when(cap.location, () => actions.go('places'))} />
   </ProductPage>;
 }
 

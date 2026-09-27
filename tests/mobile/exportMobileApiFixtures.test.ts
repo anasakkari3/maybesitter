@@ -765,6 +765,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       params(commitmentId),
     ));
 
+    // The place reminder (closure CL4): what the edit sheet sends, and the DTO
+    // it gets back. Removed again straight away, so every later fixture reads
+    // the commitment exactly as it did before this one was added.
+    await record('commitments.placeReminder', 200, await commitmentPatch(
+      new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${tokenFor(USER)}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ locationTrigger: { kind: 'arrive', placeId: 'place_home', label: 'Home' } }),
+      }),
+      params(commitmentId),
+    ));
+    const placeReminderCleared = await commitmentPatch(
+      new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${tokenFor(USER)}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ locationTrigger: null }),
+      }),
+      params(commitmentId),
+    );
+    assert.equal(placeReminderCleared.status, 200);
+
     await record('commitments.action', 200, await actionPost(
       request(`/api/mobile/commitments/${commitmentId}/actions`, { body: { action: 'complete' } }),
       params(commitmentId),

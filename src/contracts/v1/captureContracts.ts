@@ -186,10 +186,16 @@ export interface CaptureItemEditContract {
   /** An ISO instant, or null to say "no time". */
   resolvedTime?: string | null;
   priority?: 'low' | 'normal' | 'high';
+  /**
+   * "Remind me when I arrive / leave", chosen in review (closure CL4). Carried
+   * with the confirm so the commitment is written with it or not at all.
+   * Validated by `parseLocationTrigger`: no coordinates, ever.
+   */
+  locationTrigger?: unknown;
 }
 
 /** The fields an edit may carry. Anything else is refused (#164). */
-export const CAPTURE_EDITABLE_FIELDS = ['itemId', 'title', 'resolvedTime', 'priority'] as const;
+export const CAPTURE_EDITABLE_FIELDS = ['itemId', 'title', 'resolvedTime', 'priority', 'locationTrigger'] as const;
 
 /** Title bounds the confirm validates, before anything is persisted. */
 export const CAPTURE_EDIT_TITLE_MIN = 1;
