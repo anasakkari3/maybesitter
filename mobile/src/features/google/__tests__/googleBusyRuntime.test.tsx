@@ -219,4 +219,63 @@ describe('the conflict chips', () => {
     expect(String(screen.getByTestId('review-busy-i-1').props.children))
       .toContain(en.calendarBusyConflict.split('{range}')[0]!.trim());
   });
+
+  /*
+   * Today and Details read the same merged blocks as review (CL6a round 2,
+   * N3). Each case leaves the phone's calendar empty, so a chip can only come
+   * from Google; switching either screen back to the phone's blocks alone
+   * turns its case red.
+   */
+  function meetingAround(at: Date) {
+    list.mockResolvedValue({
+      success: true,
+      blocks: [{
+        ...calendarBlocks.blocks[0]!,
+        startAt: new Date(at.getTime() - 30 * 60_000).toISOString(),
+        endAt: new Date(at.getTime() + 60 * 60_000).toISOString(),
+        allDay: false,
+      }],
+    } as never);
+  }
+
+  function commitmentAt(at: Date) {
+    const hourAgo = new Date(Date.now() - 3_600_000).toISOString();
+    return {
+      id: 'c-1', kind: 'task', title: 'Hand in the report', description: null, person: null, status: 'active',
+      priority: { level: 'high', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'due_by', dueAt: at.toISOString(), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' },
+      currentAckState: 'not_seen', postponedUntil: null,
+      createdAt: hourAgo, updatedAt: hourAgo, confirmedAt: hourAgo,
+      completedAt: null, droppedAt: null, deviceCalendarLink: null,
+    };
+  }
+
+  it('a commitment on Today inside a Google meeting gets the note, with the phone calendar empty', async () => {
+    const at = new Date(Date.now() + 6 * 3_600_000);
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(true) as never);
+    statusIs(connected);
+    meetingAround(at);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [commitmentAt(at)], calendarOrphans: [] } as never);
+
+    await openApp();
+    await waitFor(() => expect(screen.queryByTestId('today-item-c-1')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('today-busy-c-1')).not.toBeNull());
+  });
+
+  it('the same commitment\'s details get the note too', async () => {
+    const at = new Date(Date.now() + 6 * 3_600_000);
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(true) as never);
+    statusIs(connected);
+    meetingAround(at);
+    const item = commitmentAt(at);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [item], calendarOrphans: [] } as never);
+    jest.spyOn(commitmentEndpoints, 'getCommitment').mockResolvedValue({ data: item, etag: 'W/"v1"' } as never);
+
+    await openApp();
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('today-item-c-1')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('today-item-c-1'));
+    await waitFor(() => expect(screen.queryByTestId('details-title')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('details-busy')).not.toBeNull());
+  });
 });
