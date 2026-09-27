@@ -786,6 +786,44 @@ export function thisMonthEndWords(rawText: string): string | null {
   return match[1] ?? match[2] ?? match[3] ?? null;
 }
 
+/*
+ * The month's end, but not as the day itself (FY1 review, I2): an offset on
+ * it — «قبل آخر الشهر بأسبوع», "two days before the end of the month",
+ * «שבוע לפני סוף החודש», «بعد آخر الشهر بيومين», "after the end of the month"
+ * — or another month named after it, «סוף חודש אוקטובר». The model reads
+ * these to another day, rightly, and that day is not the month's last.
+ */
+const AR_END = '(?:آخر|اخر|أخر|إخر|نهاية|نهايه|نهايت)';
+const AR_DURATION = '(?:أسبوع|اسبوع|أسبوعين|اسبوعين|يوم|يومين|أيام|ايام|جمعة|جمعتين)';
+const EN_DURATION = '(?:days?|weeks?|a\\s+day|a\\s+week|a\\s+couple\\s+of\\s+days)';
+const HE_DURATION = '(?:יום|יומיים|ימים|שבוע|שבועיים|שבועות)';
+const AR_MONTHS = '(?:\\d{1,2}|كانون|شباط|آذار|اذار|نيسان|أيار|ايار|حزيران|تموز|آب|اب|أيلول|ايلول|تشرين|يناير|فبراير|مارس|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر)';
+const HE_MONTHS = '(?:ינואר|פברואר|מרץ|מרס|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)';
+const EN_MONTHS = '(?:january|february|march|april|may|june|july|august|september|october|november|december)';
+const MONTH_END_NOT_THE_DAY = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}[وف]?(?:قبل|بعد)\\s+${AR_END}\\s+${AR_MONTH_WORD}\\s+(?:ب|بـ\\s*)(?:\\d+\\s*)?${AR_DURATION}${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}(?:ب)?(?:\\d+\\s*)?${AR_DURATION}\\s+(?:قبل|بعد)\\s+${AR_END}\\s+${AR_MONTH_WORD}`,
+    `${NOT_LETTER_BEFORE}[وف]?بعد\\s+${AR_END}\\s+${AR_MONTH_WORD}${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}${AR_END}\\s+(?:هال|ال)?شهر\\s+${AR_MONTHS}${NOT_LETTER_AFTER}`,
+    `\\b${EN_DURATION}\\s+(?:before|after)\\s+(?:the\\s+)?(?:end\\s+of|month[\\s-]end)\\b`,
+    '\\bafter\\s+(?:the\\s+)?(?:end\\s+of\\s+(?:the\\s+|this\\s+)?month|month[\\s-]end)\\b',
+    `\\bend\\s+of\\s+(?:the\\s+month\\s+of\\s+)?${EN_MONTHS}\\b`,
+    `${NOT_LETTER_BEFORE}${HE_DURATION}\\s+(?:לפני|אחרי)\\s+ה?סוף\\s+ה?חודש`,
+    `${NOT_LETTER_BEFORE}[ו]?אחרי\\s+ה?סוף\\s+ה?חודש`,
+    `${NOT_LETTER_BEFORE}[ובל]?סוף\\s+ה?חודש\\s+ה?${HE_MONTHS}${NOT_LETTER_AFTER}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * True when the text's month's end carries an offset or names another month,
+ * so the day it means is not this month's last (FY1 review, I2).
+ */
+export function monthEndIsNotTheDay(rawText: string): boolean {
+  return typeof rawText === 'string' && MONTH_END_NOT_THE_DAY.test(rawText);
+}
+
 /** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */
 export function lastDayOfMonth(now: Date, timeZone: string): string {
   const today = localTimeSpecFor(now, timeZone)?.date ?? now.toISOString().slice(0, 10);

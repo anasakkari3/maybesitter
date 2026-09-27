@@ -24,6 +24,7 @@ import {
   instantFromLocal,
   lastDayOfMonth,
   localTimeSpecFor,
+  monthEndIsNotTheDay,
   namesDay,
   readPeriodEndDeadline,
   thisMonthEndWords,
@@ -392,13 +393,18 @@ export function validateExtractionResult(
   // The person's words say this month's end, and name no other day: the words
   // win over the model (controller ruling, FY1 N6). Gemini answered «أحضّر
   // تقرير آخر الشهر» on 27 Sep with 31 October, and the card asked «أي ساعة
-  // يوم السبت، 31 أكتوبر؟». The model's day may be none or this month's last
-  // day on the person's clock — at 00:30 on the 1st that is the new month's,
-  // not the UTC month's the model tends to answer (FX3's edge). Any other day
-  // is discarded, and the item then settles or asks as FX3 decides below.
+  // يوم السبت، 31 أكتوبر؟». A model day after this month's last day on the
+  // person's clock is discarded, and the item then settles or asks as FX3
+  // decides below; an earlier one is FX3's to keep (its 1st-of-month edge
+  // included).
   const monthEndWords = thisMonthEndWords(rawText);
+  // Only a day *after* this month's end is the N6 defect (review I2): an
+  // earlier model day may be the words' own offset — «قبل آخر الشهر بأسبوع»,
+  // "two days before the end of the month" — and one after it may be, too,
+  // when the words say so («بعد آخر الشهر بيومين», «סוף חודש אוקטובר»).
   if (
-    monthEndWords && monthLastDay && time.localTimeSpec?.date && time.localTimeSpec.date !== monthLastDay
+    monthEndWords && monthLastDay && time.localTimeSpec?.date && time.localTimeSpec.date > monthLastDay
+    && !monthEndIsNotTheDay(rawText)
     && !namesDay(rawText) && !namesExplicitDate(rawText)
   ) {
     time = { ...time, dueAt: null, remindAt: null, localTimeSpec: null };
