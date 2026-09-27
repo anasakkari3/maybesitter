@@ -422,7 +422,14 @@ test('FY1 fix I1: a conditional or a correction is not past narration — the co
   // English and Hebrew conditionals are not refused as narration either. (The
   // message classifier reads these two as informational, as it did at
   // 460c097b; that is not the past gate's doing.)
-  for (const text of ['if I had time on Saturday I would wash the car', 'אם היה לי זמן ביום שבת הייתי שוטף את האוטו', 'If we had a meeting, remind me', 'אבל זה נדחה, היתה לי פגישה ביום שני']) {
+  // Each exclusion on its own: a conditional with no day at all, a correction
+  // with no day, and a day ahead with neither.
+  for (const text of [
+    'if I had time on Saturday I would wash the car', 'אם היה לי זמן ביום שבת הייתי שוטף את האוטו',
+    'if I had the car I would pick up Sam', 'unless we had a meeting we would talk', 'אם היה לי רכב הייתי אוסף את סאם',
+    'I had a meeting at 3 but it moved', 'היתה לי פגישה בשלוש אבל זה נדחה',
+    'I had a dentist appointment on Thursday', 'היתה לי פגישה ביום חמישי',
+  ]) {
     const read = await extractWithFallback(text, { now: N1_NOW, timezone: TZ }, { llmProvider: NO_MODEL });
     assert.notEqual(read.fallbackReason, 'semantic_safety:past_no_action', text);
   }
@@ -430,6 +437,9 @@ test('FY1 fix I1: a conditional or a correction is not past narration — the co
     const read = await extractWithFallback(text, { now: N1_NOW, timezone: TZ }, { llmProvider: NO_MODEL });
     assert.equal(read.fallbackReason, 'semantic_safety:past_no_action', text);
   }
+  // A day ahead alone keeps it: «يوم الخميس الجاي» is not behind anyone.
+  const ahead = await withMemoryStorage(() => proposeRules('كان عندي موعد يوم الخميس الجاي الساعة 10 الصبح', N1_NOW));
+  assert.notEqual(ahead.status, 'no_commitment');
   // A correction with no day of its own is kept too: its passed hour is asked.
   const moved = await withMemoryStorage(() => proposeRules('كان عندي موعد الساعة 3 بس صار الساعة 8 المسا', N1_NOW));
   assert.notEqual(moved.status, 'no_commitment');
