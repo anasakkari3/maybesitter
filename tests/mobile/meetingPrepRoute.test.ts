@@ -31,6 +31,9 @@ import { POST as preparePost } from '../../src/app/api/mobile/meetings/prepare/r
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as upcomingGet } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
+import { GET as reminderSettingsGet } from '../../src/app/api/mobile/settings/reminders/route.ts';
+import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
+import { phoneReminderEngine } from '../support/phoneReminderEngine.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const UID = uidFor('MeetingPrepRouteUser');
@@ -263,6 +266,7 @@ test('with consent, the recorded Gemini answer becomes a prep step and a follow-
     const upcoming = await json(await upcomingGet(new Request(`${BASE}/api/mobile/commitments/upcoming?timezone=Asia/Jerusalem`, { headers })));
     const titles = [...today.items, ...upcoming.items].map((item: { title: string }) => item.title);
     assert.ok(titles.includes(PREP_TITLE), `the prep step is on no list: ${JSON.stringify(titles)}`);
+    assert.ok(titles.includes('أبعت الملخص لسامي'), `the follow-up is on no list: ${JSON.stringify(titles)}`);
   } finally {
     gemini.restore();
     end();
@@ -285,3 +289,59 @@ test('with consent off, zero model calls and still exactly one prep step from th
     end();
   }
 });
+
+// ── the reminder claimed is the one that rings (CL5a I-3) ──────────
+
+/**
+ * Prepare, confirm, then read back exactly what the phone reads — the
+ * commitment from the lists and the reminder settings from their route — and
+ * run the phone's own reminder engine on them. `prep.remindAt` must be its
+ * first ring; `null` must mean it schedules nothing.
+ */
+async function claimedAndRung(startInMinutes: number): Promise<{ remindAt: string | null; silentBecause: string | null; rings: number[] }> {
+  const headers = { authorization: `Bearer ${tokenFor(UID)}` };
+  const times = { startAt: new Date(Date.now() + startInMinutes * MINUTE).toISOString(), endAt: null };
+  const prepared = await preparePost(request({ notes: NOTE, ...times, timezone: 'Asia/Jerusalem' }));
+  assert.equal(prepared.status, 200);
+  const body = await json(prepared);
+  const confirmed = await confirmPost(new Request(`${BASE}/api/mobile/capture/confirm`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ proposalId: body.proposal.proposalId, itemIds: [body.prep.itemId] }),
+  }));
+  assert.equal(confirmed.status, 200);
+  const commitmentId = (await json(confirmed)).persisted[0].commitmentId as string;
+  const today = await json(await todayGet(new Request(`${BASE}/api/mobile/commitments/today?timezone=Asia/Jerusalem`, { headers })));
+  const upcoming = await json(await upcomingGet(new Request(`${BASE}/api/mobile/commitments/upcoming?timezone=Asia/Jerusalem`, { headers })));
+  const item = [...today.items, ...upcoming.items].find((entry: { id: string }) => entry.id === commitmentId);
+  assert.ok(item, 'the confirmed prep step is on no list');
+  const settings = (await json(await reminderSettingsGet(new Request(`${BASE}/api/mobile/settings/reminders`, { headers })))).reminderSettings;
+  const phone = await phoneReminderEngine();
+  const rings = phone.ringsFor({
+    commitments: phone.toReminderCommitments([item]),
+    now: new Date(),
+    ...phone.fromSettingsDto(settings, 'softAwareness'),
+  });
+  return { remindAt: body.prep.remindAt, silentBecause: body.prep.silentBecause, rings };
+}
+
+for (const [ceiling, startInMinutes, rings] of [
+  ['soft', 20, false], ['soft', 40, false], ['soft', 180, true],
+  ['followUp', 20, false], ['followUp', 40, true], ['followUp', 180, true],
+] as const) {
+  test(`${ceiling}, a meeting ${startInMinutes} min away: prep.remindAt is what the phone rings${rings ? '' : ', and nothing is claimed when nothing rings'}`, async () => {
+    begin();
+    try {
+      await saveReminderSettings(UID, { escalationCeiling: ceiling }, new Date().toISOString());
+      const result = await claimedAndRung(startInMinutes);
+      if (rings) {
+        assert.ok(result.remindAt, 'no reminder claimed where one rings');
+        assert.equal(new Date(result.rings[0]!).toISOString(), result.remindAt);
+      } else {
+        assert.equal(result.remindAt, null, `claimed ${result.remindAt}; the phone rings at ${result.rings.map((at) => new Date(at).toISOString())}`);
+        assert.equal(result.silentBecause, 'too_close');
+        assert.deepEqual(result.rings, []);
+      }
+    } finally { end(); }
+  });
+}

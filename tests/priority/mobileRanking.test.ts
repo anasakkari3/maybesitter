@@ -231,3 +231,23 @@ test('a user’s own low never outranks their own high, over a thousand random p
     assert.equal(order([low, high])[0], high.id, `run ${run}: a stated low outranked a stated high`);
   }
 });
+
+// ── A reminder that has rung is not a deadline that has passed (CL5a m-1) ──
+
+test('a step whose reminder has rung but whose deadline is hours away is not banded overdue: a Must due later still ranks above it', () => {
+  // A meeting's prep step: reminded at 08:30, due at the meeting, 12:00. Banded
+  // by its reminder it would be "overdue" and outrank the Must, the way a
+  // genuinely overdue item does in the first test of this file.
+  const prep = {
+    ...commitment({ id: 'prep', dueAt: '2026-09-13T12:00:00.000Z' }),
+  };
+  prep.timeSpec = { ...prep.timeSpec, remindAt: '2026-09-13T08:30:00.000Z' };
+  const mom = commitment({
+    id: 'mom', dueAt: '2026-09-13T14:00:00.000Z', priority: priority('high', 'user_explicit'),
+  });
+  assert.deepEqual(order([prep, mom]), ['mom', 'prep']);
+  assert.ok(!codesFor([prep, mom], 'prep').includes('overdue'));
+  // Past the deadline it is overdue, and outranks the Must as any overdue item does.
+  const late = { ...prep, timeSpec: { ...prep.timeSpec, dueAt: '2026-09-13T08:45:00.000Z' } };
+  assert.deepEqual(order([late, mom]), ['prep', 'mom']);
+});

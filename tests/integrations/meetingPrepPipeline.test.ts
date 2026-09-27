@@ -43,6 +43,7 @@ import { listTodayRanked, listUpcomingRanked } from '../../lib/services/mobile/c
 import { CaptureInputTooLargeError } from '../../lib/services/captureBoundary/index.ts';
 import { NO_QUIET_HOURS, type QuietHours } from '../../lib/push/quietHours.ts';
 import { uidFor } from '../support/fakeAuth.ts';
+import { phoneReminderEngine, type PhoneReminderSettings as EngineReminderSettings } from '../support/phoneReminderEngine.ts';
 
 const UID = uidFor('MeetingPrepUser');
 const MINUTE = 60_000;
@@ -368,7 +369,7 @@ test('confirmed through the capture confirm, the prep step is due at the start a
       now, generate: recordedModel().generate, consent: granted, quietHours: NO_QUIET_HOURS,
     });
     const start = Date.parse(input.startAt);
-    assert.equal(Date.parse(prep.remindAt), start - 60 * MINUTE);
+    assert.equal(Date.parse(prep.remindAt!), start - 60 * MINUTE);
     assert.equal(Date.parse(prep.dueAt), start, 'the phone rings at dueAt − 60: dueAt must be the start');
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
@@ -429,7 +430,7 @@ test('with a 15-minute reminder lead, the prep step is due 45 minutes before the
     const input = inputFor(now);
     const { prep } = await prepareMeeting(UID, input, { now, consent: declined, quietHours: NO_QUIET_HOURS });
     const start = Date.parse(input.startAt);
-    assert.equal(Date.parse(prep.remindAt), start - 60 * MINUTE);
+    assert.equal(Date.parse(prep.remindAt!), start - 60 * MINUTE);
     assert.equal(Date.parse(prep.dueAt), start - 45 * MINUTE);
   } finally { end(); }
 });
@@ -441,4 +442,185 @@ test('moved to the evening before by quiet hours, the prep step is due one lead 
   assert.equal(prepDueAt(start, due.at, 60).toISOString(), '2026-09-27T20:25:00.000Z');
   // And never after the start, whatever the lead.
   assert.equal(prepDueAt(start, new Date(start.getTime() - 10 * MINUTE), 60).toISOString(), start.toISOString());
+});
+
+// ── what actually rings on the phone (CL5a I-3) ────────────────────
+//
+// The claim the proposal makes — `prep.remindAt`, and the prep item's time in
+// Review — against the phone's own engine: `desiredRequests`, the function the
+// phone's reminder sync runs, imported as it ships. A claim that nothing rings
+// at is the defect; so is a ring nobody was told about.
+
+type Ceiling = 'soft' | 'followUp' | 'hard';
+
+function engineSettings(ceiling: Ceiling, lead: number, softEnabled = true): EngineReminderSettings {
+  return {
+    softEnabled, softLeadMinutes: lead, intensity: 'softAwareness',
+    escalationCeiling: ceiling, hardEnabled: ceiling === 'hard', mustThroughQuietHours: false,
+  };
+}
+
+/** Every instant the phone would ring for a confirmed step due at `dueAt`, ascending. */
+async function phoneRings(dueAt: string, settings: EngineReminderSettings, now: Date, quiet: QuietHours = NO_QUIET_HOURS): Promise<number[]> {
+  return (await phoneReminderEngine()).ringsFor({
+    commitments: [{ id: 'prep', startsAt: dueAt, status: 'active', priority: 'should', allDay: false, postponedUntil: null }],
+    now,
+    settings,
+    quietHours: quiet.window ? { start: quiet.window.start, end: quiet.window.end } : null,
+    timeZone: quiet.timezone,
+  });
+}
+
+/** 09:00 in Jerusalem on a Thursday. */
+const NINE = new Date('2026-10-01T06:00:00.000Z');
+
+async function prepFor(minutesAway: number, ceiling: Ceiling, lead: number, options: { softEnabled?: boolean; now?: Date; start?: string; quiet?: QuietHours } = {}) {
+  await saveReminderSettings(UID, {
+    softEnabled: options.softEnabled ?? true, softLeadMinutes: lead, escalationCeiling: ceiling, hardEnabled: ceiling === 'hard',
+  }, new Date().toISOString());
+  const now = options.now ?? NINE;
+  const startAt = options.start ?? new Date(now.getTime() + minutesAway * MINUTE).toISOString();
+  const result = await prepareMeeting(UID, { notes: 'Review the budget numbers.', startAt, timezone: 'Asia/Jerusalem' }, {
+    now, consent: declined, quietHours: options.quiet ?? NO_QUIET_HOURS,
+  });
+  const rings = await phoneRings(result.prep.dueAt, engineSettings(ceiling, lead, options.softEnabled ?? true), now, options.quiet ?? NO_QUIET_HOURS);
+  return { ...result, rings, startAt };
+}
+
+for (const minutesAway of [20, 40, 64, 180]) {
+  for (const ceiling of ['soft', 'followUp', 'hard'] as const) {
+    for (const lead of [60, 30, 15]) {
+      test(`a meeting ${minutesAway} min away, ceiling ${ceiling}, lead ${lead}: the reminder claimed is the phone's first ring, or none is claimed and none rings`, async () => {
+        begin();
+        try {
+          const { prep, proposal, rings, startAt } = await prepFor(minutesAway, ceiling, lead);
+          if (prep.remindAt === null) {
+            assert.deepEqual(rings, [], `claimed no reminder, but the phone rings at ${rings.map((at) => new Date(at).toISOString())}`);
+            assert.equal(prep.silentBecause, 'too_close');
+            // The step is still due before the meeting, and shown at that time.
+            assert.equal(prep.dueAt, startAt);
+            assert.equal(proposal.items[0]!.resolvedTime, prep.dueAt);
+          } else {
+            assert.ok(rings.length > 0, `claimed a reminder at ${prep.remindAt}, and nothing rings`);
+            assert.equal(new Date(rings[0]!).toISOString(), prep.remindAt, 'the first ring is not the one claimed');
+            assert.equal(prep.silentBecause, null);
+            assert.equal(proposal.items[0]!.resolvedTime, prep.remindAt);
+          }
+          assert.ok(Date.parse(prep.dueAt) <= Date.parse(startAt), 'due after the meeting has started');
+          assert.ok(rings.every((at) => at < Date.parse(startAt)), 'a ring during the meeting');
+        } finally { end(); }
+      });
+    }
+  }
+}
+
+test('short notice, spelled out: 20 min away rings only with a 15-minute lead; 40 min away rings in five minutes unless the account is soft with a long lead', async () => {
+  const cases: Array<[number, Ceiling, number, string | null]> = [
+    [20, 'soft', 60, null],
+    [20, 'followUp', 60, null],
+    [20, 'followUp', 15, '2026-10-01T06:05:00.000Z'],
+    [40, 'soft', 60, null],
+    [40, 'soft', 30, '2026-10-01T06:05:00.000Z'],
+    [40, 'followUp', 60, '2026-10-01T06:05:00.000Z'],
+    [40, 'hard', 60, '2026-10-01T06:05:00.000Z'],
+  ];
+  for (const [minutesAway, ceiling, lead, expected] of cases) {
+    begin();
+    try {
+      const { prep } = await prepFor(minutesAway, ceiling, lead);
+      assert.equal(prep.adjustment, 'short_notice');
+      assert.equal(prep.remindAt, expected, `${minutesAway} min, ${ceiling}, ${lead}`);
+    } finally { end(); }
+  }
+});
+
+test('with reminders off, no reminder is claimed, and it says why', async () => {
+  begin();
+  try {
+    const { prep, rings } = await prepFor(180, 'followUp', 60, { softEnabled: false });
+    assert.deepEqual(rings, []);
+    assert.equal(prep.remindAt, null);
+    assert.equal(prep.silentBecause, 'reminders_off');
+  } finally { end(); }
+});
+
+test('quiet hours, through the phone: moved to when they end, or to the evening before, the claimed ring is the one the phone makes', async () => {
+  const cases: Array<[string, string, Ceiling, number, string]> = [
+    // 08:00 meeting, quiet until 07:30: rings at 07:30.
+    ['2026-09-27T15:00:00.000Z', '2026-09-28T05:00:00.000Z', 'soft', 60, '2026-09-28T04:30:00.000Z'],
+    ['2026-09-27T15:00:00.000Z', '2026-09-28T05:00:00.000Z', 'followUp', 60, '2026-09-28T04:30:00.000Z'],
+    // 07:00 meeting inside quiet hours: rings at 22:25 the evening before.
+    ['2026-09-27T12:00:00.000Z', '2026-09-28T04:00:00.000Z', 'soft', 60, '2026-09-27T19:25:00.000Z'],
+    ['2026-09-27T12:00:00.000Z', '2026-09-28T04:00:00.000Z', 'followUp', 15, '2026-09-27T19:25:00.000Z'],
+  ];
+  for (const [now, start, ceiling, lead, expected] of cases) {
+    begin();
+    try {
+      const { prep, rings } = await prepFor(0, ceiling, lead, { now: new Date(now), start, quiet: JERUSALEM_QUIET });
+      assert.equal(prep.adjustment, 'quiet_hours');
+      assert.equal(prep.remindAt, expected);
+      assert.equal(new Date(rings[0]!).toISOString(), expected);
+    } finally { end(); }
+  }
+});
+
+test('a meeting a few minutes after a quiet night the person is already in: the phone drops the ring, so none is claimed', async () => {
+  begin();
+  try {
+    // 22:40 in Jerusalem, quiet since 22:30; the meeting is at 07:32, two minutes after quiet hours end.
+    const { prep, rings } = await prepFor(0, 'followUp', 60, {
+      now: new Date('2026-09-27T19:40:00.000Z'), start: '2026-09-28T04:32:00.000Z', quiet: JERUSALEM_QUIET,
+    });
+    assert.equal(prep.adjustment, 'quiet_hours_unavoidable');
+    assert.deepEqual(rings, []);
+    assert.equal(prep.remindAt, null);
+    assert.equal(prep.silentBecause, 'too_close');
+  } finally { end(); }
+});
+
+// ── a follow-up's hour comes from its own clause (CL5a M-3, round 2) ──
+
+test('the meeting\'s own «الساعة ١٠» does not let a guessed hour onto a follow-up whose clause names only a day', async () => {
+  const probes = [
+    'اجتماع الخميس الساعة ١٠ مع المدير عن الميزانية.\nبدي أراجع المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.',
+    'اجتماع مع المدير عن الميزانية الساعة ١٠، بعده لازم أبعت الملخص لسامي يوم الأحد الصبح.\nبدي أراجع المصاريف وأطبع التقرير.',
+    'Budget meeting with my manager at 10am.\nI need to review the expenses and print the report.\nAfter it I have to send Sami the summary on Sunday morning.',
+  ];
+  for (const notes of probes) {
+    begin();
+    try {
+      const english = notes.startsWith('Budget');
+      const model = recordedModel({
+        prepStep: { action: english ? 'Review the expenses and print the report' : 'أراجع المصاريف وأطبع التقرير' },
+        followUps: [{ action: english ? 'Send Sami the summary' : 'أبعت الملخص لسامي', deadlineDate: '2026-10-04', deadlineTime: '07:00' }],
+      });
+      const { proposal } = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING }, {
+        now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
+      });
+      const followUp = proposal.items[1]!;
+      assert.equal(followUp.resolvedTime, null, `a guessed hour got through: ${notes}`);
+      assert.equal(followUp.resolvedDate, '2026-10-04');
+    } finally { end(); }
+  }
+});
+
+test('a follow-up whose own clause writes the hour keeps it, whatever else the notes say', async () => {
+  const cases: Array<[string, string, string]> = [
+    ['Budget review at 10am.\nPrint the report.\nSend the summary on Sunday at 4pm.', 'Send the summary', '16:00'],
+    ['Budget review at 10am.\nPrint the report.\nSend the summary on Sunday, at 4pm.', 'Send the summary', '16:00'],
+    ['اجتماع الميزانية الساعة ١٠.\nبدي أطبع التقرير.\nلازم أبعت الملخص لسامي يوم الأحد الساعة ٤ العصر.', 'أبعت الملخص لسامي', '16:00'],
+  ];
+  for (const [notes, action, time] of cases) {
+    begin();
+    try {
+      const model = recordedModel({
+        prepStep: { action: 'Print the report' },
+        followUps: [{ action, deadlineDate: '2026-10-04', deadlineTime: time }],
+      });
+      const { proposal } = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING }, {
+        now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
+      });
+      assert.equal(proposal.items[1]!.resolvedTime, '2026-10-04T13:00:00.000Z', notes);
+    } finally { end(); }
+  }
 });

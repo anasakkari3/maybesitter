@@ -1373,6 +1373,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       body: { notes: MEETING_NOTE, ...meetingBlock(), timezone: 'Asia/Jerusalem' },
       uid: MEETING_USER,
     })), undefined, pinMeetingPrep);
+    // A meeting twenty minutes away, under this account's default reminders
+    // (a one-hour lead, the soft ceiling): no moment is left that the phone
+    // would ring at, so the response claims no reminder and says why (I-3).
+    await record('meetings.preparedNoReminder', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+      body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 20 * 60_000).toISOString(), timezone: 'Asia/Jerusalem' },
+      uid: MEETING_USER,
+    })), undefined, pinMeetingPrep);
     // The refusal the sheet renders when the meeting is about to start.
     await record('meetings.tooSoon', 400, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
       body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 60_000).toISOString(), timezone: 'Asia/Jerusalem' },

@@ -59,9 +59,9 @@ import {
   createStorageCaptureProposalStore,
   type CaptureProposalStore,
 } from '../captureBoundary';
-import type { StorageAdapter } from '../../storage';
+import { getStorage, userDoc, type StorageAdapter } from '../../storage';
 import { localDayKey, localMidnightOf, normalizeTimezone } from './time';
-import { readReminderSettings } from './reminderSettingsService';
+import { hardSettingsOfUser, readReminderSettings } from './reminderSettingsService';
 import { instantFromLocal } from '../../../src/extraction/timeLexicon';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 
@@ -180,14 +180,17 @@ export function schedulePrepAt(start: Date, now: Date, quietHours: QuietHours): 
 export interface MeetingPrepSummary {
   /** Which item in `proposal.items` is the prep step. Always the first. */
   readonly itemId: string;
-  /** When its reminder rings: the chosen prep instant. */
-  readonly remindAt: string;
   /**
-   * When it is due: one reminder lead after `remindAt`, never after the start,
-   * so the phone's own reminder (`dueAt − lead`) rings at `remindAt` (I-1).
+   * When the phone first rings for it: the chosen prep instant whenever the
+   * account's reminders can ring then, the ring they do make otherwise, and
+   * null when nothing will ring at all (I-3).
    */
+  readonly remindAt: string | null;
+  /** Why nothing rings, when nothing does. */
+  readonly silentBecause: 'reminders_off' | 'too_close' | null;
+  /** When it is due: never after the start (see `prepTiming`). */
   readonly dueAt: string;
-  /** Minutes between that and the meeting's start. */
+  /** Minutes between the chosen prep instant and the meeting's start. */
   readonly leadMinutes: number;
   readonly adjustment: PrepAdjustment;
   readonly startAt: string;
@@ -209,6 +212,8 @@ export interface MeetingPrepOptions {
   quietHours?: QuietHours;
   /** The account's reminder lead, in minutes. Read from its settings when absent. */
   softLeadMinutes?: number;
+  /** The account's reminder settings, whole. Read from its settings when absent. */
+  ringSettings?: PrepRingSettings;
 }
 
 /** The notes, a segment per line, as the meeting pipeline expects them. */
@@ -281,13 +286,73 @@ type FollowUpWhen =
 /**
  * A follow-up's day and hour, kept only when they can be believed (M-3).
  *
- * The hour is kept only when the notes write a clock time at all — «يوم الأحد
- * الصبح» names a day and a part of it, and the model filling in 07:00 is a
- * guess the prompt forbids and this enforces. Without an hour the follow-up is
+ * The hour is kept only when the follow-up's own clause writes a clock time
+ * (`clockInOwnClause`) — «يوم الأحد الصبح» names a day and a part of it, and
+ * the model filling in 07:00 is a guess the prompt forbids and this enforces.
+ * The meeting's own «الساعة ١٠» elsewhere in the notes is no licence for it. Without an hour the follow-up is
  * an all-day commitment on that day, which is how a day with no chosen hour is
  * stored everywhere else (`TimeSpec.allDay`). A day before the meeting, or
  * beyond the horizon a meeting may be prepared in, is no day at all.
  */
+const NOT_A_LETTER_OR_DIGIT = new RegExp('[^\\p{L}\\p{N}]+', 'u');
+
+/** Letters and digits, lower-cased, with the Arabic spellings that vary folded together. */
+function wordsOf(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[\u064B-\u0652\u0640]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .split(NOT_A_LETTER_OR_DIGIT)
+    .filter((word) => Array.from(word).length >= 2);
+}
+
+/**
+ * The notes cut into clauses: at line ends and sentence ends, and at a comma
+ * when both sides are clauses of their own (three words or more each) — so
+ * «…الساعة ١٠، بعده لازم أبعت الملخص…» is two clauses, and "Send the summary
+ * on Sunday, at 4pm" stays one.
+ */
+function clausesOf(notes: string): string[] {
+  const clauses: string[] = [];
+  for (const sentence of notes.split(/[\n.!?؟;؛]+/)) {
+    const parts = sentence.split(/[,،]/);
+    let current = parts[0] ?? '';
+    for (const part of parts.slice(1)) {
+      if (wordsOf(current).length >= 3 && wordsOf(part).length >= 3) {
+        clauses.push(current);
+        current = part;
+      } else {
+        current = `${current},${part}`;
+      }
+    }
+    clauses.push(current);
+  }
+  return clauses.filter((clause) => clause.trim());
+}
+
+/**
+ * Whether the clause of the notes that a follow-up came from writes a clock
+ * time (M-3, round 2).
+ *
+ * The clause is the one sharing the most of the follow-up's words — at least
+ * half of them; a follow-up the notes do not recognisably say has no clause,
+ * and so no hour. A time is counted the way the capture parser counts one.
+ */
+function clockInOwnClause(action: string, notes: string): boolean {
+  const wanted = new Set(wordsOf(action));
+  if (wanted.size === 0) return false;
+  let best: { clause: string; shared: number } | null = null;
+  for (const clause of clausesOf(notes)) {
+    const words = new Set(wordsOf(clause));
+    const shared = Array.from(wanted).filter((word) => words.has(word)).length;
+    if (!best || shared > best.shared) best = { clause, shared };
+  }
+  if (!best || best.shared * 2 < wanted.size) return false;
+  return countTimeExpressions(best.clause) > 0;
+}
+
 function followUpWhen(followUp: ModelFollowUp, valid: ValidMeetingPrepInput, now: Date, clockWritten: boolean): FollowUpWhen {
   if (!followUp.date) return { kind: 'none' };
   const after = (valid.end ?? valid.start).getTime();
@@ -375,14 +440,115 @@ function commandsFor(title: string, when: StepTime, timezone: string, now: Date)
  * The phone rings for a commitment at `dueAt − softLeadMinutes` and reads
  * nothing else (`mobile/src/features/reminders/reminderInputs.ts`, `startOf`).
  * So the step is due one lead after the chosen prep instant: the phone's own
- * reminder then rings at exactly that instant — the hour before the meeting,
- * already moved out of quiet hours — and the server's `remindAt` agrees with
- * it. Never later than the start: a prep step due after the meeting began
- * would be a step for a meeting that is over, and would sit on Today as not
- * yet late while the meeting is already happening.
+ * reminder then rings at exactly that instant. Never later than the start: a
+ * prep step due after the meeting began would be a step for a meeting that is
+ * over. `prepTiming` below decides which due time to use; this is its first
+ * candidate after the start itself.
  */
 export function prepDueAt(start: Date, prepAt: Date, softLeadMinutes: number): Date {
   return new Date(Math.min(start.getTime(), prepAt.getTime() + softLeadMinutes * MINUTE));
+}
+
+/** What decides whether, and how early, the phone reminds an ordinary commitment. */
+export interface PrepRingSettings {
+  /** The reminders switch. Off: the phone schedules nothing. */
+  readonly softEnabled: boolean;
+  /** 60, 30 or 15. */
+  readonly softLeadMinutes: number;
+  readonly escalationCeiling: 'soft' | 'followUp' | 'hard';
+  /** The routine survey's `none`: the phone schedules nothing for it either. */
+  readonly surveySaysNone: boolean;
+}
+
+/** The phone's follow-up lead (`FOLLOW_UP_LEAD_MINUTES`). */
+const PHONE_FOLLOW_UP_LEAD_MINUTES = 30;
+/** A ring the phone moved out of quiet hours this close to the start is dropped (`MIN_LEAD_AFTER_DEFER_MS`). */
+const PHONE_MIN_LEAD_AFTER_DEFER = 5 * MINUTE;
+
+/**
+ * The leads the phone rings a prep step at, in minutes, longest first.
+ *
+ * The phone's `stagesFor` + `planFor` for a commitment that is not a Must —
+ * the prep step is proposed at `normal` priority, which the phone reads as
+ * Should. The soft stage at the account's lead; the follow-up half an hour
+ * before, when the ceiling allows it and it would not ring before the soft one;
+ * nothing at all with reminders off or the survey's `none`. The same rule the
+ * server already mirrors for the Must stage (`ringsForMust`); the pipeline and
+ * route tests run the phone's own `desiredRequests` against what this decides,
+ * so a drift between the two is a red test, not a silent reminder.
+ */
+export function phoneReminderLeads(settings: PrepRingSettings): number[] {
+  if (!settings.softEnabled || settings.surveySaysNone) return [];
+  const leads = [settings.softLeadMinutes];
+  if (settings.escalationCeiling !== 'soft' && PHONE_FOLLOW_UP_LEAD_MINUTES < settings.softLeadMinutes) {
+    leads.push(PHONE_FOLLOW_UP_LEAD_MINUTES);
+  }
+  return leads;
+}
+
+/**
+ * Every instant the phone rings a step due at `dueAt`, earliest first.
+ *
+ * `dueAt − lead` for each lead; inside quiet hours it moves to when they end,
+ * and is dropped when that is within five minutes of `dueAt`
+ * (`deferOutOfQuietHours`); a moment already past is not scheduled at all.
+ */
+export function phoneRingsFor(dueAt: Date, leads: readonly number[], now: Date, quietHours: QuietHours): number[] {
+  const rings = new Set<number>();
+  for (const lead of leads) {
+    let at = dueAt.getTime() - lead * MINUTE;
+    if (isInQuietHours(quietHours, new Date(at))) {
+      // The window's end is a wall-clock minute: walk the minutes to it.
+      let end = Math.floor(at / MINUTE) * MINUTE;
+      for (let i = 0; i <= 24 * 60 && isInQuietHours(quietHours, new Date(end)); i += 1) end += MINUTE;
+      if (end > dueAt.getTime() - PHONE_MIN_LEAD_AFTER_DEFER) continue;
+      at = end;
+    }
+    if (at <= now.getTime()) continue;
+    rings.add(at);
+  }
+  return Array.from(rings).sort((left, right) => left - right);
+}
+
+export interface PrepTiming {
+  readonly dueAt: Date;
+  /** The phone's first ring for the step, or null when nothing will ring. */
+  readonly ringAt: Date | null;
+}
+
+/**
+ * When the prep step is due, and when — if at all — the phone rings for it (I-3).
+ *
+ * The chosen prep instant is what should ring. The start is tried first, then
+ * one lead after the prep instant for each lead the phone uses; the first due
+ * time whose first ring is the prep instant wins. When none is (a meeting
+ * closer than the account's shortest lead: 20 minutes away with a 30-minute
+ * lead has no moment left that rings before it), the step is due at the start
+ * and the claim is whatever the phone does ring for that — or nothing, said as
+ * nothing. What the proposal shows is therefore always a ring that happens.
+ */
+export function prepTiming(start: Date, prepAt: Date, now: Date, settings: PrepRingSettings, quietHours: QuietHours): PrepTiming {
+  const leads = phoneReminderLeads(settings);
+  const candidates = [start.getTime(), ...leads.map((lead) => prepAt.getTime() + lead * MINUTE)]
+    .filter((due) => due <= start.getTime());
+  for (const due of candidates) {
+    const [first] = phoneRingsFor(new Date(due), leads, now, quietHours);
+    if (first === prepAt.getTime()) return { dueAt: new Date(due), ringAt: prepAt };
+  }
+  const [first] = phoneRingsFor(start, leads, now, quietHours);
+  return { dueAt: start, ringAt: first === undefined ? null : new Date(first) };
+}
+
+/** The settings `prepTiming` needs, resolved exactly as the settings screen resolves them. */
+async function readPrepRingSettings(uid: string, options: { storage?: StorageAdapter }): Promise<PrepRingSettings> {
+  const settings = await readReminderSettings(uid, options);
+  const user = await (options.storage ?? getStorage()).get(userDoc(uid));
+  return {
+    softEnabled: settings.softEnabled,
+    softLeadMinutes: settings.softLeadMinutes,
+    escalationCeiling: settings.escalationCeiling,
+    surveySaysNone: hardSettingsOfUser(user).surveySaysNone,
+  };
 }
 
 export async function prepareMeeting(uid: string, input: MeetingPrepInput, options: MeetingPrepOptions = {}): Promise<MeetingPrepResult> {
@@ -414,13 +580,16 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
 
   const storageOption = options.storage ? { storage: options.storage } : {};
   const quietHours = options.quietHours ?? await readQuietHours(uid, storageOption);
-  const softLeadMinutes = options.softLeadMinutes ?? (await readReminderSettings(uid, storageOption)).softLeadMinutes;
+  const ringSettings = options.ringSettings ?? await readPrepRingSettings(uid, storageOption);
+  const settings = options.softLeadMinutes === undefined ? ringSettings : { ...ringSettings, softLeadMinutes: options.softLeadMinutes };
   const due = schedulePrepAt(valid.start, now, quietHours);
-  const prepDue = prepDueAt(valid.start, due.at, softLeadMinutes);
+  const timing = prepTiming(valid.start, due.at, now, settings, quietHours);
+  const ringAt = timing.ringAt?.toISOString() ?? null;
 
-  // A clock time anywhere in the notes is what lets a follow-up keep an hour.
-  const clockWritten = countTimeExpressions(valid.notes) > 0;
-  const followUps = (answered?.followUps ?? []).map((followUp) => ({ followUp, when: followUpWhen(followUp, valid, now, clockWritten) }));
+  // A clock time in the follow-up's own clause is what lets it keep an hour.
+  const followUps = (answered?.followUps ?? []).map((followUp) => ({
+    followUp, when: followUpWhen(followUp, valid, now, clockInOwnClause(followUp.action, valid.notes)),
+  }));
   const whenByKey = new Map(followUps.map(({ followUp, when }) => [
     `${followUp.action.toLowerCase()}\0${when.kind === 'none' ? '' : when.dueAt}`, when,
   ]));
@@ -442,9 +611,10 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     items.push({ itemId, title, ...item, needsClarification: false, priority: 'normal', priorityEstimated: true });
     commandsByItemId.set(itemId, commandsFor(title, when, valid.timezone, now));
   };
-  // The prep step: shown at, and reminded at, the prep instant; due one lead later.
-  push(plan.prep.candidate.action, { resolvedTime: due.at.toISOString() }, {
-    kind: 'due_by', dueAt: prepDue.toISOString(), remindAt: due.at.toISOString(), allDay: false,
+  // The prep step: shown at, and reminded at, the instant the phone rings for
+  // it; with nothing to ring, shown at when it is due.
+  push(plan.prep.candidate.action, { resolvedTime: ringAt ?? timing.dueAt.toISOString() }, {
+    kind: 'due_by', dueAt: timing.dueAt.toISOString(), remindAt: ringAt, allDay: false,
   });
   for (const proposal of plan.followUps) {
     const when = whenByKey.get(`${proposal.candidate.action.toLowerCase()}\0${proposal.candidate.deadlineAt ?? ''}`) ?? { kind: 'none' as const };
@@ -485,8 +655,9 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     proposal: contract,
     prep: {
       itemId: items[0]!.itemId,
-      remindAt: due.at.toISOString(),
-      dueAt: prepDue.toISOString(),
+      remindAt: ringAt,
+      silentBecause: ringAt ? null : (phoneReminderLeads(settings).length === 0 ? 'reminders_off' : 'too_close'),
+      dueAt: timing.dueAt.toISOString(),
       leadMinutes: Math.round((valid.start.getTime() - due.at.getTime()) / MINUTE),
       adjustment: due.adjustment,
       startAt: valid.start.toISOString(),
