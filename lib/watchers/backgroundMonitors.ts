@@ -40,8 +40,9 @@ import {
 } from '../../src/contracts/v1/backgroundMonitorContracts';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import type { WatchCondition } from '../../src/contracts/v1/watcherContracts';
+import { FOOTBALL_TEAM_SIGNAL_KIND, type ClubSyncState } from '../../src/contracts/v1/fixtureContracts';
 import { getStorage, type StorageAdapter } from '../storage';
-import { userSubDoc, PROVIDER_CONNECTIONS } from '../storage/paths';
+import { footballClubSyncStateDoc, userSubDoc, PROVIDER_CONNECTIONS } from '../storage/paths';
 import { createWatcherStore, type StoredWatcher } from './watcherStore';
 import { readMonitoringSettings } from './monitoringSettings';
 
@@ -78,6 +79,7 @@ export function monitorIdForWatcher(watcherId: string): string {
 export function backgroundMonitorStatusOf(
   stored: StoredWatcher,
   connection: IntegrationConnectionRecord | null,
+  sourceHealth: SourceHealth = 'ok',
 ): BackgroundMonitorStatus {
   const { definition, runtime } = stored;
   if (!definition.enabled) return 'paused';
@@ -104,7 +106,31 @@ export function backgroundMonitorStatusOf(
   // thing that knows, so it is the one status taken from the runtime.
   if (runtime.status === 'blocked' && runtime.blockedReason === 'signal_unavailable') return 'error';
 
+  // A source we fetch ourselves whose last fetch failed (closure CL7): the
+  // watcher is not broken and the user has nothing to fix, but "active" next
+  // to a provider that is not answering would be the silence this state
+  // exists to prevent.
+  if (sourceHealth === 'retrying') return 'retrying';
+
   return 'active';
+}
+
+/**
+ * How the data behind a watcher's source is doing, where that is a fact
+ * storage holds. Only a followed football club has one today: the club's
+ * sync state says whether the last fetch reached the provider.
+ */
+export type SourceHealth = 'ok' | 'retrying';
+
+export function sourceHealthOf(state: ClubSyncState | null): SourceHealth {
+  return state?.lastOutcome === 'failed' ? 'retrying' : 'ok';
+}
+
+/** The source health of one watcher, read from storage. */
+export async function readSourceHealth(stored: StoredWatcher, storage: StorageAdapter): Promise<SourceHealth> {
+  if (stored.definition.source.signalKind !== FOOTBALL_TEAM_SIGNAL_KIND) return 'ok';
+  const state = await storage.get<ClubSyncState>(footballClubSyncStateDoc(stored.definition.source.subjectRef));
+  return sourceHealthOf(state ?? null);
 }
 
 function nextCheckAt(status: BackgroundMonitorStatus, now: string): string | null {
@@ -119,9 +145,10 @@ export function projectBackgroundMonitor(
   stored: StoredWatcher,
   connection: IntegrationConnectionRecord | null,
   now: string,
+  sourceHealth: SourceHealth = 'ok',
 ): BackgroundMonitorView {
   const { definition, runtime } = stored;
-  const status = backgroundMonitorStatusOf(stored, connection);
+  const status = backgroundMonitorStatusOf(stored, connection, sourceHealth);
   return {
     monitorId: monitorIdForWatcher(definition.watcherId),
     watcherId: definition.watcherId,
@@ -184,6 +211,11 @@ export async function listBackgroundActivity(
     );
   }
 
+  const health = new Map<string, SourceHealth>();
+  for (const watcher of watchers) {
+    health.set(watcher.definition.watcherId, await readSourceHealth(watcher, storage));
+  }
+
   const monitors = watchers
     .map((watcher) => projectBackgroundMonitor(
       watcher,
@@ -191,6 +223,7 @@ export async function listBackgroundActivity(
         ? null
         : connections.get(watcher.definition.source.connectionId) ?? null,
       now,
+      health.get(watcher.definition.watcherId) ?? 'ok',
     ))
     .sort((left, right) => left.monitorId.localeCompare(right.monitorId));
 

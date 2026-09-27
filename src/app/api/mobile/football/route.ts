@@ -7,6 +7,7 @@ const TITLE_LANGUAGES: readonly ClubLanguage[] = ['ar', 'he', 'en'];
 import { getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
 import { listActiveFixtureCommitments, projectFixturesForUser } from '../../../../../lib/football/projectFixtures';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
+import { footballProviderConfigured, reconcileFootballWatchers } from '../../../../../lib/football/footballWatchers';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,12 @@ export async function GET(request: Request) {
     getFollowedClubs(user.uid),
     listActiveFixtureCommitments(user.uid),
   ]);
-  return Response.json({ success: true, clubs: listClubs(), followedClubIds, fixtures });
+  // `providerConfigured` (closure CL7): whether this server holds the match
+  // data key. Without it nothing is ever fetched, so the app hides the
+  // football source everywhere instead of offering a follow that never fills.
+  return Response.json({
+    success: true, providerConfigured: footballProviderConfigured(), clubs: listClubs(), followedClubIds, fixtures,
+  });
 }
 
 /**
@@ -110,7 +116,12 @@ export async function PUT(request: Request) {
   // Remembered, not only used: the nightly projection has no request of its
   // own and reads the account's locale to keep titling matches in it.
   if (language) await setUserLocale(user.uid, language, now);
+  // One follow, one watcher: the watcher screen lists exactly what this list
+  // follows (closure CL7, `lib/football/footballWatchers.ts`).
+  await reconcileFootballWatchers(user.uid, followedClubIds, now, language);
   await projectFixturesForUser(user.uid, now, { language });
   const fixtures = await listActiveFixtureCommitments(user.uid);
-  return Response.json({ success: true, clubs: listClubs(), followedClubIds, fixtures });
+  return Response.json({
+    success: true, providerConfigured: footballProviderConfigured(), clubs: listClubs(), followedClubIds, fixtures,
+  });
 }
