@@ -51,6 +51,18 @@ const DAYPART_OPTIONS: readonly { optionId: string; labelKey: string; localTime:
   { optionId: 'evening', labelKey: 'evening', localTime: '19:00' },
 ];
 
+/**
+ * The hour a typed part of the day means as an answer: the one its button
+ * uses (FY1 re-review). The lexicon reads «المسا» as 18:00 while the «المسا»
+ * button is 19:00, so at 18:08 a typed «بالمسا» rolled to tomorrow while the
+ * button still offered tonight. Parts with no button keep the lexicon's hour.
+ */
+const LEXICON_HOUR_TO_OPTION: Readonly<Record<number, string>> = { 9: 'morning', 14: 'afternoon', 18: 'evening' };
+export function answeredDayPartTime(lexiconHour: number): string {
+  const option = DAYPART_OPTIONS.find((candidate) => candidate.optionId === LEXICON_HOUR_TO_OPTION[lexiconHour]);
+  return option ? option.localTime : `${String(lexiconHour).padStart(2, '0')}:00`;
+}
+
 /** `YYYY-MM-DD` for a day offset from now, on the user's own clock. */
 function localDay(context: ClarificationContext, offsetDays: number): string | null {
   const shifted = new Date(context.now.getTime() + offsetDays * 86_400_000);

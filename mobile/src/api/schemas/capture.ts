@@ -52,6 +52,11 @@ export const captureProposalSchema = z.object({
       /** True when that day is our guess from a weekday name, not their words. */
       dateEstimated: z.boolean().optional(),
       /**
+       * True when the item happens *on* `resolvedDate` with no hour (an
+       * appointment answered "no specific time", FY1 N4), not by it.
+       */
+      allDayEvent: z.boolean().optional(),
+      /**
        * The one question to ask about this item (UC-2.5, #165).
        *
        * Keys and parameters, never a sentence: the phone renders the question

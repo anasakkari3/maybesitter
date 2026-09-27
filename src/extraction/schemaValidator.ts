@@ -24,7 +24,10 @@ import {
   instantFromLocal,
   lastDayOfMonth,
   localTimeSpecFor,
+  monthEndIsNotTheDay,
+  namesDay,
   readPeriodEndDeadline,
+  thisMonthEndWords,
   timeAnchorOf,
   timeOfDayEvidence,
 } from './timeLexicon';
@@ -171,6 +174,22 @@ export interface ReconciledTime {
  * zone is guessing at one, and a guessed zone would move every time it
  * touched.
  */
+/**
+ * A title the model cut before this month's end, when the reading did not use
+ * those words as the deadline (FY1 N6). «أحضّر تقرير آخر الشهر» is the
+ * month-end report — FX3 keeps the phrase in the rules title — and the model
+ * titled it «أحضّر تقرير». Put back only where they were: the model's title,
+ * as the person wrote it, followed directly by the words.
+ */
+function withMonthEndWords(title: string | null, rawText: string, words: string | null): string | null {
+  if (!title || !words || title.includes(words)) return title;
+  const at = rawText.indexOf(title);
+  if (at < 0) return title;
+  const after = rawText.slice(at + title.length);
+  const lead = /^\s+/.exec(after)?.[0] ?? '';
+  return lead && after.slice(lead.length).startsWith(words) ? `${title}${lead}${words}` : title;
+}
+
 export function reconcileLocalTimeSpec(
   parsed: { dueAt: string | null; remindAt: string | null; localTimeSpec: LocalTimeSpec | null },
   rawText: string,
@@ -371,6 +390,26 @@ export function validateExtractionResult(
   let allDay = false;
   const zone = context?.timezone || 'UTC';
   const monthLastDay = context?.now ? lastDayOfMonth(context.now, zone) : null;
+  // The person's words say this month's end, and name no other day: the words
+  // win over the model (controller ruling, FY1 N6). Gemini answered «أحضّر
+  // تقرير آخر الشهر» on 27 Sep with 31 October, and the card asked «أي ساعة
+  // يوم السبت، 31 أكتوبر؟». A model day after this month's last day on the
+  // person's clock is discarded, and the item then settles or asks as FX3
+  // decides below; an earlier one is FX3's to keep (its 1st-of-month edge
+  // included).
+  const monthEndWords = thisMonthEndWords(rawText);
+  // Only a day *after* this month's end is the N6 defect (review I2): an
+  // earlier model day may be the words' own offset — «قبل آخر الشهر بأسبوع»,
+  // "two days before the end of the month" — and one after it may be, too,
+  // when the words say so («بعد آخر الشهر بيومين», «סוף חודש אוקטובר»).
+  if (
+    monthEndWords && monthLastDay && time.localTimeSpec?.date && time.localTimeSpec.date > monthLastDay
+    && !monthEndIsNotTheDay(rawText)
+    && !namesDay(rawText) && !namesExplicitDate(rawText)
+  ) {
+    time = { ...time, dueAt: null, remindAt: null, localTimeSpec: null };
+    dateInferred = false;
+  }
   const modelDay = time.localTimeSpec?.date ?? null;
   if (
     monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
@@ -450,7 +489,7 @@ export function validateExtractionResult(
     // string.
     action: commandFree(stringOrNull(raw['action']))
       ?? (type === 'task' || type === 'follow_up' ? commandFree(stringOrNull(raw['title'])) : null),
-    title: commandFree(stringOrNull(raw['title'])),
+    title: allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
     remindAt: time.remindAt,

@@ -541,10 +541,13 @@ function ItemCard({
   const dueByDay = !editedInstant && edit?.localDateTime === undefined && !item.needsClarification
     ? item.resolvedDate
     : undefined;
+  // An appointment answered "no specific time" (FY1 N4) is *on* its day, not
+  // due by it: «الأحد · بدون وقت», never «لحد الأحد».
+  const onDay = pendingDay ?? (item.allDayEvent ? dueByDay : undefined);
   const when = editedInstant
     ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(editedInstant, { locale: lang, timeZone: timezone }))}`
-    : pendingDay
-      ? `${formatDayKey(pendingDay, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`
+    : onDay
+      ? `${formatDayKey(onDay, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`
       : dueByDay
         ? tr('reviewDueByDay', { day: formatDayKey(dueByDay, { locale: lang, timeZone: timezone }) })
         : t.noTimeYet;

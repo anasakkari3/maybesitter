@@ -129,6 +129,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['capture.guessedWeekdayClarified', captureProposalSchema],
   // «قبل آخر الشهر» (FX3): a settled item with a day and no hour, and its
   // confirmation as an all-day deadline.
+  ['capture.appointmentNoTimeClarified', captureProposalSchema],
+  ['capture.appointmentNoTimeConfirmation', captureConfirmationSchema],
   ['capture.allDayDeadline', captureProposalSchema],
   ['capture.allDayDeadlineConfirmation', captureConfirmationSchema],
   // The same schema again, over a proposal the model answered (#338). Without

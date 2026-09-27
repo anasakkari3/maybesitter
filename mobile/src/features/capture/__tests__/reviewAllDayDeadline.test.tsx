@@ -58,6 +58,8 @@ function dayOfMonth(key: string): string {
 
 const DEADLINE_DAY = dayKeyIn(10);
 
+let allDayEvent = false;
+
 function proposal() {
   return {
     version: 'v1',
@@ -73,6 +75,7 @@ function proposal() {
         priorityEstimated: true,
         resolvedDate: DEADLINE_DAY,
         dateEstimated: false,
+        ...(allDayEvent ? { allDayEvent: true } : {}),
       },
     ],
     provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
@@ -94,10 +97,12 @@ beforeEach(async () => {
     .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: USER.uid, recorded: true, eventId: 'e-1' } as never);
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+  // Built when the capture is sent, so a test can set `allDayEvent` first.
+  jest.spyOn(captureEndpoints, 'proposeCapture').mockImplementation(async () => proposal() as never);
 });
 
 afterEach(() => {
+  allDayEvent = false;
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -137,5 +142,17 @@ describe('an all-day deadline on the review card', () => {
     expect(when).not.toMatch(/\d{1,2}:\d{2}/);
     // The day is the one they said: no guessed-date chip.
     expect(screen.queryByTestId('review-date-estimated-bill')).toBeNull();
+  });
+});
+
+describe('an appointment answered «بدون وقت محدد» on the review card (FY1 N4)', () => {
+  it('is on its day with no hour — «<day> · بدون وقت» — not «لحد <day>»', async () => {
+    allDayEvent = true;
+    await reachReview();
+    const when = textOf('review-when-bill');
+    expect(when.startsWith(ar.reviewDueByDay.split('{day}')[0]!)).toBe(false);
+    expect(when).toContain(arWeekday(DEADLINE_DAY));
+    expect(when.endsWith(ar.noTimeYet)).toBe(true);
+    expect(when).not.toMatch(/\d{1,2}:\d{2}/);
   });
 });

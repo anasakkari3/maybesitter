@@ -41,6 +41,9 @@ import {
 import { windowEndAfterMove, type Command, type TimeSpec } from '../../../src/domain/stateMachine';
 import { isPastCommitmentTime } from '../commitments/timeRules';
 import { isDateOnly, parseIsoInstant } from '../mobile/time';
+import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
+import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
+import { instantFromLocal } from '../../../src/extraction/timeLexicon';
 
 export class InvalidEditError extends Error {
   constructor(readonly itemId: string, readonly field: string, readonly detail: string) {
@@ -256,4 +259,42 @@ function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' 
     endAt: timeSpec.endAt ?? null,
     allDay: timeSpec.allDay === true,
   };
+}
+
+/**
+ * "No time" on something that happens on a day keeps it on that day (FY1
+ * review, M1): «موعد دكتور يوم الأحد الساعة 10 الصبح» with its time cleared in
+ * the edit sheet was stored `unscheduled`, its Sunday gone. It is the same
+ * all-day event on its day that the «بدون وقت محدد» answer gives
+ * (`clarifyService.allDayAppointment`). A task keeps the plain "no time".
+ *
+ * Applied after `applyEditToCommands`, and only to an edit that cleared the
+ * time; `result` is the reading the item came from, which holds its words and
+ * its day.
+ */
+export function keepEventOnItsDay(commands: readonly Command[], result: ExtractionResult | undefined): Command[] {
+  const date = result?.localTimeSpec?.date;
+  if (!result || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isEventOnDay(result.rawText ?? '')) return [...commands];
+  return commands.map((command): Command => {
+    if (command.type !== 'CreateDraft') return command;
+    const timezone = command.commitment.timeSpec?.timezone && command.commitment.timeSpec.timezone !== 'UTC'
+      ? command.commitment.timeSpec.timezone
+      : result.localTimeSpec?.timezone || 'UTC';
+    const midnight = instantFromLocal(date, '00:00', timezone);
+    if (!midnight) return command;
+    return {
+      ...command,
+      commitment: {
+        ...command.commitment,
+        timeSpec: {
+          ...command.commitment.timeSpec,
+          kind: 'scheduled_event' as const,
+          dueAt: midnight.toISOString(),
+          remindAt: null,
+          allDay: true,
+          timezone,
+        },
+      },
+    };
+  });
 }

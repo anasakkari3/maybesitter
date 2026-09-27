@@ -475,7 +475,9 @@ test('a free-text part of the day answers a time question in Arabic', async () =
     assert.equal(answered.needsClarification, false);
     assert.equal(answered.title, item.title, 'the answer leaked into the title');
     const hour = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, hour: '2-digit', hour12: false }).format(new Date(answered.resolvedTime!));
-    assert.equal(hour, '18');
+    // The «المسا» button's hour (FY1 re-review): typed and tapped agree. It was
+    // the lexicon's 18:00 until then.
+    assert.equal(hour, '19');
     const { result } = await confirmAnswered(proposal.proposalId, item.itemId);
     assert.equal(result.success, true, `confirm failed with ${result.failureCode}`);
   } finally {

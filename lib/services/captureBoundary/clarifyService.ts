@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, instantFromLocal, localTimeSpecFor, timeAnchorOf } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
@@ -12,8 +13,9 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
-import { dayForAnswer } from './clarificationBuilder';
+import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
 import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
+import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
 /**
@@ -216,6 +218,47 @@ function answeredTimeAnchor(rawText: string, freeText: string): 'event' | 'deadl
     : 'event';
 }
 
+/**
+ * An appointment answered "no specific time", kept on its day (closure UAT
+ * round 2, FY1 N4).
+ *
+ * «سجّل موعد دكتور يوم الأحد» answered «بدون وقت محدد» used to lose its day:
+ * the answer cleared the time and the day with it, the commitment was stored
+ * `unscheduled`, the card read «لحد الأحد» as if it were a deadline, and the
+ * day plan put the doctor on today. An appointment happens *on* its day, so
+ * it is an all-day `scheduled_event` there — `dueAt` that day's local
+ * midnight, `allDay` saying nobody chose the hour (`TimeSpec.allDay`).
+ *
+ * Only for what happens on a day (`isEventOnDay`: an appointment, a meeting,
+ * a wedding — FY1 review, event branch), and only with a day. A task
+ * answered the same way is unchanged.
+ */
+function allDayAppointment(result: ExtractionResult, timezone: string): ExtractionResult | null {
+  const date = result.localTimeSpec?.date;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (result.type !== 'task' && result.type !== 'follow_up') return null;
+  if (!isEventOnDay(result.rawText ?? '')) return null;
+  const midnight = instantFromLocal(date, '00:00', timezone);
+  if (!midnight) return null;
+  return {
+    ...result,
+    dueAt: midnight.toISOString(),
+    remindAt: null,
+    localTimeSpec: { date, time: null, timezone },
+    timeEvidence: 'day_only',
+    allDay: true,
+    timeAnchor: 'event',
+    missingFields: result.missingFields.filter((field) => field !== 'time'),
+  } as ExtractionResult;
+}
+
+/** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */
+function notPast(answered: ExtractionResult, now: Date): ExtractionResult {
+  const at = answered.remindAt ?? answered.dueAt;
+  if (at && Date.parse(at) <= now.getTime()) throw new ClarifyError('answer_not_understood');
+  return answered;
+}
+
 /** The time the answer named, applied to the item it answers and nothing else. */
 function withTimeFrom(result: ExtractionResult, source: ExtractionResult): ExtractionResult {
   return {
@@ -256,15 +299,40 @@ async function readFreeTextAnswer(
   // The original text plus what they added, read together. Splicing the words
   // straight into a field would skip the injection screen and the time
   // lexicon both.
-  const combined = `${result.rawText ?? ''}\n${freeText}`.trim();
-  const extracted = await extractor(combined, { now: options.now, timezone: options.timezone }, {
-    // Never the extractor's default: with no provider it would try a local
-    // model, which is neither the consented engine nor the rules.
-    llmProvider: !rulesOnly && dependencies.llmProvider
-      ? dependencies.llmProvider
-      : async () => { throw new Error('rules-only runtime'); },
-    ...(dependencies.llmEngine ? { llmEngine: dependencies.llmEngine } : {}),
-  });
+  //
+  // A time of day typed in answer to a time question replaces the one the
+  // sentence had (FY1 review, I3). «اليوم الساعة 3 العصر لازم أبعت الإيميل»,
+  // asked again at 18:08 because 15:00 had gone, was re-read with its 15:00
+  // still in it: «الساعة 7 المسا» was refused as a past time (a generic 400)
+  // and «بكرا الساعة 10» settled at 15:00 tomorrow. So the sentence is read
+  // without its own times of day, its days kept.
+  const replacesTime = TIME_FIELDS.has(question.field) && !forbidsResolvedTime(freeText);
+  // «الساعة 4» typed alone: the unlikely morning or a guess (FY1 re-review);
+  // not understood, and the صبح/مسا buttons are still there.
+  if (TIME_FIELDS.has(question.field) && isBareEarlyHourAnswer(freeText)) throw new ClarifyError('answer_not_understood');
+  const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
+  const combined = `${original}\n${freeText}`.trim();
+  let extracted: Awaited<ReturnType<typeof extractor>>;
+  try {
+    extracted = await extractor(combined, { now: options.now, timezone: options.timezone }, {
+      // Never the extractor's default: with no provider it would try a local
+      // model, which is neither the consented engine nor the rules.
+      llmProvider: !rulesOnly && dependencies.llmProvider
+        ? dependencies.llmProvider
+        : async () => { throw new Error('rules-only runtime'); },
+      ...(dependencies.llmEngine ? { llmEngine: dependencies.llmEngine } : {}),
+    });
+  } catch (error) {
+    // The guarded extractor refuses a reading whose time has gone, with the
+    // reading. A typed time of day is placed on its next occurrence below, as
+    // any typed hour is. Anything else — «بعد ساعة», "later", "now" — re-read
+    // the clause's own passed hour, and taking that would roll it to tomorrow
+    // unasked (FY1 re-review, I4): not understood. (A day named alone is
+    // never refused here: «بكرا» re-reads the person's own 15:00 on it.)
+    if (error instanceof PastCommitmentTimeError && error.extracted && replacesTime) extracted = error.extracted;
+    else if (error instanceof PastCommitmentTimeError) throw new ClarifyError('answer_not_understood');
+    else throw error;
+  }
   if (extracted.fallbackReason?.startsWith('prompt_injection')) throw new ClarifyError('answer_not_understood');
   const reread = extracted.result;
   const readable = reread.type === 'task' || reread.type === 'follow_up';
@@ -279,6 +347,16 @@ async function readFreeTextAnswer(
     // still moves it.
     const itemDate = result.localTimeSpec?.date ?? null;
     const rereadTime = reread.localTimeSpec?.time ?? null;
+    // A part of the day typed with no clock is its button's hour (FY1
+    // re-review): «بالمسا» is 19:00 like «المسا», tonight while it is ahead.
+    // A day named with it is the re-read's; otherwise the item's.
+    const typedPart = statesClock(freeText) ? null : dayPartHour(freeText, { answer: true });
+    if (typedPart !== null) {
+      const time = answeredDayPartTime(typedPart);
+      const namedDay = readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null;
+      const day = dayForAnswer(time, namedDay ?? itemDate, { now: options.now, timezone: options.timezone });
+      if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
+    }
     if (
       readable && (reread.remindAt || reread.dueAt)
       && question.field !== 'which_day' && itemDate && rereadTime
@@ -287,12 +365,12 @@ async function readFreeTextAnswer(
       const day = dayForAnswer(rereadTime, itemDate, { now: options.now, timezone: options.timezone });
       if (day) return withResolvedTime(result, { date: day, time: rereadTime }, options.timezone);
     }
-    if (readable && (reread.remindAt || reread.dueAt)) return withTimeFrom(result, reread);
+    if (readable && (reread.remindAt || reread.dueAt)) return notPast(withTimeFrom(result, reread), options.now);
     // The answer to "when?": its part of the day is the answer, even before
     // another word ("morning is fine").
     const hour = dayPartHour(freeText, { answer: true });
     if (hour !== null) {
-      const time = `${String(hour).padStart(2, '0')}:00`;
+      const time = answeredDayPartTime(hour);
       const preferred = result.localTimeSpec?.date
         ?? (result.remindAt || result.dueAt
           ? localTimeSpecFor(new Date(Date.parse((result.remindAt || result.dueAt)!)), options.timezone)?.date ?? null
@@ -366,14 +444,21 @@ export async function answerClarification(
   let answerKind: 'option' | 'free_text';
   // "No specific time" — the option with no value (#474).
   let noTime = false;
+  // …for an appointment with a day: an all-day event on it (FY1 N4).
+  let appointmentDay: ExtractionResult | null = null;
 
   if (input.optionId) {
     const option = question.options.find((candidate) => candidate.optionId === input.optionId);
     if (!option) throw new ClarifyError('option_not_found');
     noTime = !option.value.localTime && !option.value.localDate;
-    answered = noTime
-      ? noHourAnswer(result, options.timezone)
-      : withResolvedTime(result, appliedLocal(result, option.value), options.timezone);
+    // An appointment with a day becomes an all-day event on it (FY1 N4);
+    // anything else answered "no hour" keeps a named day as an all-day
+    // deadline, or is undated without one (FY2 N3, `noHourAnswer`).
+    appointmentDay = noTime ? allDayAppointment(result, options.timezone) : null;
+    answered = appointmentDay
+      ?? (noTime
+        ? noHourAnswer(result, options.timezone)
+        : withResolvedTime(result, appliedLocal(result, option.value), options.timezone));
     answerKind = 'option';
   } else {
     answered = await readFreeTextAnswer(result, question, freeText, options, dependencies);
@@ -405,7 +490,8 @@ export async function answerClarification(
   //
   // A "no specific time" answer to a question about a named day keeps the day
   // (UAT round 2, N3): `noHourAnswer` makes it that day, all day, and it is
-  // drafted like any other answered item.
+  // drafted like any other answered item — as is an appointment answered the
+  // same way, an all-day event on its day (FY1 N4). Both are `allDay`.
   const answeredCommands = noTime && !answered.allDay
     ? settleDrafts(applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString()), { resolvedTime: null }))
     : settleDrafts(mapExtractionToCommand(answered, options.now.toISOString()));
@@ -420,8 +506,12 @@ export async function answerClarification(
   items[index] = {
     ...item,
     title: (answered.title || answered.action || item.title).trim(),
-    // A whole day has no time to show (the capture service's own rule).
+    // A whole day has no time to show (the capture service's own rule): an
+    // all-day event's or deadline's `dueAt` is its midnight, not an hour
+    // anybody chose.
     resolvedTime: answered.allDay ? null : answered.remindAt || answered.dueAt || null,
+    // On its day, not by it: the card says «الأحد · بدون وقت», not «لحد الأحد».
+    ...(appointmentDay ? { allDayEvent: true } : {}),
     // Settled: the question it had was the one it needed, and it is answered.
     needsClarification: false,
     priority: answered.priority.level,

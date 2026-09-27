@@ -1498,9 +1498,16 @@
    "model": "2026-09-26 09:00",
    "modelTitle": "לקנות לחם",
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לקנות לחם | 2026-09-26 - | ask_time"
+    ]
+   },
+   "at460c097b": {
     "status": "rejected",
     "items": []
-   }
+   },
+   "fy1": "intended (FY1 N1c): a single commitment whose hour has passed today is asked about, never refused"
   },
   {
    "text": "להתקשר לאמא מחר בערב",
@@ -1546,7 +1553,9 @@
    },
    {
     "answer": "بالمسا",
-    "expected": "2026-09-27 18:00 needs=false q="
+    "expected": "2026-09-27 19:00 needs=false q=",
+    "at460c097b": "2026-09-27 18:00 needs=false q=",
+    "fy1": "intended (FY1 re-review, controller ruling): a typed part of the day is its button's hour (evening 19:00, like the «المسا» option)"
    },
    {
     "answer": "الصبح",

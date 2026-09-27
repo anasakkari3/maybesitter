@@ -759,6 +759,105 @@ export function readPeriodEndDeadline(rawText: string): 'month' | null {
   return MONTH_END.test(rawText) ? 'month' : null;
 }
 
+/*
+ * This month's end in the person's words, whatever it does in the sentence
+ * (closure UAT round 2, FY1 N6): a deadline («قبل آخر الشهر») or only a name
+ * for a thing («تقرير آخر الشهر», "the month-end report", «דוח סוף החודש»).
+ * Another month («آخر الشهر الجاي», "end of next month", «סוף החודש הבא») is
+ * not this one. The words are one group, so a match is the phrase itself.
+ */
+const THIS_MONTH_END_WORDS = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}(?:[وف]?[بلع]?)((?:آخر|اخر|أخر|إخر|نهاية|نهايه|نهايت)\\s+${AR_MONTH_WORD})${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`,
+    `\\b((?:the\\s+)?end\\s+of\\s+(?:the\\s+|this\\s+)?month|(?:the\\s+)?month[\\s-]end)\\b${EN_NOT_ANOTHER_MONTH}`,
+    `${NOT_LETTER_BEFORE}(?:[וש]?[בל]?)(סוף\\s+ה?חודש)${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * The words naming this month's end, as the person wrote them («آخر الشهر»,
+ * "end of the month", «סוף החודש»), or null when the text names none.
+ */
+export function thisMonthEndWords(rawText: string): string | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const match = THIS_MONTH_END_WORDS.exec(rawText);
+  if (!match) return null;
+  return match[1] ?? match[2] ?? match[3] ?? null;
+}
+
+/*
+ * The month's end, but not as the day itself (FY1 review, I2): an offset on
+ * it — «قبل آخر الشهر بأسبوع», "two days before the end of the month",
+ * «שבוע לפני סוף החודש», «بعد آخر الشهر بيومين», "after the end of the month"
+ * — or another month named after it, «סוף חודש אוקטובר». The model reads
+ * these to another day, rightly, and that day is not the month's last.
+ */
+const AR_END = '(?:آخر|اخر|أخر|إخر|نهاية|نهايه|نهايت)';
+const AR_DURATION = '(?:أسبوع|اسبوع|أسبوعين|اسبوعين|يوم|يومين|أيام|ايام|جمعة|جمعتين)';
+const EN_DURATION = '(?:days?|weeks?|a\\s+day|a\\s+week|a\\s+couple\\s+of\\s+days)';
+const HE_DURATION = '(?:יום|יומיים|ימים|שבוע|שבועיים|שבועות)';
+const AR_MONTHS = '(?:\\d{1,2}|كانون|شباط|آذار|اذار|نيسان|أيار|ايار|حزيران|تموز|آب|اب|أيلول|ايلول|تشرين|يناير|فبراير|مارس|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر)';
+const HE_MONTHS = '(?:ינואר|פברואר|מרץ|מרס|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)';
+const EN_MONTHS = '(?:january|february|march|april|may|june|july|august|september|october|november|december)';
+const MONTH_END_NOT_THE_DAY = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}[وف]?(?:قبل|بعد)\\s+${AR_END}\\s+${AR_MONTH_WORD}\\s+(?:ب|بـ\\s*)(?:\\d+\\s*)?${AR_DURATION}${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}(?:ب)?(?:\\d+\\s*)?${AR_DURATION}\\s+(?:قبل|بعد)\\s+${AR_END}\\s+${AR_MONTH_WORD}`,
+    `${NOT_LETTER_BEFORE}[وف]?بعد\\s+${AR_END}\\s+${AR_MONTH_WORD}${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}${AR_END}\\s+(?:هال|ال)?شهر\\s+${AR_MONTHS}${NOT_LETTER_AFTER}`,
+    `\\b${EN_DURATION}\\s+(?:before|after)\\s+(?:the\\s+)?(?:end\\s+of|month[\\s-]end)\\b`,
+    '\\bafter\\s+(?:the\\s+)?(?:end\\s+of\\s+(?:the\\s+|this\\s+)?month|month[\\s-]end)\\b',
+    `\\bend\\s+of\\s+(?:the\\s+month\\s+of\\s+)?${EN_MONTHS}\\b`,
+    `${NOT_LETTER_BEFORE}${HE_DURATION}\\s+(?:לפני|אחרי)\\s+ה?סוף\\s+ה?חודש`,
+    `${NOT_LETTER_BEFORE}[ו]?אחרי\\s+ה?סוף\\s+ה?חודש`,
+    `${NOT_LETTER_BEFORE}[ובל]?סוף\\s+ה?חודש\\s+ה?${HE_MONTHS}${NOT_LETTER_AFTER}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * True when the text's month's end carries an offset or names another month,
+ * so the day it means is not this month's last (FY1 review, I2).
+ */
+export function monthEndIsNotTheDay(rawText: string): boolean {
+  return typeof rawText === 'string' && MONTH_END_NOT_THE_DAY.test(rawText);
+}
+
+/** The number a clock word names, or an early h:mm with no marker. */
+const CLOCK_NUMBER = /(?:\b(?:at|by|around)|الساعة|الساعه|عند|على|בשעה|שעה|[בס]-)\s*(\d{1,2})(?::\d{2})?(?=$|[\s,.،])|\b(\d{1,2})\s*o'?clock\b|(?<![\d:])([1-6]):\d{2}(?=$|[\s,.،])/gi;
+
+/**
+ * A typed bare hour from one to six with no part of the day — «الساعة 4»,
+ * "at 4", «ב-4» (FY1 re-review). The rules would read it as the morning, the
+ * unlikely half; as an answer it is not understood, and the question's
+ * صبح/مسا buttons stay (CL1 round 6 applied to answers).
+ */
+export function isBareEarlyHourAnswer(rawText: string): boolean {
+  if (typeof rawText !== 'string' || timeOfDayEvidence(rawText) !== 'clock_marker') return false;
+  const hours = Array.from(normalizeClockText(rawText).matchAll(CLOCK_NUMBER), (match) => Number(match[1] ?? match[2] ?? match[3]));
+  return hours.length > 0 && hours.every((hour) => hour >= 1 && hour <= 6);
+}
+
+const TIME_OF_DAY_STRIP = [
+  ...DAY_PART_MENTION_SOURCES.map((source) => new RegExp(source, 'giu')),
+  ...[...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi')),
+];
+
+/**
+ * The text with its times of day taken out — clock times, ranges and parts
+ * of the day — and its days left in (FY1 review, I3). For re-reading a
+ * sentence whose hour a typed answer is replacing: «اليوم الساعة 3 العصر لازم
+ * أبعت الإيميل» answered «الساعة 7 المسا» is read as «اليوم لازم أبعت
+ * الإيميل» + «الساعة 7 المسا», so the passed 15:00 is not read first.
+ */
+export function withoutTimeOfDay(rawText: string): string {
+  if (typeof rawText !== 'string') return '';
+  let stripped = normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(rawText)));
+  for (const pattern of TIME_OF_DAY_STRIP) stripped = stripped.replace(pattern, ' ');
+  return stripped.replace(/[ \t]+/g, ' ').trim();
+}
+
 /** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */
 export function lastDayOfMonth(now: Date, timeZone: string): string {
   const today = localTimeSpecFor(now, timeZone)?.date ?? now.toISOString().slice(0, 10);

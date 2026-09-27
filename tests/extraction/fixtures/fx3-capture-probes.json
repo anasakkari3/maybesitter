@@ -1287,11 +1287,18 @@
     "source": "default"
    },
    "expected": {
+    "status": "proposed",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "at460c097b": {
     "status": "needs_clarification",
     "items": [
      "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-10-31 - | ask_time | normal~"
     ]
-   }
+   },
+   "fy1": "intended (FY1 N6 controller ruling): the words say this month's end, so a model day other than this month's last day on the person's clock is discarded and FX3 settles the deadline; on the 1st at 00:30 local that is the new month's end"
   },
   {
    "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",

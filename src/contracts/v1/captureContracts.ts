@@ -68,6 +68,14 @@ export interface CaptureProposalItemContract {
    */
   dateEstimated?: boolean;
   /**
+   * True when the item is an event *on* `resolvedDate` with no hour — an
+   * appointment answered "no specific time" (FY1 N4) — rather than a deadline
+   * *by* that day. Absent otherwise. A settled item with a day and no
+   * `resolvedTime` reads «لحد <day>» on the review card; this one reads
+   * «<day> · بدون وقت».
+   */
+  allDayEvent?: boolean;
+  /**
    * The one question worth asking about this item (UC-2.5, #165).
    *
    * Declared here rather than only produced: `captureBoundaryService` has been
