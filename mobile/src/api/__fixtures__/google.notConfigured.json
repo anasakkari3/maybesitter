@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "google": {
+    "status": "not_configured",
+    "accountEmail": null,
+    "features": {
+      "calendar": false,
+      "gmail": false,
+      "drive": false
+    },
+    "pickerAvailable": false,
+    "connectedAt": null
+  }
+}

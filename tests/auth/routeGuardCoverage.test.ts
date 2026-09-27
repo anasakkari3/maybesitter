@@ -44,7 +44,15 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Forty-two today: the football fixtures branch merged main (forty) and
+  // Ninety-one today: CL6a added the eight Google routes under
+  // `/api/mobile/integrations/google` — status, connect, callback,
+  // disconnect, calendar, gmail/scan, drive/picker and drive/import. The
+  // callback is the one whose guard is load-bearing: the uid it binds a
+  // Google grant to must come from the verified token, never from the OAuth
+  // state, or a stolen code could be redeemed into somebody else's account.
+  // The browser-facing redirect and Picker page live outside `/api/mobile`
+  // (`/api/oauth/google/*`) precisely because a browser carries no token.
+  // Forty-two before that: the football fixtures branch merged main (forty) and
   // brings two of its own from Task 11, `GET|PUT /api/mobile/football` and `DELETE /api/mobile/football/fixtures/{commitmentId}`
   // -- the dismiss route in particular is the one whose failure mode is
   // silent rather than loud: an unauthenticated caller who could reach it
@@ -198,7 +206,8 @@ test('every mobile route file exists and is enumerated', () => {
   // so an unguarded one would write a plan into an account that is not theirs.
   // The week file also answers `GET` (the saved week days for the Calendar
   // strip, CL5b I4): one more handler, no more files, guarded the same way.
-  assert.equal(files.length, 83, `found:\n${files.join('\n')}`);
+  // Ninety-one with the eight Google routes (CL6a), described at the top.
+  assert.equal(files.length, 91, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

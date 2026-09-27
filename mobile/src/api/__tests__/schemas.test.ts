@@ -87,6 +87,15 @@ import {
   icsFeedRefusalSchema,
   icsFeedUpdatedSchema,
 } from '../schemas/icsFeeds';
+import {
+  googleCalendarBlocksSchema,
+  googleCalendarSyncedSchema,
+  googleConnectStartedSchema,
+  googleDisconnectedSchema,
+  googlePickerTicketSchema,
+  googleRefusalSchema,
+  googleStatusResponseSchema,
+} from '../schemas/google';
 
 /**
  * The drift detector.
@@ -293,6 +302,31 @@ const CASES: Array<[string, z.ZodType]> = [
   ['icsFeeds.deleted', icsFeedDeletedSchema],
   ['icsFeeds.invalidUrl', icsFeedRefusalSchema],
   ['icsFeeds.refreshTooSoon', icsFeedRefusalSchema],
+  // The Google connection (CL6a), recorded from the routes against a fake
+  // Google. `google.notConfigured` is what every build gets until the owner
+  // adds the OAuth client; the Gmail scan and the Drive import are the share
+  // proposal, read by the same review screen.
+  ['google.notConfigured', googleStatusResponseSchema],
+  ['google.notConnected', googleStatusResponseSchema],
+  ['google.connected', googleStatusResponseSchema],
+  ['google.status', googleStatusResponseSchema],
+  ['google.needsReauth', googleStatusResponseSchema],
+  ['google.connectStarted', googleConnectStartedSchema],
+  ['google.disconnected', googleDisconnectedSchema],
+  ['google.calendarSynced', googleCalendarSyncedSchema],
+  ['google.calendarBlocks', googleCalendarBlocksSchema],
+  ['google.drivePicker', googlePickerTicketSchema],
+  ['google.gmailScan', shareProposalSchema],
+  ['google.gmailScanNotRead', shareProposalSchema],
+  ['google.gmailScanPartial', shareProposalSchema],
+  ['google.gmailScanPartialEmpty', shareProposalSchema],
+  ['google.gmailScanBudget', shareProposalSchema],
+  ['google.gmailScanBudgetEmpty', shareProposalSchema],
+  ['google.driveImport', shareProposalSchema],
+  ['google.refusedNotConfigured', googleRefusalSchema],
+  ['google.refusedDenied', googleRefusalSchema],
+  ['google.refusedAiConsent', googleRefusalSchema],
+  ['google.refusedReauth', googleRefusalSchema],
 ];
 
 /**

@@ -1,6 +1,7 @@
 import type { Commitment } from './schemas/common';
 import type { PlanEditRejected, PlanProposalRejected, Week } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
+import type { GoogleRefusalReason } from './schemas/google';
 
 /**
  * Every way a call to `/api/mobile/**` can fail, as types the UI can switch on.
@@ -347,5 +348,20 @@ export function isRetryable(error: unknown): boolean {
 export class IcsFeedRefusedError extends ApiError {
   constructor(readonly reason: IcsFeedReason, readonly detail: string | null) {
     super(`the calendar feed request was refused: ${reason}`);
+  }
+}
+
+/**
+ * A Google route refused, with its own closed reason (CL6a).
+ *
+ * One class for every status those routes use, because the row's words depend
+ * on the reason — "reconnect", "that was a different Google account" and "the
+ * owner has not set this up yet" are all non-2xx and ask different things of
+ * the person. None of them is ever a 401: a dead Google grant is not this
+ * app's session expiring.
+ */
+export class GoogleRefusedError extends ApiError {
+  constructor(readonly reason: GoogleRefusalReason) {
+    super(`the Google request was refused: ${reason}`);
   }
 }

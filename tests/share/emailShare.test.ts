@@ -35,23 +35,43 @@ import { fileURLToPath } from 'node:url';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
+import {
+  MemoryCaptureProposalStore,
+  TransactionalCapturePersistenceAdapter,
+  proposeCapture,
+} from '../../lib/services/captureBoundary/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { LLMUnavailableError } from '../../src/extraction/llm/index.ts';
 import { screenForInjection } from '../../src/extraction/injectionBoundary.ts';
-import { proposeFromShare } from '../../lib/services/share/shareIntakeService.ts';
+import { proposeFromMailbox, proposeFromShare, type ShareIntakeContext } from '../../lib/services/share/shareIntakeService.ts';
 import { cleanEmail } from '../../lib/services/share/emailCleaner.ts';
-import { emailPreprocessor } from '../../lib/services/share/channels/email.ts';
+import { emailPreprocessor, readMailboxMessages } from '../../lib/services/share/channels/email.ts';
 import { resolveSharePreprocessor } from '../../lib/services/share/shareRegistry.ts';
-import { MAX_EMAIL_ITEMS } from '../../lib/services/share/prompts/emailPrompt.ts';
+import {
+  EMAIL_BATCH_RESPONSE_JSON_SCHEMA,
+  EMAIL_BATCH_SYSTEM_INSTRUCTION,
+  EMAIL_RESPONSE_JSON_SCHEMA,
+  EMAIL_SYSTEM_INSTRUCTION,
+  MAX_EMAIL_ITEMS,
+} from '../../lib/services/share/prompts/emailPrompt.ts';
 import {
   MAX_EVIDENCE_CHARACTERS,
   SHARE_SEGMENT_SEPARATOR,
   ShareInputError,
+  type SharePreprocessContext,
   type SharePreprocessorInput,
   type SharePreprocessResult,
 } from '../../lib/services/share/shareTypes.ts';
 import { emailModelStub, untrustedContentOf, type StubCall } from './emailModelStub.ts';
+import {
+  LIVE_MAILBOX_BATCH_ANSWER,
+  LIVE_MAILBOX_EMAILS,
+  LIVE_MAILBOX_MESSAGES,
+  LIVE_MAILBOX_REFERENCE_TIME,
+  LIVE_MAILBOX_SINGLE_ANSWERS,
+  LIVE_MAILBOX_TIMEZONE,
+} from '../fixtures/share/email/liveMailbox.ts';
 // Both built-ins, so the resolution test is about the registry a real process
 // has rather than about one this file arranged.
 import '../../lib/services/share/channels/index.ts';
@@ -817,4 +837,294 @@ test('a share with no text at all is refused rather than read as an empty email'
       return true;
     },
   );
+});
+
+/* ══ An appointment the reader attends (CL6a round 2, N7) ═════════ */
+
+/*
+ * "Your dentist appointment is on Tuesday at 4pm" used to come back as "arrive
+ * early" and "bring your insurance card" — two chores and no appointment — and
+ * an Arabic meeting request for Wednesday at 11 as «أكّد موعد…» only. Both
+ * paths share the prompt, so both missed it. The answers these tests read are
+ * gemini-2.5-flash's own, recorded against the fixed prompt
+ * (`tests/fixtures/share/email/liveMailbox.ts`).
+ */
+
+/**
+ * What each of the nine becomes through the batched Gmail path, by email
+ * number. Five of them are nothing: the past invoice, the newsletter, the
+ * receipt, the shipping notice and the injection.
+ */
+const LIVE_BATCH_EXPECTED: Readonly<Record<number, readonly string[]>> = {
+  1: ['Dentist appointment on Tuesday at 4pm', 'Arrive 10 minutes early', 'Bring insurance card'],
+  // "due Friday", sent on Friday the 25th and read on Sunday the 27th: gone.
+  2: [],
+  3: ['أكّد الوقت', 'اجتماع خطة المشروع يوم الأربعاء الساعة 11 الصبح'],
+  4: ['שלח צילום תעודת הזהות עד יום חמישי', 'שלח תלושי השכר עד יום חמישי'],
+  5: [],
+  6: [],
+  7: [],
+  // Nothing planted, and nothing borrowed from message 1.
+  8: [],
+  // The reader's two; the sender's bus booking is not one of them.
+  9: ['Sign permission slip by Monday', 'Send permission slip back by Monday'],
+};
+
+/**
+ * The same through the single share path, for the five it was asked about.
+ * Email 3 alone now carries the meeting too (it did not before the prompt's
+ * invitation sentence — see the fixture); email 9 alone is one combined item.
+ */
+const LIVE_SINGLE_EXPECTED: Readonly<Record<number, readonly string[]>> = {
+  1: ['Dentist appointment on Tuesday at 4pm', 'Arrive 10 minutes early', 'Bring your insurance card'],
+  3: ['أكّد الوقت', 'اجتماع بخصوص المشروع يوم الأربعاء الساعة 11 الصبح'],
+  5: [],
+  8: [],
+  9: ['Sign and send permission slip by Monday'],
+};
+
+function liveInput(raw: string): SharePreprocessorInput {
+  return {
+    kind: 'text', sourceHint: 'email', text: raw, files: [],
+    timezone: LIVE_MAILBOX_TIMEZONE, referenceTime: LIVE_MAILBOX_REFERENCE_TIME,
+  };
+}
+
+function recorded(answer: string): SharePreprocessContext['generateStructured'] {
+  return async () => ({ text: answer, model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 });
+}
+
+function liveContext(answer: string): SharePreprocessContext {
+  return {
+    uid: 'email-reader', uidHash: 'hashed', generateStructured: recorded(answer),
+    readAiConsent: async () => ({ granted: true } as never),
+    limits: { maxTotalBytes: 1, maxFileBytes: 1, maxFiles: 1, maxTextCharacters: 20_000 },
+  };
+}
+
+test('both email prompts ask for an attended appointment as its own item, with the words naming its time', () => {
+  for (const system of [EMAIL_SYSTEM_INSTRUCTION, EMAIL_BATCH_SYSTEM_INSTRUCTION]) {
+    assert.match(system, /appointment, meeting or event the reader will attend is itself an item/);
+    // Round 2 extension: alone, the Arabic meeting *request* came back as its
+    // confirm step only. Being invited or asked to confirm counts too.
+    assert.match(system, /invited to or asked to confirm counts too/);
+    assert.match(system, /timePhrase:/);
+  }
+  for (const schema of [EMAIL_RESPONSE_JSON_SCHEMA, EMAIL_BATCH_RESPONSE_JSON_SCHEMA]) {
+    assert.ok('timePhrase' in schema.properties.items.items.properties, 'the answer has room for the time');
+  }
+});
+
+test('the single email path: both appointments are items with their day and time, and the negatives stay empty', async () => {
+  for (const [number, answer] of Object.entries(LIVE_MAILBOX_SINGLE_ANSWERS)) {
+    const result = await emailPreprocessor.preprocess(liveInput(LIVE_MAILBOX_EMAILS[Number(number) - 1]!), liveContext(answer));
+    const segments = result.text === '' ? [] : result.text.split(SHARE_SEGMENT_SEPARATOR);
+    assert.deepEqual(segments, LIVE_SINGLE_EXPECTED[Number(number)], `email ${number}`);
+  }
+});
+
+test('the batched Gmail path: the same nine in one call, each item on its own message, precision intact', async () => {
+  const { outcomes, modelCalls } = await readMailboxMessages(
+    LIVE_MAILBOX_EMAILS.map((raw) => ({ raw })),
+    { referenceTime: LIVE_MAILBOX_REFERENCE_TIME, timezone: LIVE_MAILBOX_TIMEZONE },
+    liveContext(LIVE_MAILBOX_BATCH_ANSWER),
+  );
+  assert.equal(modelCalls, 1);
+  outcomes.forEach((outcome, index) => {
+    assert.equal(outcome.kind, 'read', `email ${index + 1}`);
+    const texts = outcome.kind === 'read' ? outcome.segments.map((segment) => segment.text) : [];
+    assert.deepEqual(texts, LIVE_BATCH_EXPECTED[index + 1], `email ${index + 1}`);
+  });
+});
+
+test('a time the email does not contain is not a time the email set', async () => {
+  const answer = JSON.stringify({ items: [{
+    title: 'Dentist appointment',
+    evidenceSentence: 'This is a reminder that your dentist appointment is on Tuesday at 4pm with Dr. Haddad.',
+    dueDayPhrase: 'on Tuesday',
+    timePhrase: 'at 5pm',
+  }] });
+  const result = await emailPreprocessor.preprocess(liveInput(LIVE_MAILBOX_EMAILS[0]!), liveContext(answer));
+  assert.equal(result.text, 'Dentist appointment on Tuesday');
+});
+
+test('an appointment whose day has passed is dropped like any other past item', async () => {
+  const late = { ...liveInput(LIVE_MAILBOX_EMAILS[0]!), referenceTime: new Date('2026-09-30T07:00:00.000Z') };
+  const result = await emailPreprocessor.preprocess(late, liveContext(LIVE_MAILBOX_SINGLE_ANSWERS[1]!));
+  assert.doesNotMatch(result.text, /Dentist appointment/);
+  assert.equal(result.metrics?.pastDropped, 1);
+});
+
+/**
+ * From the email to review, through the capture pipeline a typed sentence
+ * takes: the appointment is a fixed time on its day, raised to Must by the
+ * appointment rule every capture uses (L4) — not by anything this channel
+ * decides.
+ */
+async function reviewOf(run: () => Promise<ShareResult>): Promise<ShareResult> {
+  let result: ShareResult | undefined;
+  await withStorage(async () => { result = await run(); });
+  return result!;
+}
+
+function appointmentsIn(proposal: ShareResult) {
+  return proposal.items
+    .filter((item) => /Dentist appointment|اجتماع (?:خطة|بخصوص) المشروع/.test(item.title))
+    .map((item) => ({ title: item.title, resolvedTime: item.resolvedTime, priority: item.priority }));
+}
+
+const LIVE_APPOINTMENTS = [
+  // Tuesday 29 September, 16:00 in Jerusalem.
+  { title: 'Dentist appointment', resolvedTime: '2026-09-29T13:00:00.000Z', priority: 'high' },
+  // Wednesday 30 September, 11:00 in Jerusalem.
+  { title: 'اجتماع خطة المشروع', resolvedTime: '2026-09-30T08:00:00.000Z', priority: 'high' },
+];
+
+/** One shared email through the whole share path, with its recorded answer. */
+async function shareLive(number: number, propose?: ShareIntakeContext['propose']): Promise<ShareResult> {
+  return await reviewOf(() => proposeFromShare(
+    {
+      text: LIVE_MAILBOX_EMAILS[number - 1]!, files: [], sourceHint: 'email',
+      timezone: LIVE_MAILBOX_TIMEZONE, referenceTime: LIVE_MAILBOX_REFERENCE_TIME.toISOString(),
+    },
+    {
+      uid: READER, reserve: async () => 'ok', now: LIVE_MAILBOX_REFERENCE_TIME,
+      generateStructured: recorded(LIVE_MAILBOX_SINGLE_ANSWERS[number]!),
+      readAiConsent: async () => ({ granted: true } as never),
+      ...(propose ? { propose } : {}),
+    },
+  ));
+}
+
+test('a shared email\'s appointment reaches review as a fixed time on its day, and a Must', async () => {
+  const dentist = await shareLive(1);
+  assert.deepEqual(appointmentsIn(dentist), [LIVE_APPOINTMENTS[0]]);
+  // Beside the chores it came with, still one proposal the person confirms.
+  assert.equal(dentist.items.length, 3);
+  assert.equal(dentist.share.evidenceDropped, false);
+
+  const meeting = await shareLive(3);
+  assert.deepEqual(appointmentsIn(meeting), [{ ...LIVE_APPOINTMENTS[1]!, title: 'اجتماع بخصوص المشروع' }]);
+});
+
+test('a Gmail scan\'s appointments reach review the same way, from one batched call', async () => {
+  const proposal = await reviewOf(() => proposeFromMailbox(
+    {
+      readMessages: async () => LIVE_MAILBOX_MESSAGES,
+      timezone: LIVE_MAILBOX_TIMEZONE,
+      referenceTime: LIVE_MAILBOX_REFERENCE_TIME.toISOString(),
+    },
+    {
+      uid: READER, reserve: async () => 'ok', now: LIVE_MAILBOX_REFERENCE_TIME,
+      generateStructured: recorded(LIVE_MAILBOX_BATCH_ANSWER),
+      readAiConsent: async () => ({ granted: true } as never),
+    },
+  ));
+  assert.deepEqual(appointmentsIn(proposal), LIVE_APPOINTMENTS);
+  assert.equal(proposal.share.metrics.messagesWithItems, 4, 'the dentist, the meeting, the documents, the slip');
+});
+
+/*
+ * The same appointments on the capture pipeline's *model* path (round 2
+ * extension). The tests above read the line through the rules, which is what
+ * a test run without a model does. In production a consenting account's
+ * capture is read by Gemini, and the model is free to leave the priority at
+ * its default. The capture model here answers in the schema the capture
+ * prompt asks for, with the day and hour right and the priority left at
+ * `normal`/`default` — the least helpful answer a model can give — so a Must
+ * can only come from the capture pipeline's own validator (L4).
+ */
+const MODEL_READS: ReadonlyArray<{ line: RegExp; title: string; date: string; time: string; dueAt: string }> = [
+  { line: /^Dentist appointment on Tuesday at 4pm$/, title: 'Dentist appointment', date: '2026-09-29', time: '16:00', dueAt: '2026-09-29T13:00:00.000Z' },
+  { line: /^اجتماع (?:خطة|بخصوص) المشروع يوم الأربعاء الساعة 11 الصبح$/, title: 'اجتماع المشروع', date: '2026-09-30', time: '11:00', dueAt: '2026-09-30T08:00:00.000Z' },
+];
+
+function captureModel(): { provider: (prompt: string) => Promise<string>; asked: string[] } {
+  const asked: string[] = [];
+  const provider = async (prompt: string) => {
+    const begin = prompt.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE\n') + 'BEGIN_UNTRUSTED_USER_MESSAGE\n'.length;
+    const line = JSON.parse(prompt.slice(begin, prompt.indexOf('\nEND_UNTRUSTED_USER_MESSAGE'))) as string;
+    asked.push(line);
+    const known = MODEL_READS.find((read) => read.line.test(line));
+    return JSON.stringify({
+      type: 'task',
+      action: known?.title ?? line,
+      title: known?.title ?? line,
+      person: null,
+      dueAt: known?.dueAt ?? null,
+      remindAt: null,
+      localTimeSpec: known ? { date: known.date, time: known.time, timezone: LIVE_MAILBOX_TIMEZONE } : null,
+      priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
+      flexibility: 'movable',
+      confidence: { overall: 0.9, type: 0.9, action: 0.9, time: known ? 0.9 : 0.2, priority: 0.5 },
+      missingFields: known ? [] : ['time'],
+      ambiguityFlags: [],
+      explicitReminderRequest: false,
+      explicitPressureRequest: false,
+    });
+  };
+  return { provider, asked };
+}
+
+/** The share service's capture step, on the model path, with `model` as the capture model. */
+function viaCaptureModel(model: ReturnType<typeof captureModel>): ShareIntakeContext['propose'] {
+  return (async (input: { text: string; referenceTime: string; timezone: string }) => await proposeCapture(
+    input.text,
+    { now: new Date(input.referenceTime), timezone: input.timezone, scopeId: READER, requestedEngine: 'model' },
+    {
+      store: new MemoryCaptureProposalStore(),
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+      llmProvider: model.provider,
+      llmEngine: 'gemini',
+    },
+  )) as never;
+}
+
+test('on the capture model path too, an email\'s appointment reaches review as a fixed time and a Must', async () => {
+  const model = captureModel();
+  const dentist = await shareLive(1, viaCaptureModel(model));
+  const meeting = await shareLive(3, viaCaptureModel(model));
+  assert.ok(model.asked.includes('Dentist appointment on Tuesday at 4pm'), 'the capture model read the dentist line');
+  assert.ok(model.asked.some((line) => MODEL_READS[1]!.line.test(line)), 'the capture model read the meeting line');
+  for (const proposal of [dentist, meeting]) {
+    assert.equal(proposal.provenance.executedEngine, 'gemini', 'read by the model, not the rules');
+  }
+  const found = [...dentist.items, ...meeting.items]
+    .filter((item) => MODEL_READS.some((read) => read.title === item.title))
+    .map((item) => ({ title: item.title, resolvedTime: item.resolvedTime, priority: item.priority, priorityEstimated: item.priorityEstimated }));
+  assert.deepEqual(found, [
+    { title: 'Dentist appointment', resolvedTime: '2026-09-29T13:00:00.000Z', priority: 'high', priorityEstimated: true },
+    { title: 'اجتماع المشروع', resolvedTime: '2026-09-30T08:00:00.000Z', priority: 'high', priorityEstimated: true },
+  ]);
+});
+
+test('on the capture model path, a Gmail scan\'s appointments reach review the same way', async () => {
+  const model = captureModel();
+  const proposal = await reviewOf(() => proposeFromMailbox(
+    {
+      readMessages: async () => LIVE_MAILBOX_MESSAGES,
+      timezone: LIVE_MAILBOX_TIMEZONE,
+      referenceTime: LIVE_MAILBOX_REFERENCE_TIME.toISOString(),
+    },
+    {
+      uid: READER, reserve: async () => 'ok', now: LIVE_MAILBOX_REFERENCE_TIME,
+      generateStructured: recorded(LIVE_MAILBOX_BATCH_ANSWER),
+      readAiConsent: async () => ({ granted: true } as never),
+      propose: viaCaptureModel(model),
+    },
+  ));
+  // The whole proposal's provenance says `rule-based` here: the capture
+  // pipeline reads some of the other lines (the Hebrew and the permission
+  // slip) without the model, as it does for a typed capture. The two
+  // appointments were the model's: it was asked both lines, and the titles
+  // below are its own, not the lines it was given.
+  assert.ok(model.asked.includes('Dentist appointment on Tuesday at 4pm'));
+  assert.ok(model.asked.includes('اجتماع خطة المشروع يوم الأربعاء الساعة 11 الصبح'));
+  const found = proposal.items
+    .filter((item) => MODEL_READS.some((read) => read.title === item.title))
+    .map((item) => ({ title: item.title, resolvedTime: item.resolvedTime, priority: item.priority }));
+  assert.deepEqual(found, [
+    { title: 'Dentist appointment', resolvedTime: '2026-09-29T13:00:00.000Z', priority: 'high' },
+    { title: 'اجتماع المشروع', resolvedTime: '2026-09-30T08:00:00.000Z', priority: 'high' },
+  ]);
 });

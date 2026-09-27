@@ -24,6 +24,7 @@ import { Dialog } from '../../ui/dialog';
 import { ProductActions, ProductPage, ProductSection, ProductRow } from '../../ui/product';
 import { capabilities as cap, shareCapability } from './capabilities';
 import { ShareGuideSheet, type ShareGuideKind } from './ShareGuideSheet';
+import { useGoogleStatus } from '../google/useGoogle';
 
 export function MyMaybeSitterScreen() {
   const { t, actions, lang } = useApp();
@@ -54,34 +55,31 @@ export function IntegrationsScreen() {
   const [guide, setGuide] = React.useState<ShareGuideKind | null>(null);
   const deviceStatus = calendarReadEnabled() || calendarWriteEnabled() ? 'AVAILABLE' as const : 'COMING_SOON' as const;
   const share = shareCapability();
+  const google = useGoogleStatus().data;
+  // One Google page holds all three rows and their real state (CL6a). Here a
+  // row says only what is true of its feature: the owner has not set Google
+  // up yet, it needs reconnecting, or it is connected.
+  const googleLine = (feature: 'calendar' | 'gmail' | 'drive', fallback?: string) => {
+    if (google?.status === 'not_configured') return t.googleNotConfigured;
+    if (google?.status === 'needs_reauth' && google.features[feature]) return t.googleReconnectBody;
+    if (google?.status === 'connected' && google.features[feature]) return t.googleConnected;
+    return fallback;
+  };
+  const openGoogle = () => actions.go('googleIntegration');
   return <ProductPage id="integrations" title={t.xIntegrations} subtitle={t.xIntegrationsBody}
     overlay={guide ? <ShareGuideSheet kind={guide} onClose={() => setGuide(null)} /> : null}>
     <ProductRow id="integration-device" title={t.xDeviceCalendar} body={t.xDeviceBody} icon="calendar" status={deviceStatus} onPress={when(deviceStatus, () => actions.go('calendarSettings'))} />
     <ProductRow id="integration-whatsapp" title="WhatsApp" body={t.xWhatsappBody} icon="link" status={share} onPress={when(share, () => setGuide('whatsapp'))} />
-    {/* Google Calendar works today through the phone's calendar, which the
-        page explains; the direct connection is its Coming-soon section. */}
-    <ProductRow id="integration-google" title="Google Calendar" body={t.xGoogleBody} icon="calendar" onPress={() => actions.go('googleIntegration')} />
+    <ProductRow id="integration-google" title="Google Calendar" body={googleLine('calendar', t.googleCalendarBody)} icon="calendar" onPress={openGoogle} />
     <ProductRow title={t.xHealth} icon="habit" onPress={() => actions.go('readinessSettings')} />
     <ProductRow title={t.settingsSources} body={t.settingsSourcesSub} icon="link" onPress={() => actions.go('sources')} />
-    <ProductRow title="Gmail" icon="file" status={cap.gmail} />
-    <ProductRow title="Google Drive" icon="file" status={cap.drive} />
+    <ProductRow id="integration-gmail" title="Gmail" body={googleLine('gmail', t.googleGmailBody)} icon="file" onPress={openGoogle} />
+    <ProductRow id="integration-drive" title="Google Drive" body={googleLine('drive', t.googleDriveBody)} icon="file" onPress={openGoogle} />
     <ProductRow id="integration-location" title={t.xLocation} body={t.placesRowSub} icon="goal" status={cap.location} onPress={when(cap.location, () => actions.go('places'))} />
   </ProductPage>;
 }
 
-export function GoogleIntegrationScreen() {
-  const { t, actions } = useApp();
-  return <ProductPage id="google" title={t.xGoogleDetail}>
-    <ProductSection title="Google Calendar" body={t.xGoogleBody} icon="calendar">
-      <Pill testID="google-device-settings" label={t.calendarWriteTitle} kind="accent" onPress={() => actions.go('calendarSettings')} />
-    </ProductSection>
-    <ProductSection title={t.xDirectConnection} icon="link" status={cap.googleCalendar} />
-    <ProductSection title={t.xPrivacy} body={t.xCalendarPrivacy} icon="shield">
-      <Pill label={t.sTrust} kind="outline" onPress={() => actions.go('trust')} />
-    </ProductSection>
-    <ProductRow title="Gmail" icon="file" status={cap.gmail} />
-  </ProductPage>;
-}
+export { GoogleIntegrationScreen } from '../google/GoogleIntegrationScreen';
 
 export function ActionModesScreen() {
   const { t, actions } = useApp();

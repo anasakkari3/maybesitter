@@ -1,0 +1,34 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "no_commitment",
+  "items": [],
+  "seeds": [],
+  "provenance": {
+    "requestedEngine": "rules",
+    "executedEngine": "rule-based",
+    "fallbackUsed": false
+  },
+  "share": {
+    "channel": "email",
+    "kind": "text",
+    "fileCount": 0,
+    "totalBytes": 0,
+    "ignoredSegments": 0,
+    "suggestedNextAction": null,
+    "evidence": [],
+    "evidenceDropped": false,
+    "metrics": {
+      "messagesFound": 1,
+      "messagesRead": 0,
+      "messagesRefused": 0,
+      "messagesWithItems": 0,
+      "messagesNotRead": 1,
+      "modelUnavailable": 1,
+      "messagesPastDeadline": 0,
+      "modelCalls": 1,
+      "itemCount": 0
+    },
+    "document": null
+  }
+}

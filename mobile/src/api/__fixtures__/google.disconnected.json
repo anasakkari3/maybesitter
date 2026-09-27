@@ -1,0 +1,15 @@
+{
+  "success": true,
+  "disconnected": true,
+  "google": {
+    "status": "not_connected",
+    "accountEmail": null,
+    "features": {
+      "calendar": false,
+      "gmail": false,
+      "drive": false
+    },
+    "pickerAvailable": true,
+    "connectedAt": null
+  }
+}

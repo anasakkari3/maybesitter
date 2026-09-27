@@ -23,6 +23,7 @@ import {
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
+  GOOGLE_PICKER_TICKETS,
   USER_SCOPED_COLLECTIONS,
   userDoc,
   userSubDoc,
@@ -88,7 +89,7 @@ test('every excluded collection is one deletion knows, and says why it is left o
     assert.ok(deletionKnows.has(name), `${name} is excluded from an export it was never part of`);
     assert.ok(reason.length > 20, `${name} has no stated reason for being left out`);
   }
-  assert.deepEqual(Object.keys(EXPORT_EXCLUDED_COLLECTIONS).sort(), [PROVIDER_CREDENTIALS, PROVIDER_OAUTH_STATES].sort());
+  assert.deepEqual(Object.keys(EXPORT_EXCLUDED_COLLECTIONS).sort(), [GOOGLE_PICKER_TICKETS, PROVIDER_CREDENTIALS, PROVIDER_OAUTH_STATES].sort());
 });
 
 test('no secret travels: tokens, PKCE verifiers, KMS envelopes and FCM tokens are all removed', async () => {
@@ -98,6 +99,7 @@ test('no secret travels: tokens, PKCE verifiers, KMS envelopes and FCM tokens ar
     accessToken: 'SECRET-ACCESS-TOKEN', refreshToken: 'SECRET-REFRESH-TOKEN',
   });
   await storage.set(userSubDoc(OWNER, PROVIDER_OAUTH_STATES, 'state'), { codeVerifier: 'SECRET-PKCE-VERIFIER' });
+  await storage.set(userSubDoc(OWNER, GOOGLE_PICKER_TICKETS, 'SECRET-TICKET-DIGEST'), { version: 1, createdAt: 'SECRET-TICKET-AT' });
   await storage.set(userSubDoc(OWNER, ICS_FEEDS, 'feed'), {
     label: 'Moodle',
     encryptedUrl: { v: 1, kmsKeyVersion: 'projects/p/keys/k/1', wrappedDek: 'SECRET-WRAPPED-DEK', iv: 'SECRET-IV', ciphertext: 'SECRET-CIPHERTEXT', tag: 'SECRET-TAG' },
@@ -114,6 +116,7 @@ test('no secret travels: tokens, PKCE verifiers, KMS envelopes and FCM tokens ar
   assert.doesNotMatch(text, /SECRET-/, 'a secret value reached the export');
   assert.equal(PROVIDER_CREDENTIALS in exported.collections, false);
   assert.equal(PROVIDER_OAUTH_STATES in exported.collections, false);
+  assert.equal(GOOGLE_PICKER_TICKETS in exported.collections, false);
   // What is not a secret is still there: this is the person's data.
   assert.equal(exported.collections[ICS_FEEDS]![0]!.data.label, 'Moodle');
   assert.equal(exported.collections[DEVICES]![0]!.data.platform, 'ios');

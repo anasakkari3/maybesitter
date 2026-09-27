@@ -18,6 +18,10 @@
  * would make `applyCommand` create jobs fire-and-forget.
  */
 import { resumeStalledDeletions } from '../account/accountDeletion';
+// A deletion resumed here runs the same hooks the account route registers:
+// without this import a resumed deletion would skip the Google revocation and
+// leave a live grant behind the deleted account (CL6a).
+import '../integrations/google/googleDeletionHook';
 import { runDailyPlanTick, type DailyPlanTickTotals } from '../services/dailyPlan/dailyPlanService';
 import { runHardReminderTick, type HardReminderTickTotals } from '../services/reminders/hardReminderJob';
 import { applyParticipantCommand } from '../services/mobile/participantState';

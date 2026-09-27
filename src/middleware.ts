@@ -66,6 +66,11 @@ const PRODUCTION_PATHS: readonly RegExp[] = [
   // design and same-origin only. Matched exactly, so nothing beneath it (no
   // `/events` page-view endpoint) is ever served.
   /^\/api\/early-access$/,
+  // The two pages the system browser opens while connecting Google (CL6a):
+  // the OAuth redirect URI, which only forwards `code`/`state` to the app's
+  // scheme, and the Picker page, which renders only for a one-time ticket an
+  // authenticated route minted. Matched exactly.
+  /^\/api\/oauth\/google\/(?:callback|picker)$/,
 ];
 
 /** True when production serves this path. Exported so a test can enumerate it. */

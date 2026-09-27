@@ -78,8 +78,24 @@ interface StoredOAuthStateDocument {
   readonly requestedScopes: readonly string[];
   readonly redirectUri: string;
   readonly createdAt: string;
-  readonly expiresAt: string;
+  /**
+   * A `Date`, not the ISO string the lifecycle hands over, so Firestore's TTL
+   * policy on `expiresAt` (infra/firestore-ttl.sh) can delete an authorization
+   * nobody finished — TTL only acts on timestamp-typed fields (CL6a). Firestore
+   * hands it back as a `Timestamp`; `instantMs` reads all three shapes.
+   */
+  readonly expiresAt: Date | string | { toDate(): Date };
   readonly verifier: EncryptedField;
+}
+
+/** Epoch ms of a stored instant, whichever of the three shapes it came back as. */
+function instantMs(value: StoredOAuthStateDocument['expiresAt']): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') return Date.parse(value);
+  if (value && typeof (value as { toDate?: unknown }).toDate === 'function') {
+    return (value as { toDate(): Date }).toDate().getTime();
+  }
+  return Number.NaN;
 }
 
 /**
@@ -135,7 +151,7 @@ export class StoredProviderOAuthStateStore implements ProviderOAuthStateStore {
       requestedScopes: value.requestedScopes,
       redirectUri: value.redirectUri,
       createdAt: value.createdAt,
-      expiresAt: value.expiresAt,
+      expiresAt: new Date(Date.parse(value.expiresAt)),
       verifier,
     };
     const path = this.path(docId);
@@ -162,7 +178,7 @@ export class StoredProviderOAuthStateStore implements ProviderOAuthStateStore {
     if (!stored) return null;
 
     const nowMs = Date.parse(now);
-    const expiresAtMs = Date.parse(stored.expiresAt);
+    const expiresAtMs = instantMs(stored.expiresAt);
     if (!Number.isFinite(nowMs) || !Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
     // A state minted for another account is not this account's to spend.
     if (stored.scopeId !== this.uid) return null;
@@ -191,7 +207,7 @@ export class StoredProviderOAuthStateStore implements ProviderOAuthStateStore {
       redirectUri: stored.redirectUri,
       codeVerifier,
       createdAt: stored.createdAt,
-      expiresAt: stored.expiresAt,
+      expiresAt: new Date(expiresAtMs).toISOString(),
     });
   }
 }

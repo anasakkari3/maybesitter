@@ -230,6 +230,11 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'for minutes. It is machinery rather than anything learned about the user, and it is consumed by the '
     + 'callback or expires on its own. Purging it would abort a connection the user started seconds '
     + 'earlier, for no privacy gain that waiting out the expiry does not already give.',
+  googlePickerTickets:
+    'a one-time, two-minute ticket that lets the Google Picker page open in the system browser (CL6a). '
+    + 'It is stored only as a digest, carries no token and no content, and is spent the moment the page '
+    + 'loads or expires on its own through its TTL. It is machinery, not a belief about the person; '
+    + 'purging it would only break a pick the user started seconds ago. Account deletion takes the tree.',
   watchers:
     'a watcher the user set up by saying "watch this for me" (#525) — a provider, a connection, a '
     + 'normalized signal kind, an opaque subject and one of four effects. It is a standing instruction '

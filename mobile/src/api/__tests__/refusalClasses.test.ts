@@ -11,12 +11,14 @@
 import { afterEach, beforeEach, expect, it, jest } from '@jest/globals';
 import { apiRequest } from '../client';
 import { confirmCapture } from '../endpoints/capture';
-import { CaptureConfirmRefusedError, FeatureUnavailableError, NotFoundError } from '../errors';
+import { CaptureConfirmRefusedError, FeatureUnavailableError, ForbiddenError, GoogleRefusedError, NotFoundError } from '../errors';
 import { forbiddenReason, userFacingMessageKey } from '../ui/userFacingMessage';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import { z } from 'zod';
 import confirmationFailed from '../__fixtures__/capture.confirmationFailed.json';
+import refusedReauth from '../__fixtures__/google.refusedReauth.json';
+import refusedNotConfigured from '../__fixtures__/google.refusedNotConfigured.json';
 
 const anyBody = z.object({}).passthrough();
 
@@ -70,4 +72,30 @@ it('gives each confirm refusal its own line', () => {
   expect(userFacingMessageKey(new CaptureConfirmRefusedError('invalid_selection'))).toBe('captureConfirmNothingReady');
   expect(userFacingMessageKey(new CaptureConfirmRefusedError('invalid_edit'))).toBe('captureConfirmBadEdit');
   expect(userFacingMessageKey(new CaptureConfirmRefusedError('persistence_failed'))).toBe('errorsServer');
+});
+
+/*
+ * The Google routes (CL6a) answer every refusal with a closed reason, and two
+ * of those reasons are spelled the same as refusals other routes give. The
+ * Google class must not capture a body from any other route: the phone's own
+ * calendar feed answers `calendar_consent_required` with the same three keys.
+ */
+it('reads a Google refusal from a Google route as its own reason, from the recorded body', async () => {
+  serve(refusedReauth, 409);
+  const error = await apiRequest('POST', '/api/mobile/integrations/google/calendar', { schema: anyBody }).catch(caught => caught);
+  expect(error).toBeInstanceOf(GoogleRefusedError);
+  expect((error as GoogleRefusedError).reason).toBe('google_reauth_required');
+  expect(userFacingMessageKey(error)).toBe('googleReconnectBody');
+
+  serve(refusedNotConfigured, 503);
+  const unconfigured = await apiRequest('POST', '/api/mobile/integrations/google/connect', { schema: anyBody }).catch(caught => caught);
+  expect(userFacingMessageKey(unconfigured)).toBe('googleNotConfigured');
+});
+
+it('leaves the calendar feed\'s consent refusal to its own route, not the Google class', async () => {
+  // The exact body `lib/calendar/icsFeedRoutes.ts` sends without calendar consent.
+  serve({ success: false, error: 'calendar_consent_required', reason: 'calendar_consent_required' }, 403);
+  const error = await apiRequest('POST', '/api/mobile/calendar/feeds', { schema: anyBody }).catch(caught => caught);
+  expect(error).not.toBeInstanceOf(GoogleRefusedError);
+  expect(error).toBeInstanceOf(ForbiddenError);
 });

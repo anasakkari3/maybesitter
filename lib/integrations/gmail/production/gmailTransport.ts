@@ -214,7 +214,23 @@ export interface GmailTransportDeps {
   readonly monotonicMs?: () => number;
 }
 
+/** A bounded read of the newest messages matching one Gmail search (CL6a). */
+export interface GmailRecentRequest {
+  /** A Gmail search string, e.g. `category:primary newer_than:7d`. Built by the caller, never by a user. */
+  readonly query: string;
+  /** Clamped to `[1, GMAIL_MAX_PAGE_SIZE]`, and never more than `maxMessagesPerPage`. */
+  readonly maxResults: number;
+}
+
 export interface GmailTransport extends GmailApiPort {
+  /**
+   * The newest messages matching `query`, at most `maxResults`, newest first.
+   *
+   * One `messages.list` page and one `messages.get` per id — the same parser,
+   * bounds, pacing and redaction as `listHistory`. It never pages: a caller
+   * that asked for twenty gets at most twenty, whatever the mailbox holds.
+   */
+  listRecentMessages(request: GmailRecentRequest): Promise<readonly GmailMessagePayload[]>;
   /**
    * The same object, wearing the face the live-verification harness expects.
    *
@@ -641,8 +657,42 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
     });
   }
 
+  async function listRecentMessages(request: GmailRecentRequest): Promise<readonly GmailMessagePayload[]> {
+    const startedAt = monotonicMs();
+    const limit = Math.min(clamp(request.maxResults, 1, GMAIL_MAX_PAGE_SIZE), maxMessagesPerPage);
+    try {
+      const body = await get(
+        'messages.list',
+        url('/users/me/messages', { q: request.query, maxResults: limit }),
+        startedAt,
+      );
+      if (!isRecord(body)) throw new GmailWireError('messages.list', 'object body');
+      const listed = body.messages;
+      // Absent, not `[]`, is how Google reports an empty result.
+      if (listed !== undefined && !Array.isArray(listed)) {
+        throw new GmailWireError('messages.list', 'messages array');
+      }
+      const ids: string[] = [];
+      for (const entry of listed ?? []) {
+        if (isRecord(entry) && nonEmptyString(entry.id) && !ids.includes(entry.id) && ids.length < limit) {
+          ids.push(entry.id);
+        }
+      }
+      const messages = await fetchMessages(ids, startedAt);
+      // Newest first, whatever order the workers finished in; ties on id so
+      // two reads of an unchanged mailbox are the same list.
+      return Object.freeze([...messages].sort((a, b) => {
+        const delta = Date.parse(b.receivedAt) - Date.parse(a.receivedAt);
+        return delta !== 0 ? delta : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      }));
+    } catch (error) {
+      throw toGmailProviderError(error);
+    }
+  }
+
   return {
     listHistory,
+    listRecentMessages,
 
     asReadPort(): ProviderReadPort {
       return {

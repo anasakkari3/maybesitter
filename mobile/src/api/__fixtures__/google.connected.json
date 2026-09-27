@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "google": {
+    "status": "connected",
+    "accountEmail": "person@example.com",
+    "features": {
+      "calendar": true,
+      "gmail": false,
+      "drive": false
+    },
+    "pickerAvailable": true,
+    "connectedAt": "2026-08-09T09:00:00.000Z"
+  }
+}

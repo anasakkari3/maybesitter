@@ -10,6 +10,7 @@ import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelati
 import { fill, ltr } from '../i18n/strings';
 import { useSavedWeek, useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { ScreenHeader, Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
@@ -69,7 +70,8 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const upcoming = useUpcoming();
   const savedWeek = useSavedWeek();
   const trust = useTrust();
-  const busy = useBusyBlocks();
+  // Google Calendar's busy time (CL6a) beside the phone's; see `useConflictBusyBlocks`.
+  const busy = useConflictBusyBlocks(useBusyBlocks());
   const calendarConnected = trust.data?.trust.calendarConsent === true;
   const [refreshing, setRefreshing] = useState(false);
 

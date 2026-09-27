@@ -36,6 +36,7 @@ import { FootballSettingsScreen } from './features/settings/FootballSettingsScre
 import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
+import { GoogleBusyHost } from './features/google/useGoogle';
 import { CalendarFeedsScreen } from './features/calendarFeeds/CalendarFeedsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { LangAppearanceScreen } from './features/settings/LangAppearanceScreen';
@@ -137,6 +138,10 @@ export function Root() {
               the conflict chips are on Today and on the review card, and both
               are screens the settings page is not open behind. */}
           <BusyCalendarHost />
+          {/* Its Google Calendar twin (CL6a review I1): refreshes Google busy
+              time on connect and on coming back to the front, so the plan and
+              the chips see Google meetings without the Calendar tab open. */}
+          <GoogleBusyHost />
           {/* Draws nothing either (UC-3.R1, #203). It writes the home-screen
               widget's snapshot — titles redacted unless this account opted in
               on this phone — and clears it before a sign-out and when this
