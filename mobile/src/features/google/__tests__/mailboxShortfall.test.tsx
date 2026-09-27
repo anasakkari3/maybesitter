@@ -112,6 +112,12 @@ describe('how much of the mailbox was read', () => {
     await review(budgeted);
     expect(screen.getByTestId('review-mailbox-partial').props.children)
       .toBe('Read the newest 9 of 20 emails.');
+    // Every language says the neutral line without a retry in it.
+    for (const lang of ['ar', 'en', 'he'] as const) {
+      expect(strings[lang].googleGmailPartialNewest).not.toBe(strings[lang].googleGmailPartial);
+      expect(strings[lang].googleGmailPartialNewest).toContain('{read}');
+      expect(strings[lang].googleGmailPartialNewest).toContain('{total}');
+    }
   });
 
   it('a scan that read everything shows no such line', async () => {
