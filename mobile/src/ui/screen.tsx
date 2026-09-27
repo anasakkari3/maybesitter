@@ -85,8 +85,10 @@ export function Screen({ pinned, children, footer, decoration, overlay, style, t
  * the floating tab bar is drawn over the screen and the last row has to clear
  * it.
  */
-export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, style }: {
+export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, style, scrollRef }: {
   children: React.ReactNode;
+  /** For a screen that has to bring something it opened into view. */
+  scrollRef?: React.Ref<ScrollView> | undefined;
   gap?: number;
   bottom?: number;
   /** `flexGrow: 1`, for a body that has to push a footer to the bottom. */
@@ -101,6 +103,7 @@ export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, te
 }) {
   return (
     <ScrollView
+      ref={scrollRef}
       testID={testID}
       style={style}
       {...(refreshControl ? { refreshControl } : {})}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
@@ -23,6 +23,7 @@ import { commitmentPrepTarget } from '../features/meetings/prepTargets';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
+import { useReducedMotion } from '../ui/motion';
 
 /**
  * One commitment, from the account (UC-2.R3 #173; Round 2, Phase E).
@@ -67,6 +68,15 @@ export function DetailsScreen() {
   // The phone's busy time and Google's (CL6a review I1).
   const busy = useConflictBusyBlocks(useBusyBlocks());
   const activity = useActivity();
+  // The place form opens in place, below everything else and above the pinned
+  // actions; it is scrolled up into view when it opens (FX1).
+  const scroll = React.useRef<ScrollView>(null);
+  const placeY = React.useRef<number | null>(null);
+  const reduced = useReducedMotion();
+  const revealPlaceForm = () => {
+    if (placeY.current === null) return;
+    scroll.current?.scrollTo({ y: Math.max(0, placeY.current - 8), animated: !reduced });
+  };
 
   const view = query.data ? toViewModel(query.data, new Date().toISOString()) : null;
   const gone = query.error instanceof NotFoundError;
@@ -127,7 +137,7 @@ export function DetailsScreen() {
         </View>
       )}
     >
-      <ScreenScroll grow bottom={20} gap={16} topGap={14}>
+      <ScreenScroll grow bottom={20} gap={16} topGap={14} scrollRef={scroll}>
 
         {gone ? (
           <EmptyState testID="details-gone" title={t.detailsNotFoundTitle} body={t.detailsNotFoundBody} top={60} />
@@ -177,7 +187,14 @@ export function DetailsScreen() {
                 ) : null}
 
                 {/* "Remind me when I arrive / leave" (closure CL4). */}
-                {query.data ? <PlaceReminderSection commitment={query.data} canEdit={safeCommitmentPatchEnabled() && open} /> : null}
+                {query.data ? (
+                  <PlaceReminderSection
+                    commitment={query.data}
+                    canEdit={safeCommitmentPatchEnabled() && open}
+                    onLayout={(event) => { placeY.current = event.nativeEvent.layout.y; }}
+                    onFormOpen={revealPlaceForm}
+                  />
+                ) : null}
 
                 {!open ? <Txt size={13} color={p.mu} testID="details-closed-note">{t.detailsClosedNote}</Txt> : null}
 
