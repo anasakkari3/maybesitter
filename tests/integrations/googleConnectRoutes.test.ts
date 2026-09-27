@@ -252,7 +252,7 @@ test('the secrets come from Secret Manager by their exact names when the environ
     const configured = await status();
     assert.equal(configured.status, 'not_connected');
     assert.equal(configured.pickerAvailable, true);
-    assert.deepEqual([...new Set(asked)].sort(), ['google-oauth-client-id', 'google-oauth-client-secret', 'google-picker-api-key']);
+    assert.deepEqual(Array.from(new Set(asked)).sort(), ['google-oauth-client-id', 'google-oauth-client-secret', 'google-picker-api-key']);
 
     // A secret the owner has not created yet reads as absent, never as an error.
     delete vault['google-oauth-client-secret'];
