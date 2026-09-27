@@ -206,6 +206,48 @@ export function isFixedAppointment(rawText: string, time: FixedTime): boolean {
 }
 
 /**
+ * Something that happens *on* a day, not work done by it (FY1 review, event
+ * branch): «بدي أروح عالعرس يوم الخميس», "a wedding", «חתונה». An appointment
+ * or a meeting is not asked for its time here — the day is enough — and the
+ * social events have no priority rule of their own, so they are listed here
+ * rather than in `ATTENDING`.
+ */
+const SOCIAL_EVENT = new RegExp(
+  [
+    '\\b(?:wedding|engagement\\s+party|party|birthday|concert|conference|funeral|graduation|ceremony|festival)\\b',
+    `${B}[وف]?(?:لل|[بلك]ال|عال|ال|[بلكع])?(?:عرس|خطبة|خطبه|حفلة|حفله|حفل|عيد\\s+ميلاد|كونسرت|حفلة\\s+تخرج|تخرّج|تخرج|مؤتمر|عزا|عزاء|جنازة|جنازه)${A}`,
+    `${B}[ובלהמש]{0,2}(?:חתונה|חתונת|אירוסין|מסיבה|מסיבת|יום\\s+הולדת|הופעה|כנס|לוויה|טקס|סיום)${A}`,
+  ].join('|'),
+  'iu',
+);
+
+/** Going for something, not going to the event: «أجيب/أوصّل…», "to pick up". */
+const ERRAND = new RegExp(
+  [
+    '\\bto\\s+(?:pick\\s+up|drop\\s+off|get|grab|collect|fetch|return|deliver)\\b',
+    words(['آخد', 'اخد', 'آخذ', 'اخذ', 'أوصّل', 'اوصّل', 'أوصل', 'اوصل', 'وصّل', 'أسلّم', 'اسلّم', 'أسلم', 'اسلم', 'أرجّع', 'ارجع']),
+    words(['להביא', 'לקחת', 'לאסוף', 'להחזיר', 'להוריד', 'למסור']),
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * True when the sentence names something the person attends on a day — an
+ * appointment, a meeting, a wedding — rather than work to do by it. Used for
+ * an item answered "no specific time": it stays an all-day event on its day.
+ * False whenever in doubt, so a task keeps its old answer.
+ */
+export function isEventOnDay(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  // The day is what places it; a meeting needs no clock to happen on one.
+  if (isFixedAppointment(rawText, { hasDay: true, hasClock: true })) return true;
+  const text = rawText.trim();
+  if (!SOCIAL_EVENT.test(text)) return false;
+  if (ARRANGING.test(text) || LOOSE_NOUN.test(text) || ERRAND.test(text)) return false;
+  return !NEGATED.test(text.replace(DONT_FORGET, ' '));
+}
+
+/**
  * An obligation the person states in their own words (closure UAT 2026-09-27,
  * FX3): «لازم أسلّم التقرير», "I have to call Sam", «אני חייב לשלם».
  *

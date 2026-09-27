@@ -15,7 +15,7 @@ import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { dayForAnswer } from './clarificationBuilder';
 import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
-import { isFixedAppointment } from '../../../src/extraction/priorityLexicon';
+import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
 /**
@@ -201,15 +201,15 @@ function answeredTimeAnchor(rawText: string, freeText: string): 'event' | 'deadl
  * it is an all-day `scheduled_event` there — `dueAt` that day's local
  * midnight, `allDay` saying nobody chose the hour (`TimeSpec.allDay`).
  *
- * Only for what the appointment rule calls one (`isFixedAppointment`, the
- * rule that already raises it to «لازم»), and only with a day. A task
+ * Only for what happens on a day (`isEventOnDay`: an appointment, a meeting,
+ * a wedding — FY1 review, event branch), and only with a day. A task
  * answered the same way is unchanged.
  */
 function allDayAppointment(result: ExtractionResult, timezone: string): ExtractionResult | null {
   const date = result.localTimeSpec?.date;
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
   if (result.type !== 'task' && result.type !== 'follow_up') return null;
-  if (!isFixedAppointment(result.rawText ?? '', { hasDay: true, hasClock: false })) return null;
+  if (!isEventOnDay(result.rawText ?? '')) return null;
   const midnight = instantFromLocal(date, '00:00', timezone);
   if (!midnight) return null;
   return {
