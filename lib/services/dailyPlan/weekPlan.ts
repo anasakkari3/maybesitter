@@ -67,7 +67,7 @@ import { userDoc } from '../../storage/paths';
 import { schedulePlan } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
 import type { Plan, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
-import type { Commitment } from '../../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, type Commitment } from '../../../src/domain/stateMachine';
 import { buildDailyPlanInput, dayHorizon, fixedStartOf, pinnedEventsOnDay, type DayAssignment } from './buildDailyPlan';
 import {
   PlanDateOutOfRangeError,
@@ -256,19 +256,22 @@ const PRIORITY_ORDER: Record<Commitment['priority']['level'], number> = { high: 
  * was named in (its `dueAt` is that day's midnight there).
  */
 function dueDayOf(commitment: Commitment, timezone: string): string | null {
-  const { dueAt, allDay } = commitment.timeSpec;
-  if (!dueAt) return null;
-  return allDay ? localDateOf(dueAt, commitment.timeSpec.timezone) : localDateOf(dueAt, timezone);
+  const { allDay } = commitment.timeSpec;
+  const due = deadlineOfTimeSpec(commitment.timeSpec);
+  if (!due) return null;
+  return allDay ? localDateOf(due, commitment.timeSpec.timezone) : localDateOf(due, timezone);
 }
 
 /**
- * The instant a dated commitment is due by; null for undated work. An all-day
- * day is due by its end, not by the midnight that opens it (N3).
+ * The instant a dated commitment is due by; null for undated work. A window is
+ * due by its end, the meeting's start (`deadlineOfTimeSpec`, FX1 R1); an
+ * all-day day by its end, not by the midnight that opens it (N3).
  */
 function dueDeadlineOf(commitment: Commitment): string | null {
-  const { dueAt, allDay, timezone } = commitment.timeSpec;
-  if (!dueAt) return null;
-  return allDay ? dayHorizon(localDateOf(dueAt, timezone), timezone).endsAt : dueAt;
+  const { allDay, timezone } = commitment.timeSpec;
+  const due = deadlineOfTimeSpec(commitment.timeSpec);
+  if (!due) return null;
+  return allDay ? dayHorizon(localDateOf(due, timezone), timezone).endsAt : due;
 }
 
 /** Why `commitment` is on `date`, compared by day (N3). Null for work that is not a commitment. */
@@ -312,13 +315,18 @@ export async function composeWeek(
     if (stored) storedByDate.set(date, stored);
   }
   const rules = new Map(dates.map((date) => [date, dailyRuleFor(uid, date, timezone, commitments, nowIso)]));
-  // A commitment pinned to a time still ahead happens at that time: it is a
-  // fixed row on its own day. Planning a later day on its own, the daily rule
-  // reads it as yesterday's unfinished work (#383) — true on that morning if
-  // it is still open, but not something to propose for it today.
+  // A commitment pinned to a time today or later happens at that time: it is a
+  // fixed row on its own day, and the day plan pins it there all day long.
+  // Planning a later day on its own, the daily rule reads it as yesterday's
+  // unfinished work (#383) — true on that morning if it is still open, but not
+  // something to propose for it now. That holds once its hour has passed too
+  // (FY2 review, I1): at 13:30, inside the 13:00 prep window before a 15:00
+  // meeting, or at 15:30, after it, the prep is Monday's — late, if it is late
+  // (FX1, R1) — and never a fresh movable step on Tuesday.
   const pinnedAhead = new Map(commitments.flatMap((commitment) => {
     const start = fixedStartOf(commitment);
-    return start !== null && toEpochMs(start) >= toEpochMs(nowIso) ? [[commitment.id, localDateOf(start, timezone)] as const] : [];
+    const day = start === null ? null : localDateOf(start, timezone);
+    return day !== null && day >= today ? [[commitment.id, day] as const] : [];
   }));
 
   // Work a stored plan of this week already places is that day's, whatever

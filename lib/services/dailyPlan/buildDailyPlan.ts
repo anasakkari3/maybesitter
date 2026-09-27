@@ -366,12 +366,15 @@ export function deadlineFor(
 ): Instant | null {
   const dueAt = commitment.timeSpec.dueAt;
   if (!dueAt) return null;
-  // *At* the day's opening counts as behind it (UAT round 2, N3). An all-day
-  // commitment stores its day as that day's local midnight (FX3) — the day's
-  // start — and read as a deadline there it left no minute of its own day to
-  // use: «أرتب الغرفة», due today, went to Tuesday, and the bill due Wednesday
-  // to Thursday. A day is due by its end.
-  return toEpochMs(dueAt) <= toEpochMs(dayStartsAt) ? dayEndsAt : dueAt;
+  // An all-day commitment stores its day as that day's local midnight (FX3) —
+  // the day's start — and read as a deadline there it left no minute of its
+  // own day to use: «أرتب الغرفة», due today, went to Tuesday, and the bill due
+  // Wednesday to Thursday (UAT round 2, N3). A day is due by its end. Only a
+  // day: a timed deadline at 00:00 is that instant (FY2 review, M1).
+  const behind = commitment.timeSpec.allDay
+    ? toEpochMs(dueAt) <= toEpochMs(dayStartsAt)
+    : rollsIntoDay(dueAt, dayStartsAt);
+  return behind ? dayEndsAt : dueAt;
 }
 
 /**

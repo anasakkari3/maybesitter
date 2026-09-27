@@ -363,3 +363,62 @@ test('N3: work due today stays on today even when today has no room left, and sa
     assert.ok(!dto.days.slice(1).some((day) => day.items.some((item) => item.itemId === 'room')), 'the room was proposed after the day it is due');
   }, seeds);
 });
+
+/* ── Review I1: the prep window during and after its own hour ───────── */
+
+async function weekAt(storage: StorageAdapter, now: Date): Promise<WeekDto> {
+  return weekToDto(await composeWeek(USER, { moves: [], drops: [] }, { storage, now: () => now, busyBlocks: MONDAY_MEETING }));
+}
+
+/** Every place the prep appears: [date, 'fixed' | 'step' | 'unplaced']. */
+function prepEverywhere(dto: WeekDto): Array<[string, string]> {
+  return dto.days.flatMap((day) => [
+    ...day.fixed.filter((row) => row.itemId === 'prep').map(() => [day.date, 'fixed'] as [string, string]),
+    ...day.items.filter((row) => row.itemId === 'prep').map(() => [day.date, 'step'] as [string, string]),
+    ...day.unplaced.filter((row) => row.itemId === 'prep').map(() => [day.date, 'unplaced'] as [string, string]),
+  ]);
+}
+
+test('I1: opened on the meeting day at 13:30, inside the prep window, the prep is a fixed row on Monday only', async () => {
+  await withUat(async (storage) => {
+    const dto = await weekAt(storage, new Date(Date.parse(at(WEEK[1]!, '13:30'))));
+    assert.equal(dto.today, WEEK[1]);
+    assert.deepEqual(prepEverywhere(dto), [[WEEK[1], 'fixed']], JSON.stringify(dto.days.map((day) => [day.date, day.items.map((item) => item.itemId), day.fixed.map((row) => row.itemId)])));
+  });
+});
+
+test('I1: opened on the meeting day at 15:30, after the meeting started, the prep is late on Monday and is never a fresh step on a later day', async () => {
+  await withUat(async (storage) => {
+    const dto = await weekAt(storage, new Date(Date.parse(at(WEEK[1]!, '15:30'))));
+    assert.equal(dto.today, WEEK[1]);
+    assert.deepEqual(prepEverywhere(dto), [[WEEK[1], 'fixed']], JSON.stringify(dto.days.map((day) => [day.date, day.items.map((item) => item.itemId), day.fixed.map((row) => row.itemId)])));
+  });
+});
+
+test('I1: tonight\'s dinner, once 20:00 has passed, stays tonight\'s fixed row and is not proposed tomorrow', async () => {
+  await withUat(async (storage) => {
+    const dto = await weekAt(storage, new Date(Date.parse(at(WEEK[0]!, '21:00'))));
+    const dinner = dto.days.flatMap((day) => [
+      ...day.fixed.filter((row) => row.itemId === 'dinner').map(() => [day.date, 'fixed']),
+      ...day.items.filter((row) => row.itemId === 'dinner').map(() => [day.date, 'step']),
+    ]);
+    assert.deepEqual(dinner, [[WEEK[0], 'fixed']]);
+  });
+});
+
+/* ── Review M1: only an all-day day is due by its end ───────────────── */
+
+test('M1: a timed deadline at exactly local 00:00 keeps its instant; only an all-day day is due by its end', () => {
+  const seeds: readonly Seed[] = [
+    { id: 'midnight', title: 'Send it by midnight', level: 'normal', dueDay: WEEK[2]!,
+      timeSpec: { kind: 'due_by', dueAt: midnight(WEEK[2]!), endAt: null, remindAt: null, allDay: false } },
+    { id: 'tuesday', title: 'Tuesday, all day', level: 'normal', dueDay: WEEK[2]!, timeSpec: allDay(WEEK[2]!) },
+  ];
+  const input = buildDailyPlanInput({
+    uid: USER, date: WEEK[2]!, timezone: TZ, commitments: Object.values(seededState(seeds).commitments),
+    busyBlocks: [], profile: null, focusHint: null, builtAt: NOW.toISOString(),
+  });
+  const deadline = new Map(input.constraints.items.map((item) => [item.itemId, item.deadlineAt]));
+  assert.equal(deadline.get('tuesday'), midnight(WEEK[3]!), 'the all-day Tuesday is not due by Tuesday\'s end');
+  assert.equal(deadline.get('midnight'), midnight(WEEK[2]!), 'a timed 00:00 deadline was stretched to the whole day');
+});
