@@ -81,6 +81,14 @@ export interface ReminderCommitment {
    * not move; see `mustRingsDespitePostpone`.
    */
   readonly postponedUntil: string | null;
+  /**
+   * When a window opens (post-UAT FX1, ruling R1): a meeting's prep step is
+   * shown at 14:00 and done by the 15:00 start, so `startsAt` is 15:00 and
+   * this is 14:00. The gentle stage rings here, whatever the lead; the firmer
+   * stages still count back from `startsAt` and ring only after it. Absent
+   * for everything that is not a window (`reminderInputs.ts`, `opensAtOf`).
+   */
+  readonly opensAt?: string | null;
 }
 
 /**
@@ -184,12 +192,23 @@ export function planFor(
   const startsAt = Date.parse(commitment.startsAt);
   if (Number.isNaN(startsAt)) return [];
 
+  // A window (FX1): the gentle stage at its opening, the firmer ones from its
+  // deadline and only after the opening — the ladder never reads backwards.
+  const opensAt = commitment.opensAt ? Date.parse(commitment.opensAt) : Number.NaN;
+  const window = !Number.isNaN(opensAt) && opensAt < startsAt ? opensAt : null;
+
   const planned: PlannedStage[] = [];
   for (const stage of stagesFor(settings, commitment.priority)) {
     if (stage === 'strong' && commitment.allDay) continue;
     const leadMinutes = leadMinutesFor(stage, settings);
-    if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
-    const at = startsAt - leadMinutes * 60_000;
+    let at: number;
+    if (window !== null) {
+      at = stage === 'soft' ? window : startsAt - leadMinutes * 60_000;
+      if (stage !== 'soft' && at <= window) continue;
+    } else {
+      if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
+      at = startsAt - leadMinutes * 60_000;
+    }
     /*
      * "Later" (#200). Nothing rings before `postponedUntil` — the Must ring by
      * the council rule (#198), and the gentle stages by the same predicate, so

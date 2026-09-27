@@ -7,6 +7,7 @@
  * never a coordinate, while the pin itself lands in on-device storage.
  */
 import React from 'react';
+import { ScrollView } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -161,6 +162,18 @@ describe('on the commitment', () => {
     expect((body.locationTrigger as { placeId: string }).placeId).toBe(saved!.id);
     // While Using when the place is saved; Always only after the reminder is.
     await waitFor(() => expect(mockLocation.calls).toEqual(['requestForeground', 'position', 'requestBackground']));
+  });
+
+  it('opening «ذكّرني لما أوصل / لما أطلع» brings the form into view above the pinned actions (FX1)', async () => {
+    // UAT 2026-09-27 (shot 78): below Details' four pinned actions the form
+    // opened out of sight, so the first tap looked like it did nothing.
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    await showDetails(commitment());
+    await fireEvent(screen.getByTestId('details-place'), 'layout', { nativeEvent: { layout: { x: 16, y: 640, width: 358, height: 90 } } });
+    expect(scrollTo).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('details-place-add'));
+    await waitFor(() => expect(screen.getByTestId('place-kind-leave')).toBeTruthy());
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ y: 632 })));
   });
 
   it('a saved place is offered as a choice, and nothing asks for location to use it', async () => {

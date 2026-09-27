@@ -130,9 +130,25 @@ describe('the week', () => {
     const row = screen.getByTestId(`week-step-${STEP.itemId}`);
     // Titles are the person's own words, isolated so their direction is their own.
     expect(within(row).getByText(new RegExp(STEP.title!))).toBeTruthy();
-    const reasonKey = { due: 'weekReasonDue', carried: 'weekReasonCarried', open: 'weekReasonOpen', moved: 'weekReasonMoved' } as const;
+    const reasonKey = { due: 'weekReasonDue', due_earlier: 'weekReasonDueEarlier', carried: 'weekReasonCarried', open: 'weekReasonOpen', moved: 'weekReasonMoved' } as const;
     expect(within(row).getByText(t[reasonKey[STEP.reason!]])).toBeTruthy();
     expect(within(row).getAllByLabelText(new RegExp(STEP.title!)).length).toBeGreaterThan(0);
+  });
+
+  it('a step due on an earlier day still ahead says so, not «من يوم فات» (FX1)', async () => {
+    // The server's `due_earlier`: due tomorrow, offered the day after.
+    mockWeek = {
+      ...RECORDED,
+      days: RECORDED.days.map(day => day.date === FIRST.date
+        ? { ...day, items: day.items.map(item => item.itemId === STEP.itemId ? { ...item, reason: 'due_earlier' as const } : item) }
+        : day),
+    };
+    await show();
+    const t = language();
+    const row = screen.getByTestId(`week-step-${STEP.itemId}`);
+    expect(within(row).getByText(t.weekReasonDueEarlier)).toBeTruthy();
+    expect(within(row).queryByText(t.weekReasonCarried)).toBeNull();
+    expect(strings.ar.weekReasonDueEarlier).toBe('موعدها قبل هاليوم');
   });
 
   it('shows a fixed-time commitment as a fixed row, not a button', async () => {

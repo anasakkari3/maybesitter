@@ -87,6 +87,62 @@ export interface TimeSpec {
   timezone: string;
 }
 
+/**
+ * A timed `due_by` with an end is a *window*: something to do from `dueAt`,
+ * done by `endAt` (post-UAT FX1, controller ruling R1).
+ *
+ * «حضّرني» is its one producer: the prep step is shown at 14:00, the hour
+ * before a 15:00 meeting, and it is done by the meeting's start. Every screen
+ * shows `dueAt`; the phone's gentle reminder rings at `dueAt` itself, whatever
+ * the account's lead (the lead is how far ahead of a *deadline* to warn, and
+ * this one is already the warning); lateness and the firmer stages count from
+ * `endAt`, so it is never «الوقت مرق» before the meeting has started.
+ *
+ * `scheduled_event` is excluded (an event's end is when it is over, not a
+ * deadline), and so is an all-day entry (its end is the day's edge). The
+ * phone's `reminderInputs.ts` restates this one line; a root test runs both on
+ * the same stored commitments.
+ */
+export function isTimedWindow(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>): boolean {
+  return timeSpec.kind === 'due_by' && !timeSpec.allDay && !!timeSpec.dueAt && !!timeSpec.endAt;
+}
+
+/**
+ * When a commitment must be done by: the instant lateness is measured against
+ * and the firmer reminders count back from. A window's end; otherwise `dueAt`.
+ */
+export function deadlineOfTimeSpec(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>): string | null {
+  return isTimedWindow(timeSpec) ? timeSpec.endAt : timeSpec.dueAt;
+}
+
+/**
+ * The end a window keeps when its start is moved to `dueAt` (ruling R2).
+ *
+ * Still before the deadline, on the deadline's own local day: the same window,
+ * from the new time (the prep step moved from 14:00 to 14:30 is still done by
+ * the 15:00 meeting). At or after the deadline, on another day, or with no
+ * time at all, it is no longer a prep window: the end is dropped and it is an
+ * ordinary step at the time chosen — never a range that ends before it
+ * starts, and never a ring the day after the time the person picked.
+ */
+export function windowEndAfterMove(
+  current: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay' | 'timezone'>,
+  dueAt: string | null,
+): string | null {
+  if (!isTimedWindow(current) || !dueAt) return null;
+  const end = current.endAt as string;
+  if (Date.parse(dueAt) >= Date.parse(end)) return null;
+  return localDayOf(dueAt, current.timezone) === localDayOf(end, current.timezone) ? end : null;
+}
+
+function localDayOf(iso: string, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+  } catch {
+    return new Date(iso).toISOString().slice(0, 10);
+  }
+}
+
 export interface Commitment {
   id: string;
   kind: CommitmentKind;

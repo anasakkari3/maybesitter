@@ -10,7 +10,7 @@
  * the reminder exists and every phone draws it.
  */
 import React from 'react';
-import { View } from 'react-native';
+import { View, type LayoutChangeEvent } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useOptionalAuth } from '../../auth/AuthProvider';
 import { usePatchCommitment } from '../../api/queries';
@@ -32,7 +32,18 @@ import { useLocationAccess, usePlaces } from './placesStore';
 import { openLocationSettings } from './nativeLocation';
 import { useWatchState } from './placeReminderStatus';
 
-export function PlaceReminderSection({ commitment, canEdit }: { commitment: Commitment; canEdit: boolean }) {
+export function PlaceReminderSection({ commitment, canEdit, onLayout, onFormOpen }: {
+  commitment: Commitment;
+  canEdit: boolean;
+  /** Where the section sits in the screen's scroller. */
+  onLayout?: (event: LayoutChangeEvent) => void;
+  /**
+   * The form just opened. Details scrolls it into view: below its pinned
+   * actions it used to open out of sight, and the tap looked like it had done
+   * nothing (UAT 2026-09-27, FX1).
+   */
+  onFormOpen?: () => void;
+}) {
   const { t, p, actions } = useApp();
   const accountId = useOptionalAuth()?.user?.uid ?? null;
   const { places, removed, loaded } = usePlaces(accountId);
@@ -43,6 +54,11 @@ export function PlaceReminderSection({ commitment, canEdit }: { commitment: Comm
   const [draft, setDraft] = React.useState<PlaceDraft | null>(null);
   const [problem, setProblem] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const formOpen = draft !== null;
+  // After the render that drew the form, so it is there to scroll to.
+  React.useEffect(() => {
+    if (formOpen) onFormOpen?.();
+  }, [formOpen, onFormOpen]);
 
   if (!trigger && !canEdit) return null;
 
@@ -87,7 +103,7 @@ export function PlaceReminderSection({ commitment, canEdit }: { commitment: Comm
   };
 
   return (
-    <View style={{ gap: 6 }} testID="details-place">
+    <View style={{ gap: 6 }} testID="details-place" onLayout={onLayout}>
       <SectionLabel>{t.placeReminderTitle}</SectionLabel>
       <Card style={{ gap: 12 }}>
         {trigger && !draft ? (

@@ -38,7 +38,7 @@ import {
   parseLocationTrigger,
   type LocationTrigger,
 } from '../../../src/contracts/v1/locationTriggerContracts';
-import type { Command } from '../../../src/domain/stateMachine';
+import { windowEndAfterMove, type Command, type TimeSpec } from '../../../src/domain/stateMachine';
 import { isPastCommitmentTime } from '../commitments/timeRules';
 import { isDateOnly, parseIsoInstant } from '../mobile/time';
 
@@ -207,6 +207,14 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
           : commitment.timeSpec?.kind === 'scheduled_event' ? ('scheduled_event' as const) : ('due_by' as const),
         dueAt: edit.resolvedTime,
         remindAt: edit.resolvedTime,
+        // A meeting's prep step is a window, done by the meeting (FX1). Moved
+        // earlier the same day it stays one; moved to the start or after it,
+        // to another day, or to no time, it is an ordinary step at the time
+        // chosen. Left as it was, the stale end made the confirm refuse the
+        // whole proposal, or rang the day after the time chosen (review C1).
+        ...(commitment.timeSpec?.endAt
+          ? { endAt: windowEndAfterMove(windowOf(commitment.timeSpec), edit.resolvedTime) }
+          : {}),
       };
 
     return {
@@ -236,4 +244,15 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
     return rewritten.filter((command) => command.type !== 'ConfirmCommitment');
   }
   return rewritten;
+}
+
+/** A draft's partial time spec, completed just enough to ask whether it is a window. */
+function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay' | 'timezone'> {
+  return {
+    kind: timeSpec.kind ?? 'unscheduled',
+    dueAt: timeSpec.dueAt ?? null,
+    endAt: timeSpec.endAt ?? null,
+    allDay: timeSpec.allDay === true,
+    timezone: timeSpec.timezone ?? 'UTC',
+  };
 }

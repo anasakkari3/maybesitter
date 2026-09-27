@@ -30,6 +30,8 @@ export interface PhoneReminderCommitment {
   readonly priority: 'must' | 'should' | 'nice';
   readonly allDay: boolean;
   readonly postponedUntil: string | null;
+  /** A window's opening (FX1): the gentle stage rings here; `startsAt` is its deadline. */
+  readonly opensAt?: string | null;
 }
 
 export interface PhoneReminderSettings {
@@ -50,6 +52,10 @@ export interface PhoneReminderEngine {
     quietHours: { start: string; end: string } | null;
     timeZone: string;
   }): number[];
+  /** Every request the phone would schedule, with its stage and the instant it was planned for. */
+  requestsFor(input: Parameters<PhoneReminderEngine['ringsFor']>[0]): Array<{ stage: string; at: number; plannedAt: number }>;
+  /** `startOf` and `opensAtOf`: the instant the phone counts back from, and a window's opening. */
+  anchorsOf(item: unknown): { startsAt: string | null; opensAt: string | null };
   /** `toReminderCommitments`, on commitments as the list routes return them. */
   toReminderCommitments(items: readonly unknown[]): PhoneReminderCommitment[];
   /** `toEngineSettings`, `quietWindowOf` and `quietTimeZone`, on the settings route's DTO. */
@@ -125,6 +131,16 @@ async function load(): Promise<PhoneReminderEngine> {
       }) as { desired: Array<{ at: number }> };
       return desired.map((request) => request.at).sort((left, right) => left - right);
     },
+    requestsFor(input) {
+      return (engine.desiredRequests({
+        ...input,
+        awareness: awareness.EMPTY_AWARENESS,
+        copy: { title: '', body: '' },
+        hardCopy: { title: '', body: '' },
+        exactAlarms: true,
+      }) as { desired: Array<{ stage: string; at: number; plannedAt: number }> }).desired;
+    },
+    anchorsOf: (item) => ({ startsAt: inputs.startOf(item), opensAt: inputs.opensAtOf(item) }),
     toReminderCommitments: (items) => inputs.toReminderCommitments(items),
     fromSettingsDto: (dto, intensity) => ({
       settings: inputs.toEngineSettings(dto, intensity),

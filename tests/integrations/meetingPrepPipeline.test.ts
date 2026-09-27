@@ -32,7 +32,6 @@ import {
 import {
   MEETING_PREP_LEAD_MINUTES,
   MeetingPrepInputError,
-  prepDueAt,
   prepareMeeting,
   schedulePrepAt,
 } from '../../lib/services/mobile/meetingPrepService.ts';
@@ -377,7 +376,7 @@ test('refusals: no notes, notes past the capture limit, a block too soon, a bloc
   } finally { end(); }
 });
 
-test('confirmed through the capture confirm, the prep step is due at the start and reminded an hour before it', async () => {
+test('confirmed through the capture confirm, the prep step is at the hour before, due by the start, and reminded when it is shown', async () => {
   begin();
   try {
     const now = new Date(Date.now());
@@ -388,7 +387,8 @@ test('confirmed through the capture confirm, the prep step is due at the start a
     });
     const start = Date.parse(input.startAt);
     assert.equal(Date.parse(prep.remindAt!), start - 60 * MINUTE);
-    assert.equal(Date.parse(prep.dueAt), start, 'the phone rings at dueAt − 60: dueAt must be the start');
+    assert.equal(Date.parse(prep.dueAt), start, 'the phone rings at the deadline − 60: the deadline must be the start');
+    assert.equal(proposal.items[0]!.resolvedTime, prep.remindAt, 'Review shows the hour before');
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
       { participantId: UID },
@@ -398,7 +398,9 @@ test('confirmed through the capture confirm, the prep step is due at the start a
     const state = await getParticipantStateSnapshot(UID);
     const prepCommitment = state.commitments[result.persisted.find((item) => item.itemId === prep.itemId)!.commitmentId]!;
     assert.equal(prepCommitment.status, 'active');
-    assert.equal(prepCommitment.timeSpec.dueAt, prep.dueAt);
+    // Stored at the time Review showed, not at the meeting's start (FX1).
+    assert.equal(prepCommitment.timeSpec.dueAt, proposal.items[0]!.resolvedTime);
+    assert.equal(prepCommitment.timeSpec.endAt, prep.dueAt);
     assert.equal(prepCommitment.timeSpec.remindAt, prep.remindAt);
     const reminders = Object.values(state.reminders).filter((reminder) => reminder.commitmentId === prepCommitment.id);
     assert.deepEqual(reminders.map((reminder) => reminder.scheduledFor), [prep.remindAt]);
@@ -440,26 +442,34 @@ test('between its reminder and the meeting, the prep step is not overdue on the 
   }
 });
 
-test('with a 15-minute reminder lead, the prep step is due 45 minutes before the start, so the phone still rings an hour before', async () => {
+for (const lead of [15, 30, 60]) {
+  test(`with a ${lead}-minute reminder lead, the prep step is due by the start and still rings an hour before (R1)`, async () => {
+    begin();
+    try {
+      await saveReminderSettings(UID, { softLeadMinutes: lead }, new Date().toISOString());
+      const now = new Date(Date.now());
+      const input = inputFor(now);
+      const { prep, proposal } = await prepareMeeting(UID, input, { now, consent: declined, quietHours: NO_QUIET_HOURS });
+      const start = Date.parse(input.startAt);
+      assert.equal(Date.parse(prep.remindAt!), start - 60 * MINUTE);
+      assert.equal(proposal.items[0]!.resolvedTime, prep.remindAt);
+      assert.equal(Date.parse(prep.dueAt), start, 'the window ends at the meeting start, whatever the lead');
+    } finally { end(); }
+  });
+}
+
+test('moved to the evening before by quiet hours, the prep step is shown and rung then, and due by the meeting', async () => {
   begin();
   try {
-    await saveReminderSettings(UID, { softLeadMinutes: 15 }, new Date().toISOString());
-    const now = new Date(Date.now());
-    const input = inputFor(now);
-    const { prep } = await prepareMeeting(UID, input, { now, consent: declined, quietHours: NO_QUIET_HOURS });
-    const start = Date.parse(input.startAt);
-    assert.equal(Date.parse(prep.remindAt!), start - 60 * MINUTE);
-    assert.equal(Date.parse(prep.dueAt), start - 45 * MINUTE);
+    const now = new Date('2026-09-27T12:00:00.000Z');
+    const start = '2026-09-28T04:00:00.000Z'; // 07:00 in Jerusalem, quiet until 07:30
+    const { prep, proposal } = await prepareMeeting(UID, { notes: 'Review the budget numbers.', startAt: start, timezone: 'Asia/Jerusalem' }, {
+      now, consent: declined, quietHours: JERUSALEM_QUIET,
+    });
+    assert.equal(proposal.items[0]!.resolvedTime, '2026-09-27T19:25:00.000Z');
+    assert.equal(prep.remindAt, '2026-09-27T19:25:00.000Z');
+    assert.equal(prep.dueAt, start);
   } finally { end(); }
-});
-
-test('moved to the evening before by quiet hours, the prep step is due one lead after that, not at the meeting', () => {
-  const start = new Date('2026-09-28T04:00:00.000Z'); // 07:00 in Jerusalem, quiet until 07:30
-  const due = schedulePrepAt(start, new Date('2026-09-27T12:00:00.000Z'), JERUSALEM_QUIET);
-  assert.equal(due.at.toISOString(), '2026-09-27T19:25:00.000Z');
-  assert.equal(prepDueAt(start, due.at, 60).toISOString(), '2026-09-27T20:25:00.000Z');
-  // And never after the start, whatever the lead.
-  assert.equal(prepDueAt(start, new Date(start.getTime() - 10 * MINUTE), 60).toISOString(), start.toISOString());
 });
 
 // ── what actually rings on the phone (CL5a I-3) ────────────────────
@@ -493,9 +503,10 @@ function engineSettings(ceiling: Ceiling, lead: number, softEnabled = true): Eng
 }
 
 /** Every instant the phone would ring for a confirmed step due at `dueAt`, ascending. */
-async function phoneRings(dueAt: string, settings: EngineReminderSettings, now: Date, quiet: QuietHours = NO_QUIET_HOURS): Promise<number[]> {
+/** Every instant the phone would ring for a confirmed prep window `[opensAt, deadline]`, ascending. */
+async function phoneRings(opensAt: string, deadline: string, settings: EngineReminderSettings, now: Date, quiet: QuietHours = NO_QUIET_HOURS): Promise<number[]> {
   return (await phoneReminderEngine()).ringsFor({
-    commitments: [{ id: 'prep', startsAt: dueAt, status: 'active', priority: 'should', allDay: false, postponedUntil: null }],
+    commitments: [{ id: 'prep', startsAt: deadline, opensAt, status: 'active', priority: 'should', allDay: false, postponedUntil: null }],
     now,
     settings,
     quietHours: quiet.window ? { start: quiet.window.start, end: quiet.window.end } : null,
@@ -515,8 +526,29 @@ async function prepFor(minutesAway: number, ceiling: Ceiling, lead: number, opti
   const result = await prepareMeeting(UID, { notes: 'Review the budget numbers.', startAt, timezone: 'Asia/Jerusalem' }, {
     now, consent: declined, quietHours: options.quiet ?? NO_QUIET_HOURS,
   });
-  const rings = await phoneRings(result.prep.dueAt, engineSettings(ceiling, lead, options.softEnabled ?? true), now, options.quiet ?? NO_QUIET_HOURS);
-  return { ...result, rings, startAt };
+  const settings = engineSettings(ceiling, lead, options.softEnabled ?? true);
+  const quiet = options.quiet ?? NO_QUIET_HOURS;
+  const rings = await phoneRings(result.proposal.items[0]!.resolvedTime!, result.prep.dueAt, settings, now, quiet);
+  // And what the phone rings for the commitment as it is stored — the one it
+  // reads from the lists — which must be the same (FX1: the prep step is
+  // stored at its prep instant, with its deadline as the end).
+  const stored = await confirmedPrep(result.proposal.proposalId, result.prep.itemId);
+  const engine = await phoneReminderEngine();
+  const storedRings = engine.ringsFor({
+    commitments: engine.toReminderCommitments([stored]),
+    now, settings,
+    quietHours: quiet.window ? { start: quiet.window.start, end: quiet.window.end } : null,
+    timeZone: quiet.timezone,
+  });
+  return { ...result, rings, storedRings, stored, startAt };
+}
+
+/** Confirms the prep step alone and returns the commitment it became, as stored. */
+async function confirmedPrep(proposalId: string, itemId: string) {
+  const result = await confirmMobileCapture({ proposalId, itemIds: [itemId] }, { participantId: UID });
+  assert.equal(result.success, true);
+  const state = await getParticipantStateSnapshot(UID);
+  return state.commitments[result.persisted[0]!.commitmentId]!;
 }
 
 for (const minutesAway of [20, 40, 64, 180]) {
@@ -525,33 +557,34 @@ for (const minutesAway of [20, 40, 64, 180]) {
       test(`a meeting ${minutesAway} min away, ceiling ${ceiling}, lead ${lead}: the reminder claimed is the phone's first ring, or none is claimed and none rings`, async () => {
         begin();
         try {
-          const { prep, proposal, rings, startAt } = await prepFor(minutesAway, ceiling, lead);
-          if (prep.remindAt === null) {
-            assert.deepEqual(rings, [], `claimed no reminder, but the phone rings at ${rings.map((at) => new Date(at).toISOString())}`);
-            assert.equal(prep.silentBecause, 'too_close');
-            // The step is still due before the meeting, and shown at that time.
-            assert.equal(prep.dueAt, startAt);
-            assert.equal(proposal.items[0]!.resolvedTime, prep.dueAt);
-          } else {
-            assert.ok(rings.length > 0, `claimed a reminder at ${prep.remindAt}, and nothing rings`);
-            assert.equal(new Date(rings[0]!).toISOString(), prep.remindAt, 'the first ring is not the one claimed');
-            assert.equal(prep.silentBecause, null);
-            assert.equal(proposal.items[0]!.resolvedTime, prep.remindAt);
-          }
-          assert.ok(Date.parse(prep.dueAt) <= Date.parse(startAt), 'due after the meeting has started');
+          const { prep, proposal, rings, storedRings, stored, startAt } = await prepFor(minutesAway, ceiling, lead);
+          const shownAt = proposal.items[0]!.resolvedTime!;
+          // R1: reminders on and no quiet hours, so it always rings — at the
+          // time shown, whatever the lead and however close the meeting.
+          assert.ok(rings.length > 0, `claimed a reminder at ${prep.remindAt}, and nothing rings`);
+          assert.equal(new Date(rings[0]!).toISOString(), prep.remindAt, 'the first ring is not the one claimed');
+          assert.equal(prep.silentBecause, null);
+          assert.equal(shownAt, prep.remindAt, 'shown at one time, rung at another');
+          assert.equal(prep.dueAt, startAt, 'the deadline is not the meeting start');
           assert.ok(rings.every((at) => at < Date.parse(startAt)), 'a ring during the meeting');
+          // The one time is before the meeting, and it is what is stored and shown (FX1).
+          assert.ok(Date.parse(shownAt) < Date.parse(startAt), `shown at ${shownAt}, not before the ${startAt} meeting`);
+          assert.equal(stored.timeSpec.dueAt, shownAt, 'stored at another time than Review showed');
+          assert.equal(stored.timeSpec.endAt, prep.dueAt, 'the deadline the phone counts back from is not stored');
+          assert.equal(stored.timeSpec.remindAt, prep.remindAt);
+          assert.deepEqual(storedRings, rings, 'the stored commitment rings differently from the claim');
         } finally { end(); }
       });
     }
   }
 }
 
-test('short notice, spelled out: 20 min away rings only with a 15-minute lead; 40 min away rings in five minutes unless the account is soft with a long lead', async () => {
+test('short notice, spelled out: 20 or 40 min away, it rings in five minutes, at the time shown, whatever the lead or ceiling (R1)', async () => {
   const cases: Array<[number, Ceiling, number, string | null]> = [
-    [20, 'soft', 60, null],
-    [20, 'followUp', 60, null],
+    [20, 'soft', 60, '2026-10-01T06:05:00.000Z'],
+    [20, 'followUp', 60, '2026-10-01T06:05:00.000Z'],
     [20, 'followUp', 15, '2026-10-01T06:05:00.000Z'],
-    [40, 'soft', 60, null],
+    [40, 'soft', 60, '2026-10-01T06:05:00.000Z'],
     [40, 'soft', 30, '2026-10-01T06:05:00.000Z'],
     [40, 'followUp', 60, '2026-10-01T06:05:00.000Z'],
     [40, 'hard', 60, '2026-10-01T06:05:00.000Z'],
@@ -637,7 +670,7 @@ test('the survey\'s silent answer: nothing rings, and it is said as the person\'
       now: NINE, consent: declined, quietHours: NO_QUIET_HOURS,
       ringSettings: { softEnabled: true, softLeadMinutes: 60, escalationCeiling: 'soft', surveySaysNone: true },
     });
-    const rings = await phoneRings(prep.dueAt, { ...engineSettings('soft', 60), intensity: 'none' }, NINE);
+    const rings = await phoneRings(new Date(NINE.getTime() + 120 * MINUTE).toISOString(), prep.dueAt, { ...engineSettings('soft', 60), intensity: 'none' }, NINE);
     assert.deepEqual(rings, []);
     assert.equal(prep.remindAt, null);
     assert.equal(prep.silentBecause, 'silent_choice');

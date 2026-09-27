@@ -27,9 +27,25 @@ import type { QuietWindow } from './quietHours';
  * `timeSpec.dueAt` and not `remindAt`: `remindAt` is a reminder the server
  * already derived, and scheduling a stage relative to it would apply the lead
  * twice.
+ *
+ * One exception, the server's `isTimedWindow` / `deadlineOfTimeSpec` line for
+ * line: a timed `due_by` with an end is a window, done *by* its end. A
+ * meeting's prep step is shown at 14:00 and done by the 15:00 start, so its
+ * start here is 15:00 and it opens at 14:00 (`opensAtOf`), where the gentle
+ * stage rings whatever the lead (post-UAT FX1, ruling R1).
  */
 export function startOf(commitment: Commitment): string | null {
-  return commitment.timeSpec.dueAt;
+  return isWindow(commitment) ? commitment.timeSpec.endAt : commitment.timeSpec.dueAt;
+}
+
+/** When a window opens — the time every screen shows — or null for anything else. */
+export function opensAtOf(commitment: Commitment): string | null {
+  return isWindow(commitment) ? commitment.timeSpec.dueAt : null;
+}
+
+function isWindow(commitment: Commitment): boolean {
+  const { kind, dueAt, endAt, allDay } = commitment.timeSpec;
+  return kind === 'due_by' && !allDay && !!dueAt && !!endAt;
 }
 
 export function toReminderCommitments(items: readonly Commitment[]): ReminderCommitment[] {
@@ -43,6 +59,8 @@ export function toReminderCommitments(items: readonly Commitment[]): ReminderCom
     priority: importanceOf(commitment),
     allDay: commitment.timeSpec.allDay,
     postponedUntil: commitment.postponedUntil,
+    // Only on a window, so every other commitment reaches the engine unchanged.
+    ...(opensAtOf(commitment) ? { opensAt: opensAtOf(commitment) } : {}),
   }));
 }
 

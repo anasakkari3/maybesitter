@@ -172,8 +172,15 @@ export function parseShown(body: unknown): string[] {
 
 /* ── The week, composed ────────────────────────────────────────────── */
 
-/** Why a step is on its day, as the card says it. Codes, never text. */
-export type WeekStepReason = 'due' | 'carried' | 'open' | 'moved';
+/**
+ * Why a step is on its day, as the card says it. Codes, never text.
+ *
+ * `carried` is work due on a day that has already gone (#383's roll-over);
+ * `due_earlier` is work due on an earlier day of this week that is still
+ * ahead, which the one-step-a-day week put later (post-UAT FX1: «أروح
+ * عالسوق», due tomorrow, was offered the day after as «من يوم فات»).
+ */
+export type WeekStepReason = 'due' | 'due_earlier' | 'carried' | 'open' | 'moved';
 
 interface ProposedDay {
   readonly kind: 'proposed';
@@ -227,10 +234,15 @@ function dailyRuleFor(uid: string, date: string, timezone: string, commitments: 
   }).constraints.items.map((item) => item.itemId);
 }
 
-function reasonFor(commitment: Commitment | undefined, horizon: { startsAt: string; endsAt: string }): WeekStepReason {
+function reasonFor(
+  commitment: Commitment | undefined,
+  horizon: { startsAt: string; endsAt: string },
+  todayStartsAt: string,
+): WeekStepReason {
   const dueAt = commitment?.timeSpec.dueAt ?? null;
   if (!dueAt) return 'open';
-  return toEpochMs(dueAt) < toEpochMs(horizon.startsAt) ? 'carried' : 'due';
+  if (toEpochMs(dueAt) >= toEpochMs(horizon.startsAt)) return 'due';
+  return toEpochMs(dueAt) < toEpochMs(todayStartsAt) ? 'carried' : 'due_earlier';
 }
 
 /**
@@ -336,7 +348,7 @@ export async function composeWeek(
     const horizon = dayHorizon(date, timezone);
     const reasons = new Map<string, WeekStepReason>(forced.map((itemId) => [itemId, 'moved']));
     if (step) {
-      reasons.set(step.itemId, reasonFor(byId.get(step.itemId), horizon));
+      reasons.set(step.itemId, reasonFor(byId.get(step.itemId), horizon, dayHorizon(today, timezone).startsAt));
       placedOn.set(step.itemId, date);
     }
     for (const itemId of forced) placedOn.set(itemId, date);

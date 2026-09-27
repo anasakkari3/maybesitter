@@ -1,4 +1,4 @@
-import { isLocalMidnight } from '../../../src/domain/stateMachine';
+import { isLocalMidnight, isTimedWindow, windowEndAfterMove } from '../../../src/domain/stateMachine';
 import type { Command, Commitment, DomainState, Priority, Reminder, TimeSpec } from '../../../src/domain/stateMachine';
 import { rankForMobile, type RankedItem } from '../../priority/mobileRanking';
 import {
@@ -502,7 +502,12 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
     // its time makes it anything else.
     kind: !(dueAt || remindAt) ? 'unscheduled' : current.kind === 'scheduled_event' ? 'scheduled_event' : 'due_by',
     dueAt,
-    endAt: patchedEndAt(current, input, dueAt, hasEndDate, allDay),
+    // A prep window keeps its deadline, not its length (FX1, ruling R2): moved
+    // to 14:30 it is still done by the 15:00 meeting; moved past it, to another
+    // day, or to no time, it is an ordinary step. `windowEndAfterMove` says which.
+    endAt: !hasEndDate && (hasDueDate || hasAllDay) && isTimedWindow(current)
+      ? (allDay ? null : windowEndAfterMove(current, dueAt))
+      : patchedEndAt(current, input, dueAt, hasEndDate, allDay),
     remindAt,
     allDay,
     timezone: current.timezone,

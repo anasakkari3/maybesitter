@@ -7,7 +7,7 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr, type Lang } from '../i18n/strings';
-import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useToday, useUpcoming } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
 import { groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
@@ -24,6 +24,7 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
+import { dayAndTime, drawnAt, drawnWhen, dueAsideText, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
@@ -68,6 +69,10 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const next = useNextStep();
   const plan = usePlan(dayKey(new Date(), timezone));
   const upcoming = useUpcoming();
+  // Where the saved week days put things (FX1): a row shows that, and its own
+  // due beside it, as the Calendar and Details do.
+  const savedWeek = useSavedWeek();
+  const placements = useMemo(() => savedPlacements(savedWeek.data), [savedWeek.data]);
   // From the local cache (UC-3.2, #186). Today renders before any request has
   // finished, and a chip that arrived after the list would move rows about.
   // The phone's busy time and Google's (CL6a review I1).
@@ -91,17 +96,19 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const groups: TodayGroups = useMemo(
     () => {
       const items = today.data?.items ?? [];
-      return groupForToday(showBar ? filterByCategory(items, chip) : items, now);
+      const grouped = groupForToday(showBar ? filterByCategory(items, chip) : items, now);
+      const place = (views: CommitmentView[]) => views.map((view) => placeView(view, placements));
+      return { must: place(grouped.must), should: place(grouped.should), nice: place(grouped.nice), finished: grouped.finished };
     },
     // `now` deliberately excluded: re-grouping on every render would move rows
     // under the user's finger as the clock ticks past a due time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today.data, showBar, chip],
+    [today.data, showBar, chip, placements],
   );
   const upcomingViews = useMemo(
-    () => (upcoming.data?.items ?? []).map((c) => toViewModel(c, now)),
+    () => (upcoming.data?.items ?? []).map((c) => placeView(toViewModel(c, now), placements)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [upcoming.data],
+    [upcoming.data, placements],
   );
 
   const model = useMemo(() => composeToday({
@@ -143,7 +150,7 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
 
   const refresh = () => {
     setRefreshing(true);
-    void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch()]).finally(() => setRefreshing(false));
+    void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
   };
 
   return (
@@ -283,14 +290,16 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
   const { t, p, actions } = useApp();
   const act = useCommitmentAction();
   const why = whyFirstLine(item.reasonCodes, strings);
-  const when = item.shownAt ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone })) : t.noTimeYet;
+  const drawn = drawnAt(item);
+  const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   return (
     <Card focus pad={22} style={{ gap: 16, borderStartWidth: 3, borderStartColor: item.importance === 'must' ? p.wm : p.lnStrong }} testID="today-primary">
       <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
       <Btn
         testID={`today-item-${item.id}`}
-        label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
+        label={`${rowAccessibilityLabel(item, t, drawn ? when : null)}${aside ? `, ${aside}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.99}
         style={{ alignItems: 'flex-start', gap: 4 }}
@@ -304,8 +313,9 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
             <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
           ) : null}
         </View>
+        {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
       </Btn>
-      <BusyConflictChip blocks={item.shownAt ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
+      <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
       {why ? <Txt role="supporting" color={p.mu} testID="today-why-first">{why}</Txt> : null}
       <ActionRow>
         <Btn testID={`today-primary-complete`} label={t.doneS} onPress={() => act.mutate({ id: item.id, action: 'complete' })} style={{ minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 16, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
@@ -360,9 +370,9 @@ function Row({ item, first, timezone, lang, busy }: {
     complete: () => act.mutate({ id: item.id, action: 'complete' }),
     postpone: () => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) }),
   });
-  const when = item.shownAt
-    ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
-    : t.noTimeYet;
+  const drawn = drawnAt(item);
+  const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
 
   return (
     <SwipeableRow actions={rowActions} testID={`today-swipe-${item.id}`}>
@@ -372,7 +382,7 @@ function Row({ item, first, timezone, lang, busy }: {
         onAccessibilityAction={(event) => {
           rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
         }}
-        label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
+        label={`${rowAccessibilityLabel(item, t, drawn ? when : null)}${aside ? `, ${aside}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.98}
         style={{
@@ -399,9 +409,10 @@ function Row({ item, first, timezone, lang, busy }: {
               <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{`· ${t.todayEstimatedMark}`}</Txt>
             ) : null}
           </View>
+          {aside ? <Txt size={12} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
           {/* What else is happening then (UC-3.2, #186): a muted note, never a
               warning, never something that stops the row being opened. */}
-          <BusyConflictChip blocks={item.shownAt ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
+          <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
         </View>
       </Btn>
     </SwipeableRow>
@@ -410,16 +421,16 @@ function Row({ item, first, timezone, lang, busy }: {
 
 function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first: boolean; timezone: string; lang: Lang }) {
   const { t, p, actions } = useApp();
-  const when = item.shownAt
-    ? `${formatRelativeDay(new Date(item.shownAt), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))}`
-    : t.noTimeYet;
+  const drawn = drawnAt(item);
+  const when = drawn ? dayAndTime(drawn, lang, timezone) : t.noTimeYet;
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const returnWhen = item.postponedUntil
     ? `${t.postponeReturn} ${formatRelativeDay(new Date(item.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.postponedUntil), { locale: lang, timeZone: timezone }))}`
     : null;
   return (
     <Btn
       testID={`today-later-${item.id}`}
-      label={`${rowAccessibilityLabel(item, t, item.shownAt ? when : null)}${returnWhen ? `, ${returnWhen}` : ''}`}
+      label={`${rowAccessibilityLabel(item, t, drawn ? when : null)}${aside ? `, ${aside}` : ''}${returnWhen ? `, ${returnWhen}` : ''}`}
       onPress={() => actions.openDetail(item.id)}
       scaleTo={0.98}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 18, minHeight: 56, borderTopWidth: first ? 0 : 1, borderTopColor: p.ln }}
@@ -427,7 +438,8 @@ function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
       <View style={{ flex: 1, gap: 2 }}>
         <Txt size={15}>{item.title}</Txt>
-        <Txt size={12} color={p.mu}>{when}</Txt>
+        <Txt size={12} color={p.mu} testID={`today-later-when-${item.id}`}>{when}</Txt>
+        {aside ? <Txt size={12} color={p.mu} testID={`today-later-due-${item.id}`}>{aside}</Txt> : null}
         {returnWhen ? <Txt size={12} color={p.mu} testID={`today-postponed-${item.id}`}>{returnWhen}</Txt> : null}
       </View>
     </Btn>
@@ -479,3 +491,4 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
     </Card>
   );
 }
+

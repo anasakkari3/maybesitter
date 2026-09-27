@@ -1,4 +1,4 @@
-import type { Commitment, DomainState } from '../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, type Commitment, type DomainState } from '../../src/domain/stateMachine';
 import type {
   NextStepEvidenceContract,
   NextStepLocale,
@@ -172,7 +172,9 @@ export function candidatesFromDomainState(state: DomainState): BaselineCandidate
     title: commitment.title,
     confirmed: commitment.confirmedAt !== null,
     status: commitment.status,
-    dueAt: commitment.timeSpec.dueAt,
+    // The deadline, not the hour it is shown at: a meeting's prep step is late
+    // after the meeting starts, not at 14:00 (`deadlineOfTimeSpec`, FX1).
+    dueAt: deadlineOfTimeSpec(commitment.timeSpec),
     remindAt: commitment.timeSpec.remindAt,
     // Three sources, and only two of them are an opinion about this
     // commitment. `default` is the fallback `normal` that every commitment
