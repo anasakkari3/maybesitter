@@ -6,6 +6,7 @@ import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import {
   acceptWeekDay,
   actOnPlan,
+  getSavedWeek,
   buildPlan,
   getPlan,
   getPlanSettings,
@@ -16,6 +17,7 @@ import {
 } from '../endpoints/plans';
 import {
   ConflictError,
+  WeekConflictError,
   PlanEditRefusedError,
   PlanProposalRefusedError,
   QuotaExceededError,
@@ -305,26 +307,47 @@ describe('weekly planning mode (CL5b)', () => {
 
   it('saves a day with the decisions it was shown under, and reads the plan and the week back', async () => {
     serve(fixture('plan.weekAccepted'));
-    const { plan, week } = await acceptWeekDay('2026-08-11', { moves: [], drops: [] });
+    const { plan, week } = await acceptWeekDay('2026-08-11', ['plan_fixture_week_open'], { moves: [], drops: [] });
     expect(requests[0]).toMatchObject({
       url: 'http://localhost:3000/api/mobile/plans/week/accept',
       method: 'POST',
-      body: { date: '2026-08-11', moves: [], drops: [] },
+      // The steps the card showed travel with the save, so the server can refuse a day nobody saw (I1).
+      body: { date: '2026-08-11', shown: ['plan_fixture_week_open'], moves: [], drops: [] },
     });
     expect(plan.date).toBe('2026-08-11');
     expect(plan.status).toBe('accepted');
     expect(week.days.find(day => day.date === '2026-08-11')!.state).toBe('accepted');
   });
 
-  it('reads a day that already has a plan as a conflict', async () => {
+  it('reads a day that already has a plan as a conflict that carries the week', async () => {
     serve(fixture('plan.weekAlreadyPlanned'), 409);
-    await expect(acceptWeekDay('2026-08-11', { moves: [], drops: [] })).rejects.toBeInstanceOf(ConflictError);
+    const error = await acceptWeekDay('2026-08-11', [], { moves: [], drops: [] }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ConflictError);
+    expect(error).toBeInstanceOf(WeekConflictError);
+    expect((error as WeekConflictError).reason).toBe('already_planned');
+    expect((error as WeekConflictError).week.days).toHaveLength(7);
+  });
+
+  it('reads a card the week no longer matches as week_changed, with the fresh week to redraw (I1)', async () => {
+    serve(fixture('plan.weekChanged'), 409);
+    const error = await acceptWeekDay('2026-08-11', ['plan_fixture_not_on_this_day'], { moves: [], drops: [] }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(WeekConflictError);
+    expect((error as WeekConflictError).reason).toBe('week_changed');
+    expect((error as WeekConflictError).week.days.map(day => day.date)).toHaveLength(7);
   });
 
   it('refuses to send a date that is not one', async () => {
     serve(fixture('plan.weekAccepted'));
-    await expect(acceptWeekDay('tomorrow', { moves: [], drops: [] })).rejects.toBeInstanceOf(ValidationError);
+    await expect(acceptWeekDay('tomorrow', [], { moves: [], drops: [] })).rejects.toBeInstanceOf(ValidationError);
     expect(requests).toHaveLength(0);
+  });
+
+  it('reads the saved week days for the Calendar strip (I4)', async () => {
+    serve(fixture('plan.weekSaved'));
+    const saved = await getSavedWeek();
+    expect(requests[0]).toMatchObject({ url: 'http://localhost:3000/api/mobile/plans/week', method: 'GET' });
+    expect(saved.saved.map(day => day.date)).toEqual(['2026-08-11']);
+    expect(saved.saved[0]!.items[0]!.itemId).toBe('plan_fixture_week_open');
   });
 });
 

@@ -22,6 +22,9 @@ import { dayKey, shiftDayKey } from '../../i18n/format';
 import en from '../../i18n/locales/en.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
+import * as planEndpoints from '../../api/endpoints/plans';
+import { savedWeekResponseSchema, type SavedWeek } from '../../api/schemas/plan';
+import savedWeekFixture from '../../api/__fixtures__/plan.weekSaved.json';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -74,7 +77,12 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  savedWeek = { today: TODAY_KEY, saved: [] };
+  jest.spyOn(planEndpoints, 'getSavedWeek').mockImplementation(async () => savedWeek);
 });
+
+/** What `GET /api/mobile/plans/week` answers in each case; nothing saved unless a case says so. */
+let savedWeek: SavedWeek;
 
 afterEach(() => {
   client.clear();
@@ -181,6 +189,42 @@ describe('failure', () => {
 });
 
 describe('weekly planning mode (CL5b)', () => {
+  /**
+   * The recorded saved-week answer (`plan.weekSaved.json`, from the real
+   * route), moved onto this strip's dates: its one saved day becomes the day
+   * after tomorrow, and its step one of the commitments below.
+   */
+  function savedOn(offset: number, itemId: string, hour: number): SavedWeek {
+    const recorded = savedWeekResponseSchema.parse(savedWeekFixture);
+    const day = recorded.saved[0]!;
+    const at = onDay(offset, hour);
+    return {
+      today: TODAY_KEY,
+      saved: [{ ...day, date: shiftDayKey(TODAY_KEY, offset), items: [{ ...day.items[0]!, itemId, startsAt: at, endsAt: at }] }],
+    };
+  }
+
+  it('draws a saved week step on the day it was saved for, not on today (I4)', async () => {
+    // Undated, so the server lists it on today; the person saved it for the day after tomorrow.
+    savedWeek = savedOn(2, 'someday', 10);
+    await show([item('someday', null)], []);
+    await waitFor(() => expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 2)}`)).toHaveLength(1));
+    expect(screen.queryAllByTestId(`calendar-bar-${TODAY_KEY}`)).toHaveLength(0);
+    expect(screen.queryByTestId('calendar-item-someday')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 2)}`));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-someday')).not.toBeNull());
+    // At the time the saved day holds it, not "no time yet".
+    expect(screen.getByTestId('calendar-time-someday').props.children).not.toBe(en.noTimeYet);
+  });
+
+  it('draws a saved week step on its saved day, not on its due date (I4)', async () => {
+    savedWeek = savedOn(1, 'report', 9);
+    await show([], [item('report', onDay(5))]);
+    await waitFor(() => expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 1)}`)).toHaveLength(1));
+    expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 5)}`)).toHaveLength(0);
+  });
+
   function Probe() {
     const { s } = useApp();
     return <Text testID="probe-screen">{s.screen}</Text>;

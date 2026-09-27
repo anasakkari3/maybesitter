@@ -8,7 +8,7 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
-import { useToday, useTrust, useUpcoming } from '../api/queries';
+import { useSavedWeek, useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { ScreenHeader, Notice } from '../ui/chrome';
@@ -51,6 +51,14 @@ import { cardShadow } from '../theme/tokens';
  * Both queries are keyed by timezone and the server groups by local day, so
  * the strip does too. Cells are day *keys* — calendar arithmetic with no time
  * in it — which is why a DST change cannot shorten a day here.
+ *
+ * ── Steps saved from the week view (CL5b, I4) ─────────────────────
+ *
+ * A step the person saved for a day from «خطّط أسبوعي» is drawn on that day,
+ * at the time the saved day holds it — not on its due date, and not on today
+ * where an undated commitment otherwise sits. The saved days come from their
+ * stored plans (`GET /api/mobile/plans/week`); if that read fails, the strip
+ * draws commitments where they are due, as it did before.
  */
 export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
   const { s, t, p, lang, actions } = useApp();
@@ -58,6 +66,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const stacked = useLayoutMode() !== 'normal';
   const today = useToday();
   const upcoming = useUpcoming();
+  const savedWeek = useSavedWeek();
   const trust = useTrust();
   const busy = useBusyBlocks();
   const calendarConnected = trust.data?.trust.calendarConsent === true;
@@ -78,11 +87,30 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
     for (const day of groupUpcoming(upcoming.data?.items ?? [], now.toISOString(), timezone)) {
       map.set(day.key, day.items);
     }
+    // A saved week step moves to the day it was saved for, at its saved time.
+    const savedOn = new Map<string, { date: string; startsAt: string }>();
+    for (const day of savedWeek.data?.saved ?? []) {
+      for (const step of day.items) savedOn.set(step.itemId, { date: day.date, startsAt: step.startsAt });
+    }
+    if (savedOn.size > 0) {
+      const moved: [string, CommitmentView][] = [];
+      for (const [key, views] of Array.from(map)) {
+        map.set(key, views.filter((view) => {
+          const saved = savedOn.get(view.id);
+          if (!saved) return true;
+          moved.push([saved.date, { ...view, shownAt: saved.startsAt }]);
+          return false;
+        }));
+      }
+      for (const [date, view] of moved) {
+        map.set(date, [...(map.get(date) ?? []), view].sort((a, b) => (a.shownAt ? Date.parse(a.shownAt) : Infinity) - (b.shownAt ? Date.parse(b.shownAt) : Infinity)));
+      }
+    }
     return map;
     // `now` excluded on purpose: re-deriving every render would move rows under
     // the user's finger as the clock ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today.data, upcoming.data, timezone, todayKey]);
+  }, [today.data, upcoming.data, savedWeek.data, timezone, todayKey]);
 
   const busyByDay = useMemo(() => {
     const map = new Map<string, DeviceBusyBlock[]>();
@@ -108,7 +136,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
 
   const refresh = () => {
     setRefreshing(true);
-    void Promise.all([today.refetch(), upcoming.refetch()]).finally(() => setRefreshing(false));
+    void Promise.all([today.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
   };
 
   const range = `${formatDate(civilDate(keys[0]!), 'short', { locale: lang, timeZone: CIVIL_ZONE })} – ${

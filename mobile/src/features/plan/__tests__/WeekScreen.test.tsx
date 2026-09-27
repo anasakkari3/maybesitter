@@ -20,7 +20,7 @@ import { strings } from '../../../i18n/strings';
 import { weekResponseSchema, type Week } from '../../../api/schemas/plan';
 import fixture from '../../../api/__fixtures__/plan.week.json';
 import type { WeekDecisions } from '../../../api/endpoints/plans';
-import { ConflictError } from '../../../api/errors';
+import { ConflictError, QuotaExceededError, WeekConflictError } from '../../../api/errors';
 import { WeekScreen } from '../WeekScreen';
 import { ActionModesScreen } from '../../product/ControlScreens';
 
@@ -31,16 +31,26 @@ const FIRST = WITH_STEP[0]!;
 const STEP = FIRST.items[0]!;
 
 let mockWeek: Week | undefined = RECORDED;
+let mockFetching = false;
+let mockPlaceholder = false;
+let mockWeekError: unknown = null;
 let mockSaveError: unknown = null;
 let mockSaving = false;
-let mockSaveVariables: string | undefined;
+let mockSaveVariables: { date: string; shown: string[] } | undefined;
 const mockDecisions: WeekDecisions[] = [];
 const mockSave = jest.fn();
 
 jest.mock('../../../api/queries', () => ({
   useWeek: (decisions: WeekDecisions) => {
     mockDecisions.push(decisions);
-    return { data: mockWeek, isPending: mockWeek === undefined, isFetching: false, error: null, refetch: jest.fn() };
+    return {
+      data: mockWeek,
+      isPending: mockWeek === undefined && mockWeekError === null,
+      isFetching: mockFetching,
+      isPlaceholderData: mockPlaceholder,
+      error: mockWeekError,
+      refetch: jest.fn(),
+    };
   },
   useAcceptWeekDay: () => ({
     mutate: mockSave,
@@ -75,8 +85,14 @@ function language() {
 
 const lastDecisions = () => mockDecisions[mockDecisions.length - 1]!;
 
+/** What the card for `day` shows, as "Save" sends it (I1). */
+const shownOn = (day: Week['days'][number]) => [...day.items.map(item => item.itemId), ...day.unplaced.map(item => item.itemId)];
+
 beforeEach(() => {
   mockWeek = RECORDED;
+  mockFetching = false;
+  mockPlaceholder = false;
+  mockWeekError = null;
   mockSaveError = null;
   mockSaving = false;
   mockSaveVariables = undefined;
@@ -151,7 +167,8 @@ describe('saving a day', () => {
     const t = language();
     await fireEvent.press(screen.getByTestId(`week-save-${FIRST.date}`));
     expect(mockSave).toHaveBeenCalledTimes(1);
-    expect(mockSave.mock.calls[0]![0]).toBe(FIRST.date);
+    // The day, and the steps its card showed, so the server saves only what was seen (I1).
+    expect(mockSave.mock.calls[0]![0]).toEqual({ date: FIRST.date, shown: shownOn(FIRST) });
     const options = mockSave.mock.calls[0]![1] as { onSuccess: () => void };
     options.onSuccess();
     expect(announce).toHaveBeenCalledWith(t.weekSavedToast);
@@ -159,7 +176,7 @@ describe('saving a day', () => {
 
   it('holds every save while one is in flight', async () => {
     mockSaving = true;
-    mockSaveVariables = FIRST.date;
+    mockSaveVariables = { date: FIRST.date, shown: shownOn(FIRST) };
     await show();
     for (const day of WITH_STEP) {
       const button = screen.getByTestId(`week-save-${day.date}`);
@@ -171,10 +188,56 @@ describe('saving a day', () => {
 
   it('says a day already has a plan in words, beside that day', async () => {
     mockSaveError = new ConflictError('that day already has a plan');
-    mockSaveVariables = FIRST.date;
+    mockSaveVariables = { date: FIRST.date, shown: shownOn(FIRST) };
     await show();
     const t = language();
     expect(screen.getByTestId(`week-error-${FIRST.date}`).props.children).toBe(t.weekAlreadyPlanned);
+  });
+
+  for (const [name, state] of [['being fetched', 'fetching'], ['the previous week kept on screen', 'placeholder']] as const) {
+    it(`holds every save while the week on screen is ${name} (I1)`, async () => {
+      if (state === 'fetching') mockFetching = true;
+      else mockPlaceholder = true;
+      await show();
+      for (const day of WITH_STEP) {
+        const button = screen.getByTestId(`week-save-${day.date}`);
+        expect(button.props.accessibilityState).toMatchObject({ disabled: true });
+        await fireEvent.press(button);
+      }
+      expect(mockSave).not.toHaveBeenCalled();
+    });
+  }
+
+  it('says briefly that the week changed when the server refuses a stale card (I1)', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    await show();
+    const t = language();
+    await fireEvent.press(screen.getByTestId(`week-save-${FIRST.date}`));
+    const options = mockSave.mock.calls[0]![1] as { onError: (error: unknown) => void };
+    options.onError(new WeekConflictError('week_changed', RECORDED));
+    expect(announce).toHaveBeenCalledWith(t.weekChanged);
+    await cleanup();
+
+    mockSaveError = new WeekConflictError('week_changed', RECORDED);
+    mockSaveVariables = { date: FIRST.date, shown: shownOn(FIRST) };
+    await show();
+    expect(screen.getByTestId(`week-error-${FIRST.date}`).props.children).toBe(language().weekChanged);
+  });
+
+  it('says the day\'s limit is reached, not a generic failure, when the server answers 429 (I5)', async () => {
+    mockWeek = undefined;
+    mockWeekError = new QuotaExceededError('user_daily', 60, 'too many week plans today');
+    await show();
+    const t = language();
+    expect(within(screen.getByTestId('week-limit')).getByText(t.weekLimitReached)).toBeTruthy();
+    await cleanup();
+
+    mockWeek = RECORDED;
+    mockWeekError = null;
+    mockSaveError = new QuotaExceededError('user_daily', 60, 'too many week plans today');
+    mockSaveVariables = { date: FIRST.date, shown: shownOn(FIRST) };
+    await show();
+    expect(screen.getByTestId(`week-error-${FIRST.date}`).props.children).toBe(language().weekLimitReached);
   });
 
   it('opens a day that has a plan on the plan screen for that date', async () => {
@@ -192,7 +255,9 @@ describe('moving and dropping', () => {
     await fireEvent.press(screen.getByTestId(`week-move-${STEP.itemId}`));
     const chooser = screen.getByTestId(`week-move-to-${STEP.itemId}`);
     const targets = PROPOSED.filter(day => day.date !== FIRST.date).map(day => day.date);
-    for (const date of targets) expect(within(chooser).getByTestId(`week-move-${STEP.itemId}-${date}`).props.accessibilityRole).toBe('radio');
+    // One-shot actions, not a selection (M-c): buttons, and no radio group around them.
+    for (const date of targets) expect(within(chooser).getByTestId(`week-move-${STEP.itemId}-${date}`).props.accessibilityRole).toBe('button');
+    expect(within(chooser).queryAllByRole('radiogroup')).toHaveLength(0);
     for (const day of RECORDED.days.filter(candidate => candidate.state !== 'proposed' || candidate.date === FIRST.date)) {
       expect(within(chooser).queryByTestId(`week-move-${STEP.itemId}-${day.date}`)).toBeNull();
     }
@@ -220,6 +285,12 @@ describe('moving and dropping', () => {
     expect(within(screen.getByTestId('week-dropped')).getByText(t.weekDroppedTitle)).toBeTruthy();
     await fireEvent.press(screen.getByTestId(`week-undrop-${STEP.itemId}`));
     expect(lastDecisions().drops).toEqual([WITH_STEP[1]!.items[0]!.itemId]);
+  });
+});
+
+describe('the feature\'s name', () => {
+  it('is one name per language: the row that opens the screen and the screen say the same thing (M-d)', () => {
+    for (const bundle of Object.values(strings)) expect(bundle.xWeekly).toBe(bundle.weekTitle);
   });
 });
 

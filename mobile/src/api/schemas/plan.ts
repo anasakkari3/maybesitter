@@ -390,12 +390,30 @@ export const weekAcceptResponseSchema = z.object({
   week: weekSchema,
 });
 
-/** 409: the day already has a plan. The week comes back so a screen can redraw. */
-export const weekAlreadyPlannedSchema = z.object({
+/**
+ * 409 from the save: `already_planned` (the day has a plan) or `week_changed`
+ * (the day is no longer what its card showed, I1). The week comes back so a
+ * screen can redraw without another call.
+ */
+export const weekConflictSchema = z.object({
   success: z.literal(false),
   error: z.string(),
-  reason: z.literal('already_planned'),
+  reason: z.enum(['already_planned', 'week_changed']),
   week: weekSchema,
+});
+
+/**
+ * `GET /api/mobile/plans/week` (I4): the days of the next seven the person
+ * saved from the week view, and the steps each holds, for the Calendar strip.
+ * Pinned by `plan.weekSaved`.
+ */
+export const savedWeekResponseSchema = z.object({
+  success: z.literal(true),
+  today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  saved: z.array(z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    items: z.array(z.object({ itemId: z.string(), startsAt: isoDateTime, endsAt: isoDateTime })),
+  })),
 });
 
 export type Week = z.infer<typeof weekSchema>;
@@ -403,3 +421,4 @@ export type WeekDay = z.infer<typeof weekDaySchema>;
 export type WeekItem = z.infer<typeof weekItemSchema>;
 export type WeekRow = z.infer<typeof weekRowSchema>;
 export type WeekStepReason = z.infer<typeof weekStepReasonSchema>;
+export type SavedWeek = Omit<z.infer<typeof savedWeekResponseSchema>, 'success'>;

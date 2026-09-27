@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AccessibilityInfo, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAcceptWeekDay, useWeek } from '../../api/queries';
-import { ConflictError } from '../../api/errors';
+import { ConflictError, QuotaExceededError, WeekConflictError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { WeekDecisions } from '../../api/endpoints/plans';
@@ -32,8 +32,18 @@ import { ProductPage } from '../../ui/product';
  * daily flow does, so Today and the plan screen show it on its date. Leaving
  * the screen forgets the unsaved decisions, which is what a suggestion is.
  *
- * "Not this week" is deliberately not «أسقطه بوعي»: it takes a step off this
- * week's suggestions and changes nothing about the commitment.
+ * «مش بالأيام اللي بحفظها» / "Not in days I save" is deliberately not
+ * «أسقطه بوعي»: it keeps a step out of the days saved from this screen and
+ * changes nothing about the commitment. It is screen-only, so its words
+ * promise no more than that — a morning plan may still offer the step.
+ *
+ * ── The day saved is the day shown (I1) ───────────────────────────
+ *
+ * "Save this day" sends the steps its card shows, and is held while the week
+ * on screen is being redrawn (a move or a drop keeps the previous week on
+ * screen while the next one is composed). If the account changed meanwhile,
+ * the server refuses with the fresh week, which is drawn in place, and the
+ * person is told in one short line.
  */
 export function WeekScreen() {
   const { t, p } = useApp();
@@ -51,19 +61,39 @@ export function WeekScreen() {
   }));
   const undrop = (itemId: string) => setDecisions(current => ({ ...current, drops: current.drops.filter(existing => existing !== itemId) }));
 
+  // The day's limit is a limit, not a failure: its own short line, no retry
+  // that would fail the same way until tomorrow (I5).
+  const limited = query.error instanceof QuotaExceededError;
+  // The week on screen is the previous one while the next is composed; a
+  // save from it would save a card that is about to change (I1).
+  const redrawing = query.isFetching || query.isPlaceholderData;
+
   return (
     <ProductPage id="week" title={t.weekTitle} subtitle={t.weekBody}>
       <Txt role="supporting" color={p.mu} testID="week-proposal-note">{t.suggestionNote}</Txt>
-      <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
-        {week ? <WeekBody week={week} decisions={decisions} onMove={move} onDrop={drop} onUndrop={undrop} /> : null}
-      </QueryBoundary>
+      {limited ? (
+        <EmptyState testID="week-limit" title={t.weekLimitReached} top={24} />
+      ) : (
+        <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
+          {week ? <WeekBody week={week} decisions={decisions} redrawing={redrawing} onMove={move} onDrop={drop} onUndrop={undrop} /> : null}
+        </QueryBoundary>
+      )}
     </ProductPage>
   );
 }
 
-function WeekBody({ week, decisions, onMove, onDrop, onUndrop }: {
+/** A save's failure, in the words that fit it. */
+function saveErrorText(error: unknown, t: ReturnType<typeof useApp>['t']): string {
+  if (error instanceof WeekConflictError && error.reason === 'week_changed') return t.weekChanged;
+  if (error instanceof ConflictError) return t.weekAlreadyPlanned;
+  if (error instanceof QuotaExceededError) return t.weekLimitReached;
+  return userFacingMessage(error, t);
+}
+
+function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   week: Week;
   decisions: WeekDecisions;
+  redrawing: boolean;
   onMove: (itemId: string, date: string) => void;
   onDrop: (itemId: string) => void;
   onUndrop: (itemId: string) => void;
@@ -80,14 +110,15 @@ function WeekBody({ week, decisions, onMove, onDrop, onUndrop }: {
   // the plan the person already has.
   const targets = week.days.filter(day => day.state === 'proposed').map(day => day.date);
 
-  const saveDay = (date: string) => {
-    if (save.isPending) return;
-    save.mutate(date, {
+  const saveDay = (day: WeekDay) => {
+    if (save.isPending || redrawing) return;
+    const shown = [...day.items.map(item => item.itemId), ...day.unplaced.map(item => item.itemId)];
+    save.mutate({ date: day.date, shown }, {
       onSuccess: () => {
-        setSavedDate(date);
+        setSavedDate(day.date);
         AccessibilityInfo.announceForAccessibility(t.weekSavedToast);
       },
-      onError: error => AccessibilityInfo.announceForAccessibility(error instanceof ConflictError ? t.weekAlreadyPlanned : userFacingMessage(error, t)),
+      onError: error => AccessibilityInfo.announceForAccessibility(saveErrorText(error, t)),
     });
   };
 
@@ -101,11 +132,11 @@ function WeekBody({ week, decisions, onMove, onDrop, onUndrop }: {
           zone={week.timezone}
           targets={targets.filter(date => date !== day.date)}
           moving={moving}
-          saving={save.isPending && save.variables === day.date}
-          busy={save.isPending}
+          saving={save.isPending && save.variables?.date === day.date}
+          busy={save.isPending || redrawing}
           justSaved={savedDate === day.date}
-          error={save.isError && save.variables === day.date ? save.error : null}
-          onSave={() => saveDay(day.date)}
+          error={save.isError && save.variables?.date === day.date ? save.error : null}
+          onSave={() => saveDay(day)}
           onToggleMove={itemId => setMoving(current => (current === itemId ? null : itemId))}
           onMove={(itemId, date) => { setMoving(null); onMove(itemId, date); }}
           onDrop={itemId => { setMoving(null); onDrop(itemId); }}
@@ -217,7 +248,7 @@ function DayCard({
       ) : null}
       {error ? (
         <Txt role="supporting" color={p.wm} testID={`week-error-${day.date}`}>
-          {error instanceof ConflictError ? t.weekAlreadyPlanned : userFacingMessage(error, t)}
+          {saveErrorText(error, t)}
         </Txt>
       ) : null}
     </Card>
@@ -264,7 +295,8 @@ function StepRow({ item, zone, targets, today, open, busy, onToggleMove, onMove,
       {open ? (
         <View style={{ gap: 8 }} testID={`week-move-to-${item.itemId}`}>
           <Txt role="label" color={p.mu}>{t.weekMoveTo}</Txt>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }} accessibilityRole="radiogroup">
+          {/* One-shot actions, not a selection: buttons, each naming its day (M-c). */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             {targets.map(date => {
               const label = formatRelativeDay(civilDate(date), { locale: lang, timeZone: CIVIL_ZONE, now: civilDate(today) });
               return (
@@ -272,8 +304,7 @@ function StepRow({ item, zone, targets, today, open, busy, onToggleMove, onMove,
                   key={date}
                   testID={`week-move-${item.itemId}-${date}`}
                   label={label}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected: false }}
+                  accessibilityRole="button"
                   onPress={() => onMove(date)}
                   style={{ minHeight: 44, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf }}
                 >

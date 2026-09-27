@@ -5,9 +5,11 @@ import {
   planResponseSchema,
   planSettingsResponseSchema,
   planCauseResponseSchema,
+  savedWeekResponseSchema,
   weekAcceptResponseSchema,
   weekResponseSchema,
   type DailyPlan,
+  type SavedWeek,
   type Week,
   type PlanSettings,
   type PlanCause,
@@ -239,14 +241,29 @@ export async function proposeWeek(decisions: WeekDecisions): Promise<Week> {
 /**
  * Saves one day of the week as it was shown under `decisions`.
  *
- * Answers that date's plan and the week as it stands after. A date that
- * already has a plan is a 409, which arrives as `ConflictError`.
+ * `shown` is the steps that day's card showed; the server saves the day only
+ * if it still holds exactly those (I1). Answers that date's plan and the week
+ * as it stands after. A refusal is a 409 carrying the week to redraw, which
+ * arrives as `WeekConflictError` (`already_planned` or `week_changed`).
  */
-export async function acceptWeekDay(date: string, decisions: WeekDecisions): Promise<{ plan: DailyPlan; week: Week }> {
+export async function acceptWeekDay(
+  date: string,
+  shown: readonly string[],
+  decisions: WeekDecisions,
+): Promise<{ plan: DailyPlan; week: Week }> {
   if (!PLAN_DATE.test(date)) throw new ValidationError('a plan date must be YYYY-MM-DD');
   const response = await apiRequest('POST', '/api/mobile/plans/week/accept', {
-    body: { date, moves: decisions.moves, drops: decisions.drops },
+    body: { date, shown, moves: decisions.moves, drops: decisions.drops },
     schema: weekAcceptResponseSchema,
   });
   return { plan: { ...response.plan, proposal: null }, week: response.week };
+}
+
+/**
+ * The days of the next seven saved from the week view, and their steps
+ * (I4): what the Calendar strip draws on those dates. Reads only.
+ */
+export async function getSavedWeek(): Promise<SavedWeek> {
+  const { today, saved } = await apiRequest('GET', '/api/mobile/plans/week', { schema: savedWeekResponseSchema });
+  return { today, saved };
 }

@@ -26,6 +26,7 @@ import {
   buildPlan,
   getPlan,
   getPlanSettings,
+  getSavedWeek,
   proposeWeek,
   putPlanSettings,
   regeneratePlan,
@@ -92,7 +93,14 @@ import type { PilotIncidentInput, TrustAction } from './schemas/trust';
 import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
-import { ConflictError, ForbiddenError, InvalidTransitionError, PlanProposalRefusedError, StaleCommitmentError } from './errors';
+import {
+  ConflictError,
+  ForbiddenError,
+  InvalidTransitionError,
+  PlanProposalRefusedError,
+  StaleCommitmentError,
+  WeekConflictError,
+} from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
   createIcsFeed,
@@ -152,6 +160,8 @@ export const queryKeys = {
    * `plan`, so everything that invalidates plans invalidates the week too.
    */
   week: (uid: string, decisions: string) => ['user', uid, 'plan', 'week', decisions] as const,
+  /** The saved week days of the next seven (CL5b, I4), for the Calendar strip. Under `plan` too. */
+  savedWeek: (uid: string) => ['user', uid, 'plan', 'savedWeek'] as const,
   planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
   reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
   readiness: (uid: string) => ['user', uid, 'readiness'] as const,
@@ -837,27 +847,58 @@ export function useWeek(decisions: WeekDecisions) {
 }
 
 /**
+ * A refused save (CL5b): the week on screen is stale. The 409 carries the
+ * week as it is now, which replaces it without another call (I1); a conflict
+ * without one reads the week again.
+ */
+export function adoptWeekConflict(client: QueryClient, uid: string, decisions: WeekDecisions, error: unknown): void {
+  if (error instanceof WeekConflictError) {
+    client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), error.week);
+    return;
+  }
+  if (error instanceof ConflictError) void client.invalidateQueries({ queryKey: ['user', uid, 'plan', 'week'] });
+}
+
+/** What "Save this day" sends: the day, and the steps its card showed (I1). */
+export interface WeekDaySave {
+  date: string;
+  shown: readonly string[];
+}
+
+/**
  * "Save this day" (CL5b).
  *
  * The answer is the day's plan and the week after it: the plan goes into that
- * date's plan query exactly as "Looks good" would put it, and the week into
- * the query for the decisions it was saved under. Not retried, like every
- * mutation here; the server refuses a second save of the same day with 409.
+ * date's plan query exactly as "Looks good" would put it, the week into the
+ * query for the decisions it was saved under, and the Calendar's saved week
+ * is read again. Not retried, like every mutation here; a refusal (409) comes
+ * back with the week, which is drawn in place of the stale one.
  */
 export function useAcceptWeekDay(decisions: WeekDecisions) {
   const client = useQueryClient();
   const uid = useUid();
   return useMutation({
-    mutationFn: (date: string) => acceptWeekDay(date, decisions),
+    mutationFn: ({ date, shown }: WeekDaySave) => acceptWeekDay(date, shown, decisions),
     onSuccess: ({ plan, week }) => {
       adoptPlan(client, uid, plan.date, plan);
       client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), week);
+      void client.invalidateQueries({ queryKey: queryKeys.savedWeek(uid) });
     },
-    onError: error => {
-      // The day got a plan somewhere else (the morning, another phone): the
-      // week on screen is stale, so it is read again.
-      if (error instanceof ConflictError) void client.invalidateQueries({ queryKey: ['user', uid, 'plan', 'week'] });
-    },
+    onError: error => adoptWeekConflict(client, uid, decisions, error),
+  });
+}
+
+/**
+ * The days of the next seven saved from the week view (CL5b, I4): the
+ * Calendar strip draws their steps on those dates. A failure here is not the
+ * strip's failure; the strip then draws commitments where they are due.
+ */
+export function useSavedWeek() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.savedWeek(uid),
+    queryFn: getSavedWeek,
+    enabled: uid !== 'signed-out',
   });
 }
 

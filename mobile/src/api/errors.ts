@@ -1,5 +1,5 @@
 import type { Commitment } from './schemas/common';
-import type { PlanEditRejected, PlanProposalRejected } from './schemas/plan';
+import type { PlanEditRejected, PlanProposalRejected, Week } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
 
 /**
@@ -137,6 +137,21 @@ export class ConflictError extends ApiError {}
 export class StaleCommitmentError extends ConflictError {
   constructor(readonly current: Commitment) {
     super('the commitment changed on another device');
+  }
+}
+
+/**
+ * 409 from `POST /api/mobile/plans/week/accept` (CL5b): the day was not
+ * saved, and the week as it is now came back with the refusal.
+ *
+ * `already_planned` — the date got a plan elsewhere (the morning, another
+ * phone). `week_changed` — the day is no longer what its card showed, so
+ * saving it would save something the person never saw (I1). Either way the
+ * screen redraws from `week`; nothing is resubmitted.
+ */
+export class WeekConflictError extends ConflictError {
+  constructor(readonly reason: 'already_planned' | 'week_changed', readonly week: Week) {
+    super(reason === 'week_changed' ? 'the week changed since it was shown' : 'that day already has a plan');
   }
 }
 
