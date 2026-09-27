@@ -165,6 +165,14 @@ describe('what it refuses', () => {
     expect(parseLink(`maybesitter://${'a'.repeat(40)}`)).toBeNull();
   });
 
+  it('leaves the Google auth-session returns to the auth session (CL6a)', () => {
+    // The auth session reads these itself; the router acting on one would
+    // navigate away mid-connect, and the URL carries a one-time code.
+    expect(parseLink('maybesitter://oauth/google?code=4%2F0Abc&state=st-1')).toBeNull();
+    expect(parseLink('maybesitter://oauth/google?error=access_denied')).toBeNull();
+    expect(parseLink('maybesitter://oauth/google/drive?fileId=doc_fixture_12345')).toBeNull();
+  });
+
   it('drops a bad link rather than repairing it', () => {
     // Repairing would mean guessing which commitment a stranger meant.
     expect(parseLink('maybesitter://commitments/a b c')).toBeNull();

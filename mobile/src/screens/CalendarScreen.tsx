@@ -10,6 +10,7 @@ import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTim
 import { ltr } from '../i18n/strings';
 import { useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { useGoogleBusyBlocks } from '../features/google/useGoogle';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { ScreenHeader, Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
@@ -59,7 +60,12 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const today = useToday();
   const upcoming = useUpcoming();
   const trust = useTrust();
-  const busy = useBusyBlocks();
+  const deviceBusy = useBusyBlocks();
+  // Google Calendar's busy time (CL6a) beside the phone's. The server already
+  // dropped any Google interval the phone's own blocks cover, so the two lists
+  // do not repeat a meeting; ids are prefixed by source and never collide.
+  const googleBusy = useGoogleBusyBlocks();
+  const busy = useMemo(() => [...deviceBusy, ...googleBusy], [deviceBusy, googleBusy]);
   const calendarConnected = trust.data?.trust.calendarConsent === true;
   const [refreshing, setRefreshing] = useState(false);
 

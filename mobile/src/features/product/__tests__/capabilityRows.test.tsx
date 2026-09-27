@@ -62,7 +62,23 @@ jest.mock('../../../api/queries', () => ({
   useRegenerateGoalExecution: mutation(),
   useUnlinkGoalNode: mutation(),
   useCommitment: query(null),
+  useAiConsentGranted: () => ({ granted: false, asked: false, loading: false }),
+  useTrust: query({ trust: { calendarConsent: false } }),
 }));
+jest.mock('../../google/useGoogle', () => ({
+  // Not configured: the state every build is in until the owner adds the
+  // OAuth client. The rows' other states are held in googleConnections.test.
+  useGoogleStatus: query({
+    status: 'not_configured', accountEmail: null, features: { calendar: false, gmail: false, drive: false },
+    pickerAvailable: false, connectedAt: null,
+  }),
+  useGoogleConnect: mutation(),
+  useGoogleDisconnect: mutation(),
+  useGoogleCalendarSync: mutation(),
+  useGmailScan: mutation(),
+  useDrivePick: mutation(),
+}));
+jest.mock('../../capture/CaptureProvider', () => ({ useCaptureFlow: () => ({ adoptProposal: jest.fn() }) }));
 jest.mock('../useWatchers', () => ({
   useBackgroundActivity: query({ paused: false, monitors: [] }),
   useBackgroundAttribution: query({ actions: [], orphanCount: 0 }),
@@ -202,8 +218,8 @@ describe('the capability table', () => {
     const soon = keys.filter(key => status(key) === 'COMING_SOON').sort();
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
     expect(soon).toEqual([
-      'assistantName', 'assistantPersonality', 'assistantPreparation', 'camera', 'drive', 'files',
-      'gmail', 'googleCalendar', 'location', 'photos', 'weeklyMode', 'whatsapp',
+      'assistantName', 'assistantPersonality', 'assistantPreparation', 'camera', 'files',
+      'location', 'photos', 'weeklyMode', 'whatsapp',
     ]);
   });
 });

@@ -12,7 +12,9 @@ export const capabilities = {
   capture: 'LIVE', dailyPlan: 'LIVE', memory: 'LIVE',
   assistantPreparation: 'COMING_SOON', weeklyMode: 'COMING_SOON',
   assistantPersonality: 'COMING_SOON', assistantName: 'COMING_SOON',
-  gmail: 'COMING_SOON', googleCalendar: 'COMING_SOON', drive: 'COMING_SOON',
+  // Built to the credential line (CL6a): until the owner adds the OAuth
+  // client the Google page says so in one line and offers no connect button.
+  gmail: 'AVAILABLE', googleCalendar: 'AVAILABLE', drive: 'AVAILABLE',
   location: 'COMING_SOON', camera: 'COMING_SOON',
   goals: 'LIVE', habits: 'LIVE', planDiff: 'LIVE',
   watcherBuilder: 'LIVE', watcherManagement: 'LIVE', export: 'LIVE',
@@ -50,9 +52,9 @@ export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen | null;
   weeklyMode: { screen: null, api: null },
   assistantPersonality: { screen: null, api: null },
   assistantName: { screen: null, api: null },
-  gmail: { screen: null, api: null },
-  googleCalendar: { screen: null, api: null },
-  drive: { screen: null, api: null },
+  gmail: { screen: 'googleIntegration', api: '/api/mobile/integrations/google/gmail/scan' },
+  googleCalendar: { screen: 'googleIntegration', api: '/api/mobile/integrations/google/calendar' },
+  drive: { screen: 'googleIntegration', api: '/api/mobile/integrations/google/drive/import' },
   location: { screen: null, api: null },
   camera: { screen: null, api: null },
   export: { screen: 'personalization', api: '/api/mobile/account/export' },

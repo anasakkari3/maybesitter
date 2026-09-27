@@ -4,6 +4,7 @@ import {
   ContractError,
   FeatureUnavailableError,
   ForbiddenError,
+  GoogleRefusedError,
   IcsFeedRefusedError,
   InputTooLargeError,
   InvalidTransitionError,
@@ -85,6 +86,27 @@ const ICS_FEED_KEYS: Partial<Record<IcsFeedRefusedError['reason'], UserFacingKey
   feature_disabled: 'icsFeedsUnavailable',
 };
 
+/**
+ * One sentence per Google refusal (CL6a). Never Google's text: the server
+ * sends a closed reason and nothing else.
+ */
+const GOOGLE_KEYS: Record<GoogleRefusedError['reason'], UserFacingKey> = {
+  provider_not_configured: 'googleNotConfigured',
+  google_not_connected: 'googleErrNotConnected',
+  google_feature_not_granted: 'googleErrNotConnected',
+  google_reauth_required: 'googleReconnectBody',
+  google_account_mismatch: 'googleErrOtherAccount',
+  google_permission_not_granted: 'googleErrPermission',
+  google_access_denied: 'googleErrDenied',
+  google_state_invalid: 'googleErrExpired',
+  google_unavailable: 'googleErrUnavailable',
+  google_picker_unavailable: 'googleErrPickerUnavailable',
+  google_file_unsupported: 'googleErrFileUnsupported',
+  google_file_too_large: 'googleErrFileTooLarge',
+  ai_consent_required: 'googleNeedsAi',
+  calendar_consent_required: 'googleNeedsCalendarConsent',
+};
+
 /** One sentence per confirm refusal. A lost write is ours, not theirs. */
 const CAPTURE_CONFIRM_KEYS: Record<CaptureConfirmRefusedError['failureCode'], UserFacingKey> = {
   proposal_not_found: 'captureConfirmExpired',
@@ -120,6 +142,7 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   // calendar" and "cannot be fetched" are both 422 and ask different things
   // of the user.
   if (error instanceof IcsFeedRefusedError) return ICS_FEED_KEYS[error.reason] ?? 'errorsGeneric';
+  if (error instanceof GoogleRefusedError) return GOOGLE_KEYS[error.reason];
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.
   if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';

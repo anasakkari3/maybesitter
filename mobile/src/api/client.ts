@@ -4,6 +4,7 @@ import { apiBaseUrl } from '../config/env';
 import { getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './auth';
 import {
   IcsFeedRefusedError,
+  GoogleRefusedError,
   ConfirmationRequiredError,
   ConflictError,
   DeviceCalendarLinkConflictError,
@@ -35,6 +36,7 @@ import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
 import { planEditRejectedSchema, planProposalRejectedSchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
+import { googleRefusalSchema } from './schemas/google';
 
 /**
  * One function every screen's data goes through.
@@ -243,13 +245,24 @@ function captureConfirmRefusal(status: number, body: unknown): CaptureConfirmRef
   return code ? new CaptureConfirmRefusedError(code) : null;
 }
 
-function errorForStatus(status: number, body: unknown): Error {
+/** Every Google route (CL6a) sits under this path, and only they answer with `GoogleRefusedError`. */
+const GOOGLE_ROUTES = '/api/mobile/integrations/google';
+
+function errorForStatus(status: number, body: unknown, path?: string): Error {
   const { message, reason } = refusal(body);
   // The calendar feed routes (UC-3.4, #188) answer with their own reason at
   // several statuses; the reason is what the screen needs, so it is kept. The
   // body is parsed rather than trusted, like every other refusal here.
   const icsRefusal = icsFeedRefusalSchema.safeParse(body);
   if (icsRefusal.success) return new IcsFeedRefusedError(icsRefusal.data.reason, icsRefusal.data.detail ?? null);
+  // The Google routes (CL6a), the same way: a closed reason at 400, 403, 409,
+  // 422, 502 or 503, which the generic classes below would flatten. Scoped by
+  // path, because `calendar_consent_required` is also what the calendar feed
+  // routes answer with the same three keys, and theirs is a ForbiddenError.
+  if (path !== undefined && (path === GOOGLE_ROUTES || path.startsWith(`${GOOGLE_ROUTES}/`))) {
+    const googleRefusal = googleRefusalSchema.safeParse(body);
+    if (googleRefusal.success) return new GoogleRefusedError(googleRefusal.data.reason);
+  }
   // A refused capture confirm keeps its `failureCode` (#252): the reason is
   // the sentence the person needs, and the 404/400 classes below drop it.
   const confirmRefusal = captureConfirmRefusal(status, body);
@@ -542,10 +555,10 @@ export async function apiRequestTagged<T>(
     // A revoked or deleted account cannot be recovered by retrying; the app
     // has to return to sign-in with the reason the user will be shown.
     if (reason === 'revoked' || reason === 'deleted') await signOutForbidden(reason);
-    throw errorForStatus(403, response.body);
+    throw errorForStatus(403, response.body, path);
   }
 
-  if (response.status !== expected) throw errorForStatus(response.status, response.body);
+  if (response.status !== expected) throw errorForStatus(response.status, response.body, path);
 
   const parsed = options.schema.safeParse(response.body);
   if (!parsed.success) {
