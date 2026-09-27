@@ -601,8 +601,9 @@ export function prepTiming(start: Date, prepAt: Date, now: Date, settings: PrepR
  * - `reminders_off`: the reminders switch is off.
  * - `silent_choice`: the switch is on, but the survey said «صامتة» (`none`),
  *   which the phone plans nothing for — the person's choice, not a switch.
- * - `quiet_hours`: it would ring, but quiet hours last until too close to the
- *   meeting (22:40 for a 07:32 meeting) — not a reason to start now.
+ * - `quiet_hours`: it would ring, but every moment it could falls in quiet
+ *   hours — they end too close to the meeting (07:32 at 22:40) or the meeting
+ *   is inside them (06:00, 00:00). Review says only what holds for both (I-4).
  * - `too_close`: no moment is left before the meeting to ring at.
  */
 export type PrepSilence = 'reminders_off' | 'silent_choice' | 'quiet_hours' | 'too_close';

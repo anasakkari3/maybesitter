@@ -1010,7 +1010,7 @@
   "reviewPrepTooClose": "קרוב מדי בשביל תזכורת. אפשר להתחיל עכשיו.",
   "reviewPrepRemindersOff": "התזכורות כבויות, אז שום דבר לא יצלצל.",
   "reviewPrepSilentChoice": "בחרת תזכורות שקטות, אז שום דבר לא יצלצל.",
-  "reviewPrepQuietUntilStart": "שעות השקט נגמרות רגע לפני, אז שום דבר לא יצלצל.",
+  "reviewPrepQuietHours": "התזכורת נופלת בשעות השקט, אז שום דבר לא יצלצל.",
   "reviewUntrusted": "תוכן מבחוץ",
   "detailsHistory": "ההיסטוריה שלה",
   "detailsClosedNote": "זו הסתיימה. היא נשארת בהיסטוריה שלך.",

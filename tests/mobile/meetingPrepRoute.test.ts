@@ -33,6 +33,9 @@ import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/rout
 import { GET as upcomingGet } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
 import { GET as reminderSettingsGet } from '../../src/app/api/mobile/settings/reminders/route.ts';
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
+import { saveRoutineProfile } from '../../lib/services/mobile/routineProfileService.ts';
+import { parseRoutineProfileInput } from '../../src/contracts/v1/routineContracts.ts';
+import { mock } from 'node:test';
 import { phoneReminderEngine } from '../support/phoneReminderEngine.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -298,9 +301,13 @@ test('with consent off, zero model calls and still exactly one prep step from th
  * run the phone's own reminder engine on them. `prep.remindAt` must be its
  * first ring; `null` must mean it schedules nothing.
  */
-async function claimedAndRung(startInMinutes: number): Promise<{ remindAt: string | null; silentBecause: string | null; rings: number[] }> {
+async function claimedAndRung(
+  startInMinutes: number,
+  intensity: 'none' | 'softAwareness' | 'followUp' | 'strongReminder' = 'softAwareness',
+  startAt?: string,
+): Promise<{ remindAt: string | null; silentBecause: string | null; rings: number[] }> {
   const headers = { authorization: `Bearer ${tokenFor(UID)}` };
-  const times = { startAt: new Date(Date.now() + startInMinutes * MINUTE).toISOString(), endAt: null };
+  const times = { startAt: startAt ?? new Date(Date.now() + startInMinutes * MINUTE).toISOString(), endAt: null };
   const prepared = await preparePost(request({ notes: NOTE, ...times, timezone: 'Asia/Jerusalem' }));
   assert.equal(prepared.status, 200);
   const body = await json(prepared);
@@ -320,7 +327,7 @@ async function claimedAndRung(startInMinutes: number): Promise<{ remindAt: strin
   const rings = phone.ringsFor({
     commitments: phone.toReminderCommitments([item]),
     now: new Date(),
-    ...phone.fromSettingsDto(settings, 'softAwareness'),
+    ...phone.fromSettingsDto(settings, intensity),
   });
   return { remindAt: body.prep.remindAt, silentBecause: body.prep.silentBecause, rings };
 }
@@ -345,3 +352,48 @@ for (const [ceiling, startInMinutes, rings] of [
     } finally { end(); }
   });
 }
+
+// ── what the stored profile says, read the way the phone reads it (I-5) ──
+
+/**
+ * Saves the survey the way its route does (`parseRoutineProfileInput` →
+ * `saveRoutineProfile`). The route itself sits behind the memory module flag;
+ * what matters here is the stored profile and the prep route's own read of it.
+ */
+async function saveRoutine(intensity: 'none' | 'followUp', quietHours: { start: string; end: string } | null): Promise<void> {
+  await saveRoutineProfile(UID, parseRoutineProfileInput({
+    timezone: 'Asia/Jerusalem', sleepWindow: null, focusWindows: [], fixedCommitmentWindows: [],
+    preferredReminderIntensity: intensity, quietHours, surveySkipped: false,
+  }), new Date().toISOString());
+}
+
+test('the survey said «صامتة» (stored `none`): the route claims no reminder, says it was the person\'s choice, and the phone rings nothing', async () => {
+  begin();
+  try {
+    // The reminders switch stays on: only the stored survey answer silences them.
+    await saveRoutine('none', null);
+    const result = await claimedAndRung(180, 'none');
+    assert.deepEqual(result.rings, []);
+    assert.equal(result.remindAt, null);
+    assert.equal(result.silentBecause, 'silent_choice');
+  } finally { end(); }
+});
+
+test('quiet hours stored on the profile leave no moment to ring: meetings just after them and inside them both say `quiet_hours`, and the phone rings nothing', async () => {
+  // 22:40 in Jerusalem, quiet 22:30–07:30: a meeting at 07:32, at 06:00 and at 00:00.
+  const now = Date.parse('2026-09-27T19:40:00.000Z');
+  for (const startAt of ['2026-09-28T04:32:00.000Z', '2026-09-28T03:00:00.000Z', '2026-09-27T21:00:00.000Z']) {
+    begin();
+    mock.timers.enable({ apis: ['Date'], now });
+    try {
+      await saveRoutine('followUp', { start: '22:30', end: '07:30' });
+      const result = await claimedAndRung(0, 'followUp', startAt);
+      assert.deepEqual(result.rings, [], startAt);
+      assert.equal(result.remindAt, null, startAt);
+      assert.equal(result.silentBecause, 'quiet_hours', startAt);
+    } finally {
+      mock.timers.reset();
+      end();
+    }
+  }
+});

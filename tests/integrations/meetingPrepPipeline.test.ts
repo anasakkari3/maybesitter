@@ -613,6 +613,21 @@ test('a meeting a few minutes after a quiet night the person is already in: the 
   } finally { end(); }
 });
 
+test('a meeting inside the quiet hours the person is already in (06:00, 00:00): nothing rings, and the reason is the quiet hours, not "too close" (I-4)', async () => {
+  for (const start of ['2026-09-28T03:00:00.000Z', '2026-09-27T21:00:00.000Z']) {
+    begin();
+    try {
+      // 22:40 in Jerusalem, quiet 22:30–07:30; the meeting at 06:00, then at 00:00.
+      const { prep, rings } = await prepFor(0, 'followUp', 60, {
+        now: new Date('2026-09-27T19:40:00.000Z'), start, quiet: JERUSALEM_QUIET,
+      });
+      assert.deepEqual(rings, [], start);
+      assert.equal(prep.remindAt, null, start);
+      assert.equal(prep.silentBecause, 'quiet_hours', start);
+    } finally { end(); }
+  }
+});
+
 test('the survey\'s silent answer: nothing rings, and it is said as the person\'s choice, not as reminders switched off', async () => {
   begin();
   try {

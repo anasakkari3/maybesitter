@@ -337,9 +337,15 @@ describe('an appointment, and a step moved by quiet hours', () => {
     expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepSilentChoice);
   });
 
-  it('quiet hours until just before: review says so, and does not say to start now (n-6)', async () => {
+  it('quiet hours leave no moment to ring: review says the reminder falls in them — true whether they end just before the meeting or the meeting is inside them (n-6, I-4)', async () => {
+    // One `quiet_hours` answer covers both shapes (22:40 now, quiet 22:30–07:30):
+    // a meeting at 07:32, two minutes after they end, and one at 06:00 or 00:00,
+    // inside them. "Your quiet hours end just before it starts" was false for
+    // the second; the line may only say what holds for both.
     await reviewWith({ remindAt: null, silentBecause: 'quiet_hours', adjustment: 'quiet_hours_unavoidable' });
-    expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepQuietUntilStart);
+    const line = screen.getByTestId('review-prep-no-reminder').props.children;
+    expect(line).toBe(en.reviewPrepQuietHours);
+    expect(line).toBe('The reminder would fall in your quiet hours, so nothing will ring.');
   });
 
   it('a claimed ring that passes while review is open: the line changes to too close then (n-2)', async () => {

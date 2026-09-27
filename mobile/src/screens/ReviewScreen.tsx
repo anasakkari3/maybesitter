@@ -639,7 +639,7 @@ function PrepReminderLine({ meeting }: { meeting: MeetingReviewContext }) {
           : silence === 'silent_choice'
             ? t.reviewPrepSilentChoice
             : silence === 'quiet_hours'
-              ? t.reviewPrepQuietUntilStart
+              ? t.reviewPrepQuietHours
               : t.reviewPrepTooClose}
       </Txt>
     );
