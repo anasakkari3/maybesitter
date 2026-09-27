@@ -503,8 +503,8 @@ function patchTimeSpec(current: TimeSpec, input: PatchCommitmentInput, now: Date
     kind: !(dueAt || remindAt) ? 'unscheduled' : current.kind === 'scheduled_event' ? 'scheduled_event' : 'due_by',
     dueAt,
     // A prep window keeps its deadline, not its length (FX1, ruling R2): moved
-    // to 14:30 it is still done by the 15:00 meeting; moved past it, to another
-    // day, or to no time, it is an ordinary step. `windowEndAfterMove` says which.
+    // to any time before the meeting it is still done by it; moved to the
+    // start or past it, or to no time, it is an ordinary step. `windowEndAfterMove` says which.
     endAt: !hasEndDate && (hasDueDate || hasAllDay) && isTimedWindow(current)
       ? (allDay ? null : windowEndAfterMove(current, dueAt))
       : patchedEndAt(current, input, dueAt, hasEndDate, allDay),

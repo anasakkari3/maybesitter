@@ -118,29 +118,20 @@ export function deadlineOfTimeSpec(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | '
 /**
  * The end a window keeps when its start is moved to `dueAt` (ruling R2).
  *
- * Still before the deadline, on the deadline's own local day: the same window,
- * from the new time (the prep step moved from 14:00 to 14:30 is still done by
- * the 15:00 meeting). At or after the deadline, on another day, or with no
- * time at all, it is no longer a prep window: the end is dropped and it is an
- * ordinary step at the time chosen — never a range that ends before it
- * starts, and never a ring the day after the time the person picked.
+ * Still strictly before the deadline — on any day, the evening before
+ * included — it is the same window from the new time: the prep step moved
+ * from 14:00 to 14:30, or from Sun 21:55 to 21:30 for a Mon 07:32 meeting, is
+ * still done by that meeting, rings at the time chosen and is not late before
+ * it. At or after the deadline, or with no time at all, it is no longer a
+ * prep window: the end is dropped and it is an ordinary step at the time
+ * chosen — never a range that ends before it starts.
  */
 export function windowEndAfterMove(
-  current: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay' | 'timezone'>,
+  current: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>,
   dueAt: string | null,
 ): string | null {
   if (!isTimedWindow(current) || !dueAt) return null;
-  const end = current.endAt as string;
-  if (Date.parse(dueAt) >= Date.parse(end)) return null;
-  return localDayOf(dueAt, current.timezone) === localDayOf(end, current.timezone) ? end : null;
-}
-
-function localDayOf(iso: string, timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
-  } catch {
-    return new Date(iso).toISOString().slice(0, 10);
-  }
+  return Date.parse(dueAt) < Date.parse(current.endAt as string) ? current.endAt : null;
 }
 
 export interface Commitment {
