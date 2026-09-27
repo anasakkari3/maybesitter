@@ -6,6 +6,8 @@ import { decideExtractionDisposition } from './extractionPolicy';
 import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
+import { relativeDayOffset } from './timeLexicon';
+import { readWeekdayReference } from './weekdayLexicon';
 import type { Command } from '../domain/stateMachine';
 import type { ExtractionContext, ExtractionDisposition, ExtractionResult } from './extractionTypes';
 
@@ -31,6 +33,33 @@ const PAST_EVENT_NARRATION = new RegExp(
   ].join('|'),
   'iu',
 );
+
+/**
+ * Not narration after all (FY1 review, I1): «إذا كان عندي وقت يوم السبت بدي
+ * أنظف السيارة» is a condition on a plan, and «كان عندي موعد يوم الأحد بس صار
+ * يوم الاثنين الساعة 10» corrects one. Both were real commitments dropped as
+ * `past_event`. So the "I had" reading declines after a conditional, when the
+ * clause corrects itself («بس صار…», "but it moved"), and when it names a day
+ * ahead — a weekday, a date, tomorrow. «اليوم» is not ahead: N1's «اليوم
+ * الساعة 3 العصر كان عندي اجتماع» is still what already happened.
+ */
+const NOT_NARRATION = new RegExp(
+  [
+    '(?:^|[\\s،,.;:!?؟(])[وف]?(?:إذا|اذا|لو|لولا|إن|ان)\\s+(?:[وف]?كان|كانت)(?=$|[\\s،,.;:!?؟)])',
+    '(?:^|[\\s،,.;:!?؟(])[وف]?(?:بس|لكن|بعدين)\\s+(?:صار|صارت|تأجل|تأجّل|اتأجل|انتقل|نقلوه|تغير|تغيّر|رح\\s+يكون|حيكون)(?=$|[\\s،,.;:!?؟)])',
+    "\\b(?:if|unless)\\s+(?:i|we)\\s+had\\b",
+    "\\bbut\\s+(?:it|that|now\\s+it)(?:'s|\\s+is|\\s+was|\\s+got)?\\s+(?:moved|changed|rescheduled|postponed|now)\\b",
+    '(?:^|[\\s,.;:!?(])[ו]?(?:אם|לו|אילו|כש)\\s*(?:היה|היתה|הייתה)\\s+(?:לי|לנו)(?=$|[\\s,.;:!?)])',
+    '(?:^|[\\s,.;:!?(])[ו]?אבל\\s+(?:זה\\s+)?(?:עבר|נדחה|נדחתה|השתנה|הוזז)(?=$|[\\s,.;:!?)])',
+  ].join('|'),
+  'iu',
+);
+
+function isPastNarration(rawText: string): boolean {
+  if (!PAST_EVENT_NARRATION.test(rawText) || NOT_NARRATION.test(rawText)) return false;
+  // A day ahead of today, said in the same clause, is a plan being told.
+  return readWeekdayReference(rawText) === null && (relativeDayOffset(rawText) ?? 0) < 1;
+}
 
 export interface ExtractAndMapOptions {
   llmProvider?: LLMProviderFunction;
@@ -200,7 +229,7 @@ export async function extractWithFallback(
     return { result: safeNegativeResult(rawText, 'unknown'), engine: 'rule-based', fallbackReason: `prompt_injection:${injection}` };
   }
   const past = /\b(yesterday|last night|last week|earlier)\b|مبارح|أمس|امبارح|אתמול|בשבוע שעבר/i.test(rawText)
-    || PAST_EVENT_NARRATION.test(rawText);
+    || isPastNarration(rawText);
   const request = /\b(remind|add|create|schedule|please|need to|must|tomorrow)\b|ذكرني|ضيف|أضف|لازم|بكرا|תזכיר|תוסיף|צריך|מחר/i.test(rawText);
   if (past && !request) {
     return { result: safeNegativeResult(rawText, 'informational_context'), engine: 'rule-based', fallbackReason: 'semantic_safety:past_no_action' };
