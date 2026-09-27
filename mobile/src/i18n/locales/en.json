@@ -1167,7 +1167,7 @@
   "weekWaiting": "Left for later: {n}",
   "weekReasonDue": "Due this day",
   "weekReasonDueEarlier": "Due before this day",
-  "plannedDueAside": "Due {when}",
+  "plannedDueAside": "Due: {when}",
   "plannedRowLabel": "In your plan",
   "weekReasonCarried": "From an earlier day",
   "weekReasonOpen": "No date, but it matters to you",
