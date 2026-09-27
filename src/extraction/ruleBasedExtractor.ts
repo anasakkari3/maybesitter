@@ -2,6 +2,7 @@ import type { ExtractionContext, ExtractionResult, LocalTimeSpec } from './extra
 import { classifyMessageKind, createsNothing } from './messageKind';
 import {
   CLOCK_PATTERN_SOURCES,
+  DAY_PART_MENTION_SOURCES,
   RANGE_PATTERN_SOURCES,
   dayPartHour,
   localTimeSpecFor,
@@ -277,10 +278,17 @@ function stripTiming(text: string): string {
   for (const source of FOLLOWING_WEEK_STRIP_SOURCES) {
     stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
   }
+  // Parts of the day first, by the lexicon's own whole-word rule, while the
+  // "tomorrow" that frames "tomorrow morning" is still there to be read. A
+  // word that only contains one — «المساعدة», «המערב», "the morning report"
+  // — stays in the title whole, and «عالمسا» leaves no «ع» behind.
+  for (const source of DAY_PART_MENTION_SOURCES) {
+    stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
+  }
   stripped = stripped
-    .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
-    .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|العصر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
-    .replace(/(?:^|[\s,.،])(?:מחרתיים|מחר|היום|הערב|הלילה|בבוקר|בוקר|אחרי הצהריים|אחה"צ|בצהריים|צהריים|בערב|ערב|בלילה|לילה|חצות)(?=$|[\s,.،])/gi, ' ')
+    .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight)\b/gi, ' ')
+    .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا)/gi, ' ')
+    .replace(/(?:^|[\s,.،])(?:מחרתיים|מחר|היום|הערב|הלילה)(?=$|[\s,.،])/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ');
   // Arabic and Hebrew day names, as whole words and with «يوم» and «الجاي»

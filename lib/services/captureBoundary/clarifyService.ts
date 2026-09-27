@@ -258,7 +258,9 @@ async function readFreeTextAnswer(
       if (day) return withResolvedTime(result, { date: day, time: rereadTime }, options.timezone);
     }
     if (readable && (reread.remindAt || reread.dueAt)) return withTimeFrom(result, reread);
-    const hour = dayPartHour(freeText);
+    // The answer to "when?": its part of the day is the answer, even before
+    // another word ("morning is fine").
+    const hour = dayPartHour(freeText, { answer: true });
     if (hour !== null) {
       const time = `${String(hour).padStart(2, '0')}:00`;
       const preferred = result.localTimeSpec?.date

@@ -221,15 +221,130 @@ const AMPM = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|[0-9]{1,2}(?::[0-9]{2})?\s*(?:�
  * A named part of the day. The hour the product picks for it is the product's,
  * but the *period* is the user's — "tomorrow evening" is not an invented time,
  * it is a coarse one.
+ *
+ * ── A part of the day is a whole word ───────────────────────────────
+ *
+ * The first version matched substrings, so the words that contain one became
+ * a time nobody said (CL1, found by the CL5a review): «طلب المساعدة يوم الأحد»
+ * read «المسا» inside «المساعدة» (help) and proposed 18:00, «المسافة»
+ * (distance) the same, «המערב» (the west) and «ערבית» (Arabic) read «ערב»,
+ * and "send the morning report" became 09:00. So each language says what may
+ * stand around the word, the way `weekdayLexicon` does for day names:
+ *
+ *   Arabic   the proclitics the product already reads before it — و/ف, then
+ *            ب/ل/ك or the spoken ع («وبالمسا», «عالمسا», «بالعصرية») — and
+ *            nothing after it but diacritics and the accusative alif of
+ *            «صباحاً» / «مساءً». A nisba adjective («الصباحي», «المسائي»)
+ *            names a kind of meeting, not a time. «العصرية» / «الصبحية» are
+ *            the spoken afternoon and morning only after ب or ع: bare
+ *            «العصرية» is also "modern".
+ *   Hebrew   ו/ש, then ב/ל/כ (with or without ה), ה, or מה — «ובערב»,
+ *            «הערב», «מהבוקר». Never a bare מ: «מערב» is "west" and «מבוקר»
+ *            is "audited". Nothing after it («ערבית», «ערבים»).
+ *   English  whole words, framed as a time: after a day or a time
+ *            preposition ("tomorrow morning", "Sunday evening", "in the
+ *            morning", "at night"), or closing its phrase ("call mom,
+ *            evening"), or before a function word ("evening to call mom").
+ *            Directly before any other word it modifies it — "the morning
+ *            report", "night shift", "evening class" — and names a kind of
+ *            thing. Arabic and Hebrew put that modifier *after* the noun
+ *            («تقرير الصبح», «ישיבת בוקר»), where it cannot be told from
+ *            «اتصل بأمي الصبح» without a parser, so the rule is English only.
+ *
+ * A greeting — «صباح الخير», «ערב טוב», "good morning" — is not a time.
+ *
+ * When a word is ambiguous the answer is "no part of the day": a miss costs
+ * the item one question (the day is kept and the hour asked); a false hit
+ * schedules an hour nobody said, and a model's invented hour gets past the
+ * day-only guard on it.
  */
-const DAYPART = new RegExp(
-  [
-    /\b(?:morning|noon|midday|afternoon|evening|tonight|night|midnight)\b/.source,
-    /الصبح|صباحا|صباحاً|صباح|الضهر|الظهر|بعد الظهر|بعد الضهر|العصر|المسا|المساء|مساءً|مساء|بالليل|الليل|منتصف الليل/.source,
-    /בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה|חצות/.source,
-  ].join('|'),
-  'i',
-);
+const NOT_LETTER_BEFORE = '(?<![\\p{L}\\p{M}])';
+const NOT_LETTER_AFTER = '(?![\\p{L}\\p{M}])';
+const AR_PROCLITIC = '[وف]?[بلكع]?';
+const AR_NOT_GREETING = `(?!\\s+(?:الخير|النور|الورد|الفل|الفلّ)${NOT_LETTER_AFTER})`;
+const HE_PREFIX = '[וש]?(?:מה|[בלכ]ה?|ה)?';
+const HE_NOT_GREETING = `(?!\\s+טוב(?:ה|ים|ות)?${NOT_LETTER_AFTER})`;
+const EN_NOT_GREETING = '(?<!\\bgood\\s+)';
+/** Before a part of the day, these make it a time: "tomorrow morning", "in the evening". */
+const EN_ANCHOR =
+  '(?:today|tonight|tomorrow|tmrw|tmr|tomorow|yesterday|sunday|monday|tuesday|wednesday|thursday|friday|saturday|'
+  + 'this|next|every|each|early|late|all|at|by|in|on|before|after|until|till|around|from|through|throughout|during|since|'
+  + '(?:in|during|by|before|after|until|till|around|from|through|throughout|for|on)\\s+the)';
+/** After a part of the day, these leave it a time: "evening to call mom", "morning at the bank". */
+const EN_FOLLOW =
+  "(?:at|on|in|by|around|about|before|after|until|till|from|to|and|or|but|then|so|with|for|please|pls|if|when|once|while|"
+  + "i|we|you|he|she|they|today|tonight|tomorrow|tmrw|sunday|monday|tuesday|wednesday|thursday|friday|saturday|this|next|"
+  + "am|pm|o'?clock)";
+
+interface DayPartWords {
+  hour: number;
+  /** English words, read by the framing rule above. */
+  en: string;
+  /** English words that are a time wherever they stand ("tonight"). */
+  enAlways?: string;
+  ar: string;
+  he: string;
+  /**
+   * The English word stays in a title, as it always has: "keep B plan at
+   * noon". Only the words the stripper always took are taken.
+   */
+  enStaysInTitle?: true;
+}
+
+/**
+ * Checked in this order, because a longer phrase must beat a shorter one:
+ * «بعد الظهر» contains «الظهر», and «אחרי הצהריים» contains «הצהריים».
+ */
+const DAY_PARTS: readonly DayPartWords[] = [
+  { hour: 0, en: 'midnight', enStaysInTitle: true, ar: 'منتصف\\s+الليل', he: 'חצות' },
+  {
+    hour: 14,
+    en: 'afternoon',
+    ar: 'بعد\\s+(?:الظهر|الضهر)|العصر|[بع]العصرية|[بع]العصريه',
+    he: 'אחרי\\s+הצהריים|אחר\\s+הצהריים|אחרי\\s+הצהרים|אחר\\s+הצהרים|אחה["״]צ',
+  },
+  { hour: 9, en: 'morning', ar: 'الصبح|الصباح|صباح\\p{M}*ا?|[بع]الصبحية|[بع]الصبحيه', he: 'בוקר' },
+  { hour: 12, en: 'noon|midday', enStaysInTitle: true, ar: 'الظهر|الضهر', he: 'צהריים|צהרים' },
+  { hour: 20, en: 'night', enAlways: 'tonight', ar: 'الليل|الليلة|الليله', he: 'לילה' },
+  { hour: 18, en: 'evening', ar: 'المساء?|مساء\\p{M}*ا?', he: 'ערב' },
+];
+
+/**
+ * A title loses the preposition with the part of the day — "call mom at
+ * noon" is "call mom", not "call mom at".
+ */
+const EN_STRIP_LEAD = '(?:\\b(?:in|during|at|by|around|before|after|until|till|from|through|on|for|this)\\s+(?:the\\s+)?)?';
+
+function dayPartSources(words: DayPartWords, mode: 'text' | 'answer' | 'strip'): string[] {
+  const en = mode === 'answer'
+    // A typed answer to "when?" is a time by being the answer: "morning is fine".
+    ? `${EN_NOT_GREETING}\\b(?:${words.en})\\b`
+    : `${mode === 'strip' ? EN_STRIP_LEAD : ''}${EN_NOT_GREETING}(?:(?<=\\b${EN_ANCHOR}\\s+)\\b(?:${words.en})\\b|\\b(?:${words.en})\\b(?!\\s+(?!${EN_FOLLOW}\\b)[a-z]))`;
+  return [
+    ...(words.enAlways ? [`\\b(?:${words.enAlways})\\b`] : []),
+    ...(mode === 'strip' && words.enStaysInTitle ? [] : [en]),
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:${words.ar})\\p{M}*${NOT_LETTER_AFTER}${AR_NOT_GREETING}`,
+    `${NOT_LETTER_BEFORE}${HE_PREFIX}(?:${words.he})${NOT_LETTER_AFTER}${HE_NOT_GREETING}`,
+  ];
+}
+
+const DAY_PART_PATTERNS = DAY_PARTS.map((words) => ({
+  hour: words.hour,
+  inText: new RegExp(dayPartSources(words, 'text').join('|'), 'iu'),
+  inAnswer: new RegExp(dayPartSources(words, 'answer').join('|'), 'iu'),
+}));
+
+/**
+ * Every part-of-day mention in a capture, as sources, for `stripTiming` to
+ * lift out of a title — the proclitic with it («عالمسا» leaves no «ع»), and
+ * nothing it did not read («the morning report» keeps its word).
+ */
+export const DAY_PART_MENTION_SOURCES: readonly string[] = DAY_PARTS.flatMap((words) => dayPartSources(words, 'strip'));
+
+/** The text names a part of the day, by the rules above. */
+function namesDayPart(text: string): boolean {
+  return DAY_PART_PATTERNS.some((pattern) => pattern.inText.test(text));
+}
 
 /**
  * The number is being named as a clock time — but with no meridiem.
@@ -273,10 +388,10 @@ export function timeOfDayEvidence(rawText: string): TimeEvidence {
   if (HHMM.test(text)) {
     // Minutes on a bare early hour with no period word are a guess at the
     // half of the day, like the bare hour itself (round 7, I-3).
-    return BARE_EARLY_HHMM.test(text) && !AMPM.test(text) && !DAYPART.test(text) ? 'clock_marker' : 'hhmm';
+    return BARE_EARLY_HHMM.test(text) && !AMPM.test(text) && !namesDayPart(text) ? 'clock_marker' : 'hhmm';
   }
   if (AMPM.test(text)) return 'ampm';
-  if (DAYPART.test(text)) return 'daypart';
+  if (namesDayPart(text)) return 'daypart';
   if (CLOCK_MARKER.test(text)) return 'clock_marker';
   if (DAY_TOKEN.test(text)) return 'day_only';
   return 'none';
@@ -385,19 +500,17 @@ export function timeAnchorOf(rawText: string): 'event' | 'deadline' | null {
 }
 
 /**
- * The hour a named daypart means, or null when the text names none.
+ * The hour a named part of the day means, or null when the text names none.
  *
- * Checked in the order a longer phrase must beat a shorter one: "bعد الظهر"
- * contains «الظهر», and "אחרי הצהריים" contains «צהריים».
+ * `answer` is for a typed answer to "when?": there the word is the answer, so
+ * "morning is fine" is 09:00 even though "morning" is followed by a word. The
+ * word boundaries hold either way.
  */
-export function dayPartHour(rawText: string): number | null {
-  const text = rawText.toLowerCase();
-  if (/\bmidnight\b|منتصف الليل|חצות/.test(text)) return 0;
-  if (/\bafternoon\b|بعد الظهر|بعد الضهر|العصر|אחרי הצהריים|אחה"צ/.test(text)) return 14;
-  if (/\bmorning\b|الصبح|صباحا|صباحاً|صباح|בבוקר|בוקר/.test(text)) return 9;
-  if (/\b(?:noon|midday)\b|الضهر|الظهر|בצהריים|צהריים/.test(text)) return 12;
-  if (/\btonight\b|\bnight\b|بالليل|الليل|בלילה|לילה/.test(text)) return 20;
-  if (/\bevening\b|المسا|المساء|مساءً|مساء|בערב|ערב/.test(text)) return 18;
+export function dayPartHour(rawText: string, options: { answer?: boolean } = {}): number | null {
+  if (typeof rawText !== 'string') return null;
+  for (const pattern of DAY_PART_PATTERNS) {
+    if ((options.answer ? pattern.inAnswer : pattern.inText).test(rawText)) return pattern.hour;
+  }
   return null;
 }
 
