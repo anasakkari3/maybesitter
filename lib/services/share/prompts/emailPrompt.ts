@@ -48,9 +48,13 @@ export const MAX_EMAIL_ITEMS = 8;
  *
  * The title names the event and not a step about it: "confirm the meeting" is
  * an arranging task that the appointment rule deliberately does not raise.
+ *
+ * An invitation counts (round 2 extension): shared on its own, «ممكن نلتقي
+ * يوم الأربعاء الساعة 11 الصبح… رجاءً أكّد» came back as the confirm step and
+ * no meeting, because a proposed time did not read as one the reader attends.
  */
 const ATTENDED_EVENT_RULE =
-  'An appointment, meeting or event the reader will attend is itself an item, besides anything they are asked to do to prepare for it. Its title names the event ("Dentist appointment", «اجتماع خطة المشروع», «תור לרופא»), never a step about booking, confirming or replying to it. Skip one only the sender attends, one that is cancelled or moved without a new time, and one already over.';
+  'An appointment, meeting or event the reader will attend is itself an item, besides anything they are asked to do to prepare for it. Its title names the event ("Dentist appointment", «اجتماع خطة المشروع», «תור לרופא»), never a step about booking, confirming or replying to it. A meeting or appointment the reader is invited to or asked to confirm counts too: list the meeting itself with its day and time, besides any step it asks for. Skip one only the sender attends, one that is cancelled or moved without a new time, and one already over.';
 
 /** The clock-time words, copied like the day words and checked the same way. */
 function timePhraseRule(where: string): string {

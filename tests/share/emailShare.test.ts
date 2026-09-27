@@ -35,11 +35,16 @@ import { fileURLToPath } from 'node:url';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { configureCommandService } from '../../lib/services/commandService.ts';
+import {
+  MemoryCaptureProposalStore,
+  TransactionalCapturePersistenceAdapter,
+  proposeCapture,
+} from '../../lib/services/captureBoundary/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { LLMUnavailableError } from '../../src/extraction/llm/index.ts';
 import { screenForInjection } from '../../src/extraction/injectionBoundary.ts';
-import { proposeFromMailbox, proposeFromShare } from '../../lib/services/share/shareIntakeService.ts';
+import { proposeFromMailbox, proposeFromShare, type ShareIntakeContext } from '../../lib/services/share/shareIntakeService.ts';
 import { cleanEmail } from '../../lib/services/share/emailCleaner.ts';
 import { emailPreprocessor, readMailboxMessages } from '../../lib/services/share/channels/email.ts';
 import { resolveSharePreprocessor } from '../../lib/services/share/shareRegistry.ts';
@@ -851,10 +856,10 @@ test('a share with no text at all is refused rather than read as an empty email'
  * receipt, the shipping notice and the injection.
  */
 const LIVE_BATCH_EXPECTED: Readonly<Record<number, readonly string[]>> = {
-  1: ['Dentist appointment on Tuesday at 4pm', 'Arrive early for appointment', 'Bring insurance card'],
+  1: ['Dentist appointment on Tuesday at 4pm', 'Arrive 10 minutes early', 'Bring insurance card'],
   // "due Friday", sent on Friday the 25th and read on Sunday the 27th: gone.
   2: [],
-  3: ['اجتماع خطة المشروع يوم الأربعاء الساعة 11 الصبح', 'أكّد الوقت'],
+  3: ['أكّد الوقت', 'اجتماع خطة المشروع يوم الأربعاء الساعة 11 الصبح'],
   4: ['שלח צילום תעודת הזהות עד יום חמישי', 'שלח תלושי השכר עד יום חמישי'],
   5: [],
   6: [],
@@ -862,20 +867,20 @@ const LIVE_BATCH_EXPECTED: Readonly<Record<number, readonly string[]>> = {
   // Nothing planted, and nothing borrowed from message 1.
   8: [],
   // The reader's two; the sender's bus booking is not one of them.
-  9: ['Sign permission slip by Monday', 'Send back permission slip by Monday'],
+  9: ['Sign permission slip by Monday', 'Send permission slip back by Monday'],
 };
 
 /**
  * The same through the single share path, for the five it was asked about.
- * Email 3 alone came back without the meeting — see the fixture — and this
- * table says so rather than hiding it.
+ * Email 3 alone now carries the meeting too (it did not before the prompt's
+ * invitation sentence — see the fixture); email 9 alone is one combined item.
  */
 const LIVE_SINGLE_EXPECTED: Readonly<Record<number, readonly string[]>> = {
-  1: ['Dentist appointment on Tuesday at 4pm', 'Arrive early', 'Bring insurance card'],
-  3: ['أكّد إذا الوقت بناسبك'],
+  1: ['Dentist appointment on Tuesday at 4pm', 'Arrive 10 minutes early', 'Bring your insurance card'],
+  3: ['أكّد الوقت', 'اجتماع بخصوص المشروع يوم الأربعاء الساعة 11 الصبح'],
   5: [],
   8: [],
-  9: ['Sign permission slip by Monday'],
+  9: ['Sign and send permission slip by Monday'],
 };
 
 function liveInput(raw: string): SharePreprocessorInput {
@@ -900,6 +905,9 @@ function liveContext(answer: string): SharePreprocessContext {
 test('both email prompts ask for an attended appointment as its own item, with the words naming its time', () => {
   for (const system of [EMAIL_SYSTEM_INSTRUCTION, EMAIL_BATCH_SYSTEM_INSTRUCTION]) {
     assert.match(system, /appointment, meeting or event the reader will attend is itself an item/);
+    // Round 2 extension: alone, the Arabic meeting *request* came back as its
+    // confirm step only. Being invited or asked to confirm counts too.
+    assert.match(system, /invited to or asked to confirm counts too/);
     assert.match(system, /timePhrase:/);
   }
   for (const schema of [EMAIL_RESPONSE_JSON_SCHEMA, EMAIL_BATCH_RESPONSE_JSON_SCHEMA]) {
@@ -907,7 +915,7 @@ test('both email prompts ask for an attended appointment as its own item, with t
   }
 });
 
-test('the single email path: the dentist appointment is an item with its day and time, and the negatives stay empty', async () => {
+test('the single email path: both appointments are items with their day and time, and the negatives stay empty', async () => {
   for (const [number, answer] of Object.entries(LIVE_MAILBOX_SINGLE_ANSWERS)) {
     const result = await emailPreprocessor.preprocess(liveInput(LIVE_MAILBOX_EMAILS[Number(number) - 1]!), liveContext(answer));
     const segments = result.text === '' ? [] : result.text.split(SHARE_SEGMENT_SEPARATOR);
@@ -961,7 +969,7 @@ async function reviewOf(run: () => Promise<ShareResult>): Promise<ShareResult> {
 
 function appointmentsIn(proposal: ShareResult) {
   return proposal.items
-    .filter((item) => /Dentist appointment|اجتماع خطة المشروع/.test(item.title))
+    .filter((item) => /Dentist appointment|اجتماع (?:خطة|بخصوص) المشروع/.test(item.title))
     .map((item) => ({ title: item.title, resolvedTime: item.resolvedTime, priority: item.priority }));
 }
 
@@ -972,22 +980,31 @@ const LIVE_APPOINTMENTS = [
   { title: 'اجتماع خطة المشروع', resolvedTime: '2026-09-30T08:00:00.000Z', priority: 'high' },
 ];
 
-test('a shared email\'s appointment reaches review as a fixed time on its day, and a Must', async () => {
-  const proposal = await reviewOf(() => proposeFromShare(
+/** One shared email through the whole share path, with its recorded answer. */
+async function shareLive(number: number, propose?: ShareIntakeContext['propose']): Promise<ShareResult> {
+  return await reviewOf(() => proposeFromShare(
     {
-      text: LIVE_MAILBOX_EMAILS[0]!, files: [], sourceHint: 'email',
+      text: LIVE_MAILBOX_EMAILS[number - 1]!, files: [], sourceHint: 'email',
       timezone: LIVE_MAILBOX_TIMEZONE, referenceTime: LIVE_MAILBOX_REFERENCE_TIME.toISOString(),
     },
     {
       uid: READER, reserve: async () => 'ok', now: LIVE_MAILBOX_REFERENCE_TIME,
-      generateStructured: recorded(LIVE_MAILBOX_SINGLE_ANSWERS[1]!),
+      generateStructured: recorded(LIVE_MAILBOX_SINGLE_ANSWERS[number]!),
       readAiConsent: async () => ({ granted: true } as never),
+      ...(propose ? { propose } : {}),
     },
   ));
-  assert.deepEqual(appointmentsIn(proposal), [LIVE_APPOINTMENTS[0]]);
+}
+
+test('a shared email\'s appointment reaches review as a fixed time on its day, and a Must', async () => {
+  const dentist = await shareLive(1);
+  assert.deepEqual(appointmentsIn(dentist), [LIVE_APPOINTMENTS[0]]);
   // Beside the chores it came with, still one proposal the person confirms.
-  assert.equal(proposal.items.length, 3);
-  assert.equal(proposal.share.evidenceDropped, false);
+  assert.equal(dentist.items.length, 3);
+  assert.equal(dentist.share.evidenceDropped, false);
+
+  const meeting = await shareLive(3);
+  assert.deepEqual(appointmentsIn(meeting), [{ ...LIVE_APPOINTMENTS[1]!, title: 'اجتماع بخصوص المشروع' }]);
 });
 
 test('a Gmail scan\'s appointments reach review the same way, from one batched call', async () => {
@@ -1005,4 +1022,109 @@ test('a Gmail scan\'s appointments reach review the same way, from one batched c
   ));
   assert.deepEqual(appointmentsIn(proposal), LIVE_APPOINTMENTS);
   assert.equal(proposal.share.metrics.messagesWithItems, 4, 'the dentist, the meeting, the documents, the slip');
+});
+
+/*
+ * The same appointments on the capture pipeline's *model* path (round 2
+ * extension). The tests above read the line through the rules, which is what
+ * a test run without a model does. In production a consenting account's
+ * capture is read by Gemini, and the model is free to leave the priority at
+ * its default. The capture model here answers in the schema the capture
+ * prompt asks for, with the day and hour right and the priority left at
+ * `normal`/`default` — the least helpful answer a model can give — so a Must
+ * can only come from the capture pipeline's own validator (L4).
+ */
+const MODEL_READS: ReadonlyArray<{ line: RegExp; title: string; date: string; time: string; dueAt: string }> = [
+  { line: /^Dentist appointment on Tuesday at 4pm$/, title: 'Dentist appointment', date: '2026-09-29', time: '16:00', dueAt: '2026-09-29T13:00:00.000Z' },
+  { line: /^اجتماع (?:خطة|بخصوص) المشروع يوم الأربعاء الساعة 11 الصبح$/, title: 'اجتماع المشروع', date: '2026-09-30', time: '11:00', dueAt: '2026-09-30T08:00:00.000Z' },
+];
+
+function captureModel(): { provider: (prompt: string) => Promise<string>; asked: string[] } {
+  const asked: string[] = [];
+  const provider = async (prompt: string) => {
+    const begin = prompt.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE\n') + 'BEGIN_UNTRUSTED_USER_MESSAGE\n'.length;
+    const line = JSON.parse(prompt.slice(begin, prompt.indexOf('\nEND_UNTRUSTED_USER_MESSAGE'))) as string;
+    asked.push(line);
+    const known = MODEL_READS.find((read) => read.line.test(line));
+    return JSON.stringify({
+      type: 'task',
+      action: known?.title ?? line,
+      title: known?.title ?? line,
+      person: null,
+      dueAt: known?.dueAt ?? null,
+      remindAt: null,
+      localTimeSpec: known ? { date: known.date, time: known.time, timezone: LIVE_MAILBOX_TIMEZONE } : null,
+      priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
+      flexibility: 'movable',
+      confidence: { overall: 0.9, type: 0.9, action: 0.9, time: known ? 0.9 : 0.2, priority: 0.5 },
+      missingFields: known ? [] : ['time'],
+      ambiguityFlags: [],
+      explicitReminderRequest: false,
+      explicitPressureRequest: false,
+    });
+  };
+  return { provider, asked };
+}
+
+/** The share service's capture step, on the model path, with `model` as the capture model. */
+function viaCaptureModel(model: ReturnType<typeof captureModel>): ShareIntakeContext['propose'] {
+  return (async (input: { text: string; referenceTime: string; timezone: string }) => await proposeCapture(
+    input.text,
+    { now: new Date(input.referenceTime), timezone: input.timezone, scopeId: READER, requestedEngine: 'model' },
+    {
+      store: new MemoryCaptureProposalStore(),
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+      llmProvider: model.provider,
+      llmEngine: 'gemini',
+    },
+  )) as never;
+}
+
+test('on the capture model path too, an email\'s appointment reaches review as a fixed time and a Must', async () => {
+  const model = captureModel();
+  const dentist = await shareLive(1, viaCaptureModel(model));
+  const meeting = await shareLive(3, viaCaptureModel(model));
+  assert.ok(model.asked.includes('Dentist appointment on Tuesday at 4pm'), 'the capture model read the dentist line');
+  assert.ok(model.asked.some((line) => MODEL_READS[1]!.line.test(line)), 'the capture model read the meeting line');
+  for (const proposal of [dentist, meeting]) {
+    assert.equal(proposal.provenance.executedEngine, 'gemini', 'read by the model, not the rules');
+  }
+  const found = [...dentist.items, ...meeting.items]
+    .filter((item) => MODEL_READS.some((read) => read.title === item.title))
+    .map((item) => ({ title: item.title, resolvedTime: item.resolvedTime, priority: item.priority, priorityEstimated: item.priorityEstimated }));
+  assert.deepEqual(found, [
+    { title: 'Dentist appointment', resolvedTime: '2026-09-29T13:00:00.000Z', priority: 'high', priorityEstimated: true },
+    { title: 'اجتماع المشروع', resolvedTime: '2026-09-30T08:00:00.000Z', priority: 'high', priorityEstimated: true },
+  ]);
+});
+
+test('on the capture model path, a Gmail scan\'s appointments reach review the same way', async () => {
+  const model = captureModel();
+  const proposal = await reviewOf(() => proposeFromMailbox(
+    {
+      readMessages: async () => LIVE_MAILBOX_MESSAGES,
+      timezone: LIVE_MAILBOX_TIMEZONE,
+      referenceTime: LIVE_MAILBOX_REFERENCE_TIME.toISOString(),
+    },
+    {
+      uid: READER, reserve: async () => 'ok', now: LIVE_MAILBOX_REFERENCE_TIME,
+      generateStructured: recorded(LIVE_MAILBOX_BATCH_ANSWER),
+      readAiConsent: async () => ({ granted: true } as never),
+      propose: viaCaptureModel(model),
+    },
+  ));
+  // The whole proposal's provenance says `rule-based` here: the capture
+  // pipeline reads some of the other lines (the Hebrew and the permission
+  // slip) without the model, as it does for a typed capture. The two
+  // appointments were the model's: it was asked both lines, and the titles
+  // below are its own, not the lines it was given.
+  assert.ok(model.asked.includes('Dentist appointment on Tuesday at 4pm'));
+  assert.ok(model.asked.includes('اجتماع خطة المشروع يوم الأربعاء الساعة 11 الصبح'));
+  const found = proposal.items
+    .filter((item) => MODEL_READS.some((read) => read.title === item.title))
+    .map((item) => ({ title: item.title, resolvedTime: item.resolvedTime, priority: item.priority }));
+  assert.deepEqual(found, [
+    { title: 'Dentist appointment', resolvedTime: '2026-09-29T13:00:00.000Z', priority: 'high' },
+    { title: 'اجتماع المشروع', resolvedTime: '2026-09-30T08:00:00.000Z', priority: 'high' },
+  ]);
 });

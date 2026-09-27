@@ -10,7 +10,8 @@
  *
  * The answers below are the model's own, recorded on 2026-09-27 against the
  * fixed prompt (Vertex, europe-west1, temperature 0) — one batched call for
- * all nine, and one single-share call per email for five of them — so the
+ * all nine, and one single-share call per email for five of them (see the
+ * note on the single answers for which prompt each was asked) — so the
  * channel's checks are tested against what the model actually says rather
  * than against what a stub was written to say. `tests/share/emailShare.test.ts`
  * runs both paths over them.
@@ -61,7 +62,7 @@ export const LIVE_MAILBOX_EMAILS: readonly string[] = LIVE_MAILBOX_MESSAGES
 
 /**
  * The batched call's answer for all nine, as the model returned it (parsed
- * and re-serialised; nothing edited). 1,292 prompt tokens, 716 out, 4.7 s.
+ * and re-serialised; nothing edited). 1,325 prompt tokens, 717 out, 4.4 s.
  */
 export const LIVE_MAILBOX_BATCH_ANSWER = JSON.stringify({
   "items": [
@@ -74,7 +75,7 @@ export const LIVE_MAILBOX_BATCH_ANSWER = JSON.stringify({
     },
     {
       "message": 1,
-      "title": "Arrive early for appointment",
+      "title": "Arrive 10 minutes early",
       "evidenceSentence": "Please arrive 10 minutes early and bring your insurance card.",
       "dueDayPhrase": null,
       "timePhrase": null
@@ -88,9 +89,16 @@ export const LIVE_MAILBOX_BATCH_ANSWER = JSON.stringify({
     },
     {
       "message": 2,
-      "title": "Pay invoice 4471",
+      "title": "Pay invoice #4471",
       "evidenceSentence": "The invoice is due Friday.",
-      "dueDayPhrase": "due Friday",
+      "dueDayPhrase": "Friday",
+      "timePhrase": null
+    },
+    {
+      "message": 3,
+      "title": "أكّد الوقت",
+      "evidenceSentence": "رجاءً أكّد إذا الوقت بناسبك.",
+      "dueDayPhrase": null,
       "timePhrase": null
     },
     {
@@ -99,13 +107,6 @@ export const LIVE_MAILBOX_BATCH_ANSWER = JSON.stringify({
       "evidenceSentence": "ممكن نلتقي يوم الأربعاء الساعة 11 الصبح لنراجع خطة المشروع؟",
       "dueDayPhrase": "يوم الأربعاء",
       "timePhrase": "الساعة 11 الصبح"
-    },
-    {
-      "message": 3,
-      "title": "أكّد الوقت",
-      "evidenceSentence": "رجاءً أكّد إذا الوقت بناسبك.",
-      "dueDayPhrase": null,
-      "timePhrase": null
     },
     {
       "message": 4,
@@ -130,7 +131,7 @@ export const LIVE_MAILBOX_BATCH_ANSWER = JSON.stringify({
     },
     {
       "message": 9,
-      "title": "Send back permission slip",
+      "title": "Send permission slip back",
       "evidenceSentence": "Could you sign the permission slip and send it back by Monday?",
       "dueDayPhrase": "by Monday",
       "timePhrase": null
@@ -140,17 +141,21 @@ export const LIVE_MAILBOX_BATCH_ANSWER = JSON.stringify({
 
 /**
  * The single-share answers, one call per email, keyed by the email's number,
- * as the model returned them. Five of the nine: the two appointments, the
- * newsletter, the injection and the mixed one.
+ * as the model returned them.
  *
- * Note email 3: alone, the model proposed only «أكّد إذا الوقت بناسبك» and
- * not the Wednesday meeting it proposed in the batch. That is recorded as it
- * came back, not smoothed over.
+ * Emails 1, 3 and 9 were recorded against the prompt as it is now. Emails 5
+ * (the newsletter) and 8 (the injection) were recorded in round 2, against
+ * the prompt without its invitation sentence, and not re-asked: the call
+ * budget went to the batch, which re-read both of them and still returned
+ * nothing for either.
+ *
+ * Round 2 recorded email 3 alone as only «أكّد إذا الوقت بناسبك», with no
+ * meeting; the invitation sentence is what changed that.
  */
 export const LIVE_MAILBOX_SINGLE_ANSWERS: Readonly<Record<number, string>> = {
-  1: JSON.stringify({"items": [{"title": "Dentist appointment", "evidenceSentence": "This is a reminder that your dentist appointment is on Tuesday at 4pm with Dr. Haddad.", "dueDayPhrase": "on Tuesday", "timePhrase": "at 4pm"}, {"title": "Arrive early", "evidenceSentence": "Please arrive 10 minutes early and bring your insurance card.", "dueDayPhrase": null, "timePhrase": null}, {"title": "Bring insurance card", "evidenceSentence": "Please arrive 10 minutes early and bring your insurance card.", "dueDayPhrase": null, "timePhrase": null}]}),
-  3: JSON.stringify({"items": [{"title": "أكّد إذا الوقت بناسبك", "evidenceSentence": "رجاءً أكّد إذا الوقت بناسبك."}]}),
+  1: JSON.stringify({"items": [{"title": "Dentist appointment", "evidenceSentence": "This is a reminder that your dentist appointment is on Tuesday at 4pm with Dr. Haddad.", "dueDayPhrase": "on Tuesday", "timePhrase": "at 4pm"}, {"title": "Arrive 10 minutes early", "evidenceSentence": "Please arrive 10 minutes early and bring your insurance card.", "dueDayPhrase": null, "timePhrase": null}, {"title": "Bring your insurance card", "evidenceSentence": "Please arrive 10 minutes early and bring your insurance card.", "dueDayPhrase": null, "timePhrase": null}]}),
+  3: JSON.stringify({"items": [{"title": "أكّد الوقت", "evidenceSentence": "رجاءً أكّد إذا الوقت بناسبك.", "dueDayPhrase": null, "timePhrase": null}, {"title": "اجتماع بخصوص المشروع", "evidenceSentence": "ممكن نلتقي يوم الأربعاء الساعة 11 الصبح لنراجع خطة المشروع؟", "dueDayPhrase": "يوم الأربعاء", "timePhrase": "الساعة 11 الصبح"}]}),
   5: JSON.stringify({"items": []}),
   8: JSON.stringify({"items": []}),
-  9: JSON.stringify({"items": [{"title": "Sign permission slip", "evidenceSentence": "Could you sign the permission slip and send it back by Monday?", "dueDayPhrase": "by Monday", "timePhrase": null}]}),
+  9: JSON.stringify({"items": [{"title": "Sign and send permission slip", "evidenceSentence": "Could you sign the permission slip and send it back by Monday?", "dueDayPhrase": "by Monday", "timePhrase": null}]}),
 };
