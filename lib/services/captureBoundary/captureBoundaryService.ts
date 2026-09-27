@@ -21,7 +21,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent';
 import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
-import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdits';
+import { applyEditToCommands, InvalidEditError, keepEventOnItsDay, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
 import { isPastReading } from '../commitments/timeRules';
 import { NegatedRequestError, PastCommitmentTimeError } from '../mobile/safety';
@@ -1037,7 +1037,12 @@ export async function confirmCapture(
   const commandsFor = (itemId: string): readonly Command[] => {
     const stored_ = stored.commandsByItemId.get(itemId) ?? [];
     const edit = editsByItem.get(itemId);
-    if (stored_.length > 0) return edit ? applyEditToCommands(stored_, edit) : stored_;
+    if (stored_.length > 0) {
+      if (!edit) return stored_;
+      const edited = applyEditToCommands(stored_, edit);
+      // Cleared in the edit sheet, an event keeps its day (FY1 review, M1).
+      return edit.resolvedTime === null ? keepEventOnItsDay(edited, stored.resultsByItemId?.get(itemId)) : edited;
+    }
     if (!edit?.title || !edit?.resolvedTime) return [];
     const item = stored.contract.items.find((candidate) => candidate.itemId === itemId);
     const completed = mapExtractionToCommand(
