@@ -164,6 +164,8 @@ describe('census', () => {
       'screens/ReviewScreen.tsx',
       'screens/EmailAuthScreen.tsx',
       'features/onboarding/OnboardingChrome.tsx',
+      // The bottom-sheet host: meeting prep's notes and the edit sheet's title (UAT round 2, N2).
+      'screens/Sheets.tsx',
     ]) {
       expect(`${file}: ${/<AvoidKeyboard\b/.test(readFileSync(join(SRC, file), 'utf8'))}`).toBe(`${file}: true`);
     }

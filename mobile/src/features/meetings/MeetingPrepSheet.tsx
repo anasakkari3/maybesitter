@@ -20,7 +20,8 @@
  * event's title is never read (`busyBlocks.ts`), so there is none to send.
  */
 import React, { useState } from 'react';
-import { TextInput, View } from 'react-native';
+import { ScrollView, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
@@ -32,6 +33,7 @@ import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { useCaptureFlow } from '../capture/CaptureProvider';
 import { MAX_CAPTURE_LENGTH } from '../capture/captureMachine';
 import { Pill, Txt } from '../../ui/primitives';
+import { useKeyboardInset } from '../../ui/keyboard';
 
 export function MeetingPrepSheet() {
   const { s, t, p, lang, rtl, script, actions } = useApp();
@@ -39,6 +41,10 @@ export function MeetingPrepSheet() {
   const flow = useCaptureFlow();
   const prepare = usePrepareMeeting();
   const { granted: aiGranted, loading: consentLoading } = useAiConsentGranted();
+  const insets = useSafeAreaInsets();
+  // Lifted onto the keyboard (the host is an AvoidKeyboard): the keyboard
+  // covers the home indicator, so its clearance is room the notes need.
+  const keyboardUp = useKeyboardInset() > 0;
   const [notes, setNotes] = useState('');
   const target = s.meetingPrep;
   if (!target) return null;
@@ -79,7 +85,15 @@ export function MeetingPrepSheet() {
   };
 
   return (
-    <View style={{ gap: 14 }} testID="meeting-prep-sheet">
+    // The body scrolls and shrinks to the room above the keyboard; «اقترح
+    // خطوة» is pinned under it, so it stays in sight while they type (N2).
+    <View style={{ flexShrink: 1 }} testID="meeting-prep-sheet">
+      <ScrollView
+        testID="meeting-prep-scroll"
+        style={{ flexGrow: 0 }}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14, gap: 14 }}
+      >
       <View style={{ gap: 4, alignItems: 'flex-start' }}>
         <View accessibilityRole="header"><Txt role="section" testID="meeting-prep-question">{question}</Txt></View>
         <Txt size={14} color={p.mu} testID="meeting-prep-when">{fill(appointment ? t.xPrepareWhenAppointment : t.xPrepareWhen, { time: when })}</Txt>
@@ -126,15 +140,18 @@ export function MeetingPrepSheet() {
           <Txt size={13} color={p.wm} testID="meeting-prep-problem">{problem}</Txt>
         </View>
       ) : null}
+      </ScrollView>
 
-      <Pill
-        testID="meeting-prep-submit"
-        label={prepare.isPending ? t.xPrepareWorking : t.xPrepareSubmit}
-        onPress={submit}
-        disabled={!trimmed || tooLong || prepare.isPending}
-        size={16}
-        pad={14}
-      />
+      <View testID="meeting-prep-footer" style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: keyboardUp ? 12 : insets.bottom + 24 }}>
+        <Pill
+          testID="meeting-prep-submit"
+          label={prepare.isPending ? t.xPrepareWorking : t.xPrepareSubmit}
+          onPress={submit}
+          disabled={!trimmed || tooLong || prepare.isPending}
+          size={16}
+          pad={14}
+        />
+      </View>
     </View>
   );
 }
