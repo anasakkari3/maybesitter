@@ -641,3 +641,19 @@ test('FY1 fix R-M1: preparing for an event is a task, not the event', async () =
   const { answered } = await answeredNoTime('بدي أروح عالعرس يوم الخميس');
   assert.equal(answered.allDayEvent, true);
 });
+
+test('FY1 fix I5: attending, and an appointment with a purpose, stay events — «احضر» is "attend"', async () => {
+  for (const [text, date] of [
+    ['بدي احضر العرس يوم الخميس', '2026-10-01'],
+    ['لازم احضر المؤتمر يوم الثلاثاء', '2026-09-29'],
+    ['بدي احضر اجتماع الأهل بالمدرسة يوم الثلاثاء', '2026-09-29'],
+    ['dentist appointment on Sunday to clean my teeth', '2026-10-04'],
+    ['meeting to plan the budget on Tuesday', '2026-09-29'],
+  ] as const) {
+    const { answered, commitment } = await answeredNoTime(text);
+    assert.equal(answered.allDayEvent, true, text);
+    assert.equal(answered.resolvedDate, date, text);
+    assert.equal(commitment.timeSpec.kind, 'scheduled_event', text);
+    assert.equal(commitment.timeSpec.allDay, true, text);
+  }
+});
