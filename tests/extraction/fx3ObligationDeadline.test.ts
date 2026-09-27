@@ -408,24 +408,29 @@ test('FX3 I-1: which month-end mentions are a deadline — the rule, both direct
   assert.deepEqual(wrong, []);
 });
 
-test('FX3 I-2: model path — a model date other than the month\'s last day keeps the pre-FX3 reading (the date kept, the hour asked), and a past one is not a rejection', async () => {
+test('FX3 I-2 (superseded by FY1 N6): model path — a model date other than the month\'s last day on the person\'s clock is discarded and the deadline settles on it, and a past one is not a rejection', async () => {
   const answer = (date: string | null) => ({
     ...RECORDED[BILL_CLAUSE], dueAt: date ? new Date(`${date}T00:00:00+03:00`).toISOString() : null, remindAt: null,
     localTimeSpec: date ? { date, time: null, timezone: TZ } : null, ambiguityFlags: [], missingFields: [],
   });
+  // Until FY1 each of these kept the model's day and asked the hour. The
+  // controller ruling on N6: when the words say this month's end, the words
+  // win — a model day that is not this month's last day on the person's clock
+  // is discarded, and FX3's no-day reading settles the deadline.
   const rows: Array<[string, string, string]> = [
-    ['2026-10-31', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-10-31 - | ask_time`],
-    ['2026-09-29', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-29 - | ask_time`],
-    ['2026-09-25', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-25 - | ask_time`],
-    // The 1st at 00:30 in Jerusalem: the prompt's reference instant is still the 30th in UTC.
-    ['2026-09-30', '2026-09-30T21:30:00.000Z', `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-30 - | ask_time`],
+    ['2026-10-31', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-30 - | `],
+    ['2026-09-29', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-30 - | `],
+    ['2026-09-25', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-30 - | `],
+    // The 1st at 00:30 in Jerusalem: the prompt's reference instant is still
+    // the 30th in UTC, and the person's month is October.
+    ['2026-09-30', '2026-09-30T21:30:00.000Z', `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-10-31 - | `],
   ];
   const drift: string[] = [];
   for (const [date, now, want] of rows) {
     const recorded = { ...answer(date), title: BILL_CLAUSE.replace(/^بدي /, ''), action: BILL_CLAUSE.replace(/^بدي /, '') };
     const { contract } = await propose(BILL_CLAUSE, recordedModel({ [BILL_CLAUSE]: recorded }), new Date(now));
     const got = contract.items.map((it) => `${it.title} | ${it.resolvedDate ?? '-'} ${it.resolvedTime ? 'T' : '-'} | ${it.clarification?.questionKey ?? ''}`);
-    if (contract.status !== 'needs_clarification' || got.join() !== want) drift.push(`${date} @${now}: ${contract.status} ${got.join(' ;; ')}`);
+    if (contract.status !== 'proposed' || got.join() !== want) drift.push(`${date} @${now}: ${contract.status} ${got.join(' ;; ')}`);
   }
   assert.deepEqual(drift, []);
   // The model's own last day, and no day at all, still read as the all-day deadline — the 1st included.

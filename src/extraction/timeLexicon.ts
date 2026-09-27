@@ -759,6 +759,33 @@ export function readPeriodEndDeadline(rawText: string): 'month' | null {
   return MONTH_END.test(rawText) ? 'month' : null;
 }
 
+/*
+ * This month's end in the person's words, whatever it does in the sentence
+ * (closure UAT round 2, FY1 N6): a deadline («قبل آخر الشهر») or only a name
+ * for a thing («تقرير آخر الشهر», "the month-end report", «דוח סוף החודש»).
+ * Another month («آخر الشهر الجاي», "end of next month", «סוף החודש הבא») is
+ * not this one. The words are one group, so a match is the phrase itself.
+ */
+const THIS_MONTH_END_WORDS = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}(?:[وف]?[بلع]?)((?:آخر|اخر|أخر|إخر|نهاية|نهايه|نهايت)\\s+${AR_MONTH_WORD})${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`,
+    `\\b((?:the\\s+)?end\\s+of\\s+(?:the\\s+|this\\s+)?month|(?:the\\s+)?month[\\s-]end)\\b${EN_NOT_ANOTHER_MONTH}`,
+    `${NOT_LETTER_BEFORE}(?:[וש]?[בל]?)(סוף\\s+ה?חודש)${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * The words naming this month's end, as the person wrote them («آخر الشهر»,
+ * "end of the month", «סוף החודש»), or null when the text names none.
+ */
+export function thisMonthEndWords(rawText: string): string | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const match = THIS_MONTH_END_WORDS.exec(rawText);
+  if (!match) return null;
+  return match[1] ?? match[2] ?? match[3] ?? null;
+}
+
 /** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */
 export function lastDayOfMonth(now: Date, timeZone: string): string {
   const today = localTimeSpecFor(now, timeZone)?.date ?? now.toISOString().slice(0, 10);
