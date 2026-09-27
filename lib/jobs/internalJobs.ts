@@ -37,7 +37,7 @@ import {
 } from '../auth/schedulerOidc';
 import { createFootballDataProvider } from '../football/footballDataProvider';
 import { getFollowedClubs, listFollowedUserIds } from '../football/followedClubs';
-import { footballProviderConfigured } from '../football/footballWatchers';
+import { footballProviderConfigured, reconcileFootballWatchers } from '../football/footballWatchers';
 import { projectFixturesForUser } from '../football/projectFixtures';
 import { pollFollowedClubs, syncFollowedClubs, type PollReport, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
@@ -367,6 +367,9 @@ export async function runFootballPollJob(options: FootballPollJobOptions = {}): 
       const follows = await getFollowedClubs(uid, { storage: options.storage });
       if (!follows.some((clubId) => refreshed.has(clubId))) continue;
       try {
+        // One follow, one watcher, for follows saved before football was a
+        // watcher too: the first fetch of their club gives them theirs.
+        await reconcileFootballWatchers(uid, follows, now);
         const tally = await projectFixturesForUser(uid, now);
         projection.users += 1;
         projection.created += tally.created;

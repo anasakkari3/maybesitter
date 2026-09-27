@@ -31,9 +31,12 @@ signup, and check that the free tier covers the five competitions above.
   is **6 hours** old (`FOOTBALL_POLL_INTERVAL_MS`), or **10 minutes** after a
   failed fetch (`FOOTBALL_RETRY_AFTER_MS`).
 - **The nightly sync** (`football-sync-daily-*`, 01:00 Asia/Jerusalem) fetches
-  followed clubs 6 s apart inside a 45 s budget, so about 6 requests.
+  followed clubs 6 s apart inside a 45 s budget. A request is started only if
+  the spacing plus its 8 s timeout still fits in the budget, so a run makes
+  **at most 7 requests** (fewer when responses are slow).
 - **Worst case:** about 4 requests a day for each followed club, plus the
-  nightly run. Even while both run at 01:00 the total stays under 10 a minute.
+  nightly run. While both run at 01:00 that is at most 7 + 1 = **8 requests
+  in one minute**, under the 10.
 - **A 429 (quota) or any other failure** is stored as `rate_limited` or
   `unavailable` on the club's sync state. The watcher row then says
   «مش قادرين نوصل لبيانات المباريات — عم نجرّب كمان مرة», and the matches

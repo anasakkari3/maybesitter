@@ -71,12 +71,13 @@ import {
   type StorageAdapter,
 } from '../storage';
 import { fixtureDoc, footballClubSyncStateDoc } from '../storage/paths';
-import type {
-  ClubSyncFailureKind,
-  ClubSyncState,
-  Fixture,
-  FixtureProvider,
-  FixtureWindow,
+import {
+  FOOTBALL_RETRY_AFTER_MS,
+  type ClubSyncFailureKind,
+  type ClubSyncState,
+  type Fixture,
+  type FixtureProvider,
+  type FixtureWindow,
 } from '../../src/contracts/v1/fixtureContracts';
 import { listClubs, type Club } from './clubs';
 import { upsertFixtures } from './fixtureStore';
@@ -336,8 +337,11 @@ export async function syncFollowedClubs(deps: SyncFollowedClubsDeps): Promise<Sy
 
 /** A club whose last fetch worked is asked again after this long. */
 export const FOOTBALL_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
-/** A club whose last fetch failed is retried after this long. */
-export const FOOTBALL_RETRY_AFTER_MS = 10 * 60 * 1000;
+/**
+ * A club whose last fetch failed is retried after this long. Defined with the
+ * sync state it reads, so the monitor row can say when the retry is due.
+ */
+export { FOOTBALL_RETRY_AFTER_MS };
 /**
  * At most this many provider requests per poll. The poll runs once a minute
  * (it rides the watcher sweep's cron), so this is at most one request a

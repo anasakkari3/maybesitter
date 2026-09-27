@@ -38,7 +38,7 @@ import { WatcherValidationError } from '../watchers/watcherApi';
 import { createWatcherStore, type NewWatcherInput, type StoredWatcher } from '../watchers/watcherStore';
 import { clubById, type ClubLanguage } from './clubs';
 import { getFollowedClubs, setFollowedClubs } from './followedClubs';
-import { projectFixturesForUser } from './projectFixtures';
+import { projectFixturesForUser, titleLanguageFor } from './projectFixtures';
 
 /**
  * Whether this server can fetch match data at all. Read from the environment
@@ -162,17 +162,29 @@ export async function releaseClubAfterWatcherRemoved(uid: string, removed: Store
   await projectFixturesForUser(uid, now);
 }
 
+export interface ReconcileOptions {
+  /** The app's current language; absent means the account's (`titleLanguageFor`). */
+  readonly language?: ClubLanguage;
+  /**
+   * Whether a followed club without a watcher gets one. False without the
+   * provider key: a watcher then would say LIVE over a club nothing fetches.
+   */
+  readonly createMissing?: boolean;
+}
+
 /**
  * Settings → Football saves a whole follow list; this makes the watchers match
  * it — one per followed club, none for a club no longer followed — so the
  * watcher screen and the follow list can never disagree about what is being
- * followed.
+ * followed. The per-minute poll runs it too, for the followers of every club
+ * it refreshes, so a follow saved before football became a watcher (or before
+ * the key existed) gets its watcher the first time its club is fetched.
  */
 export async function reconcileFootballWatchers(
   uid: string,
   followedClubIds: readonly string[],
   now: string,
-  language: ClubLanguage = 'en',
+  options: ReconcileOptions = {},
 ): Promise<void> {
   const store = createWatcherStore(uid);
   const current = await footballWatchers(uid);
@@ -180,8 +192,11 @@ export async function reconcileFootballWatchers(
   for (const stored of current) {
     if (!wanted.has(stored.definition.source.subjectRef)) await store.remove(stored.definition.watcherId);
   }
-  for (const clubId of followedClubIds) {
-    if (current.some((stored) => isWatcherFor(stored, clubId))) continue;
+  if (options.createMissing === false) return;
+  const missing = followedClubIds.filter((clubId) => !current.some((stored) => isWatcherFor(stored, clubId)));
+  if (missing.length === 0) return;
+  const language = await titleLanguageFor(uid, options.language);
+  for (const clubId of missing) {
     const club = clubById(clubId);
     if (!club) continue;
     await store.create({

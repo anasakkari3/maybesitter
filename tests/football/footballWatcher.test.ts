@@ -24,11 +24,14 @@ import { GET as listWatchers, POST as createWatcher } from '../../src/app/api/mo
 import { DELETE as deleteWatcher, PATCH as patchWatcher } from '../../src/app/api/mobile/watchers/[id]/route.ts';
 import { GET as getFootball, PUT as putFootball } from '../../src/app/api/mobile/football/route.ts';
 import { GET as getBackgroundActivity } from '../../src/app/api/mobile/trust/background-activity/route.ts';
+import { GET as getBackgroundHistory } from '../../src/app/api/mobile/trust/background-activity/history/route.ts';
 import { createFootballDataProvider } from '../../lib/football/footballDataProvider.ts';
-import { getFollowedClubs } from '../../lib/football/followedClubs.ts';
+import { getFollowedClubs, setFollowedClubs } from '../../lib/football/followedClubs.ts';
+import { setUserLocale } from '../../lib/storage/userLocale.ts';
+import { AUDIENCE_ENV_VAR, SCHEDULER_SA_ENV_VAR, type OidcPayload } from '../../lib/auth/schedulerOidc.ts';
 import { listActiveFixtureCommitments } from '../../lib/football/projectFixtures.ts';
 import { FOOTBALL_POLL_INTERVAL_MS, FOOTBALL_RETRY_AFTER_MS } from '../../lib/football/syncFixtures.ts';
-import { runFootballPollJob, runWatcherTick } from '../../lib/jobs/internalJobs.ts';
+import { handleWatcherSweepRequest, runFootballPollJob, runWatcherTick } from '../../lib/jobs/internalJobs.ts';
 import { runWatcherSweep } from '../../lib/watchers/watcherEngine.ts';
 import { readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { buildDailyPlanInput } from '../../lib/services/dailyPlan/buildDailyPlan.ts';
@@ -133,11 +136,24 @@ async function tick(nowMs: number) {
   });
 }
 
-async function monitors(): Promise<Array<{ watcherId: string; status: string; lastChangedAt: string | null; effects: string[] }>> {
-  const body = await (await getBackgroundActivity(request('/api/mobile/trust/background-activity'))).json() as {
-    monitors: Array<{ watcherId: string; status: string; lastChangedAt: string | null; effects: string[] }>;
-  };
+interface Monitor { watcherId: string; status: string; lastChangedAt: string | null; nextCheckAt: string | null; effects: string[] }
+async function monitors(): Promise<Monitor[]> {
+  const body = await (await getBackgroundActivity(request('/api/mobile/trust/background-activity'))).json() as { monitors: Monitor[] };
   return body.monitors;
+}
+
+async function historyStatuses(watcherId: string): Promise<string[]> {
+  const body = await (await getBackgroundHistory(request('/api/mobile/trust/background-activity/history'))).json() as {
+    items: Array<{ watcherId: string; status: string }>;
+  };
+  return body.items.filter((item) => item.watcherId === watcherId).map((item) => item.status);
+}
+
+async function footballWatcherLabels(): Promise<Array<[string, string | null]>> {
+  const body = await (await listWatchers(request('/api/mobile/watchers'))).json() as {
+    items: Array<{ label: string | null; source: { subjectRef: string } }>;
+  };
+  return body.items.map((item) => [item.source.subjectRef, item.label]);
 }
 
 async function syncState(): Promise<ClubSyncState | null> {
@@ -252,7 +268,14 @@ test('follow → poll → matches block the plan → a moved kickoff fires → p
     const failing = await tick(T0 + 3 * FOOTBALL_POLL_INTERVAL_MS);
     assert.deepEqual(failing.football.poll?.failures, [{ clubId: 'barcelona', failureKind: 'rate_limited' }]);
     assert.equal((await syncState())?.lastOutcome, 'failed');
-    assert.equal((await monitors())[0]!.status, 'retrying');
+    const [retrying] = await monitors();
+    assert.equal(retrying!.status, 'retrying');
+    // It says when it tries again — the real retry, not "no check yet".
+    assert.equal(retrying!.nextCheckAt, iso(T0 + 3 * FOOTBALL_POLL_INTERVAL_MS + FOOTBALL_RETRY_AFTER_MS));
+    // And the history tells the same story as the live row.
+    const statuses = await historyStatuses(watcherId);
+    assert.ok(statuses.length > 0, 'the moved kickoff should be in the history');
+    assert.deepEqual(Array.from(new Set(statuses)), ['retrying']);
     // The matches it already knew stay on the calendar through the outage.
     assert.equal((await listActiveFixtureCommitments(ALICE)).length, 2);
 
@@ -268,6 +291,108 @@ test('follow → poll → matches block the plan → a moved kickoff fires → p
     assert.deepEqual(await getFollowedClubs(ALICE), []);
     assert.deepEqual(await listActiveFixtureCommitments(ALICE), []);
     assert.deepEqual(await monitors(), []);
+  } finally {
+    end();
+  }
+});
+
+/* ── The cron that makes the poll happen ─────────────────────────── */
+
+const SCHEDULER_SA = 'maybesitter-scheduler@example-project.iam.gserviceaccount.com';
+const SCHEDULER_AUDIENCE = 'https://api.example.invalid';
+const SCHEDULER_ENV: NodeJS.ProcessEnv = {
+  NODE_ENV: 'test', [SCHEDULER_SA_ENV_VAR]: SCHEDULER_SA, [AUDIENCE_ENV_VAR]: SCHEDULER_AUDIENCE,
+};
+const SCHEDULER: OidcPayload = {
+  email: SCHEDULER_SA, email_verified: true, aud: SCHEDULER_AUDIENCE, iss: 'https://accounts.google.com',
+};
+const schedulerRequest = { headers: { get: (name: string) => (name.toLowerCase() === 'authorization' ? 'Bearer t' : null) } };
+
+test('the per-minute watcher cron runs the football poll through its default wiring', async () => {
+  // `/api/internal/jobs/watchers` is the only scheduler entry that polls a
+  // followed club. Nothing is injected here but the scheduler's identity and
+  // the network: the handler's own default tick, the real provider (reading
+  // the key from the environment) and the real sweep all run.
+  begin('test-key');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = fetchImpl;
+  try {
+    const created = await createWatcher(request('/api/mobile/watchers', { body: followBody() }));
+    assert.equal(created.status, 201);
+
+    const response = await handleWatcherSweepRequest(schedulerRequest, {
+      env: SCHEDULER_ENV, verify: async () => SCHEDULER,
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as { scanned: number; football?: { enabled: boolean; poll?: { refreshed: string[] } } };
+    assert.equal(body.football?.enabled, true, 'the cron should run the football poll');
+    assert.deepEqual(body.football?.poll?.refreshed, ['barcelona']);
+    assert.equal(body.scanned, 1, 'and the watcher sweep after it');
+    assert.equal(requests, 1);
+    assert.equal((await listActiveFixtureCommitments(ALICE)).length, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+    end();
+  }
+});
+
+/* ── Follows without a watcher ───────────────────────────────────── */
+
+test('without the key, Settings cannot follow a club into a watcher that never fetches — but can still stop following', async () => {
+  begin(null);
+  try {
+    // A follow saved before the watcher lane (Settings → Football was open to
+    // everyone then), and no key on this server.
+    await setFollowedClubs(ALICE, ['barcelona'], iso(T0));
+
+    const adding = await putFootball(request('/api/mobile/football', { method: 'PUT', body: { clubIds: ['barcelona', 'liverpool'] } }));
+    assert.equal(adding.status, 409);
+    assert.equal((await adding.json() as { reason: string }).reason, 'provider_not_configured');
+    assert.deepEqual(await getFollowedClubs(ALICE), ['barcelona']);
+
+    // Saving what is already followed writes no watcher: it would say LIVE
+    // and never fetch.
+    const keeping = await putFootball(request('/api/mobile/football', { method: 'PUT', body: { clubIds: ['barcelona'] } }));
+    assert.equal(keeping.status, 200);
+    assert.deepEqual(await footballWatcherLabels(), []);
+
+    // Stopping is always allowed.
+    const stopping = await putFootball(request('/api/mobile/football', { method: 'PUT', body: { clubIds: [] } }));
+    assert.equal(stopping.status, 200);
+    assert.deepEqual(await getFollowedClubs(ALICE), []);
+    assert.deepEqual(await footballWatcherLabels(), []);
+  } finally {
+    end();
+  }
+});
+
+test('once the key exists, a follow from before the watcher lane gets its watcher on the first poll, named in the account language', async () => {
+  begin('test-key');
+  try {
+    await setFollowedClubs(ALICE, ['barcelona'], iso(T0));
+    await setUserLocale(ALICE, 'ar', iso(T0));
+    assert.deepEqual(await footballWatcherLabels(), []);
+
+    await tick(T0);
+    assert.deepEqual(await footballWatcherLabels(), [['barcelona', 'برشلونة']]);
+    assert.equal((await monitors()).length, 1);
+
+    // The next poll finds it already there.
+    await tick(T0 + FOOTBALL_POLL_INTERVAL_MS);
+    assert.deepEqual(await footballWatcherLabels(), [['barcelona', 'برشلونة']]);
+  } finally {
+    end();
+  }
+});
+
+test('Settings names a new follow\'s watcher in the account language when the save carries none', async () => {
+  begin('test-key');
+  try {
+    await setUserLocale(ALICE, 'he', iso(T0));
+    await putFootball(request('/api/mobile/football', { method: 'PUT', body: { clubIds: ['barcelona'] } }));
+    const [[, label]] = await footballWatcherLabels() as [[string, string | null]];
+    assert.notEqual(label, 'Barcelona');
+    assert.match(label ?? '', /[\u0590-\u05FF]/);
   } finally {
     end();
   }

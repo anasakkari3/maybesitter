@@ -90,6 +90,14 @@ export const FOOTBALL_TEAM_SIGNAL_KIND = 'football_team' as const;
 export type ClubSyncFailureKind = 'rate_limited' | 'unavailable';
 
 /**
+ * A club whose last fetch failed is asked again this long after that attempt
+ * (the per-minute poll's retry). Here, next to `ClubSyncState`, because both
+ * the poll and the background-monitor row read it: the row's "next check" for
+ * a retrying watcher is `lastSyncedAt` plus this.
+ */
+export const FOOTBALL_RETRY_AFTER_MS = 10 * 60 * 1000;
+
+/**
  * `footballClubSyncState/{clubId}`: when a club was last asked of the
  * provider, how that went, and a digest that moves only when an
  * already-known match materially changed (kickoff moved, postponed,

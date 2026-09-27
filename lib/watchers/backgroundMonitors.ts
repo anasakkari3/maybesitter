@@ -40,7 +40,11 @@ import {
 } from '../../src/contracts/v1/backgroundMonitorContracts';
 import type { IntegrationConnectionRecord } from '../../src/contracts/v1/integrationConnectionContracts';
 import type { WatchCondition } from '../../src/contracts/v1/watcherContracts';
-import { FOOTBALL_TEAM_SIGNAL_KIND, type ClubSyncState } from '../../src/contracts/v1/fixtureContracts';
+import {
+  FOOTBALL_RETRY_AFTER_MS,
+  FOOTBALL_TEAM_SIGNAL_KIND,
+  type ClubSyncState,
+} from '../../src/contracts/v1/fixtureContracts';
 import { getStorage, type StorageAdapter } from '../storage';
 import { footballClubSyncStateDoc, userSubDoc, PROVIDER_CONNECTIONS } from '../storage/paths';
 import { createWatcherStore, type StoredWatcher } from './watcherStore';
@@ -79,7 +83,7 @@ export function monitorIdForWatcher(watcherId: string): string {
 export function backgroundMonitorStatusOf(
   stored: StoredWatcher,
   connection: IntegrationConnectionRecord | null,
-  sourceHealth: SourceHealth = 'ok',
+  sourceHealth: SourceHealth = SOURCE_OK,
 ): BackgroundMonitorStatus {
   const { definition, runtime } = stored;
   if (!definition.enabled) return 'paused';
@@ -110,7 +114,7 @@ export function backgroundMonitorStatusOf(
   // watcher is not broken and the user has nothing to fix, but "active" next
   // to a provider that is not answering would be the silence this state
   // exists to prevent.
-  if (sourceHealth === 'retrying') return 'retrying';
+  if (sourceHealth.status === 'retrying') return 'retrying';
 
   return 'active';
 }
@@ -118,34 +122,50 @@ export function backgroundMonitorStatusOf(
 /**
  * How the data behind a watcher's source is doing, where that is a fact
  * storage holds. Only a followed football club has one today: the club's
- * sync state says whether the last fetch reached the provider.
+ * sync state says whether the last fetch reached the provider and, when it
+ * did not, when the poll asks again (`retryAt`).
  */
-export type SourceHealth = 'ok' | 'retrying';
+export type SourceHealth =
+  | { readonly status: 'ok' }
+  | { readonly status: 'retrying'; readonly retryAt: string };
+
+export const SOURCE_OK: SourceHealth = Object.freeze({ status: 'ok' });
 
 export function sourceHealthOf(state: ClubSyncState | null): SourceHealth {
-  return state?.lastOutcome === 'failed' ? 'retrying' : 'ok';
+  if (state?.lastOutcome !== 'failed') return SOURCE_OK;
+  return {
+    status: 'retrying',
+    retryAt: new Date(Date.parse(state.lastSyncedAt) + FOOTBALL_RETRY_AFTER_MS).toISOString(),
+  };
 }
 
 /** The source health of one watcher, read from storage. */
 export async function readSourceHealth(stored: StoredWatcher, storage: StorageAdapter): Promise<SourceHealth> {
-  if (stored.definition.source.signalKind !== FOOTBALL_TEAM_SIGNAL_KIND) return 'ok';
+  if (stored.definition.source.signalKind !== FOOTBALL_TEAM_SIGNAL_KIND) return SOURCE_OK;
   const state = await storage.get<ClubSyncState>(footballClubSyncStateDoc(stored.definition.source.subjectRef));
   return sourceHealthOf(state ?? null);
 }
 
-function nextCheckAt(status: BackgroundMonitorStatus, now: string): string | null {
-  // Only an active monitor has a next check. The sweep does visit a paused or
-  // blocked watcher, but it returns before observing anything, so saying it
-  // is "about to check" would be false.
+function nextCheckAt(status: BackgroundMonitorStatus, now: string, sourceHealth: SourceHealth): string | null {
+  const nextSweep = new Date(Date.parse(now) + WATCHER_SWEEP_INTERVAL_MINUTES * 60_000).toISOString();
+  // A retrying source is asked again at its retry time, and the sweep that
+  // same minute hears the answer. A retry already overdue (the poll takes one
+  // club a minute) is the next sweep's.
+  if (status === 'retrying' && sourceHealth.status === 'retrying') {
+    return sourceHealth.retryAt > nextSweep ? sourceHealth.retryAt : nextSweep;
+  }
+  // Otherwise only an active monitor has a next check. The sweep does visit a
+  // paused or blocked watcher, but it returns before observing anything, so
+  // saying it is "about to check" would be false.
   if (status !== 'active') return null;
-  return new Date(Date.parse(now) + WATCHER_SWEEP_INTERVAL_MINUTES * 60_000).toISOString();
+  return nextSweep;
 }
 
 export function projectBackgroundMonitor(
   stored: StoredWatcher,
   connection: IntegrationConnectionRecord | null,
   now: string,
-  sourceHealth: SourceHealth = 'ok',
+  sourceHealth: SourceHealth = SOURCE_OK,
 ): BackgroundMonitorView {
   const { definition, runtime } = stored;
   const status = backgroundMonitorStatusOf(stored, connection, sourceHealth);
@@ -162,7 +182,7 @@ export function projectBackgroundMonitor(
     effects: [definition.effect],
     lastCheckedAt: runtime.lastObservedAt,
     lastChangedAt: runtime.lastFiredAt,
-    nextCheckAt: nextCheckAt(status, now),
+    nextCheckAt: nextCheckAt(status, now, sourceHealth),
     // A paused monitor's row offers Resume, which is the same endpoint with
     // `paused: false`; it is not a second thing this flag has to describe.
     canPause: definition.enabled,
@@ -223,7 +243,7 @@ export async function listBackgroundActivity(
         ? null
         : connections.get(watcher.definition.source.connectionId) ?? null,
       now,
-      health.get(watcher.definition.watcherId) ?? 'ok',
+      health.get(watcher.definition.watcherId) ?? SOURCE_OK,
     ))
     .sort((left, right) => left.monitorId.localeCompare(right.monitorId));
 
