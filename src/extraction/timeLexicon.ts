@@ -825,7 +825,7 @@ export function monthEndIsNotTheDay(rawText: string): boolean {
 }
 
 /** The number a clock word names, or an early h:mm with no marker. */
-const CLOCK_NUMBER = /(?:\b(?:at|by|around)|الساعة|الساعه|عند|على|בשעה|שעה|[בס]-)\s*(\d{1,2})(?::\d{2})?(?=$|[\s,.،])|\b(\d{1,2})\s*o'?clock\b|(?<![\d:])([1-6]):\d{2}(?=$|[\s,.،])/giu;
+const CLOCK_NUMBER = /(?:\b(?:at|by|around)|الساعة|الساعه|عند|على|בשעה|שעה|[בס]-)\s*(\d{1,2})(?::\d{2})?(?=$|[\s,.،])|\b(\d{1,2})\s*o'?clock\b|(?<![\d:])([1-6]):\d{2}(?=$|[\s,.،])/gi;
 
 /**
  * A typed bare hour from one to six with no part of the day — «الساعة 4»,
