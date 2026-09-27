@@ -21,8 +21,11 @@ export const meetingPrepResponseSchema = z.object({
      * ring then, and null when nothing will ring at all (CL5a I-3).
      */
     remindAt: isoDateTime.nullable(),
-    /** Why nothing rings, when nothing does. */
-    silentBecause: z.enum(['reminders_off', 'too_close']).nullable(),
+    /**
+     * Why nothing rings, when nothing does: the switch is off, the survey said
+     * silent, quiet hours last until just before, or no moment is left.
+     */
+    silentBecause: z.enum(['reminders_off', 'silent_choice', 'quiet_hours', 'too_close']).nullable(),
     /** When it is due: never after the start. */
     dueAt: isoDateTime,
     leadMinutes: z.number().int(),

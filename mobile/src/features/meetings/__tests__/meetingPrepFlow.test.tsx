@@ -278,10 +278,11 @@ describe('an appointment, and a step moved by quiet hours', () => {
   });
 
   it('when quiet hours moved the prep step, review says where to, in one line', async () => {
-    // The evening before, as `schedulePrepAt` moves it when the hour before
-    // falls inside quiet hours.
+    // Moved earlier by quiet hours, as `schedulePrepAt` moves it when the hour
+    // before falls inside them — and still ahead of now: a ring already past
+    // reads as too close (n-2). This meeting is three hours away.
     const moved = prepared();
-    const eveningBefore = new Date(mockStart.getTime() - 10 * HOUR).toISOString();
+    const eveningBefore = new Date(mockStart.getTime() - 2 * HOUR).toISOString();
     jest.spyOn(meetingEndpoints, 'prepareMeeting')
       .mockResolvedValue({ ...moved, prep: { ...moved.prep, remindAt: eveningBefore, adjustment: 'quiet_hours' } });
     await show({ aiGranted: true });
@@ -329,6 +330,25 @@ describe('an appointment, and a step moved by quiet hours', () => {
   it('reminders off: review says nothing will ring', async () => {
     await reviewWith({ remindAt: null, silentBecause: 'reminders_off', adjustment: 'none' });
     expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepRemindersOff);
+  });
+
+  it('the survey said silent: review says it was their choice, not that reminders are off (n-6)', async () => {
+    await reviewWith({ remindAt: null, silentBecause: 'silent_choice', adjustment: 'none' });
+    expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepSilentChoice);
+  });
+
+  it('quiet hours until just before: review says so, and does not say to start now (n-6)', async () => {
+    await reviewWith({ remindAt: null, silentBecause: 'quiet_hours', adjustment: 'quiet_hours_unavoidable' });
+    expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepQuietUntilStart);
+  });
+
+  it.each(['none', 'short_notice'] as const)('a claimed ring that has already passed (%s): review says it is too close, not a stale time (n-2)', async (adjustment) => {
+    // Review sat open past the ring: the phone skips a stage whose moment has
+    // passed, so that time would be a reminder that never comes.
+    const passed = new Date(Date.now() - 2 * 60_000).toISOString();
+    await reviewWith({ remindAt: passed, silentBecause: null, adjustment });
+    expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepTooClose);
+    expect(screen.queryByTestId('review-prep-short-notice')).toBeNull();
   });
 
   it('with no move, review has no quiet-hours line', async () => {

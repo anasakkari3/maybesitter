@@ -606,7 +606,26 @@ test('a meeting a few minutes after a quiet night the person is already in: the 
     assert.equal(prep.adjustment, 'quiet_hours_unavoidable');
     assert.deepEqual(rings, []);
     assert.equal(prep.remindAt, null);
-    assert.equal(prep.silentBecause, 'too_close');
+    // Not "too close": the meeting is nine hours away, and it is the quiet
+    // hours that leave no moment to ring at (re-review 2, n-6). Review must
+    // not tell somebody at 22:40 to start now.
+    assert.equal(prep.silentBecause, 'quiet_hours');
+  } finally { end(); }
+});
+
+test('the survey\'s silent answer: nothing rings, and it is said as the person\'s choice, not as reminders switched off', async () => {
+  begin();
+  try {
+    // The switch in Settings is on; the survey said «صامتة». The phone plans
+    // nothing for `none` (`stagesFor`), so nothing is claimed.
+    const { prep } = await prepareMeeting(UID, { notes: 'Review the budget numbers.', startAt: new Date(NINE.getTime() + 180 * MINUTE).toISOString(), timezone: 'Asia/Jerusalem' }, {
+      now: NINE, consent: declined, quietHours: NO_QUIET_HOURS,
+      ringSettings: { softEnabled: true, softLeadMinutes: 60, escalationCeiling: 'soft', surveySaysNone: true },
+    });
+    const rings = await phoneRings(prep.dueAt, { ...engineSettings('soft', 60), intensity: 'none' }, NINE);
+    assert.deepEqual(rings, []);
+    assert.equal(prep.remindAt, null);
+    assert.equal(prep.silentBecause, 'silent_choice');
   } finally { end(); }
 });
 

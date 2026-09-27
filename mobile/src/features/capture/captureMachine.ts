@@ -107,7 +107,7 @@ export interface MeetingReviewContext {
   /** When the phone first rings for the prep step, after any move; null when nothing rings. */
   readonly remindAt: string | null;
   /** Why nothing rings, when nothing does. */
-  readonly silentBecause: 'reminders_off' | 'too_close' | null;
+  readonly silentBecause: 'reminders_off' | 'silent_choice' | 'quiet_hours' | 'too_close' | null;
   readonly adjustment: 'none' | 'short_notice' | 'quiet_hours' | 'quiet_hours_unavoidable';
   readonly appointment: boolean;
 }

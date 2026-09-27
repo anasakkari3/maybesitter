@@ -616,10 +616,20 @@ function ItemCard({
 function PrepReminderLine({ meeting }: { meeting: MeetingReviewContext }) {
   const { t, p, lang } = useApp();
   const timezone = useTimeZone();
-  if (meeting.remindAt === null) {
+  // A ring whose moment has passed while Review sat open is one the phone
+  // skips (n-2): said as too close, not as a time that will not come.
+  const passed = meeting.remindAt !== null && Date.parse(meeting.remindAt) <= Date.now();
+  if (meeting.remindAt === null || passed) {
+    const silence = passed ? 'too_close' : meeting.silentBecause;
     return (
       <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
-        {meeting.silentBecause === 'reminders_off' ? t.reviewPrepRemindersOff : t.reviewPrepTooClose}
+        {silence === 'reminders_off'
+          ? t.reviewPrepRemindersOff
+          : silence === 'silent_choice'
+            ? t.reviewPrepSilentChoice
+            : silence === 'quiet_hours'
+              ? t.reviewPrepQuietUntilStart
+              : t.reviewPrepTooClose}
       </Txt>
     );
   }

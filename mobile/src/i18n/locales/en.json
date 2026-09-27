@@ -1006,6 +1006,8 @@
   "reviewPrepShortNotice": "Short notice, so the reminder moved: {time}",
   "reviewPrepTooClose": "Too close for a reminder. Start now.",
   "reviewPrepRemindersOff": "Reminders are off, so nothing will ring.",
+  "reviewPrepSilentChoice": "You chose silent reminders, so nothing will ring.",
+  "reviewPrepQuietUntilStart": "Your quiet hours end just before it starts, so nothing will ring.",
   "reviewUntrusted": "Outside content",
   "detailsHistory": "Its history",
   "detailsClosedNote": "This one is finished. It stays in your history.",

@@ -53,7 +53,7 @@ import {
 import { MEETING_PREP_SCHEMA, buildMeetingPrepPrompt } from '../../integrations/meetings/meetingPrepPrompt';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/shareProvider';
 import { splitPrompt } from '../../llm/captureProvider';
-import { isInQuietHours, readQuietHours, type QuietHours } from '../../push/quietHours';
+import { NO_QUIET_HOURS, isInQuietHours, readQuietHours, type QuietHours } from '../../push/quietHours';
 import {
   CaptureInputTooLargeError,
   createStorageCaptureProposalStore,
@@ -186,8 +186,8 @@ export interface MeetingPrepSummary {
    * null when nothing will ring at all (I-3).
    */
   readonly remindAt: string | null;
-  /** Why nothing rings, when nothing does. */
-  readonly silentBecause: 'reminders_off' | 'too_close' | null;
+  /** Why nothing rings, when nothing does (`silenceOf`). */
+  readonly silentBecause: PrepSilence | null;
   /** When it is due: never after the start (see `prepTiming`). */
   readonly dueAt: string;
   /** Minutes between the chosen prep instant and the meeting's start. */
@@ -595,6 +595,24 @@ export function prepTiming(start: Date, prepAt: Date, now: Date, settings: PrepR
   return { dueAt: start, ringAt: first === undefined ? null : new Date(first) };
 }
 
+/**
+ * Why the phone rings nothing for the prep step, in the words Review uses.
+ *
+ * - `reminders_off`: the reminders switch is off.
+ * - `silent_choice`: the switch is on, but the survey said «صامتة» (`none`),
+ *   which the phone plans nothing for — the person's choice, not a switch.
+ * - `quiet_hours`: it would ring, but quiet hours last until too close to the
+ *   meeting (22:40 for a 07:32 meeting) — not a reason to start now.
+ * - `too_close`: no moment is left before the meeting to ring at.
+ */
+export type PrepSilence = 'reminders_off' | 'silent_choice' | 'quiet_hours' | 'too_close';
+
+function silenceOf(settings: PrepRingSettings, dueAt: Date, now: Date): PrepSilence {
+  if (!settings.softEnabled) return 'reminders_off';
+  if (settings.surveySaysNone) return 'silent_choice';
+  return phoneRingsFor(dueAt, phoneReminderLeads(settings), now, NO_QUIET_HOURS).length > 0 ? 'quiet_hours' : 'too_close';
+}
+
 /** The settings `prepTiming` needs, resolved exactly as the settings screen resolves them. */
 async function readPrepRingSettings(uid: string, options: { storage?: StorageAdapter }): Promise<PrepRingSettings> {
   const settings = await readReminderSettings(uid, options);
@@ -712,7 +730,7 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     prep: {
       itemId: items[0]!.itemId,
       remindAt: ringAt,
-      silentBecause: ringAt ? null : (phoneReminderLeads(settings).length === 0 ? 'reminders_off' : 'too_close'),
+      silentBecause: ringAt ? null : silenceOf(settings, timing.dueAt, now),
       dueAt: timing.dueAt.toISOString(),
       leadMinutes: Math.round((valid.start.getTime() - due.at.getTime()) / MINUTE),
       adjustment: due.adjustment,

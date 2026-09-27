@@ -1006,6 +1006,8 @@
   "reviewPrepShortNotice": "الوقت قريب، فالتذكير انتقل: {time}",
   "reviewPrepTooClose": "الوقت قريب كتير لتذكير، ابدأ هلّق.",
   "reviewPrepRemindersOff": "التذكيرات مطفية، فما رح يرن شي.",
+  "reviewPrepSilentChoice": "اخترت تذكيرات صامتة، فما رح يرن شي.",
+  "reviewPrepQuietUntilStart": "ساعات الهدوء بتخلص قبل الموعد بشوي، فما رح يرن شي.",
   "reviewUntrusted": "محتوى من برّا",
   "detailsHistory": "تاريخها",
   "detailsClosedNote": "هاي خلصت. بتضل بتاريخك.",
