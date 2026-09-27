@@ -155,7 +155,8 @@ import {
 import { POST as googleGmailScanPost } from '../../src/app/api/mobile/integrations/google/gmail/scan/route.ts';
 import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrations/google/drive/picker/route.ts';
 import { POST as googleDriveImportPost } from '../../src/app/api/mobile/integrations/google/drive/import/route.ts';
-import { resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
+import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
+import { shareLlmProvider } from '../../lib/llm/shareProvider.ts';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_PICKER_KEY, FAKE_REDIRECT, FakeGoogle } from '../support/fakeGoogle.ts';
 import { EMAIL_BATCH_SYSTEM_INSTRUCTION, EMAIL_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/emailPrompt.ts';
 import { DOCUMENT_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/documentPrompt.ts';
@@ -2169,6 +2170,40 @@ test('exports the Google connection fixtures', async () => {
       if (previousAiDisabled === undefined) delete process.env.MAYBESITTER_AI_DISABLED;
       else process.env.MAYBESITTER_AI_DISABLED = previousAiDisabled;
     }
+
+    // A scan the per-minute model cap stopped part-way (CL6a round 2, N4):
+    // twenty long messages, three to a call, and a minute cap of one — the
+    // real usage guard on its own fresh counter, so the recording does not
+    // depend on the calls above. The app's partial-scan line reads these
+    // counts; recorded here so they are the ones the server sends together.
+    const fullRuntime = googleRuntime();
+    setGoogleRuntimeForTests({
+      ...fullRuntime,
+      shareModel: shareLlmProvider(GOOGLE_USER, {
+        consent: async () => 'granted',
+        // A fixed minute: two calls a millisecond apart can still straddle one.
+        reserveOptions: { storage: createMemoryStorage(), minuteCap: 1, now: new Date(REFERENCE_TIME) },
+      }),
+    });
+    google.gmail.length = 0;
+    for (let index = 0; index < 20; index += 1) {
+      google.gmail.push({
+        id: `msg-long-${String(index).padStart(2, '0')}`,
+        subject: `Trip form ${index}`,
+        body: `Hello,\n\n${'The museum trip is on the calendar for the whole class. '.repeat(125)}\n\nPlease return the signed trip form by Friday.\n\nThanks`,
+        receivedAt: new Date(Date.parse(REFERENCE_TIME) - (3 + index) * hour).toISOString(),
+      });
+    }
+    const partial = await record('google.gmailScanPartial', 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
+      body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+    })));
+    const partialMetrics = (partial.share as { metrics: Record<string, number> }).metrics;
+    assert.equal(partialMetrics.messagesFound, 20);
+    assert.equal(partialMetrics.messagesRead, 3, 'one call, three long messages');
+    assert.equal(partialMetrics.messagesNotRead, 17);
+    assert.equal(partialMetrics.modelUnavailable, 17, 'the cap refused the second call');
+    assert.ok((partial.items as unknown[]).length >= 1, 'what was read is still offered');
+    runtime(true);
 
     const ticket = await record('google.drivePicker', 200, await googleDrivePickerPost(as('/api/mobile/integrations/google/drive/picker', { method: 'POST' })), pinUrl('pickerUrl'));
     assert.match(String(ticket.pickerUrl), /\/api\/oauth\/google\/picker\?ticket=/);
