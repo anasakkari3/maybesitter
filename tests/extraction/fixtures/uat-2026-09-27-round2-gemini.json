@@ -1,0 +1,306 @@
+{
+  "_about": "Gemini (gemini-2.5-flash, Vertex europe-west1) answers (prompt capture-v5) recorded on 2026-09-27 for the closure UAT round-2 captures (FY1: a clause timed earlier today, a past event, «أحضّر تقرير آخر الشهر»), one entry per model call, keyed by the exact payload the capture boundary sent (a clause, or a batch of clauses). Recorded with scripts/live-capture-check.ts --only FY1 --raw --record, before the FY1 fix; replayed by tests/extraction/fy1CaptureRegressions.test.ts. referenceTime 2026-09-27T15:08:00.000Z (N1) and 2026-09-27T15:05:00.000Z (N6), Asia/Jerusalem.",
+  "calls": [
+    {
+      "case": "FY1 N1 a passed hour and a past event",
+      "shape": "batch",
+      "payload": [
+        "اليوم الساعة 3 العصر كان عندي اجتماع مع سامي",
+        "واليوم لازم أرتب الغرفة",
+        "وبكرا الساعة 5 بدي أروح عالبنك"
+      ],
+      "answer": {
+        "items": [
+          {
+            "clauseIndex": 0,
+            "type": "informational_context",
+            "action": null,
+            "title": null,
+            "person": "سامي",
+            "dueAt": null,
+            "remindAt": null,
+            "localTimeSpec": null,
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": null,
+            "categoryConfidence": 0,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [
+              "informational_without_action"
+            ],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "clauseIndex": 1,
+            "type": "task",
+            "action": "أرتب",
+            "title": "أرتب الغرفة",
+            "person": null,
+            "dueAt": "2026-09-27T15:08:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-27",
+              "time": "15:08",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "high",
+              "source": "user_explicit",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": null,
+            "categoryConfidence": 0,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 1,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "clauseIndex": 2,
+            "type": "task",
+            "action": "أروح",
+            "title": "أروح عالبنك",
+            "person": null,
+            "dueAt": "2026-09-28T14:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-28",
+              "time": "17:00",
+              "timezone": "Asia/Jerusalem"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": null,
+            "categoryConfidence": 0,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 1,
+              "time": 1,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          }
+        ]
+      }
+    },
+    {
+      "case": "FY1 N1 a passed hour and a past event",
+      "shape": "single",
+      "payload": "وبكرا الساعة 5 بدي أروح عالبنك",
+      "answer": {
+        "type": "task",
+        "action": "أروح",
+        "title": "أروح عالبنك",
+        "person": null,
+        "dueAt": "2026-09-28T14:00:00Z",
+        "remindAt": null,
+        "localTimeSpec": {
+          "date": "2026-09-28",
+          "time": "17:00",
+          "timezone": "Asia/Jerusalem"
+        },
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": "finance",
+        "categoryConfidence": 0.5,
+        "confidence": {
+          "overall": 0.9,
+          "type": 1,
+          "action": 1,
+          "time": 1,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "FY1 N1 a passed hour and a past event",
+      "shape": "single",
+      "payload": "واليوم لازم أرتب الغرفة",
+      "answer": {
+        "type": "task",
+        "action": "أرتب",
+        "title": "أرتب الغرفة",
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "priority": {
+          "level": "high",
+          "source": "user_explicit",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": null,
+        "categoryConfidence": 0,
+        "confidence": {
+          "overall": 0.8,
+          "type": 1,
+          "action": 1,
+          "time": 0.8,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [
+          "vague_time"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "FY1 N1 a passed hour and a past event",
+      "shape": "single",
+      "payload": "اليوم الساعة 3 العصر كان عندي اجتماع مع سامي",
+      "answer": {
+        "type": "informational_context",
+        "action": null,
+        "title": null,
+        "person": null,
+        "dueAt": null,
+        "remindAt": null,
+        "localTimeSpec": null,
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": null,
+        "categoryConfidence": 0,
+        "confidence": {
+          "overall": 1,
+          "type": 1,
+          "action": 1,
+          "time": 1,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [
+          "informational_without_action"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "FY1 N1 a passed hour alone",
+      "shape": "single",
+      "payload": "اليوم الساعة 3 العصر لازم أبعت الإيميل للمدير",
+      "answer": {
+        "type": "task",
+        "action": "أبعت الإيميل",
+        "title": "أبعت الإيميل للمدير",
+        "person": "المدير",
+        "dueAt": "2026-09-27T12:00:00Z",
+        "remindAt": null,
+        "localTimeSpec": {
+          "date": "2026-09-27",
+          "time": "15:00",
+          "timezone": "Asia/Jerusalem"
+        },
+        "priority": {
+          "level": "high",
+          "source": "user_explicit",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": null,
+        "categoryConfidence": 0,
+        "confidence": {
+          "overall": 1,
+          "type": 1,
+          "action": 1,
+          "time": 1,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "FY1 N6 the month-end report",
+      "shape": "single",
+      "payload": "أحضّر تقرير آخر الشهر",
+      "answer": {
+        "type": "task",
+        "action": "أحضّر",
+        "title": "أحضّر تقرير",
+        "person": null,
+        "dueAt": "2026-10-31T21:00:00Z",
+        "remindAt": null,
+        "localTimeSpec": {
+          "date": "2026-10-31",
+          "time": "null",
+          "timezone": "Asia/Jerusalem"
+        },
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": null,
+        "categoryConfidence": 0,
+        "confidence": {
+          "overall": 0.8,
+          "type": 1,
+          "action": 1,
+          "time": 0.8,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [
+          "vague_time"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    }
+  ]
+}
