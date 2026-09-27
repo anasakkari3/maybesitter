@@ -255,9 +255,13 @@ are keyed on `expiresAt`. The owner runs it; it was not run from this lane.
 4. **Gmail:** tap Connect on Gmail. Google asks only for Gmail read access, and
    Calendar stays connected. With AI processing on, «جيب التزامات من إيميلي»
    opens the review screen with proposals from the last 7 days of Primary (at
-   most 20 messages). Nothing is saved until you confirm. If the model was
-   stopped part-way (a quota), the page or the review says «قرينا N من M إيميل
-   بس» rather than "nothing to save".
+   most 20 messages). Nothing is saved until you confirm. An email about an
+   appointment you go to (a dentist, a meeting) proposes the appointment
+   itself, on its day and at its time, beside anything it asks you to bring.
+   If the read stopped part-way, the page or the review says how many emails
+   it read rather than "nothing to save": «قرينا N من M إيميل بس. جرّب بعد شوي
+   للباقي.» when the model was stopped (a quota), «قرينا أحدث N من M إيميل.»
+   when the scan's own limits were (three model calls, 50 seconds).
    **Then check the grant survived:** at least an hour after connecting Gmail
    (so the access token has expired), tap «حدّث الأوقات المشغولة». It must
    succeed, and the Calendar row must not turn into «أعد الربط». Adding a
@@ -278,6 +282,27 @@ are keyed on `expiresAt`. The owner runs it; it was not run from this lane.
 
 Consent must be entered by hand with the owner's own Google password, once per
 test account. Simulator automation cannot type into Google's secure fields.
+
+## 9. Known limit: one Google account behind two MaybeSitter accounts
+
+Google keeps **one** authorization per Google account per OAuth client. So if
+two MaybeSitter accounts (say a household's two phones) connect the same Google
+account, they share one grant, and anything that revokes it disconnects both:
+
+- **Disconnect** («افصل Google») or **account deletion** on one of them revokes
+  the grant at Google, as it must.
+- **A mismatch:** someone connected with Google account A tries to add Gmail or
+  Drive as account B. MaybeSitter refuses (`google_account_mismatch`) and, to
+  leave no orphan grant, revokes the grant Google just issued for B. If another
+  MaybeSitter account is connected with B, that one loses its grant too.
+
+Either way the other account's Google rows turn into «أعد الربط» on the next
+sync, and **one tap reconnects it**; nothing it stored is lost. Accepted as is
+(CL6a round 2, N1): the case needs one Google account shared across two
+MaybeSitter accounts, and not revoking would leave grants nobody can see in the
+app. If it is ever reported, the alternative is to skip the best-effort revoke
+on a mismatch and let the person remove the orphan at
+https://myaccount.google.com/permissions.
 
 ## Where each fact lives
 
