@@ -109,7 +109,7 @@ import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/ac
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { POST as planBuildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
 import { POST as planOpenedPost } from '../../src/app/api/mobile/plans/[date]/opened/route.ts';
-import { POST as planWeekPost } from '../../src/app/api/mobile/plans/week/route.ts';
+import { GET as planWeekGet, POST as planWeekPost } from '../../src/app/api/mobile/plans/week/route.ts';
 import { POST as planWeekAcceptPost } from '../../src/app/api/mobile/plans/week/accept/route.ts';
 import type { WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
 import { GET as goalExecutionGet } from '../../src/app/api/mobile/goals/[goalId]/execution/route.ts';
@@ -1787,8 +1787,15 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       assert.deepEqual(weekDays.map((day) => day.state).slice(0, 2), ['planned', 'planned'], 'the week fixture does not show the stored days as plans');
       assert.ok(weekDays.some((day) => day.state === 'proposed' && day.items.length > 0), 'the week fixture proposes nothing, so the step schema it exists to pin is never exercised');
       assert.ok(weekDays.some((day) => day.fixed.length > 0), 'the week fixture has no fixed row');
-      await record('plan.weekAccepted', 200, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11' } })));
-      await record('plan.weekAlreadyPlanned', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11' } })));
+      const shownOn11th = [...weekDays.find((day) => day.date === '2026-08-11')!.items]
+        .map((item) => (item as { itemId: string }).itemId);
+      // A card that no longer matches the week (I1): refused, with the week to redraw.
+      await record('plan.weekChanged', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: ['plan_fixture_not_on_this_day'] } })));
+      await record('plan.weekAccepted', 200, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
+      await record('plan.weekAlreadyPlanned', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
+      // The saved week days the Calendar strip draws (I4): the day just saved.
+      const savedWeek = await record('plan.weekSaved', 200, await planWeekGet(request('/api/mobile/plans/week')));
+      assert.deepEqual((savedWeek.saved as Array<{ date: string }>).map((day) => day.date), ['2026-08-11'], 'the saved-week fixture does not hold the day just saved');
     } finally {
       mock.timers.reset();
     }
