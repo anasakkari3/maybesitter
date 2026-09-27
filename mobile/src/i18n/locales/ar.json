@@ -1167,6 +1167,8 @@
   "weekWaiting": "ضايل لبعدين: {n}",
   "weekReasonDue": "موعدها بهاليوم",
   "weekReasonDueEarlier": "موعدها قبل هاليوم",
+  "plannedDueAside": "موعدها {when}",
+  "plannedRowLabel": "بخطّتك",
   "weekReasonCarried": "من يوم فات",
   "weekReasonOpen": "بلا موعد، بس مهمّة إلك",
   "weekReasonMoved": "إنت نقلتها لهون",

@@ -6,7 +6,7 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
-import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, usePatchCommitment } from '../api/queries';
+import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, usePatchCommitment, useSavedWeek } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { NotFoundError } from '../api/errors';
@@ -19,6 +19,7 @@ import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import { PlaceReminderSection } from '../features/places/PlaceReminderSection';
+import { dueApart, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { commitmentPrepTarget } from '../features/meetings/prepTargets';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
@@ -78,7 +79,10 @@ export function DetailsScreen() {
     scroll.current?.scrollTo({ y: Math.max(0, placeY.current - 8), animated: !reduced });
   };
 
-  const view = query.data ? toViewModel(query.data, new Date().toISOString()) : null;
+  // Where a saved week day puts it (FX1): said here as on Today and the Calendar.
+  const savedWeek = useSavedWeek();
+  const view = query.data ? placeView(toViewModel(query.data, new Date().toISOString()), savedPlacements(savedWeek.data)) : null;
+  const planned = view?.plannedAt && (dueApart(view) || !view.shownAt) ? view.plannedAt : null;
   const gone = query.error instanceof NotFoundError;
   const open = view?.status === 'active';
   // «حضّرني» (CL5a) on a meeting or an appointment that has not started.
@@ -157,6 +161,13 @@ export function DetailsScreen() {
                 ) : null}
 
                 <Card pad={0} style={{ paddingVertical: 4, paddingHorizontal: 18 }}>
+                  {/* Where the saved week put it, first; its own day and time,
+                      which Edit changes, below it (FX1). */}
+                  {planned ? (
+                    <Row label={t.plannedRowLabel} testID="details-planned">
+                      {`${formatRelativeDay(new Date(planned), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(planned), { locale: lang, timeZone: timezone }))}`}
+                    </Row>
+                  ) : null}
                   <Row label={t.dayLabel} testID="details-day">
                     {view.shownAt ? formatRelativeDay(new Date(view.shownAt), { locale: lang, timeZone: timezone }) : t.noTimeYet}
                   </Row>

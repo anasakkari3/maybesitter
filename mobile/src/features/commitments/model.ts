@@ -32,6 +32,12 @@ export interface CommitmentView {
   status: ViewStatus;
   /** The instant the screen shows: the due time, or the reminder if that is all there is. */
   shownAt: string | null;
+  /**
+   * Where a saved plan puts it, when one does (`features/plan/savedPlacement`):
+   * the screens show it at this time, and its own due beside it when the two
+   * differ (post-UAT FX1). Absent for anything no saved day holds.
+   */
+  plannedAt?: string | null;
   /** Separate from the due time: postponing pauses resurfacing, not the deadline. */
   postponedUntil?: string | null;
   /** Past its shown time, and still active. Not a status — see the header. */

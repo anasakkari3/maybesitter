@@ -1170,6 +1170,8 @@
   "weekWaiting": "נשאר להמשך: {n}",
   "weekReasonDue": "המועד ביום הזה",
   "weekReasonDueEarlier": "המועד לפני היום הזה",
+  "plannedDueAside": "המועד: {when}",
+  "plannedRowLabel": "בתוכנית שלך",
   "weekReasonCarried": "מיום קודם",
   "weekReasonOpen": "בלי תאריך, אבל חשוב לכם",
   "weekReasonMoved": "העברתם לכאן",
