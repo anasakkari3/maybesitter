@@ -75,6 +75,12 @@ export interface FailedProposalItem {
 
 export interface MobileBackendContext {
   participantId?: string;
+  /**
+   * When the request began, in ms on `Date.now` (CL1 round 6, M-b). The
+   * capture's server budget runs from here rather than from the extractor,
+   * so the auth check and the consent read count against it.
+   */
+  requestStartedAt?: number;
 }
 
 type MobileGlobals = typeof globalThis & {
@@ -320,6 +326,7 @@ async function recordCaptureFunnelEvent(
 }
 
 export async function proposeMobileCapture(input: MobileCaptureInput, context: MobileBackendContext = {}) {
+  const requestStartedAt = context.requestStartedAt ?? Date.now();
   const text = typeof input.text === 'string' ? input.text.trim() : '';
   if (!text) throw new Error('text is required');
 
@@ -334,6 +341,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
     timezone: normalizeTimezone(input.timezone),
     scopeId: scopeIdFrom(input.scopeId, context),
     requestedEngine: consent === 'granted' ? 'model' : 'rules',
+    requestStartedAt,
   }, {
     store,
     persistence: persistenceFor(context),

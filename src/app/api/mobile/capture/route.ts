@@ -8,6 +8,8 @@ import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } f
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  // The capture's server budget runs from here (CL1 round 6, M-b).
+  const requestStartedAt = Date.now();
   let user;
   try {
     user = await requireMobileUser(request);
@@ -34,7 +36,7 @@ export async function POST(request: Request) {
 
   try {
     await recordTraceStage(sessionId, uid, stage('input_received', { inputText: typeof body.text === 'string' ? body.text.slice(0, 2000) : '' }));
-    const proposal = await proposeMobileCapture(body, { participantId: uid });
+    const proposal = await proposeMobileCapture(body, { participantId: uid, requestStartedAt });
     if (proposal.status === 'rejected') {
       await recordTraceStage(sessionId, uid, stage('extraction_completed', { engine: 'rejected', disposition: 'rejected', title: null }));
       return mobileError('Capture rejected');

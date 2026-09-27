@@ -23,10 +23,11 @@ import {
   forbidsResolvedTime,
   instantFromLocal,
   localTimeSpecFor,
+  timeAnchorOf,
   timeOfDayEvidence,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
-import { modelDateIsWeekdayGuess } from './weekdayLexicon';
+import { modelDateIsWeekdayGuess, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
 import { isFixedAppointment } from './priorityLexicon';
 import { stripCaptureCommand } from './captureCommand';
 
@@ -311,7 +312,7 @@ export function validateExtractionResult(
   // ── time ──────────────────────────────────────────────────────────────
   // Deterministic, and after everything else: the model's instant is an input
   // here, not the answer (#162).
-  const time = reconcileLocalTimeSpec(
+  let time = reconcileLocalTimeSpec(
     {
       dueAt: isoStringOrNull(raw['dueAt'], 'dueAt'),
       remindAt: isoStringOrNull(raw['remindAt'], 'remindAt'),
@@ -325,7 +326,23 @@ export function validateExtractionResult(
   // became a Sunday. The same tokenizer only *marks* a date that came from a
   // whole-word weekday and nothing else, so the review card can say it was
   // guessed and offer the week after.
-  const dateInferred = modelDateIsWeekdayGuess(rawText, time.localTimeSpec?.date);
+  let dateInferred = modelDateIsWeekdayGuess(rawText, time.localTimeSpec?.date);
+  // The model named no day at all for a sentence that names a weekday (CL1,
+  // round 1). Gemini answered «سجّل موعد دكتور يوم الأحد» with
+  // `localTimeSpec: null`, so the review card had no Sunday to show and the
+  // time question could not name it. The day is filled by the rule the rules
+  // path uses (`resolveWeekdayDate`: the nearest one that is not today, a week
+  // later only for "the one after") and marked a guess. A date the model *did*
+  // return is never touched — only an absent one is filled — and a sentence
+  // that states its date some other way is left to the model.
+  if (!time.localTimeSpec?.date && context?.now && !namesExplicitDate(rawText)) {
+    const zone = context.timezone || 'UTC';
+    const weekday = resolveWeekdayDate(rawText, context.now, zone);
+    if (weekday) {
+      time = { ...time, localTimeSpec: { date: weekday.date, time: null, timezone: zone } };
+      dateInferred = weekday.inferred;
+    }
+  }
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);
   }
@@ -334,11 +351,18 @@ export function validateExtractionResult(
   // left a fixed appointment at its default is raised — as a guess, so the
   // review card still says so. A level the user stated, or a low the model
   // read, is theirs and is not touched.
+  //
+  // The day is the text's as well as the model's (CL1, A3). Gemini answered
+  // «سجّل موعد دكتور يوم الأحد» with `localTimeSpec: null` — no day at all —
+  // and a doctor with no fixed day is not raised, so the Sunday the user said
+  // was lost to the priority too. Only whether a day is named is read here;
+  // the model's date itself is still never moved.
+  const textNamesDay = readWeekdayReference(rawText) !== null || namesExplicitDate(rawText);
   if (
     (type === 'task' || type === 'follow_up')
     && priority.level === 'normal'
     && priority.source !== 'user_explicit'
-    && isFixedAppointment(rawText, { hasDay: Boolean(time.localTimeSpec?.date), hasClock: Boolean(time.localTimeSpec?.time) })
+    && isFixedAppointment(rawText, { hasDay: Boolean(time.localTimeSpec?.date) || textNamesDay, hasClock: Boolean(time.localTimeSpec?.time) })
   ) {
     priority = { ...priority, level: 'high', source: 'inferred' };
   }
@@ -364,7 +388,14 @@ export function validateExtractionResult(
     type,
     // The model may keep «سجّل» in its title as the rules path used to; the
     // same function takes it off both (L4, fix round 2).
-    action: commandFree(stringOrNull(raw['action'])),
+    // A task the model titled but gave no separate `action` — «عندي تمرين
+    // بالجيم … الساعة 7 المسا» came back `action: null`, title «تمرين بالجيم»
+    // — is not missing what to do: the title says it. Left null, the policy
+    // read the item as incomplete, dropped the 19:00 the user said and asked
+    // for a time (CL1). The rules extractor has always set both from one
+    // string.
+    action: commandFree(stringOrNull(raw['action']))
+      ?? (type === 'task' || type === 'follow_up' ? commandFree(stringOrNull(raw['title'])) : null),
     title: commandFree(stringOrNull(raw['title'])),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
@@ -372,6 +403,8 @@ export function validateExtractionResult(
     localTimeSpec: time.localTimeSpec,
     timeEvidence: time.timeEvidence,
     dateInferred,
+    // Read from the text, like the time itself: the model is not asked.
+    timeAnchor: timeAnchorOf(rawText),
     priority,
     flexibility,
     category,

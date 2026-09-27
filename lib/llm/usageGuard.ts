@@ -29,7 +29,9 @@ import type { LlmPurpose } from '../../src/extraction/llm/llmProvider';
  * Per-user daily calls.
  *
  * 60, lowered from #160's 150 by the launch decision in UC-4.5 (#181). A capture
- * is one or two calls, so sixty is a heavy day of real use and a short loop.
+ * is one call for up to three clauses and at most three for any capture (the
+ * clauses of one capture are read together since CL1), plus one for a typed
+ * clarification — so sixty is a heavy day of real use and a short loop.
  */
 export const DEFAULT_USER_DAILY_CAP = 60;
 /** Everybody, together, in one UTC day. #181's launch figure, down from 20 000. */

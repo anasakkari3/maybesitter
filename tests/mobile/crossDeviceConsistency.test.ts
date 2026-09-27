@@ -320,7 +320,7 @@ test('two devices confirming the same proposal at once create one set of commitm
   try {
     const uid = uidFor('ConcurrentConfirm');
     const proposal = await (await capturePost(
-      request(uid, '/api/mobile/capture', { body: { text: 'Book the dentist tomorrow at 4', timezone: 'UTC' } }),
+      request(uid, '/api/mobile/capture', { body: { text: 'Book the dentist tomorrow at 4pm', timezone: 'UTC' } }),
     )).json() as { proposalId: string; items: Array<{ itemId: string }> };
     const itemIds = [proposal.items[0]!.itemId];
 
