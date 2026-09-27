@@ -6,8 +6,10 @@
  * scoped by uid, nothing is persisted, nothing is logged, and no mutation is
  * retried (each one mints or spends something on the server).
  */
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { AppState } from 'react-native';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { useUid } from '../../api/queries';
+import { useTrust, useUid } from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
 import {
   beginDrivePick,
@@ -61,34 +63,152 @@ export function googleCalendarOn(status: GoogleStatus | undefined): boolean {
   return status?.status === 'connected' && status.features.calendar;
 }
 
+/** The stored Google blocks, in the shape the phone's own blocks have. */
+async function listGoogleBlocks(): Promise<DeviceBusyBlock[]> {
+  const { blocks } = await listGoogleBusy();
+  return blocks.map((block) => ({
+    nativeId: block.blockId,
+    startAt: block.startAt,
+    endAt: block.endAt,
+    allDay: block.allDay,
+  }));
+}
+
 /**
- * Google busy time in the shape the Calendar tab already draws.
+ * Google busy time in the shape the Calendar tab and the conflict chips
+ * already draw.
  *
- * The read first asks the server to refresh from Google (fourteen days,
- * through the same writer the phone's calendar uses), then lists what is
- * stored. A refresh the server refuses — the Trust Center's calendar switch is
- * off, Google is down — still shows what is stored: the list is the truth the
- * planner is using. Fifteen minutes fresh, like the phone's own sync.
+ * A read of what the account holds, and nothing more: the refresh from Google
+ * is `GoogleBusyHost`'s job, for the whole session, the way the phone's
+ * calendar is `BusyCalendarHost`'s. It used to refresh here, which meant it
+ * only ever happened while the Calendar tab was open (CL6a review I1).
  */
 export function useGoogleBusyBlocks(): DeviceBusyBlock[] {
   const uid = useUid();
   const status = useGoogleStatus();
   const query = useQuery({
     queryKey: googleQueryKeys.busy(uid),
-    queryFn: async () => {
-      await syncGoogleCalendar().catch(() => undefined);
-      const { blocks } = await listGoogleBusy();
-      return blocks.map((block) => ({
-        nativeId: block.blockId,
-        startAt: block.startAt,
-        endAt: block.endAt,
-        allDay: block.allDay,
-      }));
-    },
+    queryFn: listGoogleBlocks,
     enabled: uid !== 'signed-out' && googleCalendarOn(status.data),
     staleTime: 15 * 60_000,
   });
   return googleCalendarOn(status.data) ? query.data ?? NO_BLOCKS : NO_BLOCKS;
+}
+
+/**
+ * The phone's busy blocks and Google's, for the conflict chips on Today,
+ * review and details (CL6a review I1).
+ *
+ * The server already dropped any Google interval the phone's own blocks
+ * cover, so the two lists do not repeat a meeting; ids are prefixed by source
+ * and never collide.
+ */
+export function useConflictBusyBlocks(device: DeviceBusyBlock[]): DeviceBusyBlock[] {
+  const google = useGoogleBusyBlocks();
+  return useMemo(() => (google.length === 0 ? device : [...device, ...google]), [device, google]);
+}
+
+/* ── The session's Google busy sync (CL6a review I1) ───────────── */
+
+/** How often coming back to the front may refresh from Google. The phone's own cadence. */
+export const GOOGLE_BUSY_SYNC_MIN_INTERVAL_MS = 15 * 60_000;
+
+/**
+ * One pass at a time for the process, and when the last one finished.
+ * Module-level for the reason `useBusyCalendar`'s flag is: the host is
+ * mounted once, but a remount (a sign-out and back in) must not start a
+ * second pass beside the first.
+ */
+let googlePassInFlight = false;
+let googleLastSyncedAt: number | null = null;
+
+export function resetGoogleBusySyncForTests(lastSyncedAt: number | null = null): void {
+  googlePassInFlight = false;
+  googleLastSyncedAt = lastSyncedAt;
+}
+
+export type GoogleBusySyncTrigger = 'connect' | 'foreground';
+
+/**
+ * Refreshes Google busy time from Google for the whole signed-in session.
+ *
+ * When: as soon as Google Calendar is connected and the Trust Center's
+ * calendar switch is on — which is also "the app started with both already
+ * on" — and every time the app comes back to the front, at most every fifteen
+ * minutes. The same two triggers and the same throttle as the phone's
+ * calendar (`busySync.ts`): the connect is somebody asking now, the
+ * foreground is the one that can fire ten times a minute.
+ *
+ * Without this the planner, Today's chips and the replan tick saw Google
+ * meetings only after somebody opened the Calendar tab.
+ *
+ * The switch is checked here rather than left to the server's 403: asking a
+ * question whose answer is known to be no, on every trip to the front, is a
+ * request for nothing.
+ */
+export function useGoogleBusySync(): { syncNow(trigger: GoogleBusySyncTrigger): Promise<boolean> } {
+  const uid = useUid();
+  const client = useQueryClient();
+  const status = useGoogleStatus();
+  const trust = useTrust();
+  const on = uid !== 'signed-out'
+    && googleCalendarOn(status.data)
+    && trust.data?.trust?.calendarConsent === true;
+
+  const latest = useRef({ uid, on });
+  useEffect(() => { latest.current = { uid, on }; });
+
+  const syncNow = useCallback(async (trigger: GoogleBusySyncTrigger): Promise<boolean> => {
+    const current = latest.current;
+    if (!current.on || googlePassInFlight) return false;
+    const now = Date.now();
+    if (trigger === 'foreground' && googleLastSyncedAt !== null) {
+      const since = now - googleLastSyncedAt;
+      // A clock that went backwards costs one extra sync, not a stopped one.
+      if (since >= 0 && since < GOOGLE_BUSY_SYNC_MIN_INTERVAL_MS) return false;
+    }
+    googlePassInFlight = true;
+    try {
+      await syncGoogleCalendar();
+      googleLastSyncedAt = Date.now();
+      // Fetched even when no screen is showing it yet, so a chip on Today
+      // does not wait for the network when it first renders.
+      await client.fetchQuery({ queryKey: googleQueryKeys.busy(current.uid), queryFn: listGoogleBlocks, staleTime: 0 })
+        .catch(() => undefined);
+      return true;
+    } catch (error) {
+      // A lapsed grant or a feature taken away: the row has to say so.
+      refreshStatusOn(error, client, current.uid);
+      return false;
+    } finally {
+      googlePassInFlight = false;
+    }
+  }, [client]);
+
+  // Connected (or reconnected), or already on when the app started.
+  useEffect(() => {
+    if (!on) return;
+    void syncNow('connect');
+  }, [on, syncNow]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void syncNow('foreground');
+    });
+    return () => subscription.remove();
+  }, [syncNow]);
+
+  return { syncNow };
+}
+
+/**
+ * Mounted in `Root` beside `BusyCalendarHost`, and drawing nothing. Google
+ * busy time then reaches the planner, the replan tick and the chips on every
+ * screen, not only while the Calendar tab is open.
+ */
+export function GoogleBusyHost(): null {
+  useGoogleBusySync();
+  return null;
 }
 
 const NO_BLOCKS: DeviceBusyBlock[] = [];
@@ -141,7 +261,11 @@ export function useGoogleCalendarSync() {
   return useMutation({
     retry: false,
     mutationFn: syncGoogleCalendar,
-    onSuccess: () => { void client.invalidateQueries({ queryKey: googleQueryKeys.busy(uid) }); },
+    onSuccess: () => {
+      // The session host need not repeat what the person just asked for.
+      googleLastSyncedAt = Date.now();
+      void client.invalidateQueries({ queryKey: googleQueryKeys.busy(uid) });
+    },
     onError: (error) => refreshStatusOn(error, client, uid),
   });
 }

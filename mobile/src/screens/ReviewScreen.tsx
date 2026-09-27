@@ -20,6 +20,7 @@ import { instantForLocalDateTime } from '../features/capture/localInstant';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
 import { postManualBusy } from '../api/endpoints/calendar';
@@ -65,7 +66,7 @@ export function ReviewScreen() {
   const strings = t as unknown as Record<string, string>;
   // The local cache, not a request (UC-3.2, #186). A chip that had to wait for
   // the network would appear after the user had already pressed Confirm.
-  const busyBlocks = useBusyBlocks();
+  const busyBlocks = useConflictBusyBlocks(useBusyBlocks());
   const items = state.proposal?.items ?? [];
   const seeds = state.proposal?.seeds ?? [];
   const selectedCount = state.selected.length;

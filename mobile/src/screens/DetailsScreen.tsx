@@ -16,6 +16,7 @@ import type { CommitmentCategory } from '../features/commitments/categoryFilter'
 import { activityKindLabel } from '../features/activity/ActivityScreen';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
@@ -61,7 +62,8 @@ export function DetailsScreen() {
   const timezone = useTimeZone();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
-  const busy = useBusyBlocks();
+  // The phone's busy time and Google's (CL6a review I1).
+  const busy = useConflictBusyBlocks(useBusyBlocks());
   const activity = useActivity();
 
   const view = query.data ? toViewModel(query.data, new Date().toISOString()) : null;
