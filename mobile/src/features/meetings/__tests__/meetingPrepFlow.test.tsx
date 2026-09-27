@@ -104,9 +104,10 @@ function meeting(extra: Partial<Commitment> = {}): Commitment {
 }
 
 /** The capture flow, reachable from a test: Review's own edit sheet sets exactly this. */
-let flowRef: ReturnType<typeof useCaptureFlow> | null = null;
+const flowRef: { current: ReturnType<typeof useCaptureFlow> | null } = { current: null };
 function FlowProbe() {
-  flowRef = useCaptureFlow();
+  const flow = useCaptureFlow();
+  React.useEffect(() => { flowRef.current = flow; });
   return null;
 }
 
@@ -392,7 +393,7 @@ describe('an appointment, and a step moved by quiet hours', () => {
       ...settingsFixture, reminderSettings: { ...settingsFixture.reminderSettings, quietHours: null, ...extra },
     } as never);
     const edit = async (localDateTime: string) => {
-      await act(async () => { flowRef!.editItem('prep-1', { localDateTime }); });
+      await act(async () => { flowRef.current!.editItem('prep-1', { localDateTime }); });
     };
 
     it('the quiet-hours line goes once the step is moved; moved before the meeting it rings when shown, so nothing is said', async () => {
