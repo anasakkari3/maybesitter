@@ -67,10 +67,14 @@ import { cleanEmail, paragraphsOf, EMAIL_MASK, PHONE_MASK } from '../emailCleane
 import { dayKeyOf, resolveDayPhrase } from '../emailAnchor';
 import { looksLikeEmail } from '../emailDetector';
 import {
+  EMAIL_BATCH_RESPONSE_SCHEMA,
+  EMAIL_BATCH_SYSTEM_INSTRUCTION,
   EMAIL_RESPONSE_SCHEMA,
   EMAIL_SYSTEM_INSTRUCTION,
   MAX_EMAIL_ITEMS,
+  emailBatchParts,
   emailParts,
+  parseEmailBatchItems,
   parseEmailItems,
   type EmailModelItem,
 } from '../prompts/emailPrompt';
@@ -217,7 +221,7 @@ function selectItems(
   answered: readonly EmailModelItem[],
   body: string,
   anchor: Date,
-  input: SharePreprocessorInput,
+  input: Pick<SharePreprocessorInput, 'referenceTime' | 'timezone'>,
 ): Selection {
   /*
    * The **body**, and deliberately not the subject.
@@ -376,3 +380,165 @@ export const emailPreprocessor: SharePreprocessor = {
 };
 
 registerSharePreprocessor(emailPreprocessor);
+
+/* ── A mailbox, read in a bounded number of calls (CL6a review I2) ── */
+
+/**
+ * The most characters of one message's cleaned body a batch shows the model.
+ * Below the single-share 12,000, because a batch is several of them.
+ */
+export const MAILBOX_MESSAGE_MODEL_CHARACTERS = 8_000;
+/** The most message text one batch call carries. */
+export const MAILBOX_BATCH_CHARACTERS = 24_000;
+/**
+ * The most model calls one mailbox read may make.
+ *
+ * Every call is metered against the account's caps (`reserveCall`: staging
+ * runs eight a minute and sixty a day). One call per message spent twenty of
+ * them on one scan, hit the minute cap at message nine and answered the rest
+ * as "nothing here". Three, plus the capture pipeline's own, stays inside the
+ * minute cap with room for the rest of the app.
+ */
+export const MAILBOX_MAX_MODEL_CALLS = 3;
+/** Several emails answer with more than one does. Still well under a page. */
+const MAILBOX_MAX_OUTPUT_TOKENS = 4_096;
+
+/** One message as the mailbox hands it over: the rendered header block and body. */
+export interface MailboxRawMessage {
+  readonly raw: string;
+}
+
+/**
+ * What became of one message, in the order the mailbox gave them.
+ *
+ *  - `read` — the model read it (or it needed no model: bulk mail, nothing
+ *    left after screening), and these are the items it supports;
+ *  - `refused` — refused outright (an injected subject, a MIME dump), counted
+ *    as ignored, the way a single share of it would be;
+ *  - `not_read` — never analysed: the call budget ran out, or the model was
+ *    unavailable (a quota, an outage). Never reported as "nothing here".
+ */
+export type MailboxMessageOutcome =
+  | { readonly kind: 'read'; readonly segments: readonly ShareSegment[]; readonly ignored: number }
+  | { readonly kind: 'refused' }
+  | { readonly kind: 'not_read'; readonly because: 'call_budget' | 'model_unavailable' };
+
+export interface MailboxReadResult {
+  readonly outcomes: readonly MailboxMessageOutcome[];
+  /** Calls asked for, including one the quota or the kill switch refused. */
+  readonly modelCalls: number;
+}
+
+interface PreparedMessage {
+  readonly index: number;
+  readonly subject: string | null;
+  readonly body: string;
+  readonly anchor: Date;
+  readonly ignored: number;
+}
+
+/**
+ * Several messages of one mailbox through the same checks as one shared email,
+ * in at most `MAILBOX_MAX_MODEL_CALLS` model calls.
+ *
+ * Each message is cleaned, screened and checked for bulk mail **on its own**
+ * — so headers, quoted history and signatures are cut against their own
+ * message's boundaries, which is why the single-share channel refuses to
+ * concatenate — and only then are the survivors put side by side, each in its
+ * own untrusted block. The model's answer is split back by message number and
+ * every item goes through `selectItems` against *its own* message's body and
+ * date anchor, so an item attributed to the wrong message is dropped as
+ * invented rather than believed.
+ *
+ * A model that will not answer — a quota, an outage — stops the read there.
+ * The messages it would have read are `not_read`, never "nothing here".
+ */
+export async function readMailboxMessages(
+  messages: readonly MailboxRawMessage[],
+  input: Pick<SharePreprocessorInput, 'referenceTime' | 'timezone'>,
+  context: SharePreprocessContext,
+): Promise<MailboxReadResult> {
+  const outcomes: MailboxMessageOutcome[] = new Array(messages.length);
+  const waiting: PreparedMessage[] = [];
+
+  messages.forEach((message, index) => {
+    let cleaned;
+    try {
+      cleaned = cleanEmail(message.raw);
+    } catch (error) {
+      if (error instanceof ShareInputError) { outcomes[index] = { kind: 'refused' }; return; }
+      throw error;
+    }
+    if (cleaned.subject !== null && screenForInjection(cleaned.subject) !== null) {
+      outcomes[index] = { kind: 'refused' };
+      return;
+    }
+    const screened = screenParagraphs(cleaned.body);
+    if (BULK_MAIL.test(message.raw) || screened.body.trim() === '') {
+      outcomes[index] = { kind: 'read', segments: [], ignored: screened.ignored };
+      return;
+    }
+    waiting.push({
+      index,
+      subject: cleaned.subject,
+      body: screened.body.slice(0, MAILBOX_MESSAGE_MODEL_CHARACTERS),
+      anchor: cleaned.sentAt ?? input.referenceTime,
+      ignored: screened.ignored,
+    });
+  });
+
+  // Newest first, packed greedily; a message never straddles two calls.
+  const batches: PreparedMessage[][] = [];
+  let current: PreparedMessage[] = [];
+  let size = 0;
+  for (const message of waiting) {
+    const cost = message.body.length + (message.subject?.length ?? 0);
+    if (current.length > 0 && size + cost > MAILBOX_BATCH_CHARACTERS) {
+      batches.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(message);
+    size += cost;
+  }
+  if (current.length > 0) batches.push(current);
+
+  let modelCalls = 0;
+  let stopped: 'call_budget' | 'model_unavailable' | null = null;
+  for (const batch of batches) {
+    if (stopped === null && modelCalls >= MAILBOX_MAX_MODEL_CALLS) stopped = 'call_budget';
+    if (stopped !== null) {
+      for (const message of batch) outcomes[message.index] = { kind: 'not_read', because: stopped };
+      continue;
+    }
+    modelCalls += 1;
+    let answered;
+    try {
+      const response = await context.generateStructured({
+        system: EMAIL_BATCH_SYSTEM_INSTRUCTION,
+        parts: emailBatchParts(batch.map((message) => ({ subject: message.subject, body: message.body }))),
+        responseSchema: EMAIL_BATCH_RESPONSE_SCHEMA,
+        maxOutputTokens: MAILBOX_MAX_OUTPUT_TOKENS,
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
+      answered = parseEmailBatchItems(response.text);
+    } catch (error) {
+      // As the single-share channel: an unavailable model is a result, not a
+      // failed scan. But here it is a result about *these* messages, and they
+      // are reported as unread — the next press may read them.
+      if (!(error instanceof LLMUnavailableError)) throw error;
+      stopped = 'model_unavailable';
+      for (const message of batch) outcomes[message.index] = { kind: 'not_read', because: stopped };
+      continue;
+    }
+    batch.forEach((message, at) => {
+      const mine = answered.filter((item) => item.message === at + 1);
+      const selected = selectItems(mine, message.body, message.anchor, input);
+      const segments = selected.items
+        .map((item) => segmentFor(item, null))
+        .filter((segment): segment is ShareSegment => segment !== null);
+      outcomes[message.index] = { kind: 'read', segments, ignored: message.ignored };
+    });
+  }
+  return { outcomes, modelCalls };
+}

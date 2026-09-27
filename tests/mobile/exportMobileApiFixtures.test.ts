@@ -157,7 +157,7 @@ import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrat
 import { POST as googleDriveImportPost } from '../../src/app/api/mobile/integrations/google/drive/import/route.ts';
 import { resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
 import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_PICKER_KEY, FAKE_REDIRECT, FakeGoogle } from '../support/fakeGoogle.ts';
-import { EMAIL_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/emailPrompt.ts';
+import { EMAIL_BATCH_SYSTEM_INSTRUCTION, EMAIL_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/emailPrompt.ts';
 import { DOCUMENT_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/documentPrompt.ts';
 import {
   GET as readinessHealthGet,
@@ -2064,6 +2064,14 @@ test('exports the Google connection fixtures', async () => {
         evidenceSentence: 'Please return the signed trip form by Friday.',
         dueDayPhrase: 'by Friday',
       }] });
+    } else if (system === EMAIL_BATCH_SYSTEM_INSTRUCTION) {
+      // The mailbox scan asks about several messages at once (CL6a review I2).
+      answer = JSON.stringify({ items: [{
+        message: 1,
+        title: 'Return the signed trip form',
+        evidenceSentence: 'Please return the signed trip form by Friday.',
+        dueDayPhrase: 'by Friday',
+      }] });
     } else if (system === DOCUMENT_SYSTEM_INSTRUCTION) {
       answer = JSON.stringify({
         documentTitle: null, courseName: null, termYearHint: 2026,
@@ -2143,6 +2151,24 @@ test('exports the Google connection fixtures', async () => {
     // A date with no hour, so the item asks for one: the realistic answer.
     assert.ok((scanned.items as unknown[]).length >= 1, 'the scan fixture must carry an item, not the empty answer');
     assert.equal((scanned.share as { channel: string }).channel, 'email');
+
+    // The same scan with the model switched off: nothing was read, and the
+    // envelope says how many were not — which the app shows instead of an
+    // empty review (CL6a review I2).
+    const previousAiDisabled = process.env.MAYBESITTER_AI_DISABLED;
+    process.env.MAYBESITTER_AI_DISABLED = 'true';
+    try {
+      const unread = await record('google.gmailScanNotRead', 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
+        body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+      })));
+      const metrics = (unread.share as { metrics: Record<string, number> }).metrics;
+      assert.equal(metrics.messagesRead, 0);
+      assert.equal(metrics.messagesNotRead, 1);
+      assert.equal((unread.items as unknown[]).length, 0);
+    } finally {
+      if (previousAiDisabled === undefined) delete process.env.MAYBESITTER_AI_DISABLED;
+      else process.env.MAYBESITTER_AI_DISABLED = previousAiDisabled;
+    }
 
     const ticket = await record('google.drivePicker', 200, await googleDrivePickerPost(as('/api/mobile/integrations/google/drive/picker', { method: 'POST' })), pinUrl('pickerUrl'));
     assert.match(String(ticket.pickerUrl), /\/api\/oauth\/google\/picker\?ticket=/);

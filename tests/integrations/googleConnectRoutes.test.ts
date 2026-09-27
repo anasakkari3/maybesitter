@@ -35,9 +35,13 @@ import {
   FAKE_REDIRECT,
   FakeGoogle,
 } from '../support/fakeGoogle.ts';
-import { resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
+import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
 import { busyBlockId, readBusyBlocksForPlanning, replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
 import { GMAIL_SCAN_MAX_MESSAGES, GMAIL_SCAN_QUERY } from '../../lib/integrations/google/googleGmailScan.ts';
+import { shareLlmProvider, type ShareStructuredGenerator } from '../../lib/llm/shareProvider.ts';
+import { EMAIL_BATCH_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/emailPrompt.ts';
+import { BEGIN_UNTRUSTED_SHARED_CONTENT } from '../../lib/services/share/shareTypes.ts';
+import type { LlmProvider } from '../../src/extraction/llm/index.ts';
 import { GOOGLE_BUSY_SOURCE_ID } from '../../lib/integrations/google/googleConfig.ts';
 import { GET as statusGet } from '../../src/app/api/mobile/integrations/google/route.ts';
 import { POST as connectPost } from '../../src/app/api/mobile/integrations/google/connect/route.ts';
@@ -78,7 +82,7 @@ let auth: FakeAuthControls | null = null;
 let storage = createMemoryStorage();
 let google = new FakeGoogle();
 
-function setup(options: { configured?: boolean; picker?: boolean } = {}): () => void {
+function setup(options: { configured?: boolean; picker?: boolean; shareModel?: ShareStructuredGenerator } = {}): () => void {
   storage = createMemoryStorage();
   google = new FakeGoogle();
   setStorageForTests(storage);
@@ -100,6 +104,7 @@ function setup(options: { configured?: boolean; picker?: boolean } = {}): () => 
     secrets: null,
     fetchImpl: google.fetch as typeof fetch,
     encryption: { kms, env: { MAYBESITTER_KMS_KEY_NAME: kms.keyName } as unknown as NodeJS.ProcessEnv },
+    ...(options.shareModel ? { shareModel: options.shareModel } : {}),
   });
   return () => {
     resetGoogleRuntimeForTests();
@@ -656,12 +661,163 @@ test('Gmail scan is bounded: one fixed query, at most twenty messages, bodies ne
     const gets = google.calls.filter((call) => /\/users\/me\/messages\/m\d+/.test(call.url));
     assert.equal(gets.length, GMAIL_SCAN_MAX_MESSAGES);
     assert.equal(json.share.channel, 'email');
-    assert.equal(json.share.metrics.messagesRead, GMAIL_SCAN_MAX_MESSAGES);
-    // No model is configured in this suite, so the honest answer is "nothing to
-    // save" — the same proposal an unreadable share gets.
+    // No model is configured here. Not one message was read, and the envelope
+    // says so rather than calling twenty unread messages "nothing to save"
+    // (CL6a review I2): the app shows the count, not the empty review.
+    assert.equal(json.share.metrics.messagesFound, GMAIL_SCAN_MAX_MESSAGES);
+    assert.equal(json.share.metrics.messagesRead, 0);
+    assert.equal(json.share.metrics.messagesNotRead, GMAIL_SCAN_MAX_MESSAGES);
+    assert.equal(json.share.metrics.modelUnavailable, GMAIL_SCAN_MAX_MESSAGES);
     assert.equal(json.status, 'no_commitment');
     assert.doesNotMatch(await dump(), /SECRET-BODY/, 'no message body reached storage');
     assert.doesNotMatch(JSON.stringify(json), /SECRET-BODY/, 'no message body is echoed back');
+  } finally {
+    done();
+  }
+});
+
+/**
+ * A model standing in for Gemini on the email batch prompt. It reads the
+ * labelled untrusted blocks it is handed and answers one item per message
+ * that asks for a trip form back — quoting that message, and naming it — so
+ * the counts are about the scan, not about a model's mood.
+ */
+function batchModel(): { generate: ShareStructuredGenerator; provider: LlmProvider; calls: Array<{ system: string; parts: Array<{ kind: string; text?: string }> }> } {
+  const calls: Array<{ system: string; parts: Array<{ kind: string; text?: string }> }> = [];
+  const answer = async (request: { system: string; parts: readonly unknown[] }) => {
+    const parts = request.parts as Array<{ kind: string; text?: string }>;
+    calls.push({ system: request.system, parts });
+    const items: unknown[] = [];
+    let message = 0;
+    for (const part of parts) {
+      const label = /^Message (\d+):$/.exec(part.text ?? '');
+      if (label) { message = Number(label[1]); continue; }
+      const asked = /Please return the signed trip form (\d+) by Friday\./.exec(part.text ?? '');
+      if (asked) {
+        items.push({ message, title: `Return trip form ${asked[1]}`, evidenceSentence: asked[0], dueDayPhrase: 'by Friday' });
+      }
+    }
+    return { text: JSON.stringify({ items }), model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 100, outputTokens: 10 };
+  };
+  const provider = { name: 'gemini', generateJson: answer, generateStructured: answer } as unknown as LlmProvider;
+  return { generate: answer as unknown as ShareStructuredGenerator, provider, calls };
+}
+
+function tripForms(count: number, padding = 0): void {
+  const now = Date.now();
+  for (let index = 0; index < count; index += 1) {
+    google.gmail.push({
+      id: `m${String(index).padStart(3, '0')}`,
+      subject: `Trip form ${index}`,
+      body: `SECRET-BODY-${index}\n\n${'Lorem ipsum dolor sit amet. '.repeat(padding)}\n\nPlease return the signed trip form ${index} by Friday.`,
+      receivedAt: new Date(now - index * 3_600_000).toISOString(),
+    });
+  }
+}
+
+async function scan(): Promise<Record<string, any>> {
+  const response = await gmailScanPost(request('/api/mobile/integrations/google/gmail/scan', {
+    body: { timezone: 'Asia/Jerusalem', referenceTime: new Date().toISOString() },
+  }));
+  const json = await body(response);
+  assert.equal(response.status, 200, JSON.stringify(json));
+  return json;
+}
+
+test('Gmail scan reads twenty messages in one model call, not one per message, and every message is its own untrusted block', async () => {
+  const model = batchModel();
+  const done = setup({ shareModel: model.generate });
+  try {
+    await connect('gmail');
+    await grantAi();
+    tripForms(GMAIL_SCAN_MAX_MESSAGES);
+    const json = await scan();
+
+    assert.equal(model.calls.length, 1, 'twenty short messages are one call');
+    assert.equal(model.calls[0]!.system, EMAIL_BATCH_SYSTEM_INSTRUCTION);
+    for (const part of model.calls[0]!.parts) {
+      assert.ok(/^Message \d+:$/.test(part.text ?? '') || (part.text ?? '').startsWith(BEGIN_UNTRUSTED_SHARED_CONTENT),
+        'mail text only ever travels inside an untrusted block');
+    }
+    assert.equal(json.share.metrics.messagesFound, 20);
+    assert.equal(json.share.metrics.messagesRead, 20);
+    assert.equal(json.share.metrics.messagesNotRead, 0);
+    assert.equal(json.share.metrics.messagesWithItems, 20);
+    assert.equal(json.share.metrics.modelCalls, 1);
+    assert.ok(json.items.length > 0, 'the review gets the proposals');
+    assert.doesNotMatch(await dump(), /SECRET-BODY/, 'no message body reached storage');
+    assert.doesNotMatch(JSON.stringify(json), /SECRET-BODY/, 'no message body is echoed back');
+  } finally {
+    done();
+  }
+});
+
+test('Gmail scan makes at most three model calls however long the mail is, and counts the rest as not read', async () => {
+  const model = batchModel();
+  const done = setup({ shareModel: model.generate });
+  try {
+    await connect('gmail');
+    await grantAi();
+    // ~7,000 characters each: three to a batch, so twenty would be seven calls.
+    tripForms(GMAIL_SCAN_MAX_MESSAGES, 250);
+    const json = await scan();
+
+    assert.equal(model.calls.length, 3);
+    assert.equal(json.share.metrics.modelCalls, 3);
+    assert.equal(json.share.metrics.messagesRead, 9);
+    assert.equal(json.share.metrics.messagesNotRead, 11);
+    assert.equal(json.share.metrics.modelUnavailable, 0, 'the model answered; the budget stopped the read');
+    assert.equal(json.share.metrics.messagesRead + json.share.metrics.messagesNotRead, json.share.metrics.messagesFound);
+  } finally {
+    done();
+  }
+});
+
+test('Gmail scan under a per-minute model cap stops where the cap stops it, and says how many it read', async () => {
+  const model = batchModel();
+  // The real metered generator: the real usage guard, with a minute cap of one.
+  const done = setup();
+  try {
+    setGoogleRuntimeForTests({
+      ...googleRuntime(),
+      shareModel: shareLlmProvider(USER, {
+        provider: model.provider,
+        consent: async () => 'granted',
+        reserveOptions: { storage, minuteCap: 1 },
+      }),
+    });
+    await connect('gmail');
+    await grantAi();
+    tripForms(GMAIL_SCAN_MAX_MESSAGES, 250);
+    const json = await scan();
+
+    assert.equal(model.calls.length, 1, 'the second call was refused by the cap, before the model');
+    assert.equal(json.share.metrics.messagesRead, 3);
+    assert.equal(json.share.metrics.messagesNotRead, 17);
+    assert.equal(json.share.metrics.modelUnavailable, 17);
+    assert.ok(json.items.length > 0, 'what was read is still offered');
+  } finally {
+    done();
+  }
+});
+
+test('Gmail scan over the daily share quota is refused before a single message is read', async () => {
+  const done = setup();
+  try {
+    await connect('gmail');
+    await grantAi();
+    // Spend the day's shares on an empty mailbox, then put mail in it.
+    for (let index = 0; index < 60; index += 1) {
+      const response = await gmailScanPost(request('/api/mobile/integrations/google/gmail/scan', { body: {} }));
+      if (response.status === 429) break;
+    }
+    tripForms(3);
+    const before = google.calls.filter((call) => call.url.startsWith('https://gmail.googleapis.com')).length;
+    const refused = await gmailScanPost(request('/api/mobile/integrations/google/gmail/scan', { body: {} }));
+    assert.equal(refused.status, 429);
+    assert.equal((await body(refused)).reason, 'share_quota');
+    const after = google.calls.filter((call) => call.url.startsWith('https://gmail.googleapis.com')).length;
+    assert.equal(after, before, 'the refused scan read no mail');
   } finally {
     done();
   }
@@ -818,6 +974,37 @@ test('Drive import: one picked Google Doc is exported as text and read as one fi
   }
 });
 
+test("Drive import stopped by the model's minute cap answers the quota, not an empty review and not 'Google is unavailable'", async () => {
+  const model = batchModel();
+  const done = setup();
+  try {
+    setGoogleRuntimeForTests({
+      ...googleRuntime(),
+      shareModel: shareLlmProvider(USER, {
+        provider: model.provider,
+        consent: async () => 'granted',
+        reserveOptions: { storage, minuteCap: 0 },
+      }),
+    });
+    await connect('drive');
+    await grantAi();
+    google.drive.set('doc_quota_12345', {
+      id: 'doc_quota_12345',
+      mimeType: 'application/vnd.google-apps.document',
+      content: 'Lab 3\nSubmit the lab report by Thursday.',
+    });
+    const response = await driveImportPost(request('/api/mobile/integrations/google/drive/import', { body: { fileId: 'doc_quota_12345' } }));
+    const json = await body(response);
+    assert.equal(response.status, 429, JSON.stringify(json));
+    assert.equal(json.reason, 'ai_quota');
+    assert.equal(json.scope, 'user_minute');
+    assert.ok(json.retryAfterSeconds >= 1);
+    assert.equal(model.calls.length, 0, 'the cap refused the call before the model');
+  } finally {
+    done();
+  }
+});
+
 test('Drive import refuses a file type Picker would not offer, before downloading it', async () => {
   const done = setup();
   try {
@@ -858,7 +1045,7 @@ test('needs reauth: a dead refresh token (Testing mode, day eight) becomes «أ�
     await connect('gmail');
     google.expireGrants();
     setGoogleRuntimeForTests({
-      ...(await import('../../lib/integrations/google/googleRuntime.ts')).googleRuntime(),
+      ...googleRuntime(),
       // An hour and a bit later: the access token is past its life.
       now: () => new Date(Date.now() + 2 * 3_600_000),
     });

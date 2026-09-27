@@ -14,8 +14,9 @@
  *
  * Through the production Gmail transport (the same HTTP path, retries, pacing,
  * 256 KiB-per-message clamp and redaction as Phase B's sync), then through the
- * email share channel one message at a time, then through the capture pipeline
- * once — `proposeFromMailbox`. The answer is a capture proposal; nothing is
+ * email channel's checks per message and at most three model calls for all of
+ * them, then through the capture pipeline once — `proposeFromMailbox`. The
+ * envelope's `metrics` say how many messages were found, read and not read. The answer is a capture proposal; nothing is
  * saved until the person confirms it.
  *
  * Bodies are never stored and never logged. They live in this request's memory
@@ -52,27 +53,37 @@ export async function scanRecentGmail(
     fetchImpl: runtime.fetchImpl,
   });
 
-  let messages;
-  try {
-    messages = await transport.listRecentMessages({ query: GMAIL_SCAN_QUERY, maxResults: GMAIL_SCAN_MAX_MESSAGES });
-  } catch (error) {
-    if (error instanceof GoogleConnectError) throw error;
-    if (error instanceof GmailProviderError) {
-      // The transport already refreshed once and retried (`reauth`), so a
-      // second 401 is a grant that is gone.
-      if (error.status === 401) throw await markGoogleNeedsReauth(uid, runtime);
-      if (error.status === 403) throw new GoogleConnectError('google_permission_not_granted');
+  // The day's share is claimed inside `proposeFromMailbox` before this runs,
+  // so a quota refusal has read no mail.
+  const readMessages = async () => {
+    let messages;
+    try {
+      messages = await transport.listRecentMessages({ query: GMAIL_SCAN_QUERY, maxResults: GMAIL_SCAN_MAX_MESSAGES });
+    } catch (error) {
+      if (error instanceof GoogleConnectError) throw error;
+      if (error instanceof GmailProviderError) {
+        // The transport already refreshed once and retried (`reauth`), so a
+        // second 401 is a grant that is gone.
+        if (error.status === 401) throw await markGoogleNeedsReauth(uid, runtime);
+        if (error.status === 403) throw new GoogleConnectError('google_permission_not_granted');
+      }
+      throw new GoogleConnectError('google_unavailable');
     }
-    throw new GoogleConnectError('google_unavailable');
-  }
-
-  return proposeFromMailbox({
-    messages: messages.map((message) => ({
+    return messages.map((message) => ({
       subject: message.subject,
       receivedAt: message.receivedAt,
       text: message.text,
-    })),
+    }));
+  };
+
+  return proposeFromMailbox({
+    readMessages,
     timezone: input.timezone,
     referenceTime: input.referenceTime,
-  }, { uid, ...(options.signal ? { signal: options.signal } : {}), now: runtime.now() });
+  }, {
+    uid,
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(runtime.shareModel ? { generateStructured: runtime.shareModel } : {}),
+    now: runtime.now(),
+  });
 }

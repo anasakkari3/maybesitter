@@ -261,7 +261,12 @@ export async function importDriveFile(
       timezone: input.timezone,
       referenceTime: input.referenceTime,
     },
-    { uid, ...(options.signal ? { signal: options.signal } : {}), now: runtime.now() },
+    {
+      uid,
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(runtime.shareModel ? { generateStructured: runtime.shareModel } : {}),
+      now: runtime.now(),
+    },
   );
 }
 

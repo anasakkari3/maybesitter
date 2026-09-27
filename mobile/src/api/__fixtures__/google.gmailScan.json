@@ -84,10 +84,13 @@
     ],
     "evidenceDropped": false,
     "metrics": {
+      "messagesFound": 1,
       "messagesRead": 1,
+      "messagesRefused": 0,
       "messagesWithItems": 1,
       "messagesNotRead": 0,
       "modelUnavailable": 0,
+      "modelCalls": 1,
       "itemCount": 1
     },
     "document": null

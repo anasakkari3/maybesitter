@@ -100,6 +100,78 @@ export function emailParts(subject: string | null, body: string): readonly LlmPa
   return [wrapUntrustedShared(shown)];
 }
 
+/* ── Several messages in one call: the mailbox scan (CL6a review I2) ── */
+
+/**
+ * The task when the content is several emails from one mailbox.
+ *
+ * The same rules as one email, per message, plus the one thing a batch needs:
+ * every item says which message it came from. That number is checked
+ * afterwards like everything else the model says — an item is kept only if its
+ * evidence sentence is in the body of the message it names — so a model that
+ * attributes an item to the wrong message loses the item, not the check.
+ */
+export const EMAIL_BATCH_SYSTEM_INSTRUCTION = [
+  SHARE_SYSTEM_PREAMBLE,
+  'The content is several separate emails from the reader\'s own mailbox. Each one follows a line "Message N:" and sits in its own untrusted block.',
+  'Read each email on its own. Never combine sentences from two emails, and never carry a request from one email to another.',
+  'Each email is already stripped of quoted replies, signatures and legal footers.',
+  'List only things the *reader* is asked or expects to do, and only ones still ahead of them.',
+  'Skip anything the sender is doing, anything already done, and anything that is only news.',
+  'A newsletter, a marketing message or an announcement asks the reader for nothing: return nothing for it.',
+  'There is no action to take beyond remembering. Never propose opening a link, replying, paying or forwarding.',
+  `Return at most ${MAX_EMAIL_ITEMS} items per email.`,
+  'message: the number N of the email the item came from.',
+  'title: 2-6 words, imperative, in the same language and script as that email. No dates, no links, no punctuation at the end.',
+  'evidenceSentence: one sentence copied from that email character for character, at most 140 characters. Never paraphrase it, never join two sentences, never write one that is not there.',
+  'dueDayPhrase: the exact words in that email that name a day ("by Monday", «قبل الاثنين», «עד יום חמישי»), or null when no day is named. Copy the words; do not work out a date.',
+  'Text reading [email] or [phone] has been removed on purpose. Never put it in a title and never ask about it.',
+].join('\n');
+
+export const EMAIL_BATCH_RESPONSE_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          message: { type: 'integer', description: 'The number N of the email this item came from.' },
+          title: { type: 'string', description: 'Two to six imperative words in the email\'s own language.' },
+          evidenceSentence: { type: 'string', description: 'One sentence copied from that email exactly.' },
+          dueDayPhrase: { type: ['string', 'null'], description: 'The words naming a day, copied exactly, or null.' },
+        },
+        required: ['message', 'title', 'evidenceSentence'],
+      },
+    },
+  },
+  required: ['items'],
+} as const;
+
+export const EMAIL_BATCH_RESPONSE_SCHEMA: object = toVertexSchema(EMAIL_BATCH_RESPONSE_JSON_SCHEMA);
+
+/**
+ * The parts of one batch call, in order: for each email a trusted label
+ * ("Message N:") and then the email in its own untrusted block.
+ *
+ * The label sits *outside* the block on purpose. Inside it, "Message 2:" is
+ * text a stranger could have written; outside it, it is ours, and the end
+ * marker cannot be forged from inside (`wrapUntrustedShared` scrubs it).
+ */
+export function emailBatchParts(messages: readonly { subject: string | null; body: string }[]): readonly LlmPart[] {
+  const parts: LlmPart[] = [];
+  messages.forEach((message, index) => {
+    parts.push({ kind: 'text', text: `Message ${index + 1}:` });
+    parts.push(...emailParts(message.subject, message.body));
+  });
+  return parts;
+}
+
+/** One batch item: the email item plus the message number it claims. */
+export interface EmailBatchModelItem extends EmailModelItem {
+  readonly message?: unknown;
+}
+
 /**
  * The model's answer, or an empty list.
  *
@@ -119,4 +191,9 @@ export function parseEmailItems(text: string): readonly EmailModelItem[] {
   const items = (parsed as { items?: unknown }).items;
   if (!Array.isArray(items)) return [];
   return items.filter((item): item is EmailModelItem => Boolean(item) && typeof item === 'object');
+}
+
+/** A batch answer, or an empty list, on the same terms as `parseEmailItems`. */
+export function parseEmailBatchItems(text: string): readonly EmailBatchModelItem[] {
+  return parseEmailItems(text) as readonly EmailBatchModelItem[];
 }

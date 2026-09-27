@@ -75,6 +75,7 @@ import {
 // should have — loud and total, not a silent fallback. The mailbox scan reads
 // with the email channel by value, which is the same object the registry holds.
 import { emailPreprocessor } from './channels';
+import { readMailboxMessages } from './channels/email';
 
 /**
  * The most bytes one share may carry, across every file.
@@ -498,7 +499,13 @@ export interface MailboxMessage {
 }
 
 export interface MailboxScanInput {
-  readonly messages: readonly MailboxMessage[];
+  /**
+   * Fetches the messages. A function rather than the messages themselves so
+   * the day's share allowance is claimed *before* any mail is read: a scan
+   * the quota refuses must not have read somebody's mailbox first (CL6a
+   * review m4).
+   */
+  readonly readMessages: () => Promise<readonly MailboxMessage[]>;
   readonly timezone?: unknown;
   readonly referenceTime?: unknown;
 }
@@ -508,8 +515,7 @@ function renderMailboxMessage(message: MailboxMessage): string {
   const subject = (message.subject ?? '').replace(/[\r\n]+/g, ' ').trim();
   const header = [`Subject: ${subject}`, `Date: ${message.receivedAt}`].join('\n');
   // The channel's raw bound, applied to the body we fetched rather than to text
-  // a person pasted: the transport already stopped at 256 KiB per message, and
-  // the email channel reads the first 12,000 characters of what is left.
+  // a person pasted: the transport already stopped at 256 KiB per message.
   return `${header}\n\n${message.text}`.slice(0, MAX_SHARE_RAW_TEXT_CHARACTERS);
 }
 
@@ -517,20 +523,23 @@ function renderMailboxMessage(message: MailboxMessage): string {
  * Commitments out of the newest messages of somebody's own mailbox, as one
  * proposal (CL6a, council item 2).
  *
- * The same email channel a shared message goes through, one message at a time
- * — so each keeps its own subject, date anchor, paragraph screening and
- * invented-item checks — and then the same tail as a share: the content limit,
- * the capture pipeline, the allowlist, the envelope. Nothing is saved until the
- * person confirms, because the answer is a proposal.
+ * The email channel's own checks, per message — subject, date anchor,
+ * paragraph screening, bulk mail, invented-item checks — but the model is
+ * asked in at most `MAILBOX_MAX_MODEL_CALLS` calls rather than once per
+ * message (`readMailboxMessages`; CL6a review I2). Then the same tail as a
+ * share: the content limit, the capture pipeline, the allowlist, the envelope.
+ * Nothing is saved until the person confirms, because the answer is a proposal.
  *
  * One scan spends one of the day's shares, not one per message: it is one
- * thing the person asked for.
+ * thing the person asked for. It is claimed before any mail is fetched.
  *
- * Messages are read newest first until the combined text would pass the
- * capture pipeline's content limit; the rest are counted in
- * `metrics.messagesNotRead` rather than cut in half. A message the channel
- * refuses outright (an injected subject) is counted as ignored and the scan
- * goes on.
+ * ── The counts are the honest part ───────────────────────────────
+ *
+ * `metrics` says how many messages were found, read, refused and **not read**.
+ * A message is not read when the call budget ran out, when the model would not
+ * answer (a quota, an outage), or when the combined text would pass the
+ * capture pipeline's content limit — and a message that was not read is never
+ * folded into "nothing to save": the app shows how many it read instead.
  *
  * Bodies live in this function's memory and nowhere else: not in the trace,
  * not in the envelope (evidence is the channel's own ≤140-character excerpt),
@@ -552,62 +561,62 @@ export async function proposeFromMailbox(
     throw new ShareQuotaError(Math.max(1, Math.ceil((nextMidnight - now.getTime()) / 1_000)));
   }
 
-  const channelContext = shareChannelContext(context);
+  const messages = await input.readMessages();
+  const { outcomes, modelCalls } = await readMailboxMessages(
+    messages.map((message) => ({ raw: renderMailboxMessage(message) })),
+    { referenceTime, timezone },
+    shareChannelContext(context),
+  );
+
   const segments: ShareSegment[] = [];
   let ignored = 0;
   let read = 0;
+  let refused = 0;
   let withItems = 0;
   let notRead = 0;
   let modelUnavailable = 0;
   let budget = 0;
+  let overBudget = false;
 
-  for (let index = 0; index < input.messages.length; index += 1) {
-    const message = input.messages[index]!;
-    let prepared: SharePreprocessResult;
-    try {
-      prepared = await emailPreprocessor.preprocess({
-        kind: 'text',
-        sourceHint: 'email',
-        text: renderMailboxMessage(message),
-        files: [],
-        timezone,
-        referenceTime,
-      }, channelContext);
-    } catch (error) {
-      if (error instanceof ShareInputError) {
-        ignored += 1;
-        continue;
-      }
-      throw error;
+  for (const outcome of outcomes) {
+    if (outcome.kind === 'refused') {
+      refused += 1;
+      ignored += 1;
+      continue;
     }
-    read += 1;
-    ignored += prepared.ignoredSegments ?? 0;
-    if ((prepared.metrics ?? {}).modelUnavailable === 1) modelUnavailable += 1;
-    const texts = prepared.text.trim() === '' ? [] : prepared.text.split(SHARE_SEGMENT_SEPARATOR);
-    const evidence = prepared.evidence ?? [];
-    const pieces: ShareSegment[] = texts.map((text, at) => ({
-      text,
-      evidence: evidence[at] ?? { sourceIndex: null, excerpt: '' },
-    }));
-    const cost = pieces.reduce((sum, piece) => sum + piece.text.trim().length + SHARE_SEGMENT_SEPARATOR.length, 0);
-    if (budget + cost > MAX_SHARE_TEXT_CHARACTERS) {
-      // This message and every older one stay unread rather than half-read.
-      notRead = input.messages.length - index;
-      read -= 1;
-      break;
+    if (outcome.kind === 'not_read') {
+      notRead += 1;
+      if (outcome.because === 'model_unavailable') modelUnavailable += 1;
+      continue;
+    }
+    const cost = outcome.segments.reduce(
+      (sum, piece) => sum + piece.text.trim().length + SHARE_SEGMENT_SEPARATOR.length,
+      0,
+    );
+    // Newest first: once the combined text would pass the content limit, this
+    // message and every older one stay unread rather than half-read.
+    if (overBudget || budget + cost > MAX_SHARE_TEXT_CHARACTERS) {
+      overBudget = true;
+      notRead += 1;
+      continue;
     }
     budget += cost;
-    if (pieces.length > 0) withItems += 1;
-    segments.push(...pieces);
+    read += 1;
+    ignored += outcome.ignored;
+    if (outcome.segments.length > 0) withItems += 1;
+    segments.push(...outcome.segments);
   }
 
   const combined = segmentsToResult(segments, {
     ignoredSegments: ignored,
     metrics: {
+      messagesFound: messages.length,
       messagesRead: read,
+      messagesRefused: refused,
       messagesWithItems: withItems,
       messagesNotRead: notRead,
       modelUnavailable,
+      modelCalls,
       itemCount: segments.length,
     },
   });

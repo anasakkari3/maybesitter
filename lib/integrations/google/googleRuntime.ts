@@ -15,6 +15,7 @@
 import { getStorage } from '../../storage';
 import type { StorageAdapter } from '../../storage/storageAdapter';
 import type { FieldEncryptionOptions } from '../../security/fieldEncryption';
+import type { ShareStructuredGenerator } from '../../llm/shareProvider';
 import { secretManagerReader, type GoogleConfigEnv, type GoogleSecretReader } from './googleConfig';
 
 export interface GoogleRuntime {
@@ -25,6 +26,13 @@ export interface GoogleRuntime {
   readonly now: () => Date;
   readonly random?: (size: number) => Buffer;
   readonly encryption?: FieldEncryptionOptions;
+  /**
+   * The model the Gmail scan and the Drive import read with. Absent in
+   * production, where each read builds the account's own gated, metered,
+   * logged generator (`shareLlmProvider`). A test puts a counting or
+   * rate-limited one here.
+   */
+  readonly shareModel?: ShareStructuredGenerator;
 }
 
 let overrides: Partial<GoogleRuntime> | null = null;
@@ -41,6 +49,7 @@ export function googleRuntime(): GoogleRuntime {
     now: overrides?.now ?? (() => new Date()),
     ...(overrides?.random ? { random: overrides.random } : {}),
     ...(overrides?.encryption ? { encryption: overrides.encryption } : {}),
+    ...(overrides?.shareModel ? { shareModel: overrides.shareModel } : {}),
   };
 }
 
