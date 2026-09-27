@@ -5,9 +5,13 @@ status route answers `not_configured` and the app shows one line on the Google
 page and on the three Integrations rows:
 «ربط Google بستنّى إعداد من صاحب التطبيق». There is no connect button in that state.
 
-No deploy and no code change are needed after these steps. The server reads the
-secrets at request time. A missing secret is re-checked within a minute (60 s
-negative cache), and a secret it has found is cached for five minutes.
+No code change is needed. The three secrets in §5 are read at request time: a
+missing secret is re-checked within a minute (60 s negative cache), and a
+secret it has found is cached for five minutes. **But two environment variables
+are also required, and setting an environment variable on Cloud Run creates a
+new revision** (a redeploy of the same image, not a rebuild): the KMS key in §6
+on both services, and the redirect URI in §3 on production. Until §6 is done
+the status route keeps answering `not_configured`, whatever secrets exist.
 
 Every name below is taken from the code, as listed in "Where each fact lives"
 at the end. Never paste a secret value into chat, an issue, or a commit.
@@ -61,12 +65,31 @@ at the end. Never paste a secret value into chat, an issue, or a commit.
   - production, when wanted: `https://<production Cloud Run URL>/api/oauth/google/callback`
   - local simulator runs: `http://localhost:3000/api/oauth/google/callback`
 
-  How the server builds the URI it sends to Google:
+  How the server builds the URI it sends to Google (`redirectFrom` in
+  `googleConfig.ts`):
   1. `GOOGLE_OAUTH_REDIRECT_URI`, if it is set. It must be `https`, or `http`
      on `localhost`/`127.0.0.1`.
   2. Otherwise `MAYBESITTER_INTERNAL_AUDIENCE` + `/api/oauth/google/callback`.
-     `infra/scheduler.sh` already sets `MAYBESITTER_INTERNAL_AUDIENCE` to the
-     service URL on Cloud Run.
+     `infra/scheduler.sh` sets `MAYBESITTER_INTERNAL_AUDIENCE` to the service
+     URL, **but only where it has been run**:
+     - staging has it, so staging needs nothing extra. Its redirect URI is
+       `https://maybesitter-api-staging-xw5vhndxxq-ew.a.run.app/api/oauth/google/callback`
+       (read-only check by the CL6a reviewer, 2026-09-26) — register exactly
+       that.
+     - **production (`maybesitter-api`) has no `MAYBESITTER_INTERNAL_AUDIENCE`**
+       (same check: only `GOOGLE_CLOUD_PROJECT` among the relevant variables).
+       Without a redirect URI the production status stays `not_configured`, so
+       set it explicitly when production is wanted:
+
+       ```
+       PROD_URL="$(gcloud run services describe maybesitter-api --region europe-west1 \
+         --project maybesitter-app --format='value(status.url)')"
+       gcloud run services update maybesitter-api --region europe-west1 --project maybesitter-app \
+         --update-env-vars "GOOGLE_OAUTH_REDIRECT_URI=${PROD_URL}/api/oauth/google/callback"
+       ```
+
+       This creates a new production revision. Register the same URI on the
+       OAuth client first.
 
   The URI must match the registered one character for character. The Picker
   page is served from the same origin, at `/api/oauth/google/picker`.
@@ -85,6 +108,12 @@ at the end. Never paste a secret value into chat, an issue, or a commit.
   restriction to match.
 - Without this key, Calendar and Gmail still work, and the Drive row says
   «اختيار ملف من Drive بستنّى إعداد من صاحب التطبيق».
+- Known limit: the access token the Picker page holds is the grant's own, so
+  when Gmail is also connected it carries `gmail.readonly` as well as
+  `drive.file`. Google documents no way to narrow a refreshed token, and a
+  `drive.file`-only token would need a second consent per pick. The page is
+  bounded instead: single-use two-minute ticket, `no-store`, `no-referrer`,
+  nonce CSP (reasoning in `googleDrive.ts`, `redeemDrivePickTicket`).
 
 ## 5. Secret Manager: the exact names the server reads
 
@@ -119,17 +148,88 @@ For local runs, environment variables override Secret Manager:
 `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`,
 `GOOGLE_PICKER_API_KEY` and `GOOGLE_OAUTH_REDIRECT_URI`.
 
-## 6. The token encryption key (also required)
+## 6. The token encryption key (required, and not in place today)
 
-Tokens are stored only after KMS envelope encryption. Without the key the chain
-reports `not_configured` **before** anyone reaches Google's consent screen.
+Tokens are stored only after KMS envelope encryption
+(`lib/security/fieldEncryption.ts`). Without the key the chain reports
+`not_configured` **before** anyone reaches Google's consent screen — so this
+section is as much a credential step as §5.
 
-- Env var on the Cloud Run service: `MAYBESITTER_KMS_KEY_NAME=projects/…/locations/…/keyRings/…/cryptoKeys/…`
-  (a symmetric ENCRYPT_DECRYPT key).
-- The runtime service account needs `roles/cloudkms.cryptoKeyEncrypterDecrypter`
-  on that key.
-- Nothing in `infra/` sets this variable today. Check the live service's env
-  before assuming it is present.
+**What is live today** (read-only check by the CL6a reviewer, account
+`anasakkari05@`, 2026-09-26; nothing was changed):
+
+- `MAYBESITTER_KMS_KEY_NAME` is **not set** on `maybesitter-api-staging` or on
+  `maybesitter-api`.
+- The **Cloud KMS API is not enabled** on project `maybesitter-app`
+  (`gcloud kms keyrings list` answers PERMISSION_DENIED, "API not enabled").
+  So no key ring or key exists yet.
+- Pre-existing, not introduced by this lane: the calendar-feed (ICS URL)
+  encryption of UC-3.4 (#188, `lib/calendar/icsFeeds.ts`) uses the **same**
+  key through the same module, so ICS feed subscriptions have never been able
+  to store a URL on staging either. These steps fix both.
+
+**What the code expects:**
+
+- `MAYBESITTER_KMS_KEY_NAME` is the full CryptoKey resource name,
+  `projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>`,
+  passed as-is to `KeyManagementServiceClient.encrypt/decrypt`. No key
+  version: encryption uses the primary version and decryption reads the
+  version from the ciphertext, so rotation needs no change here.
+- A **symmetric** key (purpose `ENCRYPT_DECRYPT`): the module wraps a random
+  per-field AES-256 key with KMS `encrypt`, binding it to the uid and purpose
+  as additional authenticated data.
+- The name the code's own tests and comments use
+  (`lib/security/inMemoryKms.ts`) is
+  `projects/maybesitter-app/locations/europe-west1/keyRings/maybesitter/cryptoKeys/user-secrets`.
+  `europe-west1` matches Firestore, Cloud Run and Vertex (`infra/bootstrap.sh`,
+  `infra/cloudrun/flags.sh`), so the keys live in the same region as the data
+  they protect. The client uses the global KMS endpoint, which serves every
+  location.
+
+**Steps** (run by the owner; each changes project state):
+
+```
+# 1. Enable the API.
+gcloud services enable cloudkms.googleapis.com --project maybesitter-app
+
+# 2. Key ring and key. A key ring and a key can never be deleted, only their
+#    versions destroyed, so type the names once and correctly.
+gcloud kms keyrings create maybesitter --location europe-west1 --project maybesitter-app
+gcloud kms keys create user-secrets --keyring maybesitter --location europe-west1 \
+  --purpose encryption --rotation-period 90d \
+  --next-rotation-time "$(date -u -v+90d +%Y-%m-%dT%H:%M:%SZ)" \
+  --project maybesitter-app
+#    (GNU date: date -u -d '+90 days' +%Y-%m-%dT%H:%M:%SZ)
+
+# 3. Let the runtime service account (the one §5 already uses) wrap and
+#    unwrap with this key, and nothing else.
+gcloud kms keys add-iam-policy-binding user-secrets --keyring maybesitter --location europe-west1 \
+  --project maybesitter-app \
+  --member serviceAccount:maybesitter-run@maybesitter-app.iam.gserviceaccount.com \
+  --role roles/cloudkms.cryptoKeyEncrypterDecrypter
+
+# 4. Point each service at it. Each command creates a new revision of that
+#    service (same image, new environment); traffic moves to it when it is ready.
+KEY=projects/maybesitter-app/locations/europe-west1/keyRings/maybesitter/cryptoKeys/user-secrets
+gcloud run services update maybesitter-api-staging --region europe-west1 --project maybesitter-app \
+  --update-env-vars "MAYBESITTER_KMS_KEY_NAME=${KEY}"
+# production, when wanted:
+gcloud run services update maybesitter-api --region europe-west1 --project maybesitter-app \
+  --update-env-vars "MAYBESITTER_KMS_KEY_NAME=${KEY}"
+```
+
+The variable survives later deploys: `infra/cloudrun/flags.sh` passes
+`--update-env-vars`, which merges into the service's environment rather than
+replacing it (`--set-env-vars` would erase this). It is still worth adding to
+`flags.sh` in a later change so a service recreated from scratch gets it; this
+lane did not touch `infra/cloudrun/flags.sh`.
+
+Check (read-only):
+
+```
+gcloud run services describe maybesitter-api-staging --region europe-west1 --project maybesitter-app \
+  --format='value(spec.template.spec.containers[0].env)' | tr ';' '\n' | grep MAYBESITTER_KMS_KEY_NAME
+```
 
 ## 7. Firestore TTL
 
@@ -183,5 +283,6 @@ test account. Simulator automation cannot type into Google's secure fields.
   `lib/integrations/google/googleGmailScan.ts`
 - Drive types, the picker ticket and the page:
   `lib/integrations/google/googleDrive.ts`, `googleBrowserPages.ts`
-- KMS key variable: `lib/security/fieldEncryption.ts` (`MAYBESITTER_KMS_KEY_NAME`)
+- KMS key variable: `lib/security/fieldEncryption.ts` (`MAYBESITTER_KMS_KEY_NAME`);
+  the intended key name: `lib/security/inMemoryKms.ts`
 - Production path allow-list for the two browser pages: `src/middleware.ts`
