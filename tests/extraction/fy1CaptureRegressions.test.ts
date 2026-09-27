@@ -484,12 +484,14 @@ async function answerN1Alone(freeText: string) {
 test('FY1 fix I3: a typed answer to the passed-hour question wins over the hour it replaces', async () => {
   assert.deepEqual(await answerN1Alone('الساعة 7 المسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
   assert.deepEqual(await answerN1Alone('بكرا الساعة 10'), ['أبعت الإيميل للمدير | 2026-09-28 10:00 | settled']);
-  // A bare hour is read the way a typed bare hour is read for any item (the
-  // doctor's «الساعة 4» is 04:00): its next occurrence, never the passed 15:00.
-  assert.deepEqual(await answerN1Alone('الساعة 4'), ['أبعت الإيميل للمدير | 2026-09-28 04:00 | settled']);
-  // A typed part of the day is the lexicon's hour (evening 18:00, not the
-  // button's 19:00 — as for any item), placed on its next occurrence.
-  assert.deepEqual(await answerN1Alone('بالمسا'), ['أبعت الإيميل للمدير | 2026-09-28 18:00 | settled']);
+  // A typed part of the day is the hour its button uses (evening 19:00), so
+  // «بالمسا» at 18:08 is tonight, as the «المسا» button is (fix round 2).
+  assert.deepEqual(await answerN1Alone('بالمسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
+  assert.deepEqual(await answerN1Alone('المسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
+  // A passed part of the day is its next one, as the button's own day rule.
+  assert.deepEqual(await answerN1Alone('الصبح'), ['أبعت الإيميل للمدير | 2026-09-28 09:00 | settled']);
+  // A day named with it keeps that day.
+  assert.deepEqual(await answerN1Alone('بكرا المسا'), ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled']);
 });
 
 test('FY1 fix I3: a typed answer that is itself already past is "not understood", never a generic failure', async () => {
@@ -565,4 +567,77 @@ test('FY1 fix M1: the review edit sheet\'s "no time" keeps an appointment on its
   );
   const medicine = await editedToNoTime('لازم أشتري دوا من الصيدلية يوم الأحد الساعة 5 المسا');
   assert.deepEqual({ kind: medicine.timeSpec.kind, dueAt: medicine.timeSpec.dueAt }, { kind: 'unscheduled', dueAt: null });
+});
+
+// ── Fix round 2 (re-review: I4, the bare early hour, typed parts of the day, R-M1) ──
+
+/** A typed answer the product cannot read as a new time: refused, the round kept. */
+async function notUnderstood(text: string, pick: (title: string) => boolean, freeText: string) {
+  const uid = 'fy1-not-understood';
+  await assert.rejects(
+    () => withMemoryStorage(async () => {
+      const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
+      const item = proposal.items.find((candidate) => pick(candidate.title) && candidate.clarification);
+      assert.ok(item, `${text}: no question to answer`);
+      await clarifyMobileCapture({
+        proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText,
+        timezone: TZ, referenceTime: N1_NOW.toISOString(),
+      }, { participantId: uid });
+    }),
+    (error: unknown) => (error as { failure?: string }).failure === 'answer_not_understood',
+    `${text} + «${freeText}»`,
+  );
+}
+
+const NO_TIME_OF_DAY = ['بعد ساعة', 'بعد شوي', 'later', 'in an hour', 'now', 'אחר כך', 'بأي وقت'];
+
+test('FY1 fix I4: an answer with no time of day is not understood — never the passed hour rolled to tomorrow', async () => {
+  for (const freeText of NO_TIME_OF_DAY) {
+    await notUnderstood(N1_ALONE, (title) => title.includes('الإيميل'), freeText);
+  }
+  // Beside another clause, the same.
+  for (const freeText of NO_TIME_OF_DAY) {
+    await notUnderstood('بدي أشتري خبز بكرا، وذكرني أتصل بأمي اليوم الساعة 3 العصر', (title) => title.includes('أمي'), freeText);
+  }
+  // A day named alone keeps the person's own hour on it.
+  assert.deepEqual(await answerN1Alone('بكرا'), ['أبعت الإيميل للمدير | 2026-09-28 15:00 | settled']);
+});
+
+test('FY1 fix round 2: a typed bare hour from 1 to 6 with no part of the day is not understood (CL1 R6 applied to answers)', async () => {
+  for (const freeText of ['الساعة 4', 'الساعة 5:30', 'at 4', 'ב-4']) {
+    await notUnderstood(N1_ALONE, (title) => title.includes('الإيميل'), freeText);
+    await notUnderstood(DOCTOR, (title) => title.includes('دكتور'), freeText);
+  }
+  // With its part of the day it is a time.
+  assert.deepEqual(await answerN1Alone('الساعة 4 العصر'), ['أبعت الإيميل للمدير | 2026-09-28 16:00 | settled']);
+  assert.deepEqual(await answerN1Alone('الساعة 9 المسا'), ['أبعت الإيميل للمدير | 2026-09-27 21:00 | settled']);
+});
+
+test('FY1 fix round 2: a typed part of the day uses its button\'s hour in English and Hebrew too', async () => {
+  const run = async (text: string, freeText: string) => withMemoryStorage(async () => {
+    const uid = 'fy1-part';
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_time', text);
+    const updated = await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText,
+      timezone: TZ, referenceTime: N1_NOW.toISOString(),
+    }, { participantId: uid });
+    return updated.items.map(line)[0]!.split(' | ')[1];
+  });
+  assert.equal(await run('email the boss today at 3pm', 'in the evening'), '2026-09-27 19:00');
+  assert.equal(await run('לשלוח מייל למנהל היום ב-15:00', 'בערב'), '2026-09-27 19:00');
+  // The doctor's Sunday keeps its day: the button's evening on it.
+  assert.equal(await run(DOCTOR, 'بالمسا'), '2026-10-04 19:00');
+});
+
+test('FY1 fix R-M1: preparing for an event is a task, not the event', async () => {
+  for (const text of ['بدي أكوي البدلة للعرس يوم الخميس', 'iron my suit for the wedding on Thursday', 'לגהץ את החליפה לחתונה ביום חמישי', 'بدي أغلّف الهدية لعيد ميلاد سامي يوم الخميس']) {
+    const { answered, commitment } = await answeredNoTime(text);
+    assert.equal(answered.allDayEvent, undefined, text);
+    assert.notEqual(commitment.timeSpec.kind, 'scheduled_event', text);
+  }
+  // Going to it is still the event.
+  const { answered } = await answeredNoTime('بدي أروح عالعرس يوم الخميس');
+  assert.equal(answered.allDayEvent, true);
 });
