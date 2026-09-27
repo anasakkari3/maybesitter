@@ -104,7 +104,7 @@ afterEach(async () => {
   // The order the rest of this suite's component tests use. `resetAuthForTests`
   // matters most: the repository is a module singleton, and leaving one test's
   // behind means the next render never resolves a user.
-  cleanup();
+  await cleanup();
   // A real macrotask, not a microtask flush. Onboarding writes its step
   // through AsyncStorage after the mutation resolves, so a submit still in
   // flight when the tree came down would otherwise land *after* the clear
@@ -238,7 +238,7 @@ describe('the consent screen', () => {
   it('sends each answer with the version the server said it recognises', async () => {
     await reachConsent();
     await press(en.obAiAllow);
-    fireEvent(screen.getByLabelText(en.obRecTitle), 'valueChange', true);
+    await fireEvent(screen.getByLabelText(en.obRecTitle), 'valueChange', true);
     await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(true));
     await press(en.obContinue);
 

@@ -234,7 +234,7 @@ describe('Review under a hostile share proposal (UC-3.9, #193 step 7)', () => {
     // stopped being the attack it documents.
     expect(() => shareProposalSchema.parse(createHostileProposal())).not.toThrow();
 
-    renderHostileReview();
+    await renderHostileReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-note')).toBeTruthy();
@@ -266,13 +266,13 @@ describe('Review under a hostile share proposal (UC-3.9, #193 step 7)', () => {
       failed: [],
     } as never);
 
-    renderHostileReview();
+    await renderHostileReview();
 
     await waitFor(() => {
       expect(screen.getByText('Confirm 42 commitments')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('review-confirm'));
+    await fireEvent.press(screen.getByTestId('review-confirm'));
 
     await waitFor(() => {
       expect(confirm).toHaveBeenCalledTimes(1);
@@ -296,13 +296,13 @@ describe('Review under a hostile share proposal (UC-3.9, #193 step 7)', () => {
     const confirm = jest.spyOn(captureEndpoints, 'confirmCapture')
       .mockRejectedValue(new Error('confirm must not fire on an empty selection') as never);
 
-    renderHostileReview();
+    await renderHostileReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-select-none')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('review-select-none'));
+    await fireEvent.press(screen.getByTestId('review-select-none'));
 
     await waitFor(() => {
       expect(screen.getByTestId('review-none-selected')).toBeTruthy();
@@ -310,7 +310,7 @@ describe('Review under a hostile share proposal (UC-3.9, #193 step 7)', () => {
 
     // Disabled, and guarded a second time by the empty-payload check in the
     // provider — press anyway and nothing leaves the device.
-    fireEvent.press(screen.getByTestId('review-confirm'));
+    await fireEvent.press(screen.getByTestId('review-confirm'));
 
     await waitFor(() => {
       expect(screen.getByTestId('review-none-selected')).toBeTruthy();

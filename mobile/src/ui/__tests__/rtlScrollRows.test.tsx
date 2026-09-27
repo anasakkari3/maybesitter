@@ -33,7 +33,7 @@ const METRICS: Metrics = {
 };
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   await new Promise(resolve => setTimeout(resolve, 0));
   resetAuthForTests();
   jest.restoreAllMocks();

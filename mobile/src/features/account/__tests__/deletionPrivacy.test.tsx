@@ -163,7 +163,7 @@ describe('the Settings entry', () => {
     const repository = createFakeAuthRepository({ initialUser: null });
     await render(wrap(repository, <SettingsScreen />));
     expect(screen.queryByTestId('settings-account')).toBeNull();
-    screen.unmount();
+    await screen.unmount();
     await render(wrap(repository, <AccountScreen onBack={() => undefined} />));
     expect(screen.queryByLabelText(en.accountDelete)).toBeNull();
     expect(screen.queryByLabelText(en.authSignOut)).toBeNull();

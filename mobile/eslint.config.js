@@ -17,6 +17,33 @@ module.exports = defineConfig([
     languageOptions: { globals: { jest: 'readonly' } },
   },
   {
+    /**
+     * Every promise a test creates must be awaited (or returned).
+     *
+     * React Native Testing Library v14 made `render`, `rerender`, `unmount`,
+     * `renderHook`, `fireEvent.*`, `act`, `cleanup` and `waitFor` all return
+     * promises. A call that is not awaited does not fail: it leaves React's act
+     * queue half-drained, and every later `render()` in the same file mounts
+     * nothing. From then on "is not shown" assertions pass on an empty tree,
+     * so the suite goes green without testing anything. Closure lane FX2 found
+     * an un-awaited `cleanup()` doing exactly that in capabilityRows.test.tsx,
+     * and voiceButton's "starts once, not on every render" asserted before its
+     * un-awaited `rerender` had rendered at all — it could not have failed.
+     *
+     * The type-aware rule is used rather than a list of RNTL names because a
+     * list cannot see through a file's own `renderScreen()` helper, a
+     * `rerender` off a render result, or `expect(p).rejects`. `void x` stays
+     * available for the rare promise that is deliberately left running.
+     */
+    files: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.{ts,tsx}'],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: __dirname },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+    },
+  },
+  {
     files: ['src/**/*.{ts,tsx}', 'App.tsx', 'app.config.ts'],
     rules: {
       // Arabic is the default language and the root view sets `direction`, so

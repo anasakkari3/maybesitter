@@ -67,7 +67,7 @@ describe('SavedScreen undo rollback locale-aware list formatting', () => {
 
     // Click undo
     const undoButton = screen.getByTestId('saved-undo');
-    fireEvent.press(undoButton);
+    await fireEvent.press(undoButton);
 
     await waitFor(() => {
       const outcome = screen.getByTestId('saved-undo-partial');
@@ -92,7 +92,7 @@ describe('SavedScreen undo rollback locale-aware list formatting', () => {
     await renderWithLang('he', undoMock);
 
     const undoButton = screen.getByTestId('saved-undo');
-    fireEvent.press(undoButton);
+    await fireEvent.press(undoButton);
 
     await waitFor(() => {
       const outcome = screen.getByTestId('saved-undo-partial');
@@ -117,7 +117,7 @@ describe('SavedScreen undo rollback locale-aware list formatting', () => {
     await renderWithLang('ar', undoMock);
 
     const undoButton = screen.getByTestId('saved-undo');
-    fireEvent.press(undoButton);
+    await fireEvent.press(undoButton);
 
     await waitFor(() => {
       const outcome = screen.getByTestId('saved-undo-partial');

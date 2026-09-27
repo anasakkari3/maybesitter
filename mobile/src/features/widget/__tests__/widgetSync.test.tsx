@@ -112,7 +112,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   await new Promise((resolve) => setTimeout(resolve, 0));
   client.clear();
   resetAuthForTests();
@@ -243,7 +243,7 @@ describe('the widget snapshot in the running app', () => {
     await openApp();
     await settled();
     await act(async () => {
-      fireEvent.press(screen.getByTestId('probe-sign-out'));
+      await fireEvent.press(screen.getByTestId('probe-sign-out'));
     });
     await waitFor(() => expect(calls.some((call) => call.op === 'clear')).toBe(true));
     const firstClear = calls.findIndex((call) => call.op === 'clear');
@@ -259,7 +259,7 @@ describe('the widget snapshot in the running app', () => {
     resetBeforeSignOutForTests();
     const before = calls.length;
     await act(async () => {
-      screen.unmount();
+      await screen.unmount();
     });
     await waitFor(() => expect(calls.slice(before).some((call) => call.op === 'clear')).toBe(true));
   });

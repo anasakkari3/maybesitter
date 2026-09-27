@@ -72,7 +72,7 @@ describe('with a domain configured', () => {
     // resolves to English (no device locale), so that is what this asserts;
     // `config/__tests__/legalLinks.test.ts` covers ar and he directly.
     await show();
-    fireEvent.press(screen.getByTestId('settings-privacy-policy'));
+    await fireEvent.press(screen.getByTestId('settings-privacy-policy'));
     await waitFor(() => expect(openBrowser).toHaveBeenCalled());
     expect(openBrowser).toHaveBeenCalledWith('https://maybesitter.example/en/privacy');
   });
@@ -82,7 +82,7 @@ describe('with a domain configured', () => {
     // leave somebody with nothing; the address they can write down is more.
     openBrowser.mockRejectedValueOnce(new Error('no browser'));
     await show();
-    fireEvent.press(screen.getByTestId('settings-terms'));
+    await fireEvent.press(screen.getByTestId('settings-terms'));
     await waitFor(() => expect(screen.queryByTestId('legal-open-failed')).not.toBeNull());
     expect(String(screen.getByTestId('legal-open-failed').props.children)).toContain('/en/terms');
   });

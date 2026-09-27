@@ -225,8 +225,8 @@ describe('one tap is one decision', () => {
     // guard can stop the second. Un-awaited `fireEvent` calls would leave work
     // pending past the end of this test and break the next one.
     await act(async () => {
-      fireEvent.press(button);
-      fireEvent.press(button);
+      await fireEvent.press(button);
+      await fireEvent.press(button);
     });
     await waitFor(() => expect(decide).toHaveBeenCalled());
     expect(decide).toHaveBeenCalledTimes(1);

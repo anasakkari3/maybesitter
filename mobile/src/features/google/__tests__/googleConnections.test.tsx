@@ -102,7 +102,7 @@ beforeEach(() => {
   mockConsent.calendar = true;
   jest.clearAllMocks();
 });
-afterEach(() => { cleanup(); client.clear(); });
+afterEach(async () => { await cleanup(); client.clear(); });
 
 describe('not configured', () => {
   it('says the one honest line and offers no connect button anywhere', async () => {

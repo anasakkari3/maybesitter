@@ -72,7 +72,7 @@ describe('the date above "your day"', () => {
   it('changes when the day does', async () => {
     await showOn('2026-09-14T09:00:00.000Z');
     const monday = screen.getByTestId('today-date').props.children;
-    screen.unmount();
+    await screen.unmount();
 
     await showOn('2026-09-15T09:00:00.000Z');
     expect(screen.getByTestId('today-date').props.children).not.toBe(monday);

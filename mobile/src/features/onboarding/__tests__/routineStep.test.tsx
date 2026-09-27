@@ -62,7 +62,7 @@ async function show(props: Partial<React.ComponentProps<typeof RoutineStep>> = {
 
 /** React 19 schedules rather than applies; every event has to be awaited. */
 async function press(label: string): Promise<void> {
-  fireEvent.press(screen.getByLabelText(label));
+  await fireEvent.press(screen.getByLabelText(label));
   await waitFor(() => expect(screen.queryByLabelText(label)).not.toBeNull());
 }
 
