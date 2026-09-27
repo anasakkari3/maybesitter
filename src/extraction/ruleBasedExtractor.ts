@@ -544,6 +544,27 @@ export function countTimeExpressions(raw: string): number {
   return covered.size;
 }
 
+/**
+ * The clock times the raw text names, as the numbers written — `{ hour: 4 }`
+ * for «الساعة ٤ العصر», before any meridiem is applied.
+ *
+ * Found exactly where `countTimeExpressions` finds them (the same normalising
+ * and the same two pattern lists), so a caller asking "is this hour written
+ * here?" (the meeting prep's follow-ups, CL5a M-3) and the counter cannot
+ * disagree about what a time looks like. A range gives its first time.
+ */
+export function clockTimesIn(raw: string): Array<{ hour: number; minute: number }> {
+  if (typeof raw !== 'string' || !raw.trim()) return [];
+  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw)));
+  const at = new Set<number>();
+  forEachTimeMention(RANGE_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));
+  forEachTimeMention(CLOCK_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));
+  return Array.from(at).sort((left, right) => left - right).flatMap((digitAt) => {
+    const clock = /^(\d{1,2})(?::(\d{2}))?/.exec(text.slice(digitAt));
+    return clock ? [{ hour: Number(clock[1]), minute: clock[2] ? Number(clock[2]) : 0 }] : [];
+  });
+}
+
 function forEachTimeMention(
   sources: readonly string[],
   text: string,

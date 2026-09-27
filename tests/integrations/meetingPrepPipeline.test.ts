@@ -293,12 +293,14 @@ test('a follow-up keeps a written hour; a day before the meeting, or no day, is 
   } finally { end(); }
 });
 
-test('«يوم الأحد الصبح» names a day, not an hour: the follow-up is all-day on Sunday, whatever hour the model guessed', async () => {
+test('«يوم الأحد الصبح» is Sunday at the morning hour capture gives it, never the hour the model guessed', async () => {
   begin();
   try {
     const notes = 'اجتماع مع المدير عن الميزانية.\nبدي أراجع المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.';
     // The shape the live run answered with (CL5a-live-run.txt): the model
-    // turned «الصبح» into 07:00. The notes write no clock time, so it goes.
+    // turned «الصبح» into 07:00. The person named a part of the day, not an
+    // hour: the hour is the product's for «الصبح» — 09:00, what capture makes
+    // of «يوم الأحد الصبح» (`dayPartHour`) — and the model's 07:00 goes.
     const model = recordedModel({
       prepStep: { action: 'أراجع المصاريف وأطبع التقرير' },
       followUps: [{ action: 'أبعت الملخص لسامي', deadlineDate: '2026-10-04', deadlineTime: '07:00' }],
@@ -307,8 +309,8 @@ test('«يوم الأحد الصبح» names a day, not an hour: the follow-up i
       now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
     });
     const followUp = proposal.items[1]!;
-    assert.equal(followUp.resolvedTime, null);
-    assert.equal(followUp.resolvedDate, '2026-10-04');
+    // 09:00 on Sunday in Jerusalem (UTC+3).
+    assert.equal(followUp.resolvedTime, '2026-10-04T06:00:00.000Z');
 
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
@@ -318,10 +320,25 @@ test('«يوم الأحد الصبح» names a day, not an hour: the follow-up i
     const state = await getParticipantStateSnapshot(UID);
     const stored = state.commitments[result.persisted.find((item) => item.itemId === followUp.itemId)!.commitmentId]!;
     assert.equal(stored.status, 'active');
-    assert.equal(stored.timeSpec.allDay, true);
-    // Local midnight of Sunday in Jerusalem, with nobody's hour on it.
-    assert.equal(stored.timeSpec.dueAt, '2026-10-03T21:00:00.000Z');
-    assert.equal(stored.timeSpec.remindAt, null);
+    assert.equal(stored.timeSpec.allDay, false);
+    assert.equal(stored.timeSpec.dueAt, '2026-10-04T06:00:00.000Z');
+    assert.equal(stored.timeSpec.remindAt, '2026-10-04T06:00:00.000Z');
+  } finally { end(); }
+});
+
+test('a day with no hour and no part of the day stays all-day, whatever hour the model guessed', async () => {
+  begin();
+  try {
+    const notes = 'اجتماع مع المدير الساعة ١٠.\nبدي أطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد.';
+    const model = recordedModel({
+      prepStep: { action: 'أطبع التقرير' },
+      followUps: [{ action: 'أبعت الملخص لسامي', deadlineDate: '2026-10-04', deadlineTime: '07:00' }],
+    });
+    const { proposal } = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING }, {
+      now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
+    });
+    assert.equal(proposal.items[1]!.resolvedTime, null);
+    assert.equal(proposal.items[1]!.resolvedDate, '2026-10-04');
   } finally { end(); }
 });
 
@@ -595,16 +612,26 @@ test('a meeting a few minutes after a quiet night the person is already in: the 
 
 // ── a follow-up's hour comes from its own clause (CL5a M-3, round 2) ──
 
-test('the meeting\'s own «الساعة ١٠» does not let a guessed hour onto a follow-up whose clause names only a day', async () => {
-  const probes = [
-    'اجتماع الخميس الساعة ١٠ مع المدير عن الميزانية.\nبدي أراجع المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.',
-    'اجتماع مع المدير عن الميزانية الساعة ١٠، بعده لازم أبعت الملخص لسامي يوم الأحد الصبح.\nبدي أراجع المصاريف وأطبع التقرير.',
-    'Budget meeting with my manager at 10am.\nI need to review the expenses and print the report.\nAfter it I have to send Sami the summary on Sunday morning.',
+test('the meeting\'s own «الساعة ١٠» does not let a guessed hour onto a follow-up whose clause names only a day and a part of it', async () => {
+  // [notes, what the follow-up may be]: Sunday 09:00 (the morning hour), or
+  // all-day Sunday when the clause cannot be told from the meeting's — never
+  // the model's 07:00.
+  const probes: Array<[string, 'morning' | 'all-day']> = [
+    ['اجتماع الخميس الساعة ١٠ مع المدير عن الميزانية.\nبدي أراجع المصاريف وأطبع التقرير.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.', 'morning'],
+    ['اجتماع مع المدير عن الميزانية الساعة ١٠، بعده لازم أبعت الملخص لسامي يوم الأحد الصبح.\nبدي أراجع المصاريف وأطبع التقرير.', 'morning'],
+    ['Budget meeting with my manager at 10am.\nI need to review the expenses and print the report.\nAfter it I have to send Sami the summary on Sunday morning.', 'morning'],
+    // Dictated, one sentence, no punctuation (re-review 2, n-1a).
+    ['اجتماع الساعة ١٠ وبعده لازم أبعت الملخص لسامي يوم الأحد الصبح', 'morning'],
+    ['اجتماع الساعة ١٠ وبعدين لازم أبعت الملخص لسامي يوم الأحد الصبح', 'morning'],
+    ['Budget meeting at 10am and then send Sami the summary on Sunday morning', 'morning'],
+    // No word that separates the two: the clause writes the meeting's «١٠»,
+    // which is not the model's hour — so no hour at all.
+    ['اجتماع الساعة ١٠ لازم أبعت الملخص لسامي يوم الأحد الصبح', 'all-day'],
   ];
-  for (const notes of probes) {
+  for (const [notes, expected] of probes) {
     begin();
     try {
-      const english = notes.startsWith('Budget');
+      const english = /^[A-Za-z]/.test(notes);
       const model = recordedModel({
         prepStep: { action: english ? 'Review the expenses and print the report' : 'أراجع المصاريف وأطبع التقرير' },
         followUps: [{ action: english ? 'Send Sami the summary' : 'أبعت الملخص لسامي', deadlineDate: '2026-10-04', deadlineTime: '07:00' }],
@@ -612,9 +639,14 @@ test('the meeting\'s own «الساعة ١٠» does not let a guessed hour onto 
       const { proposal } = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING }, {
         now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
       });
-      const followUp = proposal.items[1]!;
-      assert.equal(followUp.resolvedTime, null, `a guessed hour got through: ${notes}`);
-      assert.equal(followUp.resolvedDate, '2026-10-04');
+      const followUp = proposal.items.find((item) => /سامي|Sami/.test(item.title))!;
+      assert.notEqual(followUp.resolvedTime, '2026-10-04T04:00:00.000Z', `the model's 07:00 got through: ${notes}`);
+      if (expected === 'morning') {
+        assert.equal(followUp.resolvedTime, '2026-10-04T06:00:00.000Z', notes);
+      } else {
+        assert.equal(followUp.resolvedTime, null, notes);
+        assert.equal(followUp.resolvedDate, '2026-10-04', notes);
+      }
     } finally { end(); }
   }
 });
@@ -624,6 +656,11 @@ test('a follow-up whose own clause writes the hour keeps it, whatever else the n
     ['Budget review at 10am.\nPrint the report.\nSend the summary on Sunday at 4pm.', 'Send the summary', '16:00'],
     ['Budget review at 10am.\nPrint the report.\nSend the summary on Sunday, at 4pm.', 'Send the summary', '16:00'],
     ['اجتماع الميزانية الساعة ١٠.\nبدي أطبع التقرير.\nلازم أبعت الملخص لسامي يوم الأحد الساعة ٤ العصر.', 'أبعت الملخص لسامي', '16:00'],
+    // The model reworded the action (re-review 2, n-1b): «إرسال … إلى سامي»
+    // is still the clause that says «لسامي … الساعة ٤ العصر».
+    ['اجتماع الميزانية الساعة ١٠.\nبدي أطبع التقرير.\nلازم أبعت الملخص لسامي يوم الأحد الساعة ٤ العصر.', 'إرسال الملخص إلى سامي', '16:00'],
+    // Unpunctuated, the follow-up after «وبعده»: its own «٤ العصر» is kept.
+    ['اجتماع الساعة ١٠ وبعده لازم أبعت الملخص لسامي يوم الأحد الساعة ٤ العصر', 'إرسال الملخص لسامي', '16:00'],
   ];
   for (const [notes, action, time] of cases) {
     begin();

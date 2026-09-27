@@ -62,8 +62,8 @@ import {
 import { getStorage, userDoc, type StorageAdapter } from '../../storage';
 import { localDayKey, localMidnightOf, normalizeTimezone } from './time';
 import { hardSettingsOfUser, readReminderSettings } from './reminderSettingsService';
-import { instantFromLocal } from '../../../src/extraction/timeLexicon';
-import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
+import { dayPartHour, instantFromLocal } from '../../../src/extraction/timeLexicon';
+import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
 
 /** How long before the meeting the prep step is due. */
 export const MEETING_PREP_LEAD_MINUTES = 60;
@@ -286,37 +286,71 @@ type FollowUpWhen =
 /**
  * A follow-up's day and hour, kept only when they can be believed (M-3).
  *
- * The hour is kept only when the follow-up's own clause writes a clock time
- * (`clockInOwnClause`) — «يوم الأحد الصبح» names a day and a part of it, and
- * the model filling in 07:00 is a guess the prompt forbids and this enforces.
- * The meeting's own «الساعة ١٠» elsewhere in the notes is no licence for it. Without an hour the follow-up is
- * an all-day commitment on that day, which is how a day with no chosen hour is
- * stored everywhere else (`TimeSpec.allDay`). A day before the meeting, or
- * beyond the horizon a meeting may be prepared in, is no day at all.
+ * The hour comes from the follow-up's own clause (`followUpClock`), never from
+ * the model alone: the prompt forbids a guess, and this enforces it. The
+ * meeting's own «الساعة ١٠» elsewhere in the notes is no licence for one.
+ * Without an hour the follow-up is an all-day commitment on that day, which is
+ * how a day with no chosen hour is stored everywhere else (`TimeSpec.allDay`).
+ * A day before the meeting, or beyond the horizon a meeting may be prepared
+ * in, is no day at all.
  */
 const NOT_A_LETTER_OR_DIGIT = new RegExp('[^\\p{L}\\p{N}]+', 'u');
+
+/**
+ * An Arabic word without the letters that attach to its front — «و», «ف»,
+ * «ب», «ك», «ل» and the article — so «لسامي» and «سامي», «الملخص» and
+ * «ملخص» are one word (re-review 2, n-1b: a model that writes «إرسال الملخص
+ * إلى سامي» for «أبعت الملخص لسامي» still names that clause). Both sides of a
+ * comparison go through it, so a word it clips wrongly is clipped the same
+ * way on each; any other script is left alone.
+ */
+function withoutArabicClitics(word: string): string {
+  if (!/^[ء-ي]/.test(word)) return word;
+  let rest = word;
+  if (/^[وف]/.test(rest) && Array.from(rest).length > 3) rest = rest.slice(1);
+  if (rest.startsWith('لل') && Array.from(rest).length > 3) return rest.slice(2);
+  if (/^[بكل]/.test(rest) && Array.from(rest).length > 3) rest = rest.slice(1);
+  if (rest.startsWith('ال') && Array.from(rest).length > 3) rest = rest.slice(2);
+  return rest;
+}
 
 /** Letters and digits, lower-cased, with the Arabic spellings that vary folded together. */
 function wordsOf(text: string): string[] {
   return text
     .toLowerCase()
-    .replace(/[\u064B-\u0652\u0640]/g, '')
+    .replace(/[ً-ْـ]/g, '')
     .replace(/[أإآ]/g, 'ا')
     .replace(/ة/g, 'ه')
     .replace(/ى/g, 'ي')
     .split(NOT_A_LETTER_OR_DIGIT)
+    .map(withoutArabicClitics)
     .filter((word) => Array.from(word).length >= 2);
 }
 
 /**
- * The notes cut into clauses: at line ends and sentence ends, and at a comma
- * when both sides are clauses of their own (three words or more each) — so
- * «…الساعة ١٠، بعده لازم أبعت الملخص…» is two clauses, and "Send the summary
- * on Sunday, at 4pm" stays one.
+ * Words that start the next thing the person has to do, in a note dictated
+ * without punctuation: «اجتماع الساعة ١٠ وبعده لازم أبعت الملخص…» is two
+ * clauses (re-review 2, n-1a). The word stays with the clause it starts.
+ */
+const NEXT_CLAUSE = new RegExp(
+  [
+    /(?<=\s)(?=(?:وبعده|وبعدها|وبعدين|بعدين|وبعد هيك|بعد هيك)(?:\s|$))/.source,
+    /(?<=\s)(?=(?:and then|then|after that|afterwards)\b)/.source,
+    /(?<=\s)(?=(?:ואחר כך|ואחרי זה|ואז)(?:\s|$))/.source,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * The notes cut into clauses: at line ends and sentence ends, before a word
+ * that starts the next thing to do (`NEXT_CLAUSE`), and at a comma when both
+ * sides are clauses of their own (three words or more each) — so «…الساعة
+ * ١٠، بعده لازم أبعت الملخص…» is two clauses, and "Send the summary on
+ * Sunday, at 4pm" stays one.
  */
 function clausesOf(notes: string): string[] {
   const clauses: string[] = [];
-  for (const sentence of notes.split(/[\n.!?؟;؛]+/)) {
+  for (const sentence of notes.split(/[\n.!?؟;؛]+/).flatMap((part) => part.split(NEXT_CLAUSE))) {
     const parts = sentence.split(/[,،]/);
     let current = parts[0] ?? '';
     for (const part of parts.slice(1)) {
@@ -333,32 +367,54 @@ function clausesOf(notes: string): string[] {
 }
 
 /**
- * Whether the clause of the notes that a follow-up came from writes a clock
- * time (M-3, round 2).
- *
- * The clause is the one sharing the most of the follow-up's words — at least
- * half of them; a follow-up the notes do not recognisably say has no clause,
- * and so no hour. A time is counted the way the capture parser counts one.
+ * The clause of the notes a follow-up came from: the one sharing the most of
+ * its words, and at least half of them. A follow-up the notes do not
+ * recognisably say has no clause, and so no hour.
  */
-function clockInOwnClause(action: string, notes: string): boolean {
+function ownClause(action: string, notes: string): string | null {
   const wanted = new Set(wordsOf(action));
-  if (wanted.size === 0) return false;
+  if (wanted.size === 0) return null;
   let best: { clause: string; shared: number } | null = null;
   for (const clause of clausesOf(notes)) {
     const words = new Set(wordsOf(clause));
     const shared = Array.from(wanted).filter((word) => words.has(word)).length;
     if (!best || shared > best.shared) best = { clause, shared };
   }
-  if (!best || best.shared * 2 < wanted.size) return false;
-  return countTimeExpressions(best.clause) > 0;
+  return best && best.shared * 2 >= wanted.size ? best.clause : null;
 }
 
-function followUpWhen(followUp: ModelFollowUp, valid: ValidMeetingPrepInput, now: Date, clockWritten: boolean): FollowUpWhen {
+/**
+ * The hour a follow-up keeps, `HH:MM`, or null for none (M-3, round 3).
+ *
+ * - The model's hour, when its own clause writes that clock time («الساعة ٤
+ *   العصر» for 16:00; the half of the day is the model's reading of it).
+ * - Otherwise, when the clause writes no clock time but names a part of the
+ *   day, the product's hour for it — «يوم الأحد الصبح» is Sunday 09:00, which
+ *   is what capture makes of the same words (`dayPartHour`). The period is the
+ *   person's; only its hour is the product's, the same one everywhere.
+ * - Otherwise none: an hour the model gave that the clause does not write is
+ *   a guess, and a clause that writes some other clock time (the meeting's,
+ *   when nothing separates the two) cannot say which is the follow-up's.
+ */
+function followUpClock(followUp: ModelFollowUp, notes: string): string | null {
+  const clause = ownClause(followUp.action, notes);
+  if (clause === null) return null;
+  const written = clockTimesIn(clause);
+  const model = followUp.time ? /^(\d{1,2}):(\d{2})$/.exec(followUp.time) : null;
+  if (model && written.some((clock) => clock.hour % 12 === Number(model[1]) % 12 && clock.minute === Number(model[2]))) {
+    return followUp.time;
+  }
+  if (written.length > 0) return null;
+  const part = dayPartHour(clause);
+  return part === null ? null : `${String(part).padStart(2, '0')}:00`;
+}
+
+function followUpWhen(followUp: ModelFollowUp, valid: ValidMeetingPrepInput, now: Date, time: string | null): FollowUpWhen {
   if (!followUp.date) return { kind: 'none' };
   const after = (valid.end ?? valid.start).getTime();
   const horizon = after + MEETING_PREP_MAX_DAYS_AHEAD * 24 * 60 * MINUTE;
-  if (followUp.time && clockWritten) {
-    const at = instantFromLocal(followUp.date, followUp.time, valid.timezone);
+  if (time) {
+    const at = instantFromLocal(followUp.date, time, valid.timezone);
     if (at && at.getTime() > after && at.getTime() > now.getTime() && at.getTime() <= horizon) {
       return { kind: 'instant', dueAt: at.toISOString() };
     }
@@ -586,9 +642,9 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   const timing = prepTiming(valid.start, due.at, now, settings, quietHours);
   const ringAt = timing.ringAt?.toISOString() ?? null;
 
-  // A clock time in the follow-up's own clause is what lets it keep an hour.
+  // The follow-up's own clause decides whether it keeps an hour, and which.
   const followUps = (answered?.followUps ?? []).map((followUp) => ({
-    followUp, when: followUpWhen(followUp, valid, now, clockInOwnClause(followUp.action, valid.notes)),
+    followUp, when: followUpWhen(followUp, valid, now, followUpClock(followUp, valid.notes)),
   }));
   const whenByKey = new Map(followUps.map(({ followUp, when }) => [
     `${followUp.action.toLowerCase()}\0${when.kind === 'none' ? '' : when.dueAt}`, when,

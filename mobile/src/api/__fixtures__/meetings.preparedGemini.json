@@ -16,9 +16,7 @@
       {
         "itemId": "00000000-0000-4000-8000-000000000003",
         "title": "أبعت الملخص لسامي",
-        "resolvedTime": null,
-        "resolvedDate": "2026-08-16",
-        "dateEstimated": false,
+        "resolvedTime": "2026-08-16T06:00:00.000Z",
         "needsClarification": false,
         "priority": "normal",
         "priorityEstimated": true

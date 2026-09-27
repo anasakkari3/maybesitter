@@ -2077,19 +2077,32 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
         uid: MEETING_USER,
       }));
+      // Pinned: the follow-up now has an hour (09:00, M-3 round 3), and its
+      // distance from the meeting's start — which is what the fixture keeps —
+      // would otherwise follow the time of day the export ran at. Three hours
+      // before the stable instant, so the block starts exactly on it and the
+      // recorded times read as they were: Sunday 09:00 is 06:00Z.
+      mock.timers.enable({ apis: ['Date'], now: Date.parse(STABLE_INSTANT) - 3 * 3_600_000 });
       const block = meetingBlock();
       meetingFollowUpDay = jerusalemDay(block.startAt, 7);
       const prepared = await record('meetings.preparedGemini', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
         body: { notes: MEETING_NOTE, ...block, timezone: 'Asia/Jerusalem' },
         uid: MEETING_USER,
-      })), undefined, pinMeetingPrep);
+      })).finally(() => mock.timers.reset()), undefined, pinMeetingPrep);
       assert.equal(meetingCalls, 1, 'the meeting prep never reached the provider');
       const preparedProposal = prepared.proposal as { items: unknown[]; provenance: { executedEngine: string } };
       assert.equal(preparedProposal.provenance.executedEngine, 'gemini');
       assert.equal(preparedProposal.items.length, 2);
-      // A day and no hour, because the notes wrote no clock time (M-3).
-      assert.equal((prepared.proposal as { items: Array<{ resolvedTime: unknown; resolvedDate?: unknown }> }).items[1]!.resolvedTime, null);
-      assert.equal((prepared.proposal as { items: Array<{ resolvedDate?: unknown }> }).items[1]!.resolvedDate, meetingFollowUpDay);
+      // «يوم الأحد الصبح»: the model gave no hour and the notes write no clock
+      // time, so it is that day at the product's morning hour, 09:00 — what
+      // capture makes of the same words (M-3, round 3).
+      const followUp = (prepared.proposal as { items: Array<{ resolvedTime: string | null; resolvedDate?: unknown }> }).items[1]!;
+      assert.equal(followUp.resolvedDate, undefined);
+      assert.equal(
+        new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+          .format(new Date(followUp.resolvedTime!)),
+        `${meetingFollowUpDay}, 09:00`,
+      );
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
