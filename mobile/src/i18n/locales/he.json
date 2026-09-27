@@ -1008,6 +1008,8 @@
   "reviewPrepQuietHours": "התזכורת נופלת בשעות השקט, אז שום דבר לא יצלצל.",
   "reviewPrepRingsAt": "התזכורת תצלצל: {time}",
   "reviewPrepNoTime": "בלי שעה, אז שום דבר לא יצלצל.",
+  "reviewPrepAfterMeeting": "השעה החדשה לא לפני הפגישה.",
+  "reviewPrepAfterAppointment": "השעה החדשה לא לפני המועד.",
   "reviewUntrusted": "תוכן מבחוץ",
   "detailsHistory": "ההיסטוריה שלה",
   "detailsClosedNote": "זו הסתיימה. היא נשארת בהיסטוריה שלך.",

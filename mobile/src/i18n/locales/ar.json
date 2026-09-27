@@ -1005,6 +1005,8 @@
   "reviewPrepQuietHours": "وقت التذكير بيوقع بساعات الهدوء، فما رح يرن شي.",
   "reviewPrepRingsAt": "التذكير رح يرن: {time}",
   "reviewPrepNoTime": "بلا وقت، فما رح يرن شي.",
+  "reviewPrepAfterMeeting": "الوقت الجديد مش قبل الاجتماع.",
+  "reviewPrepAfterAppointment": "الوقت الجديد مش قبل الموعد.",
   "reviewUntrusted": "محتوى من برّا",
   "detailsHistory": "تاريخها",
   "detailsClosedNote": "هاي خلصت. بتضل بتاريخك.",

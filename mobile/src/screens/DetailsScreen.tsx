@@ -84,6 +84,17 @@ export function DetailsScreen() {
   const view = query.data ? placeView(toViewModel(query.data, new Date().toISOString()), savedPlacements(savedWeek.data)) : null;
   const planned = view?.plannedAt && (dueApart(view) || !view.shownAt) ? view.plannedAt : null;
   const gone = query.error instanceof NotFoundError;
+  // Once the commitment is drawn, flash the scroll indicator (UAT round 2,
+  // N8): the pinned actions take a quarter of the screen and the place
+  // reminder, the category and the history sit below the fold with nothing
+  // saying so. Once per screen.
+  const drawn = view !== null;
+  const flashed = React.useRef(false);
+  React.useEffect(() => {
+    if (!drawn || flashed.current) return;
+    flashed.current = true;
+    scroll.current?.flashScrollIndicators();
+  }, [drawn]);
   const open = view?.status === 'active';
   // «حضّرني» (CL5a) on a meeting or an appointment that has not started.
   const prepTarget = query.data && open ? commitmentPrepTarget(query.data, new Date()) : null;
@@ -112,7 +123,7 @@ export function DetailsScreen() {
   const category = query.data?.category ?? null;
 
   const controls = (view && !gone ? (
-        <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
+        <View testID="details-actions" style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
           {open ? (
             <>
               <ActionRow>
@@ -141,7 +152,20 @@ export function DetailsScreen() {
         </View>
       )}
     >
-      <ScreenScroll grow bottom={20} gap={16} topGap={14} scrollRef={scroll}>
+      {/* The place-name field (FY3 review I1): Details is not lifted by an
+          AvoidKeyboard, so the scroller's own keyboard inset is the one that
+          applies, and a tap on «احفظ التذكير» saves on the first press
+          instead of only closing the keyboard. */}
+      <ScreenScroll
+        testID="details-scroll"
+        grow
+        bottom={20}
+        gap={16}
+        topGap={14}
+        scrollRef={scroll}
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+      >
 
         {gone ? (
           <EmptyState testID="details-gone" title={t.detailsNotFoundTitle} body={t.detailsNotFoundBody} top={60} />

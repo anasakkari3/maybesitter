@@ -85,7 +85,7 @@ export function Screen({ pinned, children, footer, decoration, overlay, style, t
  * the floating tab bar is drawn over the screen and the last row has to clear
  * it.
  */
-export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, style, scrollRef }: {
+export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, automaticallyAdjustKeyboardInsets, style, scrollRef }: {
   children: React.ReactNode;
   /** For a screen that has to bring something it opened into view. */
   scrollRef?: React.Ref<ScrollView> | undefined;
@@ -98,6 +98,12 @@ export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, te
   /** The space between a pinned header and the first row beneath it. */
   topGap?: number;
   keyboardShouldPersistTaps?: 'always' | 'never' | 'handled' | undefined;
+  /**
+   * iOS insets the scroller by the keyboard. Only for a screen that is not
+   * inside an `AvoidKeyboard` (which lifts the whole body instead): both
+   * would pad twice.
+   */
+  automaticallyAdjustKeyboardInsets?: boolean | undefined;
   /** Viewport layout, distinct from the padding of its scrolling content. */
   style?: StyleProp<ViewStyle>;
 }) {
@@ -108,6 +114,7 @@ export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, te
       style={style}
       {...(refreshControl ? { refreshControl } : {})}
       {...(keyboardShouldPersistTaps ? { keyboardShouldPersistTaps } : {})}
+      {...(automaticallyAdjustKeyboardInsets ? { automaticallyAdjustKeyboardInsets } : {})}
       contentContainerStyle={{
         paddingHorizontal: 16,
         paddingTop: topGap,

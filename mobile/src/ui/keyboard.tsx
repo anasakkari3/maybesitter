@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
   LayoutAnimation,
@@ -25,6 +25,17 @@ export const ENTRANCE_SETTLE_MS = 400;
 export function keyboardOverlap(frame: WindowFrame, keyboardTop: number): number {
   if (keyboardTop <= 0) return 0;
   return Math.max(0, Math.round(frame.y + frame.height - keyboardTop));
+}
+
+/**
+ * How far the nearest `AvoidKeyboard` is lifted right now: 0 while the
+ * keyboard is down. For a footer that clears the home indicator when the
+ * keyboard is down, and has no indicator to clear while it is up (the
+ * meeting-prep sheet, UAT round 2 N2).
+ */
+const KeyboardInsetContext = createContext(0);
+export function useKeyboardInset(): number {
+  return useContext(KeyboardInsetContext);
 }
 
 /**
@@ -148,7 +159,7 @@ export function AvoidKeyboard({
       onLayout={() => { if (keyboardTop.current !== null) void update(); }}
       style={[{ flex: 1 }, style, { paddingBottom: inset }]}
     >
-      {children}
+      <KeyboardInsetContext.Provider value={inset}>{children}</KeyboardInsetContext.Provider>
     </View>
   );
 }

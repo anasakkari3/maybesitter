@@ -19,6 +19,8 @@ import { Btn, Pill, Txt } from '../ui/primitives';
 import { Dialog } from '../ui/dialog';
 import { useSheetMotion } from '../ui/motion';
 import { useLayoutMode } from '../theme/textScale';
+import { AvoidKeyboard, useKeyboardInset } from '../ui/keyboard';
+import type { Sheet } from '../state/types';
 import { MeetingPrepSheet } from '../features/meetings/MeetingPrepSheet';
 
 /*
@@ -534,9 +536,25 @@ function ConfirmDialog({ intent }: { intent: 'drop' | 'delete' }) {
   );
 }
 
+/**
+ * The bottom sheet: a scrim, and a panel pinned to the bottom of the window.
+ *
+ * ── The keyboard (UAT round 2, N2) ─────────────────────────────
+ *
+ * The host is an `AvoidKeyboard`, so the panel sits on the keyboard instead of
+ * behind it. Before, only the panel's ScrollView knew about the keyboard
+ * (`automaticallyAdjustKeyboardInsets`), and that adds scrollable room *inside*
+ * a viewport the keyboard already covered: with the meeting-prep notes focused,
+ * the question, the notes box and «اقترح خطوة» were all under the keyboard and
+ * only «إغلاق» showed (shot 156). That inset is gone too — iOS computes it once,
+ * from the frame before the lift, and it would leave a keyboard-high blank tail.
+ *
+ * The panel shrinks (`flexShrink: 1`) to the room left above the keyboard and
+ * its body scrolls; a sheet whose primary action must stay in sight while
+ * someone types (meeting prep) pins that action below its own scroller.
+ */
 export function SheetHost() {
   const { s, t, p, actions } = useApp();
-  const insets = useSafeAreaInsets();
   const m = useSheetMotion();
   if (!s.sheet) return null;
   // The two confirmations are dialogs, not sheets: a question in the middle
@@ -544,27 +562,50 @@ export function SheetHost() {
   if (s.sheet === 'confirmDrop') return <ConfirmDialog intent="drop" />;
   if (s.sheet === 'confirmDelete') return <ConfirmDialog intent="delete" />;
   return (
-    <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30, justifyContent: 'flex-end' }}>
+    <AvoidKeyboard testID="sheet-host" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30, justifyContent: 'flex-end' }}>
       <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: p.scrim }, m.scrim]}>
         <Pressable style={{ flex: 1 }} onPress={actions.closeSheet} accessibilityLabel={t.close} />
       </Animated.View>
-      <Animated.View
-        accessibilityViewIsModal
-        style={[
-          { maxHeight: '88%', backgroundColor: p.sf, borderTopLeftRadius: 36, borderTopRightRadius: 36, paddingTop: 14, shadowColor: p.ink, shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -10 }, elevation: 12 },
-          m.panel,
-        ]}
-      >
-        <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: p.ln, alignSelf: 'center', marginBottom: 4 }} />
-        <View style={{ paddingHorizontal: 20, alignItems: 'flex-end' }}>
-          <Btn label={t.close} onPress={actions.closeSheet} testID="sheet-close" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}><Txt role="action">{t.close}</Txt></Btn>
-        </View>
-        <ScrollView keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: insets.bottom + 24 }}>
-          {s.sheet === 'postpone' && <PostponeSheet />}
-          {s.sheet === 'edit' && <EditSheet />}
-          {s.sheet === 'meetingPrep' && <MeetingPrepSheet />}
+      <SheetPanel sheet={s.sheet} panelMotion={m.panel} />
+    </AvoidKeyboard>
+  );
+}
+
+/**
+ * The panel, inside the host's `AvoidKeyboard` so it can read the lift
+ * (FY3 review I2, m5). With the keyboard up:
+ *
+ * - no `maxHeight: '88%'`. A percentage resolves against the room left above
+ *   the keyboard, so on an iPhone SE with the banner (~253pt) it gave away
+ *   ~30pt the notes needed; `flexShrink` alone keeps the panel on screen.
+ * - no home-indicator clearance under the scroller: the keyboard covers it.
+ */
+function SheetPanel({ sheet, panelMotion }: { sheet: Exclude<Sheet, null>; panelMotion: ReturnType<typeof useSheetMotion>['panel'] }) {
+  const { t, p, actions } = useApp();
+  const insets = useSafeAreaInsets();
+  const keyboardUp = useKeyboardInset() > 0;
+  return (
+    <Animated.View
+      testID="sheet-panel"
+      accessibilityViewIsModal
+      style={[
+        { ...(keyboardUp ? {} : { maxHeight: '88%' as const }), flexShrink: 1, backgroundColor: p.sf, borderTopLeftRadius: 36, borderTopRightRadius: 36, paddingTop: 14, shadowColor: p.ink, shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -10 }, elevation: 12 },
+        panelMotion,
+      ]}
+    >
+      <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: p.ln, alignSelf: 'center', marginBottom: 4 }} />
+      <View style={{ paddingHorizontal: 20, alignItems: 'flex-end' }}>
+        <Btn label={t.close} onPress={actions.closeSheet} testID="sheet-close" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}><Txt role="action">{t.close}</Txt></Btn>
+      </View>
+      {sheet === 'meetingPrep' ? (
+        // Its own scroller and a pinned footer: the submit stays above the keyboard.
+        <MeetingPrepSheet />
+      ) : (
+        <ScrollView testID="sheet-scroll" keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: keyboardUp ? 12 : insets.bottom + 24 }}>
+          {sheet === 'postpone' && <PostponeSheet />}
+          {sheet === 'edit' && <EditSheet />}
         </ScrollView>
-      </Animated.View>
-    </View>
+      )}
+    </Animated.View>
   );
 }
