@@ -43,7 +43,7 @@
  * view entirely — is **not** in this module and is not done. #383 is the one
  * place that rule is written down, and both halves answer to it.
  */
-import { isTimedWindow, type Commitment } from '../../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, isTimedWindow, type Commitment } from '../../../src/domain/stateMachine';
 import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
 import type {
   FixedEvent,
@@ -364,7 +364,11 @@ export function deadlineFor(
   dayStartsAt: Instant,
   dayEndsAt: Instant,
 ): Instant | null {
-  const dueAt = commitment.timeSpec.dueAt;
+  // A window is due by its end (`deadlineOfTimeSpec`, FX1 R1): a prep step
+  // shown Sunday 21:30 for a Monday 07:30 meeting is due at 07:30, not at the
+  // day's end, or Monday's plan puts it at 08:00, after the meeting (FY2
+  // re-review).
+  const dueAt = deadlineOfTimeSpec(commitment.timeSpec);
   if (!dueAt) return null;
   // An all-day commitment stores its day as that day's local midnight (FX3) —
   // the day's start — and read as a deadline there it left no minute of its

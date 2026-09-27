@@ -422,3 +422,52 @@ test('M1: a timed deadline at exactly local 00:00 keeps its instant; only an all
   assert.equal(deadline.get('tuesday'), midnight(WEEK[3]!), 'the all-day Tuesday is not due by Tuesday\'s end');
   assert.equal(deadline.get('midnight'), midnight(WEEK[2]!), 'a timed 00:00 deadline was stretched to the whole day');
 });
+
+/* ── Re-review: a prep window that opens the evening before ─────────── */
+
+/**
+ * `schedulePrepAt` moves the prep to the evening before when quiet hours block
+ * the hour before an early meeting: Mon 07:30 → prep shown Sun 21:30, due by
+ * 07:30. A window across midnight.
+ */
+const EVENING_PREP: readonly Seed[] = [
+  { id: 'early_prep', title: 'أجهّز العرض', level: 'normal', dueDay: WEEK[1]!,
+    timeSpec: { kind: 'due_by', dueAt: at(WEEK[0]!, '21:30'), endAt: at(WEEK[1]!, '07:30'), remindAt: at(WEEK[0]!, '21:30'), allDay: false } },
+];
+
+function everywhere(dto: WeekDto, itemId: string): Array<[string, string, string | null]> {
+  return dto.days.flatMap((day) => [
+    ...day.fixed.filter((row) => row.itemId === itemId).map((row) => [day.date, 'fixed', row.startsAt] as [string, string, string | null]),
+    ...day.items.filter((row) => row.itemId === itemId).map((row) => [day.date, 'step', row.startsAt] as [string, string, string | null]),
+    ...day.unplaced.filter((row) => row.itemId === itemId).map(() => [day.date, 'unplaced', null] as [string, string, string | null]),
+  ]);
+}
+
+test('re-review: a prep window opened the evening before is never proposed after the meeting it prepares for', async () => {
+  await withUat(async (storage) => {
+    // Monday 06:00: the window opened last night and is due by 07:30.
+    const dto = weekToDto(await composeWeek(USER, { moves: [], drops: [] }, { storage, now: () => new Date(Date.parse(at(WEEK[1]!, '06:00'))) }));
+    const seen = everywhere(dto, 'early_prep');
+    for (const [date, , startsAt] of seen) {
+      assert.ok(date <= WEEK[1]!, `the prep was proposed on ${date}, after Monday's meeting`);
+      if (startsAt) assert.ok(Date.parse(startsAt) < Date.parse(at(WEEK[1]!, '07:30')), `the prep was proposed at ${startsAt}, after the 07:30 meeting`);
+    }
+    // No room before 07:30 in the working day: late, on Monday, said honestly.
+    assert.deepEqual(seen, [[WEEK[1], 'unplaced', null]]);
+  }, EVENING_PREP);
+});
+
+test('re-review: at Sunday 22:00 the evening prep is a fixed row on Sunday only', async () => {
+  await withUat(async (storage) => {
+    const dto = weekToDto(await composeWeek(USER, { moves: [], drops: [] }, { storage, now: () => new Date(Date.parse(at(WEEK[0]!, '22:00'))) }));
+    assert.deepEqual(everywhere(dto, 'early_prep'), [[WEEK[0], 'fixed', at(WEEK[0]!, '21:30')]]);
+  }, EVENING_PREP);
+});
+
+test('re-review: the daily planner reads a window\'s end as its deadline on the day after it opened', () => {
+  const input = buildDailyPlanInput({
+    uid: USER, date: WEEK[1]!, timezone: TZ, commitments: Object.values(seededState(EVENING_PREP).commitments),
+    busyBlocks: [], profile: null, focusHint: null, builtAt: at(WEEK[1]!, '06:00'),
+  });
+  assert.equal(input.constraints.items.find((item) => item.itemId === 'early_prep')?.deadlineAt, at(WEEK[1]!, '07:30'));
+});
