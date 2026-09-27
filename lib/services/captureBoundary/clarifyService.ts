@@ -137,6 +137,34 @@ function appliedLocal(
   };
 }
 
+/**
+ * "No specific time" (#474): the person chose no hour, so nothing the extractor
+ * guessed about one survives.
+ *
+ * When the question named a day — «أي ساعة يوم الاثنين، 28 سبتمبر؟» — the
+ * answer is "that day, no hour", not "no day": the review card goes on saying
+ * «لحد بكرا», and the saved commitment used to have no date at all, so the
+ * week called it «بلا موعد» and put «أتصل بسامي», due tomorrow, on Friday (UAT
+ * round 2, N3). It is kept as FX3's all-day shape — the day's local midnight,
+ * no reminder, a limit («لحد») — the one the review already shows. Without a
+ * day it is what it always was: no time at all, the shape a "No time" edit
+ * produces (`applyEdits`).
+ */
+function noHourAnswer(result: ExtractionResult, fallbackZone: string): ExtractionResult {
+  const date = result.localTimeSpec?.date ?? null;
+  const zone = result.localTimeSpec?.timezone || fallbackZone;
+  const midnight = date ? instantFromLocal(date, '00:00', zone) : null;
+  if (!date || !midnight) return { ...result, remindAt: null, dueAt: null } as ExtractionResult;
+  return {
+    ...result,
+    dueAt: midnight.toISOString(),
+    remindAt: null,
+    localTimeSpec: { date, time: null, timezone: zone },
+    timeAnchor: 'deadline',
+    allDay: true,
+  } as ExtractionResult;
+}
+
 function withResolvedTime(
   result: ExtractionResult,
   local: { date: string | null; time: string | null },
@@ -344,9 +372,7 @@ export async function answerClarification(
     if (!option) throw new ClarifyError('option_not_found');
     noTime = !option.value.localTime && !option.value.localDate;
     answered = noTime
-      // The user chose no hour, so nothing the extractor guessed about one
-      // survives. The same shape a "No time" edit produces (`applyEdits`).
-      ? { ...result, remindAt: null, dueAt: null } as ExtractionResult
+      ? noHourAnswer(result, options.timezone)
       : withResolvedTime(result, appliedLocal(result, option.value), options.timezone);
     answerKind = 'option';
   } else {
@@ -376,7 +402,11 @@ export async function answerClarification(
   // `pending_confirmation`, like any other answered item, so the confirm
   // activates it. A confirm-time edit with a title and no time is still refused:
   // only this explicit answer settles.
-  const answeredCommands = noTime
+  //
+  // A "no specific time" answer to a question about a named day keeps the day
+  // (UAT round 2, N3): `noHourAnswer` makes it that day, all day, and it is
+  // drafted like any other answered item.
+  const answeredCommands = noTime && !answered.allDay
     ? settleDrafts(applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString()), { resolvedTime: null }))
     : settleDrafts(mapExtractionToCommand(answered, options.now.toISOString()));
 
@@ -390,7 +420,8 @@ export async function answerClarification(
   items[index] = {
     ...item,
     title: (answered.title || answered.action || item.title).trim(),
-    resolvedTime: answered.remindAt || answered.dueAt || null,
+    // A whole day has no time to show (the capture service's own rule).
+    resolvedTime: answered.allDay ? null : answered.remindAt || answered.dueAt || null,
     // Settled: the question it had was the one it needed, and it is answered.
     needsClarification: false,
     priority: answered.priority.level,

@@ -462,7 +462,7 @@ test('FX3 guards: a model «low» is never raised by an obligation word, and a s
   assert.deepEqual([commitment!.timeSpec.dueAt, commitment!.timeSpec.allDay], ['2026-09-30T07:00:00.000Z', false]);
 });
 
-test('FX3 clarify: an all-day item that is asked (a follow-up with no person) loses `allDay` when an hour or "no time" is picked', async () => {
+test('FX3 clarify: an all-day item that is asked (a follow-up with no person) loses `allDay` when an hour is picked, and keeps its day when "no time" is', async () => {
   const followUp = 'follow up on the invoice by the end of the month';
   const answer = {
     type: 'follow_up', action: 'Follow up on the invoice', title: 'Follow up on the invoice', person: null,
@@ -472,7 +472,10 @@ test('FX3 clarify: an all-day item that is asked (a follow-up with no person) lo
     confidence: { overall: 0.8, type: 1, action: 0.9, time: 0.5, priority: 1 },
     missingFields: ['person'], ambiguityFlags: [], explicitReminderRequest: false, explicitPressureRequest: false,
   };
-  for (const [optionId, want] of [['morning', ['due_by', false]], ['none', ['unscheduled', false]]] as const) {
+  // «بدون وقت محدد» to a question about the 30th is "the 30th, no hour", not
+  // "no day" (UAT round 2, N3): the review kept saying the day, and the saved
+  // commitment used to have none.
+  for (const [optionId, want] of [['morning', ['due_by', false]], ['none', ['due_by', true]]] as const) {
     const run = await propose(followUp, recordedModel({ [followUp]: answer }));
     const item = run.contract.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_time', JSON.stringify(item));
