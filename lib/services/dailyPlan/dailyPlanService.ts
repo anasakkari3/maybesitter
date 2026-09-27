@@ -77,7 +77,7 @@ import { getStorage, type StorageAdapter } from '../../storage';
 import { USERS, userDoc } from '../../storage/paths';
 import type { UserLocale } from '../../storage/userDocument';
 import { loadDomainState } from '../mobile/participantState';
-import { readRoutineProfile } from '../mobile/routineProfileService';
+import { readRoutineProfile, routineProfileOf } from '../mobile/routineProfileService';
 import { keptFocusWindow } from '../../memoryGrowth/suggestionService';
 import {
   projectBlockProtectionIntoPlanningConstraints,
@@ -130,6 +130,16 @@ import {
 } from './planPushRetry';
 import { composeCurrentUserState } from '../../userState/userStateService';
 import { refreshStalePlan } from './planRefresh';
+import {
+  PLAN_PROPOSAL_DAYS,
+  addCivilDays,
+  assignmentAroundHolds,
+  planDatesFrom,
+  readWeekHolds,
+} from './weekHolds';
+import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
+
+export { PLAN_PROPOSAL_DAYS, addCivilDays, planDatesFrom };
 
 /** Accounts examined per tick. The issue's batch size. */
 export const DAILY_PLAN_BATCH = 50;
@@ -420,6 +430,32 @@ export interface DailyPlanRequestInput {
   readonly assignment?: DayAssignment | null;
 }
 
+/**
+ * The reads a request makes that do not depend on the date (CL5b, I5): the
+ * account's commitments, its routine and its kept focus window. A caller that
+ * composes several dates at one instant — the week — reads them once and
+ * hands them in; every other caller leaves this out and the request reads
+ * them itself. Busy time is the date's own and is always read.
+ */
+export interface DailyPlanRequestPreload {
+  readonly commitments: readonly Commitment[];
+  readonly profile: UserRoutineProfile | null;
+  readonly focusHint: Awaited<ReturnType<typeof keptFocusWindow>>;
+}
+
+/** Reads what `DailyPlanRequestPreload` holds, once, as `composeDailyPlanRequest` would. */
+export async function preloadDailyPlanRequest(
+  uid: string,
+  now: string,
+  userDocument: unknown,
+  storage: StorageAdapter,
+): Promise<DailyPlanRequestPreload> {
+  const commitments = Object.values((await loadDomainState(storage, uid)).commitments);
+  const profile = routineProfileOf(userDocument);
+  const focusHint = (profile?.focusWindows ?? []).length > 0 ? null : await keptFocusWindow(uid, now, { storage });
+  return { commitments, profile, focusHint };
+}
+
 export interface DailyPlanRequest {
   /** What the request was built from, for the caller's titles. */
   readonly commitments: readonly Commitment[];
@@ -464,17 +500,29 @@ export interface DailyPlanRequest {
  */
 export async function composeDailyPlanRequest(
   input: DailyPlanRequestInput,
-  deps: { readonly storage: StorageAdapter; readonly busyBlocks?: BusyBlockReader },
+  deps: {
+    readonly storage: StorageAdapter;
+    readonly busyBlocks?: BusyBlockReader;
+    /** The date-free reads, already made at this `now` (see `DailyPlanRequestPreload`). */
+    readonly preloaded?: DailyPlanRequestPreload;
+  },
 ): Promise<DailyPlanRequest> {
   const { uid, date, timezone, now } = input;
   const storage = deps.storage;
 
-  const state = await loadDomainState(storage, uid);
-  const commitments = Object.values(state.commitments);
-  const profile = await readRoutineProfile(uid, { storage });
-  const focusHint = (profile?.focusWindows ?? []).length > 0
-    ? null
-    : await keptFocusWindow(uid, now, { storage });
+  let commitments: readonly Commitment[];
+  let profile: UserRoutineProfile | null;
+  let focusHint: DailyPlanRequestPreload['focusHint'];
+  if (deps.preloaded) {
+    ({ commitments, profile, focusHint } = deps.preloaded);
+  } else {
+    const state = await loadDomainState(storage, uid);
+    commitments = Object.values(state.commitments);
+    profile = await readRoutineProfile(uid, { storage });
+    focusHint = (profile?.focusWindows ?? []).length > 0
+      ? null
+      : await keptFocusWindow(uid, now, { storage });
+  }
   const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, dayHorizon(date, timezone));
 
   const { constraints: baseConstraints, config } = buildDailyPlanInput({
@@ -541,6 +589,12 @@ export async function composeDailyPlan(
   const user = await storage.get<PlanSettingsBearingUser>(userDoc(uid));
   const locale: UserLocale = user?.locale === 'ar' || user?.locale === 'he' ? user.locale : 'en';
 
+  // A day built on its own leaves out what a saved week day of this week
+  // holds, so no step lands on two days (CL5b, I3). A day the week itself is
+  // storing comes with its own assignment, which already accounts for them.
+  const heldByWeek = assignment ? [] : await readWeekHolds(uid, localDateOf(now.toISOString(), timezone), date, storage);
+  const effectiveAssignment = assignment ?? assignmentAroundHolds(heldByWeek);
+
   const { commitments, constraints, config } = await composeDailyPlanRequest({
     uid,
     date,
@@ -548,7 +602,7 @@ export async function composeDailyPlan(
     now: now.toISOString(),
     userDocument: user,
     previousBlocks: ancestry?.previousBlocks ?? null,
-    ...(assignment ? { assignment } : {}),
+    ...(effectiveAssignment ? { assignment: effectiveAssignment } : {}),
   }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
   const plan = schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
@@ -589,6 +643,7 @@ export async function composeDailyPlan(
     inputDigest: plan.inputDigest,
     acceptedAt: null,
     updatedAt: now.toISOString(),
+    ...(heldByWeek.length > 0 ? { heldByWeek } : {}),
   };
 }
 
@@ -665,26 +720,12 @@ export class PlanDateOutOfRangeError extends Error {
   }
 }
 
-/** A plan built on its own: today and tomorrow (#477). */
-export const PLAN_BUILD_DAYS = 2;
 /**
- * Proposals for the week view (CL5b): today and the six days after it, one
- * date at a time through the same daily planner. The window is wider only for
- * proposals the person reviews and accepts day by day; a day's own build keeps
- * `PLAN_BUILD_DAYS`.
+ * A plan built on its own: today and tomorrow (#477). The week view's
+ * proposals are wider (`PLAN_PROPOSAL_DAYS`, in `weekHolds.ts`), only for days
+ * the person reviews and accepts one at a time.
  */
-export const PLAN_PROPOSAL_DAYS = 7;
-
-/** The calendar date `days` after a `YYYY-MM-DD`. Civil arithmetic, no zone. */
-export function addCivilDays(date: string, days: number): string {
-  const [year, month, day] = date.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
-}
-
-/** `today` and the `days - 1` dates after it, in order. */
-export function planDatesFrom(today: string, days: number): string[] {
-  return Array.from({ length: days }, (_, offset) => addCivilDays(today, offset));
-}
+export const PLAN_BUILD_DAYS = 2;
 
 /** Refuses a date outside `today … today + days - 1`, before anything is composed. */
 export function assertPlanDateInRange(date: string, today: string, days: number): void {

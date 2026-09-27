@@ -211,6 +211,20 @@ export interface StoredDailyPlan {
    * person accepted is today's.
    */
   readonly weekPlan?: WeekPlanOrigin;
+  /**
+   * Work that saved week days of this week held when this plan was built on
+   * its own (CL5b, I3), and which day holds each. Left off this day so no
+   * step lands on two days; `weekHolds.ts` keeps every later solve of the day
+   * (the refresh, the replan tick) leaving it off too, until the day holding
+   * it has passed (#383). Absent when nothing was held. Ids and dates only.
+   */
+  readonly heldByWeek?: readonly WeekHold[];
+}
+
+/** One piece of work a saved week day holds, and that day. */
+export interface WeekHold {
+  readonly itemId: string;
+  readonly date: string;
 }
 
 /** See `StoredDailyPlan.weekPlan`. Ids and dates only. */

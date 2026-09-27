@@ -83,8 +83,15 @@ export async function readRoutineProfile(
   options: RoutineProfileOptions = {},
 ): Promise<UserRoutineProfile | null> {
   requireUserId(uid);
-  const user = await storageOf(options).get<ProfileBearingUser>(userDoc(uid));
-  const routine = user?.profile?.routine;
+  return routineProfileOf(await storageOf(options).get<ProfileBearingUser>(userDoc(uid)));
+}
+
+/**
+ * The profile a user document already read holds, or null. For a caller that
+ * has the document in hand and must not read it again (the week, CL5b I5).
+ */
+export function routineProfileOf(userDocument: unknown): UserRoutineProfile | null {
+  const routine = (userDocument as ProfileBearingUser | null | undefined)?.profile?.routine;
   // A document written by a future schema, or edited by hand, reads as absent
   // rather than as a half-profile the planner would act on.
   return routine && isUserRoutineProfile(routine) ? routine : null;

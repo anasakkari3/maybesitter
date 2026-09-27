@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
-import { userDoc } from '../../lib/storage/paths.ts';
+import { PLANNING_STATE_CHANGES, PLANS, docIdForKey, userDoc, userSubDoc } from '../../lib/storage/paths.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { loadDomainState, persistParticipantState } from '../../lib/services/mobile/participantState.ts';
 import {
@@ -42,13 +42,20 @@ import {
   proposalWasRejected,
   readStoredPlan,
   storePlanProposal,
+  type StoredDailyPlan,
   type StoredPlanProposal,
 } from '../../lib/services/dailyPlan/planStore.ts';
+import { processStateChangesForUser } from '../../lib/services/dailyPlan/continuousReplanService.ts';
+import { actionsToday, reserveDailyAction } from '../../lib/llm/usageGuard.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
+import type { PlanningStateChange } from '../../src/contracts/v1/watcherContracts.ts';
 import { dismissPlan, regeneratePlan, rejectPlanProposal } from '../../lib/services/dailyPlan/planActions.ts';
 import { readCurrentPlan } from '../../lib/services/dailyPlan/planRefresh.ts';
 import { MAX_PLAN_REBUILDS_PER_DAY } from '../../lib/services/dailyPlan/planSettings.ts';
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 import {
+  MAX_WEEK_PLANS_PER_DAY,
+  WEEK_PLAN_ACTION,
   WeekDecisionsInvalid,
   acceptWeekDay,
   composeWeek,
@@ -58,7 +65,7 @@ import {
   type WeekDto,
 } from '../../lib/services/dailyPlan/weekPlan.ts';
 import { GET as planGet } from '../../src/app/api/mobile/plans/[date]/route.ts';
-import { POST as weekPost } from '../../src/app/api/mobile/plans/week/route.ts';
+import { GET as weekGet, POST as weekPost } from '../../src/app/api/mobile/plans/week/route.ts';
 import { POST as weekAcceptPost } from '../../src/app/api/mobile/plans/week/accept/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -132,6 +139,18 @@ async function week(storage: StorageAdapter, decisions: WeekDecisions = NONE, no
 
 function stepsOn(dto: WeekDto, date: string): string[] {
   return dto.days.find((day) => day.date === date)!.items.map((item) => item.itemId);
+}
+
+/** What a card shows for `date`: its steps and the moved work with no room. What "Save" sends (I1). */
+function shownOn(dto: WeekDto, date: string): string[] {
+  const day = dto.days.find((candidate) => candidate.date === date);
+  return day ? [...day.items.map((item) => item.itemId), ...day.unplaced.map((item) => item.itemId)] : [];
+}
+
+/** Saves a day exactly as the screen does: look at the week, then save what the card showed. */
+async function save(storage: StorageAdapter, date: string, decisions: WeekDecisions = NONE, now: Date = MORNING) {
+  const shown = shownOn(await week(storage, decisions, now), date);
+  return acceptWeekDay(USER, date, decisions, shown, { storage, now: () => now });
 }
 
 async function withStorage(fn: (storage: StorageAdapter) => Promise<void>): Promise<void> {
@@ -226,7 +245,7 @@ test('accepting a day outside today … today+6 is refused before anything is co
     await seed(storage);
     for (const date of ['2026-09-14', '2026-09-22']) {
       await assert.rejects(
-        acceptWeekDay(USER, date, NONE, { storage, now: () => MORNING }),
+        save(storage, date, NONE),
         (error: unknown) => error instanceof PlanDateOutOfRangeError && error.days === 7,
         `${date} was accepted from the week`,
       );
@@ -243,7 +262,7 @@ test('the widened range is for proposals only: a day\'s own build still refuses 
       (error: unknown) => error instanceof PlanDateOutOfRangeError && error.days === 2,
     );
     // …while the week accepts that same date.
-    const accepted = await acceptWeekDay(USER, '2026-09-17', NONE, { storage, now: () => MORNING });
+    const accepted = await save(storage, '2026-09-17', NONE);
     assert.equal(accepted.outcome, 'accepted');
   });
 });
@@ -269,7 +288,7 @@ test('accepting a day stores exactly the proposed plan for that date, accepted, 
     const before = await week(storage);
     const proposed = before.days.find((day) => day.date === '2026-09-19')!;
 
-    const result = await acceptWeekDay(USER, '2026-09-19', NONE, { storage, now: () => MORNING });
+    const result = await save(storage, '2026-09-19', NONE);
     assert.equal(result.outcome, 'accepted');
 
     const stored = await readStoredPlan(USER, '2026-09-19', storage);
@@ -308,7 +327,7 @@ test('an accepted day reads back on its date as the plan screen reads any plan',
   mock.timers.enable({ apis: ['Date'], now: MORNING.getTime() });
   try {
     await seed(storage);
-    const response = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-09-19' } }));
+    const response = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-09-19', shown: ['cmt_rent'] } }));
     assert.equal(response.status, 200);
     const accepted = await response.json() as { plan: { date: string; status: string; scheduled: Array<{ itemId: string }> }; week: WeekDto };
     assert.equal(accepted.plan.date, '2026-09-19');
@@ -332,7 +351,7 @@ test('work placed on an accepted day is not proposed on any other day, and the d
     await seed(storage);
     const first = await week(storage);
     const mondayStep = stepsOn(first, WEEK[0]!)[0]!;
-    await acceptWeekDay(USER, WEEK[0]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[0]!, NONE);
 
     const after = await week(storage);
     assert.equal(after.days[0]!.state, 'accepted');
@@ -349,7 +368,7 @@ test('accepting a date that already has a plan leaves that plan exactly as it wa
   await withStorage(async (storage) => {
     await seed(storage);
     const built = await buildDailyPlanOnDemand(USER, '2026-09-16', { storage, now: () => MORNING });
-    const result = await acceptWeekDay(USER, '2026-09-16', NONE, { storage, now: () => MORNING });
+    const result = await save(storage, '2026-09-16', NONE);
     assert.equal(result.outcome, 'already_planned');
     assert.deepEqual(await readStoredPlan(USER, '2026-09-16', storage), built.stored);
     const dto = await week(storage);
@@ -384,7 +403,7 @@ test('moving a step to another day puts it there, and its old day offers the nex
     assert.equal(stepsOn(dto, WEEK[0]!).length, 1, 'the day the step left was not offered the next thing');
     assert.deepEqual(dto.moves, [{ itemId: moved, date: '2026-09-18' }]);
 
-    const accepted = await acceptWeekDay(USER, '2026-09-18', { moves: [{ itemId: moved, date: '2026-09-18' }], drops: [] }, { storage, now: () => MORNING });
+    const accepted = await save(storage, '2026-09-18', { moves: [{ itemId: moved, date: '2026-09-18' }], drops: [] });
     assert.equal(accepted.outcome, 'accepted');
     assert.deepEqual((await readStoredPlan(USER, '2026-09-18', storage))!.plan.scheduled.map((item) => item.itemId), [moved]);
   });
@@ -411,7 +430,7 @@ test('dropping a step takes it out of the whole week, and it is not stored on th
     assert.ok(!dto.days.some((day) => day.items.some((item) => item.itemId === dropped)), 'a dropped step was still proposed');
     assert.deepEqual(dto.drops.map((drop) => [drop.itemId, drop.title !== null]), [[dropped, true]]);
 
-    await acceptWeekDay(USER, WEEK[0]!, decisions, { storage, now: () => MORNING });
+    await save(storage, WEEK[0]!, decisions);
     assert.ok(!(await readStoredPlan(USER, WEEK[0]!, storage))!.plan.scheduled.some((item) => item.itemId === dropped));
   });
 });
@@ -419,7 +438,7 @@ test('dropping a step takes it out of the whole week, and it is not stored on th
 test('decisions about work the week does not hold are ignored, not stored', async () => {
   await withStorage(async (storage) => {
     await seed(storage);
-    await acceptWeekDay(USER, WEEK[0]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[0]!, NONE);
     const taken = (await readStoredPlan(USER, WEEK[0]!, storage))!.plan.scheduled[0]!.itemId;
     const free = UNDATED.find((itemId) => itemId !== taken)!;
     const dto = await week(storage, {
@@ -446,7 +465,7 @@ test('the decisions a client sends are bounded and shaped', () => {
 test('an accepted future day is never rebuilt by a read: a new commitment raises inputsChanged, held work does not', async () => {
   await withStorage(async (storage) => {
     await seed(storage);
-    await acceptWeekDay(USER, WEEK[1]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[1]!, NONE);
     const accepted = await readStoredPlan(USER, WEEK[1]!, storage);
 
     // Held work — the other undated tasks, on other days — is not news.
@@ -464,8 +483,8 @@ test('an accepted future day is never rebuilt by a read: a new commitment raises
 test('work held for a day that has passed rolls into today and is news on today\'s accepted plan (#383)', async () => {
   await withStorage(async (storage) => {
     await seed(storage);
-    await acceptWeekDay(USER, WEEK[0]!, NONE, { storage, now: () => MORNING });
-    await acceptWeekDay(USER, WEEK[1]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[0]!, NONE);
+    await save(storage, WEEK[1]!, NONE);
     const heldOnMonday = (await readStoredPlan(USER, WEEK[0]!, storage))!.plan.scheduled[0]!.itemId;
     assert.ok((await readStoredPlan(USER, WEEK[1]!, storage))!.weekPlan!.heldElsewhere.some((held) => held.itemId === heldOnMonday && held.date === WEEK[0]));
 
@@ -478,7 +497,7 @@ test('work held for a day that has passed rolls into today and is news on today\
 test('a declined patch on an accepted future day stays declined, and the week never rewrites that day', async () => {
   await withStorage(async (storage) => {
     await seed(storage);
-    await acceptWeekDay(USER, WEEK[1]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[1]!, NONE);
     const stored = (await readStoredPlan(USER, WEEK[1]!, storage))!;
     const shifted = {
       ...stored.plan,
@@ -505,7 +524,7 @@ test('a declined patch on an accepted future day stays declined, and the week ne
     const declined = (await readStoredPlan(USER, WEEK[1]!, storage))!;
     assert.ok(proposalWasRejected(declined, proposal));
 
-    const again = await acceptWeekDay(USER, WEEK[1]!, NONE, { storage, now: () => MORNING });
+    const again = await save(storage, WEEK[1]!, NONE);
     assert.equal(again.outcome, 'already_planned');
     await week(storage);
     const read = await readCurrentPlan(USER, WEEK[1]!, { storage, now: () => MORNING });
@@ -517,8 +536,8 @@ test('a declined patch on an accepted future day stays declined, and the week ne
 test('the rebuild cap is per date: an accepted week day is generation 1 of its own date\'s cap', async () => {
   await withStorage(async (storage) => {
     await seed(storage);
-    await acceptWeekDay(USER, WEEK[2]!, NONE, { storage, now: () => MORNING });
-    await acceptWeekDay(USER, WEEK[3]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[2]!, NONE);
+    await save(storage, WEEK[3]!, NONE);
 
     for (let rebuild = 0; rebuild < MAX_PLAN_REBUILDS_PER_DAY; rebuild += 1) {
       const outcome = await regeneratePlan(USER, WEEK[2]!, { storage, now: () => MORNING });
@@ -538,7 +557,7 @@ test('the rebuild cap is per date: an accepted week day is generation 1 of its o
 test('the morning job leaves an accepted future-dated plan exactly as accepted, and says so once', async () => {
   await withStorage(async (storage) => {
     await seed(storage, { delivery: true });
-    await acceptWeekDay(USER, WEEK[1]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[1]!, NONE);
     const accepted = (await readStoredPlan(USER, WEEK[1]!, storage))!;
     const push = recorder();
 
@@ -570,7 +589,7 @@ test('the morning job leaves an accepted future-dated plan exactly as accepted, 
 test('two morning builds of an accepted week day at once announce it once', async () => {
   await withStorage(async (storage) => {
     await seed(storage, { delivery: true });
-    await acceptWeekDay(USER, WEEK[1]!, NONE, { storage, now: () => MORNING });
+    await save(storage, WEEK[1]!, NONE);
     const push = recorder();
     const claim = { uid: USER, date: WEEK[1]!, settings: await readPlanSettings(USER, { storage }) };
     const [left, right] = await Promise.all([
@@ -585,7 +604,7 @@ test('two morning builds of an accepted week day at once announce it once', asyn
 test('accepting today from the week is today\'s plan on screen: the morning sends nothing about it', async () => {
   await withStorage(async (storage) => {
     await seed(storage, { delivery: true });
-    await acceptWeekDay(USER, TODAY, NONE, { storage, now: () => MORNING });
+    await save(storage, TODAY, NONE);
     assert.equal((await readStoredPlan(USER, TODAY, storage))!.weekPlan?.announced, true);
     const push = recorder();
     const totals = await runDailyPlanTick({ storage, push: push.push, now: () => new Date('2026-09-15T06:01:00.000Z') });
@@ -651,7 +670,9 @@ test('the week routes refuse a malformed body with 400 and write nothing', async
   await withRoutes(async (storage) => {
     assert.equal((await weekPost(request('/api/mobile/plans/week', { raw: '{not json' }))).status, 400);
     assert.equal((await weekPost(request('/api/mobile/plans/week', { body: { drops: 'cmt_a' } }))).status, 400);
-    for (const body of [{}, { date: 'tomorrow' }, { date: TODAY, moves: 3 }]) {
+    // `shown` is required: a save says which steps the card showed (I1).
+    for (const body of [{}, { date: 'tomorrow', shown: [] }, { date: TODAY, moves: 3, shown: [] }, { date: TODAY }, { date: TODAY, shown: 'cmt_a' },
+      { date: TODAY, shown: Array.from({ length: 51 }, (_, i) => `id${i}`) }]) {
       assert.equal((await weekAcceptPost(request('/api/mobile/plans/week/accept', { body }))).status, 400, JSON.stringify(body));
     }
     assert.deepEqual(await listPlanEvents(USER, storage), []);
@@ -659,16 +680,388 @@ test('the week routes refuse a malformed body with 400 and write nothing', async
 });
 
 test('POST week/accept answers 400 date_out_of_range outside the week, and 409 already_planned on a planned date', async () => {
-  await withRoutes(async () => {
-    const outside = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-09-22' } }));
+  await withRoutes(async (storage) => {
+    const outside = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-09-22', shown: [] } }));
     assert.equal(outside.status, 400);
     assert.equal((await outside.json() as { reason: string }).reason, 'date_out_of_range');
 
-    assert.equal((await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: TODAY } }))).status, 200);
-    const again = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: TODAY } }));
+    const shown = shownOn(await week(storage), TODAY);
+    assert.equal((await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: TODAY, shown } }))).status, 200);
+    const again = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: TODAY, shown } }));
     assert.equal(again.status, 409);
     const body = await again.json() as { reason: string; week: WeekDto };
     assert.equal(body.reason, 'already_planned');
     assert.equal(body.week.days[0]!.state, 'accepted');
+  });
+});
+
+/* ══ Review round 1 (CL5b-review.md) ════════════════════════════════ */
+
+/* ── I1: the day saved is the day the card showed ─────────────────── */
+
+test('a save whose card no longer matches the week is refused as week_changed, and nothing is stored (I1)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    const thursday = WEEK[2]!;
+    const shown = shownOn(await week(storage), thursday);
+    assert.equal(shown.length, 1, 'fixture: Thursday shows one step');
+
+    // The literal repro: another phone captures a task due today while the week is on screen.
+    await addCommitment(storage, 'cmt_today', 'Send the form', { kind: 'due', dueAt: '2026-09-15T15:00:00.000Z' }, '2026-09-15T06:01:00.000Z');
+    const fresh = await week(storage);
+    assert.notDeepEqual(shownOn(fresh, thursday), shown, 'fixture: the new task must shift Thursday\'s step');
+
+    const result = await acceptWeekDay(USER, thursday, NONE, shown, { storage, now: () => MORNING });
+    assert.equal(result.outcome, 'week_changed', 'a day the person never saw was saved');
+    assert.equal(await readStoredPlan(USER, thursday, storage), null);
+    assert.deepEqual(await listPlanEvents(USER, storage), []);
+    assert.deepEqual(shownOn(weekToDto(result.layout), thursday), shownOn(fresh, thursday), 'the refusal does not carry the week as it is now');
+  });
+});
+
+test('the same save with the card as it is now goes through (I1)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    await addCommitment(storage, 'cmt_today', 'Send the form', { kind: 'due', dueAt: '2026-09-15T15:00:00.000Z' }, '2026-09-15T06:01:00.000Z');
+    const result = await save(storage, WEEK[2]!);
+    assert.equal(result.outcome, 'accepted');
+  });
+});
+
+test('POST week/accept answers 409 week_changed with the fresh week when the card is stale (I1)', async () => {
+  await withRoutes(async (storage) => {
+    const response = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: WEEK[2], shown: ['cmt_not_on_this_day'] } }));
+    assert.equal(response.status, 409);
+    const body = await response.json() as { success: boolean; reason: string; week: WeekDto };
+    assert.equal(body.success, false);
+    assert.equal(body.reason, 'week_changed');
+    assert.deepEqual(body.week.days.map((day) => day.date), WEEK);
+    assert.equal(await readStoredPlan(USER, WEEK[2]!, storage), null);
+  });
+});
+
+/* ── M-a: never "accepted" for a day that was not accepted ────────── */
+
+/** Deletes the day's plan the moment it is stored: an account deletion racing the save. */
+function deletingThePlanOnceStored(storage: StorageAdapter, date: string): StorageAdapter {
+  return new Proxy(storage, {
+    get(target, property, receiver) {
+      if (property === 'set') {
+        return async (path: string, value: unknown) => {
+          await target.set(path, value as Record<string, unknown>);
+          const record = value as { type?: unknown; date?: unknown } | null;
+          if (record?.type === 'plan_proposed' && record.date === date) await target.delete(userSubDoc(USER, PLANS, date));
+        };
+      }
+      const member = Reflect.get(target, property, receiver);
+      return typeof member === 'function' ? member.bind(target) : member;
+    },
+  });
+}
+
+test('when the accept finds no plan, the save is not answered as accepted (M-a)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    const shown = shownOn(await week(storage), WEEK[2]!);
+    const racing = deletingThePlanOnceStored(storage, WEEK[2]!);
+    const result = await acceptWeekDay(USER, WEEK[2]!, NONE, shown, { storage: racing, now: () => MORNING });
+    assert.notEqual(result.outcome, 'accepted', 'a day with no plan was answered as accepted');
+    assert.equal(result.outcome, 'week_changed');
+  });
+});
+
+/* ── I2: the replan tick solves a week day under the week's decisions ─ */
+
+const CALENDAR = 'device:calendar-1';
+
+/** A calendar sync that puts a meeting on `interval`, and the change row the tick drains. */
+async function meetingAt(storage: StorageAdapter, interval: { startsAt: string; endsAt: string }): Promise<void> {
+  await replaceBusyBlocksAsFixture(
+    USER,
+    CALENDAR,
+    { startsAt: '2026-09-15T00:00:00.000Z', endsAt: '2026-09-17T00:00:00.000Z' },
+    [{ blockId: 'busy-meeting', sourceId: CALENDAR, sourceKind: 'device' as const, startAt: interval.startsAt, endAt: interval.endsAt, allDay: false }],
+    { storage },
+  );
+  const change: PlanningStateChange = {
+    schemaVersion: 'planning-state-change-v1',
+    changeId: 'chg-meeting',
+    scopeId: USER,
+    source: 'calendar',
+    entityId: 'busy-meeting',
+    occurredAt: MORNING.toISOString(),
+    changedFields: ['interval', 'blocking'],
+    beforeDigest: null,
+    afterDigest: 'digest-busy-meeting',
+    provenanceRef: 'calendar:refresh-1',
+  };
+  await storage.set(userSubDoc(USER, PLANNING_STATE_CHANGES, docIdForKey('chg-meeting')), change);
+}
+
+/** Every piece of work the plan in force, or an offer on it, would put on the day. */
+function workOnTheDay(stored: StoredDailyPlan): { inForce: string[]; offered: string[] | null } {
+  const ids = (plan: { scheduled: readonly { itemId: string }[]; unscheduled: readonly { itemId: string }[] }) =>
+    [...plan.scheduled, ...plan.unscheduled].map((item) => item.itemId).sort();
+  return { inForce: ids(stored.plan), offered: stored.proposal ? ids(stored.proposal.plan) : null };
+}
+
+for (const userControlMode of ['always_require_confirmation', 'silent_auto'] as const) {
+  test(`a replan of a saved week day keeps the week's decisions: held work stays off, moved work stays on (I2, ${userControlMode})`, async () => {
+    await withStorage(async (storage) => {
+      await seed(storage);
+      const step = stepsOn(await week(storage), TODAY)[0]!;
+      // The rent is due Saturday; the person moves it onto today, and saves today.
+      const decisions = { moves: [{ itemId: 'cmt_rent', date: TODAY }], drops: [] };
+      assert.equal((await save(storage, TODAY, decisions)).outcome, 'accepted');
+      const saved = (await readStoredPlan(USER, TODAY, storage))!;
+      const expected = [step, 'cmt_rent'].sort();
+      assert.deepEqual(workOnTheDay(saved).inForce, expected, 'fixture: today holds its step and the moved rent');
+
+      const placed = saved.plan.scheduled.find((item) => item.itemId === step)!;
+      await meetingAt(storage, placed.interval);
+      await processStateChangesForUser(USER, { storage, now: MORNING, policyConfig: { userControlMode } });
+
+      const after = (await readStoredPlan(USER, TODAY, storage))!;
+      const work = workOnTheDay(after);
+      assert.ok(after.generation > saved.generation || work.offered !== null, 'fixture: the meeting did not make the tick replan the day');
+      assert.deepEqual(work.inForce, expected, 'the replan put held work on the day, or took the moved work off it');
+      if (work.offered) assert.deepEqual(work.offered, expected, 'the replan offered to undo the week\'s decisions');
+    });
+  });
+}
+
+test('under silent_auto, a replan of a saved week day never adds work the week held elsewhere (I2)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    assert.equal((await save(storage, TODAY)).outcome, 'accepted');
+    const saved = (await readStoredPlan(USER, TODAY, storage))!;
+    const step = saved.plan.scheduled[0]!;
+    await meetingAt(storage, step.interval);
+    await processStateChangesForUser(USER, { storage, now: MORNING, policyConfig: { userControlMode: 'silent_auto' } });
+
+    const after = (await readStoredPlan(USER, TODAY, storage))!;
+    assert.ok(after.generation > saved.generation, 'fixture: the meeting was not applied silently');
+    assert.deepEqual(workOnTheDay(after).inForce, [step.itemId], 'a silent replan added the week\'s held work to the day');
+  });
+});
+
+/* ── I3: work a saved week day holds is on no other day ──────────── */
+
+test('a day built on its own leaves out the step a saved week day holds, and a read or a rebuild does not put it back (I3)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    assert.equal((await save(storage, WEEK[2]!)).outcome, 'accepted');
+    const held = (await readStoredPlan(USER, WEEK[2]!, storage))!.plan.scheduled[0]!.itemId;
+
+    // The reviewer's probe A: build Wednesday on demand.
+    const built = await buildDailyPlanOnDemand(USER, WEEK[1]!, { storage, now: () => MORNING });
+    const onWednesday = (stored: StoredDailyPlan) => workOnTheDay(stored).inForce;
+    assert.ok(!onWednesday(built.stored).includes(held), 'the step saved for Thursday also landed on Wednesday');
+    assert.deepEqual(onWednesday(built.stored), UNDATED.filter((itemId) => itemId !== held).sort());
+
+    // A read does not see the held step as news and rebuild the day with it.
+    const read = await readCurrentPlan(USER, WEEK[1]!, { storage, now: () => MORNING });
+    assert.equal(read!.stored.generation, built.stored.generation, 'a read rebuilt Wednesday');
+    assert.equal(read!.inputsChanged, false);
+
+    // Nor does the person's own rebuild.
+    const rebuilt = await regeneratePlan(USER, WEEK[1]!, { storage, now: () => MORNING });
+    assert.ok(rebuilt.ok);
+    assert.ok(!onWednesday(rebuilt.stored).includes(held), 'a rebuild put the Thursday step on Wednesday');
+  });
+});
+
+test('the morning job builds the day without the step a saved week day holds (I3)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage, { delivery: true });
+    assert.equal((await save(storage, WEEK[2]!)).outcome, 'accepted');
+    const held = (await readStoredPlan(USER, WEEK[2]!, storage))!.plan.scheduled[0]!.itemId;
+    const push = recorder();
+    const totals = await runDailyPlanTick({ storage, push: push.push, now: () => NEXT_MORNING });
+    assert.equal(totals.built, 1, 'fixture: Wednesday\'s morning was not built');
+    const wednesday = (await readStoredPlan(USER, WEEK[1]!, storage))!;
+    assert.ok(!workOnTheDay(wednesday).inForce.includes(held), 'the morning put Thursday\'s saved step on Wednesday');
+  });
+});
+
+test('a person\'s rebuild of a saved week day leaves out the steps other saved days hold (I3, M-b)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    assert.equal((await save(storage, WEEK[1]!)).outcome, 'accepted');
+    assert.equal((await save(storage, WEEK[2]!)).outcome, 'accepted');
+    const heldThursday = (await readStoredPlan(USER, WEEK[2]!, storage))!.plan.scheduled[0]!.itemId;
+    const rebuilt = await regeneratePlan(USER, WEEK[1]!, { storage, now: () => MORNING });
+    assert.ok(rebuilt.ok);
+    assert.ok(!workOnTheDay(rebuilt.stored).inForce.includes(heldThursday), 'the rebuilt Wednesday holds Thursday\'s saved step');
+  });
+});
+
+test('a saved day that has passed holds nothing: its unfinished step rolls into the next day (I3, #383)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    assert.equal((await save(storage, TODAY)).outcome, 'accepted');
+    const held = (await readStoredPlan(USER, TODAY, storage))!.plan.scheduled[0]!.itemId;
+    const built = await buildDailyPlanOnDemand(USER, WEEK[1]!, { storage, now: () => NEXT_MORNING });
+    assert.ok(workOnTheDay(built.stored).inForce.includes(held), 'yesterday\'s unfinished step was kept off today');
+  });
+});
+
+test('a saved week day the person dismissed holds nothing (I3)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    assert.equal((await save(storage, WEEK[2]!)).outcome, 'accepted');
+    const held = (await readStoredPlan(USER, WEEK[2]!, storage))!.plan.scheduled[0]!.itemId;
+    await dismissPlan(USER, WEEK[2]!, { storage, now: () => MORNING });
+    const built = await buildDailyPlanOnDemand(USER, WEEK[1]!, { storage, now: () => MORNING });
+    assert.ok(workOnTheDay(built.stored).inForce.includes(held), 'a dismissed day still held its step');
+  });
+});
+
+/* ── I4: the saved week, for the Calendar strip ──────────────────── */
+
+test('GET week answers the saved week days of the next seven, with their steps, and nothing else (I4)', async () => {
+  await withRoutes(async (storage) => {
+    assert.equal((await weekGet(request('/api/mobile/plans/week', { anonymous: true }))).status, 401);
+    const empty = await weekGet(request('/api/mobile/plans/week'));
+    assert.equal(empty.status, 200);
+    assert.deepEqual((await empty.json() as { saved: unknown[] }).saved, []);
+
+    assert.equal((await save(storage, WEEK[2]!)).outcome, 'accepted');
+    assert.equal((await save(storage, WEEK[4]!)).outcome, 'accepted');
+    await dismissPlan(USER, WEEK[4]!, { storage, now: () => MORNING });
+    // A plan built on its own is not a saved week day.
+    await buildDailyPlanOnDemand(USER, TODAY, { storage, now: () => MORNING });
+
+    const thursday = (await readStoredPlan(USER, WEEK[2]!, storage))!.plan.scheduled[0]!;
+    const response = await weekGet(request('/api/mobile/plans/week'));
+    assert.equal(response.status, 200);
+    const body = await response.json() as { success: boolean; today: string; saved: Array<{ date: string; items: Array<{ itemId: string; startsAt: string; endsAt: string }> }> };
+    assert.equal(body.success, true);
+    assert.equal(body.today, TODAY);
+    assert.deepEqual(body.saved, [{
+      date: WEEK[2],
+      items: [{ itemId: thursday.itemId, startsAt: thursday.interval.startsAt, endsAt: thursday.interval.endsAt }],
+    }]);
+  });
+});
+
+/* ── I5: one read of the account per week, and a daily cap ───────── */
+
+/** Counts the reads that cost the most: the commitments collection and the user document. */
+function countingReads(storage: StorageAdapter) {
+  const counts = { commitments: 0, user: 0 };
+  const proxy = new Proxy(storage, {
+    get(target, property, receiver) {
+      if (property === 'list') {
+        return (path: string, ...rest: unknown[]) => {
+          if (path.endsWith('/commitments')) counts.commitments += 1;
+          return (target.list as (...args: unknown[]) => unknown)(path, ...rest);
+        };
+      }
+      if (property === 'get') {
+        return (path: string) => {
+          if (path === userDoc(USER)) counts.user += 1;
+          return target.get(path);
+        };
+      }
+      const member = Reflect.get(target, property, receiver);
+      return typeof member === 'function' ? member.bind(target) : member;
+    },
+  });
+  return { storage: proxy, counts };
+}
+
+test('composing the week reads the commitments and the account once, not once per day (I5)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    const counting = countingReads(storage);
+    const layout = await composeWeek(USER, NONE, { storage: counting.storage, now: () => MORNING });
+    assert.equal(layout.days.length, 7);
+    assert.equal(counting.counts.commitments, 1, `the week loaded the commitments ${counting.counts.commitments} times`);
+    // Once for the week, and once by the focus hint's consent gate — which
+    // reads the live consent on purpose (#202), once for the week, not per day.
+    assert.equal(counting.counts.user, 2, `the week read the account ${counting.counts.user} times`);
+  });
+});
+
+test('both week routes stop at a generous daily cap with 429 and write nothing (I5)', async () => {
+  await withRoutes(async (storage) => {
+    assert.equal((await weekPost(request('/api/mobile/plans/week', { body: {} }))).status, 200);
+    assert.equal(await actionsToday(USER, WEEK_PLAN_ACTION, { storage }), 1, 'a week call was not counted');
+    for (let call = 1; call < MAX_WEEK_PLANS_PER_DAY; call += 1) await reserveDailyAction(USER, WEEK_PLAN_ACTION, MAX_WEEK_PLANS_PER_DAY, { storage });
+
+    const refused = await weekPost(request('/api/mobile/plans/week', { body: {} }));
+    assert.equal(refused.status, 429);
+    assert.deepEqual(await refused.json(), { success: false, error: 'too many week plans today', reason: 'week_rate_limited', maxPerDay: MAX_WEEK_PLANS_PER_DAY });
+
+    const accept = await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: WEEK[2], shown: ['cmt_c'] } }));
+    assert.equal(accept.status, 429);
+    assert.equal(await readStoredPlan(USER, WEEK[2]!, storage), null);
+    assert.equal(MAX_WEEK_PLANS_PER_DAY, 300);
+  });
+});
+
+/* ── M-e: the week bodies are bounded tighter than the default ────── */
+
+test('the week routes refuse a body over 32 KB with 413 (M-e)', async () => {
+  await withRoutes(async (storage) => {
+    const padding = 'x'.repeat(40 * 1024);
+    assert.equal((await weekPost(request('/api/mobile/plans/week', { body: { padding } }))).status, 413);
+    assert.equal((await weekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: TODAY, shown: [], padding } }))).status, 413);
+    assert.equal(await readStoredPlan(USER, TODAY, storage), null);
+  });
+});
+
+test('a day built around a saved week day, refreshed after a capture, still leaves the held step off (I3)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    assert.equal((await save(storage, WEEK[2]!)).outcome, 'accepted');
+    const held = (await readStoredPlan(USER, WEEK[2]!, storage))!.plan.scheduled[0]!.itemId;
+    const built = await buildDailyPlanOnDemand(USER, WEEK[1]!, { storage, now: () => MORNING });
+    assert.deepEqual(built.stored.heldByWeek, [{ itemId: held, date: WEEK[2] }]);
+
+    await addCommitment(storage, 'cmt_new', 'Buy a gift', { kind: 'undated' }, '2026-09-15T07:00:00.000Z');
+    const later = new Date('2026-09-15T07:00:00.000Z');
+    const read = await readCurrentPlan(USER, WEEK[1]!, { storage, now: () => later });
+    assert.equal(read!.stored.generation, built.stored.generation + 1, 'fixture: the untouched plan was not refreshed');
+    assert.ok(workOnTheDay(read!.stored).inForce.includes('cmt_new'));
+    assert.ok(!workOnTheDay(read!.stored).inForce.includes(held), 'the refresh put Thursday\'s saved step on Wednesday');
+    assert.deepEqual(read!.stored.heldByWeek, built.stored.heldByWeek, 'the refresh dropped the record of what the week holds');
+  });
+});
+
+test('a week day stored but never accepted (a crash between the two writes) keeps its week decisions on a read (M-a)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    const dto = await week(storage);
+    const layout = await composeWeek(USER, NONE, { storage, now: () => MORNING });
+    const day = layout.days.find((candidate) => candidate.date === WEEK[1])!;
+    assert.equal(day.kind, 'proposed');
+    if (day.kind !== 'proposed') return;
+    const { stored } = await storeWeekDayPlan(USER, WEEK[1]!, {
+      assignment: day.assignment,
+      origin: { considered: [...day.rule], heldElsewhere: [], announced: false },
+    }, { storage, now: () => MORNING });
+    assert.equal(stored.status, 'proposed');
+
+    const read = await readCurrentPlan(USER, WEEK[1]!, { storage, now: () => MORNING });
+    assert.equal(read!.stored.generation, stored.generation, 'a read rebuilt the stored week day as a plain daily plan');
+    assert.deepEqual(workOnTheDay(read!.stored).inForce, stepsOn(dto, WEEK[1]!).sort());
+    assert.ok(read!.stored.weekPlan, 'the week\'s record was dropped');
+  });
+});
+
+test('once the saved day holding a step has passed, a day built around it takes the unfinished step back (I3, #383)', async () => {
+  await withStorage(async (storage) => {
+    await seed(storage);
+    assert.equal((await save(storage, TODAY)).outcome, 'accepted');
+    const held = (await readStoredPlan(USER, TODAY, storage))!.plan.scheduled[0]!.itemId;
+    // Built on Tuesday, Wednesday leaves Tuesday's saved step off.
+    const built = await buildDailyPlanOnDemand(USER, WEEK[1]!, { storage, now: () => MORNING });
+    assert.ok(!workOnTheDay(built.stored).inForce.includes(held), 'fixture: Wednesday was built with Tuesday\'s step');
+
+    // Wednesday morning, the step was not done: it is Wednesday's now.
+    const read = await readCurrentPlan(USER, WEEK[1]!, { storage, now: () => NEXT_MORNING });
+    assert.ok(workOnTheDay(read!.stored).inForce.includes(held), 'yesterday\'s unfinished step stayed off today');
   });
 });

@@ -192,6 +192,8 @@ test('every mobile route file exists and is enumerated', () => {
   // and `POST /api/mobile/plans/week/accept`. The first answers a week of the
   // caller's commitments by title; the second stores and accepts a day's plan,
   // so an unguarded one would write a plan into an account that is not theirs.
+  // The week file also answers `GET` (the saved week days for the Calendar
+  // strip, CL5b I4): one more handler, no more files, guarded the same way.
   assert.equal(files.length, 82, `found:\n${files.join('\n')}`);
 });
 

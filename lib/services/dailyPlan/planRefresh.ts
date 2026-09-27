@@ -94,6 +94,7 @@ import {
 } from './planStore';
 import { localDateOf } from './planSettings';
 import { replanExplanation } from './replanMetadata';
+import { storedWeekAssignment } from './weekHolds';
 
 export interface PlanRefreshDeps {
   readonly storage?: StorageAdapter;
@@ -176,8 +177,19 @@ function commitmentDigest(frame: StoredDailyPlan, constraints: PlanningConstrain
   }, frame.config);
 }
 
-/** The request the day's commitments produce now, for the comparisons below. */
-function currentRequestOf(uid: string, stored: StoredDailyPlan, commitments: readonly Commitment[]): PlanningConstraints {
+/**
+ * The request the day's commitments produce now, for the comparisons below —
+ * under the week's decisions the plan was stored with (`storedWeekAssignment`,
+ * CL5b), so work a saved week day holds, or a week day left off on purpose,
+ * is not "something new on the day", and a moved step is not "gone".
+ */
+function currentRequestOf(
+  uid: string,
+  stored: StoredDailyPlan,
+  commitments: readonly Commitment[],
+  today: string | null,
+): PlanningConstraints {
+  const assignment = storedWeekAssignment(stored, today);
   return buildDailyPlanInput({
     uid,
     date: stored.date,
@@ -189,19 +201,23 @@ function currentRequestOf(uid: string, stored: StoredDailyPlan, commitments: rea
     profile: null,
     focusHint: null,
     builtAt: stored.generatedAt,
+    ...(assignment ? { assignment } : {}),
   }).constraints;
 }
 
 /**
  * Whether the day's commitments say something different now from what this
  * plan was built from. Pure: it takes the commitments rather than reading them.
+ * `today` is the account's local date now, for work held for a day that has
+ * passed (#383); null reads nothing as passed.
  */
 export function planInputsChanged(
   uid: string,
   stored: StoredDailyPlan,
   commitments: readonly Commitment[],
+  today: string | null = null,
 ): boolean {
-  const current = currentRequestOf(uid, stored, commitments);
+  const current = currentRequestOf(uid, stored, commitments, today);
   return commitmentDigest(stored, current) !== commitmentDigest(stored, stored.constraints);
 }
 
@@ -223,11 +239,9 @@ export function dayGainedOrMoved(
   commitments: readonly Commitment[],
   today: string | null = null,
 ): boolean {
-  const current = currentRequestOf(uid, stored, commitments);
+  const current = currentRequestOf(uid, stored, commitments, today);
   const floatingBefore = new Map(stored.constraints.items.map((item) => [item.itemId, item.deadlineAt] as const));
-  const settled = settledByWeek(stored, today);
   for (const item of current.items) {
-    if (!floatingBefore.has(item.itemId) && settled.has(item.itemId)) continue;
     if (!floatingBefore.has(item.itemId)) return true;
     const before = floatingBefore.get(item.itemId) ?? null;
     const after = item.deadlineAt ?? null;
@@ -243,25 +257,6 @@ export function dayGainedOrMoved(
       || toEpochMs(before.endsAt) !== toEpochMs(event.interval.endsAt)) return true;
   }
   return false;
-}
-
-/**
- * Floating work the week view already decided about for this day (CL5b): it
- * belonged here when the week was planned and was left off on purpose —
- * placed on another day, or past the day's one step. Its presence among the
- * day's commitments is not news.
- *
- * Except work the week held for a day that has now passed. #383's rule is that
- * yesterday's active work rolls into today, so once the day it was held for
- * is behind `today`, it is on this day for real, and that is news.
- */
-function settledByWeek(stored: StoredDailyPlan, today: string | null): Set<string> {
-  const week = stored.weekPlan;
-  if (!week) return new Set();
-  const rolledIn = new Set(week.heldElsewhere
-    .filter((held) => today !== null && held.date < today)
-    .map((held) => held.itemId));
-  return new Set(week.considered.filter((itemId) => !rolledIn.has(itemId)));
 }
 
 /** The calendar date after a `YYYY-MM-DD`. Civil arithmetic, no zone. */
@@ -303,14 +298,18 @@ export async function refreshStalePlan(
   if (!isRefreshableDate(stored, now)) return { stored, inputsChanged: false };
 
   const commitments = deps.commitments ?? Object.values((await loadDomainState(storage, uid)).commitments);
-  if (!planInputsChanged(uid, stored, commitments)) return { stored, inputsChanged: false };
+  const today = localDateOf(now.toISOString(), stored.timezone);
+  if (!planInputsChanged(uid, stored, commitments, today)) return { stored, inputsChanged: false };
   if (!planIsUntouched(stored, now)) {
-    const today = localDateOf(now.toISOString(), stored.timezone);
     return { stored, inputsChanged: dayGainedOrMoved(uid, stored, commitments, today) };
   }
 
   const nowIso = now.toISOString();
   const user = await storage.get<Record<string, unknown>>(userDoc(uid));
+  // Solved under the week's decisions the day was stored with (CL5b): a
+  // saved week day left untouched keeps its own work, and a day built around
+  // saved week days keeps leaving their work off.
+  const assignment = storedWeekAssignment(stored, today);
   const { constraints, config } = await composeDailyPlanRequest({
     uid,
     date: stored.date,
@@ -318,6 +317,7 @@ export async function refreshStalePlan(
     now: nowIso,
     userDocument: user,
     previousBlocks: stored.blocks ?? [],
+    ...(assignment ? { assignment } : {}),
   }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
   const plan = schedulePlan(constraints, config);
 
@@ -352,6 +352,9 @@ export async function refreshStalePlan(
       // describes a plan that no longer exists.
       proposal: null,
       automaticGenerations: (current.automaticGenerations ?? 0) + 1,
+      // The week's record goes with the day: the refresh solved under it.
+      ...(current.weekPlan ? { weekPlan: current.weekPlan } : {}),
+      ...(current.heldByWeek ? { heldByWeek: current.heldByWeek } : {}),
     };
     return {
       next,
