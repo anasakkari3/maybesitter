@@ -112,7 +112,7 @@ export function DetailsScreen() {
   const category = query.data?.category ?? null;
 
   const controls = (view && !gone ? (
-        <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
+        <View testID="details-actions" style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
           {open ? (
             <>
               <ActionRow>
@@ -141,7 +141,7 @@ export function DetailsScreen() {
         </View>
       )}
     >
-      <ScreenScroll grow bottom={20} gap={16} topGap={14} scrollRef={scroll}>
+      <ScreenScroll testID="details-scroll" grow bottom={20} gap={16} topGap={14} scrollRef={scroll}>
 
         {gone ? (
           <EmptyState testID="details-gone" title={t.detailsNotFoundTitle} body={t.detailsNotFoundBody} top={60} />
