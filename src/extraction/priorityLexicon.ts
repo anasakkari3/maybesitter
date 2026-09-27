@@ -235,11 +235,14 @@ const ERRAND = new RegExp(
  * Getting ready for it, not going to it (FY1 re-review, R-M1): «أكوي البدلة
  * للعرس», "iron my suit for the wedding", «לגהץ את החליפה לחתונה». A task done
  * before the event, which a planner has to place, so never the event itself.
+ * Social events only: an appointment or a meeting is the appointment rule's
+ * (re-review 2, I5). Bare «احضر/حضر» is Levantine "attend" — «احضر العرس» is
+ * going to it — so only the shadda forms «أحضّر/حضّر» ("prepare") are here.
  */
 const PREPARING = new RegExp(
   [
     '\\b(?:iron(?:ing)?|press|prepare|preparing|prep|pack(?:ing)?|wrap(?:ping)?|book(?:ing)?|buy(?:ing)?|order|pick\\s+out|choose|get\\s+ready|dress|decorate|bake|cook|clean|write|print|rehearse|practi[cs]e|plan)\\b',
-    words(['أكوي', 'اكوي', 'كوي', 'بكوي', 'أجهّز', 'اجهز', 'أجهز', 'جهّز', 'جهز', 'بجهز', 'أحضّر', 'احضر', 'حضّر', 'حضر', 'أغلّف', 'اغلف', 'أغلف', 'غلّف', 'أغسل', 'اغسل', 'أرتب', 'ارتب', 'رتّب', 'أطبخ', 'اطبخ', 'أخبز', 'اخبز', 'أزيّن', 'ازين', 'أزين', 'أكتب', 'اكتب', 'أطبع', 'اطبع', 'أتدرب', 'اتدرب', 'أفصّل', 'افصل', 'أختار', 'اختار', 'أحجز', 'احجز', 'أشتري', 'اشتري', 'أجيب', 'اجيب']),
+    words(['أكوي', 'اكوي', 'كوي', 'بكوي', 'أجهّز', 'اجهز', 'أجهز', 'جهّز', 'جهز', 'بجهز', 'أحضّر', 'حضّر', 'أغلّف', 'اغلف', 'أغلف', 'غلّف', 'أغسل', 'اغسل', 'أرتب', 'ارتب', 'رتّب', 'أطبخ', 'اطبخ', 'أخبز', 'اخبز', 'أزيّن', 'ازين', 'أزين', 'أكتب', 'اكتب', 'أطبع', 'اطبع', 'أتدرب', 'اتدرب', 'أفصّل', 'افصل', 'أختار', 'اختار', 'أحجز', 'احجز', 'أشتري', 'اشتري', 'أجيب', 'اجيب']),
     words(['לגהץ', 'להכין', 'לארוז', 'לעטוף', 'לקנות', 'להזמין', 'לבחור', 'לבשל', 'לאפות', 'לנקות', 'לסדר', 'לקשט', 'לכתוב', 'להדפיס', 'להתאמן', 'לתפור']),
   ].join('|'),
   'iu',
@@ -253,11 +256,13 @@ const PREPARING = new RegExp(
  */
 export function isEventOnDay(rawText: string): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
-  if (PREPARING.test(rawText)) return false;
-  // The day is what places it; a meeting needs no clock to happen on one.
+  // The day is what places it; a meeting needs no clock to happen on one. The
+  // appointment rule has its own exclusions, and a purpose after it — "to
+  // clean my teeth", "to plan the budget" — does not make it a task (I5).
   if (isFixedAppointment(rawText, { hasDay: true, hasClock: true })) return true;
   const text = rawText.trim();
   if (!SOCIAL_EVENT.test(text)) return false;
+  if (PREPARING.test(text)) return false;
   if (ARRANGING.test(text) || LOOSE_NOUN.test(text) || ERRAND.test(text)) return false;
   return !NEGATED.test(text.replace(DONT_FORGET, ' '));
 }
