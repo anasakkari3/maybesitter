@@ -10,7 +10,7 @@ import { ltr, type Lang } from '../i18n/strings';
 import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
-import { clockOf, groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
+import { groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
 import { CategoryBar } from '../features/commitments/CategoryBar';
 import { categoryChipsFor, filterByCategory, type CategoryChip } from '../features/commitments/categoryFilter';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
@@ -24,7 +24,7 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
-import { dayAndTime, drawnAt, drawnWhen, dueAsideText, placeView, savedPlacements } from '../features/plan/savedPlacement';
+import { drawnAt, drawnClockAt, drawnWhen, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
@@ -290,7 +290,7 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
   const { t, p, actions } = useApp();
   const act = useCommitmentAction();
   const why = whyFirstLine(item.reasonCodes, strings);
-  const drawn = drawnAt(item);
+  const drawn = drawnClockAt(item);
   const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
@@ -370,7 +370,7 @@ function Row({ item, first, timezone, lang, busy }: {
     complete: () => act.mutate({ id: item.id, action: 'complete' }),
     postpone: () => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) }),
   });
-  const drawn = drawnAt(item);
+  const drawn = drawnClockAt(item);
   const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
 
@@ -421,8 +421,9 @@ function Row({ item, first, timezone, lang, busy }: {
 
 function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first: boolean; timezone: string; lang: Lang }) {
   const { t, p, actions } = useApp();
+  // Its day is said even when it has no hour (an all-day deadline, FX3).
   const drawn = drawnAt(item);
-  const when = drawn ? dayAndTime(drawn, lang, timezone) : t.noTimeYet;
+  const when = laterWhen(item, lang, timezone, t.noTimeYet);
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const returnWhen = item.postponedUntil
     ? `${t.postponeReturn} ${formatRelativeDay(new Date(item.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.postponedUntil), { locale: lang, timeZone: timezone }))}`

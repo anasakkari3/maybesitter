@@ -1,5 +1,5 @@
 import type { SavedWeek } from '../../api/schemas/plan';
-import type { CommitmentView } from '../commitments/model';
+import { clockOf, type CommitmentView } from '../commitments/model';
 import { dayKey, formatRelativeDay, formatTime } from '../../i18n/format';
 import { fill, ltr, type Lang } from '../../i18n/strings';
 
@@ -61,20 +61,42 @@ export function dayAndTime(iso: string, lang: Lang, timeZone: string): string {
   return `${formatRelativeDay(at, { locale: lang, timeZone })} · ${ltr(formatTime(at, { locale: lang, timeZone }))}`;
 }
 
+/*
+ * An all-day commitment (FX3, `TimeSpec.allDay`) has a day and no hour: its
+ * `shownAt` is that day's local midnight, which nobody chose, so no helper
+ * here prints it as «00:00». A saved plan slot is always an hour, all-day or
+ * not. (Closure integration: FX1's helpers predate FX3's rule.)
+ */
+
+/** The instant with a real hour to draw and to check busy time at: a saved slot, or its own time unless it is all-day. */
+export function drawnClockAt(view: CommitmentView): string | null {
+  return view.plannedAt ?? (view.allDay ? null : view.shownAt);
+}
+
 /**
  * The time a today row or card draws: the hour alone, as before — unless a
  * saved week day holds it on another day, which the hour alone would hide.
+ * Null when there is no hour to say, all-day included.
  */
 export function drawnWhen(view: CommitmentView, lang: Lang, timeZone: string): string | null {
-  const drawn = drawnAt(view);
-  if (!drawn) return null;
-  return view.plannedAt && dayKey(new Date(drawn), timeZone) !== dayKey(new Date(), timeZone)
-    ? dayAndTime(drawn, lang, timeZone)
-    : ltr(formatTime(new Date(drawn), { locale: lang, timeZone }));
+  if (!view.plannedAt) return clockOf(view, { locale: lang, timeZone });
+  return dayKey(new Date(view.plannedAt), timeZone) !== dayKey(new Date(), timeZone)
+    ? dayAndTime(view.plannedAt, lang, timeZone)
+    : ltr(formatTime(new Date(view.plannedAt), { locale: lang, timeZone }));
 }
 
-/** «موعدها بكرا · 15:00», when a saved plan puts it at another time; else null. */
+/** A «بعدين» row's day and time: the saved slot, else its own day with its hour or `noTime`. */
+export function laterWhen(view: CommitmentView, lang: Lang, timeZone: string, noTime: string): string {
+  if (view.plannedAt) return dayAndTime(view.plannedAt, lang, timeZone);
+  if (!view.shownAt) return noTime;
+  return `${formatRelativeDay(new Date(view.shownAt), { locale: lang, timeZone })} · ${clockOf(view, { locale: lang, timeZone }) ?? noTime}`;
+}
+
+/** «موعدها بكرا · 15:00» (or «موعدها الجمعة» for an all-day due), when a saved plan puts it at another time; else null. */
 export function dueAsideText(view: CommitmentView, template: string, lang: Lang, timeZone: string): string | null {
   const due = dueApart(view);
-  return due ? fill(template, { when: dayAndTime(due, lang, timeZone) }) : null;
+  if (!due) return null;
+  return fill(template, {
+    when: view.allDay ? formatRelativeDay(new Date(due), { locale: lang, timeZone }) : dayAndTime(due, lang, timeZone),
+  });
 }

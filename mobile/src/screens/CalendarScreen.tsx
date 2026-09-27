@@ -8,7 +8,7 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
-import { drawnAt, dueAsideText, savedPlacements } from '../features/plan/savedPlacement';
+import { drawnAt, drawnClockAt, dueAsideText, savedPlacements } from '../features/plan/savedPlacement';
 import { useSavedWeek, useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
@@ -17,7 +17,7 @@ import { ScreenHeader, Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
-import { clockOf, groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
+import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
@@ -263,7 +263,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
                     : t.noTimeYet}
                 </Txt>
               </Btn>
-            ))(row.item, drawnAt(row.item), dueAsideFor(row.item)))}
+            ))(row.item, drawnClockAt(row.item), dueAsideFor(row.item)))}
             {dayRows.length === 0 ? (
               <View style={{ padding: 18, backgroundColor: p.sf, borderRadius: 18 }} testID="calendar-day-free">
                 <Txt size={14} color={p.mu} align="center">{t.dayFree}</Txt>

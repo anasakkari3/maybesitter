@@ -194,3 +194,67 @@ describe('a step saved for another day, after «احفظ هاليوم»', () => 
     expect([ar.plannedRowLabel, en.plannedRowLabel, he.plannedRowLabel]).toEqual(['بخطّتك', 'In your plan', 'בתוכנית שלך']);
   });
 });
+
+/*
+ * FX1 × FX3 (closure integration): the saved-placement helpers are how
+ * Today, the next-step card and the Calendar draw a time now, so they have to
+ * keep FX3's rule — an all-day deadline («قبل آخر الشهر») has a day and no
+ * hour, and its local midnight is never printed as «00:00».
+ */
+describe('an all-day deadline, through the same helpers (FX1 × FX3)', () => {
+  const midnight = (offset: number) => new Date(`${shiftDayKey(TODAY_KEY, offset)}T00:00:00.000+03:00`).toISOString();
+  const allDay = (offset: number): Commitment => ({
+    ...market(),
+    timeSpec: { kind: 'due_by', dueAt: midnight(offset), endAt: null, remindAt: null, allDay: true, timezone: ZONE },
+  } as Commitment);
+  const MIDNIGHT = ltr(formatTime(new Date(midnight(0)), { locale: 'en', timeZone: ZONE }));
+  const dayOf = (offset: number) => formatRelativeDay(new Date(midnight(offset)), { locale: 'en', timeZone: ZONE });
+
+  beforeEach(() => { savedWeek = { today: TODAY_KEY, saved: [] }; });
+
+  it('Today: an all-day item due today says «no time», not 00:00', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [allDay(0)] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('today-time-market')).not.toBeNull());
+    expect(screen.getByTestId('today-time-market').props.children).toBe(en.noTimeYet);
+    expect(screen.getByTestId('today-item-market').props.accessibilityLabel).not.toContain(MIDNIGHT);
+  });
+
+  it('Today «بعدين»: its day, and «no time» in the hour\'s place', async () => {
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [allDay(2)] } as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('today-later-when-market')).not.toBeNull());
+    expect(screen.getByTestId('today-later-when-market').props.children).toBe(`${dayOf(2)} · ${en.noTimeYet}`);
+  });
+
+  it('the next-step card: no 00:00', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [allDay(0)] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
+      ...nextStepFixture,
+      recommendation: { ...nextStepFixture.recommendation, primaryStep: { commitmentId: 'market', title: 'Go to the market' } },
+    } as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('next-step-when')).not.toBeNull());
+    expect(screen.getByTestId('next-step-when').props.children).toBe(en.noTimeYet);
+  });
+
+  it('the Calendar: «no time» on its day', async () => {
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [allDay(2)] } as never);
+    await show(<CalendarScreen />);
+    await waitFor(() => expect(screen.queryByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 2)}`)).not.toBeNull());
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 2)}`));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-market')).not.toBeNull());
+    expect(screen.getByTestId('calendar-time-market').props.children).toBe(en.noTimeYet);
+    expect(screen.getByTestId('calendar-item-market').props.accessibilityLabel).not.toContain(MIDNIGHT);
+  });
+
+  it('saved to a slot on another day: the slot is an hour, and the due beside it is a day with no hour', async () => {
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [allDay(5)] } as never);
+    savedWeek = { today: TODAY_KEY, saved: [{ date: shiftDayKey(TODAY_KEY, 4), items: [{ itemId: 'market', startsAt: PLANNED, endsAt: at(4, 10) }] }] };
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.getByTestId('today-later-when-market').props.children).toBe(when(PLANNED)));
+    expect(screen.getByTestId('today-later-due-market').props.children).toBe(fill(en.plannedDueAside, { when: dayOf(5) }));
+  });
+});
