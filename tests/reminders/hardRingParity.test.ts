@@ -136,3 +136,22 @@ test('parity: the server and the phone read the same deadline, opening and Must 
     assert.equal(strong ? new Date(strong.plannedAt).toISOString() : null, hardFireAtFor(commitment, serverSettings), `${name}: Must ring`);
   }
 });
+
+test('a Must prep window shorter than ten minutes still rings hard, at its opening, on the phone and the server (re-review Minor 1)', async () => {
+  const phone = await phoneReminderEngine();
+  const base = commitmentFor({ name: 'x', startsAt: '2026-09-28T12:00:00.000Z', allDay: false, postponedUntil: null, rings: true, fireAt: null });
+  // Opens 11:55, done by 12:00: the Must ring is max(opening, deadline − 10) = 11:55.
+  const short: Commitment = { ...base, timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: '2026-09-28T11:55:00.000Z', endAt: '2026-09-28T12:00:00.000Z' } };
+  const serverSettings = settingsFor({ name: '', startsAt: '', allDay: false, postponedUntil: null, rings: true, fireAt: null });
+  assert.equal(hardFireAtFor(short, serverSettings), '2026-09-28T11:55:00.000Z');
+  const settings = (through: boolean) => ({ softEnabled: true, softLeadMinutes: 60, intensity: 'strongReminder' as const, escalationCeiling: 'hard' as const, hardEnabled: true, mustThroughQuietHours: through });
+  const rings = (through: boolean, quietHours: { start: string; end: string } | null) => phone.requestsFor({
+    commitments: phone.toReminderCommitments([short]), now: new Date('2026-09-26T00:00:00.000Z'),
+    settings: settings(through), quietHours, timeZone: 'UTC',
+  }).map((request) => `${request.stage}@${new Date(request.at).toISOString()}`);
+  assert.deepEqual(rings(false, null), ['strong@2026-09-28T11:55:00.000Z']);
+  // Quiet hours over the opening: the Must ring breaks through when the person allowed it…
+  assert.deepEqual(rings(true, { start: '11:00', end: '12:00' }), ['strong@2026-09-28T11:55:00.000Z']);
+  // …and otherwise nothing rings at all, which is what Review then says (see the Review line tests).
+  assert.deepEqual(rings(false, { start: '11:00', end: '12:00' }), []);
+});

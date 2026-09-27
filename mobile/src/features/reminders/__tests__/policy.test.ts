@@ -202,6 +202,12 @@ describe('a window: shown at its opening, done by its deadline (FX1, ruling R1)'
       ['soft', 20],
       ['strong', STRONG_LEAD_MINUTES],
     ]);
+    // Shorter than ten minutes: the Must ring moves to the opening, never away (re-review Minor 1).
+    const short = new Date(START - 5 * 60_000).toISOString();
+    expect(leads(planFor(commitment({ opensAt: short }), hard))).toEqual([
+      ['soft', 5],
+      ['strong', 5],
+    ]);
   });
 });
 

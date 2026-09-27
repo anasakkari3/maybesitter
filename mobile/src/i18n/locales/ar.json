@@ -1003,6 +1003,8 @@
   "reviewPrepRemindersOff": "التذكيرات مطفية، فما رح يرن شي.",
   "reviewPrepSilentChoice": "اخترت تذكيرات صامتة، فما رح يرن شي.",
   "reviewPrepQuietHours": "وقت التذكير بيوقع بساعات الهدوء، فما رح يرن شي.",
+  "reviewPrepRingsAt": "التذكير رح يرن: {time}",
+  "reviewPrepNoTime": "بلا وقت، فما رح يرن شي.",
   "reviewUntrusted": "محتوى من برّا",
   "detailsHistory": "تاريخها",
   "detailsClosedNote": "هاي خلصت. بتضل بتاريخك.",

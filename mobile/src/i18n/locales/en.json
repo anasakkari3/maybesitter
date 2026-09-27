@@ -1003,6 +1003,8 @@
   "reviewPrepRemindersOff": "Reminders are off, so nothing will ring.",
   "reviewPrepSilentChoice": "You chose silent reminders, so nothing will ring.",
   "reviewPrepQuietHours": "The reminder would fall in your quiet hours, so nothing will ring.",
+  "reviewPrepRingsAt": "The reminder rings: {time}",
+  "reviewPrepNoTime": "No time, so nothing will ring.",
   "reviewUntrusted": "Outside content",
   "detailsHistory": "Its history",
   "detailsClosedNote": "This one is finished. It stays in your history.",

@@ -564,7 +564,8 @@ const REVIEW_EDITS: Array<{ name: string; at: string | null; window: boolean }> 
   { name: 'no time', at: null, window: false },
   { name: 'Mon 15:00, the start', at: '2026-09-28T12:00:00.000Z', window: false },
   { name: 'Mon 16:30, after the meeting', at: '2026-09-28T13:30:00.000Z', window: false },
-  { name: 'Sun 20:00, the day before', at: '2026-09-27T17:00:00.000Z', window: false },
+  // Still before the meeting, so still its prep window (R2): rings Sun 20:00, late only after Mon 15:00.
+  { name: 'Sun 20:00, the day before', at: '2026-09-27T17:00:00.000Z', window: true },
   { name: 'Mon 14:30, before the start', at: '2026-09-28T11:30:00.000Z', window: true },
 ];
 
@@ -600,14 +601,74 @@ async function expectChosen(headers: Record<string, string>, id: string, edit: {
     assert.equal(item.timeSpec.endAt, null);
     assert.deepEqual(rings, []);
   } else if (edit.window) {
-    // Still the hour before the meeting: the window keeps the meeting start,
-    // and the phone rings at the time chosen.
+    // Still before the meeting: the window keeps the meeting start, the phone
+    // rings at the time chosen, and it is late only once the meeting began.
     assert.equal(item.timeSpec.endAt, MEETING.startAt);
     assert.equal(rings[0], edit.at);
+    assert.ok(!(await reasonCodesAt(headers, id, new Date(Date.parse(edit.at) + 30 * MINUTE).toISOString())).includes('overdue'), 'late half an hour after the time chosen');
+    assert.ok(!(await reasonCodesAt(headers, id, '2026-09-28T11:59:00.000Z')).includes('overdue'), 'late at 14:59');
+    assert.ok((await reasonCodesAt(headers, id, '2026-09-28T12:01:00.000Z')).includes('overdue'), 'not late at 15:01');
   } else {
     // No longer a prep window: an ordinary step at the time chosen, reminded
     // the way every other step is — nothing left pointing at Monday 14:00.
     assert.equal(item.timeSpec.endAt, null, 'a stale window end survived the edit');
     assert.deepEqual(rings, await ordinaryRings(headers, edit.at));
   }
+}
+
+// ── the evening-before window, edited (FX1 re-review N1) ──
+
+/**
+ * Quiet 22:00–07:30 and a meeting at Mon 07:32: the server itself puts the
+ * prep step the evening before, at Sun 21:55 (`schedulePrepAt`). Moving it to
+ * Sun 21:30, or sending 21:55 back unchanged (the sheet sends the time it
+ * shows), must keep it a prep window: it rings at the time chosen and is not
+ * «الوقت مرق» the night before.
+ */
+const EARLY_MEETING = { startAt: '2026-09-28T04:32:00.000Z', endAt: '2026-09-28T05:30:00.000Z' }; // Mon 07:32 in Amman
+
+async function prepareEarly(headers: Record<string, string>, edit?: { resolvedTime: string }) {
+  await saveRoutine('followUp', { start: '22:00', end: '07:30' });
+  const prepared = await json(await preparePost(request({ notes: NOTE, ...EARLY_MEETING, timezone: 'Asia/Amman' })));
+  assert.equal(prepared.proposal.items[0].resolvedTime, '2026-09-27T18:55:00.000Z', 'the evening-before prep is not Sun 21:55');
+  const itemId = prepared.prep.itemId as string;
+  const response = await confirmPost(new Request(`${BASE}/api/mobile/capture/confirm`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ proposalId: prepared.proposal.proposalId, itemIds: [itemId], ...(edit ? { edits: [{ itemId, ...edit }] } : {}) }),
+  }));
+  assert.equal(response.status, 200);
+  return (await json(response)).persisted[0].commitmentId as string;
+}
+
+async function expectEveningWindow(headers: Record<string, string>, id: string, at: string): Promise<void> {
+  const { item, rings } = await asThePhoneReadsIt(headers, id, 'followUp');
+  assert.equal(item.timeSpec.dueAt, at);
+  assert.equal(item.timeSpec.endAt, EARLY_MEETING.startAt, 'the evening-before window was dropped');
+  assert.equal(rings[0], at, `the phone rings at ${rings[0]}, not at the time chosen`);
+  assert.ok(!(await reasonCodesAt(headers, id, '2026-09-27T18:59:00.000Z')).includes('overdue'), 'late at Sun 21:59');
+  assert.ok(!(await reasonCodesAt(headers, id, '2026-09-28T04:31:00.000Z')).includes('overdue'), 'late at Mon 07:31');
+  assert.ok((await reasonCodesAt(headers, id, '2026-09-28T04:33:00.000Z')).includes('overdue'), 'not late at Mon 07:33');
+}
+
+for (const [name, at] of [['Sun 21:30', '2026-09-27T18:30:00.000Z'], ['the same Sun 21:55', '2026-09-27T18:55:00.000Z']] as const) {
+  test(`N1: the evening-before prep step edited in Review to ${name} stays a window, rings then, and is not late the night before`, async () => {
+    await onAmmanSunday(async (headers) => {
+      const id = await prepareEarly(headers, { resolvedTime: at });
+      await expectEveningWindow(headers, id, at);
+    });
+  });
+
+  test(`N1: the evening-before prep step moved with PATCH to ${name} stays a window, rings then, and is not late the night before`, async () => {
+    await onAmmanSunday(async (headers) => {
+      const id = await prepareEarly(headers);
+      const response = await commitmentPatch(new Request(`${BASE}/api/mobile/commitments/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', ...headers },
+        body: JSON.stringify({ dueDate: at }),
+      }), { params: Promise.resolve({ id }) });
+      assert.equal(response.status, 200);
+      await expectEveningWindow(headers, id, at);
+    });
+  });
 }

@@ -18,6 +18,9 @@ import { Tag, TextLink } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
+import { prepRingAfterEdit } from '../features/meetings/prepRing';
+import { quietTimeZone, quietWindowOf, toEngineSettings } from '../features/reminders/reminderInputs';
+import { useProfile, useReminderSettings } from '../api/queries';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
@@ -282,7 +285,13 @@ export function ReviewScreen() {
                   (CL5a M-8, I-3): moved out of quiet hours, moved because the
                   meeting is close, or none at all — one line, and only the
                   server's answer about what the phone will actually ring. */}
-              {state.meeting ? <PrepReminderLine meeting={state.meeting} /> : null}
+              {state.meeting ? (
+                <PrepReminderLine
+                  meeting={state.meeting}
+                  proposed={state.proposal?.items.find((item) => item.itemId === state.meeting?.itemId) ?? null}
+                  edit={state.meeting.itemId ? state.edits[state.meeting.itemId] : undefined}
+                />
+              ) : null}
             </View>
           </View>
         ) : null}
@@ -631,8 +640,81 @@ function ItemCard({
 /** setTimeout's ceiling (about 24.8 days); a later ring is rechecked when the screen is next opened. */
 const MAX_TIMER_MS = 2_147_483_647;
 
-/** One line about the prep step's reminder, or nothing when it rings an hour before as usual. */
-function PrepReminderLine({ meeting }: { meeting: MeetingReviewContext }) {
+/**
+ * One line about the prep step's reminder, or nothing when it rings an hour
+ * before as usual. After the person changes the step's time or makes it a
+ * Must, the prepare response no longer describes it: the line is answered
+ * again for the step as it will be confirmed (`EditedPrepLine`, FX1).
+ */
+function PrepReminderLine({ meeting, proposed, edit }: {
+  meeting: MeetingReviewContext;
+  proposed: CaptureProposalItem | null;
+  edit: CaptureItemEdit | undefined;
+}) {
+  const timezone = useTimeZone();
+  const editedAt = edit?.localDateTime === undefined
+    ? undefined
+    : edit.localDateTime === '' ? null : (instantForLocalDateTime(edit.localDateTime, timezone)?.toISOString() ?? null);
+  const timeChanged = editedAt !== undefined
+    && (editedAt === null ? proposed?.resolvedTime != null : Date.parse(editedAt) !== Date.parse(proposed?.resolvedTime ?? ''));
+  const priorityChanged = edit?.priority !== undefined && edit.priority !== (proposed?.priority ?? 'normal');
+  if (meeting.startAt && proposed && (timeChanged || priorityChanged)) {
+    return (
+      <EditedPrepLine
+        at={editedAt === undefined ? proposed.resolvedTime ?? null : editedAt}
+        meetingStart={meeting.startAt}
+        priority={edit?.priority ?? proposed.priority ?? 'normal'}
+      />
+    );
+  }
+  return <ProposedPrepLine meeting={meeting} />;
+}
+
+const REMINDER_PRIORITY = { high: 'must', normal: 'should', low: 'nice' } as const;
+
+/**
+ * The line for an edited prep step: what the phone will ring for it, from its
+ * own planning and the account's settings (`prepRingAfterEdit`). Nothing is
+ * said until the settings are read — a line about them before then would be
+ * a guess.
+ */
+function EditedPrepLine({ at, meetingStart, priority }: { at: string | null; meetingStart: string; priority: 'high' | 'normal' | 'low' }) {
+  const { t, p, lang } = useApp();
+  const timezone = useTimeZone();
+  const settings = useReminderSettings();
+  const profile = useProfile();
+  const dto = settings.data?.reminderSettings;
+  if (!dto || profile.data === undefined) return null;
+  const answer = prepRingAfterEdit({
+    at,
+    meetingStart,
+    priority: REMINDER_PRIORITY[priority],
+    settings: toEngineSettings(dto, profile.data.routine?.preferredReminderIntensity ?? 'softAwareness'),
+    quietHours: quietWindowOf(dto),
+    timeZone: quietTimeZone(dto),
+    now: new Date(),
+  });
+  if (answer.kind === 'rings') {
+    // Rings at the time the card shows: the ordinary case, said by nothing.
+    if (at !== null && answer.at === Date.parse(at)) return null;
+    const ring = new Date(answer.at);
+    const time = `${formatRelativeDay(ring, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(ring, { locale: lang, timeZone: timezone }))}`;
+    return <Txt size={13} color={p.mu} testID="review-prep-rings-at">{fill(t.reviewPrepRingsAt, { time })}</Txt>;
+  }
+  const because = answer.because;
+  return (
+    <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
+      {because === 'no_time' ? t.reviewPrepNoTime
+        : because === 'reminders_off' ? t.reviewPrepRemindersOff
+          : because === 'silent_choice' ? t.reviewPrepSilentChoice
+            : because === 'quiet_hours' ? t.reviewPrepQuietHours
+              : t.reviewPrepTooClose}
+    </Txt>
+  );
+}
+
+/** The line the prepare response gives, for the step as the server proposed it. */
+function ProposedPrepLine({ meeting }: { meeting: MeetingReviewContext }) {
   const { t, p, lang } = useApp();
   const timezone = useTimeZone();
   // A ring whose moment passes while Review is open is one the phone skips

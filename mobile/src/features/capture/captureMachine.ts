@@ -111,6 +111,9 @@ export interface MeetingReviewContext {
   readonly silentBecause: 'reminders_off' | 'silent_choice' | 'quiet_hours' | 'too_close' | null;
   readonly adjustment: 'none' | 'short_notice' | 'quiet_hours' | 'quiet_hours_unavoidable';
   readonly appointment: boolean;
+  /** The prep step's item and the meeting's start, so Review can answer again after an edit (FX1). */
+  readonly itemId?: string;
+  readonly startAt?: string;
 }
 
 /** Which input the user was offered first. */
