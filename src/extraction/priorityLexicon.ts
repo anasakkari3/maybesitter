@@ -232,6 +232,20 @@ const ERRAND = new RegExp(
 );
 
 /**
+ * Getting ready for it, not going to it (FY1 re-review, R-M1): «أكوي البدلة
+ * للعرس», "iron my suit for the wedding", «לגהץ את החליפה לחתונה». A task done
+ * before the event, which a planner has to place, so never the event itself.
+ */
+const PREPARING = new RegExp(
+  [
+    '\\b(?:iron(?:ing)?|press|prepare|preparing|prep|pack(?:ing)?|wrap(?:ping)?|book(?:ing)?|buy(?:ing)?|order|pick\\s+out|choose|get\\s+ready|dress|decorate|bake|cook|clean|write|print|rehearse|practi[cs]e|plan)\\b',
+    words(['أكوي', 'اكوي', 'كوي', 'بكوي', 'أجهّز', 'اجهز', 'أجهز', 'جهّز', 'جهز', 'بجهز', 'أحضّر', 'احضر', 'حضّر', 'حضر', 'أغلّف', 'اغلف', 'أغلف', 'غلّف', 'أغسل', 'اغسل', 'أرتب', 'ارتب', 'رتّب', 'أطبخ', 'اطبخ', 'أخبز', 'اخبز', 'أزيّن', 'ازين', 'أزين', 'أكتب', 'اكتب', 'أطبع', 'اطبع', 'أتدرب', 'اتدرب', 'أفصّل', 'افصل', 'أختار', 'اختار', 'أحجز', 'احجز', 'أشتري', 'اشتري', 'أجيب', 'اجيب']),
+    words(['לגהץ', 'להכין', 'לארוז', 'לעטוף', 'לקנות', 'להזמין', 'לבחור', 'לבשל', 'לאפות', 'לנקות', 'לסדר', 'לקשט', 'לכתוב', 'להדפיס', 'להתאמן', 'לתפור']),
+  ].join('|'),
+  'iu',
+);
+
+/**
  * True when the sentence names something the person attends on a day — an
  * appointment, a meeting, a wedding — rather than work to do by it. Used for
  * an item answered "no specific time": it stays an all-day event on its day.
@@ -239,6 +253,7 @@ const ERRAND = new RegExp(
  */
 export function isEventOnDay(rawText: string): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  if (PREPARING.test(rawText)) return false;
   // The day is what places it; a meeting needs no clock to happen on one.
   if (isFixedAppointment(rawText, { hasDay: true, hasClock: true })) return true;
   const text = rawText.trim();
