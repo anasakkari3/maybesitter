@@ -1,7 +1,7 @@
 import type { ExtractAndMapOptions, ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
 import { extractWithFallback } from '../../../src/extraction/extractionService';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
-import { isPastCommitmentTime, pastTimeMessage } from '../commitments/timeRules';
+import { isPastCommitmentDay, isPastCommitmentTime, pastTimeMessage } from '../commitments/timeRules';
 import { parseIsoInstant } from './time';
 
 /**
@@ -94,8 +94,17 @@ export async function guardedMobileExtract(
     throw new NegatedRequestError();
   }
 
-  assertSafeTime(extracted.result.dueAt, context.now, 'dueAt', extracted);
-  assertSafeTime(extracted.result.remindAt, context.now, 'remindAt', extracted);
+  const { result } = extracted;
+  if (result.allDay && result.localTimeSpec?.date) {
+    // An all-day deadline is its day (FX3): «قبل آخر الشهر» said on the 30th
+    // is due today, although today's midnight — its `dueAt` — has gone by.
+    if (isPastCommitmentDay(result.localTimeSpec.date, context.now, context.timezone || result.localTimeSpec.timezone || 'UTC')) {
+      throw new PastCommitmentTimeError(pastTimeMessage('dueAt'), extracted);
+    }
+  } else {
+    assertSafeTime(result.dueAt, context.now, 'dueAt', extracted);
+  }
+  assertSafeTime(result.remindAt, context.now, 'remindAt', extracted);
 
   return extracted;
 }

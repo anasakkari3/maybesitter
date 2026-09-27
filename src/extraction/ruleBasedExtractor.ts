@@ -11,6 +11,10 @@ import {
   normalizeSpokenArabicHours,
   normalizeSpokenHebrewHours,
   namesDay,
+  instantFromLocal,
+  lastDayOfMonth,
+  MONTH_END_MENTION_SOURCES,
+  readPeriodEndDeadline,
   relativeDayOffset,
   timeAnchorOf,
   timeOfDayEvidence,
@@ -24,7 +28,7 @@ import {
   daysUntilWeekday,
   readWeekdayReference,
 } from './weekdayLexicon';
-import { isFixedAppointment } from './priorityLexicon';
+import { isFixedAppointment, statedObligation } from './priorityLexicon';
 import { stripCaptureCommand } from './captureCommand';
 
 export { CLOCK_PATTERN_SOURCES, RANGE_PATTERN_SOURCES } from './timeLexicon';
@@ -148,6 +152,8 @@ interface ParsedTime {
   localTimeSpec: LocalTimeSpec | null;
   /** The day came from a weekday name alone, so it is the product's guess. */
   dateInferred: boolean;
+  /** A day with no hour that is a deadline in itself (FX3): see `ExtractionResult.allDay`. */
+  allDay?: boolean;
 }
 
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
@@ -178,6 +184,14 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     // ("the 4th"): the Sunday picked here may not be it, and saying so is the
     // honest answer.
     dateInferred = weekday.daysAhead !== 0;
+  }
+
+  // «قبل آخر الشهر», "by the end of the month", «עד סוף החודש» (FX3): the
+  // month's last day, when nothing else in the sentence named a day.
+  const monthEnd = !targetDate && readPeriodEndDeadline(raw) === 'month' ? lastDayOfMonth(now, tz) : null;
+  if (monthEnd) {
+    targetDate = instantFromLocal(monthEnd, '12:00', tz);
+    timeConfidence = 0.9;
   }
 
   if (!targetDate && clock) {
@@ -218,6 +232,23 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     hour = daypart;
   } else if (context.defaultReminderHour !== undefined) {
     hour = context.defaultReminderHour;
+  } else if (monthEnd) {
+    // A deadline that is a day and not an hour: due by the month's last day,
+    // all day. Nothing to ask — "what time is the end of the month?" has no
+    // answer the person is holding.
+    const midnight = instantFromLocal(monthEnd, '00:00', tz);
+    if (midnight) {
+      return {
+        dueAt: midnight.toISOString(),
+        remindAt: null,
+        confidence: timeConfidence,
+        evidence: 'day_only',
+        localTimeSpec: { date: monthEnd, time: null, timezone: tz },
+        dateInferred: false,
+        allDay: true,
+      };
+    }
+    return { dueAt: null, remindAt: null, confidence: 0.1, evidence, localTimeSpec: null, dateInferred: false };
   } else {
     // The day parsed; the hour was never stated. Report exactly that, so the
     // review screen can show "Sunday" and the clarification step can ask for
@@ -261,6 +292,7 @@ const DAY_PART_STRIP = DAY_PART_MENTION_SOURCES.map((source) => new RegExp(sourc
 const RELATIVE_DAY_STRIP = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
 const WEEKDAY_STRIP = WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'gu'));
 const CLOCK_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi'));
+const MONTH_END_STRIP = MONTH_END_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
 /**
  * «הבוקר» is "this morning" and also "the morning" («ישיבת הבוקר»). It gives
  * an item no time unless the text names a day, and then it is kept in the
@@ -278,6 +310,9 @@ function stripTiming(text: string): string {
   // "The one after" phrases whole, before the bare day names below take their
   // weekday and leave «اللي بعد الجاي» behind in the title.
   for (const pattern of FOLLOWING_WEEK_STRIP) stripped = stripped.replace(pattern, ' ');
+  // The month's end with its limit word (FX3), before «آخر» or «الشهر» can be
+  // left behind by anything below.
+  for (const pattern of MONTH_END_STRIP) stripped = stripped.replace(pattern, ' ');
   // Parts of the day first, by the lexicon's own whole-word rule, while the
   // "tomorrow" that frames "tomorrow morning" is still there to be read. A
   // word that only contains one — «المساعدة», «המערב», "the morning report"
@@ -360,10 +395,14 @@ function cleanCommand(raw: string): string {
 function inferPriority(raw: string, time: ParsedTime): ExtractionResult['priority'] {
   const lower = raw.toLowerCase();
   const pressureImplied = /\b(push me|bug me|don't let me|dont let me|do not let me)\b/.test(lower);
-  if (/\b(maybe|probably|sometime|optional)\b/.test(lower) || /(مش ضروري|يمكن|عادي)/.test(lower) || /(?:^|[\s,.،])(אולי|לא דחוף)(?=$|[\s,.،])/.test(lower)) {
+  // The person's own obligation word, read by the same whole-word lexicon the
+  // model path uses (FX3). «مش لازم» is "not needed", which the substring
+  // match below used to read as Must.
+  const obligation = statedObligation(raw);
+  if (obligation === 'not_needed' || /\b(maybe|probably|sometime|optional)\b/.test(lower) || /(مش ضروري|يمكن|عادي)/.test(lower) || /(?:^|[\s,.،])(אולי|לא דחוף)(?=$|[\s,.،])/.test(lower)) {
     return { level: 'low', source: 'inferred', pressureAllowed: false, pressureImplied: false };
   }
-  if (/\b(urgent|asap|critical|important|must)\b/.test(lower) || /(ضروري|مستعجل|مهم|لازم)/.test(lower) || /(?:^|[\s,.،])(דחוף|חשוב|קריטי|חובה)(?=$|[\s,.،])/.test(lower) || pressureImplied) {
+  if (obligation === 'must' || /\b(urgent|asap|critical|important)\b/.test(lower) || /(مستعجل|مهم)/.test(lower) || /(?:^|[\s,.،])(דחוף|חשוב|קריטי)(?=$|[\s,.،])/.test(lower) || pressureImplied) {
     return { level: 'high', source: pressureImplied ? 'inferred' : 'user_explicit', pressureAllowed: false, pressureImplied };
   }
   // A doctor, an exam, a flight on a fixed day is not a "should" (L4). It is
@@ -466,7 +505,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     const person = followUp[1].trim();
     const topic = followUp[2] ? stripTiming(followUp[2]).trim() : '';
     const title = topic ? `Follow up with ${person} about ${topic}` : `Follow up with ${person}`;
-    if (!parsedTime.remindAt) missingFields.push('time');
+    if (!parsedTime.remindAt && !parsedTime.allDay) missingFields.push('time');
     return {
       type: 'follow_up',
       action: title,
@@ -486,7 +525,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       explicitReminderRequest,
       explicitPressureRequest,
       rawText: raw,
-      timeAnchor: timeAnchorOf(raw),
+      timeAnchor: parsedTime.allDay ? 'deadline' : timeAnchorOf(raw),
+      ...(parsedTime.allDay ? { allDay: true } : {}),
       parserVersion: PARSER_VERSION,
     };
   }
@@ -523,16 +563,19 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     missingFields.push('action');
     ambiguityFlags.push('vague_action');
   }
-  if (!parsedTime.remindAt) {
+  // An all-day deadline is a complete answer to "when" (FX3): not vague, and
+  // not missing — but it has no hour to remind at, so it never auto-confirms.
+  const allDay = parsedTime.allDay === true;
+  if (!parsedTime.remindAt && !allDay) {
     missingFields.push('time');
     ambiguityFlags.push('vague_time');
   }
   if (weak) ambiguityFlags.push('weak_commitment_language');
 
   const actionConfidence = action && action.length >= 3 ? 0.82 : 0.2;
-  const hasTime = Boolean(parsedTime.remindAt);
+  const hasTime = Boolean(parsedTime.remindAt) || allDay;
   let overall = 0.72;
-  if (explicitReminderRequest && hasTime && actionConfidence >= 0.8 && !weak) overall = 0.9;
+  if (explicitReminderRequest && parsedTime.remindAt && actionConfidence >= 0.8 && !weak) overall = 0.9;
   if (!hasTime) overall = weak ? 0.5 : 0.62;
   if (weak && !explicitReminderRequest) overall = Math.min(overall, 0.58);
   if (negatedReminderRequest) overall = Math.min(overall, 0.55);
@@ -558,7 +601,9 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     explicitPressureRequest,
     rawText: raw,
     // «الساعة 5» is a time to do it at, «قبل الخميس» a limit (CL1, D2).
-    timeAnchor: timeAnchorOf(raw),
+    // The month's end is always a limit (FX3).
+    timeAnchor: allDay ? 'deadline' : timeAnchorOf(raw),
+    ...(allDay ? { allDay: true } : {}),
     parserVersion: PARSER_VERSION,
   };
 }

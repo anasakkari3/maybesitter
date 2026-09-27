@@ -97,6 +97,8 @@ export function dayForAnswer(
 /** The local hour a resolved instant fell on, or null. */
 function resolvedLocalTime(result: ExtractionResult, context: ClarificationContext): string | null {
   if (result.localTimeSpec?.time) return result.localTimeSpec.time;
+  // An all-day reading's `dueAt` is its midnight, not an hour anybody said (FX3).
+  if (result.allDay) return null;
   const instant = result.remindAt ?? result.dueAt;
   if (!instant) return null;
   return localTimeSpecFor(new Date(Date.parse(instant)), context.timezone)?.time ?? null;

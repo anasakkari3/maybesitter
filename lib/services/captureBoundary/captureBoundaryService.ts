@@ -23,7 +23,7 @@ import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent
 import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
 import { applyEditToCommands, InvalidEditError, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
-import { isPastCommitmentTime } from '../commitments/timeRules';
+import { isPastReading } from '../commitments/timeRules';
 import { NegatedRequestError, PastCommitmentTimeError } from '../mobile/safety';
 import { readCategoryPreferences } from '../categories/categoryPreferences';
 import type { Command } from '../../../src/domain/stateMachine';
@@ -388,11 +388,11 @@ function semanticFailure(result: ExtractionResult, now: Date): string | null {
   if (INJECTION.test(result.rawText)) return 'prompt_injection';
   const title = (result.title || result.action || '').trim();
   if (title.length < 3) return 'missing_title';
-  const resolved = result.remindAt || result.dueAt;
   // Same rule as the capture edits and the mobile PATCH, asked in one place
   // (#352); only the answer differs, because a refusal here is a reason code
-  // on a proposal rather than an error.
-  if (resolved && isPastCommitmentTime(Date.parse(resolved), now)) return 'past_time';
+  // on a proposal rather than an error. An all-day deadline is judged by its
+  // day (FX3): due today is not past.
+  if (isPastReading(result, now)) return 'past_time';
   return null;
 }
 
@@ -768,7 +768,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       items.push({
         itemId,
         title: (extracted.result.title || extracted.result.action || '').trim(),
-        resolvedTime: needsClarification ? null : extracted.result.remindAt || extracted.result.dueAt,
+        // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
+        // says which day, and no instant is shown as if somebody chose it.
+        resolvedTime: needsClarification || extracted.result.allDay ? null : extracted.result.remindAt || extracted.result.dueAt,
         needsClarification,
         // Sent so the review screen can show Must/Should/Nice without a second
         // call — and so the user can see which of the two it is (#164).

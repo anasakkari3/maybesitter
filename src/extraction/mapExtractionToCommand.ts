@@ -62,6 +62,8 @@ export function mapExtractionToCommand(
         : result.timeAnchor === 'event' ? 'scheduled_event' as const : 'due_by' as const,
       dueAt: result.dueAt,
       remindAt: result.remindAt,
+      // A day with no hour anybody chose (FX3): `dueAt` is its local midnight.
+      ...(result.allDay && result.dueAt ? { allDay: true } : {}),
       // The zone the extractor resolved the instant in (#501). When there was
       // no time to resolve there is no zone to record either, and 'UTC' is the
       // only honest label for a commitment that names no instant.

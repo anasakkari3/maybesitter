@@ -357,7 +357,9 @@ test('R1: a limit word whose time was taken out does not end a rules title', () 
   assert.equal(title('drop by tomorrow at 5pm'), 'drop by');
   assert.equal(title('wash the car before'), 'wash the car before');
   // A limit whose object stayed in the title is left alone.
-  assert.equal(title('بدي أدفع فاتورة الكهربا قبل آخر الشهر'), 'أدفع فاتورة الكهربا قبل آخر الشهر');
+  assert.equal(title('بدي أخلص الشغل قبل السفر'), 'أخلص الشغل قبل السفر');
+  // The month's end is a time now (FX3), taken out with its limit word.
+  assert.equal(title('بدي أدفع فاتورة الكهربا قبل آخر الشهر'), 'أدفع فاتورة الكهربا');
 });
 
 test('R1: one clause whose hour has passed no longer rejects the whole capture', async () => {
@@ -624,7 +626,8 @@ test('R2 I3: the literal UAT capture without AI consent titles the doctor and th
   const { contract } = await propose(UAT_SIX);
   assert.deepEqual(contract.items.map((item) => item.title), [
     'موعد دكتور',
-    'أدفع فاتورة الكهربا قبل آخر الشهر',
+    // FX3: «قبل آخر الشهر» is the deadline now, so it leaves the title.
+    'أدفع فاتورة الكهربا',
     'أرد على إيميل سامي بخصوص المشروع',
     'أتصل بأمي',
     'عندي تمرين بالجيم',
@@ -1101,7 +1104,8 @@ test('R4 N2: a pure reorder — every object echoing the clause it reads — is 
   assert.deepEqual(ar.drafts.map((draft) => [draft.title, draft.dueAt]), [
     ['أتصل بأمي', '2026-09-27T15:00:00.000Z'],
     ['تمرين بالجيم', '2026-09-29T16:00:00.000Z'],
-    ['أدفع فاتورة الكهربا', null],
+    // FX3: «قبل آخر الشهر» is an all-day deadline, due by 30 Sep (its local midnight).
+    ['أدفع فاتورة الكهربا', '2026-09-29T21:00:00.000Z'],
   ]);
 });
 
@@ -1498,12 +1502,13 @@ const NEW1_CAPTURES = [
 /** The review's noun-phrase commitments: each must survive every refusal. */
 const NEW1_MUST_KEEP: Record<string, readonly string[]> = {
   [NEW1_CAPTURES[0]]: ['call mom', 'rent due', 'dinner with Sam'],
-  [NEW1_CAPTURES[1]]: ['أتصل بأمي', 'فاتورة الكهربا قبل آخر الشهر', 'عشا مع سامي'],
-  [NEW1_CAPTURES[2]]: ['להתקשר לאמא', 'חשבון חשמל עד סוף החודש', 'ארוחת עם סמי'],
-  [NEW1_CAPTURES[3]]: ['התקשר לאמא', 'חשבון חשמל עד סוף החודש', 'ארוחת עם סמי'],
+  // FX3: the month's end is the deadline now, not part of the title.
+  [NEW1_CAPTURES[1]]: ['أتصل بأمي', 'فاتورة الكهربا', 'عشا مع سامي'],
+  [NEW1_CAPTURES[2]]: ['להתקשר לאמא', 'חשבון חשמל', 'ארוחת עם סמי'],
+  [NEW1_CAPTURES[3]]: ['התקשר לאמא', 'חשבון חשמל', 'ארוחת עם סמי'],
   [NEW1_CAPTURES[4]]: ["Mom's birthday", "Dana's wedding", 'buy a gift'],
   [NEW1_CAPTURES[5]]: ["Dinner with Sam I'll pick him up"],
-  [NEW1_CAPTURES[6]]: ['موعد دكتور', 'أدفع فاتورة الكهربا قبل آخر الشهر', 'أرد على إيميل سامي بخصوص المشروع', 'أتصل بأمي', 'عندي تمرين بالجيم', 'أخلص تقرير الشغل'],
+  [NEW1_CAPTURES[6]]: ['موعد دكتور', 'أدفع فاتورة الكهربا', 'أرد على إيميل سامي بخصوص المشروع', 'أتصل بأمي', 'عندي تمرين بالجيم', 'أخلص تقرير الشغل'],
 };
 
 /** The real metered provider, with its storage seams faked. */

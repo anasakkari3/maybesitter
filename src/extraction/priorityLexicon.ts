@@ -204,3 +204,57 @@ export function isFixedAppointment(rawText: string, time: FixedTime): boolean {
   if (attends || ATTENDING.test(text)) return true;
   return time.hasClock && MEETING.test(text);
 }
+
+/**
+ * An obligation the person states in their own words (closure UAT 2026-09-27,
+ * FX3): «لازم أسلّم التقرير», "I have to call Sam", «אני חייב לשלם».
+ *
+ * The review card labels `high` «لازم» / Must. When somebody *says* «لازم»,
+ * the item is theirs to call a Must, and it was coming back «يُفضّل» because
+ * the model was told only "urgent" or "important" counts. Both engines read
+ * this: the rule-based extractor infers with it, the schema validator raises
+ * the model's default with it. The clause is what is read, never the whole
+ * capture, so «لازم» on one commitment does not make its neighbours Must.
+ *
+ * Chosen per word, and a miss is the safe side (Should, one tap to change):
+ *
+ *   must        «لازم», «لازمني/لازمنا» (+ و/ف), «ضروري», «مضطر/مضطرة»;
+ *               must, have/has to, have got to, 've got to; «חייב/חייבת/
+ *               חייבים/חייבות» (+ ו/ש), «חובה».
+ *   not needed  the same words negated right before them: «مش/مو/ما لازم»,
+ *               «مش ضروري», "don't/doesn't/not have to", "needn't", «לא חייב».
+ *   neither     wanting and needing: «بدي», "want to", "need to", «צריך»
+ *               (the everyday "need to", as common as "I need to" and no
+ *               stronger), and the words as nouns or adjectives — «اللازم»,
+ *               «اللازمة», «ملازم» — which the whole-word boundaries exclude.
+ *
+ * Returns `must` when any occurrence is not negated.
+ */
+const OBLIGATION = new RegExp(
+  [
+    `${B}([وف]?(?:لازم|لازمني|لازمنا|ضروري|مضطر|مضطرة|مضطرين))${A}`,
+    "\\b(must|(?:have|has)\\s+to(?!-)|(?:have|'ve|has|'s)\\s+got\\s+to)\\b",
+    `${B}([וש]?(?:חייב|חייבת|חייבים|חייבות|חובה))${A}`,
+  ].join('|'),
+  'giu',
+);
+
+/** The word just before an obligation that turns it into "not needed". */
+const NEGATION_BEFORE = new RegExp(
+  `(?:${B}(?:مش|مو|ما|مب|لا|לא|אין)|\\b(?:don'?t|doesn'?t|didn'?t|do\\s+not|does\\s+not|not|never|won'?t))\\s*$`,
+  'iu',
+);
+
+const NEEDNT = /\bneedn'?t\b|\bneed\s+not\b/i;
+
+export function statedObligation(text: string): 'must' | 'not_needed' | null {
+  if (typeof text !== 'string' || !text.trim()) return null;
+  let negated = false;
+  for (const match of Array.from(text.matchAll(OBLIGATION))) {
+    const before = text.slice(0, match.index);
+    if (NEGATION_BEFORE.test(before)) negated = true;
+    else return 'must';
+  }
+  if (negated || NEEDNT.test(text)) return 'not_needed';
+  return null;
+}

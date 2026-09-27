@@ -207,6 +207,9 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
           : commitment.timeSpec?.kind === 'scheduled_event' ? ('scheduled_event' as const) : ('due_by' as const),
         dueAt: edit.resolvedTime,
         remindAt: edit.resolvedTime,
+        // A time the person picked, or none: either way no longer a whole day
+        // (FX3). Left true, a timed `dueAt` would fail `allDay`'s midnight rule.
+        allDay: false,
       };
 
     return {

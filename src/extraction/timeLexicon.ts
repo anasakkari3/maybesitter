@@ -682,3 +682,56 @@ export function localTimeSpecFor(instant: Date, timeZone: string): { date: strin
     return null;
   }
 }
+
+/* ── The end of the month (closure UAT 2026-09-27, FX3) ─────────────
+ *
+ * «بدي أدفع فاتورة الكهربا قبل آخر الشهر» came back «بدون وقت»: nothing in
+ * the lexicon knew the month has an end, so the deadline the person said was
+ * dropped. It is a deadline on the current month's last day, with no hour —
+ * an all-day `due_by`, the way a day with no chosen hour is stored everywhere
+ * (`TimeSpec.allDay`).
+ *
+ * Only *this* month. «آخر الشهر الجاي», "end of next month", «סוף החודש
+ * הבא» and the past ones are not read, so they keep what they did before
+ * rather than landing on the wrong month. There is no end-of-week reading:
+ * which day ends a week (Thursday, Friday, Saturday) differs by person and
+ * country, and a wrong deadline is worse than none.
+ */
+const AR_MONTH_WORD = '(?:هال|ال)شهر';
+const AR_NOT_ANOTHER_MONTH = `(?!\\s+(?:الجاي|الجاية|القادم|الماضي|الفائت|الفات|التاني|اللي\\s+(?:جاي|بعده|بعدو|فات|قبله|قبلو)))`;
+const EN_NOT_ANOTHER_MONTH = '(?!\\s+after\\b)';
+const HE_NOT_ANOTHER_MONTH = `(?!\\s+(?:הבא|הקרוב|שעבר|הקודם))`;
+
+/** What names the month's end, without the limit word before it. */
+const MONTH_END_CORE: readonly string[] = [
+  `${NOT_LETTER_BEFORE}[وف]?[بلع]?(?:آخر|اخر|أخر|إخر|نهاية|نهايه|نهايت)\\s+${AR_MONTH_WORD}${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`,
+  `${NOT_LETTER_BEFORE}(?:قبل|لحد|لحدّ|لغاية|لغايه|حتى)\\s+ما\\s+(?:يخلص|يخلّص|ينتهي|يوفى|يوفّى)\\s+${AR_MONTH_WORD}${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`,
+  `\\b(?:the\\s+)?end\\s+of\\s+(?:the\\s+|this\\s+)?month\\b${EN_NOT_ANOTHER_MONTH}`,
+  '\\b(?:this\\s+)?month[\\s-]end\\b',
+  `${NOT_LETTER_BEFORE}[וש]?[בל]?סוף\\s+ה?חודש${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+];
+
+const MONTH_END = new RegExp(MONTH_END_CORE.join('|'), 'iu');
+
+/**
+ * The same, with the limit word before it («قبل», "by", «עד»), for
+ * `stripTiming` to lift out of a title whole: «أدفع فاتورة الكهربا قبل آخر
+ * الشهر» is titled «أدفع فاتورة الكهربا».
+ */
+export const MONTH_END_MENTION_SOURCES: readonly string[] = MONTH_END_CORE.map((core) =>
+  `(?:(?:${NOT_LETTER_BEFORE}(?:قبل|لحد|لحدّ|لغاية|لغايه|حتى)|\\b(?:by|before|until|till|at|on)|${NOT_LETTER_BEFORE}(?:עד|לפני))\\s+)?(?:${core})`);
+
+/** `month` when the text sets a deadline at the end of the current month. */
+export function readPeriodEndDeadline(rawText: string): 'month' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  return MONTH_END.test(rawText) ? 'month' : null;
+}
+
+/** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */
+export function lastDayOfMonth(now: Date, timeZone: string): string {
+  const today = localTimeSpecFor(now, timeZone)?.date ?? now.toISOString().slice(0, 10);
+  const [year, month] = today.split('-').map(Number) as [number, number];
+  // Day 0 of the next month is the last day of this one.
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}
