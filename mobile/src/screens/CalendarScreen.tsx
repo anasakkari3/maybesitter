@@ -8,7 +8,7 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
-import { drawnAt, dueApart, savedPlacements } from '../features/plan/savedPlacement';
+import { drawnAt, dueAsideText, savedPlacements } from '../features/plan/savedPlacement';
 import { useSavedWeek, useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
@@ -144,12 +144,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
 
   const range = formatDayRange(keys[0]!, keys[STRIP_DAYS - 1]!, { locale: lang });
   // «موعدها بكرا · 15:00» beside a step a saved day put elsewhere, as Today says it.
-  const dueAsideFor = (item: CommitmentView): string | null => {
-    const due = dueApart(item);
-    return due ? fill(t.plannedDueAside, {
-      when: `${formatRelativeDay(new Date(due), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(due), { locale: lang, timeZone: timezone }))}`,
-    }) : null;
-  };
+  const dueAsideFor = (item: CommitmentView): string | null => dueAsideText(item, t.plannedDueAside, lang, timezone);
 
   return (
     <Screen>

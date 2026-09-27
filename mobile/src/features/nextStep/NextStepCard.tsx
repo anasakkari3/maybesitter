@@ -15,6 +15,7 @@ import type { CommitmentView } from '../commitments/model';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
+import { drawnWhen, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
 
 /**
@@ -197,7 +198,10 @@ function Ready({
   const actionsOffered = DECISIONS.filter((decision) => recommendation.availableActions?.includes(decision));
   const offers = (d: NextStepDecisionKind) => actionsOffered.includes(d);
   const folded = actionsOffered.filter((d) => d !== 'accept' && d !== 'defer');
-  const when = item?.shownAt ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone })) : null;
+  // Where a saved week day puts it, as Today's rows, the Calendar and Details
+  // say it, with its own due beside it when that differs (FX1, review I1).
+  const when = item ? drawnWhen(item, lang, timezone) : null;
+  const dueAside = item ? dueAsideText(item, t.plannedDueAside, lang, timezone) : null;
   const impLabel = item ? (item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice) : null;
 
   const run = (decision: NextStepDecisionKind) => {
@@ -208,7 +212,7 @@ function Ready({
 
   return (
     <>
-      <Btn label={step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
+      <Btn label={dueAside ? `${step.title}, ${dueAside}` : step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
         <Txt role="section" testID="next-step-title">{step.title}</Txt>
         {item ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -217,6 +221,7 @@ function Ready({
             {impLabel ? <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
           </View>
         ) : null}
+        {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
       </Btn>
 
       {/* Unconditional. See the header: the contract says nothing has been

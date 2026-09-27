@@ -6,7 +6,7 @@ import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
-import { fill, ltr, type Lang } from '../i18n/strings';
+import { ltr, type Lang } from '../i18n/strings';
 import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
@@ -24,7 +24,7 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
-import { drawnAt, dueApart, placeView, savedPlacements } from '../features/plan/savedPlacement';
+import { dayAndTime, drawnAt, drawnWhen, dueAsideText, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
@@ -291,8 +291,8 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
   const act = useCommitmentAction();
   const why = whyFirstLine(item.reasonCodes, strings);
   const drawn = drawnAt(item);
-  const when = drawn ? rowWhen(item, drawn, lang, timezone) : t.noTimeYet;
-  const aside = dueAsideOf(item, t.plannedDueAside, lang, timezone);
+  const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   return (
     <Card focus pad={22} style={{ gap: 16, borderStartWidth: 3, borderStartColor: item.importance === 'must' ? p.wm : p.lnStrong }} testID="today-primary">
@@ -371,8 +371,8 @@ function Row({ item, first, timezone, lang, busy }: {
     postpone: () => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) }),
   });
   const drawn = drawnAt(item);
-  const when = drawn ? rowWhen(item, drawn, lang, timezone) : t.noTimeYet;
-  const aside = dueAsideOf(item, t.plannedDueAside, lang, timezone);
+  const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
 
   return (
     <SwipeableRow actions={rowActions} testID={`today-swipe-${item.id}`}>
@@ -423,7 +423,7 @@ function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first
   const { t, p, actions } = useApp();
   const drawn = drawnAt(item);
   const when = drawn ? dayAndTime(drawn, lang, timezone) : t.noTimeYet;
-  const aside = dueAsideOf(item, t.plannedDueAside, lang, timezone);
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const returnWhen = item.postponedUntil
     ? `${t.postponeReturn} ${formatRelativeDay(new Date(item.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.postponedUntil), { locale: lang, timeZone: timezone }))}`
     : null;
@@ -492,24 +492,3 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
   );
 }
 
-/** A day and an hour, as the later rows and the due aside say them. */
-function dayAndTime(iso: string, lang: Lang, timezone: string): string {
-  const at = new Date(iso);
-  return `${formatRelativeDay(at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
-}
-
-/**
- * A today row's time: the hour alone, as before — unless a saved week day
- * holds it on another day (FX1), which the hour alone would hide.
- */
-function rowWhen(item: CommitmentView, iso: string, lang: Lang, timezone: string): string {
-  return item.plannedAt && dayKey(new Date(iso), timezone) !== dayKey(new Date(), timezone)
-    ? dayAndTime(iso, lang, timezone)
-    : ltr(formatTime(new Date(iso), { locale: lang, timeZone: timezone }));
-}
-
-/** «موعدها بكرا · 15:00», when a saved plan puts it elsewhere; else nothing. */
-function dueAsideOf(item: CommitmentView, template: string, lang: Lang, timezone: string): string | null {
-  const due = dueApart(item);
-  return due ? fill(template, { when: dayAndTime(due, lang, timezone) }) : null;
-}

@@ -33,6 +33,7 @@ import he from '../../../i18n/locales/he.json';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
 import * as planEndpoints from '../../../api/endpoints/plans';
+import nextStepFixture from '../../../api/__fixtures__/nextStep.recommendation.json';
 
 jest.mock('../../../i18n/timezone', () => ({
   ...(jest.requireActual('../../../i18n/timezone') as object),
@@ -139,6 +140,23 @@ describe('a step saved for another day, after «احفظ هاليوم»', () => 
     await show(<TodayScreen />);
     await waitFor(() => expect(screen.getByTestId('today-time-market').props.children).toBe(when(PLANNED)));
     expect(screen.getByTestId('today-due-market').props.children).toBe(fill(en.plannedDueAside, { when: when(at(0, 23)) }));
+  });
+
+  it('the next-step card on Today says it the same way, when the saved-week step is the next step (review I1)', async () => {
+    // The recorded recommendation, pointed at the step saved for Thursday.
+    const dueToday = { ...market(), timeSpec: { ...market().timeSpec, dueAt: at(0, 23), remindAt: at(0, 23) } };
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [dueToday] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
+      ...nextStepFixture,
+      recommendation: { ...nextStepFixture.recommendation, primaryStep: { commitmentId: 'market', title: 'Go to the market' } },
+    } as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('next-step-title')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('next-step-when').props.children).toBe(when(PLANNED)));
+    const aside = fill(en.plannedDueAside, { when: when(at(0, 23)) });
+    expect(screen.getByTestId('next-step-due').props.children).toBe(aside);
+    expect(screen.getByTestId('next-step-open').props.accessibilityLabel).toContain(aside);
   });
 
   it('Details says the same two things: where it is planned, and when it is due', async () => {

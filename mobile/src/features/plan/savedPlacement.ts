@@ -1,5 +1,7 @@
 import type { SavedWeek } from '../../api/schemas/plan';
 import type { CommitmentView } from '../commitments/model';
+import { dayKey, formatRelativeDay, formatTime } from '../../i18n/format';
+import { fill, ltr, type Lang } from '../../i18n/strings';
 
 /**
  * Where the saved week days put each step (CL5b I4; post-UAT FX1).
@@ -51,4 +53,28 @@ export function drawnAt(view: CommitmentView): string | null {
 export function dueApart(view: CommitmentView): string | null {
   if (!view.plannedAt || !view.shownAt) return null;
   return Date.parse(view.plannedAt) === Date.parse(view.shownAt) ? null : view.shownAt;
+}
+
+/** A day and an hour, «بكرا · 15:00», as the rows and the due aside say them. */
+export function dayAndTime(iso: string, lang: Lang, timeZone: string): string {
+  const at = new Date(iso);
+  return `${formatRelativeDay(at, { locale: lang, timeZone })} · ${ltr(formatTime(at, { locale: lang, timeZone }))}`;
+}
+
+/**
+ * The time a today row or card draws: the hour alone, as before — unless a
+ * saved week day holds it on another day, which the hour alone would hide.
+ */
+export function drawnWhen(view: CommitmentView, lang: Lang, timeZone: string): string | null {
+  const drawn = drawnAt(view);
+  if (!drawn) return null;
+  return view.plannedAt && dayKey(new Date(drawn), timeZone) !== dayKey(new Date(), timeZone)
+    ? dayAndTime(drawn, lang, timeZone)
+    : ltr(formatTime(new Date(drawn), { locale: lang, timeZone }));
+}
+
+/** «موعدها بكرا · 15:00», when a saved plan puts it at another time; else null. */
+export function dueAsideText(view: CommitmentView, template: string, lang: Lang, timeZone: string): string | null {
+  const due = dueApart(view);
+  return due ? fill(template, { when: dayAndTime(due, lang, timeZone) }) : null;
 }
