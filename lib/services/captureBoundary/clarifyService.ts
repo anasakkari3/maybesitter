@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -296,11 +296,12 @@ async function readFreeTextAnswer(
     });
   } catch (error) {
     // The guarded extractor refuses a reading whose time has gone, with the
-    // reading. A typed time of day, or a day named, is placed on its next
-    // occurrence below, as any typed hour is. Anything else — «بعد ساعة»,
-    // "later", "now" — re-read the clause's own passed hour, and taking that
-    // would roll it to tomorrow unasked (FY1 re-review, I4): not understood.
-    if (error instanceof PastCommitmentTimeError && error.extracted && (replacesTime || namesDay(freeText))) extracted = error.extracted;
+    // reading. A typed time of day is placed on its next occurrence below, as
+    // any typed hour is. Anything else — «بعد ساعة», "later", "now" — re-read
+    // the clause's own passed hour, and taking that would roll it to tomorrow
+    // unasked (FY1 re-review, I4): not understood. (A day named alone is
+    // never refused here: «بكرا» re-reads the person's own 15:00 on it.)
+    if (error instanceof PastCommitmentTimeError && error.extracted && replacesTime) extracted = error.extracted;
     else if (error instanceof PastCommitmentTimeError) throw new ClarifyError('answer_not_understood');
     else throw error;
   }
