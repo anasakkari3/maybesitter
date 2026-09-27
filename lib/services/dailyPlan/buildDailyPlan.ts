@@ -138,6 +138,25 @@ export interface DailyPlanInputArgs {
    * Two builds with the same `builtAt` produce the same request.
    */
   readonly builtAt: Instant;
+  /**
+   * What the week view (CL5b) decided about this one day, on top of the
+   * daily rule. Absent everywhere else: a day planned on its own is exactly
+   * the daily planner's day.
+   *
+   * `exclude` takes floating work off the day that `belongsToDay` would have
+   * put on it — it is placed on another day of the week, or the person
+   * dropped it here. `include` puts floating work on the day that
+   * `belongsToDay` would not have — the person moved it here. Pinned
+   * commitments are never affected: their time is the commitment's, not the
+   * week's.
+   */
+  readonly assignment?: DayAssignment | null;
+}
+
+/** See `DailyPlanInputArgs.assignment`. */
+export interface DayAssignment {
+  readonly include: readonly string[];
+  readonly exclude: readonly string[];
 }
 
 export interface DailyPlanInput {
@@ -417,8 +436,13 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
     }];
   });
 
+  const include = new Set(args.assignment?.include ?? []);
+  const exclude = new Set(args.assignment?.exclude ?? []);
+  const onThisDay = (commitment: Commitment): boolean => include.has(commitment.id)
+    || (belongsToDay(commitment, endsAt) && !exclude.has(commitment.id));
+
   const items: PlanningItem[] = plannable
-    .filter((commitment) => pinnedStartOf(commitment) === null && belongsToDay(commitment, endsAt))
+    .filter((commitment) => pinnedStartOf(commitment) === null && onThisDay(commitment))
     .map((commitment) => ({
       itemId: commitment.id,
       title: commitment.title,

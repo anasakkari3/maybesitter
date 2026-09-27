@@ -54,6 +54,10 @@ import {
   planOpenedSchema,
   planResponseSchema,
   planSettingsResponseSchema,
+  weekAcceptResponseSchema,
+  weekConflictSchema,
+  savedWeekResponseSchema,
+  weekResponseSchema,
 } from '../schemas/plan';
 import {
   calendarBusyDeletedSchema,
@@ -213,6 +217,12 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.proposal.stale', planProposalRejectedSchema],
   ['plan.settingsDefault', planSettingsResponseSchema],
   ['plan.settingsSaved', planSettingsResponseSchema],
+  // Weekly planning mode (CL5b): the week, a day saved from it, and the 409.
+  ['plan.week', weekResponseSchema],
+  ['plan.weekAccepted', weekAcceptResponseSchema],
+  ['plan.weekAlreadyPlanned', weekConflictSchema],
+  ['plan.weekChanged', weekConflictSchema],
+  ['plan.weekSaved', savedWeekResponseSchema],
   // The device calendar (UC-3.1, #185). `commitments.one` above is a commitment
   // with no link and `commitments.oneLinked` the same read once one exists, so
   // both halves of the nullable field are parsed from a real response.

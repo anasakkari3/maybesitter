@@ -48,6 +48,7 @@ import { RemindersMount } from './features/reminders/RemindersMount';
 import { PlaceRemindersMount } from './features/places/PlaceRemindersMount';
 import { PlacesScreen } from './features/places/PlacesScreen';
 
+import { WeekScreen } from './features/plan/WeekScreen';
 import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
 import { PersonalizationScreen, CommitmentsScreen, ContextualAssistantScreen } from './features/product/ContextScreens';
 import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product/WatcherScreens';
@@ -145,6 +146,7 @@ export function Root() {
 {s.screen === 'integrations' && <IntegrationsScreen />}
 {s.screen === 'googleIntegration' && <GoogleIntegrationScreen />}
 {s.screen === 'actionModes' && <ActionModesScreen />}
+{s.screen === 'weekPlan' && <WeekScreen />}
 {s.screen === 'addToMaybeSitter' && <AddToMaybeSitterScreen />}
 {s.screen === 'goalExecution' && <GoalExecutionScreen />}
 {s.screen === 'personalization' && <PersonalizationScreen />}

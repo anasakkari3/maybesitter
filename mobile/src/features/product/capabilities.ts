@@ -10,7 +10,7 @@ import type { Screen } from '../../state/types';
 export type Availability = 'LIVE' | 'AVAILABLE' | 'VIA_SHARE' | 'COMING_SOON' | 'BETA' | 'BLOCKED' | 'NEEDS_REAUTH';
 export const capabilities = {
   capture: 'LIVE', dailyPlan: 'LIVE', memory: 'LIVE',
-  assistantPreparation: 'LIVE', weeklyMode: 'COMING_SOON',
+  assistantPreparation: 'LIVE', weeklyMode: 'LIVE',
   assistantPersonality: 'COMING_SOON', assistantName: 'COMING_SOON',
   gmail: 'COMING_SOON', googleCalendar: 'COMING_SOON', drive: 'COMING_SOON',
   location: 'LIVE', camera: 'COMING_SOON',
@@ -49,7 +49,7 @@ export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen | null;
   // «حضّرني» (CL5a): offered on the Calendar tab's busy times and on a
   // meeting commitment; the proposal it makes is reviewed in capture.
   assistantPreparation: { screen: 'calendar', api: '/api/mobile/meetings/prepare' },
-  weeklyMode: { screen: null, api: null },
+  weeklyMode: { screen: 'weekPlan', api: '/api/mobile/plans/week' },
   assistantPersonality: { screen: null, api: null },
   assistantName: { screen: null, api: null },
   gmail: { screen: null, api: null },

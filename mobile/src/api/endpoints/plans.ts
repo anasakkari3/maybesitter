@@ -5,7 +5,12 @@ import {
   planResponseSchema,
   planSettingsResponseSchema,
   planCauseResponseSchema,
+  savedWeekResponseSchema,
+  weekAcceptResponseSchema,
+  weekResponseSchema,
   type DailyPlan,
+  type SavedWeek,
+  type Week,
   type PlanSettings,
   type PlanCause,
 } from '../schemas/plan';
@@ -199,4 +204,66 @@ export async function getPlanCause(date: string): Promise<PlanCause | null> {
     if (error instanceof NotFoundError) return null;
     throw error;
   }
+}
+
+/* ── Weekly planning mode (CL5b) ─────────────────────────────────── */
+
+/** A step the person moved to another day of the week. */
+export interface WeekMove {
+  itemId: string;
+  date: string;
+}
+
+/**
+ * The person's decisions about this week's proposals. Held by the screen, in
+ * memory only, and sent with every call: the server stores nothing until a
+ * day is saved, so these are the whole of "what I changed".
+ */
+export interface WeekDecisions {
+  moves: readonly WeekMove[];
+  drops: readonly string[];
+}
+
+/**
+ * The week's proposals, today … today+6, with the decisions applied.
+ *
+ * A POST that writes nothing: the decisions are a body, not a query string.
+ * Safe to repeat, so the screen calls it again after every move or drop.
+ */
+export async function proposeWeek(decisions: WeekDecisions): Promise<Week> {
+  const response = await apiRequest('POST', '/api/mobile/plans/week', {
+    body: { moves: decisions.moves, drops: decisions.drops },
+    schema: weekResponseSchema,
+  });
+  return response.week;
+}
+
+/**
+ * Saves one day of the week as it was shown under `decisions`.
+ *
+ * `shown` is the steps that day's card showed; the server saves the day only
+ * if it still holds exactly those (I1). Answers that date's plan and the week
+ * as it stands after. A refusal is a 409 carrying the week to redraw, which
+ * arrives as `WeekConflictError` (`already_planned` or `week_changed`).
+ */
+export async function acceptWeekDay(
+  date: string,
+  shown: readonly string[],
+  decisions: WeekDecisions,
+): Promise<{ plan: DailyPlan; week: Week }> {
+  if (!PLAN_DATE.test(date)) throw new ValidationError('a plan date must be YYYY-MM-DD');
+  const response = await apiRequest('POST', '/api/mobile/plans/week/accept', {
+    body: { date, shown, moves: decisions.moves, drops: decisions.drops },
+    schema: weekAcceptResponseSchema,
+  });
+  return { plan: { ...response.plan, proposal: null }, week: response.week };
+}
+
+/**
+ * The days of the next seven saved from the week view, and their steps
+ * (I4): what the Calendar strip draws on those dates. Reads only.
+ */
+export async function getSavedWeek(): Promise<SavedWeek> {
+  const { today, saved } = await apiRequest('GET', '/api/mobile/plans/week', { schema: savedWeekResponseSchema });
+  return { today, saved };
 }

@@ -332,3 +332,93 @@ export type PlanSettings = z.infer<typeof planSettingsSchema>;
 export type PlanSettingsResponse = z.infer<typeof planSettingsResponseSchema>;
 export type PlanCause = z.infer<typeof planCauseSchema>;
 export type PlanCauseResponse = z.infer<typeof planCauseResponseSchema>;
+
+/* ── Weekly planning mode (CL5b) ─────────────────────────────────── */
+
+/**
+ * The week as `POST /api/mobile/plans/week` and `…/week/accept` answer it.
+ * Read from `lib/services/dailyPlan/weekPlan.ts` (`WeekDto`), and pinned by
+ * the fixtures `plan.week`, `plan.weekAccepted` and `plan.weekAlreadyPlanned`.
+ *
+ * `reason` is an enum because the server mints it from a closed union and the
+ * card has one sentence per value; a new value is a contract change the
+ * fixtures would show first. It is null on a stored day's rows.
+ */
+export const weekStepReasonSchema = z.enum(['due', 'carried', 'open', 'moved']);
+
+export const weekItemSchema = z.object({
+  itemId: z.string(),
+  title: z.string().nullable(),
+  startsAt: isoDateTime,
+  endsAt: isoDateTime,
+  reason: weekStepReasonSchema.nullable(),
+});
+
+export const weekRowSchema = z.object({
+  itemId: z.string(),
+  title: z.string().nullable(),
+  startsAt: isoDateTime,
+  endsAt: isoDateTime,
+});
+
+export const weekDaySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  /** `proposed`: nothing stored. `planned`: a plan not yet accepted. `accepted`: saved. */
+  state: z.enum(['proposed', 'planned', 'accepted']),
+  items: z.array(weekItemSchema),
+  fixed: z.array(weekRowSchema),
+  unplaced: z.array(z.object({ itemId: z.string(), title: z.string().nullable() })),
+});
+
+export const weekSchema = z.object({
+  today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  timezone: z.string(),
+  days: z.array(weekDaySchema),
+  moves: z.array(z.object({ itemId: z.string(), date: z.string() })),
+  drops: z.array(z.object({ itemId: z.string(), title: z.string().nullable() })),
+  waiting: z.number().int().nonnegative(),
+});
+
+export const weekResponseSchema = z.object({
+  success: z.literal(true),
+  week: weekSchema,
+});
+
+export const weekAcceptResponseSchema = z.object({
+  success: z.literal(true),
+  plan: dailyPlanSchema,
+  week: weekSchema,
+});
+
+/**
+ * 409 from the save: `already_planned` (the day has a plan) or `week_changed`
+ * (the day is no longer what its card showed, I1). The week comes back so a
+ * screen can redraw without another call.
+ */
+export const weekConflictSchema = z.object({
+  success: z.literal(false),
+  error: z.string(),
+  reason: z.enum(['already_planned', 'week_changed']),
+  week: weekSchema,
+});
+
+/**
+ * `GET /api/mobile/plans/week` (I4): the days of the next seven the person
+ * saved from the week view, and the steps each holds, for the Calendar strip.
+ * Pinned by `plan.weekSaved`.
+ */
+export const savedWeekResponseSchema = z.object({
+  success: z.literal(true),
+  today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  saved: z.array(z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    items: z.array(z.object({ itemId: z.string(), startsAt: isoDateTime, endsAt: isoDateTime })),
+  })),
+});
+
+export type Week = z.infer<typeof weekSchema>;
+export type WeekDay = z.infer<typeof weekDaySchema>;
+export type WeekItem = z.infer<typeof weekItemSchema>;
+export type WeekRow = z.infer<typeof weekRowSchema>;
+export type WeekStepReason = z.infer<typeof weekStepReasonSchema>;
+export type SavedWeek = Omit<z.infer<typeof savedWeekResponseSchema>, 'success'>;

@@ -192,7 +192,13 @@ test('every mobile route file exists and is enumerated', () => {
   // reads notes somebody wrote about their own meeting and stores a proposal
   // under the caller's uid, which the capture confirm then turns into
   // commitments — so an unguarded one would plant proposals in any account.
-  assert.equal(files.length, 81, `found:\n${files.join('\n')}`);
+  // Eighty-three with weekly planning mode (CL5b): `POST /api/mobile/plans/week`
+  // and `POST /api/mobile/plans/week/accept`. The first answers a week of the
+  // caller's commitments by title; the second stores and accepts a day's plan,
+  // so an unguarded one would write a plan into an account that is not theirs.
+  // The week file also answers `GET` (the saved week days for the Calendar
+  // strip, CL5b I4): one more handler, no more files, guarded the same way.
+  assert.equal(files.length, 83, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

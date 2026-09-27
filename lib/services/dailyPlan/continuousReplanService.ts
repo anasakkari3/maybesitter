@@ -55,6 +55,7 @@ import {
   type StoredDailyPlan,
   type StoredPlanProposal,
 } from './planStore';
+import { storedWeekAssignment } from './weekHolds';
 import {
   editsSurvivingReschedule,
   effectiveSchedule,
@@ -896,6 +897,12 @@ export async function processStateChangesForUser(
    * The installed generation and any review offer retain these exact inputs
    * too (#586), so edits and replay describe the placement actually solved.
    */
+  // A day saved from the week view (or built around one) is solved under the
+  // week's decisions it was stored with (CL5b, I2): a replan must not put
+  // back work the week held on another day or the person took off, nor take
+  // off a step the person moved onto this day. Rebuilt from the document, as
+  // of the account's local date now, so #383 still rolls in yesterday's work.
+  const weekAssignment = storedWeekAssignment(storedPlan, localDateOf(nowIso, settings.timezone));
   const { commitments, constraints, config } = await composeDailyPlanRequest({
     uid,
     date,
@@ -903,6 +910,7 @@ export async function processStateChangesForUser(
     now: nowIso,
     userDocument: user,
     previousBlocks: storedPlan?.blocks ?? null,
+    ...(weekAssignment ? { assignment: weekAssignment } : {}),
   }, { storage });
   const sources = dailyPlanScheduleSources(constraints);
 

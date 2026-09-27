@@ -205,7 +205,7 @@ describe('the capability table', () => {
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
     expect(soon).toEqual([
       'assistantName', 'assistantPersonality', 'camera', 'drive', 'files',
-      'gmail', 'googleCalendar', 'photos', 'weeklyMode', 'whatsapp',
+      'gmail', 'googleCalendar', 'photos', 'whatsapp',
     ]);
   });
 });

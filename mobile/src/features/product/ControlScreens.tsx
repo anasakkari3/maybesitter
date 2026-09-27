@@ -89,7 +89,7 @@ export function ActionModesScreen() {
   return <ProductPage id="modes" title={t.xModes} subtitle={t.xModesBody}>
     <ProductRow id="mode-quick" title={t.xQuick} body={t.xQuickBody} icon="spark" onPress={() => actions.go('capture')} />
     <ProductRow id="mode-plan" title={t.xPlanner} body={t.xPlannerBody} icon="calendar" onPress={() => actions.openPlan(dayKey(new Date(), zone))} />
-    <ProductSection title={t.xWeekly} icon="goal" status={cap.weeklyMode} />
+    <ProductRow id="mode-weekly" title={t.xWeekly} body={t.xWeeklyBody} icon="goal" onPress={() => actions.go('weekPlan')} />
   </ProductPage>;
 }
 
