@@ -127,6 +127,10 @@ const CASES: Array<[string, z.ZodType]> = [
   // still waiting on its hour, then the same item answered.
   ['capture.guessedWeekday', captureProposalSchema],
   ['capture.guessedWeekdayClarified', captureProposalSchema],
+  // «قبل آخر الشهر» (FX3): a settled item with a day and no hour, and its
+  // confirmation as an all-day deadline.
+  ['capture.allDayDeadline', captureProposalSchema],
+  ['capture.allDayDeadlineConfirmation', captureConfirmationSchema],
   // The same schema again, over a proposal the model answered (#338). Without
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.

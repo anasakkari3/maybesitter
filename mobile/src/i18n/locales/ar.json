@@ -650,6 +650,7 @@
   "reviewNothingSelected": "ما اخترت إشي. اختار وحدة عالأقل.",
   "reviewEstimated": "حزرناها",
   "reviewDateEstimated": "حزرنا التاريخ",
+  "reviewDueByDay": "لحد {day}",
   "syllabusSelectAll": "تحديد الكل",
   "syllabusSelectNone": "إلغاء التحديد",
   "syllabusDatesFound": "مواعيد لقيناها: {n}",

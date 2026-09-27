@@ -11,7 +11,7 @@ import { Tag, TextLink } from '../../ui/chrome';
 import { evidencePhrases } from './evidence';
 import { FeedbackFlagButton } from './FeedbackFlagButton';
 import { DEFER_PRESETS, postponeTo, type PostponePreset } from '../commitments/postpone';
-import type { CommitmentView } from '../commitments/model';
+import { clockOf, type CommitmentView } from '../commitments/model';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
@@ -197,7 +197,7 @@ function Ready({
   const actionsOffered = DECISIONS.filter((decision) => recommendation.availableActions?.includes(decision));
   const offers = (d: NextStepDecisionKind) => actionsOffered.includes(d);
   const folded = actionsOffered.filter((d) => d !== 'accept' && d !== 'defer');
-  const when = item?.shownAt ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone })) : null;
+  const when = item ? clockOf(item, { locale: lang, timeZone: timezone }) : null;
   const impLabel = item ? (item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice) : null;
 
   const run = (decision: NextStepDecisionKind) => {

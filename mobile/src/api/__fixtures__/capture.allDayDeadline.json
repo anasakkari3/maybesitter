@@ -1,0 +1,23 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "proposed",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "أدفع فاتورة الكهربا",
+      "resolvedTime": null,
+      "needsClarification": false,
+      "priority": "normal",
+      "priorityEstimated": true,
+      "resolvedDate": "2026-08-31",
+      "dateEstimated": false
+    }
+  ],
+  "seeds": [],
+  "provenance": {
+    "requestedEngine": "rules",
+    "executedEngine": "rule-based",
+    "fallbackUsed": true
+  }
+}

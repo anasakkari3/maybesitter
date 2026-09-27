@@ -10,7 +10,7 @@ import { ltr, type Lang } from '../i18n/strings';
 import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
-import { groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
+import { clockOf, groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
 import { CategoryBar } from '../features/commitments/CategoryBar';
 import { categoryChipsFor, filterByCategory, type CategoryChip } from '../features/commitments/categoryFilter';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
@@ -283,14 +283,15 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
   const { t, p, actions } = useApp();
   const act = useCommitmentAction();
   const why = whyFirstLine(item.reasonCodes, strings);
-  const when = item.shownAt ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone })) : t.noTimeYet;
+  const clock = clockOf(item, { locale: lang, timeZone: timezone });
+  const when = clock ?? t.noTimeYet;
   const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   return (
     <Card focus pad={22} style={{ gap: 16, borderStartWidth: 3, borderStartColor: item.importance === 'must' ? p.wm : p.lnStrong }} testID="today-primary">
       <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
       <Btn
         testID={`today-item-${item.id}`}
-        label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
+        label={rowAccessibilityLabel(item, t, clock)}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.99}
         style={{ alignItems: 'flex-start', gap: 4 }}
@@ -305,7 +306,7 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
           ) : null}
         </View>
       </Btn>
-      <BusyConflictChip blocks={item.shownAt ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
+      <BusyConflictChip blocks={item.shownAt && !item.allDay ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
       {why ? <Txt role="supporting" color={p.mu} testID="today-why-first">{why}</Txt> : null}
       <ActionRow>
         <Btn testID={`today-primary-complete`} label={t.doneS} onPress={() => act.mutate({ id: item.id, action: 'complete' })} style={{ minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 16, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
@@ -360,9 +361,8 @@ function Row({ item, first, timezone, lang, busy }: {
     complete: () => act.mutate({ id: item.id, action: 'complete' }),
     postpone: () => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) }),
   });
-  const when = item.shownAt
-    ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
-    : t.noTimeYet;
+  const clock = clockOf(item, { locale: lang, timeZone: timezone });
+  const when = clock ?? t.noTimeYet;
 
   return (
     <SwipeableRow actions={rowActions} testID={`today-swipe-${item.id}`}>
@@ -372,7 +372,7 @@ function Row({ item, first, timezone, lang, busy }: {
         onAccessibilityAction={(event) => {
           rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
         }}
-        label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
+        label={rowAccessibilityLabel(item, t, clock)}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.98}
         style={{
@@ -401,7 +401,7 @@ function Row({ item, first, timezone, lang, busy }: {
           </View>
           {/* What else is happening then (UC-3.2, #186): a muted note, never a
               warning, never something that stops the row being opened. */}
-          <BusyConflictChip blocks={item.shownAt ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
+          <BusyConflictChip blocks={item.shownAt && !item.allDay ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
         </View>
       </Btn>
     </SwipeableRow>
@@ -411,7 +411,7 @@ function Row({ item, first, timezone, lang, busy }: {
 function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first: boolean; timezone: string; lang: Lang }) {
   const { t, p, actions } = useApp();
   const when = item.shownAt
-    ? `${formatRelativeDay(new Date(item.shownAt), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))}`
+    ? `${formatRelativeDay(new Date(item.shownAt), { locale: lang, timeZone: timezone })} · ${clockOf(item, { locale: lang, timeZone: timezone }) ?? t.noTimeYet}`
     : t.noTimeYet;
   const returnWhen = item.postponedUntil
     ? `${t.postponeReturn} ${formatRelativeDay(new Date(item.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.postponedUntil), { locale: lang, timeZone: timezone }))}`

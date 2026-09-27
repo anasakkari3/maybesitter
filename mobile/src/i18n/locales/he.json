@@ -653,6 +653,7 @@
   "reviewNothingSelected": "לא נבחר כלום. בחר לפחות אחד.",
   "reviewEstimated": "ניחשנו",
   "reviewDateEstimated": "ניחשנו את התאריך",
+  "reviewDueByDay": "עד {day}",
   "syllabusSelectAll": "בחר הכל",
   "syllabusSelectNone": "בטל בחירה",
   "syllabusDatesFound": "תאריכים שנמצאו: {n}",

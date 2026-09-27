@@ -203,6 +203,8 @@ const GOAL_USER = uidFor('GoalFixtureUser');
  * daily counter change no other fixture — the account export in particular.
  */
 const MEETING_USER = uidFor('MeetingFixtureUser');
+/** The all-day deadline (FX3) records under its own account, so no list or count fixture moves. */
+const DEADLINE_USER = uidFor('DeadlineFixtureUser');
 /** A block three hours from the real clock: the route refuses one that has started. */
 function meetingBlock(): { startAt: string; endAt: string } {
   const start = Date.now() + 3 * 3_600_000;
@@ -783,6 +785,28 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         timezone: 'Asia/Jerusalem',
       },
     })));
+
+    // ── a deadline with a day and no hour (FX3) ────────────────────
+    // «بدي أدفع فاتورة الكهربا قبل آخر الشهر», through the real route: one
+    // settled item — the month's last day in `resolvedDate`, no `resolvedTime`,
+    // no question — which confirms as an all-day `due_by`.
+    const bill = await record('capture.allDayDeadline', 200, await capturePost(request('/api/mobile/capture', {
+      uid: DEADLINE_USER,
+      body: { text: 'بدي أدفع فاتورة الكهربا قبل آخر الشهر', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    assert.equal(bill.status, 'proposed');
+    const billItems = bill.items as Array<{ itemId: string; title: string; resolvedTime: string | null; resolvedDate?: string; dateEstimated?: boolean; needsClarification: boolean }>;
+    assert.deepEqual(billItems.map((item) => [item.title, item.resolvedTime, item.resolvedDate, item.dateEstimated, item.needsClarification]), [
+      ['أدفع فاتورة الكهربا', null, '2026-08-31', false, false],
+    ]);
+    const billConfirmed = await record('capture.allDayDeadlineConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+      uid: DEADLINE_USER,
+      body: { proposalId: bill.proposalId, itemIds: [billItems[0]!.itemId] },
+    })));
+    assert.equal(billConfirmed.success, true);
+    // No hour was chosen, so none is reported back: the midnight in `dueAt`
+    // is not a time to show on the saved screen.
+    assert.deepEqual((billConfirmed.persisted as Array<{ resolvedTime: string | null }>).map((item) => item.resolvedTime), [null]);
 
     // ── share intake (UC-3.0, #183) ────────────────────────────────
     // The same proposal shape as `capture.proposal`, plus the `share`

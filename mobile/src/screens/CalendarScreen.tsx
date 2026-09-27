@@ -16,7 +16,7 @@ import { ScreenHeader, Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
-import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
+import { clockOf, groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
@@ -101,7 +101,8 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
         map.set(key, views.filter((view) => {
           const saved = savedOn.get(view.id);
           if (!saved) return true;
-          moved.push([saved.date, { ...view, shownAt: saved.startsAt }]);
+          // A saved plan slot is an hour, even for an all-day item (FX3).
+          moved.push([saved.date, { ...view, shownAt: saved.startsAt, allDay: false }]);
           return false;
         }));
       }
@@ -243,9 +244,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
               <Btn
                 key={item.id}
                 testID={`calendar-item-${item.id}`}
-                label={rowAccessibilityLabel(item, t, item.shownAt
-                  ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
-                  : null)}
+                label={rowAccessibilityLabel(item, t, clockOf(item, { locale: lang, timeZone: timezone }))}
                 onPress={() => actions.openDetail(item.id)}
                 scaleTo={0.98}
                 style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }, cardShadow(p)]}
@@ -253,9 +252,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
                 <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
                 <Txt role="body" style={stacked ? undefined : { flex: 1 }}>{item.title}</Txt>
                 <Txt size={12} color={p.mu} latin testID={`calendar-time-${item.id}`}>
-                  {item.shownAt
-                    ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
-                    : t.noTimeYet}
+                  {clockOf(item, { locale: lang, timeZone: timezone }) ?? t.noTimeYet}
                 </Txt>
               </Btn>
             ))(row.item))}

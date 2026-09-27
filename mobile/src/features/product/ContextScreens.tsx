@@ -128,7 +128,7 @@ export function CommitmentsScreen() {
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
       {views.length === 0 ? <ProductSection title={t.xNoResults} icon="check" /> : null}
       {views.map(item => <ProductRow key={item.id} id={`commitments-item-${item.id}`} title={isolateAuto(item.title)} icon={item.status === 'done' ? 'check' : 'calendar'}
-        body={[item.status === 'done' ? t.xDone : t.xOpen, item.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : t.xUntimed].join(' · ')}
+        body={[item.status === 'done' ? t.xDone : t.xOpen, item.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })}${item.allDay ? '' : ` · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`}` : t.xUntimed].join(' · ')}
         onPress={() => actions.openDetail(item.id)} />)}
     </QueryBoundary>
   </ProductPage>;
@@ -146,7 +146,7 @@ export function ContextualAssistantScreen() {
     .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999'))[0];
   return <ProductPage id="assistant" title={t.xAssistant} subtitle={t.xAssistantBody}>
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
-      <ProductSection title={item ? isolateAuto(item.title) : t.xNoContext} body={item?.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : undefined} icon="calendar">
+      <ProductSection title={item ? isolateAuto(item.title) : t.xNoContext} body={item?.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })}${item.allDay ? '' : ` · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`}` : undefined} icon="calendar">
         {item ? <Pill label={t.xOpenCommitment} testID="assistant-detail" onPress={() => actions.openDetail(item.id)} /> : <Pill label={t.xQuick} onPress={() => actions.go('capture')} />}
       </ProductSection>
     </QueryBoundary>
