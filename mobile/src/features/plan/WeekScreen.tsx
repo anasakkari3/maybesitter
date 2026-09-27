@@ -164,8 +164,10 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   );
 }
 
-const REASON_KEY: Record<WeekStepReason, 'weekReasonDue' | 'weekReasonCarried' | 'weekReasonOpen' | 'weekReasonMoved'> = {
+const REASON_KEY: Record<WeekStepReason, 'weekReasonDue' | 'weekReasonDueEarlier' | 'weekReasonCarried' | 'weekReasonOpen' | 'weekReasonMoved'> = {
   due: 'weekReasonDue',
+  // Due on an earlier day that is still ahead: not «من يوم فات» (FX1).
+  due_earlier: 'weekReasonDueEarlier',
   carried: 'weekReasonCarried',
   open: 'weekReasonOpen',
   moved: 'weekReasonMoved',

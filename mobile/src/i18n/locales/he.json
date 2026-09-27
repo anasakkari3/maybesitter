@@ -1169,6 +1169,7 @@
   "weekEmptyBody": "אחרי שתאשרו התחייבות, חזרו לכאן.",
   "weekWaiting": "נשאר להמשך: {n}",
   "weekReasonDue": "המועד ביום הזה",
+  "weekReasonDueEarlier": "המועד לפני היום הזה",
   "weekReasonCarried": "מיום קודם",
   "weekReasonOpen": "בלי תאריך, אבל חשוב לכם",
   "weekReasonMoved": "העברתם לכאן",

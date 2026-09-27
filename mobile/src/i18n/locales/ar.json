@@ -1166,6 +1166,7 @@
   "weekEmptyBody": "لما تأكّد التزام، ارجع لهون.",
   "weekWaiting": "ضايل لبعدين: {n}",
   "weekReasonDue": "موعدها بهاليوم",
+  "weekReasonDueEarlier": "موعدها قبل هاليوم",
   "weekReasonCarried": "من يوم فات",
   "weekReasonOpen": "بلا موعد، بس مهمّة إلك",
   "weekReasonMoved": "إنت نقلتها لهون",

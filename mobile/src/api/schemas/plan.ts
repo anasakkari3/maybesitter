@@ -344,7 +344,7 @@ export type PlanCauseResponse = z.infer<typeof planCauseResponseSchema>;
  * card has one sentence per value; a new value is a contract change the
  * fixtures would show first. It is null on a stored day's rows.
  */
-export const weekStepReasonSchema = z.enum(['due', 'carried', 'open', 'moved']);
+export const weekStepReasonSchema = z.enum(['due', 'due_earlier', 'carried', 'open', 'moved']);
 
 export const weekItemSchema = z.object({
   itemId: z.string(),

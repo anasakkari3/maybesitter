@@ -1065,3 +1065,28 @@ test('once the saved day holding a step has passed, a day built around it takes 
     assert.ok(workOnTheDay(read!.stored).inForce.includes(held), 'yesterday\'s unfinished step stayed off today');
   });
 });
+
+/* ── Why a step is on its day (post-UAT FX1) ─────────────────────── */
+
+test('work due on a day still ahead, proposed on a later one, is not «من يوم فات»; work due on a day already gone is', async () => {
+  // The UAT, 2026-09-27: «أروح عالسوق», due *tomorrow* 15:00, was offered on
+  // the day after as «من يوم فات». Nothing about it is from a day that passed.
+  await withStorage(async (storage) => {
+    let state = createEmptyDomainState();
+    state = withCommitment(state, 'cmt_report', 'Hand in the report', { kind: 'due', dueAt: '2026-09-16T06:00:00.000Z' });
+    state = withCommitment(state, 'cmt_market', 'Go to the market', { kind: 'due', dueAt: '2026-09-16T12:00:00.000Z' });
+    state = withCommitment(state, 'cmt_late', 'Return the form', { kind: 'due', dueAt: '2026-09-14T12:00:00.000Z' });
+    await persistParticipantState(USER, state);
+    await storage.set(userDoc(USER), { timezone: TZ, locale: 'en' });
+    const dto = await week(storage);
+    const reasonOf = (itemId: string) => dto.days.flatMap((day) => day.items).find((item) => item.itemId === itemId)?.reason;
+    const dayOf = (itemId: string) => dto.days.find((day) => day.items.some((item) => item.itemId === itemId))?.date;
+
+    // Yesterday's form is carried from a day that has gone.
+    assert.equal(reasonOf('cmt_late'), 'carried');
+    // One of Wednesday's two is on Wednesday; the other lands after its day.
+    const later = ['cmt_report', 'cmt_market'].find((itemId) => dayOf(itemId) !== '2026-09-16');
+    assert.ok(later && dayOf(later) && dayOf(later)! > '2026-09-16', `expected one of Wednesday's two after Wednesday: ${JSON.stringify(dto.days.map((day) => [day.date, day.items.map((item) => item.itemId)]))}`);
+    assert.equal(reasonOf(later), 'due_earlier', 'due on a day still ahead, and called «from a day that passed»');
+  });
+});
