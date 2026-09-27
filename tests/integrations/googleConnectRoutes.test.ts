@@ -37,11 +37,16 @@ import {
 } from '../support/fakeGoogle.ts';
 import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
 import { busyBlockId, readBusyBlocksForPlanning, replaceBusyBlocks } from '../../lib/calendar/busyBlocks.ts';
-import { GMAIL_SCAN_MAX_MESSAGES, GMAIL_SCAN_QUERY } from '../../lib/integrations/google/googleGmailScan.ts';
+import {
+  GMAIL_SCAN_CAPTURE_RESERVE_MS,
+  GMAIL_SCAN_DEADLINE_MS,
+  GMAIL_SCAN_MAX_MESSAGES,
+  GMAIL_SCAN_QUERY,
+} from '../../lib/integrations/google/googleGmailScan.ts';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../lib/llm/shareProvider.ts';
 import { EMAIL_BATCH_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/emailPrompt.ts';
 import { BEGIN_UNTRUSTED_SHARED_CONTENT } from '../../lib/services/share/shareTypes.ts';
-import type { LlmProvider } from '../../src/extraction/llm/index.ts';
+import { LLMUnavailableError, type LlmProvider } from '../../src/extraction/llm/index.ts';
 import { GOOGLE_BUSY_SOURCE_ID } from '../../lib/integrations/google/googleConfig.ts';
 import { GET as statusGet } from '../../src/app/api/mobile/integrations/google/route.ts';
 import { POST as connectPost } from '../../src/app/api/mobile/integrations/google/connect/route.ts';
@@ -814,6 +819,80 @@ test('Gmail scan under a per-minute model cap stops where the cap stops it, and 
     assert.equal(json.share.metrics.messagesNotRead, 17);
     assert.equal(json.share.metrics.modelUnavailable, 17);
     assert.ok(json.items.length > 0, 'what was read is still offered');
+  } finally {
+    done();
+  }
+});
+
+/**
+ * A clock the scan reads, and a model that spends it: each call takes
+ * `perCall` of it, and records the time it was allowed (CL6a round 2, N5).
+ */
+function slowModel(perCallMs: number, options: { failAfterSpending?: boolean } = {}) {
+  let clock = Date.parse('2026-09-27T07:00:00.000Z');
+  const allowed: Array<number | undefined> = [];
+  const generate = (async (request: { parts: readonly unknown[]; timeoutMs?: number }) => {
+    allowed.push(request.timeoutMs);
+    clock += perCallMs;
+    if (options.failAfterSpending) throw new LLMUnavailableError('timeout');
+    const items: unknown[] = [];
+    let message = 0;
+    for (const part of request.parts as Array<{ text?: string }>) {
+      const label = /^Message (\d+):$/.exec(part.text ?? '');
+      if (label) { message = Number(label[1]); continue; }
+      const asked = /Please return the signed trip form (\d+) by Friday\./.exec(part.text ?? '');
+      if (asked) items.push({ message, title: `Return trip form ${asked[1]}`, evidenceSentence: asked[0], dueDayPhrase: 'by Friday' });
+    }
+    return { text: JSON.stringify({ items }), model: 'gemini-2.5-flash', latencyMs: perCallMs, promptTokens: 100, outputTokens: 10 };
+  }) as unknown as ShareStructuredGenerator;
+  return { generate, allowed, now: () => new Date(clock) };
+}
+
+test('Gmail scan has its own deadline below the app\'s 60 s: no model call starts after it, and what it cut is not read', async () => {
+  const model = slowModel(25_000);
+  const done = setup();
+  try {
+    setGoogleRuntimeForTests({ ...googleRuntime(), shareModel: model.generate, now: model.now });
+    await connect('gmail');
+    await grantAi();
+    // ~7,000 characters each: three to a batch, seven batches, three allowed.
+    tripForms(GMAIL_SCAN_MAX_MESSAGES, 250);
+    const json = await scan();
+
+    // 25 s, then 25 s more: the third call would start past the read's share
+    // of the deadline, so it is never started.
+    assert.equal(model.allowed.length, 2);
+    assert.ok(GMAIL_SCAN_DEADLINE_MS < 60_000, 'below the app\'s upload timeout');
+    const readBudget = GMAIL_SCAN_DEADLINE_MS - GMAIL_SCAN_CAPTURE_RESERVE_MS;
+    // Each call is told how long it has left, never the provider's 45 s.
+    assert.equal(model.allowed[0], readBudget);
+    assert.equal(model.allowed[1], readBudget - 25_000);
+    assert.equal(json.share.metrics.messagesRead, 6);
+    assert.equal(json.share.metrics.messagesNotRead, 14);
+    assert.equal(json.share.metrics.messagesPastDeadline, 14);
+    // Not the model's fault, so the app does not tell anybody to try again soon.
+    assert.equal(json.share.metrics.modelUnavailable, 0);
+    assert.ok(json.items.length > 0, 'what was read is still offered');
+  } finally {
+    done();
+  }
+});
+
+test('Gmail scan: a model call cut off by the deadline is counted as the deadline\'s, not as the model being unavailable', async () => {
+  const model = slowModel(45_000, { failAfterSpending: true });
+  const done = setup();
+  try {
+    setGoogleRuntimeForTests({ ...googleRuntime(), shareModel: model.generate, now: model.now });
+    await connect('gmail');
+    await grantAi();
+    tripForms(3);
+    const json = await scan();
+
+    assert.equal(model.allowed.length, 1);
+    assert.equal(json.share.metrics.messagesRead, 0);
+    assert.equal(json.share.metrics.messagesNotRead, 3);
+    assert.equal(json.share.metrics.messagesPastDeadline, 3);
+    assert.equal(json.share.metrics.modelUnavailable, 0);
   } finally {
     done();
   }

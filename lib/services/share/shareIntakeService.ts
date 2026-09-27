@@ -75,7 +75,7 @@ import {
 // should have — loud and total, not a silent fallback. The mailbox scan reads
 // with the email channel by value, which is the same object the registry holds.
 import { emailPreprocessor } from './channels';
-import { readMailboxMessages } from './channels/email';
+import { readMailboxMessages, type MailboxDeadline } from './channels/email';
 
 /**
  * The most bytes one share may carry, across every file.
@@ -508,6 +508,11 @@ export interface MailboxScanInput {
   readonly readMessages: () => Promise<readonly MailboxMessage[]>;
   readonly timezone?: unknown;
   readonly referenceTime?: unknown;
+  /**
+   * When the mailbox read must stop starting model calls (CL6a round 2, N5).
+   * What it had not read by then is `not_read`, never "nothing here".
+   */
+  readonly deadline?: MailboxDeadline;
 }
 
 /** The header block the email cleaner reads: Subject and Date, then the body. */
@@ -566,6 +571,7 @@ export async function proposeFromMailbox(
     messages.map((message) => ({ raw: renderMailboxMessage(message) })),
     { referenceTime, timezone },
     shareChannelContext(context),
+    input.deadline ? { deadline: input.deadline } : {},
   );
 
   const segments: ShareSegment[] = [];
@@ -575,6 +581,7 @@ export async function proposeFromMailbox(
   let withItems = 0;
   let notRead = 0;
   let modelUnavailable = 0;
+  let pastDeadline = 0;
   let budget = 0;
   let overBudget = false;
 
@@ -587,6 +594,7 @@ export async function proposeFromMailbox(
     if (outcome.kind === 'not_read') {
       notRead += 1;
       if (outcome.because === 'model_unavailable') modelUnavailable += 1;
+      if (outcome.because === 'deadline') pastDeadline += 1;
       continue;
     }
     const cost = outcome.segments.reduce(
@@ -616,6 +624,7 @@ export async function proposeFromMailbox(
       messagesWithItems: withItems,
       messagesNotRead: notRead,
       modelUnavailable,
+      messagesPastDeadline: pastDeadline,
       modelCalls,
       itemCount: segments.length,
     },

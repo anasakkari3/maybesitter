@@ -34,6 +34,24 @@ import type { GoogleRuntime } from './googleRuntime';
 export const GMAIL_SCAN_QUERY = 'category:primary newer_than:7d';
 export const GMAIL_SCAN_MAX_MESSAGES = 20;
 
+/**
+ * The whole scan answers within this (CL6a round 2, N5).
+ *
+ * The app gives up on the request at 60 s (`UPLOAD_TIMEOUT_MS`). Three model
+ * calls at the provider's 45 s each, plus Gmail, plus the capture pipeline,
+ * could take longer than that, and the person would then see a network error
+ * while the server kept reading and spending. So the scan keeps its own clock,
+ * below the app's.
+ */
+export const GMAIL_SCAN_DEADLINE_MS = 50_000;
+/**
+ * Kept back from the deadline for what runs after the mail is read: the
+ * capture pipeline's own model call (8 s) and the answer. The mailbox read
+ * stops starting model calls when only this much is left, and a call that
+ * is running is cut there.
+ */
+export const GMAIL_SCAN_CAPTURE_RESERVE_MS = 10_000;
+
 export interface GmailScanInput {
   readonly timezone?: unknown;
   readonly referenceTime?: unknown;
@@ -45,6 +63,11 @@ export async function scanRecentGmail(
   runtime: GoogleRuntime,
   options: { readonly signal?: AbortSignal } = {},
 ): Promise<ShareProposalResult> {
+  // From the moment the request is being served, not from the first model call.
+  const deadline = {
+    at: runtime.now().getTime() + GMAIL_SCAN_DEADLINE_MS - GMAIL_SCAN_CAPTURE_RESERVE_MS,
+    now: () => runtime.now().getTime(),
+  };
   await requireReadableFeature(uid, 'gmail', runtime);
   const transport = createGmailTransport({
     accessToken: () => googleAccessToken(uid, 'gmail', runtime),
@@ -80,6 +103,7 @@ export async function scanRecentGmail(
     readMessages,
     timezone: input.timezone,
     referenceTime: input.referenceTime,
+    deadline,
   }, {
     uid,
     ...(options.signal ? { signal: options.signal } : {}),

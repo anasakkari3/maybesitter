@@ -61,7 +61,7 @@
  * and is better than showing a user the wrong sentence beside a deadline.
  */
 import { screenForInjection } from '../../../../src/extraction/injectionBoundary';
-import { LLMUnavailableError } from '../../../../src/extraction/llm';
+import { DEFAULT_STRUCTURED_TIMEOUT_MS, LLMUnavailableError } from '../../../../src/extraction/llm';
 import { decodeUtf8 } from '../mediaType';
 import { cleanEmail, paragraphsOf, EMAIL_MASK, PHONE_MASK } from '../emailCleaner';
 import { dayKeyOf, resolveDayPhrase } from '../emailAnchor';
@@ -444,13 +444,35 @@ export interface MailboxRawMessage {
  *    left after screening), and these are the items it supports;
  *  - `refused` — refused outright (an injected subject, a MIME dump), counted
  *    as ignored, the way a single share of it would be;
- *  - `not_read` — never analysed: the call budget ran out, or the model was
- *    unavailable (a quota, an outage). Never reported as "nothing here".
+ *  - `not_read` — never analysed: the call budget ran out, the model was
+ *    unavailable (a quota, an outage), or the scan's deadline came first.
+ *    Never reported as "nothing here".
  */
 export type MailboxMessageOutcome =
   | { readonly kind: 'read'; readonly segments: readonly ShareSegment[]; readonly ignored: number }
   | { readonly kind: 'refused' }
-  | { readonly kind: 'not_read'; readonly because: 'call_budget' | 'model_unavailable' };
+  | { readonly kind: 'not_read'; readonly because: MailboxStop };
+
+/**
+ * Why a read stopped: the call budget, a model that would not answer (a
+ * quota, an outage), or the scan's own deadline (CL6a round 2, N5). Only the
+ * second is worth pressing again for soon; the app words the others
+ * neutrally.
+ */
+export type MailboxStop = 'call_budget' | 'model_unavailable' | 'deadline';
+
+/**
+ * The scan's own clock (CL6a round 2, N5): after `at` no model call is
+ * started, and a running one is given only what is left.
+ */
+export interface MailboxDeadline {
+  /** Epoch milliseconds. */
+  readonly at: number;
+  readonly now?: () => number;
+}
+
+/** A call with less than this left is not started: it could not finish. */
+export const MAILBOX_MIN_CALL_MS = 2_000;
 
 export interface MailboxReadResult {
   readonly outcomes: readonly MailboxMessageOutcome[];
@@ -486,7 +508,10 @@ export async function readMailboxMessages(
   messages: readonly MailboxRawMessage[],
   input: Pick<SharePreprocessorInput, 'referenceTime' | 'timezone'>,
   context: SharePreprocessContext,
+  options: { readonly deadline?: MailboxDeadline } = {},
 ): Promise<MailboxReadResult> {
+  const deadline = options.deadline;
+  const clock = deadline?.now ?? Date.now;
   const outcomes: MailboxMessageOutcome[] = new Array(messages.length);
   const waiting: PreparedMessage[] = [];
 
@@ -533,9 +558,11 @@ export async function readMailboxMessages(
   if (current.length > 0) batches.push(current);
 
   let modelCalls = 0;
-  let stopped: 'call_budget' | 'model_unavailable' | null = null;
+  let stopped: MailboxStop | null = null;
   for (const batch of batches) {
     if (stopped === null && modelCalls >= MAILBOX_MAX_MODEL_CALLS) stopped = 'call_budget';
+    const left = deadline ? deadline.at - clock() : null;
+    if (stopped === null && left !== null && left < MAILBOX_MIN_CALL_MS) stopped = 'deadline';
     if (stopped !== null) {
       for (const message of batch) outcomes[message.index] = { kind: 'not_read', because: stopped };
       continue;
@@ -548,15 +575,18 @@ export async function readMailboxMessages(
         parts: emailBatchParts(batch.map((message) => ({ subject: message.subject, body: message.body }))),
         responseSchema: EMAIL_BATCH_RESPONSE_SCHEMA,
         maxOutputTokens: MAILBOX_MAX_OUTPUT_TOKENS,
+        // Never longer than the scan has left; the provider's own 45 s otherwise.
+        ...(left !== null ? { timeoutMs: Math.min(left, DEFAULT_STRUCTURED_TIMEOUT_MS) } : {}),
         ...(context.signal ? { signal: context.signal } : {}),
       });
       answered = parseEmailBatchItems(response.text);
     } catch (error) {
       // As the single-share channel: an unavailable model is a result, not a
       // failed scan. But here it is a result about *these* messages, and they
-      // are reported as unread — the next press may read them.
+      // are reported as unread — the next press may read them. A call the
+      // deadline cut off is the deadline's, not the model's.
       if (!(error instanceof LLMUnavailableError)) throw error;
-      stopped = 'model_unavailable';
+      stopped = deadline && clock() >= deadline.at ? 'deadline' : 'model_unavailable';
       for (const message of batch) outcomes[message.index] = { kind: 'not_read', because: stopped };
       continue;
     }
