@@ -26,7 +26,7 @@
  * signal, and the rest are checked from most specific to least.
  */
 
-import { timeOfDayEvidence } from './timeLexicon';
+import { asksOrOpensWithAction } from './requestEvidence';
 
 export type MessageKind =
   /** Asks for something to be remembered, scheduled or done. */
@@ -93,8 +93,7 @@ const GREETING = new RegExp(GREETING_SOURCES.join('|'), 'iu');
 // Strings, not literals: the `u` flag is not available to a regex literal
 // under this tsconfig's target (see INTERROGATIVE below).
 const LEADING_MARKS = new RegExp('^[\\s,.!،؛:;-]+', 'u');
-const WORD_BREAK = new RegExp('[\\s,.!?؟،؛:;]+', 'u');
-const HAS_LETTER = new RegExp('\\p{L}', 'u');
+const EVERY_GREETING = new RegExp(GREETING_SOURCES.join('|'), 'giu');
 
 /**
  * What a greeting leaves once it is taken out — every greeting, the ones that
@@ -103,7 +102,7 @@ const HAS_LETTER = new RegExp('\\p{L}', 'u');
 function withoutGreetings(text: string): string {
   let rest = text;
   for (let pass = 0; pass < 4; pass += 1) {
-    const next = rest.replace(new RegExp(GREETING_SOURCES.join('|'), 'giu'), ' ').replace(LEADING_MARKS, '');
+    const next = rest.replace(EVERY_GREETING, ' ').replace(LEADING_MARKS, '');
     if (next === rest) break;
     rest = next;
   }
@@ -127,21 +126,6 @@ export function stripLeadingGreetings(text: string): string {
   return rest;
 }
 
-/**
- * The part after a greeting states a commitment: it names a day or a time,
- * and says something besides it. "Good morning, call mom tomorrow" does;
- * "thanks, see you tomorrow" leaves only "tomorrow"; "good morning everyone"
- * names no day. A greeting with no day or time after it stays small talk —
- * the rules cannot tell "call mom" from "everyone", and a greeting made into a
- * task is the #166 failure this file exists for.
- */
-function carriesCommitment(rest: string): boolean {
-  if (timeOfDayEvidence(rest) === 'none') return false;
-  return rest
-    .split(WORD_BREAK)
-    .filter((word) => HAS_LETTER.test(word))
-    .some((word) => timeOfDayEvidence(word) === 'none');
-}
 
 /**
  * A question put to the assistant.
@@ -208,8 +192,9 @@ const FORWARDED = /^\s*(?:fwd|fw|forwarded)\s*:/i;
  *     meeting cancelled yesterday?" is about something that already happened.
  *  5. **question** — an interrogative or a trailing question mark.
  *  6. **greeting_or_chat** — a greeting with nothing asked. What follows a
- *     greeting is classified on its own when it names a day or a time and
- *     says something besides it: a greeting does not swallow a commitment.
+ *     greeting is classified on its own when it asks for something — a
+ *     request word or an errand verb it opens with: a greeting does not
+ *     swallow a commitment, and does not make small talk one either.
  *  7. **informational** — a state, a feeling or news.
  *  8. otherwise a request, which keeps every plain imperative ("buy milk")
  *     working: that is the overwhelmingly common case and it carries none of
@@ -226,9 +211,14 @@ export function classifyMessageKind(rawText: string): MessageKind {
   if (INTERROGATIVE.test(text) || QUESTION_MARK.test(text)) return 'question';
   if (GREETING.test(text)) {
     // A greeting in front of a commitment does not swallow it (CL1): "good
-    // morning, call mom tomorrow" is the call. The rest is read on its own.
+    // morning, call mom tomorrow" is the call. What is left is read on its
+    // own only when it asks for something — a request word or an errand verb
+    // it opens with. "Hello, tonight is the game", "hi, tomorrow is a
+    // holiday" and «שלום, מחר חג» name a day and ask for nothing: small talk,
+    // the #166 create-nothing class (CL1 review I-2). "Good morning,
+    // everyone" is small talk for the same reason.
     const rest = withoutGreetings(text);
-    return rest && carriesCommitment(rest) ? classifyMessageKind(rest) : 'greeting_or_chat';
+    return rest && asksOrOpensWithAction(rest) ? classifyMessageKind(rest) : 'greeting_or_chat';
   }
   if (INFORMATIONAL.test(text)) return 'informational';
   return 'request';

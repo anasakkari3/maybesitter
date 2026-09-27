@@ -144,7 +144,9 @@ test('titles keep no stray proclitic from a part of the day', () => {
 test('the lexicon: a part of the day inside another word is not one', () => {
   const none: ReadonlyArray<string> = [
     'المساعدة', 'المسافة', 'المسائل', 'المساحة', 'المسار', 'الصباحي', 'المسائي', 'أصبح', 'ظهري',
-    'المعاصر', 'العصري', 'العصرية', 'المساعد', 'مسائية', 'صباحية',
+    // Not «العصرية»: the spoken afternoon is a time (CL1 review I-1). This
+    // list used to hold it, which locked that regression in.
+    'المعاصر', 'العصري', 'المساعد', 'مسائية', 'صباحية',
     'המערב', 'מערב', 'ערבית', 'ערבים', 'מבוקר', 'לילות', 'הבוקרים',
     'mornings', 'nightly', 'overnight', 'evenings',
   ];

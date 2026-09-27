@@ -292,6 +292,13 @@ interface DayPartWords {
   /** English words that are a time wherever they stand ("tonight"). */
   enAlways?: string;
   ar: string;
+  /**
+   * Arabic words with a second meaning in the adjective position, right
+   * after a noun with «ال»: «العصرية» is the spoken afternoon, and in
+   * «المدرسة العصرية» it is "modern". A one-word answer to "when?" has no
+   * noun before it, so it is always the afternoon there.
+   */
+  arUnlessAdjective?: string;
   he: string;
   /**
    * The English word stays in a title, as it always has: "keep B plan at
@@ -309,13 +316,26 @@ const DAY_PARTS: readonly DayPartWords[] = [
   {
     hour: 14,
     en: 'afternoon',
-    ar: 'بعد\\s+(?:الظهر|الضهر)|العصر|[بع]العصرية|[بع]العصريه',
+    ar: 'بعد\\s+(?:الظهر|الضهر)|العصر',
+    arUnlessAdjective: 'العصري[ةه]',
     he: 'אחרי\\s+הצהריים|אחר\\s+הצהריים|אחרי\\s+הצהרים|אחר\\s+הצהרים|אחה["״]צ',
   },
-  { hour: 9, en: 'morning', ar: 'الصبح|الصباح|صباح\\p{M}*ا?|[بع]الصبحية|[بع]الصبحيه', he: 'בוקר' },
-  { hour: 12, en: 'noon|midday', enStaysInTitle: true, ar: 'الظهر|الضهر', he: 'צהריים|צהרים' },
+  {
+    hour: 9,
+    en: 'morning',
+    ar: 'الصبح|الصباح|صباح\\p{M}*ا?|الصبحي[ةه]|الفترة\\s+الصباحي[ةه]',
+    he: 'בוקר',
+  },
+  {
+    hour: 12,
+    en: 'noon|midday',
+    enStaysInTitle: true,
+    ar: 'الظهر|الضهر|الضهري[ةه]|الظهري[ةه]|الظهيرة|الظهيره',
+    he: 'צהריים|צהרים',
+  },
   { hour: 20, en: 'night', enAlways: 'tonight', ar: 'الليل|الليلة|الليله', he: 'לילה' },
-  { hour: 18, en: 'evening', ar: 'المساء?|مساء\\p{M}*ا?', he: 'ערב' },
+  // «مسا» without the article is spoken too: «الساعة 7 مسا», «ذكرني … مسا».
+  { hour: 18, en: 'evening', ar: 'المساء?|مسا(?:ء\\p{M}*ا?)?|الفترة\\s+المسائي[ةه]', he: 'ערב' },
 ];
 
 /**
@@ -324,7 +344,17 @@ const DAY_PARTS: readonly DayPartWords[] = [
  */
 const EN_STRIP_LEAD = '(?:\\b(?:in|during|at|by|around|before|after|until|till|from|through|on|for|this)\\s+(?:the\\s+)?)?';
 
+/**
+ * The adjective position: right after a word with «ال» that is not a day —
+ * «المدرسة العصرية», not «يوم الأحد العصرية» or «اليوم العصرية».
+ */
+const AR_AFTER_DEFINITE_NOUN =
+  `(?<!${NOT_LETTER_BEFORE}ال(?!(?:أحد|احد|اثنين|إثنين|أثنين|ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|جمعة|جمعه|سبت|يوم|يومه)${NOT_LETTER_AFTER})[\\p{L}\\p{M}]+\\s+)`;
+
 function dayPartSources(words: DayPartWords, mode: 'text' | 'answer' | 'strip'): string[] {
+  const ar = words.arUnlessAdjective
+    ? `${words.ar}|${AR_AFTER_DEFINITE_NOUN}(?:${words.arUnlessAdjective})`
+    : words.ar;
   const en = mode === 'answer'
     // A typed answer to "when?" is a time by being the answer: "morning is fine".
     ? `${EN_NOT_GREETING}\\b(?:${words.en})\\b`
@@ -332,7 +362,7 @@ function dayPartSources(words: DayPartWords, mode: 'text' | 'answer' | 'strip'):
   return [
     ...(words.enAlways ? [`\\b(?:${words.enAlways})\\b`] : []),
     ...(mode === 'strip' && words.enStaysInTitle ? [] : [en]),
-    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:${words.ar})\\p{M}*${NOT_LETTER_AFTER}${AR_NOT_GREETING}`,
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:${ar})\\p{M}*${NOT_LETTER_AFTER}${AR_NOT_GREETING}`,
     `${NOT_LETTER_BEFORE}${HE_NOT_VERB}${HE_PREFIX}(?:${words.he})${NOT_LETTER_AFTER}${HE_NOT_GREETING}`,
   ];
 }
@@ -397,7 +427,7 @@ const RELATIVE_DAYS: ReadonlyArray<{ offset: number; en: string; ar: string; he:
   {
     offset: 0,
     en: 'today|tonight|this\\s+(?:morning|afternoon|evening)',
-    ar: 'اليوم|النهارده|اليومه|الليلة|الليله|ه(?:المسا|المساء|الصبح|العصر|الضهر|الظهر)',
+    ar: 'اليوم|النهارده|النهاردة|اليومه|الليلة|الليله|ه(?:المسا|المساء|الصبح|العصر|الضهر|الظهر)',
     he: 'היום|הערב|הלילה',
   },
 ];
@@ -426,6 +456,17 @@ export function relativeDayOffset(rawText: string): number | null {
     if (pattern.test(rawText)) return offset;
   }
   return null;
+}
+
+/**
+ * One relative day as a single source — 0 today, 1 tomorrow, 2 the day after
+ * — for the other readers of day words (the email-share anchor, memory
+ * candidates, the weekday rule), so all of them read the same whole words.
+ * Compile with the `u` flag.
+ */
+export function relativeDaySource(offset: 0 | 1 | 2): string {
+  const day = RELATIVE_DAYS.find((candidate) => candidate.offset === offset)!;
+  return relativeDaySources(day).join('|');
 }
 
 /**

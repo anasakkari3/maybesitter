@@ -33,6 +33,7 @@
  * disagreement is unreachable rather than tolerated.
  */
 import { localDayKey, normalizeTimezone } from '../mobile/time';
+import { relativeDaySource } from '../../../src/extraction/timeLexicon';
 
 /** Sunday is 0, the way `Date#getDay` and the extractor both count. */
 const WEEKDAYS: Readonly<Record<string, number>> = {
@@ -61,9 +62,15 @@ function escapeForPattern(word: string): string {
   return word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-const TODAY = /\b(?:today|tonight)\b|اليوم|النهاردة|النهارده|الليلة|היום|הערב/i;
-const TOMORROW = /\b(?:tomorrow|tmrw|tmr)\b|بكرا|بكرة|بكره|غدا|غداً|מחר/i;
-const DAY_AFTER = /\b(?:day after tomorrow|after tomorrow)\b|بعد بكرا|بعد بكرة|بعد بكره|بعد غد|מחרתיים/i;
+/**
+ * Today, tomorrow and the day after, as the capture parser reads them: whole
+ * words with their proclitics («وبكرا», «למחר»), never inside another word —
+ * «بعد الغداء» (after lunch) is not «بعد غد», and «اليومي» (daily) is not
+ * today (CL1 review m-1).
+ */
+const TODAY = new RegExp(relativeDaySource(0), 'iu');
+const TOMORROW = new RegExp(relativeDaySource(1), 'iu');
+const DAY_AFTER = new RegExp(relativeDaySource(2), 'iu');
 
 /** A calendar day, as `YYYY-MM-DD` in the reader's zone. Comparable as a string. */
 export type DayKey = string;
