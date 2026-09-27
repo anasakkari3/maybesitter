@@ -1165,6 +1165,7 @@
   "weekEmptyBody": "אחרי שתאשרו התחייבות, חזרו לכאן.",
   "weekWaiting": "נשאר להמשך: {n}",
   "weekReasonDue": "המועד ביום הזה",
+  "weekReasonDueLater": "המועד אחרי היום הזה",
   "weekReasonDueEarlier": "המועד לפני היום הזה",
   "plannedDueAside": "המועד: {when}",
   "plannedRowLabel": "בתוכנית שלך",

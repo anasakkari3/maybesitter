@@ -130,7 +130,7 @@ describe('the week', () => {
     const row = screen.getByTestId(`week-step-${STEP.itemId}`);
     // Titles are the person's own words, isolated so their direction is their own.
     expect(within(row).getByText(new RegExp(STEP.title!))).toBeTruthy();
-    const reasonKey = { due: 'weekReasonDue', due_earlier: 'weekReasonDueEarlier', carried: 'weekReasonCarried', open: 'weekReasonOpen', moved: 'weekReasonMoved' } as const;
+    const reasonKey = { due: 'weekReasonDue', due_later: 'weekReasonDueLater', due_earlier: 'weekReasonDueEarlier', carried: 'weekReasonCarried', open: 'weekReasonOpen', moved: 'weekReasonMoved' } as const;
     expect(within(row).getByText(t[reasonKey[STEP.reason!]])).toBeTruthy();
     expect(within(row).getAllByLabelText(new RegExp(STEP.title!)).length).toBeGreaterThan(0);
   });
@@ -149,6 +149,58 @@ describe('the week', () => {
     expect(within(row).getByText(t.weekReasonDueEarlier)).toBeTruthy();
     expect(within(row).queryByText(t.weekReasonCarried)).toBeNull();
     expect(strings.ar.weekReasonDueEarlier).toBe('موعدها قبل هاليوم');
+  });
+
+  it('a step pulled ahead of its due day says it is due after this day, not «موعدها بهاليوم» (N3)', async () => {
+    mockWeek = {
+      ...RECORDED,
+      days: RECORDED.days.map(day => day.date === FIRST.date
+        ? { ...day, items: day.items.map(item => item.itemId === STEP.itemId ? { ...item, reason: 'due_later' as const } : item) }
+        : day),
+    };
+    // The server mints `due_later` (weekPlan.ts); the phone's schema must take it.
+    expect(weekResponseSchema.safeParse({ ...(fixture as object), week: mockWeek }).success).toBe(true);
+    await show();
+    const t = language();
+    const row = screen.getByTestId(`week-step-${STEP.itemId}`);
+    expect(within(row).getByText(t.weekReasonDueLater)).toBeTruthy();
+    expect(within(row).queryByText(t.weekReasonDue)).toBeNull();
+    expect([strings.ar.weekReasonDueLater, strings.en.weekReasonDueLater, strings.he.weekReasonDueLater])
+      .toEqual(['موعدها بعد هاليوم', 'Due after this day', 'המועד אחרי היום הזה']);
+  });
+
+  it('a saved day keeps each row\'s due line, spoken with the row (N3, 174)', async () => {
+    // The recorded week's saved days, as the server sends them: every row has its reason.
+    await show();
+    const t = language();
+    const saved = RECORDED.days.filter(day => day.state !== 'proposed' && day.items.length > 0);
+    expect(saved.length).toBeGreaterThan(0);
+    for (const day of saved) {
+      for (const item of day.items) {
+        expect(item.reason).not.toBeNull();
+        const card = screen.getByTestId(`week-day-${day.date}`);
+        const row = within(card).getByTestId(`week-row-${item.itemId}`);
+        const line = t[({ due: 'weekReasonDue', due_later: 'weekReasonDueLater', due_earlier: 'weekReasonDueEarlier', carried: 'weekReasonCarried', open: 'weekReasonOpen', moved: 'weekReasonMoved' } as const)[item.reason!]];
+        expect(within(row).getByTestId(`week-row-reason-${item.itemId}`).props.children).toBe(line);
+        expect(row.props.accessibilityLabel).toContain(line);
+      }
+    }
+  });
+
+  it('the UAT market, saved on Wednesday and due Monday, still says «موعدها قبل هاليوم» once saved (174)', async () => {
+    const savedDay = RECORDED.days.find(day => day.state !== 'proposed' && day.items.length > 0)!;
+    const row = savedDay.items[0]!;
+    mockWeek = {
+      ...RECORDED,
+      days: RECORDED.days.map(day => day.date === savedDay.date
+        ? { ...day, state: 'accepted' as const, items: [{ ...row, reason: 'due_earlier' as const }, ...day.items.slice(1)] }
+        : day),
+    };
+    await show();
+    const t = language();
+    const card = screen.getByTestId(`week-day-${savedDay.date}`);
+    expect(within(card).getByTestId(`week-row-reason-${row.itemId}`).props.children).toBe(t.weekReasonDueEarlier);
+    expect(within(card).getByTestId(`week-row-${row.itemId}`).props.accessibilityLabel).toContain(t.weekReasonDueEarlier);
   });
 
   it('shows a fixed-time commitment as a fixed row, not a button', async () => {

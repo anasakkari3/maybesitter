@@ -1162,6 +1162,7 @@
   "weekEmptyBody": "Once you confirm a commitment, come back here.",
   "weekWaiting": "Left for later: {n}",
   "weekReasonDue": "Due this day",
+  "weekReasonDueLater": "Due after this day",
   "weekReasonDueEarlier": "Due before this day",
   "plannedDueAside": "Due: {when}",
   "plannedRowLabel": "In your plan",
