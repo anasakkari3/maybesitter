@@ -17,6 +17,7 @@
  * `capabilities.ts`, and this file then fails until that row has an action.
  */
 import React from 'react';
+import { Platform } from 'react-native';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
@@ -159,10 +160,13 @@ describe('the Share Sheet rows', () => {
     expect(within(screen.getByTestId('integration-whatsapp')).getByTestId('row-status-VIA_SHARE')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('integration-whatsapp'));
     const guide = screen.getByTestId('share-guide-whatsapp');
-    // Only the verified path: Export chat → Without media → MaybeSitter, with
-    // the Android "More" hop. The unverified long-press alternative is gone.
-    expect(within(guide).getByText(en.xWhatsappStep2)).toBeTruthy();
-    expect(en.xWhatsappStep2).toMatch(/⋮ → More → Export chat/);
+    // Only the verified path: Export chat → Without media → MaybeSitter. The
+    // unverified long-press alternative is gone, and so are the other
+    // platform's menus (UAT 2026-09-27, #17: iOS spelled out Android's ⋮).
+    // jest-expo's default platform is ios.
+    expect(within(guide).getByText(en.xWhatsappStep2Ios)).toBeTruthy();
+    expect(within(guide).queryByText(en.xWhatsappStep2Android)).toBeNull();
+    expect(within(guide).queryAllByText(/Android|⋮/)).toHaveLength(0);
     expect(within(guide).getByText(en.xWhatsappStep3)).toBeTruthy();
     expect(en.xWhatsappStep3).toMatch(/Without media/);
     expect(within(guide).getAllByLabelText(/^\d\. /)).toHaveLength(3);
@@ -173,6 +177,33 @@ describe('the Share Sheet rows', () => {
     expect(screen.queryByTestId('product-add')).toBeNull();
     await fireEvent.press(within(guide).getByTestId('share-guide-close'));
     expect(screen.queryByTestId('share-guide-whatsapp')).toBeNull();
+  });
+
+  it('WhatsApp shows only Android\'s steps on Android, in every language', async () => {
+    process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = 'true';
+    const original = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
+    try {
+      await render(wrap(<IntegrationsScreen />));
+      await fireEvent.press(screen.getByTestId('integration-whatsapp'));
+      const guide = screen.getByTestId('share-guide-whatsapp');
+      const shown = [en, ar, he].filter(t => within(guide).queryAllByText(t.xWhatsappStep2Android).length > 0);
+      expect(shown).toHaveLength(1);
+      for (const t of [en, ar, he]) expect(within(guide).queryAllByText(t.xWhatsappStep2Ios)).toHaveLength(0);
+      expect(within(guide).queryAllByText(/iPhone|آيفون|אייפון/)).toHaveLength(0);
+      expect(within(guide).getAllByLabelText(/^\d\. /)).toHaveLength(3);
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
+    }
+  });
+
+  it('each platform\'s step names only its own menus, in all three languages', () => {
+    expect(en.xWhatsappStep2Android).toMatch(/⋮ → More → Export chat/);
+    for (const t of [en, ar, he] as unknown as Record<string, string>[]) {
+      expect(t.xWhatsappStep2Ios).not.toMatch(/⋮|Android|أندرويد|אנדרואיד/);
+      expect(t.xWhatsappStep2Android).not.toMatch(/iPhone|آيفون|אייפון/);
+      expect(Object.keys(t)).not.toContain('xWhatsappStep2');
+    }
   });
 
   it('WhatsApp is Coming soon and not pressable when share intake is off', async () => {
@@ -227,10 +258,7 @@ describe('the capability table', () => {
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = '';
     const soon = keys.filter(key => status(key) === 'COMING_SOON').sort();
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
-    expect(soon).toEqual([
-      'assistantName', 'assistantPersonality', 'camera', 'files',
-      'photos', 'whatsapp',
-    ]);
+    expect(soon).toEqual(['camera', 'files', 'photos', 'whatsapp']);
   });
 });
 
@@ -246,6 +274,27 @@ describe('what the product does not promise', () => {
     }
     await render(wrap(<AddToMaybeSitterScreen />));
     expect(screen.queryByText(/coordinat/i)).toBeNull();
+  });
+});
+
+describe('«مايبي سيتر إلي» says «قريبًا» nowhere (UAT 2026-09-27, #17; council: COMING_SOON = FAIL)', () => {
+  // «أسلوب الحكي» and «اسم المساعد» were a Coming-soon section with nothing
+  // built behind them. Removed, not relabelled: any «قريبًا» here is red.
+  it('has no Coming-soon badge, section or word in any language', async () => {
+    await render(wrap(<MyMaybeSitterScreen />));
+    for (const id of ['row-status-COMING_SOON', 'section-status-COMING_SOON', 'product-section-COMING_SOON', 'availability-COMING_SOON']) {
+      expect({ id, count: screen.queryAllByTestId(id).length }).toEqual({ id, count: 0 });
+    }
+    expect([en, ar, he].reduce((sum, t) => sum + screen.queryAllByText(t.xSoon).length, 0)).toBe(0);
+  });
+
+  it('keeps no personality or assistant-name capability, row or string', () => {
+    expect(Object.keys(capabilities)).not.toContain('assistantPersonality');
+    expect(Object.keys(capabilities)).not.toContain('assistantName');
+    for (const bundle of [en, ar, he] as unknown as Record<string, unknown>[]) {
+      expect(Object.keys(bundle)).not.toContain('xPersonality');
+      expect(Object.keys(bundle)).not.toContain('xAssistantName');
+    }
   });
 });
 

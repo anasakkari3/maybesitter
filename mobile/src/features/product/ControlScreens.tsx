@@ -30,7 +30,9 @@ import { useGoogleStatus } from '../google/useGoogle';
 export function MyMaybeSitterScreen() {
   const { t, actions, lang } = useApp();
   const { user } = useAuth();
-  return <ProductPage id="my" title={t.xMy} subtitle={t.xMyBody}>
+  // No subtitle: its one line (`xMyBody`) is this page's row on Settings,
+  // where it says what is in here; repeated under the title it said nothing.
+  return <ProductPage id="my" title={t.xMy}>
     <View style={{ alignItems: 'center', gap: 10, paddingVertical: 12 }}><BrandMark size={76} /></View>
     <ProductSection title={t.accountTitle} icon="person">
       <ProductRow title={t.xName} body={user?.displayName ? isolateAuto(user.displayName) : t.xNotSet} icon="person" />
@@ -41,9 +43,6 @@ export function MyMaybeSitterScreen() {
       <ProductRow title={t.notifTitle} body={t.settingsRemindersSub} icon="watch" onPress={() => actions.go('notificationsSettings')} />
       <ProductRow title={t.settingsRoutine} body={t.settingsRoutineSub} icon="calendar" onPress={() => actions.go('routineSettings')} />
       <ProductRow title={t.xPersonalization} icon="person" onPress={() => actions.go('personalization')} />
-    </ProductSection>
-    <ProductSection title={t.xPersonality} status={cap.assistantPersonality} icon="spark">
-      <ProductRow title={t.xAssistantName} body="MaybeSitter" status={cap.assistantName} />
     </ProductSection>
   </ProductPage>;
 }

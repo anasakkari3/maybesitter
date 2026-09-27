@@ -49,7 +49,9 @@ export function PersonalizationScreen() {
   const version = consents.data?.currentVersions.personalization;
   const suggestions = memory.data?.suggestions ?? [];
   const recent = [...(memory.data?.items ?? [])].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,3);
-  return <ProductPage id="personalization" title={t.xPersonalization} subtitle={t.xMyBody}>
+  // #17 (UAT 2026-09-27): no subtitle, and the learned section has no lede —
+  // the toggle's consent words already say nothing is saved unless kept.
+  return <ProductPage id="personalization" title={t.xPersonalization}>
     <QueryBoundary isPending={consents.isPending} error={consents.error} onRetry={() => void consents.refetch()}>
     <Card pad={0}>
       <ServerToggle title={t.trustPersonalizationTitle} body={t.trustPersonalizationBody}
@@ -67,7 +69,7 @@ export function PersonalizationScreen() {
     {forbiddenReason(memory.error) === 'feature_disabled' ? (
       <ProductSection title={t.xLearned} body={t.errorsFeatureDisabled} icon="person" />
     ) : <QueryBoundary isPending={memory.isPending} error={memory.error} onRetry={() => void memory.refetch()}>
-      <ProductSection title={t.xLearned} body={t.memorySuggestionsLede} icon="person">
+      <ProductSection title={t.xLearned} icon="person">
         {suggestions.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoLearning}</Txt> : null}
         {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
         {suggestions.map(suggestion => <Card key={suggestion.fingerprint} style={{ gap: 12 }}>

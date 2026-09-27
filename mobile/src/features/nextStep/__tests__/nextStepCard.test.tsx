@@ -109,6 +109,26 @@ describe('it never implies it has acted', () => {
     expect(screen.getByTestId('next-step-note').props.children).toBe(en.suggestionNote);
   });
 
+  // UAT 2026-09-27 (#17, shot 38): the tag «اقتراح · ما تغيّر شي بعد» sat
+  // above the note «هاد اقتراح. لسّا ما تغيّر إشي.» — the same fact twice on
+  // one card. The note is the rule (mobile/AGENTS.md); the dashed edge is the
+  // shape. The tag is only for the state the note does not name: started.
+  it('says so once: no proposal tag beside the note, in any language', async () => {
+    await show();
+    expect(screen.queryByTestId('next-step-tag')).toBeNull();
+    expect(screen.getAllByText(en.suggestionNote)).toHaveLength(1);
+    for (const bundle of [en, ar] as unknown as Record<string, unknown>[]) {
+      expect(Object.keys(bundle)).not.toContain('nextStepTagProposal');
+    }
+  });
+
+  it('shows the started tag once the user accepts', async () => {
+    mockDecision();
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-accept'));
+    await waitFor(() => expect(screen.getByTestId('next-step-tag')).toHaveTextContent(en.nextStepTagStarted));
+  });
+
   it('still says so once the why is open', async () => {
     await show();
     await fireEvent.press(screen.getByTestId('next-step-why-toggle'));

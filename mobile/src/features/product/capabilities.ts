@@ -11,7 +11,9 @@ export type Availability = 'LIVE' | 'AVAILABLE' | 'VIA_SHARE' | 'COMING_SOON' | 
 export const capabilities = {
   capture: 'LIVE', dailyPlan: 'LIVE', memory: 'LIVE',
   assistantPreparation: 'LIVE', weeklyMode: 'LIVE',
-  assistantPersonality: 'COMING_SOON', assistantName: 'COMING_SOON',
+  // No assistant personality or name: nothing is built behind them, and a
+  // Coming-soon row is a FAIL (council, closure CL7). Absent, not labelled
+  // (UAT 2026-09-27, #17).
   // Built to the credential line (CL6a): until the owner adds the OAuth
   // client the Google page says so in one line and offers no connect button.
   gmail: 'AVAILABLE', googleCalendar: 'AVAILABLE', drive: 'AVAILABLE',
@@ -52,8 +54,6 @@ export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen | null;
   // meeting commitment; the proposal it makes is reviewed in capture.
   assistantPreparation: { screen: 'calendar', api: '/api/mobile/meetings/prepare' },
   weeklyMode: { screen: 'weekPlan', api: '/api/mobile/plans/week' },
-  assistantPersonality: { screen: null, api: null },
-  assistantName: { screen: null, api: null },
   gmail: { screen: 'googleIntegration', api: '/api/mobile/integrations/google/gmail/scan' },
   googleCalendar: { screen: 'googleIntegration', api: '/api/mobile/integrations/google/calendar' },
   drive: { screen: 'googleIntegration', api: '/api/mobile/integrations/google/drive/import' },

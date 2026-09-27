@@ -1140,3 +1140,16 @@ describe('«حضّرني» on a meeting or an appointment pinned to the plan (CL
     }));
   });
 });
+
+// Last in the file: a render before the reviewed snapshot shifts its
+// generated gradient ids.
+describe('a proposal says so once (UAT 2026-09-27, #17, shot 40)', () => {
+  // «اقتراح — ما انحفظت بعد» sat beside «هاد اقتراح. لسّا ما تغيّر إشي.».
+  // The note is the rule (mobile/AGENTS.md); the tag went.
+  it('as the note, not as a tag and a note', async () => {
+    await loaded();
+    expect(screen.getByTestId('plan-proposal-note').props.children).toBe(en.suggestionNote);
+    expect(screen.queryByTestId('plan-status-proposal')).toBeNull();
+    expect(Object.keys(en)).not.toContain('planStatusProposal');
+  });
+});
