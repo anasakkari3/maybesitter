@@ -55,12 +55,10 @@ export function PlaceReminderSection({ commitment, canEdit, onLayout, onFormOpen
   const [problem, setProblem] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const formOpen = draft !== null;
-  const openedRef = React.useRef(onFormOpen);
-  openedRef.current = onFormOpen;
   // After the render that drew the form, so it is there to scroll to.
   React.useEffect(() => {
-    if (formOpen) openedRef.current?.();
-  }, [formOpen]);
+    if (formOpen) onFormOpen?.();
+  }, [formOpen, onFormOpen]);
 
   if (!trigger && !canEdit) return null;
 

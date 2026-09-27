@@ -74,10 +74,10 @@ export function DetailsScreen() {
   const scroll = React.useRef<ScrollView>(null);
   const placeY = React.useRef<number | null>(null);
   const reduced = useReducedMotion();
-  const revealPlaceForm = () => {
+  const revealPlaceForm = React.useCallback(() => {
     if (placeY.current === null) return;
     scroll.current?.scrollTo({ y: Math.max(0, placeY.current - 8), animated: !reduced });
-  };
+  }, [reduced]);
 
   // Where a saved week day puts it (FX1): said here as on Today and the Calendar.
   const savedWeek = useSavedWeek();
