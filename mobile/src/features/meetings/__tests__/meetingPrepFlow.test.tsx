@@ -432,6 +432,25 @@ describe('an appointment, and a step moved by quiet hours', () => {
       expect(String(screen.getByTestId('review-prep-rings-at').props.children)).toContain(hhmmOf(new Date(mockStart.getTime() + HOUR).toISOString()));
     });
 
+    it('for an appointment, the line says «the appointment», not «the meeting» (N5, review m1)', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      const dentist = meeting({ id: 'c-dentist', title: 'dentist 4pm' });
+      jest.spyOn(commitmentEndpoints, 'getCommitment').mockResolvedValue({ data: dentist, etag: null } as never);
+      jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue(prepared());
+      await show({ today: [dentist], aiGranted: true });
+      await fireEvent.press(screen.getByTestId('calendar-item-c-dentist'));
+      await waitFor(() => expect(screen.getByTestId('details-prepare')).toBeTruthy());
+      await fireEvent.press(screen.getByTestId('details-prepare'));
+      await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+      await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+      await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+      await waitFor(() => expect(screen.getByTestId('review-source-meeting')).toBeTruthy());
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(screen.getByTestId('review-prep-after-meeting').props.children).toBe(en.reviewPrepAfterAppointment));
+      expect(en.reviewPrepAfterAppointment).not.toBe(en.reviewPrepAfterMeeting);
+    });
+
     it('moved to exactly the meeting start, it is not before the meeting either (N5)', async () => {
       settingsWith();
       jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);

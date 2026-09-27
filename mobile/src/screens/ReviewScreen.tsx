@@ -281,10 +281,11 @@ export function ReviewScreen() {
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
             <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
               <Txt size={13} color={p.mu}>{state.meeting?.appointment ? t.reviewSourceAppointment : t.reviewSourceMeeting}</Txt>
-              {/* The prep step's reminder, when it is not simply an hour before
-                  (CL5a M-8, I-3): moved out of quiet hours, moved because the
-                  meeting is close, or none at all — one line, and only the
-                  server's answer about what the phone will actually ring. */}
+              {/* The prep step's reminder, always (UAT round 2, N7): when it
+                  rings, why it moved (quiet hours, short notice — CL5a M-8,
+                  I-3), or why nothing rings; after an edit, the phone's own
+                  answer for the step as it will be confirmed, and a line when
+                  the new time is not before the meeting (N5). */}
               {state.meeting ? (
                 <PrepReminderLine
                   meeting={state.meeting}
