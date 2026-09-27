@@ -10,7 +10,7 @@ import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { NotFoundError } from '../api/errors';
-import { toViewModel, type CommitmentView } from '../features/commitments/model';
+import { clockOf, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { impLabel } from '../state/derive';
 import type { CommitmentCategory } from '../features/commitments/categoryFilter';
 import { activityKindLabel } from '../features/activity/ActivityScreen';
@@ -172,7 +172,7 @@ export function DetailsScreen() {
                     {view.shownAt ? formatRelativeDay(new Date(view.shownAt), { locale: lang, timeZone: timezone }) : t.noTimeYet}
                   </Row>
                   <Row label={t.timeLabel} testID="details-time" latin>
-                    {view.shownAt ? ltr(formatTime(new Date(view.shownAt), { locale: lang, timeZone: timezone })) : t.noTimeYet}
+                    {clockOf(view, { locale: lang, timeZone: timezone }) ?? t.noTimeYet}
                   </Row>
                   {view.postponedUntil ? <Row label={t.postponeReturn} testID="details-postponed-until">
                     {`${formatRelativeDay(new Date(view.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(view.postponedUntil), { locale: lang, timeZone: timezone }))}`}
@@ -189,7 +189,7 @@ export function DetailsScreen() {
                 </Card>
 
                 {/* What else is happening then (UC-3.2, #186), as a note. */}
-                <BusyConflictChip blocks={view.shownAt ? busyAt(view.shownAt, busy) : []} testID="details-busy" />
+                <BusyConflictChip blocks={view.shownAt && !view.allDay ? busyAt(view.shownAt, busy) : []} testID="details-busy" />
 
                 {prepTarget ? (
                   <View style={{ alignItems: 'flex-start' }}>

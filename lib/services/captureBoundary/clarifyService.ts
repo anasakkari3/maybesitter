@@ -154,6 +154,8 @@ function withResolvedTime(
     // The user said it, so the evidence is theirs now rather than the
     // extractor's reading.
     timeEvidence: local.time ? 'explicit' : result.timeEvidence,
+    // An hour answered is no longer a whole day (FX3).
+    allDay: local.time ? false : result.allDay,
   } as ExtractionResult;
 }
 

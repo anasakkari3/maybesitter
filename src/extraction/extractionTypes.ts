@@ -87,6 +87,14 @@ export interface ExtractionResult {
    * that predates it wrote.
    */
   timeAnchor?: 'event' | 'deadline' | null;
+  /**
+   * The commitment names a day and nobody chose the hour (FX3): «قبل آخر
+   * الشهر» is due by the month's last day. `dueAt` is that day's local
+   * midnight, `remindAt` is null and `localTimeSpec.time` is null — the same
+   * shape `TimeSpec.allDay` stores. Optional: absent means a timed reading or
+   * none, which every producer that predates it meant.
+   */
+  allDay?: boolean;
   priority: {
     level: 'low' | 'normal' | 'high';
     source: 'default' | 'inferred' | 'user_explicit';

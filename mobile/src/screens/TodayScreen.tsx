@@ -10,7 +10,7 @@ import { ltr, type Lang } from '../i18n/strings';
 import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
-import { groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
+import { clockOf, groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
 import { CategoryBar } from '../features/commitments/CategoryBar';
 import { categoryChipsFor, filterByCategory, type CategoryChip } from '../features/commitments/categoryFilter';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';

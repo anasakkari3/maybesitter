@@ -7,7 +7,7 @@
  * the product overruling them with an estimate.
  */
 import { describe, expect, it } from '@jest/globals';
-import { groupForToday, toViewModel, topItemFor } from '../model';
+import { clockOf, groupForToday, toViewModel, topItemFor } from '../model';
 import type { Commitment } from '../../../api/schemas/common';
 
 const NOW = '2026-09-13T09:00:00.000Z';
@@ -198,5 +198,32 @@ describe('the "why first" line', () => {
   it('goes to nobody when there is nothing open', () => {
     const groups = groupForToday([commitment({ id: 'done', status: 'completed' })], NOW);
     expect(topItemFor(groups)).toBeNull();
+  });
+});
+
+/**
+ * An all-day commitment names a day, not an hour (FX3): «أدفع فاتورة الكهربا
+ * قبل آخر الشهر» is due by the 30th, stored as that day's local midnight with
+ * `allDay`. The midnight is not a time anybody chose, so no screen may show it
+ * as «00:00».
+ */
+describe('an all-day commitment', () => {
+  const allDay = commitment({
+    id: 'bill',
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-29T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' },
+  });
+
+  it('is marked all-day on the view, and keeps its day', () => {
+    const view = toViewModel(allDay, NOW);
+    expect(view.allDay).toBe(true);
+    expect(view.shownAt).toBe('2026-09-29T21:00:00.000Z');
+    expect(toViewModel(commitment({ id: 'timed' }), NOW).allDay).toBe(false);
+  });
+
+  it('has no clock to show, while a timed one does', () => {
+    const opts = { locale: 'en' as const, timeZone: 'Asia/Jerusalem' };
+    expect(clockOf(toViewModel(allDay, NOW), opts)).toBeNull();
+    expect(clockOf(toViewModel(commitment({ id: 'timed' }), NOW), opts)).toContain('15:00');
+    expect(clockOf({ shownAt: null }, opts)).toBeNull();
   });
 });

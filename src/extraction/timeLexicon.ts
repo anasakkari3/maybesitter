@@ -682,3 +682,88 @@ export function localTimeSpecFor(instant: Date, timeZone: string): { date: strin
     return null;
   }
 }
+
+/* ── The end of the month (closure UAT 2026-09-27, FX3) ─────────────
+ *
+ * «بدي أدفع فاتورة الكهربا قبل آخر الشهر» came back «بدون وقت»: nothing in
+ * the lexicon knew the month has an end, so the deadline the person said was
+ * dropped. It is a deadline on the current month's last day, with no hour —
+ * an all-day `due_by`, the way a day with no chosen hour is stored everywhere
+ * (`TimeSpec.allDay`).
+ *
+ * Only *this* month. «آخر الشهر الجاي», "end of next month", «סוף החודש
+ * הבא» and the past ones are not read, so they keep what they did before
+ * rather than landing on the wrong month. There is no end-of-week reading:
+ * which day ends a week (Thursday, Friday, Saturday) differs by person and
+ * country, and a wrong deadline is worse than none.
+ */
+const AR_MONTH_WORD = '(?:هال|ال)شهر';
+const AR_NOT_ANOTHER_MONTH = `(?!\\s+(?:الجاي|الجاية|القادم|الماضي|الفائت|الفات|التاني|اللي\\s+(?:جاي|بعده|بعدو|فات|قبله|قبلو)))`;
+const EN_NOT_ANOTHER_MONTH = '(?!\\s+after\\b)';
+const HE_NOT_ANOTHER_MONTH = `(?!\\s+(?:הבא|הקרוב|שעבר|הקודם))`;
+
+/*
+ * When the words are a deadline and when they only name a thing (review I-1).
+ *
+ * «أحضّر تقرير آخر الشهر» is "prepare the month-end report": «آخر الشهر»
+ * modifies the indefinite noun before it (idafa), exactly like "the end of the
+ * month report", "the month-end close" and «דוח סוף החודש» (smichut). Read
+ * as a deadline, the title lost what the report was and got a 30th nobody said.
+ * So the phrase is a deadline only when something marks it as *when*:
+ *
+ *   - a limit word or a preposition before it — «قبل/لحد/لغاية/حتى/في/ع/على»,
+ *     «ب/ل/ع» attached («بآخر الشهر»), "by/before/until/till/at/on/in/for",
+ *     «עד/לפני», «ב/ל» attached («בסוף החודש»);
+ *   - in Arabic, after a *definite* word — «أدفع الفاتورة آخر الشهر»,
+ *     «فاتورة الكهربا آخر الشهر»: a definite noun cannot open an idafa, so the
+ *     phrase after it is adverbial; an indefinite one («تقرير», «رواتب»,
+ *     «إيجار», «فاتورة») can, and is left alone;
+ *   - at the start of a clause («آخر الشهر بدي أدفع…», «סוף החודש לשלם…»).
+ *
+ * In English, a noun right after it ("…end of the month report", "month-end
+ * close") is a modifier even with a preposition before it. Anything else keeps
+ * its pre-FX3 reading: the words stay in the title and the hour is asked.
+ */
+const AR_MONTH_END = `(?:آخر|اخر|أخر|إخر|نهاية|نهايه|نهايت)\\s+${AR_MONTH_WORD}${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`;
+const CLAUSE_START = '(?<=(?:^|[\\n.,،;:!?؟])\\s*)';
+const EN_NO_NOUN_AFTER = "(?!['’]s\\b)(?![\\s-]+(?!(?:and|or|but|then|so|at|on|by|to|for|tomorrow|today|tonight|please)\\b)[a-z])";
+
+/** What names the month's end as a deadline, with the word that marks it as one. */
+const MONTH_END_CORE: readonly string[] = [
+  // «قبل آخر الشهر», «في آخر الشهر», «ع آخر الشهر»
+  `${NOT_LETTER_BEFORE}[وف]?(?:قبل|لحد|لحدّ|لغاية|لغايه|حتى|في|ع|على)\\s+${AR_MONTH_END}`,
+  // «بآخر الشهر», «لآخر الشهر», «عآخر الشهر»
+  `${NOT_LETTER_BEFORE}[وف]?[بلع]${AR_MONTH_END}`,
+  // after a definite word, or opening the clause
+  `(?:${CLAUSE_START}|(?<=${NOT_LETTER_BEFORE}(?:[وفبلك]?ال|هال)[\\p{L}\\p{M}]+\\s+))[وف]?${AR_MONTH_END}`,
+  `${NOT_LETTER_BEFORE}(?:قبل|لحد|لحدّ|لغاية|لغايه|حتى)\\s+ما\\s+(?:يخلص|يخلّص|ينتهي|يوفى|يوفّى)\\s+${AR_MONTH_WORD}${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`,
+  `\\b(?:by|before|until|till|til|at|on|in|for|around)\\s+(?:the\\s+)?end\\s+of\\s+(?:the\\s+|this\\s+)?month\\b${EN_NOT_ANOTHER_MONTH}${EN_NO_NOUN_AFTER}`,
+  `\\b(?:by|before|until|till|til|at|on|for|around)\\s+(?:(?:the|this)\\s+)?month[\\s-]end\\b${EN_NO_NOUN_AFTER}`,
+  `${NOT_LETTER_BEFORE}[וש]?(?:עד|לפני)\\s+ה?סוף\\s+ה?חודש${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+  `${NOT_LETTER_BEFORE}[וש]?[בל]סוף\\s+ה?חודש${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+  `${CLAUSE_START}[וש]?סוף\\s+ה?חודש${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+];
+
+const MONTH_END = new RegExp(MONTH_END_CORE.join('|'), 'iu');
+
+/**
+ * The same patterns, for `stripTiming` to lift out of a title whole — limit
+ * word included: «أدفع فاتورة الكهربا قبل آخر الشهر» is titled «أدفع فاتورة
+ * الكهربا». Only when the reading used them (`stripTiming`'s `monthEnd`).
+ */
+export const MONTH_END_MENTION_SOURCES: readonly string[] = MONTH_END_CORE;
+
+/** `month` when the text sets a deadline at the end of the current month. */
+export function readPeriodEndDeadline(rawText: string): 'month' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  return MONTH_END.test(rawText) ? 'month' : null;
+}
+
+/** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */
+export function lastDayOfMonth(now: Date, timeZone: string): string {
+  const today = localTimeSpecFor(now, timeZone)?.date ?? now.toISOString().slice(0, 10);
+  const [year, month] = today.split('-').map(Number) as [number, number];
+  // Day 0 of the next month is the last day of this one.
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}

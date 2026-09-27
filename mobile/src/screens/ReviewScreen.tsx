@@ -511,7 +511,7 @@ function ItemCard({
   busy: readonly DeviceBusyBlock[];
   docFacts?: ShareDocumentFacts | undefined;
 }) {
-  const { t, p } = useApp();
+  const { t, p, tr } = useApp();
   const timezone = useTimeZone();
   // What the card shows is what will be confirmed: the edit if there is one,
   // the proposal otherwise. Showing the original under a card the user has
@@ -526,14 +526,22 @@ function ItemCard({
   const pendingDay = !editedInstant && edit?.localDateTime === undefined && item.needsClarification
     ? item.resolvedDate
     : undefined;
+  // A deadline with a day and no hour — «قبل آخر الشهر» (FX3): settled, so
+  // nothing is asked, and it confirms as an all-day `due_by`. It used to read
+  // only «بدون وقت», and the day the person said was nowhere on the card.
+  const dueByDay = !editedInstant && edit?.localDateTime === undefined && !item.needsClarification
+    ? item.resolvedDate
+    : undefined;
   const when = editedInstant
     ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(editedInstant, { locale: lang, timeZone: timezone }))}`
     : pendingDay
       ? `${formatDayKey(pendingDay, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`
-      : t.noTimeYet;
+      : dueByDay
+        ? tr('reviewDueByDay', { day: formatDayKey(dueByDay, { locale: lang, timeZone: timezone }) })
+        : t.noTimeYet;
   // The day is our guess from a weekday name, and it is on screen. Gone once
   // the user sets the time themselves: then the day is theirs (#164's rule).
-  const dateGuessed = Boolean(item.dateEstimated && item.resolvedDate && (editedInstant || pendingDay) && edit?.localDateTime === undefined);
+  const dateGuessed = Boolean(item.dateEstimated && item.resolvedDate && (editedInstant || pendingDay || dueByDay) && edit?.localDateTime === undefined);
   const priority = edit?.priority ?? item.priority;
 
   const imp = priority ? PRIORITY_IMP[priority] : null;

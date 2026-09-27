@@ -164,7 +164,7 @@ export function CommitmentsScreen() {
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
       {views.length === 0 ? <ProductSection title={t.xNoResults} icon="check" /> : null}
       {views.map(item => <ProductRow key={item.id} id={`commitments-item-${item.id}`} title={isolateAuto(item.title)} icon={item.status === 'done' ? 'check' : 'calendar'}
-        body={[item.status === 'done' ? t.xDone : t.xOpen, item.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : t.xUntimed].join(' · ')}
+        body={[item.status === 'done' ? t.xDone : t.xOpen, item.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })}${item.allDay ? '' : ` · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`}` : t.xUntimed].join(' · ')}
         onPress={() => actions.openDetail(item.id)} />)}
     </QueryBoundary>
   </ProductPage>;

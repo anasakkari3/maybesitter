@@ -17,7 +17,7 @@ import { ScreenHeader, Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
-import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
+import { clockOf, groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';

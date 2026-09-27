@@ -11,7 +11,7 @@ import { Tag, TextLink } from '../../ui/chrome';
 import { evidencePhrases } from './evidence';
 import { FeedbackFlagButton } from './FeedbackFlagButton';
 import { DEFER_PRESETS, postponeTo, type PostponePreset } from '../commitments/postpone';
-import type { CommitmentView } from '../commitments/model';
+import { clockOf, type CommitmentView } from '../commitments/model';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';

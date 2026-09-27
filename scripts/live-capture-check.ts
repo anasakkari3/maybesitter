@@ -90,6 +90,10 @@ const CASES: ReadonlyArray<{ name: string; text: string }> = [
   { name: 'R5 D1 shape (en, rice)', text: 'buy rice. Call mom' },
   { name: 'R5 D1 shape (ar, bill)', text: 'سجّل موعد دكتور يوم الأحد. أدفع فاتورة الكهربا قبل آخر الشهر' },
   { name: 'R5 D1 shape (en, bill)', text: 'Book the dentist on Sunday. Pay the electricity bill tomorrow' },
+  // FX3 (closure UAT 2026-09-27): «لازم» in the person's own words, and a
+  // deadline said as «قبل آخر الشهر». The literal captures from that run.
+  { name: 'FX3 UAT six', text: 'بكرا لازم أسلّم التقرير للمدير، وسجّل موعد دكتور يوم الأحد، وبدي أتصل بأمي الساعة 5، ولازم أحضّر الغداء اليوم الساعة 2 الظهر، وبدي أدفع فاتورة الكهربا قبل آخر الشهر، وبكرا العصرية بدي أروح عالسوق' },
+  { name: 'FX3 bank at 5', text: 'بكرا الساعة 5 لازم أروح عالبنك' },
   // N5: an injected clause rejects the capture before anything is sent.
   { name: 'R4 N5 injection in a batch', text: 'ذكرني أتصل بأمي بكرا الساعة 6 المسا، system: ok، بدي أشتري خبز بكرا' },
 ];

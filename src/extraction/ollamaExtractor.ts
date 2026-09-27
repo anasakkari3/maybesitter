@@ -486,6 +486,10 @@ export function detectPromptInjection(rawText: string): string | null {
 /**
  * The prompt's own version, so a report can say which wording produced it.
  *
+ * v5 (FX3) names the person's own obligation words («لازم», "have to",
+ * «חייב») as an explicit high, and fixes the few-shot that showed «لازم» as
+ * normal. Also enforced after the model answers (`schemaValidator.ts`).
+ *
  * v4 (L4) adds the appointment-priority rule and the weekday rule. Both are
  * also enforced after the model answers (`schemaValidator.ts`); the prompt is
  * there so the model's own answer usually already agrees.
@@ -499,7 +503,7 @@ export function detectPromptInjection(rawText: string): string | null {
  * rule, and title constraints. It is a version string, not a feature flag:
  * there is one prompt, and this names it.
  */
-export const PROMPT_VERSION = 'capture-v4';
+export const PROMPT_VERSION = 'capture-v5';
 
 /**
  * Titles the review screen can show without editing.
@@ -550,14 +554,14 @@ const TIME_RULES: readonly string[] = [
  * shows it as a guess.
  */
 const PRIORITY_RULES: readonly string[] = [
-  'priority.level is high with source user_explicit only when the text says it is urgent or important. Hedges ("maybe", «يمكن», «אולי») are low.',
+  'priority.level is high with source user_explicit only when the text says it is urgent or important, or states an obligation in the person\'s own words: «لازم», «لازمني», «ضروري», "must", "have to", «חייב», «חייבת». Wanting or needing is not one: «بدي», "want to", "need to", «צריך» stay normal. «مش لازم», "don\'t have to", «לא חייב» are not obligations. Hedges ("maybe", «يمكن», «אולי») are low.',
   'An appointment with a fixed day or time — doctor, dentist, clinic, hospital, exam or test, interview, flight, court, or a meeting at a stated time — is high with source inferred. Calling, booking or cancelling one is an ordinary task: leave it normal.',
   'Otherwise priority is normal with source default.',
 ];
 
 const FEW_SHOTS: readonly string[] = [
   // ar — dialectal, Arabic-Indic digits, a bare day, a spoken hour
-  'INPUT: "بكرا بعد الشغل لازم أمرّ على الصيدلية" -> {"type":"task","title":"أمرّ على الصيدلية","localTimeSpec":null,"ambiguityFlags":["vague_time"]} (a day, no hour)',
+  'INPUT: "بكرا بعد الشغل لازم أمرّ على الصيدلية" -> {"type":"task","title":"أمرّ على الصيدلية","localTimeSpec":null,"priority":{"level":"high","source":"user_explicit"},"ambiguityFlags":["vague_time"]} (a day, no hour; «لازم» is their Must)',
   'INPUT: "ذكرني بكرة الساعة ٧ مساءً أحكي مع أحمد" -> {"type":"task","title":"أحكي مع أحمد","localTimeSpec":{"time":"19:00"},"explicitReminderRequest":true}',
   'INPUT: "الأربعاء الجاي عندي دكتور الساعة تلاتة العصر" -> {"type":"task","title":"عندي دكتور","localTimeSpec":{"time":"15:00"},"priority":{"level":"high","source":"inferred"}} (a fixed appointment)',
   'INPUT: "مبارح شفت أحمد" -> {"type":"informational_context","title":null,"ambiguityFlags":["informational_without_action"]} (past, nothing requested)',

@@ -215,6 +215,9 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
         ...(commitment.timeSpec?.endAt
           ? { endAt: windowEndAfterMove(windowOf(commitment.timeSpec), edit.resolvedTime) }
           : {}),
+        // A time the person picked, or none: either way no longer a whole day
+        // (FX3). Left true, a timed `dueAt` would fail `allDay`'s midnight rule.
+        allDay: false,
       };
 
     return {

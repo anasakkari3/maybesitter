@@ -227,7 +227,11 @@ async function persistedItem(
     itemId,
     commitmentId,
     title: commitment?.title ?? item.title,
-    resolvedTime: commitment?.timeSpec.remindAt ?? commitment?.timeSpec.dueAt ?? item.resolvedTime,
+    // An all-day commitment has no hour (FX3); its `dueAt` is the day's
+    // midnight, which the saved screen would otherwise print as «00:00».
+    resolvedTime: commitment?.timeSpec.allDay
+      ? null
+      : commitment?.timeSpec.remindAt ?? commitment?.timeSpec.dueAt ?? item.resolvedTime,
   };
 }
 
