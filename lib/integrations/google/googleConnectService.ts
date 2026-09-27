@@ -204,6 +204,15 @@ async function currentConnection(uid: string, runtime: GoogleRuntime): Promise<I
   return stores(uid, runtime).connections.get(connectionIdFor(GOOGLE_PROVIDER));
 }
 
+/**
+ * Whether this account still holds a Google grant, read from the record alone
+ * — no config, no KMS, no call to Google — so account deletion can tell a
+ * grant it cannot revoke from no grant at all.
+ */
+export async function hasLiveGoogleConnection(uid: string, runtime: GoogleRuntime): Promise<boolean> {
+  return isLive(await new StoredIntegrationConnectionStore(uid, runtime.storage).get(connectionIdFor(GOOGLE_PROVIDER)));
+}
+
 /** A connection that still holds a grant: anything but gone or never made. */
 function isLive(record: IntegrationConnectionRecord | null): record is IntegrationConnectionRecord {
   return record !== null && record.state !== 'revoked' && record.state !== 'not_connected'

@@ -149,6 +149,30 @@ export async function redeemDrivePickTicket(ticket: unknown, runtime: GoogleRunt
 
   const resolved = await resolveGoogleConfig({ env: runtime.env, secrets: runtime.secrets });
   if (!resolved.configured || !resolved.config.pickerApiKey || !resolved.config.appId) return null;
+  /*
+   * ── This token carries every scope the grant holds (CL6a review m2) ──
+   *
+   * With `include_granted_scopes=true` there is one combined grant, so the
+   * access token the page hands Picker can read Gmail too if Gmail is on —
+   * not only `drive.file`. It is not narrowed, for two reasons:
+   *
+   *  - Google's documented refresh request (G1, "Refreshing an access token")
+   *    takes `client_id`, `client_secret`, `grant_type` and `refresh_token`,
+   *    and no `scope`. RFC 6749 §6 allows a narrower `scope` there, but
+   *    Google does not document honouring it, and a narrowing we cannot rely
+   *    on is not a control.
+   *  - A token that carries only `drive.file` means a separate authorization
+   *    without `include_granted_scopes` — a second consent screen on every
+   *    pick, or a second OAuth client — for a page the person opens for a
+   *    few seconds.
+   *
+   * What bounds it instead: the page is reachable once, by a two-minute,
+   * single-use, digest-stored ticket; it is `no-store` and `no-referrer`; its
+   * only scripts are its own (by nonce) and Google's loader; the token lives
+   * in an inert JSON block the page empties as soon as it has read it; and it
+   * expires within the hour like every access token. The Picker API key on
+   * the page is public by design and restricted to the Picker API.
+   */
   let accessToken: string;
   try {
     accessToken = await googleAccessToken(uid, 'drive', runtime);

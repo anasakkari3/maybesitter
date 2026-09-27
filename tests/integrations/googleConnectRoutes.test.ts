@@ -59,6 +59,7 @@ import { GET as pickerPageGet } from '../../src/app/api/oauth/google/picker/rout
 import { DELETE as accountDelete } from '../../src/app/api/mobile/account/route.ts';
 import { setDeletionAuthForTests } from '../../lib/account/accountDeletion.ts';
 import { deletionHooks } from '../../lib/account/deletionHooks.ts';
+import { revokeGoogleForDeletedAccount } from '../../lib/integrations/google/googleDeletionHook.ts';
 import { getOrCreateTrust } from '../../lib/pilot/pilotTrustStore.ts';
 import { setAiConsent } from '../../lib/consents/aiConsentService.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
@@ -544,6 +545,23 @@ test('account deletion revokes the grant at Google first, then the tokens and co
   } finally {
     setDeletionAuthForTests(null);
     delete process.env.MAYBESITTER_DELETION_RECEIPT_PEPPER;
+    done();
+  }
+});
+
+test('account deletion with the Google client gone but a grant still stored fails the hook, so the receipt says revocation failed', async () => {
+  const done = setup();
+  try {
+    await connect('calendar');
+    // The secret (or the KMS key) was removed after the person connected.
+    setGoogleRuntimeForTests({ ...googleRuntime(), env: {} });
+    assert.equal((await status()).status, 'not_configured');
+    await assert.rejects(revokeGoogleForDeletedAccount(USER), 'a live grant nobody can revoke is not "done"');
+    assert.equal(google.liveGrants(), 1, 'nothing reached Google');
+
+    // With nothing stored there is nothing to revoke, configured or not.
+    await assert.doesNotReject(revokeGoogleForDeletedAccount(OTHER));
+  } finally {
     done();
   }
 });
