@@ -208,6 +208,60 @@ test('not configured without a KMS key, even with the client present: tokens hav
   }
 });
 
+test('not configured while any half of the OAuth client is missing, with the redirect and the KMS key in place', async () => {
+  const done = setup();
+  try {
+    const kms = createInMemoryKms();
+    const full = {
+      GOOGLE_OAUTH_CLIENT_ID: FAKE_CLIENT_ID,
+      GOOGLE_OAUTH_CLIENT_SECRET: FAKE_CLIENT_SECRET,
+      GOOGLE_OAUTH_REDIRECT_URI: FAKE_REDIRECT,
+      MAYBESITTER_KMS_KEY_NAME: kms.keyName,
+    };
+    for (const missing of ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'] as const) {
+      const env: Record<string, string> = { ...full };
+      delete env[missing];
+      setGoogleRuntimeForTests({ storage, env, secrets: null, fetchImpl: google.fetch as typeof fetch });
+      assert.equal((await status()).status, 'not_configured', missing);
+      const refused = await connectPost(request('/api/mobile/integrations/google/connect', { body: { feature: 'calendar' } }));
+      assert.equal(refused.status, 503, missing);
+      assert.equal((await body(refused)).reason, 'provider_not_configured', missing);
+    }
+    assert.equal(google.calls.length, 0, 'nothing reached Google');
+  } finally {
+    done();
+  }
+});
+
+test('the secrets come from Secret Manager by their exact names when the environment has none', async () => {
+  const done = setup();
+  try {
+    const kms = createInMemoryKms();
+    const asked: string[] = [];
+    const vault: Record<string, string> = {
+      'google-oauth-client-id': FAKE_CLIENT_ID,
+      'google-oauth-client-secret': FAKE_CLIENT_SECRET,
+      'google-picker-api-key': FAKE_PICKER_KEY,
+    };
+    setGoogleRuntimeForTests({
+      storage,
+      env: { GOOGLE_OAUTH_REDIRECT_URI: FAKE_REDIRECT, MAYBESITTER_KMS_KEY_NAME: kms.keyName },
+      secrets: async (name) => { asked.push(name); return vault[name] ?? null; },
+      fetchImpl: google.fetch as typeof fetch,
+    });
+    const configured = await status();
+    assert.equal(configured.status, 'not_connected');
+    assert.equal(configured.pickerAvailable, true);
+    assert.deepEqual([...new Set(asked)].sort(), ['google-oauth-client-id', 'google-oauth-client-secret', 'google-picker-api-key']);
+
+    // A secret the owner has not created yet reads as absent, never as an error.
+    delete vault['google-oauth-client-secret'];
+    assert.equal((await status()).status, 'not_configured');
+  } finally {
+    done();
+  }
+});
+
 /* ── connect start ──────────────────────────────────────────────── */
 
 test('connect start asks for one feature scope plus identity, offline, incremental, PKCE, and no secret in the URL', async () => {
@@ -570,7 +624,10 @@ test('Gmail scan is bounded: one fixed query, at most twenty messages, bodies ne
     }));
     const json = await body(response);
     assert.equal(response.status, 200, JSON.stringify(json));
-    assert.equal(google.lastGmailQuery, GMAIL_SCAN_QUERY);
+    // The literal, not the constant: a test that compares the query with
+    // itself passes for any query at all.
+    assert.equal(google.lastGmailQuery, 'category:primary newer_than:7d');
+    assert.equal(GMAIL_SCAN_QUERY, 'category:primary newer_than:7d');
     const gets = google.calls.filter((call) => /\/users\/me\/messages\/m\d+/.test(call.url));
     assert.equal(gets.length, GMAIL_SCAN_MAX_MESSAGES);
     assert.equal(json.share.channel, 'email');
