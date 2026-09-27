@@ -342,12 +342,23 @@ describe('an appointment, and a step moved by quiet hours', () => {
     expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepQuietUntilStart);
   });
 
+  it('a claimed ring that passes while review is open: the line changes to too close then (n-2)', async () => {
+    const shortly = new Date(Date.now() + 1_500).toISOString();
+    await reviewWith({ remindAt: shortly, silentBecause: null, adjustment: 'short_notice' });
+    expect(screen.getByTestId('review-prep-short-notice')).toBeTruthy();
+    await waitFor(
+      () => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepTooClose),
+      { timeout: 6_000 },
+    );
+    expect(screen.queryByTestId('review-prep-short-notice')).toBeNull();
+  });
+
   it.each(['none', 'short_notice'] as const)('a claimed ring that has already passed (%s): review says it is too close, not a stale time (n-2)', async (adjustment) => {
     // Review sat open past the ring: the phone skips a stage whose moment has
     // passed, so that time would be a reminder that never comes.
     const passed = new Date(Date.now() - 2 * 60_000).toISOString();
     await reviewWith({ remindAt: passed, silentBecause: null, adjustment });
-    expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepTooClose);
+    await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepTooClose));
     expect(screen.queryByTestId('review-prep-short-notice')).toBeNull();
   });
 

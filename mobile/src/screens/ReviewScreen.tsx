@@ -1,5 +1,5 @@
 import { useLayoutMode } from '../theme/textScale';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
@@ -612,13 +612,24 @@ function ItemCard({
   );
 }
 
+/** setTimeout's ceiling (about 24.8 days); a later ring is rechecked when the screen is next opened. */
+const MAX_TIMER_MS = 2_147_483_647;
+
 /** One line about the prep step's reminder, or nothing when it rings an hour before as usual. */
 function PrepReminderLine({ meeting }: { meeting: MeetingReviewContext }) {
   const { t, p, lang } = useApp();
   const timezone = useTimeZone();
-  // A ring whose moment has passed while Review sat open is one the phone
-  // skips (n-2): said as too close, not as a time that will not come.
-  const passed = meeting.remindAt !== null && Date.parse(meeting.remindAt) <= Date.now();
+  // A ring whose moment passes while Review is open is one the phone skips
+  // (n-2): from then on it is said as too close, not as a time that will not
+  // come. A timer, so the line changes at that moment and render stays pure.
+  const ringMs = meeting.remindAt === null ? null : Date.parse(meeting.remindAt);
+  const [passedRing, setPassedRing] = useState<number | null>(null);
+  useEffect(() => {
+    if (ringMs === null) return undefined;
+    const timer = setTimeout(() => setPassedRing(ringMs), Math.min(Math.max(0, ringMs - Date.now()), MAX_TIMER_MS));
+    return () => clearTimeout(timer);
+  }, [ringMs]);
+  const passed = ringMs !== null && passedRing === ringMs;
   if (meeting.remindAt === null || passed) {
     const silence = passed ? 'too_close' : meeting.silentBecause;
     return (
