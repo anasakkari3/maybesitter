@@ -14,6 +14,7 @@ import { PlanProposalRefusedError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
+import { sourcesSubKey, useSourcesAvailability } from '../settings/sourcesAvailability';
 import { LANGUAGE_ENDONYM } from '../../i18n/language';
 import { isolate } from '../../i18n/bidi';
 import { dayKey, formatTimeRange } from '../../i18n/format';
@@ -54,6 +55,7 @@ export function IntegrationsScreen() {
   const [guide, setGuide] = React.useState<ShareGuideKind | null>(null);
   const deviceStatus = calendarReadEnabled() || calendarWriteEnabled() ? 'AVAILABLE' as const : 'COMING_SOON' as const;
   const share = shareCapability();
+  const sources = useSourcesAvailability();
   return <ProductPage id="integrations" title={t.xIntegrations} subtitle={t.xIntegrationsBody}
     overlay={guide ? <ShareGuideSheet kind={guide} onClose={() => setGuide(null)} /> : null}>
     <ProductRow id="integration-device" title={t.xDeviceCalendar} body={t.xDeviceBody} icon="calendar" status={deviceStatus} onPress={when(deviceStatus, () => actions.go('calendarSettings'))} />
@@ -62,7 +64,7 @@ export function IntegrationsScreen() {
         page explains; the direct connection is its Coming-soon section. */}
     <ProductRow id="integration-google" title="Google Calendar" body={t.xGoogleBody} icon="calendar" onPress={() => actions.go('googleIntegration')} />
     <ProductRow title={t.xHealth} icon="habit" onPress={() => actions.go('readinessSettings')} />
-    <ProductRow title={t.settingsSources} body={t.settingsSourcesSub} icon="link" onPress={() => actions.go('sources')} />
+    {sources.any ? <ProductRow id="integration-sources" title={t.settingsSources} body={t[sourcesSubKey(sources)]} icon="link" onPress={() => actions.go('sources')} /> : null}
     <ProductRow title="Gmail" icon="file" status={cap.gmail} />
     <ProductRow title="Google Drive" icon="file" status={cap.drive} />
     <ProductRow title={t.xLocation} icon="goal" status={cap.location} />

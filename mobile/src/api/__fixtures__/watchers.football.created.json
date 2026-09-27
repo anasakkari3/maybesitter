@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "watcher": {
+    "watcherId": "wtc_00000000-0000-4000-8000-000000000001",
+    "enabled": true,
+    "label": "برشلونة",
+    "status": "active",
+    "blockedReason": null,
+    "source": {
+      "provider": "football_data",
+      "connectionId": null,
+      "signalKind": "football_team",
+      "subjectRef": "barcelona"
+    },
+    "condition": {
+      "kind": "digest_changed"
+    },
+    "effect": "replan_if_impacted",
+    "createdBy": "user",
+    "createdAt": "2026-08-09T09:00:00.000Z",
+    "updatedAt": "2026-08-09T09:00:00.000Z",
+    "lastObservedAt": null,
+    "lastFiredAt": null,
+    "fireCount": 0
+  }
+}

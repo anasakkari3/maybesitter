@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUid } from '../../api/queries';
-import { createReadinessWatcher, deleteWatcher, getMonitoringSettings, listWatchers, pauseWatcher, putMonitoringSettings } from '../../api/endpoints/watchers';
+import { createFootballWatcher, createReadinessWatcher, deleteWatcher, getMonitoringSettings, listWatchers, pauseWatcher, putMonitoringSettings } from '../../api/endpoints/watchers';
 import {
   getBackgroundActivity,
   getBackgroundActivityHistory,
@@ -34,6 +34,10 @@ export function useWatcherAction() {
       void client.invalidateQueries({ queryKey: backgroundActivityKey(uid) });
       void client.invalidateQueries({ queryKey: backgroundAttributionKey(uid) });
       void client.invalidateQueries({ queryKey: ['user', uid, 'backgroundActivityHistory'] });
+      // Deleting a followed club's watcher stops following it and takes its
+      // matches ahead off the calendar (closure CL7).
+      void client.invalidateQueries({ queryKey: ['user', uid, 'football'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
 }
@@ -46,6 +50,23 @@ export function useCreateReadinessWatcher() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: watcherKey(uid) });
       void client.invalidateQueries({ queryKey: backgroundActivityKey(uid) });
+    },
+  });
+}
+
+/** Follow a club from the builder: the watcher list, the monitors, the follow list and the calendar all change. */
+export function useCreateFootballWatcher() {
+  const uid = useUid();
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { clubId: string; effect: WatcherEffect; label: string }) =>
+      createFootballWatcher(input.clubId, input.effect, input.label),
+    retry: false,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: watcherKey(uid) });
+      void client.invalidateQueries({ queryKey: backgroundActivityKey(uid) });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'football'] });
+      void client.invalidateQueries({ queryKey: ['user', uid, 'commitments'] });
     },
   });
 }

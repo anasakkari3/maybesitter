@@ -7,6 +7,7 @@ import { useMemory, usePlanSettings, useTrust } from '../api/queries';
 import { LANGUAGE_ENDONYM } from '../i18n/language';
 import { fill, ltr } from '../i18n/strings';
 import { icsFeedsEnabled } from '../config/env';
+import { sourcesSubKey, useSourcesAvailability } from '../features/settings/sourcesAvailability';
 import { Card, Txt } from '../ui/primitives';
 import { ScreenHeader, SectionLabel } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
@@ -32,6 +33,7 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
   const { t, tr, p, langPref, themePref, actions } = useApp();
   const { user } = useAuth();
   const trust = useTrust();
+  const sources = useSourcesAvailability();
   const memory = useMemory();
   const planSettings = usePlanSettings();
 
@@ -65,7 +67,7 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
           <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} icon="watch" testID="settings-background" />
           <SettingsRow label={t.financialTitle} onPress={() => actions.go('financialContext')} icon="file" testID="settings-financial" />
           <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} icon="calendar" testID="settings-calendar" />
-          <SettingsRow label={t.settingsSources} sub={icsFeedsEnabled() ? t.settingsSourcesSub : t.settingsSourcesSubNoIcs} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" />
+          {sources.any ? <SettingsRow label={t.settingsSources} sub={t[sourcesSubKey(sources)]} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" /> : null}
         </Group>
 
         <Group title={t.settingsGroupReminders}>

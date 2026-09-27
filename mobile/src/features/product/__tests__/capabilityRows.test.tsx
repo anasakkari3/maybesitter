@@ -24,6 +24,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import {
   ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, GoogleIntegrationScreen, HabitDetailScreen,
   IntegrationsScreen, MyMaybeSitterScreen, PatchReviewScreen,
@@ -62,13 +64,21 @@ jest.mock('../../../api/queries', () => ({
   useRegenerateGoalExecution: mutation(),
   useUnlinkGoalNode: mutation(),
   useCommitment: query(null),
+  // The recorded answer of a server with no match data key (closure CL7);
+  // a test that needs the key flips `mockFootballConfigured`.
+  useFootballSettings: () => ({
+    data: { ...require('../../../api/__fixtures__/football.settings.json'), providerConfigured: mockFootballConfigured },
+    isPending: false, isFetching: false, error: null, refetch: jest.fn(),
+  }),
 }));
+let mockFootballConfigured = false;
 jest.mock('../useWatchers', () => ({
   useBackgroundActivity: query({ paused: false, monitors: [] }),
   useBackgroundAttribution: query({ actions: [], orphanCount: 0 }),
   useWatcherAction: mutation(),
   useSetBackgroundActivityPaused: mutation(),
   useCreateReadinessWatcher: mutation(),
+  useCreateFootballWatcher: mutation(),
 }));
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
@@ -205,5 +215,42 @@ describe('the capability table', () => {
       'assistantName', 'assistantPersonality', 'assistantPreparation', 'camera', 'drive', 'files',
       'gmail', 'googleCalendar', 'location', 'photos', 'weeklyMode', 'whatsapp',
     ]);
+  });
+});
+
+describe('flights and parcels (council ruling, closure CL7)', () => {
+  // Removed until the owner approves a provider and its price — not
+  // "coming soon", not "in progress": absent.
+  const FLIGHT_OR_PARCEL = /flight|parcel|package|رحلة طيران|طرد|شحن|טיסה|חבילה|משלוח/i;
+  const ics = process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS;
+  afterEach(() => {
+    mockFootballConfigured = false;
+    if (ics === undefined) delete process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS;
+    else process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = ics;
+  });
+
+  it('have no copy left in any language', () => {
+    for (const [name, locale] of [['en', en], ['ar', ar], ['he', he]] as const) {
+      const keys = Object.keys(locale).filter(key => /^x(Flight|Package|FlightDelay|Gate|Departure|Cancelled|Delivery)$/.test(key));
+      expect({ name, keys }).toEqual({ name, keys: [] });
+      const values = Object.entries(locale).filter(([key, value]) => key.startsWith('x') && typeof value === 'string' && FLIGHT_OR_PARCEL.test(value)).map(([key]) => key);
+      expect({ name, values }).toEqual({ name, values: [] });
+    }
+  });
+
+  it.each(Object.keys(SCREENS))('%s offers neither', async (name) => {
+    const Screen = SCREENS[name]!;
+    await render(wrap(<Screen />));
+    expect(screen.queryAllByText(FLIGHT_OR_PARCEL)).toHaveLength(0);
+  });
+
+  it('the Sources row is hidden when there is nothing behind it, and shown once football is set up', async () => {
+    process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = '';
+    await render(wrap(<IntegrationsScreen />));
+    expect(screen.queryByTestId('integration-sources')).toBeNull();
+    cleanup();
+    mockFootballConfigured = true;
+    await render(wrap(<IntegrationsScreen />));
+    expect(screen.getByTestId('integration-sources')).toBeTruthy();
   });
 });
