@@ -1220,6 +1220,7 @@
   "xTeamNoResults": "ما في فريق بهالاسم",
   "xFollowTeam": "تابِع",
   "xFollowTeamSummary": "مباريات {team} بتنحط بتقويمك، ساعتين كل وحدة. فيك تشيل أي مباراة.",
+  "xFollowTeamNothingYet": "ما رح يتغيّر إشي قبل ما تكبس «تابِع».",
   "xFootballRetrying": "مش قادرين نوصل لبيانات المباريات — عم نجرّب كمان مرة",
   "xStopFollowing": "وقّف المتابعة",
   "xStopFollowingTitle": "توقّف متابعة {team}؟",

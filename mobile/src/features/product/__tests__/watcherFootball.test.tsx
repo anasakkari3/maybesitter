@@ -7,7 +7,8 @@
  *   - a provider that is down or out of quota is said in words, never silence;
  *   - deleting a followed club is "Stop following", and says the matches ahead
  *     come off the calendar;
- *   - the "more ways" list no longer offers flights or parcels.
+ *   - it says when it tries again, not "no check yet";
+ *   - the "more ways" list offers no flights, parcels, WHOOP or Notion.
  */
 import React from 'react';
 import { afterEach, expect, it, jest } from '@jest/globals';
@@ -52,6 +53,14 @@ it('a followed club whose data is unreachable says so, in words', async () => {
   expect(screen.getByText(new RegExp(`${t.xFootball} · .*برشلونة`))).toBeTruthy();
 });
 
+it('a retrying club says when it tries again', async () => {
+  const t = await show();
+  expect(retrying.monitors[0]!.nextCheckAt).not.toBeNull();
+  const next = screen.getByTestId(`watch-next-${WATCHER}`);
+  expect(within(next).getByText(t.xNextCheck)).toBeTruthy();
+  expect(within(next).queryByText(t.xNotObserved)).toBeNull();
+});
+
 it('removing a followed club is "Stop following", and confirming it deletes the watcher', async () => {
   const t = await show();
   const remove = screen.getByTestId(`watch-delete-${WATCHER}`);
@@ -63,8 +72,8 @@ it('removing a followed club is "Stop following", and confirming it deletes the 
   expect(mockMutate).toHaveBeenCalledWith({ id: WATCHER, action: 'delete' });
 });
 
-it('the "more ways" list offers no flight or parcel', async () => {
+it('the "more ways" list offers no flight, parcel, WHOOP or Notion', async () => {
   const t = await show();
   expect(screen.getByText(t.xExplore)).toBeTruthy();
-  for (const word of ['Flight', 'Package', 'رحلة طيران', 'طرد', 'טיסה', 'חבילה']) expect(screen.queryAllByText(word)).toHaveLength(0);
+  for (const word of ['Flight', 'Package', 'رحلة طيران', 'طرد', 'טיסה', 'חבילה', 'WHOOP', 'Notion']) expect(screen.queryAllByText(word)).toHaveLength(0);
 });

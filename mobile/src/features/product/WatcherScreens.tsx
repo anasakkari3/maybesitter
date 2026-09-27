@@ -64,7 +64,7 @@ export function BackgroundActivityScreen() {
           : statusOf(monitor.status) ? <AvailabilityBadge status={statusOf(monitor.status)!} /> : <Txt role="label" color={p.wm}>{t.xPaused}</Txt>}
         <Txt role="supporting" color={p.mu}>{monitor.effects.map(effect => t[effectKeys[effect as keyof typeof effectKeys]] ?? isolate(effect)).join(' · ')}</Txt>
         <ProductRow title={t.xLastChecked} body={instant(monitor.lastCheckedAt)} icon="watch" />
-        <ProductRow title={t.xNextCheck} body={instant(monitor.nextCheckAt)} icon="calendar" />
+        <ProductRow id={`watch-next-${monitor.watcherId ?? monitor.monitorId}`} title={t.xNextCheck} body={instant(monitor.nextCheckAt)} icon="calendar" />
         <ProductRow title={t.xLastChanged} body={instant(monitor.lastChangedAt)} icon="spark" />
         <ProductActions>
           {monitor.watcherId && (monitor.canPause || monitor.status === 'paused') ? <Pill testID={`watch-toggle-${monitor.watcherId}`} label={monitor.canPause ? t.xPause : t.xResume} kind="outline" disabled={action.isPending} onPress={() => action.mutate({ id: monitor.watcherId!, action: monitor.canPause ? 'pause' : 'resume' })} /> : null}
@@ -88,10 +88,11 @@ export function BackgroundActivityScreen() {
       </QueryBoundary>
     </ProductSection>
     <Pill testID="background-create" label={t.xWatch} onPress={() => actions.go('watchBuilder')} />
-    {/* Flights and parcels are not offered anywhere until the owner approves a
-        provider and its price (council ruling, closure CL7). */}
+    {/* Flights, parcels, WHOOP and Notion are not offered anywhere until the
+        owner approves a provider (council ruling, closure CL7): absent, not
+        "coming soon". Location is lane CL4's row; it turns LIVE there. */}
     <ProductSection title={t.xExplore} icon="link">
-      {['WHOOP', 'Notion', t.xLocation].map(title => <ProductRow key={title} title={title} status="COMING_SOON" icon="watch" />)}
+      <ProductRow id="explore-location" title={t.xLocation} status="COMING_SOON" icon="watch" />
     </ProductSection>
 
   </ProductPage>;
@@ -162,7 +163,7 @@ export function WatchBuilderScreen() {
           <Txt role="card">{club ? isolate(club.names[lang]) : t.xTeam}</Txt>
           {club ? <Txt role="supporting" color={p.mu}>{fill(t.xFollowTeamSummary, { team: isolate(club.names[lang]) })}</Txt> : null}
           <Txt role="supporting">{t[effectKeys[effect]]}</Txt>
-          <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt>
+          <Txt role="supporting" color={p.mu}>{t.xFollowTeamNothingYet}</Txt>
         </>
         : <>
           <Txt role="card">{t.xReadiness}</Txt><Txt role="supporting" color={p.mu}>{t.xEnergyChange}</Txt>

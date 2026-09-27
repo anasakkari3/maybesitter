@@ -1220,6 +1220,7 @@
   "xTeamNoResults": "No team by that name",
   "xFollowTeam": "Follow",
   "xFollowTeamSummary": "{team}'s matches go on your calendar, two hours each. You can drop any match.",
+  "xFollowTeamNothingYet": "Nothing changes until you tap Follow.",
   "xFootballRetrying": "Can't reach match data — retrying",
   "xStopFollowing": "Stop following",
   "xStopFollowingTitle": "Stop following {team}?",

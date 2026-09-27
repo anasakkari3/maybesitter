@@ -104,8 +104,10 @@ it('with the key, follows a team found by search, and says what following does b
   await fireEvent.press(screen.getByTestId('watch-team-barcelona'));
   expect(screen.getByTestId('watch-team-barcelona').props.accessibilityState.checked).toBe(true);
 
-  const lang = Object.values(strings).find(t => screen.queryAllByText(t.suggestionNote).length > 0)!;
+  // Said plainly, before the confirm: nothing is written until «تابِع».
+  const lang = Object.values(strings).find(t => screen.queryAllByText(t.xFollowTeamNothingYet).length > 0)!;
   expect(lang).toBeDefined();
+  for (const t of Object.values(strings)) expect(screen.queryAllByText(t.suggestionNote)).toHaveLength(0);
   expect(screen.getByTestId('watch-create').props.accessibilityState.disabled).toBe(false);
   await fireEvent.press(screen.getByTestId('watch-effect-notify'));
   await fireEvent.press(screen.getByTestId('watch-create'));

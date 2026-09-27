@@ -1223,6 +1223,7 @@
   "xTeamNoResults": "אין קבוצה בשם הזה",
   "xFollowTeam": "לעקוב",
   "xFollowTeamSummary": "המשחקים של {team} ייכנסו ליומן, שעתיים כל אחד. אפשר להסיר כל משחק.",
+  "xFollowTeamNothingYet": "שום דבר לא משתנה לפני הלחיצה על „לעקוב”.",
   "xFootballRetrying": "אין גישה לנתוני המשחקים — מנסים שוב",
   "xStopFollowing": "הפסקת מעקב",
   "xStopFollowingTitle": "להפסיק לעקוב אחרי {team}?",

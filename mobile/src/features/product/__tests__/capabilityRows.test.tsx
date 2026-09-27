@@ -218,6 +218,38 @@ describe('the capability table', () => {
   });
 });
 
+describe('the watcher screens say «قريبًا» nowhere (council ruling: COMING_SOON = FAIL, closure CL7)', () => {
+  // A row another lane owns and turns LIVE at integration. Location is lane
+  // CL4's (`explore-location`); once it lands LIVE, drop it from this list.
+  const OWNED_BY_ANOTHER_LANE = ['explore-location'];
+  const soonBadges = () => ['row-status-COMING_SOON', 'section-status-COMING_SOON', 'availability-COMING_SOON']
+    .flatMap(id => screen.queryAllByTestId(id) as unknown as Host[]);
+  const rowOf = (badge: Host) => {
+    for (let node: Host | null = badge.parent; node; node = node.parent) {
+      if (typeof node.props.testID === 'string' && !/COMING_SOON/.test(node.props.testID)) return node.props.testID as string;
+    }
+    return null;
+  };
+
+  afterEach(() => { mockFootballConfigured = false; });
+
+  const WATCHER_SCREENS: [string, () => React.JSX.Element, boolean][] = [
+    ['BackgroundActivityScreen', BackgroundActivityScreen, false], ['BackgroundActivityScreen', BackgroundActivityScreen, true],
+    ['WatchBuilderScreen', WatchBuilderScreen, false], ['WatchBuilderScreen', WatchBuilderScreen, true],
+  ];
+  it.each(WATCHER_SCREENS)('%s has no COMING_SOON row but the ones another lane owns (football key: %s)', async (_name, Screen, configured) => {
+    mockFootballConfigured = configured;
+    await render(wrap(<Screen />));
+    const rows = soonBadges().map(rowOf);
+    expect(rows.filter(row => row === null || !OWNED_BY_ANOTHER_LANE.includes(row))).toEqual([]);
+    // No «قريبًا» drawn outside a badge either.
+    const soonWords = [en, ar, he].reduce((sum, t) => sum + screen.queryAllByText(t.xSoon).length, 0);
+    expect(soonWords).toBe(rows.length);
+    // WHOOP and Notion have no provider and no owner approval: absent, not labelled.
+    expect(screen.queryAllByText(/WHOOP|Notion/i)).toHaveLength(0);
+  });
+});
+
 describe('flights and parcels (council ruling, closure CL7)', () => {
   // Removed until the owner approves a provider and its price — not
   // "coming soon", not "in progress": absent.
