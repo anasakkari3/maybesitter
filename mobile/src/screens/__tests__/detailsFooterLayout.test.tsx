@@ -16,7 +16,7 @@
  * under the actions.
  */
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -79,7 +79,38 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
+async function showDetails() {
+  await render(
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <AppProvider>
+        <AuthProvider repository={repository} isDevBundle={false}>
+          <QueryClientProvider client={client}>
+            <OpenDetails />
+            <DetailsScreen />
+          </QueryClientProvider>
+        </AuthProvider>
+      </AppProvider>
+    </SafeAreaProvider>,
+  );
+  await waitFor(() => expect(screen.queryByTestId('details-place')).not.toBeNull());
+}
+
 describe('Details at the ordinary text size (N8)', () => {
+  it('flashes the scroll indicator once the commitment is drawn: a hint there is more below the pinned actions (review, N8)', async () => {
+    const flash = jest.spyOn(ScrollView.prototype, 'flashScrollIndicators').mockImplementation(() => {});
+    await showDetails();
+    await waitFor(() => expect(flash).toHaveBeenCalledTimes(1));
+  });
+
+  it('the place-name keyboard: the scroller insets for it, and a tap on «احفظ التذكير» saves instead of only closing it (review I1)', async () => {
+    // Details is not lifted by an AvoidKeyboard, so the scroller's own
+    // native inset is the one that applies here — it cannot double-pad.
+    await showDetails();
+    const scroll = screen.getByTestId('details-scroll');
+    expect(scroll.props.automaticallyAdjustKeyboardInsets).toBe(true);
+    expect(scroll.props.keyboardShouldPersistTaps).toBe('handled');
+  });
+
   it('the pinned actions follow the scroller as its sibling, so its viewport ends where they begin', async () => {
     await render(
       <SafeAreaProvider initialMetrics={METRICS}>

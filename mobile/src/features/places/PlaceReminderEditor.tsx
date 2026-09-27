@@ -142,6 +142,7 @@ export function PlaceReminderEditor({ draft, onDraft, disabled }: {
           placeholderTextColor={p.mu}
           value={here.name}
           maxLength={LOCATION_LABEL_MAX}
+          returnKeyType="done"
           editable={!disabled}
           onChangeText={name => onDraft({ ...draft, target: { type: 'here', name } })}
           style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 48, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}

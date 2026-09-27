@@ -176,6 +176,15 @@ describe('on the commitment', () => {
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ y: 632 })));
   });
 
+  it('the place-name field closes the keyboard with «تم» (review I1)', async () => {
+    await showDetails(commitment());
+    await fireEvent.press(screen.getByTestId('details-place-add'));
+    await waitFor(() => expect(screen.getByTestId('place-pick-here')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('place-pick-here'));
+    await waitFor(() => expect(screen.getByTestId('place-here-name')).toBeTruthy());
+    expect(screen.getByTestId('place-here-name').props.returnKeyType).toBe('done');
+  });
+
   it('a saved place is offered as a choice, and nothing asks for location to use it', async () => {
     await savePlaces(USER.uid, [HOME]);
     mockLocation.foreground = { granted: true, status: 'granted' };
