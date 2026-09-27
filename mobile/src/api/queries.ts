@@ -6,6 +6,7 @@ import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
 import { clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
+import { prepareMeeting } from './endpoints/meetings';
 import type { UploadFile } from './client';
 import {
   actOnCommitment,
@@ -445,6 +446,20 @@ export function useCapture() {
   const timezone = useTimeZone();
   return useMutation({
     mutationFn: (text: string) => proposeCapture({ text, timezone }),
+  });
+}
+
+/**
+ * «حضّرني» (CL5a): notes about one busy block, read into a capture proposal.
+ *
+ * `retry: false`, as the share analyze has it: each attempt spends one of the
+ * day's preps, and the person is on the sheet to press it again.
+ */
+export function usePrepareMeeting() {
+  const timezone = useTimeZone();
+  return useMutation({
+    retry: false,
+    mutationFn: (input: { notes: string; startAt: string; endAt: string | null }) => prepareMeeting({ ...input, timezone }),
   });
 }
 

@@ -30,7 +30,9 @@ export type LlmPurpose =
   /** A profile another AI assistant wrote about the user, read once. */
   | 'ai_context_import'
   /** Proposing first steps for a goal the user saved (CL3). */
-  | 'goal_decomposition';
+  | 'goal_decomposition'
+  /** Notes the person typed about one upcoming meeting, read once (CL5a). */
+  | 'meeting_prep';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 

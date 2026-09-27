@@ -188,7 +188,11 @@ test('every mobile route file exists and is enumerated', () => {
   // export`. It answers with everything one account holds in one response,
   // which makes it the single most valuable read on this list to reach without
   // a token; it takes the uid from the verified token and nowhere else.
-  assert.equal(files.length, 80, `found:\n${files.join('\n')}`);
+  // Eighty-one with «حضّرني» (CL5a): `POST /api/mobile/meetings/prepare`. It
+  // reads notes somebody wrote about their own meeting and stores a proposal
+  // under the caller's uid, which the capture confirm then turns into
+  // commitments — so an unguarded one would plant proposals in any account.
+  assert.equal(files.length, 81, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

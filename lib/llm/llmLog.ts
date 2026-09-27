@@ -59,6 +59,8 @@ const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Objec
   ai_context_import: 'other',
   // Steps towards a goal become commitments and habits the planner places.
   goal_decomposition: 'planning',
+  // «حضّرني» (CL5a): the feature the cost contract already names for it.
+  meeting_prep: 'meeting_intelligence',
 });
 
 function statusFor(outcome: LlmOutcome): CostOperationStatus {

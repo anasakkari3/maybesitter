@@ -110,7 +110,6 @@ export function AddToMaybeSitterScreen() {
     <ProductRow title={t.xPlanner} icon="calendar" onPress={() => actions.openPlan(dayKey(new Date(), zone))} />
     <ProductRow title={t.notifTitle} icon="watch" onPress={() => actions.go('notificationsSettings')} />
     <ProductRow title={t.memoryScreenTitle} icon="person" onPress={() => actions.go('knows')} />
-    <ProductRow title={t.xCoordination} icon="link" status={cap.assistantPreparation} />
   </ProductPage>;
 }
 

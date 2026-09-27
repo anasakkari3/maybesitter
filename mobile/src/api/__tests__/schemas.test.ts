@@ -16,6 +16,7 @@ import {
 } from '../schemas/commitments';
 import { captureConfirmationSchema, captureProposalSchema } from '../schemas/capture';
 import { shareProposalSchema } from '../schemas/share';
+import { meetingPrepResponseSchema } from '../schemas/meetings';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
 import { pilotIncidentResponseSchema, trustResponseSchema } from '../schemas/trust';
 import { habitChangedSchema } from '../schemas/habits';
@@ -116,6 +117,12 @@ const CASES: Array<[string, z.ZodType]> = [
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.
   ['capture.geminiProposal', captureProposalSchema],
+  // «حضّرني» (CL5a): the rules-only answer, the one a model gave, and the
+  // refusal for a meeting that is about to start.
+  ['meetings.prepared', meetingPrepResponseSchema],
+  ['meetings.preparedGemini', meetingPrepResponseSchema],
+  ['meetings.preparedNoReminder', meetingPrepResponseSchema],
+  ['meetings.tooSoon', errorBodySchema],
   // The share proposal is the capture proposal plus an envelope, and it is
   // parsed with its own schema rather than with `captureProposalSchema`, so
   // that a missing `share` block fails here instead of being ignored (#183).

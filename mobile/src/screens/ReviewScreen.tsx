@@ -1,5 +1,5 @@
 import { useLayoutMode } from '../theme/textScale';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
@@ -22,7 +22,7 @@ import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
-import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
+import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
 import { postManualBusy } from '../api/endpoints/calendar';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
@@ -270,6 +270,19 @@ export function ReviewScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 20, gap: 12 }}
       >
+        {state.source === 'meeting' ? (
+          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source-meeting">
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
+            <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
+              <Txt size={13} color={p.mu}>{state.meeting?.appointment ? t.reviewSourceAppointment : t.reviewSourceMeeting}</Txt>
+              {/* The prep step's reminder, when it is not simply an hour before
+                  (CL5a M-8, I-3): moved out of quiet hours, moved because the
+                  meeting is close, or none at all — one line, and only the
+                  server's answer about what the phone will actually ring. */}
+              {state.meeting ? <PrepReminderLine meeting={state.meeting} /> : null}
+            </View>
+          </View>
+        ) : null}
         {state.source === 'share' ? (
           <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source">
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
@@ -593,5 +606,48 @@ function ItemCard({
         />
       </View>
     </Btn>
+  );
+}
+
+/** setTimeout's ceiling (about 24.8 days); a later ring is rechecked when the screen is next opened. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** One line about the prep step's reminder, or nothing when it rings an hour before as usual. */
+function PrepReminderLine({ meeting }: { meeting: MeetingReviewContext }) {
+  const { t, p, lang } = useApp();
+  const timezone = useTimeZone();
+  // A ring whose moment passes while Review is open is one the phone skips
+  // (n-2): from then on it is said as too close, not as a time that will not
+  // come. A timer, so the line changes at that moment and render stays pure.
+  const ringMs = meeting.remindAt === null ? null : Date.parse(meeting.remindAt);
+  const [passedRing, setPassedRing] = useState<number | null>(null);
+  useEffect(() => {
+    if (ringMs === null) return undefined;
+    const timer = setTimeout(() => setPassedRing(ringMs), Math.min(Math.max(0, ringMs - Date.now()), MAX_TIMER_MS));
+    return () => clearTimeout(timer);
+  }, [ringMs]);
+  const passed = ringMs !== null && passedRing === ringMs;
+  if (meeting.remindAt === null || passed) {
+    const silence = passed ? 'too_close' : meeting.silentBecause;
+    return (
+      <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
+        {silence === 'reminders_off'
+          ? t.reviewPrepRemindersOff
+          : silence === 'silent_choice'
+            ? t.reviewPrepSilentChoice
+            : silence === 'quiet_hours'
+              ? t.reviewPrepQuietHours
+              : t.reviewPrepTooClose}
+      </Txt>
+    );
+  }
+  if (meeting.adjustment === 'none') return null;
+  const at = new Date(meeting.remindAt);
+  const time = `${formatRelativeDay(at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
+  const quiet = meeting.adjustment === 'quiet_hours';
+  return (
+    <Txt size={13} color={p.mu} testID={quiet ? 'review-prep-quiet-moved' : 'review-prep-short-notice'}>
+      {fill(quiet ? t.reviewPrepQuietMoved : t.reviewPrepShortNotice, { time })}
+    </Txt>
   );
 }

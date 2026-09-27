@@ -178,13 +178,8 @@ export const commitmentListSchema = z.object({
 
 export type CommitmentList = z.infer<typeof commitmentListSchema>;
 
-/**
- * The design's three importance levels, from the server's priority levels.
- * `high → Must`, `normal → Should`, `low → Nice`.
- */
-export function importanceOf(commitment: Commitment): 'must' | 'should' | 'nice' {
-  return commitment.priority.level === 'high' ? 'must' : commitment.priority.level === 'low' ? 'nice' : 'should';
-}
+/** The design's three importance levels; in its own file so it loads without zod. */
+export { importanceOf } from './importance';
 
 /**
  * The vocabulary a proposed fact is written in.

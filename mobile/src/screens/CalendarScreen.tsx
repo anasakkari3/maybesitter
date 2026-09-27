@@ -7,7 +7,7 @@ import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
-import { ltr } from '../i18n/strings';
+import { fill, ltr } from '../i18n/strings';
 import { useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
@@ -21,6 +21,7 @@ import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { DirectionalScrollRow } from '../ui/directionalScroll';
 import { cardShadow } from '../theme/tokens';
+import { busyBlockPrepTarget } from '../features/meetings/prepTargets';
 
 /**
  * The week ahead, from the account (UC-2.R3, #173).
@@ -180,14 +181,28 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           </View>
 
           <View style={{ gap: 8 }}>
-            {dayRows.map((row) => row.kind === 'busy' ? (
-              <View key={`busy-${row.block.nativeId}`} testID="calendar-busy-row" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
-                <Txt size={14} color={p.mu} style={{ flex: 1 }}>{t.calendarBusyLegend}</Txt>
+            {dayRows.map((row) => row.kind === 'busy' ? ((block, prep) => (
+              <View key={`busy-${block.nativeId}-${block.startAt}`} testID="calendar-busy-row" style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
+                <Txt size={14} color={p.mu} style={stacked ? undefined : { flex: 1 }}>{t.calendarBusyLegend}</Txt>
                 <Txt size={12} color={p.mu} latin>
-                  {row.block.allDay ? '' : formatTimeRange(new Date(row.block.startAt), new Date(row.block.endAt), { locale: lang, timeZone: timezone })}
+                  {block.allDay ? '' : formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone: timezone })}
                 </Txt>
+                {/* «حضّرني» (CL5a): only on a timed block that has not started.
+                    The block has no title, so the sheet asks what it is. */}
+                {prep ? (
+                  <Btn
+                    testID="calendar-busy-prepare"
+                    // Which meeting, out loud: every busy row reads «مشغول».
+                    label={fill(t.xPrepareFor, { time: ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone: timezone })) })}
+                    onPress={() => actions.openMeetingPrep(prep)}
+                    scaleTo={0.97}
+                    style={{ minHeight: 44, justifyContent: 'center', backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 }}
+                  >
+                    <Txt size={13} weight={600}>{t.xPrepare}</Txt>
+                  </Btn>
+                ) : null}
               </View>
-            ) : ((item) => (
+            ))(row.block, busyBlockPrepTarget(row.block, now)) : ((item) => (
               <Btn
                 key={item.id}
                 testID={`calendar-item-${item.id}`}

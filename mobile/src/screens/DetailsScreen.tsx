@@ -18,6 +18,7 @@ import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
 import { PlaceReminderSection } from '../features/places/PlaceReminderSection';
+import { commitmentPrepTarget } from '../features/meetings/prepTargets';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
@@ -68,6 +69,8 @@ export function DetailsScreen() {
   const view = query.data ? toViewModel(query.data, new Date().toISOString()) : null;
   const gone = query.error instanceof NotFoundError;
   const open = view?.status === 'active';
+  // «حضّرني» (CL5a) on a meeting or an appointment that has not started.
+  const prepTarget = query.data && open ? commitmentPrepTarget(query.data, new Date()) : null;
 
   const preferences = useCategoryPreferences();
   const patch = usePatchCommitment();
@@ -164,6 +167,12 @@ export function DetailsScreen() {
 
                 {/* What else is happening then (UC-3.2, #186), as a note. */}
                 <BusyConflictChip blocks={view.shownAt ? busyAt(view.shownAt, busy) : []} testID="details-busy" />
+
+                {prepTarget ? (
+                  <View style={{ alignItems: 'flex-start' }}>
+                    <Pill testID="details-prepare" label={t.xPrepare} kind="outline" onPress={() => actions.openMeetingPrep(prepTarget)} radius={20} pad={12} size={15} />
+                  </View>
+                ) : null}
 
                 {/* "Remind me when I arrive / leave" (closure CL4). */}
                 {query.data ? <PlaceReminderSection commitment={query.data} canEdit={safeCommitmentPatchEnabled() && open} /> : null}

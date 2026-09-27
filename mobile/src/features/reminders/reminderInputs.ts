@@ -6,8 +6,12 @@
  * engine is therefore structurally incapable of putting a commitment's words
  * into a notification payload, which is the rule the Flutter client kept by
  * convention (`notification_payload.dart:8-13`) and this keeps by type.
+ *
+ * Pure, like `reminderPlan.ts`: the server's meeting-prep tests load both where
+ * only the root packages are installed, so a schema is imported as a type only.
  */
-import { importanceOf, type Commitment } from '../../api/schemas/common';
+import type { Commitment } from '../../api/schemas/common';
+import { importanceOf } from '../../api/schemas/importance';
 import type { ReminderSettingsDto } from '../../api/schemas/reminders';
 import {
   legacyEscalation,

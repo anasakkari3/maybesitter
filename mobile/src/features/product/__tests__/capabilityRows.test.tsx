@@ -24,6 +24,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import {
   ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, GoogleIntegrationScreen, HabitDetailScreen,
   IntegrationsScreen, MyMaybeSitterScreen, PatchReviewScreen,
@@ -202,8 +204,23 @@ describe('the capability table', () => {
     const soon = keys.filter(key => status(key) === 'COMING_SOON').sort();
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
     expect(soon).toEqual([
-      'assistantName', 'assistantPersonality', 'assistantPreparation', 'camera', 'drive', 'files',
+      'assistantName', 'assistantPersonality', 'camera', 'drive', 'files',
       'gmail', 'googleCalendar', 'photos', 'weeklyMode', 'whatsapp',
     ]);
+  });
+});
+
+describe('what the product does not promise', () => {
+  // «حضّرني» shipped (CL5a) and its "coordination with others" row did not:
+  // acting on other people's behalf is outside the approved strategy, not a
+  // missing credential (council verdict 2026-09-26, item 5). Removed, not
+  // relabelled — a Coming-soon badge on it would still be the promise.
+  it('no coordination row or string, in any of the three languages', async () => {
+    for (const bundle of [en, ar, he] as unknown as Record<string, unknown>[]) {
+      expect(Object.keys(bundle)).not.toContain('xCoordination');
+      expect(Object.values(bundle).filter((value) => /coordinat|تنسيق|תיאום/i.test(String(value)))).toEqual([]);
+    }
+    await render(wrap(<AddToMaybeSitterScreen />));
+    expect(screen.queryByText(/coordinat/i)).toBeNull();
   });
 });

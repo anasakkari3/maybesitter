@@ -83,11 +83,31 @@ const IMPORTANCE_ADJUSTMENT = {
   default: { high: 0, normal: 0, low: 0 },
 } as const;
 
+/**
+ * When a commitment is *late*: its deadline, not its reminder (CL5a I-1).
+ *
+ * A reminder set before the deadline is a heads-up, and the moment it rings is
+ * not the moment the thing is overdue: a meeting's prep step is reminded an
+ * hour before the meeting and due at its start, and calling it overdue for
+ * that hour tells the person they are late while they are on time. A postponed
+ * commitment is late only after `postponedUntil`, as it always was; one with a
+ * reminder and no deadline is judged by the reminder, as it always was.
+ */
+function deadlineOf(commitment: Commitment): string | null {
+  return commitment.postponedUntil || commitment.timeSpec.dueAt || commitment.timeSpec.remindAt;
+}
+
+function isPastDeadline(commitment: Commitment, nowMs: number): boolean {
+  const deadline = deadlineOf(commitment);
+  const deadlineMs = deadline ? Date.parse(deadline) : Number.NaN;
+  return !Number.isNaN(deadlineMs) && deadlineMs < nowMs;
+}
+
 /** The band an item sits in, chosen the way the agenda chooses it. */
 function bandFor(commitment: Commitment, nowMs: number, dueSoonWindowMs: number): PriorityReason {
   const resolved = resolvedCommitmentTime(commitment);
   const dueMs = resolved ? Date.parse(resolved) : Number.NaN;
-  if (!Number.isNaN(dueMs) && dueMs < nowMs) return 'overdue';
+  if (isPastDeadline(commitment, nowMs)) return 'overdue';
   if (commitment.status === 'pending_confirmation') return 'pending';
   if (!Number.isNaN(dueMs) && dueMs - nowMs <= dueSoonWindowMs) return 'due_soon';
   return 'active';
@@ -99,8 +119,8 @@ function reasonCodesFor(
   nowMs: number,
 ): RankReasonCode[] {
   const codes: RankReasonCode[] = [];
-  const resolved = resolvedCommitmentTime(commitment);
-  const dueMs = resolved ? Date.parse(resolved) : Number.NaN;
+  const deadline = deadlineOf(commitment);
+  const dueMs = deadline ? Date.parse(deadline) : Number.NaN;
 
   // Deadline first, and only the sharpest one: "overdue" and "due today" on the
   // same card would be two ways of saying one thing.

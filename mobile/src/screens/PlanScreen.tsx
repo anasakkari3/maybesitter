@@ -26,6 +26,8 @@ import { userFacingMessage } from '../api/ui/userFacingMessage';
 import type { DailyPlan, PlanItem } from '../api/schemas/plan';
 import { CIVIL_ZONE, civilDate, dayKey, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
 import { isolateAuto } from '../i18n/bidi';
+import { fill, ltr } from '../i18n/strings';
+import { planItemPrepTarget } from '../features/meetings/prepTargets';
 import { instantForLocalDateTime, localDateTimeFor } from '../features/capture/localInstant';
 import { dateShowing, wallClockShown } from '../features/plan/pickerClock';
 import { editRefusalOf, unplacedReason } from '../features/plan/reasons';
@@ -569,9 +571,15 @@ function DayOver({ date, readOnly }: { date: string; readOnly: boolean }) {
  * do — time, bar, title, range — on the quieter surface with a lighter bar
  * and the «ثابت» tag, so the difference is in words as well as in tone. One
  * accessible element, so a screen reader says the whole row once.
+ *
+ * A meeting or an appointment that has not started also carries «حضّرني»
+ * (CL5a), the same action as its busy block on the Calendar tab and its
+ * Details screen. It sits beside the row's accessible text, not inside it: a
+ * button inside an `accessible` group is invisible to a screen reader.
  */
 function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
-  const { t, p, lang } = useApp();
+  const { t, p, lang, actions } = useApp();
+  const prep = planItemPrepTarget(item, new Date());
   const stacked = useLayoutMode() !== 'normal';
   const start = new Date(item.startsAt);
   const when = item.startsAt === item.endsAt
@@ -579,14 +587,15 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
     : formatTimeRange(start, new Date(item.endsAt), { locale: lang, timeZone: zone });
   const title = item.title ?? t.planRemovedItem;
   return (
-    <View
-      testID={`plan-fixed-${item.itemId}`}
-      accessible
-      accessibilityRole="text"
-      accessibilityLabel={`${title}, ${when}, ${t.planItemFixed}`}
-    >
+    <View testID={`plan-fixed-${item.itemId}`}>
       <Card pad={0} style={{ backgroundColor: p.sf2 }}>
-        <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, paddingHorizontal: 18, paddingVertical: 16, minHeight: 56 }}>
+        <View
+          testID={`plan-fixed-text-${item.itemId}`}
+          accessible
+          accessibilityRole="text"
+          accessibilityLabel={`${title}, ${when}, ${t.planItemFixed}`}
+          style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, paddingHorizontal: 18, paddingTop: 16, paddingBottom: prep ? 8 : 16, minHeight: 56 }}
+        >
           <Txt size={13} weight={600} latin color={p.mu} testID={`plan-fixed-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
           {!stacked ? <View style={{ width: 2, alignSelf: 'stretch', borderRadius: 2, backgroundColor: p.ln, minHeight: 28 }} /> : null}
           <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4, alignItems: 'flex-start' }}>
@@ -597,6 +606,20 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
             </View>
           </View>
         </View>
+        {prep ? (
+          <View style={{ paddingHorizontal: 18, paddingBottom: 14, alignItems: 'flex-start' }}>
+            <Btn
+              testID={`plan-fixed-prepare-${item.itemId}`}
+              // Which one, out loud: the visible word is the same on every row.
+              label={fill(t.xPrepareFor, { time: ltr(formatTime(start, { locale: lang, timeZone: zone })) })}
+              onPress={() => actions.openMeetingPrep(prep)}
+              scaleTo={0.97}
+              style={{ minHeight: 44, justifyContent: 'center', backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 }}
+            >
+              <Txt size={13} weight={600}>{t.xPrepare}</Txt>
+            </Btn>
+          </View>
+        ) : null}
       </Card>
     </View>
   );
