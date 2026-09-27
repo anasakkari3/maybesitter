@@ -255,7 +255,14 @@ are keyed on `expiresAt`. The owner runs it; it was not run from this lane.
 4. **Gmail:** tap Connect on Gmail. Google asks only for Gmail read access, and
    Calendar stays connected. With AI processing on, «جيب التزامات من إيميلي»
    opens the review screen with proposals from the last 7 days of Primary (at
-   most 20 messages). Nothing is saved until you confirm.
+   most 20 messages). Nothing is saved until you confirm. If the model was
+   stopped part-way (a quota), the page or the review says «قرينا N من M إيميل
+   بس» rather than "nothing to save".
+   **Then check the grant survived:** at least an hour after connecting Gmail
+   (so the access token has expired), tap «حدّث الأوقات المشغولة». It must
+   succeed, and the Calendar row must not turn into «أعد الربط». Adding a
+   feature never revokes the combined grant (CL6a review C1); this is the
+   first place a regression would show.
 5. **Drive:** tap Connect on Drive, then «اختار ملف من Drive». Google's picker
    opens. Pick one Google Doc or PDF. The review screen opens with its
    proposals.
