@@ -7,9 +7,11 @@
  * `share.metrics`, never folded into "nothing to save". What *was* read still
  * opens in review, and the review says how much of the mail that was.
  *
- * The proposal is the recorded `google.gmailScan` fixture. The partial case
- * changes only its counts, to the combination the route suite records for a
- * scan whose call budget ran out (9 read, 11 not read, 20 found).
+ * Every proposal here is a recorded fixture, counts and all (CL6a round 2,
+ * N4): `google.gmailScanPartial` is a scan the per-minute model cap stopped
+ * after one call, and `google.gmailScanBudget` one the three-call budget
+ * stopped after nine messages. Only the first is worth pressing again for
+ * soon, so only the first says so (N2).
  */
 import React, { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
@@ -29,6 +31,8 @@ import type { CaptureProposal } from '../../../api/schemas/capture';
 import { shareProposalSchema, type ShareProposal } from '../../../api/schemas/share';
 import gmailScan from '../../../api/__fixtures__/google.gmailScan.json';
 import gmailScanNotRead from '../../../api/__fixtures__/google.gmailScanNotRead.json';
+import gmailScanPartial from '../../../api/__fixtures__/google.gmailScanPartial.json';
+import gmailScanBudget from '../../../api/__fixtures__/google.gmailScanBudget.json';
 import { mailboxShortfall } from '../mailboxShortfall';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
@@ -66,10 +70,8 @@ async function review(proposal: ShareProposal) {
 }
 
 const scanned = shareProposalSchema.parse(gmailScan);
-const partial = shareProposalSchema.parse({
-  ...gmailScan,
-  share: { ...gmailScan.share, metrics: { ...gmailScan.share.metrics, messagesFound: 20, messagesRead: 9, messagesNotRead: 11 } },
-});
+const partial = shareProposalSchema.parse(gmailScanPartial);
+const budgeted = shareProposalSchema.parse(gmailScanBudget);
 
 beforeEach(async () => {
   onlineManager.setOnline(true);
@@ -95,15 +97,21 @@ afterEach(() => {
 describe('how much of the mailbox was read', () => {
   it('counts what the server reported, and nothing for a scan that read everything', () => {
     expect(mailboxShortfall(scanned)).toBeNull();
-    expect(mailboxShortfall(partial)).toEqual({ read: 9, total: 20 });
-    expect(mailboxShortfall(shareProposalSchema.parse(gmailScanNotRead))).toEqual({ read: 0, total: 1 });
+    expect(mailboxShortfall(partial)).toEqual({ read: 3, total: 20, retryHelps: true });
+    expect(mailboxShortfall(budgeted)).toEqual({ read: 9, total: 20, retryHelps: false });
+    expect(mailboxShortfall(shareProposalSchema.parse(gmailScanNotRead))).toEqual({ read: 0, total: 1, retryHelps: true });
   });
 
-  it('the review of a partly-read scan says how many emails it read', async () => {
+  it('a scan the model cap stopped says how many it read, and to try again soon for the rest', async () => {
     await review(partial);
     expect(screen.getByTestId('review-mailbox-partial').props.children)
-      .toBe('Read 9 of 20 emails. Try again soon for the rest.');
-    expect(strings.en.googleGmailPartial).toBe('Read {read} of {total} emails. Try again soon for the rest.');
+      .toBe('Read 3 of 20 emails. Try again soon for the rest.');
+  });
+
+  it('a scan the call budget stopped says how many it read, and does not promise the rest on a retry', async () => {
+    await review(budgeted);
+    expect(screen.getByTestId('review-mailbox-partial').props.children)
+      .toBe('Read the newest 9 of 20 emails.');
   });
 
   it('a scan that read everything shows no such line', async () => {

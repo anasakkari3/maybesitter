@@ -14,6 +14,13 @@ import type { ShareProposal } from '../../api/schemas/share';
 export interface MailboxShortfall {
   readonly read: number;
   readonly total: number;
+  /**
+   * Whether pressing again soon could read the rest (CL6a round 2, N2): only
+   * when the model would not answer (a quota, an outage). A read the call
+   * budget, the content limit or the deadline stopped reads the same newest
+   * messages again, so the app words it without "try again".
+   */
+  readonly retryHelps: boolean;
 }
 
 export function mailboxShortfall(proposal: Pick<ShareProposal, 'share'> | null | undefined): MailboxShortfall | null {
@@ -23,5 +30,5 @@ export function mailboxShortfall(proposal: Pick<ShareProposal, 'share'> | null |
   if (notRead <= 0) return null;
   const read = Math.max(0, metrics.messagesRead ?? 0);
   const total = Math.max(read + notRead, metrics.messagesFound ?? 0);
-  return { read, total };
+  return { read, total, retryHelps: (metrics.modelUnavailable ?? 0) > 0 };
 }

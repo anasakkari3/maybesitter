@@ -2171,38 +2171,58 @@ test('exports the Google connection fixtures', async () => {
       else process.env.MAYBESITTER_AI_DISABLED = previousAiDisabled;
     }
 
-    // A scan the per-minute model cap stopped part-way (CL6a round 2, N4):
-    // twenty long messages, three to a call, and a minute cap of one — the
-    // real usage guard on its own fresh counter, so the recording does not
-    // depend on the calls above. The app's partial-scan line reads these
-    // counts; recorded here so they are the ones the server sends together.
+    // Scans stopped part-way (CL6a round 2, N2/N4): twenty long messages,
+    // three to a model call. Either the per-minute model cap stops the read
+    // after one call (pressing again later can read more), or the three-call
+    // budget stops it after nine (pressing again reads the same nine). Each
+    // with and without something to find in the part that was read, because
+    // the app says different things for all four. The real usage guard on its
+    // own fresh counter, pinned to one minute, so nothing above can change
+    // the counts and two calls cannot straddle a minute.
     const fullRuntime = googleRuntime();
-    setGoogleRuntimeForTests({
-      ...fullRuntime,
-      shareModel: shareLlmProvider(GOOGLE_USER, {
-        consent: async () => 'granted',
-        // A fixed minute: two calls a millisecond apart can still straddle one.
-        reserveOptions: { storage: createMemoryStorage(), minuteCap: 1, now: new Date(REFERENCE_TIME) },
-      }),
-    });
-    google.gmail.length = 0;
-    for (let index = 0; index < 20; index += 1) {
-      google.gmail.push({
-        id: `msg-long-${String(index).padStart(2, '0')}`,
-        subject: `Trip form ${index}`,
-        body: `Hello,\n\n${'The museum trip is on the calendar for the whole class. '.repeat(125)}\n\nPlease return the signed trip form by Friday.\n\nThanks`,
-        receivedAt: new Date(Date.parse(REFERENCE_TIME) - (3 + index) * hour).toISOString(),
+    const partScan = async (name: string, options: { minuteCap?: number; asks: boolean }) => {
+      setGoogleRuntimeForTests({
+        ...fullRuntime,
+        shareModel: shareLlmProvider(GOOGLE_USER, {
+          consent: async () => 'granted',
+          reserveOptions: {
+            storage: createMemoryStorage(),
+            now: new Date(REFERENCE_TIME),
+            ...(options.minuteCap === undefined ? {} : { minuteCap: options.minuteCap }),
+          },
+        }),
       });
+      google.gmail.length = 0;
+      for (let index = 0; index < 20; index += 1) {
+        google.gmail.push({
+          id: `msg-long-${String(index).padStart(2, '0')}`,
+          subject: `Trip form ${index}`,
+          body: `Hello,\n\n${'The museum trip is on the calendar for the whole class. '.repeat(125)}${options.asks ? '\n\nPlease return the signed trip form by Friday.' : ''}\n\nThanks`,
+          receivedAt: new Date(Date.parse(REFERENCE_TIME) - (3 + index) * hour).toISOString(),
+        });
+      }
+      const scanned = await record(name, 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
+        body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+      })));
+      assert.equal((scanned.items as unknown[]).length > 0, options.asks, `${name}: items`);
+      return (scanned.share as { metrics: Record<string, number> }).metrics;
+    };
+    for (const [name, asks] of [['google.gmailScanPartial', true], ['google.gmailScanPartialEmpty', false]] as const) {
+      const metrics = await partScan(name, { minuteCap: 1, asks });
+      assert.deepEqual(
+        [metrics.messagesFound, metrics.messagesRead, metrics.messagesNotRead, metrics.modelUnavailable, metrics.modelCalls],
+        [20, 3, 17, 17, 2],
+        `${name}: one call read three; the cap refused the second`,
+      );
     }
-    const partial = await record('google.gmailScanPartial', 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
-      body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
-    })));
-    const partialMetrics = (partial.share as { metrics: Record<string, number> }).metrics;
-    assert.equal(partialMetrics.messagesFound, 20);
-    assert.equal(partialMetrics.messagesRead, 3, 'one call, three long messages');
-    assert.equal(partialMetrics.messagesNotRead, 17);
-    assert.equal(partialMetrics.modelUnavailable, 17, 'the cap refused the second call');
-    assert.ok((partial.items as unknown[]).length >= 1, 'what was read is still offered');
+    for (const [name, asks] of [['google.gmailScanBudget', true], ['google.gmailScanBudgetEmpty', false]] as const) {
+      const metrics = await partScan(name, { asks });
+      assert.deepEqual(
+        [metrics.messagesFound, metrics.messagesRead, metrics.messagesNotRead, metrics.modelUnavailable, metrics.modelCalls],
+        [20, 9, 11, 0, 3],
+        `${name}: three calls read nine; the budget stopped the read, not the model`,
+      );
+    }
     runtime(true);
 
     const ticket = await record('google.drivePicker', 200, await googleDrivePickerPost(as('/api/mobile/integrations/google/drive/picker', { method: 'POST' })), pinUrl('pickerUrl'));

@@ -1199,6 +1199,7 @@
   "googleSynced": "Busy times updated",
   "googleGmailScan": "Find commitments in my email",
   "googleGmailPartial": "Read {read} of {total} emails. Try again soon for the rest.",
+  "googleGmailPartialNewest": "Read the newest {read} of {total} emails.",
   "googleGmailNotRead": "Couldn't read your emails just now. Try again soon.",
   "googleDrivePick": "Pick a file from Drive",
   "googleWorking": "One moment…",

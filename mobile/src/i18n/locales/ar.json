@@ -1199,6 +1199,7 @@
   "googleSynced": "تحدّثت الأوقات المشغولة",
   "googleGmailScan": "جيب التزامات من إيميلي",
   "googleGmailPartial": "قرينا {read} من {total} إيميل بس. جرّب بعد شوي للباقي.",
+  "googleGmailPartialNewest": "قرينا أحدث {read} من {total} إيميل.",
   "googleGmailNotRead": "ما قدرنا نقرأ الإيميلات هلّق. جرّب بعد شوي.",
   "googleDrivePick": "اختار ملف من Drive",
   "googleWorking": "لحظة…",

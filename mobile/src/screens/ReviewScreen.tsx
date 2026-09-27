@@ -283,11 +283,12 @@ export function ReviewScreen() {
             <Txt size={12} color={p.wm}>{t.reviewUntrusted}</Txt>
           </View>
         ) : null}
-        {/* A Gmail scan the model stopped part-way (CL6a review I2): what is
-            below came from some of the mail, and the rest was not read. */}
+        {/* A Gmail scan stopped part-way (CL6a review I2): what is below came
+            from some of the mail, and the rest was not read. "Try again" only
+            when a retry could read it (round 2, N2). */}
         {mailbox ? (
           <Txt role="supporting" color={p.wm} style={{ paddingHorizontal: 4 }} testID="review-mailbox-partial">
-            {fill(t.googleGmailPartial, { read: mailbox.read, total: mailbox.total })}
+            {fill(mailbox.retryHelps ? t.googleGmailPartial : t.googleGmailPartialNewest, { read: mailbox.read, total: mailbox.total })}
           </Txt>
         ) : null}
         {/* The dashed dot is the proposal mark, the same one the cards carry:

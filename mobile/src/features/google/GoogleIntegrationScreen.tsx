@@ -100,9 +100,12 @@ export function GoogleIntegrationScreen() {
         // here, rather than opening an empty review (CL6a review I2).
         const shortfall = mailboxShortfall(proposal);
         if (shortfall && proposal.items.length === 0) {
-          setNotice(shortfall.read === 0
-            ? { key: 'googleGmailNotRead', tone: 'problem' }
-            : { key: 'googleGmailPartial', tone: 'problem', values: { read: shortfall.read, total: shortfall.total } });
+          const values = { read: shortfall.read, total: shortfall.total };
+          setNotice(!shortfall.retryHelps
+            ? { key: 'googleGmailPartialNewest', tone: 'problem', values }
+            : shortfall.read === 0
+              ? { key: 'googleGmailNotRead', tone: 'problem' }
+              : { key: 'googleGmailPartial', tone: 'problem', values });
           return;
         }
         adoptProposal(proposal);

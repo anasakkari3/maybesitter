@@ -1202,6 +1202,7 @@
   "googleSynced": "הזמנים התפוסים עודכנו",
   "googleGmailScan": "חיפוש התחייבויות במייל שלי",
   "googleGmailPartial": "נקראו {read} מתוך {total} מיילים. נסו שוב בקרוב בשביל השאר.",
+  "googleGmailPartialNewest": "נקראו {read} המיילים החדשים מתוך {total}.",
   "googleGmailNotRead": "לא הצלחנו לקרוא את המיילים כרגע. נסו שוב בקרוב.",
   "googleDrivePick": "בחירת קובץ מ-Drive",
   "googleWorking": "רגע…",

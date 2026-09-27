@@ -28,6 +28,8 @@ import connectStarted from '../../../api/__fixtures__/google.connectStarted.json
 import drivePicker from '../../../api/__fixtures__/google.drivePicker.json';
 import gmailScan from '../../../api/__fixtures__/google.gmailScan.json';
 import gmailScanNotRead from '../../../api/__fixtures__/google.gmailScanNotRead.json';
+import gmailScanPartialEmpty from '../../../api/__fixtures__/google.gmailScanPartialEmpty.json';
+import gmailScanBudgetEmpty from '../../../api/__fixtures__/google.gmailScanBudgetEmpty.json';
 import driveImport from '../../../api/__fixtures__/google.driveImport.json';
 import { GoogleIntegrationScreen } from '../GoogleIntegrationScreen';
 import { IntegrationsScreen } from '../../product/ControlScreens';
@@ -199,17 +201,26 @@ describe('connected', () => {
     expect(screen.getByTestId('where').props.children).not.toBe('capture');
   });
 
-  it('a scan that read some mail and found nothing in it says how many it read', async () => {
+  it('a scan the model cap stopped, with nothing in what it read, says how many and to try again soon', async () => {
     await show(statusOf(allFeatures));
     await waitFor(() => expect(screen.getByTestId('google-gmail-scan')).toBeTruthy());
-    const partial = {
-      ...gmailScanNotRead,
-      share: { ...gmailScanNotRead.share, metrics: { ...gmailScanNotRead.share.metrics, messagesFound: 20, messagesRead: 3, messagesNotRead: 17 } },
-    };
-    api.scanGmail.mockResolvedValue(partial as never);
+    // Recorded from the route (CL6a round 2, N4): 3 read, 17 the cap refused.
+    api.scanGmail.mockResolvedValue(gmailScanPartialEmpty as never);
     await fireEvent.press(screen.getByTestId('google-gmail-scan'));
     await waitFor(() => expect(screen.getByTestId('google-notice')).toBeTruthy());
     expect(textOf('google-notice', copy().googleGmailPartial.replace('{read}', '3').replace('{total}', '20'))).toBe(true);
+    expect(mockAdoptProposal).not.toHaveBeenCalled();
+  });
+
+  it('a scan the call budget stopped, with nothing in what it read, says how many and nothing about trying again', async () => {
+    await show(statusOf(allFeatures));
+    await waitFor(() => expect(screen.getByTestId('google-gmail-scan')).toBeTruthy());
+    // Recorded from the route: 9 read, 11 past the three-call budget. Pressing
+    // again reads the same nine, so "try again soon" would be false (N2).
+    api.scanGmail.mockResolvedValue(gmailScanBudgetEmpty as never);
+    await fireEvent.press(screen.getByTestId('google-gmail-scan'));
+    await waitFor(() => expect(screen.getByTestId('google-notice')).toBeTruthy());
+    expect(textOf('google-notice', copy().googleGmailPartialNewest.replace('{read}', '9').replace('{total}', '20'))).toBe(true);
     expect(mockAdoptProposal).not.toHaveBeenCalled();
   });
 
