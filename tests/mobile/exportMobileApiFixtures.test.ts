@@ -2350,6 +2350,17 @@ test('exports the Google connection fixtures', async () => {
         recurringSessions: [],
         transcriptSample: 'Submit the lab report by Thursday 13 August.',
       });
+    } else if ((input.config as { responseSchema?: { properties?: Record<string, unknown> } }).responseSchema?.properties?.items) {
+      // Since CL1 the clauses of one capture are read in one call: the
+      // clauses arrive as an array and the answer is `{ items: [...] }`, each
+      // object echoing its clause's position (GEMINI_BATCH_EXTRACTION_SCHEMA).
+      const user = (input.contents as Array<{ parts: Array<{ text?: string }> }>).flatMap((content) => content.parts).map((part) => part.text ?? '').join('\n');
+      const lines = user.split('\n');
+      const clauses = JSON.parse(lines[lines.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE') + 1]!) as string[];
+      answer = JSON.stringify({ items: clauses.map((clause, clauseIndex) => ({
+        clauseIndex,
+        ...JSON.parse(extraction(clause.includes('lab report') ? 'Submit the lab report' : 'Return the signed trip form')) as Record<string, unknown>,
+      })) });
     } else {
       answer = extraction(text.includes('lab report') ? 'Submit the lab report' : 'Return the signed trip form');
     }

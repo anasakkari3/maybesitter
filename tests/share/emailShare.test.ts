@@ -1041,12 +1041,10 @@ const MODEL_READS: ReadonlyArray<{ line: RegExp; title: string; date: string; ti
 
 function captureModel(): { provider: (prompt: string) => Promise<string>; asked: string[] } {
   const asked: string[] = [];
-  const provider = async (prompt: string) => {
-    const begin = prompt.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE\n') + 'BEGIN_UNTRUSTED_USER_MESSAGE\n'.length;
-    const line = JSON.parse(prompt.slice(begin, prompt.indexOf('\nEND_UNTRUSTED_USER_MESSAGE'))) as string;
+  const read = (line: string) => {
     asked.push(line);
-    const known = MODEL_READS.find((read) => read.line.test(line));
-    return JSON.stringify({
+    const known = MODEL_READS.find((entry) => entry.line.test(line));
+    return {
       type: 'task',
       action: known?.title ?? line,
       title: known?.title ?? line,
@@ -1061,7 +1059,16 @@ function captureModel(): { provider: (prompt: string) => Promise<string>; asked:
       ambiguityFlags: [],
       explicitReminderRequest: false,
       explicitPressureRequest: false,
-    });
+    };
+  };
+  const provider = async (prompt: string) => {
+    const begin = prompt.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE\n') + 'BEGIN_UNTRUSTED_USER_MESSAGE\n'.length;
+    const payload = JSON.parse(prompt.slice(begin, prompt.indexOf('\nEND_UNTRUSTED_USER_MESSAGE'))) as string | string[];
+    // Since CL1 the clauses of one capture are read in one call: an array in,
+    // `{ items: [...] }` out, each object echoing its clause's position — the
+    // shape GEMINI_BATCH_EXTRACTION_SCHEMA asks the model for.
+    if (Array.isArray(payload)) return JSON.stringify({ items: payload.map((line, clauseIndex) => ({ clauseIndex, ...read(line) })) });
+    return JSON.stringify(read(payload));
   };
   return { provider, asked };
 }
