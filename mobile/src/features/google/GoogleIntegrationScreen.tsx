@@ -35,6 +35,7 @@ import { Dialog } from '../../ui/dialog';
 import { Pill, Txt } from '../../ui/primitives';
 import { AvailabilityBadge, ProductActions, ProductPage, ProductSection } from '../../ui/product';
 import { useCaptureFlow } from '../capture/CaptureProvider';
+import { mailboxShortfall } from './mailboxShortfall';
 import {
   useDrivePick,
   useGmailScan,
@@ -44,8 +45,8 @@ import {
   useGoogleStatus,
 } from './useGoogle';
 
-/** What the page says under the rows after the last action. A key, never a sentence. */
-type Notice = { key: UserFacingKey; tone: 'info' | 'problem' } | null;
+/** What the page says under the rows after the last action. A key (and its numbers), never a sentence. */
+type Notice = { key: UserFacingKey; tone: 'info' | 'problem'; values?: Record<string, number> } | null;
 
 const TITLES: Record<GoogleFeature, string> = { calendar: 'Google Calendar', gmail: 'Gmail', drive: 'Google Drive' };
 
@@ -65,9 +66,10 @@ export function GoogleIntegrationScreen() {
   // The live region below speaks on Android only; VoiceOver has to be told.
   // The outcome of a press lands after the auth session closes, away from
   // the button, so without this it is silent on iOS.
+  const noticeText = notice ? (notice.values ? fill(t[notice.key], notice.values) : t[notice.key]) : null;
   React.useEffect(() => {
-    if (notice) AccessibilityInfo.announceForAccessibility(t[notice.key]);
-  }, [notice, t]);
+    if (noticeText) AccessibilityInfo.announceForAccessibility(noticeText);
+  }, [noticeText]);
 
   const busy = connect.isPending || disconnect.isPending || sync.isPending || scan.isPending || pick.isPending;
   const google: GoogleStatus | undefined = status.data;
@@ -92,7 +94,20 @@ export function GoogleIntegrationScreen() {
   const onScan = () => {
     setNotice(null);
     scan.mutate(undefined, {
-      onSuccess: (proposal) => { adoptProposal(proposal); actions.go('capture'); },
+      onSuccess: (proposal) => {
+        // Messages the server could not read are not "nothing to save": with
+        // nothing found in what *was* read, say how much that was and stay
+        // here, rather than opening an empty review (CL6a review I2).
+        const shortfall = mailboxShortfall(proposal);
+        if (shortfall && proposal.items.length === 0) {
+          setNotice(shortfall.read === 0
+            ? { key: 'googleGmailNotRead', tone: 'problem' }
+            : { key: 'googleGmailPartial', tone: 'problem', values: { read: shortfall.read, total: shortfall.total } });
+          return;
+        }
+        adoptProposal(proposal);
+        actions.go('capture');
+      },
       onError: fail,
     });
   };
@@ -189,7 +204,7 @@ export function GoogleIntegrationScreen() {
     {row('drive', t.googleDriveBody)}
     <View accessibilityLiveRegion="polite" style={{ gap: 8 }}>
       {busy ? <Txt role="supporting" color={p.mu} testID="google-working">{t.googleWorking}</Txt> : null}
-      {notice ? <Txt role="supporting" color={notice.tone === 'problem' ? p.wm : p.mu} testID="google-notice">{t[notice.key]}</Txt> : null}
+      {notice ? <Txt role="supporting" color={notice.tone === 'problem' ? p.wm : p.mu} testID="google-notice">{noticeText}</Txt> : null}
     </View>
     {live ? <ProductActions>
       <Pill testID="google-disconnect" label={t.googleDisconnect} kind="outline" disabled={busy} onPress={() => setConfirming(true)} />

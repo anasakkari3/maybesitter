@@ -298,6 +298,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['google.calendarBlocks', googleCalendarBlocksSchema],
   ['google.drivePicker', googlePickerTicketSchema],
   ['google.gmailScan', shareProposalSchema],
+  ['google.gmailScanNotRead', shareProposalSchema],
   ['google.driveImport', shareProposalSchema],
   ['google.refusedNotConfigured', googleRefusalSchema],
   ['google.refusedDenied', googleRefusalSchema],

@@ -16,7 +16,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { AppProvider, useApp } from '../../../state/AppContext';
 import { strings, type Lang, type Strings } from '../../../i18n/strings';
 import * as google from '../../../api/endpoints/google';
-import { GoogleRefusedError } from '../../../api/errors';
+import { GoogleRefusedError, QuotaExceededError } from '../../../api/errors';
 import type { GoogleStatus } from '../../../api/schemas/google';
 import notConfigured from '../../../api/__fixtures__/google.notConfigured.json';
 import notConnected from '../../../api/__fixtures__/google.notConnected.json';
@@ -27,6 +27,7 @@ import disconnected from '../../../api/__fixtures__/google.disconnected.json';
 import connectStarted from '../../../api/__fixtures__/google.connectStarted.json';
 import drivePicker from '../../../api/__fixtures__/google.drivePicker.json';
 import gmailScan from '../../../api/__fixtures__/google.gmailScan.json';
+import gmailScanNotRead from '../../../api/__fixtures__/google.gmailScanNotRead.json';
 import driveImport from '../../../api/__fixtures__/google.driveImport.json';
 import { GoogleIntegrationScreen } from '../GoogleIntegrationScreen';
 import { IntegrationsScreen } from '../../product/ControlScreens';
@@ -185,6 +186,43 @@ describe('connected', () => {
     await fireEvent.press(screen.getByTestId('google-gmail-scan'));
     await waitFor(() => expect(mockAdoptProposal).toHaveBeenCalledWith(gmailScan));
     expect(screen.getByTestId('where').props.children).toBe('capture');
+  });
+
+  it('a scan the model could not read is not "nothing to save": it stays here and says so', async () => {
+    await show(statusOf(allFeatures));
+    await waitFor(() => expect(screen.getByTestId('google-gmail-scan')).toBeTruthy());
+    api.scanGmail.mockResolvedValue(gmailScanNotRead as never);
+    await fireEvent.press(screen.getByTestId('google-gmail-scan'));
+    await waitFor(() => expect(screen.getByTestId('google-notice')).toBeTruthy());
+    expect(textOf('google-notice', copy().googleGmailNotRead)).toBe(true);
+    expect(mockAdoptProposal).not.toHaveBeenCalled();
+    expect(screen.getByTestId('where').props.children).not.toBe('capture');
+  });
+
+  it('a scan that read some mail and found nothing in it says how many it read', async () => {
+    await show(statusOf(allFeatures));
+    await waitFor(() => expect(screen.getByTestId('google-gmail-scan')).toBeTruthy());
+    const partial = {
+      ...gmailScanNotRead,
+      share: { ...gmailScanNotRead.share, metrics: { ...gmailScanNotRead.share.metrics, messagesFound: 20, messagesRead: 3, messagesNotRead: 17 } },
+    };
+    api.scanGmail.mockResolvedValue(partial as never);
+    await fireEvent.press(screen.getByTestId('google-gmail-scan'));
+    await waitFor(() => expect(screen.getByTestId('google-notice')).toBeTruthy());
+    expect(textOf('google-notice', copy().googleGmailPartial.replace('{read}', '3').replace('{total}', '20'))).toBe(true);
+    expect(mockAdoptProposal).not.toHaveBeenCalled();
+  });
+
+  it('a Drive file the model quota stopped says to try later, not that Google is down', async () => {
+    await show(statusOf(allFeatures));
+    await waitFor(() => expect(screen.getByTestId('google-drive-pick')).toBeTruthy());
+    api.beginDrivePick.mockResolvedValue(drivePicker as never);
+    browser.openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'maybesitter://oauth/google/drive?fileId=doc_fixture_12345' } as never);
+    api.importDriveFile.mockRejectedValue(new QuotaExceededError('user_minute', 30, 'quota') as never);
+    await fireEvent.press(screen.getByTestId('google-drive-pick'));
+    await waitFor(() => expect(screen.getByTestId('google-notice')).toBeTruthy());
+    expect(textOf('google-notice', copy().aiQuotaTryLater)).toBe(true);
+    expect(mockAdoptProposal).not.toHaveBeenCalled();
   });
 
   it('Drive opens the picker page and reads the one file picked into review', async () => {

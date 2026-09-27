@@ -89,6 +89,16 @@ export interface RequestOptions<T> {
    * Its shape is the server's to change, so the client only ever repeats it.
    */
   ifMatch?: string;
+  /**
+   * How long to wait, when fifteen seconds is the wrong answer.
+   *
+   * For a request that does work on the server rather than a lookup: the
+   * Gmail scan (up to twenty messages fetched, then the model) and the Drive
+   * import (a file downloaded, then the model) take as long as a share upload
+   * does, so they use `UPLOAD_TIMEOUT_MS` (CL6a review I2). Timing them out at
+   * fifteen would show "no connection" for a read that was about to answer.
+   */
+  timeoutMs?: number;
 }
 
 function url(path: string, query: RequestOptions<unknown>['query']): string {
@@ -115,9 +125,10 @@ async function send(
   token: string | null,
   signal: AbortSignal | undefined,
   ifMatch: string | undefined,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<RawResponse> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   // The caller's own cancellation (a screen unmounting) must also reach fetch.
   const onExternalAbort = () => controller.abort();
   signal?.addEventListener('abort', onExternalAbort);
@@ -519,7 +530,7 @@ export async function apiRequestTagged<T>(
   const mocked = mockResponseFor(method, path);
   let response: RawResponse = mocked
     ? { status: mocked.status, body: mocked.body, etag: null }
-    : await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch);
+    : await send(method, target, options.body, await getIdToken(), options.signal, options.ifMatch, options.timeoutMs);
 
   if (response.status === 401 && refusal(response.body).reason === 'recent_login_required') {
     // Before the refresh, and before any sign-out (#149).
@@ -539,7 +550,7 @@ export async function apiRequestTagged<T>(
     // refresh (see ./auth.ts), so three parallel calls cause one round trip.
     const fresh = await refreshIdToken();
     if (fresh) {
-      response = await send(method, target, options.body, fresh, options.signal, options.ifMatch);
+      response = await send(method, target, options.body, fresh, options.signal, options.ifMatch, options.timeoutMs);
     }
     if (response.status === 401) {
       // The session is genuinely over. Signing out here rather than letting

@@ -23,6 +23,7 @@ import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
 import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
 import { postManualBusy } from '../api/endpoints/calendar';
+import { mailboxShortfall } from '../features/google/mailboxShortfall';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import type { ShareProposal, ShareDocumentFacts } from '../api/schemas/share';
@@ -88,6 +89,7 @@ export function ReviewScreen() {
 
   const timezone = useTimeZone();
   const share = (state.proposal as ShareProposal | null)?.share;
+  const mailbox = state.source === 'share' ? mailboxShortfall(state.proposal as ShareProposal | null) : null;
   const isDocumentShare = Boolean(
     state.source === 'share' &&
     share &&
@@ -279,6 +281,13 @@ export function ReviewScreen() {
             <Txt size={13} color={p.mu} style={{ flex: 1 }}>{t.reviewSourceShare}</Txt>
             <Txt size={12} color={p.wm}>{t.reviewUntrusted}</Txt>
           </View>
+        ) : null}
+        {/* A Gmail scan the model stopped part-way (CL6a review I2): what is
+            below came from some of the mail, and the rest was not read. */}
+        {mailbox ? (
+          <Txt role="supporting" color={p.wm} style={{ paddingHorizontal: 4 }} testID="review-mailbox-partial">
+            {fill(t.googleGmailPartial, { read: mailbox.read, total: mailbox.total })}
+          </Txt>
         ) : null}
         {/* The dashed dot is the proposal mark, the same one the cards carry:
             the sentence and the shape say one thing. */}

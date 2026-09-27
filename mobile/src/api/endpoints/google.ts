@@ -1,4 +1,4 @@
-import { apiRequest } from '../client';
+import { apiRequest, UPLOAD_TIMEOUT_MS } from '../client';
 import {
   googleCalendarBlocksSchema,
   googleCalendarSyncedSchema,
@@ -60,6 +60,8 @@ export function scanGmail(input: { timezone: string; referenceTime?: string }): 
   return apiRequest('POST', '/api/mobile/integrations/google/gmail/scan', {
     body: { timezone: input.timezone, referenceTime: input.referenceTime ?? new Date().toISOString() },
     schema: shareProposalSchema,
+    // Twenty messages fetched and read by the model: a share's time, not a lookup's.
+    timeoutMs: UPLOAD_TIMEOUT_MS,
   });
 }
 
@@ -72,5 +74,7 @@ export function importDriveFile(input: { fileId: string; timezone: string; refer
   return apiRequest('POST', '/api/mobile/integrations/google/drive/import', {
     body: { fileId: input.fileId, timezone: input.timezone, referenceTime: input.referenceTime ?? new Date().toISOString() },
     schema: shareProposalSchema,
+    // A file downloaded from Drive and read by the model, like a shared PDF.
+    timeoutMs: UPLOAD_TIMEOUT_MS,
   });
 }
