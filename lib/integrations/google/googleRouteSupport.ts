@@ -21,7 +21,7 @@ export function invalidGoogleRequest(): Response {
 export function googleFailureResponse(error: unknown): Response {
   if (error instanceof GoogleCalendarConsentError) {
     return Response.json(
-      { success: false, error: error.message, reason: 'calendar_consent_required' },
+      { success: false, error: 'calendar_consent_required', reason: 'calendar_consent_required' },
       { status: 403 },
     );
   }

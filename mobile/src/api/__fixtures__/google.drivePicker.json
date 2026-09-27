@@ -1,0 +1,6 @@
+{
+  "success": true,
+  "pickerUrl": "http://localhost:3000/api/oauth/google/picker?ticket=fixture-ticket",
+  "expiresAt": "2026-08-09T09:00:00.000Z",
+  "returnUrl": "maybesitter://oauth/google/drive"
+}

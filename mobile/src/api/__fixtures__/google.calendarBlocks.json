@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "blocks": [
+    {
+      "blockId": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sourceId": "google:primary",
+      "sourceKind": "google",
+      "startAt": "2026-08-09T09:00:00.000Z",
+      "endAt": "2026-08-09T09:00:00.000Z",
+      "allDay": false
+    }
+  ]
+}

@@ -144,6 +144,21 @@ import { POST as hardReceiptsPost } from '../../src/app/api/mobile/reminders/rec
 import { POST as devicesPost } from '../../src/app/api/mobile/devices/route.ts';
 import { DELETE as deviceDelete } from '../../src/app/api/mobile/devices/[installationId]/route.ts';
 import { GET as accountExportGet } from '../../src/app/api/mobile/account/export/route.ts';
+import { GET as googleStatusGet } from '../../src/app/api/mobile/integrations/google/route.ts';
+import { POST as googleConnectPost } from '../../src/app/api/mobile/integrations/google/connect/route.ts';
+import { POST as googleCallbackPost } from '../../src/app/api/mobile/integrations/google/callback/route.ts';
+import { POST as googleDisconnectPost } from '../../src/app/api/mobile/integrations/google/disconnect/route.ts';
+import {
+  GET as googleCalendarGet,
+  POST as googleCalendarPost,
+} from '../../src/app/api/mobile/integrations/google/calendar/route.ts';
+import { POST as googleGmailScanPost } from '../../src/app/api/mobile/integrations/google/gmail/scan/route.ts';
+import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrations/google/drive/picker/route.ts';
+import { POST as googleDriveImportPost } from '../../src/app/api/mobile/integrations/google/drive/import/route.ts';
+import { resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
+import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_PICKER_KEY, FAKE_REDIRECT, FakeGoogle } from '../support/fakeGoogle.ts';
+import { EMAIL_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/emailPrompt.ts';
+import { DOCUMENT_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/documentPrompt.ts';
 import {
   GET as readinessHealthGet,
   POST as readinessHealthPost,
@@ -1979,6 +1994,188 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       resetProviderForTests();
     }
   } finally {
+    teardown();
+  }
+});
+
+/**
+ * The three Google rows (CL6a), from the routes, against a fake Google.
+ *
+ * No OAuth client secret exists, so the first thing recorded is the answer the
+ * app gets today: `not_configured`, and the refusal a connect gets. Then the
+ * same routes run configured — a fake Google behind `fetch`, an in-memory KMS
+ * — so the connected, synced, scanned, picked and reconnect shapes the app
+ * parses are the handlers' own, not a description of them.
+ *
+ * Gmail and Drive read through a model. The Vertex SDK is stubbed as the
+ * Gemini fixture above does it, answering the email channel, the document
+ * channel and the capture pipeline each with the shape its prompt asks for.
+ */
+test('exports the Google connection fixtures', async () => {
+  const teardown = setup();
+  const google = new FakeGoogle();
+  const kms = createInMemoryKms();
+  const storage = getStorage();
+  const runtime = (configured: boolean, now?: () => Date) => setGoogleRuntimeForTests({
+    storage,
+    env: configured
+      ? {
+        GOOGLE_OAUTH_CLIENT_ID: FAKE_CLIENT_ID,
+        GOOGLE_OAUTH_CLIENT_SECRET: FAKE_CLIENT_SECRET,
+        GOOGLE_OAUTH_REDIRECT_URI: FAKE_REDIRECT,
+        GOOGLE_PICKER_API_KEY: FAKE_PICKER_KEY,
+        MAYBESITTER_KMS_KEY_NAME: kms.keyName,
+      }
+      : { MAYBESITTER_KMS_KEY_NAME: kms.keyName },
+    secrets: null,
+    fetchImpl: google.fetch as typeof fetch,
+    encryption: { kms, env: { MAYBESITTER_KMS_KEY_NAME: kms.keyName } as unknown as NodeJS.ProcessEnv },
+    ...(now ? { now } : {}),
+  });
+  const GOOGLE_USER = uidFor('GoogleFixtureUser');
+  const as = (path: string, options: { method?: string; body?: unknown } = {}) => request(path, { ...options, uid: GOOGLE_USER });
+  const pinUrl = (key: string) => (body: Record<string, unknown>) => {
+    const url = new URL(String(body[key]));
+    for (const name of ['state', 'code_challenge', 'ticket']) if (url.searchParams.has(name)) url.searchParams.set(name, `fixture-${name}`);
+    return { ...body, [key]: url.toString() };
+  };
+
+  const previousProvider = process.env.MAYBESITTER_LLM_PROVIDER;
+  const previousLocation = process.env.MAYBESITTER_VERTEX_LOCATION;
+  const extraction = (title: string) => {
+    const localDay = new Date(Date.parse(REFERENCE_TIME) + 4 * 86_400_000).toISOString().slice(0, 10);
+    const instant = `${localDay}T06:00:00.000Z`;
+    return JSON.stringify({
+      type: 'task', action: title, title, person: null, dueAt: instant, remindAt: instant,
+      localTimeSpec: { date: localDay, time: '09:00', timezone: 'Asia/Jerusalem' },
+      priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureImplied: false },
+      flexibility: 'movable',
+      confidence: { overall: 0.92, type: 0.95, action: 0.93, time: 0.9, priority: 0.7 },
+      missingFields: [], ambiguityFlags: [], explicitReminderRequest: false, explicitPressureRequest: false,
+    });
+  };
+  const removeStub = installVertexStub(async (input) => {
+    const system = (input.config as { systemInstruction?: unknown }).systemInstruction;
+    const text = JSON.stringify(input.contents);
+    let answer: string;
+    if (system === EMAIL_SYSTEM_INSTRUCTION) {
+      answer = JSON.stringify({ items: [{
+        title: 'Return the signed trip form',
+        evidenceSentence: 'Please return the signed trip form by Friday.',
+        dueDayPhrase: 'by Friday',
+      }] });
+    } else if (system === DOCUMENT_SYSTEM_INSTRUCTION) {
+      answer = JSON.stringify({
+        documentTitle: null, courseName: null, termYearHint: 2026,
+        items: [{ title: 'Submit the lab report', kind: 'assignment', dueAt: '2026-08-13T09:00:00.000Z', dateText: 'Thursday 13 August', page: 1, confidence: 0.9 }],
+        recurringSessions: [],
+        transcriptSample: 'Submit the lab report by Thursday 13 August.',
+      });
+    } else {
+      answer = extraction(text.includes('lab report') ? 'Submit the lab report' : 'Return the signed trip form');
+    }
+    return { text: answer, modelVersion: 'gemini-2.5-flash', usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 80 } };
+  });
+  process.env.MAYBESITTER_LLM_PROVIDER = 'gemini';
+  process.env.MAYBESITTER_VERTEX_LOCATION = 'europe-west1';
+  resetProviderForTests();
+  try {
+    await getStorage().set(userDoc(GOOGLE_USER), { uid: GOOGLE_USER, timezone: 'Asia/Jerusalem' });
+
+    // ── today: no client secret exists ────────────────────────────
+    runtime(false);
+    const unconfigured = await record('google.notConfigured', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    assert.equal((unconfigured.google as { status: string }).status, 'not_configured');
+    await record('google.refusedNotConfigured', 503, await googleConnectPost(as('/api/mobile/integrations/google/connect', { body: { feature: 'calendar' } })));
+
+    // ── configured: connect, then each feature ────────────────────
+    runtime(true);
+    await record('google.notConnected', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    const begun = await record('google.connectStarted', 200, await googleConnectPost(as('/api/mobile/integrations/google/connect', {
+      body: { feature: 'calendar' },
+    })), pinUrl('authorizationUrl'));
+    const connected = await record('google.connected', 200, await googleCallbackPost(as('/api/mobile/integrations/google/callback', {
+      body: google.consent(String(begun.authorizationUrl)),
+    })));
+    assert.equal((connected.google as { status: string }).status, 'connected');
+    await record('google.refusedDenied', 400, await googleCallbackPost(as('/api/mobile/integrations/google/callback', {
+      body: { error: 'access_denied' },
+    })));
+
+    const at = new Date().toISOString();
+    await applyTrustAction(GOOGLE_USER, { type: 'record_first_value', at });
+    await applyTrustAction(GOOGLE_USER, { type: 'set_calendar_consent', granted: true, at });
+    const hour = 3_600_000;
+    const start = Math.ceil(Date.now() / hour) * hour + 26 * hour;
+    google.busy = [{ start: new Date(start).toISOString(), end: new Date(start + hour).toISOString() }];
+    const synced = await record('google.calendarSynced', 200, await googleCalendarPost(as('/api/mobile/integrations/google/calendar', { method: 'POST' })));
+    assert.equal(synced.blocks, 1);
+    const blocks = await record('google.calendarBlocks', 200, await googleCalendarGet(as('/api/mobile/integrations/google/calendar')));
+    assert.equal((blocks.blocks as unknown[]).length, 1);
+
+    for (const feature of ['gmail', 'drive']) {
+      const next = await googleConnectPost(as('/api/mobile/integrations/google/connect', { body: { feature } }));
+      assert.equal(next.status, 200);
+      const done = await googleCallbackPost(as('/api/mobile/integrations/google/callback', {
+        body: google.consent(String((await next.json() as { authorizationUrl: string }).authorizationUrl)),
+      }));
+      assert.equal(done.status, 200);
+    }
+    const all = await record('google.status', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    assert.deepEqual((all.google as { features: unknown }).features, { calendar: true, gmail: true, drive: true });
+
+    await record('google.refusedAiConsent', 409, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', { body: {} })));
+    await aiConsentPut(request('/api/mobile/consents/ai-processing', {
+      method: 'PUT',
+      body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      uid: GOOGLE_USER,
+    }));
+
+    google.gmail.push({
+      id: 'msg-trip-form',
+      subject: 'Trip form',
+      body: 'Hello,\n\nPlease return the signed trip form by Friday.\n\nThanks',
+      receivedAt: new Date(Date.parse(REFERENCE_TIME) - 3 * hour).toISOString(),
+    });
+    const scanned = await record('google.gmailScan', 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
+      body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+    })));
+    // A date with no hour, so the item asks for one: the realistic answer.
+    assert.ok((scanned.items as unknown[]).length >= 1, 'the scan fixture must carry an item, not the empty answer');
+    assert.equal((scanned.share as { channel: string }).channel, 'email');
+
+    const ticket = await record('google.drivePicker', 200, await googleDrivePickerPost(as('/api/mobile/integrations/google/drive/picker', { method: 'POST' })), pinUrl('pickerUrl'));
+    assert.match(String(ticket.pickerUrl), /\/api\/oauth\/google\/picker\?ticket=/);
+    google.drive.set('doc_fixture_12345', {
+      id: 'doc_fixture_12345',
+      mimeType: 'application/vnd.google-apps.document',
+      content: 'Lab 3\nSubmit the lab report by Thursday 13 August.',
+    });
+    const imported = await record('google.driveImport', 200, await googleDriveImportPost(as('/api/mobile/integrations/google/drive/import', {
+      body: { fileId: 'doc_fixture_12345', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+    })));
+    assert.ok((imported.items as unknown[]).length >= 1, 'the import fixture must carry an item, not the empty answer');
+    assert.equal((imported.share as { channel: string }).channel, 'document');
+
+    // ── day eight in Testing mode: «أعد الربط» ─────────────────────
+    google.expireGrants();
+    runtime(true, () => new Date(Date.now() + 2 * hour));
+    await record('google.refusedReauth', 409, await googleCalendarPost(as('/api/mobile/integrations/google/calendar', { method: 'POST' })));
+    const lapsed = await record('google.needsReauth', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    assert.equal((lapsed.google as { status: string }).status, 'needs_reauth');
+
+    // ── disconnect ─────────────────────────────────────────────────
+    google.refreshDead = false;
+    const gone = await record('google.disconnected', 200, await googleDisconnectPost(as('/api/mobile/integrations/google/disconnect', { method: 'POST' })));
+    assert.equal((gone.google as { status: string }).status, 'not_connected');
+  } finally {
+    removeStub();
+    if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
+    else process.env.MAYBESITTER_LLM_PROVIDER = previousProvider;
+    if (previousLocation === undefined) delete process.env.MAYBESITTER_VERTEX_LOCATION;
+    else process.env.MAYBESITTER_VERTEX_LOCATION = previousLocation;
+    resetProviderForTests();
+    resetGoogleRuntimeForTests();
     teardown();
   }
 });
