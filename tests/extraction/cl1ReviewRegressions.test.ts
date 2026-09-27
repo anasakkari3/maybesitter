@@ -117,7 +117,9 @@ for (const [text, time] of SPOKEN.slice(0, 3).concat([['بدي أروح عالس
   });
 }
 
-for (const [answer, time] of [['العصرية', '14:00'], ['الصبحية', '09:00'], ['الضهرية', '12:00'], ['عالعصرية', '14:00'], ['بالمسا', '18:00'], ['الصبح', '09:00']] as const) {
+// «بالمسا» is the «المسا» button's 19:00 since the FY1 re-review ruling (the
+// lexicon's 18:00 until then): typed and tapped agree.
+for (const [answer, time] of [['العصرية', '14:00'], ['الصبحية', '09:00'], ['الضهرية', '12:00'], ['عالعصرية', '14:00'], ['بالمسا', '19:00'], ['الصبح', '09:00']] as const) {
   test(`I-1 clarify: «${answer}» answers "when?" with ${time}`, () => withStorage(async () => {
     const proposal = await proposeMobileCapture({ text: 'بدي أروح عالسوق بكرا', timezone: TZ, referenceTime: NOW.toISOString(), scopeId: 's' });
     const item = proposal.items[0]!;
