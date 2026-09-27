@@ -61,6 +61,7 @@
  */
 import { stripTimeExpressions } from './ruleBasedExtractor';
 import { namesDay, statesClock, timeOfDayEvidence } from './timeLexicon';
+import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
 
 const B = '(?<![\\p{L}\\p{M}])';
 const A = '(?![\\p{L}\\p{M}])';
@@ -68,16 +69,6 @@ const A = '(?![\\p{L}\\p{M}])';
 /** The word before a «.» that is not a sentence end. Only consulted for «.». */
 const ABBREVIATION = new RegExp(
   '^(?:[("\'«]*)(?:dr|mr|mrs|ms|prof|st|jr|sr|vs|etc|no|acc|approx|dept|ave|[ap]\\.m|e\\.g|i\\.e|\\p{L}|(?:\\p{L}\\.)+\\p{L})$',
-  'iu',
-);
-
-/** A request or an obligation, said outright. */
-const REQUEST_MARKER = new RegExp(
-  [
-    `${B}(?:بدي|بدّي|بدنا|بدّنا|لازم|لازمني|ضروري|محتاج|محتاجة|عليّ|ذكرني|ذكّرني|ذكريني|ذكّريني|تذكرني|تذكريني|سجل|سجّل|سجلي|سجّلي|ضيف|ضيفي|حطلي|حط\\s+لي|لا\\s+تنسى|ما\\s+تنسى)${A}`,
-    "\\b(?:remind\\s+me|remember\\s+to|i\\s+(?:need|have)\\s+to|i've\\s+got\\s+to|i\\s+must|need\\s+to|have\\s+to|must|don'?t\\s+forget|do\\s+not\\s+forget)\\b",
-    `${B}(?:צריך|צריכה|חייב|חייבת|תזכיר|תזכירי|להזכיר|אל\\s+תשכח|לא\\s+לשכוח|תוסיף|תרשום|לרשום)${A}`,
-  ].join('|'),
   'iu',
 );
 
@@ -105,25 +96,6 @@ export function hasRequestEvidence(clause: string): boolean {
   return COMMITMENT_NOUN.test(clause) && timeOfDayEvidence(clause) !== 'none';
 }
 
-/** Common errand verbs opening an Arabic clause, imperative or first person. */
-const AR_LEADING_VERB = new RegExp(
-  `^(?:[أاإنب]?)(?:دفع|تصل|شتري|روح|بعت|بعث|خلص|خلّص|جيب|حجز|رد|ردّ|كلم|كلّم|حكي|زور|نظف|نضف|كتب|جدد|جدّد|صلح|صلّح|طبخ|غسل|رتب|رتّب|مرق|وصل|وصّل|سلم|سلّم|جهز|جهّز|حضر|حضّر|طبع|سأل|نزل|قدم|قدّم|لغي|شوف|راجع)${A}`,
-  'u',
-);
-
-/** Common errand verbs opening an English clause — a closed list, never a stop list. */
-const EN_LEADING_VERB = new RegExp(
-  '^(?:please\\s+)?(?:call|phone|ring|text|email|e-mail|message|reply|answer|write|send|mail|post|buy|get|grab|pick|order|pay|book|schedule|reschedule|cancel|renew|submit|finish|complete|prepare|fix|repair|clean|wash|cook|visit|see|meet|go|drive|take|bring|return|drop|collect|check|review|read|study|practice|print|sign|file|apply|register|confirm|ask|tell|water|feed|walk|charge|update|install|pack|deliver|invite|plan|pickup)\\b',
-  'i',
-);
-
-/** Words that open a Hebrew clause and look like a verb without being one. */
-const HE_NON_VERB = new Set(['לפני', 'למחר', 'לגבי', 'ליד', 'לכן', 'למה', 'לפחות', 'תודה', 'תמיד', 'תור']);
-
-// Built from strings: the root `tsconfig.json` targets ES5, which refuses the
-// `u` flag on a literal (the runtime is Node 24).
-const LEADING_CONNECTOR = new RegExp('^[\\s,،"\'«(]*(?:and\\s+|و|ו)?', 'iu');
-const NOT_LETTERS = new RegExp('[^\\p{L}]+', 'gu');
 const REMIND_WORD = /\b(?:remind|reminder)\b|تذكرني|تذكريني|תזכיר/i;
 
 /**
@@ -142,11 +114,7 @@ export function hasActionEvidence(clause: string): boolean {
   if (typeof clause !== 'string' || !clause.trim()) return false;
   if (hasRequestEvidence(clause)) return true;
   // With and without a leading «و» / «ו»: «وصّل أمي» starts with its verb.
-  return [clause.trim(), clause.replace(LEADING_CONNECTOR, '').trim()].some((text) => {
-    if (AR_LEADING_VERB.test(text) || EN_LEADING_VERB.test(text)) return true;
-    const first = (text.split(/\s+/)[0] ?? '').replace(NOT_LETTERS, '');
-    return /^[לת][א-ת]{3,}$/.test(first) && !HE_NON_VERB.has(first);
-  });
+  return opensWithAction(clause);
 }
 
 /** The commitment nouns of a clause, without «ال» / «ה» / «ו», lower-cased. */

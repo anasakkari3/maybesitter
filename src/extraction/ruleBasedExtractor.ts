@@ -10,6 +10,7 @@ import {
   normalizeArabicDigits,
   normalizeSpokenArabicHours,
   normalizeSpokenHebrewHours,
+  namesDay,
   relativeDayOffset,
   timeAnchorOf,
   timeOfDayEvidence,
@@ -252,6 +253,21 @@ export function stripTimeExpressions(text: string): string {
   return stripTiming(text);
 }
 
+// Compiled once (CL1 review m-4): `stripTiming` runs for every clause, and
+// compiling ~40 `u`-flag sources per call was most of a cold capture's cost.
+// A global regex is safe to share with `String.replace`, which resets it.
+const FOLLOWING_WEEK_STRIP = FOLLOWING_WEEK_STRIP_SOURCES.map((source) => new RegExp(source, 'giu'));
+const DAY_PART_STRIP = DAY_PART_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+const RELATIVE_DAY_STRIP = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+const WEEKDAY_STRIP = WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'gu'));
+const CLOCK_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi'));
+/**
+ * «הבוקר» is "this morning" and also "the morning" («ישיבת הבוקר»). It gives
+ * an item no time unless the text names a day, and then it is kept in the
+ * title as written (CL1 review m-2).
+ */
+const HE_THE_MORNING = new RegExp('^[\\s,.،]*ו?הבוקר[\\s,.،]*$', 'u');
+
 function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
   // the clock patterns below strip a spoken hour out of the title exactly as
@@ -261,35 +277,28 @@ function stripTiming(text: string): string {
   let stripped = normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text)));
   // "The one after" phrases whole, before the bare day names below take their
   // weekday and leave «اللي بعد الجاي» behind in the title.
-  for (const source of FOLLOWING_WEEK_STRIP_SOURCES) {
-    stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
-  }
+  for (const pattern of FOLLOWING_WEEK_STRIP) stripped = stripped.replace(pattern, ' ');
   // Parts of the day first, by the lexicon's own whole-word rule, while the
   // "tomorrow" that frames "tomorrow morning" is still there to be read. A
   // word that only contains one — «المساعدة», «המערב», "the morning report"
   // — stays in the title whole, and «عالمسا» leaves no «ع» behind.
-  for (const source of DAY_PART_MENTION_SOURCES) {
-    stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
+  const dayNamed = namesDay(text);
+  for (const pattern of DAY_PART_STRIP) {
+    stripped = stripped.replace(pattern, (match) => (!dayNamed && HE_THE_MORNING.test(match) ? match : ' '));
   }
   // The relative days the same way, the day after before tomorrow: a partial
   // match never takes letters out of a word («الغداء», «اليومي» stay whole).
-  for (const source of RELATIVE_DAY_MENTION_SOURCES) {
-    stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
-  }
+  for (const pattern of RELATIVE_DAY_STRIP) stripped = stripped.replace(pattern, ' ');
   stripped = stripped
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ');
   // Arabic and Hebrew day names, as whole words and with «يوم» and «الجاي»
   // around them — the same tokenizer that resolves them, so «الأحداث» and
   // «הראשון» stay in the title exactly as they are not read as days.
-  for (const source of WEEKDAY_MENTION_SOURCES) {
-    stripped = stripped.replace(new RegExp(source, 'gu'), ' ');
-  }
+  for (const pattern of WEEKDAY_STRIP) stripped = stripped.replace(pattern, ' ');
   // Ranges before the clocks inside them: taking "2pm" first would leave
   // "meeting from to" as the title.
-  for (const source of [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES]) {
-    stripped = stripped.replace(new RegExp(source, 'gi'), ' ');
-  }
+  for (const pattern of CLOCK_STRIP) stripped = stripped.replace(pattern, ' ');
   return stripped.replace(/\s+/g, ' ').trim();
 }
 
