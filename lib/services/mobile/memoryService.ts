@@ -84,6 +84,7 @@ import {
 } from '../behaviorFeedbackService';
 import { getStorage, requireUserId, type StorageAdapter } from '../../storage';
 import { recordDismissal } from '../../memoryGrowth/dismissals';
+import { createStorageGoalStepProposalStore } from '../../goalGraph/stepProposalStore';
 import {
   R1_FOCUS_WINDOW,
   R2_DEFER_DEFAULT,
@@ -559,7 +560,12 @@ export async function patchMemory(
     ...replacement,
     provenance: stripUndefined(replacement.provenance!),
   };
-  return memoryToDto(await store.supersede(prior.id, cleaned, at));
+  const replaced = await store.supersede(prior.id, cleaned, at);
+  // The goal now says something else under a new id. Steps a model wrote for
+  // the old wording could never be read again, and must not linger in the
+  // export as a paraphrase of words the user took back (CL3).
+  await createStorageGoalStepProposalStore(options.storage).deleteForGoals(uid, [prior.id]);
+  return memoryToDto(replaced);
 }
 
 /** Removes one fact and the whole supersession chain it belongs to. */
@@ -572,7 +578,10 @@ export async function deleteMemory(
   requireUserId(uid);
   const store = storeOf(options);
   const record = await requireOwnedRecord(store, uid, id, { allowSuperseded: true });
-  const { removed, ruleFingerprints } = await deleteChain(store, uid, record);
+  const { removed, ruleFingerprints, ids } = await deleteChain(store, uid, record);
+  // Steps proposed for this goal go with it, at every id its chain ever had
+  // (CL3). They are a model's paraphrase of the sentence being deleted.
+  await createStorageGoalStepProposalStore(options.storage).deleteForGoals(uid, ids);
   // A pattern the user deleted is a pattern they turned down. Without this, the
   // next read would offer the same sentence straight back as a suggestion —
   // answering "forget that" with "did you mean to keep it?" (UC-3.16, #202).
@@ -643,6 +652,7 @@ export async function deleteAllMemory(
     + receipt.remainingProfileProposalCount
     + receipt.remainingMemoryDismissalCount
     + receipt.remainingFootballFollowsCount
+    + receipt.remainingGoalStepProposalCount
     + (baseline === null ? 0 : 1);
   if (receipt.remainingRuntimeMemoryRecordCount > 0 || remainingRows > 0) {
     throw new MemoryDeletionIncompleteError(receipt.remainingRuntimeMemoryRecordCount, remainingRows);
@@ -678,7 +688,7 @@ async function deleteChain(
   store: RuntimeMemoryStore,
   uid: string,
   record: RuntimeMemoryRecord,
-): Promise<{ removed: number; ruleFingerprints: string[] }> {
+): Promise<{ removed: number; ruleFingerprints: string[]; ids: string[] }> {
   const seen = new Set<string>();
   const queue: RuntimeMemoryRecord[] = [record];
   const chain: RuntimeMemoryRecord[] = [];
@@ -706,7 +716,7 @@ async function deleteChain(
     const ref = entry.provenance?.origin === 'behaviour_rule' ? entry.provenance.originRef : undefined;
     if (ref && !ruleFingerprints.includes(ref)) ruleFingerprints.push(ref);
   }
-  return { removed, ruleFingerprints };
+  return { removed, ruleFingerprints, ids: chain.map((entry) => entry.id) };
 }
 
 /**

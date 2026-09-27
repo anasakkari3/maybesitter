@@ -164,6 +164,7 @@ function validReceipt(): PersonalizationDeletionReceipt {
     remainingAiContextImportCount: 0,
     remainingMemoryDismissalCount: 0,
     remainingFootballFollowsCount: 0,
+    remainingGoalStepProposalCount: 0,
     remainingPersistedProfileCount: 0,
     emptyStateDigest: 'sha256-fixture-empty-state',
   };
@@ -805,6 +806,13 @@ test('a followed club left behind fails the receipt, the same as any other remai
   // that makes remainingFootballFollowsCount falsifiable rather than decorative.
   const leaky = tamperedReceipt((receipt) => {
     receipt.remainingFootballFollowsCount = 2;
+  });
+  assert.deepEqual(codesOf(checkPersonalizationDeletionReceipt(leaky)), ['RECEIPT_REMAINDER_NOT_ZERO']);
+});
+
+test('an unconfirmed goal step proposal left behind fails the receipt (CL3)', () => {
+  const leaky = tamperedReceipt((receipt) => {
+    receipt.remainingGoalStepProposalCount = 1;
   });
   assert.deepEqual(codesOf(checkPersonalizationDeletionReceipt(leaky)), ['RECEIPT_REMAINDER_NOT_ZERO']);
 });

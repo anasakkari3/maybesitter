@@ -83,7 +83,9 @@
         "fallbackReason": "rules_only_runtime:feature_disabled"
       },
       "atomicReason": null,
-      "violations": []
+      "violations": [],
+      "stepSource": "sentence",
+      "stepSourceReason": "provider_none"
     }
   }
 }

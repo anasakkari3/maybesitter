@@ -149,6 +149,7 @@ import {
   AI_CONTEXT_IMPORTS,
   BEHAVIOR_FEEDBACK,
   FOOTBALL_FOLLOWS,
+  GOAL_GRAPH_PROPOSALS,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
   userCol,
@@ -234,6 +235,11 @@ export async function deletePersonalizationScope(
   await clearUserCollection(storage, input.scopeId, AI_CONTEXT_IMPORTS);
   await clearUserCollection(storage, input.scopeId, MEMORY_DISMISSALS);
   await clearUserCollection(storage, input.scopeId, FOOTBALL_FOLLOWS);
+  // Steps a model (or a template) proposed for the user's goals and nobody
+  // confirmed yet (CL3). Inferred, like `profileProposals`, so they go; the
+  // Commitments and Habits the user already confirmed out of them, and the
+  // `goalGraphLinks` naming those, are the user's own work and stay.
+  await clearUserCollection(storage, input.scopeId, GOAL_GRAPH_PROPOSALS);
   // With the follows gone, the matches they projected stop holding time: an
   // unfollow drop, never a dismissal, so following again brings them back.
   // The commitments themselves are kept as dropped history, like any other
@@ -253,6 +259,7 @@ export async function deletePersonalizationScope(
     remainingAiContextImportCount: (await storage.list(userCol(input.scopeId, AI_CONTEXT_IMPORTS))).length,
     remainingMemoryDismissalCount: (await storage.list(userCol(input.scopeId, MEMORY_DISMISSALS))).length,
     remainingFootballFollowsCount: (await storage.list(userCol(input.scopeId, FOOTBALL_FOLLOWS))).length,
+    remainingGoalStepProposalCount: (await storage.list(userCol(input.scopeId, GOAL_GRAPH_PROPOSALS))).length,
     // Structurally zero: nothing persists a profile. See the header.
     remainingPersistedProfileCount: 0,
     emptyStateDigest: emptyStateDigestFor(input.scopeId, input.now, input.windowDays),
