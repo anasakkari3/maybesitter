@@ -1,14 +1,16 @@
 import type { ExtractionContext, ExtractionResult, LocalTimeSpec } from './extractionTypes';
-import { classifyMessageKind, createsNothing } from './messageKind';
+import { classifyMessageKind, createsNothing, stripLeadingGreetings } from './messageKind';
 import {
   CLOCK_PATTERN_SOURCES,
   DAY_PART_MENTION_SOURCES,
+  RELATIVE_DAY_MENTION_SOURCES,
   RANGE_PATTERN_SOURCES,
   dayPartHour,
   localTimeSpecFor,
   normalizeArabicDigits,
   normalizeSpokenArabicHours,
   normalizeSpokenHebrewHours,
+  relativeDayOffset,
   timeAnchorOf,
   timeOfDayEvidence,
   normalizeClockFractions,
@@ -148,7 +150,6 @@ interface ParsedTime {
 }
 
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
-  const lower = raw.toLowerCase();
   const now = context.now;
   const tz = resolveTimezone(context);
   const clock = parseClock(raw);
@@ -156,29 +157,14 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   let timeConfidence = 0;
   let dateInferred = false;
 
-  if (
-    /\btoday\b/.test(lower) ||
-    /\btonight\b/.test(lower) ||
-    /(اليوم|النهارده|اليومه|الليلة|الليله)/.test(lower) ||
-    /(?:^|[\s,.،])(היום|הערב|הלילה)(?=$|[\s,.،])/.test(lower)
-  ) {
+  // Today, tomorrow or the day after, as whole words (`timeLexicon.ts`):
+  // «الغداء» (lunch) is not «غدا», «اليومي» (daily) is not «اليوم».
+  const relativeDay = relativeDayOffset(raw);
+  if (relativeDay === 0) {
     targetDate = new Date(now);
     timeConfidence = 0.85;
-  }
-  if (
-    /\b(?:tomorrow|tmrw|tmr|tomorow)\b/.test(lower) ||
-    /(بكرا|بكرة|بكره|باچر|باكر|غدا|غداً)/.test(lower) ||
-    /(?:^|[\s,.،])מחר(?=$|[\s,.،])/.test(lower)
-  ) {
-    targetDate = addDaysTz(now, 1, tz);
-    timeConfidence = 0.9;
-  }
-  if (
-    /\b(?:after tomorrow|day after tomorrow|after tmrw)\b/.test(lower) ||
-    /(بعد بكرا|بعد بكرة|بعد بكره|بعد غد|بعد غداً)/.test(lower) ||
-    /(?:^|[\s,.،])מחרתיים(?=$|[\s,.،])/.test(lower)
-  ) {
-    targetDate = addDaysTz(now, 2, tz);
+  } else if (relativeDay !== null) {
+    targetDate = addDaysTz(now, relativeDay, tz);
     timeConfidence = 0.9;
   }
 
@@ -285,10 +271,12 @@ function stripTiming(text: string): string {
   for (const source of DAY_PART_MENTION_SOURCES) {
     stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
   }
+  // The relative days the same way, the day after before tomorrow: a partial
+  // match never takes letters out of a word («الغداء», «اليومي» stay whole).
+  for (const source of RELATIVE_DAY_MENTION_SOURCES) {
+    stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
+  }
   stripped = stripped
-    .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight)\b/gi, ' ')
-    .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا)/gi, ' ')
-    .replace(/(?:^|[\s,.،])(?:מחרתיים|מחר|היום|הערב|הלילה)(?=$|[\s,.،])/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ');
   // Arabic and Hebrew day names, as whole words and with «يوم» and «الجاي»
@@ -343,7 +331,8 @@ function cleanAction(raw: string): string {
 
 function cleanCommand(raw: string): string {
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
-  return stripCaptureCommand(stripTiming(raw))
+  // A greeting it opens with is not the task: «בוקר טוב, להתקשר לאמא» (CL1).
+  return stripCaptureCommand(stripTiming(stripLeadingGreetings(raw)))
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')

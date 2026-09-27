@@ -260,11 +260,20 @@ const AMPM = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|[0-9]{1,2}(?::[0-9]{2})?\s*(?:�
  */
 const NOT_LETTER_BEFORE = '(?<![\\p{L}\\p{M}])';
 const NOT_LETTER_AFTER = '(?![\\p{L}\\p{M}])';
-const AR_PROCLITIC = '[وف]?[بلكع]?';
+// «ه» is the spoken "this" before an article: «هالمسا», «هاليوم».
+const AR_PROCLITIC = '[وف]?(?:[بلكع]|ه(?=ال))?';
 const AR_NOT_GREETING = `(?!\\s+(?:الخير|النور|الورد|الفل|الفلّ)${NOT_LETTER_AFTER})`;
 const HE_PREFIX = '[וש]?(?:מה|[בלכ]ה?|ה)?';
 const HE_NOT_GREETING = `(?!\\s+טוב(?:ה|ים|ות)?${NOT_LETTER_AFTER})`;
+/**
+ * «לערב את…» is the verb "to involve", not "for the evening". «ארוחת ערב»
+ * (dinner) is left a part of the day on purpose: "dinner at 8" is eight in
+ * the evening, and without «ערב» the 8 would read as the morning.
+ */
+const HE_NOT_VERB = `(?!ו?לערב\\s+את${NOT_LETTER_AFTER})`;
 const EN_NOT_GREETING = '(?<!\\bgood\\s+)';
+/** "Morning, call mom tomorrow": the first word of the message, then a comma, is a greeting. */
+const EN_NOT_OPENING_GREETING = '(?!(?<=^\\s*[a-z]+)\\s*[,!])';
 /** Before a part of the day, these make it a time: "tomorrow morning", "in the evening". */
 const EN_ANCHOR =
   '(?:today|tonight|tomorrow|tmrw|tmr|tomorow|yesterday|sunday|monday|tuesday|wednesday|thursday|friday|saturday|'
@@ -319,12 +328,12 @@ function dayPartSources(words: DayPartWords, mode: 'text' | 'answer' | 'strip'):
   const en = mode === 'answer'
     // A typed answer to "when?" is a time by being the answer: "morning is fine".
     ? `${EN_NOT_GREETING}\\b(?:${words.en})\\b`
-    : `${mode === 'strip' ? EN_STRIP_LEAD : ''}${EN_NOT_GREETING}(?:(?<=\\b${EN_ANCHOR}\\s+)\\b(?:${words.en})\\b|\\b(?:${words.en})\\b(?!\\s+(?!${EN_FOLLOW}\\b)[a-z]))`;
+    : `${mode === 'strip' ? EN_STRIP_LEAD : ''}${EN_NOT_GREETING}(?:(?<=\\b${EN_ANCHOR}\\s+)\\b(?:${words.en})\\b|\\b(?:${words.en})\\b(?!\\s+(?!${EN_FOLLOW}\\b)[a-z]))${EN_NOT_OPENING_GREETING}`;
   return [
     ...(words.enAlways ? [`\\b(?:${words.enAlways})\\b`] : []),
     ...(mode === 'strip' && words.enStaysInTitle ? [] : [en]),
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:${words.ar})\\p{M}*${NOT_LETTER_AFTER}${AR_NOT_GREETING}`,
-    `${NOT_LETTER_BEFORE}${HE_PREFIX}(?:${words.he})${NOT_LETTER_AFTER}${HE_NOT_GREETING}`,
+    `${NOT_LETTER_BEFORE}${HE_NOT_VERB}${HE_PREFIX}(?:${words.he})${NOT_LETTER_AFTER}${HE_NOT_GREETING}`,
   ];
 }
 
@@ -361,19 +370,85 @@ const CLOCK_MARKER = new RegExp(
 );
 
 /**
+ * The relative days — today, tomorrow, the day after — by the same whole-word
+ * rule as the parts of the day (CL1, after the part-of-day fix). As
+ * substrings, «غدا» inside «الغداء» (lunch) moved «أحضّر الغداء اليوم» to
+ * tomorrow, «اليوم» inside «اليومي» (daily) and «اليومين» (two days) made
+ * them today, and the title stripper cut «الغداء» down to «ال ء».
+ *
+ *   Arabic   the same proclitics as the parts of the day («واليوم», «لبكرا»,
+ *            «هالمسا»), nothing after but diacritics («غداً», «غدًا»).
+ *            «الغدا» with the article is lunch, never tomorrow.
+ *   Hebrew   ו/ש, then one of ב/ל/כ/מ — «ומחר», «למחר», «ממחר», «מהיום».
+ *            A bare מ is safe here: no Hebrew word is מ + «מחר» or מ +
+ *            «היום» but "from tomorrow" / "from today". Nothing after:
+ *            «למחרת» (the day after), «מחרוזת», «היומי» are not days.
+ *   English  whole words, and not a possessive: "today's report" names the
+ *            report, as "the morning report" does. "This morning / afternoon
+ *            / evening" and «هالمسا» are today.
+ *
+ * Checked in this order, because «بعد بكرا» contains «بكرا».
+ */
+const HE_DAY_PREFIX = '[וש]?[בלכמ]?';
+const EN_NOT_POSSESSIVE = "(?!['’]s\\b)";
+const RELATIVE_DAYS: ReadonlyArray<{ offset: number; en: string; ar: string; he: string }> = [
+  { offset: 2, en: 'day\\s+after\\s+tomorrow|after\\s+tomorrow|after\\s+tmrw', ar: 'بعد\\s+(?:بكرا|بكرة|بكره|غد\\p{M}*ا?)', he: 'מחרתיים' },
+  { offset: 1, en: 'tomorrow|tmrw|tmr|tomorow', ar: 'بكرا|بكرة|بكره|باچر|باكر|غد\\p{M}*ا', he: 'מחר' },
+  {
+    offset: 0,
+    en: 'today|tonight|this\\s+(?:morning|afternoon|evening)',
+    ar: 'اليوم|النهارده|اليومه|الليلة|الليله|ه(?:المسا|المساء|الصبح|العصر|الضهر|الظهر)',
+    he: 'היום|הערב|הלילה',
+  },
+];
+
+function relativeDaySources(day: (typeof RELATIVE_DAYS)[number]): string[] {
+  return [
+    `\\b(?:${day.en})\\b${EN_NOT_POSSESSIVE}`,
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:${day.ar})\\p{M}*${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}${HE_DAY_PREFIX}(?:${day.he})${NOT_LETTER_AFTER}`,
+  ];
+}
+
+const RELATIVE_DAY_PATTERNS = RELATIVE_DAYS.map((day) => ({
+  offset: day.offset,
+  pattern: new RegExp(relativeDaySources(day).join('|'), 'iu'),
+}));
+
+/**
+ * How many days ahead the text's relative day is — 0 today, 1 tomorrow, 2 the
+ * day after — or null when it names none. The furthest one wins, as it
+ * always has: «بعد بكرا» is the day after, not tomorrow.
+ */
+export function relativeDayOffset(rawText: string): number | null {
+  if (typeof rawText !== 'string') return null;
+  for (const { offset, pattern } of RELATIVE_DAY_PATTERNS) {
+    if (pattern.test(rawText)) return offset;
+  }
+  return null;
+}
+
+/**
+ * Every relative-day mention, as sources, for `stripTiming` to lift out of a
+ * title with its proclitic («واليوم» leaves no «و») and nothing else.
+ */
+export const RELATIVE_DAY_MENTION_SOURCES: readonly string[] = RELATIVE_DAYS.flatMap(relativeDaySources);
+
+/**
  * A day, without any time of day. English, Arabic and Hebrew.
  *
  * Only used to tell `day_only` from `none`; both refuse a time, so a miss here
  * is not a safety hole — it changes which reason is reported, not whether the
- * time survives.
+ * time survives. Whole words, like the relative days: «الأحداث» is not «الأحد».
  */
 const DAY_TOKEN = new RegExp(
   [
-    /\b(?:today|tomorrow|tonight|day after tomorrow|sunday|monday|tuesday|wednesday|thursday|friday|saturday|next week|this week)\b/.source,
-    /اليوم|النهارده|اليومه|بكرا|بكرة|غدا|غداً|بعد بكرا|بعد بكرة|بعد غد|الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت/.source,
-    /מחר|מחרתיים|היום|הערב|יום ראשון|יום שני|יום שלישי|יום רביעי|יום חמישי|יום שישי|שבת/.source,
+    ...RELATIVE_DAY_MENTION_SOURCES,
+    /\b(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|next week|this week)\b/.source,
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}${HE_DAY_PREFIX}(?:יום ראשון|יום שני|יום שלישי|יום רביעי|יום חמישי|יום שישי|שבת)${NOT_LETTER_AFTER}`,
   ].join('|'),
-  'i',
+  'iu',
 );
 
 /**

@@ -185,6 +185,17 @@ test('the lexicon: every stated part of the day, with its prefixes', () => {
   }
 });
 
+test('the lexicon: «לערב את» is "to involve", not a time', () => {
+  for (const text of ['לערב את המנהל מחר', 'ולערב את דנה']) {
+    assert.equal(dayPartHour(text), null, `«${text}»`);
+  }
+  // Dinner stays the evening: "dinner at 8" is 20:00, not 08:00.
+  assert.equal(dayPartHour('ארוחת ערב עם סמי ביום שישי ב-8'), 18);
+  // A table for the evening still is one.
+  assert.equal(dayPartHour('להזמין שולחן לערב'), 18);
+  assert.equal(dayPartHour('לעשות בערב את הכביסה'), 18);
+});
+
 test('the lexicon: a part of the day that modifies the next word is not a time', () => {
   for (const text of ['the morning report', 'send morning report', 'night shift', 'evening class', 'the noon meeting', 'midnight snack']) {
     assert.equal(dayPartHour(text), null, `«${text}»`);
