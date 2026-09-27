@@ -114,17 +114,53 @@ export function useConflictBusyBlocks(device: DeviceBusyBlock[]): DeviceBusyBloc
 export const GOOGLE_BUSY_SYNC_MIN_INTERVAL_MS = 15 * 60_000;
 
 /**
- * One pass at a time for the process, and when the last one finished.
+ * One pass at a time per account, and when each account's last one finished.
+ *
  * Module-level for the reason `useBusyCalendar`'s flag is: the host is
- * mounted once, but a remount (a sign-out and back in) must not start a
- * second pass beside the first.
+ * mounted once, but a remount must not start a second pass beside the first.
+ * Keyed by uid (CL6a round 2, N6): a pass still out for the account that just
+ * signed out must not hold up the connect sync of the one that signed in, nor
+ * stamp its throttle.
  */
-let googlePassInFlight = false;
-let googleLastSyncedAt: number | null = null;
+const googlePasses = new Map<string, Promise<GoogleCalendarSynced>>();
+const googleLastSyncedAt = new Map<string, number>();
 
-export function resetGoogleBusySyncForTests(lastSyncedAt: number | null = null): void {
-  googlePassInFlight = false;
-  googleLastSyncedAt = lastSyncedAt;
+type GoogleCalendarSynced = Awaited<ReturnType<typeof syncGoogleCalendar>>;
+
+export function resetGoogleBusySyncForTests(lastSynced: { uid: string; at: number } | null = null): void {
+  googlePasses.clear();
+  googleLastSyncedAt.clear();
+  if (lastSynced) googleLastSyncedAt.set(lastSynced.uid, lastSynced.at);
+}
+
+/**
+ * One refresh from Google for `uid`, shared by whoever asks while it runs:
+ * the session host and the Google page's button join the same pass instead
+ * of asking Google twice.
+ *
+ * The blocks are fetched afterwards — so a chip on Today does not wait for
+ * the network when it first renders — only while `uid` is still the signed-in
+ * account: the request would otherwise carry the next account's token and
+ * file its blocks under this one's key.
+ */
+function googlePass(uid: string, client: QueryClient, stillSignedIn: () => boolean): Promise<GoogleCalendarSynced> {
+  const running = googlePasses.get(uid);
+  if (running) return running;
+  const pass = (async () => {
+    try {
+      const synced = await syncGoogleCalendar();
+      googleLastSyncedAt.set(uid, Date.now());
+      if (stillSignedIn()) {
+        await client.fetchQuery({ queryKey: googleQueryKeys.busy(uid), queryFn: listGoogleBlocks, staleTime: 0 })
+          .catch(() => undefined);
+      }
+      return synced;
+    } finally {
+      googlePasses.delete(uid);
+    }
+  })();
+  googlePasses.set(uid, pass);
+  return pass;
 }
 
 export type GoogleBusySyncTrigger = 'connect' | 'foreground';
@@ -160,28 +196,20 @@ export function useGoogleBusySync(): { syncNow(trigger: GoogleBusySyncTrigger): 
 
   const syncNow = useCallback(async (trigger: GoogleBusySyncTrigger): Promise<boolean> => {
     const current = latest.current;
-    if (!current.on || googlePassInFlight) return false;
-    const now = Date.now();
-    if (trigger === 'foreground' && googleLastSyncedAt !== null) {
-      const since = now - googleLastSyncedAt;
+    if (!current.on || googlePasses.has(current.uid)) return false;
+    const last = googleLastSyncedAt.get(current.uid);
+    if (trigger === 'foreground' && last !== undefined) {
+      const since = Date.now() - last;
       // A clock that went backwards costs one extra sync, not a stopped one.
       if (since >= 0 && since < GOOGLE_BUSY_SYNC_MIN_INTERVAL_MS) return false;
     }
-    googlePassInFlight = true;
     try {
-      await syncGoogleCalendar();
-      googleLastSyncedAt = Date.now();
-      // Fetched even when no screen is showing it yet, so a chip on Today
-      // does not wait for the network when it first renders.
-      await client.fetchQuery({ queryKey: googleQueryKeys.busy(current.uid), queryFn: listGoogleBlocks, staleTime: 0 })
-        .catch(() => undefined);
+      await googlePass(current.uid, client, () => latest.current.uid === current.uid);
       return true;
     } catch (error) {
       // A lapsed grant or a feature taken away: the row has to say so.
       refreshStatusOn(error, client, current.uid);
       return false;
-    } finally {
-      googlePassInFlight = false;
     }
   }, [client]);
 
@@ -258,12 +286,14 @@ export function useGoogleDisconnect() {
 export function useGoogleCalendarSync() {
   const uid = useUid();
   const client = useQueryClient();
+  const signedIn = useRef(uid);
+  useEffect(() => { signedIn.current = uid; });
   return useMutation({
     retry: false,
-    mutationFn: syncGoogleCalendar,
+    // Joins the session host's pass when one is out (CL6a round 2, N6), and
+    // stamps the throttle so the host need not repeat what was just asked for.
+    mutationFn: () => googlePass(uid, client, () => signedIn.current === uid),
     onSuccess: () => {
-      // The session host need not repeat what the person just asked for.
-      googleLastSyncedAt = Date.now();
       void client.invalidateQueries({ queryKey: googleQueryKeys.busy(uid) });
     },
     onError: (error) => refreshStatusOn(error, client, uid),

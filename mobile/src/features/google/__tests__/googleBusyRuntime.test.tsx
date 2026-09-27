@@ -18,7 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, Pressable, type AppStateStatus } from 'react-native';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
@@ -29,7 +29,7 @@ import { Root } from '../../../Root';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
 import { resetBusySyncForTests } from '../../calendar/useBusyCalendar';
-import { googleQueryKeys, resetGoogleBusySyncForTests } from '../useGoogle';
+import { googleQueryKeys, resetGoogleBusySyncForTests, useGoogleCalendarSync } from '../useGoogle';
 import connected from '../../../api/__fixtures__/google.connected.json';
 import notConnected from '../../../api/__fixtures__/google.notConnected.json';
 import gmailOnly from '../../../api/__fixtures__/google.status.json';
@@ -105,12 +105,21 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-async function openApp() {
+/** The Google page's «حدّث» button, without the page around it. */
+function ManualSync() {
+  const manual = useGoogleCalendarSync();
+  return <Pressable testID="manual-google-sync" onPress={() => manual.mutate()} />;
+}
+
+async function openApp(options: { manual?: boolean } = {}) {
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
         <AuthProvider repository={repository} isDevBundle={false}>
-          <QueryClientProvider client={client}><Root /></QueryClientProvider>
+          <QueryClientProvider client={client}>
+            <Root />
+            {options.manual ? <ManualSync /> : null}
+          </QueryClientProvider>
         </AuthProvider>
       </AppProvider>
     </SafeAreaProvider>,
@@ -142,11 +151,11 @@ describe('with Google Calendar connected and the calendar switch on', () => {
     expect(sync).toHaveBeenCalledTimes(1);
 
     // An hour later: once.
-    resetGoogleBusySyncForTests(Date.now() - 60 * 60_000);
+    resetGoogleBusySyncForTests({ uid: USER.uid, at: Date.now() - 60 * 60_000 });
     await fire('active');
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(2));
     // Going to the background is not coming back.
-    resetGoogleBusySyncForTests(Date.now() - 60 * 60_000);
+    resetGoogleBusySyncForTests({ uid: USER.uid, at: Date.now() - 60 * 60_000 });
     await fire('background');
     expect(sync).toHaveBeenCalledTimes(2);
   });
@@ -161,6 +170,47 @@ describe('with Google Calendar connected and the calendar switch on', () => {
     // What `useGoogleConnect` writes when the callback answers «connected».
     await act(async () => { client.setQueryData(googleQueryKeys.status(USER.uid), connected.google); });
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+  });
+});
+
+/** A sync that answers only when the test says so. */
+function holdSync(): () => Promise<void> {
+  let release: (() => void) | undefined;
+  sync.mockImplementationOnce(() => new Promise((resolve) => {
+    release = () => resolve(calendarSynced as never);
+  }) as never);
+  return async () => { await act(async () => { release?.(); }); };
+}
+
+describe('one pass at a time, per account (CL6a round 2, N6)', () => {
+  const OTHER: AuthUser = { ...USER, uid: 'google-busy-runtime-other', email: 'o@b.c' };
+
+  it('signing out and in as someone else during a pass does not hold up the new account\'s sync', async () => {
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(true) as never);
+    statusIs(connected);
+    const release = holdSync();
+    await openApp();
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+
+    await act(async () => { repository.emit(null); });
+    await act(async () => { repository.emit(OTHER); });
+    // The first account's pass is still out; the second account's connect
+    // sync is its own.
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(2));
+    await release();
+  });
+
+  it('a manual refresh during the session\'s pass joins it rather than asking Google twice', async () => {
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(true) as never);
+    statusIs(connected);
+    const release = holdSync();
+    await openApp({ manual: true });
+    await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+
+    await fireEvent.press(screen.getByTestId('manual-google-sync'));
+    await release();
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    expect(sync).toHaveBeenCalledTimes(1);
   });
 });
 
