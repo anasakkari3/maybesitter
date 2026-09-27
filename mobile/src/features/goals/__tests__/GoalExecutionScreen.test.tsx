@@ -172,7 +172,7 @@ it('drops an unconfirmed proposal on reload and restores server truth', async ()
   const first = await openGoal();
   await fireEvent.press(screen.getByTestId('goal-generate'));
   expect(screen.getByTestId('goal-proposal-g1.step.s1')).toBeTruthy();
-  first.unmount();
+  await first.unmount();
 
   await openGoal();
   expect(screen.queryByTestId('goal-proposal-g1.step.s1')).toBeNull();

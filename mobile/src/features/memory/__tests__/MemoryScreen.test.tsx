@@ -253,7 +253,7 @@ describe('Why?', () => {
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_told')).not.toBeNull());
     expect(screen.queryByTestId('memory-evidence-mem_told')).toBeNull();
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_told'));
 
     expect(screen.queryByTestId('memory-evidence-mem_told-origin')).not.toBeNull();
     expect(screen.queryByTestId('memory-evidence-mem_told-recorded')).not.toBeNull();
@@ -262,7 +262,7 @@ describe('Why?', () => {
   it('says plainly that nothing was observed, rather than leaving the panel bare', async () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_told')).not.toBeNull());
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_told'));
 
     const line = screen.getByTestId('memory-evidence-mem_told-observations').props.children as string;
     expect(line).toContain(en.memoryWhyNoObservations);
@@ -273,11 +273,11 @@ describe('Why?', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_told')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_told'));
     expect(screen.getByTestId('memory-evidence-mem_told-stale').props.children)
       .toContain(en.memoryKeptUntilChanged);
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_noticed')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_noticed'));
     const guess = screen.getByTestId('memory-evidence-mem_noticed-stale').props.children as string;
     expect(guess).toContain('Dec');
     expect(guess).not.toContain(en.memoryKeptUntilChanged);
@@ -287,7 +287,7 @@ describe('Why?', () => {
     listing([item({ evidence: { ...item().evidence, edited: true } })]);
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_told')).not.toBeNull());
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_told'));
 
     expect(screen.getByTestId('memory-evidence-mem_told-edited').props.children)
       .toContain(en.memoryWhyEdited);
@@ -299,11 +299,11 @@ describe('editing', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-edit-mem_told')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-edit-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-screen-edit-mem_told'));
     await act(async () => {
-      fireEvent.changeText(screen.getByTestId('memory-screen-edit-input-mem_told'), 'I cook on Saturdays');
+      await fireEvent.changeText(screen.getByTestId('memory-screen-edit-input-mem_told'), 'I cook on Saturdays');
     });
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-save-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-screen-save-mem_told'));
 
     await waitFor(() => expect(profileEndpoints.patchMemory).toHaveBeenCalledWith('mem_told', 'I cook on Saturdays'));
   });
@@ -315,7 +315,7 @@ describe('delete, and the five seconds after it', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
 
     expect(screen.queryByTestId('memory-screen-item-mem_told')).toBeNull();
     expect(screen.queryByTestId('memory-undo-bar')).not.toBeNull();
@@ -327,8 +327,8 @@ describe('delete, and the five seconds after it', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told')); });
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-undo')); });
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
+    await fireEvent.press(screen.getByTestId('memory-undo'));
 
     expect(screen.queryByTestId('memory-screen-item-mem_told')).not.toBeNull();
     await act(async () => { jest.advanceTimersByTime(UNDO_WINDOW_MS * 2); });
@@ -340,7 +340,7 @@ describe('delete, and the five seconds after it', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
     await act(async () => { jest.advanceTimersByTime(UNDO_WINDOW_MS); });
 
     expect(profileEndpoints.deleteMemory).toHaveBeenCalledWith('mem_told');
@@ -353,8 +353,8 @@ describe('delete, and the five seconds after it', () => {
     const view = await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-mem_told')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told')); });
-    await act(async () => { view.unmount(); });
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-mem_told'));
+    await view.unmount();
 
     expect(profileEndpoints.deleteMemory).toHaveBeenCalledWith('mem_told');
   });
@@ -365,14 +365,14 @@ describe('delete everything', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-screen-delete-all')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-delete-all')); });
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all'));
 
     // The derived profile is the half the user cannot see, so the moment they
     // agree to erase it is the one moment they can be told it is going.
     expect(screen.getByTestId('memory-delete-all-also').props.children).toBe(en.memoryDeleteAllAlso);
     expect(profileEndpoints.deleteAllMemory).not.toHaveBeenCalled();
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm')); });
+    await fireEvent.press(screen.getByTestId('memory-screen-delete-all-confirm'));
     await waitFor(() => expect(profileEndpoints.deleteAllMemory).toHaveBeenCalled());
   });
 });
@@ -415,7 +415,7 @@ describe('suggestions (#202)', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')); });
+    await fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00'));
 
     await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
     const [sent, language] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
@@ -430,7 +430,7 @@ describe('suggestions (#202)', () => {
       listing([], [SUGGESTION]);
       await show(<MemoryScreen onBack={() => {}} />);
       await waitFor(() => expect(screen.queryByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')).not.toBeNull());
-      await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00')); });
+      await fireEvent.press(screen.getByTestId('memory-suggestion-keep-R1_focus_window:14:00-17:00'));
 
       await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
       const [, language] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
@@ -445,7 +445,7 @@ describe('suggestions (#202)', () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-suggestion-dismiss-R1_focus_window:14:00-17:00')).not.toBeNull());
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-dismiss-R1_focus_window:14:00-17:00')); });
+    await fireEvent.press(screen.getByTestId('memory-suggestion-dismiss-R1_focus_window:14:00-17:00'));
 
     await waitFor(() => expect(profileEndpoints.dismissMemorySuggestion).toHaveBeenCalled());
     expect(profileEndpoints.keepMemorySuggestion).not.toHaveBeenCalled();
@@ -455,7 +455,7 @@ describe('suggestions (#202)', () => {
     listing([NOTICED]);
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_noticed')).not.toBeNull());
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_noticed')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_noticed'));
 
     expect(screen.getByTestId('memory-evidence-mem_noticed-plan').props.children).toContain(en.memoryWhyPlanUse);
     const pattern = screen.getByTestId('memory-evidence-mem_noticed-pattern').props.children as string;
@@ -478,7 +478,7 @@ describe('suggestions (#202)', () => {
     expect(evidence).toContain('4');
     expect(`${sentence} ${evidence}`).not.toMatch(/0\.67|67\s*%/);
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R2_defer_default:60m')); });
+    await fireEvent.press(screen.getByTestId('memory-suggestion-keep-R2_defer_default:60m'));
     await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
     const [sent] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
     // The route is keyed on the ruleId, so R2 keeping under R1's id would be a 409.
@@ -490,7 +490,7 @@ describe('suggestions (#202)', () => {
     listing([DEFER_NOTICED]);
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_defer')).not.toBeNull());
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_defer')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_defer'));
 
     const pattern = screen.getByTestId('memory-evidence-mem_defer-pattern').props.children as string;
     expect(pattern).toContain(en.memoryDurationHour);
@@ -515,7 +515,7 @@ describe('suggestions (#202)', () => {
     expect(evidence).toContain('5');
     expect(`${sentence} ${evidence}`).not.toMatch(/0\.71|71\s*%/);
 
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-suggestion-keep-R3_plan_time:08:00')); });
+    await fireEvent.press(screen.getByTestId('memory-suggestion-keep-R3_plan_time:08:00'));
     await waitFor(() => expect(profileEndpoints.keepMemorySuggestion).toHaveBeenCalled());
     const [sent] = (profileEndpoints.keepMemorySuggestion as jest.Mock).mock.calls[0] as [MemorySuggestion, string];
     // The route is keyed on the ruleId, so R3 keeping under R1's id would be a 409.
@@ -527,7 +527,7 @@ describe('suggestions (#202)', () => {
     listing([PLAN_TIME_NOTICED]);
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_plan_time')).not.toBeNull());
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_plan_time')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_plan_time'));
 
     const pattern = screen.getByTestId('memory-evidence-mem_plan_time-pattern').props.children as string;
     expect(pattern).toContain('08:00');
@@ -541,7 +541,10 @@ describe('suggestions (#202)', () => {
   it('a fact the user typed says nothing about the plan', async () => {
     await show(<MemoryScreen onBack={() => {}} />);
     await waitFor(() => expect(screen.queryByTestId('memory-why-mem_told')).not.toBeNull());
-    await act(async () => { fireEvent.press(screen.getByTestId('memory-why-mem_told')); });
+    await fireEvent.press(screen.getByTestId('memory-why-mem_told'));
+    // The panel has to be open for its missing plan line to mean anything:
+    // without this, the assertion below held whether or not the press landed.
+    expect(screen.queryByTestId('memory-evidence-mem_told-origin')).not.toBeNull();
     expect(screen.queryByTestId('memory-evidence-mem_told-plan')).toBeNull();
   });
 });

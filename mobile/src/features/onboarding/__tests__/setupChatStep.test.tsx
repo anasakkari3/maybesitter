@@ -29,8 +29,8 @@ const METRICS: Metrics = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
 });
 
 /** Mounts the step with every callback spied; the answers are what the caller says. */

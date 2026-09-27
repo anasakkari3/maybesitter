@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   await new Promise(resolve => setTimeout(resolve, 0));
   client.clear();
   jest.restoreAllMocks();

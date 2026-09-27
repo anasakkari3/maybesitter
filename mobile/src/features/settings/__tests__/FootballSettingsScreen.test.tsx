@@ -83,7 +83,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask, not a microtask flush -- see calendarSettingsScreen.test.tsx's
   // identical comment: a save still settling when the tree comes down leaves
   // React work in flight, and RNTL v14's next `render` then mounts nothing.

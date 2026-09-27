@@ -111,7 +111,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask: the flow writes its step through AsyncStorage after a
   // mutation resolves, and a write still in flight when the tree came down
   // would land after the clear below and start the next test on the wrong

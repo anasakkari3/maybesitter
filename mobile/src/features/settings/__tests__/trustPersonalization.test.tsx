@@ -94,7 +94,7 @@ describe('notice patterns in when you finish things', () => {
   it('turning it on writes to its own endpoint with the version the server named', async () => {
     await show();
     await toggleReady();
-    await act(async () => { fireEvent(screen.getByTestId('trust-personalization'), 'valueChange', true); });
+    await fireEvent(screen.getByTestId('trust-personalization'), 'valueChange', true);
 
     await waitFor(() => expect(consentEndpoints.putPersonalizationConsent).toHaveBeenCalled());
     const [sent] = (consentEndpoints.putPersonalizationConsent as jest.Mock).mock.calls[0] as [Record<string, unknown>];
@@ -112,7 +112,7 @@ describe('notice patterns in when you finish things', () => {
     await toggleReady();
     expect(screen.getByTestId('trust-personalization').props.value).toBe(true);
 
-    await act(async () => { fireEvent(screen.getByTestId('trust-personalization'), 'valueChange', false); });
+    await fireEvent(screen.getByTestId('trust-personalization'), 'valueChange', false);
     await waitFor(() => expect(consentEndpoints.putPersonalizationConsent).toHaveBeenCalled());
     const [sent] = (consentEndpoints.putPersonalizationConsent as jest.Mock).mock.calls[0] as [Record<string, unknown>];
     expect(sent.state).toBe('declined');

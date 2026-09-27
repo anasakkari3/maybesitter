@@ -312,7 +312,7 @@ describe('flights and parcels (council ruling, closure CL7)', () => {
     process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = '';
     await render(wrap(<IntegrationsScreen />));
     expect(screen.queryByTestId('integration-sources')).toBeNull();
-    cleanup();
+    await cleanup();
     mockFootballConfigured = true;
     await render(wrap(<IntegrationsScreen />));
     expect(screen.getByTestId('integration-sources')).toBeTruthy();

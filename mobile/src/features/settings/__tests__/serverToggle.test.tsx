@@ -41,14 +41,14 @@ describe('the position is the server’s', () => {
     // does, on the next render, from the caller.
     const onChange = jest.fn(async () => true);
     await show({ value: false, onChange: onChange as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(true));
     expect(screen.getByTestId('toggle').props.value).toBe(false);
   });
 
   it('stays where it was when the write fails, and says so', async () => {
     await show({ value: false, onChange: (async () => false) as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
     expect(screen.getByTestId('toggle').props.value).toBe(false);
     expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
@@ -56,7 +56,7 @@ describe('the position is the server’s', () => {
 
   it('treats a thrown error the same as a refusal', async () => {
     await show({ onChange: (async () => { throw new Error('offline'); }) as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
   });
 });
@@ -68,9 +68,9 @@ describe('while a write is in flight', () => {
     const onChange = jest.fn(() => pending);
     await show({ onChange: onChange as never });
 
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-busy')).not.toBeNull());
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     expect(onChange).toHaveBeenCalledTimes(1);
 
     release(true);
@@ -82,7 +82,7 @@ describe('when the caller has nothing to write against', () => {
   it('is disabled', async () => {
     const onChange = jest.fn(async () => true);
     await show({ disabled: true, onChange: onChange as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     expect(onChange).not.toHaveBeenCalled();
   });
 });

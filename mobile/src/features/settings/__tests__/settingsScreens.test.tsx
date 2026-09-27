@@ -63,7 +63,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask, not a microtask flush. A save still settling when the
   // tree came down leaves React work in flight, and in RNTL v14 the *next*
   // test's `render` then mounts nothing at all — a failure that looks like a

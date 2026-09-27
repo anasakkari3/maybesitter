@@ -72,8 +72,8 @@ beforeEach(() => {
   }) as never;
 });
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
   resetAuthForTests();
   jest.restoreAllMocks();
 });

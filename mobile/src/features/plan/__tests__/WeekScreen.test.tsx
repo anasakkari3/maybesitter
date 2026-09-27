@@ -99,8 +99,8 @@ beforeEach(() => {
   mockDecisions.length = 0;
   mockSave.mockReset();
 });
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
   jest.restoreAllMocks();
 });
 

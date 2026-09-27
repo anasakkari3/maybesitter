@@ -90,7 +90,7 @@ describe('the entry in Settings → Calendar', () => {
   });
 
   afterEach(async () => {
-    cleanup();
+    await cleanup();
     await new Promise(resolve => setTimeout(resolve, 0));
     client.clear();
     resetAuthForTests();
@@ -136,14 +136,14 @@ describe('the entry in Settings → Calendar', () => {
     await new Promise(resolve => setTimeout(resolve, 50));
     expect(off.result.current.fetchStatus).toBe('idle');
     expect(feedEndpoints.listIcsFeeds).not.toHaveBeenCalled();
-    off.unmount();
+    await off.unmount();
 
     // The control: the same mount with the flag on does ask.
     process.env[FLAG] = 'true';
     const on = await renderHook(() => useIcsFeeds(), { wrapper });
     await waitFor(() => expect(on.result.current.isSuccess).toBe(true));
     expect(feedEndpoints.listIcsFeeds).toHaveBeenCalled();
-    on.unmount();
+    await on.unmount();
   });
 });
 

@@ -57,7 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask, for the reason the calendar screen's test gives: a
   // request settling after the tree came down leaves React work in flight and
   // RNTL v14's next `render` mounts nothing.
@@ -199,13 +199,13 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
 
-    fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
+    await fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
     // Waiting on the input's own value, not on the button's disabled state:
     // the handler reads the typed text out of a closure, so what has to have
     // settled is the text, and `accessibilityState` is not where a Pressable
     // in this app reports it.
     await waitFor(() => expect(screen.getByTestId('financial-correction-input').props.value).toBe('1800'));
-    fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
 
     // The first argument only. TanStack Query v5 passes a second one — the
     // client, the meta and the mutation key — so `toHaveBeenCalledWith` on the
@@ -222,7 +222,7 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-undo')).toBeTruthy());
 
-    cleanup();
+    await cleanup();
     await new Promise(resolve => setTimeout(resolve, 0));
     jest.spyOn(financialEndpoints, 'getFinancialContext').mockResolvedValue({
       ...CONTEXT,
@@ -248,10 +248,10 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
 
-    fireEvent.changeText(screen.getByTestId('financial-correction-input'), 'about two thousand');
+    await fireEvent.changeText(screen.getByTestId('financial-correction-input'), 'about two thousand');
     await waitFor(() => expect(screen.getByTestId('financial-correction-input').props.value)
       .toBe('about two thousand'));
-    fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
 
     await waitFor(() => expect(screen.getByTestId('financial-save-failed')).toBeTruthy());
     expect(save).not.toHaveBeenCalled();
@@ -262,9 +262,9 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
 
-    fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
+    await fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
     await waitFor(() => expect(screen.getByTestId('financial-correction-input').props.value).toBe('1800'));
-    fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
 
     await waitFor(() => expect(screen.getByTestId('financial-save-failed')).toBeTruthy());
   });

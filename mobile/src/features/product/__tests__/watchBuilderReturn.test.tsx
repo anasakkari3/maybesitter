@@ -32,8 +32,8 @@ beforeEach(() => {
   setAuthRepository(repository);
 });
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();

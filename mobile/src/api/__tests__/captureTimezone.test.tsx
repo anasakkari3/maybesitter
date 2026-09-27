@@ -83,7 +83,7 @@ async function captureOnce() {
   );
   // fireEvent wraps the press in act itself; wrapping it in act as well
   // produces overlapping scopes, which React reports and Jest then fails on.
-  fireEvent.press(screen.getByTestId('probe'));
+  await fireEvent.press(screen.getByTestId('probe'));
   await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('done'));
   return sent.find(request => request.url.endsWith('/api/mobile/capture'));
 }

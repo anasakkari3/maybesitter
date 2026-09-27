@@ -105,7 +105,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask: a settling request when the tree came down leaves React
   // work in flight, and RNTL v14's next `render` then mounts nothing.
   await new Promise((resolve) => setTimeout(resolve, 0));

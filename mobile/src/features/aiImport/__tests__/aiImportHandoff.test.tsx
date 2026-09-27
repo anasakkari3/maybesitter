@@ -55,7 +55,7 @@ beforeEach(() => {
   openURL = jest.spyOn(Linking, 'openURL').mockImplementation(async (url: string) => { mockOrder.push(`open ${url}`); return true; });
   openBrowser = jest.spyOn(WebBrowser, 'openBrowserAsync').mockResolvedValue({ type: 'dismiss' } as never);
 });
-afterEach(() => { cleanup(); jest.restoreAllMocks(); clipboard.mockReset(); });
+afterEach(async () => { await cleanup(); jest.restoreAllMocks(); clipboard.mockReset(); });
 
 it('picking ChatGPT shows the three steps and does not copy or open anything yet', async () => {
   await render(wrap(<AiImportFlow onDone={() => undefined} onCancel={() => undefined} />));
