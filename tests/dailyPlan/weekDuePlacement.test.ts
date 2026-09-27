@@ -471,3 +471,55 @@ test('re-review: the daily planner reads a window\'s end as its deadline on the 
   });
   assert.equal(input.constraints.items.find((item) => item.itemId === 'early_prep')?.deadlineAt, at(WEEK[1]!, '07:30'));
 });
+
+/* ── Integration: FY1's all-day appointment in FY2's week ──────────────── */
+
+/*
+ * FY1 (N4) makes «سجّل موعد دكتور يوم الثلاثاء» answered «بدون وقت محدد» an
+ * all-day `scheduled_event` on Tuesday; FY2 (N3) places a week's dated work by
+ * its due day. Composed in one clarify branch (closure integration), the two
+ * must not meet in the week: an appointment on a day is not work, so it is no
+ * step, no «موعدها بعدين» (`due_later`) pull-ahead, no fixed 00:00 row and
+ * nothing waiting — and the day stays free for work that is due on it.
+ */
+test('integration (FY1 × FY2): an all-day appointment is not a week step, not due_later, and not a fixed row', async () => {
+  const store = new MemoryCaptureProposalStore();
+  const persistence = new TransactionalCapturePersistenceAdapter(createEmptyDomainState());
+  const contract = await proposeCapture('سجّل موعد دكتور يوم الثلاثاء', { now: NOW, timezone: TZ, scopeId: 'fy', requestedEngine: 'rules' }, { store, persistence });
+  const item = contract.items[0]!;
+  assert.equal(item.clarification?.questionKey, 'ask_time');
+  const none = item.clarification!.options.find((option) => !option.value.localTime && !option.value.localDate)!;
+  const answered = await answerClarification(
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: none.optionId },
+    { now: NOW, timezone: TZ, scopeId: 'fy' },
+    { store, recordEvent: () => undefined },
+  );
+  // FY1's branch won over FY2's in the composed clarify: an event on its day.
+  assert.deepEqual(
+    [answered.items[0]!.resolvedTime, answered.items[0]!.resolvedDate, (answered.items[0] as { allDayEvent?: boolean }).allDayEvent],
+    [null, WEEK[2], true],
+  );
+  const confirmed = await confirmCapture(
+    { proposalId: contract.proposalId, scopeId: 'fy', selectedItemIds: [item.itemId], idempotencyKey: 'k-fy', now: NOW },
+    { store, persistence },
+  );
+  assert.equal(confirmed.success, true, JSON.stringify(confirmed));
+  const [saved] = Object.values((await persistence.snapshot()).commitments);
+  assert.deepEqual([saved!.timeSpec.kind, saved!.timeSpec.allDay, saved!.timeSpec.dueAt], ['scheduled_event', true, midnight(WEEK[2]!)]);
+
+  // That exact appointment in a week that also has work due on its day.
+  const seeds: readonly Seed[] = [
+    { id: 'doctor', title: 'موعد دكتور', level: 'high', dueDay: WEEK[2]!,
+      timeSpec: { kind: saved!.timeSpec.kind, dueAt: saved!.timeSpec.dueAt, endAt: saved!.timeSpec.endAt, remindAt: saved!.timeSpec.remindAt, allDay: true } },
+    { id: 'bill', title: 'أدفع فاتورة الكهربا', level: 'high', dueDay: WEEK[2]!, timeSpec: allDay(WEEK[2]!) },
+  ];
+  await withUat(async (storage) => {
+    const dto = await week(storage);
+    const rows = dto.days.flatMap((day) => [...day.items, ...day.fixed, ...day.unplaced].map((row) => row.itemId));
+    assert.ok(!rows.includes('doctor'), `the all-day appointment became a week row: ${JSON.stringify(dto.days)}`);
+    assert.ok(!dto.days.some((day) => day.items.some((row) => row.reason === 'due_later' && row.itemId === 'doctor')));
+    assert.equal(dto.waiting, 0);
+    // Tuesday's own work is still Tuesday's.
+    assert.deepEqual(Object.fromEntries(placements(dto)), { bill: WEEK[2] });
+  }, seeds);
+});
