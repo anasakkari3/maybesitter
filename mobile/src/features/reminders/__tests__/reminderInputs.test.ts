@@ -5,6 +5,7 @@ import {
   mergeById,
   quietTimeZone,
   quietWindowOf,
+  opensAtOf,
   startOf,
   toEngineSettings,
   toReminderCommitments,
@@ -141,6 +142,10 @@ describe('what the engine is given about a commitment', () => {
       timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T12:00:00.000Z', allDay: false },
     };
     expect(startOf(prep)).toBe('2026-09-28T12:00:00.000Z');
+    expect(opensAtOf(prep)).toBe('2026-09-28T11:00:00.000Z');
+    expect(toReminderCommitments([prep])[0]!.opensAt).toBe('2026-09-28T11:00:00.000Z');
+    // Anything else reaches the engine without the field.
+    expect('opensAt' in toReminderCommitments([base])[0]!).toBe(false);
     // An event's end is not a deadline, and neither is an all-day entry's.
     expect(startOf({ ...prep, timeSpec: { ...prep.timeSpec, kind: 'scheduled_event' } })).toBe('2026-09-28T11:00:00.000Z');
     expect(startOf({ ...prep, timeSpec: { ...prep.timeSpec, allDay: true } })).toBe('2026-09-28T11:00:00.000Z');

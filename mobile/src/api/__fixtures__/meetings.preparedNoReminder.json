@@ -24,7 +24,7 @@
   "prep": {
     "itemId": "00000000-0000-4000-8000-000000000002",
     "remindAt": null,
-    "silentBecause": "too_close",
+    "silentBecause": "reminders_off",
     "dueAt": "2026-08-09T09:00:00.000Z",
     "leadMinutes": 15,
     "adjustment": "short_notice",

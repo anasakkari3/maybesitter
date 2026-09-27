@@ -11,7 +11,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Commitment } from '../../src/domain/stateMachine.ts';
+import { deadlineOfTimeSpec, isTimedWindow, type Commitment } from '../../src/domain/stateMachine.ts';
+import { phoneReminderEngine } from '../support/phoneReminderEngine.ts';
 import { hardFireAtFor, type HardReminderEntry } from '../../lib/services/reminders/hardReminderIndex.ts';
 import { decideHardReminder } from '../../lib/services/reminders/hardReminderJob.ts';
 import { hardSettingsOfUser } from '../../lib/services/mobile/reminderSettingsService.ts';
@@ -97,4 +98,41 @@ test('a meeting\'s prep step made a Must counts its ring back from the meeting, 
   const event = commitmentFor({ name: 'event', startsAt: '2026-09-28T11:00:00.000Z', allDay: false, postponedUntil: null, rings: true, fireAt: null });
   event.timeSpec = { ...event.timeSpec, endAt: '2026-09-28T13:00:00.000Z' };
   assert.equal(hardFireAtFor(event, settingsFor({ name: 'event', startsAt: '', allDay: false, postponedUntil: null, rings: true, fireAt: null })), '2026-09-28T10:50:00.000Z');
+});
+
+/**
+ * One rule on each side, run on the same stored commitments (FX1, ruling R1).
+ *
+ * The server's `deadlineOfTimeSpec` / `isTimedWindow` / `hardFireAtFor` and the
+ * phone's `startOf` / `opensAtOf` / `planFor` (through `desiredRequests`, as it
+ * ships — pure modules only, see `phoneReminderEngine.ts`) must agree on what a
+ * commitment is counted back from, where a window opens, and when a Must
+ * rings, or the phone and its server backup ring at different moments.
+ */
+test('parity: the server and the phone read the same deadline, opening and Must ring off one stored commitment', async () => {
+  const phone = await phoneReminderEngine();
+  const base = commitmentFor({ name: 'x', startsAt: '2026-09-28T12:00:00.000Z', allDay: false, postponedUntil: null, rings: true, fireAt: null });
+  const at = (timeSpec: Partial<Commitment['timeSpec']>, level: 'high' | 'normal' = 'high'): Commitment => ({
+    ...base, priority: { ...base.priority, level }, timeSpec: { ...base.timeSpec, ...timeSpec },
+  });
+  const rows: Array<[string, Commitment]> = [
+    ['a prep window, Must', at({ kind: 'due_by', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T12:00:00.000Z' })],
+    ['a window opening five minutes before its deadline, Must', at({ kind: 'due_by', dueAt: '2026-09-28T11:55:00.000Z', endAt: '2026-09-28T12:00:00.000Z' })],
+    ['a prep window, Should', at({ kind: 'due_by', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T12:00:00.000Z' }, 'normal')],
+    ['an ordinary deadline, Must', at({ kind: 'due_by', dueAt: '2026-09-28T12:00:00.000Z', endAt: null })],
+    ['an event with an end, Must', at({ kind: 'scheduled_event', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T13:00:00.000Z' })],
+    ['an all-day entry, Must', at({ kind: 'due_by', dueAt: '2026-09-27T21:00:00.000Z', endAt: '2026-09-28T21:00:00.000Z', allDay: true, timezone: 'Asia/Jerusalem' })],
+  ];
+  const settings = { softEnabled: true, softLeadMinutes: 60, intensity: 'strongReminder' as const, escalationCeiling: 'hard' as const, hardEnabled: true, mustThroughQuietHours: false };
+  const serverSettings = settingsFor({ name: '', startsAt: '', allDay: false, postponedUntil: null, rings: true, fireAt: null });
+  for (const [name, commitment] of rows) {
+    const anchors = phone.anchorsOf(commitment);
+    assert.equal(anchors.startsAt, deadlineOfTimeSpec(commitment.timeSpec), `${name}: deadline`);
+    assert.equal(anchors.opensAt, isTimedWindow(commitment.timeSpec) ? commitment.timeSpec.dueAt : null, `${name}: opening`);
+    const strong = phone.requestsFor({
+      commitments: phone.toReminderCommitments([commitment]),
+      now: new Date('2026-09-26T00:00:00.000Z'), settings, quietHours: null, timeZone: 'UTC',
+    }).find((request) => request.stage === 'strong');
+    assert.equal(strong ? new Date(strong.plannedAt).toISOString() : null, hardFireAtFor(commitment, serverSettings), `${name}: Must ring`);
+  }
 });

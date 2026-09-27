@@ -62,23 +62,30 @@ describe('the prep step rings an hour before the meeting', () => {
   });
 });
 
-describe('a meeting too close for a reminder (CL5a I-3)', () => {
+describe('a prep step with reminders switched off (CL5a I-3; FX1 R1)', () => {
   it('the recorded response claims none, and the phone, run on it, schedules none', () => {
     const { commitment } = confirmedPrepStep(preparedNoReminderFixture);
     const { prep, proposal } = meetingPrepResponseSchema.parse(preparedNoReminderFixture);
     expect(prep.remindAt).toBeNull();
-    expect(prep.silentBecause).toBe('too_close');
+    expect(prep.silentBecause).toBe('reminders_off');
     // Due by the meeting's start, and shown — as everywhere — before it (FX1),
     // never at the start, inside the meeting it prepares for.
     expect(prep.dueAt).toBe(prep.startAt);
     expect(Date.parse(proposal.items[0]!.resolvedTime!)).toBeLessThan(Date.parse(prep.startAt));
-    // The account the fixture was recorded under has the default settings: a
-    // one-hour lead and the soft ceiling. Twenty minutes out, the phone has
-    // nothing left to ring — "now" is the moment the request was answered.
     const dto = reminderSettingsResponseSchema.parse(settingsFixture).reminderSettings;
-    const settings = toEngineSettings({ ...dto, escalationCeiling: 'soft' }, 'softAwareness');
+    const settings = toEngineSettings({ ...dto, softEnabled: false }, 'softAwareness');
     const [reminder] = toReminderCommitments([commitment]);
-    const now = Date.parse(prep.startAt) - 20 * MINUTE;
-    expect(planFor(reminder!, settings).filter((stage) => stage.at > now)).toEqual([]);
+    expect(planFor(reminder!, settings)).toEqual([]);
+  });
+
+  it('twenty minutes out with reminders on, it rings at the time shown, whatever the lead (R1)', () => {
+    const { commitment } = confirmedPrepStep(preparedNoReminderFixture);
+    const { proposal } = meetingPrepResponseSchema.parse(preparedNoReminderFixture);
+    const dto = reminderSettingsResponseSchema.parse(settingsFixture).reminderSettings;
+    const [reminder] = toReminderCommitments([commitment]);
+    for (const lead of [15, 30, 60]) {
+      const planned = planFor(reminder!, toEngineSettings({ ...dto, softLeadMinutes: lead }, 'softAwareness'));
+      expect(planned.map((stage) => stage.at)).toEqual([Date.parse(proposal.items[0]!.resolvedTime!)]);
+    }
   });
 });

@@ -29,6 +29,7 @@ import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import { MAX_MEETING_PREPS_PER_DAY } from '../../lib/services/mobile/meetingPrepService.ts';
 import { POST as preparePost } from '../../src/app/api/mobile/meetings/prepare/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
+import { PATCH as commitmentPatch } from '../../src/app/api/mobile/commitments/[id]/route.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as upcomingGet } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
 import { GET as reminderSettingsGet } from '../../src/app/api/mobile/settings/reminders/route.ts';
@@ -332,9 +333,12 @@ async function claimedAndRung(
   return { remindAt: body.prep.remindAt, silentBecause: body.prep.silentBecause, rings };
 }
 
+// Since R1 (FX1) the gentle stage rings the window's opening whatever the
+// lead, so a meeting 20 or 40 minutes away rings too; silence is covered by
+// the reminders-off, survey and quiet-hours cases.
 for (const [ceiling, startInMinutes, rings] of [
-  ['soft', 20, false], ['soft', 40, false], ['soft', 180, true],
-  ['followUp', 20, false], ['followUp', 40, true], ['followUp', 180, true],
+  ['soft', 20, true], ['soft', 40, true], ['soft', 180, true],
+  ['followUp', 20, true], ['followUp', 40, true], ['followUp', 180, true],
 ] as const) {
   test(`${ceiling}, a meeting ${startInMinutes} min away: prep.remindAt is what the phone rings${rings ? '' : ', and nothing is claimed when nothing rings'}`, async () => {
     begin();
@@ -469,3 +473,141 @@ test('the UAT repro: a meeting Mon 15:00–16:00 prepared on Sunday is at 14:00 
     else process.env.MAYBESITTER_FEATURE_PRIORITY = previous;
   }
 });
+
+// ── round 2: one window, [prep time shown, meeting start] (FX1 R1, R2) ──
+
+const AMMAN_SUNDAY = Date.parse('2026-09-27T11:50:00.000Z'); // Sun 14:50 in Amman
+const MEETING = { startAt: '2026-09-28T12:00:00.000Z', endAt: '2026-09-28T13:00:00.000Z' }; // Mon 15:00–16:00
+const MON_1400 = '2026-09-28T11:00:00.000Z';
+
+/** Runs `body` on the Amman Sunday clock, the priority module on, with a fresh store. */
+async function onAmmanSunday(body: (headers: Record<string, string>) => Promise<void>): Promise<void> {
+  const previous = process.env.MAYBESITTER_FEATURE_PRIORITY;
+  process.env.MAYBESITTER_FEATURE_PRIORITY = 'true';
+  begin();
+  mock.timers.enable({ apis: ['Date'], now: AMMAN_SUNDAY });
+  try {
+    await body({ authorization: `Bearer ${tokenFor(UID)}` });
+  } finally {
+    mock.timers.reset();
+    end();
+    if (previous === undefined) delete process.env.MAYBESITTER_FEATURE_PRIORITY;
+    else process.env.MAYBESITTER_FEATURE_PRIORITY = previous;
+  }
+}
+
+/** Prepare for the Monday meeting and confirm the prep step alone, with `edits` if any. */
+async function prepareAndConfirm(headers: Record<string, string>, edit?: { resolvedTime: string | null }) {
+  const prepared = await json(await preparePost(request({ notes: NOTE, ...MEETING, timezone: 'Asia/Amman' })));
+  const itemId = prepared.prep.itemId as string;
+  const response = await confirmPost(new Request(`${BASE}/api/mobile/capture/confirm`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ proposalId: prepared.proposal.proposalId, itemIds: [itemId], ...(edit ? { edits: [{ itemId, ...edit }] } : {}) }),
+  }));
+  const confirmed = await json(response);
+  return { status: response.status, prepared, commitmentId: confirmed.persisted?.[0]?.commitmentId as string | undefined };
+}
+
+/** The commitment as the lists hand it to the phone, and what the phone rings for it. */
+async function asThePhoneReadsIt(headers: Record<string, string>, id: string, intensity: 'softAwareness' | 'followUp' = 'softAwareness') {
+  const today = await json(await todayGet(new Request(`${BASE}/api/mobile/commitments/today?timezone=Asia/Amman`, { headers })));
+  const upcoming = await json(await upcomingGet(new Request(`${BASE}/api/mobile/commitments/upcoming?timezone=Asia/Amman`, { headers })));
+  const item = [...today.items, ...upcoming.items].find((entry: { id: string }) => entry.id === id);
+  assert.ok(item, 'the prep step is on no list');
+  const settings = (await json(await reminderSettingsGet(new Request(`${BASE}/api/mobile/settings/reminders`, { headers })))).reminderSettings;
+  const phone = await phoneReminderEngine();
+  const rings = phone.ringsFor({ commitments: phone.toReminderCommitments([item]), now: new Date(), ...phone.fromSettingsDto(settings, intensity) });
+  return { item, rings: rings.map((at) => new Date(at).toISOString()) };
+}
+
+/** What the phone rings for an ordinary step at `at` (no window), under the same settings. */
+async function ordinaryRings(headers: Record<string, string>, at: string): Promise<string[]> {
+  const settings = (await json(await reminderSettingsGet(new Request(`${BASE}/api/mobile/settings/reminders`, { headers })))).reminderSettings;
+  const phone = await phoneReminderEngine();
+  return phone.ringsFor({
+    commitments: [{ id: 'ordinary', startsAt: at, status: 'active', priority: 'should', allDay: false, postponedUntil: null }],
+    now: new Date(), ...phone.fromSettingsDto(settings, 'softAwareness'),
+  }).map((ring) => new Date(ring).toISOString());
+}
+
+async function reasonCodesAt(headers: Record<string, string>, id: string, at: string): Promise<string[]> {
+  mock.timers.setTime(Date.parse(at));
+  const { item } = await asThePhoneReadsIt(headers, id);
+  return item.reasonCodes ?? [];
+}
+
+for (const lead of [15, 30, 60] as const) {
+  for (const ceiling of ['soft', 'followUp'] as const) {
+    test(`R1: lead ${lead}, ceiling ${ceiling} — shown 14:00, rings 14:00, due by the 15:00 start, never «الوقت مرق» before it`, async () => {
+      await onAmmanSunday(async (headers) => {
+        await saveReminderSettings(UID, { softLeadMinutes: lead, escalationCeiling: ceiling }, new Date().toISOString());
+        const { status, prepared, commitmentId } = await prepareAndConfirm(headers);
+        assert.equal(status, 200);
+        assert.equal(prepared.proposal.items[0].resolvedTime, MON_1400, 'Review');
+        assert.equal(prepared.prep.remindAt, MON_1400, 'the reminder claimed');
+        assert.equal(prepared.prep.dueAt, MEETING.startAt, 'the deadline is the meeting start');
+        const { item, rings } = await asThePhoneReadsIt(headers, commitmentId!, ceiling === 'soft' ? 'softAwareness' : 'followUp');
+        assert.equal(item.timeSpec.dueAt, MON_1400);
+        assert.equal(item.timeSpec.endAt, MEETING.startAt, 'the window ends at the meeting start, whatever the lead');
+        assert.equal(rings[0], MON_1400, `the phone first rings at ${rings[0]}`);
+        assert.ok(rings.every((ring) => Date.parse(ring) >= Date.parse(MON_1400) && Date.parse(ring) < Date.parse(MEETING.startAt)), `a ring outside the window: ${rings}`);
+        assert.ok(!(await reasonCodesAt(headers, commitmentId!, '2026-09-28T11:59:00.000Z')).includes('overdue'), 'late at 14:59');
+        assert.ok((await reasonCodesAt(headers, commitmentId!, '2026-09-28T12:01:00.000Z')).includes('overdue'), 'not late at 15:01');
+      });
+    });
+  }
+}
+
+/** R2: the literal Review edits (Amman, Sun 14:50, meeting Mon 15:00–16:00). */
+const REVIEW_EDITS: Array<{ name: string; at: string | null; window: boolean }> = [
+  { name: 'no time', at: null, window: false },
+  { name: 'Mon 15:00, the start', at: '2026-09-28T12:00:00.000Z', window: false },
+  { name: 'Mon 16:30, after the meeting', at: '2026-09-28T13:30:00.000Z', window: false },
+  { name: 'Sun 20:00, the day before', at: '2026-09-27T17:00:00.000Z', window: false },
+  { name: 'Mon 14:30, before the start', at: '2026-09-28T11:30:00.000Z', window: true },
+];
+
+for (const edit of REVIEW_EDITS) {
+  test(`R2: a Review edit of the prep step to ${edit.name} saves, and reads and rings at the time chosen`, async () => {
+    await onAmmanSunday(async (headers) => {
+      const { status, commitmentId } = await prepareAndConfirm(headers, { resolvedTime: edit.at });
+      assert.equal(status, 200, 'the confirm was refused');
+      await expectChosen(headers, commitmentId!, edit);
+    });
+  });
+
+  test(`R2: moving the confirmed prep step to ${edit.name} with PATCH saves, and reads and rings at the time chosen`, async () => {
+    await onAmmanSunday(async (headers) => {
+      const { commitmentId } = await prepareAndConfirm(headers);
+      const response = await commitmentPatch(new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json', ...headers },
+        // What the phone sends (`timePatch.ts`): a move is `dueDate` alone; «بلا وقت» clears both.
+        body: JSON.stringify(edit.at === null ? { dueDate: null, reminderTime: null } : { dueDate: edit.at }),
+      }), { params: Promise.resolve({ id: commitmentId! }) });
+      assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
+      await expectChosen(headers, commitmentId!, edit);
+    });
+  });
+}
+
+async function expectChosen(headers: Record<string, string>, id: string, edit: { at: string | null; window: boolean }): Promise<void> {
+  const { item, rings } = await asThePhoneReadsIt(headers, id);
+  assert.equal(item.timeSpec.dueAt, edit.at, 'read at another time than chosen');
+  if (edit.at === null) {
+    assert.equal(item.timeSpec.kind, 'unscheduled');
+    assert.equal(item.timeSpec.endAt, null);
+    assert.deepEqual(rings, []);
+  } else if (edit.window) {
+    // Still the hour before the meeting: the window keeps the meeting start,
+    // and the phone rings at the time chosen.
+    assert.equal(item.timeSpec.endAt, MEETING.startAt);
+    assert.equal(rings[0], edit.at);
+  } else {
+    // No longer a prep window: an ordinary step at the time chosen, reminded
+    // the way every other step is — nothing left pointing at Monday 14:00.
+    assert.equal(item.timeSpec.endAt, null, 'a stale window end survived the edit');
+    assert.deepEqual(rings, await ordinaryRings(headers, edit.at));
+  }
+}

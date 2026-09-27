@@ -28,6 +28,7 @@
  *
  * Nothing here changes backend behaviour. It only reads it.
  */
+import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -1414,17 +1415,21 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       body: { notes: MEETING_NOTE, ...meetingBlock(), timezone: 'Asia/Jerusalem' },
       uid: MEETING_USER,
     })), undefined, pinMeetingPrep);
-    // A meeting twenty minutes away, under this account's default reminders
-    // (a one-hour lead, the soft ceiling): no moment is left that the phone
-    // would ring at, so the response claims no reminder and says why (I-3).
+    // A meeting twenty minutes away with the account's reminders switched
+    // off: nothing will ring, so the response claims no reminder and says why
+    // (I-3). Since FX1's window (ruling R1) the prep step rings its own time
+    // whatever the lead, so "too close" no longer silences it; the switch is
+    // the real way a person hears nothing. Switched back on afterwards.
     // The clock is pinned: the short-notice prep instant is rounded up to a
     // five-minute step from *now*, so `leadMinutes` read the wall clock and
     // the fixture changed from one export to the next.
     mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE_TIME) });
+    await saveReminderSettings(MEETING_USER, { softEnabled: false }, new Date().toISOString());
     await record('meetings.preparedNoReminder', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
       body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 20 * 60_000).toISOString(), timezone: 'Asia/Jerusalem' },
       uid: MEETING_USER,
     })).finally(() => mock.timers.reset()), undefined, pinMeetingPrep);
+    await saveReminderSettings(MEETING_USER, { softEnabled: true }, new Date().toISOString());
     // The refusal the sheet renders when the meeting is about to start.
     await record('meetings.tooSoon', 400, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
       body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 60_000).toISOString(), timezone: 'Asia/Jerusalem' },
