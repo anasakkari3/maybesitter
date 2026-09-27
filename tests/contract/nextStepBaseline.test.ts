@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   compareVariantSelection,
+  candidatesFromDomainState,
   scoreBaselineCandidate,
   selectBaselineNextStep,
   type BaselineCandidate,
@@ -95,4 +96,21 @@ test('baseline: comparison interface cannot mutate or replace baseline evidence'
   assert.deepEqual(selected?.evidenceCodes.map((evidence) => evidence.code), ['overdue', 'importance']);
   assert.deepEqual(comparison.baselineEvidenceLabels, selected?.evidenceLabels);
   assert.deepEqual(comparison.baselineEvidenceLabels, ['waiting since its time passed', 'importance: normal']);
+});
+
+test('baseline: a meeting\'s prep step is late after the meeting starts, not at the hour it is shown at (FX1)', () => {
+  // Shown at 14:00, done by the 15:00 start (`deadlineOfTimeSpec`). At 14:30
+  // the person is preparing on time; the card must not say «الوقت مرق».
+  const prep = {
+    id: 'prep', kind: 'task', title: 'Prep', description: null, person: null, status: 'active',
+    priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
+    category: null, categorySource: 'inferred',
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T12:00:00.000Z', remindAt: '2026-09-28T11:00:00.000Z', allDay: false, timezone: 'Asia/Amman' },
+    currentAckState: 'not_seen', postponedUntil: null,
+    createdAt: '', updatedAt: '', confirmedAt: '2026-09-27T11:50:00.000Z', completedAt: null, droppedAt: null,
+  };
+  const [candidate] = candidatesFromDomainState({ commitments: { prep }, reminders: {} } as never);
+  const codes = (at: string) => scoreBaselineCandidate(candidate!, new Date(at)).evidenceCodes.map((entry) => entry.code);
+  assert.ok(!codes('2026-09-28T11:30:00.000Z').includes('overdue'));
+  assert.ok(codes('2026-09-28T12:01:00.000Z').includes('overdue'));
 });

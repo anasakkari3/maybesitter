@@ -132,6 +132,20 @@ describe('what the engine is given about a commitment', () => {
     expect(startOf(commitment)).toBe(commitment.timeSpec.dueAt);
   });
 
+  it('counts a meeting prep step back from the meeting, not from the hour it is shown at (FX1)', () => {
+    // Shown at 14:00, done by the 15:00 start: the ordinary hour's lead then
+    // rings at 14:00, the time Review, Today and Details all show.
+    const base = commitmentFixture as unknown as Commitment;
+    const prep: Commitment = {
+      ...base,
+      timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T12:00:00.000Z', allDay: false },
+    };
+    expect(startOf(prep)).toBe('2026-09-28T12:00:00.000Z');
+    // An event's end is not a deadline, and neither is an all-day entry's.
+    expect(startOf({ ...prep, timeSpec: { ...prep.timeSpec, kind: 'scheduled_event' } })).toBe('2026-09-28T11:00:00.000Z');
+    expect(startOf({ ...prep, timeSpec: { ...prep.timeSpec, allDay: true } })).toBe('2026-09-28T11:00:00.000Z');
+  });
+
   it('keeps one copy of a commitment that is in both Today and Upcoming', () => {
     const commitment = commitmentFixture as unknown as Commitment;
     expect(mergeById([commitment], [commitment])).toHaveLength(1);

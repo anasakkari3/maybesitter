@@ -13,25 +13,25 @@ import commitmentFixture from '../../../api/__fixtures__/commitments.one.json';
 /**
  * When the phone rings for a confirmed prep step (CL5a I-1).
  *
- * The phone's reminder engine rings at `timeSpec.dueAt − softLeadMinutes` and
- * reads nothing else (`reminderInputs.ts`, `startOf`). The server's promise is
- * "a reminder an hour before the meeting", so the prep step it proposes must be
- * *due* one lead after that hour. This runs the engine the phone runs on the
- * step as the route recorded it — confirming copies `prep.dueAt` and
- * `prep.remindAt` onto the commitment unchanged (the server's pipeline test
- * holds that half) — with the account's default settings, as recorded.
+ * The phone's reminder engine rings a lead before a commitment's deadline
+ * (`reminderInputs.ts`, `startOf`). The server's promise is "a reminder an hour
+ * before the meeting", so the prep step it proposes is *due by* one lead after
+ * that hour (`prep.dueAt`) and shown at that hour (post-UAT FX1): confirming
+ * stores the Review time as `timeSpec.dueAt` and the deadline as `endAt` (the
+ * server's pipeline test holds that half). This runs the engine the phone runs
+ * on the step as the route recorded it, with the account's default settings.
  */
 const MINUTE = 60_000;
 
 function confirmedPrepStep(fixture: unknown): { commitment: Commitment; startAt: string } {
-  const { prep } = meetingPrepResponseSchema.parse(fixture);
+  const { prep, proposal } = meetingPrepResponseSchema.parse(fixture);
   const base = commitmentFixture as Commitment;
   const commitment: Commitment = {
     ...base,
     id: prep.itemId,
     status: 'active',
     postponedUntil: null,
-    timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: prep.dueAt, remindAt: prep.remindAt, endAt: null, allDay: false },
+    timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: proposal.items[0]!.resolvedTime!, remindAt: prep.remindAt, endAt: prep.dueAt, allDay: false },
   };
   return { commitment, startAt: prep.startAt };
 }
@@ -68,9 +68,10 @@ describe('a meeting too close for a reminder (CL5a I-3)', () => {
     const { prep, proposal } = meetingPrepResponseSchema.parse(preparedNoReminderFixture);
     expect(prep.remindAt).toBeNull();
     expect(prep.silentBecause).toBe('too_close');
-    // Shown in review at the time it is due, which is the meeting's start.
-    expect(proposal.items[0]!.resolvedTime).toBe(prep.dueAt);
+    // Due by the meeting's start, and shown — as everywhere — before it (FX1),
+    // never at the start, inside the meeting it prepares for.
     expect(prep.dueAt).toBe(prep.startAt);
+    expect(Date.parse(proposal.items[0]!.resolvedTime!)).toBeLessThan(Date.parse(prep.startAt));
     // The account the fixture was recorded under has the default settings: a
     // one-hour lead and the soft ceiling. Twenty minutes out, the phone has
     // nothing left to ring — "now" is the moment the request was answered.

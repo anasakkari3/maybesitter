@@ -87,6 +87,32 @@ export interface TimeSpec {
   timezone: string;
 }
 
+/**
+ * When a commitment must be done by: the one instant reminders count back
+ * from and lateness is measured against (post-UAT FX1).
+ *
+ * ── A timed `due_by` with an end is a window ──────────────────────
+ *
+ * «حضّرني» is the one producer of it today: the prep step is *at* 14:00, the
+ * hour before a 15:00 meeting, and it is done *by* the meeting. So it is
+ * stored as `dueAt` 14:00 — the one time every screen shows, Review and the
+ * confirmation included — and `endAt` at its deadline. Its reminder counts
+ * back from the deadline, so the phone's ordinary lead rings it at 14:00, the
+ * time it is shown at; and it is late only once the deadline has passed, not
+ * while the person is preparing on time.
+ *
+ * Every other commitment is unchanged: a plain `due_by` is due at `dueAt`, a
+ * `scheduled_event` starts at `dueAt` whatever its end, and an all-day entry's
+ * end is the day's edge, not a deadline. The phone's `startOf`
+ * (`mobile/src/features/reminders/reminderInputs.ts`) is this same rule; the
+ * meeting-prep tests run the phone's engine against it, so the two cannot
+ * drift apart silently.
+ */
+export function deadlineOfTimeSpec(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>): string | null {
+  if (timeSpec.kind === 'due_by' && !timeSpec.allDay && timeSpec.dueAt && timeSpec.endAt) return timeSpec.endAt;
+  return timeSpec.dueAt;
+}
+
 export interface Commitment {
   id: string;
   kind: CommitmentKind;

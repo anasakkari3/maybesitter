@@ -39,7 +39,7 @@ import { DEFAULT_PRIORITY_POLICY } from './priorityPolicy';
 import { compareByCodePoint } from '../planning/shared/compare';
 import { resolvedCommitmentTime } from '../services/mobile/time';
 import type { PriorityReason } from '../../src/contracts/v1/priorityContracts';
-import type { Commitment, Reminder } from '../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, type Commitment, type Reminder } from '../../src/domain/stateMachine';
 
 /**
  * Why an item is where it is, in the order the phone shows them.
@@ -92,9 +92,13 @@ const IMPORTANCE_ADJUSTMENT = {
  * that hour tells the person they are late while they are on time. A postponed
  * commitment is late only after `postponedUntil`, as it always was; one with a
  * reminder and no deadline is judged by the reminder, as it always was.
+ *
+ * Since FX1 the prep step is shown at the hour before the meeting and done by
+ * the meeting's start (`deadlineOfTimeSpec`), so that start is what it is late
+ * after — not the 14:00 it is shown at.
  */
 function deadlineOf(commitment: Commitment): string | null {
-  return commitment.postponedUntil || commitment.timeSpec.dueAt || commitment.timeSpec.remindAt;
+  return commitment.postponedUntil || deadlineOfTimeSpec(commitment.timeSpec) || commitment.timeSpec.remindAt;
 }
 
 function isPastDeadline(commitment: Commitment, nowMs: number): boolean {

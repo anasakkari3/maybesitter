@@ -86,3 +86,15 @@ test('send-time recheck: a postponement or a setting that lands after the row wa
     assert.equal(decision.kind, 'cancel', c.name);
   }
 });
+
+test('a meeting\'s prep step made a Must counts its ring back from the meeting, as the phone does (FX1)', () => {
+  // Shown at 14:00, done by the 15:00 start: the phone's `startOf` anchors at
+  // the end, so the server's backup must too, or it would fire an hour early.
+  const prep = commitmentFor({ name: 'prep', startsAt: '2026-09-28T11:00:00.000Z', allDay: false, postponedUntil: null, rings: true, fireAt: null });
+  prep.timeSpec = { ...prep.timeSpec, kind: 'due_by', endAt: '2026-09-28T12:00:00.000Z' };
+  assert.equal(hardFireAtFor(prep, settingsFor({ name: 'prep', startsAt: '', allDay: false, postponedUntil: null, rings: true, fireAt: null })), '2026-09-28T11:50:00.000Z');
+  // An event's end is not a deadline: a two-hour event still rings before it starts.
+  const event = commitmentFor({ name: 'event', startsAt: '2026-09-28T11:00:00.000Z', allDay: false, postponedUntil: null, rings: true, fireAt: null });
+  event.timeSpec = { ...event.timeSpec, endAt: '2026-09-28T13:00:00.000Z' };
+  assert.equal(hardFireAtFor(event, settingsFor({ name: 'event', startsAt: '', allDay: false, postponedUntil: null, rings: true, fireAt: null })), '2026-09-28T10:50:00.000Z');
+});

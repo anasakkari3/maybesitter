@@ -27,9 +27,16 @@ import type { QuietWindow } from './quietHours';
  * `timeSpec.dueAt` and not `remindAt`: `remindAt` is a reminder the server
  * already derived, and scheduling a stage relative to it would apply the lead
  * twice.
+ *
+ * One exception, and it is the server's `deadlineOfTimeSpec` line for line: a
+ * timed `due_by` with an end is a window, done *by* its end. A meeting's prep
+ * step is shown at 14:00 and done by the 15:00 start, so the lead counts back
+ * from 15:00 and rings at 14:00 — the time every screen shows (post-UAT FX1).
  */
 export function startOf(commitment: Commitment): string | null {
-  return commitment.timeSpec.dueAt;
+  const { kind, dueAt, endAt, allDay } = commitment.timeSpec;
+  if (kind === 'due_by' && !allDay && dueAt && endAt) return endAt;
+  return dueAt;
 }
 
 export function toReminderCommitments(items: readonly Commitment[]): ReminderCommitment[] {

@@ -397,3 +397,75 @@ test('quiet hours stored on the profile leave no moment to ring: meetings just a
     }
   }
 });
+
+// ── one time, before the meeting (post-UAT FX1, the 2026-09-27 repro) ──
+
+/**
+ * The phone shows a commitment at `timeSpec.dueAt ?? timeSpec.remindAt`
+ * (`mobile/src/features/commitments/model.ts`, `toViewModel`) — on Today, the
+ * Calendar and Details alike — and the conflict chip is drawn for that instant.
+ */
+function phoneShows(item: { timeSpec: { dueAt: string | null; remindAt: string | null } }): string | null {
+  return item.timeSpec.dueAt ?? item.timeSpec.remindAt;
+}
+
+test('the UAT repro: a meeting Mon 15:00–16:00 prepared on Sunday is at 14:00 on Review, on the confirmation, on the lists and on the phone, and rings then', async () => {
+  // Sunday 27 Sep 2026, 14:50 in Amman; the phone-calendar meeting is Monday 15:00–16:00.
+  const previous = process.env.MAYBESITTER_FEATURE_PRIORITY;
+  process.env.MAYBESITTER_FEATURE_PRIORITY = 'true';
+  const sunday = Date.parse('2026-09-27T11:50:00.000Z');
+  const startAt = '2026-09-28T12:00:00.000Z';
+  const endAt = '2026-09-28T13:00:00.000Z';
+  const fourteen = '2026-09-28T11:00:00.000Z';
+  begin();
+  mock.timers.enable({ apis: ['Date'], now: sunday });
+  try {
+    const headers = { authorization: `Bearer ${tokenFor(UID)}` };
+    const prepared = await preparePost(request({ notes: NOTE, startAt, endAt, timezone: 'Asia/Amman' }));
+    assert.equal(prepared.status, 200);
+    const body = await json(prepared);
+    const review = body.proposal.items.find((item: { itemId: string }) => item.itemId === body.prep.itemId);
+    // Review, and the confirmation that repeats the item as it was confirmed.
+    assert.equal(review.resolvedTime, fourteen, 'Review shows the prep step at 14:00');
+    assert.equal(body.prep.remindAt, fourteen, 'the reminder claimed is 14:00');
+
+    const confirmed = await confirmPost(new Request(`${BASE}/api/mobile/capture/confirm`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ proposalId: body.proposal.proposalId, itemIds: [body.prep.itemId] }),
+    }));
+    assert.equal(confirmed.status, 200);
+    const commitmentId = (await json(confirmed)).persisted[0].commitmentId as string;
+
+    const lists = async () => {
+      const today = await json(await todayGet(new Request(`${BASE}/api/mobile/commitments/today?timezone=Asia/Amman`, { headers })));
+      const upcoming = await json(await upcomingGet(new Request(`${BASE}/api/mobile/commitments/upcoming?timezone=Asia/Amman`, { headers })));
+      const item = [...today.items, ...upcoming.items].find((entry: { id: string }) => entry.id === commitmentId);
+      assert.ok(item, 'the confirmed prep step is on no list');
+      return item;
+    };
+    const item = await lists();
+    // Today, the Calendar and Details all read this one instant.
+    assert.equal(phoneShows(item), fourteen, `the phone shows ${phoneShows(item)}, not the 14:00 Review promised`);
+    const shown = Date.parse(phoneShows(item)!);
+    assert.ok(shown < Date.parse(startAt), 'shown at or after the meeting it prepares for');
+    assert.ok(!(shown >= Date.parse(startAt) && shown < Date.parse(endAt)), 'shown inside the meeting');
+
+    // And the phone really rings at the time claimed, and at no other before the meeting.
+    const settings = (await json(await reminderSettingsGet(new Request(`${BASE}/api/mobile/settings/reminders`, { headers })))).reminderSettings;
+    const phone = await phoneReminderEngine();
+    const rings = phone.ringsFor({ commitments: phone.toReminderCommitments([item]), now: new Date(), ...phone.fromSettingsDto(settings, 'softAwareness') });
+    assert.deepEqual(rings.map((at) => new Date(at).toISOString()), [fourteen]);
+
+    // Not «الوقت مرق» while the meeting has not started; late once it has.
+    mock.timers.setTime(Date.parse('2026-09-28T11:30:00.000Z')); // Monday 14:30
+    assert.ok(!((await lists()).reasonCodes ?? []).includes('overdue'), 'overdue before the meeting has started');
+    mock.timers.setTime(Date.parse('2026-09-28T12:01:00.000Z')); // Monday 15:01
+    assert.ok(((await lists()).reasonCodes ?? []).includes('overdue'), 'still on time after the meeting began');
+  } finally {
+    mock.timers.reset();
+    end();
+    if (previous === undefined) delete process.env.MAYBESITTER_FEATURE_PRIORITY;
+    else process.env.MAYBESITTER_FEATURE_PRIORITY = previous;
+  }
+});

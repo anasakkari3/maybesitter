@@ -188,7 +188,11 @@ export interface MeetingPrepSummary {
   readonly remindAt: string | null;
   /** Why nothing rings, when nothing does (`silenceOf`). */
   readonly silentBecause: PrepSilence | null;
-  /** When it is due: never after the start (see `prepTiming`). */
+  /**
+   * Its deadline, never after the start (see `prepTiming`): the stored
+   * `timeSpec.endAt`, which the phone counts its lead back from. The step itself
+   * is shown at the prep instant, `proposal.items[0].resolvedTime` (FX1).
+   */
   readonly dueAt: string;
   /** Minutes between the chosen prep instant and the meeting's start. */
   readonly leadMinutes: number;
@@ -458,7 +462,11 @@ async function askModel(
 }
 
 type StepTime =
-  | { readonly kind: 'due_by'; readonly dueAt: string; readonly remindAt: string | null; readonly allDay: boolean }
+  | {
+    readonly kind: 'due_by'; readonly dueAt: string; readonly remindAt: string | null; readonly allDay: boolean;
+    /** The prep step's deadline, when it is done by a later instant than it is shown at (`deadlineOfTimeSpec`). */
+    readonly endAt?: string;
+  }
   | { readonly kind: 'unscheduled' };
 
 /**
@@ -484,7 +492,7 @@ function commandsFor(title: string, when: StepTime, timezone: string, now: Date)
       priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
       category: null,
       timeSpec: when.kind === 'due_by'
-        ? { kind: 'due_by', dueAt: when.dueAt, remindAt: when.remindAt, allDay: when.allDay, timezone }
+        ? { kind: 'due_by', dueAt: when.dueAt, endAt: when.endAt ?? null, remindAt: when.remindAt, allDay: when.allDay, timezone }
         : { kind: 'unscheduled', dueAt: null, remindAt: null, timezone },
     },
   }];
@@ -493,8 +501,9 @@ function commandsFor(title: string, when: StepTime, timezone: string, now: Date)
 /**
  * When the prep step is *due*, given when its reminder should ring (I-1).
  *
- * The phone rings for a commitment at `dueAt − softLeadMinutes` and reads
- * nothing else (`mobile/src/features/reminders/reminderInputs.ts`, `startOf`).
+ * The phone rings for a commitment at its deadline `− softLeadMinutes`; for the
+ * prep step that deadline is its `timeSpec.endAt`, while it is shown at the
+ * prep instant (`deadlineOfTimeSpec`, and the phone's `startOf`, FX1).
  * So the step is due one lead after the chosen prep instant: the phone's own
  * reminder then rings at exactly that instant. Never later than the start: a
  * prep step due after the meeting began would be a step for a meeting that is
@@ -686,10 +695,22 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     items.push({ itemId, title, ...item, needsClarification: false, priority: 'normal', priorityEstimated: true });
     commandsByItemId.set(itemId, commandsFor(title, when, valid.timezone, now));
   };
-  // The prep step: shown at, and reminded at, the instant the phone rings for
-  // it; with nothing to ring, shown at when it is due.
-  push(plan.prep.candidate.action, { resolvedTime: ringAt ?? timing.dueAt.toISOString() }, {
-    kind: 'due_by', dueAt: timing.dueAt.toISOString(), remindAt: ringAt, allDay: false,
+  // The prep step has one time, the prep instant, and every screen shows it:
+  // Review, the confirmation, Today, the Calendar, Details (post-UAT FX1). It
+  // used to be *stored* at its deadline — the meeting's start, so the phone's
+  // lead would ring at the prep instant — while Review showed the ring; the
+  // lists then drew it at 15:00, inside the meeting it prepares for. Now the
+  // deadline is its `endAt`, the phone counts its lead back from that
+  // (`deadlineOfTimeSpec`, `startOf`), and the ring still lands at the prep
+  // instant whenever `prepTiming` says it does. When the phone can only ring
+  // at another moment (64 minutes' notice: the prep instant is 5 minutes away,
+  // the ring 4), the step is at that ring, so what is shown still rings; with
+  // nothing to ring, it is at the prep instant. Either is before the deadline
+  // — a ring is at least a lead before it, and `schedulePrepAt` keeps the prep
+  // instant five minutes before the start — so the window is never empty.
+  const shownAt = ringAt ?? due.at.toISOString();
+  push(plan.prep.candidate.action, { resolvedTime: shownAt }, {
+    kind: 'due_by', dueAt: shownAt, endAt: timing.dueAt.toISOString(), remindAt: ringAt, allDay: false,
   });
   for (const proposal of plan.followUps) {
     const when = whenByKey.get(`${proposal.candidate.action.toLowerCase()}\0${proposal.candidate.deadlineAt ?? ''}`) ?? { kind: 'none' as const };
