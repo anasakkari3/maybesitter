@@ -410,6 +410,53 @@ describe('no reachable screen says «قريبًا» (council: COMING_SOON = FAIL
     }
   });
 
+  /**
+   * Review round 2 (I-2): "not … yet" is the same promise in other words —
+   * «لسّا مش مشغّلة», "isn't switched on yet", «עדיין לא». These patterns
+   * catch it. The keys below use "yet" about the user's own state (they have
+   * not done, decided, allowed or saved something), never about the product
+   * gaining a feature, and each says why.
+   */
+  const YET: Record<string, RegExp> = {
+    ar: /(لسّا|لسا)\s+مش|(لسّا|لسا)\s+ما\s+بي|مش[^.،]*\sبعد/,
+    en: /(\bnot\b|\bcannot\b|n['’]t\b)[^.]*\byet\b/i,
+    he: /עדיין\s+(לא|אינ)|עוד\s+לא/,
+  };
+  const USER_STATE_YET: Record<string, string> = {
+    suggestionNote: 'nothing changes until the user confirms',
+    notYet: 'the «لسّا» answer: the user has not done the item',
+    memorySureNot: "the user's own answer: not sure",
+    seedsNotCommitment: 'the user has not made this a commitment',
+    seedsLede: 'things the user has not decided on',
+    financialBandUnknown: "not enough of the user's own data",
+    notifAllowBody: "the phone's permission, the user's to grant",
+    obAboutReviewLede: 'nothing is saved until the user ticks it',
+    activityWeekDone: "a count of the user's own activity",
+    settingsKnowsSub: "a count of the user's own saved memory",
+    readinessNoCheckIn: 'the user has not checked in',
+    memoryWhyDeferNoPlanUse: "the user's plan does not use this memory",
+    planOfflineCold: "today's plan has not arrived (no network)",
+    planReasonNoLength: "the item's length is not known",
+    planRowProposalSub: 'the proposal is not saved until the user accepts',
+  };
+
+  it('no string promises a feature "yet" — only the user\'s own state may be "not yet"', () => {
+    for (const [name, bundle] of [['en', en], ['ar', ar], ['he', he]] as const) {
+      const hits = Object.entries(bundle as Record<string, unknown>)
+        .filter(([key, value]) => typeof value === 'string' && YET[name]!.test(value) && !(key in USER_STATE_YET))
+        .map(([key]) => key);
+      expect({ name, hits }).toEqual({ name, hits: [] });
+      expect({ name, xGoalPreview: 'xGoalPreview' in bundle }).toEqual({ name, xGoalPreview: false });
+    }
+  });
+
+  // Review round 2 (I-3): a server- or build-side switch, never a user's. The
+  // line must not send anyone looking for a toggle they do not have.
+  it('the feature-unavailable line names no switch', () => {
+    expect([en.errorsFeatureDisabled, ar.errorsFeatureDisabled, he.errorsFeatureDisabled])
+      .toEqual(["This feature isn't available.", 'هاي الميزة مش متاحة.', 'התכונה הזו לא זמינה.']);
+  });
+
   const BUILDS: [string, Record<string, string>][] = [
     ['share off, calendar off', { EXPO_PUBLIC_FEATURE_SHARE_INTAKE: '', EXPO_PUBLIC_FEATURE_CALENDAR_READ: 'false', EXPO_PUBLIC_FEATURE_CALENDAR_WRITE: '' }],
     ['share on, calendar read', { EXPO_PUBLIC_FEATURE_SHARE_INTAKE: 'true', EXPO_PUBLIC_FEATURE_CALENDAR_READ: '', EXPO_PUBLIC_FEATURE_CALENDAR_WRITE: '' }],

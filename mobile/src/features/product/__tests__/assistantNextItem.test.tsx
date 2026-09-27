@@ -16,8 +16,9 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, render, screen } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
-import { ContextualAssistantScreen } from '../ContextScreens';
+import { ContextualAssistantScreen, nextUsefulItem } from '../ContextScreens';
 import { strings } from '../../../i18n/strings';
+import { deviceTimeZone } from '../../../i18n/timezone';
 import base from '../../../api/__fixtures__/commitments.one.json';
 
 const HOUR = 60 * 60 * 1000;
@@ -41,7 +42,7 @@ function item(id: string, title: string, at: Date | null) {
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const show = () => render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><ContextualAssistantScreen /></AppProvider></SafeAreaProvider>);
 
-afterEach(() => { cleanup(); mockToday = []; mockUpcoming = []; });
+afterEach(async () => { await cleanup(); mockToday = []; mockUpcoming = []; });
 
 describe('the next useful thing', () => {
   it('skips an item whose time passed an hour ago and offers the one still ahead', async () => {
@@ -76,5 +77,72 @@ describe('the next useful thing', () => {
     const shown = Object.values(strings).filter(t => screen.queryAllByText(t.xNoContext).length > 0);
     expect(shown).toHaveLength(1);
     expect(screen.queryByTestId('assistant-detail')).toBeNull();
+  });
+});
+
+/**
+ * Review round 2, I-1: an all-day item's `dueAt` is its day's local midnight
+ * (`timeSpec.allDay`), so reading it as an instant made it "passed" from
+ * 00:00 — it vanished for the whole day it was due, and the screen said
+ * nothing was coming. An all-day item is ahead until its day has ended. It
+ * sorts by day: after that day's timed items, before any later day and before
+ * items with no time.
+ */
+describe('all-day items are judged by their day, not their midnight', () => {
+  const ZONE = 'Asia/Amman';
+  const at = (local: string) => new Date(`${local}+03:00`).toISOString();
+  function allDay(id: string, day: string) {
+    const midnight = at(`${day}T00:00:00`);
+    return { ...base, id, title: id, timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: midnight, remindAt: null, allDay: true, timezone: ZONE } };
+  }
+  function timed(id: string, local: string) {
+    const iso = at(local);
+    return { ...base, id, title: id, timeSpec: { ...base.timeSpec, kind: 'scheduled_event', dueAt: iso, remindAt: iso, allDay: false, timezone: ZONE } };
+  }
+  function untimed(id: string) {
+    return { ...base, id, title: id, timeSpec: { ...base.timeSpec, kind: 'unscheduled', dueAt: null, remindAt: null, allDay: false, timezone: ZONE } };
+  }
+  const next = (items: unknown[], now: string) => nextUsefulItem(items as never, at(now), ZONE)?.id ?? null;
+
+  it('offers an all-day item due today at 09:00', () => {
+    expect(next([allDay('bill', '2026-09-27')], '2026-09-27T09:00:00')).toBe('bill');
+  });
+
+  it('still offers it at 23:30 the same day', () => {
+    expect(next([allDay('bill', '2026-09-27')], '2026-09-27T23:30:00')).toBe('bill');
+  });
+
+  it('drops it once its day is over', () => {
+    expect(next([allDay('bill', '2026-09-27')], '2026-09-28T00:10:00')).toBeNull();
+  });
+
+  it('offers an all-day item due tomorrow', () => {
+    expect(next([allDay('trip', '2026-09-28')], '2026-09-27T15:00:00')).toBe('trip');
+  });
+
+  it("puts today's timed item still ahead first, then today's all-day, over a passed one", () => {
+    const items = [timed('lunch', '2026-09-27T14:00:00'), allDay('bill', '2026-09-27'), timed('mum', '2026-09-27T17:00:00'), untimed('read')];
+    expect(next(items, '2026-09-27T15:02:00')).toBe('mum');
+    expect(next(items.filter(item => (item as { id: string }).id !== 'mum'), '2026-09-27T15:02:00')).toBe('bill');
+  });
+
+  it("puts today's all-day before tomorrow's timed item, and anything dated before an untimed one", () => {
+    expect(next([untimed('read'), timed('dentist', '2026-09-28T09:00:00'), allDay('bill', '2026-09-27')], '2026-09-27T20:00:00')).toBe('bill');
+    expect(next([untimed('read'), allDay('trip', '2026-09-28')], '2026-09-27T20:00:00')).toBe('trip');
+  });
+
+  it('on screen: an all-day item due today is shown, by its day, with no time', async () => {
+    const zone = deviceTimeZone();
+    const key = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    // The server's shape: that day's local midnight in the item's own zone.
+    const midnight = new Date(Date.UTC(+key.slice(0, 4), +key.slice(5, 7) - 1, +key.slice(8, 10)));
+    const offset = midnight.getTime() - Date.parse(new Date(midnight.toLocaleString('en-US', { timeZone: zone })).toString().replace(/GMT.*$/, 'GMT'));
+    mockToday = [{ ...base, id: 'bill', title: 'Pay the bill', timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: new Date(midnight.getTime() + offset).toISOString(), remindAt: null, allDay: true, timezone: zone } }];
+    await show();
+    expect(screen.getByText(/Pay the bill/)).toBeTruthy();
+    expect(Object.values(strings).filter(t => screen.queryAllByText(t.xNoContext).length > 0)).toHaveLength(0);
+    // Its day, never its bookkeeping midnight as a time, and never the day before.
+    expect(screen.queryAllByText(/\d{1,2}:\d{2}/)).toHaveLength(0);
+    expect(screen.getByText(new RegExp(`\\b${+key.slice(8, 10)}\\b`))).toBeTruthy();
   });
 });

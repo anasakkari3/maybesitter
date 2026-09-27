@@ -59,8 +59,8 @@ const FORBIDDEN_REASONS: readonly string[] = [
  *
  * A module the server has switched off answers 404 `feature_unavailable`
  * (`moduleGate.ts`) where a withdrawn feature answers 403 `feature_disabled`.
- * To the person they are the same thing — not available yet, and nothing a
- * Retry can change — so both are that one state.
+ * To the person they are the same thing — not available, and nothing a Retry
+ * can change — so both are that one state.
  */
 export function forbiddenReason(error: unknown): ForbiddenReason | null {
   if (error instanceof FeatureUnavailableError) return 'feature_disabled';

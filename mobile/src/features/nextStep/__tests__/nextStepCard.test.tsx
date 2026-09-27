@@ -127,6 +127,10 @@ describe('it never implies it has acted', () => {
     await show();
     await fireEvent.press(screen.getByTestId('next-step-accept'));
     await waitFor(() => expect(screen.getByTestId('next-step-tag')).toHaveTextContent(en.nextStepTagStarted));
+    // Review round 2 (minor): the started note does not say the tag again.
+    for (const bundle of [en, ar] as unknown as Record<string, string>[]) {
+      expect(bundle.nextStepStartedNote).not.toContain(bundle.nextStepTagStarted!);
+    }
   });
 
   it('still says so once the why is open', async () => {
