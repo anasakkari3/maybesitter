@@ -5,14 +5,14 @@ import { useConsents, useSetPersonalizationConsent, useCreateMemory, useMemory, 
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { apiLocale } from '../../i18n/locale';
-import { formatDate, formatTime } from '../../i18n/format';
-import { useTimeZone } from '../../i18n/timezone';
+import { dayKey, formatDate, formatTime } from '../../i18n/format';
+import { resolveTimeZone, useTimeZone } from '../../i18n/timezone';
 import { isolateAuto } from '../../i18n/bidi';
 import { fill } from '../../i18n/strings';
 import { useLayoutMode } from '../../theme/textScale';
 import { memorySentence } from '../memory/memoryDisplay';
 import { durationText } from '../memory/memoryProvenance';
-import { toViewModel } from '../commitments/model';
+import { toViewModel, type CommitmentView } from '../commitments/model';
 import { ServerToggle } from '../settings/ServerToggle';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ProductPage, ProductSection, ProductRow, ProductActions } from '../../ui/product';
@@ -22,6 +22,40 @@ import { ExportDataRow } from '../account/ExportDataRow';
 
 export function uniqueCommitments(items: readonly Commitment[]) {
   return [...new Map(items.map(item => [item.id, item])).values()];
+}
+
+/**
+ * The one item «سياق يومك» offers: the soonest active one still ahead, then
+ * one with no time. An active item whose time has passed is not "next" (UAT
+ * 2026-09-27: 14:00 lunch offered at 15:02). It is not hidden either — it
+ * stays on Today until the user acts on it (#383), with no "overdue" label.
+ *
+ * An all-day item is judged by its day, not its instant: its `dueAt` is that
+ * day's local midnight, and it is ahead until the day ends (review I-1). Order
+ * is by day; within a day, timed items first, then the all-day ones; items
+ * with no time come last.
+ */
+export function nextUsefulItem(items: readonly Commitment[], now: string, timeZone: string) {
+  const today = dayKey(new Date(now), timeZone);
+  const NO_DAY = '9999-99-99';
+  type Ranked = { view: CommitmentView; day: string; tier: number; at: number; allDayZone: string | null };
+  const ranked = items.flatMap((record): Ranked[] => {
+    const view = toViewModel(record, now);
+    if (view.status !== 'active') return [];
+    if (!view.shownAt) return [{ view, day: NO_DAY, tier: 2, at: 0, allDayZone: null }];
+    if (record.timeSpec.allDay) {
+      const allDayZone = resolveTimeZone(record.timeSpec.timezone);
+      const day = dayKey(new Date(view.shownAt), allDayZone);
+      return day < today ? [] : [{ view, day, tier: 1, at: 0, allDayZone }];
+    }
+    if (view.isPast) return [];
+    return [{ view, day: dayKey(new Date(view.shownAt), timeZone), tier: 0, at: Date.parse(view.shownAt), allDayZone: null }];
+  });
+  ranked.sort((a, b) => a.day.localeCompare(b.day) || a.tier - b.tier || a.at - b.at);
+  const first = ranked[0];
+  // An all-day item shows its day, in its own zone, and no time: 00:00 is
+  // bookkeeping, not an hour anybody chose.
+  return first ? { ...first.view, allDayZone: first.allDayZone } : undefined;
 }
 
 export function PersonalizationScreen() {
@@ -37,7 +71,9 @@ export function PersonalizationScreen() {
   const version = consents.data?.currentVersions.personalization;
   const suggestions = memory.data?.suggestions ?? [];
   const recent = [...(memory.data?.items ?? [])].sort((a,b) => b.createdAt.localeCompare(a.createdAt)).slice(0,3);
-  return <ProductPage id="personalization" title={t.xPersonalization} subtitle={t.xMyBody}>
+  // #17 (UAT 2026-09-27): no subtitle, and the learned section has no lede —
+  // the toggle's consent words already say nothing is saved unless kept.
+  return <ProductPage id="personalization" title={t.xPersonalization}>
     <QueryBoundary isPending={consents.isPending} error={consents.error} onRetry={() => void consents.refetch()}>
     <Card pad={0}>
       <ServerToggle title={t.trustPersonalizationTitle} body={t.trustPersonalizationBody}
@@ -55,7 +91,7 @@ export function PersonalizationScreen() {
     {forbiddenReason(memory.error) === 'feature_disabled' ? (
       <ProductSection title={t.xLearned} body={t.errorsFeatureDisabled} icon="person" />
     ) : <QueryBoundary isPending={memory.isPending} error={memory.error} onRetry={() => void memory.refetch()}>
-      <ProductSection title={t.xLearned} body={t.memorySuggestionsLede} icon="person">
+      <ProductSection title={t.xLearned} icon="person">
         {suggestions.length === 0 ? <Txt role="supporting" color={p.mu}>{t.xNoLearning}</Txt> : null}
         {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
         {suggestions.map(suggestion => <Card key={suggestion.fingerprint} style={{ gap: 12 }}>
@@ -142,11 +178,12 @@ export function ContextualAssistantScreen() {
   const items = uniqueCommitments([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])]);
   // A deadline is not an appointment. Present its recorded time without an
   // invented meeting classification, briefing, or countdown.
-  const item = items.map(record => toViewModel(record, new Date().toISOString())).filter(record => record.status === 'active')
-    .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999'))[0];
+  const item = nextUsefulItem(items, new Date().toISOString(), zone);
   return <ProductPage id="assistant" title={t.xAssistant} subtitle={t.xAssistantBody}>
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
-      <ProductSection title={item ? isolateAuto(item.title) : t.xNoContext} body={item?.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : undefined} icon="calendar">
+      <ProductSection title={item ? isolateAuto(item.title) : t.xNoContext} body={item?.shownAt ? (item.allDayZone
+        ? formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: item.allDayZone })
+        : `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`) : undefined} icon="calendar">
         {item ? <Pill label={t.xOpenCommitment} testID="assistant-detail" onPress={() => actions.openDetail(item.id)} /> : <Pill label={t.xQuick} onPress={() => actions.go('capture')} />}
       </ProductSection>
     </QueryBoundary>

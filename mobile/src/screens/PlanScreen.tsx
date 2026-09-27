@@ -312,7 +312,8 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
     <View style={{ gap: 14 }}>
       <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', alignItems: stacked ? 'flex-start' : 'center', gap: 10, paddingHorizontal: 4 }}>
         <Txt size={15} color={p.mu} testID="plan-date">{heading}</Txt>
-        {proposal ? <Tag kind="proposal" label={t.planStatusProposal} testID="plan-status-proposal" /> : null}
+        {/* No «اقتراح — ما انحفظت بعد» tag: `plan-proposal-note` below
+            already says it (#17, UAT 2026-09-27). */}
       </View>
 
       {readOnly ? (

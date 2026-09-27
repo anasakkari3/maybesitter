@@ -58,7 +58,7 @@ it('creates the readiness watcher, and offers no flight, parcel or «soon» sour
   expect(screen.getByTestId('watch-source-readiness').props.accessibilityState.checked).toBe(true);
   // Council ruling (closure CL7): flights and parcels are removed, not
   // labelled, and nothing on the builder says «قريبًا».
-  for (const t of Object.values(strings)) expect(screen.queryAllByText(t.xSoon)).toHaveLength(0);
+  expect(screen.queryAllByText(/Coming soon|قريبًا|בקרוב/)).toHaveLength(0);
   expect(screen.queryAllByTestId('row-status-COMING_SOON')).toHaveLength(0);
   for (const word of ['Flight', 'Package', 'رحلة طيران', 'طرد', 'טיסה', 'חבילה']) expect(screen.queryAllByText(word)).toHaveLength(0);
   // Without the server's key there is no football row either.

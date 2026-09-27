@@ -62,6 +62,20 @@ describe('explanatory bodies are one short line', () => {
       });
     }
 
+    // UAT 2026-09-27 (#17): the second sentence of each of these restated the
+    // title, the button under it, or a line elsewhere on the same screen.
+    for (const key of ['obConsentLede', 'obAiDeclinedNote', 'xModesBody', 'xNoContext', 'xNoLearning', 'planEmptyBodyReady']) {
+      it(`${locale}: ${key} is one sentence`, () => {
+        expect({ key, sentences: sentences(String(bundle[key])) }).toEqual({ key, sentences: 1 });
+      });
+    }
+
+    // The title already asks what MaybeSitter may use; the lede said it back.
+    it(`${locale}: the consent lede does not repeat the consent title`, () => {
+      expect(String(bundle.obConsentTitle)).toContain('MaybeSitter');
+      expect(String(bundle.obConsentLede)).not.toContain('MaybeSitter');
+    });
+
     // A consent's words (personalizationConsentCopy.test.ts holds every claim);
     // the claims stay, the repetition goes. It was 228 characters in Arabic.
     it(`${locale}: trustPersonalizationBody says its claims and no more`, () => {

@@ -34,10 +34,9 @@ export function ProductIcon({ name = 'spark', quiet = false }: { name?: ProductI
 }
 export function AvailabilityBadge({ status, testID }: { status: Availability; testID?: string }) {
   const { t, p } = useApp();
-  const future = status === 'COMING_SOON';
   const available = status === 'LIVE' || status === 'AVAILABLE' || status === 'VIA_SHARE';
-  return <View testID={testID ?? `availability-${status}`} style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: future ? p.sf2 : available ? p.successSoft : p.wms }}>
-    <Txt role="metadata" color={future ? p.mu : available ? p.success : p.wm}>{t[availabilityKey[status]]}</Txt>
+  return <View testID={testID ?? `availability-${status}`} style={{ alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: available ? p.successSoft : p.wms }}>
+    <Txt role="metadata" color={available ? p.success : p.wm}>{t[availabilityKey[status]]}</Txt>
   </View>;
 }
 export function ProductPage({ title, subtitle, children, id, overlay }: { title: string; subtitle?: string; children: React.ReactNode; id: string; overlay?: React.ReactNode }) {
@@ -61,7 +60,7 @@ export function ProductSection({ title, body, icon, status, children }: { title:
   const { p } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   // The section's testID carries its status so the capability guard can find
-  // a Coming-soon section and prove nothing inside it can be pressed.
+  // it and hold its badge to what it does.
   return <Card style={{ gap: 16 }} testID={status ? `product-section-${status}` : undefined}>
     <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 14, alignItems: 'flex-start' }}>
       {icon ? <ProductIcon name={icon} /> : null}
@@ -89,12 +88,6 @@ export function ProductRow({ title, body, icon = 'spark', onPress, status, id }:
   </>;
   const style = { padding: grouped ? 4 : 16, paddingVertical: grouped ? 12 : 16, gap: 12, borderRadius: grouped ? 0 : 22, borderWidth: grouped ? 0 : 1, borderBottomWidth: 1, borderColor: p.ln, backgroundColor: grouped ? 'transparent' : p.glass, flexDirection: stacked ? 'column' as const : 'row' as const, alignItems: 'flex-start' as const, minHeight: 72 };
   return onPress ? <Btn testID={id} label={[title, body].filter(Boolean).join('. ')} onPress={onPress} style={style}>{content}</Btn> : <View testID={id} style={style}>{content}</View>;
-}
-export function PreviewNotice() {
-  const { t, p } = useApp();
-  return <View testID="product-preview-notice" style={{ padding: 16, borderRadius: 18, borderWidth: 1, borderStyle: 'dashed', borderColor: p.prop, gap: 6 }}>
-    <Txt role="label" color={p.ac}>{t.xPreview}</Txt><Txt role="supporting" color={p.mu}>{t.xPreviewBody}</Txt>
-  </View>;
 }
 export function ProductActions({ children }: { children: React.ReactNode }) {
   const stacked = useLayoutMode() !== 'normal';

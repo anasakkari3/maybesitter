@@ -115,7 +115,7 @@ describe('not configured', () => {
     }
     expect(screen.queryByTestId('google-disconnect')).toBeNull();
     // Never "coming soon".
-    expect(screen.queryByText(copy().xSoon)).toBeNull();
+    expect(screen.queryByText(/Coming soon|قريبًا|בקרוב/)).toBeNull();
     expect(screen.queryByTestId('row-status-COMING_SOON')).toBeNull();
   });
 });

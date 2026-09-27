@@ -28,3 +28,16 @@ it('editing learning requires an explicit save and does not accept the original 
   expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'preference', content: 'I prefer quiet mornings' }), expect.any(Object));
   expect(mockDecide).not.toHaveBeenCalled();
 });
+
+// UAT 2026-09-27 (#17, shot 100): «ما بينحفظ إشي إلا إذا إنت حفظته» said
+// twice — in the toggle's consent words and again as the learned section's
+// lede — under a subtitle that said nothing about the page. The consent's
+// words stay (personalizationConsentCopy.test.ts holds them); the repeats go.
+it('says each thing once: no repeated "nothing is saved" lede, no decorative subtitle', async () => {
+  await render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><PersonalizationScreen /></AppProvider></SafeAreaProvider>);
+  for (const t of Object.values(strings)) {
+    expect(screen.queryAllByText(t.memorySuggestionsLede)).toHaveLength(0);
+    expect(screen.queryAllByText(t.xMyBody)).toHaveLength(0);
+  }
+  expect(Object.values(strings).filter(t => screen.queryAllByText(t.trustPersonalizationBody).length > 0)).toHaveLength(1);
+});

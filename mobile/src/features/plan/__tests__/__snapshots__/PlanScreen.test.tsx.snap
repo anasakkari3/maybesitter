@@ -362,39 +362,6 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               >
                 الأحد، 9 أغسطس
               </Text>
-              <View
-                style={
-                  {
-                    "alignSelf": "flex-start",
-                    "backgroundColor": "transparent",
-                    "borderColor": "rgba(138,106,46,0.60)",
-                    "borderRadius": 999,
-                    "borderStyle": "dashed",
-                    "borderWidth": 1,
-                    "paddingHorizontal": 10,
-                    "paddingVertical": 4,
-                  }
-                }
-              >
-                <Text
-                  style={
-                    [
-                      {
-                        "color": "#626268",
-                        "fontFamily": "NotoNaskhArabic_400Regular",
-                        "fontSize": 12,
-                        "lineHeight": 19,
-                        "textAlign": "left",
-                        "writingDirection": "rtl",
-                      },
-                      undefined,
-                    ]
-                  }
-                  testID="plan-status-proposal"
-                >
-                  اقتراح — ما انحفظت بعد
-                </Text>
-              </View>
             </View>
             <Text
               style={

@@ -28,7 +28,8 @@ import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/sch
  * and is not conditional. The contract says `persistence.occurred: false` and
  * `confirmationRequired: true` on every proposal; the line is that fact in
  * words. Round 2 adds the same fact as a *shape*: the card's edge is dashed in
- * the proposal colour until a decision is made, and a tag says «اقتراح».
+ * the proposal colour until a decision is made. There is no «اقتراح» tag as
+ * well: that said the note's words a second time on the same card (#17).
  *
  * ── Only the actions the server offered ──────────────────────────
  *
@@ -111,8 +112,11 @@ export function NextStepCard({ lookup }: {
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
-            {recommendation.state === 'ready' ? (
-              <Tag kind={started ? 'started' : 'proposal'} label={started ? t.nextStepTagStarted : t.nextStepTagProposal} testID="next-step-tag" />
+            {/* Started only. A proposal already says so in `suggestionNote`
+                and the dashed edge; a tag saying it again was #17's
+                duplicate (UAT 2026-09-27). */}
+            {recommendation.state === 'ready' && started ? (
+              <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" />
             ) : null}
           </View>
 
