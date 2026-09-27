@@ -63,9 +63,10 @@ import { EMPTY_ANSWERS } from '../routine/routineProfile';
  *
  * ── Progress is stored per step ──────────────────────────────────
  *
- * Killing the app mid-survey resumes at the survey. `saveOnboardingProgress`
- * runs *before* the state moves, so a crash between the two resumes on the
- * step just finished rather than skipping one.
+ * Killing the app mid-survey resumes at the survey. The screen moves first,
+ * inside the press, and the write follows: a crash between the two resumes on
+ * the step just finished, shown again, never on one skipped. The write used to
+ * come first, so nothing the person saw moved until a device write answered.
  *
  * ── The analytics event obeys the answer it just recorded ────────
  *
@@ -185,9 +186,11 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
 
   const advance = useCallback(async (from: OnboardingStep) => {
     const next = nextStep(from);
-    await saveOnboardingProgress(next);
+    // State first, in the same tick as the press that asked for it; nothing
+    // the person sees waits on the device write. See the header.
     setStep(next);
     if (next === 'done') { replayEvent('onboarding_completed'); onFinished(); }
+    await saveOnboardingProgress(next);
   }, [onFinished, replayEvent]);
 
   const goBack = useCallback((from: OnboardingStep) => {

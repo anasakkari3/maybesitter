@@ -21,11 +21,10 @@ import type { DeviceBusyBlock } from './busyBlocks';
  *
  * ── The times go through the locale, not through a template ──────
  *
- * `formatTimeRange` renders both ends in the user's locale and wraps them in
- * bidi isolates, so an Arabic line reads «بيتقاطع مع موعد بتقويمك ⁦14:00–15:30⁩»
- * with the range intact rather than with the two times swapped around the dash.
- * In Arabic the digits themselves may be Arabic-Indic, which is why nothing
- * anywhere near this chip pattern-matches on `\\d`.
+ * `formatTimeRange` renders both ends in the user's locale as one left-to-right
+ * isolate, so an Arabic line reads «بيتقاطع مع موعد بتقويمك ⁦14:00–15:30⁩» with
+ * the start on the left and the range intact. The digits are Latin in every
+ * language (`INTL_LOCALE`); nothing here pattern-matches on them anyway.
  *
  * ── Two sentences, because an all-day entry has no times ─────────
  *

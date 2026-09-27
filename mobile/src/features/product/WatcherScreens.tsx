@@ -4,7 +4,7 @@ import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatDate, formatTime } from '../../i18n/format';
-import { isolate } from '../../i18n/bidi';
+import { isolateAuto } from '../../i18n/bidi';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Dialog } from '../../ui/dialog';
 import { ProductPage, ProductSection, ProductActions, ProductRow, AvailabilityBadge } from '../../ui/product';
@@ -20,7 +20,7 @@ export function BackgroundActivityScreen() {
   const setMonitoring = useSetBackgroundActivityPaused();
   const [deleting, setDeleting] = useState<string | null>(null);
   const items = query.data?.monitors ?? [];
-  const monitorTitle = (label: string) => label === 'maybesitter:readiness' ? t.xReadiness : isolate(label.replace(':', ' · '));
+  const monitorTitle = (label: string) => label === 'maybesitter:readiness' ? t.xReadiness : isolateAuto(label.replace(':', ' · '));
   const statusOf = (status: (typeof items)[number]['status']) => status === 'needs_reauth' ? 'NEEDS_REAUTH' as const
     : status === 'blocked_permission' || status === 'error' ? 'BLOCKED' as const
     : status === 'active' ? 'LIVE' as const : null;
@@ -42,7 +42,7 @@ export function BackgroundActivityScreen() {
       {items.length === 0 ? <ProductSection title={t.xNoWatches} icon="watch" /> : null}
       {items.map(monitor => <ProductSection key={monitor.monitorId} title={monitorTitle(monitor.label)} icon="watch">
         {statusOf(monitor.status) ? <AvailabilityBadge status={statusOf(monitor.status)!} /> : <Txt role="label" color={p.wm}>{t.xPaused}</Txt>}
-        <Txt role="supporting" color={p.mu}>{monitor.effects.map(effect => t[effectKeys[effect as keyof typeof effectKeys]] ?? isolate(effect)).join(' · ')}</Txt>
+        <Txt role="supporting" color={p.mu}>{monitor.effects.map(effect => t[effectKeys[effect as keyof typeof effectKeys]] ?? isolateAuto(effect)).join(' · ')}</Txt>
         <ProductRow title={t.xLastChecked} body={instant(monitor.lastCheckedAt)} icon="watch" />
         <ProductRow title={t.xNextCheck} body={instant(monitor.nextCheckAt)} icon="calendar" />
         <ProductRow title={t.xLastChanged} body={instant(monitor.lastChangedAt)} icon="spark" />
@@ -59,7 +59,7 @@ export function BackgroundActivityScreen() {
         {attribution.data?.actions.map(event => <Card key={event.actionId} style={{ gap: 6 }}>
           <Txt role="card">{monitorTitle(event.label)}</Txt>
           <Txt role="supporting" color={p.mu}>{instant(event.occurredAt)}</Txt>
-          <Txt role="supporting">{`${isolate(event.condition)} → ${isolate(event.policyDecision)} → ${t[effectKeys[event.effect as keyof typeof effectKeys]] ?? isolate(event.effect)}`}</Txt>
+          <Txt role="supporting">{`${isolateAuto(event.condition)} → ${isolateAuto(event.policyDecision)} → ${t[effectKeys[event.effect as keyof typeof effectKeys]] ?? isolateAuto(event.effect)}`}</Txt>
         </Card>)}
         {attribution.data ? <Txt role="supporting" color={attribution.data.orphanCount === 0 ? p.success : p.wm} testID="background-integrity">
           {attribution.data.orphanCount === 0 ? t.xBackgroundIntegrityOk : t.xBackgroundIntegrityWarning.replace('{count}', String(attribution.data.orphanCount))}

@@ -16,7 +16,7 @@ import type { GoalConfirmationSelection } from '../../api/endpoints/goals';
 import type { GoalGraph } from '../../api/schemas/goals';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
-import { isolate } from '../../i18n/bidi';
+import { isolateAuto } from '../../i18n/bidi';
 import { formatNumber } from '../../i18n/format';
 import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
@@ -70,7 +70,7 @@ export function GoalExecutionScreen() {
           {goals.map(goal => <ProductRow
             key={goal.id}
             id={`goal-open-${goal.id}`}
-            title={isolate(goal.content)}
+            title={isolateAuto(goal.content)}
             body={t.xGoalOpen}
             icon="goal"
             onPress={() => actions.openGoal(goal.id)}
@@ -151,7 +151,7 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
 
   return <View style={{ gap: 16 }}>
     <Pill testID="goal-back-list" label={t.xGoalBackToGoals} kind="ghost" onPress={onBack} />
-    <Card style={{ gap: 8 }}><Txt role="section">{isolate(title)}</Txt></Card>
+    <Card style={{ gap: 8 }}><Txt role="section">{isolateAuto(title)}</Txt></Card>
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {query.data ? <>
         {notice ? <NoticeCard notice={notice} /> : null}
@@ -263,10 +263,10 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
       return <Card key={node.nodeId} style={{ gap: 10 }}>
         <ProductRow
           id={`goal-proposal-${node.nodeId}`}
-          title={isolate(node.title)}
+          title={isolateAuto(node.title)}
           body={[
             selected ? t.xGoalSelected : t.xGoalSelectStep,
-            node.statedTiming ? `${t.xGoalStatedTiming}: ${isolate(node.statedTiming)}` : null,
+            node.statedTiming ? `${t.xGoalStatedTiming}: ${isolateAuto(node.statedTiming)}` : null,
           ].filter(Boolean).join(' · ')}
           icon={node.kind === 'milestone_proposal' ? 'goal' : 'check'}
           onPress={() => onToggle(node.nodeId)}
@@ -284,7 +284,7 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
         </> : null}
       </Card>;
     })}
-    {checkpoints.length > 0 ? <Card style={{ gap: 8 }}><Txt role="label">{t.xCheckpoints}</Txt>{checkpoints.map(node => <ProductRow key={node.nodeId} title={isolate(node.title)} icon="goal" />)}</Card> : null}
+    {checkpoints.length > 0 ? <Card style={{ gap: 8 }}><Txt role="label">{t.xCheckpoints}</Txt>{checkpoints.map(node => <ProductRow key={node.nodeId} title={isolateAuto(node.title)} icon="goal" />)}</Card> : null}
     {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
     <ProductActions>
       <Pill testID="goal-confirm-selected" label={t.xGoalConfirmSelected} disabled={busy || Object.keys(selections).length === 0} onPress={onConfirm} />
@@ -320,7 +320,7 @@ function LinkedWorkRow({ node, progress, habit, habitPending, unlinking, busy, o
     })
     : progress?.entityKind === 'commitment' ? (progress.completed ? t.doneS : status) : t.xGoalProgressUnscoped;
   return <Card testID={`goal-linked-${node.nodeId}`} style={{ gap: 10 }}>
-    {title ? <ProductRow title={isolate(title)} body={progressCopy} icon={isCommitment ? 'check' : 'habit'} />
+    {title ? <ProductRow title={isolateAuto(title)} body={progressCopy} icon={isCommitment ? 'check' : 'habit'} />
       : <Txt role="supporting" color={missing ? p.wm : p.mu}>{missing ? t.xGoalEntityMissing : t.todayLoading}</Txt>}
     {!unlinking ? <Pill label={t.xGoalUnlink} kind="outline" disabled={busy} onPress={onAskUnlink} /> : <Card style={{ gap: 10 }}>
       <Txt role="supporting">{t.xGoalUnlinkConfirm}</Txt>

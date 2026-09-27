@@ -24,7 +24,7 @@ name: Today, and the actions on a commitment
 - inputText: 'ذكّرني أسلّم التقرير بكرا الساعة 3'
 - tapOn: 'فهمها'
 # The review screen says nothing has been saved yet; confirming is what saves.
-- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- assertVisible: 'هاد اقتراح. لسّا ما تغيّر إشي.'
 - tapOn:
     text: 'أكّد.*'
 

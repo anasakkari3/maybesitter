@@ -8,7 +8,8 @@ import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { useProfile, useTrust } from '../../api/queries';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { MemorySection } from '../memory/MemorySection';
-import { fill, ltr } from '../../i18n/strings';
+import { fill } from '../../i18n/strings';
+import { isolateAuto } from '../../i18n/bidi';
 import { formatDate } from '../../i18n/format';
 
 /**
@@ -44,10 +45,11 @@ export function KnowsScreen({
   // nothing had happened.
   const lastImport = profile.data?.aiContextImport ?? null;
   const importSub = lastImport
-    // `ltr` because a date inside Arabic text reorders without it — the same
-    // rule every other date in this app goes through.
+    // Isolated so the date stays one piece inside the sentence, and by its own
+    // first letter rather than forced left-to-right: «26 سبتمبر» in an LTR
+    // isolate reads «سبتمبر 26» (UAT 2026-09-26, #16).
     ? fill(t.aiImportLastImported, {
-      date: ltr(formatDate(new Date(lastImport.lastImportedAt), 'short', { locale: lang, timeZone })),
+      date: isolateAuto(formatDate(new Date(lastImport.lastImportedAt), 'short', { locale: lang, timeZone })),
     })
     : t.aiImportEntrySub;
 

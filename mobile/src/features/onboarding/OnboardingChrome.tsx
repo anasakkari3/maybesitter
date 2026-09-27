@@ -1,10 +1,11 @@
 import React from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { BrandLockup } from '../../ui/brand';
 import { Btn, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
+import { AvoidKeyboard } from '../../ui/keyboard';
 import { ONBOARDING_STEPS, type OnboardingStep } from '../../lib/deviceSettings/onboardingProgress';
 
 /**
@@ -47,9 +48,8 @@ export function OnboardingChrome({
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
-      <KeyboardAvoidingView
+      <AvoidKeyboard
         testID={testID ? `${testID}-kav` : 'onboarding-kav'}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
         <View
@@ -127,7 +127,7 @@ export function OnboardingChrome({
           ) : null}
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </AvoidKeyboard>
   </ScreenIn>
 );
 }

@@ -40,7 +40,7 @@ name: Deep links still work under singleTask
 - tapOn: 'أو اكتب'
 - inputText: 'ذكّرني أحكي مع دانا بكرا الساعة 4'
 - tapOn: 'فهمها'
-- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- assertVisible: 'هاد اقتراح. لسّا ما تغيّر إشي.'
 - tapOn:
     text: 'أكّد.*'
 - tapOn: 'اليوم'

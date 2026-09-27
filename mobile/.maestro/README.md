@@ -106,7 +106,7 @@ screen offers: postpone by a preset, edit the title, decline a drop-on-purpose,
 and delete.
 
 Two assertions in it are about restraint rather than function. The review screen
-must say «هذا اقتراح. لم يتغيّر أي شيء بعد.» before anything is saved, and
+must say «هاد اقتراح. لسّا ما تغيّر إشي.» before anything is saved, and
 declining the drop confirm must leave the commitment exactly as it was.
 
 It needs a **signed-in** build. Maestro cannot type into a secure field, so it
@@ -132,8 +132,8 @@ The capture journey from the entry a widget uses:
 `openLink maybesitter://capture?source=widget&input=voice`, then type, understand,
 review, confirm, and take the undo.
 
-Two assertions in it are about restraint. Review must say «هذا اقتراح. لم
-يتغيّر أي شيء بعد.» before anything is written, and pressing Paste must open a
+Two assertions in it are about restraint. Review must say «هاد اقتراح. لسّا
+ما تغيّر إشي.» before anything is written, and pressing Paste must open a
 sheet rather than filling the field — the clipboard is read on that press and
 on nothing else, so no "pasted from …" banner appears before it.
 
@@ -160,7 +160,7 @@ The review screen's edit sheet. Renames the item, picks a level, opens the
 time wheel, saves, cancels a second edit, and only then confirms.
 
 The assertion it exists for is the one after Save: the card shows the new title
-and «هذا اقتراح. لم يتغيّر أي شيء بعد.» is *still* on screen. The edit is held
+and «هاد اقتراح. لسّا ما تغيّر إشي.» is *still* on screen. The edit is held
 and travels with the confirm (#164), not PATCHed behind the user, so a build
 that wrote early is a build where that line has gone.
 

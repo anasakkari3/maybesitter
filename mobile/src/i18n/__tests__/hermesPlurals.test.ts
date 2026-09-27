@@ -44,7 +44,7 @@ describe('count messages on an engine without Intl.PluralRules (Hermes)', () => 
   });
 
   it('keeps the Arabic dual and the Hebrew two-form', () => {
-    expect(tFor('ar')('lockedTitle', { n: 2 })).toBe('اليوم، شيئان');
+    expect(tFor('ar')('lockedTitle', { n: 2 })).toBe('اليوم، إشيين');
     expect(tFor('ar')('confirmN', { n: 11 })).toBe('أكّد 11 التزامًا');
     expect(tFor('he')('confirmN', { n: 2 })).toBe('אישור שתי התחייבויות');
   });

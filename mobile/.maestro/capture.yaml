@@ -70,7 +70,7 @@ name: Capture, from a widget link to the undo window
 # claiming more than the contract allows.
 - assertVisible:
     id: 'review-note'
-- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
+- assertVisible: 'هاد اقتراح. لسّا ما تغيّر إشي.'
 - assertVisible: 'التقرير'
 
 # ── Confirming is what saves ───────────────────────────────────────

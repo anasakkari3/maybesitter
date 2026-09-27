@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { isolate } from '../../i18n/bidi';
+import { isolateAuto } from '../../i18n/bidi';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import {
   useCreateMemory,
@@ -226,7 +226,7 @@ function MemoryRow({
       ) : (
         <>
           <Txt size={15} lh={1.5} testID={`memory-item-${item.id}`}>
-            {isolate(memorySentence({ content: item.content, strings }))}
+            {isolateAuto(memorySentence({ content: item.content, strings }))}
           </Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             {chip ? (

@@ -414,7 +414,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               }
               testID="plan-proposal-note"
             >
-              هذا اقتراح. لم يتغيّر أي شيء بعد.
+              هاد اقتراح. لسّا ما تغيّر إشي.
             </Text>
             <Text
               style={
@@ -592,7 +592,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                           ]
                         }
                       >
-                        11:00–12:00
+                        ⁦11:00–12:00⁩
                       </Text>
                       <Text
                         style={

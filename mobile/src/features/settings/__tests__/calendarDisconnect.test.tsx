@@ -26,6 +26,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -166,9 +167,28 @@ describe('pressing disconnect', () => {
 });
 
 describe('what the screen says without being asked', () => {
-  it('names the Android caveat rather than leaving it in an issue', async () => {
-    await show();
-    expect(String(screen.getByTestId('calendar-declined-note').props.children))
-      .toBe(en.calendarDeclinedNote);
+  it('names the Android caveat on Android', async () => {
+    const original = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
+    try {
+      await show();
+      expect(String(screen.getByTestId('calendar-declined-note').props.children))
+        .toBe(en.calendarDeclinedNote);
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
+    }
+  });
+
+  // UAT 2026-09-26, #17, shot 57: an iPhone was told what Android does.
+  it('says nothing about Android on an iPhone', async () => {
+    const original = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: 'ios', configurable: true });
+    try {
+      await show();
+      expect(screen.queryByTestId('calendar-busy-count')).not.toBeNull();
+      expect(screen.queryByTestId('calendar-declined-note')).toBeNull();
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
+    }
   });
 });

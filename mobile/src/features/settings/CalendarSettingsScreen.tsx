@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Switch, View } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
@@ -351,7 +351,12 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
           <Txt size={13} color={p.mu} testID="calendar-busy-count">
             {fill(t.calendarBusyCount, { n: busyBlocks.length })}
           </Txt>
-          <Txt size={13} color={p.mu} lh={1.5} testID="calendar-declined-note">{t.calendarDeclinedNote}</Txt>
+          {/* Android's calendar provider cannot say whose reply was whose, so
+              a declined meeting stays busy. An iPhone has no such gap, and
+              telling its owner about Android is noise (UAT 2026-09-26, #17). */}
+          {Platform.OS === 'android'
+            ? <Txt size={13} color={p.mu} lh={1.5} testID="calendar-declined-note">{t.calendarDeclinedNote}</Txt>
+            : null}
           <Txt size={13} color={p.mu} lh={1.5}>{t.calendarDisconnectBody}</Txt>
           <Btn
             label={t.calendarDisconnectAction}

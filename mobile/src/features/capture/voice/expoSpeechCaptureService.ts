@@ -14,8 +14,7 @@ import type {
  * Apple's and Google's recognisers turn speech into text on the device — or, if
  * the language is not installed, on the vendor's service under the OS's own
  * disclosure. Either way MaybeSitter is handed a string and never a recording,
- * which is what the permission prompt says and what `privacyVoice` says on the
- * screen. Nothing here writes audio anywhere, and there is no path that could.
+ * which is what the permission prompt says. Nothing here writes audio anywhere, and there is no path that could.
  *
  * ── Every dependency is injected ─────────────────────────────────
  *
