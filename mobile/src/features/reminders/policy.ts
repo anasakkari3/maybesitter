@@ -192,8 +192,10 @@ export function planFor(
   const startsAt = Date.parse(commitment.startsAt);
   if (Number.isNaN(startsAt)) return [];
 
-  // A window (FX1): the gentle stage at its opening, the firmer ones from its
-  // deadline and only after the opening — the ladder never reads backwards.
+  // A window (FX1): the gentle stage at its opening; the follow-up from its
+  // deadline, only after the opening, so the ladder never reads backwards;
+  // the Must ring at max(opening, deadline − 10), so a window shorter than ten
+  // minutes still rings hard (re-review Minor 1; the server's `hardFireAtFor`).
   const opensAt = commitment.opensAt ? Date.parse(commitment.opensAt) : Number.NaN;
   const window = !Number.isNaN(opensAt) && opensAt < startsAt ? opensAt : null;
 
@@ -203,8 +205,10 @@ export function planFor(
     const leadMinutes = leadMinutesFor(stage, settings);
     let at: number;
     if (window !== null) {
-      at = stage === 'soft' ? window : startsAt - leadMinutes * 60_000;
-      if (stage !== 'soft' && at <= window) continue;
+      at = stage === 'soft' ? window
+        : stage === 'strong' ? Math.max(window, startsAt - leadMinutes * 60_000)
+          : startsAt - leadMinutes * 60_000;
+      if (stage === 'followUp' && at <= window) continue;
     } else {
       if (stage !== 'soft' && leadMinutes >= settings.softLeadMinutes) continue;
       at = startsAt - leadMinutes * 60_000;
