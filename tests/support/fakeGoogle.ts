@@ -7,6 +7,20 @@
  * had — so a route test exercises the real service code against something
  * that can say no in the ways Google says no. Shapes follow Google's documented
  * responses; nothing here is a contract of its own.
+ *
+ * ── One authorization per Google account, as Google keeps it ─────
+ *
+ * With `include_granted_scopes=true` every consent for the same account adds
+ * to one combined authorization, and each code exchange issues another refresh
+ * token *for that authorization*. Google's revocation acts on the
+ * authorization, not on the token string: "If you revoke a token that
+ * represents a combined authorization, access to all of that authorization's
+ * scopes on behalf of the associated user are revoked simultaneously"
+ * (developers.google.com/identity/protocols/oauth2/web-server, incremental
+ * authorization). So here, revoking any refresh or access token of an account
+ * kills every token that account's authorization ever issued. The first draft
+ * of this fake kept each refresh token independent, which is exactly why a
+ * "revoke the superseded token" step looked safe in the suite (CL6a review C1).
  */
 import { createHash } from 'node:crypto';
 
@@ -20,11 +34,18 @@ export interface FakeGoogleAccount {
   readonly email: string;
 }
 
-interface Grant {
+/** The user↔client authorization Google keeps: one per account until revoked. */
+interface Authorization {
   readonly account: FakeGoogleAccount;
-  readonly scopes: string[];
-  refreshToken: string;
+  /** Everything ever granted on it. */
+  scopes: string[];
   revoked: boolean;
+}
+
+/** One token (refresh or access), and what it may do. */
+interface Grant {
+  readonly authorization: Authorization;
+  readonly scopes: string[];
 }
 
 export interface FakeGmailMessage {
@@ -64,9 +85,15 @@ export class FakeGoogle {
   resourceStatus: number | null = null;
   accessTtlSeconds = 3600;
 
-  private readonly codes = new Map<string, { scopes: string[]; verifier: string | null; redirect: string }>();
+  private readonly codes = new Map<string, { account: FakeGoogleAccount; scopes: string[]; verifier: string | null; redirect: string }>();
+  private readonly authorizations: Authorization[] = [];
   private readonly grants = new Map<string, Grant>();
   private readonly access = new Map<string, Grant>();
+
+  /** The account's authorization Google still honours, if any. */
+  private liveAuthorization(sub: string): Authorization | null {
+    return this.authorizations.find((entry) => !entry.revoked && entry.account.sub === sub) ?? null;
+  }
   private counter = 0;
 
   /**
@@ -77,12 +104,12 @@ export class FakeGoogle {
     const url = new URL(authorizationUrl);
     const requested = (url.searchParams.get('scope') ?? '').split(' ').filter(Boolean);
     const already = url.searchParams.get('include_granted_scopes') === 'true'
-      ? Array.from(this.grants.values()).filter((grant) => !grant.revoked && grant.account.sub === this.account.sub)
-        .flatMap((grant) => grant.scopes)
+      ? this.liveAuthorization(this.account.sub)?.scopes ?? []
       : [];
     const scopes = Array.from(new Set([...already, ...requested.filter((scope) => !this.refusedScopes.includes(scope))]));
     const code = `code-${++this.counter}`;
     this.codes.set(code, {
+      account: this.account,
       scopes,
       verifier: url.searchParams.get('code_challenge'),
       redirect: url.searchParams.get('redirect_uri') ?? '',
@@ -96,8 +123,19 @@ export class FakeGoogle {
     this.access.clear();
   }
 
+  /** An hour later: every access token has expired, so the next call must refresh. */
+  expireAccessTokens(): void {
+    this.access.clear();
+  }
+
+  /** How many accounts still hold an authorization Google honours. */
   liveGrants(): number {
-    return Array.from(this.grants.values()).filter((grant) => !grant.revoked).length;
+    return this.authorizations.filter((entry) => !entry.revoked).length;
+  }
+
+  /** Revocation requests, whatever they named. */
+  revokeCalls(): number {
+    return this.calls.filter((call) => call.url === 'https://oauth2.googleapis.com/revoke').length;
   }
 
   readonly fetch = async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
@@ -126,9 +164,11 @@ export class FakeGoogle {
     return json({ error: { code: 404 } }, 404);
   };
 
-  private bearer(header: string | null): Grant | null {
+  private bearer(header: string | null): { account: FakeGoogleAccount; scopes: string[] } | null {
     if (!header?.startsWith('Bearer ')) return null;
-    return this.access.get(header.slice(7)) ?? null;
+    const grant = this.access.get(header.slice(7));
+    if (!grant || grant.authorization.revoked) return null;
+    return { account: grant.authorization.account, scopes: grant.scopes };
   }
 
   private mint(grant: Grant): Record<string, unknown> {
@@ -150,13 +190,22 @@ export class FakeGoogle {
       const challenge = createHash('sha256').update(verifier).digest('base64url');
       if (issued.verifier !== challenge) return json({ error: 'invalid_grant' }, 400);
       if (issued.redirect !== form.get('redirect_uri')) return json({ error: 'redirect_uri_mismatch' }, 400);
-      const grant: Grant = { account: this.account, scopes: issued.scopes, refreshToken: `refresh-${++this.counter}`, revoked: false };
-      this.grants.set(grant.refreshToken, grant);
-      return json({ ...this.mint(grant), refresh_token: grant.refreshToken });
+      // Another refresh token on the account's one authorization, or the
+      // first one of a new authorization after a revoke.
+      let authorization = this.liveAuthorization(issued.account.sub);
+      if (!authorization) {
+        authorization = { account: issued.account, scopes: [], revoked: false };
+        this.authorizations.push(authorization);
+      }
+      authorization.scopes = Array.from(new Set([...authorization.scopes, ...issued.scopes]));
+      const grant: Grant = { authorization, scopes: issued.scopes };
+      const refreshToken = `refresh-${++this.counter}`;
+      this.grants.set(refreshToken, grant);
+      return json({ ...this.mint(grant), refresh_token: refreshToken });
     }
     if (form.get('grant_type') === 'refresh_token') {
       const grant = this.grants.get(form.get('refresh_token') ?? '');
-      if (!grant || grant.revoked || this.refreshDead) {
+      if (!grant || grant.authorization.revoked || this.refreshDead) {
         return json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, 400);
       }
       return json(this.mint(grant));
@@ -168,13 +217,18 @@ export class FakeGoogle {
     if (this.revokeStatus !== 200) return json({ error: 'server_error' }, this.revokeStatus);
     const token = form.get('token') ?? '';
     const grant = this.grants.get(token) ?? this.access.get(token);
-    if (!grant) return json({ error: 'invalid_token' }, 400);
-    grant.revoked = true;
-    for (const [key, value] of Array.from(this.access.entries())) if (value === grant) this.access.delete(key);
+    if (!grant || grant.authorization.revoked) return json({ error: 'invalid_token' }, 400);
+    // The whole authorization, not the one token: every refresh and access
+    // token it ever issued dies with it (see the header).
+    const { authorization } = grant;
+    authorization.revoked = true;
+    for (const [key, value] of Array.from(this.access.entries())) {
+      if (value.authorization === authorization) this.access.delete(key);
+    }
     return new Response(null, { status: 200 });
   }
 
-  private gmailCall(url: URL, grant: Grant): Response {
+  private gmailCall(url: URL, grant: { scopes: string[] }): Response {
     if (!grant.scopes.includes('https://www.googleapis.com/auth/gmail.readonly')) return json({ error: { code: 403 } }, 403);
     if (url.pathname === '/gmail/v1/users/me/messages') {
       this.lastGmailQuery = url.searchParams.get('q');
@@ -205,7 +259,7 @@ export class FakeGoogle {
     });
   }
 
-  private driveCall(url: URL, grant: Grant): Response {
+  private driveCall(url: URL, grant: { scopes: string[] }): Response {
     if (!grant.scopes.includes('https://www.googleapis.com/auth/drive.file')) return json({ error: { code: 403 } }, 403);
     const match = /^\/drive\/v3\/files\/([^/]+)(\/export)?$/.exec(url.pathname);
     const file = match ? this.drive.get(decodeURIComponent(match[1]!)) : undefined;

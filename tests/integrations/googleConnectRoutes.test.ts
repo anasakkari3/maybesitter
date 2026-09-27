@@ -336,9 +336,10 @@ test('callback success: connected, the feature granted, tokens only as ciphertex
   }
 });
 
-test('incremental: turning Gmail on after Calendar keeps Calendar and revokes the superseded grant', async () => {
+test('incremental: turning Gmail on after Calendar keeps Calendar, and the combined grant still works an hour later', async () => {
   const done = setup();
   try {
+    await consentToCalendar();
     await connect('calendar');
     const begun = await begin('gmail');
     const scopes = new URL(begun.authorizationUrl).searchParams.get('scope')!.split(' ');
@@ -347,7 +348,19 @@ test('incremental: turning Gmail on after Calendar keeps Calendar and revokes th
     const granted = google.consent(begun.authorizationUrl);
     const json = await body(await callbackPost(request('/api/mobile/integrations/google/callback', { body: granted })));
     assert.deepEqual(json.google.features, { calendar: true, gmail: true, drive: false });
-    assert.equal(google.liveGrants(), 1, 'the old refresh token was revoked, not orphaned');
+
+    // At Google, revoking any token of a combined authorization revokes all of
+    // it — the token just issued included (CL6a review C1). A re-consent for
+    // the same account therefore revokes nothing.
+    assert.equal(google.revokeCalls(), 0, 'adding a feature never calls /revoke');
+    assert.equal(google.liveGrants(), 1, 'one authorization for the account, still live');
+
+    // An hour later the access token has expired, so the next read has to
+    // trade the stored refresh token in. It must still be good.
+    google.expireAccessTokens();
+    const synced = await calendarPost(request('/api/mobile/integrations/google/calendar', { method: 'POST' }));
+    assert.equal(synced.status, 200, JSON.stringify(await body(synced.clone())));
+    assert.equal((await status()).status, 'connected', 'still connected, not «أعد الربط»');
   } finally {
     done();
   }
@@ -409,9 +422,10 @@ test('callback: a permission unticked on the consent screen is permission_not_gr
   }
 });
 
-test('callback: adding a feature as a different Google account is refused and stores nothing new', async () => {
+test('callback: adding a feature as a different Google account is refused, stores nothing new, and leaves no orphan grant', async () => {
   const done = setup();
   try {
+    await consentToCalendar();
     await connect('calendar');
     google.account = { sub: '2000000000002', email: 'someone.else@example.com' };
     const response = await connect('gmail');
@@ -419,6 +433,17 @@ test('callback: adding a feature as a different Google account is refused and st
     assert.equal((await body(response)).reason, 'google_account_mismatch');
     const now = await status();
     assert.equal(now.accountEmail, 'person@example.com');
+    assert.deepEqual(now.features, { calendar: true, gmail: false, drive: false });
+
+    // The other account did consent, and Google issued it a grant. Nobody
+    // holds that grant now, so it is withdrawn rather than left live at
+    // Google where the person could never see it from this app.
+    assert.equal(google.liveGrants(), 1, "the other account's grant was revoked; the connected one's was not");
+    // …and the connected account's grant is untouched: it still refreshes.
+    google.expireAccessTokens();
+    const synced = await calendarPost(request('/api/mobile/integrations/google/calendar', { method: 'POST' }));
+    assert.equal(synced.status, 200);
+    assert.equal((await status()).status, 'connected');
   } finally {
     done();
   }

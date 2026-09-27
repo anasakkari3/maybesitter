@@ -50,7 +50,9 @@ import {
   completeProviderOAuth,
   disconnectProviderOAuth,
   ProviderOAuthError,
+  type ProviderOAuthClient,
 } from '../providers/providerOAuthLifecycle';
+import type { ProviderOAuthTokenSet } from '../providers/providerRuntime';
 import { StoredProviderOAuthStateStore } from '../providers/production/storedOAuthStateStore';
 import { StoredIntegrationConnectionStore, connectionIdFor } from '../providers/production/storedConnectionStore';
 import { EncryptedProviderCredentialVault } from '../providers/production/encryptedCredentialVault';
@@ -330,6 +332,36 @@ export interface CompleteGoogleConnectInput {
  * A live connection pins the Google account: adding Gmail to a grant made for
  * one account must not quietly swap in another. After a disconnect the pin is
  * gone, so the person can connect whichever account they like.
+ *
+ * ── Nothing is revoked on a re-consent of the same account (CL6a review C1) ──
+ *
+ * `prompt=consent` makes Google issue a new refresh token on every
+ * authorization, and `include_granted_scopes=true` makes that token belong to
+ * one *combined* authorization for this person and this client. Google's
+ * revocation acts on the authorization, not on the token string: "If you
+ * revoke a token that represents a combined authorization, access to all of
+ * that authorization's scopes on behalf of the associated user are revoked
+ * simultaneously" (G1, incremental authorization). The first draft revoked the
+ * superseded refresh token after turning a second feature on, which at Google
+ * would have killed the token just issued as well — the row would say
+ * "connected" and the next read would answer `invalid_grant`.
+ *
+ * So the superseded token is simply dropped: the vault document is keyed per
+ * provider and the new token set has already replaced it. Google retires old
+ * refresh tokens for a client/user pair on its own once there are too many.
+ * Revocation belongs to the two places where the person means "take it
+ * away": disconnect and account deletion.
+ *
+ * ── A different Google account while one is connected ──────────
+ *
+ * Refused with `google_account_mismatch`, and nothing is stored: the pinned
+ * account keeps working, and the person is told to disconnect first if they
+ * really mean to switch. Switching silently would move busy time and mail
+ * reading to an account the person may not have noticed they picked in
+ * Google's account chooser. But the *other* account did consent, and Google
+ * issued it a grant nobody now holds — one the person could never withdraw
+ * from this app. That grant is a different authorization (different user), so
+ * revoking it cannot touch the connected one, and it is revoked, best effort.
  */
 export async function completeGoogleConnect(
   uid: string,
@@ -338,37 +370,38 @@ export async function completeGoogleConnect(
 ): Promise<GoogleStatus> {
   const config = await requireConfig(runtime);
   const { states, connections, vault } = stores(uid, runtime);
+  // The token set this exchange produced, held only for as long as this call
+  // runs, so a grant for the wrong account can be withdrawn (see above).
+  let issued: ProviderOAuthTokenSet | null = null;
   try {
     const existing = await currentConnection(uid, runtime);
     const pinned = isLive(existing) ? existing.identity.providerAccountId ?? undefined : undefined;
-    const previousRef = isLive(existing) ? existing.credentialRef ?? null : null;
-    const previous = previousRef ? await vault.loadOAuthTokenSet(previousRef).catch(() => null) : null;
+    const client = clientFor(config, runtime, pinned);
+    const capturing: ProviderOAuthClient = {
+      ...client,
+      async exchangeAuthorizationCode(request) {
+        issued = await client.exchangeAuthorizationCode(request);
+        return issued;
+      },
+    };
 
-    await completeProviderOAuth(states, vault, connections, clientFor(config, runtime, pinned), {
+    await completeProviderOAuth(states, vault, connections, capturing, {
       scopeId: uid,
       provider: GOOGLE_PROVIDER,
       state: input.state,
       code: input.code,
       now: runtime.now().toISOString(),
     });
-
-    // `prompt=consent` makes Google issue a new refresh token on every
-    // authorization. The vault key is per provider, so the new one replaced
-    // the old document already; the old *grant* is still live at Google
-    // unless it is revoked, and a grant nobody holds a token for can never be
-    // withdrawn by the person again. Best effort: the new grant is what
-    // matters, and a failed revoke of a superseded token changes nothing the
-    // person relies on.
-    if (previous?.refreshToken) {
-      const current = await connections.get(connectionIdFor(GOOGLE_PROVIDER));
-      const now = current?.credentialRef ? await vault.loadOAuthTokenSet(current.credentialRef).catch(() => null) : null;
-      if (now && now.refreshToken !== previous.refreshToken) {
-        await clientFor(config, runtime).revoke(previous).catch(() => undefined);
-      }
-    }
     return await getGoogleStatus(uid, runtime);
   } catch (error) {
+    if (error instanceof GoogleAccountMismatchError && issued) {
+      // Another person's authorization, never the connected one's: `loadIdentity`
+      // refused it before anything was stored.
+      await clientFor(config, runtime).revoke(issued).catch(() => undefined);
+    }
     throw asConnectError(error);
+  } finally {
+    issued = null;
   }
 }
 
