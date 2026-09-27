@@ -15,12 +15,15 @@ export const meetingPrepResponseSchema = z.object({
   prep: z.object({
     /** The first item of `proposal.items`, always. */
     itemId: z.string(),
-    /** When its reminder rings: the chosen prep instant. */
-    remindAt: isoDateTime,
     /**
-     * When it is due: one reminder lead after `remindAt`, never after the
-     * start, so the phone's own reminder (`dueAt − lead`) rings at `remindAt`.
+     * When the phone first rings for it, as the server worked it out from this
+     * account's reminder settings: the chosen prep instant whenever it can
+     * ring then, and null when nothing will ring at all (CL5a I-3).
      */
+    remindAt: isoDateTime.nullable(),
+    /** Why nothing rings, when nothing does. */
+    silentBecause: z.enum(['reminders_off', 'too_close']).nullable(),
+    /** When it is due: never after the start. */
     dueAt: isoDateTime,
     leadMinutes: z.number().int(),
     /**

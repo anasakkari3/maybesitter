@@ -23,8 +23,11 @@ export const APPOINTMENT_NOUNS = {
     'جلسة', 'اجتماع', 'ميتنغ', 'ميتينغ', 'فحص', 'تحليل',
   ],
   he: ['תור', 'פגישה', 'מבחן', 'בחינה', 'ראיון', 'טיסה', 'דיון'],
+  // "court" only as a court one appears in: a bare "court" is as often the one
+  // a game is played on ("Basketball court"), and the phone is the only reader
+  // of this list (the extractor reads `ar` and `he`).
   en: [
     'appointment', 'appt', 'doctor', 'dentist', 'clinic', 'hospital', 'exam', 'interview',
-    'flight', 'court', 'meeting',
+    'flight', 'court hearing', 'court date', 'court appearance', 'meeting',
   ],
 } as const;

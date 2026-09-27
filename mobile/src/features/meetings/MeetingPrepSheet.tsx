@@ -67,6 +67,7 @@ export function MeetingPrepSheet() {
         // on an empty composer.
         flow.adoptProposal(result.proposal, 'meeting', {
           remindAt: result.prep.remindAt,
+          silentBecause: result.prep.silentBecause,
           adjustment: result.prep.adjustment,
           appointment,
         });

@@ -121,6 +121,7 @@ const CASES: Array<[string, z.ZodType]> = [
   // refusal for a meeting that is about to start.
   ['meetings.prepared', meetingPrepResponseSchema],
   ['meetings.preparedGemini', meetingPrepResponseSchema],
+  ['meetings.preparedNoReminder', meetingPrepResponseSchema],
   ['meetings.tooSoon', errorBodySchema],
   // The share proposal is the capture proposal plus an envelope, and it is
   // parsed with its own schema rather than with `captureProposalSchema`, so

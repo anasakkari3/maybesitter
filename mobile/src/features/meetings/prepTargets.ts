@@ -41,7 +41,8 @@ export function busyBlockPrepTarget(block: DeviceBusyBlock, now: Date): MeetingP
  *
  * The nouns are the extractor's (`src/extraction/lexicon/appointmentNouns.ts`,
  * the list `captureCommand.ts` builds from), so "a meeting" means one thing on
- * the server and on the phone. What this file adds is only the word edges.
+ * the server and on the phone. What this file adds is the word edges, and a few
+ * meeting words the extractor has no use for (`MEETING_ONLY_NOUNS`).
  *
  * The edges are spelled as letter ranges, with no `\b` and no `\p{L}`: a JS
  * word boundary next to Arabic or Hebrew letters only fires beside ASCII (#401),
@@ -78,19 +79,39 @@ function nounMatcher(nouns: Nouns): (title: string) => boolean {
   return (title) => Boolean(ar?.test(title) || he?.test(title) || en?.test(title));
 }
 
-/** Any of the extractor's appointment nouns, a meeting among them. */
-export const isMeetingLike = nounMatcher(APPOINTMENT_NOUNS);
+/**
+ * The ways people name a meeting that are not appointment nouns (M-4, round 2).
+ *
+ * The phone's own, because the extractor has no use for them: «سجّل لقاء» is
+ * not how anyone starts a reminder, but «لقاء مع سامي» is how many people title
+ * a meeting, and so are «زوم», "standup", "sync", "1:1" and "call with". A bare
+ * "call" is not here — "Call mum" is an errand; «שיחה» is only a meeting with
+ * someone («שיחה עם»). The same word edges as the shared nouns, so «مش لزوم»
+ * still is not «زوم».
+ */
+const MEETING_ONLY_NOUNS = {
+  ar: ['لقاء', 'ميتنج', 'ميتينج', 'زوم'],
+  he: ['זום', 'ישיבה', 'ישיבת', 'שיחה עם'],
+  en: ['standup', 'stand-up', 'sync', '1:1', 'one-on-one', 'call with', 'zoom call', 'zoom'],
+} as const;
+
+/** Any of the extractor's appointment nouns, or a meeting word of the phone's own. */
+export const isMeetingLike = nounMatcher({
+  ar: [...APPOINTMENT_NOUNS.ar, ...MEETING_ONLY_NOUNS.ar],
+  he: [...APPOINTMENT_NOUNS.he, ...MEETING_ONLY_NOUNS.he],
+  en: [...APPOINTMENT_NOUNS.en, ...MEETING_ONLY_NOUNS.en],
+});
 
 /**
- * Which of those nouns are a *meeting*. Not a second list: a subset of the
- * shared one, chosen so the sheet can say «الموعد» for the dentist and
+ * Which of those are a *meeting*: the shared list's meeting nouns and every
+ * meeting word above, so the sheet can say «الموعد» for the dentist and
  * «الاجتماع» for the meeting.
  */
 const MEETING_NOUNS = new Set<string>(['اجتماع', 'ميتنغ', 'ميتينغ', 'פגישה', 'meeting']);
 const namesMeeting = nounMatcher({
-  ar: APPOINTMENT_NOUNS.ar.filter((noun) => MEETING_NOUNS.has(noun)),
-  he: APPOINTMENT_NOUNS.he.filter((noun) => MEETING_NOUNS.has(noun)),
-  en: APPOINTMENT_NOUNS.en.filter((noun) => MEETING_NOUNS.has(noun)),
+  ar: [...APPOINTMENT_NOUNS.ar.filter((noun) => MEETING_NOUNS.has(noun)), ...MEETING_ONLY_NOUNS.ar],
+  he: [...APPOINTMENT_NOUNS.he.filter((noun) => MEETING_NOUNS.has(noun)), ...MEETING_ONLY_NOUNS.he],
+  en: [...APPOINTMENT_NOUNS.en.filter((noun) => MEETING_NOUNS.has(noun)), ...MEETING_ONLY_NOUNS.en],
 });
 
 /**

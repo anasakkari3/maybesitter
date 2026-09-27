@@ -21,7 +21,7 @@ import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { busyAt } from '../features/calendar/conflicts';
-import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
+import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
 import { postManualBusy } from '../api/endpoints/calendar';
 import type { CaptureProposalItem } from '../api/schemas/capture';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
@@ -278,16 +278,11 @@ export function ReviewScreen() {
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
             <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
               <Txt size={13} color={p.mu}>{state.meeting?.appointment ? t.reviewSourceAppointment : t.reviewSourceMeeting}</Txt>
-              {/* Quiet hours moved the prep step (to the evening before, or to
-                  when they end): one line says where to, so a step at 21:55
-                  the night before does not arrive unexplained (CL5a M-8). */}
-              {state.meeting?.adjustment === 'quiet_hours' ? (
-                <Txt size={13} color={p.mu} testID="review-prep-quiet-moved">
-                  {fill(t.reviewPrepQuietMoved, {
-                    time: `${formatRelativeDay(new Date(state.meeting.remindAt), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(state.meeting.remindAt), { locale: lang, timeZone: timezone }))}`,
-                  })}
-                </Txt>
-              ) : null}
+              {/* The prep step's reminder, when it is not simply an hour before
+                  (CL5a M-8, I-3): moved out of quiet hours, moved because the
+                  meeting is close, or none at all — one line, and only the
+                  server's answer about what the phone will actually ring. */}
+              {state.meeting ? <PrepReminderLine meeting={state.meeting} /> : null}
             </View>
           </View>
         ) : null}
@@ -614,5 +609,27 @@ function ItemCard({
         />
       </View>
     </Btn>
+  );
+}
+
+/** One line about the prep step's reminder, or nothing when it rings an hour before as usual. */
+function PrepReminderLine({ meeting }: { meeting: MeetingReviewContext }) {
+  const { t, p, lang } = useApp();
+  const timezone = useTimeZone();
+  if (meeting.remindAt === null) {
+    return (
+      <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
+        {meeting.silentBecause === 'reminders_off' ? t.reviewPrepRemindersOff : t.reviewPrepTooClose}
+      </Txt>
+    );
+  }
+  if (meeting.adjustment === 'none') return null;
+  const at = new Date(meeting.remindAt);
+  const time = `${formatRelativeDay(at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
+  const quiet = meeting.adjustment === 'quiet_hours';
+  return (
+    <Txt size={13} color={p.mu} testID={quiet ? 'review-prep-quiet-moved' : 'review-prep-short-notice'}>
+      {fill(quiet ? t.reviewPrepQuietMoved : t.reviewPrepShortNotice, { time })}
+    </Txt>
   );
 }

@@ -6,6 +6,7 @@ import { planFor } from '../../reminders/policy';
 import { toEngineSettings, toReminderCommitments } from '../../reminders/reminderInputs';
 import preparedFixture from '../../../api/__fixtures__/meetings.prepared.json';
 import preparedGeminiFixture from '../../../api/__fixtures__/meetings.preparedGemini.json';
+import preparedNoReminderFixture from '../../../api/__fixtures__/meetings.preparedNoReminder.json';
 import settingsFixture from '../../../api/__fixtures__/reminders.settingsDefault.json';
 import commitmentFixture from '../../../api/__fixtures__/commitments.one.json';
 
@@ -55,7 +56,28 @@ describe('the prep step rings an hour before the meeting', () => {
       const { proposal, prep } = meetingPrepResponseSchema.parse(fixture);
       expect(prep.itemId).toBe(proposal.items[0]!.itemId);
       expect(Date.parse(prep.dueAt)).toBeLessThanOrEqual(Date.parse(prep.startAt));
-      expect(Date.parse(prep.dueAt)).toBeGreaterThan(Date.parse(prep.remindAt));
+      expect(prep.remindAt).not.toBeNull();
+      expect(Date.parse(prep.dueAt)).toBeGreaterThan(Date.parse(prep.remindAt!));
     }
+  });
+});
+
+describe('a meeting too close for a reminder (CL5a I-3)', () => {
+  it('the recorded response claims none, and the phone, run on it, schedules none', () => {
+    const { commitment } = confirmedPrepStep(preparedNoReminderFixture);
+    const { prep, proposal } = meetingPrepResponseSchema.parse(preparedNoReminderFixture);
+    expect(prep.remindAt).toBeNull();
+    expect(prep.silentBecause).toBe('too_close');
+    // Shown in review at the time it is due, which is the meeting's start.
+    expect(proposal.items[0]!.resolvedTime).toBe(prep.dueAt);
+    expect(prep.dueAt).toBe(prep.startAt);
+    // The account the fixture was recorded under has the default settings: a
+    // one-hour lead and the soft ceiling. Twenty minutes out, the phone has
+    // nothing left to ring — "now" is the moment the request was answered.
+    const dto = reminderSettingsResponseSchema.parse(settingsFixture).reminderSettings;
+    const settings = toEngineSettings({ ...dto, escalationCeiling: 'soft' }, 'softAwareness');
+    const [reminder] = toReminderCommitments([commitment]);
+    const now = Date.parse(prep.startAt) - 20 * MINUTE;
+    expect(planFor(reminder!, settings).filter((stage) => stage.at > now)).toEqual([]);
   });
 });

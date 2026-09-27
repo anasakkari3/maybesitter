@@ -8,7 +8,7 @@
       {
         "itemId": "00000000-0000-4000-8000-000000000002",
         "title": "أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير قبل ما أفوت",
-        "resolvedTime": "2026-08-09T08:00:00.000Z",
+        "resolvedTime": "2026-08-09T09:00:00.000Z",
         "needsClarification": false,
         "priority": "normal",
         "priorityEstimated": true
@@ -23,12 +23,12 @@
   },
   "prep": {
     "itemId": "00000000-0000-4000-8000-000000000002",
-    "remindAt": "2026-08-09T08:00:00.000Z",
-    "silentBecause": null,
+    "remindAt": null,
+    "silentBecause": "too_close",
     "dueAt": "2026-08-09T09:00:00.000Z",
-    "leadMinutes": 60,
-    "adjustment": "none",
+    "leadMinutes": 10,
+    "adjustment": "short_notice",
     "startAt": "2026-08-09T09:00:00.000Z",
-    "endAt": "2026-08-09T09:45:00.000Z"
+    "endAt": null
   }
 }

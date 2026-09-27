@@ -87,3 +87,40 @@ describe('which fixed rows on the Plan offer «حضّرني»', () => {
     expect(planItemPrepTarget(row('Dentist', 5), NOW)).toBeNull();
   });
 });
+
+/*
+ * Every word the meeting detection is asked to know, in both directions
+ * (CL5a M-4, round 2): the meeting words round 1 lost, the appointment it
+ * gained, and the look-alikes that must stay out. `meeting` says whether the
+ * sheet calls it «الاجتماع» (true) or «الموعد» (false).
+ */
+describe('the meeting and appointment words, both directions', () => {
+  it.each([
+    // Arabic meetings, including the ones round 1 lost.
+    ['لقاء مع سامي', true], ['اللقاء الأسبوعي', true], ['بلقاء العميل', true],
+    ['ميتنج الفريق', true], ['ميتنغ الفريق', true], ['ميتينج مع المدير', true],
+    ['زوم مع العميل', true], ['بالزوم مع دانا', true], ['اجتماع مع المدير', true],
+    // English meetings.
+    ['Standup', true], ['Daily stand-up', true], ['Team sync', true], ['1:1 with Dana', true],
+    ['One-on-one with Dana', true], ['Call with the bank', true], ['Zoom call with Sara', true], ['Meeting with Sami', true],
+    // Hebrew meetings.
+    ['שיחת זום עם דנה', true], ['זום עם הלקוח', true], ['ישיבת צוות', true], ['שיחה עם רון', true], ['פגישה עם המנהל', true],
+    // Appointments, not meetings.
+    ['dentist 4pm', false], ['Dentist appointment', false], ['دكتور الأسنان الساعة 4', false],
+    ['Court hearing', false], ['Court date at 9', false], ['جلسة محكمة', false], ['תור לרופא', false],
+  ])('%s is offered (meeting: %s)', (title, meeting) => {
+    expect(isMeetingLike(title)).toBe(true);
+    expect(isAppointmentNotMeeting(title)).toBe(!meeting);
+  });
+
+  it.each([
+    // A noun inside another word, or a word that only looks like one.
+    'مش لزوم', 'مش لزوم نطول', 'نشاط اجتماعي', 'בתור מנהל',
+    // A court you play on is not a court you appear in.
+    'Basketball court', 'Book the tennis court', 'Food court lunch', 'Courtyard cleanup',
+    // "call" alone is an errand; "sync" and "zoom" inside other words are not.
+    'Call mum', 'Recall with the insurer', 'Async review of the doc', 'Zoomed photos', 'שיחת טלפון לאמא',
+  ])('%s is not', (title) => {
+    expect(isMeetingLike(title)).toBe(false);
+  });
+});

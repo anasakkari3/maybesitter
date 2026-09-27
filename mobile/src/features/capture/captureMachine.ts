@@ -98,13 +98,16 @@ export type CaptureFailureKind = 'network' | 'validation' | 'extraction' | 'refu
 /**
  * What «حضّرني» said about the proposal it handed to review (CL5a).
  *
- * Only what the review shows: whether the prep step was moved out of quiet
- * hours, and to when, and whether the thing prepared for is an appointment
- * rather than a meeting. Never the notes.
+ * Only what the review shows: whether the prep step's reminder was moved (out
+ * of quiet hours, or because the meeting is close), and to when, or why none
+ * will ring; and whether the thing prepared for is an appointment rather than
+ * a meeting. Never the notes.
  */
 export interface MeetingReviewContext {
-  /** The prep step's own reminder instant, after any quiet-hours move. */
-  readonly remindAt: string;
+  /** When the phone first rings for the prep step, after any move; null when nothing rings. */
+  readonly remindAt: string | null;
+  /** Why nothing rings, when nothing does. */
+  readonly silentBecause: 'reminders_off' | 'too_close' | null;
   readonly adjustment: 'none' | 'short_notice' | 'quiet_hours' | 'quiet_hours_unavoidable';
   readonly appointment: boolean;
 }

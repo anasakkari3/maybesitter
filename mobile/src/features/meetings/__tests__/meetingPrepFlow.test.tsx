@@ -85,7 +85,7 @@ function prepared(): MeetingPrepResponse {
         { ...fixture.proposal.items[1]!, itemId: 'follow-1', title: 'Send the summary to Sami' },
       ],
     },
-    prep: { ...fixture.prep, itemId: 'prep-1', remindAt, dueAt: START, startAt: START, endAt: END },
+    prep: { ...fixture.prep, itemId: 'prep-1', remindAt, silentBecause: null, dueAt: START, startAt: START, endAt: END },
   };
 }
 
@@ -294,6 +294,41 @@ describe('an appointment, and a step moved by quiet hours', () => {
     expect(line.startsWith(en.reviewPrepQuietMoved.replace('{time}', ''))).toBe(true);
     const hhmm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Jerusalem' }).format(new Date(eveningBefore));
     expect(line).toContain(hhmm);
+  });
+
+  /** Prepare through the sheet with this `prep` summary, and land on review. */
+  async function reviewWith(prep: Partial<MeetingPrepResponse['prep']>) {
+    const base = prepared();
+    jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue({ ...base, prep: { ...base.prep, ...prep } });
+    await show({ aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(screen.getByTestId('review-source-meeting')).toBeTruthy());
+  }
+
+  const hhmmOf = (instant: string) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Jerusalem' }).format(new Date(instant));
+
+  it.each(['short_notice', 'quiet_hours_unavoidable'] as const)('%s with a reminder that rings: review says the reminder moved, and to when (M-8)', async (adjustment) => {
+    const soon = new Date(mockStart.getTime() - 20 * 60_000).toISOString();
+    await reviewWith({ remindAt: soon, silentBecause: null, adjustment });
+    const line = String(screen.getByTestId('review-prep-short-notice').props.children);
+    expect(line.startsWith(en.reviewPrepShortNotice.replace('{time}', ''))).toBe(true);
+    expect(line).toContain(hhmmOf(soon));
+    expect(screen.queryByTestId('review-prep-quiet-moved')).toBeNull();
+    expect(screen.queryByTestId('review-prep-no-reminder')).toBeNull();
+  });
+
+  it('too close for any reminder: review claims none, and says to start now (I-3)', async () => {
+    await reviewWith({ remindAt: null, silentBecause: 'too_close', adjustment: 'short_notice' });
+    expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepTooClose);
+    expect(screen.queryByTestId('review-prep-short-notice')).toBeNull();
+  });
+
+  it('reminders off: review says nothing will ring', async () => {
+    await reviewWith({ remindAt: null, silentBecause: 'reminders_off', adjustment: 'none' });
+    expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepRemindersOff);
   });
 
   it('with no move, review has no quiet-hours line', async () => {
