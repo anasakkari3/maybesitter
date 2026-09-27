@@ -824,6 +824,21 @@ export function monthEndIsNotTheDay(rawText: string): boolean {
   return typeof rawText === 'string' && MONTH_END_NOT_THE_DAY.test(rawText);
 }
 
+/** The number a clock word names, or an early h:mm with no marker. */
+const CLOCK_NUMBER = /(?:\b(?:at|by|around)|الساعة|الساعه|عند|على|בשעה|שעה|[בס]-)\s*(\d{1,2})(?::\d{2})?(?=$|[\s,.،])|\b(\d{1,2})\s*o'?clock\b|(?<![\d:])([1-6]):\d{2}(?=$|[\s,.،])/giu;
+
+/**
+ * A typed bare hour from one to six with no part of the day — «الساعة 4»,
+ * "at 4", «ב-4» (FY1 re-review). The rules would read it as the morning, the
+ * unlikely half; as an answer it is not understood, and the question's
+ * صبح/مسا buttons stay (CL1 round 6 applied to answers).
+ */
+export function isBareEarlyHourAnswer(rawText: string): boolean {
+  if (typeof rawText !== 'string' || timeOfDayEvidence(rawText) !== 'clock_marker') return false;
+  const hours = Array.from(normalizeClockText(rawText).matchAll(CLOCK_NUMBER), (match) => Number(match[1] ?? match[2] ?? match[3]));
+  return hours.length > 0 && hours.every((hour) => hour >= 1 && hour <= 6);
+}
+
 const TIME_OF_DAY_STRIP = [
   ...DAY_PART_MENTION_SOURCES.map((source) => new RegExp(source, 'giu')),
   ...[...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi')),

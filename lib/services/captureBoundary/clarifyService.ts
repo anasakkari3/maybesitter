@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, localTimeSpecFor, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -13,7 +13,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
-import { dayForAnswer } from './clarificationBuilder';
+import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
 import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
@@ -279,6 +279,9 @@ async function readFreeTextAnswer(
   // and «بكرا الساعة 10» settled at 15:00 tomorrow. So the sentence is read
   // without its own times of day, its days kept.
   const replacesTime = TIME_FIELDS.has(question.field) && !forbidsResolvedTime(freeText);
+  // «الساعة 4» typed alone: the unlikely morning or a guess (FY1 re-review);
+  // not understood, and the صبح/مسا buttons are still there.
+  if (TIME_FIELDS.has(question.field) && isBareEarlyHourAnswer(freeText)) throw new ClarifyError('answer_not_understood');
   const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
   const combined = `${original}\n${freeText}`.trim();
   let extracted: Awaited<ReturnType<typeof extractor>>;
@@ -293,9 +296,11 @@ async function readFreeTextAnswer(
     });
   } catch (error) {
     // The guarded extractor refuses a reading whose time has gone, with the
-    // reading. A typed hour is placed on its next occurrence below, as any
-    // typed hour is; one that still lands in the past is not understood.
-    if (error instanceof PastCommitmentTimeError && error.extracted) extracted = error.extracted;
+    // reading. A typed time of day, or a day named, is placed on its next
+    // occurrence below, as any typed hour is. Anything else — «بعد ساعة»,
+    // "later", "now" — re-read the clause's own passed hour, and taking that
+    // would roll it to tomorrow unasked (FY1 re-review, I4): not understood.
+    if (error instanceof PastCommitmentTimeError && error.extracted && (replacesTime || namesDay(freeText))) extracted = error.extracted;
     else if (error instanceof PastCommitmentTimeError) throw new ClarifyError('answer_not_understood');
     else throw error;
   }
@@ -313,6 +318,16 @@ async function readFreeTextAnswer(
     // still moves it.
     const itemDate = result.localTimeSpec?.date ?? null;
     const rereadTime = reread.localTimeSpec?.time ?? null;
+    // A part of the day typed with no clock is its button's hour (FY1
+    // re-review): «بالمسا» is 19:00 like «المسا», tonight while it is ahead.
+    // A day named with it is the re-read's; otherwise the item's.
+    const typedPart = statesClock(freeText) ? null : dayPartHour(freeText, { answer: true });
+    if (typedPart !== null) {
+      const time = answeredDayPartTime(typedPart);
+      const namedDay = readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null;
+      const day = dayForAnswer(time, namedDay ?? itemDate, { now: options.now, timezone: options.timezone });
+      if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
+    }
     if (
       readable && (reread.remindAt || reread.dueAt)
       && question.field !== 'which_day' && itemDate && rereadTime
@@ -326,7 +341,7 @@ async function readFreeTextAnswer(
     // another word ("morning is fine").
     const hour = dayPartHour(freeText, { answer: true });
     if (hour !== null) {
-      const time = `${String(hour).padStart(2, '0')}:00`;
+      const time = answeredDayPartTime(hour);
       const preferred = result.localTimeSpec?.date
         ?? (result.remindAt || result.dueAt
           ? localTimeSpecFor(new Date(Date.parse((result.remindAt || result.dueAt)!)), options.timezone)?.date ?? null
