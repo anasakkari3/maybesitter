@@ -164,8 +164,10 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   );
 }
 
-const REASON_KEY: Record<WeekStepReason, 'weekReasonDue' | 'weekReasonDueEarlier' | 'weekReasonCarried' | 'weekReasonOpen' | 'weekReasonMoved'> = {
+const REASON_KEY: Record<WeekStepReason, 'weekReasonDue' | 'weekReasonDueLater' | 'weekReasonDueEarlier' | 'weekReasonCarried' | 'weekReasonOpen' | 'weekReasonMoved'> = {
   due: 'weekReasonDue',
+  // Pulled ahead of its due day because that day was taken (N3).
+  due_later: 'weekReasonDueLater',
   // Due on an earlier day that is still ahead: not «من يوم فات» (FX1).
   due_earlier: 'weekReasonDueEarlier',
   carried: 'weekReasonCarried',
@@ -336,15 +338,20 @@ function FixedWeekRow({ row, zone }: { row: WeekRow; zone: string }) {
   );
 }
 
-/** A row of a day that already has a plan: what that plan holds, read only. */
+/**
+ * A row of a day that already has a plan: what that plan holds, read only, with
+ * the same due line it was proposed with (N3: a saved row dropped it).
+ */
 function PlanWeekRow({ item, zone }: { item: WeekItem; zone: string }) {
   const { t, p, lang } = useApp();
   const title = item.title ? isolateAuto(item.title) : t.planRemovedItem;
   const time = when(item, lang, zone);
+  const reason = item.reason ? t[REASON_KEY[item.reason]] : null;
   return (
-    <View testID={`week-row-${item.itemId}`} accessible accessibilityRole="text" accessibilityLabel={[title, time].join(lang === 'ar' ? '، ' : ', ')} style={{ gap: 4, alignItems: 'flex-start' }}>
+    <View testID={`week-row-${item.itemId}`} accessible accessibilityRole="text" accessibilityLabel={[title, time, reason].filter(Boolean).join(lang === 'ar' ? '، ' : ', ')} style={{ gap: 4, alignItems: 'flex-start' }}>
       <Txt size={13} weight={600} latin color={p.mu}>{time}</Txt>
       <Txt size={15}>{title}</Txt>
+      {reason ? <Txt role="supporting" color={p.mu} testID={`week-row-reason-${item.itemId}`}>{reason}</Txt> : null}
     </View>
   );
 }

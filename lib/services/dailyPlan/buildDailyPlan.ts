@@ -43,7 +43,7 @@
  * view entirely — is **not** in this module and is not done. #383 is the one
  * place that rule is written down, and both halves answer to it.
  */
-import type { Commitment } from '../../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, isTimedWindow, type Commitment } from '../../../src/domain/stateMachine';
 import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
 import type {
   FixedEvent,
@@ -297,6 +297,12 @@ export function fixedStartOf(commitment: Commitment): Instant | null {
   if (commitment.timeSpec.kind === 'scheduled_event') {
     return commitment.timeSpec.dueAt ?? commitment.timeSpec.remindAt;
   }
+  // A window — «حضّرني»'s prep step, shown at 13:00 and done by the 15:00
+  // meeting (FX1) — is a time the person chose to do it at, and every screen
+  // shows it there. Floated as a deadline, the planner put it at 08:00, and the
+  // week proposed it on Wednesday, after the meeting (UAT round 2, N3). It
+  // stays where it was put: `fixedEndFor` reads its end, the meeting's start.
+  if (isTimedWindow(commitment.timeSpec)) return commitment.timeSpec.dueAt;
   return null;
 }
 
@@ -358,9 +364,21 @@ export function deadlineFor(
   dayStartsAt: Instant,
   dayEndsAt: Instant,
 ): Instant | null {
-  const dueAt = commitment.timeSpec.dueAt;
+  // A window is due by its end (`deadlineOfTimeSpec`, FX1 R1): a prep step
+  // shown Sunday 21:30 for a Monday 07:30 meeting is due at 07:30, not at the
+  // day's end, or Monday's plan puts it at 08:00, after the meeting (FY2
+  // re-review).
+  const dueAt = deadlineOfTimeSpec(commitment.timeSpec);
   if (!dueAt) return null;
-  return rollsIntoDay(dueAt, dayStartsAt) ? dayEndsAt : dueAt;
+  // An all-day commitment stores its day as that day's local midnight (FX3) —
+  // the day's start — and read as a deadline there it left no minute of its
+  // own day to use: «أرتب الغرفة», due today, went to Tuesday, and the bill due
+  // Wednesday to Thursday (UAT round 2, N3). A day is due by its end. Only a
+  // day: a timed deadline at 00:00 is that instant (FY2 review, M1).
+  const behind = commitment.timeSpec.allDay
+    ? toEpochMs(dueAt) <= toEpochMs(dayStartsAt)
+    : rollsIntoDay(dueAt, dayStartsAt);
+  return behind ? dayEndsAt : dueAt;
 }
 
 /**

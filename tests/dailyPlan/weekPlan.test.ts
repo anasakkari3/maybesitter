@@ -1068,9 +1068,10 @@ test('once the saved day holding a step has passed, a day built around it takes 
 
 /* ── Why a step is on its day (post-UAT FX1) ─────────────────────── */
 
-test('work due on a day still ahead, proposed on a later one, is not «من يوم فات»; work due on a day already gone is', async () => {
+test('work due on a day still ahead is never proposed after it, nor called «من يوم فات»; work due on a day already gone is', async () => {
   // The UAT, 2026-09-27: «أروح عالسوق», due *tomorrow* 15:00, was offered on
-  // the day after as «من يوم فات». Nothing about it is from a day that passed.
+  // the day after as «من يوم فات» (FX1). Round 2 (N3): it should never have
+  // been offered after its day at all.
   await withStorage(async (storage) => {
     let state = createEmptyDomainState();
     state = withCommitment(state, 'cmt_report', 'Hand in the report', { kind: 'due', dueAt: '2026-09-16T06:00:00.000Z' });
@@ -1082,11 +1083,12 @@ test('work due on a day still ahead, proposed on a later one, is not «من يو
     const reasonOf = (itemId: string) => dto.days.flatMap((day) => day.items).find((item) => item.itemId === itemId)?.reason;
     const dayOf = (itemId: string) => dto.days.find((day) => day.items.some((item) => item.itemId === itemId))?.date;
 
-    // Yesterday's form is carried from a day that has gone.
-    assert.equal(reasonOf('cmt_late'), 'carried');
-    // One of Wednesday's two is on Wednesday; the other lands after its day.
-    const later = ['cmt_report', 'cmt_market'].find((itemId) => dayOf(itemId) !== '2026-09-16');
-    assert.ok(later && dayOf(later) && dayOf(later)! > '2026-09-16', `expected one of Wednesday's two after Wednesday: ${JSON.stringify(dto.days.map((day) => [day.date, day.items.map((item) => item.itemId)]))}`);
-    assert.equal(reasonOf(later), 'due_earlier', 'due on a day still ahead, and called «from a day that passed»');
+    // Yesterday's form is due today (#383): today, carried from a day that has gone.
+    assert.deepEqual([dayOf('cmt_late'), reasonOf('cmt_late')], [TODAY, 'carried']);
+    // Wednesday's two are both on Wednesday: today is the form's, and no day
+    // after Wednesday is theirs.
+    for (const itemId of ['cmt_report', 'cmt_market']) {
+      assert.deepEqual([dayOf(itemId), reasonOf(itemId)], ['2026-09-16', 'due'], `${itemId}: ${JSON.stringify(dto.days.map((day) => [day.date, day.items.map((item) => item.itemId)]))}`);
+    }
   });
 });

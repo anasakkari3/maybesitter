@@ -12,22 +12,33 @@
  * bookkeeping the per-date runs need so that one commitment is not proposed
  * on seven days at once.
  *
- * ── One step per day ──────────────────────────────────────────────
+ * ── One step per day, never after its due day ────────────────────
  *
  * The council's cap: each day proposes **one** realistic next step, fitted
- * around that day's busy time. Days are visited in order. A day's candidates
- * are the floating work the daily rule (`belongsToDay`) already puts on it,
- * minus what the week has placed elsewhere; the planner is run over all of
- * them, and the day's step is the first thing it places. The day is then
- * solved again over that step alone (plus anything the person moved there),
- * which is exactly the request an acceptance will compose — so the times
- * shown are the times stored.
+ * around that day's busy time. Whether a piece of work fits a day is the daily
+ * planner's answer for that date (its busy time, routine, working window, the
+ * clock); which day gets which step is the only thing decided here, in two
+ * passes:
  *
- * The daily rule is not reinterpreted. Undated work that matters belongs to
- * every day, so it fills the first free days one at a time; dated work
- * belongs to its due day and, under #383, to every day after it — so a step
- * that was due on a day whose step was something else is offered again the
- * next day, as yesterday's work rolls into today.
+ *   1. Dated work due this week, most urgent first, takes the **latest** free
+ *      day on or before its due day that it fits: on its day when it can be,
+ *      earlier when that day is taken, and never later. Work due on a day that
+ *      no day up to it can take stays on its due day, beside that day's step:
+ *      the daily rule already puts it there, it is the person's own date and not
+ *      the week's choice, and saving the day without it would keep it off its
+ *      own day (`weekHolds.ts`). That is the one way a day shows two steps.
+ *   2. The rest — undated work that matters and work already overdue (#383) —
+ *      fills the days still free, in order, each taking the planner's own first
+ *      placement among it.
+ *
+ * Until UAT round 2 (N3) there was one pass: every day took the planner's
+ * first placement over everything, and #383's roll-over carried whatever lost
+ * to the next day, so one step a day pushed dated work past its date — the room
+ * due today to Tuesday, the market due Monday to Friday.
+ *
+ * Each day is then solved over its steps alone (plus anything the person moved
+ * there), which is exactly the request an acceptance will compose — so the
+ * times shown are the times stored.
  *
  * ── Nothing is stored until a day is accepted ────────────────────
  *
@@ -56,11 +67,12 @@ import { userDoc } from '../../storage/paths';
 import { schedulePlan } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
 import type { Plan, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
-import type { Commitment } from '../../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, type Commitment } from '../../../src/domain/stateMachine';
 import { buildDailyPlanInput, dayHorizon, fixedStartOf, pinnedEventsOnDay, type DayAssignment } from './buildDailyPlan';
 import {
   PlanDateOutOfRangeError,
   composeDailyPlanRequest,
+  type DailyPlanRequest,
   preloadDailyPlanRequest,
   storeWeekDayPlan,
   titlesOf,
@@ -175,12 +187,14 @@ export function parseShown(body: unknown): string[] {
 /**
  * Why a step is on its day, as the card says it. Codes, never text.
  *
- * `carried` is work due on a day that has already gone (#383's roll-over);
- * `due_earlier` is work due on an earlier day of this week that is still
- * ahead, which the one-step-a-day week put later (post-UAT FX1: «أروح
- * عالسوق», due tomorrow, was offered the day after as «من يوم فات»).
+ * Each says only what is true of the work and the day it is shown on: `due`,
+ * due that day; `due_later`, due on a later day (pulled ahead because its own
+ * day was taken); `due_earlier`, due on an earlier day that is still ahead —
+ * the week never proposes that, but a day the person saved or moved work onto
+ * can hold it (FX1); `carried`, due on a day that has already gone (#383's
+ * roll-over); `open`, no due date at all; `moved`, the person put it there.
  */
-export type WeekStepReason = 'due' | 'due_earlier' | 'carried' | 'open' | 'moved';
+export type WeekStepReason = 'due' | 'due_later' | 'due_earlier' | 'carried' | 'open' | 'moved';
 
 interface ProposedDay {
   readonly kind: 'proposed';
@@ -190,7 +204,7 @@ interface ProposedDay {
   readonly constraints: PlanningConstraints;
   readonly plan: Plan;
   readonly assignment: DayAssignment;
-  readonly reasons: ReadonlyMap<string, WeekStepReason>;
+  readonly reasons: ReadonlyMap<string, WeekStepReason | null>;
 }
 
 interface StoredDay {
@@ -234,15 +248,40 @@ function dailyRuleFor(uid: string, date: string, timezone: string, commitments: 
   }).constraints.items.map((item) => item.itemId);
 }
 
-function reasonFor(
-  commitment: Commitment | undefined,
-  horizon: { startsAt: string; endsAt: string },
-  todayStartsAt: string,
-): WeekStepReason {
-  const dueAt = commitment?.timeSpec.dueAt ?? null;
-  if (!dueAt) return 'open';
-  if (toEpochMs(dueAt) >= toEpochMs(horizon.startsAt)) return 'due';
-  return toEpochMs(dueAt) < toEpochMs(todayStartsAt) ? 'carried' : 'due_earlier';
+const PRIORITY_ORDER: Record<Commitment['priority']['level'], number> = { high: 3, normal: 2, low: 1 };
+
+/**
+ * The local day a commitment is due on, on the account's clock; null when it
+ * has no date. An all-day commitment is due on the day it names, in the zone it
+ * was named in (its `dueAt` is that day's midnight there).
+ */
+function dueDayOf(commitment: Commitment, timezone: string): string | null {
+  const { allDay } = commitment.timeSpec;
+  const due = deadlineOfTimeSpec(commitment.timeSpec);
+  if (!due) return null;
+  return allDay ? localDateOf(due, commitment.timeSpec.timezone) : localDateOf(due, timezone);
+}
+
+/**
+ * The instant a dated commitment is due by; null for undated work. A window is
+ * due by its end, the meeting's start (`deadlineOfTimeSpec`, FX1 R1); an
+ * all-day day by its end, not by the midnight that opens it (N3).
+ */
+function dueDeadlineOf(commitment: Commitment): string | null {
+  const { allDay, timezone } = commitment.timeSpec;
+  const due = deadlineOfTimeSpec(commitment.timeSpec);
+  if (!due) return null;
+  return allDay ? dayHorizon(localDateOf(due, timezone), timezone).endsAt : due;
+}
+
+/** Why `commitment` is on `date`, compared by day (N3). Null for work that is not a commitment. */
+function reasonFor(commitment: Commitment | undefined, date: string, today: string, timezone: string): WeekStepReason | null {
+  if (!commitment) return null;
+  const due = dueDayOf(commitment, timezone);
+  if (due === null) return 'open';
+  if (due === date) return 'due';
+  if (due > date) return 'due_later';
+  return due < today ? 'carried' : 'due_earlier';
 }
 
 /**
@@ -276,13 +315,18 @@ export async function composeWeek(
     if (stored) storedByDate.set(date, stored);
   }
   const rules = new Map(dates.map((date) => [date, dailyRuleFor(uid, date, timezone, commitments, nowIso)]));
-  // A commitment pinned to a time still ahead happens at that time: it is a
-  // fixed row on its own day. Planning a later day on its own, the daily rule
-  // reads it as yesterday's unfinished work (#383) — true on that morning if
-  // it is still open, but not something to propose for it today.
+  // A commitment pinned to a time today or later happens at that time: it is a
+  // fixed row on its own day, and the day plan pins it there all day long.
+  // Planning a later day on its own, the daily rule reads it as yesterday's
+  // unfinished work (#383) — true on that morning if it is still open, but not
+  // something to propose for it now. That holds once its hour has passed too
+  // (FY2 review, I1): at 13:30, inside the 13:00 prep window before a 15:00
+  // meeting, or at 15:30, after it, the prep is Monday's — late, if it is late
+  // (FX1, R1) — and never a fresh movable step on Tuesday.
   const pinnedAhead = new Map(commitments.flatMap((commitment) => {
     const start = fixedStartOf(commitment);
-    return start !== null && toEpochMs(start) >= toEpochMs(nowIso) ? [[commitment.id, localDateOf(start, timezone)] as const] : [];
+    const day = start === null ? null : localDateOf(start, timezone);
+    return day !== null && day >= today ? [[commitment.id, day] as const] : [];
   }));
 
   // Work a stored plan of this week already places is that day's, whatever
@@ -308,6 +352,89 @@ export async function composeWeek(
     movedTo.set(move.itemId, move.date);
   }
 
+  // Which work may still be given a day, and what each day's request is. A
+  // day's request holds every piece of it, so the planner can be asked whether
+  // any one of them fits that day.
+  const free = (itemId: string): boolean => !placedOn.has(itemId) && !dropped.has(itemId) && !movedTo.has(itemId);
+  const unplaced = Array.from(inWeek).filter(free);
+  const proposalDates = dates.filter((date) => !storedByDate.has(date));
+  const forcedOn = (date: string): string[] => Array.from(movedTo).filter(([, to]) => to === date).map(([itemId]) => itemId);
+  const requests = new Map<string, DailyPlanRequest>();
+  for (const date of proposalDates) {
+    const rule = rules.get(date)!;
+    const candidates = new Set([...unplaced, ...forcedOn(date)]);
+    requests.set(date, await composeDailyPlanRequest({
+      uid,
+      date,
+      timezone,
+      now: nowIso,
+      userDocument: user,
+      previousBlocks: null,
+      assignment: { include: Array.from(candidates), exclude: rule.filter((itemId) => !candidates.has(itemId)) },
+    }, { storage, preloaded, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) }));
+  }
+  /** The planner's placements on `date` when asked about `itemIds` alone. */
+  const solveOver = (date: string, itemIds: ReadonlySet<string>) => {
+    const request = requests.get(date)!;
+    return schedulePlan({ ...request.constraints, items: request.constraints.items.filter((item) => itemIds.has(item.itemId)) }, request.config);
+  };
+  const fits = (itemId: string, date: string): boolean => solveOver(date, new Set([itemId])).scheduled.length > 0;
+
+  const stepOn = new Map<string, string>();
+  const alsoDueOn = new Map<string, string[]>();
+
+  // 1. Dated work, most urgent first: the latest free day on or before its due
+  //    day that it fits; else its own due day, beside that day's step. Never a
+  //    day after it. Work already overdue — its day gone, or its hour gone
+  //    today — is due today (#383) and comes first; when today cannot take it,
+  //    it joins the rest below rather than piling a backlog onto today's card:
+  //    every later day is after its date, and the card says so.
+  const nowMs = toEpochMs(nowIso);
+  const overdue = new Set(unplaced.filter((itemId) => {
+    const deadline = byId.has(itemId) ? dueDeadlineOf(byId.get(itemId)!) : null;
+    return deadline !== null && toEpochMs(deadline) <= nowMs;
+  }));
+  const dueDay = new Map(unplaced.flatMap((itemId) => {
+    const commitment = byId.get(itemId);
+    const day = commitment ? dueDayOf(commitment, timezone) : null;
+    return day !== null ? [[itemId, overdue.has(itemId) ? today : day] as const] : [];
+  }));
+  const rest = new Set(unplaced.filter((itemId) => !dueDay.has(itemId)));
+  const urgency = (itemId: string): readonly [number, number] => [
+    toEpochMs(dueDeadlineOf(byId.get(itemId)!)!),
+    -PRIORITY_ORDER[byId.get(itemId)!.priority.level],
+  ];
+  const dated = Array.from(dueDay.keys()).sort((left, right) => {
+    const [leftDue, leftRank] = urgency(left);
+    const [rightDue, rightRank] = urgency(right);
+    return leftDue - rightDue || leftRank - rightRank || (left < right ? -1 : left > right ? 1 : 0);
+  });
+  for (const itemId of dated) {
+    const due = dueDay.get(itemId)!;
+    const day = proposalDates.filter((date) => date <= due && !stepOn.has(date) && fits(itemId, date)).pop();
+    if (day !== undefined) {
+      stepOn.set(day, itemId);
+    } else if (overdue.has(itemId)) {
+      rest.add(itemId);
+    } else if (requests.has(due)) {
+      alsoDueOn.set(due, [...(alsoDueOn.get(due) ?? []), itemId]);
+    }
+    // Otherwise its own day is already saved, and it waits (`waiting`).
+  }
+
+  // 2. The rest — undated work that matters, and overdue work today could not
+  //    take — on the days still free, in order: each the planner's own first
+  //    placement.
+  for (const date of proposalDates) {
+    if (stepOn.has(date) || rest.size === 0) continue;
+    const step = [...solveOver(date, rest).scheduled]
+      .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
+      .find((item) => rest.has(item.itemId)) ?? null;
+    if (!step) continue;
+    stepOn.set(date, step.itemId);
+    rest.delete(step.itemId);
+  }
+
   const days: WeekDay[] = [];
   for (const date of dates) {
     const rule = rules.get(date)!;
@@ -317,27 +444,11 @@ export async function composeWeek(
       continue;
     }
 
-    const forced = Array.from(movedTo).filter(([, to]) => to === date).map(([itemId]) => itemId);
-    const pool = rule.filter((itemId) => !placedOn.has(itemId) && !dropped.has(itemId) && !movedTo.has(itemId));
-    const candidates = new Set([...pool, ...forced]);
-    const request = await composeDailyPlanRequest({
-      uid,
-      date,
-      timezone,
-      now: nowIso,
-      userDocument: user,
-      previousBlocks: null,
-      assignment: { include: Array.from(candidates), exclude: rule.filter((itemId) => !candidates.has(itemId)) },
-    }, { storage, preloaded, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
-
-    // The planner's own first placement among the day's candidates is the step.
-    const poolSet = new Set(pool);
-    const step = [...schedulePlan(request.constraints, request.config).scheduled]
-      .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
-      .find((item) => poolSet.has(item.itemId)) ?? null;
-
-    const final = [...(step ? [step.itemId] : []), ...forced];
+    const forced = forcedOn(date);
+    const step = stepOn.get(date);
+    const final = [...(step !== undefined ? [step] : []), ...(alsoDueOn.get(date) ?? []), ...forced];
     const finalSet = new Set(final);
+    const request = requests.get(date)!;
     // The request an acceptance composes (`assignment` below) holds exactly
     // these items; every other part of it is this request's.
     const constraints: PlanningConstraints = {
@@ -345,13 +456,11 @@ export async function composeWeek(
       items: request.constraints.items.filter((item) => finalSet.has(item.itemId)),
     };
     const plan = schedulePlan(constraints, request.config);
-    const horizon = dayHorizon(date, timezone);
-    const reasons = new Map<string, WeekStepReason>(forced.map((itemId) => [itemId, 'moved']));
-    if (step) {
-      reasons.set(step.itemId, reasonFor(byId.get(step.itemId), horizon, dayHorizon(today, timezone).startsAt));
-      placedOn.set(step.itemId, date);
-    }
-    for (const itemId of forced) placedOn.set(itemId, date);
+    const reasons = new Map<string, WeekStepReason | null>(final.map((itemId) => [
+      itemId,
+      movedTo.has(itemId) ? 'moved' : reasonFor(byId.get(itemId), date, today, timezone),
+    ]));
+    for (const itemId of final) placedOn.set(itemId, date);
     days.push({
       kind: 'proposed',
       date,
@@ -382,7 +491,7 @@ export interface WeekItemDto {
   readonly title: string | null;
   readonly startsAt: string;
   readonly endsAt: string;
-  /** Why a proposed step is on its day; null on a stored day's rows. */
+  /** Why the step is on its day, by its due date; null for work that is not a commitment. */
   readonly reason: WeekStepReason | null;
 }
 
@@ -421,6 +530,7 @@ export interface WeekDto {
 
 export function weekToDto(layout: WeekLayout): WeekDto {
   const titles = titlesOf(layout.commitments);
+  const byId = new Map(layout.commitments.map((commitment) => [commitment.id, commitment]));
   const title = (itemId: string): string | null => titles.get(itemId) ?? null;
   return {
     today: layout.today,
@@ -431,7 +541,15 @@ export function weekToDto(layout: WeekLayout): WeekDto {
         return {
           date: day.date,
           state: day.stored.status === 'accepted' ? 'accepted' : 'planned',
-          items: dto.scheduled.map((row) => ({ itemId: row.itemId, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt, reason: null })),
+          // The same due label the day was proposed with (N3, 174): a saved
+          // row is still the work it was, due when it is due.
+          items: dto.scheduled.map((row) => ({
+            itemId: row.itemId,
+            title: row.title,
+            startsAt: row.startsAt,
+            endsAt: row.endsAt,
+            reason: reasonFor(byId.get(row.itemId), day.date, layout.today, layout.timezone),
+          })),
           fixed: dto.fixed.map((row) => ({ itemId: row.itemId, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt })),
           unplaced: [],
         };

@@ -342,9 +342,10 @@ export type PlanCauseResponse = z.infer<typeof planCauseResponseSchema>;
  *
  * `reason` is an enum because the server mints it from a closed union and the
  * card has one sentence per value; a new value is a contract change the
- * fixtures would show first. It is null on a stored day's rows.
+ * fixtures would show first. A stored day's rows carry it too (N3); it is null
+ * only for a row that is no commitment.
  */
-export const weekStepReasonSchema = z.enum(['due', 'due_earlier', 'carried', 'open', 'moved']);
+export const weekStepReasonSchema = z.enum(['due', 'due_later', 'due_earlier', 'carried', 'open', 'moved']);
 
 export const weekItemSchema = z.object({
   itemId: z.string(),

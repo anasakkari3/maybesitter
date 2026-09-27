@@ -43,14 +43,14 @@
             "title": "Write the summary",
             "startsAt": "2026-08-09T09:00:00.000Z",
             "endsAt": "2026-08-09T09:00:00.000Z",
-            "reason": null
+            "reason": "open"
           },
           {
             "itemId": "plan_fixture_1",
             "title": "Call the bank",
             "startsAt": "2026-08-09T09:00:00.000Z",
             "endsAt": "2026-08-09T08:00:00.000Z",
-            "reason": null
+            "reason": "open"
           }
         ],
         "fixed": [],
@@ -65,21 +65,21 @@
             "title": "Write the summary",
             "startsAt": "2026-08-09T09:00:00.000Z",
             "endsAt": "2026-08-09T09:00:00.000Z",
-            "reason": null
+            "reason": "open"
           },
           {
             "itemId": "plan_fixture_1",
             "title": "Call the bank",
             "startsAt": "2026-08-09T09:00:00.000Z",
             "endsAt": "2026-08-09T09:00:00.000Z",
-            "reason": null
+            "reason": "open"
           },
           {
             "itemId": "plan_fixture_2",
             "title": "Book the train",
             "startsAt": "2026-08-09T09:00:00.000Z",
             "endsAt": "2026-08-09T09:00:00.000Z",
-            "reason": null
+            "reason": "open"
           }
         ],
         "fixed": [
@@ -101,7 +101,7 @@
             "title": "Return the library books",
             "startsAt": "2026-08-09T09:00:00.000Z",
             "endsAt": "2026-08-09T09:00:00.000Z",
-            "reason": null
+            "reason": "open"
           }
         ],
         "fixed": [],
