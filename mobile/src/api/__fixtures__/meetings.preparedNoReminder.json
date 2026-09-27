@@ -26,7 +26,7 @@
     "remindAt": null,
     "silentBecause": "too_close",
     "dueAt": "2026-08-09T09:00:00.000Z",
-    "leadMinutes": 10,
+    "leadMinutes": 15,
     "adjustment": "short_notice",
     "startAt": "2026-08-09T09:00:00.000Z",
     "endAt": null
