@@ -41,6 +41,7 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState, type Command, type Commitment } from '../../src/domain/stateMachine.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
+import { extractWithFallback } from '../../src/extraction/extractionService.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Sunday 27 Sep 2026, 18:08 in Jerusalem — when N1 was typed. */
@@ -53,6 +54,9 @@ const N1_ALONE = 'اليوم الساعة 3 العصر لازم أبعت الإ�
 const N1_PAST_EVENT = 'اليوم الساعة 3 العصر كان عندي اجتماع مع سامي';
 const N6_REPORT = 'أحضّر تقرير آخر الشهر';
 const DOCTOR = 'سجّل موعد دكتور يوم الأحد';
+
+/** No model: the rules read the clause, and nothing reaches a local one. */
+const NO_MODEL = async (): Promise<string> => { throw new LLMUnavailableError('provider_none'); };
 
 const CALLS = (JSON.parse(readFileSync(new URL('./fixtures/uat-2026-09-27-round2-gemini.json', import.meta.url), 'utf8')) as {
   calls: Array<{ payload: string | string[]; answer: unknown }>;
@@ -350,10 +354,11 @@ function reportAnswer(date: string | null, title = 'أحضّر تقرير') {
   };
 }
 
-test('FY1 N6: a model day for this month\'s end is kept or none; any other model day is discarded', async () => {
+test('FY1 N6: a model day after this month\'s end is discarded; none, the last day or an earlier day is the model\'s', async () => {
   const rows: Array<[string | null, string]> = [
     ['2026-10-31', 'أحضّر تقرير آخر الشهر | - - | ask_time'],
-    ['2026-09-29', 'أحضّر تقرير آخر الشهر | - - | ask_time'],
+    // Before the month's end: not the N6 defect, and possibly right (fix round, I2).
+    ['2026-09-29', 'أحضّر تقرير آخر الشهر | 2026-09-29 - | ask_time'],
     [null, 'أحضّر تقرير آخر الشهر | - - | ask_time'],
     // This month's last day on the person's clock: the model's day stays, and
     // the hour is asked (the idafa is not a deadline, FX3).
@@ -365,11 +370,14 @@ test('FY1 N6: a model day for this month\'s end is kept or none; any other model
   }
 });
 
-test('FY1 N6: a deadline at this month\'s end settles on it whatever other day the model gave; next month is the model\'s', async () => {
+test('FY1 N6: a deadline at this month\'s end settles on it when the model gave a later day; next month is the model\'s', async () => {
   const bill = 'بدي أدفع فاتورة الكهربا قبل آخر الشهر';
-  for (const date of ['2026-10-31', '2026-09-29', '2026-09-25']) {
+  const { contract: later } = await proposeModel(bill, N6_NOW, recordedModel({ [bill]: reportAnswer('2026-10-31', 'أدفع فاتورة الكهربا') }).provider);
+  assert.deepEqual(later.items.map(line), ['أدفع فاتورة الكهربا | 2026-09-30 - | settled']);
+  // An earlier model day is kept and its hour asked (FX3 I-2, unchanged by the narrowed ruling).
+  for (const date of ['2026-09-29', '2026-09-25']) {
     const { contract } = await proposeModel(bill, N6_NOW, recordedModel({ [bill]: reportAnswer(date, 'أدفع فاتورة الكهربا') }).provider);
-    assert.deepEqual(contract.items.map(line), ['أدفع فاتورة الكهربا | 2026-09-30 - | settled'], date);
+    assert.deepEqual(contract.items.map(line), [`أدفع فاتورة الكهربا | ${date} - | ask_time`], date);
   }
   // «الشهر الجاي» is not this month: the model's day is not second-guessed.
   const next = 'بدي أدفع فاتورة الكهربا قبل آخر الشهر الجاي';
@@ -382,11 +390,167 @@ test('FY1 N6: a deadline at this month\'s end settles on it whatever other day t
   assert.equal(withDay.contract.items[0]!.title, 'أحضّر تقرير آخر الشهر');
 });
 
-test('FY1 N6: the 1st of the month between 00:00 and 03:00 local is this month on the person\'s clock', async () => {
+test('FY1 N6: the 1st of the month between 00:00 and 03:00 local keeps FX3\'s edge', async () => {
   // 00:30 on 1 Oct in Jerusalem is still 30 Sep in UTC, and the model answers
-  // the UTC month's end. The person's month is October.
+  // the UTC month's end. That day is before the person's month's end, so the
+  // narrowed ruling leaves it to FX3: the model's day, and the hour asked.
   const firstAt0030 = new Date('2026-09-30T21:30:00.000Z');
   const bill = 'بدي أدفع فاتورة الكهربا قبل آخر الشهر';
   const { contract } = await proposeModel(bill, firstAt0030, recordedModel({ [bill]: reportAnswer('2026-09-30', 'أدفع فاتورة الكهربا') }).provider);
-  assert.deepEqual(contract.items.map(line), ['أدفع فاتورة الكهربا | 2026-10-31 - | settled']);
+  assert.deepEqual(contract.items.map(line), ['أدفع فاتورة الكهربا | 2026-09-30 - | ask_time']);
+  // With no model day, FX3 settles the person's month's end.
+  const none = await proposeModel(bill, firstAt0030, recordedModel({ [bill]: reportAnswer(null, 'أدفع فاتورة الكهربا') }).provider);
+  assert.deepEqual(none.contract.items.map(line), ['أدفع فاتورة الكهربا | 2026-10-31 - | settled']);
+});
+
+// ── Fix round (review FY1-review.md: I1, I2, I3, the event branch, M1) ────
+
+test('FY1 fix I1: a conditional or a correction is not past narration — the commitment is kept', async () => {
+  const rows: Array<[string, string | null]> = [
+    ['إذا كان عندي وقت يوم السبت بدي أنظف السيارة', '2026-10-03'],
+    ['لو كان عندي وقت يوم الخميس بروح عالجيم', '2026-10-01'],
+    // Kept, as at 460c097b. Which of its two days is read is the rules' first
+    // weekday, as before FY1 — not this fix's to change.
+    ['كان عندي موعد يوم الأحد بس صار يوم الاثنين الساعة 10', null],
+  ];
+  for (const [text, date] of rows) {
+    const proposal = await withMemoryStorage(() => proposeRules(text, N1_NOW));
+    assert.notEqual(proposal.status, 'no_commitment', text);
+    assert.equal(proposal.items.length, 1, text);
+    if (date) assert.equal(proposal.items[0]!.resolvedDate, date, text);
+  }
+  // English and Hebrew conditionals are not refused as narration either. (The
+  // message classifier reads these two as informational, as it did at
+  // 460c097b; that is not the past gate's doing.)
+  for (const text of ['if I had time on Saturday I would wash the car', 'אם היה לי זמן ביום שבת הייתי שוטף את האוטו', 'If we had a meeting, remind me', 'אבל זה נדחה, היתה לי פגישה ביום שני']) {
+    const read = await extractWithFallback(text, { now: N1_NOW, timezone: TZ }, { llmProvider: NO_MODEL });
+    assert.notEqual(read.fallbackReason, 'semantic_safety:past_no_action', text);
+  }
+  for (const text of ['I had a meeting with Sam at 3pm today', 'היתה לי פגישה עם סאם היום בשלוש']) {
+    const read = await extractWithFallback(text, { now: N1_NOW, timezone: TZ }, { llmProvider: NO_MODEL });
+    assert.equal(read.fallbackReason, 'semantic_safety:past_no_action', text);
+  }
+  // A correction with no day of its own is kept too: its passed hour is asked.
+  const moved = await withMemoryStorage(() => proposeRules('كان عندي موعد الساعة 3 بس صار الساعة 8 المسا', N1_NOW));
+  assert.notEqual(moved.status, 'no_commitment');
+  // N1's literal past meeting is still nothing.
+  const past = await withMemoryStorage(() => proposeRules(N1_PAST_EVENT, N1_NOW));
+  assert.equal(past.status, 'no_commitment');
+});
+
+test('FY1 fix I2: a model day is kept when the words put an offset on the month\'s end or name another month', async () => {
+  const SEP_10 = new Date('2026-09-10T09:00:00.000Z');
+  const rows: Array<[string, Date, string]> = [
+    ['أخلص التقرير قبل آخر الشهر بأسبوع', SEP_10, '2026-09-23'],
+    ['submit the report two days before the end of the month', SEP_10, '2026-09-28'],
+    ['להגיש את הדוח שבוע לפני סוף החודש', SEP_10, '2026-09-23'],
+    ['לסיים דוח עד סוף חודש אוקטובר', N6_NOW, '2026-10-31'],
+    ['أدفع الإيجار بعد آخر الشهر بيومين', N6_NOW, '2026-10-02'],
+    ['pay the bill after the end of the month', N6_NOW, '2026-10-01'],
+  ];
+  for (const [text, now, date] of rows) {
+    const { contract } = await proposeModel(text, now, recordedModel({ [text]: reportAnswer(date, text) }).provider);
+    assert.equal(contract.items[0]?.resolvedDate, date, text);
+  }
+  // The literal N6 row is still discarded and asked.
+  const { contract } = await proposeModel(N6_REPORT, N6_NOW, recordedModel().provider);
+  assert.deepEqual(contract.items.map(line), ['أحضّر تقرير آخر الشهر | - - | ask_time']);
+});
+
+async function answerN1Alone(freeText: string) {
+  const uid = 'fy1-typed';
+  return withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text: N1_ALONE, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_time');
+    const updated = await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText,
+      timezone: TZ, referenceTime: N1_NOW.toISOString(),
+    }, { participantId: uid });
+    return updated.items.map(line);
+  });
+}
+
+test('FY1 fix I3: a typed answer to the passed-hour question wins over the hour it replaces', async () => {
+  assert.deepEqual(await answerN1Alone('الساعة 7 المسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
+  assert.deepEqual(await answerN1Alone('بكرا الساعة 10'), ['أبعت الإيميل للمدير | 2026-09-28 10:00 | settled']);
+  // A bare hour is read the way a typed bare hour is read for any item (the
+  // doctor's «الساعة 4» is 04:00): its next occurrence, never the passed 15:00.
+  assert.deepEqual(await answerN1Alone('الساعة 4'), ['أبعت الإيميل للمدير | 2026-09-28 04:00 | settled']);
+  assert.deepEqual(await answerN1Alone('بالمسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
+});
+
+test('FY1 fix I3: a typed answer that is itself already past is "not understood", never a generic failure', async () => {
+  await assert.rejects(
+    () => withMemoryStorage(async () => {
+      const proposal = await proposeMobileCapture({ text: N1_ALONE, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: 'fy1-past-answer' });
+      const item = proposal.items[0]!;
+      await clarifyMobileCapture({
+        proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText: 'اليوم الساعة 9 الصبح',
+        timezone: TZ, referenceTime: N1_NOW.toISOString(),
+      }, { participantId: 'fy1-past-answer' });
+    }),
+    (error: unknown) => (error as { failure?: string }).failure === 'answer_not_understood',
+  );
+});
+
+async function answeredNoTime(text: string) {
+  const uid = 'fy1-event';
+  return withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N1_NOW.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_time', text);
+    const updated = await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'none',
+      timezone: TZ, referenceTime: N1_NOW.toISOString(),
+    }, { participantId: uid });
+    await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: uid });
+    const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
+    return { answered: updated.items[0]!, commitment };
+  });
+}
+
+test('FY1 fix, event branch: a meeting or a wedding with a day answered «بدون وقت محدد» is an all-day event too; a task is not', async () => {
+  for (const [text, date] of [
+    ['meeting with Sam on Tuesday', '2026-09-29'],
+    ['اجتماع مع سامي يوم الثلاثاء', '2026-09-29'],
+    ['بدي أروح عالعرس يوم الخميس', '2026-10-01'],
+    ['חתונה של דנה ביום חמישי', '2026-10-01'],
+  ] as const) {
+    const { answered, commitment } = await answeredNoTime(text);
+    assert.equal(answered.allDayEvent, true, text);
+    assert.equal(answered.resolvedDate, date, text);
+    assert.equal(commitment.timeSpec.kind, 'scheduled_event', text);
+    assert.equal(commitment.timeSpec.allDay, true, text);
+    assert.deepEqual(planFor([commitment], '2026-09-27'), { pinned: [], floating: [] }, text);
+  }
+  for (const text of ['بدي أشتري هدية للعرس يوم الخميس', 'prepare the slides for the meeting on Tuesday', 'بدي أتصل بسامي يوم الأحد']) {
+    const { answered, commitment } = await answeredNoTime(text);
+    assert.equal(answered.allDayEvent, undefined, text);
+    assert.notEqual(commitment.timeSpec.kind, 'scheduled_event', text);
+  }
+});
+
+async function editedToNoTime(text: string) {
+  const store = new MemoryCaptureProposalStore();
+  const persistence = new TransactionalCapturePersistenceAdapter(createEmptyDomainState());
+  const contract = await proposeCapture(text, { now: N1_NOW, timezone: TZ, scopeId: 'fy1-m1', requestedEngine: 'rules' }, { store, persistence });
+  const item = contract.items[0]!;
+  assert.equal(item.needsClarification, false, text);
+  const result = await confirmCapture(
+    { proposalId: contract.proposalId, scopeId: 'fy1-m1', selectedItemIds: [item.itemId], idempotencyKey: `k-${text}`, now: N1_NOW, edits: [{ itemId: item.itemId, resolvedTime: null }] },
+    { store, persistence },
+  );
+  assert.equal(result.success, true, JSON.stringify(result));
+  return Object.values((await persistence.snapshot()).commitments)[0]!;
+}
+
+test('FY1 fix M1: the review edit sheet\'s "no time" keeps an appointment on its day; a task loses its time as before', async () => {
+  const doctor = await editedToNoTime('موعد دكتور يوم الأحد الساعة 10 الصبح');
+  assert.deepEqual(
+    { kind: doctor.timeSpec.kind, allDay: doctor.timeSpec.allDay, dueAt: doctor.timeSpec.dueAt, remindAt: doctor.timeSpec.remindAt },
+    { kind: 'scheduled_event', allDay: true, dueAt: '2026-10-03T21:00:00.000Z', remindAt: null },
+  );
+  const medicine = await editedToNoTime('لازم أشتري دوا من الصيدلية يوم الأحد الساعة 5 المسا');
+  assert.deepEqual({ kind: medicine.timeSpec.kind, dueAt: medicine.timeSpec.dueAt }, { kind: 'unscheduled', dueAt: null });
 });
