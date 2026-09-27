@@ -56,7 +56,7 @@
       "isCalendarFile": 0,
       "modelCalls": 1,
       "outputTokens": 80,
-      "latencyMs": 1,
+      "latencyMs": 0,
       "truncatedCharacters": 0,
       "tooLarge": 0,
       "injectedItems": 0,
