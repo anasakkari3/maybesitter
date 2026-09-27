@@ -14,6 +14,7 @@ import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { dayForAnswer } from './clarificationBuilder';
 import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
+import { isFixedAppointment } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
 /**
@@ -188,6 +189,40 @@ function answeredTimeAnchor(rawText: string, freeText: string): 'event' | 'deadl
     : 'event';
 }
 
+/**
+ * An appointment answered "no specific time", kept on its day (closure UAT
+ * round 2, FY1 N4).
+ *
+ * «سجّل موعد دكتور يوم الأحد» answered «بدون وقت محدد» used to lose its day:
+ * the answer cleared the time and the day with it, the commitment was stored
+ * `unscheduled`, the card read «لحد الأحد» as if it were a deadline, and the
+ * day plan put the doctor on today. An appointment happens *on* its day, so
+ * it is an all-day `scheduled_event` there — `dueAt` that day's local
+ * midnight, `allDay` saying nobody chose the hour (`TimeSpec.allDay`).
+ *
+ * Only for what the appointment rule calls one (`isFixedAppointment`, the
+ * rule that already raises it to «لازم»), and only with a day. A task
+ * answered the same way is unchanged.
+ */
+function allDayAppointment(result: ExtractionResult, timezone: string): ExtractionResult | null {
+  const date = result.localTimeSpec?.date;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (result.type !== 'task' && result.type !== 'follow_up') return null;
+  if (!isFixedAppointment(result.rawText ?? '', { hasDay: true, hasClock: false })) return null;
+  const midnight = instantFromLocal(date, '00:00', timezone);
+  if (!midnight) return null;
+  return {
+    ...result,
+    dueAt: midnight.toISOString(),
+    remindAt: null,
+    localTimeSpec: { date, time: null, timezone },
+    timeEvidence: 'day_only',
+    allDay: true,
+    timeAnchor: 'event',
+    missingFields: result.missingFields.filter((field) => field !== 'time'),
+  } as ExtractionResult;
+}
+
 /** The time the answer named, applied to the item it answers and nothing else. */
 function withTimeFrom(result: ExtractionResult, source: ExtractionResult): ExtractionResult {
   return {
@@ -338,16 +373,20 @@ export async function answerClarification(
   let answerKind: 'option' | 'free_text';
   // "No specific time" — the option with no value (#474).
   let noTime = false;
+  // …for an appointment with a day: an all-day event on it (FY1 N4).
+  let appointmentDay: ExtractionResult | null = null;
 
   if (input.optionId) {
     const option = question.options.find((candidate) => candidate.optionId === input.optionId);
     if (!option) throw new ClarifyError('option_not_found');
     noTime = !option.value.localTime && !option.value.localDate;
-    answered = noTime
-      // The user chose no hour, so nothing the extractor guessed about one
-      // survives. The same shape a "No time" edit produces (`applyEdits`).
-      ? { ...result, remindAt: null, dueAt: null } as ExtractionResult
-      : withResolvedTime(result, appliedLocal(result, option.value), options.timezone);
+    appointmentDay = noTime ? allDayAppointment(result, options.timezone) : null;
+    answered = appointmentDay
+      ?? (noTime
+        // The user chose no hour, so nothing the extractor guessed about one
+        // survives. The same shape a "No time" edit produces (`applyEdits`).
+        ? { ...result, remindAt: null, dueAt: null } as ExtractionResult
+        : withResolvedTime(result, appliedLocal(result, option.value), options.timezone));
     answerKind = 'option';
   } else {
     answered = await readFreeTextAnswer(result, question, freeText, options, dependencies);
@@ -376,7 +415,7 @@ export async function answerClarification(
   // `pending_confirmation`, like any other answered item, so the confirm
   // activates it. A confirm-time edit with a title and no time is still refused:
   // only this explicit answer settles.
-  const answeredCommands = noTime
+  const answeredCommands = noTime && !appointmentDay
     ? settleDrafts(applyEditToCommands(mapExtractionToCommand(answered, options.now.toISOString()), { resolvedTime: null }))
     : settleDrafts(mapExtractionToCommand(answered, options.now.toISOString()));
 
@@ -390,7 +429,10 @@ export async function answerClarification(
   items[index] = {
     ...item,
     title: (answered.title || answered.action || item.title).trim(),
-    resolvedTime: answered.remindAt || answered.dueAt || null,
+    // An all-day event's `dueAt` is its midnight, not an hour anybody chose.
+    resolvedTime: answered.allDay ? null : answered.remindAt || answered.dueAt || null,
+    // On its day, not by it: the card says «الأحد · بدون وقت», not «لحد الأحد».
+    ...(appointmentDay ? { allDayEvent: true } : {}),
     // Settled: the question it had was the one it needed, and it is answered.
     needsClarification: false,
     priority: answered.priority.level,

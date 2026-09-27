@@ -306,6 +306,18 @@ export function fixedStartOf(commitment: Commitment): Instant | null {
 // files is how the planner and the device calendar came to disagree in the
 // first place; see that module's doc comment for the full account.
 
+/**
+ * An event on a day with no hour anybody chose (FY1 N4): «موعد دكتور يوم
+ * الأحد» answered «بدون وقت محدد». It happens on its day, but the day plan has
+ * no hour to pin it to and it is not work to place: pinned at its midnight it
+ * would be a fixed row at 00:00 nobody said, and floated it would be given a
+ * half hour — which is how the Sunday doctor landed on today at 19:30. Like
+ * an all-day busy block (#186), it occupies no clock time in any plan.
+ */
+export function isAllDayEvent(commitment: Commitment): boolean {
+  return commitment.timeSpec.kind === 'scheduled_event' && commitment.timeSpec.allDay === true && !commitment.postponedUntil;
+}
+
 /** Confirmed, still open, and not already done or abandoned. */
 export function isPlannable(commitment: Commitment): boolean {
   return commitment.status === 'active' || commitment.status === 'deferred';
@@ -413,7 +425,7 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   const { startsAt, endsAt } = dayHorizon(args.date, args.timezone);
   const weekday = weekdayAt(toEpochMs(startsAt), args.timezone) as Weekday;
 
-  const plannable = args.commitments.filter(isPlannable);
+  const plannable = args.commitments.filter((commitment) => isPlannable(commitment) && !isAllDayEvent(commitment));
   const earliestStartAt = earliestPlaceableStart(args.builtAt, startsAt, endsAt);
 
   const fromBusy: FixedEvent[] = args.busyBlocks.map((block) => ({
