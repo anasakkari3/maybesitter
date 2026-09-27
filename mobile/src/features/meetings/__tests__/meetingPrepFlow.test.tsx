@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -19,7 +19,7 @@ import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
-import { CaptureProvider } from '../../capture/CaptureProvider';
+import { CaptureProvider, useCaptureFlow } from '../../capture/CaptureProvider';
 import { CaptureFlow } from '../../capture/CaptureFlow';
 import { CalendarScreen } from '../../../screens/CalendarScreen';
 import { DetailsScreen } from '../../../screens/DetailsScreen';
@@ -37,6 +37,10 @@ import * as consentEndpoints from '../../../api/endpoints/consents';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as activityEndpoints from '../../../api/endpoints/activity';
 import * as categoryEndpoints from '../../../api/endpoints/categories';
+import * as reminderEndpoints from '../../../api/endpoints/reminders';
+import * as profileEndpoints from '../../../api/endpoints/profile';
+import settingsFixture from '../../../api/__fixtures__/reminders.settingsDefault.json';
+import emptyProfileFixture from '../../../api/__fixtures__/profile.empty.json';
 import en from '../../../i18n/locales/en.json';
 import preparedFixture from '../../../api/__fixtures__/meetings.preparedGemini.json';
 import confirmationFixture from '../../../api/__fixtures__/capture.confirmation.json';
@@ -99,6 +103,13 @@ function meeting(extra: Partial<Commitment> = {}): Commitment {
   } as Commitment;
 }
 
+/** The capture flow, reachable from a test: Review's own edit sheet sets exactly this. */
+let flowRef: ReturnType<typeof useCaptureFlow> | null = null;
+function FlowProbe() {
+  flowRef = useCaptureFlow();
+  return null;
+}
+
 /** Calendar, or the details it opened, with the sheet host over it — and capture when it opens. */
 function Stage() {
   const { s } = useApp();
@@ -128,6 +139,7 @@ async function show(options: { aiGranted?: boolean; today?: Commitment[] } = {})
           <AppProvider>
             <CaptureProvider>
               <Stage />
+              <FlowProbe />
             </CaptureProvider>
           </AppProvider>
         </AuthProvider>
@@ -366,6 +378,60 @@ describe('an appointment, and a step moved by quiet hours', () => {
     await reviewWith({ remindAt: passed, silentBecause: null, adjustment });
     await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepTooClose));
     expect(screen.queryByTestId('review-prep-short-notice')).toBeNull();
+  });
+
+  describe('after the prep step is edited in review (FX1 re-review Minor 5)', () => {
+    /** `YYYY-MM-DDTHH:mm` in the device zone, as the edit sheet writes it. */
+    const localOf = (ms: number) => {
+      const at = new Date(ms);
+      const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+      const time = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+      return `${day}T${time}`;
+    };
+    const settingsWith = (extra: Record<string, unknown> = {}) => jest.spyOn(reminderEndpoints, 'getReminderSettings').mockResolvedValue({
+      ...settingsFixture, reminderSettings: { ...settingsFixture.reminderSettings, quietHours: null, ...extra },
+    } as never);
+    const edit = async (localDateTime: string) => {
+      await act(async () => { flowRef!.editItem('prep-1', { localDateTime }); });
+    };
+
+    it('the quiet-hours line goes once the step is moved; moved before the meeting it rings when shown, so nothing is said', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      await reviewWith({ remindAt: new Date(mockStart.getTime() - 2 * HOUR).toISOString(), adjustment: 'quiet_hours' });
+      expect(screen.getByTestId('review-prep-quiet-moved')).toBeTruthy();
+      await edit(localOf(mockStart.getTime() - 30 * 60_000));
+      await waitFor(() => expect(screen.queryByTestId('review-prep-quiet-moved')).toBeNull());
+      expect(screen.queryByTestId('review-prep-rings-at')).toBeNull();
+      expect(screen.queryByTestId('review-prep-no-reminder')).toBeNull();
+    });
+
+    it('moved to after the meeting, it says when the reminder really rings: a lead before, like any step', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      await reviewWith({});
+      await edit(localOf(mockStart.getTime() + 30 * 60_000));
+      await waitFor(() => expect(screen.getByTestId('review-prep-rings-at')).toBeTruthy());
+      const line = String(screen.getByTestId('review-prep-rings-at').props.children);
+      expect(line.startsWith(en.reviewPrepRingsAt.replace('{time}', ''))).toBe(true);
+      expect(line).toContain(hhmmOf(new Date(mockStart.getTime() - 30 * 60_000).toISOString()));
+    });
+
+    it('with no time, it says nothing will ring', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      await reviewWith({});
+      await edit('');
+      await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepNoTime));
+    });
+
+    it('with reminders off, an edited time still says nothing will ring, and why', async () => {
+      settingsWith({ softEnabled: false });
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      await reviewWith({ remindAt: null, silentBecause: 'reminders_off' });
+      await edit(localOf(mockStart.getTime() - 30 * 60_000));
+      await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepRemindersOff));
+    });
   });
 
   it('with no move, review has no quiet-hours line', async () => {

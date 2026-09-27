@@ -70,6 +70,8 @@ export function MeetingPrepSheet() {
           silentBecause: result.prep.silentBecause,
           adjustment: result.prep.adjustment,
           appointment,
+          itemId: result.prep.itemId,
+          startAt: result.prep.startAt,
         });
         actions.go('capture');
       },
