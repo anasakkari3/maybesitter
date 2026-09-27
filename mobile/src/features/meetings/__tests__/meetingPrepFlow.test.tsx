@@ -396,15 +396,18 @@ describe('an appointment, and a step moved by quiet hours', () => {
       await act(async () => { flowRef.current!.editItem('prep-1', { localDateTime }); });
     };
 
-    it('the quiet-hours line goes once the step is moved; moved before the meeting it rings when shown, so nothing is said', async () => {
+    it('the quiet-hours line goes once the step is moved; moved before the meeting it says it rings at the time shown (N7)', async () => {
       settingsWith();
       jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
       await reviewWith({ remindAt: new Date(mockStart.getTime() - 2 * HOUR).toISOString(), adjustment: 'quiet_hours' });
       expect(screen.getByTestId('review-prep-quiet-moved')).toBeTruthy();
-      await edit(localOf(mockStart.getTime() - 30 * 60_000));
+      const moved = mockStart.getTime() - 30 * 60_000;
+      await edit(localOf(moved));
       await waitFor(() => expect(screen.queryByTestId('review-prep-quiet-moved')).toBeNull());
-      expect(screen.queryByTestId('review-prep-rings-at')).toBeNull();
+      await waitFor(() => expect(screen.getByTestId('review-prep-rings-at')).toBeTruthy());
+      expect(String(screen.getByTestId('review-prep-rings-at').props.children)).toContain(hhmmOf(new Date(moved).toISOString()));
       expect(screen.queryByTestId('review-prep-no-reminder')).toBeNull();
+      expect(screen.queryByTestId('review-prep-after-meeting')).toBeNull();
     });
 
     it('moved to after the meeting, it says when the reminder really rings: a lead before, like any step', async () => {
@@ -418,12 +421,33 @@ describe('an appointment, and a step moved by quiet hours', () => {
       expect(line).toContain(hhmmOf(new Date(mockStart.getTime() - 30 * 60_000).toISOString()));
     });
 
+    it('moved to after the meeting, it also says the step is no longer before it, so a ring ahead of the card is not a surprise (N5)', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      await reviewWith({});
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(screen.getByTestId('review-prep-after-meeting').props.children).toBe(en.reviewPrepAfterMeeting));
+      await waitFor(() => expect(screen.getByTestId('review-prep-rings-at')).toBeTruthy());
+      // The line still says when it really rings: the account's lead before the new time.
+      expect(String(screen.getByTestId('review-prep-rings-at').props.children)).toContain(hhmmOf(new Date(mockStart.getTime() + HOUR).toISOString()));
+    });
+
+    it('moved to exactly the meeting start, it is not before the meeting either (N5)', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      await reviewWith({});
+      await edit(localOf(mockStart.getTime()));
+      await waitFor(() => expect(screen.getByTestId('review-prep-after-meeting').props.children).toBe(en.reviewPrepAfterMeeting));
+    });
+
     it('with no time, it says nothing will ring', async () => {
       settingsWith();
       jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
       await reviewWith({});
       await edit('');
       await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepNoTime));
+      expect(screen.queryByTestId('review-prep-rings-at')).toBeNull();
+      expect(screen.queryByTestId('review-prep-after-meeting')).toBeNull();
     });
 
     it('with reminders off, an edited time still says nothing will ring, and why', async () => {
@@ -433,6 +457,16 @@ describe('an appointment, and a step moved by quiet hours', () => {
       await edit(localOf(mockStart.getTime() - 30 * 60_000));
       await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepRemindersOff));
     });
+  });
+
+  it('as proposed, ringing at the time shown, review still says when: «التذكير رح يرن: …» (N7)', async () => {
+    await reviewWith({});
+    const remindAt = prepared().prep.remindAt!;
+    const line = String(screen.getByTestId('review-prep-rings-at').props.children);
+    expect(line.startsWith(en.reviewPrepRingsAt.replace('{time}', ''))).toBe(true);
+    expect(line).toContain(hhmmOf(remindAt));
+    expect(screen.queryByTestId('review-prep-no-reminder')).toBeNull();
+    expect(screen.queryByTestId('review-prep-after-meeting')).toBeNull();
   });
 
   it('with no move, review has no quiet-hours line', async () => {

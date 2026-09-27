@@ -641,10 +641,12 @@ function ItemCard({
 const MAX_TIMER_MS = 2_147_483_647;
 
 /**
- * One line about the prep step's reminder, or nothing when it rings an hour
- * before as usual. After the person changes the step's time or makes it a
- * Must, the prepare response no longer describes it: the line is answered
- * again for the step as it will be confirmed (`EditedPrepLine`, FX1).
+ * One line about the prep step's reminder: when it will ring, or why nothing
+ * will — always, the ordinary case too (UAT round 2, N7: a Review that said
+ * nothing for the initial 14:00 or an edit to 13:00 never told the person
+ * when). After the person changes the step's time or makes it a Must, the
+ * prepare response no longer describes it: the line is answered again for the
+ * step as it will be confirmed (`EditedPrepLine`, FX1).
  */
 function PrepReminderLine({ meeting, proposed, edit }: {
   meeting: MeetingReviewContext;
@@ -664,6 +666,7 @@ function PrepReminderLine({ meeting, proposed, edit }: {
         at={editedAt === undefined ? proposed.resolvedTime ?? null : editedAt}
         meetingStart={meeting.startAt}
         priority={edit?.priority ?? proposed.priority ?? 'normal'}
+        appointment={meeting.appointment === true}
       />
     );
   }
@@ -675,16 +678,34 @@ const REMINDER_PRIORITY = { high: 'must', normal: 'should', low: 'nice' } as con
 /**
  * The line for an edited prep step: what the phone will ring for it, from its
  * own planning and the account's settings (`prepRingAfterEdit`). Nothing is
- * said until the settings are read — a line about them before then would be
- * a guess.
+ * said about the ring until the settings are read — a line about them before
+ * then would be a guess.
+ *
+ * A step moved to the meeting's start or later is no longer a window: it is
+ * reminded a lead before its own time, like any step, so the ring can read
+ * earlier than the card (17:00 on the card, 16:00 in the line). One more line
+ * says it is no longer before the meeting, so neither is a surprise (N5).
  */
-function EditedPrepLine({ at, meetingStart, priority }: { at: string | null; meetingStart: string; priority: 'high' | 'normal' | 'low' }) {
-  const { t, p, lang } = useApp();
-  const timezone = useTimeZone();
+function EditedPrepLine({ at, meetingStart, priority, appointment }: {
+  at: string | null;
+  meetingStart: string;
+  priority: 'high' | 'normal' | 'low';
+  appointment: boolean;
+}) {
+  const { t, p } = useApp();
   const settings = useReminderSettings();
   const profile = useProfile();
   const dto = settings.data?.reminderSettings;
-  if (!dto || profile.data === undefined) return null;
+  // The same rule the server's edit applies (`windowEndAfterMove`): strictly
+  // before the start stays the prep window; at or after it does not.
+  const notBefore = at !== null && Date.parse(at) >= Date.parse(meetingStart)
+    ? (
+      <Txt size={13} color={p.mu} testID="review-prep-after-meeting">
+        {appointment ? t.reviewPrepAfterAppointment : t.reviewPrepAfterMeeting}
+      </Txt>
+    )
+    : null;
+  if (!dto || profile.data === undefined) return notBefore;
   const answer = prepRingAfterEdit({
     at,
     meetingStart,
@@ -695,22 +716,35 @@ function EditedPrepLine({ at, meetingStart, priority }: { at: string | null; mee
     now: new Date(),
   });
   if (answer.kind === 'rings') {
-    // Rings at the time the card shows: the ordinary case, said by nothing.
-    if (at !== null && answer.at === Date.parse(at)) return null;
-    const ring = new Date(answer.at);
-    const time = `${formatRelativeDay(ring, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(ring, { locale: lang, timeZone: timezone }))}`;
-    return <Txt size={13} color={p.mu} testID="review-prep-rings-at">{fill(t.reviewPrepRingsAt, { time })}</Txt>;
+    return (
+      <>
+        {notBefore}
+        <RingsAtLine at={answer.at} />
+      </>
+    );
   }
   const because = answer.because;
   return (
-    <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
-      {because === 'no_time' ? t.reviewPrepNoTime
-        : because === 'reminders_off' ? t.reviewPrepRemindersOff
-          : because === 'silent_choice' ? t.reviewPrepSilentChoice
-            : because === 'quiet_hours' ? t.reviewPrepQuietHours
-              : t.reviewPrepTooClose}
-    </Txt>
+    <>
+      {notBefore}
+      <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
+        {because === 'no_time' ? t.reviewPrepNoTime
+          : because === 'reminders_off' ? t.reviewPrepRemindersOff
+            : because === 'silent_choice' ? t.reviewPrepSilentChoice
+              : because === 'quiet_hours' ? t.reviewPrepQuietHours
+                : t.reviewPrepTooClose}
+      </Txt>
+    </>
   );
+}
+
+/** «التذكير رح يرن: بكرا · 14:00» — said even when that is the time the card shows (N7). */
+function RingsAtLine({ at }: { at: number | string }) {
+  const { t, p, lang } = useApp();
+  const timezone = useTimeZone();
+  const ring = new Date(at);
+  const time = `${formatRelativeDay(ring, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(ring, { locale: lang, timeZone: timezone }))}`;
+  return <Txt size={13} color={p.mu} testID="review-prep-rings-at">{fill(t.reviewPrepRingsAt, { time })}</Txt>;
 }
 
 /** The line the prepare response gives, for the step as the server proposed it. */
@@ -742,7 +776,8 @@ function ProposedPrepLine({ meeting }: { meeting: MeetingReviewContext }) {
       </Txt>
     );
   }
-  if (meeting.adjustment === 'none') return null;
+  // Rings at the time the card shows: still said (N7).
+  if (meeting.adjustment === 'none') return <RingsAtLine at={meeting.remindAt} />;
   const at = new Date(meeting.remindAt);
   const time = `${formatRelativeDay(at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
   const quiet = meeting.adjustment === 'quiet_hours';

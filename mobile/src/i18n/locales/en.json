@@ -1005,6 +1005,8 @@
   "reviewPrepQuietHours": "The reminder would fall in your quiet hours, so nothing will ring.",
   "reviewPrepRingsAt": "The reminder rings: {time}",
   "reviewPrepNoTime": "No time, so nothing will ring.",
+  "reviewPrepAfterMeeting": "So the step is no longer before the meeting.",
+  "reviewPrepAfterAppointment": "So the step is no longer before the appointment.",
   "reviewUntrusted": "Outside content",
   "detailsHistory": "Its history",
   "detailsClosedNote": "This one is finished. It stays in your history.",
