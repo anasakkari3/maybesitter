@@ -1,14 +1,21 @@
 import type { ExtractionContext, ExtractionResult, LocalTimeSpec } from './extractionTypes';
-import { classifyMessageKind, createsNothing } from './messageKind';
+import { classifyMessageKind, createsNothing, stripLeadingGreetings } from './messageKind';
 import {
   CLOCK_PATTERN_SOURCES,
+  DAY_PART_MENTION_SOURCES,
+  RELATIVE_DAY_MENTION_SOURCES,
   RANGE_PATTERN_SOURCES,
   dayPartHour,
   localTimeSpecFor,
   normalizeArabicDigits,
   normalizeSpokenArabicHours,
   normalizeSpokenHebrewHours,
+  namesDay,
+  relativeDayOffset,
+  timeAnchorOf,
   timeOfDayEvidence,
+  normalizeClockFractions,
+  normalizeClockText,
   type TimeEvidence,
 } from './timeLexicon';
 import {
@@ -116,11 +123,12 @@ function resolveTimezone(context: ExtractionContext): string {
 }
 
 function parseClock(raw: string): { hour: number; minute: number } | null {
-  const normalized = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw))).toLowerCase();
+  const normalized = normalizeClockText(raw).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
-    normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/) ||
-    normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/);
+    normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/) ||
+    // A bare hh:mm is read last, so a part of the day after it («5:30 المسا») is not lost.
+    normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/);
   if (!explicit) return null;
   let hour = Number(explicit[1]);
   const minute = explicit[2] ? Number(explicit[2]) : 0;
@@ -143,7 +151,6 @@ interface ParsedTime {
 }
 
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
-  const lower = raw.toLowerCase();
   const now = context.now;
   const tz = resolveTimezone(context);
   const clock = parseClock(raw);
@@ -151,29 +158,14 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   let timeConfidence = 0;
   let dateInferred = false;
 
-  if (
-    /\btoday\b/.test(lower) ||
-    /\btonight\b/.test(lower) ||
-    /(اليوم|النهارده|اليومه|الليلة|الليله)/.test(lower) ||
-    /(?:^|[\s,.،])(היום|הערב|הלילה)(?=$|[\s,.،])/.test(lower)
-  ) {
+  // Today, tomorrow or the day after, as whole words (`timeLexicon.ts`):
+  // «الغداء» (lunch) is not «غدا», «اليومي» (daily) is not «اليوم».
+  const relativeDay = relativeDayOffset(raw);
+  if (relativeDay === 0) {
     targetDate = new Date(now);
     timeConfidence = 0.85;
-  }
-  if (
-    /\b(?:tomorrow|tmrw|tmr|tomorow)\b/.test(lower) ||
-    /(بكرا|بكرة|بكره|باچر|باكر|غدا|غداً)/.test(lower) ||
-    /(?:^|[\s,.،])מחר(?=$|[\s,.،])/.test(lower)
-  ) {
-    targetDate = addDaysTz(now, 1, tz);
-    timeConfidence = 0.9;
-  }
-  if (
-    /\b(?:after tomorrow|day after tomorrow|after tmrw)\b/.test(lower) ||
-    /(بعد بكرا|بعد بكرة|بعد بكره|بعد غد|بعد غداً)/.test(lower) ||
-    /(?:^|[\s,.،])מחרתיים(?=$|[\s,.،])/.test(lower)
-  ) {
-    targetDate = addDaysTz(now, 2, tz);
+  } else if (relativeDay !== null) {
+    targetDate = addDaysTz(now, relativeDay, tz);
     timeConfidence = 0.9;
   }
 
@@ -256,39 +248,100 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   };
 }
 
+/** A text with every time, day and part-of-day expression taken out. */
+export function stripTimeExpressions(text: string): string {
+  return stripTiming(text);
+}
+
+// Compiled once (CL1 review m-4): `stripTiming` runs for every clause, and
+// compiling ~40 `u`-flag sources per call was most of a cold capture's cost.
+// A global regex is safe to share with `String.replace`, which resets it.
+const FOLLOWING_WEEK_STRIP = FOLLOWING_WEEK_STRIP_SOURCES.map((source) => new RegExp(source, 'giu'));
+const DAY_PART_STRIP = DAY_PART_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+const RELATIVE_DAY_STRIP = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+const WEEKDAY_STRIP = WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'gu'));
+const CLOCK_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi'));
+/**
+ * «הבוקר» is "this morning" and also "the morning" («ישיבת הבוקר»). It gives
+ * an item no time unless the text names a day, and then it is kept in the
+ * title as written (CL1 review m-2).
+ */
+const HE_THE_MORNING = new RegExp('^[\\s,.،]*ו?הבוקר[\\s,.،]*$', 'u');
+
 function stripTiming(text: string): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
   // the clock patterns below strip a spoken hour out of the title exactly as
   // they strip a typed one.
-  let stripped = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text));
+  // Digits are left as typed (a title keeps its «٢٠٠ شيكل»); only the
+  // spoken hours and fractions are rewritten so the clock patterns find them.
+  let stripped = normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text)));
   // "The one after" phrases whole, before the bare day names below take their
   // weekday and leave «اللي بعد الجاي» behind in the title.
-  for (const source of FOLLOWING_WEEK_STRIP_SOURCES) {
-    stripped = stripped.replace(new RegExp(source, 'giu'), ' ');
+  for (const pattern of FOLLOWING_WEEK_STRIP) stripped = stripped.replace(pattern, ' ');
+  // Parts of the day first, by the lexicon's own whole-word rule, while the
+  // "tomorrow" that frames "tomorrow morning" is still there to be read. A
+  // word that only contains one — «المساعدة», «המערב», "the morning report"
+  // — stays in the title whole, and «عالمسا» leaves no «ع» behind.
+  const dayNamed = namesDay(text);
+  for (const pattern of DAY_PART_STRIP) {
+    stripped = stripped.replace(pattern, (match) => (!dayNamed && HE_THE_MORNING.test(match) ? match : ' '));
   }
+  // The relative days the same way, the day after before tomorrow: a partial
+  // match never takes letters out of a word («الغداء», «اليومي» stay whole).
+  for (const pattern of RELATIVE_DAY_STRIP) stripped = stripped.replace(pattern, ' ');
   stripped = stripped
-    .replace(/\b(after tomorrow|day after tomorrow|after tmrw|today|tomorrow|tmrw|tmr|tomorow|tonight|morning|afternoon|evening|night)\b/gi, ' ')
-    .replace(/(بعد بكرا|بعد بكرة|بعد بكره|بعد غداً|بعد غد|اليوم|النهارده|اليومه|الليلة|الليله|بكرا|بكرة|بكره|باچر|باكر|غداً|غدا|الصبح|صباحاً|صباحا|صباح|بعد الظهر|بعد الضهر|العصر|المساء|المسا|مساءً|مساءا|مساء|بالليل|الليل)/gi, ' ')
-    .replace(/(?:^|[\s,.،])(?:מחרתיים|מחר|היום|הערב|הלילה|בבוקר|בוקר|אחרי הצהריים|אחה"צ|בצהריים|צהריים|בערב|ערב|בלילה|לילה|חצות)(?=$|[\s,.،])/gi, ' ')
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ');
   // Arabic and Hebrew day names, as whole words and with «يوم» and «الجاي»
   // around them — the same tokenizer that resolves them, so «الأحداث» and
   // «הראשון» stay in the title exactly as they are not read as days.
-  for (const source of WEEKDAY_MENTION_SOURCES) {
-    stripped = stripped.replace(new RegExp(source, 'gu'), ' ');
-  }
+  for (const pattern of WEEKDAY_STRIP) stripped = stripped.replace(pattern, ' ');
   // Ranges before the clocks inside them: taking "2pm" first would leave
   // "meeting from to" as the title.
-  for (const source of [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES]) {
-    stripped = stripped.replace(new RegExp(source, 'gi'), ' ');
-  }
+  for (const pattern of CLOCK_STRIP) stripped = stripped.replace(pattern, ' ');
   return stripped.replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * A limit word left at the end of a title once the time after it was taken
+ * out (CL1, round 1): «أخلص تقرير الشغل قبل الخميس» became «أخلص تقرير الشغل
+ * قبل», "finish the report by tomorrow" became "finish the report by".
+ */
+const DANGLING_LIMIT = new RegExp('(?:^|\\s)(قبل|لحد|لحدّ|لغاية|لغايه|حتى|حتّى|before|by|until|till|עד|לפני)$', 'iu');
+
+/**
+ * Only when the word was followed by something in what the user wrote — the
+ * time that `stripTiming` took — so a title that genuinely ends on one is
+ * kept. "Stop by" / "drop by" is a visit, not a deadline, and keeps its "by".
+ */
+function withoutDanglingLimit(title: string, raw: string): string {
+  const match = DANGLING_LIMIT.exec(title);
+  if (!match) return title;
+  const word = match[1]!;
+  const before = title.slice(0, match.index).trim();
+  if (/^by$/i.test(word) && /\b(?:stop|stopped|drop|dropped|pass|passed|come|came|swing|pop|go|went)$/i.test(before)) return title;
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const followed = new RegExp(`(?:^|[\\s,.،])${escaped}\\s+\\S`, 'iu').test(raw);
+  return followed && before ? before : title;
+}
+
+/**
+ * Sentence marks left in a title (CL1 review, I3). A clause keeps its own «.»
+ * so a seed is stored as typed, and once `stripTiming` took the time before
+ * it the title read «موعد دكتور .» — and « قبل .» hid the dangling «قبل» from
+ * the strip below, which is anchored at the end.
+ */
+const STRAY_MARKS = /(^|\s)[.!?؟،,;:]+(?=\s|$)|[.!?؟]+$/g;
+
 function cleanAction(raw: string): string {
+  const title = cleanCommand(raw).replace(STRAY_MARKS, '$1').replace(/\s+/g, ' ').trim();
+  return withoutDanglingLimit(title, raw);
+}
+
+function cleanCommand(raw: string): string {
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
-  return stripCaptureCommand(stripTiming(raw))
+  // A greeting it opens with is not the task: «בוקר טוב, להתקשר לאמא» (CL1).
+  return stripCaptureCommand(stripTiming(stripLeadingGreetings(raw)))
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')
@@ -433,6 +486,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
       explicitReminderRequest,
       explicitPressureRequest,
       rawText: raw,
+      timeAnchor: timeAnchorOf(raw),
       parserVersion: PARSER_VERSION,
     };
   }
@@ -503,6 +557,8 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     explicitReminderRequest,
     explicitPressureRequest,
     rawText: raw,
+    // «الساعة 5» is a time to do it at, «قبل الخميس» a limit (CL1, D2).
+    timeAnchor: timeAnchorOf(raw),
     parserVersion: PARSER_VERSION,
   };
 }
@@ -522,8 +578,9 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
  */
 export function countTimeExpressions(raw: string): number {
   if (typeof raw !== 'string' || !raw.trim()) return 0;
-  // Count what the parser reads: «الساعة تسعة» and «בשעה תשע» both become 9.
-  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw)));
+  // Count what the parser reads: «الساعة تسعة» and «בשעה תשע» both become 9,
+  // «5 ونص» becomes 5:30.
+  const text = normalizeClockText(raw);
 
   // Count positions, not matches: two patterns can describe the same mention
   // ("at 9am" matches both the am-suffixed and the bare-hour shape), and

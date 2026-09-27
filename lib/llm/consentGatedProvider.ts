@@ -41,6 +41,8 @@ export interface ConsentGatedProviderOptions extends AiConsentOptions {
   /** Injected by tests. Production takes the configured provider. */
   provider?: LlmProvider;
   consent?: typeof getAiConsent;
+  /** The clock the gate's own read is timed on. Injected by tests. */
+  now?: () => number;
 }
 
 export function consentGatedProvider(uid: string, options: ConsentGatedProviderOptions = {}): LlmProvider {
@@ -73,8 +75,13 @@ export function consentGatedProvider(uid: string, options: ConsentGatedProviderO
      * content the product handles.
      */
     async generateStructured(request) {
+      // The gate's read is inside the caller's deadline (CL1 round 6, M-b):
+      // a call given 2 s does not get 2 s of model after 1.5 s of Firestore.
+      const now = options.now ?? Date.now;
+      const before = now();
       await requireConsent();
-      return inner.generateStructured(request);
+      if (request.timeoutMs === undefined) return inner.generateStructured(request);
+      return inner.generateStructured({ ...request, timeoutMs: Math.max(0, request.timeoutMs - (now() - before)) });
     },
   };
 }

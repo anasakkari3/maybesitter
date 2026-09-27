@@ -265,7 +265,11 @@ test('validator: a malformed model date is dropped, not passed to the phone', ()
     'سجّل موعد دكتور يوم الأحد',
     context,
   );
-  assert.equal(result.localTimeSpec, null);
+  // The malformed string never reaches the phone. Since CL1 round 1 the day the
+  // text names is filled by the rules path's rule instead, and marked a guess.
+  assert.notEqual(result.localTimeSpec?.date, 'next sunday');
+  assert.equal(result.localTimeSpec?.date, '2026-09-27');
+  assert.equal(result.dateInferred, true);
 });
 
 test('validator: an informational answer is not raised, whatever its nouns', () => {

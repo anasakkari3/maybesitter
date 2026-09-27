@@ -175,7 +175,11 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
       ? commitment.timeSpec
       : {
         ...commitment.timeSpec,
-        kind: edit.resolvedTime === null ? ('unscheduled' as const) : ('due_by' as const),
+        // A new time for an «الساعة 5» item is still a time to be at (CL1, D2):
+        // moving it must not quietly turn it into a deadline.
+        kind: edit.resolvedTime === null
+          ? ('unscheduled' as const)
+          : commitment.timeSpec?.kind === 'scheduled_event' ? ('scheduled_event' as const) : ('due_by' as const),
         dueAt: edit.resolvedTime,
         remindAt: edit.resolvedTime,
       };

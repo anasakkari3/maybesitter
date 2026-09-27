@@ -108,9 +108,9 @@ export function fixedEndFor(commitment: Commitment, start: Instant): Instant {
  *
  * A commitment is *timed* when it has a `dueAt`, is not all-day, and is a
  * `scheduled_event` or a `due_by`. The `due_by` half is the point: everything
- * a user adds -- capture's extraction, an edit that moves a time, the legacy
- * create route -- writes `due_by`, never `scheduled_event` (only the football
- * projection writes that). Checking `scheduled_event` alone meant the warning
+ * a user adds used to be written as `due_by` -- capture's extraction, an edit
+ * that moves a time, the legacy create route -- and a capture's "by 5pm" still
+ * is (capture writes `scheduled_event` only for an "at" time since CL1). Checking `scheduled_event` alone meant the warning
  * could never fire for a commitment the user added, which is the one case the
  * owner asked for. "Call the dentist at 8pm" occupies 8pm: it is measured from
  * `dueAt` for its `endAt`, or `DEFAULT_FIXED_EVENT_MINUTES` without one.
@@ -145,8 +145,8 @@ export interface CollisionCandidate {
 /**
  * A clash needs a fixed event on at least one side.
  *
- * Capture writes `due_by` for "at 8pm" and "by 5pm" alike, so the domain
- * cannot tell an appointment from a deadline. Two deadlines due at the same
+ * Capture writes `scheduled_event` for "at 8pm" and `due_by` for "by 5pm"
+ * (CL1, D2), so an appointment and a deadline differ. Two deadlines due at the same
  * hour ("pay the rent by 5pm Friday", "submit the report by 5pm Friday") are
  * an ordinary Friday, and warning about them would reach every user, football
  * or not, with a warning the owner never asked for. A `due_by` over a

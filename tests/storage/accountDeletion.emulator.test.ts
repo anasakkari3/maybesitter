@@ -65,7 +65,7 @@ test('firestore + auth: deleting an account removes the data, the user, and the 
   try {
     // Real data, made the way the app makes it.
     const proposal = await proposeMobileCapture(
-      { text: 'Renew the passport tomorrow at 2', timezone: 'UTC' },
+      { text: 'Renew the passport tomorrow at 2pm', timezone: 'UTC' },
       { participantId: account.uid },
     );
     assert.equal(proposal.status, 'proposed');

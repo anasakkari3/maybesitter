@@ -263,11 +263,20 @@ export function workingWindowsFor(
   }));
 }
 
-/** The instant a commitment is pinned to, or null when it floats. */
+/**
+ * The instant a commitment is pinned to, or null when it floats.
+ *
+ * A scheduled event is pinned at the event — `dueAt`, its start — never at
+ * its reminder (CL1 round 3). This read `remindAt ?? dueAt` while only
+ * football wrote scheduled events, and football sets no reminder; once capture
+ * made "the doctor at 09:00" a scheduled event, a kept reminder lead would have
+ * placed the doctor at 08:00. `remindAt` stands in only for an event stored
+ * with no `dueAt`.
+ */
 export function fixedStartOf(commitment: Commitment): Instant | null {
   if (commitment.postponedUntil) return commitment.postponedUntil;
   if (commitment.timeSpec.kind === 'scheduled_event') {
-    return commitment.timeSpec.remindAt ?? commitment.timeSpec.dueAt;
+    return commitment.timeSpec.dueAt ?? commitment.timeSpec.remindAt;
   }
   return null;
 }

@@ -44,8 +44,9 @@ import { Screen, ScreenScroll } from '../ui/screen';
  *
  * ── A deadline is a point, not a block ───────────────────────────
  *
- * Every commitment here is a *deadline* (`mapExtractionToCommand.ts` only
- * ever emits `due_by` or `unscheduled`), so rows show a time, never an extent.
+ * A commitment here names a point: a deadline (`due_by`), or since CL1 a time
+ * to be at (`scheduled_event`, for "at 5" with no "by"), both with no end the
+ * user gave. So rows show a time, never an extent.
  *
  * ── The groups are the user's answer, and ranking works inside them ──
  *
