@@ -24,6 +24,18 @@ export function uniqueCommitments(items: readonly Commitment[]) {
   return [...new Map(items.map(item => [item.id, item])).values()];
 }
 
+/**
+ * The one item «سياق يومك» offers: the soonest active one still ahead, then
+ * one with no time. An active item whose time has passed is not "next" (UAT
+ * 2026-09-27: 14:00 lunch offered at 15:02). It is not hidden either — it
+ * stays on Today until the user acts on it (#383), with no "overdue" label.
+ */
+export function nextUsefulItem(items: readonly Commitment[], now: string) {
+  return items.map(record => toViewModel(record, now))
+    .filter(view => view.status === 'active' && !view.isPast)
+    .sort((a, b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999'))[0];
+}
+
 export function PersonalizationScreen() {
   const { t, p, rtl, lang, actions } = useApp();
   const zone = useTimeZone();
@@ -142,8 +154,7 @@ export function ContextualAssistantScreen() {
   const items = uniqueCommitments([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])]);
   // A deadline is not an appointment. Present its recorded time without an
   // invented meeting classification, briefing, or countdown.
-  const item = items.map(record => toViewModel(record, new Date().toISOString())).filter(record => record.status === 'active')
-    .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999'))[0];
+  const item = nextUsefulItem(items, new Date().toISOString());
   return <ProductPage id="assistant" title={t.xAssistant} subtitle={t.xAssistantBody}>
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
       <ProductSection title={item ? isolateAuto(item.title) : t.xNoContext} body={item?.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })} · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}` : undefined} icon="calendar">
