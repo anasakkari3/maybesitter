@@ -113,7 +113,10 @@ export function MeetingPrepSheet() {
           textAlignVertical="top"
           editable={!prepare.isPending}
           style={{
-            minHeight: 120, maxHeight: 220, backgroundColor: p.bg, borderWidth: 1,
+            // With the keyboard up the room is what is left above it — ~118pt
+            // of scroller on an SE with the banner (FY3 review I2) — so the
+            // box asks for less and scrolls inside itself past 110.
+            minHeight: keyboardUp ? 88 : 120, maxHeight: keyboardUp ? 110 : 220, backgroundColor: p.bg, borderWidth: 1,
             borderColor: tooLong ? p.wm : p.lnStrong, borderRadius: 20,
             paddingTop: 14, paddingHorizontal: 16, paddingBottom: 28,
             fontSize: 17, lineHeight: Math.round(17 * LINE_HEIGHT[script]), color: p.tx, fontFamily: family(400, script),

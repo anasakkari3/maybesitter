@@ -196,3 +196,51 @@ describe('every sheet in the host shares the lift', () => {
     await waitFor(() => expect(styleOf('sheet-host').paddingBottom).toBe(KEYBOARD_HEIGHT));
   });
 });
+
+/*
+ * A small phone with the keyboard up (FY3 review I2, m5). The panel's
+ * `maxHeight: '88%'` resolves against the room left *above* the keyboard, so
+ * on an iPhone SE with the banner it took 12% more of ~253pt and left the
+ * notes scroller under the notes box's own 120pt minimum. With the keyboard
+ * up the panel is bounded by `flexShrink` alone, the notes box asks for less
+ * height (it scrolls inside itself past that), and no sheet keeps the
+ * home-indicator clearance the keyboard is covering.
+ */
+describe('the room above the keyboard goes to the sheet (review I2, m5)', () => {
+  const inputStyle = () => StyleSheet.flatten(screen.getByTestId('meeting-prep-notes').props.style) as { minHeight?: number; maxHeight?: number };
+  const panelMax = () => (StyleSheet.flatten(screen.getByTestId('sheet-panel').props.style) as { maxHeight?: unknown }).maxHeight;
+
+  it('the panel drops its 88% cap while the keyboard is up, and gets it back after', async () => {
+    await open('meetingPrep');
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    expect(panelMax()).toBe('88%');
+    await layOut(BANNER);
+    await keyboard('keyboardWillShow');
+    await waitFor(() => expect(styleOf('sheet-host').paddingBottom).toBe(KEYBOARD_HEIGHT));
+    expect(panelMax()).toBeUndefined();
+    await keyboard('keyboardWillHide');
+    await waitFor(() => expect(styleOf('sheet-host').paddingBottom).toBe(0));
+    expect(panelMax()).toBe('88%');
+  });
+
+  it('the notes box fits an SE-sized scroller with the keyboard up: at most 110pt tall, scrolling inside', async () => {
+    await open('meetingPrep');
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    expect(inputStyle()).toMatchObject({ minHeight: 120, maxHeight: 220 });
+    await layOut(0);
+    await keyboard('keyboardWillShow');
+    await waitFor(() => expect(styleOf('sheet-host').paddingBottom).toBe(KEYBOARD_HEIGHT));
+    expect(inputStyle()).toMatchObject({ minHeight: 88, maxHeight: 110 });
+    expect(screen.getByTestId('meeting-prep-notes').props.scrollEnabled).toBe(true);
+  });
+
+  it('the «مش هلّق» / edit scroller drops the home-indicator clearance while the keyboard is up', async () => {
+    await open('postpone');
+    const bottom = () => (StyleSheet.flatten(screen.getByTestId('sheet-scroll').props.contentContainerStyle) as { paddingBottom?: number }).paddingBottom;
+    expect(bottom()).toBe(BOTTOM_INSET + 24);
+    await layOut(0);
+    await keyboard('keyboardWillShow');
+    await waitFor(() => expect(styleOf('sheet-host').paddingBottom).toBe(KEYBOARD_HEIGHT));
+    expect(bottom()).toBe(12);
+  });
+});
