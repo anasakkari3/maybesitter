@@ -477,7 +477,9 @@ test('FY1 fix I3: a typed answer to the passed-hour question wins over the hour 
   // A bare hour is read the way a typed bare hour is read for any item (the
   // doctor's «الساعة 4» is 04:00): its next occurrence, never the passed 15:00.
   assert.deepEqual(await answerN1Alone('الساعة 4'), ['أبعت الإيميل للمدير | 2026-09-28 04:00 | settled']);
-  assert.deepEqual(await answerN1Alone('بالمسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
+  // A typed part of the day is the lexicon's hour (evening 18:00, not the
+  // button's 19:00 — as for any item), placed on its next occurrence.
+  assert.deepEqual(await answerN1Alone('بالمسا'), ['أبعت الإيميل للمدير | 2026-09-28 18:00 | settled']);
 });
 
 test('FY1 fix I3: a typed answer that is itself already past is "not understood", never a generic failure', async () => {

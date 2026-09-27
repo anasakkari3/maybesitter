@@ -824,6 +824,25 @@ export function monthEndIsNotTheDay(rawText: string): boolean {
   return typeof rawText === 'string' && MONTH_END_NOT_THE_DAY.test(rawText);
 }
 
+const TIME_OF_DAY_STRIP = [
+  ...DAY_PART_MENTION_SOURCES.map((source) => new RegExp(source, 'giu')),
+  ...[...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi')),
+];
+
+/**
+ * The text with its times of day taken out — clock times, ranges and parts
+ * of the day — and its days left in (FY1 review, I3). For re-reading a
+ * sentence whose hour a typed answer is replacing: «اليوم الساعة 3 العصر لازم
+ * أبعت الإيميل» answered «الساعة 7 المسا» is read as «اليوم لازم أبعت
+ * الإيميل» + «الساعة 7 المسا», so the passed 15:00 is not read first.
+ */
+export function withoutTimeOfDay(rawText: string): string {
+  if (typeof rawText !== 'string') return '';
+  let stripped = normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(rawText)));
+  for (const pattern of TIME_OF_DAY_STRIP) stripped = stripped.replace(pattern, ' ');
+  return stripped.replace(/[ \t]+/g, ' ').trim();
+}
+
 /** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */
 export function lastDayOfMonth(now: Date, timeZone: string): string {
   const today = localTimeSpecFor(now, timeZone)?.date ?? now.toISOString().slice(0, 10);

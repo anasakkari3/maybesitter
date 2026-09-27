@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, instantFromLocal, localTimeSpecFor, timeAnchorOf } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, localTimeSpecFor, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
@@ -223,6 +224,13 @@ function allDayAppointment(result: ExtractionResult, timezone: string): Extracti
   } as ExtractionResult;
 }
 
+/** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */
+function notPast(answered: ExtractionResult, now: Date): ExtractionResult {
+  const at = answered.remindAt ?? answered.dueAt;
+  if (at && Date.parse(at) <= now.getTime()) throw new ClarifyError('answer_not_understood');
+  return answered;
+}
+
 /** The time the answer named, applied to the item it answers and nothing else. */
 function withTimeFrom(result: ExtractionResult, source: ExtractionResult): ExtractionResult {
   return {
@@ -263,15 +271,34 @@ async function readFreeTextAnswer(
   // The original text plus what they added, read together. Splicing the words
   // straight into a field would skip the injection screen and the time
   // lexicon both.
-  const combined = `${result.rawText ?? ''}\n${freeText}`.trim();
-  const extracted = await extractor(combined, { now: options.now, timezone: options.timezone }, {
-    // Never the extractor's default: with no provider it would try a local
-    // model, which is neither the consented engine nor the rules.
-    llmProvider: !rulesOnly && dependencies.llmProvider
-      ? dependencies.llmProvider
-      : async () => { throw new Error('rules-only runtime'); },
-    ...(dependencies.llmEngine ? { llmEngine: dependencies.llmEngine } : {}),
-  });
+  //
+  // A time of day typed in answer to a time question replaces the one the
+  // sentence had (FY1 review, I3). «اليوم الساعة 3 العصر لازم أبعت الإيميل»,
+  // asked again at 18:08 because 15:00 had gone, was re-read with its 15:00
+  // still in it: «الساعة 7 المسا» was refused as a past time (a generic 400)
+  // and «بكرا الساعة 10» settled at 15:00 tomorrow. So the sentence is read
+  // without its own times of day, its days kept.
+  const replacesTime = TIME_FIELDS.has(question.field) && !forbidsResolvedTime(freeText);
+  const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
+  const combined = `${original}\n${freeText}`.trim();
+  let extracted: Awaited<ReturnType<typeof extractor>>;
+  try {
+    extracted = await extractor(combined, { now: options.now, timezone: options.timezone }, {
+      // Never the extractor's default: with no provider it would try a local
+      // model, which is neither the consented engine nor the rules.
+      llmProvider: !rulesOnly && dependencies.llmProvider
+        ? dependencies.llmProvider
+        : async () => { throw new Error('rules-only runtime'); },
+      ...(dependencies.llmEngine ? { llmEngine: dependencies.llmEngine } : {}),
+    });
+  } catch (error) {
+    // The guarded extractor refuses a reading whose time has gone, with the
+    // reading. A typed hour is placed on its next occurrence below, as any
+    // typed hour is; one that still lands in the past is not understood.
+    if (error instanceof PastCommitmentTimeError && error.extracted) extracted = error.extracted;
+    else if (error instanceof PastCommitmentTimeError) throw new ClarifyError('answer_not_understood');
+    else throw error;
+  }
   if (extracted.fallbackReason?.startsWith('prompt_injection')) throw new ClarifyError('answer_not_understood');
   const reread = extracted.result;
   const readable = reread.type === 'task' || reread.type === 'follow_up';
@@ -294,7 +321,7 @@ async function readFreeTextAnswer(
       const day = dayForAnswer(rereadTime, itemDate, { now: options.now, timezone: options.timezone });
       if (day) return withResolvedTime(result, { date: day, time: rereadTime }, options.timezone);
     }
-    if (readable && (reread.remindAt || reread.dueAt)) return withTimeFrom(result, reread);
+    if (readable && (reread.remindAt || reread.dueAt)) return notPast(withTimeFrom(result, reread), options.now);
     // The answer to "when?": its part of the day is the answer, even before
     // another word ("morning is fine").
     const hour = dayPartHour(freeText, { answer: true });
