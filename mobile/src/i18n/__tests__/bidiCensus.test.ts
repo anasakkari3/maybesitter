@@ -29,6 +29,7 @@ const ALLOWED: readonly RegExp[] = [
   /^`\$\{fmt\.format\(start\)\}–\$\{fmt\.format\(end\)\}`$/, // formatTimeRange
   /^`\$\{start\}–\$\{end\}`$/, // formatClockRange: "22:30–07:30"
   /^(user\.)?email$/, /^user\.email$/, // an address
+  /^google!\.accountEmail$/, // the connected Google account's address (CL6a)
   /^String\(Math\.max\(1, Math\.round\(kb\)\)\)$/, /^\(kb \/ 1024\)\.toFixed\(1\)$/, // a size
   /^`\$\{sign\}\$\{major\.toLocaleString\('en-US'\)\}\.\$\{cents\} \$\{currency\}`$/, // an amount
   /^new Date\([^)]*\)\.toISOString\(\)/, // an ISO date or timestamp

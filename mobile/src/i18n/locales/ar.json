@@ -1269,7 +1269,7 @@
   "xGoogleBody": "تقويمك وإيميلك وملف من Drive، بس لما تطلب.",
   "googleNotConfigured": "ربط Google بستنّى إعداد من صاحب التطبيق",
   "googleCalendarBody": "أوقاتك المشغولة بس، بلا عناوين.",
-  "googleGmailBody": "آخر ٧ أيام من الرئيسي، بس لما تطلب.",
+  "googleGmailBody": "آخر 7 أيام من الرئيسي، بس لما تطلب.",
   "googleDriveBody": "بيشوف بس الملف اللي بتختاره.",
   "googleConnect": "اربط",
   "googleConnectedAs": "مربوط · {email}",
