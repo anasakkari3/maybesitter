@@ -90,7 +90,8 @@ export class NotFoundError extends ApiError {}
  * Still a `NotFoundError`, because the screens that hide a switched-off section
  * on a 404 (the memory card, the memory screen) must keep hiding it. What
  * changes is the sentence: "that's gone" is wrong for something that was never
- * turned on, so it reads as `feature_disabled` does — «هاي لسّا مش متاحة» —
+ * turned on, so it reads as `feature_disabled` does — «هاي الميزة مش مشغّلة.», with no
+ * promise of "yet" (UAT 2026-09-27, #17) —
  * and, like it, offers no Retry.
  */
 export class FeatureUnavailableError extends NotFoundError {}

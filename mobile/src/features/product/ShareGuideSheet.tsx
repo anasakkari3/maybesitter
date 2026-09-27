@@ -14,7 +14,7 @@ import { NumberedSteps } from '../../ui/steps';
  * `/api/mobile/capture/share`). There is nothing in this app to open for them,
  * so their rows open this instead of a screen that is about something else.
  * It is only reachable when share intake is switched on in the build; with it
- * off those rows are Coming soon and have no action at all.
+ * off those rows are not drawn at all.
  */
 export type ShareGuideKind = 'whatsapp' | 'files';
 

@@ -9,16 +9,13 @@
  * the badge and the action drifted apart. So every product screen is rendered,
  * with the share flag on and off, and each badge is held to its row:
  *
- *   - a COMING_SOON row is not a button and has nothing to press;
- *   - a COMING_SOON section holds no control at all, not even a disabled one;
- *   - a LIVE / AVAILABLE / VIA_SHARE row is an enabled button.
- *
- * A later lane that builds Gmail, export, Drive… flips the status in
- * `capabilities.ts`, and this file then fails until that row has an action.
+ *   - a LIVE / AVAILABLE / VIA_SHARE row is an enabled button;
+ *   - nothing says "coming soon" at all (last describe): an unbuilt thing is
+ *     absent, never badged (council ruling; UAT 2026-09-27, #17).
  */
 import React from 'react';
 import { Platform } from 'react-native';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react-native';
@@ -206,12 +203,15 @@ describe('the Share Sheet rows', () => {
     }
   });
 
-  it('WhatsApp is Coming soon and not pressable when share intake is off', async () => {
+  it('WhatsApp, files and photos are absent — not «قريبًا» — when share intake is off', async () => {
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = '';
     await render(wrap(<IntegrationsScreen />));
-    const row = screen.getByTestId('integration-whatsapp');
-    expect(within(row).getByTestId('row-status-COMING_SOON')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /WhatsApp/ })).toBeNull();
+    expect(screen.queryByTestId('integration-whatsapp')).toBeNull();
+    expect(screen.queryAllByText(/WhatsApp/)).toHaveLength(0);
+    await cleanup();
+    await render(wrap(<AddToMaybeSitterScreen />));
+    for (const id of ['add-whatsapp', 'add-pdf', 'add-photos']) expect(screen.queryByTestId(id)).toBeNull();
+    expect(screen.queryByText(en.xShareGuide)).toBeNull();
   });
 
   it('files and photos open the one-line share guide on the Add page', async () => {
@@ -228,7 +228,6 @@ describe('the Share Sheet rows', () => {
 describe('the capability table', () => {
   const repo = join(__dirname, '../../../../..');
   const keys = [...Object.keys(capabilities), 'whatsapp', 'files', 'photos'] as CapabilityKey[];
-  const status = (key: CapabilityKey) => (key in capabilities ? capabilities[key as keyof typeof capabilities] : shareCapability());
 
   it('names what each capability depends on, for every key', () => {
     expect(Object.keys(capabilityDependsOn).sort()).toEqual([...keys].sort());
@@ -242,23 +241,22 @@ describe('the capability table', () => {
     }
   });
 
-  it('marks something shipped only when it has a route, and Coming soon only when it does not', () => {
-    for (const flag of ['true', '']) {
-      process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = flag;
-      for (const key of keys) {
-        const shipped = status(key) !== 'COMING_SOON';
-        const dependency = capabilityDependsOn[key];
-        if (shipped) expect({ key, api: dependency.api !== null, screen: dependency.screen !== null }).toEqual({ key, api: true, screen: true });
-      }
+  it('lists only what is built: every capability has a screen and a route', () => {
+    // Nothing unbuilt is listed at all (council: COMING_SOON = FAIL). A
+    // capability that is not built is absent from this table, not badged.
+    for (const key of keys) {
+      const dependency = capabilityDependsOn[key];
+      expect({ key, api: dependency.api !== null, screen: dependency.screen !== null }).toEqual({ key, api: true, screen: true });
     }
-    process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
+    expect(keys).not.toContain('camera');
   });
 
-  it('lists exactly what is still to come — update this when a server route ships', () => {
+  it('the share capability is shipped when switched on and absent when off — never "soon"', () => {
+    process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = 'true';
+    expect(shareCapability()).toBe('VIA_SHARE');
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = '';
-    const soon = keys.filter(key => status(key) === 'COMING_SOON').sort();
+    expect(shareCapability()).toBeNull();
     process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE = original;
-    expect(soon).toEqual(['camera', 'files', 'photos', 'whatsapp']);
   });
 });
 
@@ -285,7 +283,7 @@ describe('«مايبي سيتر إلي» says «قريبًا» nowhere (UAT 2026
     for (const id of ['row-status-COMING_SOON', 'section-status-COMING_SOON', 'product-section-COMING_SOON', 'availability-COMING_SOON']) {
       expect({ id, count: screen.queryAllByTestId(id).length }).toEqual({ id, count: 0 });
     }
-    expect([en, ar, he].reduce((sum, t) => sum + screen.queryAllByText(t.xSoon).length, 0)).toBe(0);
+    expect(screen.queryAllByText(/Coming soon|قريبًا|בקרוב/).length).toBe(0);
   });
 
   it('keeps no personality or assistant-name capability, row or string', () => {
@@ -324,7 +322,7 @@ describe('the watcher screens say «قريبًا» nowhere (council ruling: COMI
     const rows = soonBadges().map(rowOf);
     expect(rows.filter(row => row === null || !OWNED_BY_ANOTHER_LANE.includes(row))).toEqual([]);
     // No «قريبًا» drawn outside a badge either.
-    const soonWords = [en, ar, he].reduce((sum, t) => sum + screen.queryAllByText(t.xSoon).length, 0);
+    const soonWords = screen.queryAllByText(/Coming soon|قريبًا|בקרוב/).length;
     expect(soonWords).toBe(rows.length);
     // WHOOP and Notion have no provider and no owner approval: absent, not labelled.
     expect(screen.queryAllByText(/WHOOP|Notion/i)).toHaveLength(0);
@@ -361,9 +359,80 @@ describe('flights and parcels (council ruling, closure CL7)', () => {
     process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = '';
     await render(wrap(<IntegrationsScreen />));
     expect(screen.queryByTestId('integration-sources')).toBeNull();
-    cleanup();
+    await cleanup();
     mockFootballConfigured = true;
     await render(wrap(<IntegrationsScreen />));
     expect(screen.getByTestId('integration-sources')).toBeTruthy();
+  });
+});
+
+describe('no reachable screen says «قريبًا» (council: COMING_SOON = FAIL; UAT 2026-09-27, #17)', () => {
+  /**
+   * Three guards, because each alone has a hole:
+   *  - the source: no file outside tests names a COMING_SOON status, so no
+   *    screen — including one this file does not render — can draw the badge;
+   *  - the copy: no string in any language says "coming soon", so no screen
+   *    can say it in words either;
+   *  - the render: every product screen, under every build switch that used
+   *    to turn a row into «قريبًا», draws neither.
+   */
+  const SRC = join(__dirname, '../../..');
+  const sources = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === '__tests__' || entry.name === '__fixtures__' ? [] : sources(path);
+    return /\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name) ? [path] : [];
+  });
+
+  it('no source file names a COMING_SOON status', () => {
+    const hits = sources(SRC).filter(file => readFileSync(file, 'utf8').includes('COMING_SOON')).map(file => file.slice(SRC.length));
+    expect(hits).toEqual([]);
+  });
+
+  // Hebrew «בקרוב» is also plain "soon" (starts soon, try again soon). These
+  // keys use it that way; a string that promises a feature is not among them.
+  const TEMPORAL_HE = new Set(['notifHardTitle', 'xPrepareTooSoon', 'googleGmailPartial', 'googleGmailNotRead', 'googleErrUnavailable']);
+  // Arabic as a whole word: «تقريباً» ("about") contains «قريباً».
+  const SOON: Record<string, RegExp> = {
+    en: /coming soon|(not|n't) available yet|in a future/i,
+    ar: /(?<![\u0621-\u064A])قريب(ًا|اً)|لسا مش متاح|لسّا مش متاح/,
+    he: /בקרוב|תגיע בהמשך|עדיין לא זמין/,
+  };
+
+  it('no string in any language promises something later', () => {
+    for (const [name, bundle] of [['en', en], ['ar', ar], ['he', he]] as const) {
+      const hits = Object.entries(bundle as Record<string, unknown>)
+        .filter(([key, value]) => typeof value === 'string' && SOON[name]!.test(value) && !(name === 'he' && TEMPORAL_HE.has(key)))
+        .map(([key]) => key);
+      expect({ name, hits }).toEqual({ name, hits: [] });
+      for (const key of ['xSoon', 'xCamera', 'xOccurrences', 'xPatchFuture', 'xHabitPreview', 'xPreview', 'xPreviewBody']) {
+        expect({ name, key, present: key in bundle }).toEqual({ name, key, present: false });
+      }
+    }
+  });
+
+  const BUILDS: [string, Record<string, string>][] = [
+    ['share off, calendar off', { EXPO_PUBLIC_FEATURE_SHARE_INTAKE: '', EXPO_PUBLIC_FEATURE_CALENDAR_READ: 'false', EXPO_PUBLIC_FEATURE_CALENDAR_WRITE: '' }],
+    ['share on, calendar read', { EXPO_PUBLIC_FEATURE_SHARE_INTAKE: 'true', EXPO_PUBLIC_FEATURE_CALENDAR_READ: '', EXPO_PUBLIC_FEATURE_CALENDAR_WRITE: '' }],
+    ['share on, calendar write only', { EXPO_PUBLIC_FEATURE_SHARE_INTAKE: 'true', EXPO_PUBLIC_FEATURE_CALENDAR_READ: 'false', EXPO_PUBLIC_FEATURE_CALENDAR_WRITE: 'true' }],
+  ];
+  const saved = Object.fromEntries(Object.keys(BUILDS[0]![1]).map(key => [key, process.env[key]]));
+  afterEach(() => { for (const [key, value] of Object.entries(saved)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; } });
+
+  const cases = BUILDS.flatMap(([build], index) => Object.keys(SCREENS).map(name => [`${build} · ${name}`, index, name] as const));
+  it.each(cases)('%s draws no «قريبًا»', async (_label, index, name) => {
+    Object.assign(process.env, BUILDS[index]![1]);
+    const Screen = SCREENS[name]!;
+    await render(wrap(<Screen />));
+    // A render that mounted nothing would pass everything below.
+    expect(screen.queryAllByTestId(/^product-/).length).toBeGreaterThan(0);
+    expect({ name, badges: screen.queryAllByTestId(/COMING_SOON/).length }).toEqual({ name, badges: 0 });
+    expect({ name, words: screen.queryAllByText(/قريبًا|قريباً|coming soon|בקרוב/i).length }).toEqual({ name, words: 0 });
+  });
+
+  it('the device calendar row is absent, not «قريبًا», when calendar access is switched off', async () => {
+    Object.assign(process.env, BUILDS[0]![1]);
+    await render(wrap(<IntegrationsScreen />));
+    expect(screen.getByTestId('product-integrations')).toBeTruthy();
+    expect(screen.queryByTestId('integration-device')).toBeNull();
   });
 });

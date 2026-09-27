@@ -4,10 +4,15 @@ import type { Screen } from '../../state/types';
 /** Reviewed against this branch's mobile routes AND runtime registrations.
  * Availability is not a connection claim. Never infer connection from login.
  *
+ * There is no "coming soon" status. Something not built is absent — not
+ * listed, not drawn, not labelled (council: a coming-soon badge is a FAIL; UAT
+ * 2026-09-27, #17). `capabilityRows.test.tsx` fails on the word anywhere in
+ * the app's source.
+ *
  * VIA_SHARE: shipped, and reached from another app's Share Sheet rather than
  * from a connection — WhatsApp exports, PDFs/files and photos
  * (`lib/services/share/channels/*`, `/api/mobile/capture/share`). */
-export type Availability = 'LIVE' | 'AVAILABLE' | 'VIA_SHARE' | 'COMING_SOON' | 'BETA' | 'BLOCKED' | 'NEEDS_REAUTH';
+export type Availability = 'LIVE' | 'AVAILABLE' | 'VIA_SHARE' | 'BETA' | 'BLOCKED' | 'NEEDS_REAUTH';
 export const capabilities = {
   capture: 'LIVE', dailyPlan: 'LIVE', memory: 'LIVE',
   assistantPreparation: 'LIVE', weeklyMode: 'LIVE',
@@ -17,28 +22,26 @@ export const capabilities = {
   // Built to the credential line (CL6a): until the owner adds the OAuth
   // client the Google page says so in one line and offers no connect button.
   gmail: 'AVAILABLE', googleCalendar: 'AVAILABLE', drive: 'AVAILABLE',
-  location: 'LIVE', camera: 'COMING_SOON',
+  location: 'LIVE',
   goals: 'LIVE', habits: 'LIVE', planDiff: 'LIVE',
   watcherBuilder: 'LIVE', watcherManagement: 'LIVE', export: 'LIVE',
 } as const satisfies Record<string, Availability>;
 
 /** What arrives through the Share Sheet. It exists only in a build whose
  * share target is switched on (`EXPO_PUBLIC_FEATURE_SHARE_INTAKE`); in any
- * other build it is honestly still to come. */
+ * other build its rows are absent (`null`). */
 export type ShareCapability = 'whatsapp' | 'files' | 'photos';
-export function shareCapability(): Availability {
-  return shareIntakeEnabled() ? 'VIA_SHARE' : 'COMING_SOON';
+export function shareCapability(): 'VIA_SHARE' | null {
+  return shareIntakeEnabled() ? 'VIA_SHARE' : null;
 }
 export type CapabilityKey = keyof typeof capabilities | ShareCapability;
 
 /**
  * The mobile screen and the `/api/mobile` route each capability stands on.
- * `null` means none exists yet, and such a capability must be COMING_SOON.
- * `capabilityRows.test.tsx` checks every route here exists on disk and pins the
- * Coming-soon list: when a server route ships, add it here, flip the status
- * above, give the row its action, and update that test.
+ * `capabilityRows.test.tsx` checks every route here exists on disk. A
+ * capability with no route is not listed at all.
  */
-export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen | null; api: string | null }> = {
+export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen; api: string }> = {
   capture: { screen: 'capture', api: '/api/mobile/capture' },
   dailyPlan: { screen: 'plan', api: '/api/mobile/plans/[date]' },
   memory: { screen: 'memory', api: '/api/mobile/memory' },
@@ -60,12 +63,11 @@ export const capabilityDependsOn: Record<CapabilityKey, { screen: Screen | null;
   // Place reminders (closure CL4): the places live on the phone; the account
   // learns only that a commitment has one, through the commitment's PATCH.
   location: { screen: 'places', api: '/api/mobile/commitments/[id]' },
-  camera: { screen: null, api: null },
   export: { screen: 'personalization', api: '/api/mobile/account/export' },
 };
 
 export const availabilityKey = {
-  LIVE: 'xLive', AVAILABLE: 'xLive', VIA_SHARE: 'xViaShare', COMING_SOON: 'xSoon', BETA: 'xBeta',
+  LIVE: 'xLive', AVAILABLE: 'xLive', VIA_SHARE: 'xViaShare', BETA: 'xBeta',
   BLOCKED: 'xBlocked', NEEDS_REAUTH: 'xReauth',
 } as const;
 /**
