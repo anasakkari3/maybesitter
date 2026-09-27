@@ -19,6 +19,8 @@ import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
 import ar from '../../i18n/locales/ar.json';
 import proposalFixture from '../../api/__fixtures__/capture.allDayDeadline.json';
 import confirmationFixture from '../../api/__fixtures__/capture.allDayDeadlineConfirmation.json';
+import appointmentFixture from '../../api/__fixtures__/capture.appointmentNoTimeClarified.json';
+import appointmentConfirmationFixture from '../../api/__fixtures__/capture.appointmentNoTimeConfirmation.json';
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -113,5 +115,19 @@ describe('an all-day deadline on the saved screen', () => {
   it('says «بدون وقت» when the person cleared the time in review', async () => {
     await renderSaved({ bill: { localDateTime: '' } });
     expect(textOf('saved-when-bill')).toBe(ar.noTimeYet);
+  });
+});
+
+describe('an appointment answered «بدون وقت محدد» on the saved screen (FY1 N4)', () => {
+  it('reads «<day> · بدون وقت» from the real route\'s clarify and confirm, never «لحد <day>»', async () => {
+    expect(appointmentFixture.items[0]!.allDayEvent).toBe(true);
+    expect(appointmentConfirmationFixture.persisted[0]!.resolvedTime).toBeNull();
+    const itemId = appointmentFixture.items[0]!.itemId;
+    const persisted = [{ ...appointmentConfirmationFixture.persisted[0]!, itemId }];
+    await renderSaved({}, { proposal: appointmentFixture, persisted });
+    const when = textOf(`saved-when-${itemId}`);
+    expect(when.startsWith(ar.reviewDueByDay.split('{day}')[0]!)).toBe(false);
+    expect(when).toContain(String(Number(appointmentFixture.items[0]!.resolvedDate.slice(8, 10))));
+    expect(when.endsWith(ar.noTimeYet)).toBe(true);
   });
 });

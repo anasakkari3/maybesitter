@@ -206,6 +206,7 @@ const GOAL_USER = uidFor('GoalFixtureUser');
 const MEETING_USER = uidFor('MeetingFixtureUser');
 /** The all-day deadline (FX3) records under its own account, so no list or count fixture moves. */
 const DEADLINE_USER = uidFor('DeadlineFixtureUser');
+const APPOINTMENT_DAY_USER = uidFor('AppointmentDayFixtureUser');
 /** A block three hours from the real clock: the route refuses one that has started. */
 function meetingBlock(): { startAt: string; endAt: string } {
   const start = Date.now() + 3 * 3_600_000;
@@ -786,6 +787,39 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         timezone: 'Asia/Jerusalem',
       },
     })));
+
+    // ── an appointment answered "no specific time" (FY1 N4) ────────
+    // The same doctor, answered «بدون وقت محدد»: settled on its Sunday with no
+    // hour, and `allDayEvent` says it is *on* that day, not a deadline by it.
+    // Its own account, so no other fixture's commitment list changes.
+    const dayDoctor = await capturePost(request('/api/mobile/capture', {
+      uid: APPOINTMENT_DAY_USER,
+      body: { text: 'سجّل موعد دكتور يوم الأحد', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })).then((response) => response.json()) as { proposalId: string; items: typeof doctorItems };
+    const dayDoctorItem = dayDoctor.items[0]!;
+    const noTime = dayDoctorItem.clarification!.options.find((option) => option.optionId === 'none');
+    assert.ok(noTime, 'the hour question offers "no specific time"');
+    const dayClarified = await record('capture.appointmentNoTimeClarified', 200, await clarifyPost(request('/api/mobile/capture/clarify', {
+      uid: APPOINTMENT_DAY_USER,
+      body: {
+        proposalId: dayDoctor.proposalId,
+        itemId: dayDoctorItem.itemId,
+        questionId: dayDoctorItem.clarification!.questionId,
+        optionId: noTime.optionId,
+        referenceTime: REFERENCE_TIME,
+        timezone: 'Asia/Jerusalem',
+      },
+    })));
+    const dayItems = dayClarified.items as Array<{ title: string; resolvedTime: string | null; resolvedDate?: string; needsClarification: boolean; allDayEvent?: boolean }>;
+    assert.deepEqual(dayItems.map((item) => [item.title, item.resolvedTime, item.resolvedDate, item.needsClarification, item.allDayEvent]), [
+      ['موعد دكتور', null, '2026-08-16', false, true],
+    ]);
+    const dayConfirmed = await record('capture.appointmentNoTimeConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+      uid: APPOINTMENT_DAY_USER,
+      body: { proposalId: dayDoctor.proposalId, itemIds: [dayDoctorItem.itemId] },
+    })));
+    assert.equal(dayConfirmed.success, true);
+    assert.deepEqual((dayConfirmed.persisted as Array<{ resolvedTime: string | null }>).map((item) => item.resolvedTime), [null]);
 
     // ── a deadline with a day and no hour (FX3) ────────────────────
     // «بدي أدفع فاتورة الكهربا قبل آخر الشهر», through the real route: one

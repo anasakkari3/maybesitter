@@ -82,7 +82,11 @@ export function SavedScreen() {
     : t.noTimeYet);
   const savedWhenOf = (item: { itemId: string; resolvedTime: string | null }) => {
     const day = item.resolvedTime ? null : dueByDayOf(item.itemId);
-    return day ? tr('reviewDueByDay', { day: formatDayKey(day, { locale: lang, timeZone: timezone }) }) : whenOf(item.resolvedTime);
+    if (!day) return whenOf(item.resolvedTime);
+    // An appointment with no hour is on its day, not due by it (FY1 N4).
+    const onDay = state.proposal?.items.find((candidate) => candidate.itemId === item.itemId)?.allDayEvent === true;
+    const shown = formatDayKey(day, { locale: lang, timeZone: timezone });
+    return onDay ? `${shown} · ${t.noTimeYet}` : tr('reviewDueByDay', { day: shown });
   };
 
   if (outcome) {
