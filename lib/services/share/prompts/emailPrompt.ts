@@ -34,6 +34,30 @@ import type { LlmPart } from '../shareTypes';
 export const MAX_EMAIL_ITEMS = 8;
 
 /**
+ * An appointment the reader goes to is a commitment of its own (CL6a round 2,
+ * N7).
+ *
+ * "Your dentist appointment is on Tuesday at 4pm. Please arrive early and
+ * bring your insurance card" used to come back as the two chores and not the
+ * appointment, because every other rule here is about things to *do*. The
+ * event is its own item, with its day and time copied like any other phrase;
+ * this channel appends them to the title, and the capture pipeline reads the
+ * line the way it reads a typed «موعد دكتور الثلاثاء الساعة 4» — a fixed time,
+ * and a Must by the appointment rule every capture uses (`priorityLexicon.ts`).
+ * Nothing about priority is decided here.
+ *
+ * The title names the event and not a step about it: "confirm the meeting" is
+ * an arranging task that the appointment rule deliberately does not raise.
+ */
+const ATTENDED_EVENT_RULE =
+  'An appointment, meeting or event the reader will attend is itself an item, besides anything they are asked to do to prepare for it. Its title names the event ("Dentist appointment", «اجتماع خطة المشروع», «תור לרופא»), never a step about booking, confirming or replying to it. Skip one only the sender attends, one that is cancelled or moved without a new time, and one already over.';
+
+/** The clock-time words, copied like the day words and checked the same way. */
+function timePhraseRule(where: string): string {
+  return `timePhrase: the exact words in ${where} that name a clock time for the item ("at 4pm", «الساعة 11 الصبح», «בשעה 10»), or null when none is named. Copy the words; do not convert them.`;
+}
+
+/**
  * The task, appended to the preamble every channel shares.
  *
  * Written as rules about the reader rather than about the message: "what is
@@ -44,13 +68,15 @@ export const EMAIL_SYSTEM_INSTRUCTION = [
   SHARE_SYSTEM_PREAMBLE,
   'The content is one email, already stripped of quoted replies, signatures and legal footers.',
   'List only things the *reader* is asked or expects to do, and only ones still ahead of them.',
+  ATTENDED_EVENT_RULE,
   'Skip anything the sender is doing, anything already done, and anything that is only news.',
   'A newsletter, a marketing message or an announcement asks the reader for nothing: return an empty list.',
   'There is no action to take beyond remembering. Never propose opening a link, replying, paying or forwarding.',
   `Return at most ${MAX_EMAIL_ITEMS} items.`,
-  'title: 2-6 words, imperative, in the same language and script as the email. No dates, no links, no punctuation at the end.',
+  'title: 2-6 words, in the same language and script as the email: imperative for a task, the event\'s name for an appointment. No dates, no times, no links, no punctuation at the end.',
   'evidenceSentence: one sentence copied from the content character for character, at most 140 characters. Never paraphrase it, never join two sentences, never write one that is not there.',
   'dueDayPhrase: the exact words in the content that name a day ("by Monday", «قبل الاثنين», «עד יום חמישי»), or null when no day is named. Copy the words; do not work out a date.',
+  timePhraseRule('the content'),
   'Text reading [email] or [phone] has been removed on purpose. Never put it in a title and never ask about it.',
 ].join('\n');
 
@@ -71,6 +97,7 @@ export const EMAIL_RESPONSE_JSON_SCHEMA = {
           title: { type: 'string', description: 'Two to six imperative words in the email\'s own language.' },
           evidenceSentence: { type: 'string', description: 'One sentence copied from the content exactly.' },
           dueDayPhrase: { type: ['string', 'null'], description: 'The words naming a day, copied exactly, or null.' },
+          timePhrase: { type: ['string', 'null'], description: 'The words naming a clock time, copied exactly, or null.' },
         },
         required: ['title', 'evidenceSentence'],
       },
@@ -86,6 +113,7 @@ export interface EmailModelItem {
   readonly title?: unknown;
   readonly evidenceSentence?: unknown;
   readonly dueDayPhrase?: unknown;
+  readonly timePhrase?: unknown;
 }
 
 /**
@@ -117,14 +145,16 @@ export const EMAIL_BATCH_SYSTEM_INSTRUCTION = [
   'Read each email on its own. Never combine sentences from two emails, and never carry a request from one email to another.',
   'Each email is already stripped of quoted replies, signatures and legal footers.',
   'List only things the *reader* is asked or expects to do, and only ones still ahead of them.',
+  ATTENDED_EVENT_RULE,
   'Skip anything the sender is doing, anything already done, and anything that is only news.',
   'A newsletter, a marketing message or an announcement asks the reader for nothing: return nothing for it.',
   'There is no action to take beyond remembering. Never propose opening a link, replying, paying or forwarding.',
   `Return at most ${MAX_EMAIL_ITEMS} items per email.`,
   'message: the number N of the email the item came from.',
-  'title: 2-6 words, imperative, in the same language and script as that email. No dates, no links, no punctuation at the end.',
+  'title: 2-6 words, in the same language and script as that email: imperative for a task, the event\'s name for an appointment. No dates, no times, no links, no punctuation at the end.',
   'evidenceSentence: one sentence copied from that email character for character, at most 140 characters. Never paraphrase it, never join two sentences, never write one that is not there.',
   'dueDayPhrase: the exact words in that email that name a day ("by Monday", «قبل الاثنين», «עד יום חמישי»), or null when no day is named. Copy the words; do not work out a date.',
+  timePhraseRule('that email'),
   'Text reading [email] or [phone] has been removed on purpose. Never put it in a title and never ask about it.',
 ].join('\n');
 
@@ -140,6 +170,7 @@ export const EMAIL_BATCH_RESPONSE_JSON_SCHEMA = {
           title: { type: 'string', description: 'Two to six imperative words in the email\'s own language.' },
           evidenceSentence: { type: 'string', description: 'One sentence copied from that email exactly.' },
           dueDayPhrase: { type: ['string', 'null'], description: 'The words naming a day, copied exactly, or null.' },
+          timePhrase: { type: ['string', 'null'], description: 'The words naming a clock time, copied exactly, or null.' },
         },
         required: ['message', 'title', 'evidenceSentence'],
       },

@@ -194,10 +194,37 @@ function cleanTitle(raw: unknown): string | null {
   return stripped;
 }
 
+/** The phrase, when it is a string the body really contains; otherwise null. */
+function quotedPhrase(raw: unknown, haystack: string): string | null {
+  if (typeof raw !== 'string') return null;
+  const phrase = raw.trim();
+  if (phrase === '') return null;
+  return haystack.includes(normalizeForMatch(phrase)) ? phrase : null;
+}
+
+/**
+ * The day words and the time words, once each.
+ *
+ * A model may quote "Tuesday at 4pm" as the day and "at 4pm" as the time;
+ * "Tuesday at 4pm at 4pm" is not a line the capture pipeline should have to
+ * untangle, so a phrase the other one already contains is left out.
+ */
+function whenWords(day: string | null, time: string | null): string[] {
+  if (day === null) return time === null ? [] : [time];
+  if (time === null) return [day];
+  const d = normalizeForMatch(day).toLowerCase();
+  const t = normalizeForMatch(time).toLowerCase();
+  if (d.includes(t)) return [day];
+  if (t.includes(d)) return [time];
+  return [day, time];
+}
+
 interface KeptItem {
   readonly title: string;
   readonly evidence: string;
   readonly dueDayPhrase: string | null;
+  /** The words naming the clock time, when the email has them (CL6a round 2, N7). */
+  readonly timePhrase: string | null;
 }
 
 interface Selection {
@@ -249,16 +276,18 @@ function selectItems(
       continue;
     }
 
-    const phrase = typeof candidate.dueDayPhrase === 'string' ? candidate.dueDayPhrase : null;
     // A phrase the email does not contain is not a phrase the email anchored.
-    const quoted = phrase !== null && haystack.includes(normalizeForMatch(phrase)) ? phrase : null;
+    const quoted = quotedPhrase(candidate.dueDayPhrase, haystack);
     const day = resolveDayPhrase(quoted, anchor, input.timezone);
     if (day !== null && day < today) { past += 1; continue; }
+    // Nor is a time it does not contain a time it set. Resolved downstream,
+    // by the capture pipeline, from the words themselves.
+    const time = quotedPhrase(candidate.timePhrase, haystack);
 
     const key = normalizeForMatch(title).toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    items.push({ title, evidence, dueDayPhrase: quoted });
+    items.push({ title, evidence, dueDayPhrase: quoted, timePhrase: time });
     if (items.length >= MAX_EMAIL_ITEMS) break;
   }
   return { items, invented, past };
@@ -278,7 +307,7 @@ function selectItems(
  * than this one line.
  */
 function segmentFor(item: KeptItem, sourceIndex: number | null): ShareSegment | null {
-  const text = item.dueDayPhrase === null ? item.title : `${item.title} ${item.dueDayPhrase}`;
+  const text = [item.title, ...whenWords(item.dueDayPhrase, item.timePhrase)].join(' ');
   if (screenForInjection(text) !== null) return null;
   return {
     text,
