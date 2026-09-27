@@ -537,6 +537,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // which kind of message this was (#166). First rather than last: the opening of
   // a message is what it is about.
   let noCommitmentReason: NoCommitmentReason | null = null;
+  // Clock times said in clauses that produced nothing (FY1 N1); see the valve.
+  let timesReadAsNothing = 0;
 
   const segments = raw ? splitInput(raw) : [];
   const several = segments.length > 1;
@@ -645,16 +647,16 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       if (outcome.kind === 'error') {
         // The guarded extractor refuses a time that has gone by with the
         // reading it refused (CL1 round 3, M5): past its negation check,
-        // named by the engine that read it. In a capture of several clauses
-        // that reading is offered without its hour, below, and the user is
-        // asked for one — never a later reading picked for them. Alone, the
-        // refusal stands.
+        // named by the engine that read it. That reading is offered without
+        // its hour, below, and the user is asked for one — never a later
+        // reading picked for them.
+        //
+        // Alone too (closure UAT round 2, FY1 N1). «اليوم الساعة 3 العصر لازم
+        // أبعت الإيميل للمدير» at 18:08 was refused whole, and the phone said
+        // «ما زبطت» about a commitment it had read perfectly well. The email
+        // is still to be sent; which hour is the one thing to ask.
         const refused = outcome.error instanceof PastCommitmentTimeError ? outcome.error.extracted : undefined;
         if (!refused) throw outcome.error;
-        // Alone, the refusal stands — except for a bare early hour the rules
-        // read as the morning (round 7, I-3): «ذكرني أتصل بأمي الساعة 5» at
-        // 10:00 is a question about the half of the day, not a past time.
-        if (!several && !(refused.engine === 'rule-based' && isBareEarlyHour(refused.result))) throw outcome.error;
         extracted = refused;
         passedHour = true;
       } else {
@@ -705,10 +707,30 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         && extracted.engine !== 'rule-based'
         && hasRequestEvidence(segment)
       ) {
-        const recovered = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
-        if (semanticFailure(recovered.result, options.now) === null) {
+        /*
+         * The stand-in reading is the guarded extractor's too, so it can
+         * refuse. Uncaught, that refusal rejected the whole capture (closure
+         * UAT round 2, FY1 N1): the model rightly read «اليوم الساعة 3 العصر
+         * كان عندي اجتماع…» as nothing, the rules re-read it as a meeting at
+         * 15:00, the guard threw at 18:08, and the room and the bank were lost
+         * with it. A passed hour here is the same question as anywhere else;
+         * any other refusal leaves the model's "nothing" standing.
+         */
+        let recovered: ExtractWithFallbackResult | null = null;
+        let recoveredPassedHour = false;
+        try {
+          recovered = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+        } catch (error) {
+          if (error instanceof PastCommitmentTimeError && error.extracted) {
+            recovered = error.extracted;
+            recoveredPassedHour = true;
+          }
+        }
+        const recoveredFailure = recovered ? semanticFailure(recovered.result, options.now) : 'no_commitment';
+        if (recovered && (recoveredFailure === null || recoveredFailure === 'past_time')) {
           extracted = recovered;
-          failure = null;
+          failure = recoveredFailure;
+          passedHour ||= recoveredPassedHour;
           standIn = true;
         }
       }
@@ -716,24 +738,25 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * One clause must not sink the others (CL1, round 1). «بدي أشتري خبز
        * بكرا، وذكرني أتصل بأمي اليوم الساعة 9 الصبح» sent at 10:00 was
        * `rejected` whole — the route answered 400 and the bread went with the
-       * call. In a capture of several clauses:
+       * call.
        *
        *   past_time      the clause is kept without the hour that has gone,
        *                  as an item needing clarification, so the user picks
-       *                  a new time rather than losing the commitment;
-       *   missing_title  there is nothing to name, so only that clause is
-       *                  skipped.
+       *                  a new time rather than losing the commitment. In a
+       *                  capture of one clause as well (FY1 N1): a
+       *                  commitment whose hour has passed today is asked
+       *                  about, never refused;
+       *   missing_title  there is nothing to name, so in a capture of several
+       *                  clauses only that clause is skipped.
        *
        * A prompt injection still rejects the whole capture — `semanticFailure`
-       * reports it before a short title — and a capture of one clause is
-       * unchanged, but for the bare early hour above (round 7, I-3).
+       * reports it before a short title.
        */
       let clearedPastTime = false;
-      // The rules' morning reading of a bare early hour (round 7, I-3): the
-      // same question whether the guarded extractor refused it (`passedHour`)
-      // or the boundary's own past-time check did.
+      // The rules' morning reading of a bare early hour (round 7, I-3): asked
+      // as صبح or مسا, whether or not that morning has already gone.
       const bareEarlyHour = extracted.engine === 'rule-based' && isBareEarlyHour(extracted.result);
-      if ((several || passedHour || bareEarlyHour) && (failure === 'past_time' || passedHour)) {
+      if (failure === 'past_time' || passedHour) {
         extracted = { ...extracted, result: withoutPastTime(extracted.result, options.now, options.timezone) };
         failure = semanticFailure(extracted.result, options.now);
         clearedPastTime = failure === null;
@@ -747,6 +770,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       }
       if (failure === 'no_commitment') {
         noCommitmentReason ??= noCommitmentReasonFrom(segment, extracted.result, extracted.fallbackReason);
+        // Its clock times were read and found to be nothing to keep — «كان
+        // عندي اجتماع الساعة 3» (FY1 N1) — so the valve below does not count
+        // them as times a proposed item lost.
+        timesReadAsNothing += countTimeExpressions(segment);
         continue;
       }
       if (failure) {
@@ -812,8 +839,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // dropping an appointment while telling the user everything was understood.
   //
   // This only ever moves an item to needing clarification, never away from it,
-  // and input naming no clock time cannot trigger it.
-  const timesInInput = countTimeExpressions(raw);
+  // and input naming no clock time cannot trigger it. A time said in a clause
+  // that was read as no commitment is not one an item lost (FY1 N1): the past
+  // meeting's «الساعة 3» used to send the bank's 17:00 back to be asked.
+  const timesInInput = Math.max(0, countTimeExpressions(raw) - timesReadAsNothing);
   if (timesInInput > 0 && items.length > 0) {
     const timesAccountedFor = new Set(
       items.map((item) => item.resolvedTime).filter(Boolean),

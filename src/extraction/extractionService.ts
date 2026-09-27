@@ -11,6 +11,27 @@ import type { ExtractionContext, ExtractionDisposition, ExtractionResult } from 
 
 export type ExtractionEngine = 'gemini' | 'ollama' | 'rule-based';
 
+/**
+ * Something the person *had*, told in the past tense (closure UAT round 2,
+ * FY1 N1): «اليوم الساعة 3 العصر كان عندي اجتماع», "I had a meeting at 3",
+ * «היתה לי פגישה». It already happened; it is not a commitment, and nothing is
+ * made for it. Read as a task, its 15:00 — gone by 18:08 — was the time the
+ * capture then refused, and the room and the bank said beside it were lost.
+ *
+ * Only the "I had" construction, whole words: «مكان عندي» is not «كان
+ * عندي», and «كان في بالي» ("I had in mind to…") is left to the reader. A
+ * request word in the same clause — «…بس تأجل لبكرا», «كان
+ * لازم» — is still read as a request below (`request`), as for «مبارح».
+ */
+const PAST_EVENT_NARRATION = new RegExp(
+  [
+    '(?:^|[\\s،,.;:!?؟(])[وف]?(?:كان|كانت)\\s+(?:عندي|عندنا|عنّا|عنا|إلي|الي|إلنا|النا|لي|لنا)(?=$|[\\s،,.;:!?؟)])',
+    "\\b(?:i|we)\\s+had\\s+(?:a|an|my|our|the)\\b",
+    '(?:^|[\\s,.;:!?(])[ו]?(?:היתה|הייתה|היה)\\s+(?:לי|לנו)(?=$|[\\s,.;:!?)])',
+  ].join('|'),
+  'iu',
+);
+
 export interface ExtractAndMapOptions {
   llmProvider?: LLMProviderFunction;
   /**
@@ -178,7 +199,8 @@ export async function extractWithFallback(
   if (injection) {
     return { result: safeNegativeResult(rawText, 'unknown'), engine: 'rule-based', fallbackReason: `prompt_injection:${injection}` };
   }
-  const past = /\b(yesterday|last night|last week|earlier)\b|مبارح|أمس|امبارح|אתמול|בשבוע שעבר/i.test(rawText);
+  const past = /\b(yesterday|last night|last week|earlier)\b|مبارح|أمس|امبارح|אתמול|בשבוע שעבר/i.test(rawText)
+    || PAST_EVENT_NARRATION.test(rawText);
   const request = /\b(remind|add|create|schedule|please|need to|must|tomorrow)\b|ذكرني|ضيف|أضف|لازم|بكرا|תזכיר|תוסיף|צריך|מחר/i.test(rawText);
   if (past && !request) {
     return { result: safeNegativeResult(rawText, 'informational_context'), engine: 'rule-based', fallbackReason: 'semantic_safety:past_no_action' };

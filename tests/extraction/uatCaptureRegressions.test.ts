@@ -390,8 +390,18 @@ test('R1: beside a clause with a good time, the passed one is kept too; the mult
   assert.ok(contract.items.every((item) => item.needsClarification));
 });
 
-test('R1: alone, a passed hour is still refused', async () => {
-  assert.equal((await propose('ذكرني أتصل بأمي اليوم الساعة 9 الصبح')).contract.status, 'rejected');
+test('R1 (superseded by FY1 N1): alone, a passed hour is asked about for a new time, never refused', async () => {
+  // Until the closure UAT round 2 this was `rejected`, and the phone said
+  // «ما زبطت» about a commitment it had read perfectly well.
+  const { contract } = await propose('ذكرني أتصل بأمي اليوم الساعة 9 الصبح');
+  assert.equal(contract.status, 'needs_clarification');
+  assert.deepEqual(contract.items.map((item) => [item.title, item.resolvedDate ?? null, item.resolvedTime, item.clarification?.questionKey ?? null]), [
+    ['أتصل بأمي', '2026-09-26', null, 'ask_time'],
+  ]);
+  // Nothing offered is already behind 10:00, and "no specific time" is there.
+  for (const option of contract.items[0]!.clarification!.options) {
+    if (option.value.localTime) assert.ok(`${option.value.localDate} ${option.value.localTime}` > '2026-09-26 10:00', option.optionId);
+  }
 });
 
 // ── Round 2 (review CL1-review.md; every reviewer probe is a test here) ──
@@ -2149,7 +2159,9 @@ test('R7 I-3: a bare early hour today whose morning has passed reaches the am/pm
     ['أتصل بأمي', 'ask_am_pm', '2026-09-26'],
     ['وأشتري خبز', 'ask_time', '2026-09-27'],
   ]);
-  // A passed hour that is not a bare early one is still refused alone, and asked for a new time beside others (rounds 1 and 3).
+  // A passed hour that is not a bare early one is asked for a new time, alone
+  // (FY1 N1; it was refused alone until then) as beside others (rounds 1 and 3).
   const late = await propose('ذكرني أتصل بأمي اليوم الساعة 9 الصبح');
-  assert.equal(late.contract.status, 'rejected');
+  assert.equal(late.contract.status, 'needs_clarification');
+  assert.equal(late.contract.items[0]!.clarification?.questionKey, 'ask_time');
 });

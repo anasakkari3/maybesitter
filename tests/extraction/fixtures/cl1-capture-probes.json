@@ -1498,9 +1498,16 @@
    "model": "2026-09-26 09:00",
    "modelTitle": "לקנות לחם",
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לקנות לחם | 2026-09-26 - | ask_time"
+    ]
+   },
+   "at460c097b": {
     "status": "rejected",
     "items": []
-   }
+   },
+   "fy1": "intended (FY1 N1c): a single commitment whose hour has passed today is asked about, never refused"
   },
   {
    "text": "להתקשר לאמא מחר בערב",
