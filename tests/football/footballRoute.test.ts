@@ -56,10 +56,16 @@ let auth: FakeAuthControls | null = null;
 function setup(): () => void {
   setStorageForTests(createMemoryStorage());
   auth = installFakeAuth();
+  // A server that holds the match data key: without one a follow is refused
+  // (closure CL7, covered in `footballWatcher.test.ts`). No test here fetches.
+  const previousKey = process.env.FOOTBALL_DATA_API_KEY;
+  process.env.FOOTBALL_DATA_API_KEY = 'test-key';
   return () => {
     auth?.restore();
     auth = null;
     resetStorageForTests();
+    if (previousKey === undefined) delete process.env.FOOTBALL_DATA_API_KEY;
+    else process.env.FOOTBALL_DATA_API_KEY = previousKey;
   };
 }
 

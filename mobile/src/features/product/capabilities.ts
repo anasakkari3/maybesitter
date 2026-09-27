@@ -68,9 +68,13 @@ export const availabilityKey = {
   LIVE: 'xLive', AVAILABLE: 'xLive', VIA_SHARE: 'xViaShare', COMING_SOON: 'xSoon', BETA: 'xBeta',
   BLOCKED: 'xBlocked', NEEDS_REAUTH: 'xReauth',
 } as const;
+/**
+ * The watcher sources the app knows. Flights and parcels are deliberately
+ * absent — not "coming soon" — until the owner approves a provider and its
+ * price (council ruling, closure CL7); `capabilityRows.test.tsx` holds that.
+ * Football is offered only when the server reports its key configured.
+ */
 export const watchSources = {
-  flight: { title: 'xFlight', conditions: ['xFlightDelay', 'xGate', 'xDeparture', 'xCancelled'] },
-  package: { title: 'xPackage', conditions: ['xDelivery'] },
   football: { title: 'xFootball', conditions: ['xKickoff'] },
   assignment: { title: 'xAssignment', conditions: ['xDeadlineChange'] },
   readiness: { title: 'xReadiness', conditions: ['xEnergyChange'] },

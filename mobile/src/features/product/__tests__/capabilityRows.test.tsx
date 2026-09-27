@@ -66,7 +66,14 @@ jest.mock('../../../api/queries', () => ({
   useCommitment: query(null),
   useAiConsentGranted: () => ({ granted: false, asked: false, loading: false }),
   useTrust: query({ trust: { calendarConsent: false } }),
+  // The recorded answer of a server with no match data key (closure CL7);
+  // a test that needs the key flips `mockFootballConfigured`.
+  useFootballSettings: () => ({
+    data: { ...require('../../../api/__fixtures__/football.settings.json'), providerConfigured: mockFootballConfigured },
+    isPending: false, isFetching: false, error: null, refetch: jest.fn(),
+  }),
 }));
+let mockFootballConfigured = false;
 jest.mock('../../google/useGoogle', () => ({
   // Not configured: the state every build is in until the owner adds the
   // OAuth client. The rows' other states are held in googleConnections.test.
@@ -87,6 +94,7 @@ jest.mock('../useWatchers', () => ({
   useWatcherAction: mutation(),
   useSetBackgroundActivityPaused: mutation(),
   useCreateReadinessWatcher: mutation(),
+  useCreateFootballWatcher: mutation(),
 }));
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
@@ -238,5 +246,75 @@ describe('what the product does not promise', () => {
     }
     await render(wrap(<AddToMaybeSitterScreen />));
     expect(screen.queryByText(/coordinat/i)).toBeNull();
+  });
+});
+
+describe('the watcher screens say «قريبًا» nowhere (council ruling: COMING_SOON = FAIL, closure CL7)', () => {
+  // A row another lane owns and turns LIVE at integration. Location was the
+  // only one (CL4's `explore-location`); it is LIVE now, so nothing is exempt
+  // and any «قريبًا» on these screens is a failure.
+  const OWNED_BY_ANOTHER_LANE: string[] = [];
+  const soonBadges = () => ['row-status-COMING_SOON', 'section-status-COMING_SOON', 'availability-COMING_SOON']
+    .flatMap(id => screen.queryAllByTestId(id) as unknown as Host[]);
+  const rowOf = (badge: Host) => {
+    for (let node: Host | null = badge.parent; node; node = node.parent) {
+      if (typeof node.props.testID === 'string' && !/COMING_SOON/.test(node.props.testID)) return node.props.testID as string;
+    }
+    return null;
+  };
+
+  afterEach(() => { mockFootballConfigured = false; });
+
+  const WATCHER_SCREENS: [string, () => React.JSX.Element, boolean][] = [
+    ['BackgroundActivityScreen', BackgroundActivityScreen, false], ['BackgroundActivityScreen', BackgroundActivityScreen, true],
+    ['WatchBuilderScreen', WatchBuilderScreen, false], ['WatchBuilderScreen', WatchBuilderScreen, true],
+  ];
+  it.each(WATCHER_SCREENS)('%s has no COMING_SOON row but the ones another lane owns (football key: %s)', async (_name, Screen, configured) => {
+    mockFootballConfigured = configured;
+    await render(wrap(<Screen />));
+    const rows = soonBadges().map(rowOf);
+    expect(rows.filter(row => row === null || !OWNED_BY_ANOTHER_LANE.includes(row))).toEqual([]);
+    // No «قريبًا» drawn outside a badge either.
+    const soonWords = [en, ar, he].reduce((sum, t) => sum + screen.queryAllByText(t.xSoon).length, 0);
+    expect(soonWords).toBe(rows.length);
+    // WHOOP and Notion have no provider and no owner approval: absent, not labelled.
+    expect(screen.queryAllByText(/WHOOP|Notion/i)).toHaveLength(0);
+  });
+});
+
+describe('flights and parcels (council ruling, closure CL7)', () => {
+  // Removed until the owner approves a provider and its price — not
+  // "coming soon", not "in progress": absent.
+  const FLIGHT_OR_PARCEL = /flight|parcel|package|رحلة طيران|طرد|شحن|טיסה|חבילה|משלוח/i;
+  const ics = process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS;
+  afterEach(() => {
+    mockFootballConfigured = false;
+    if (ics === undefined) delete process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS;
+    else process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = ics;
+  });
+
+  it('have no copy left in any language', () => {
+    for (const [name, locale] of [['en', en], ['ar', ar], ['he', he]] as const) {
+      const keys = Object.keys(locale).filter(key => /^x(Flight|Package|FlightDelay|Gate|Departure|Cancelled|Delivery)$/.test(key));
+      expect({ name, keys }).toEqual({ name, keys: [] });
+      const values = Object.entries(locale).filter(([key, value]) => key.startsWith('x') && typeof value === 'string' && FLIGHT_OR_PARCEL.test(value)).map(([key]) => key);
+      expect({ name, values }).toEqual({ name, values: [] });
+    }
+  });
+
+  it.each(Object.keys(SCREENS))('%s offers neither', async (name) => {
+    const Screen = SCREENS[name]!;
+    await render(wrap(<Screen />));
+    expect(screen.queryAllByText(FLIGHT_OR_PARCEL)).toHaveLength(0);
+  });
+
+  it('the Sources row is hidden when there is nothing behind it, and shown once football is set up', async () => {
+    process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = '';
+    await render(wrap(<IntegrationsScreen />));
+    expect(screen.queryByTestId('integration-sources')).toBeNull();
+    cleanup();
+    mockFootballConfigured = true;
+    await render(wrap(<IntegrationsScreen />));
+    expect(screen.getByTestId('integration-sources')).toBeTruthy();
   });
 });

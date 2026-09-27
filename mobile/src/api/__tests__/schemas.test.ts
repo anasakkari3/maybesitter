@@ -46,7 +46,8 @@ import {
   profileResponseSchema,
   routineSavedSchema,
 } from '../schemas/profile';
-import { backgroundActivityHistorySchema } from '../schemas/backgroundActivity';
+import { backgroundActivityHistorySchema, backgroundActivitySchema } from '../schemas/backgroundActivity';
+import { footballSettingsResponseSchema } from '../schemas/football';
 import {
   planCauseResponseSchema,
   planEditRejectedSchema,
@@ -194,6 +195,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['trust.state', trustResponseSchema],
   ['trust.updated', trustResponseSchema],
   ['backgroundActivity.history', backgroundActivityHistorySchema],
+  // Closure CL7: a followed club whose last fetch failed says "retrying".
+  ['backgroundActivity.footballRetrying', backgroundActivitySchema],
   ['pilot.incident', pilotIncidentResponseSchema],
   ['feedback.history', feedbackHistorySchema],
   ['feedback.revoked', feedbackRevokeSchema],
@@ -289,6 +292,10 @@ const CASES: Array<[string, z.ZodType]> = [
   ['watchers.paused', watcherChangedSchema],
   ['watchers.resumed', watcherChangedSchema],
   ['watchers.list', watcherListSchema],
+  // Closure CL7: football as a watcher source, gated on the server's key.
+  ['watchers.football.created', watcherChangedSchema],
+  ['football.settings', footballSettingsResponseSchema],
+  ['football.settings.configured', footballSettingsResponseSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
   // Subscribed calendar feeds (UC-3.4, #188). The schemas are strict: a

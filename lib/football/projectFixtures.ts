@@ -231,7 +231,7 @@ const FOOTBALL_FEED_CONNECTION_ID = 'football-fixtures-feed';
  * The language a projection run titles its commitments in -- see the module
  * header's "The title names the match" section for the order and why.
  */
-async function titleLanguageFor(uid: string, explicit: ClubLanguage | undefined): Promise<ClubLanguage> {
+export async function titleLanguageFor(uid: string, explicit: ClubLanguage | undefined): Promise<ClubLanguage> {
   if (explicit) return explicit;
   const user = await getStorage().get<UserDocument>(userDoc(uid));
   if (user?.locale === 'ar' || user?.locale === 'he' || user?.locale === 'en') return user.locale;

@@ -17,6 +17,23 @@ export const createReadinessWatcher = (effect: WatcherEffect) => apiRequest('POS
   schema: watcherChangedSchema,
   expectStatus: 201,
 });
+/**
+ * Follow a club (closure CL7). The server makes it a follow *and* a watcher,
+ * and answers 201 for a club already followed too, so a second tap is the same
+ * follow. `label` is the club's name in the language the user read it in.
+ */
+export const createFootballWatcher = (clubId: string, effect: WatcherEffect, label: string) => apiRequest('POST', '/api/mobile/watchers', {
+  body: {
+    enabled: true,
+    label,
+    source: { provider: 'football_data', connectionId: null, signalKind: 'football_team', subjectRef: clubId },
+    condition: { kind: 'digest_changed' },
+    effect,
+    createdBy: 'user',
+  },
+  schema: watcherChangedSchema,
+  expectStatus: 201,
+});
 export const pauseWatcher = (id: string, paused: boolean) => apiRequest('POST', `${path(id)}/pause`, { body: { paused }, schema: watcherChangedSchema });
 export const deleteWatcher = (id: string) => apiRequest('DELETE', path(id), { schema: watcherDeletedSchema });
 export const getMonitoringSettings = async () => {

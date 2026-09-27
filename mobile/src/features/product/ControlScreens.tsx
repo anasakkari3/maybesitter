@@ -14,6 +14,7 @@ import { PlanProposalRefusedError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
+import { sourcesSubKey, useSourcesAvailability } from '../settings/sourcesAvailability';
 import { LANGUAGE_ENDONYM } from '../../i18n/language';
 import { isolate, isolateAuto } from '../../i18n/bidi';
 import { dayKey, formatTimeRange } from '../../i18n/format';
@@ -66,13 +67,14 @@ export function IntegrationsScreen() {
     return fallback;
   };
   const openGoogle = () => actions.go('googleIntegration');
+  const sources = useSourcesAvailability();
   return <ProductPage id="integrations" title={t.xIntegrations} subtitle={t.xIntegrationsBody}
     overlay={guide ? <ShareGuideSheet kind={guide} onClose={() => setGuide(null)} /> : null}>
     <ProductRow id="integration-device" title={t.xDeviceCalendar} body={t.xDeviceBody} icon="calendar" status={deviceStatus} onPress={when(deviceStatus, () => actions.go('calendarSettings'))} />
     <ProductRow id="integration-whatsapp" title="WhatsApp" body={t.xWhatsappBody} icon="link" status={share} onPress={when(share, () => setGuide('whatsapp'))} />
     <ProductRow id="integration-google" title="Google Calendar" body={googleLine('calendar', t.googleCalendarBody)} icon="calendar" onPress={openGoogle} />
     <ProductRow title={t.xHealth} icon="habit" onPress={() => actions.go('readinessSettings')} />
-    <ProductRow title={t.settingsSources} body={t.settingsSourcesSub} icon="link" onPress={() => actions.go('sources')} />
+    {sources.any ? <ProductRow id="integration-sources" title={t.settingsSources} body={t[sourcesSubKey(sources)]} icon="link" onPress={() => actions.go('sources')} /> : null}
     <ProductRow id="integration-gmail" title="Gmail" body={googleLine('gmail', t.googleGmailBody)} icon="file" onPress={openGoogle} />
     <ProductRow id="integration-drive" title="Google Drive" body={googleLine('drive', t.googleDriveBody)} icon="file" onPress={openGoogle} />
     <ProductRow id="integration-location" title={t.xLocation} body={t.placesRowSub} icon="goal" status={cap.location} onPress={when(cap.location, () => actions.go('places'))} />

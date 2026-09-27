@@ -64,6 +64,7 @@ const CLUBS = [
 function settingsResponse(over: Partial<FootballSettingsResponse> = {}): FootballSettingsResponse {
   return {
     success: true,
+    providerConfigured: true,
     clubs: CLUBS,
     followedClubIds: [],
     fixtures: [],

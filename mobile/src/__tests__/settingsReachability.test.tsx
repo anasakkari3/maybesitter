@@ -28,6 +28,9 @@ import * as nextStepEndpoints from '../api/endpoints/nextStep';
 import * as trustEndpoints from '../api/endpoints/trust';
 import * as categoryEndpoints from '../api/endpoints/categories';
 import * as calendarEndpoints from '../api/endpoints/calendar';
+import * as footballEndpoints from '../api/endpoints/football';
+import footballOn from '../api/__fixtures__/football.settings.configured.json';
+import footballOff from '../api/__fixtures__/football.settings.json';
 import * as feedEndpoints from '../api/endpoints/icsFeeds';
 import * as readinessEndpoints from '../api/endpoints/readiness';
 import * as financialEndpoints from '../api/endpoints/financial';
@@ -96,6 +99,8 @@ beforeEach(async () => {
   jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('undetermined' as never);
   jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([]);
   jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({ success: true, feeds: [], deadlines: [] } as never);
+  // A server holding the match data key; the test that needs none says so.
+  jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(footballOn as never);
 });
 
 afterEach(async () => {
@@ -169,14 +174,35 @@ describe('from Settings, on the merged Root', () => {
     process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = 'false';
     await openApp();
     await openSettings();
+    await waitFor(() => expect(screen.queryByText(en.settingsSourcesSubNoIcs)).not.toBeNull());
     expect(screen.queryByText(en.settingsSourcesSub)).toBeNull();
-    expect(screen.queryByText(en.settingsSourcesSubNoIcs)).not.toBeNull();
   });
 
   it('Sources names calendar links when the build has them', async () => {
     await openApp();
     await openSettings();
-    expect(screen.queryByText(en.settingsSourcesSub)).not.toBeNull();
+    await waitFor(() => expect(screen.queryByText(en.settingsSourcesSub)).not.toBeNull());
+  });
+
+  // Closure CL7: without the match data key (staging and production today)
+  // matches are not a source at all, so they are not named — and with no
+  // calendar links either, there is no Sources row to open.
+  it('Sources does not name matches when the server has no match data key', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(footballOff as never);
+    await openApp();
+    await openSettings();
+    await waitFor(() => expect(screen.queryByText(en.settingsSourcesSubIcsOnly)).not.toBeNull());
+    expect(screen.queryByText(en.settingsSourcesSub)).toBeNull();
+  });
+
+  it('there is no Sources row with neither calendar links nor match data', async () => {
+    process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = 'false';
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(footballOff as never);
+    await openApp();
+    await openSettings();
+    await waitFor(() => expect(footballEndpoints.getFootballSettings).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(screen.queryByTestId('settings-sources')).toBeNull();
   });
 
   it('reaches the readiness settings screen', async () => {

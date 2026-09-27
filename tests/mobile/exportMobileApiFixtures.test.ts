@@ -40,7 +40,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, EVENTS, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, EVENTS, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -178,6 +178,8 @@ import { appendPlanEvent, planPath, readStoredPlan, storePlanProposal } from '..
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 import { GET as readinessGet, PUT as readinessPut } from '../../src/app/api/mobile/readiness/route.ts';
 import { GET as watchersGet, POST as watchersPost } from '../../src/app/api/mobile/watchers/route.ts';
+import { GET as footballGet } from '../../src/app/api/mobile/football/route.ts';
+import { GET as backgroundActivityGet } from '../../src/app/api/mobile/trust/background-activity/route.ts';
 import { POST as watcherPausePost } from '../../src/app/api/mobile/watchers/[id]/pause/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -2073,6 +2075,58 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       params(watcherId),
     ));
     await record('watchers.list', 200, await watchersGet(request('/api/mobile/watchers', { uid: WATCHER_USER })));
+
+    // ── football as a watcher source (closure CL7) ──────────────────
+    // Recorded twice: the server with no match data key (the real state of
+    // staging and production today — the app must hide football) and with
+    // one. A follow, and a followed club whose last fetch failed, are
+    // recorded with the key, so the watcher screen's "retrying" state is a
+    // value the server really emits.
+    const FOOTBALL_USER = uidFor('FootballWatcherFixtureUser');
+    const previousFootballKey = process.env.FOOTBALL_DATA_API_KEY;
+    try {
+      delete process.env.FOOTBALL_DATA_API_KEY;
+      const off = await record('football.settings', 200, await footballGet(request('/api/mobile/football', { uid: FOOTBALL_USER })));
+      assert.equal(off.providerConfigured, false);
+      process.env.FOOTBALL_DATA_API_KEY = 'fixture-key';
+      const on = await record('football.settings.configured', 200, await footballGet(request('/api/mobile/football', { uid: FOOTBALL_USER })));
+      assert.equal(on.providerConfigured, true);
+      const followed = await record('watchers.football.created', 201, await watchersPost(request('/api/mobile/watchers', {
+        body: {
+          enabled: true,
+          label: 'برشلونة',
+          source: { provider: 'football_data', connectionId: null, signalKind: 'football_team', subjectRef: 'barcelona' },
+          condition: { kind: 'digest_changed' },
+          effect: 'replan_if_impacted',
+          createdBy: 'user',
+        },
+        uid: FOOTBALL_USER,
+      })));
+      assert.equal((followed.watcher as { source: { signalKind: string } }).source.signalKind, 'football_team');
+      await getStorage().set(footballClubSyncStateDoc('barcelona'), {
+        clubId: 'barcelona',
+        lastSyncedAt: REFERENCE_TIME,
+        lastOutcome: 'failed',
+        failureKind: 'rate_limited',
+        lastSucceededAt: null,
+        changeDigest: null,
+        lastChangedAt: null,
+      });
+      // `monitorId` is `mon_` + the watcher id; pinned to the stable spelling
+      // the watcher id itself is normalised to, so the fixture never churns.
+      const retrying = await record('backgroundActivity.footballRetrying', 200,
+        await backgroundActivityGet(request('/api/mobile/trust/background-activity', { uid: FOOTBALL_USER })),
+        (body) => ({
+          ...body,
+          monitors: (body.monitors as Array<Record<string, unknown>>).map((monitor) => ({
+            ...monitor, monitorId: 'mon_wtc_00000000-0000-4000-8000-000000000001',
+          })),
+        }));
+      assert.deepEqual((retrying.monitors as Array<{ status: string }>).map((monitor) => monitor.status), ['retrying']);
+    } finally {
+      if (previousFootballKey === undefined) delete process.env.FOOTBALL_DATA_API_KEY;
+      else process.env.FOOTBALL_DATA_API_KEY = previousFootballKey;
+    }
 
     // ── the Gemini capture (#160, #338) ────────────────────────────
     // Last, and with the environment restored straight afterwards, so every

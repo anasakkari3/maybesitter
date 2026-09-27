@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "schemaVersion": "background-monitor-v1",
+  "paused": false,
+  "monitors": [
+    {
+      "monitorId": "mon_wtc_00000000-0000-4000-8000-000000000001",
+      "watcherId": "wtc_00000000-0000-4000-8000-000000000001",
+      "connectionId": null,
+      "label": "football_data:football_team",
+      "title": "برشلونة",
+      "status": "retrying",
+      "purpose": "notice_any_change",
+      "effects": [
+        "replan_if_impacted"
+      ],
+      "lastCheckedAt": null,
+      "lastChangedAt": null,
+      "nextCheckAt": "2026-08-09T09:00:00.000Z",
+      "canPause": true,
+      "canDelete": true
+    }
+  ]
+}

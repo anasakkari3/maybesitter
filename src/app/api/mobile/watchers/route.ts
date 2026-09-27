@@ -7,6 +7,11 @@ import {
   watcherValidationResponse,
 } from '../../../../../lib/watchers/watcherApi';
 import { createWatcherStore } from '../../../../../lib/watchers/watcherStore';
+import {
+  FootballNotConfiguredError,
+  followClubWithWatcher,
+  isFootballWatcherSource,
+} from '../../../../../lib/football/footballWatchers';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 
 export const dynamic = 'force-dynamic';
@@ -62,9 +67,21 @@ export async function POST(request: Request) {
 
   try {
     const input = parseNewWatcher(body);
-    const created = await createWatcherStore(user.uid).create(input, new Date().toISOString());
+    const now = new Date().toISOString();
+    // Following a club is a watcher *and* a follow (closure CL7): the club's
+    // matches go on the calendar and the watcher notices when one moves. It
+    // answers 201 whether the follow is new or already existed, so a second
+    // tap is the same follow rather than a second one.
+    if (isFootballWatcherSource(input.source)) {
+      const { watcher } = await followClubWithWatcher(user.uid, input, now);
+      return Response.json({ success: true, watcher: presentWatcher(watcher) }, { status: 201 });
+    }
+    const created = await createWatcherStore(user.uid).create(input, now);
     return Response.json({ success: true, watcher: presentWatcher(created) }, { status: 201 });
   } catch (error) {
+    if (error instanceof FootballNotConfiguredError) {
+      return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 409 });
+    }
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);
     console.error('[watchers] creating a watcher failed', error);
     return mobileError('could not create the watcher', 500);

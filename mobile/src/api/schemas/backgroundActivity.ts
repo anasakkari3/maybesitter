@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { isoDateTime } from './common';
 
-const monitorStatusSchema = z.enum(['active', 'paused', 'blocked_permission', 'needs_reauth', 'error']);
+// `retrying`: a source we fetch ourselves (a followed club) failed its last
+// fetch; the next one is already scheduled (closure CL7).
+const monitorStatusSchema = z.enum(['active', 'paused', 'blocked_permission', 'needs_reauth', 'error', 'retrying']);
 const monitorPurposeSchema = z.enum(['notice_any_change', 'notice_threshold_crossed']);
 
 export const backgroundMonitorSchema = z.object({

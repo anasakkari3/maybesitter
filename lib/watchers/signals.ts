@@ -22,9 +22,13 @@ import {
   type WatcherSignal,
   type WatcherSourceRef,
 } from '../../src/contracts/v1/watcherContracts';
-import type { Fixture } from '../../src/contracts/v1/fixtureContracts';
+import {
+  FOOTBALL_TEAM_SIGNAL_KIND,
+  type ClubSyncState,
+  type Fixture,
+} from '../../src/contracts/v1/fixtureContracts';
 import type { StorageAdapter } from '../storage';
-import { fixtureDoc } from '../storage/paths';
+import { fixtureDoc, footballClubSyncStateDoc } from '../storage/paths';
 import { composeCurrentUserState } from '../userState/userStateService';
 
 export interface WatcherSignalObserver {
@@ -121,7 +125,53 @@ export const fixtureObserver: WatcherSignalObserver = {
   },
 };
 
+/* ── A followed football club (closure CL7) ──────────────────────── */
+
+/**
+ * The digest a club carries before any of its known matches has changed.
+ * A constant, so the first observation primes on it and only a real change
+ * (a new `changeDigest`) can differ from it.
+ */
+export const FOOTBALL_TEAM_BASELINE_DIGEST = 'no-change-yet';
+
+/**
+ * One followed club as a watcher signal, read from the club's sync state
+ * (`footballClubSyncState/{clubId}`) and nothing else.
+ *
+ * The digest is the state's `changeDigest`, which `fetchAndStoreClub`
+ * (`lib/football/syncFixtures.ts`) moves only when a match the store already
+ * knew had its kickoff moved, or was postponed or cancelled. A match entering
+ * the sync window, or one finishing, does not move it — so a watcher over a
+ * club fires on news about its matches, not on the calendar turning a page.
+ *
+ * `null` until the club has been fetched successfully once: there is nothing
+ * to prime on before that, and the sweep counts it as `noSignal`.
+ */
+export const footballTeamObserver: WatcherSignalObserver = {
+  supports: (source) => source.signalKind === FOOTBALL_TEAM_SIGNAL_KIND,
+  async observe(source, context, deps) {
+    const state = await deps.storage.get<ClubSyncState>(footballClubSyncStateDoc(source.subjectRef));
+    if (!state) return null;
+    // A pre-CL7 document has no outcome field; it was written by a sync that
+    // reached the provider, so it reads as a success.
+    const everSucceeded = state.lastOutcome === undefined || Boolean(state.lastSucceededAt);
+    if (!everSucceeded) return null;
+    const stateDigest = state.changeDigest ?? FOOTBALL_TEAM_BASELINE_DIGEST;
+    return {
+      schemaVersion: WATCHER_SIGNAL_SCHEMA_VERSION,
+      signalId: `${FOOTBALL_TEAM_SIGNAL_KIND}:${source.subjectRef}:${stateDigest}`,
+      provider: source.provider,
+      signalKind: FOOTBALL_TEAM_SIGNAL_KIND,
+      subjectRef: source.subjectRef,
+      observedAt: state.lastSucceededAt ?? state.lastSyncedAt,
+      stateDigest,
+      provenanceRef: `footballClubSyncState/${source.subjectRef}`,
+      measures: [],
+    };
+  },
+};
+
 /** The observers a deployed sweep runs with. Tests build their own registry. */
 export function defaultWatcherSignalRegistry(): WatcherSignalRegistry {
-  return createWatcherSignalRegistry([readinessObserver, fixtureObserver]);
+  return createWatcherSignalRegistry([readinessObserver, fixtureObserver, footballTeamObserver]);
 }

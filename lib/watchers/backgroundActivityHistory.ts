@@ -36,8 +36,11 @@ import {
 } from '../storage/paths';
 import { attributionsForArtifacts } from './backgroundAttribution';
 import {
+  SOURCE_OK,
   backgroundMonitorStatusOf,
   monitorIdForWatcher,
+  readSourceHealth,
+  type SourceHealth,
 } from './backgroundMonitors';
 import { readMonitoringSettings } from './monitoringSettings';
 import { createWatcherStore, type StoredWatcher } from './watcherStore';
@@ -98,9 +101,14 @@ export async function listBackgroundActivityHistory(
   }
 
   const watchersById = new Map<string, StoredWatcher>();
+  // The same source health the live monitor row reads, so a history item
+  // never says `active` next to a row that says `retrying` (closure CL7).
+  const healthById = new Map<string, SourceHealth>();
   for (const watcher of watchers) {
     watchersById.set(watcher.definition.watcherId, watcher);
+    healthById.set(watcher.definition.watcherId, await readSourceHealth(watcher, storage));
   }
+  const healthOf = (watcher: StoredWatcher) => healthById.get(watcher.definition.watcherId) ?? SOURCE_OK;
 
   // 2. Read firings
   const firingsRows = await storage.list<WatcherFireEvent>(userCol(uid, WATCHER_EVENTS), {
@@ -149,7 +157,7 @@ export async function listBackgroundActivityHistory(
     const connection = watcher?.definition.source.connectionId
       ? connections.get(watcher.definition.source.connectionId) ?? null
       : null;
-    const status = watcher ? backgroundMonitorStatusOf(watcher, connection) : 'paused';
+    const status = watcher ? backgroundMonitorStatusOf(watcher, connection, healthOf(watcher)) : 'paused';
     const label = `${event.provider}:${event.signalKind}`;
     const title = watcher?.definition.label ?? null;
     const monitorId = monitorIdForWatcher(event.watcherId);
@@ -198,7 +206,7 @@ export async function listBackgroundActivityHistory(
       const connection = watcher?.definition.source.connectionId
         ? connections.get(watcher.definition.source.connectionId) ?? null
         : null;
-      const status = watcher ? backgroundMonitorStatusOf(watcher, connection) : 'active';
+      const status = watcher ? backgroundMonitorStatusOf(watcher, connection, healthOf(watcher)) : 'active';
       const title = watcher?.definition.label ?? null;
 
       pushItem({

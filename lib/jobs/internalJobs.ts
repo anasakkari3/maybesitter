@@ -40,9 +40,10 @@ import {
   type OidcVerify,
 } from '../auth/schedulerOidc';
 import { createFootballDataProvider } from '../football/footballDataProvider';
-import { listFollowedUserIds } from '../football/followedClubs';
+import { getFollowedClubs, listFollowedUserIds } from '../football/followedClubs';
+import { footballProviderConfigured, reconcileFootballWatchers } from '../football/footballWatchers';
 import { projectFixturesForUser } from '../football/projectFixtures';
-import { syncFollowedClubs, type SyncReport } from '../football/syncFixtures';
+import { pollFollowedClubs, syncFollowedClubs, type PollReport, type SyncReport } from '../football/syncFixtures';
 import type { FixtureProvider } from '../../src/contracts/v1/fixtureContracts';
 import { runWatcherSweep, type WatcherSweepTotals } from '../watchers/watcherEngine';
 import { runContinuousReplanTick, type ContinuousReplanTickTotals } from '../services/dailyPlan/continuousReplanService';
@@ -328,6 +329,92 @@ export async function runFootballSyncJob(options: FootballSyncJobOptions = {}): 
   return { enabled: true, sync, projection };
 }
 
+/* ── The per-minute football poll (closure CL7) ─────────────────────── */
+
+export interface FootballPollJobReport {
+  enabled: boolean;
+  poll?: PollReport;
+  /** Followers of a club this poll refreshed, re-projected so its matches land now. */
+  projection?: FootballProjectionSummary;
+  /** Set when the poll itself threw; the watcher sweep still ran. */
+  error?: 'football_poll_failed';
+}
+
+export interface FootballPollJobOptions extends FootballSyncJobOptions {
+  maxFetches?: number;
+}
+
+/**
+ * One due club fetched (at most `FOOTBALL_POLL_MAX_FETCHES`), and every
+ * follower of a club that came back re-projected, so a new follow shows its
+ * matches within a minute or two and a moved kickoff moves the commitment the
+ * same minute the watcher hears about it. Runs inside the per-minute watcher
+ * cron (`runWatcherTick`), before the sweep. Without the key it is off, the
+ * same quiet no-op as `runFootballSyncJob`.
+ */
+export async function runFootballPollJob(options: FootballPollJobOptions = {}): Promise<FootballPollJobReport> {
+  // The same test the mobile routes use to decide whether to offer football at
+  // all, so the app and the poll can never disagree about "configured".
+  if (!options.provider && !footballProviderConfigured(options.env)) return { enabled: false };
+  const now = (options.now ?? new Date()).toISOString();
+  const provider = options.provider ?? createFootballDataProvider(options.env ? { env: options.env } : {});
+  const poll = await pollFollowedClubs({
+    provider, now, storage: options.storage, ...(options.maxFetches ? { maxFetches: options.maxFetches } : {}),
+  });
+
+  const projection: FootballProjectionSummary = {
+    users: 0, created: 0, updated: 0, cancelled: 0, skipped: 0, completed: 0, failures: [],
+  };
+  if (poll.refreshed.length > 0) {
+    const refreshed = new Set(poll.refreshed);
+    for (const uid of await listFollowedUserIds({ storage: options.storage })) {
+      const follows = await getFollowedClubs(uid, { storage: options.storage });
+      if (!follows.some((clubId) => refreshed.has(clubId))) continue;
+      try {
+        // One follow, one watcher, for follows saved before football was a
+        // watcher too: the first fetch of their club gives them theirs.
+        await reconcileFootballWatchers(uid, follows, now);
+        const tally = await projectFixturesForUser(uid, now);
+        projection.users += 1;
+        projection.created += tally.created;
+        projection.updated += tally.updated;
+        projection.cancelled += tally.cancelled;
+        projection.skipped += tally.skipped;
+        projection.completed += tally.completed;
+      } catch (error) {
+        projection.failures.push({ uid, reason: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  }
+  return { enabled: true, poll, projection };
+}
+
+export interface WatcherTickOptions {
+  football?: () => Promise<FootballPollJobReport>;
+  sweep?: () => Promise<WatcherSweepTotals>;
+}
+
+/**
+ * What `/api/internal/jobs/watchers` runs every minute: the football poll,
+ * then the watcher sweep. The poll goes first so a change it fetched is
+ * observed by the sweep in the same tick. A poll that throws is recorded and
+ * never stops the sweep — readiness watchers must not wait on a football
+ * provider.
+ */
+export async function runWatcherTick(
+  options: WatcherTickOptions = {},
+): Promise<WatcherSweepTotals & { football: FootballPollJobReport }> {
+  let football: FootballPollJobReport;
+  try {
+    football = await (options.football ?? runFootballPollJob)();
+  } catch (error) {
+    console.error('[internal/jobs/watchers] football poll failed', error);
+    football = { enabled: true, error: 'football_poll_failed' };
+  }
+  const sweep = await (options.sweep ?? (() => runWatcherSweep()))();
+  return { ...sweep, football };
+}
+
 export interface InternalJobsDeps {
   env?: NodeJS.ProcessEnv;
   verify?: OidcVerify;
@@ -463,7 +550,7 @@ export async function handleWatcherSweepRequest(request: HeaderBearing, deps: In
   const auth = await authorizeSchedulerRequest(request, authOptions(deps));
   if (!auth.ok) return schedulerAuthErrorResponse(auth);
   try {
-    return Response.json(await (deps.watcherSweep ?? (() => runWatcherSweep()))());
+    return Response.json(await (deps.watcherSweep ?? (() => runWatcherTick()))());
   } catch (error) {
     console.error('[internal/jobs/watchers] sweep failed', error);
     return Response.json({ error: 'watcher_sweep_failed' }, { status: 500 });
