@@ -35,7 +35,9 @@ same reason the language preference is:
   instants and a boolean, never a title. The first is "the user said they
   know", the second is "this phone will ring for that Must reminder", waiting
   to be told to the server. Both are keyed by account and cleared on sign-out;
-  each header makes the full argument.
+  each header makes the full argument. The awareness store's shapes and rules
+  are in `awareness.ts`, which touches no storage, so the reminder planning can
+  be loaded without a native module.
 
 - **`actionOutbox.ts`** (UC-3.14 #200) — notification-button taps (Done,
   Later, the body tap) waiting to reach the server: a commitment id, an action,

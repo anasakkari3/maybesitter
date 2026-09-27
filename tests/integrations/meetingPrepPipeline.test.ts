@@ -43,7 +43,8 @@ import { listTodayRanked, listUpcomingRanked } from '../../lib/services/mobile/c
 import { CaptureInputTooLargeError } from '../../lib/services/captureBoundary/index.ts';
 import { NO_QUIET_HOURS, type QuietHours } from '../../lib/push/quietHours.ts';
 import { uidFor } from '../support/fakeAuth.ts';
-import { phoneReminderEngine, type PhoneReminderSettings as EngineReminderSettings } from '../support/phoneReminderEngine.ts';
+import { importsOutsideTheRoot, phoneReminderEngine, type PhoneReminderSettings as EngineReminderSettings } from '../support/phoneReminderEngine.ts';
+import { readFileSync } from 'node:fs';
 
 const UID = uidFor('MeetingPrepUser');
 const MINUTE = 60_000;
@@ -450,6 +451,20 @@ test('moved to the evening before by quiet hours, the prep step is due one lead 
 // Review — against the phone's own engine: `desiredRequests`, the function the
 // phone's reminder sync runs, imported as it ships. A claim that nothing rings
 // at is the defect; so is a ring nobody was told about.
+
+test('the phone planning these tests run loads with only the root installed, and is the one the phone calls (C-1)', () => {
+  // The Backend CI job runs the root `npm ci` and nothing in `mobile/`. A
+  // package anywhere under what `phoneReminderEngine` loads — AsyncStorage
+  // through the awareness store, zod through the schemas — loads here, where
+  // `mobile/node_modules` happens to exist, and fails every test below in CI.
+  const { visited, packages } = importsOutsideTheRoot();
+  assert.deepEqual(packages, []);
+  assert.ok(visited.includes('features/reminders/policy.ts') && visited.includes('features/reminders/quietHours.ts'), visited.join(', '));
+  // …and the phone's sync schedules from that same function, not a copy.
+  const engine = readFileSync(new URL('../../mobile/src/features/reminders/softAwarenessEngine.ts', import.meta.url), 'utf8');
+  assert.match(engine, /import \{ desiredRequests[^}]*\} from '\.\/reminderPlan';/);
+  assert.doesNotMatch(engine, /function desiredRequests/);
+});
 
 type Ceiling = 'soft' | 'followUp' | 'hard';
 
