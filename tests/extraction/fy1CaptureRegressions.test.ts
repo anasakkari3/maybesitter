@@ -323,8 +323,17 @@ test('FY1 N4: a task (not an appointment) answered «بدون وقت محدد» 
     await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: uid });
     return Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
   });
-  assert.equal(commitment.timeSpec.kind, 'unscheduled');
-  assert.equal(commitment.timeSpec.allDay, false);
+  // Not an event: FY1's rule is for appointments only.
+  assert.notEqual(commitment.timeSpec.kind, 'scheduled_event');
+  // FY2 (N3), composed in the same clarify branch at integration: a task
+  // answered «بدون وقت محدد» to a question that named a day keeps that day as
+  // an all-day deadline — it used to be saved `unscheduled`, and the week then
+  // called it «بلا موعد». Before FY2 this line read 'unscheduled'.
+  assert.equal(commitment.timeSpec.kind, 'due_by');
+  assert.equal(commitment.timeSpec.allDay, true);
+  assert.equal(commitment.timeSpec.remindAt, null);
+  // Sunday 4 October, the day the question named, as its local midnight.
+  assert.equal(commitment.timeSpec.dueAt, '2026-10-03T21:00:00.000Z');
 });
 
 // ── N6: «آخر الشهر» in the person's words is this month's ────────────────
