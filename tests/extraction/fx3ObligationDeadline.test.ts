@@ -20,10 +20,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { LLMUnavailableError } from '../../src/extraction/llm/llmProvider.ts';
 import { statedObligation } from '../../src/extraction/priorityLexicon.ts';
-import { lastDayOfMonth, readPeriodEndDeadline } from '../../src/extraction/timeLexicon.ts';
+import { lastDayOfMonth, localTimeSpecFor, readPeriodEndDeadline } from '../../src/extraction/timeLexicon.ts';
 import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import {
+  answerClarification,
   confirmCapture,
   MemoryCaptureProposalStore,
   proposeCapture,
@@ -336,3 +337,163 @@ test('FX3 #7: the deadline stays with its own clause in the six-item capture; th
     'أروح عالسوق | 2026-09-27 | 2026-09-27T11:00:00.000Z | said | settled',
   ]);
 });
+
+// ── Review round 1 (FX3-review.md): I-1, I-2, I-3 and the untested guards ──
+
+/** One probe line, in the reviewer's harness format: title | date time | question | priority. */
+async function probeLine(text: string, referenceTime = NOW.toISOString()) {
+  setStorageForTests(createMemoryStorage());
+  try {
+    const p = await proposeMobileCapture({ text, timezone: TZ, referenceTime });
+    return {
+      status: p.status,
+      items: p.items.map((it) => {
+        const t = it.resolvedTime ? localTimeSpecFor(new Date(it.resolvedTime), TZ)?.time : null;
+        return `${it.title} | ${it.resolvedDate ?? '-'} ${t ?? '-'} | ${it.clarification?.questionKey ?? ''} | ${it.priority}${it.priorityEstimated ? '~' : ''}`;
+      }),
+    };
+  } finally {
+    resetStorageForTests();
+  }
+}
+
+test('FX3 I-1: the month-end phrase that nothing read stays in the title, and a noun it modifies is not a deadline (review rows, as at cb9982b7)', async () => {
+  const rows: Array<[string, string, string]> = [
+    ['بدي أحضّر تقرير آخر الشهر بكرا الساعة 10', 'proposed', 'أحضّر تقرير آخر الشهر | 2026-09-27 10:00 |  | normal~'],
+    ['بدي أحضّر تقرير آخر الشهر', 'needs_clarification', 'أحضّر تقرير آخر الشهر | - - | ask_time | normal~'],
+    ['بدي أحسب رواتب آخر الشهر بكرا الساعة 10', 'proposed', 'أحسب رواتب آخر الشهر | 2026-09-27 10:00 |  | normal~'],
+    ['عندي جرد نهاية الشهر بكرا الساعة 9', 'proposed', 'عندي جرد نهاية الشهر | 2026-09-27 09:00 |  | normal~'],
+    ['بكرا بدي أحكي مع صاحب البيت عن إيجار آخر الشهر', 'needs_clarification', 'أحكي مع صاحب البيت عن إيجار آخر الشهر | 2026-09-27 - | ask_time | normal~'],
+    ['Prepare the end of the month report tomorrow at 10am', 'proposed', 'Prepare the end of the month report | 2026-09-27 10:00 |  | normal~'],
+    ['Prepare the end of the month report', 'needs_clarification', 'Prepare the end of the month report | - - | ask_time | normal~'],
+    ['Finish the month-end close tomorrow at 9am', 'proposed', 'Finish the month-end close | 2026-09-27 09:00 |  | normal~'],
+    ['Tomorrow at 5pm call the landlord about the rent due by the end of the month', 'proposed', 'call the landlord about the rent due by the end of the month | 2026-09-27 17:00 |  | normal~'],
+    ['להכין את דוח סוף החודש מחר ב-10', 'proposed', 'להכין את דוח סוף החודש | 2026-09-27 10:00 |  | normal~'],
+    ['לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5', 'needs_clarification', 'לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~'],
+    ['بدي أتصل بأمي بكرا الساعة 5 وأدفع الفاتورة قبل آخر الشهر', 'needs_clarification', 'أتصل بأمي وأدفع الفاتورة قبل آخر الشهر | 2026-09-27 - | ask_am_pm | normal~'],
+    ['Call mom tomorrow at 5pm and pay the bill by the end of the month', 'proposed', 'Call mom and pay the bill by the end of the month | 2026-09-27 17:00 |  | normal~'],
+    ['להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש', 'needs_clarification', 'להתקשר לאמא ולשלם חשבון חשמל עד סוף החודש | 2026-09-27 - | ask_am_pm | normal~'],
+  ];
+  const drift: string[] = [];
+  for (const [text, status, line] of rows) {
+    const actual = await probeLine(text);
+    if (actual.status !== status || actual.items.length !== 1 || actual.items[0] !== line) drift.push(`${text}\n   want ${status}: ${line}\n   got  ${actual.status}: ${actual.items.join(' ;; ')}`);
+  }
+  assert.deepEqual(drift, []);
+});
+
+test('FX3 I-1: which month-end mentions are a deadline — the rule, both directions', () => {
+  // A deadline: a limit word or a preposition before it («قبل», «لحد», «ب», "by", "at", «עד», «ב»),
+  // or the phrase after a definite word / at the start of the clause.
+  const deadline = [
+    'بدي أدفع فاتورة الكهربا قبل آخر الشهر', 'لازم أخلص المشروع لحد آخر الشهر', 'بآخر الشهر بدي أدفع الإيجار',
+    'بدي أدفع فاتورة الكهربا آخر الشهر', 'بدي أدفع الإيجار نهاية الشهر', 'أدفع الإيجار آخر هالشهر', 'آخر الشهر بدي أدفع الإيجار',
+    'قبل ما يخلص الشهر لازم أجدد الإقامة', 'في آخر الشهر بدي أرتب الأوراق',
+    'Pay the rent by the end of the month', 'pay rent before the end of this month', 'Pay the rent at month end', 'renew it by end of month',
+    'לשלם שכר דירה עד סוף החודש', 'בסוף החודש לשלם שכר דירה', 'לשלם לפני סוף החודש', 'סוף החודש לשלם ארנונה',
+  ];
+  // Not one: the phrase modifying a noun — «تقرير آخر الشهر» (idafa, an indefinite noun
+  // before it), "end of the month report" / "month-end close" (no preposition before it,
+  // or a noun after it), «דוח סוף החודש» (smichut) — and other months.
+  const notDeadline = [
+    'بدي أحضّر تقرير آخر الشهر', 'أحسب رواتب آخر الشهر', 'عندي جرد نهاية الشهر', 'أحكي عن إيجار آخر الشهر', 'بدي أدفع فاتورة آخر الشهر',
+    'Prepare the end of the month report', 'Finish the month-end close', 'the month end report', 'by the end of the month report',
+    'להכין את דוח סוף החודש', 'ישיבת סוף החודש',
+    'قبل آخر الشهر الجاي', 'by the end of next month', 'עד סוף החודש הבא',
+  ];
+  const wrong = [
+    ...deadline.filter((text) => readPeriodEndDeadline(text) !== 'month').map((text) => `deadline: ${text}`),
+    ...notDeadline.filter((text) => readPeriodEndDeadline(text) !== null).map((text) => `not: ${text}`),
+  ];
+  assert.deepEqual(wrong, []);
+});
+
+test('FX3 I-2: model path — a model date other than the month\'s last day keeps the pre-FX3 reading (the date kept, the hour asked), and a past one is not a rejection', async () => {
+  const answer = (date: string | null) => ({
+    ...RECORDED[BILL_CLAUSE], dueAt: date ? new Date(`${date}T00:00:00+03:00`).toISOString() : null, remindAt: null,
+    localTimeSpec: date ? { date, time: null, timezone: TZ } : null, ambiguityFlags: [], missingFields: [],
+  });
+  const rows: Array<[string, string, string]> = [
+    ['2026-10-31', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-10-31 - | ask_time`],
+    ['2026-09-29', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-29 - | ask_time`],
+    ['2026-09-25', NOW.toISOString(), `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-25 - | ask_time`],
+    // The 1st at 00:30 in Jerusalem: the prompt's reference instant is still the 30th in UTC.
+    ['2026-09-30', '2026-09-30T21:30:00.000Z', `${BILL_CLAUSE.replace(/^بدي /, '')} | 2026-09-30 - | ask_time`],
+  ];
+  const drift: string[] = [];
+  for (const [date, now, want] of rows) {
+    const recorded = { ...answer(date), title: BILL_CLAUSE.replace(/^بدي /, ''), action: BILL_CLAUSE.replace(/^بدي /, '') };
+    const { contract } = await propose(BILL_CLAUSE, recordedModel({ [BILL_CLAUSE]: recorded }), new Date(now));
+    const got = contract.items.map((it) => `${it.title} | ${it.resolvedDate ?? '-'} ${it.resolvedTime ? 'T' : '-'} | ${it.clarification?.questionKey ?? ''}`);
+    if (contract.status !== 'needs_clarification' || got.join() !== want) drift.push(`${date} @${now}: ${contract.status} ${got.join(' ;; ')}`);
+  }
+  assert.deepEqual(drift, []);
+  // The model's own last day, and no day at all, still read as the all-day deadline — the 1st included.
+  const onFirst = await propose(BILL_CLAUSE, recordedModel({ [BILL_CLAUSE]: { ...answer(null), title: 'أدفع فاتورة الكهربا', action: 'أدفع فاتورة الكهربا' } }), new Date('2026-09-30T21:30:00.000Z'));
+  assert.deepEqual(onFirst.contract.items.map(billShape), ['أدفع فاتورة الكهربا | 2026-10-31 | - | said | settled']);
+  const octLast = await propose(BILL_CLAUSE, recordedModel({ [BILL_CLAUSE]: { ...answer('2026-10-31'), title: 'أدفع فاتورة الكهربا', action: 'أدفع فاتورة الكهربا' } }), new Date('2026-09-30T21:30:00.000Z'));
+  assert.deepEqual(octLast.contract.items.map(billShape), ['أدفع فاتورة الكهربا | 2026-10-31 | - | said | settled']);
+});
+
+test('FX3 I-3: «ما لازم أنسى» / «لازم ما أنسى» / "mustn\'t forget" / «אסור לי לשכוח» are obligations', async () => {
+  for (const text of ['ما لازم أنسى أدفع الفاتورة', 'مش لازم تنسى تتصل فيه', 'لازم ما أنسى أدفع الفاتورة', 'ما لازمني أنسى الموعد', "I mustn't forget to pay the bill", 'I must not forget to pay', 'אסור לי לשכוח לשלם', 'אסור לשכוח את החשבון']) {
+    assert.equal(statedObligation(text), 'must', text);
+  }
+  // …while a negated «لازم» before anything else is still "not needed".
+  for (const text of ['ما لازم أروح', 'مش لازم أنام بكير', 'مش لازم أنسخ الملف', "I don't have to go", "you mustn't"]) {
+    assert.notEqual(statedObligation(text), 'must', text);
+  }
+  assert.deepEqual((await probeLine('ما لازم أنسى أدفع الفاتورة بكرا الساعة 10')).items, ['ما لازم أنسى أدفع الفاتورة | 2026-09-27 10:00 |  | high']);
+});
+
+test('FX3 guards: a model «low» is never raised by an obligation word, and a stated hour with the month\'s end is kept', async () => {
+  const low = { ...RECORDED['بكرا الساعة 5 لازم أروح عالبنك'], priority: { level: 'low', source: 'inferred', pressureAllowed: false, pressureImplied: false } };
+  const kept = await propose(UAT_BANK, recordedModel({ [UAT_BANK]: low }));
+  assert.deepEqual(priorities(kept.contract.items), ['أروح عالبنك | low | guess']);
+
+  const withHour = 'بدي أدفع الإيجار آخر الشهر الساعة 10';
+  const timed = {
+    ...RECORDED[BILL_CLAUSE], title: 'أدفع الإيجار', action: 'أدفع الإيجار',
+    dueAt: '2026-09-30T07:00:00.000Z', remindAt: null, localTimeSpec: { date: '2026-09-30', time: '10:00', timezone: TZ },
+  };
+  const run = await propose(withHour, recordedModel({ [withHour]: timed }));
+  assert.deepEqual(run.contract.items.map((it) => [it.resolvedTime, it.needsClarification]), [['2026-09-30T07:00:00.000Z', false]]);
+  const [commitment] = await confirmSettled(run);
+  assert.deepEqual([commitment!.timeSpec.dueAt, commitment!.timeSpec.allDay], ['2026-09-30T07:00:00.000Z', false]);
+});
+
+test('FX3 clarify: an all-day item that is asked (a follow-up with no person) loses `allDay` when an hour or "no time" is picked', async () => {
+  const followUp = 'follow up on the invoice by the end of the month';
+  const answer = {
+    type: 'follow_up', action: 'Follow up on the invoice', title: 'Follow up on the invoice', person: null,
+    dueAt: null, remindAt: null, localTimeSpec: null,
+    priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'movable', category: null, categoryConfidence: 0,
+    confidence: { overall: 0.8, type: 1, action: 0.9, time: 0.5, priority: 1 },
+    missingFields: ['person'], ambiguityFlags: [], explicitReminderRequest: false, explicitPressureRequest: false,
+  };
+  for (const [optionId, want] of [['morning', ['due_by', false]], ['none', ['unscheduled', false]]] as const) {
+    const run = await propose(followUp, recordedModel({ [followUp]: answer }));
+    const item = run.contract.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_time', JSON.stringify(item));
+    assert.equal(item.clarification?.params.date, '2026-09-30');
+    await answerClarification(
+      { proposalId: run.contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId },
+      { now: NOW, timezone: TZ, scopeId: 'fx3' },
+      { store: run.store, recordEvent: () => undefined },
+    );
+    const [commitment] = await confirmSettledAfterClarify(run);
+    assert.deepEqual([commitment!.timeSpec.kind, commitment!.timeSpec.allDay], want, optionId);
+  }
+});
+
+async function confirmSettledAfterClarify(run: Awaited<ReturnType<typeof propose>>): Promise<Commitment[]> {
+  const stored = await run.store.get(run.contract.proposalId);
+  const itemIds = stored!.contract.items.filter((item) => !item.needsClarification).map((item) => item.itemId);
+  const result = await confirmCapture(
+    { proposalId: run.contract.proposalId, scopeId: 'fx3', selectedItemIds: itemIds, idempotencyKey: `kc-${run.contract.proposalId}`, now: NOW },
+    { store: run.store, persistence: run.persistence },
+  );
+  assert.equal(result.success, true, JSON.stringify(result));
+  return Object.values((await run.persistence.snapshot()).commitments);
+}

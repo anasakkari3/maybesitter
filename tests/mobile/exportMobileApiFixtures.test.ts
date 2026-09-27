@@ -2537,9 +2537,18 @@ test('exports the Google connection fixtures', async () => {
       mimeType: 'application/vnd.google-apps.document',
       content: 'Lab 3\nSubmit the lab report by Thursday 13 August.',
     });
+    // `metrics.latencyMs` is the wall-clock time the stubbed model call took:
+    // 0 ms on a quiet machine, 1 ms under load. It is pinned so the fixture
+    // records the shape (a number), not how busy the machine was (FX3 review).
+    const pinLatency = (body: Record<string, unknown>) => {
+      const share = body.share as { metrics?: Record<string, unknown> } | undefined;
+      return share?.metrics && 'latencyMs' in share.metrics
+        ? { ...body, share: { ...share, metrics: { ...share.metrics, latencyMs: 0 } } }
+        : body;
+    };
     const imported = await record('google.driveImport', 200, await googleDriveImportPost(as('/api/mobile/integrations/google/drive/import', {
       body: { fileId: 'doc_fixture_12345', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
-    })));
+    })), pinLatency);
     assert.ok((imported.items as unknown[]).length >= 1, 'the import fixture must carry an item, not the empty answer');
     assert.equal((imported.share as { channel: string }).channel, 'document');
 

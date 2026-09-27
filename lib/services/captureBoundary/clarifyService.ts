@@ -346,7 +346,7 @@ export async function answerClarification(
     answered = noTime
       // The user chose no hour, so nothing the extractor guessed about one
       // survives. The same shape a "No time" edit produces (`applyEdits`).
-      ? { ...result, remindAt: null, dueAt: null, allDay: false } as ExtractionResult
+      ? { ...result, remindAt: null, dueAt: null } as ExtractionResult
       : withResolvedTime(result, appliedLocal(result, option.value), options.timezone);
     answerKind = 'option';
   } else {

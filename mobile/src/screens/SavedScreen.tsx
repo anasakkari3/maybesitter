@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { useTimeZone } from '../i18n/timezone';
-import { dayKey, formatRelativeDay, formatTime } from '../i18n/format';
+import { dayKey, formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
 import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
@@ -34,7 +34,7 @@ const TICK_MS = 1000;
  * left, because a user who is told it was undone will stop checking.
  */
 export function SavedScreen() {
-  const { t, p, lang, actions } = useApp();
+  const { t, p, lang, actions, tr } = useApp();
   const insets = useSafeAreaInsets();
   const timezone = useTimeZone();
   const flow = useCaptureFlow();
@@ -67,9 +67,23 @@ export function SavedScreen() {
   const allToday = state.persisted.length > 0 && state.persisted.every((item) => item.resolvedTime && dayKey(new Date(item.resolvedTime), timezone) === today);
   const viewDay = () => { flow.close(); actions.go(allToday ? 'today' : 'calendar'); };
 
+  // An all-day deadline — «قبل آخر الشهر» — has no hour, so the server sends no
+  // `resolvedTime` (FX3). Its day is on the proposal this state still holds; it
+  // reads «لحد <day>» here as it did on the review card one tap earlier, unless
+  // the person cleared the time there (review I-4).
+  const dueByDayOf = (itemId: string): string | null => {
+    const proposed = state.proposal?.items.find((candidate) => candidate.itemId === itemId);
+    if (!proposed?.resolvedDate || proposed.resolvedTime || proposed.needsClarification) return null;
+    if (state.edits?.[itemId]?.localDateTime !== undefined) return null;
+    return proposed.resolvedDate;
+  };
   const whenOf = (resolvedTime: string | null) => (resolvedTime
     ? `${formatRelativeDay(new Date(resolvedTime), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(resolvedTime), { locale: lang, timeZone: timezone }))}`
     : t.noTimeYet);
+  const savedWhenOf = (item: { itemId: string; resolvedTime: string | null }) => {
+    const day = item.resolvedTime ? null : dueByDayOf(item.itemId);
+    return day ? tr('reviewDueByDay', { day: formatDayKey(day, { locale: lang, timeZone: timezone }) }) : whenOf(item.resolvedTime);
+  };
 
   if (outcome) {
     const fully = outcome.stillSaved.length === 0;
@@ -114,7 +128,7 @@ export function SavedScreen() {
               <Txt role="card">{item.title}</Txt>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
                 <Tag kind="saved" label={t.reviewConfirmedTag} />
-                <Txt size={12} color={p.mu}>{whenOf(item.resolvedTime)}</Txt>
+                <Txt size={12} color={p.mu} testID={`saved-when-${item.itemId}`}>{savedWhenOf(item)}</Txt>
               </View>
             </View>
           ))}

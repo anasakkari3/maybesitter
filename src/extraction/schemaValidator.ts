@@ -360,12 +360,23 @@ export function validateExtractionResult(
   // answered it with no day at all in the UAT, and with the 30th plus a 23:59
   // nobody said here — the hour is gone above, and the day would then have
   // been asked an hour for, or lost with a "no time" answer. Only when the
-  // sentence names no time of day; a day the model did return is kept (the
-  // L4 ruling), and only a missing one is filled with the month's last day.
+  // sentence names no time of day.
+  //
+  // And only when the model's day *is* the month's last day on the person's
+  // clock, or it gave none (review I-2). The L4 ruling never moves a model's
+  // date, and settling a different one — the 31st of next month, the 29th, or
+  // the UTC month's end the prompt's reference instant suggests at 00:30 on the
+  // 1st — as a firm deadline would be worse than asking. Those keep the
+  // pre-FX3 reading: the model's day, and the hour asked.
   let allDay = false;
-  if (context?.now && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month') {
-    const zone = context.timezone || 'UTC';
-    const date = time.localTimeSpec?.date ?? lastDayOfMonth(context.now, zone);
+  const zone = context?.timezone || 'UTC';
+  const monthLastDay = context?.now ? lastDayOfMonth(context.now, zone) : null;
+  const modelDay = time.localTimeSpec?.date ?? null;
+  if (
+    monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
+    && (modelDay === null || modelDay === monthLastDay)
+  ) {
+    const date = monthLastDay;
     const midnight = instantFromLocal(date, '00:00', zone);
     if (midnight) {
       allDay = true;

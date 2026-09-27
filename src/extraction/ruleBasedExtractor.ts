@@ -154,6 +154,8 @@ interface ParsedTime {
   dateInferred: boolean;
   /** A day with no hour that is a deadline in itself (FX3): see `ExtractionResult.allDay`. */
   allDay?: boolean;
+  /** The day came from the month's end (FX3), with or without an hour: its words are the time. */
+  monthEnd?: boolean;
 }
 
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
@@ -246,6 +248,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
         localTimeSpec: { date: monthEnd, time: null, timezone: tz },
         dateInferred: false,
         allDay: true,
+        monthEnd: true,
       };
     }
     return { dueAt: null, remindAt: null, confidence: 0.1, evidence, localTimeSpec: null, dateInferred: false };
@@ -276,6 +279,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     evidence,
     localTimeSpec: localTimeSpecFor(withTime, tz),
     dateInferred,
+    ...(monthEnd ? { monthEnd: true } : {}),
   };
 }
 
@@ -300,7 +304,14 @@ const MONTH_END_STRIP = MONTH_END_MENTION_SOURCES.map((source) => new RegExp(sou
  */
 const HE_THE_MORNING = new RegExp('^[\\s,.،]*ו?הבוקר[\\s,.،]*$', 'u');
 
-function stripTiming(text: string): string {
+/**
+ * `monthEnd`: the reading used the month's end as its deadline, so the words
+ * are the time and leave the title. Otherwise they stay: «أحضّر تقرير آخر
+ * الشهر» is what the report is, and in «…بكرا الساعة 5 وأدفع الفاتورة قبل آخر
+ * الشهر» the item took tomorrow, so the words are the only place the bill's
+ * deadline is still visible (review I-1).
+ */
+function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string {
   // Rewrite «الساعة تسعة» to «الساعة 9» and «בשעה תשע» to «בשעה 9» first, so
   // the clock patterns below strip a spoken hour out of the title exactly as
   // they strip a typed one.
@@ -311,8 +322,8 @@ function stripTiming(text: string): string {
   // weekday and leave «اللي بعد الجاي» behind in the title.
   for (const pattern of FOLLOWING_WEEK_STRIP) stripped = stripped.replace(pattern, ' ');
   // The month's end with its limit word (FX3), before «آخر» or «الشهر» can be
-  // left behind by anything below.
-  for (const pattern of MONTH_END_STRIP) stripped = stripped.replace(pattern, ' ');
+  // left behind by anything below — only when it is this item's deadline.
+  if (options.monthEnd) for (const pattern of MONTH_END_STRIP) stripped = stripped.replace(pattern, ' ');
   // Parts of the day first, by the lexicon's own whole-word rule, while the
   // "tomorrow" that frames "tomorrow morning" is still there to be read. A
   // word that only contains one — «المساعدة», «המערב», "the morning report"
@@ -368,15 +379,15 @@ function withoutDanglingLimit(title: string, raw: string): string {
  */
 const STRAY_MARKS = /(^|\s)[.!?؟،,;:]+(?=\s|$)|[.!?؟]+$/g;
 
-function cleanAction(raw: string): string {
-  const title = cleanCommand(raw).replace(STRAY_MARKS, '$1').replace(/\s+/g, ' ').trim();
+function cleanAction(raw: string, options: { monthEnd?: boolean } = {}): string {
+  const title = cleanCommand(raw, options).replace(STRAY_MARKS, '$1').replace(/\s+/g, ' ').trim();
   return withoutDanglingLimit(title, raw);
 }
 
-function cleanCommand(raw: string): string {
+function cleanCommand(raw: string, options: { monthEnd?: boolean } = {}): string {
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
   // A greeting it opens with is not the task: «בוקר טוב, להתקשר לאמא» (CL1).
-  return stripCaptureCommand(stripTiming(stripLeadingGreetings(raw)))
+  return stripCaptureCommand(stripTiming(stripLeadingGreetings(raw), options))
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')
@@ -503,7 +514,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
   const followUp = raw.match(/\bfollow up with\s+([A-Z][a-z]+|[a-z]+)(?:\s+about\s+(.+?))?(?:\s+(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday|at|by)\b.*)?$/i);
   if (followUp) {
     const person = followUp[1].trim();
-    const topic = followUp[2] ? stripTiming(followUp[2]).trim() : '';
+    const topic = followUp[2] ? stripTiming(followUp[2], { monthEnd: parsedTime.monthEnd }).trim() : '';
     const title = topic ? `Follow up with ${person} about ${topic}` : `Follow up with ${person}`;
     if (!parsedTime.remindAt && !parsedTime.allDay) missingFields.push('time');
     return {
@@ -554,7 +565,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     };
   }
 
-  const action = cleanAction(raw);
+  const action = cleanAction(raw, { monthEnd: parsedTime.monthEnd });
   const weak =
     /\b(maybe|probably|sometime|should probably)\b/.test(lower) ||
     /(يمكن|عادي|مش ضروري)/.test(lower) ||

@@ -222,7 +222,8 @@ export function isFixedAppointment(rawText: string, time: FixedTime): boolean {
  *               must, have/has to, have got to, 've got to; «חייב/חייבת/
  *               חייבים/חייבות» (+ ו/ש), «חובה».
  *   not needed  the same words negated right before them: «مش/مو/ما لازم»,
- *               «مش ضروري», "don't/doesn't/not have to", "needn't", «לא חייב».
+ *               «مش ضروري», "don't/doesn't/not have to", "needn't", «לא חייב» —
+ *               except before "forget" (`MUST_NOT_FORGET`), which is a Must.
  *   neither     wanting and needing: «بدي», "want to", "need to", «צריך»
  *               (the everyday "need to", as common as "I need to" and no
  *               stronger), and the words as nouns or adjectives — «اللازم»,
@@ -247,8 +248,24 @@ const NEGATION_BEFORE = new RegExp(
 
 const NEEDNT = /\bneedn'?t\b|\bneed\s+not\b/i;
 
+/**
+ * "Must not forget" is an obligation said as a prohibition (review I-3):
+ * «ما لازم أنسى أدفع الفاتورة» is the person saying they must pay it, not that
+ * they need not. A negated «لازم» followed by a form of «نسي» (to forget),
+ * "mustn't forget", and «אסור (לי) לשכוח» all read as Must.
+ */
+const MUST_NOT_FORGET = new RegExp(
+  [
+    `${B}(?:مش|مو|ما|مب)\\s+[وف]?(?:لازم|لازمني|لازمنا|ضروري)\\s+(?:[أاتني]نس(?:ى|ا|ي|و|اه|اها|اهم)?|أنسا|انسا)${A}`,
+    "\\bmustn['’]?t\\s+forget\\b",
+    `${B}[וש]?אסור(?:\\s+ל(?:י|נו|ך|כם))?\\s+לשכוח${A}`,
+  ].join('|'),
+  'iu',
+);
+
 export function statedObligation(text: string): 'must' | 'not_needed' | null {
   if (typeof text !== 'string' || !text.trim()) return null;
+  if (MUST_NOT_FORGET.test(text)) return 'must';
   let negated = false;
   for (const match of Array.from(text.matchAll(OBLIGATION))) {
     const before = text.slice(0, match.index);
