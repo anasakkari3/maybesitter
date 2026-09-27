@@ -37,7 +37,7 @@ export function AiImportHandoffStep({
 }) {
   const { t, p } = useApp();
   const name = String(t[ASSISTANTS[assistant].labelKey]);
-  const opens = ASSISTANTS[assistant].url !== null;
+  const opens = ASSISTANTS[assistant].webUrl !== null;
 
   if (!openFailed) {
     return (

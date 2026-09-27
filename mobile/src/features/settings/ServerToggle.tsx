@@ -25,6 +25,15 @@ import { useLayoutMode } from '../../theme/textScale';
  * Not a toast. A toast for "analytics could not be turned off" disappears
  * while the switch is still sitting in the position the user did not choose.
  * The message stays under the control it is about until the next attempt.
+ *
+ * ── On, but blocked by the phone ─────────────────────────────────
+ *
+ * A setting can be on while the OS will not deliver it (notifications denied,
+ * closure CL2b #18). The position stays the server's answer — allowing it in
+ * phone settings later then simply works — but an on switch drawn in the
+ * accent would claim it is working. So with `blockedNote` the on track is
+ * warm (attention, per the design rules) and the note sits under the body,
+ * also announced as the switch's hint.
  */
 export function ServerToggle({
   title,
@@ -33,11 +42,14 @@ export function ServerToggle({
   disabled = false,
   onChange,
   testID,
+  blockedNote,
 }: {
   title: string;
   body?: string | undefined;
   value: boolean;
   disabled?: boolean;
+  /** Shown, and the track turned warm, while the switch is on but the phone blocks it. */
+  blockedNote?: string | undefined;
   onChange: (next: boolean) => Promise<boolean>;
   testID?: string;
 }) {
@@ -45,6 +57,7 @@ export function ServerToggle({
   const stacked = useLayoutMode() === 'xl';
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const blocked = value && blockedNote ? blockedNote : null;
 
   return (
     <View style={{ paddingVertical: 18, paddingHorizontal: 18, gap: 8, borderBottomWidth: 1, borderBottomColor: p.ln }}>
@@ -55,10 +68,11 @@ export function ServerToggle({
           testID={testID}
           accessibilityRole="switch"
           accessibilityLabel={title}
+          {...(blocked ? { accessibilityHint: blocked } : {})}
           accessibilityState={{ checked: value, disabled: disabled || busy }}
           value={value}
           disabled={disabled || busy}
-          trackColor={{ false: p.ln, true: p.ac }}
+          trackColor={{ false: p.ln, true: blocked ? p.wm : p.ac }}
           onValueChange={next => {
             // Guarded here as well as through `disabled`. The native control
             // blocks a tap while disabled, but that is the platform's promise,
@@ -76,6 +90,9 @@ export function ServerToggle({
         />
       </View>
       {body ? <Txt role="supporting" color={p.mu}>{body}</Txt> : null}
+      {blocked ? (
+        <Txt size={13} color={p.wm} weight={600} testID={`${testID ?? 'toggle'}-blocked`}>{blocked}</Txt>
+      ) : null}
       {failed ? (
         <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t.trustActionFailed}</Txt>
       ) : null}

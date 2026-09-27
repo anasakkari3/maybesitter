@@ -11,6 +11,7 @@ import { Card, Txt } from '../ui/primitives';
 import { ScreenHeader, SectionLabel } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsRow } from '../features/settings/SettingsChrome';
+import { useNotificationPermission } from '../notifications/useNotificationPermission';
 
 /**
  * Settings (Round 2, Phase I): four groups, each row saying what is behind
@@ -34,6 +35,9 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
   const trust = useTrust();
   const memory = useMemory();
   const planSettings = usePlanSettings();
+  // The morning plan arrives as a notification: while the phone blocks them,
+  // "Arrives at 07:30" is a promise the phone will not keep (CL2b round 2).
+  const notificationPermission = useNotificationPermission();
 
   const themeValue = themePref === 'system' ? t.vSystem : themePref === 'light' ? t.vLight : t.vDark;
   // A language is named in itself, never translated — so "English" stays
@@ -41,6 +45,7 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
   const languageValue = langPref === 'system' ? t.vSystem : LANGUAGE_ENDONYM[langPref];
   const calendarOn = trust.data?.trust.calendarConsent === true;
   const morning = planSettings.data;
+  const morningBlocked = morning?.enabled === true && notificationPermission === 'denied';
   const memoryCount = memory.data?.items.length;
 
   return (
@@ -72,7 +77,13 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
           <SettingsRow first label={t.notifTitle} sub={t.settingsRemindersSub} onPress={() => actions.go('notificationsSettings')} icon="watch" testID="settings-notifications" />
           <SettingsRow
             label={t.settingsMorning}
-            sub={morning ? (morning.enabled ? fill(t.settingsMorningSub, { t: ltr(morning.deliveryLocalTime) }) : t.settingsMorningOff) : undefined}
+            sub={morning
+              ? morningBlocked
+                ? t.notifBlockedByPhone
+                : morning.enabled ? fill(t.settingsMorningSub, { t: ltr(morning.deliveryLocalTime) }) : t.settingsMorningOff
+              : undefined}
+            subTone={morningBlocked ? 'warn' : 'default'}
+            {...(morningBlocked ? { subTestID: 'settings-morning-blocked' } : {})}
             onPress={() => actions.go('notificationsSettings')}
             icon="calendar" testID="settings-morning"
           />

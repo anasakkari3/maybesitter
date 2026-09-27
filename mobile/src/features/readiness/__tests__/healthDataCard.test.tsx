@@ -150,6 +150,53 @@ describe('Health → energy', () => {
     expect(open).toHaveBeenCalledWith('x-apple-health://');
   });
 
+  /*
+   * Closure CL2b (D5, simulator shot 54): Allow on an empty Health showed
+   * «ما قدرنا نقرأ أو نبعت». The Swift module parses the window with a default
+   * `ISO8601DateFormatter`, which rejects fractional seconds — and the window
+   * came from `toISOString()`, which always has them — so every read threw
+   * before a single sample was asked for, data or none. This fake parses the
+   * window exactly as that formatter does (verified with `swift` on macOS:
+   * "…T12:25:00.123Z" → nil, "…T12:25:00Z" → a date) and holds no samples.
+   */
+  const SWIFT_DEFAULT_ISO8601 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:?\d{2})$/;
+  function emptyHealthLikeTheSwiftModule(): Native {
+    return fakeHealthKit({
+      readSamples: async (window) => {
+        if (!SWIFT_DEFAULT_ISO8601.test(window.windowStart) || !SWIFT_DEFAULT_ISO8601.test(window.windowEnd)) {
+          throw new Error('HealthKit sample window must contain valid increasing ISO-8601 instants.');
+        }
+        return {};
+      },
+    });
+  }
+
+  it('authorized with no samples is a calm "no data yet", not a failure', async () => {
+    await show(emptyHealthLikeTheSwiftModule());
+    await waitFor(() => expect(screen.getByTestId('health-connect')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('health-connect'));
+
+    await waitFor(() => expect(screen.queryByTestId('health-status-working')).toBeNull());
+    expect(screen.queryByTestId('health-status-failed')).toBeNull();
+    expect(screen.queryByText(en.readinessHealthFailed)).toBeNull();
+    expect(screen.getByTestId('health-status-noData')).toBeTruthy();
+    // Calm: the muted colour, not the attention one a failure uses.
+    const flat = (style: unknown) => Object.assign({}, ...[style].flat(Infinity).filter(Boolean)) as { color?: string };
+    const noDataColor = flat(screen.getByTestId('health-status-noData').props.style).color;
+    const bodyColor = flat(screen.getByText(en.readinessHealthBody).props.style).color;
+    expect(noDataColor).toBe(bodyColor);
+    expect(posts).toHaveLength(0);
+    // Still connected: the next read picks data up when there is some.
+    expect(screen.getByTestId('health-refresh')).toBeTruthy();
+  });
+
+  it('a read that really throws is still a failure', async () => {
+    await show(fakeHealthKit({ readSamples: async () => { throw new Error('boom'); } }));
+    await waitFor(() => expect(screen.getByTestId('health-connect')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('health-connect'));
+    await waitFor(() => expect(screen.getByTestId('health-status-failed')).toBeTruthy());
+  });
+
   it('says denied, and offers Health, when the permission request itself is refused', async () => {
     const native = fakeHealthKit({
       requestAuthorization: async () => ({ state: 'denied', granted: [], denied: [], checkedAt: NOW.toISOString() }),
