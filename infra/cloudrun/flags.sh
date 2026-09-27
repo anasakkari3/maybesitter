@@ -27,6 +27,10 @@ case "${TARGET}" in
     # 2026-09-25). See the "Memory module" comment block below.
     memory_feature="true"
     memory_kill_switch="false"
+    # The owner supplied a football-data.org credential on 2026-09-28. Keep
+    # the first live sync in staging; production needs its own explicit deploy
+    # decision after the provider call and projection are evidenced there.
+    football_secret=",FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest"
     ;;
   production)
     max_instances=3
@@ -38,6 +42,7 @@ case "${TARGET}" in
     ai_disabled="true"
     memory_feature="false"
     memory_kill_switch="true"
+    football_secret=""
     ;;
   *)
     echo "unknown target: ${TARGET} (expected staging or production)" >&2
@@ -136,5 +141,5 @@ printf '%s ' \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
   "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_PROVIDER=${llm_provider},MAYBESITTER_LLM_MODEL=gemini-2.5-flash,MAYBESITTER_VERTEX_LOCATION=${REGION},MAYBESITTER_GCP_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_TIMEOUT_MS=8000,MAYBESITTER_LLM_MAX_RETRIES=1,MAYBESITTER_AI_DISABLED=${ai_disabled},MAYBESITTER_LLM_DAILY_CALL_CAP=60,MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000,MAYBESITTER_LLM_MINUTE_CALL_CAP=8,MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000,MAYBESITTER_FEATURE_RECOMMENDATION=true,MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false,MAYBESITTER_NEXT_STEP_ARM=personalized,MAYBESITTER_FEATURE_MEMORY=${memory_feature},MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch}" \
-  "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest"
+  "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest${football_secret}"
 printf '\n'
