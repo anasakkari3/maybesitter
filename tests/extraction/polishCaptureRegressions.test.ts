@@ -651,3 +651,20 @@ test('round 4: words that only look like a negation — «مش مشكلة», "no
     assert.equal((await answerDoctor(freeText)).line, expected, freeText);
   }
 });
+
+test('round 4 addendum: "busy", «مشغول», «עסוק», "nope", "nah", «لأ», «لاء», «أبداً» are refusals too — taken only in shape (a)/(b)', async () => {
+  for (const freeText of [
+    // («عندي شغل» is left out: "I have work" is not plainly "I can't" — coordinator ruling.)
+    'busy tomorrow evening', "I'm busy tomorrow evening", 'مشغول بكرا المسا', 'مشغولة بكرا المسا',
+    'עסוק מחר בערב', 'עסוקה מחר בערב', 'tomorrow evening? nope', 'tomorrow evening? nah', 'بكرا المسا لأ', 'بكرا لاء، المسا',
+    'أبداً بكرا المسا', 'بكرا أبدا المسا', 'بكرا مشغول، الخميس المسا',
+  ]) {
+    assert.deepEqual(await answerDoctor(freeText), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 }, freeText);
+  }
+  // A leading one straight before one day is shape (a): that day.
+  for (const freeText of ['nope, tomorrow evening', 'nah, tomorrow evening', 'لأ، بكرا المسا', 'لاء بكرا المسا']) {
+    assert.equal((await answerDoctor(freeText)).line, 'موعد دكتور | 2026-09-29 19:00 | settled', freeText);
+  }
+  // In shape (b): «مش بكرا» is ruled out and the day after taken — unchanged.
+  assert.equal((await answerDoctor('مش بكرا، الخميس المسا')).line, 'موعد دكتور | 2026-10-01 19:00 | settled');
+});
