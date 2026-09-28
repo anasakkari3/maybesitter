@@ -354,6 +354,26 @@ export function nightClockHour(hour: number): number {
   return hour < 12 ? hour + 12 : hour;
 }
 
+/*
+ * Which half of the day a typed answer names, for the am/pm question about an
+ * hour already said (closure UAT round 3, FZ1 round 2). «المسا», "pm", «م»,
+ * «בערב» are the evening half of *that* hour — «5» answered «المسا» is 17:00 —
+ * not the time question's 19:00 button. The night is its own rule
+ * (`nightClockHour`). "am"/"pm" count only as the whole answer ("I am
+ * busy" is not the morning). Null when the answer names no half.
+ */
+const AM_WORD = new RegExp(`^\\s*(?:am|a\\.m\\.?)\\s*$|${'(?<![\\p{L}\\p{M}])'}(?:ص|صباحا|صباحًا|صباحاً)\\p{M}*(?![\\p{L}\\p{M}])|לפנה["״]צ`, 'iu');
+const PM_WORD = new RegExp(`^\\s*(?:pm|p\\.m\\.?)\\s*$|${'(?<![\\p{L}\\p{M}])'}(?:م|مساء|مساءً|مساءا)\\p{M}*(?![\\p{L}\\p{M}])`, 'iu');
+export function typedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  if (AM_WORD.test(rawText)) return 'am';
+  if (PM_WORD.test(rawText)) return 'pm';
+  const hour = dayPartHour(rawText, { answer: true });
+  if (hour === null || hour === 0) return null;
+  if (hour === NIGHT_HOUR) return 'night';
+  return hour < 12 ? 'am' : 'pm';
+}
+
 /**
  * A title loses the preposition with the part of the day — "call mom at
  * noon" is "call mom", not "call mom at".

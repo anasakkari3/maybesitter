@@ -36,7 +36,7 @@ import { clarifyMobileCapture, proposeMobileCapture } from '../../lib/services/m
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
-import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
+import { localTimeSpecFor, typedHalfOfDay } from '../../src/extraction/timeLexicon.ts';
 import { extractWithFallback } from '../../src/extraction/extractionService.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 
@@ -350,4 +350,80 @@ test('FZ1 N6: FY1\'s narrowing is kept — an offset, another month, next month 
   // A day or an hour the person said is theirs: the words do not move it.
   assert.deepEqual((await proposeRules('بدي أحضّر تقرير آخر الشهر بكرا الساعة 10', N6_NOW)).items.map(line), ['أحضّر تقرير آخر الشهر | 2026-09-29 10:00 | settled']);
   assert.equal((await proposeRules('بدي أحضّر تقرير آخر الشهر الساعة 10 الصبح', N6_NOW)).items[0]?.resolvedDate, '2026-09-28');
+});
+
+// ── Round 2 (coordinator): the am/pm question answered by typing ──────────
+
+/**
+ * «بكرا الساعة 5 بدي أروح عالبنك» asks «5 الصبح ولا المسا؟» (ask_am_pm). A
+ * typed half of the day answers that question about *that* hour: «المسا» is
+ * 17:00, not the time question's 19:00 button (at c59852fd: 19:00, «الصبح»
+ * 09:00, "pm"/«م» 05:00).
+ */
+async function answerAmPm(text: string, freeText: string, engine: 'rules' | 'model' = 'rules') {
+  const now = N10_NOW;
+  if (engine === 'model') {
+    // Every model call fails: a typed half needs no re-read.
+    let calls = 0;
+    const store = new MemoryCaptureProposalStore();
+    const persistence = new TransactionalCapturePersistenceAdapter(createEmptyDomainState());
+    const contract = await proposeCapture(text, { now, timezone: TZ, scopeId: 'fz1-ampm', requestedEngine: 'rules' }, { store, persistence });
+    const item = contract.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
+    const updated = await answerClarification(
+      { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText },
+      { now, timezone: TZ, scopeId: 'fz1-ampm' },
+      { store, recordEvent: () => undefined, extractor: guardedMobileExtract, llmEngine: 'gemini', llmProvider: async () => { calls += 1; throw new LLMUnavailableError('provider_error'); } },
+    );
+    return { line: line(updated.items[0]!), calls };
+  }
+  const uid = 'fz1-ampm';
+  return withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
+    try {
+      const updated = await clarifyMobileCapture({
+        proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText,
+        timezone: TZ, referenceTime: now.toISOString(),
+      }, { participantId: uid });
+      return { line: line(updated.items[0]!), calls: 0 };
+    } catch (error) {
+      return { line: `refused: ${(error as { failure?: string }).failure ?? String(error)}`, calls: 0 };
+    }
+  });
+}
+
+const BANK_AT_5 = 'بكرا الساعة 5 بدي أروح عالبنك';
+
+test('FZ1 round 2: a typed half of the day answers the am/pm question about the hour it asked — «المسا» is 17:00, «الصبح» 05:00', async () => {
+  const rows: Array<[string, string]> = [
+    ['المسا', '17:00'], ['بالمسا', '17:00'], ['مسا', '17:00'], ['العصر', '17:00'], ['بعد الظهر', '17:00'],
+    ['الصبح', '05:00'], ['الصباح', '05:00'], ['بالصبح', '05:00'],
+    ['pm', '17:00'], ['PM', '17:00'], ['p.m.', '17:00'], ['am', '05:00'], ['a.m.', '05:00'],
+    ['م', '17:00'], ['ص', '05:00'], ['مساءً', '17:00'], ['صباحاً', '05:00'],
+    ['in the evening', '17:00'], ['evening', '17:00'], ['afternoon', '17:00'], ['morning', '05:00'], ['in the morning', '05:00'],
+    ['בערב', '17:00'], ['אחרי הצהריים', '17:00'], ['בבוקר', '05:00'],
+    // The night's own rule (nightClockHour): 5 at night is the small hours.
+    ['بالليل', '05:00'], ['בלילה', '05:00'],
+  ];
+  for (const [freeText, time] of rows) {
+    assert.equal((await answerAmPm(BANK_AT_5, freeText)).line, `أروح عالبنك | 2026-09-29 ${time} | settled`, freeText);
+  }
+  // 6 at night is the evening half.
+  assert.equal((await answerAmPm('بكرا الساعة 6 لازم أتصل بسامي', 'بالليل')).line, 'أتصل بسامي | 2026-09-29 18:00 | settled');
+  assert.equal((await answerAmPm('بكرا الساعة 6 لازم أتصل بسامي', 'الصبح')).line, 'أتصل بسامي | 2026-09-29 06:00 | settled');
+  // Minutes are kept: «5:30» answered «المسا» is 17:30.
+  assert.equal((await answerAmPm('بكرا الساعة 5:30 بدي أروح عالبنك', 'المسا')).line, 'أروح عالبنك | 2026-09-29 17:30 | settled');
+  // "I am busy" names no half; «ماما» and «صح» are not «م»/«ص».
+  for (const text of ['I am busy', 'ماما', 'صح', 'بعد ساعة']) assert.equal(typedHalfOfDay(text), null, text);
+});
+
+test('FZ1 round 2: the typed half needs no model re-read, and a typed new hour or a day is still read as before', async () => {
+  const typed = await answerAmPm(BANK_AT_5, 'المسا', 'model');
+  assert.deepEqual(typed, { line: 'أروح عالبنك | 2026-09-29 17:00 | settled', calls: 0 });
+  // A typed clock is a new hour, not a half of the old one.
+  assert.equal((await answerAmPm(BANK_AT_5, 'الساعة 7 المسا')).line, 'أروح عالبنك | 2026-09-29 19:00 | settled');
+  // A day with the half: the half applies to the asked hour on that day.
+  assert.equal((await answerAmPm(BANK_AT_5, 'بعد بكرا المسا')).line, 'أروح عالبنك | 2026-09-30 17:00 | settled');
 });
