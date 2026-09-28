@@ -52,6 +52,12 @@ export const captureProposalSchema = z.object({
       /** True when that day is our guess from a weekday name, not their words. */
       dateEstimated: z.boolean().optional(),
       /**
+       * True when the hour of `resolvedTime` is our guess: the person named
+       * only a part of the day — «المسا», "tonight" — and no number (UAT round
+       * 6, D2). Optional: an older server sends nothing, read as false.
+       */
+      timeEstimated: z.boolean().optional(),
+      /**
        * True when the item happens *on* `resolvedDate` with no hour (an
        * appointment answered "no specific time", FY1 N4), not by it.
        */

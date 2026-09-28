@@ -1,25 +1,33 @@
 {
   "version": "v1",
   "proposalId": "00000000-0000-4000-8000-000000000001",
-  "status": "needs_clarification",
+  "status": "proposed",
   "items": [
     {
       "itemId": "00000000-0000-4000-8000-000000000002",
-      "title": "Return the signed trip form",
+      "title": "أتصل بأمي",
+      "resolvedTime": "2026-08-09T09:00:00.000Z",
+      "needsClarification": false,
+      "timeEstimated": true,
+      "priority": "high",
+      "priorityEstimated": false,
+      "resolvedDate": "2026-08-09",
+      "dateEstimated": false
+    },
+    {
+      "itemId": "00000000-0000-4000-8000-000000000003",
+      "title": "أشتري خبز",
       "resolvedTime": null,
       "needsClarification": true,
       "timeEstimated": false,
       "priority": "normal",
       "priorityEstimated": true,
-      "resolvedDate": "2026-08-13",
-      "dateEstimated": false,
       "clarification": {
-        "questionId": "00000000-0000-4000-8000-000000000003",
+        "questionId": "00000000-0000-4000-8000-000000000004",
         "field": "time",
         "questionKey": "ask_time",
         "params": {
-          "title": "Return the signed trip form",
-          "date": "2026-08-13"
+          "title": "أشتري خبز"
         },
         "options": [
           {
@@ -28,7 +36,7 @@
             "labelParams": {},
             "value": {
               "localTime": "09:00",
-              "localDate": "2026-08-13"
+              "localDate": "2026-08-10"
             }
           },
           {
@@ -37,7 +45,7 @@
             "labelParams": {},
             "value": {
               "localTime": "14:00",
-              "localDate": "2026-08-13"
+              "localDate": "2026-08-09"
             }
           },
           {
@@ -46,7 +54,7 @@
             "labelParams": {},
             "value": {
               "localTime": "19:00",
-              "localDate": "2026-08-13"
+              "localDate": "2026-08-09"
             }
           },
           {
@@ -62,39 +70,8 @@
   ],
   "seeds": [],
   "provenance": {
-    "requestedEngine": "model",
-    "executedEngine": "gemini",
-    "fallbackUsed": false
-  },
-  "share": {
-    "channel": "email",
-    "kind": "text",
-    "fileCount": 0,
-    "totalBytes": 0,
-    "ignoredSegments": 0,
-    "suggestedNextAction": {
-      "kind": "plan_time",
-      "itemId": "00000000-0000-4000-8000-000000000004"
-    },
-    "evidence": [
-      {
-        "itemId": "00000000-0000-4000-8000-000000000005",
-        "sourceIndex": null,
-        "excerpt": "Please return the signed trip form by Friday."
-      }
-    ],
-    "evidenceDropped": false,
-    "metrics": {
-      "messagesFound": 20,
-      "messagesRead": 3,
-      "messagesRefused": 0,
-      "messagesWithItems": 1,
-      "messagesNotRead": 17,
-      "modelUnavailable": 17,
-      "messagesPastDeadline": 0,
-      "modelCalls": 2,
-      "itemCount": 1
-    },
-    "document": null
+    "requestedEngine": "rules",
+    "executedEngine": "rule-based",
+    "fallbackUsed": true
   }
 }

@@ -127,6 +127,9 @@ const CASES: Array<[string, z.ZodType]> = [
   // still waiting on its hour, then the same item answered.
   ['capture.guessedWeekday', captureProposalSchema],
   ['capture.guessedWeekdayClarified', captureProposalSchema],
+  // «… اليوم المسا …» (UAT round 6, D2): an hour we picked for a part of the
+  // day, marked `timeEstimated`.
+  ['capture.guessedHour', captureProposalSchema],
   // «قبل آخر الشهر» (FX3): a settled item with a day and no hour, and its
   // confirmation as an all-day deadline.
   ['capture.appointmentNoTimeClarified', captureProposalSchema],

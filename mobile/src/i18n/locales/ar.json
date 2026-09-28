@@ -658,6 +658,7 @@
   "reviewNothingSelected": "ما اخترت إشي. اختار وحدة عالأقل.",
   "reviewEstimated": "حزرناها",
   "reviewDateEstimated": "حزرنا التاريخ",
+  "reviewTimeEstimated": "حزرنا الساعة",
   "reviewDueByDay": "لحد {day}",
   "syllabusSelectAll": "تحديد الكل",
   "syllabusSelectNone": "إلغاء التحديد",

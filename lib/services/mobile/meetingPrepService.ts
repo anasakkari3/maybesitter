@@ -400,17 +400,19 @@ function ownClause(action: string, notes: string): string | null {
  *   a guess, and a clause that writes some other clock time (the meeting's,
  *   when nothing separates the two) cannot say which is the follow-up's.
  */
-function followUpClock(followUp: ModelFollowUp, notes: string): string | null {
+function followUpClock(followUp: ModelFollowUp, notes: string): { time: string; guessed: boolean } | null {
   const clause = ownClause(followUp.action, notes);
   if (clause === null) return null;
   const written = clockTimesIn(clause);
   const model = followUp.time ? /^(\d{1,2}):(\d{2})$/.exec(followUp.time) : null;
   if (model && written.some((clock) => clock.hour % 12 === Number(model[1]) % 12 && clock.minute === Number(model[2]))) {
-    return followUp.time;
+    return { time: followUp.time!, guessed: false };
   }
   if (written.length > 0) return null;
   const part = dayPartHour(clause);
-  return part === null ? null : `${String(part).padStart(2, '0')}:00`;
+  // The part of the day's hour is ours, and the review card says so (UAT
+  // round 6, D2): capture marks «يوم الأحد الصبح» the same way.
+  return part === null ? null : { time: `${String(part).padStart(2, '0')}:00`, guessed: true };
 }
 
 function followUpWhen(followUp: ModelFollowUp, valid: ValidMeetingPrepInput, now: Date, time: string | null): FollowUpWhen {
@@ -643,11 +645,12 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   const ringAt = timing.ringAt?.toISOString() ?? null;
 
   // The follow-up's own clause decides whether it keeps an hour, and which.
-  const followUps = (answered?.followUps ?? []).map((followUp) => ({
-    followUp, when: followUpWhen(followUp, valid, now, followUpClock(followUp, valid.notes)),
-  }));
-  const whenByKey = new Map(followUps.map(({ followUp, when }) => [
-    `${followUp.action.toLowerCase()}\0${when.kind === 'none' ? '' : when.dueAt}`, when,
+  const followUps = (answered?.followUps ?? []).map((followUp) => {
+    const clock = followUpClock(followUp, valid.notes);
+    return { followUp, when: followUpWhen(followUp, valid, now, clock?.time ?? null), hourGuessed: clock?.guessed === true };
+  });
+  const whenByKey = new Map(followUps.map(({ followUp, when, hourGuessed }) => [
+    `${followUp.action.toLowerCase()}\0${when.kind === 'none' ? '' : when.dueAt}`, { when, hourGuessed },
   ]));
 
   const allSegments = segmentsOf(valid.notes).map((_, index) => index);
@@ -677,19 +680,22 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   // begun. `schedulePrepAt` keeps the prep instant before the start, so the
   // window is never empty.
   const shownAt = due.at.toISOString();
-  push(plan.prep.candidate.action, { resolvedTime: shownAt }, {
+  // The prep instant is the product's plan for the step, not a reading of an
+  // hour in the notes, so it is not marked as a guessed hour (D2).
+  push(plan.prep.candidate.action, { resolvedTime: shownAt, timeEstimated: false }, {
     kind: 'due_by', dueAt: shownAt, endAt: timing.dueAt.toISOString(), remindAt: ringAt, allDay: false,
   });
   for (const proposal of plan.followUps) {
-    const when = whenByKey.get(`${proposal.candidate.action.toLowerCase()}\0${proposal.candidate.deadlineAt ?? ''}`) ?? { kind: 'none' as const };
+    const found = whenByKey.get(`${proposal.candidate.action.toLowerCase()}\0${proposal.candidate.deadlineAt ?? ''}`);
+    const when = found?.when ?? { kind: 'none' as const };
     if (when.kind === 'instant') {
-      push(proposal.candidate.action, { resolvedTime: when.dueAt }, { kind: 'due_by', dueAt: when.dueAt, remindAt: when.dueAt, allDay: false });
+      push(proposal.candidate.action, { resolvedTime: when.dueAt, timeEstimated: found?.hourGuessed === true }, { kind: 'due_by', dueAt: when.dueAt, remindAt: when.dueAt, allDay: false });
     } else if (when.kind === 'day') {
-      push(proposal.candidate.action, { resolvedTime: null, resolvedDate: when.date, dateEstimated: false }, {
+      push(proposal.candidate.action, { resolvedTime: null, timeEstimated: false, resolvedDate: when.date, dateEstimated: false }, {
         kind: 'due_by', dueAt: when.dueAt, remindAt: null, allDay: true,
       });
     } else {
-      push(proposal.candidate.action, { resolvedTime: null }, { kind: 'unscheduled' });
+      push(proposal.candidate.action, { resolvedTime: null, timeEstimated: false }, { kind: 'unscheduled' });
     }
   }
 

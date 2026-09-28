@@ -14,6 +14,7 @@ import {
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
+import { hourIsPartOfDayGuess } from './timeGuess';
 import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate, WEEKDAY_MENTION_SOURCES } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
@@ -729,13 +730,20 @@ export async function answerClarification(
   if (answeredCommands.length === 0) throw new ClarifyError('answer_not_understood');
 
   const items = [...stored.contract.items];
+  // A whole day has no time to show (the capture service's own rule): an
+  // all-day event's or deadline's `dueAt` is its midnight, not an hour
+  // anybody chose.
+  const resolvedTime = answered.allDay ? null : answered.remindAt || answered.dueAt || null;
   items[index] = {
     ...item,
     title: (answered.title || answered.action || item.title).trim(),
-    // A whole day has no time to show (the capture service's own rule): an
-    // all-day event's or deadline's `dueAt` is its midnight, not an hour
-    // anybody chose.
-    resolvedTime: answered.allDay ? null : answered.remindAt || answered.dueAt || null,
+    resolvedTime,
+    // Whether the hour is still our guess (UAT round 6, D2). An answer about
+    // the hour — the صبح/مسا or part-of-day buttons, or anything typed to a
+    // time question — is the person's choice, so the mark goes. An answer
+    // about something else leaves a part-of-day hour as it was: a guess.
+    timeEstimated: resolvedTime !== null && !answeredTheHour(question.field, answerKind)
+      && hourIsPartOfDayGuess(`${result.rawText ?? ''}\n${freeText}`),
     // On its day, not by it: the card says «الأحد · بدون وقت», not «لحد الأحد».
     ...(appointmentDay ? { allDayEvent: true } : {}),
     // Settled: the question it had was the one it needed, and it is answered.
@@ -781,6 +789,17 @@ export async function answerClarification(
   });
 
   return contract;
+}
+
+/**
+ * The answer chose the hour (UAT round 6, D2): a time or am/pm question, or a
+ * typed answer to "which day?". Only a button for the day, or an answer about
+ * the action, leaves the hour the item had.
+ */
+function answeredTheHour(field: ClarificationContract['field'], answerKind: 'option' | 'free_text'): boolean {
+  if (field === 'time' || field === 'time_period') return true;
+  if (field === 'which_day') return answerKind === 'free_text';
+  return false;
 }
 
 /** A question id, for a builder that needs one. Kept here so tests can stub it. */
