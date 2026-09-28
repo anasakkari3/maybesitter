@@ -14,7 +14,9 @@ import {
   namesDay,
   instantFromLocal,
   forbidsResolvedTime,
+  hourWithDayPart,
   lastDayOfMonth,
+  namesTimeRange,
   monthEndDay,
   namesTwelveInTheEvening,
   MONTH_END_MENTION_SOURCES,
@@ -134,7 +136,7 @@ function resolveTimezone(context: ExtractionContext): string {
   return context.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-function parseClock(raw: string): { hour: number; minute: number; night?: true } | null {
+function parseClock(raw: string): { hour: number; minute: number; night?: true; settled?: true } | null {
   const normalized = normalizeClockText(raw).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
@@ -151,6 +153,11 @@ function parseClock(raw: string): { hour: number; minute: number; night?: true }
   if (/(pm|مساء|المسا|المساء|م|בערב|ערב|אחרי הצהריים|אחה"צ|בצהריים|צהריים)/.test(period) && hour < 12) hour += 12;
   if (/(am|صباح|الصبح|ص|בבוקר|בוקר)/.test(period) && hour === 12) hour = 0;
   return { hour, minute };
+}
+
+/** `HH:MM` as the parser's clock, already in its half of the day. */
+function clockOf(time: string): { hour: number; minute: number; settled: true } {
+  return { hour: Number(time.slice(0, 2)), minute: Number(time.slice(3, 5)), settled: true };
 }
 
 interface ParsedTime {
@@ -173,8 +180,16 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   const tz = resolveTimezone(context);
   // «الساعة 12 المسا» names no hour anybody can read (POLISH-CAPTURE review,
   // M7): no clock and no part of the day, so the day is kept and the hour asked.
-  const twelveInTheEvening = namesTwelveInTheEvening(raw);
-  const clock = twelveInTheEvening ? null : parseClock(raw);
+  //
+  // A number with its part of the day — «5 العصر», «خمسة المسا», "5 in the
+  // evening", «5 אחר הצהריים» — is that hour in that half (closure UAT round
+  // 6), read as the typed answers read it (`hourWithDayPart`). The part of the
+  // day's own hour (14:00, 18:00) replaced the stated 5 before. A pair nobody
+  // can read — «12 الصبح», «11 الضهر» — is asked, like «12 المسا». Not in a
+  // range: «من الساعة 2 للساعة 4 المسا» starts at the range's start.
+  const statedWithDayPart = namesTimeRange(raw) ? null : hourWithDayPart(raw);
+  const twelveInTheEvening = namesTwelveInTheEvening(raw) || statedWithDayPart === 'ambiguous';
+  const clock = twelveInTheEvening ? null : statedWithDayPart ? clockOf(statedWithDayPart) : parseClock(raw);
   let targetDate: Date | null = null;
   let timeConfidence = 0;
   let dateInferred = false;
@@ -262,7 +277,9 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     // have already said which half of the day they mean.
     // A night hour is read by the night's own rule (FZ1 N10): «الساعة 2
     // بالليل» is 02:00, "at 11 tonight" is 23:00.
-    if (evidence === 'daypart' && daypart === NIGHT_HOUR) {
+    if (clock.settled) {
+      // Already in the half its part of the day named.
+    } else if (evidence === 'daypart' && daypart === NIGHT_HOUR) {
       if (!clock.night) hour = nightClockHour(hour);
     } else if (evidence === 'daypart' && daypart !== null && daypart >= 12 && hour >= 1 && hour <= 11) {
       hour += 12;

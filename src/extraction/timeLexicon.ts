@@ -61,10 +61,11 @@ export function normalizeArabicDigits(value: string): string {
  * Longest-first so «إحدى عشرة» is not eaten by «إحدى».
  */
 export const ARABIC_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/(?:ال)?(?:حادية|إحدى|احدى)\s*عشرة?|احدعش/g, '11'],
-  [/(?:ال)?(?:ثانية|اثنتا|اثنتي|تانية)\s*عشرة?|اتناش|اثناش/g, '12'],
+  // «إحدعش», «حدعش», «احداعش»; «اتناعش», «اطناعش», «تناعش» (closure UAT r6).
+  [/(?:ال)?(?:حادية|إحدى|احدى)\s*عشرة?|[إا]?حدا?عش/g, '11'],
+  [/(?:ال)?(?:ثانية|اثنتا|اثنتي|تانية)\s*عشرة?|اتناش|اثناش|[اإ][تثط]نا?عش|[تط]ناعش/g, '12'],
   [/(?:ال)?(?:واحدة|وحدة)/g, '1'],
-  [/(?:ال)?(?:ثانية|اثنين|إثنين|تنتين|ثنتين|تانية)/g, '2'],
+  [/(?:ال)?(?:ثانية|اثنين|إثنين|اتنين|تنتين|ثنتين|تانية)/g, '2'],
   [/(?:ال)?(?:ثالثة|ثلاثة|تلاتة|تالتة)/g, '3'],
   [/(?:ال)?(?:رابعة|أربعة|اربعة)/g, '4'],
   [/(?:ال)?(?:خامسة|خمسة)/g, '5'],
@@ -75,10 +76,51 @@ export const ARABIC_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
   [/(?:ال)?(?:عاشرة|عشرة)/g, '10'],
 ];
 
+/*
+ * The words of a part of the day that can follow a clock hour in Arabic —
+ * «5 المسا», «5 بالمسا», «5 عالمسا», «5 العصر», «5 بعد الضهر», «5 الصبح»,
+ * «8 بالليل», «5 م» — as one source, read by the clock readers, the title
+ * stripper and `hourWithDayPart` alike (closure UAT round 6). No `\p{…}`:
+ * the clock patterns are compiled without the `u` flag.
+ */
+const AR_DAY_PART_AFTER_HOUR =
+  '(?:(?:بال|عال|ال)(?:صبح|صباح)(?:\\s+(?:بكير|بدري))?|(?:بال|عال|ال)(?:مساء|مسا|عصر|ضهر|ظهر|ليل)|بعد\\s+(?:الضهر|الظهر)|مساءً|مساء|مسا|صباحاً|صباحا|م|ص)';
+
+/*
+ * Spelled hours as said right before a part of the day, with no «الساعة»
+ * (closure UAT round 6): «خمسة المسا», «تلاتة بالليل», «إحدعش الصبح». Only the
+ * cardinal words: an ordinal there is more often not a clock («المرة التانية
+ * المسا»), and «الساعة الخامسة» is read above.
+ */
+const ARABIC_CARDINAL_HOURS: ReadonlyArray<readonly [string, string]> = [
+  ['[إا]?حدا?عش|(?:إحدى|احدى)\\s+عشرة?', '11'],
+  ['[اإ][تثط]نا?عش|[تط]ناعش|اتناش|اثناش|(?:اثنتا|اثنتي)\\s+عشرة?', '12'],
+  ['واحدة|وحدة', '1'],
+  ['اتنين|اثنين|إثنين|تنتين|ثنتين', '2'],
+  ['ثلاثة|تلاتة', '3'],
+  ['أربعة|اربعة', '4'],
+  ['خمسة', '5'],
+  ['ستة', '6'],
+  ['سبعة', '7'],
+  ['ثمانية|تمانية', '8'],
+  ['تسعة', '9'],
+  ['عشرة', '10'],
+];
+const AR_CARDINAL_HOUR = new RegExp(
+  `(^|[\\s,.،])(${ARABIC_CARDINAL_HOURS.map(([words]) => words).join('|')})`
+    // a spoken fraction may sit between: «خمسة ونص المسا», «سبعة إلا ربع الصبح»
+    + `(?=(?:\\s*(?:و\\s*)?(?:نص|نصف|ربع|ثلث|تلت)|\\s*(?:إلا|الا|إلّا)\\s*(?:ربع|ثلث|تلت))?\\s+${AR_DAY_PART_AFTER_HOUR}(?=$|[\\s,.،]))`,
+  'g',
+);
+
 export function normalizeSpokenArabicHours(value: string): string {
+  const beforeDayPart = value.replace(AR_CARDINAL_HOUR, (match, lead: string, word: string) => {
+    const hour = ARABIC_CARDINAL_HOURS.find(([words]) => new RegExp(`^(?:${words})$`).test(word));
+    return hour ? `${lead}${hour[1]}` : match;
+  });
   // Only rewrite where a clock is actually being named, so «الفصل الثالث»
   // (a chapter) keeps its word and only «الساعة الثالثة» becomes a number.
-  return value.replace(
+  return beforeDayPart.replace(
     /((?:الساعة|الساعه|عند|على)\s*)([^\s,.،]+(?:\s+عشرة?)?)/g,
     (match, lead: string, word: string) => {
       for (const [pattern, digit] of ARABIC_SPOKEN_HOURS) {
@@ -190,14 +232,16 @@ export function normalizeClockText(value: string): string {
 
 /**
  * A clock whose hour is marked by the part of the day right after it: «5
- * المسا», «8 بالليل», «ב-5 בערב». The hour is read from the pair, so the pair
- * leaves a title together: `stripTiming` takes these before the parts of the
- * day, or «5 المسا» would lose «المسا» first and leave «5 لازم أتصل بأمي»
- * (closure UAT round 6).
+ * المسا», «5 العصر», «8 بالليل», «ב-5 בערב», "5 in the evening". The hour is
+ * read from the pair (`hourWithDayPart`), so the pair leaves a title
+ * together: `stripTiming` takes these before the parts of the day, or «5
+ * المسا» would lose «المسا» first and leave «5 لازم أتصل بأمي» (closure UAT
+ * round 6).
  */
-const AR_CLOCK_WITH_PERIOD = /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/.source;
-const HE_CLOCK_WITH_PERIOD = /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source;
-export const CLOCK_WITH_PERIOD_SOURCES: readonly string[] = [AR_CLOCK_WITH_PERIOD, HE_CLOCK_WITH_PERIOD];
+const AR_CLOCK_WITH_PERIOD = `(?:الساعة|الساعه|عند|على)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${AR_DAY_PART_AFTER_HOUR}(?=$|[\\s,.،])`;
+const HE_CLOCK_WITH_PERIOD = /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|בצהרים|צהריים|אחרי הצהריים|אחר הצהריים|אחרי הצהרים|אחר הצהרים|אחה["״]צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source;
+const EN_CLOCK_WITH_PERIOD = /\b(?:(?:at|by|around|about)\s+)?\d{1,2}(?::\d{2})?\s+(?:in\s+the\s+(?:morning|afternoon|evening)|at\s+night|tonight)\b/.source;
+export const CLOCK_WITH_PERIOD_SOURCES: readonly string[] = [AR_CLOCK_WITH_PERIOD, HE_CLOCK_WITH_PERIOD, EN_CLOCK_WITH_PERIOD];
 
 /**
  * What a single clock time looks like. `stripTiming` removes these from a
@@ -208,6 +252,7 @@ export const CLOCK_WITH_PERIOD_SOURCES: readonly string[] = [AR_CLOCK_WITH_PERIO
 export const CLOCK_PATTERN_SOURCES: readonly string[] = [
   /\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
   /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/.source,
+  EN_CLOCK_WITH_PERIOD,
   AR_CLOCK_WITH_PERIOD,
   /(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/.source,
   HE_CLOCK_WITH_PERIOD,
@@ -228,6 +273,15 @@ export const RANGE_PATTERN_SOURCES: readonly string[] = [
   /(?<![؀-ۿ])من\s*(?:الساعة|الساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:إلى|الى|حتى|لـ?)\s*(?:ال|ل)?(?:ساعة|ساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?/.source,
   /(?:מ|משעה|בין)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:עד|עד שעה|ל|ל-|עד ל-)\s*(?:שעה\s*)?[0-9]{1,2}(?::[0-9]{2})?/.source,
 ];
+
+const RANGE_PATTERNS = RANGE_PATTERN_SOURCES.map((source) => new RegExp(source, 'i'));
+
+/** The words name a start-to-end range: «من الساعة 2 للساعة 4 المسا», "from 2pm to 3pm". */
+export function namesTimeRange(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  const text = normalizeClockText(rawText);
+  return RANGE_PATTERNS.some((pattern) => pattern.test(text));
+}
 
 /** A 24-hour clock: `14:00`. Unambiguous by construction. */
 const HHMM = /\b\d{1,2}:\d{2}(?=$|[\s,.،])/;
@@ -397,6 +451,77 @@ export function typedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
   if (hour === null || hour === 0) return null;
   if (hour === NIGHT_HOUR) return 'night';
   return hour < 12 ? 'am' : 'pm';
+}
+
+/*
+ * A clock hour said with its part of the day (closure UAT round 6; the rule
+ * the typed answers follow since FZ1 M5a): «5 المسا», «5 العصر», «خمسة
+ * المسا», «5 بعد الضهر», "5 in the evening", «5 אחר הצהריים», «ב-8 בבוקר».
+ * The number is the person's hour and the part of the day picks its half.
+ *
+ * Only the number right before the part of the day: «ع/على/حوالي/الساعة»,
+ * "at/about/around", «בשעה» or an attached «ב» may come before it, and "in
+ * the" between. A count or a date is not an hour — «بعد 2 يوم الصبح», «3
+ * مرات المسا», "in 3 days in the evening", «يوم 5 المسا», "the 5th in the
+ * evening" — so a unit after the number, «يوم»/"the" before it, or an
+ * ordinal ending refuses it.
+ */
+const HOUR_DIGIT = '[0-9٠-٩۰-۹]';
+const HALF_OF_DAY_WORD = [
+  AR_DAY_PART_AFTER_HOUR,
+  '(?:in\\s+the\\s+)?(?:morning|afternoon|evening)', 'at\\s+night', 'tonight', 'am', 'pm', 'a\\.m\\.?', 'p\\.m\\.?',
+  'בבוקר', 'בערב', 'בלילה', 'בצהריים', 'בצהרים', 'אחרי\\s+הצהריים', 'אחר\\s+הצהריים', 'אחרי\\s+הצהרים', 'אחר\\s+הצהרים', 'אחה["״]צ',
+].join('|');
+const HOUR_BEFORE_HALF = new RegExp(
+  `(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around|בשעה|בסביבות)\\s+|ב-?)?(${HOUR_DIGIT}{1,2})(?::(${HOUR_DIGIT}{2}))?\\s*(${HALF_OF_DAY_WORD})(?![\\p{L}\\p{M}])`,
+  'giu',
+);
+/** «يوم 5», "the 5", "day 5": the number names a day. */
+const DAY_BEFORE_NUMBER = new RegExp(`(?:يوم|نهار|day|the)\\s*${HOUR_DIGIT}{1,2}\\s*(?:${HALF_OF_DAY_WORD})(?![\\p{L}\\p{M}])`, 'iu');
+const EXPLICIT_AM = /^(?:am|a\.m\.?|ص|صباحا|صباحاً)$/i;
+const EXPLICIT_PM = /^(?:pm|p\.m\.?|م|مساء|مساءً)$/i;
+
+/**
+ * The hour one number means in the half one word names, `HH` — or
+ * `ambiguous` when the pair names no hour anybody can read without asking:
+ * «12 الصبح» (midnight to some, noon to others; FZ1 round 4), «12 المسا»
+ * (POLISH-CAPTURE M2), and a number outside its part of the day — «11
+ * الضهر», «9 العصر» — which read by the half alone came out 23:00 and 21:00.
+ * A night hour follows the night's rule (`nightClockHour`).
+ */
+function hourInHalf(hour: number, word: string): number | 'ambiguous' | null {
+  if (!Number.isInteger(hour) || hour < 1 || hour > 12) return null;
+  const said = word.trim();
+  if (EXPLICIT_AM.test(said)) return hour % 12;
+  if (EXPLICIT_PM.test(said)) return (hour % 12) + 12;
+  switch (dayPartHour(said, { answer: true })) {
+    case 9: return hour === 12 ? 'ambiguous' : hour;
+    case 12: return hour === 12 ? 12 : hour <= 5 ? hour + 12 : 'ambiguous';
+    case 14: return hour === 12 ? 12 : hour <= 7 ? hour + 12 : 'ambiguous';
+    case 18: return hour === 12 ? 'ambiguous' : hour + 12;
+    case NIGHT_HOUR: return nightClockHour(hour);
+    default: return null;
+  }
+}
+
+/**
+ * The clock time the words state as a number with its part of the day —
+ * `HH:MM` — or `ambiguous` when that pair is one to ask about, or null when
+ * the words state none, or two that disagree. Read the same way for a
+ * capture (both engines) and for a typed answer to the time question.
+ */
+export function hourWithDayPart(rawText: string): string | 'ambiguous' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const text = normalizeClockText(rawText);
+  if (DAY_BEFORE_NUMBER.test(text)) return null;
+  const readings = new Set<string>();
+  for (const match of Array.from(text.matchAll(HOUR_BEFORE_HALF))) {
+    const hour = hourInHalf(Number(match[1]), match[3]!);
+    if (hour === null) continue;
+    readings.add(hour === 'ambiguous' ? hour : `${String(hour).padStart(2, '0')}:${match[2] ?? '00'}`);
+  }
+  if (readings.has('ambiguous')) return 'ambiguous';
+  return readings.size === 1 ? Array.from(readings)[0]! : null;
 }
 
 /**
