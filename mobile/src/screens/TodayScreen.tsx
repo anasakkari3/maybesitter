@@ -1,13 +1,14 @@
 import { dayProgress, importantDeadline, planPreview } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import { weekStripKeys } from '../features/commitments/weekStrip';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
-import { useTimeZone } from '../i18n/timezone';
+import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr, type Lang } from '../i18n/strings';
-import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useSavedWeek, useToday, useUpcoming } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
+import { quietHoursEndAt } from '../features/today/quietHoursEnd';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
 import { groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
@@ -150,6 +151,35 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const strings = t as unknown as Record<string, string>;
   const hasRest = Object.values(restGroups).some(items => items.length > 0);
 
+  // Quiet hours end on the profile's clock (FZ2 review M4): said on the
+  // phone's, and asked again the moment they end, so a card that says
+  // "back at 07:30" does not outlive 07:30 on an open screen. With no
+  // profile yet the card says no hour rather than a wrong one.
+  const profileZone = useProfile().data?.routine?.timezone;
+  const quietUntil = next.data?.exposure?.reason === 'quiet_hours' ? next.data.exposure.until : undefined;
+  const quietEndsAt = useMemo(
+    () => (quietUntil && isValidTimeZone(profileZone) ? quietHoursEndAt(quietUntil, profileZone, new Date()) : null),
+    // Recomputed per answer, not per render: `new Date()` is read when the
+    // route answered, which is what `until` was true of.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [quietUntil, profileZone, next.dataUpdatedAt],
+  );
+  const refetchNext = next.refetch;
+  useEffect(() => {
+    if (!quietEndsAt) return undefined;
+    // Asked once at the end, and once more if that ask fails (review m6), so a
+    // dropped request does not leave "back at 07:30" standing after 07:30.
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let gone = false;
+    const wait = Math.min(Math.max(0, quietEndsAt.getTime() - Date.now()) + QUIET_END_MARGIN_MS, MAX_TIMER_MS);
+    const timer = setTimeout(() => {
+      void refetchNext().then((result) => {
+        if (result.isError && !gone) retry = setTimeout(() => { void refetchNext(); }, QUIET_END_RETRY_MS);
+      });
+    }, wait);
+    return () => { gone = true; clearTimeout(timer); clearTimeout(retry); };
+  }, [quietEndsAt, refetchNext]);
+
   const refresh = () => {
     setRefreshing(true);
     void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
@@ -190,7 +220,7 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
               </Txt>
 
               {/* PRIMARY · what matters now */}
-              <PrimaryCard primary={model.primary} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
+              <PrimaryCard primary={model.primary} quietEndsAt={quietEndsAt} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
 
               {/* SECONDARY · the plan, always present, always honest */}
               <TodayPlanRow row={model.plan} preview={preview} />
@@ -239,9 +269,18 @@ const GROUP_TITLE = {
   nice: 'todayGroupNice',
 } as const;
 
+/** A beat after quiet hours end, so the route asked again is already past them. */
+const QUIET_END_MARGIN_MS = 2_000;
+/** How long before the one retry, when the ask at the end fails. */
+const QUIET_END_RETRY_MS = 30_000;
+/** setTimeout's ceiling (about 24.8 days). */
+const MAX_TIMER_MS = 2_147_483_647;
+
 /** Exactly one of these renders. See `composeToday`. */
-function PrimaryCard({ primary, lookup, strings, timezone, lang, busy }: {
+function PrimaryCard({ primary, quietEndsAt, lookup, strings, timezone, lang, busy }: {
   primary: Primary;
+  /** When quiet hours end, as an instant; null until it is known on which clock. */
+  quietEndsAt: Date | null;
   lookup: ReadonlyMap<string, CommitmentView>;
   strings: Record<string, string>;
   timezone: string;
@@ -261,7 +300,7 @@ function PrimaryCard({ primary, lookup, strings, timezone, lang, busy }: {
           <Txt size={15} lh={1.5}>
             {primary.why === 'mode' ? t.todayQuietModeOn
               : primary.why === 'paused' ? t.todayNextPaused
-                : primary.until ? fill(t.todayQuietHoursUntil, { time: ltr(primary.until) }) : t.todayQuietHours}
+                : quietEndsAt ? fill(t.todayQuietHoursUntil, { time: ltr(formatTime(quietEndsAt, { locale: lang, timeZone: timezone })) }) : t.todayQuietHours}
           </Txt>
           {primary.why === 'mode' ? (
             <TextLink label={t.sTrust} onPress={() => actions.go('trust')} testID="today-quiet-trust" />

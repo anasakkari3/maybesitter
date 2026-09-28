@@ -215,8 +215,20 @@ export function userFacingMessage(error: unknown, t: Strings): string {
 export function toggleFailureKey(error: unknown): UserFacingKey {
   if (error instanceof NetworkError || error instanceof TimeoutError) return 'trustActionFailed';
   if (!(error instanceof ApiError)) return 'trustActionNotSaved';
-  const key = userFacingMessageKey(error);
-  // The generic lines ask the person to check what they typed; a switch has
-  // nothing to check.
-  return key === 'errorsValidation' || key === 'errorsGeneric' ? 'trustActionRefused' : key;
+  // Only lines that read under a switch pass through (FZ2 review M6). The
+  // generic ones ask the person to check what they typed, and the rest were
+  // written for other screens — «…حتى تشوف الاقتراحات» under a consent switch,
+  // a fault of ours that never said nothing changed. Anything not listed is
+  // a refusal.
+  return TOGGLE_KEYS[userFacingMessageKey(error)] ?? 'trustActionRefused';
 }
+
+const TOGGLE_KEYS: Partial<Record<UserFacingKey, UserFacingKey>> = {
+  errorsServer: 'toggleServerFailed',
+  errorsConsentRequired: 'toggleConsentRequired',
+  errorsQuietMode: 'toggleQuietMode',
+  errorsFeatureDisabled: 'toggleFeatureDisabled',
+  authSessionExpired: 'authSessionExpired',
+  authSignedOutRevoked: 'authSignedOutRevoked',
+  authSignedOutDeleted: 'authSignedOutDeleted',
+};

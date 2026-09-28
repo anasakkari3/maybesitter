@@ -9,11 +9,14 @@
 import React from 'react';
 import { describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
 import en from '../../../i18n/locales/en.json';
-import { NetworkError, ServerError, TimeoutError, ValidationError } from '../../../api/errors';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
+import { ForbiddenError, NetworkError, ServerError, TimeoutError, ValidationError } from '../../../api/errors';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -94,7 +97,8 @@ describe('which failure it says (UAT round 3, N9)', () => {
   it('a server fault reads as ours, not as the network', async () => {
     await failWith(new ServerError('boom', 500));
     expect(screen.queryByText(en.trustActionFailed)).toBeNull();
-    expect(screen.queryByText(en.errorsServer)).not.toBeNull();
+    // Its own line under a switch, which also says nothing changed (FZ2 M6).
+    expect(screen.queryByText(en.toggleServerFailed)).not.toBeNull();
   });
 
   it('a failure that is not an answer from the server claims nothing about it', async () => {
@@ -102,6 +106,80 @@ describe('which failure it says (UAT round 3, N9)', () => {
     expect(screen.queryByText(en.trustActionFailed)).toBeNull();
     expect(screen.queryByText(en.trustActionNotSaved)).not.toBeNull();
   });
+});
+
+/*
+ * FZ2 review M5: the failure line appears under the switch after the tap, and
+ * nothing told a screen reader. TalkBack hears it from a live region;
+ * VoiceOver is told the line itself.
+ */
+describe('a failure is announced', () => {
+  /*
+   * POLISH-MOBILE review I1: a region mounted together with its line is not
+   * heard by TalkBack. The region is there before anything fails; only its
+   * line comes and goes.
+   */
+  it('has its live region mounted before anything fails', async () => {
+    await show();
+    expect(screen.queryByTestId('toggle-failed')).toBeNull();
+    expect(screen.getByTestId('toggle-failed-live').props.accessibilityLiveRegion).toBe('polite');
+  });
+
+  it('sits in a live region, and VoiceOver is told the line once it appears', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
+    await show({ onChange: (async () => { throw new NetworkError('offline'); }) as never });
+    expect(announce).not.toHaveBeenCalled();
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+    expect(screen.getByTestId('toggle-failed-live').props.accessibilityLiveRegion).toBe('polite');
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(en.trustActionFailed));
+    announce.mockRestore();
+  });
+});
+
+/*
+ * FZ2 review M6: some lines passed through were written for other screens —
+ * «شغّلها من الإعدادات حتى تشوف الاقتراحات» under a consent switch, a server
+ * fault that never said nothing changed. Under a switch every line says what
+ * happened to the switch.
+ */
+describe('every failure line reads under a switch', () => {
+  async function lineFor(error: unknown): Promise<string> {
+    await show({ onChange: (async () => { throw error; }) as never });
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+    return String(screen.getByTestId('toggle-failed').props.children);
+  }
+
+  it('a server fault says nothing changed', async () => {
+    expect(await lineFor(new ServerError('boom', 500))).toBe(en.toggleServerFailed);
+  });
+
+  it('a consent the server still needs is said about this switch, not about suggestions', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'consent_required'))).toBe(en.toggleConsentRequired);
+  });
+
+  it('a module switched off on the server also says nothing changed (review m8)', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'feature_disabled'))).toBe(en.toggleFeatureDisabled);
+  });
+
+  it('quiet mode is said about this switch, not about suggestions', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'quiet_mode'))).toBe(en.toggleQuietMode);
+  });
+});
+
+/* Every switch line ends with what happened to the switch, in all three (review m8). */
+it('says nothing changed in every switch line, in ar, en and he', () => {
+  const keys = ['toggleServerFailed', 'toggleConsentRequired', 'toggleQuietMode', 'toggleFeatureDisabled'] as const;
+  for (const key of keys) {
+    expect(ar[key]).toContain('فما تغيّر إشي');
+    expect(en[key]).toContain('so nothing changed');
+    expect(he[key]).toContain('אז שום דבר לא השתנה');
+  }
+  // Spelling (review m7): the shadda is written.
+  expect(ar.toggleServerFailed).toContain('عنّا');
+  expect(ar.toggleConsentRequired).toContain('أوّل');
 });
 
 describe('while a write is in flight', () => {

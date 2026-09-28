@@ -3,6 +3,7 @@ import { AppState, Linking, Platform, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import {
   usePlanSettings,
@@ -323,11 +324,13 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
         <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+          {/* Mounted whatever the permission, so a refusal that lands after
+              «اسمح» is heard by TalkBack (review I1). */}
+          <LiveRegion>
+            {permissionDenied ? <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt> : null}
+          </LiveRegion>
           {permissionDenied ? (
             <>
-              <View accessibilityLiveRegion="polite">
-                <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt>
-              </View>
               {/* The one place a no can be undone. */}
               <Btn
                 label={t.notifOpenSettings}

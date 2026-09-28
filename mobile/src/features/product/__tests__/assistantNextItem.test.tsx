@@ -20,6 +20,7 @@ import { ContextualAssistantScreen, nextUsefulItem } from '../ContextScreens';
 import { strings } from '../../../i18n/strings';
 import { deviceTimeZone } from '../../../i18n/timezone';
 import base from '../../../api/__fixtures__/commitments.one.json';
+import { toViewModel } from '../../commitments/model';
 
 const HOUR = 60 * 60 * 1000;
 let mockToday: unknown[] = [];
@@ -114,6 +115,21 @@ describe('all-day items are judged by their day, not their midnight', () => {
 
   it('drops it once its day is over', () => {
     expect(next([allDay('bill', '2026-09-27')], '2026-09-28T00:10:00')).toBeNull();
+  });
+
+  /*
+   * POLISH-MOBILE review m1: one rule for "past" on an all-day item — its day
+   * has ended in its own zone — here and in `toViewModel`. A traveller in New
+   * York at 20:00 on Sunday is at 03:00 Monday in Jerusalem: a Jerusalem
+   * all-day item on Sunday is over, though the phone's day is still Sunday.
+   */
+  it('drops a traveller\u2019s all-day item once its day has ended in its own zone', () => {
+    const sunday = { ...base, id: 'doctor', title: 'doctor', timeSpec: { ...base.timeSpec, kind: 'due_by', dueAt: '2026-09-26T21:00:00.000Z', remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' } };
+    const nySundayEvening = '2026-09-28T00:00:00.000Z';
+    expect(nextUsefulItem([sunday] as never, nySundayEvening, 'America/New_York')).toBeUndefined();
+    expect(toViewModel(sunday as never, nySundayEvening).isPast).toBe(true);
+    // Still Sunday in Jerusalem (22:00): offered, and not past.
+    expect(nextUsefulItem([sunday] as never, '2026-09-27T19:00:00.000Z', 'America/New_York')?.id).toBe('doctor');
   });
 
   it('offers an all-day item due tomorrow', () => {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider } from '../../../state/AppContext';
@@ -246,8 +246,10 @@ it('keeps a failed generation apart from an empty one', async () => {
   await openGoal();
   expect(screen.getByTestId('goal-generate-failed')).toBeTruthy();
   // Announced, not only shown: a screen-reader user pressed a button and waits.
-  expect(screen.getByTestId('goal-generate-failed').props.accessibilityRole).toBe('alert');
-  expect(screen.getByTestId('goal-generate-failed').props.accessibilityLiveRegion).toBe('polite');
+  // The region around the line carries it, mounted before the failure (I1).
+  const live = screen.getAllByTestId('goal-generate-live').find(view => within(view).queryByTestId('goal-generate-failed'))!;
+  expect(live.props.accessibilityRole).toBe('alert');
+  expect(live.props.accessibilityLiveRegion).toBe('polite');
   expect(screen.getByText(strings.en.xGoalGenerateFailed)).toBeTruthy();
   expect(screen.queryByTestId('goal-proposal-empty')).toBeNull();
   expect(screen.queryByText(strings.en.xGoalProposalEmpty)).toBeNull();

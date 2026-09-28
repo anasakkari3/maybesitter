@@ -9,12 +9,58 @@ import he from '../locales/he.json';
 const ARABIC_LETTER = /[ء-غف-ي]/;
 const ARABIC_INDIC_DIGIT = /[٠-٩۰-۹]/;
 
+type Lang = 'ar' | 'en' | 'he';
+
+/** A line that promises something for a later build, or speaks internal jargon. */
+function promisesLater(lang: Lang, text: string): boolean {
+  switch (lang) {
+    case 'ar':
+      // «قريبًا/قريباً/قريبا» as a word (never «تقريباً»), «عن قريب», «بالقريب».
+      return /(^|[^\u0600-\u06FF])قريب(ًا|اً|ا)(?![\u0600-\u06FF])|عن قريب|بالقريب|نافذة حداثة/.test(text);
+    case 'en':
+      // "soon" as a promise; not "starts soon", "again soon", "too soon", "as soon".
+      return /(?<!\b(?:starts|start|again|too|as)\s)\bsoon\b|\bin a (future|later) (version|update)\b|freshness window/i.test(text);
+    case 'he':
+      // «בקרוב» as a promise; not «מתחיל/מתחילה בקרוב», «שוב בקרוב».
+      return /(?<!(?:מתחיל|מתחילה|שוב)\s)בקרוב|חלון טריות/.test(text);
+  }
+}
+
 describe('production Arabic copy', () => {
   it('does not ship internal roadmap copy', () => {
     for (const bundle of [ar, en, he] as Record<string, unknown>[]) {
       expect(bundle).not.toHaveProperty('settingsNote');
     }
     expect(Object.values(ar).join('\n')).not.toMatch(/الجولة القادمة|تُصمَّم|roadmap/i);
+  });
+
+  // POLISH-MOBILE sweep, widened by its review (m5): no promise of a later
+  // build in any language, and no planner jargon. A time that is simply close
+  // («بيبلش قريب», "starts soon", "try again soon") is not a promise.
+  it('promises nothing for later and speaks no internal jargon', () => {
+    for (const [lang, bundle] of [['ar', ar], ['en', en], ['he', he]] as const) {
+      const found = Object.entries(bundle as Record<string, unknown>)
+        .filter(([, value]) => typeof value === 'string' && promisesLater(lang, value))
+        .map(([key]) => `${lang}.${key}`);
+      expect(found).toEqual([]);
+    }
+  });
+
+  it('knows a promise from a time that is close', () => {
+    const promises: [Lang, string][] = [
+      ['ar', 'بنضيفها قريبًا.'], ['ar', 'بنضيفها قريباً.'], ['ar', 'بنضيفها قريبا.'], ['ar', 'قريبا'],
+      ['ar', 'رح تكون متاحة عن قريب.'], ['ar', 'بالقريب العاجل.'], ['ar', 'ما في نافذة حداثة بعد.'],
+      ['en', 'Coming soon'], ['en', 'Available soon.'], ['en', 'Soon.'], ['en', 'Arriving in a future version.'],
+      ['en', 'No freshness window yet.'],
+      ['he', 'יגיע בקרוב.'], ['he', 'בקרוב'], ['he', 'אין עדיין חלון טריות.'],
+    ];
+    const close: [Lang, string][] = [
+      ['ar', 'في إشي ضروري بيبلش قريب'], ['ar', 'الوقت قريب كتير لتذكير، ابدأ هلّق.'], ['ar', 'لنفس المدة تقريباً: 3.'],
+      ['en', 'A Must item starts soon'], ['en', "Google didn't answer. Try again soon."], ['en', 'This meeting starts too soon to prepare for.'],
+      ['he', 'משהו חובה מתחיל בקרוב'], ['he', 'נסו שוב בקרוב.'], ['he', 'הפגישה מתחילה בקרוב מדי להכנה.'],
+    ];
+    for (const [lang, text] of promises) expect([lang, text, promisesLater(lang, text)]).toEqual([lang, text, true]);
+    for (const [lang, text] of close) expect([lang, text, promisesLater(lang, text)]).toEqual([lang, text, false]);
   });
 
   it('pins the audited critical repairs', () => {

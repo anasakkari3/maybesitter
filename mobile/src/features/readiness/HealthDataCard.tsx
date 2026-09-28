@@ -2,6 +2,7 @@ import React from 'react';
 import { Linking, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Card, Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import type { HealthKitReadinessNativeModule } from '../../../modules/healthkit-readiness';
 import { useHealthReadiness, type HealthCardState } from './useHealthReadiness';
 
@@ -60,15 +61,15 @@ export function HealthDataCard({ nativeModule, platform, now }: {
     <Card pad={18} style={{ gap: 10 }} testID="health-card">
       <Txt size={15} weight={600}>{t.readinessHealthTitle}</Txt>
       <Txt size={13} color={p.mu} lh={1.5}>{t.readinessHealthBody}</Txt>
-      {statusKey ? (
-        // A live region so a screen reader hears "Reading…" turn into the
-        // result without having to find it.
-        <View accessibilityLiveRegion="polite">
+      {/* A live region so a screen reader hears "Reading…" turn into the
+          result without having to find it — mounted before its first line. */}
+      <LiveRegion>
+        {statusKey ? (
           <Txt size={13} color={warn ? p.wm : p.mu} lh={1.5} testID={`health-status-${state}`}>
             {t[statusKey]}
           </Txt>
-        </View>
-      ) : null}
+        ) : null}
+      </LiveRegion>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {!connected && (state === 'idle' || state === 'failed' || state === 'denied' || working) ? (
           <Pill

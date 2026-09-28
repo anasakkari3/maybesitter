@@ -11,6 +11,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -362,6 +363,8 @@ describe('an appointment, and a step moved by quiet hours', () => {
   });
 
   it('a claimed ring that passes while review is open: the line changes to too close then (n-2)', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
     const shortly = new Date(Date.now() + 1_500).toISOString();
     await reviewWith({ remindAt: shortly, silentBecause: null, adjustment: 'short_notice' });
     expect(screen.getByTestId('review-prep-short-notice')).toBeTruthy();
@@ -370,15 +373,23 @@ describe('an appointment, and a step moved by quiet hours', () => {
       { timeout: 6_000 },
     );
     expect(screen.queryByTestId('review-prep-short-notice')).toBeNull();
+    // The line changed with nobody touching anything: VoiceOver is told
+    // (POLISH-MOBILE review m3), once, and not the line Review opened with.
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(en.reviewPrepTooClose));
+    expect(announce.mock.calls.filter(([text]) => text !== en.reviewPrepTooClose)).toEqual([]);
   });
 
   it.each(['none', 'short_notice'] as const)('a claimed ring that has already passed (%s): review says it is too close, not a stale time (n-2)', async (adjustment) => {
     // Review sat open past the ring: the phone skips a stage whose moment has
     // passed, so that time would be a reminder that never comes.
     const passed = new Date(Date.now() - 2 * 60_000).toISOString();
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
     await reviewWith({ remindAt: passed, silentBecause: null, adjustment });
     await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepTooClose));
     expect(screen.queryByTestId('review-prep-short-notice')).toBeNull();
+    // That is the line Review opens with, so nothing is announced.
+    expect(announce).not.toHaveBeenCalled();
   });
 
   describe('after the prep step is edited in review (FX1 re-review Minor 5)', () => {
@@ -467,6 +478,78 @@ describe('an appointment, and a step moved by quiet hours', () => {
       await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepNoTime));
       expect(screen.queryByTestId('review-prep-rings-at')).toBeNull();
       expect(screen.queryByTestId('review-prep-after-meeting')).toBeNull();
+    });
+
+    /*
+     * FY3 review m4: the line changed after an edit and nobody using a screen
+     * reader was told. Android hears it from the live region the lines sit in;
+     * VoiceOver has no live regions, so it is told the new line — once the
+     * person has edited, never for the line Review opened with.
+     */
+    it('an edit that changes the line is announced; the line Review opened with is not', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+      // React Native's jest setup makes this a shared mock: earlier cases' calls stay on it.
+      announce.mockClear();
+      await reviewWith({});
+      expect(screen.getByTestId('review-prep-live').props.accessibilityLiveRegion).toBe('polite');
+      expect(announce).not.toHaveBeenCalled();
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(screen.getByTestId('review-prep-rings-at')).toBeTruthy());
+      const ring = String(screen.getByTestId('review-prep-rings-at').props.children);
+      await waitFor(() => expect(announce).toHaveBeenLastCalledWith(`${en.reviewPrepAfterMeeting} ${ring}`));
+      await edit('');
+      await waitFor(() => expect(announce).toHaveBeenLastCalledWith(en.reviewPrepNoTime));
+    });
+
+    /*
+     * POLISH-MOBILE review m2: with the settings still loading, the edit first
+     * showed only "not before the meeting", and VoiceOver heard it — then heard
+     * it again with the ring line once the settings landed. One announcement,
+     * when the answer is whole.
+     */
+    it('announces an edit once, when the settings have answered', async () => {
+      let release: (value: unknown) => void = () => {};
+      jest.spyOn(reminderEndpoints, 'getReminderSettings').mockReturnValue(new Promise((resolve) => { release = resolve; }) as never);
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+      announce.mockClear();
+      await reviewWith({});
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(screen.getByTestId('review-prep-after-meeting')).toBeTruthy());
+      expect(announce).not.toHaveBeenCalled();
+      await act(async () => { release({ ...settingsFixture, reminderSettings: { ...settingsFixture.reminderSettings, quietHours: null } }); });
+      await waitFor(() => expect(screen.getByTestId('review-prep-rings-at')).toBeTruthy());
+      const ring = String(screen.getByTestId('review-prep-rings-at').props.children);
+      await waitFor(() => expect(announce).toHaveBeenCalledWith(`${en.reviewPrepAfterMeeting} ${ring}`));
+      expect(announce).toHaveBeenCalledTimes(1);
+    });
+
+    /* Review n3: settings that cannot be read still let VoiceOver hear what is known. */
+    it('announces what is known when the settings cannot be read', async () => {
+      jest.spyOn(reminderEndpoints, 'getReminderSettings').mockRejectedValue(new Error('offline'));
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+      announce.mockClear();
+      await reviewWith({});
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(announce).toHaveBeenCalledWith(en.reviewPrepAfterMeeting));
+      expect(screen.queryByTestId('review-prep-rings-at')).toBeNull();
+    });
+
+    it('announces the proposed line again when an edit is taken back (m3)', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+      announce.mockClear();
+      await reviewWith({});
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(screen.getByTestId('review-prep-after-meeting')).toBeTruthy());
+      await edit(localOf(Date.parse(prepared().prep.remindAt!)));
+      await waitFor(() => expect(screen.queryByTestId('review-prep-after-meeting')).toBeNull());
+      const proposedLine = String(screen.getByTestId('review-prep-rings-at').props.children);
+      await waitFor(() => expect(announce).toHaveBeenLastCalledWith(proposedLine));
     });
 
     it('with reminders off, an edited time still says nothing will ring, and why', async () => {

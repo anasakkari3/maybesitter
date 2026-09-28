@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
@@ -304,11 +305,9 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
               >
                 <Txt size={15} weight={600} color={p.onAccent}>{t.calendarDeviceAllow}</Txt>
               </Btn>
-              {allowFailed ? (
-                <View accessibilityLiveRegion="polite" style={{ paddingTop: 8 }}>
-                  <Txt size={13} color={p.wm} testID="calendar-read-allow-failed">{t[allowFailed]}</Txt>
-                </View>
-              ) : null}
+              <LiveRegion style={{ paddingTop: 8 }}>
+                {allowFailed ? <Txt size={13} color={p.wm} testID="calendar-read-allow-failed">{t[allowFailed]}</Txt> : null}
+              </LiveRegion>
             </View>
           ) : null}
           {reading && phoneCalendars !== null && phoneCalendars.length === 0 ? (

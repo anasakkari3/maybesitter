@@ -15,6 +15,7 @@ import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
 import { AvoidKeyboard } from '../ui/keyboard';
+import { useAnnounceOnIos } from '../ui/announce';
 import { Tag, TextLink } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
@@ -666,17 +667,25 @@ function PrepReminderLine({ meeting, proposed, edit }: {
   const timeChanged = editedAt !== undefined
     && (editedAt === null ? proposed?.resolvedTime != null : Date.parse(editedAt) !== Date.parse(proposed?.resolvedTime ?? ''));
   const priorityChanged = edit?.priority !== undefined && edit.priority !== (proposed?.priority ?? 'normal');
-  if (meeting.startAt && proposed && (timeChanged || priorityChanged)) {
-    return (
-      <EditedPrepLine
-        at={editedAt === undefined ? proposed.resolvedTime ?? null : editedAt}
-        meetingStart={meeting.startAt}
-        priority={edit?.priority ?? proposed.priority ?? 'normal'}
-        appointment={meeting.appointment === true}
-      />
-    );
-  }
-  return <ProposedPrepLine meeting={meeting} />;
+  const edited = Boolean(meeting.startAt && proposed && (timeChanged || priorityChanged));
+  // Once an edit has been shown, the proposed line coming back is news too
+  // (an edit taken back): it is announced when it returns (review m3).
+  const [everEdited, setEverEdited] = useState(false);
+  if (edited && !everEdited) setEverEdited(true);
+  // One live region around whichever line shows, so TalkBack hears the line
+  // change after an edit (FY3 review m4); VoiceOver is told by each line.
+  return (
+    <View testID="review-prep-live" accessibilityLiveRegion="polite" style={{ gap: 2, alignItems: 'flex-start' }}>
+      {edited && meeting.startAt && proposed ? (
+        <EditedPrepLine
+          at={editedAt === undefined ? proposed.resolvedTime ?? null : editedAt}
+          meetingStart={meeting.startAt}
+          priority={edit?.priority ?? proposed.priority ?? 'normal'}
+          appointment={meeting.appointment === true}
+        />
+      ) : <ProposedPrepLine meeting={meeting} announceOnMount={everEdited} />}
+    </View>
+  );
 }
 
 const REMINDER_PRIORITY = { high: 'must', normal: 'should', low: 'nice' } as const;
@@ -698,21 +707,17 @@ function EditedPrepLine({ at, meetingStart, priority, appointment }: {
   priority: 'high' | 'normal' | 'low';
   appointment: boolean;
 }) {
-  const { t, p } = useApp();
+  const { t, p, lang } = useApp();
+  const timezone = useTimeZone();
   const settings = useReminderSettings();
   const profile = useProfile();
   const dto = settings.data?.reminderSettings;
   // The same rule the server's edit applies (`windowEndAfterMove`): strictly
   // before the start stays the prep window; at or after it does not.
-  const notBefore = at !== null && Date.parse(at) >= Date.parse(meetingStart)
-    ? (
-      <Txt size={13} color={p.mu} testID="review-prep-after-meeting">
-        {appointment ? t.reviewPrepAfterAppointment : t.reviewPrepAfterMeeting}
-      </Txt>
-    )
+  const notBeforeText = at !== null && Date.parse(at) >= Date.parse(meetingStart)
+    ? (appointment ? t.reviewPrepAfterAppointment : t.reviewPrepAfterMeeting)
     : null;
-  if (!dto || profile.data === undefined) return notBefore;
-  const answer = prepRingAfterEdit({
+  const answer = !dto || profile.data === undefined ? null : prepRingAfterEdit({
     at,
     meetingStart,
     priority: REMINDER_PRIORITY[priority],
@@ -721,75 +726,79 @@ function EditedPrepLine({ at, meetingStart, priority, appointment }: {
     timeZone: quietTimeZone(dto),
     now: new Date(),
   });
-  if (answer.kind === 'rings') {
-    return (
-      <>
-        {notBefore}
-        <RingsAtLine at={answer.at} />
-      </>
-    );
-  }
-  const because = answer.because;
+  const ringText = answer === null ? null
+    : answer.kind === 'rings' ? ringsAtText(answer.at, t.reviewPrepRingsAt, lang, timezone)
+      : answer.because === 'no_time' ? t.reviewPrepNoTime
+        : answer.because === 'reminders_off' ? t.reviewPrepRemindersOff
+          : answer.because === 'silent_choice' ? t.reviewPrepSilentChoice
+            : answer.because === 'quiet_hours' ? t.reviewPrepQuietHours
+              : t.reviewPrepTooClose;
+  // This line exists only because the person edited the step, so each new
+  // answer is news: said to VoiceOver as it lands (FY3 review m4) — once the
+  // settings have answered, so a cold cache does not say the first half and
+  // then all of it again (review m2). If they cannot be read, what is known.
+  const settled = answer !== null || settings.isError || profile.isError;
+  useAnnounceOnIos(settled ? [notBeforeText, ringText].filter(Boolean).join(' ') || null : null);
   return (
     <>
-      {notBefore}
-      <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
-        {because === 'no_time' ? t.reviewPrepNoTime
-          : because === 'reminders_off' ? t.reviewPrepRemindersOff
-            : because === 'silent_choice' ? t.reviewPrepSilentChoice
-              : because === 'quiet_hours' ? t.reviewPrepQuietHours
-                : t.reviewPrepTooClose}
-      </Txt>
+      {notBeforeText ? <Txt size={13} color={p.mu} testID="review-prep-after-meeting">{notBeforeText}</Txt> : null}
+      {answer === null || ringText === null ? null : (
+        <Txt size={13} color={p.mu} testID={answer.kind === 'rings' ? 'review-prep-rings-at' : 'review-prep-no-reminder'}>{ringText}</Txt>
+      )}
     </>
   );
 }
 
 /** «التذكير رح يرن: بكرا · 14:00» — said even when that is the time the card shows (N7). */
-function RingsAtLine({ at }: { at: number | string }) {
-  const { t, p, lang } = useApp();
-  const timezone = useTimeZone();
+function ringsAtText(at: number | string, template: string, lang: Lang, timezone: string): string {
   const ring = new Date(at);
   const time = `${formatRelativeDay(ring, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(ring, { locale: lang, timeZone: timezone }))}`;
-  return <Txt size={13} color={p.mu} testID="review-prep-rings-at">{fill(t.reviewPrepRingsAt, { time })}</Txt>;
+  return fill(template, { time });
 }
 
-/** The line the prepare response gives, for the step as the server proposed it. */
-function ProposedPrepLine({ meeting }: { meeting: MeetingReviewContext }) {
+/**
+ * The line the prepare response gives, for the step as the server proposed it.
+ *
+ * Said to VoiceOver when it changes while Review is open — the ring passing,
+ * or an edit taken back (`announceOnMount`) — never as the line Review opens
+ * with (review m3; TalkBack hears the same from the live region around it).
+ */
+function ProposedPrepLine({ meeting, announceOnMount }: { meeting: MeetingReviewContext; announceOnMount: boolean }) {
   const { t, p, lang } = useApp();
   const timezone = useTimeZone();
   // A ring whose moment passes while Review is open is one the phone skips
   // (n-2): from then on it is said as too close, not as a time that will not
   // come. A timer, so the line changes at that moment and render stays pure.
+  // One already past when the line mounts is too close from the start.
   const ringMs = meeting.remindAt === null ? null : Date.parse(meeting.remindAt);
-  const [passedRing, setPassedRing] = useState<number | null>(null);
+  const [passedRing, setPassedRing] = useState<number | null>(() => (ringMs !== null && ringMs <= Date.now() ? ringMs : null));
   useEffect(() => {
     if (ringMs === null) return undefined;
     const timer = setTimeout(() => setPassedRing(ringMs), Math.min(Math.max(0, ringMs - Date.now()), MAX_TIMER_MS));
     return () => clearTimeout(timer);
   }, [ringMs]);
   const passed = ringMs !== null && passedRing === ringMs;
+  let text: string;
+  let testID: string;
   if (meeting.remindAt === null || passed) {
     const silence = passed ? 'too_close' : meeting.silentBecause;
-    return (
-      <Txt size={13} color={p.mu} testID="review-prep-no-reminder">
-        {silence === 'reminders_off'
-          ? t.reviewPrepRemindersOff
-          : silence === 'silent_choice'
-            ? t.reviewPrepSilentChoice
-            : silence === 'quiet_hours'
-              ? t.reviewPrepQuietHours
-              : t.reviewPrepTooClose}
-      </Txt>
-    );
+    testID = 'review-prep-no-reminder';
+    text = silence === 'reminders_off' ? t.reviewPrepRemindersOff
+      : silence === 'silent_choice' ? t.reviewPrepSilentChoice
+        : silence === 'quiet_hours' ? t.reviewPrepQuietHours
+          : t.reviewPrepTooClose;
+  } else if (meeting.adjustment === 'none') {
+    // Rings at the time the card shows: still said (N7).
+    testID = 'review-prep-rings-at';
+    text = ringsAtText(meeting.remindAt, t.reviewPrepRingsAt, lang, timezone);
+  } else {
+    const at = new Date(meeting.remindAt);
+    const time = `${formatRelativeDay(at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
+    const quiet = meeting.adjustment === 'quiet_hours';
+    testID = quiet ? 'review-prep-quiet-moved' : 'review-prep-short-notice';
+    text = fill(quiet ? t.reviewPrepQuietMoved : t.reviewPrepShortNotice, { time });
   }
-  // Rings at the time the card shows: still said (N7).
-  if (meeting.adjustment === 'none') return <RingsAtLine at={meeting.remindAt} />;
-  const at = new Date(meeting.remindAt);
-  const time = `${formatRelativeDay(at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
-  const quiet = meeting.adjustment === 'quiet_hours';
-  return (
-    <Txt size={13} color={p.mu} testID={quiet ? 'review-prep-quiet-moved' : 'review-prep-short-notice'}>
-      {fill(quiet ? t.reviewPrepQuietMoved : t.reviewPrepShortNotice, { time })}
-    </Txt>
-  );
+  const [openedWith] = useState(text);
+  useAnnounceOnIos(announceOnMount || text !== openedWith ? text : null);
+  return <Txt size={13} color={p.mu} testID={testID}>{text}</Txt>;
 }

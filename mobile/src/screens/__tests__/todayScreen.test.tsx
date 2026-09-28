@@ -13,7 +13,7 @@ import React from 'react';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider, useApp } from '../../state/AppContext';
@@ -30,10 +30,25 @@ import he from '../../i18n/locales/he.json';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 import * as planEndpoints from '../../api/endpoints/plans';
+import * as profileEndpoints from '../../api/endpoints/profile';
 import * as language from '../../i18n/language';
 import { fill, ltr } from '../../i18n/strings';
 import { Txt } from '../../ui/primitives';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
+import profileFixture from '../../api/__fixtures__/profile.one.json';
+
+/** The phone's zone, when a case needs one other than the suite's. */
+let mockDeviceZone: string | null = null;
+jest.mock('../../i18n/timezone', () => {
+  const actual = jest.requireActual('../../i18n/timezone') as typeof import('../../i18n/timezone');
+  return {
+    ...actual,
+    useTimeZone: () => {
+      const real = actual.useTimeZone();
+      return mockDeviceZone ?? real;
+    },
+  };
+});
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -94,6 +109,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mockDeviceZone = null;
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -442,15 +458,158 @@ describe('the top card during quiet hours is not quiet mode (UAT round 3, N12)',
     await waitFor(() => expect(screen.queryByTestId('today-quiet')).not.toBeNull());
   }
 
+  /** The profile the route read `until` on, in `timezone`. */
+  function profileIn(timezone: string) {
+    jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({
+      ...profileFixture, routine: { ...profileFixture.routine, timezone },
+    } as never);
+  }
+
   it('says when suggestions come back, offers no "turn it off", and links to where quiet hours are set', async () => {
-    // The real route's answer at 00:30 inside 22:30–07:30.
+    // The real route's answer at 00:30 inside 22:30–07:30, phone and profile in one zone.
+    mockDeviceZone = 'Asia/Jerusalem';
+    profileIn('Asia/Jerusalem');
     await showSilenced(quietHoursFixture);
+    await waitFor(() => expect(within(screen.getByTestId('today-quiet'))
+      .queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).not.toBeNull());
     const card = within(screen.getByTestId('today-quiet'));
     expect(card.queryByText(en.todayQuietModeOn)).toBeNull();
     expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).not.toBeNull();
     expect(screen.queryByTestId('today-quiet-trust')).toBeNull();
     await fireEvent.press(screen.getByTestId('today-quiet-hours'));
     await waitFor(() => expect(screen.getByTestId('screen-probe').props.children).toBe('notificationsSettings'));
+  });
+
+  /*
+   * FZ2 review M4. `until` is on the profile's clock. A person whose profile
+   * is Tokyo, travelling with the phone in Delhi, read «07:30» when the
+   * suggestions came back at 04:00 on the phone. Zones with no clock change.
+   */
+  it('says the end on the phone\u2019s clock when the profile is in another zone', async () => {
+    mockDeviceZone = 'Asia/Kolkata';
+    profileIn('Asia/Tokyo');
+    await showSilenced(quietHoursFixture);
+    const card = within(screen.getByTestId('today-quiet'));
+    await waitFor(() => expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('04:00') }))).not.toBeNull());
+    expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).toBeNull();
+  });
+
+  it('says no hour at all until it knows which clock `until` is on', async () => {
+    mockDeviceZone = 'Asia/Kolkata';
+    jest.spyOn(profileEndpoints, 'getProfile').mockReturnValue(new Promise(() => undefined) as never);
+    await showSilenced(quietHoursFixture);
+    const card = within(screen.getByTestId('today-quiet'));
+    expect(card.queryByText(en.todayQuietHours)).not.toBeNull();
+    expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).toBeNull();
+  });
+
+  it('asks again when quiet hours end while Today is open, and the quiet card goes', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      mockDeviceZone = 'UTC';
+      profileIn('UTC');
+      const getNext = jest.spyOn(nextStepEndpoints, 'getNextStep')
+        .mockResolvedValueOnce({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_hours', until: '22:30' } } as never)
+        .mockResolvedValue({
+          success: true, participantId: USER.uid,
+          recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+        } as never);
+      jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [withPriority('a', 'high')] } as never);
+      await render(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <AppProvider>
+            <AuthProvider repository={repository} isDevBundle={false}>
+              <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+            </AuthProvider>
+          </AppProvider>
+        </SafeAreaProvider>,
+      );
+      await waitFor(() => expect(screen.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('22:30') }))).not.toBeNull());
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      await waitFor(() => expect(screen.queryByTestId('today-quiet')).toBeNull());
+      expect(getNext.mock.calls.length).toBeGreaterThan(before);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /** Today with quiet hours until 22:30 UTC, rendered at 22:29:30 under fake timers. */
+  async function showQuietUntil2230(then: 'empty' | 'fail-once') {
+    mockDeviceZone = 'UTC';
+    profileIn('UTC');
+    const empty = {
+      success: true, participantId: USER.uid,
+      recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+    };
+    const getNext = jest.spyOn(nextStepEndpoints, 'getNextStep')
+      .mockResolvedValueOnce({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_hours', until: '22:30' } } as never);
+    if (then === 'fail-once') getNext.mockRejectedValueOnce(new Error('offline'));
+    getNext.mockResolvedValue(empty as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [withPriority('a', 'high')] } as never);
+    const view = await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('22:30') }))).not.toBeNull());
+    return { getNext, view };
+  }
+
+  /* POLISH-MOBILE review m4: nothing is asked before the end, and an unmounted Today asks nothing. */
+  it('asks nothing before quiet hours end, and nothing once Today is gone', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext, view } = await showQuietUntil2230('empty');
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(20_000); });
+      expect(getNext.mock.calls.length).toBe(before);
+      await view.unmount();
+      await act(async () => { jest.advanceTimersByTime(120_000); });
+      expect(getNext.mock.calls.length).toBe(before);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /* POLISH-MOBILE review m6: a failed ask at the end is tried once more. */
+  it('tries once more when the ask at the end fails', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext } = await showQuietUntil2230('fail-once');
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      await waitFor(() => expect(getNext.mock.calls.length).toBe(before + 1));
+      expect(screen.queryByTestId('today-quiet')).not.toBeNull();
+      await act(async () => { jest.advanceTimersByTime(60_000); });
+      await waitFor(() => expect(screen.queryByTestId('today-quiet')).toBeNull());
+      expect(getNext.mock.calls.length).toBe(before + 2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /* Review n3: an ask that fails after Today has closed schedules no retry. */
+  it('does not retry for a Today that has closed while the ask was out', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext, view } = await showQuietUntil2230('empty');
+      let fail: (error: Error) => void = () => undefined;
+      getNext.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }) as never);
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      expect(getNext.mock.calls.length).toBe(before + 1);
+      await view.unmount();
+      await act(async () => { fail(new Error('offline')); });
+      await act(async () => { jest.advanceTimersByTime(120_000); });
+      expect(getNext.mock.calls.length).toBe(before + 1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('quiet mode keeps its own words and the way to turn it off', async () => {

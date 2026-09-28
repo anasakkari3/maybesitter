@@ -33,6 +33,7 @@ import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { useCaptureFlow } from '../capture/CaptureProvider';
 import { MAX_CAPTURE_LENGTH } from '../capture/captureMachine';
 import { Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import { useKeyboardInset } from '../../ui/keyboard';
 
 export function MeetingPrepSheet() {
@@ -136,13 +137,12 @@ export function MeetingPrepSheet() {
           is noise. */}
       {!aiGranted && !consentLoading ? <Txt size={13} color={p.mu} testID="meeting-prep-ai-off">{t.xPrepareAiOff}</Txt> : null}
 
-      {problem ? (
-        // Announced when it appears: the field keeps focus, and a refusal
-        // nobody hears reads as a button that did nothing.
-        <View accessibilityLiveRegion="polite" accessibilityRole="alert">
-          <Txt size={13} color={p.wm} testID="meeting-prep-problem">{problem}</Txt>
-        </View>
-      ) : null}
+      {/* Announced when it appears: the field keeps focus, and a refusal
+          nobody hears reads as a button that did nothing. The region is
+          mounted first, so TalkBack hears the line arrive (review I1). */}
+      <LiveRegion alert>
+        {problem ? <Txt size={13} color={p.wm} testID="meeting-prep-problem">{problem}</Txt> : null}
+      </LiveRegion>
       </ScrollView>
 
       <View testID="meeting-prep-footer" style={{ paddingHorizontal: 20, paddingTop: 4, paddingBottom: keyboardUp ? 12 : insets.bottom + 24 }}>

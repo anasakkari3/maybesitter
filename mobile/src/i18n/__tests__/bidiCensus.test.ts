@@ -26,7 +26,6 @@ const ALLOWED: readonly RegExp[] = [
   /^time$/, // FootballSettingsScreen: `formatTime(kickoff…)` one line up
   /^item\.timeLabel$/, // widget snapshot: `input.formatTime(...)`
   /^(morning\.)?deliveryLocalTime$/, // "07:00" as stored
-  /^primary\.until$/, // "07:30": quiet hours' end, HH:mm by the next-step schema's regex (N12)
   /^`\$\{fmt\.format\(start\)\}–\$\{fmt\.format\(end\)\}`$/, // formatTimeRange
   /^`\$\{start\}–\$\{end\}`$/, // formatClockRange: "22:30–07:30"
   /^(user\.)?email$/, /^user\.email$/, // an address
