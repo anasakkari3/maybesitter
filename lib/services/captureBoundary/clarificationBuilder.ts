@@ -101,7 +101,10 @@ export function dayForAnswer(
   preferredDate: string | null,
   context: ClarificationContext,
 ): string | null {
-  if (preferredDate && isFuture(preferredDate, time, context)) return preferredDate;
+  // A day the item names is the day the answer is about (UAT round 6, batch
+  // 3): «المسا» typed at 23:29 to «أي ساعة يوم الاثنين؟» was put on Tuesday.
+  // When that hour on it has gone there is no answer here, never another day.
+  if (preferredDate) return isFuture(preferredDate, time, context) ? preferredDate : null;
   const day = dayFor(time, context);
   return day && isFuture(day, time, context) ? day : null;
 }
@@ -220,10 +223,19 @@ export function buildClarification(
 
   // 4. A day, but no hour. The mildest case: the item is real, the question is
   //    only when.
+  //
+  //    The question names the item's day («أي ساعة يوم الاثنين، 28 سبتمبر؟»),
+  //    so every part it offers is on that day, and a part of it that has gone
+  //    is not offered at all (UAT round 6, batch 3). It used to be offered on
+  //    tomorrow under the same heading: «المسا» tapped at 23:29 saved «بكرا ·
+  //    19:00» with nothing said. When every part of the day has gone, «بدون
+  //    وقت محدد» and the typed box are what is left — a day the person types
+  //    («بكرا المسا») is theirs to choose. Only an item with no day at all has
+  //    its parts on the next day they are ahead.
   if (!localTime) {
     const options = DAYPART_OPTIONS
       .map(({ optionId, labelKey, localTime: time }) => {
-        const day = localDate && isFuture(localDate, time, context) ? localDate : dayFor(time, context);
+        const day = localDate ?? dayFor(time, context);
         return day && isFuture(day, time, context)
           ? option(optionId, labelKey, {}, { localTime: time, localDate: day })
           : null;

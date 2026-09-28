@@ -194,3 +194,32 @@ test('each question gets its own id, so an answer cannot be replayed onto anothe
   assert.notEqual(a?.questionId, b?.questionId);
   assert.match(a!.questionId, /^[0-9a-f-]{36}$/);
 });
+
+test('a question about a named day offers only that day — a part of it that has gone is left out, never moved to tomorrow', () => {
+  // UAT round 6, batch 3: «أي ساعة يوم الاثنين، 28 سبتمبر؟» at 23:29 offered
+  // الصبح/العصر/المسا valued on Tuesday, and «المسا» saved «بكرا · 19:00».
+  const at = (hhmm: string) => context(`2026-09-14T${hhmm}:00+03:00`);
+  const today = (hhmm: string) => buildClarification(result({
+    timeEvidence: 'day_only',
+    localTimeSpec: { date: '2026-09-14', time: null, timezone: TZ },
+  }), at(hhmm));
+  const shown = (hhmm: string) => today(hhmm)!.options.map(o => `${o.optionId} ${o.value.localDate ?? '-'} ${o.value.localTime ?? '-'}`);
+  assert.deepEqual(shown('06:00'), ['morning 2026-09-14 09:00', 'afternoon 2026-09-14 14:00', 'evening 2026-09-14 19:00', 'none - -']);
+  assert.deepEqual(shown('12:00'), ['afternoon 2026-09-14 14:00', 'evening 2026-09-14 19:00', 'none - -']);
+  assert.deepEqual(shown('15:00'), ['evening 2026-09-14 19:00', 'none - -']);
+  // Every part gone: «بدون وقت محدد» (and the typed box) is what is left.
+  assert.deepEqual(shown('23:29'), ['none - -']);
+  assert.equal(today('23:29')!.params.date, '2026-09-14');
+  assert.equal(today('23:29')!.allowFreeText, true);
+
+  // The property, over every hour of the day and every evidence kind.
+  for (let hour = 0; hour < 24; hour += 1) {
+    const ctx = at(`${String(hour).padStart(2, '0')}:30`);
+    for (const date of ['2026-09-14', '2026-09-15']) {
+      const question = buildClarification(result({ timeEvidence: 'day_only', localTimeSpec: { date, time: null, timezone: TZ } }), ctx);
+      for (const candidate of question?.options ?? []) {
+        if (candidate.value.localDate) assert.equal(candidate.value.localDate, date, `${hour}:30 ${date} ${candidate.optionId}`);
+      }
+    }
+  }
+});
