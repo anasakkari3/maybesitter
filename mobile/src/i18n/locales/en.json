@@ -346,6 +346,8 @@
   "trustQuietModeBody": "No suggestions at all until you turn this off.",
   "trustCalendar": "Calendar",
   "trustCalendarNotConnected": "Not connected here. MaybeSitter can add your confirmed commitments to a calendar you choose — see Settings → Calendar.",
+  "trustCalendarWriting": "Connected. Commitments you confirm go into your calendar.",
+  "trustCalendarReadingWriting": "Connected. Reads only when you are busy, and commitments you confirm go into your calendar.",
   "trustKnows": "What MaybeSitter knows",
   "trustPersonalizationTitle": "Notice patterns in when you finish things",
   "trustPersonalizationBody": "It may suggest patterns from the times you finish things. Nothing is saved unless you keep it. Turning this off stops the suggestions, and your next daily plan stops using patterns you kept.",
