@@ -59,7 +59,7 @@ export function useKeyboardInset(): number {
  * Every screen with a keyboard uses this; a census test refuses a bare
  * KeyboardAvoidingView.
  *
- * ── The lift is not a LayoutAnimation (UAT round 5, N17) ────────────
+ * ── The lift is not a layout animation (UAT round 5, N17) ───────────
  *
  * It was, as in React Native's own KeyboardAvoidingView. On Fabric a layout
  * animation rewrites the opacity and transform of every view it moves,

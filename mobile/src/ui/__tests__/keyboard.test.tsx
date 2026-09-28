@@ -196,11 +196,22 @@ describe('no layout animation for the lift (N17)', () => {
     expect(configure).not.toHaveBeenCalled();
   });
 
-  it('nothing in src configures one', () => {
+  // The name at all, not only `.configureNext(`: an aliased import
+  // (`LayoutAnimation as LA`) or UIManager's own entry point would pass a
+  // call-shaped census (review n1).
+  const BANNED = /\bLayoutAnimation\b|configureNextLayoutAnimation/;
+
+  it('nothing in src names one, however it is imported', () => {
     const offenders = sourceFiles(SRC)
-      .filter((path) => /LayoutAnimation\.configureNext|LayoutAnimation\.(easeInEaseOut|linear|spring)\(/.test(readFileSync(path, 'utf8')))
+      .filter((path) => BANNED.test(readFileSync(path, 'utf8')))
       .map((path) => relative(SRC, path));
     expect(offenders).toEqual([]);
+  });
+
+  it('the census catches an aliased import and UIManager', () => {
+    expect(BANNED.test("import { LayoutAnimation as LA } from 'react-native';\nLA.configureNext(LA.Presets.easeInEaseOut);")).toBe(true);
+    expect(BANNED.test('UIManager.configureNextLayoutAnimation(config, () => {}, () => {});')).toBe(true);
+    expect(BANNED.test('KeyboardAvoidingView')).toBe(false);
   });
 });
 

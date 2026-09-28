@@ -1451,7 +1451,7 @@
   "financialFreeBuffer": "נשאר",
   "financialFixedMonthly": "קבוע כל חודש",
   "financialNextIncome": "ההכנסה הבאה",
-  "financialAsOf": "נכון ל",
+  "financialAsOf": "עודכן לאחרונה: {when}",
   "financialBandComfortable": "יש מרווח.",
   "financialBandTight": "צפוף עד ההכנסה הבאה.",
   "financialBandNegative": "לתשלום יותר ממה שיש.",

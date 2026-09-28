@@ -14,6 +14,7 @@ import { StyleSheet } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
+import { stripIsolates } from '../../../i18n/bidi';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
@@ -103,11 +104,24 @@ describe('the picture', () => {
     await waitFor(() => expect(screen.getByTestId('financial-as-of')).toBeTruthy());
     // The fixture's `asOf` is 2026-08-09T08:00Z: 11:00 on Sunday 9 August in Amman.
     const line = [screen.getByTestId('financial-as-of').props.children].flat().join('');
-    expect(line).toContain(en.financialAsOf);
     expect(line).toContain('11:00');
     expect(line).toContain('Aug 9');
     expect(line).not.toContain('08:00');
     expect(line).not.toContain('2026-08-09');
+  });
+
+  // Review n5: «آخر تحديث: اليوم · 13:05», one template per language (#687),
+  // not a label with a date glued after it.
+  it('reads «Last updated: Today · HH:MM» for a picture from today', async () => {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    jest.spyOn(financialEndpoints, 'getFinancialContext')
+      .mockResolvedValue({ ...CONTEXT, state: { ...CONTEXT.state!, asOf: now.toISOString() } } as typeof CONTEXT);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-as-of')).toBeTruthy());
+    const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Amman', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+    const line = stripIsolates([screen.getByTestId('financial-as-of').props.children].flat().join(''));
+    expect(line).toBe(`Last updated: Today · ${clock}`);
   });
 
   it('says where every figure came from', async () => {
@@ -313,6 +327,15 @@ describe('in Arabic', () => {
    */
   afterEach(async () => {
     await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY);
+  });
+
+  it('says «آخر تحديث: …» in Arabic', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-as-of')).toBeTruthy());
+    const line = stripIsolates([screen.getByTestId('financial-as-of').props.children].flat().join(''));
+    expect(line.startsWith('آخر تحديث: ')).toBe(true);
+    expect(line).toContain('11:00');
   });
 
   it('starts every field on the right', async () => {

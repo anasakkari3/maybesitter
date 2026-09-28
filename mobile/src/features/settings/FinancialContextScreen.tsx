@@ -17,7 +17,7 @@ import type {
   FinancialProvenance,
   FinancialState,
 } from '../../api/schemas/financial';
-import { ltr } from '../../i18n/strings';
+import { fill, ltr } from '../../i18n/strings';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import type { Locale } from '../../i18n/locale';
@@ -67,8 +67,8 @@ function money(minorUnits: number, currency: string): string {
 
 /**
  * When the picture was true: the phone's own day and clock, the way every
- * other instant in the app reads («اليوم · 10:22»), never a UTC stamp — the
- * first UAT read «2026-09-28 07:22» at 10:22 local (N20).
+ * other instant in the app reads («آخر تحديث: اليوم · 10:22»), never a UTC
+ * stamp — the first UAT read «بتاريخ 2026-09-28 07:22» at 10:22 local (N20).
  */
 function asOfText(instant: string, locale: Locale, timeZone: string): string {
   const at = new Date(instant);
@@ -269,7 +269,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
               </View>
               {/* When the picture was true. Never implied to be "now". */}
               <Txt size={12} color={p.mu} testID="financial-as-of">
-                {t.financialAsOf} {asOfText(state.asOf, lang, timeZone)}
+                {fill(t.financialAsOf, { when: asOfText(state.asOf, lang, timeZone) })}
               </Txt>
             </View>
           )}
