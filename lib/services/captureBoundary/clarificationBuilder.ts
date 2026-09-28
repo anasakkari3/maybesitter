@@ -178,13 +178,19 @@ export function buildClarification(
   if (result.timeEvidence === 'clock_marker' && localTime) {
     const hour = Number(localTime.slice(0, 2));
     if (Number.isFinite(hour) && hour >= 1 && hour <= 11) {
-      const morning = `${String(hour).padStart(2, '0')}:${localTime.slice(3, 5)}`;
-      const evening = `${String(hour + 12).padStart(2, '0')}:${localTime.slice(3, 5)}`;
+      const minutes = localTime.slice(3, 5);
+      const morning = `${String(hour).padStart(2, '0')}:${minutes}`;
+      const evening = `${String(hour + 12).padStart(2, '0')}:${minutes}`;
+      // The time as the person said it, with its minutes (UAT r6, shots
+      // 823/824): «سبعة إلا ربع» was asked «أي 6 قصدت؟» with «6 الصبح / 6
+      // المسا», an hour nobody said alone. On the hour it stays the plain
+      // hour. The phone substitutes it verbatim; Western digits, as before.
+      const said = minutes === '00' ? String(hour) : `${hour}:${minutes}`;
       const day = localDate ?? dayFor(evening, context);
       const options = day
         ? [
-          option('am', 'amPmOption', { hour: String(hour), period: 'am' }, { localTime: morning, localDate: day }),
-          option('pm', 'amPmOption', { hour: String(hour), period: 'pm' }, { localTime: evening, localDate: day }),
+          option('am', 'amPmOption', { hour: said, period: 'am' }, { localTime: morning, localDate: day }),
+          option('pm', 'amPmOption', { hour: said, period: 'pm' }, { localTime: evening, localDate: day }),
         ].filter((candidate) => isFuture(day, candidate.value.localTime!, context))
         : [];
       // Both in the past means the day itself is wrong, and am/pm is the wrong
@@ -194,7 +200,7 @@ export function buildClarification(
           questionId: randomUUID(),
           field: 'time_period',
           questionKey: 'ask_am_pm',
-          params: { hour: String(hour), title },
+          params: { hour: said, title },
           options,
           allowFreeText: false,
         };

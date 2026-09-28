@@ -1893,6 +1893,26 @@ test('R6 bare hour: with a period word the hour resolves, and a bare hour past s
   }
 });
 
+test('R6 bare hour with minutes: «بكرا سبعة إلا ربع بدي أصحى» asks about 6:45, not 6, and «الصبح» is 06:45 (shots 823/824)', async () => {
+  const text = 'بكرا سبعة إلا ربع بدي أصحى';
+  const { contract } = await propose(text);
+  assert.equal(contract.items.length, 1);
+  const question = contract.items[0]!.clarification;
+  assert.equal(question?.questionKey, 'ask_am_pm');
+  assert.equal(question?.params.hour, '6:45');
+  assert.deepEqual(question?.options.map((option) => [option.optionId, option.labelParams, option.value.localDate, option.value.localTime]), [
+    ['am', { hour: '6:45', period: 'am' }, '2026-09-27', '06:45'],
+    ['pm', { hour: '6:45', period: 'pm' }, '2026-09-27', '18:45'],
+  ]);
+  const { timeSpec } = await answerFor(text, () => true, () => ({ optionId: 'am' }));
+  assert.equal(timeSpec.dueAt ?? timeSpec.remindAt, '2026-09-27T03:45:00.000Z');
+  // The same with a clock: «6:45» and "6:45" are asked as 6:45 too.
+  for (const said of ['بكرا الساعة 6:45 بدي أصحى', 'dentist tomorrow at 6:45']) {
+    const run = await propose(said);
+    assert.equal(run.contract.items[0]!.clarification?.params.hour, '6:45', said);
+  }
+});
+
 // ── Round 7 (controller rulings on re-review 3: I-1, reminder openers, I-2, I-3) ──
 
 // I-1 — a request or reminder opener followed by a day word still opens a clause.
