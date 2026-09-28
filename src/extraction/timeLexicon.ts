@@ -109,10 +109,24 @@ export const HEBREW_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
   [/(?:ה)?(?:עשר|עשרה|עשירית)/g, '10'],
 ];
 
+/**
+ * «בשתיים בלילה», «בחמש בבוקר», «בשש בערב» (FZ1 review, M5b): «ב» + a spoken
+ * hour right before a part of the day is a clock time too, written «ב-2» so
+ * the clock readers see it. Only there: «בשלוש דקות» is not three o'clock.
+ */
+const HE_HOUR_BEFORE_DAY_PART = new RegExp('(^|[\\s,.،])ב((?:[^\\s,.،]+)(?:\\s+[-־]?\\s*עשר(?:ה)?)?)(?=\\s+(?:בלילה|בבוקר|בערב|בצהריים|בצהרים|אחרי\\s+הצהריים|אחה["״]צ|לפנות\\s+בוקר)(?![\\p{L}]))', 'gu');
+
 export function normalizeSpokenHebrewHours(value: string): string {
   // Only rewrite where a clock is actually being named, so «שלוש משימות»
   // (three tasks) keeps its word and only «בשעה שלוש» or «שעה שלוש» becomes a number.
-  return value.replace(
+  const beforeDayPart = value.replace(HE_HOUR_BEFORE_DAY_PART, (match, lead: string, word: string) => {
+    for (const [pattern, digit] of HEBREW_SPOKEN_HOURS) {
+      pattern.lastIndex = 0;
+      if (new RegExp(`^(?:${pattern.source})$`).test(word)) return `${lead}ב-${digit}`;
+    }
+    return match;
+  });
+  return beforeDayPart.replace(
     /((?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?)\s*)([^\s,.،]+(?:\s+[-־]?\s*עשר(?:ה)?)?)/g,
     (match, lead: string, word: string) => {
       for (const [pattern, digit] of HEBREW_SPOKEN_HOURS) {
