@@ -270,6 +270,24 @@ function amPmAnswerTime(result: ExtractionResult, question: ClarificationContrac
   return `${String(answered).padStart(2, '0')}:${minutes}`;
 }
 
+/**
+ * A typed number with a half of the day and no clock word — «5 المسا», «5 م»,
+ * "5 in the evening", «5 בערב» (FZ1 review, M5a): that hour in that half,
+ * 17:00. The time question's button hours (09/14/19) are for a part of the
+ * day typed with no number; with one, FY1's button mapping gave 19:00.
+ */
+function typedHourWithHalf(freeText: string): string | null {
+  if (statesClock(freeText)) return null;
+  const number = /(?<![0-9٠-٩۰-۹:])([0-9٠-٩۰-۹]{1,2})(?![0-9٠-٩۰-۹:])/.exec(freeText)?.[1];
+  if (!number) return null;
+  const hour = Number(number.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)));
+  if (!Number.isInteger(hour) || hour < 1 || hour > 12) return null;
+  const half = typedHalfOfDay(freeText);
+  if (!half) return null;
+  const answered = half === 'am' ? hour % 12 : half === 'pm' ? (hour % 12) + 12 : nightClockHour(hour);
+  return `${String(answered).padStart(2, '0')}:00`;
+}
+
 /** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */
 function notPast(answered: ExtractionResult, now: Date): ExtractionResult {
   const at = answered.remindAt ?? answered.dueAt;
@@ -386,9 +404,11 @@ async function readFreeTextAnswer(
     // re-review): «بالمسا» is 19:00 like «المسا», tonight while it is ahead.
     // A day named with it is the re-read's; otherwise the item's.
     const typedPart = statesClock(freeText) ? null : dayPartHour(freeText, { answer: true });
-    if (typedPart !== null) {
+    // A number typed with the half: that hour, not the button's (FZ1 review, M5a).
+    const numberedTime = typedHourWithHalf(freeText);
+    if (typedPart !== null || numberedTime) {
       // On the am/pm question the half is of the hour it asked (FZ1 round 2).
-      const time = amPmTime ?? answeredDayPartTime(typedPart);
+      const time = amPmTime ?? numberedTime ?? answeredDayPartTime(typedPart!);
       const namedDay = readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null;
       const day = dayForAnswer(time, namedDay ?? itemDate, { now: options.now, timezone: options.timezone });
       if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
@@ -404,7 +424,7 @@ async function readFreeTextAnswer(
     if (readable && (reread.remindAt || reread.dueAt)) return notPast(withTimeFrom(result, reread), options.now);
     // The answer to "when?": its part of the day is the answer, even before
     // another word ("morning is fine").
-    const hour = dayPartHour(freeText, { answer: true });
+    const hour = numberedTime ? null : dayPartHour(freeText, { answer: true });
     if (hour !== null) {
       const time = answeredDayPartTime(hour);
       const preferred = result.localTimeSpec?.date
