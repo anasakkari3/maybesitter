@@ -176,7 +176,10 @@ function withResolvedTime(
   const instant = local.time ? instantFromLocal(local.date, local.time, timezone) : null;
   return {
     ...result,
-    localTimeSpec: { date: local.date, time: local.time },
+    // The person's zone travels with the answer (FZ1 round 3 add-on): left
+    // out, the command was drafted in UTC, and an appointment cleared to «بدون
+    // وقت» at confirm landed on UTC midnight instead of its local one.
+    localTimeSpec: { date: local.date, time: local.time, timezone },
     // Only the reminder moves. `dueAt` is the deadline the user named, and an
     // answer about *when to be reminded* is not permission to move it.
     remindAt: instant ? instant.toISOString() : null,
