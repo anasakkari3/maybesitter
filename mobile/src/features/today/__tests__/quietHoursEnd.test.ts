@@ -31,6 +31,22 @@ describe('quietHoursEndAt', () => {
     expect(delhi).toBe('04:00');
   });
 
+  /*
+   * POLISH-MOBILE review m6: an end inside a spring-forward gap. New York
+   * skips 02:00–03:00 on 14 March 2027; quiet hours "until 02:30" end when
+   * the clock jumps to 03:00, which the server's minutes-of-day check agrees
+   * with. The card still has an hour to say, and a moment to ask again.
+   */
+  it('ends at the jump when `until` falls in a spring-forward gap', () => {
+    const now = new Date('2027-03-14T05:00:00.000Z'); // 00:00 EST
+    expect(quietHoursEndAt('02:30', 'America/New_York', now)?.toISOString()).toBe('2027-03-14T07:00:00.000Z');
+  });
+
+  it('keeps an ordinary end on a day with a clock change', () => {
+    const now = new Date('2027-03-14T05:00:00.000Z');
+    expect(quietHoursEndAt('07:30', 'America/New_York', now)?.toISOString()).toBe('2027-03-14T11:30:00.000Z');
+  });
+
   it('refuses what is not a clock time', () => {
     expect(quietHoursEndAt('7:30', 'Asia/Tokyo', new Date())).toBeNull();
     expect(quietHoursEndAt('25:00', 'Asia/Tokyo', new Date())).toBeNull();

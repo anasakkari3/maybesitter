@@ -534,6 +534,65 @@ describe('the top card during quiet hours is not quiet mode (UAT round 3, N12)',
     }
   });
 
+  /** Today with quiet hours until 22:30 UTC, rendered at 22:29:30 under fake timers. */
+  async function showQuietUntil2230(then: 'empty' | 'fail-once') {
+    mockDeviceZone = 'UTC';
+    profileIn('UTC');
+    const empty = {
+      success: true, participantId: USER.uid,
+      recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+    };
+    const getNext = jest.spyOn(nextStepEndpoints, 'getNextStep')
+      .mockResolvedValueOnce({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_hours', until: '22:30' } } as never);
+    if (then === 'fail-once') getNext.mockRejectedValueOnce(new Error('offline'));
+    getNext.mockResolvedValue(empty as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [withPriority('a', 'high')] } as never);
+    const view = await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('22:30') }))).not.toBeNull());
+    return { getNext, view };
+  }
+
+  /* POLISH-MOBILE review m4: nothing is asked before the end, and an unmounted Today asks nothing. */
+  it('asks nothing before quiet hours end, and nothing once Today is gone', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext, view } = await showQuietUntil2230('empty');
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(20_000); });
+      expect(getNext.mock.calls.length).toBe(before);
+      await view.unmount();
+      await act(async () => { jest.advanceTimersByTime(120_000); });
+      expect(getNext.mock.calls.length).toBe(before);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /* POLISH-MOBILE review m6: a failed ask at the end is tried once more. */
+  it('tries once more when the ask at the end fails', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext } = await showQuietUntil2230('fail-once');
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      await waitFor(() => expect(getNext.mock.calls.length).toBe(before + 1));
+      expect(screen.queryByTestId('today-quiet')).not.toBeNull();
+      await act(async () => { jest.advanceTimersByTime(60_000); });
+      await waitFor(() => expect(screen.queryByTestId('today-quiet')).toBeNull());
+      expect(getNext.mock.calls.length).toBe(before + 2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('quiet mode keeps its own words and the way to turn it off', async () => {
     await showSilenced({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_mode' } });
     expect(within(screen.getByTestId('today-quiet')).queryByText(en.todayQuietModeOn)).not.toBeNull();

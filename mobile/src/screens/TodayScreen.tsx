@@ -167,9 +167,17 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const refetchNext = next.refetch;
   useEffect(() => {
     if (!quietEndsAt) return undefined;
+    // Asked once at the end, and once more if that ask fails (review m6), so a
+    // dropped request does not leave "back at 07:30" standing after 07:30.
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let gone = false;
     const wait = Math.min(Math.max(0, quietEndsAt.getTime() - Date.now()) + QUIET_END_MARGIN_MS, MAX_TIMER_MS);
-    const timer = setTimeout(() => { void refetchNext(); }, wait);
-    return () => clearTimeout(timer);
+    const timer = setTimeout(() => {
+      void refetchNext().then((result) => {
+        if (result.isError && !gone) retry = setTimeout(() => { void refetchNext(); }, QUIET_END_RETRY_MS);
+      });
+    }, wait);
+    return () => { gone = true; clearTimeout(timer); clearTimeout(retry); };
   }, [quietEndsAt, refetchNext]);
 
   const refresh = () => {
@@ -263,6 +271,8 @@ const GROUP_TITLE = {
 
 /** A beat after quiet hours end, so the route asked again is already past them. */
 const QUIET_END_MARGIN_MS = 2_000;
+/** How long before the one retry, when the ask at the end fails. */
+const QUIET_END_RETRY_MS = 30_000;
 /** setTimeout's ceiling (about 24.8 days). */
 const MAX_TIMER_MS = 2_147_483_647;
 
