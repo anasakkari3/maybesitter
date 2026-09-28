@@ -193,6 +193,38 @@ function withMonthEndWords(title: string | null, rawText: string, words: string 
   return lead && after.slice(lead.length).startsWith(words) ? `${title}${lead}${words}` : title;
 }
 
+/*
+ * Who it is with, when the model's title stopped just before it (closure UAT
+ * round 4, N16). «…والخميس الساعة 6 المسا عندي عشا مع العيلة» came back from
+ * Gemini titled «عندي عشا», and the dinner was saved without the family —
+ * the prompt's own example «عندي دكتور» is two words. The company is the
+ * person's words, as «آخر الشهر» is (FY1 N6): put back only where it was —
+ * the model's title as the person wrote it, followed directly by «مع»/"with"/
+ * «עם» — up to three words, stopping at a time, a day or a preposition.
+ */
+const COMPANION_MARKER = /^(\s+)(مع|with|עם)(?=\s)/iu;
+const COMPANION_STOP = new Set([
+  'on', 'at', 'by', 'in', 'before', 'after', 'for', 'to', 'from', 'until', 'and', 'then',
+  'يوم', 'نهار', 'الساعة', 'الساعه', 'قبل', 'بعد', 'عند', 'على', 'ع', 'في', 'لحد', 'حتى', 'من',
+  'ביום', 'בשעה', 'לפני', 'אחרי', 'עד', 'ב', 'ו',
+]);
+function withCompanion(title: string | null, rawText: string): string | null {
+  if (!title) return title;
+  const at = rawText.indexOf(title);
+  if (at < 0) return title;
+  const marker = COMPANION_MARKER.exec(rawText.slice(at + title.length));
+  if (!marker) return title;
+  const rest = rawText.slice(at + title.length + marker[0].length);
+  const words: string[] = [];
+  for (const word of rest.split(/\s+/).filter(Boolean)) {
+    const bare = word.replace(/[،,.;!?؟:]+$/u, '');
+    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || namesDay(bare) || timeOfDayEvidence(bare) !== 'none' || /^[\d٠-٩]|^ב-?\d/u.test(bare)) break;
+    words.push(bare);
+    if (bare !== word || words.length === 3) break;
+  }
+  return words.length > 0 ? `${title}${marker[1]}${marker[2]} ${words.join(' ')}` : title;
+}
+
 export function reconcileLocalTimeSpec(
   parsed: { dueAt: string | null; remindAt: string | null; localTimeSpec: LocalTimeSpec | null },
   rawText: string,
@@ -577,7 +609,7 @@ export function validateExtractionResult(
     // string.
     action: commandFree(stringOrNull(raw['action']))
       ?? (type === 'task' || type === 'follow_up' ? commandFree(stringOrNull(raw['title'])) : null),
-    title: allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords),
+    title: withCompanion(allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords), rawText),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
     remindAt: time.remindAt,

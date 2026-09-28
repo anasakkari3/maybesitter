@@ -471,9 +471,17 @@ const CLOCK_MARKER = new RegExp(
  */
 const HE_DAY_PREFIX = '[וש]?[בלכמ]?';
 const EN_NOT_POSSESSIVE = "(?!['’]s\\b)";
+/*
+ * «غدا» is tomorrow in the standard language and lunch in the spoken one
+ * (closure UAT round 4, N16 probes). Had with someone — «غدا مع أمي» — it is
+ * the meal: «عندي غدا مع أمي بكرا» was titled «عندي مع أمي», the lunch taken
+ * out as a day word. Written with its tanween («غداً مع…») or anywhere else
+ * it is still tomorrow.
+ */
+const AR_LUNCH_NOT_TOMORROW = 'غد\\p{M}*ا(?!\\s+مع(?![\\p{L}\\p{M}]))';
 const RELATIVE_DAYS: ReadonlyArray<{ offset: number; en: string; ar: string; he: string }> = [
   { offset: 2, en: 'day\\s+after\\s+tomorrow|after\\s+tomorrow|after\\s+tmrw', ar: 'بعد\\s+(?:بكرا|بكرة|بكره|غد\\p{M}*ا?)', he: 'מחרתיים' },
-  { offset: 1, en: 'tomorrow|tmrw|tmr|tomorow', ar: 'بكرا|بكرة|بكره|باچر|باكر|غد\\p{M}*ا', he: 'מחר' },
+  { offset: 1, en: 'tomorrow|tmrw|tmr|tomorow', ar: `بكرا|بكرة|بكره|باچر|باكر|${AR_LUNCH_NOT_TOMORROW}`, he: 'מחר' },
   {
     offset: 0,
     en: 'today|tonight|this\\s+(?:morning|afternoon|evening)',
