@@ -523,3 +523,42 @@ test('integration (FY1 × FY2): an all-day appointment is not a week step, not d
     assert.deepEqual(Object.fromEntries(placements(dto)), { bill: WEEK[2] });
   }, seeds);
 });
+
+/* ── UAT round 3, N13: an all-day appointment is on its day in the week ── */
+
+/*
+ * The round-3 week (262) left Friday's dentist and Sunday's doctor — both
+ * «بدون وقت محدد» appointments, all-day `scheduled_event`s (FY1) — out of the
+ * week altogether, and a day holding only one of them read «يوم فاضي». They are
+ * not work: the week still never places them (the test above). They are shown
+ * on their own day, as fixed all-day rows, in `allDay`.
+ */
+test('N13: an all-day appointment is an all-day row on its own day, and still no step', async () => {
+  const event = (date: string): Omit<TimeSpec, 'timezone'> => ({ kind: 'scheduled_event', dueAt: midnight(date), endAt: null, remindAt: null, allDay: true });
+  const seeds: readonly Seed[] = [
+    { id: 'dentist', title: 'موعد أسنان', level: 'high', dueDay: WEEK[5]!, timeSpec: event(WEEK[5]!) },
+    { id: 'doctor', title: 'موعد دكتور', level: 'high', dueDay: WEEK[2]!, timeSpec: event(WEEK[2]!) },
+    { id: 'bill', title: 'أدفع فاتورة الكهربا', level: 'high', dueDay: WEEK[2]!, timeSpec: allDay(WEEK[2]!) },
+  ];
+  await withUat(async (storage) => {
+    const dto = await week(storage);
+    const allDayOn = Object.fromEntries(dto.days.map((day) => [day.date, day.allDay.map((row) => row.itemId)]));
+    assert.deepEqual(allDayOn, {
+      [WEEK[0]!]: [], [WEEK[1]!]: [], [WEEK[2]!]: ['doctor'], [WEEK[3]!]: [],
+      [WEEK[4]!]: [], [WEEK[5]!]: ['dentist'], [WEEK[6]!]: [],
+    });
+    assert.deepEqual(dto.days[5]!.allDay, [{ itemId: 'dentist', title: 'موعد أسنان' }]);
+    // Shown, not placed: no step, no fixed clock row, nothing unplaced.
+    const rows = dto.days.flatMap((day) => [...day.items, ...day.fixed, ...day.unplaced].map((row) => row.itemId));
+    assert.ok(!rows.includes('dentist') && !rows.includes('doctor'), JSON.stringify(dto.days));
+    assert.deepEqual(Object.fromEntries(placements(dto)), { bill: WEEK[2] });
+
+    // A saved day keeps showing its appointment.
+    const shown = dto.days[2]!.items.map((item) => item.itemId);
+    const saved = await acceptWeekDay(USER, WEEK[2]!, { moves: [], drops: [] }, shown, { storage, now: () => NOW, busyBlocks: MONDAY_MEETING });
+    assert.equal(saved.outcome, 'accepted');
+    const after = await week(storage);
+    assert.equal(after.days[2]!.state, 'accepted');
+    assert.deepEqual(after.days[2]!.allDay, [{ itemId: 'doctor', title: 'موعد دكتور' }]);
+  }, seeds);
+});
