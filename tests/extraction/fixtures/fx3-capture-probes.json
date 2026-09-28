@@ -695,9 +695,16 @@
    "expected": {
     "status": "needs_clarification",
     "items": [
+     "أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time | normal~"
+    ]
+   },
+   "atc4852958": {
+    "status": "needs_clarification",
+    "items": [
      "أحضّر تقرير آخر الشهر | - - | ask_time | normal~"
     ]
-   }
+   },
+   "fz1": "intended (FZ1 N6 controller ruling): the words name this month's end and nothing else in them says when, so the day is this month's last on the person's clock (marked a guess) and the hour is still asked - still not a deadline (FX3 I-1). At c4852958 it had no day at all."
   },
   {
    "text": "بدي أحسب رواتب آخر الشهر بكرا الساعة 10",
@@ -740,9 +747,16 @@
    "expected": {
     "status": "needs_clarification",
     "items": [
+     "Prepare the end of the month report | 2026-09-30 - | ask_time | normal~"
+    ]
+   },
+   "atc4852958": {
+    "status": "needs_clarification",
+    "items": [
      "Prepare the end of the month report | - - | ask_time | normal~"
     ]
-   }
+   },
+   "fz1": "intended (FZ1 N6 controller ruling): the words name this month's end and nothing else in them says when, so the day is this month's last on the person's clock (marked a guess) and the hour is still asked - still not a deadline (FX3 I-1). At c4852958 it had no day at all."
   },
   {
    "text": "Finish the month-end close tomorrow at 9am",

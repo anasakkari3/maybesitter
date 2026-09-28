@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, nightClockHour, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -14,7 +14,7 @@ import {
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
-import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
+import { namesCalendarDate, namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
@@ -176,7 +176,10 @@ function withResolvedTime(
   const instant = local.time ? instantFromLocal(local.date, local.time, timezone) : null;
   return {
     ...result,
-    localTimeSpec: { date: local.date, time: local.time },
+    // The person's zone travels with the answer (FZ1 round 3 add-on): left
+    // out, the command was drafted in UTC, and an appointment cleared to «بدون
+    // وقت» at confirm landed on UTC midnight instead of its local one.
+    localTimeSpec: { date: local.date, time: local.time, timezone },
     // Only the reminder moves. `dueAt` is the deadline the user named, and an
     // answer about *when to be reminded* is not permission to move it.
     remindAt: instant ? instant.toISOString() : null,
@@ -252,6 +255,65 @@ function allDayAppointment(result: ExtractionResult, timezone: string): Extracti
   } as ExtractionResult;
 }
 
+/**
+ * The am/pm question answered by typing a half of the day (FZ1 round 2): the
+ * hour it asked about, in that half — «5» + «المسا»/"pm"/«م»/«בערב» is 17:00,
+ * + «الصبح»/"am"/«ص» is 05:00, + «بالليل» follows the night's rule. The time
+ * question's buttons (09/14/19) are for a day with no hour; here the hour was
+ * said. Null for any other question, or an answer that states a clock (a new
+ * hour) or names no half.
+ */
+function amPmAnswerTime(result: ExtractionResult, question: ClarificationContract, freeText: string): string | null {
+  if (question.field !== 'time_period' || statesClock(freeText)) return null;
+  const half = typedHalfOfDay(freeText);
+  const hour = Number(question.params?.hour);
+  if (!half || !Number.isInteger(hour) || hour < 1 || hour > 11) return null;
+  const minutes = /^\d{2}:(\d{2})$/.exec(result.localTimeSpec?.time ?? '')?.[1] ?? '00';
+  const answered = half === 'am' ? hour : half === 'pm' ? hour + 12 : nightClockHour(hour);
+  return `${String(answered).padStart(2, '0')}:${minutes}`;
+}
+
+/*
+ * A typed number with a half of the day and no clock word — «5 المسا», «5 م»,
+ * "5 in the evening", «5 בערב» (FZ1 review, M5a): that hour in that half,
+ * 17:00. The time question's button hours (09/14/19) are for a part of the
+ * day typed with no number; with one, FY1's button mapping gave 19:00.
+ *
+ * Only the number right before the part of the day (FZ1 round 4): «ع/على/
+ * حوالي/الساعة», "at/about/around" may come before it and "in the" between.
+ * A count or a date is not an hour — «بعد 2 يوم الصبح», «3 مرات المسا», "in 3
+ * days in the evening", «يوم 5 المسا», "the 5th in the evening" — so a unit
+ * after the number, «يوم»/"the" before it, or an ordinal ending refuses it,
+ * and the answer is read as before.
+ */
+const DIGIT = '[0-9٠-٩۰-۹]';
+const HALF_WORD = [
+  'بالمسا', 'المساء', 'المسا', 'مساءً', 'مساء', 'مسا', 'بالصبح', 'الصباح', 'الصبح', 'صباحاً', 'صباحا', 'صبح',
+  'بالعصر', 'العصر', 'بعد\\s+الظهر', 'بعد\\s+الضهر', 'الظهر', 'الضهر', 'بالليل', 'الليل', 'م', 'ص',
+  '(?:in\\s+the\\s+)?(?:morning|afternoon|evening)', 'at\\s+night', 'tonight', 'am', 'pm', 'a\\.m\\.?', 'p\\.m\\.?',
+  'בבוקר', 'בערב', 'בלילה', 'בצהריים', 'אחרי\\s+הצהריים', 'אחה["״]צ',
+].join('|');
+const HOUR_BEFORE_HALF = new RegExp(
+  `(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around)\\s+)?(${DIGIT}{1,2})\\s*(${HALF_WORD})(?![\\p{L}\\p{M}])`,
+  'iu',
+);
+/** «يوم 5», "the 5", "day 5", «ב-5 לחודש»: the number names a day. */
+const DAY_BEFORE_NUMBER = new RegExp(`(?:يوم|نهار|day|the|ב-?)\\s*${DIGIT}{1,2}\\s*(?:${HALF_WORD})(?![\\p{L}\\p{M}])`, 'iu');
+
+function typedHourWithHalf(freeText: string): string | 'ambiguous' | null {
+  if (statesClock(freeText)) return null;
+  const match = HOUR_BEFORE_HALF.exec(freeText);
+  if (!match || DAY_BEFORE_NUMBER.test(freeText)) return null;
+  const hour = Number(match[1]!.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)));
+  if (!Number.isInteger(hour) || hour < 1 || hour > 12) return null;
+  const half = typedHalfOfDay(match[2]!);
+  if (!half) return null;
+  // «12 الصبح» is midnight to some and noon to others: asked, not guessed (round 4).
+  if (hour === 12 && half === 'am') return 'ambiguous';
+  const answered = half === 'am' ? hour % 12 : half === 'pm' ? (hour % 12) + 12 : nightClockHour(hour);
+  return `${String(answered).padStart(2, '0')}:00`;
+}
+
 /** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */
 function notPast(answered: ExtractionResult, now: Date): ExtractionResult {
   const at = answered.remindAt ?? answered.dueAt;
@@ -310,6 +372,23 @@ async function readFreeTextAnswer(
   // «الساعة 4» typed alone: the unlikely morning or a guess (FY1 re-review);
   // not understood, and the صبح/مسا buttons are still there.
   if (TIME_FIELDS.has(question.field) && isBareEarlyHourAnswer(freeText)) throw new ClarifyError('answer_not_understood');
+  // "What time?" answered with no time of day and no day — «بعد ساعة»,
+  // "later", «אחר כך». Whatever hour a re-read finds is not one the person
+  // typed: the sentence's own passed hour, or the engine's guess (closure UAT
+  // round 3, FZ1 N10: Gemini re-read «اليوم الساعة 2 بالليل…» + «بعد ساعة» at
+  // 03:22 as Tuesday 02:00, applied as «بكرا · 02:00»). Not understood; the
+  // buttons stay. A named day alone («بكرا») keeps the person's own hour on
+  // it (FY1 I4), and the am/pm question's «ص»/"pm" is its own field.
+  if (question.field === 'time' && forbidsResolvedTime(freeText) && !namesDay(freeText) && !namesCalendarDate(freeText)) {
+    throw new ClarifyError('answer_not_understood');
+  }
+  // «5 الصبح ولا المسا؟» answered «المسا» with no day: the asked hour, in
+  // that half, on the item's day — no re-read (FZ1 round 2).
+  const amPmTime = amPmAnswerTime(result, question, freeText);
+  const itemDay = result.localTimeSpec?.date ?? null;
+  if (amPmTime && itemDay && !namesDay(freeText) && !namesCalendarDate(freeText) && !readWeekdayReference(freeText)) {
+    return notPast(withResolvedTime(result, { date: itemDay, time: amPmTime }, options.timezone), options.now);
+  }
   const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
   const combined = `${original}\n${freeText}`.trim();
   let extracted: Awaited<ReturnType<typeof extractor>>;
@@ -351,8 +430,13 @@ async function readFreeTextAnswer(
     // re-review): «بالمسا» is 19:00 like «المسا», tonight while it is ahead.
     // A day named with it is the re-read's; otherwise the item's.
     const typedPart = statesClock(freeText) ? null : dayPartHour(freeText, { answer: true });
-    if (typedPart !== null) {
-      const time = answeredDayPartTime(typedPart);
+    // A number typed with the half: that hour, not the button's (FZ1 review, M5a).
+    const typedHour = typedHourWithHalf(freeText);
+    if (typedHour === 'ambiguous') throw new ClarifyError('answer_not_understood');
+    const numberedTime = typedHour;
+    if (typedPart !== null || numberedTime) {
+      // On the am/pm question the half is of the hour it asked (FZ1 round 2).
+      const time = amPmTime ?? numberedTime ?? answeredDayPartTime(typedPart!);
       const namedDay = readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null;
       const day = dayForAnswer(time, namedDay ?? itemDate, { now: options.now, timezone: options.timezone });
       if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
@@ -368,7 +452,7 @@ async function readFreeTextAnswer(
     if (readable && (reread.remindAt || reread.dueAt)) return notPast(withTimeFrom(result, reread), options.now);
     // The answer to "when?": its part of the day is the answer, even before
     // another word ("morning is fine").
-    const hour = dayPartHour(freeText, { answer: true });
+    const hour = numberedTime ? null : dayPartHour(freeText, { answer: true });
     if (hour !== null) {
       const time = answeredDayPartTime(hour);
       const preferred = result.localTimeSpec?.date

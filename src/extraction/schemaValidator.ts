@@ -24,15 +24,18 @@ import {
   instantFromLocal,
   lastDayOfMonth,
   localTimeSpecFor,
+  monthEndDay,
   monthEndIsNotTheDay,
   namesDay,
+  namesOtherDayThanToday,
+  namesTodayOnly,
   readPeriodEndDeadline,
   thisMonthEndWords,
   timeAnchorOf,
   timeOfDayEvidence,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
-import { modelDateIsWeekdayGuess, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
+import { modelDateIsWeekdayGuess, namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
 import { isFixedAppointment, statedObligation } from './priorityLexicon';
 import { stripCaptureCommand } from './captureCommand';
 
@@ -245,6 +248,12 @@ export function reconcileLocalTimeSpec(
   return { dueAt, remindAt, localTimeSpec, timeEvidence: evidence, flags };
 }
 
+/** The calendar day after a local `YYYY-MM-DD`. */
+function nextLocalDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
 /**
  * Validate and normalise raw JSON (already parsed) from the LLM into a well-typed ExtractionResult.
  *
@@ -375,6 +384,30 @@ export function validateExtractionResult(
       dateInferred = weekday.inferred;
     }
   }
+  // The words say today and no other day, and the model's day is tomorrow
+  // (closure UAT round 3, FZ1 N10). At 03:22 on Monday, «اليوم الساعة 2 بالليل
+  // لازم أبعت الإيميل للمدير» came back one run in five as Tuesday 02:00, and
+  // was proposed, settled, as «بكرا · 02:00»: a later reading nobody said,
+  // picked for the person (CL1: never). The words' day wins — and nothing is
+  // settled on it: the model's hour is dropped, so the item is asked for an
+  // hour on today, like a passed hour (FZ1 review, I1).
+  //
+  // Narrow on purpose (FZ1 review, I1): only a model day of exactly tomorrow
+  // (the passed or night hour rolled over), and never when the words name the
+  // day some other way — «يوم 5», «آخر الشهر», «أول الشهر», «مش اليوم», the
+  // weekend, the feast — which the model reads rightly.
+  if (
+    context?.now && time.localTimeSpec?.date && namesTodayOnly(rawText)
+    && !readWeekdayReference(rawText) && !namesCalendarDate(rawText) && !namesOtherDayThanToday(rawText)
+  ) {
+    const zone = context.timezone || 'UTC';
+    const today = localTimeSpecFor(context.now, zone)?.date ?? null;
+    const tomorrow = today ? nextLocalDate(today) : null;
+    if (today && time.localTimeSpec.date === tomorrow) {
+      time = { ...time, dueAt: null, remindAt: null, localTimeSpec: { date: today, time: null, timezone: zone } };
+      dateInferred = false;
+    }
+  }
   // «قبل آخر الشهر» (FX3): a deadline on the month's last day, all day. Gemini
   // answered it with no day at all in the UAT, and with the 30th plus a 23:59
   // nobody said here — the hour is gone above, and the day would then have
@@ -411,11 +444,17 @@ export function validateExtractionResult(
     dateInferred = false;
   }
   const modelDay = time.localTimeSpec?.date ?? null;
+  // The day the words' month end means on the person's clock, counted back or
+  // on when they carry an offset (FZ1 round 2): «قبل آخر الشهر بأسبوع» is the
+  // 23rd, not the 30th FX3 settled. A model 30th under such an offset is the
+  // month's end the words moved away from, and gives way to it.
+  const wordsDay = context?.now ? monthEndDay(rawText, context.now, zone) : null;
+  const deadlineDay = wordsDay && wordsDay.side !== 'after' ? wordsDay.date : null;
   if (
-    monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
-    && (modelDay === null || modelDay === monthLastDay)
+    deadlineDay && monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
+    && (modelDay === null || modelDay === monthLastDay || modelDay === deadlineDay)
   ) {
-    const date = monthLastDay;
+    const date = deadlineDay;
     const midnight = instantFromLocal(date, '00:00', zone);
     if (midnight) {
       allDay = true;
@@ -435,6 +474,25 @@ export function validateExtractionResult(
         if (missingFields[index] === 'time') missingFields.splice(index, 1);
       }
     }
+  }
+  // This month's end in the person's words, and no day at all from the model
+  // — it gave none, or FY1 discarded a later one (closure UAT round 3, FZ1
+  // N6). «أحضّر تقرير آخر الشهر» at 03:40 on Monday kept its title and got
+  // no day: Gemini answered `localTimeSpec: null` (twice, recorded). The
+  // words win for this month's end (controller ruling): the day is this
+  // month's last on the person's clock, the hour is asked, and the day is
+  // marked a guess — it is read from a name for the report, not said as a
+  // date. Only with no time of day and no other day in the words, and never
+  // with an offset or another month (FY1 review, I2).
+  // A counted offset after it («بعد آخر الشهر بيومين») is the day counted
+  // to, said rather than guessed, with or without an hour (FZ1 round 2).
+  if (
+    !time.localTimeSpec?.date && !time.dueAt && !time.remindAt
+    && wordsDay && (wordsDay.side !== 'end' || forbidsResolvedTime(rawText))
+    && !namesDay(rawText) && !namesExplicitDate(rawText)
+  ) {
+    time = { ...time, localTimeSpec: { date: wordsDay.date, time: null, timezone: zone } };
+    dateInferred = wordsDay.side === 'end';
   }
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);

@@ -12,8 +12,13 @@ import {
   normalizeSpokenHebrewHours,
   namesDay,
   instantFromLocal,
+  forbidsResolvedTime,
   lastDayOfMonth,
+  monthEndDay,
   MONTH_END_MENTION_SOURCES,
+  MONTH_END_OFFSET_SOURCE,
+  NIGHT_HOUR,
+  nightClockHour,
   readPeriodEndDeadline,
   relativeDayOffset,
   timeAnchorOf,
@@ -126,7 +131,7 @@ function resolveTimezone(context: ExtractionContext): string {
   return context.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-function parseClock(raw: string): { hour: number; minute: number } | null {
+function parseClock(raw: string): { hour: number; minute: number; night?: true } | null {
   const normalized = normalizeClockText(raw).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
@@ -138,8 +143,10 @@ function parseClock(raw: string): { hour: number; minute: number } | null {
   const minute = explicit[2] ? Number(explicit[2]) : 0;
   const period = explicit[3] || '';
   if (hour < 1 || hour > 23 || minute < 0 || minute > 59) return null;
-  if (/(pm|مساء|المسا|المساء|بالليل|م|בערב|ערב|בלילה|לילה|אחרי הצהריים|אחה"צ|בצהריים|צהריים)/.test(period) && hour < 12) hour += 12;
-  if (/(am|صباح|الصبح|ص|בבוקר|בוקר|בלילה|לילה)/.test(period) && hour === 12) hour = 0;
+  // At night, the small hours are the morning half (FZ1 N10): «2 بالليل» is 02:00.
+  if (/(بالليل|בלילה|לילה)/.test(period)) return { hour: nightClockHour(hour), minute, night: true };
+  if (/(pm|مساء|المسا|المساء|م|בערב|ערב|אחרי הצהריים|אחה"צ|בצהריים|צהריים)/.test(period) && hour < 12) hour += 12;
+  if (/(am|صباح|الصبح|ص|בבוקר|בוקר)/.test(period) && hour === 12) hour = 0;
   return { hour, minute };
 }
 
@@ -189,11 +196,30 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   }
 
   // «قبل آخر الشهر», "by the end of the month", «עד סוף החודש» (FX3): the
-  // month's last day, when nothing else in the sentence named a day.
-  const monthEnd = !targetDate && readPeriodEndDeadline(raw) === 'month' ? lastDayOfMonth(now, tz) : null;
+  // month's last day, when nothing else in the sentence named a day. With a
+  // counted offset before it — «قبل آخر الشهر بأسبوع», "two days before the
+  // end of the month" — the day counted back on the person's clock (FZ1
+  // round 2; FX3 settled all of these on the 30th). Another month named, or an
+  // offset it cannot count, gets no day.
+  const wordsDay = !targetDate ? monthEndDay(raw, now, tz) : null;
+  const monthEnd = wordsDay && wordsDay.side !== 'after' && readPeriodEndDeadline(raw) === 'month' ? wordsDay.date : null;
   if (monthEnd) {
     targetDate = instantFromLocal(monthEnd, '12:00', tz);
     timeConfidence = 0.9;
+  }
+
+  // «أحضّر تقرير آخر الشهر» (FZ1 N6): this month's end named, not as a
+  // deadline («تقرير آخر الشهر» is the month-end report), and nothing else
+  // in the sentence says when. The words win for this month's end
+  // (controller ruling): its last day, the hour asked, the day marked a
+  // guess, and the words kept in the title. Not beside a time of day.
+  // A counted offset after it — «بعد آخر الشهر بيومين» — is the day the
+  // person counted to, said rather than guessed, with or without an hour
+  // (FZ1 round 2).
+  if (!targetDate && wordsDay && (wordsDay.side !== 'end' || forbidsResolvedTime(raw))) {
+    targetDate = instantFromLocal(wordsDay.date, '12:00', tz);
+    timeConfidence = wordsDay.side === 'end' ? 0.6 : 0.9;
+    dateInferred = wordsDay.side === 'end';
   }
 
   if (!targetDate && clock) {
@@ -226,7 +252,11 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     // word is exactly the meridiem the sentence gave, so it is used as one.
     // Only when there was no explicit AM/PM to begin with: `ampm` and `hhmm`
     // have already said which half of the day they mean.
-    if (evidence === 'daypart' && daypart !== null && daypart >= 12 && hour >= 1 && hour <= 11) {
+    // A night hour is read by the night's own rule (FZ1 N10): «الساعة 2
+    // بالليل» is 02:00, "at 11 tonight" is 23:00.
+    if (evidence === 'daypart' && daypart === NIGHT_HOUR) {
+      if (!clock.night) hour = nightClockHour(hour);
+    } else if (evidence === 'daypart' && daypart !== null && daypart >= 12 && hour >= 1 && hour <= 11) {
       hour += 12;
     }
     timeConfidence = Math.max(timeConfidence, 0.95);
@@ -296,7 +326,9 @@ const DAY_PART_STRIP = DAY_PART_MENTION_SOURCES.map((source) => new RegExp(sourc
 const RELATIVE_DAY_STRIP = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
 const WEEKDAY_STRIP = WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'gu'));
 const CLOCK_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi'));
-const MONTH_END_STRIP = MONTH_END_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+// The counted offset whole first («قبل آخر الشهر بأسبوع»), so «بأسبوع» is not
+// left behind in the title (FZ1 round 2).
+const MONTH_END_STRIP = [MONTH_END_OFFSET_SOURCE, ...MONTH_END_MENTION_SOURCES].map((source) => new RegExp(source, 'giu'));
 /**
  * «הבוקר» is "this morning" and also "the morning" («ישיבת הבוקר»). It gives
  * an item no time unless the text names a day, and then it is kept in the

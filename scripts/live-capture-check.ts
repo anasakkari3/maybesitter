@@ -47,7 +47,7 @@ const RECORD = process.argv.includes('--record') ? process.argv[process.argv.ind
 const REFERENCE_TIME = '2026-09-26T07:00:00.000Z';
 const TIMEZONE = 'Asia/Jerusalem';
 
-const CASES: ReadonlyArray<{ name: string; text: string; referenceTime?: string }> = [
+const CASES: ReadonlyArray<{ name: string; text: string; referenceTime?: string; timezone?: string; answer?: string }> = [
   {
     name: 'D1/A3 six commitments',
     text: 'سجّل موعد دكتور يوم الأحد. وبدي أدفع فاتورة الكهربا قبل آخر الشهر، ولازم أرد على إيميل سامي بخصوص المشروع، وذكرني أتصل بأمي بكرا المسا، وكمان عندي تمرين بالجيم يوم الثلاثاء الساعة 7 المسا، وبدي أخلص تقرير الشغل قبل الخميس.',
@@ -101,6 +101,12 @@ const CASES: ReadonlyArray<{ name: string; text: string; referenceTime?: string 
   { name: 'FY1 N1 a passed hour and a past event', text: 'اليوم الساعة 3 العصر كان عندي اجتماع مع سامي، واليوم لازم أرتب الغرفة، وبكرا الساعة 5 بدي أروح عالبنك', referenceTime: '2026-09-27T15:08:00.000Z' },
   { name: 'FY1 N1 a passed hour alone', text: 'اليوم الساعة 3 العصر لازم أبعت الإيميل للمدير', referenceTime: '2026-09-27T15:08:00.000Z' },
   { name: 'FY1 N6 the month-end report', text: 'أحضّر تقرير آخر الشهر', referenceTime: '2026-09-27T15:05:00.000Z' },
+  // UAT round 3 (FZ1), in the small hours they were typed: Monday 28 Sep,
+  // 03:22 and 03:40 on the phone's clock (Asia/Hebron). `answer` is typed into
+  // the first question the capture asks.
+  { name: 'FZ1 N10 a passed night hour alone', text: 'اليوم الساعة 2 بالليل لازم أبعت الإيميل للمدير', referenceTime: '2026-09-28T00:22:00.000Z', timezone: 'Asia/Hebron', answer: 'بعد ساعة' },
+  { name: 'FZ1 N6 the month-end report', text: 'أحضّر تقرير آخر الشهر', referenceTime: '2026-09-28T00:40:00.000Z', timezone: 'Asia/Hebron' },
+  { name: 'FZ1 N6 the month-end report (must)', text: 'لازم أحضّر تقرير آخر الشهر', referenceTime: '2026-09-28T00:41:00.000Z', timezone: 'Asia/Hebron' },
 ];
 
 async function main(): Promise<void> {
@@ -136,9 +142,10 @@ async function main(): Promise<void> {
     taps.length = 0;
     const metered = captureLlmProvider(uid);
     const startedAt = Date.now();
+    const zone = testCase.timezone ?? TIMEZONE;
     const proposal = await proposeCapture(testCase.text, {
       now: new Date(testCase.referenceTime ?? REFERENCE_TIME),
-      timezone: TIMEZONE,
+      timezone: zone,
       scopeId: uid,
       requestedEngine: 'model',
     }, {
@@ -169,6 +176,33 @@ async function main(): Promise<void> {
         console.log(`  [raw] sent: ${tap.clause}`);
         console.log(`  [raw] got:  ${tap.text.replace(/\s+/g, ' ')}`);
       }
+    }
+
+    // A typed answer to the first question, as the phone sends it (FZ1).
+    const asked = testCase.answer ? proposal.items.find((item) => item.clarification) : undefined;
+    if (testCase.answer && asked?.clarification) {
+      const before = taps.length;
+      let outcome: string;
+      try {
+        const updated = await answerClarification(
+          { proposalId: proposal.proposalId, itemId: asked.itemId, questionId: asked.clarification.questionId, freeText: testCase.answer },
+          { now: new Date(testCase.referenceTime ?? REFERENCE_TIME), timezone: zone, scopeId: uid },
+          { store, recordEvent: () => undefined, extractor: guardedMobileExtract, llmEngine: 'gemini', llmProvider: async (prompt: string, callOptions?: { shape?: 'single' | 'batch'; timeoutMs?: number }) => {
+            const text = await metered(prompt, callOptions);
+            const lines = prompt.split('\n');
+            const sent = lines.slice(lines.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE') + 1, lines.indexOf('END_UNTRUSTED_USER_MESSAGE')).join('\n');
+            taps.push({ clause: sent, text });
+            if (RECORD) recorded.push({ case: `${testCase.name} / answer`, shape: callOptions?.shape ?? 'single', timeoutMs: callOptions?.timeoutMs ?? null, clauses: JSON.parse(lines[lines.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE') + 1] ?? 'null'), answer: JSON.parse(text) });
+            return text;
+          } },
+        );
+        const item = updated.items.find((candidate) => candidate.itemId === asked.itemId);
+        outcome = JSON.stringify({ resolvedTime: item?.resolvedTime, resolvedDate: item?.resolvedDate, needsClarification: item?.needsClarification });
+      } catch (error) {
+        outcome = `refused: ${(error as { failure?: string }).failure ?? (error instanceof Error ? error.message : String(error))}`;
+      }
+      console.log(`  answer «${testCase.answer}» → modelCalls=${taps.length - before} ${outcome}`);
+      if (RAW) for (const tap of taps.slice(before)) console.log(`  [raw] answer got: ${tap.text.replace(/\s+/g, ' ')}`);
     }
 
     // A typed answer to the doctor's time question, in the same minute: it

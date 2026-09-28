@@ -109,10 +109,24 @@ export const HEBREW_SPOKEN_HOURS: ReadonlyArray<readonly [RegExp, string]> = [
   [/(?:ה)?(?:עשר|עשרה|עשירית)/g, '10'],
 ];
 
+/**
+ * «בשתיים בלילה», «בחמש בבוקר», «בשש בערב» (FZ1 review, M5b): «ב» + a spoken
+ * hour right before a part of the day is a clock time too, written «ב-2» so
+ * the clock readers see it. Only there: «בשלוש דקות» is not three o'clock.
+ */
+const HE_HOUR_BEFORE_DAY_PART = new RegExp('(^|[\\s,.،])ב((?:[^\\s,.،]+)(?:\\s+[-־]?\\s*עשר(?:ה)?)?)(?=\\s+(?:בלילה|בבוקר|בערב|בצהריים|בצהרים|אחרי\\s+הצהריים|אחה["״]צ|לפנות\\s+בוקר)(?![\\p{L}]))', 'gu');
+
 export function normalizeSpokenHebrewHours(value: string): string {
   // Only rewrite where a clock is actually being named, so «שלוש משימות»
   // (three tasks) keeps its word and only «בשעה שלוש» or «שעה שלוש» becomes a number.
-  return value.replace(
+  const beforeDayPart = value.replace(HE_HOUR_BEFORE_DAY_PART, (match, lead: string, word: string) => {
+    for (const [pattern, digit] of HEBREW_SPOKEN_HOURS) {
+      pattern.lastIndex = 0;
+      if (new RegExp(`^(?:${pattern.source})$`).test(word)) return `${lead}ב-${digit}`;
+    }
+    return match;
+  });
+  return beforeDayPart.replace(
     /((?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?)\s*)([^\s,.،]+(?:\s+[-־]?\s*עשר(?:ה)?)?)/g,
     (match, lead: string, word: string) => {
       for (const [pattern, digit] of HEBREW_SPOKEN_HOURS) {
@@ -338,6 +352,42 @@ const DAY_PARTS: readonly DayPartWords[] = [
   { hour: 18, en: 'evening', ar: 'المساء?|مسا(?:ء\\p{M}*ا?)?|الفترة\\s+المسائي[ةه]', he: 'ערב' },
 ];
 
+/** The hour `dayPartHour` gives the night («بالليل», "tonight", «בלילה»). */
+export const NIGHT_HOUR = 20;
+
+/*
+ * A clock hour said "at night" (closure UAT round 3, FZ1 N10). «الساعة 2
+ * بالليل», «ב-2 בלילה» and "2 at night" are two in the morning — the small
+ * hours are night too — so only 6 to 11 move to the evening half; 12 at night
+ * is midnight. The rules read every night hour as pm, so «اليوم الساعة 2
+ * بالليل» typed at 03:22 was proposed, settled, for 14:00.
+ */
+export function nightClockHour(hour: number): number {
+  if (hour === 12) return 0;
+  if (hour >= 1 && hour <= 5) return hour;
+  return hour < 12 ? hour + 12 : hour;
+}
+
+/*
+ * Which half of the day a typed answer names, for the am/pm question about an
+ * hour already said (closure UAT round 3, FZ1 round 2). «المسا», "pm", «م»,
+ * «בערב» are the evening half of *that* hour — «5» answered «المسا» is 17:00 —
+ * not the time question's 19:00 button. The night is its own rule
+ * (`nightClockHour`). "am"/"pm" count only as the whole answer ("I am
+ * busy" is not the morning). Null when the answer names no half.
+ */
+const AM_WORD = new RegExp(`^\\s*(?:am|a\\.m\\.?)\\s*$|${'(?<![\\p{L}\\p{M}])'}(?:ص|صباحا|صباحًا|صباحاً)\\p{M}*(?![\\p{L}\\p{M}])|לפנה["״]צ`, 'iu');
+const PM_WORD = new RegExp(`^\\s*(?:pm|p\\.m\\.?)\\s*$|${'(?<![\\p{L}\\p{M}])'}(?:م|مساء|مساءً|مساءا)\\p{M}*(?![\\p{L}\\p{M}])`, 'iu');
+export function typedHalfOfDay(rawText: string): 'am' | 'pm' | 'night' | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  if (AM_WORD.test(rawText)) return 'am';
+  if (PM_WORD.test(rawText)) return 'pm';
+  const hour = dayPartHour(rawText, { answer: true });
+  if (hour === null || hour === 0) return null;
+  if (hour === NIGHT_HOUR) return 'night';
+  return hour < 12 ? 'am' : 'pm';
+}
+
 /**
  * A title loses the preposition with the part of the day — "call mom at
  * noon" is "call mom", not "call mom at".
@@ -474,6 +524,72 @@ export function relativeDaySource(offset: 0 | 1 | 2): string {
  * title with its proclitic («واليوم» leaves no «و») and nothing else.
  */
 export const RELATIVE_DAY_MENTION_SOURCES: readonly string[] = RELATIVE_DAYS.flatMap(relativeDaySources);
+
+/*
+ * "Tonight" runs past midnight: "tonight at 1", «الليلة الساعة 1» and
+ * «הלילה ב-1» are read as the coming small hours, tomorrow's date, rightly.
+ */
+const TONIGHT = new RegExp(
+  [
+    '\\btonight\\b',
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:الليلة|الليله)\\p{M}*${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}${HE_DAY_PREFIX}הלילה${NOT_LETTER_AFTER}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * The words' only relative day is today — «اليوم», "today", «היום» — and not
+ * "tonight" (closure UAT round 3, FZ1 N10). A weekday or a date named beside
+ * it is the caller's to check.
+ */
+export function namesTodayOnly(rawText: string): boolean {
+  return relativeDayOffset(rawText) === 0 && !TONIGHT.test(rawText);
+}
+
+/*
+ * Words that put the commitment on some day other than today even when
+ * «اليوم»/"today"/«היום» is the only relative day in them (FZ1 review, I1):
+ * «اليوم الدكتور قلي ارجعله يوم 5», «اليوم عرفت إنه الاجتماع أول الشهر»,
+ * "not today", the weekend, after the feast. A model day for those is the
+ * model's reading of those words, not a "today" it moved.
+ */
+const OTHER_DAY_THAN_TODAY = new RegExp(
+  [
+    // «مش اليوم», "not today", «לא היום»
+    `${NOT_LETTER_BEFORE}(?:مش|مو|ما|لا|مب)\\s+${AR_PROCLITIC}(?:اليوم|النهارده|النهاردة)${NOT_LETTER_AFTER}`,
+    '\\bnot\\s+today\\b',
+    `${NOT_LETTER_BEFORE}לא\\s+היום${NOT_LETTER_AFTER}`,
+    // «يوم 5», «بـ 5 الشهر», «ב-5 לחודש», "on the 5th"
+    `${NOT_LETTER_BEFORE}يوم\\s*[0-9٠-٩]{1,2}(?![0-9٠-٩:])`,
+    `${NOT_LETTER_BEFORE}(?:ب|بـ)\\s*[0-9٠-٩]{1,2}\\s+(?:من\\s+)?(?:ال|هال|ل)?شهر`,
+    `${NOT_LETTER_BEFORE}ב-?\\s*[0-9]{1,2}\\s+(?:ל|ב)?חודש`,
+    // The month's start: «أول الشهر», "the beginning of the month", «תחילת החודש»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:أول|اول|بداية|بدايه|مطلع)\\s+(?:هال|ال)?شهر`,
+    '\\b(?:beginning|start)\\s+of\\s+(?:the\\s+|next\\s+)?month\\b',
+    `${NOT_LETTER_BEFORE}[בל]?(?:תחילת|ראשית)\\s+ה?חודש`,
+    // The weekend: «الويكند», «آخر الأسبوع», "the weekend", «סוף השבוע», «סופ"ש»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:الويكند|الويك\\s+اند|ويكند)`,
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:آخر|اخر|نهاية|نهايه)\\s+(?:هال|ال)?(?:أسبوع|اسبوع|جمعة)`,
+    '\\bweek\\s*-?\\s*end\\b',
+    `${NOT_LETTER_BEFORE}[בל]?(?:סוף\\s+ה?שבוע|סופ["״]?ש)`,
+    // A feast or a holiday: «بعد العيد», "after the holidays", «אחרי החג»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:العيد|عيد|الأعياد|الاعياد)${NOT_LETTER_AFTER}`,
+    '\\bholidays?\\b',
+    `${NOT_LETTER_BEFORE}[בל]?(?:אחרי\\s+)?ה?(?:חג|חגים)${NOT_LETTER_AFTER}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * The words name a day that is not today although «اليوم»/"today" is their
+ * only relative day: a negated today, a day of the month, the month's start
+ * or end, the weekend, a feast (FZ1 review, I1).
+ */
+export function namesOtherDayThanToday(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  return OTHER_DAY_THAN_TODAY.test(rawText) || thisMonthEndWords(rawText) !== null || readPeriodEndDeadline(rawText) !== null;
+}
 
 /**
  * A day, without any time of day. English, Arabic and Hebrew.
@@ -822,6 +938,146 @@ const MONTH_END_NOT_THE_DAY = new RegExp(
  */
 export function monthEndIsNotTheDay(rawText: string): boolean {
   return typeof rawText === 'string' && MONTH_END_NOT_THE_DAY.test(rawText);
+}
+
+/*
+ * A counted offset on this month's end (closure UAT round 3, FZ1 round 2):
+ * «قبل آخر الشهر بأسبوع», «أسبوع قبل آخر الشهر», «بعد آخر الشهر بيومين»,
+ * "two days before the end of the month", «שבוע לפני סוף החודש». FX3 read
+ * the limit word and settled all of these on the month's last day — a later
+ * deadline than the person said. The count is read here, on the person's
+ * clock; an offset with no count («بعد آخر الشهر», "after the end of the
+ * month") is left uncounted, and gets no day.
+ */
+const AR_COUNT: ReadonlyArray<[string, number]> = [
+  ['تلاتة|ثلاثة|تلات|ثلاث|تلت', 3], ['أربعة|اربعة|أربع|اربع', 4], ['خمسة|خمس', 5], ['ستة|ست', 6],
+  ['سبعة|سبع', 7], ['تمانية|ثمانية|تمن|ثمان', 8], ['تسعة|تسع', 9], ['عشرة|عشر', 10],
+];
+const EN_COUNT: ReadonlyArray<[string, number]> = [
+  ['a\\s+couple\\s+of|couple\\s+of', 2], ['an|a|one', 1], ['two', 2], ['three', 3], ['four', 4], ['five', 5],
+  ['six', 6], ['seven', 7], ['eight', 8], ['nine', 9], ['ten', 10],
+];
+const HE_COUNT: ReadonlyArray<[string, number]> = [
+  ['שלושה|שלוש', 3], ['ארבעה|ארבע', 4], ['חמישה|חמש', 5], ['שישה|שש', 6], ['שבעה|שבע', 7], ['עשרה|עשר', 10],
+];
+// Latin and Arabic-Indic digits («ب٣ أيام»: the Arabic keyboard's) (FZ1 review, I2).
+const countSource = (counts: ReadonlyArray<[string, number]>) => `[0-9٠-٩۰-۹]{1,2}|${counts.map(([words]) => words).join('|')}`;
+/** Days per unit, and whether the unit needs a count («أيام», "days", «ימים»). */
+const OFFSET_UNITS: ReadonlyArray<{ words: string; days: number; counted: boolean }> = [
+  { words: 'أسبوعين|اسبوعين|جمعتين|שבועיים', days: 14, counted: false },
+  { words: 'أسابيع|اسابيع|weeks|שבועות', days: 7, counted: true },
+  { words: 'أسبوع|اسبوع|جمعة|week|שבוע', days: 7, counted: false },
+  { words: 'يومين|יומיים', days: 2, counted: false },
+  // «تيام» is how «أيام» is said after a count: «خمس تيام».
+  { words: 'أيام|ايام|تيام|days|ימים', days: 1, counted: true },
+  { words: 'يوم|day|יום', days: 1, counted: false },
+];
+const UNIT_SOURCE = OFFSET_UNITS.map((unit) => unit.words).join('|');
+/** The month's end in Arabic, as words or as «ما يخلص الشهر» (FX3). */
+const AR_MONTH_END_PHRASE = `(?:${AR_END}\\s+${AR_MONTH_WORD}|ما\\s+(?:يخلص|يخلّص|ينتهي|يوفى|يوفّى)\\s+${AR_MONTH_WORD})`;
+const MONTH_END_OFFSET = new RegExp(
+  [
+    // «قبل آخر الشهر بأسبوع», «بعد آخر الشهر بتلات أيام», «ب 3 أيام»,
+    // «قبل ما يخلص الشهر بأسبوع»
+    `${NOT_LETTER_BEFORE}[وف]?(قبل|بعد)\\s+${AR_MONTH_END_PHRASE}\\s+(?:بـ|ب)\\s*(?:(${countSource(AR_COUNT)})\\s*)?(${UNIT_SOURCE})${NOT_LETTER_AFTER}`,
+    // «أسبوع قبل آخر الشهر», «بيومين بعد آخر الشهر»
+    `${NOT_LETTER_BEFORE}[وف]?(?:بـ|ب)?\\s*(?:(${countSource(AR_COUNT)})\\s*)?(${UNIT_SOURCE})\\s+(قبل|بعد)\\s+${AR_MONTH_END_PHRASE}${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`,
+    // "two days before the end of the month", "a week after month end"
+    `\\b(${countSource(EN_COUNT)})\\s+(${UNIT_SOURCE})\\s+(before|after)\\s+(?:the\\s+)?(?:end\\s+of\\s+(?:the\\s+|this\\s+)?month|month[\\s-]end)\\b${EN_NOT_ANOTHER_MONTH}`,
+    // «שבוע לפני סוף החודש», «שלושה ימים אחרי סוף החודש»
+    `${NOT_LETTER_BEFORE}(?:(${countSource(HE_COUNT)})\\s+)?(${UNIT_SOURCE})\\s+(לפני|אחרי)\\s+ה?סוף\\s+ה?חודש${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+  ].join('|'),
+  'iu',
+);
+
+/*
+ * An offset on the month's end that gives no count (FZ1 review, I2):
+ * «بأسابيع», «بكم يوم», «بشي أسبوع», «بشوي», "a few days before the end of
+ * the month", «כמה ימים לפני סוף החודש». No day is ours to pick: the hour is
+ * asked, and the words stay in the title.
+ */
+const AR_VAGUE = '(?:كم|كام|شي|عدة|عدّة|كذا)';
+const AR_VAGUE_UNIT = `(?:${UNIT_SOURCE}|شوي|شوية|شويه|فترة|فتره|مدة|مده)`;
+const MONTH_END_VAGUE_OFFSET = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}[وف]?(?:قبل|بعد)\\s+${AR_MONTH_END_PHRASE}\\s+(?:بـ|ب)\\s*(?:${AR_VAGUE}\\s*)?${AR_VAGUE_UNIT}${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}[وف]?(?:بـ|ب)?\\s*(?:${AR_VAGUE}\\s*)?(?:${UNIT_SOURCE})\\s+(?:قبل|بعد)\\s+${AR_MONTH_END_PHRASE}`,
+    '\\b(?:(?:a\\s+)?few|some|several|many|a\\s+couple|couple)?\\s*(?:days?|weeks?)\\s+(?:before|after)\\s+(?:the\\s+)?(?:end\\s+of|month[\\s-]end)\\b',
+    `${NOT_LETTER_BEFORE}(?:כמה\\s+|מספר\\s+)?(?:ימים|יום|שבועות|שבוע)\\s+(?:לפני|אחרי)\\s+ה?סוף\\s+ה?חודש`,
+  ].join('|'),
+  'iu',
+);
+
+/*
+ * Another month's end named: «סוף חודש אוקטובר», "the end of October",
+ * «آخر شهر 10» (FZ1 review, I3). An offset on it is not counted on this month.
+ */
+const ANOTHER_MONTH_END = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}${AR_END}\\s+(?:هال|ال)?شهر\\s+${AR_MONTHS}${NOT_LETTER_AFTER}`,
+    `\\bend\\s+of\\s+(?:the\\s+month\\s+of\\s+)?${EN_MONTHS}\\b`,
+    `${NOT_LETTER_BEFORE}[ובל]?סוף\\s+ה?חודש\\s+ה?${HE_MONTHS}${NOT_LETTER_AFTER}`,
+  ].join('|'),
+  'iu',
+);
+
+/** The whole offset phrases, for a title that used them as its deadline to lose them. */
+export const MONTH_END_OFFSET_SOURCE: string = MONTH_END_OFFSET.source;
+
+function countOf(word: string | undefined): number | null {
+  if (word === undefined) return null;
+  const digits = word.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  if (/^\d+$/.test(digits)) return Number(digits);
+  for (const [words, value] of [...AR_COUNT, ...EN_COUNT, ...HE_COUNT]) {
+    if (new RegExp(`^(?:${words})$`, 'iu').test(word.trim())) return value;
+  }
+  return null;
+}
+
+/** Signed days from the month's end, or null when the text counts none. */
+function monthEndOffsetDays(rawText: string): number | null {
+  const match = MONTH_END_OFFSET.exec(rawText);
+  if (!match) return null;
+  // Each alternative captures (direction, count, unit) in its own order.
+  const groups: Array<[string | undefined, string | undefined, string | undefined]> = [
+    [match[1], match[2], match[3]],
+    [match[6], match[4], match[5]],
+    [match[9], match[7], match[8]],
+    [match[12], match[10], match[11]],
+  ];
+  const found = groups.find(([direction, , unitWord]) => direction && unitWord);
+  if (!found) return null;
+  const [direction, countWord, unitWord] = found;
+  const unit = OFFSET_UNITS.find((candidate) => new RegExp(`^(?:${candidate.words})$`, 'iu').test(unitWord!.trim()));
+  if (!unit) return null;
+  const count = countOf(countWord);
+  if (unit.counted && count === null) return null;
+  const days = (count ?? 1) * unit.days;
+  if (!Number.isFinite(days) || days < 1 || days > 60) return null;
+  return /^(?:قبل|before|לפני)$/i.test(direction!) ? -days : days;
+}
+
+/**
+ * The day this month's end in the person's words means, on their clock:
+ * the month's last day (`end`), or that day counted back or on (`before`,
+ * `after`). Null when the text names no end of this month, or puts on it an
+ * offset it does not count or another month («סוף חודש אוקטובר») — no day
+ * of ours, the hour asked (FY1 review, I2).
+ */
+export function monthEndDay(rawText: string, now: Date, timeZone: string): { date: string; side: 'end' | 'before' | 'after' } | null {
+  // «قبل ما يخلص الشهر» names the month's end without the words (FX3).
+  if (!thisMonthEndWords(rawText) && readPeriodEndDeadline(rawText) !== 'month') return null;
+  // Another month's end: nothing here is counted on this one (I3).
+  if (ANOTHER_MONTH_END.test(rawText)) return null;
+  const last = lastDayOfMonth(now, timeZone);
+  const offset = monthEndOffsetDays(rawText);
+  if (offset === null) {
+    // An offset it cannot count, or one FY1 already knew: no day (I2).
+    return monthEndIsNotTheDay(rawText) || MONTH_END_VAGUE_OFFSET.test(rawText) ? null : { date: last, side: 'end' };
+  }
+  const [year, month, day] = last.split('-').map(Number) as [number, number, number];
+  const shifted = new Date(Date.UTC(year, month - 1, day + offset));
+  return { date: shifted.toISOString().slice(0, 10), side: offset < 0 ? 'before' : 'after' };
 }
 
 /** The number a clock word names, or an early h:mm with no marker. */
