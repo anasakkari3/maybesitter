@@ -978,7 +978,7 @@
   "todayAllDoneBody": "לא נשאר שום דבר פתוח להיום.",
   "todayQuietModeOn": "מצב שקט פועל. לא נציע כלום עד שתכבו אותו.",
   "todayQuietHoursUntil": "עכשיו שעות השקט. ההצעות חוזרות ב-{time}.",
-  "todayQuietHours": "עכשיו שעות השקט. ההצעות חוזרות כשהן נגמרות.",
+  "todayQuietHours": "עכשיו שעות השקט. ההצעות יחזרו כששעות השקט ייגמרו.",
   "todayNextPaused": "ההצעות מושהות כרגע.",
   "todayShowFinished": "הכול",
   "todayHideFinished": "סגירה",
