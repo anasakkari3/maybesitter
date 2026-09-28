@@ -1416,6 +1416,19 @@ test('exports a fixture for every /api/mobile call the React Native client makes
 
     await record('profile.one', 200, await profileGet(request('/api/mobile/profile')));
 
+    // UAT round 3, N12: the next step inside those quiet hours. The clock is
+    // pinned to 00:30 in Jerusalem, inside 22:30–07:30, so the answer is the
+    // quiet-hours one every run and carries the hour they end.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-08-10T21:30:00.000Z') });
+    try {
+      const quiet = await record('nextStep.quietHours', 200, await nextStepGet(
+        request('/api/mobile/recommendations/next-step?locale=ar'),
+      ));
+      assert.deepEqual(quiet.exposure, { allowed: false, reason: 'quiet_hours', until: '07:30' });
+    } finally {
+      mock.timers.reset();
+    }
+
     // ── the self-description pair (#168) ───────────────────────────
     // No model is configured here, so the suggestion list comes back empty —
     // which is the shape the client must handle anyway, and the honest record
@@ -1966,9 +1979,28 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         }).newState;
         return applyDomainCommand(drafted, { type: 'ConfirmCommitment', commitmentId: id, now: REFERENCE_TIME, reminders: [] }).newState;
       }, await readParticipantState(USER));
-      await persistParticipantState(USER, weekState);
+      // UAT round 3, N13: an appointment with no hour (FY1's all-day
+      // `scheduled_event`) on the 13th, so the week's `allDay` rows are pinned
+      // by a real, non-empty answer. Never a step: the planner leaves it out.
+      const withAppointment = applyDomainCommand(applyDomainCommand(weekState, {
+        type: 'CreateDraft',
+        now: REFERENCE_TIME,
+        commitment: {
+          id: 'plan_fixture_week_all_day',
+          kind: 'task',
+          title: 'Dentist appointment',
+          timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-12T21:00:00.000Z', remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' },
+        },
+        draftStatus: 'pending_confirmation',
+      }).newState, { type: 'ConfirmCommitment', commitmentId: 'plan_fixture_week_all_day', now: REFERENCE_TIME, reminders: [] }).newState;
+      await persistParticipantState(USER, withAppointment);
       const proposedWeek = await record('plan.week', 200, await planWeekPost(request('/api/mobile/plans/week', { body: {} })));
-      const weekDays = (proposedWeek.week as { days: Array<{ date: string; state: string; items: unknown[]; fixed: unknown[] }> }).days;
+      const weekDays = (proposedWeek.week as { days: Array<{ date: string; state: string; items: unknown[]; fixed: unknown[]; allDay: Array<{ itemId: string }> }> }).days;
+      assert.deepEqual(
+        weekDays.filter((day) => day.allDay.length > 0).map((day) => [day.date, day.allDay.map((row) => row.itemId)]),
+        [['2026-08-13', ['plan_fixture_week_all_day']]],
+        'the week fixture does not show the all-day appointment on its day',
+      );
       assert.deepEqual(weekDays.map((day) => day.state).slice(0, 2), ['planned', 'planned'], 'the week fixture does not show the stored days as plans');
       assert.ok(weekDays.some((day) => day.state === 'proposed' && day.items.length > 0), 'the week fixture proposes nothing, so the step schema it exists to pin is never exercised');
       assert.ok(weekDays.some((day) => day.fixed.length > 0), 'the week fixture has no fixed row');

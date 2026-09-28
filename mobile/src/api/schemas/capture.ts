@@ -57,6 +57,13 @@ export const captureProposalSchema = z.object({
        */
       allDayEvent: z.boolean().optional(),
       /**
+       * True when the item happens *on* `resolvedDate`, so clearing its hour
+       * in the edit sheet keeps it there (the server's confirm rule, FY1 M1).
+       * The card then reads «<day> · بدون وقت» rather than a bare «بدون وقت»
+       * (UAT round 3, N11). Absent for a task, which loses the day.
+       */
+      eventOnDay: z.boolean().optional(),
+      /**
        * The one question to ask about this item (UC-2.5, #165).
        *
        * Keys and parameters, never a sentence: the phone renders the question

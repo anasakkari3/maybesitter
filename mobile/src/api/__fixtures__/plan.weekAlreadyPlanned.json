@@ -26,6 +26,7 @@
           }
         ],
         "fixed": [],
+        "allDay": [],
         "unplaced": []
       },
       {
@@ -62,6 +63,7 @@
             "endsAt": "2026-08-09T09:00:00.000Z"
           }
         ],
+        "allDay": [],
         "unplaced": []
       },
       {
@@ -77,6 +79,7 @@
           }
         ],
         "fixed": [],
+        "allDay": [],
         "unplaced": []
       },
       {
@@ -92,6 +95,7 @@
           }
         ],
         "fixed": [],
+        "allDay": [],
         "unplaced": []
       },
       {
@@ -106,6 +110,12 @@
             "endsAt": "2026-08-09T09:00:00.000Z"
           }
         ],
+        "allDay": [
+          {
+            "itemId": "plan_fixture_week_all_day",
+            "title": "Dentist appointment"
+          }
+        ],
         "unplaced": []
       },
       {
@@ -113,6 +123,7 @@
         "state": "proposed",
         "items": [],
         "fixed": [],
+        "allDay": [],
         "unplaced": []
       },
       {
@@ -120,6 +131,7 @@
         "state": "proposed",
         "items": [],
         "fixed": [],
+        "allDay": [],
         "unplaced": []
       }
     ],

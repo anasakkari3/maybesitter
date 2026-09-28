@@ -197,6 +197,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['memory.withPlanTimeSuggestion', memoryListSchema],
   ['memory.planTimeSuggestionKept', memorySuggestionKeptSchema],
   ['nextStep.recommendation', nextStepResponseSchema],
+  ['nextStep.quietHours', nextStepResponseSchema],
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],
   ['trust.updated', trustResponseSchema],
@@ -514,6 +515,17 @@ describe('what the schemas assert about the shape', () => {
     expect(typeof response.recommendation).toBe('object');
     expect(response.recommendation.proposalId).toEqual(expect.any(String));
     expect(response.recommendation.state).toBe('ready');
+  });
+
+  it('keeps the fields UAT round 3 added, from the real routes (N11, N12, N13)', () => {
+    // Zod drops keys a schema does not name, so a field the server sends and
+    // the schema forgot is silently gone on the phone.
+    const clarified = captureProposalSchema.parse(fixture('capture.appointmentNoTimeClarified'));
+    expect(clarified.items[0]!.eventOnDay).toBe(true);
+    const quiet = nextStepResponseSchema.parse(fixture('nextStep.quietHours'));
+    expect(quiet.exposure).toEqual({ allowed: false, reason: 'quiet_hours', until: '07:30' });
+    const week = weekResponseSchema.parse(fixture('plan.week'));
+    expect(week.week.days.flatMap(day => day.allDay.map(row => row.itemId))).toEqual(['plan_fixture_week_all_day']);
   });
 
   it('carries the newer commitment in a stale-edit refusal', () => {
