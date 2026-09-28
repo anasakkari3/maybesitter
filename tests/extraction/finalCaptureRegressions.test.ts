@@ -415,6 +415,17 @@ const R6_MONTH_END_VARIANTS: ReadonlyArray<{ name: string; provider: () => Promi
   { name: 'the model\'s 1 Oct', provider: monthEndModel('2026-10-01') },
 ];
 
+test('R6 month end (SCRIPTED, the model\'s 29 Sep): the model\'s earlier day is kept (FY1 I2) and marked a guess, the hour asked', async () => {
+  for (const provider of [monthEndModel('2026-09-29'), monthEndModel('2026-09-29', null, []), monthEndModel('2026-09-29', '23:59')]) {
+    const { contract } = await proposeModel(R6_MONTH_END, provider);
+    const item = contract.items[0]!;
+    assert.deepEqual(
+      [item.resolvedDate ?? null, item.resolvedTime, item.needsClarification, item.clarification?.questionKey ?? null, item.dateEstimated],
+      ['2026-09-29', null, true, 'ask_time', true],
+    );
+  }
+});
+
 for (const variant of R6_MONTH_END_VARIANTS) {
   test(`R6 month end (SCRIPTED, ${variant.name}): «${R6_MONTH_END}» is on 30 Sep, marked a guess, the hour asked`, async () => {
     const { contract } = await proposeModel(R6_MONTH_END, variant.provider);
@@ -443,6 +454,8 @@ test('R6 month end (SCRIPTED): a counted offset, another month or a date the per
     ['بدي أحضّر تقرير آخر الشهر الجاي', '2026-10-31', '2026-10-31'],
     // A date the person named is theirs.
     ['بدي أحضّر تقرير آخر الشهر يوم 29', '2026-09-29', '2026-09-29'],
+    ['بدي أحضّر تقرير آخر الشهر يوم 30', '2026-09-30', '2026-09-30'],
+    ['بدي أحضّر تقرير آخر الشهر 29/9', '2026-09-29', '2026-09-29'],
   ];
   for (const [text, modelDay, expected] of rows) {
     const { contract } = await proposeModel(text, monthEndModel(modelDay));

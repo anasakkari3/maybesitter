@@ -383,6 +383,8 @@ test('FY1 N6: a model day after this month\'s end is discarded; none, the last d
   for (const [date, expected] of rows) {
     const { contract } = await proposeModel(N6_REPORT, N6_NOW, recordedModel({ [N6_REPORT]: reportAnswer(date) }).provider);
     assert.deepEqual(contract.items.map(line), [expected], String(date));
+    // Every one of these days is ours, not the person's: marked a guess (R6).
+    assert.equal(contract.items[0]!.dateEstimated, true, String(date));
   }
 });
 
