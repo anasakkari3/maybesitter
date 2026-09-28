@@ -16,7 +16,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -333,10 +334,8 @@ test('a production run tags the promoted digest prod-<sha> before any revision u
   const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
   assert.match(step, /if:\s*env\.TARGET == 'production'/, 'the prod- tag must only be written by a production run');
   assert.match(step, /IMAGE_DIGEST: \$\{\{ steps\.resolve\.outputs\.image_digest \}\}/, 'the tag must go on the digest staging is serving');
-  assert.match(
-    step,
-    /gcloud artifacts docker tags add "\$\{IMAGE_DIGEST\}" \\\n\s*"\$\{REGION\}-docker\.pkg\.dev\/\$\{PROJECT_ID\}\/\$\{REPOSITORY\}\/\$\{IMAGE\}:prod-\$\{GITHUB_SHA\}"/,
-  );
+  assert.match(step, /TAG_URI="\$\{REGION\}-docker\.pkg\.dev\/\$\{PROJECT_ID\}\/\$\{REPOSITORY\}\/\$\{IMAGE\}:prod-\$\{GITHUB_SHA\}"/);
+  assert.match(step, /gcloud artifacts docker tags add "\$\{IMAGE_DIGEST\}" "\$\{TAG_URI\}"/);
   // Order: resolve → tag → deploy → smoke → traffic.
   assert.ok(workflow.indexOf('Resolve the staging image') < start);
   assert.ok(start < workflow.indexOf('Deploy (behind a tag'));
@@ -344,4 +343,84 @@ test('a production run tags the promoted digest prod-<sha> before any revision u
   // Tagging needs artifactregistry.tags.create/update, which the writer role
   // the deployer already has on the repository includes.
   assert.match(read('infra/bootstrap.sh'), /--member="serviceAccount:\$\{DEPLOYER_SA\}" --role=roles\/artifactregistry\.writer/);
+});
+
+test('re-running a production deploy for the same commit does not need tags.delete', () => {
+  // `gcloud artifacts docker tags add` on an existing tag is delete + create
+  // (docker_util.AddDockerTag), and roles/artifactregistry.writer has no
+  // tags.delete. So the step looks first, and adds only when the tag is absent.
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  const lookup = step.indexOf('gcloud artifacts docker images describe "${TAG_URI}"');
+  const add = step.indexOf('gcloud artifacts docker tags add "${IMAGE_DIGEST}"');
+  assert.notEqual(lookup, -1, 'the step does not look the tag up before adding it');
+  assert.ok(lookup < add, 'the lookup must come before the add');
+  assert.match(step, /WANT="\$\{IMAGE_DIGEST#\*@\}"/, 'the comparison must be against the bare sha256 digest');
+  assert.match(step, /if \[ "\$\{CURRENT\}" = "\$\{WANT\}" \]; then\n\s*echo "[^"]*nothing to do"/, 'an identical tag must be a no-op');
+  // A tag on another digest fails loudly; it is never silently moved.
+  assert.match(step, /else\n\s*echo "::error::[^"]*Refusing to move a production tag[^"]*"\n\s*exit 1\n\s*fi\n\s*else\n\s*gcloud artifacts docker tags add/);
+  assert.equal(step.split('gcloud artifacts docker tags add "').length - 1, 1, 'exactly one add, in the absent branch');
+});
+
+test('the tag step, run against a stand-in gcloud: adds when absent, no-op when same, fails when different', () => {
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  const body = step.slice(step.indexOf('run: |\n') + 'run: |\n'.length);
+  const script = body.split('\n').map((line) => line.replace(/^ {10}/, '')).join('\n');
+
+  const digest = 'sha256:' + 'a'.repeat(64);
+  const dir = mkdtempSync(join(tmpdir(), 'prod-tag-'));
+  try {
+    const log = join(dir, 'calls.log');
+    // `describe` answers from $TAG_STATE: absent → exit 1, else prints that digest.
+    writeFileSync(join(dir, 'gcloud'), [
+      '#!/usr/bin/env bash',
+      `echo "$*" >>"${log}"`,
+      'if [ "$1 $2 $3 $4" = "artifacts docker images describe" ]; then',
+      '  [ "${TAG_STATE}" = absent ] && { echo "NOT_FOUND" >&2; exit 1; }',
+      '  echo "${TAG_STATE}"; exit 0',
+      'fi',
+      'exit 0',
+    ].join('\n'));
+    chmodSync(join(dir, 'gcloud'), 0o755);
+
+    const run = (tagState: string) => {
+      rmSync(log, { force: true });
+      let status = 0;
+      let output = '';
+      try {
+        output = execFileSync('bash', ['-e', '-c', script], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            PATH: `${dir}:${process.env.PATH}`,
+            TAG_STATE: tagState,
+            REGION: 'europe-west1', PROJECT_ID: 'p', REPOSITORY: 'r', IMAGE: 'api', GITHUB_SHA: 'c0ffee',
+            IMAGE_DIGEST: `europe-west1-docker.pkg.dev/p/r/api@${digest}`,
+          },
+        });
+      } catch (error) {
+        status = (error as { status: number }).status;
+        output = String((error as { stdout: string }).stdout);
+      }
+      let calls: string[] = [];
+      try { calls = readFileSync(log, 'utf8').trim().split('\n'); } catch { /* no calls */ }
+      return { status, output, adds: calls.filter((call) => call.startsWith('artifacts docker tags add')) };
+    };
+
+    const absent = run('absent');
+    assert.equal(absent.status, 0);
+    assert.deepEqual(absent.adds, [`artifacts docker tags add europe-west1-docker.pkg.dev/p/r/api@${digest} europe-west1-docker.pkg.dev/p/r/api:prod-c0ffee`]);
+
+    const same = run(digest);
+    assert.equal(same.status, 0, 'a re-run for the same digest must succeed');
+    assert.deepEqual(same.adds, [], 'a re-run must not call tags add (it would need tags.delete)');
+
+    const other = run('sha256:' + 'b'.repeat(64));
+    assert.notEqual(other.status, 0, 'a tag on another digest must fail the run');
+    assert.deepEqual(other.adds, [], 'a production tag is never silently moved');
+    assert.match(other.output, /::error::.*Refusing to move a production tag/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
