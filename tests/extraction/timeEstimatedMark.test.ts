@@ -32,6 +32,8 @@ import { applyShareActionAllowlist } from '../../lib/services/share/shareAllowli
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
+import { clockTimesIn } from '../../src/extraction/ruleBasedExtractor.ts';
+import { timeAnchorOf, withoutTimeOfDay } from '../../src/extraction/timeLexicon.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Monday 28 Sep 2026, 10:05 in Jerusalem. */
@@ -447,9 +449,9 @@ test('R6 batch 4 model path (SCRIPTED a reminder at 21:00): «ذكرني أتص�
   assert.deepEqual(card(contract.items[0]!), [TOMORROW, at(TOMORROW, '18:00'), false, null, true]);
 });
 
-test('R6 batch 4 control (SCRIPTED 19:00): an hour the clock readers miss is the model\'s to read — «المسا ع سبعة», «ع 7», «בערב בשבע», "evening at seven" keep 19:00', async () => {
-  // The rules read these as the evening alone (18:00, marked); the model read
-  // the seven, and the part of the day's hour does not replace it.
+test('R6 batch 4 control (SCRIPTED 19:00): the person\'s seven beside the part of the day — «المسا ع سبعة», «ع 7», «בערב בשבע», "evening at seven" keep 19:00', async () => {
+  // The part of the day's hour does not replace the seven; the rules read it
+  // too since FIX-R6-SPOKENHOUR (below).
   for (const text of [
     'لازم أتصل بأمي بكرا المسا ع سبعة', 'لازم أتصل بأمي بكرا المسا عالسبعة', 'لازم أتصل بأمي بكرا المسا ع 7', 'لازم أتصل بأمي بكرا المسا ع ٧',
     'מחר בערב בשבע אני צריך להתקשר לאמא', 'מחר בערב ב7 אני צריך להתקשר לאמא', 'call mom tomorrow evening at seven', 'call mom tomorrow evening 7ish',
@@ -479,4 +481,123 @@ test('R6 batch 4 control (SCRIPTED): midnight and the night\'s end are no evenin
     const contract = await proposeAt(text, jlm('22:00'), callModel(TOMORROW, time));
     assert.deepEqual(card(contract.items[0]!).slice(0, 3), [TOMORROW, at(TOMORROW, time), false], text);
   }
+});
+
+// ── FIX-R6-SPOKENHOUR: an hour the clock readers missed is the person's ──
+//
+// The rules path read «المسا ع سبعة», «ع 7 المسا», «על השעה», «בערב בשבע»,
+// "evening at seven" and "7ish in the evening" as the part of the day alone
+// — 18:00, marked «حزرنا الساعة» — or left the words in the title, while the
+// model path keeps the seven (FIX-R6-DAYPARTHOUR). The binding rule: the
+// stated number wins, the part of the day picks its half, a pair nobody can
+// read is asked, and a stated hour is never replaced by a default. "7ish" and
+// "around 7" are the hour itself, unmarked, as «حوالي 5 المسا» and "about 5 in
+// the evening" are (FZ1 round 4) and "around 5-6pm" is 17:00 (UAT capture).
+
+/** [words, day, hour or null, the question or null, the title]. Read Monday 15:00. */
+const SPOKEN_HOURS: ReadonlyArray<readonly [string, string, string | null, string | null, string]> = [
+  ['لازم أتصل بأمي بكرا المسا ع سبعة', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا المسا عالسبعة', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا المسا ع 7', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا المسا ع ٧', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا بالليل ع عشرة', TOMORROW, '22:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا الصبح ع تسعة', TOMORROW, '09:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي المسا ع سبعة', TODAY, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي ع 7 المسا', TODAY, '19:00', null, 'أتصل بأمي'],
+  ['بكرا ع سبعة المسا لازم أتصل بأمي', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا عالسبعة المسا', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا على الساعة سبعة المسا', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا ع الساعة سبعة المسا', TOMORROW, '19:00', null, 'أتصل بأمي'],
+  // No part of the day: seven is the morning's, as «بكرا الساعة سبعة» has always been.
+  ['لازم أتصل بأمي بكرا على الساعة سبعة', TOMORROW, '07:00', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا الساعة سبعة ونص', TOMORROW, '07:30', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا الساعة سبعة ونص المسا', TOMORROW, '19:30', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا 7 ونص المسا', TOMORROW, '19:30', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا المسا ع سبعة ونص', TOMORROW, '19:30', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا سبعة إلا ربع المسا', TOMORROW, '18:45', null, 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا المسا ع سبعة إلا ربع', TOMORROW, '18:45', null, 'أتصل بأمي'],
+  // A quarter to seven with no half of the day: 6:45 is asked صبح or مسا, like «الساعة 6:45».
+  ['لازم أتصل بأمي بكرا سبعة إلا ربع', TOMORROW, null, 'ask_am_pm', 'أتصل بأمي'],
+  ['מחר בערב בשבע אני צריך להתקשר לאמא', TOMORROW, '19:00', null, 'להתקשר לאמא'],
+  ['מחר בשבע בערב אני צריך להתקשר לאמא', TOMORROW, '19:00', null, 'להתקשר לאמא'],
+  ['הערב בשבע אני צריך להתקשר לאמא', TODAY, '19:00', null, 'להתקשר לאמא'],
+  ['call mom tomorrow evening at seven', TOMORROW, '19:00', null, 'call mom'],
+  ['call mom tonight at seven', TODAY, '19:00', null, 'call mom'],
+  ['call mom tomorrow at seven in the evening', TOMORROW, '19:00', null, 'call mom'],
+  ['call mom tomorrow at 7ish in the evening', TOMORROW, '19:00', null, 'call mom'],
+  ['call mom tomorrow evening 7ish', TOMORROW, '19:00', null, 'call mom'],
+  ['call mom tomorrow evening seven-ish', TOMORROW, '19:00', null, 'call mom'],
+  ['call mom around 7 tonight', TODAY, '19:00', null, 'call mom'],
+  // A number outside its part of the day is asked, whichever side the part is on.
+  ['لازم أتصل بأمي بكرا العصر ع 9', TOMORROW, null, 'ask_time', 'أتصل بأمي'],
+  ['لازم أتصل بأمي بكرا المسا ع 12', TOMORROW, null, 'ask_time', 'أتصل بأمي'],
+];
+
+const spokenRow = (item: Card & { title: string }) => [...card(item), item.title];
+
+for (const [text, date, time, question, title] of SPOKEN_HOURS) {
+  test(`FIX-R6-SPOKENHOUR rules path: «${text}» is ${date} ${time ?? `asked (${question})`}, the person's hour, not marked, and the words leave the title`, async () => {
+    const contract = await proposeAt(text, jlm('15:00'));
+    assert.equal(contract.items.length, 1);
+    assert.deepEqual(spokenRow(contract.items[0]!), [date, time ? at(date, time) : null, time === null, question, false, title]);
+  });
+}
+
+/*
+ * A bare seven with no part of the day is the morning's on the rules path and
+ * the model's half on the model path — a disagreement older than this lane,
+ * about the half and not the number, left as it is.
+ */
+const NO_HALF_SAID = new Set(['لازم أتصل بأمي بكرا على الساعة سبعة', 'لازم أتصل بأمي بكرا الساعة سبعة ونص']);
+
+for (const [text, date, time] of SPOKEN_HOURS.filter(([text]) => !NO_HALF_SAID.has(text))) {
+  // SCRIPTED: the stated hour, an hour the words contradict, the part of the day's own, and none.
+  const modelHours = Array.from(new Set([time ?? '18:45', '20:00', '18:00', null]));
+  test(`FIX-R6-SPOKENHOUR model path (SCRIPTED ${modelHours.join(', ')}): «${text}» shows the rules path's card`, async () => {
+    const rules = await proposeAt(text, jlm('15:00'));
+    for (const modelTime of modelHours) {
+      const contract = await proposeAt(text, jlm('15:00'), callModel(date, modelTime));
+      assert.equal(contract.provenance?.executedEngine, 'gemini', String(modelTime));
+      assert.equal(contract.items.length, 1, String(modelTime));
+      assert.deepEqual(card(contract.items[0]!), card(rules.items[0]!), `model answered ${modelTime}`);
+    }
+  });
+}
+
+test('FIX-R6-SPOKENHOUR control: «ع» with a number and no part of the day beside it is no clock — the count stays in the title and the hour is asked', async () => {
+  const contract = await proposeAt('بكرا لازم أوزع الأكل ع سبعة أشخاص', jlm('15:00'));
+  assert.deepEqual(spokenRow(contract.items[0]!), [TOMORROW, null, true, 'ask_time', false, 'أوزع الأكل ع سبعة أشخاص']);
+});
+
+test('FIX-R6-SPOKENHOUR control: a count after «ع» beside the part of the day is no hour — the evening alone, marked', async () => {
+  const contract = await proposeAt('لازم أوزع الأكل بكرا المسا ع 3 أشخاص', jlm('15:00'));
+  assert.deepEqual(spokenRow(contract.items[0]!), [TOMORROW, at(TOMORROW, '18:00'), false, null, true, 'أوزع الأكل ع 3 أشخاص']);
+});
+
+test('FIX-R6-SPOKENHOUR control: "7ish people" is a count, not a clock', async () => {
+  const contract = await proposeAt('invite 7ish people tomorrow', jlm('15:00'));
+  assert.deepEqual(spokenRow(contract.items[0]!), [TOMORROW, null, true, 'ask_time', false, 'invite 7ish people']);
+});
+
+test('FIX-R6-SPOKENHOUR: the other clock readers see the same hour — a time to be at, found once, taken out whole', () => {
+  for (const text of ['call mom tomorrow evening at seven', 'لازم أتصل بأمي بكرا المسا ع سبعة', 'מחר בערב בשבע להתקשר לאמא', 'call mom tomorrow at 7ish in the evening']) {
+    assert.equal(timeAnchorOf(text), 'event', text);
+    assert.deepEqual(clockTimesIn(text), [{ hour: 7, minute: 0 }], text);
+  }
+  assert.equal(withoutTimeOfDay('call mom tomorrow evening at seven'), 'call mom tomorrow');
+  assert.equal(withoutTimeOfDay('لازم أتصل بأمي بكرا المسا ع سبعة'), 'لازم أتصل بأمي بكرا');
+});
+
+test('FIX-R6-SPOKENHOUR control: the part of the day alone is still the product hour, marked', async () => {
+  for (const text of ['لازم أتصل بأمي بكرا المسا', 'call mom tomorrow evening', 'מחר בערב אני צריך להתקשר לאמא']) {
+    const contract = await proposeAt(text, jlm('15:00'));
+    assert.deepEqual(card(contract.items[0]!), [TOMORROW, at(TOMORROW, '18:00'), false, null, true], text);
+  }
+});
+
+test('FIX-R6-SPOKENHOUR rules path, through the mobile route service: «بكرا المسا ع سبعة» reaches the phone at 19:00 with no mark', async () => {
+  setStorageForTests(createMemoryStorage());
+  const proposal = await proposeMobileCapture({ text: 'لازم أتصل بأمي بكرا المسا ع سبعة', timezone: TZ, referenceTime: jlm('15:00').toISOString() })
+    .finally(() => resetStorageForTests());
+  assert.deepEqual([proposal.items[0]!.title, proposal.items[0]!.resolvedTime, proposal.items[0]!.timeEstimated], ['أتصل بأمي', at(TOMORROW, '19:00'), false]);
 });

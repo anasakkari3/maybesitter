@@ -9,8 +9,7 @@ import {
   dayPartHour,
   localTimeSpecFor,
   normalizeArabicDigits,
-  normalizeSpokenArabicHours,
-  normalizeSpokenHebrewHours,
+  normalizeSpokenHours,
   namesDay,
   instantFromLocal,
   forbidsResolvedTime,
@@ -382,7 +381,7 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   // they strip a typed one.
   // Digits are left as typed (a title keeps its «٢٠٠ شيكل»); only the
   // spoken hours and fractions are rewritten so the clock patterns find them.
-  let stripped = normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(text)));
+  let stripped = normalizeClockFractions(normalizeSpokenHours(text));
   // "The one after" phrases whole, before the bare day names below take their
   // weekday and leave «اللي بعد الجاي» behind in the title.
   for (const pattern of FOLLOWING_WEEK_STRIP) stripped = stripped.replace(pattern, ' ');
@@ -742,7 +741,7 @@ export function countTimeExpressions(raw: string): number {
  */
 export function clockTimesIn(raw: string): Array<{ hour: number; minute: number }> {
   if (typeof raw !== 'string' || !raw.trim()) return [];
-  const text = normalizeSpokenHebrewHours(normalizeSpokenArabicHours(normalizeArabicDigits(raw)));
+  const text = normalizeSpokenHours(normalizeArabicDigits(raw));
   const at = new Set<number>();
   forEachTimeMention(RANGE_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));
   forEachTimeMention(CLOCK_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));
