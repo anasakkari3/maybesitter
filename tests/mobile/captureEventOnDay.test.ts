@@ -17,7 +17,9 @@ import { getParticipantStateSnapshot } from '../../lib/services/mobile/participa
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
-import { CAPTURE_PROPOSALS } from '../../lib/storage/paths.ts';
+import { CAPTURE_PROPOSALS, userDoc } from '../../lib/storage/paths.ts';
+import { getStorage } from '../../lib/storage/index.ts';
+import { composeWeek, weekToDto } from '../../lib/services/dailyPlan/weekPlan.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Monday 28 September 2026, 03:37 in Jerusalem: when the round-3 UAT ran it. */
@@ -168,3 +170,56 @@ test('N11 review M3: a failed flag read after a stored proposal returns the prop
     resetStorageForTests();
   }
 });
+
+/*
+ * Integration (FZ1 × FZ2, closure): the whole round-3 path, into the week.
+ * «سجّل موعد أسنان يوم الجمعة» → «الصبح» → Review «بدون وقت» → confirm →
+ * «خطّط أسبوعي». FZ1 carries the person's zone on a clarified answer, so the
+ * cleared appointment is stored at *local* midnight in that zone (it was UTC
+ * midnight in zone 'UTC'); FZ2 flags it eventOnDay on the card and shows it in
+ * the week as an all-day row on its day (N13). The week reads an all-day day
+ * in the commitment's own zone, so the row would sit on Friday either way; the
+ * stored instant is what the phone draws in the account's zone, and west of
+ * UTC the old UTC midnight read as Thursday evening. Both are held here, in
+ * the UAT zone and in one west of UTC.
+ */
+for (const [zone, now] of [
+  ['Asia/Jerusalem', new Date('2026-09-28T07:00:00.000Z')], // Mon 10:00 local (UTC+3)
+  ['America/New_York', new Date('2026-09-28T14:00:00.000Z')], // Mon 10:00 local (UTC-4)
+] as const) {
+  test(`integration (FZ1 × FZ2): a clarified appointment cleared to «بدون وقت» is an all-day week row on its local Friday (${zone})`, async () => {
+    const uid = `fz-int-${zone.replace('/', '-')}`;
+    await withMemoryStorage(async () => {
+      const storage = getStorage();
+      await storage.set(userDoc(uid), { uid, timezone: zone, locale: 'ar' });
+      const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
+      const item = proposal.items[0]!;
+      assert.equal(item.clarification?.questionKey, 'ask_time');
+      const answered = await clarifyMobileCapture({
+        proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'morning',
+        timezone: zone, referenceTime: now.toISOString(),
+      }, { participantId: uid });
+      // FZ2's card: its day is kept.
+      assert.deepEqual([answered.items[0]!.resolvedDate, (answered.items[0] as ProposedItem).eventOnDay], [FRIDAY, true]);
+      const confirmed = await confirmMobileCapture({
+        proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: null }],
+      }, { participantId: uid });
+      assert.equal(confirmed.success, true, JSON.stringify(confirmed));
+      const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
+      // FZ1: stored in the person's zone, at that zone's midnight — the day the
+      // phone draws in the account's zone.
+      assert.equal(commitment.timeSpec.timezone, zone);
+      const localDay = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+      assert.equal(localDay(commitment.timeSpec.dueAt!), FRIDAY);
+      // FZ2 N13: the week shows it as an all-day row on Friday, and nowhere else.
+      const dto = weekToDto(await composeWeek(uid, { moves: [], drops: [] }, { storage, now: () => now }));
+      const allDayOn = Object.fromEntries(dto.days.map((day) => [day.date, day.allDay.map((row) => row.itemId)]));
+      assert.deepEqual(
+        Object.entries(allDayOn).filter(([, ids]) => ids.length > 0),
+        [[FRIDAY, [commitment.id]]],
+      );
+      const rows = dto.days.flatMap((day) => [...day.items, ...day.fixed, ...day.unplaced].map((row) => row.itemId));
+      assert.ok(!rows.includes(commitment.id), JSON.stringify(dto.days));
+    });
+  });
+}
