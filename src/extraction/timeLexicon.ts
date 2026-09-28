@@ -561,6 +561,29 @@ export function namesTodayOnly(rawText: string): boolean {
 }
 
 /*
+ * A relative day the words rule out or leave open (FINAL-BACKEND review, M2):
+ * «مش بكرا», "not tomorrow", «לא מחר», and two day words offered as
+ * alternatives — «اليوم أو بكرا», «اليوم ولا بكرا», "today or tomorrow",
+ * «היום או מחר». Neither is a day anybody said, so nothing may be filled from
+ * it. Each part is linear: a fixed word, whitespace, a fixed word.
+ */
+const RELATIVE_DAY_ANY = `(?:${RELATIVE_DAY_MENTION_SOURCES.join('|')})`;
+const UNSETTLED_RELATIVE_DAY = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}[وف]?(?:مش|مو|مب|بلاش)\\s+${RELATIVE_DAY_ANY}`,
+    `\\bnot\\s+${RELATIVE_DAY_ANY}`,
+    `${NOT_LETTER_BEFORE}ו?לא\\s+${RELATIVE_DAY_ANY}`,
+    `${RELATIVE_DAY_ANY}(?:\\s*[،,])?\\s*(?:أو|او|ولا|or|או)\\s+${RELATIVE_DAY_ANY}`,
+  ].join('|'),
+  'iu',
+);
+
+/** The words' relative day is ruled out or one of two alternatives: not a day to fill. */
+export function relativeDayIsUnsettled(rawText: string): boolean {
+  return typeof rawText === 'string' && UNSETTLED_RELATIVE_DAY.test(rawText);
+}
+
+/*
  * Words that put the commitment on some day other than today even when
  * «اليوم»/"today"/«היום» is the only relative day in them (FZ1 review, I1):
  * «اليوم الدكتور قلي ارجعله يوم 5», «اليوم عرفت إنه الاجتماع أول الشهر»,

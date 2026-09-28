@@ -167,6 +167,46 @@ test('N19 guard (SCRIPTED): words that put it on another day than today get no �
   }
 });
 
+test('N19 guard (SCRIPTED, review M2): a day ruled out or left open gets no fill — the item is asked with no day', async () => {
+  const texts = [
+    'بدي أتصل بسامي بس مش بكرا',
+    'بدي أتصل بسامي، ومش بكرا',
+    'call Sam, but not tomorrow',
+    'להתקשר לסאמי אבל לא מחר',
+    'اليوم أو بكرا بدي أتصل بسامي',
+    'اليوم ولا بكرا بدي أتصل بسامي',
+    'call Sam today or tomorrow',
+    'להתקשר לסאמי היום או מחר',
+  ];
+  for (const text of texts) {
+    const { contract } = await proposeModel(text, noDayModel('أتصل بسامي'));
+    const item = contract.items[0]!;
+    assert.deepEqual([item.resolvedDate ?? null, item.resolvedTime, item.needsClarification], [null, null, true], text);
+    // The rules path reads the same words the same way: no day, asked.
+    setStorageForTests(createMemoryStorage());
+    try {
+      const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
+      const rules = proposal.items[0]!;
+      assert.deepEqual([rules.resolvedDate ?? null, rules.resolvedTime, rules.needsClarification], [null, null, true], `rules: ${text}`);
+    } finally {
+      resetStorageForTests();
+    }
+  }
+});
+
+test('N19 guard (review M2): the plain day words still fill beside the guard', async () => {
+  // Not a negation or an alternative: «بكرا» alone, and "or" between two
+  // people rather than two days.
+  for (const [text, day] of [
+    ['بدي أتصل بسامي بكرا', TOMORROW],
+    ['call Sam or Rami tomorrow', TOMORROW],
+    ['להתקשר לסאמי מחר', TOMORROW],
+  ] as const) {
+    const { contract } = await proposeModel(text, noDayModel('أتصل بسامي'));
+    assert.equal(contract.items[0]?.resolvedDate, day, text);
+  }
+});
+
 test('N19 guard (SCRIPTED): a model day is never moved — only an absent one is filled', async () => {
   // L4 ruling: the fill is for a missing day. A model that read a day keeps
   // it here, even beside «اليوم» (a model *tomorrow* under «اليوم» is FZ1's

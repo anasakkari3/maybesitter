@@ -21,6 +21,7 @@ import {
   NIGHT_HOUR,
   nightClockHour,
   readPeriodEndDeadline,
+  relativeDayIsUnsettled,
   relativeDayOffset,
   timeAnchorOf,
   timeOfDayEvidence,
@@ -179,7 +180,9 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
 
   // Today, tomorrow or the day after, as whole words (`timeLexicon.ts`):
   // «الغداء» (lunch) is not «غدا», «اليومي» (daily) is not «اليوم».
-  const relativeDay = relativeDayOffset(raw);
+  // A day ruled out or left open — «مش بكرا», «اليوم أو بكرا» — is no day
+  // (FINAL-BACKEND review, M2): the item is asked, as on the model path.
+  const relativeDay = relativeDayIsUnsettled(raw) ? null : relativeDayOffset(raw);
   if (relativeDay === 0) {
     targetDate = new Date(now);
     timeConfidence = 0.85;

@@ -31,6 +31,7 @@ import {
   namesTodayOnly,
   namesTwelveInTheEvening,
   readPeriodEndDeadline,
+  relativeDayIsUnsettled,
   relativeDayOffset,
   thisMonthEndWords,
   timeAnchorOf,
@@ -622,14 +623,15 @@ export function validateExtractionResult(
   // both). The words' day fills an absent one, as a weekday's does above and
   // as the rules path reads it (`relativeDayOffset`), said and not guessed.
   // Only an absent day: a model day is never moved here (L4). Not when the
-  // words name today only to rule it out («مش اليوم», "not today"), nor
-  // beside a date or a weekday of their own.
+  // words name today only to rule it out («مش اليوم», "not today"), rule out
+  // or leave open any relative day («مش بكرا», «اليوم أو بكرا» — review M2),
+  // nor beside a date or a weekday of their own.
   if (
     !time.localTimeSpec?.date && !time.dueAt && !time.remindAt && today
     && !namesCalendarDate(rawText) && !readWeekdayReference(rawText)
   ) {
     const offset = relativeDayOffset(rawText);
-    if (offset !== null && !(offset === 0 && namesOtherDayThanToday(rawText))) {
+    if (offset !== null && !(offset === 0 && namesOtherDayThanToday(rawText)) && !relativeDayIsUnsettled(rawText)) {
       time = { ...time, localTimeSpec: { date: shiftLocalDate(today, offset), time: null, timezone: zone } };
       dateInferred = false;
     }
