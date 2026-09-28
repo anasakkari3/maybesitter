@@ -263,10 +263,9 @@ const DANGLING_EDGE = new RegExp(
 test('M2 titles: the rules path keeps an unsettled day phrase verbatim, never a dangling «مش/أو/or/לא»', async () => {
   for (const { text, phrase } of M2_TITLES) {
     const titles = await rulesTitles(text);
-    // «، ومش بكرا» is split at the «،» into a clause of its own, as «، بكرا»
-    // always has been (the splitter's rule, not this one's): that clause's
-    // title is then the phrase itself, whole.
-    assert.equal(titles.length, text.includes('،') ? 2 : 1, `${text}: ${JSON.stringify(titles)}`);
+    // «، ومش بكرا» included: a clause that is only a time is merged into the
+    // one before it (`splitCaptureClauses`), so it is one item.
+    assert.equal(titles.length, 1, `${text}: ${JSON.stringify(titles)}`);
     assert.ok(titles.some((title) => title.includes(phrase)), `${text}: the titles ${JSON.stringify(titles)} lost «${phrase}»`);
     for (const title of titles) assert.ok(!DANGLING_EDGE.test(title), `${text}: dangling edge in «${title}»`);
   }

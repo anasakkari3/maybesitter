@@ -60,7 +60,7 @@
  *     sentence is about something, not asking for it (`followedByObject`).
  */
 import { stripTimeExpressions } from './ruleBasedExtractor';
-import { namesDay, statesClock, timeOfDayEvidence } from './timeLexicon';
+import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
 
 const B = '(?<![\\p{L}\\p{M}])';
@@ -368,6 +368,59 @@ const CLAUSE_OPENER = new RegExp(
   'giu',
 );
 
+/*
+ * What a clause may hold and still be only a time (FINAL-BACKEND review): the
+ * connectors and negations around a day or an hour — «و», «بس», «مش», «أو»,
+ * «ولا», "and", "or", "but", "not", "at", «ו», «לא», «או», «אבל», «ב» — once
+ * `stripTimeExpressions` has taken the day, the hour and the part of the day.
+ */
+const TIME_ONLY_FILLER = new RegExp(
+  [
+    `${B}[وف]?(?:مش|مو|مب|بلاش|بس|أو|او|ولا|لا|و|يوم|الساعة|الساعه|على|ع)${A}`,
+    "\\b(?:and|or|but|not|at|on|by|around|about|the|o'?clock)\\b",
+    `${B}[ו]?(?:לא|או|אבל|ב|בשעה|ביום)${A}`,
+  ].join('|'),
+  'giu',
+);
+const RELATIVE_DAY_WORDS = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+
+/**
+ * A clause that is only a time: a day, an hour, a part of the day, their
+ * negation or alternatives, and connectors — «بكرا», «ومش بكرا», «الساعة 5»,
+ * "tomorrow at 5". It names nothing to do, so it is not a commitment of its
+ * own; it belongs to the clause beside it.
+ */
+function isTimeOnlyClause(clause: string): boolean {
+  if (!namesDay(clause) && !statesClock(clause) && timeOfDayEvidence(clause) === 'none') return false;
+  // The day words go whatever the words did with them: `stripTimeExpressions`
+  // keeps an unsettled one («مش بكرا») in a title, and here it is still a day.
+  let rest = stripTimeExpressions(clause);
+  for (const pattern of RELATIVE_DAY_WORDS) rest = rest.replace(pattern, ' ');
+  return rest.replace(TIME_ONLY_FILLER, ' ').replace(NOT_LETTERS, '').length === 0;
+}
+
+/**
+ * Time-only clauses joined to their neighbour, before any extraction (both
+ * engines read these segments): onto the clause before, or — for a leading
+ * one, «بكرا، بدي أتصل بسامي» — onto the clause after. The «،» that cut them
+ * apart was a pause inside one commitment, not the start of another.
+ */
+function withTimeOnlyClausesMerged(segments: readonly string[]): string[] {
+  const merged: string[] = [];
+  let leading: string[] = [];
+  for (const segment of segments) {
+    if (isTimeOnlyClause(segment)) {
+      if (merged.length > 0) merged[merged.length - 1] = `${merged[merged.length - 1]} ${segment}`;
+      else leading.push(segment);
+      continue;
+    }
+    merged.push(leading.length > 0 ? `${leading.join(' ')} ${segment}` : segment);
+    leading = [];
+  }
+  // Nothing but time: left as it was, for the extractor to answer.
+  return merged.length > 0 ? merged : [...segments];
+}
+
 export function splitCaptureClauses(raw: string): string[] {
   const segments = sentencesOf(raw)
     .join('|')
@@ -383,5 +436,5 @@ export function splitCaptureClauses(raw: string): string[] {
     .map((part) => part.trim())
     .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ])|ו)\s*/i, '').trim())
     .filter(Boolean);
-  return segments.length > 0 ? segments : [raw];
+  return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [raw];
 }
