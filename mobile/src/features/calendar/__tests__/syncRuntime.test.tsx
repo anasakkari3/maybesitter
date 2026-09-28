@@ -38,7 +38,7 @@ import type { Commitment } from '../../../api/schemas/common';
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import { deviceCalendar } from '../deviceCalendar';
-import { resetWriterIdCache, saveChosenCalendarId } from '../../../lib/deviceSettings/calendarDevice';
+import { loadChosenCalendarId, resetWriterIdCache, saveChosenCalendarId } from '../../../lib/deviceSettings/calendarDevice';
 import { resetCalendarSyncForTests, useDeviceCalendarSync } from '../useDeviceCalendarSync';
 import { useToday, useUpcoming } from '../../../api/queries';
 
@@ -150,5 +150,56 @@ describe('a build with the calendar feature off', () => {
     expect(create).not.toHaveBeenCalled();
     expect(deviceCalendar.getAccess).not.toHaveBeenCalled();
     expect(calendarEndpoints.putDeviceCalendarLink).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * UAT round 6, batch 4, D-a: a fresh account turned «حطّ التزاماتي بتقويمي» on,
+ * confirmed «أشتري دوا · اليوم · 15:00», and nothing reached the phone's
+ * calendar for four minutes — until Settings → Calendar was reopened and the
+ * one row, «التقويم · Default», was tapped. Turning the switch on never chose a
+ * calendar, and a pass with no calendar chosen writes nothing (`no_calendar`).
+ *
+ * With exactly one calendar on the phone that can be written to there is no
+ * choice to make, so the pass takes it and keeps it. With two or more it still
+ * writes nothing: which of somebody's calendars their dentist appointment goes
+ * into is theirs to say, and the settings screen asks.
+ */
+describe('a phone where no calendar has been picked yet', () => {
+  const only = { id: 'cal-only', title: 'Calendar', color: null, isPrimary: false, sourceName: 'Default' };
+
+  it('writes into the one calendar there is, and keeps that choice', async () => {
+    await saveChosenCalendarId(null);
+    jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([only]);
+    const create = jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('evt-1');
+    await mount();
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0]![0]).toBe('cal-only');
+    expect(await loadChosenCalendarId()).toBe('cal-only');
+  });
+
+  it('writes nothing when there are two to choose between', async () => {
+    await saveChosenCalendarId(null);
+    const list = jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([
+      only, { ...only, id: 'cal-work', sourceName: 'Work' },
+    ]);
+    const create = jest.spyOn(deviceCalendar, 'createEvent').mockResolvedValue('evt-1');
+    await mount();
+    await waitFor(() => expect(list).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(create).not.toHaveBeenCalled();
+    expect(await loadChosenCalendarId()).toBeNull();
+  });
+
+  it('does not so much as list the calendars when the account is not writing', async () => {
+    await saveChosenCalendarId(null);
+    jest.spyOn(calendarEndpoints, 'getCalendarSettings')
+      .mockResolvedValue({ calendarSettings: { writeTarget: 'off' } });
+    const list = jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([only]);
+    await mount();
+    await waitFor(() => expect(commitmentEndpoints.listToday).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(list).not.toHaveBeenCalled();
+    expect(await loadChosenCalendarId()).toBeNull();
   });
 });

@@ -30,7 +30,7 @@ import { CalendarSettingsScreen } from '../CalendarSettingsScreen';
 import * as calendarEndpoints from '../../../api/endpoints/calendar';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import { deviceCalendar } from '../../calendar/deviceCalendar';
-import { resetWriterIdCache } from '../../../lib/deviceSettings/calendarDevice';
+import { loadChosenCalendarId, resetWriterIdCache, saveChosenCalendarId } from '../../../lib/deviceSettings/calendarDevice';
 import { resetCalendarSyncForTests } from '../../calendar/useDeviceCalendarSync';
 
 const METRICS: Metrics = {
@@ -185,5 +185,71 @@ describe('where the sync actually runs', () => {
     const root = readFileSync(join(__dirname, '..', '..', '..', 'Root.tsx'), 'utf8');
     expect(root).toContain('DeviceCalendarSyncHost');
     expect(root).toContain('<DeviceCalendarSyncHost />');
+  });
+});
+
+/**
+ * UAT round 6, batch 4, D-a (shot 793): writing was on, no calendar had been
+ * picked, and a confirmed commitment reached the phone only after the single
+ * row «التقويم · Default» was tapped. The row also said nothing to a screen
+ * reader about being the chosen one.
+ */
+describe('which calendar it writes into', () => {
+  const home = { id: 'cal-home', title: 'Calendar', color: null, isPrimary: false, sourceName: 'Default' };
+  const work = { id: 'cal-work', title: 'Calendar', color: null, isPrimary: false, sourceName: 'Work' };
+
+  beforeEach(async () => {
+    await saveChosenCalendarId(null);
+    jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('granted');
+  });
+  afterEach(async () => {
+    await saveChosenCalendarId(null);
+  });
+
+  it('takes the only calendar there is the moment writing is turned on, and shows it chosen', async () => {
+    jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([home]);
+    jest.spyOn(calendarEndpoints, 'getCalendarSettings')
+      .mockResolvedValueOnce(settings('off'))
+      .mockResolvedValue(settings('device'));
+    await show();
+    await waitFor(() => expect(screen.getByTestId('calendar-write-toggle').props.disabled).toBe(false));
+    await fireEvent(screen.getByTestId('calendar-write-toggle'), 'valueChange', true);
+
+    await waitFor(() => expect(screen.queryByTestId('calendar-option-cal-home')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('calendar-option-cal-home').props.accessibilityState)
+      .toEqual(expect.objectContaining({ checked: true })));
+    expect(await loadChosenCalendarId()).toBe('cal-home');
+    expect(screen.queryByTestId('calendar-pick-needed')).toBeNull();
+  });
+
+  it('asks, and says nothing is added yet, when there is more than one to choose from', async () => {
+    jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([home, work]);
+    jest.spyOn(calendarEndpoints, 'getCalendarSettings').mockResolvedValue(settings('device'));
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-pick-needed')).not.toBeNull());
+    expect(screen.getByTestId('calendar-pick-needed').props.children).toBe(en.calendarPickNeeded);
+    // A single choice, announced as one, and nothing chosen for them.
+    for (const id of ['cal-home', 'cal-work']) {
+      const row = screen.getByTestId(`calendar-option-${id}`);
+      expect(row.props.accessibilityRole).toBe('radio');
+      expect(row.props.accessibilityState).toEqual(expect.objectContaining({ checked: false }));
+    }
+    expect(await loadChosenCalendarId()).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('calendar-option-cal-work'));
+    await waitFor(() => expect(screen.getByTestId('calendar-option-cal-work').props.accessibilityState)
+      .toEqual(expect.objectContaining({ checked: true })));
+    expect(screen.getByTestId('calendar-option-cal-home').props.accessibilityState)
+      .toEqual(expect.objectContaining({ checked: false }));
+    expect(screen.queryByTestId('calendar-pick-needed')).toBeNull();
+    expect(await loadChosenCalendarId()).toBe('cal-work');
+  });
+
+  it('names the account in what a screen reader hears, as the row shows it', async () => {
+    jest.spyOn(deviceCalendar, 'listWritableCalendars').mockResolvedValue([home, work]);
+    jest.spyOn(calendarEndpoints, 'getCalendarSettings').mockResolvedValue(settings('device'));
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-option-cal-work')).not.toBeNull());
+    expect(screen.getByTestId('calendar-option-cal-work').props.accessibilityLabel).toBe('Calendar · Work');
   });
 });

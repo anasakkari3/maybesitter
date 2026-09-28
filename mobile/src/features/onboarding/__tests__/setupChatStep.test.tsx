@@ -23,6 +23,7 @@ import { AppProvider } from '../../../state/AppContext';
 import { SetupChatStep } from '../SetupChatStep';
 import { EMPTY_SETUP_ANSWERS, type SetupAnswers } from '../setupChat';
 import en from '../../../i18n/locales/en.json';
+import { ltr, stripIsolates } from '../../../i18n/bidi';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -116,7 +117,18 @@ describe('answering', () => {
 
   it('shows how much of the cap is used', async () => {
     await renderStep({ index: 1, answers: { ...EMPTY_SETUP_ANSWERS, day: 'I teach' } });
-    expect(screen.getByTestId('setup-answer-count').props.children).toBe('7 / 150');
+    expect(screen.getByTestId('setup-answer-count').props.children).toBe(ltr('7 / 150'));
+  });
+
+  // UAT round 6, batch 4 (shot 742): in an Arabic layout the bare "50 / 150"
+  // was laid out right to left and read «150 / 50» — the cap first, as if the
+  // answer were three times over it. One left-to-right unit reads as written.
+  it('reads used-then-cap in an Arabic layout too', async () => {
+    await renderStep({ index: 1, answers: { ...EMPTY_SETUP_ANSWERS, day: 'x'.repeat(50) } });
+    const count = screen.getByTestId('setup-answer-count').props.children as string;
+    expect(count.startsWith('\u2066')).toBe(true);
+    expect(count.endsWith('\u2069')).toBe(true);
+    expect(stripIsolates(count)).toBe('50 / 150');
   });
 
   it('shows the smaller cap when a long narrative has used the budget', async () => {
@@ -126,7 +138,7 @@ describe('answering', () => {
     await renderStep({ index: 3, answers });
     const cap = screen.getByTestId('setup-answer-input').props.maxLength as number;
     expect(cap).toBeLessThan(150);
-    expect(screen.getByTestId('setup-answer-count').props.children).toBe(`0 / ${cap}`);
+    expect(screen.getByTestId('setup-answer-count').props.children).toBe(ltr(`0 / ${cap}`));
   });
 });
 
@@ -223,7 +235,7 @@ describe('over the cap', () => {
     expect(Array.from(value).length).toBeGreaterThan(150);
     // The field must not truncate what it is showing.
     expect(screen.getByTestId('setup-answer-input').props.maxLength).toBeGreaterThanOrEqual(Array.from(value).length);
-    expect(screen.getByTestId('setup-answer-count').props.children).toBe(`${Array.from(value).length} / 150`);
+    expect(screen.getByTestId('setup-answer-count').props.children).toBe(ltr(`${Array.from(value).length} / 150`));
     expect(screen.queryByTestId('setup-answer-too-long')).not.toBeNull();
     expect(screen.getByLabelText(en.obSetupNext).props.accessibilityState).toMatchObject({ disabled: true });
   });

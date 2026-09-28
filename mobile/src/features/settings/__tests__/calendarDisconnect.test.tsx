@@ -129,10 +129,48 @@ async function show() {
   await waitFor(() => expect(screen.queryByTestId('calendar-disconnect')).not.toBeNull());
 }
 
+/** The button, then the dialog's confirm: the only way the deletion runs. */
+async function disconnectAndConfirm() {
+  await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+  await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-dialog')).not.toBeNull());
+  await fireEvent.press(screen.getByTestId('calendar-disconnect-confirm'));
+}
+
+/**
+ * UAT round 6, batch 4 (shot 757): the button ran on the first tap, and an
+ * accidental one wiped the busy times from the phone and the account. It now
+ * asks first, in the app's one shape for "are you sure".
+ */
+describe('before anything is deleted', () => {
+  it('asks, and deletes nothing until the answer is yes', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-dialog')).not.toBeNull());
+    expect(screen.getByText(en.calendarDisconnectTitle)).toBeTruthy();
+    expect(screen.getByText(en.calendarDisconnectConfirmBody)).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calendarEndpoints.deleteCalendarBusy).not.toHaveBeenCalled();
+    expect(trustEndpoints.updateTrust).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).not.toBeNull();
+  });
+
+  it('keeps everything when the answer is no', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-keep')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-disconnect-keep'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-dialog')).toBeNull());
+    expect(calendarEndpoints.deleteCalendarBusy).not.toHaveBeenCalled();
+    expect(trustEndpoints.updateTrust).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).not.toBeNull();
+    expect(screen.queryByTestId('calendar-disconnect-result')).toBeNull();
+  });
+});
+
 describe('pressing disconnect', () => {
   it('clears the phone, the account and the switch', async () => {
     await show();
-    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await disconnectAndConfirm();
 
     await waitFor(() => expect(calendarEndpoints.deleteCalendarBusy).toHaveBeenCalledTimes(1));
     expect((calendarEndpoints.deleteCalendarBusy as jest.Mock).mock.calls[0]![0] as string)
@@ -148,7 +186,7 @@ describe('pressing disconnect', () => {
   it('says so, and says how many busy times the sync found', async () => {
     await show();
     await waitFor(() => expect(String(screen.getByTestId('calendar-busy-count').props.children)).toContain('1'));
-    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await disconnectAndConfirm();
     await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
     expect(String(screen.getByTestId('calendar-disconnect-result').props.children))
       .toBe(en.calendarDisconnectDone);
@@ -157,7 +195,7 @@ describe('pressing disconnect', () => {
   it('clears the phone even when the account cannot be reached, and says which half failed', async () => {
     jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockRejectedValue(new Error('offline') as never);
     await show();
-    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await disconnectAndConfirm();
 
     await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
     expect(String(screen.getByTestId('calendar-disconnect-result').props.children))

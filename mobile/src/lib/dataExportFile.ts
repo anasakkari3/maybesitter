@@ -35,6 +35,7 @@
  * Nothing here logs: a path names the file, and the file is the account.
  */
 import { File, Paths } from 'expo-file-system';
+import { dayKey } from '../i18n/format';
 
 export const EXPORT_FILE_PREFIX = 'maybesitter-export-';
 
@@ -73,6 +74,24 @@ export function sweepExportFiles(): number {
 }
 
 /**
+ * The day in the file's name: the day where the person is, not in UTC.
+ *
+ * `exportedAt` is an instant, and its first ten characters are the UTC date —
+ * so an export made at 00:35 on the 29th in Jerusalem was named for the 28th
+ * (UAT round 6, D-b). An instant the server did not send cleanly still gets a
+ * file, just not a dated one.
+ */
+function exportDay(exportedAt: string, timeZone: string): string {
+  const at = new Date(exportedAt);
+  if (Number.isNaN(at.getTime())) return 'export';
+  try {
+    return dayKey(at, timeZone).replace(/[^0-9-]/g, '') || 'export';
+  } catch {
+    return 'export';
+  }
+}
+
+/**
  * Writes the export, opens the share sheet on it, and removes it again.
  *
  * Resolves when the sheet has closed. Rejects if the file could not be written
@@ -80,11 +99,11 @@ export function sweepExportFiles(): number {
  */
 export async function shareExportFile(
   json: string,
-  options: { dialogTitle: string; exportedAt: string },
+  options: { dialogTitle: string; exportedAt: string; timeZone: string },
   share: ShareFile = shareWithSystemSheet,
 ): Promise<void> {
   sweepExportFiles();
-  const day = options.exportedAt.slice(0, 10).replace(/[^0-9-]/g, '') || 'export';
+  const day = exportDay(options.exportedAt, options.timeZone);
   const file = new File(Paths.cache, `${EXPORT_FILE_PREFIX}${day}.json`);
   try {
     file.create({ overwrite: true });

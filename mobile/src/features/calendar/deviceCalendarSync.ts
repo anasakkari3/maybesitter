@@ -189,6 +189,64 @@ function isConfirmed(commitment: Commitment): boolean {
   return !UNCONFIRMED_STATUSES.has(commitment.status);
 }
 
+/**
+ * Whether this pass would write something if only a calendar were chosen.
+ *
+ * Pure, and asked before anything native: the pass must not so much as list
+ * the phone's calendars when there is nothing to put in one (see `reconcile`).
+ */
+export function needsCalendar(input: {
+  subjects: readonly SyncSubject[];
+  writeTarget: CalendarWriteTarget;
+  writerId: string;
+  deviceTimeZone: string;
+}): boolean {
+  return input.subjects.some((subject) => {
+    const plan = decide({
+      ...subject,
+      writeTarget: input.writeTarget,
+      writerId: input.writerId,
+      calendarId: null,
+      deviceTimeZone: input.deviceTimeZone,
+      eventStillThere: true,
+    });
+    return plan.kind === 'none' && plan.because === 'no_calendar';
+  });
+}
+
+/**
+ * The calendar to write into when none has been picked on this phone: the only
+ * one there is, or none (UAT round 6, D-a).
+ *
+ * Turning «حطّ التزاماتي بتقويمي» on used to choose nothing, so a fresh account
+ * confirmed a commitment and no event appeared until somebody reopened
+ * Settings → Calendar and tapped the single row there. With exactly one
+ * calendar the phone lets us write to, that tap was not a choice. With two or
+ * more it is — a work calendar and a personal one — and guessing puts somebody's
+ * dentist appointment in front of their colleagues, so this answers null and
+ * the settings screen asks. The choice is saved, so the screen shows it picked.
+ *
+ * Never prompts: `getAccess`, not `requestAccess`. The OS question is asked
+ * only by the switch that turns writing on.
+ */
+export async function adoptSoleCalendar(
+  calendar: DeviceCalendar,
+  save: (calendarId: string) => Promise<void>,
+): Promise<string | null> {
+  try {
+    if ((await calendar.getAccess()) !== 'granted') return null;
+    const writable = await calendar.listWritableCalendars();
+    if (writable.length !== 1) return null;
+    const only = writable[0]!.id;
+    await save(only);
+    return only;
+  } catch {
+    // A list that will not load is a pass with nothing to write into, which is
+    // what it was before; the next pass asks again.
+    return null;
+  }
+}
+
 /** What `reconcile` did, so a screen can say so and a test can count. */
 export interface SyncOutcome {
   created: number;
