@@ -449,6 +449,7 @@ const OFFSET_ROWS: Array<[string, string]> = [
   // A stated hour stays, on that day (FX3 #7).
   ['لازم أدفع الفاتورة قبل آخر الشهر بأسبوع الساعة 5 المسا', 'أدفع الفاتورة | 2026-09-23 17:00 | settled'],
   // After: the day they counted to, and the hour asked — not a limit.
+  ['بدي أدفع الفاتورة بعد آخر الشهر بيومين الساعة 10 الصبح', 'أدفع الفاتورة بعد آخر الشهر بيومين | 2026-10-02 10:00 | settled'],
   ['بدي أدفع الفاتورة بعد آخر الشهر بيومين', 'أدفع الفاتورة بعد آخر الشهر بيومين | 2026-10-02 - | ask_time'],
   ['pay the bill 3 days after the end of the month', 'pay the bill 3 days after the end of the month | 2026-10-03 - | ask_time'],
   ['לשלם חשבון יומיים אחרי סוף החודש', 'לשלם חשבון יומיים אחרי סוף החודש | 2026-10-02 - | ask_time'],
@@ -474,6 +475,10 @@ test('FZ1 round 2: on the model path, with no day from the model, the same offse
     const { contract } = await proposeModel(text, SEP_10, recordedModel({ [text]: reportAnswer(null, title) }).provider);
     assert.deepEqual(contract.items.map(line), [expected], text);
   }
+  // A model day after the month's end under a spelled count is FY1's discard; the count then settles it.
+  const threeDays = 'بدي أخلص التقرير قبل آخر الشهر بتلات أيام';
+  const spelled = await proposeModel(threeDays, SEP_10, recordedModel({ [threeDays]: reportAnswer('2026-10-31', 'أخلص التقرير') }).provider);
+  assert.deepEqual(spelled.contract.items.map(line), ['أخلص التقرير | 2026-09-27 - | settled']);
   const weekBefore = 'بدي أخلص التقرير قبل آخر الشهر بأسبوع';
   const { contract } = await proposeModel(weekBefore, SEP_10, recordedModel({ [weekBefore]: reportAnswer('2026-09-30', 'أخلص التقرير') }).provider);
   assert.deepEqual(contract.items.map(line), ['أخلص التقرير | 2026-09-23 - | settled']);

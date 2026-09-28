@@ -879,8 +879,7 @@ const MONTH_END_NOT_THE_DAY = new RegExp(
  * so the day it means is not this month's last (FY1 review, I2).
  */
 export function monthEndIsNotTheDay(rawText: string): boolean {
-  // A counted offset in words («بتلات أيام», "three days") too (FZ1 round 2).
-  return typeof rawText === 'string' && (MONTH_END_NOT_THE_DAY.test(rawText) || MONTH_END_OFFSET.test(rawText));
+  return typeof rawText === 'string' && MONTH_END_NOT_THE_DAY.test(rawText);
 }
 
 /*
