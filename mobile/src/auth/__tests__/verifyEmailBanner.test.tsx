@@ -8,6 +8,7 @@ import { RESEND_COOLDOWN_SECONDS, VerifyEmailBanner } from '../VerifyEmailBanner
 import { createFakeAuthRepository, type FakeAuthRepository } from '../fakeAuthRepository';
 import type { AuthUser } from '../types';
 import en from '../../i18n/locales/en.json';
+import { tFor } from '../../i18n';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -77,7 +78,7 @@ describe('email verification banner', () => {
 
     // A second tap during the cooldown must not reach Firebase: it would only
     // trip the provider's own rate limit and lock the user out for longer.
-    const cooling = screen.getByLabelText(`Resend in ${RESEND_COOLDOWN_SECONDS}s`);
+    const cooling = screen.getByLabelText(tFor('en')('authVerifyCooldown', { s: RESEND_COOLDOWN_SECONDS }));
     await fireEvent.press(cooling);
     expect(repository.calls).toHaveLength(1);
   });

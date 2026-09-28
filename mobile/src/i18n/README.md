@@ -35,14 +35,20 @@ const { tr } = useApp();
 
 `tr` is key-checked against `locales/en.json`. `tr('nope')` fails `tsc`.
 
-## Why three keys are ICU plurals
+## Why count messages use ICU
 
 `fill()` substitutes; it cannot inflect. «أكّد {n} التزامات» is simply wrong
 Arabic for n=2 (dual: التزامين) and for n≥11 (accusative singular: 11 التزامًا).
-`confirmN`, `lockedTitle` and `progressWords` are therefore ICU plurals with all
-six Arabic CLDR categories (`zero one two few many other`) and three Hebrew ones
-(`one two other`), modelled on `commitmentsCountToday` in the archived
-`app_ar.arb`. Everything else stays a plain string handled by `fill`.
+Count-sensitive messages are therefore ICU plurals with the relevant CLDR
+categories. Arabic messages include `zero one two few many other`; Hebrew
+messages include `one two other`. `__tests__/hermesPlurals.test.ts` discovers
+every plural in all three bundles, renders 0, 1, 2, 3 and 11, and fails if ICU
+syntax leaks on Hermes. Plain substitutions that do not inflect still use
+`fill()`.
+
+Arabic product copy follows [ARABIC_STYLE_GUIDE.md](./ARABIC_STYLE_GUIDE.md).
+It records the simple-MSA baseline, the small set of Levantine forms, canonical
+button labels, terminology, and the ban on developer notes in user copy.
 
 ## Digits
 

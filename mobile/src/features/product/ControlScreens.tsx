@@ -228,7 +228,7 @@ export function PatchReviewScreen() {
 }
 
 export function HabitDetailScreen() {
-  const { t, p, rtl, actions } = useApp();
+  const { t, tr, p, rtl, actions } = useApp();
   const query = useHabits();
   const create = useCreateHabit();
   const status = useSetHabitStatus();
@@ -283,7 +283,7 @@ export function HabitDetailScreen() {
       <Txt role="label">{t.xCadence}</Txt>
       <ProductActions>{[1, 3, 5].map(value => <Pill key={value} label={t.xTimesPerWeek.replace('{count}', String(value))} kind={count === value ? 'accent' : 'outline'} onPress={() => setCount(value)} />)}</ProductActions>
       <Txt role="label">{t.xDuration}</Txt>
-      <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={t.xMinutes.replace('{count}', String(value))} kind={duration === value ? 'accent' : 'outline'} onPress={() => setDuration(value)} />)}</ProductActions>
+      <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={tr('xMinutes', { count: value })} kind={duration === value ? 'accent' : 'outline'} onPress={() => setDuration(value)} />)}</ProductActions>
       <Txt role="label">{t.xFlexibility}</Txt>
       <ProductActions><Pill label={t.xFlexible} kind={flexibility === 'flexible' ? 'accent' : 'outline'} onPress={() => setFlexibility('flexible')} /><Pill label={t.xProtectedFlexible} kind={flexibility === 'protected_flexible' ? 'accent' : 'outline'} onPress={() => setFlexibility('protected_flexible')} /></ProductActions>
       <Txt role="label">{t.xRecovery}</Txt>

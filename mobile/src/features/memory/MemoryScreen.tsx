@@ -86,7 +86,7 @@ import {
 export const UNDO_WINDOW_MS = 5_000;
 
 export function MemoryScreen({ onBack }: { onBack: () => void }) {
-  const { t, p, rtl, lang } = useApp();
+  const { t, tr, p, rtl, lang } = useApp();
   const timeZone = useTimeZone();
 
   const memory = useMemory();
@@ -179,6 +179,7 @@ export function MemoryScreen({ onBack }: { onBack: () => void }) {
           <SuggestionsCard
             suggestions={suggestions}
             strings={strings}
+            translateCount={(key, values) => tr(key, values)}
             busy={decide.isPending}
             onKeep={suggestion => decide.mutate({ suggestion, decision: 'keep', language: suggestionLanguage })}
             onDismiss={suggestion => decide.mutate({ suggestion, decision: 'dismiss', language: suggestionLanguage })}
@@ -280,10 +281,14 @@ function AdaptiveCard({ adaptive, strings }: { adaptive: MemoryAdaptive; strings
 }
 
 function SuggestionsCard({
-  suggestions, strings, busy, onKeep, onDismiss,
+  suggestions, strings, translateCount, busy, onKeep, onDismiss,
 }: {
   suggestions: readonly MemorySuggestion[];
   strings: Record<string, string>;
+  translateCount: (
+    key: 'memoryDurationMinutes' | 'memoryDurationHours' | 'memoryDurationHoursAndHalf' | 'memorySuggestionEvidence',
+    values: Record<string, number>,
+  ) => string;
   busy: boolean;
   onKeep: (suggestion: MemorySuggestion) => void;
   onDismiss: (suggestion: MemorySuggestion) => void;
@@ -303,7 +308,7 @@ function SuggestionsCard({
           <Txt size={15} lh={1.5} testID={`memory-suggestion-${suggestion.fingerprint}`}>
             {isolateAuto(suggestion.ruleId === 'R2_defer_default'
               ? fill(strings.memorySuggestionDeferDefault ?? '', {
-                duration: durationText(suggestion.deferMinutes, strings),
+                duration: durationText(suggestion.deferMinutes, strings, translateCount),
               })
               : suggestion.ruleId === 'R3_plan_time'
                 ? fill(strings.memorySuggestionPlanTime ?? '', {
@@ -325,10 +330,10 @@ function SuggestionsCard({
                   total: String(suggestion.evidence.totalCount),
                   matching: String(suggestion.evidence.matchingCount),
                 })
-                : fill(strings.memorySuggestionEvidence ?? '', {
-                  days: String(suggestion.evidence.lookbackDays),
-                  total: String(suggestion.evidence.totalCount),
-                  matching: String(suggestion.evidence.matchingCount),
+                : translateCount('memorySuggestionEvidence', {
+                  days: suggestion.evidence.lookbackDays,
+                  total: suggestion.evidence.totalCount,
+                  matching: suggestion.evidence.matchingCount,
                 }))}
           </Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>

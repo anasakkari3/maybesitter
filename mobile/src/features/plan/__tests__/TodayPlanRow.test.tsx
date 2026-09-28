@@ -239,7 +239,10 @@ describe('the row is always there, and says which of six things is true', () => 
 });
 
 describe('in the three languages', () => {
-  it.each<[ 'ar' | 'he', typeof ar ]>([['ar', ar], ['he', he]])('%s: the row reads in the language the app is set to', async (tag, bundle) => {
+  it.each<['ar' | 'he', Pick<typeof ar, 'planRowProposal' | 'planRowProposalSub'>]>([
+    ['ar', ar],
+    ['he', he],
+  ])('%s: the row reads in the language the app is set to', async (tag, bundle) => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, tag);
     await shown();
     await planAnswered();

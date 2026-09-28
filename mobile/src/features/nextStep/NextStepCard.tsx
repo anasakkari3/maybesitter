@@ -67,7 +67,7 @@ export function NextStepCard({ lookup }: {
   /** Today's items by id, so the card can show the time and importance of the thing it names. */
   lookup?: ReadonlyMap<string, CommitmentView> | undefined;
 }) {
-  const { t, p } = useApp();
+  const { t, tr, p } = useApp();
   const query = useNextStep();
   const decide = useNextStepDecision();
   const [showWhy, setShowWhy] = useState(false);
@@ -127,6 +127,7 @@ export function NextStepCard({ lookup }: {
               recommendation={recommendation}
               item={lookup?.get(recommendation.primaryStep.commitmentId) ?? null}
               strings={strings}
+              translateCount={(key, values) => tr(key, values)}
               showWhy={showWhy}
               onToggleWhy={() => setShowWhy(!showWhy)}
               editing={editing}
@@ -174,11 +175,12 @@ const DEFER_LABEL = (t: Record<string, string>): Record<PostponePreset, string> 
 });
 
 function Ready({
-  recommendation, item, strings, showWhy, onToggleWhy, editing, onEdit, deferring, onDefer, more, onMore, started, onSend, busy,
+  recommendation, item, strings, translateCount, showWhy, onToggleWhy, editing, onEdit, deferring, onDefer, more, onMore, started, onSend, busy,
 }: {
   recommendation: NextStepRecommendation;
   item: CommitmentView | null;
   strings: Record<string, string>;
+  translateCount: (key: 'evidenceEffort', values: { minutes: number }) => string;
   showWhy: boolean;
   onToggleWhy: () => void;
   editing: boolean;
@@ -196,7 +198,7 @@ function Ready({
   const timezone = useTimeZone();
   const step = recommendation.primaryStep!;
   const [draft, setDraft] = useState(step.title);
-  const phrases = evidencePhrases(recommendation.explanation?.evidenceCodes ?? [], strings);
+  const phrases = evidencePhrases(recommendation.explanation?.evidenceCodes ?? [], strings, translateCount);
   // The server's list, in the server's order, filtered to what this build can
   // render — never a fixed row with the rest greyed out.
   const actionsOffered = DECISIONS.filter((decision) => recommendation.availableActions?.includes(decision));

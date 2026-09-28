@@ -114,11 +114,12 @@ test('a route answers the token it was given, not the last one it saw', async ()
     await connectionPost(request(BILLIE, 'connection', { method: 'POST' }));
     await manualPut(request(BILLIE, 'manual', { method: 'PUT', body: billiesBill }));
 
-    // Read as of AS_OF: on the wall clock Billie's bill is past due and drops out,
-    // and the test would stop proving anything the day after it was written.
-    const context = `context?referenceTime=${encodeURIComponent(AS_OF)}`;
-    const billiesContext = await (await contextGet(request(BILLIE, context))).text();
-    const alicesContext = await (await contextGet(request(ALICE, context))).text();
+    // Pin the request clock to the same instant as the seeded obligation.
+    // Otherwise this isolation assertion starts failing once its due date
+    // passes, even though account scoping is unchanged.
+    const path = `context?referenceTime=${encodeURIComponent(AS_OF)}`;
+    const billiesContext = await (await contextGet(request(BILLIE, path))).text();
+    const alicesContext = await (await contextGet(request(ALICE, path))).text();
 
     assert.ok(billiesContext.includes(BILLIE_ONLY));
     assert.equal(alicesContext.includes(BILLIE_ONLY), false);

@@ -33,6 +33,8 @@ export interface EvidenceItem {
   params?: { level?: 'low' | 'normal' | 'high' | undefined; minutes?: number | undefined } | undefined;
 }
 
+type CountTranslator = (key: 'evidenceEffort', values: { minutes: number }) => string;
+
 const PHRASE_KEY: Record<string, string> = {
   overdue: 'evidenceOverdue',
   due_within_24h: 'evidenceDueWithin24h',
@@ -57,7 +59,11 @@ const LEVEL_KEY: Record<'low' | 'normal' | 'high', string> = {
 };
 
 /** One phrase, or null when this build has no words for that code. */
-export function evidencePhrase(item: EvidenceItem, strings: Record<string, string>): string | null {
+export function evidencePhrase(
+  item: EvidenceItem,
+  strings: Record<string, string>,
+  translateCount?: CountTranslator,
+): string | null {
   const key = PHRASE_KEY[item.code];
   if (!key) return null;
   const phrase = strings[key];
@@ -72,7 +78,10 @@ export function evidencePhrase(item: EvidenceItem, strings: Record<string, strin
   if (item.code === 'effort') {
     const minutes = item.params?.minutes;
     if (typeof minutes !== 'number' || !Number.isFinite(minutes)) return null;
-    return fill(phrase, { minutes: String(Math.round(minutes)) });
+    const rounded = Math.round(minutes);
+    return translateCount
+      ? translateCount('evidenceEffort', { minutes: rounded })
+      : fill(phrase, { minutes: String(rounded) });
   }
   return phrase;
 }
@@ -81,9 +90,10 @@ export function evidencePhrase(item: EvidenceItem, strings: Record<string, strin
 export function evidencePhrases(
   items: readonly EvidenceItem[],
   strings: Record<string, string>,
+  translateCount?: CountTranslator,
 ): string[] {
   return items
-    .map((item) => evidencePhrase(item, strings))
+    .map((item) => evidencePhrase(item, strings, translateCount))
     .filter((phrase): phrase is string => phrase !== null);
 }
 

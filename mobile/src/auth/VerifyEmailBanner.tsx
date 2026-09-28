@@ -3,7 +3,6 @@ import { AppState, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useAuth } from './AuthProvider';
-import { fill } from '../i18n/strings';
 import { Pill, Txt } from '../ui/primitives';
 
 /** Firebase rate-limits verification mail; the UI says so rather than failing. */
@@ -22,7 +21,7 @@ export const RESEND_COOLDOWN_SECONDS = 60;
  * MaybeSitter, and the banner should already be gone when they do.
  */
 export function VerifyEmailBanner() {
-  const { t, p } = useApp();
+  const { t, tr, p } = useApp();
   const { user, reloadUser, repository } = useAuth();
   // Rendered once at the root, above every screen (#495): the screens add
   // `insets.top` to their own content, so clearing the status bar is the
@@ -78,7 +77,7 @@ export function VerifyEmailBanner() {
         {sent && cooldown > 0 ? t.authVerifyResent : t.authVerifyBanner}
       </Txt>
       <Pill
-        label={cooldown > 0 ? fill(t.authVerifyCooldown, { s: cooldown }) : t.authVerifyResend}
+        label={cooldown > 0 ? tr('authVerifyCooldown', { s: cooldown }) : t.authVerifyResend}
         kind="soft"
         size={13}
         pad={8}

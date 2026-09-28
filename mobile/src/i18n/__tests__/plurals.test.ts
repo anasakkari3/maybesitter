@@ -9,7 +9,7 @@ const ARABIC_INDIC = /[٠-٩۰-۹]/;
 
 describe('confirmN', () => {
   const arabic: Record<number, string> = {
-    0: 'ما في شي لتأكيده',
+    0: 'ما في إشي لتأكيده',
     1: 'أكّد التزام واحد',
     2: 'أكّد التزامين',
     3: 'أكّد 3 التزامات',
@@ -78,5 +78,47 @@ describe('the other two count messages', () => {
     expect(ar('progressWords', { d: 2, n: 3 })).toBe('تمّ تنين من 3');
     expect(ar('progressWords', { d: 3, n: 3 })).toBe('تمّت 3 من 3');
     expect(he('progressWords', { d: 2, n: 5 })).toBe('הושלמו שניים מתוך 5');
+  });
+});
+
+describe('verification resend cooldown', () => {
+  const ar = tFor('ar');
+
+  it.each<[number, string]>([
+    [0, 'ابعت من جديد'],
+    [1, 'ابعت بعد ثانية'],
+    [2, 'ابعت بعد ثانيتين'],
+    [3, 'ابعت بعد 3 ثواني'],
+    [11, 'ابعت بعد 11 ثانية'],
+  ])('inflects Arabic seconds for s=%s', (s, expected) => {
+    expect(ar('authVerifyCooldown', { s })).toBe(expected);
+  });
+});
+
+describe('Arabic duration and lookback counts', () => {
+  const ar = tFor('ar');
+
+  it('inflects minutes at the dual, few, and many boundaries', () => {
+    expect(ar('xMinutes', { count: 2 })).toBe('دقيقتان');
+    expect(ar('xMinutes', { count: 5 })).toBe('5 دقائق');
+    expect(ar('xMinutes', { count: 11 })).toBe('11 دقيقة');
+    expect(ar('evidenceEffort', { minutes: 2 })).toBe('حوالي دقيقتين');
+    expect(ar('evidenceEffort', { minutes: 5 })).toBe('حوالي 5 دقائق');
+    expect(ar('evidenceEffort', { minutes: 11 })).toBe('حوالي 11 دقيقة');
+  });
+
+  it('inflects hours and fallback minutes', () => {
+    expect(ar('memoryDurationHours', { count: 3 })).toBe('3 ساعات');
+    expect(ar('memoryDurationHours', { count: 11 })).toBe('11 ساعة');
+    expect(ar('memoryDurationMinutes', { count: 5 })).toBe('5 دقائق');
+  });
+
+  it('inflects the suggestion lookback without losing its other counts', () => {
+    expect(ar('memorySuggestionEvidence', { days: 2, total: 4, matching: 3 }))
+      .toBe('أشياء خلّصتها بآخر يومين: 4. بهالساعات: 3.');
+    expect(ar('memorySuggestionEvidence', { days: 5, total: 4, matching: 3 }))
+      .toBe('أشياء خلّصتها بآخر 5 أيام: 4. بهالساعات: 3.');
+    expect(ar('memorySuggestionEvidence', { days: 11, total: 4, matching: 3 }))
+      .toBe('أشياء خلّصتها بآخر 11 يومًا: 4. بهالساعات: 3.');
   });
 });

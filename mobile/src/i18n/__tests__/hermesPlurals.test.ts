@@ -84,9 +84,14 @@ describe('count messages on an engine without Intl.PluralRules (Hermes)', () => 
         const args = Object.fromEntries(
           [...value.matchAll(/\{\s*(\w+)/g)].map(match => [match[1] as string, 1]),
         );
+        const pluralArgs = [...value.matchAll(/\{\s*(\w+)\s*,\s*plural\s*,/g)]
+          .map(match => match[1] as string);
         checked.push(`${locale}.${key}`);
         for (const n of [0, 1, 2, 3, 11]) {
-          const rendered = t(key, { ...args, n, d: Math.min(n, 3) });
+          const rendered = t(key, {
+            ...args,
+            ...Object.fromEntries(pluralArgs.map(name => [name, n])),
+          });
           expect({ key: `${locale}.${key}`, n, leaks: /plural|[{}]/.test(rendered) })
             .toEqual({ key: `${locale}.${key}`, n, leaks: false });
         }

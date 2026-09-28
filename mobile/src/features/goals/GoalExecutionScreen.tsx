@@ -274,7 +274,7 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const { t, p, lang } = useApp();
+  const { t, tr, p, lang } = useApp();
   return <ProductSection title={t.xGoalProposalTitle} body={t.xGoalProposalNotSaved} icon="spark">
     {proposals.length === 0 ? <Txt testID="goal-proposal-empty" role="supporting" color={p.mu}>{t.xGoalProposalEmpty}</Txt> : proposals.map(node => {
       const selected = selections[node.nodeId];
@@ -299,7 +299,7 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
           {selected.as === 'habit' ? <>
             <Txt role="supporting" color={p.mu}>{t.xHabitConfirmationBody}</Txt>
             <ProductActions>{[1, 3, 5].map(value => <Pill key={value} label={fill(t.xTimesPerWeek, { count: formatNumber(value, { locale: lang }) })} kind={selected.count === value ? 'accent' : 'outline'} onPress={() => onUpdateHabit(node.nodeId, { count: value })} />)}</ProductActions>
-            <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={fill(t.xMinutes, { count: formatNumber(value, { locale: lang }) })} kind={selected.durationMinutes === value ? 'accent' : 'outline'} onPress={() => onUpdateHabit(node.nodeId, { durationMinutes: value })} />)}</ProductActions>
+            <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={tr('xMinutes', { count: value })} kind={selected.durationMinutes === value ? 'accent' : 'outline'} onPress={() => onUpdateHabit(node.nodeId, { durationMinutes: value })} />)}</ProductActions>
           </> : null}
         </> : null}
       </Card>;
