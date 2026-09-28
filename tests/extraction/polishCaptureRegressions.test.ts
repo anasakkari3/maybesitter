@@ -581,21 +581,19 @@ test('round 3 N-I1: «غدا مع» is lunch only right after «عندي» — a
   assert.deepEqual((await proposeRules('الخميس عنا غدا مع العيلة', MON_10)).items.map((item) => [item.title, item.resolvedDate]), [['عنا غدا مع العيلة', '2026-10-01']]);
 });
 
-test('round 3: an answer that rules a day out and names exactly one other takes that one — never the day ruled out', async () => {
+test('round 3 (narrowed in round 4): an answer that rules a day out in a plain shape takes the other day — never the day ruled out', async () => {
   const rows: Array<[string, string]> = [
     ['لا بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     ['no, tomorrow evening', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     ['not today, tomorrow evening', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     ['not today but tomorrow evening', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     ['مش اليوم، بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
-    ['بكرا لا، الخميس المسا', 'موعد دكتور | 2026-10-01 19:00 | settled'],
     ['not tomorrow, Thursday evening', 'موعد دكتور | 2026-10-01 19:00 | settled'],
     ['مش بكرا، بعد بكرا المسا', 'موعد دكتور | 2026-09-30 19:00 | settled'],
     ['not tomorrow, the day after tomorrow in the evening', 'موعد دكتور | 2026-09-30 19:00 | settled'],
-    ['بكرا لا، بعد بكرا المسا', 'موعد دكتور | 2026-09-30 19:00 | settled'],
     ['مش بكرا، الأحد المسا', 'موعد دكتور | 2026-10-04 19:00 | settled'],
-    ['الأحد مش بكرا، المسا', 'موعد دكتور | 2026-10-04 19:00 | settled'],
-    ['بكرا، مش الخميس، المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['لا بكرا، الخميس المسا', 'موعد دكتور | 2026-10-01 19:00 | settled'],
+    ['لا، بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     // A leading «لا»/«לא» before one of two days rules that one out.
     ['לא מחר, ביום חמישי בערב', 'موعد دكتور | 2026-10-01 19:00 | settled'],
     ['לא היום, מחר בערב', 'موعد دكتور | 2026-09-29 19:00 | settled'],
@@ -603,6 +601,45 @@ test('round 3: an answer that rules a day out and names exactly one other takes 
     ['לא מחר בערב', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     // One day, no negation: the whole answer is read, so the week after keeps its week.
     ['الأحد اللي بعد الجاي المسا', 'موعد دكتور | 2026-10-11 19:00 | settled'],
+  ];
+  for (const [freeText, expected] of rows) {
+    assert.equal((await answerDoctor(freeText)).line, expected, freeText);
+  }
+});
+
+// ── Round 4: default-refuse a negation outside the two plain shapes ───────
+
+test('round 4 R3-I1: "not this weekday, that one a week on" is read with its week, and refused when the two are the same date', async () => {
+  // The day left is read with the words after it: the week after.
+  assert.equal((await answerDoctor('مش الأحد، الأحد اللي بعد الجاي المسا')).line, 'موعد دكتور | 2026-10-11 19:00 | settled');
+  // Read with their words, these name the day they rule out: not understood, never that day.
+  for (const freeText of ['مش الخميس، الخميس اللي بعده المسا', 'not Thursday, the Thursday after that, evening', 'not this Sunday, next Sunday evening', 'مش بكرا، بكرا المسا']) {
+    assert.deepEqual(await answerDoctor(freeText), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 }, freeText);
+  }
+});
+
+test('round 4 R3-I2: a negation or "can\'t" anywhere in the answer, outside the two plain shapes, is not understood', async () => {
+  for (const freeText of [
+    'ما بقدر بكرا المسا', 'مش فاضي بكرا المسا', 'مش راح أقدر بكرا المسا', 'مش هو بكرا المسا', 'بكرا؟ لا، المسا',
+    "I can't tomorrow evening", "can't do tomorrow evening", 'not possible tomorrow evening', "I won't be free tomorrow evening",
+    'I cannot tomorrow evening', 'לא יכול מחר בערב', 'אני לא יכול מחר בערב', 'אי אפשר מחר בערב',
+    // Shapes the ruling does not whitelist: refused, the safe side.
+    'بكرا لا، الخميس المسا', 'الأحد مش بكرا، المسا', 'بكرا، مش الخميس، المسا', 'بكرا لا، بعد بكرا المسا',
+    'لا بكرا مش المسا', 'لا، المسا', 'not in the morning, the evening', '5 المسا مش الصبح',
+  ]) {
+    assert.deepEqual(await answerDoctor(freeText), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 }, freeText);
+  }
+});
+
+test('round 4: words that only look like a negation — «مش مشكلة», "no problem", «بعد ما», «ما بعد الضهر» — leave the answer readable', async () => {
+  const rows: Array<[string, string]> = [
+    ['مش مشكلة بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['ما في مشكلة، بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['no problem, tomorrow evening', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['אין בעיה, מחר בערב', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['بكرا بعد ما أخلص شغل المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['شو ما كان بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['بكرا ما بعد الضهر', 'موعد دكتور | 2026-09-29 14:00 | settled'],
   ];
   for (const [freeText, expected] of rows) {
     assert.equal((await answerDoctor(freeText)).line, expected, freeText);
