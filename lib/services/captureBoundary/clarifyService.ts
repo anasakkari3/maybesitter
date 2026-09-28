@@ -66,6 +66,11 @@ export type ClarifyFailure =
   | 'answer_required'
   | 'free_text_too_long'
   | 'option_not_found'
+  /**
+   * Free text to a question that takes none (`allowFreeText: false`, the am/pm
+   * question). The round is not spent; an option still answers it.
+   */
+  | 'free_text_not_allowed'
   /** Free text that answered nothing the question asked. The round is not spent. */
   | 'answer_not_understood';
 
@@ -255,24 +260,6 @@ function allDayAppointment(result: ExtractionResult, timezone: string): Extracti
   } as ExtractionResult;
 }
 
-/**
- * The am/pm question answered by typing a half of the day (FZ1 round 2): the
- * hour it asked about, in that half — «5» + «المسا»/"pm"/«م»/«בערב» is 17:00,
- * + «الصبح»/"am"/«ص» is 05:00, + «بالليل» follows the night's rule. The time
- * question's buttons (09/14/19) are for a day with no hour; here the hour was
- * said. Null for any other question, or an answer that states a clock (a new
- * hour) or names no half.
- */
-function amPmAnswerTime(result: ExtractionResult, question: ClarificationContract, freeText: string): string | null {
-  if (question.field !== 'time_period' || statesClock(freeText)) return null;
-  const half = typedHalfOfDay(freeText);
-  const hour = Number(question.params?.hour);
-  if (!half || !Number.isInteger(hour) || hour < 1 || hour > 11) return null;
-  const minutes = /^\d{2}:(\d{2})$/.exec(result.localTimeSpec?.time ?? '')?.[1] ?? '00';
-  const answered = half === 'am' ? hour : half === 'pm' ? hour + 12 : nightClockHour(hour);
-  return `${String(answered).padStart(2, '0')}:${minutes}`;
-}
-
 /*
  * A typed number with a half of the day and no clock word — «5 المسا», «5 م»,
  * "5 in the evening", «5 בערב» (FZ1 review, M5a): that hour in that half,
@@ -382,13 +369,6 @@ async function readFreeTextAnswer(
   if (question.field === 'time' && forbidsResolvedTime(freeText) && !namesDay(freeText) && !namesCalendarDate(freeText)) {
     throw new ClarifyError('answer_not_understood');
   }
-  // «5 الصبح ولا المسا؟» answered «المسا» with no day: the asked hour, in
-  // that half, on the item's day — no re-read (FZ1 round 2).
-  const amPmTime = amPmAnswerTime(result, question, freeText);
-  const itemDay = result.localTimeSpec?.date ?? null;
-  if (amPmTime && itemDay && !namesDay(freeText) && !namesCalendarDate(freeText) && !readWeekdayReference(freeText)) {
-    return notPast(withResolvedTime(result, { date: itemDay, time: amPmTime }, options.timezone), options.now);
-  }
   const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
   const combined = `${original}\n${freeText}`.trim();
   let extracted: Awaited<ReturnType<typeof extractor>>;
@@ -435,8 +415,7 @@ async function readFreeTextAnswer(
     if (typedHour === 'ambiguous') throw new ClarifyError('answer_not_understood');
     const numberedTime = typedHour;
     if (typedPart !== null || numberedTime) {
-      // On the am/pm question the half is of the hour it asked (FZ1 round 2).
-      const time = amPmTime ?? numberedTime ?? answeredDayPartTime(typedPart!);
+      const time = numberedTime ?? answeredDayPartTime(typedPart!);
       const namedDay = readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null;
       const day = dayForAnswer(time, namedDay ?? itemDate, { now: options.now, timezone: options.timezone });
       if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
@@ -523,6 +502,13 @@ export async function answerClarification(
   const freeText = typeof input.freeText === 'string' ? input.freeText.trim() : '';
   if (!input.optionId && !freeText) throw new ClarifyError('answer_required');
   if (freeText.length > CLARIFICATION_FREE_TEXT_MAX) throw new ClarifyError('free_text_too_long');
+
+  // A question that offers only its options takes no typed answer (FY1
+  // re-review, R2-M2). The phone shows no text box for it, but the server read
+  // one anyway: «بعد بكرا pm» and "I am not sure" typed to «5 الصبح ولا
+  // المسا؟» came back 05:00 (FZ1, M3) — the unlikely half, picked silently.
+  // Refused before anything is read, with the round intact.
+  if (!input.optionId && question.allowFreeText === false) throw new ClarifyError('free_text_not_allowed');
 
   let answered: ExtractionResult;
   let answerKind: 'option' | 'free_text';
