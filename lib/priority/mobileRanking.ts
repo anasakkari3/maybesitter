@@ -146,9 +146,14 @@ function reasonCodesFor(
 
   // Deadline first, and only the sharpest one: "overdue" and "due today" on the
   // same card would be two ways of saying one thing.
-  if (Number.isNaN(dueMs)) codes.push('no_deadline');
-  // An appointment whose day is over has no deadline word at all (N18).
-  else if (dueMs < nowMs) { if (!isAllDayEvent(commitment)) codes.push('overdue'); }
+  //
+  // An appointment on a day with no hour is not due at all: it happens on its
+  // day (N18; FINAL-BACKEND review, M1). So no deadline word — not «اليوم» on
+  // its day, not «خلال ساعتين» from 22:00, not «الوقت مرق» after it. An
+  // all-day *deadline* («لحد اليوم») is due, and keeps its words.
+  if (isAllDayEvent(commitment)) { /* no deadline code */ }
+  else if (Number.isNaN(dueMs)) codes.push('no_deadline');
+  else if (dueMs < nowMs) codes.push('overdue');
   else if (dueMs - nowMs <= TWO_HOURS_MS) codes.push('due_within_2h');
   else if (dueMs - nowMs <= DEFAULT_DUE_SOON_WINDOW_MS) codes.push('due_today');
 

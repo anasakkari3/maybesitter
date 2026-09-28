@@ -29,6 +29,7 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { getLiveNextStep } from '../../lib/services/nextStepLiveService.ts';
 import { candidatesFromDomainState, scoreBaselineCandidate } from '../../lib/services/nextStepBaseline.ts';
 import { rankForMobile } from '../../lib/priority/mobileRanking.ts';
+import { listTodayRanked, listUpcomingRanked } from '../../lib/services/mobile/commitmentService.ts';
 import { NEXT_STEP_PINNED_ARM_ENV } from '../../lib/experiments/experimentControls.ts';
 import { NEXT_STEP_ARMS } from '../../src/contracts/v1/experimentContracts.ts';
 import { MODULE_FEATURE_FLAG_DEFAULTS, MODULE_KILL_SWITCH_DEFAULTS } from '../../src/contracts/v1/runtimeControls.ts';
@@ -169,13 +170,12 @@ function codesOn(state: DomainState, id: string, at: Date): readonly string[] {
   return ranked.find((entry) => entry.commitmentId === id)!.reasonCodes;
 }
 
-test('N18 (Today list): the all-day appointment is «اليوم» on its day, never «الوقت مرق» — on its day or after it', async () => {
+test('N18 (Today list): the all-day appointment is never «الوقت مرق» — on its day or after it', async () => {
   await withMemoryStorage(async () => {
     const state = await uatMorning();
     const doctor = byTitle(state, 'موعد دكتور');
     const lunch = byTitle(state, 'الغدا');
     assert.ok(!codesOn(state, doctor.id, NOW).includes('overdue'), `on its day: ${codesOn(state, doctor.id, NOW).join(', ')}`);
-    assert.ok(codesOn(state, doctor.id, NOW).includes('due_today'));
     assert.ok(!codesOn(state, doctor.id, TOMORROW).includes('overdue'), `after its day: ${codesOn(state, doctor.id, TOMORROW).join(', ')}`);
     // And it no longer sits above lunch at 14:00 as the late thing.
     const ranked = rankForMobile(Object.values(state.commitments), Object.values(state.reminders), NOW.toISOString());
@@ -204,5 +204,65 @@ test('N18 (Today list): the day after, yesterday\'s all-day appointment is not t
     const ranked = rankForMobile(Object.values(state.commitments), Object.values(state.reminders), TOMORROW.toISOString());
     assert.equal(ranked[0]!.commitmentId, call.id, `the top of Tuesday's list: ${ranked.map((entry) => entry.commitmentId === doctor.id ? 'doctor' : entry.commitmentId === call.id ? 'call' : '?').join(', ')}`);
     assert.deepEqual(ranked.find((entry) => entry.commitmentId === doctor.id)!.reasonCodes.filter((code) => code.startsWith('due') || code === 'overdue'), []);
+  });
+});
+
+/* ── Review follow-ups (FINAL-BACKEND review, M1 and M4) ─────────────── */
+
+const DEADLINE_CODES = ['overdue', 'due_within_2h', 'due_today', 'no_deadline'];
+/** Monday 28 Sep, 22:30 in Jerusalem: inside the last two hours of the day. */
+const MONDAY_LATE = new Date('2026-09-28T19:30:00.000Z');
+
+test('M1: an all-day appointment carries no deadline chip on its day — not «اليوم», not «خلال ساعتين» at 22:30', async () => {
+  await withMemoryStorage(async () => {
+    const state = await uatMorning();
+    const doctor = byTitle(state, 'موعد دكتور');
+    for (const at of [NOW, MONDAY_LATE]) {
+      const deadline = codesOn(state, doctor.id, at).filter((code) => DEADLINE_CODES.includes(code));
+      assert.deepEqual(deadline, [], `${at.toISOString()}: ${codesOn(state, doctor.id, at).join(', ')}`);
+    }
+  });
+});
+
+test('M1: an all-day DEADLINE keeps its chips — «اليوم» at 10:05, «خلال ساعتين» at 22:30', async () => {
+  await withMemoryStorage(async () => {
+    await captureNoHour('بدي أتصل بسامي اليوم');
+    const state = await getParticipantStateSnapshot(UID);
+    const call = byTitle(state, 'سامي');
+    assert.ok(codesOn(state, call.id, NOW).includes('due_today'), codesOn(state, call.id, NOW).join(', '));
+    assert.ok(codesOn(state, call.id, MONDAY_LATE).includes('due_within_2h'), codesOn(state, call.id, MONDAY_LATE).join(', '));
+  });
+});
+
+/*
+ * M4: what happens to an event once it has passed. A timed event
+ * (`scheduled_event` with an hour) is not taken off Today when its hour or
+ * its day goes: #383 rolls every live commitment whose day is behind today
+ * onto Today, and it stays there, active, until the person acts on it — the
+ * product has no "overdue" and nothing auto-completes. The past all-day
+ * appointment follows that exact rule: wherever the passed timed event is,
+ * it is too, and it is still active.
+ */
+test('M4: a past all-day appointment is placed exactly as a passed timed event is — and neither is completed', async () => {
+  await withMemoryStorage(async () => {
+    await captureNoHour('عندي موعد دكتور اليوم');
+    await captureNoHour('عندي اجتماع مع سامي اليوم الساعة 12 الظهر');
+    const state = await getParticipantStateSnapshot(UID);
+    const doctor = byTitle(state, 'موعد دكتور');
+    const meeting = byTitle(state, 'اجتماع');
+    assert.deepEqual([meeting.timeSpec.kind, meeting.timeSpec.allDay], ['scheduled_event', false]);
+    const placement = async (id: string, at: Date) => {
+      const today = (await listTodayRanked({ participantId: UID, now: at, timezone: TZ })).items.some((c) => c.id === id);
+      const upcoming = (await listUpcomingRanked({ participantId: UID, now: at, timezone: TZ })).items.some((c) => c.id === id);
+      return today ? 'today' : upcoming ? 'upcoming' : 'gone';
+    };
+    // Monday 22:30 (the meeting's hour gone), Tuesday, and a week on.
+    for (const at of [MONDAY_LATE, TOMORROW, new Date('2026-10-05T07:05:00.000Z')]) {
+      assert.equal(await placement(doctor.id, at), await placement(meeting.id, at), at.toISOString());
+    }
+    // The rule itself: the passed timed event is still on Today the next day.
+    assert.equal(await placement(meeting.id, TOMORROW), 'today');
+    const after = await getParticipantStateSnapshot(UID);
+    assert.deepEqual([after.commitments[doctor.id]!.status, after.commitments[meeting.id]!.status], ['active', 'active']);
   });
 });
