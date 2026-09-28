@@ -10,7 +10,7 @@
 import React from 'react';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
-import { Keyboard, StyleSheet, Text, TextInput, type KeyboardEvent } from 'react-native';
+import { Keyboard, LayoutAnimation, StyleSheet, Text, TextInput, type KeyboardEvent } from 'react-native';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import * as windowFrame from '../windowFrame';
@@ -147,6 +147,60 @@ describe('AvoidKeyboard', () => {
       resolveFrame({ y: 134, height: 740 });
     });
     expect((StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom).toBe(0);
+  });
+});
+
+/*
+ * UAT round 5, N17: «حضّرني» opened the meeting-prep sheet, the notes field
+ * focused itself, and the whole panel vanished behind the keyboard — only the
+ * scrim was left (4/4). A screen recording shows the panel rise above the
+ * keyboard and then disappear when the entrance ends.
+ *
+ * The lift was a `LayoutAnimation`. On Fabric a layout animation rewrites the
+ * opacity and transform of every view it moves, interpolated between their
+ * *committed* values. The sheet panel fades and rises with the native driver
+ * (`useSheetMotion`), so its committed opacity is still the start value, 0,
+ * while the native animation runs: when the keyboard's layout animation
+ * outlasted the 380ms entrance, it wrote opacity 0 back last. A race — the
+ * same code passed round 3 — but one the autofocused sheet loses on the
+ * simulator every time now. Built without the layout animation, the panel
+ * stays on the keyboard (device builds E1/E2 in the lane report).
+ *
+ * Jest cannot run the native driver or Fabric's layout animations, so this
+ * pins the cause, not the pixels: the lift configures no layout animation.
+ */
+describe('no layout animation for the lift (N17)', () => {
+  it('a keyboard showing, changing and hiding configures none', async () => {
+    const configure = jest.spyOn(LayoutAnimation, 'configureNext');
+    const handlers: Record<string, ((event: KeyboardEvent) => void)[]> = {};
+    jest.spyOn(Keyboard, 'addListener').mockImplementation(((name: string, handler: (event: KeyboardEvent) => void) => {
+      (handlers[name] ??= []).push(handler);
+      return { remove: () => {} };
+    }) as never);
+    jest.spyOn(windowFrame, 'measureWindowFrame').mockResolvedValue({ y: 0, height: 874 });
+    await render(<AvoidKeyboard testID="box"><Text>body</Text></AvoidKeyboard>);
+    const pad = () => (StyleSheet.flatten(screen.getByTestId('box').props.style) as { paddingBottom: number }).paddingBottom;
+    await React.act(async () => {
+      handlers.keyboardWillShow?.forEach((h) => h({ duration: 250, easing: 'keyboard', endCoordinates: { screenX: 0, screenY: 538, width: 402, height: 336 } } as KeyboardEvent));
+    });
+    // It still lifts — only without animating the commit that does it.
+    expect(pad()).toBe(336);
+    await React.act(async () => {
+      handlers.keyboardWillChangeFrame?.forEach((h) => h({ duration: 250, easing: 'keyboard', endCoordinates: { screenX: 0, screenY: 494, width: 402, height: 380 } } as KeyboardEvent));
+    });
+    expect(pad()).toBe(380);
+    await React.act(async () => {
+      handlers.keyboardWillHide?.forEach((h) => h({ duration: 250, easing: 'keyboard' } as KeyboardEvent));
+    });
+    expect(pad()).toBe(0);
+    expect(configure).not.toHaveBeenCalled();
+  });
+
+  it('nothing in src configures one', () => {
+    const offenders = sourceFiles(SRC)
+      .filter((path) => /LayoutAnimation\.configureNext|LayoutAnimation\.(easeInEaseOut|linear|spring)\(/.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(SRC, path));
+    expect(offenders).toEqual([]);
   });
 });
 

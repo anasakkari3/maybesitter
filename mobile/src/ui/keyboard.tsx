@@ -1,12 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   Keyboard,
-  LayoutAnimation,
   Platform,
   TextInput,
   View,
   type KeyboardEvent,
-  type LayoutAnimationType,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
@@ -60,6 +58,17 @@ export function useKeyboardInset(): number {
  *
  * Every screen with a keyboard uses this; a census test refuses a bare
  * KeyboardAvoidingView.
+ *
+ * ── The lift is not a LayoutAnimation (UAT round 5, N17) ────────────
+ *
+ * It was, as in React Native's own KeyboardAvoidingView. On Fabric a layout
+ * animation rewrites the opacity and transform of every view it moves,
+ * interpolated between their *committed* values. A view fading in on the
+ * native driver — the sheet panel (`useSheetMotion`) — still has its start
+ * value, opacity 0, committed while the entrance runs. When the keyboard's
+ * layout animation outlasted the entrance, it wrote 0 back last: the
+ * meeting-prep sheet rose above the keyboard and vanished, leaving only the
+ * scrim. So the padding lands in one step, as the keyboard starts to move.
  */
 export function AvoidKeyboard({
   children,
@@ -80,7 +89,7 @@ export function AvoidKeyboard({
   const keyboardTop = useRef<number | null>(null);
   const live = useRef(true);
 
-  const update = useCallback(async (animation?: { duration: number; easing: LayoutAnimationType }) => {
+  const update = useCallback(async () => {
     const top = keyboardTop.current;
     let next = 0;
     if (top !== null) {
@@ -91,10 +100,6 @@ export function AvoidKeyboard({
     }
     if (next === insetRef.current) return;
     insetRef.current = next;
-    if (animation && animation.duration > 0) {
-      const duration = Math.max(animation.duration, 10);
-      LayoutAnimation.configureNext({ duration, update: { duration, type: animation.easing } });
-    }
     setInset(next);
   }, []);
 
@@ -110,10 +115,6 @@ export function AvoidKeyboard({
       ? Keyboard.metrics()
       : undefined;
     if (metrics) keyboardTop.current = metrics.screenY;
-    const animationOf = (event: KeyboardEvent) => ({
-      duration: event.duration ?? 0,
-      easing: (event.easing && event.easing in LayoutAnimation.Types ? event.easing : 'keyboard') as LayoutAnimationType,
-    });
     // A show usually lands inside the screen's entrance (`ScreenIn`, 340ms of
     // translate and scale). A transform fires no layout, so the first
     // measurement would stand until the next keyboard event; measure again
@@ -125,7 +126,7 @@ export function AvoidKeyboard({
     };
     const moved = (event: KeyboardEvent) => {
       keyboardTop.current = event.endCoordinates.screenY;
-      void update(animationOf(event));
+      void update();
       measureAgainLater();
     };
     // `WillChangeFrame` too: the keyboard changes height while it stays up
@@ -135,10 +136,10 @@ export function AvoidKeyboard({
     const change = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
       if (keyboardTop.current !== null) moved(event);
     });
-    const hide = Keyboard.addListener('keyboardWillHide', (event) => {
+    const hide = Keyboard.addListener('keyboardWillHide', () => {
       keyboardTop.current = null;
       if (settle) { clearTimeout(settle); settle = null; }
-      void update(event ? animationOf(event) : undefined);
+      void update();
     });
     if (metrics) measureAgainLater();
     return () => {

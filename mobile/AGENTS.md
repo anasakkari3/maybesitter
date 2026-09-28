@@ -47,6 +47,9 @@ Rules the design fixes, which code must keep:
 - A screen with a keyboard wraps its body in `AvoidKeyboard` (`src/ui/keyboard.tsx`),
   never a bare `KeyboardAvoidingView`: that one measures against its parent and
   under-pads by whatever chrome sits above it (the verify-email banner).
+- No `LayoutAnimation`. On Fabric it rewrites the opacity and transform of every
+  view it moves from their committed values, so a sheet fading in on the native
+  driver vanished behind the keyboard (UAT round 5, N17). A census test holds it.
 
 ## Layout
 
