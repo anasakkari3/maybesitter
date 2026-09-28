@@ -64,6 +64,7 @@ import {
 } from '../schemas/calendar';
 import { reminderSettingsResponseSchema, hardReceiptsResponseSchema } from '../schemas/reminders';
 import { readinessResponseSchema, readinessSavedSchema } from '../schemas/readiness';
+import { watcherChangedSchema, watcherListSchema } from '../schemas/watchers';
 import {
   financialConnectionSchema,
   financialContextResponseSchema,
@@ -71,6 +72,7 @@ import {
   financialManualSavedSchema,
 } from '../schemas/financial';
 import { deviceForgottenSchema, deviceRegisteredSchema } from '../schemas/devices';
+import { accountExportSchema } from '../schemas/accountExport';
 import {
   icsDeadlineDecidedSchema,
   icsFeedCreatedSchema,
@@ -80,6 +82,15 @@ import {
   icsFeedRefusalSchema,
   icsFeedUpdatedSchema,
 } from '../schemas/icsFeeds';
+import {
+  googleCalendarBlocksSchema,
+  googleCalendarSyncedSchema,
+  googleConnectStartedSchema,
+  googleDisconnectedSchema,
+  googlePickerTicketSchema,
+  googleRefusalSchema,
+  googleStatusResponseSchema,
+} from '../schemas/google';
 
 /**
  * The drift detector.
@@ -106,6 +117,10 @@ const CASES: Array<[string, z.ZodType]> = [
   // updated proposal, not an acknowledgement (#165).
   ['capture.needsClarification', captureProposalSchema],
   ['capture.clarified', captureProposalSchema],
+  // The owner's «سجّل موعد دكتور يوم الأحد» (L4): a guessed day on an item
+  // still waiting on its hour, then the same item answered.
+  ['capture.guessedWeekday', captureProposalSchema],
+  ['capture.guessedWeekdayClarified', captureProposalSchema],
   // The same schema again, over a proposal the model answered (#338). Without
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.
@@ -125,6 +140,12 @@ const CASES: Array<[string, z.ZodType]> = [
   ['commitments.notFound', errorBodySchema],
   ['commitments.stale', staleCommitmentSchema],
   ['commitments.invalidTransition', invalidTransitionSchema],
+  // "Export my data" (#174 step 7): the envelope the share sheet is handed.
+  ['account.export', accountExportSchema],
+  // Health → energy: the POST the energy screen sends from HealthKit, and the
+  // read after it, whose source is now the device's summary.
+  ['readiness.healthSaved', readinessSavedSchema],
+  ['readiness.fromHealth', readinessResponseSchema],
   ['consents.unanswered', consentsViewSchema],
   ['consents.answered', consentsViewSchema],
   ['consents.aiRecorded', aiConsentUpdatedSchema],
@@ -179,6 +200,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.protected', planResponseSchema],
   ['plan.withProposal', planResponseSchema],
   ['plan.built', planResponseSchema],
+  ['plan.refreshedWithFixed', planResponseSchema],
   ['plan.cause', planCauseResponseSchema],
   // "The plan was put on screen" (#533): the acknowledgement carries nothing
   // back; the append to the plan ledger is the point of the call.
@@ -236,8 +258,18 @@ const CASES: Array<[string, z.ZodType]> = [
   ['goal.confirmed', goalConfirmResponseSchema],
   ['goal.regenerated', goalGraphResponseSchema],
   ['goal.unlinked', goalUnlinkResponseSchema],
+  // Both states the energy screen meets, from the route (#readiness): a new
+  // account's `freshness: 'missing'` and the snapshot's string `version`
+  // were what the old hand-written fixture got wrong.
   ['readiness.current', readinessResponseSchema],
+  ['readiness.missing', readinessResponseSchema],
   ['readiness.saved', readinessSavedSchema],
+  // "تابعلي" (#525). `label: null` is what the route sends for a watcher
+  // nobody named; the schema refused it and every create looked failed.
+  ['watchers.created', watcherChangedSchema],
+  ['watchers.paused', watcherChangedSchema],
+  ['watchers.resumed', watcherChangedSchema],
+  ['watchers.list', watcherListSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
   // Subscribed calendar feeds (UC-3.4, #188). The schemas are strict: a
@@ -251,6 +283,31 @@ const CASES: Array<[string, z.ZodType]> = [
   ['icsFeeds.deleted', icsFeedDeletedSchema],
   ['icsFeeds.invalidUrl', icsFeedRefusalSchema],
   ['icsFeeds.refreshTooSoon', icsFeedRefusalSchema],
+  // The Google connection (CL6a), recorded from the routes against a fake
+  // Google. `google.notConfigured` is what every build gets until the owner
+  // adds the OAuth client; the Gmail scan and the Drive import are the share
+  // proposal, read by the same review screen.
+  ['google.notConfigured', googleStatusResponseSchema],
+  ['google.notConnected', googleStatusResponseSchema],
+  ['google.connected', googleStatusResponseSchema],
+  ['google.status', googleStatusResponseSchema],
+  ['google.needsReauth', googleStatusResponseSchema],
+  ['google.connectStarted', googleConnectStartedSchema],
+  ['google.disconnected', googleDisconnectedSchema],
+  ['google.calendarSynced', googleCalendarSyncedSchema],
+  ['google.calendarBlocks', googleCalendarBlocksSchema],
+  ['google.drivePicker', googlePickerTicketSchema],
+  ['google.gmailScan', shareProposalSchema],
+  ['google.gmailScanNotRead', shareProposalSchema],
+  ['google.gmailScanPartial', shareProposalSchema],
+  ['google.gmailScanPartialEmpty', shareProposalSchema],
+  ['google.gmailScanBudget', shareProposalSchema],
+  ['google.gmailScanBudgetEmpty', shareProposalSchema],
+  ['google.driveImport', shareProposalSchema],
+  ['google.refusedNotConfigured', googleRefusalSchema],
+  ['google.refusedDenied', googleRefusalSchema],
+  ['google.refusedAiConsent', googleRefusalSchema],
+  ['google.refusedReauth', googleRefusalSchema],
 ];
 
 /**

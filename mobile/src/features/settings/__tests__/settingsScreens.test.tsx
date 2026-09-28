@@ -32,6 +32,8 @@ import trustFixture from '../../../api/__fixtures__/trust.state.json';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as profileEndpoints from '../../../api/endpoints/profile';
 import * as feedbackEndpoints from '../../../api/endpoints/feedback';
+import * as accountExportEndpoints from '../../../api/endpoints/accountExport';
+import { InputTooLargeError } from '../../../api/errors';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -92,6 +94,18 @@ it('offers the pilot report from Trust and sends no free-text content', async ()
   await fireEvent.press(screen.getByTestId('trust-report-submit'));
   await waitFor(() => expect(report).toHaveBeenCalledWith({ surface: 'capture', category: 'reliability' }));
   await waitFor(() => expect(screen.queryByTestId('trust-report-saved')).not.toBeNull());
+});
+
+it('Trust offers the real export, and says so when the account is too large for it', async () => {
+  const exported = jest.spyOn(accountExportEndpoints, 'getAccountExport').mockRejectedValue(new InputTooLargeError(0));
+  await show(<TrustScreen onBack={() => {}} onKnows={() => {}} />);
+  await waitFor(() => expect(screen.queryByTestId('trust-export')).not.toBeNull());
+  // The "not available yet" placeholder is gone with the endpoint shipped.
+  expect(screen.queryByTestId('trust-export-unavailable')).toBeNull();
+  await fireEvent.press(screen.getByTestId('trust-export'));
+  await waitFor(() => expect(screen.queryByTestId('trust-export-failed')).not.toBeNull());
+  expect(exported).toHaveBeenCalledTimes(1);
+  expect(screen.getByText(en.exportDataTooLarge)).toBeTruthy();
 });
 
 describe('what MaybeSitter knows', () => {

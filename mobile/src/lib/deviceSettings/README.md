@@ -44,5 +44,17 @@ same reason the language preference is:
   nowhere else to wait; every item is an explicit tap. Keyed by account and
   cleared on sign-out.
 
+- **`calendarBusy.ts`** and **`calendarDevice.ts`** (UC-3.1 #185, UC-3.2
+  #186) — busy intervals and calendar/event ids for this phone's calendar;
+  `calendarDevice.ts` also keeps which of this phone's calendars the user
+  switched off for busy time (ids only). Each header makes the argument.
+
 Anything new here needs the same argument made in its own header, or it belongs
 on the account instead.
+
+- **`healthConnection.ts`** (Health → energy) — whether this installation reads
+  Apple Health for this account, and when it last tried: a boolean and one
+  instant, keyed by account. The HealthKit grant is a fact about this phone and
+  iOS never tells an app a read was refused, so "turned on here" can only be
+  remembered here. No sample, score or band is stored: the summary goes to the
+  server and is read back from there. Disconnect removes it.

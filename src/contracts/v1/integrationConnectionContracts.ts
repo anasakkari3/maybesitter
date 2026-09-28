@@ -61,6 +61,12 @@ export type IntegrationCapability =
   | 'task_write'
   | 'note_read'
   | 'note_write'
+  /**
+   * Read one file the person picked themselves (Google Drive `drive.file`,
+   * CL6a). Never "read their files": the grant reaches only what they chose
+   * in Google's picker.
+   */
+  | 'file_read'
   | 'readiness_read'
   | 'focus_session_read'
   | 'meeting_read'

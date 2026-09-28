@@ -31,7 +31,7 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,7 +40,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { EVENTS, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, EVENTS, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -143,6 +143,28 @@ import {
 import { POST as hardReceiptsPost } from '../../src/app/api/mobile/reminders/receipts/route.ts';
 import { POST as devicesPost } from '../../src/app/api/mobile/devices/route.ts';
 import { DELETE as deviceDelete } from '../../src/app/api/mobile/devices/[installationId]/route.ts';
+import { GET as accountExportGet } from '../../src/app/api/mobile/account/export/route.ts';
+import { GET as googleStatusGet } from '../../src/app/api/mobile/integrations/google/route.ts';
+import { POST as googleConnectPost } from '../../src/app/api/mobile/integrations/google/connect/route.ts';
+import { POST as googleCallbackPost } from '../../src/app/api/mobile/integrations/google/callback/route.ts';
+import { POST as googleDisconnectPost } from '../../src/app/api/mobile/integrations/google/disconnect/route.ts';
+import {
+  GET as googleCalendarGet,
+  POST as googleCalendarPost,
+} from '../../src/app/api/mobile/integrations/google/calendar/route.ts';
+import { POST as googleGmailScanPost } from '../../src/app/api/mobile/integrations/google/gmail/scan/route.ts';
+import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrations/google/drive/picker/route.ts';
+import { POST as googleDriveImportPost } from '../../src/app/api/mobile/integrations/google/drive/import/route.ts';
+import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
+import { shareLlmProvider } from '../../lib/llm/shareProvider.ts';
+import { FAKE_CLIENT_ID, FAKE_CLIENT_SECRET, FAKE_PICKER_KEY, FAKE_REDIRECT, FakeGoogle } from '../support/fakeGoogle.ts';
+import { EMAIL_BATCH_SYSTEM_INSTRUCTION, EMAIL_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/emailPrompt.ts';
+import { DOCUMENT_SYSTEM_INSTRUCTION } from '../../lib/services/share/prompts/documentPrompt.ts';
+import {
+  GET as readinessHealthGet,
+  POST as readinessHealthPost,
+} from '../../src/app/api/mobile/readiness/route.ts';
+import { buildHealthKitReadinessSnapshot } from '../../lib/integrations/readiness/healthkit.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 import {
   buildAndStoreDailyPlan,
@@ -151,6 +173,9 @@ import {
 } from '../../lib/services/dailyPlan/dailyPlanService.ts';
 import { appendPlanEvent, planPath, readStoredPlan, storePlanProposal } from '../../lib/services/dailyPlan/planStore.ts';
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
+import { GET as readinessGet, PUT as readinessPut } from '../../src/app/api/mobile/readiness/route.ts';
+import { GET as watchersGet, POST as watchersPost } from '../../src/app/api/mobile/watchers/route.ts';
+import { POST as watcherPausePost } from '../../src/app/api/mobile/watchers/[id]/pause/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -183,8 +208,45 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PREFIXED_ID = /^(next-step|fbk|incident|flag)[-_][0-9a-f]+$/i;
 /** `mem_<uuid>` — a runtime memory id (#167). Keeps its prefix and its shape. */
 const MEMORY_ID = /^mem_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * `wtc_<uuid>` — a watcher id (#525). Keeps its prefix and its shape; an id
+ * this file already wrote as a stable literal is left exactly as it is.
+ */
+const WATCHER_ID = /^wtc_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const STABLE_WATCHER_ID = /^wtc_00000000-0000-4000-8000-\d{12}$/;
 const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 const STABLE_INSTANT = '2026-08-09T09:00:00.000Z';
+/**
+ * A daily-action counter in the export (`users/{uid}/usage/<action>-<yyyy-mm-dd>`,
+ * written by the export route's own rate limit, `reserveDailyAction`). Its id
+ * and its `date` field carry the real day the test ran, so they are pinned to
+ * the reference day — and only they: see `stabiliseDailyCounters`.
+ */
+const DAILY_COUNTER_ID = /^([a-z][a-z0-9_]*)-(\d{4}-\d{2}-\d{2})$/;
+const STABLE_DAY = '2026-08-09';
+
+/**
+ * Pins the day in the export's daily usage counters, by shape and by place.
+ *
+ * Only documents in `collections.usage` whose id is `<action>-<yyyy-mm-dd>`
+ * are touched: the id's day, and a `date` field equal to that same day. Every
+ * other string in the export — including one that happens to be today's date —
+ * is recorded as the route returned it. Keyed on the id's own day rather than
+ * on "today", so a run that crosses midnight records the same file.
+ */
+function stabiliseDailyCounters(body: Record<string, unknown>): Record<string, unknown> {
+  const collections = body.collections as Record<string, unknown> | undefined;
+  const usage = collections?.usage;
+  if (!Array.isArray(usage)) return body;
+  const pinned = usage.map((doc: { id?: unknown; data?: Record<string, unknown> }) => {
+    const match = typeof doc?.id === 'string' ? DAILY_COUNTER_ID.exec(doc.id) : null;
+    if (!match) return doc;
+    const day = match[2]!;
+    const data = doc.data && doc.data.date === day ? { ...doc.data, date: STABLE_DAY } : doc.data;
+    return { ...doc, id: `${match[1]}-${STABLE_DAY}`, data };
+  });
+  return { ...body, collections: { ...collections, usage: pinned } };
+}
 /**
  * A plan's `inputDigest` (#194): sha256 hex over the planning request, so it
  * moves with the capture's random commitment ids and would otherwise rewrite
@@ -215,6 +277,7 @@ function stabilise(value: unknown, counters: Map<string, number>): unknown {
   }
   if (DIGEST.test(value)) return STABLE_DIGEST;
   if (MEMORY_ID.test(value)) return `mem_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
+  if (WATCHER_ID.test(value) && !STABLE_WATCHER_ID.test(value)) return `wtc_${stableId('00000000-0000-4000-8000-', 12, counters)}`;
   if (UUID.test(value)) return stableId('00000000-0000-4000-8000-', 12, counters);
   const prefixed = PREFIXED_ID.exec(value);
   if (prefixed) return `${prefixed[1]}${value.includes('_') ? '_' : '-'}${'0'.repeat(16)}`;
@@ -381,14 +444,19 @@ function shareRequest(text: string): Request {
  * client will actually see. A 500 written to disk would be a schema the app
  * then validates against forever.
  */
-async function record(name: string, expectedStatus: number, response: Response): Promise<Record<string, unknown>> {
+async function record(
+  name: string,
+  expectedStatus: number,
+  response: Response,
+  pin: (body: Record<string, unknown>) => Record<string, unknown> = (body) => body,
+): Promise<Record<string, unknown>> {
   const body = await response.json() as Record<string, unknown>;
   assert.equal(
     response.status,
     expectedStatus,
     `${name}: expected ${expectedStatus}, got ${response.status} — ${JSON.stringify(body)}`,
   );
-  const stable = stabilise(body, new Map());
+  const stable = stabilise(pin(body), new Map());
   writeFileSync(join(FIXTURES, `${name}.json`), `${JSON.stringify(stable, null, 2)}\n`, 'utf8');
   // The live body is returned, not the normalised one: the rest of this test
   // chains real ids into the next call.
@@ -610,6 +678,44 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         itemId: asking.itemId,
         questionId: asking.clarification!.questionId,
         optionId: asking.clarification!.options[0]!.optionId,
+        referenceTime: REFERENCE_TIME,
+        timezone: 'Asia/Jerusalem',
+      },
+    })));
+
+    // ── the owner's first-run sentence (L4) ────────────────────────
+    // «سجّل موعد دكتور يوم الأحد», literally, through the real route. The
+    // reference time is a Sunday, so this is also the "not today" rule: the
+    // answer is next Sunday, one item, `needs_clarification`, a Must we
+    // guessed, a day we guessed, and an hour question that names that day.
+    // Day keys are not normalised — only instants are — so `resolvedDate`
+    // below is the real one, beside a `resolvedTime` the exporter rewrote.
+    const doctor = await record('capture.guessedWeekday', 200, await capturePost(request('/api/mobile/capture', {
+      body: { text: 'سجّل موعد دكتور يوم الأحد', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    assert.equal(doctor.status, 'needs_clarification');
+    const doctorItems = doctor.items as Array<{
+      itemId: string; title: string; resolvedTime: string | null; resolvedDate?: string; dateEstimated?: boolean; priority?: string;
+      clarification: { questionId: string; questionKey: string; params: Record<string, string>; options: Array<{ optionId: string }> } | null;
+    }>;
+    assert.equal(doctorItems.length, 1);
+    const doctorItem = doctorItems[0]!;
+    // «سجّل» was an instruction to the app, not part of the task (round 2).
+    assert.equal(doctorItem.title, 'موعد دكتور');
+    assert.equal(doctorItem.resolvedTime, null);
+    assert.equal(doctorItem.resolvedDate, '2026-08-16');
+    assert.equal(doctorItem.dateEstimated, true);
+    assert.equal(doctorItem.priority, 'high');
+    assert.equal(doctorItem.clarification?.questionKey, 'ask_time');
+    assert.equal(doctorItem.clarification?.params.date, '2026-08-16');
+    const morning = doctorItem.clarification!.options.find((option) => option.optionId === 'morning');
+    assert.ok(morning, 'the hour question offers a morning on that Sunday');
+    await record('capture.guessedWeekdayClarified', 200, await clarifyPost(request('/api/mobile/capture/clarify', {
+      body: {
+        proposalId: doctor.proposalId,
+        itemId: doctorItem.itemId,
+        questionId: doctorItem.clarification!.questionId,
+        optionId: morning.optionId,
         referenceTime: REFERENCE_TIME,
         timezone: 'Asia/Jerusalem',
       },
@@ -1643,6 +1749,34 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         request('/api/mobile/plans/2026-08-10/build', { body: {} }),
         dateParams('2026-08-10'),
       ));
+
+      // L5: a commitment pinned to a time on that day, captured after the
+      // plan was built. The plan is untouched, so reading it refreshes it (a
+      // new generation that spends no rebuild), and the pinned commitment is
+      // a `fixed` row rather than missing from the day. Recorded so the
+      // client's `fixed` row schema is pinned by a real, non-empty answer.
+      const pinned = applyDomainCommand(await readParticipantState(USER), {
+        type: 'CreateDraft',
+        now: REFERENCE_TIME,
+        commitment: {
+          id: 'plan_fixture_pinned',
+          kind: 'task',
+          title: 'Dentist',
+          timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-10T11:00:00.000Z', remindAt: '2026-08-10T11:00:00.000Z', timezone: 'Asia/Jerusalem' },
+        },
+        draftStatus: 'pending_confirmation',
+      }).newState;
+      await persistParticipantState(USER, applyDomainCommand(pinned, {
+        type: 'ConfirmCommitment', commitmentId: 'plan_fixture_pinned', now: REFERENCE_TIME, reminders: [],
+      }).newState);
+      const refreshed = await record('plan.refreshedWithFixed', 200, await planGet(
+        request('/api/mobile/plans/2026-08-10'),
+        dateParams('2026-08-10'),
+      ));
+      const refreshedPlan = refreshed.plan as { generation: number; fixed: Array<{ itemId: string }>; rebuildsLeft: number };
+      assert.equal(refreshedPlan.generation, 2, 'the stale, untouched plan was not refreshed on read');
+      assert.deepEqual(refreshedPlan.fixed.map((row) => row.itemId), ['plan_fixture_pinned']);
+      assert.equal(refreshedPlan.rebuildsLeft, 4, 'the automatic refresh was charged as a rebuild');
     } finally {
       mock.timers.reset();
     }
@@ -1694,12 +1828,112 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       { params: Promise.resolve({ installationId: INSTALLATION }) },
     ));
 
+    // ── "export my data" (#174 step 7) ─────────────────────────────
+    // Its own account with one known document, so the fixture is the
+    // envelope the phone parses and not a dump of everything above.
+    const EXPORT_USER = uidFor('ExportFixtureUser');
+    await getStorage().set(userDoc(EXPORT_USER), { uid: EXPORT_USER, timezone: 'Asia/Jerusalem' });
+    await getStorage().set(userSubDoc(EXPORT_USER, COMMITMENTS, 'fixture-export-commitment'), {
+      id: 'fixture-export-commitment', title: 'Call the bank', status: 'active',
+    });
+    const exported = await record(
+      'account.export', 200,
+      await accountExportGet(request('/api/mobile/account/export', { uid: EXPORT_USER })),
+      stabiliseDailyCounters,
+    );
+    assert.equal((exported.account as { uid: string }).uid, EXPORT_USER);
+    // The recorded file carries the pinned day, whatever day this ran on.
+    const recordedExport = JSON.parse(readFileSync(join(FIXTURES, 'account.export.json'), 'utf8')) as {
+      collections: { usage: Array<{ id: string; data: { date: string } }> };
+    };
+    assert.deepEqual(
+      recordedExport.collections.usage.map(doc => [doc.id, doc.data.date]),
+      [[`account_export-${STABLE_DAY}`, STABLE_DAY]],
+    );
+
+    // ── Health → energy: the snapshot the phone sends (HealthKit) ──
+    // Built by the same `buildHealthKitReadinessSnapshot` the phone's adapter
+    // runs, then POSTed exactly as `postNativeReadiness` sends it, so the saved
+    // answer and the read after it are the ones the energy screen meets.
+    const HEALTH_USER = uidFor('HealthFixtureUser');
+    await getStorage().set(userDoc(HEALTH_USER), { uid: HEALTH_USER, timezone: 'Asia/Jerusalem' });
+    const healthNow = new Date();
+    const healthSnapshot = buildHealthKitReadinessSnapshot({
+      scopeId: 'device',
+      computedAt: healthNow.toISOString(),
+      windowStart: new Date(healthNow.getTime() - 24 * 3_600_000).toISOString(),
+      windowEnd: healthNow.toISOString(),
+      sleep: {
+        observedAt: new Date(healthNow.getTime() - 3_600_000).toISOString(),
+        sleepStart: new Date(healthNow.getTime() - 9 * 3_600_000).toISOString(),
+        sleepEnd: new Date(healthNow.getTime() - 3_600_000).toISOString(),
+        totalSleepMinutes: 450,
+      },
+      heart: { observedAt: new Date(healthNow.getTime() - 3_600_000).toISOString(), restingHeartRate: 58, hrvMilliseconds: 42 },
+      activity: { observedAt: healthNow.toISOString(), stepCount: 4200 },
+    });
+    await record('readiness.healthSaved', 200, await readinessHealthPost(request('/api/mobile/readiness', {
+      body: { snapshot: healthSnapshot },
+      uid: HEALTH_USER,
+    })));
+    const fromHealth = await record('readiness.fromHealth', 200, await readinessHealthGet(request('/api/mobile/readiness', { uid: HEALTH_USER })));
+    assert.equal(fromHealth.selectedSource, 'recent_readiness');
+    assert.deepEqual((fromHealth.readiness as { sourceKinds: string[] }).sourceKinds, ['healthkit']);
+
     // ── the refusals every screen must be able to render ───────────
     const unauthenticated = await commitmentGet(
       new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, { headers: new Headers() }),
       params(commitmentId),
     );
     await record('errors.unauthorized', 401, unauthenticated);
+
+    // ── readiness (the energy screen) ──────────────────────────────
+    // Recorded from the route for both states the screen meets: an account
+    // that has never checked in, and the same account right after a check-in.
+    // The hand-written fixture this replaces said `version: 1` and a freshness
+    // of `none` — values the server never sends — so the client schema agreed
+    // with it and refused every real answer.
+    const READINESS_USER = uidFor('ReadinessFixtureUser');
+    await getStorage().set(userDoc(READINESS_USER), { uid: READINESS_USER, timezone: 'Asia/Jerusalem' });
+    const missing = await record('readiness.missing', 200, await readinessGet(request('/api/mobile/readiness', { uid: READINESS_USER })));
+    assert.equal(missing.freshness, 'missing');
+    assert.equal(missing.readiness, null);
+    await record('readiness.saved', 200, await readinessPut(request('/api/mobile/readiness', {
+      method: 'PUT',
+      body: { energy: 4, observedAt: new Date().toISOString() },
+      uid: READINESS_USER,
+    })));
+    const current = await record('readiness.current', 200, await readinessGet(request('/api/mobile/readiness', { uid: READINESS_USER })));
+    assert.equal(current.freshness, 'fresh');
+    assert.equal((current.readiness as { subjective?: { energy?: number } }).subjective?.energy, 4);
+
+    // ── watchers ("تابعلي", #525) ─────────────────────────────────
+    // Created with the exact body `createReadinessWatcher` sends, so the
+    // fixture is the answer the phone actually gets — `label: null` included,
+    // which the client schema refused, so every create looked failed and each
+    // retry made another watcher.
+    const WATCHER_USER = uidFor('WatcherFixtureUser');
+    const created = await record('watchers.created', 201, await watchersPost(request('/api/mobile/watchers', {
+      body: {
+        enabled: true,
+        source: { provider: 'maybesitter', connectionId: null, signalKind: 'readiness', subjectRef: 'self' },
+        condition: { kind: 'digest_changed' },
+        effect: 'notify',
+        createdBy: 'user',
+      },
+      uid: WATCHER_USER,
+    })));
+    const watcherId = (created.watcher as { watcherId: string; label: unknown }).watcherId;
+    assert.equal((created.watcher as { label: unknown }).label, null);
+    await record('watchers.paused', 200, await watcherPausePost(
+      request(`/api/mobile/watchers/${watcherId}/pause`, { body: { paused: true }, uid: WATCHER_USER }),
+      params(watcherId),
+    ));
+    await record('watchers.resumed', 200, await watcherPausePost(
+      request(`/api/mobile/watchers/${watcherId}/pause`, { body: { paused: false }, uid: WATCHER_USER }),
+      params(watcherId),
+    ));
+    await record('watchers.list', 200, await watchersGet(request('/api/mobile/watchers', { uid: WATCHER_USER })));
 
     // ── the Gemini capture (#160, #338) ────────────────────────────
     // Last, and with the environment restored straight afterwards, so every
@@ -1763,4 +1997,305 @@ test('exports a fixture for every /api/mobile call the React Native client makes
   } finally {
     teardown();
   }
+});
+
+/**
+ * The three Google rows (CL6a), from the routes, against a fake Google.
+ *
+ * No OAuth client secret exists, so the first thing recorded is the answer the
+ * app gets today: `not_configured`, and the refusal a connect gets. Then the
+ * same routes run configured — a fake Google behind `fetch`, an in-memory KMS
+ * — so the connected, synced, scanned, picked and reconnect shapes the app
+ * parses are the handlers' own, not a description of them.
+ *
+ * Gmail and Drive read through a model. The Vertex SDK is stubbed as the
+ * Gemini fixture above does it, answering the email channel, the document
+ * channel and the capture pipeline each with the shape its prompt asks for.
+ */
+test('exports the Google connection fixtures', async () => {
+  const teardown = setup();
+  const google = new FakeGoogle();
+  const kms = createInMemoryKms();
+  const storage = getStorage();
+  const runtime = (configured: boolean, now?: () => Date) => setGoogleRuntimeForTests({
+    storage,
+    env: configured
+      ? {
+        GOOGLE_OAUTH_CLIENT_ID: FAKE_CLIENT_ID,
+        GOOGLE_OAUTH_CLIENT_SECRET: FAKE_CLIENT_SECRET,
+        GOOGLE_OAUTH_REDIRECT_URI: FAKE_REDIRECT,
+        GOOGLE_PICKER_API_KEY: FAKE_PICKER_KEY,
+        MAYBESITTER_KMS_KEY_NAME: kms.keyName,
+      }
+      : { MAYBESITTER_KMS_KEY_NAME: kms.keyName },
+    secrets: null,
+    fetchImpl: google.fetch as typeof fetch,
+    encryption: { kms, env: { MAYBESITTER_KMS_KEY_NAME: kms.keyName } as unknown as NodeJS.ProcessEnv },
+    ...(now ? { now } : {}),
+  });
+  const GOOGLE_USER = uidFor('GoogleFixtureUser');
+  const as = (path: string, options: { method?: string; body?: unknown } = {}) => request(path, { ...options, uid: GOOGLE_USER });
+  const pinUrl = (key: string) => (body: Record<string, unknown>) => {
+    const url = new URL(String(body[key]));
+    for (const name of ['state', 'code_challenge', 'ticket']) if (url.searchParams.has(name)) url.searchParams.set(name, `fixture-${name}`);
+    return { ...body, [key]: url.toString() };
+  };
+
+  const previousProvider = process.env.MAYBESITTER_LLM_PROVIDER;
+  const previousLocation = process.env.MAYBESITTER_VERTEX_LOCATION;
+  const extraction = (title: string) => {
+    const localDay = new Date(Date.parse(REFERENCE_TIME) + 4 * 86_400_000).toISOString().slice(0, 10);
+    const instant = `${localDay}T06:00:00.000Z`;
+    return JSON.stringify({
+      type: 'task', action: title, title, person: null, dueAt: instant, remindAt: instant,
+      localTimeSpec: { date: localDay, time: '09:00', timezone: 'Asia/Jerusalem' },
+      priority: { level: 'normal', source: 'inferred', pressureAllowed: false, pressureImplied: false },
+      flexibility: 'movable',
+      confidence: { overall: 0.92, type: 0.95, action: 0.93, time: 0.9, priority: 0.7 },
+      missingFields: [], ambiguityFlags: [], explicitReminderRequest: false, explicitPressureRequest: false,
+    });
+  };
+  const removeStub = installVertexStub(async (input) => {
+    const system = (input.config as { systemInstruction?: unknown }).systemInstruction;
+    const text = JSON.stringify(input.contents);
+    let answer: string;
+    if (system === EMAIL_SYSTEM_INSTRUCTION) {
+      answer = JSON.stringify({ items: [{
+        title: 'Return the signed trip form',
+        evidenceSentence: 'Please return the signed trip form by Friday.',
+        dueDayPhrase: 'by Friday',
+      }] });
+    } else if (system === EMAIL_BATCH_SYSTEM_INSTRUCTION) {
+      // The mailbox scan asks about several messages at once (CL6a review I2).
+      answer = JSON.stringify({ items: [{
+        message: 1,
+        title: 'Return the signed trip form',
+        evidenceSentence: 'Please return the signed trip form by Friday.',
+        dueDayPhrase: 'by Friday',
+      }] });
+    } else if (system === DOCUMENT_SYSTEM_INSTRUCTION) {
+      answer = JSON.stringify({
+        documentTitle: null, courseName: null, termYearHint: 2026,
+        items: [{ title: 'Submit the lab report', kind: 'assignment', dueAt: '2026-08-13T09:00:00.000Z', dateText: 'Thursday 13 August', page: 1, confidence: 0.9 }],
+        recurringSessions: [],
+        transcriptSample: 'Submit the lab report by Thursday 13 August.',
+      });
+    } else {
+      answer = extraction(text.includes('lab report') ? 'Submit the lab report' : 'Return the signed trip form');
+    }
+    return { text: answer, modelVersion: 'gemini-2.5-flash', usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 80 } };
+  });
+  process.env.MAYBESITTER_LLM_PROVIDER = 'gemini';
+  process.env.MAYBESITTER_VERTEX_LOCATION = 'europe-west1';
+  resetProviderForTests();
+  try {
+    await getStorage().set(userDoc(GOOGLE_USER), { uid: GOOGLE_USER, timezone: 'Asia/Jerusalem' });
+
+    // ── today: no client secret exists ────────────────────────────
+    runtime(false);
+    const unconfigured = await record('google.notConfigured', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    assert.equal((unconfigured.google as { status: string }).status, 'not_configured');
+    await record('google.refusedNotConfigured', 503, await googleConnectPost(as('/api/mobile/integrations/google/connect', { body: { feature: 'calendar' } })));
+
+    // ── configured: connect, then each feature ────────────────────
+    runtime(true);
+    await record('google.notConnected', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    const begun = await record('google.connectStarted', 200, await googleConnectPost(as('/api/mobile/integrations/google/connect', {
+      body: { feature: 'calendar' },
+    })), pinUrl('authorizationUrl'));
+    const connected = await record('google.connected', 200, await googleCallbackPost(as('/api/mobile/integrations/google/callback', {
+      body: google.consent(String(begun.authorizationUrl)),
+    })));
+    assert.equal((connected.google as { status: string }).status, 'connected');
+    await record('google.refusedDenied', 400, await googleCallbackPost(as('/api/mobile/integrations/google/callback', {
+      body: { error: 'access_denied' },
+    })));
+
+    const at = new Date().toISOString();
+    await applyTrustAction(GOOGLE_USER, { type: 'record_first_value', at });
+    await applyTrustAction(GOOGLE_USER, { type: 'set_calendar_consent', granted: true, at });
+    const hour = 3_600_000;
+    const start = Math.ceil(Date.now() / hour) * hour + 26 * hour;
+    google.busy = [{ start: new Date(start).toISOString(), end: new Date(start + hour).toISOString() }];
+    const synced = await record('google.calendarSynced', 200, await googleCalendarPost(as('/api/mobile/integrations/google/calendar', { method: 'POST' })));
+    assert.equal(synced.blocks, 1);
+    const blocks = await record('google.calendarBlocks', 200, await googleCalendarGet(as('/api/mobile/integrations/google/calendar')));
+    assert.equal((blocks.blocks as unknown[]).length, 1);
+
+    for (const feature of ['gmail', 'drive']) {
+      const next = await googleConnectPost(as('/api/mobile/integrations/google/connect', { body: { feature } }));
+      assert.equal(next.status, 200);
+      const done = await googleCallbackPost(as('/api/mobile/integrations/google/callback', {
+        body: google.consent(String((await next.json() as { authorizationUrl: string }).authorizationUrl)),
+      }));
+      assert.equal(done.status, 200);
+    }
+    const all = await record('google.status', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    assert.deepEqual((all.google as { features: unknown }).features, { calendar: true, gmail: true, drive: true });
+
+    await record('google.refusedAiConsent', 409, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', { body: {} })));
+    await aiConsentPut(request('/api/mobile/consents/ai-processing', {
+      method: 'PUT',
+      body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      uid: GOOGLE_USER,
+    }));
+
+    google.gmail.push({
+      id: 'msg-trip-form',
+      subject: 'Trip form',
+      body: 'Hello,\n\nPlease return the signed trip form by Friday.\n\nThanks',
+      receivedAt: new Date(Date.parse(REFERENCE_TIME) - 3 * hour).toISOString(),
+    });
+    const scanned = await record('google.gmailScan', 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
+      body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+    })));
+    // A date with no hour, so the item asks for one: the realistic answer.
+    assert.ok((scanned.items as unknown[]).length >= 1, 'the scan fixture must carry an item, not the empty answer');
+    assert.equal((scanned.share as { channel: string }).channel, 'email');
+
+    // The same scan with the model switched off: nothing was read, and the
+    // envelope says how many were not — which the app shows instead of an
+    // empty review (CL6a review I2).
+    const previousAiDisabled = process.env.MAYBESITTER_AI_DISABLED;
+    process.env.MAYBESITTER_AI_DISABLED = 'true';
+    try {
+      const unread = await record('google.gmailScanNotRead', 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
+        body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+      })));
+      const metrics = (unread.share as { metrics: Record<string, number> }).metrics;
+      assert.equal(metrics.messagesRead, 0);
+      assert.equal(metrics.messagesNotRead, 1);
+      assert.equal((unread.items as unknown[]).length, 0);
+    } finally {
+      if (previousAiDisabled === undefined) delete process.env.MAYBESITTER_AI_DISABLED;
+      else process.env.MAYBESITTER_AI_DISABLED = previousAiDisabled;
+    }
+
+    // Scans stopped part-way (CL6a round 2, N2/N4): twenty long messages,
+    // three to a model call. Either the per-minute model cap stops the read
+    // after one call (pressing again later can read more), or the three-call
+    // budget stops it after nine (pressing again reads the same nine). Each
+    // with and without something to find in the part that was read, because
+    // the app says different things for all four. The real usage guard on its
+    // own fresh counter, pinned to one minute, so nothing above can change
+    // the counts and two calls cannot straddle a minute.
+    const fullRuntime = googleRuntime();
+    const partScan = async (name: string, options: { minuteCap?: number; asks: boolean }) => {
+      setGoogleRuntimeForTests({
+        ...fullRuntime,
+        shareModel: shareLlmProvider(GOOGLE_USER, {
+          consent: async () => 'granted',
+          reserveOptions: {
+            storage: createMemoryStorage(),
+            now: new Date(REFERENCE_TIME),
+            ...(options.minuteCap === undefined ? {} : { minuteCap: options.minuteCap }),
+          },
+        }),
+      });
+      google.gmail.length = 0;
+      for (let index = 0; index < 20; index += 1) {
+        google.gmail.push({
+          id: `msg-long-${String(index).padStart(2, '0')}`,
+          subject: `Trip form ${index}`,
+          body: `Hello,\n\n${'The museum trip is on the calendar for the whole class. '.repeat(125)}${options.asks ? '\n\nPlease return the signed trip form by Friday.' : ''}\n\nThanks`,
+          receivedAt: new Date(Date.parse(REFERENCE_TIME) - (3 + index) * hour).toISOString(),
+        });
+      }
+      const scanned = await record(name, 200, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', {
+        body: { timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+      })));
+      assert.equal((scanned.items as unknown[]).length > 0, options.asks, `${name}: items`);
+      return (scanned.share as { metrics: Record<string, number> }).metrics;
+    };
+    for (const [name, asks] of [['google.gmailScanPartial', true], ['google.gmailScanPartialEmpty', false]] as const) {
+      const metrics = await partScan(name, { minuteCap: 1, asks });
+      assert.deepEqual(
+        [metrics.messagesFound, metrics.messagesRead, metrics.messagesNotRead, metrics.modelUnavailable, metrics.modelCalls],
+        [20, 3, 17, 17, 2],
+        `${name}: one call read three; the cap refused the second`,
+      );
+    }
+    for (const [name, asks] of [['google.gmailScanBudget', true], ['google.gmailScanBudgetEmpty', false]] as const) {
+      const metrics = await partScan(name, { asks });
+      assert.deepEqual(
+        [metrics.messagesFound, metrics.messagesRead, metrics.messagesNotRead, metrics.modelUnavailable, metrics.modelCalls],
+        [20, 9, 11, 0, 3],
+        `${name}: three calls read nine; the budget stopped the read, not the model`,
+      );
+    }
+    runtime(true);
+
+    const ticket = await record('google.drivePicker', 200, await googleDrivePickerPost(as('/api/mobile/integrations/google/drive/picker', { method: 'POST' })), pinUrl('pickerUrl'));
+    assert.match(String(ticket.pickerUrl), /\/api\/oauth\/google\/picker\?ticket=/);
+    google.drive.set('doc_fixture_12345', {
+      id: 'doc_fixture_12345',
+      mimeType: 'application/vnd.google-apps.document',
+      content: 'Lab 3\nSubmit the lab report by Thursday 13 August.',
+    });
+    const imported = await record('google.driveImport', 200, await googleDriveImportPost(as('/api/mobile/integrations/google/drive/import', {
+      body: { fileId: 'doc_fixture_12345', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+    })));
+    assert.ok((imported.items as unknown[]).length >= 1, 'the import fixture must carry an item, not the empty answer');
+    assert.equal((imported.share as { channel: string }).channel, 'document');
+
+    // ── day eight in Testing mode: «أعد الربط» ─────────────────────
+    google.expireGrants();
+    runtime(true, () => new Date(Date.now() + 2 * hour));
+    await record('google.refusedReauth', 409, await googleCalendarPost(as('/api/mobile/integrations/google/calendar', { method: 'POST' })));
+    const lapsed = await record('google.needsReauth', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
+    assert.equal((lapsed.google as { status: string }).status, 'needs_reauth');
+
+    // ── disconnect ─────────────────────────────────────────────────
+    google.refreshDead = false;
+    const gone = await record('google.disconnected', 200, await googleDisconnectPost(as('/api/mobile/integrations/google/disconnect', { method: 'POST' })));
+    assert.equal((gone.google as { status: string }).status, 'not_connected');
+  } finally {
+    removeStub();
+    if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
+    else process.env.MAYBESITTER_LLM_PROVIDER = previousProvider;
+    if (previousLocation === undefined) delete process.env.MAYBESITTER_VERTEX_LOCATION;
+    else process.env.MAYBESITTER_VERTEX_LOCATION = previousLocation;
+    resetProviderForTests();
+    resetGoogleRuntimeForTests();
+    teardown();
+  }
+});
+
+test('the export fixture pins only the daily usage counter\'s day, and pins it the same across a midnight', () => {
+  const exportOn = (day: string) => ({
+    exportedAt: `${day}T23:59:59.000Z`,
+    collections: {
+      usage: [
+        { id: `account_export-${day}`, data: { calls: 1, date: day } },
+        // Not a daily counter: no `<action>-<day>` id, so untouched.
+        { id: 'llm-tokens', data: { calls: 3, date: day } },
+      ],
+      plans: [{ id: day, data: { date: day, title: `Trip ends ${day}`, ref: `plan-${day}` } }],
+      stats: [{ id: 'activity', data: { lastDay: day } }],
+    },
+  });
+  const before = stabiliseDailyCounters(exportOn('2026-09-25'));
+  const after = stabiliseDailyCounters(exportOn('2026-09-26'));
+
+  // The counter is pinned by its own day, not by "today": both sides of a
+  // midnight record the same counter.
+  const usageOf = (body: Record<string, unknown>) => (body.collections as { usage: unknown[] }).usage[0];
+  assert.deepEqual(usageOf(before), { id: `account_export-${STABLE_DAY}`, data: { calls: 1, date: STABLE_DAY } });
+  assert.deepEqual(usageOf(after), usageOf(before));
+
+  // Everything else that happens to hold a day is recorded as the route sent it.
+  const other = (body: Record<string, unknown>) => {
+    const collections = body.collections as Record<string, unknown[]>;
+    return { second: collections.usage[1], plans: collections.plans, stats: collections.stats, exportedAt: body.exportedAt };
+  };
+  const untouched = exportOn('2026-09-25');
+  assert.deepEqual(other(before), {
+    second: untouched.collections.usage[1],
+    plans: untouched.collections.plans,
+    stats: untouched.collections.stats,
+    exportedAt: untouched.exportedAt,
+  });
+  // And the generic stabiliser no longer knows anything about days.
+  assert.equal(stabilise('2026-09-25', new Map()), '2026-09-25');
+  assert.equal(stabilise(`plan-${new Date().toISOString().slice(0, 10)}`, new Map()), `plan-${new Date().toISOString().slice(0, 10)}`);
 });

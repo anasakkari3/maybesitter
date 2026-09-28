@@ -599,6 +599,24 @@ describe('AI consent, before the bytes leave', () => {
     expect(screen.queryByTestId('share-turn-on-ai')).not.toBeNull();
   });
 
+  it('"turn on AI" opens Trust over the share, and back returns to it with the file still there (L6)', async () => {
+    grantAi('declined');
+    await openWithShare({
+      ...mockEmptyIntent,
+      files: [sharedFile({ fileName: 'invoice.pdf', mimeType: 'application/pdf', path: 'file:///tmp/share/i.pdf' })],
+      type: 'file',
+    });
+    await waitFor(() => expect(screen.queryByTestId('share-turn-on-ai')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('share-turn-on-ai'));
+    await waitFor(() => expect(screen.queryByTestId('trust-ai-processing')).not.toBeNull());
+    expect(screen.queryByTestId('share-screen')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('header-back'));
+    await waitFor(() => expect(screen.queryByTestId('share-screen')).not.toBeNull());
+    expect(screen.queryByText('invoice.pdf')).not.toBeNull();
+    expect([...mockFiles]).toEqual(['file:///tmp/share/i.pdf']);
+  });
+
   it('a shared sentence is unaffected, because text needs no model', async () => {
     grantAi('declined');
     await openWithShare({ ...mockEmptyIntent, text: 'Pay the nursery on Thursday', type: 'text' });
@@ -622,6 +640,18 @@ describe('AI consent, before the bytes leave', () => {
     await waitFor(() => expect(screen.queryByText(en.shareNeedsAi)).not.toBeNull());
     // Seeing what was shared is not the part that needs consent.
     expect(screen.queryByText('invoice.pdf')).not.toBeNull();
+  });
+});
+
+describe('back', () => {
+  it('the Back pill is the same step as Android back: it closes the share and keeps the tab as it was (L6)', async () => {
+    await openApp();
+    await fireEvent.press(screen.getByTestId('tab-calendar'));
+    await deliverShare({ ...mockEmptyIntent, text: 'Pay the nursery on Thursday', type: 'text' });
+    await fireEvent.press(screen.getByTestId('share-back'));
+    await waitFor(() => expect(screen.queryByTestId('share-screen')).toBeNull());
+    // Back to the tab the share arrived over, not Today's root.
+    await waitFor(() => expect(screen.getByTestId('tab-calendar').props.accessibilityState).toMatchObject({ selected: true }));
   });
 });
 

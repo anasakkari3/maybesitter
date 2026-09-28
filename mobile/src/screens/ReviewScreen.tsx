@@ -8,7 +8,7 @@ import { ClarifySheet } from '../features/capture/ClarifySheet';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { questionText } from '../features/capture/clarificationCopy';
 import { useTimeZone } from '../i18n/timezone';
-import { formatRelativeDay, formatTime } from '../i18n/format';
+import { formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr, type Lang } from '../i18n/strings';
 import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
@@ -20,10 +20,13 @@ import { instantForLocalDateTime } from '../features/capture/localInstant';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
 import { postManualBusy } from '../api/endpoints/calendar';
+import { mailboxShortfall } from '../features/google/mailboxShortfall';
 import type { CaptureProposalItem } from '../api/schemas/capture';
+import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import type { ShareProposal, ShareDocumentFacts } from '../api/schemas/share';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 
@@ -57,10 +60,13 @@ export function ReviewScreen() {
   const [answering, setAnswering] = useState(false);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
+  // Why the last answer to a question did not land, by item, so the line sits
+  // under the question it belongs to and leaves with it.
+  const [clarifyError, setClarifyError] = useState<{ itemId: string; key: UserFacingKey } | null>(null);
   const strings = t as unknown as Record<string, string>;
   // The local cache, not a request (UC-3.2, #186). A chip that had to wait for
   // the network would appear after the user had already pressed Confirm.
-  const busyBlocks = useBusyBlocks();
+  const busyBlocks = useConflictBusyBlocks(useBusyBlocks());
   const items = state.proposal?.items ?? [];
   const seeds = state.proposal?.seeds ?? [];
   const selectedCount = state.selected.length;
@@ -84,6 +90,7 @@ export function ReviewScreen() {
 
   const timezone = useTimeZone();
   const share = (state.proposal as ShareProposal | null)?.share;
+  const mailbox = state.source === 'share' ? mailboxShortfall(state.proposal as ShareProposal | null) : null;
   const isDocumentShare = Boolean(
     state.source === 'share' &&
     share &&
@@ -185,10 +192,12 @@ export function ReviewScreen() {
 
   const answer = (itemId: string, value: { optionId?: string; freeText?: string }) => {
     setAnswering(true);
-    void flow.clarify(itemId, value).then(() => {
-      // A failure leaves the question up. Clearing it would look like the
-      // answer landed.
+    setClarifyError(null);
+    void flow.clarify(itemId, value).then((outcome) => {
+      // A failure leaves the question up, and says so. Clearing it would look
+      // like the answer landed; leaving it silently looked like nothing happened.
       setAnswering(false);
+      if (!outcome.ok) setClarifyError({ itemId, key: outcome.messageKey });
     });
   };
 
@@ -274,6 +283,14 @@ export function ReviewScreen() {
             <Txt size={12} color={p.wm}>{t.reviewUntrusted}</Txt>
           </View>
         ) : null}
+        {/* A Gmail scan stopped part-way (CL6a review I2): what is below came
+            from some of the mail, and the rest was not read. "Try again" only
+            when a retry could read it (round 2, N2). */}
+        {mailbox ? (
+          <Txt role="supporting" color={p.wm} style={{ paddingHorizontal: 4 }} testID="review-mailbox-partial">
+            {fill(mailbox.retryHelps ? t.googleGmailPartial : t.googleGmailPartialNewest, { read: mailbox.read, total: mailbox.total })}
+          </Txt>
+        ) : null}
         {/* The dashed dot is the proposal mark, the same one the cards carry:
             the sentence and the shape say one thing. */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
@@ -284,10 +301,12 @@ export function ReviewScreen() {
         {asking ? (
           <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
             <ClarifySheet
+              key={asking.itemId}
               item={asking}
               position={unclarified.length - waiting.length + 1}
               total={unclarified.length}
               busy={answering}
+              error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
               onAnswer={(value) => answer(asking.itemId, value)}
               onSkip={() => {
                 // "Leave it without a time" is an answer (#474). When the
@@ -312,7 +331,7 @@ export function ReviewScreen() {
 
         {state.status === 'confirmFailed' ? (
           <View style={{ backgroundColor: p.wms, borderRadius: 18, padding: 14 }} testID="review-confirm-failed">
-            <Txt size={14} color={p.wm}>{t.errorsGeneric}</Txt>
+            <Txt size={14} color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt>
           </View>
         ) : null}
 
@@ -491,9 +510,20 @@ function ItemCard({
   const editedInstant = edit?.localDateTime !== undefined
     ? (edit.localDateTime === '' ? null : instantForLocalDateTime(edit.localDateTime, timezone))
     : (item.resolvedTime ? new Date(item.resolvedTime) : null);
+  // A day still waiting on its hour is shown with its date (L4). It used to read
+  // only "No time", so the Sunday the product had picked was invisible — and a
+  // weekday alone could not say whether it meant this Sunday or next.
+  const pendingDay = !editedInstant && edit?.localDateTime === undefined && item.needsClarification
+    ? item.resolvedDate
+    : undefined;
   const when = editedInstant
     ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(editedInstant, { locale: lang, timeZone: timezone }))}`
-    : t.noTimeYet;
+    : pendingDay
+      ? `${formatDayKey(pendingDay, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`
+      : t.noTimeYet;
+  // The day is our guess from a weekday name, and it is on screen. Gone once
+  // the user sets the time themselves: then the day is theirs (#164's rule).
+  const dateGuessed = Boolean(item.dateEstimated && item.resolvedDate && (editedInstant || pendingDay) && edit?.localDateTime === undefined);
   const priority = edit?.priority ?? item.priority;
 
   const imp = priority ? PRIORITY_IMP[priority] : null;
@@ -505,7 +535,7 @@ function ItemCard({
       scaleTo={0.99}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
-      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}`}
+      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}${dateGuessed ? `, ${t.reviewDateEstimated}` : ''}`}
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
         // Selection belongs to the explicit checkbox, not the proposal border.
@@ -534,6 +564,22 @@ function ItemCard({
         <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 }}>
           <Txt size={12} weight={item.needsClarification ? 600 : 400} color={item.needsClarification ? p.wm : p.tx} testID={`review-when-${item.itemId}`}>{when}</Txt>
         </View>
+        {/* Same dashed mark as the priority guess below, naming what was
+            guessed. A tap opens the edit sheet, which offers the same weekday a
+            week later in one tap (L4). */}
+        {dateGuessed ? (
+          <Btn
+            testID={`review-date-estimated-${item.itemId}`}
+            label={t.reviewDateEstimated}
+            hint={t.reviewEdit}
+            onPress={onEdit}
+            hitSlop={12}
+            scaleTo={0.97}
+            style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
+          >
+            <Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt>
+          </Btn>
+        ) : null}
         {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
         {/* A guess named as one — and no longer a guess once the user has set
             it themselves. A level presented as a fact they stated is how a

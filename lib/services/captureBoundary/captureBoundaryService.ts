@@ -323,6 +323,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // `user_explicit` means the person said so; anything else is ours. A
         // guess presented as a fact is how a product loses the right to guess.
         priorityEstimated: extracted.result.priority.source !== 'user_explicit',
+        // The day, even while the hour is still being asked for, and whether we
+        // picked it — the same "said vs guessed" split as the priority (L4).
+        ...(/^\d{4}-\d{2}-\d{2}$/.test(extracted.result.localTimeSpec?.date ?? '')
+          ? { resolvedDate: extracted.result.localTimeSpec!.date, dateEstimated: extracted.result.dateInferred === true }
+          : {}),
         // The one question worth asking, chosen deterministically (#165). Null
         // when there is nothing worth asking, or when every sensible option has
         // fallen into the past — in which case the app falls back to #164's edit

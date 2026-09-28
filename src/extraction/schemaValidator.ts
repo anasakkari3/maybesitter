@@ -26,6 +26,9 @@ import {
   timeOfDayEvidence,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
+import { modelDateIsWeekdayGuess } from './weekdayLexicon';
+import { isFixedAppointment } from './priorityLexicon';
+import { stripCaptureCommand } from './captureCommand';
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -77,6 +80,10 @@ function isoStringOrNull(value: unknown, field: string): string | null {
   return new Date(ts).toISOString();
 }
 
+function commandFree(value: string | null): string | null {
+  return value === null ? null : stripCaptureCommand(value);
+}
+
 function boolOrDefault(value: unknown, fallback: boolean): boolean {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
@@ -90,13 +97,22 @@ function isRecord(value: unknown): value is Record<string, any> {
 }
 
 
-/** The `localTimeSpec` the model returned, or null when it returned none. */
+/**
+ * The `localTimeSpec` the model returned, or null when it returned none.
+ *
+ * A day with no hour is kept (L4). The prompt tells the model to answer
+ * "Sunday" with `time: null`, and this used to drop the whole spec for it — so
+ * on the model path the Sunday it had picked vanished, and the review card had
+ * no day to show or to call a guess. The date has to be a real `YYYY-MM-DD`:
+ * it now reaches the phone as `resolvedDate`, whose schema would refuse the
+ * whole proposal over a malformed one.
+ */
 function localTimeSpecFrom(raw: unknown): LocalTimeSpec | null {
   if (!isRecord(raw)) return null;
   const date = stringOrNull(raw['date']);
   const time = stringOrNull(raw['time']);
   const timezone = stringOrNull(raw['timezone']);
-  if (!date || !time || !timezone) return null;
+  if (!date || !timezone || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T00:00:00Z`))) return null;
   return { date, time, timezone };
 }
 
@@ -273,7 +289,7 @@ export function validateExtractionResult(
     ? prioritySourceRaw
     : 'default';
 
-  const priority: ExtractionResult['priority'] = {
+  let priority: ExtractionResult['priority'] = {
     level: priorityLevel,
     source: prioritySource,
     pressureAllowed: false,
@@ -304,8 +320,27 @@ export function validateExtractionResult(
     rawText,
     context,
   );
+  // The model's date is never moved here (controller ruling, L4 fix round 1):
+  // an override built on a word list moved correct dates — "the first report"
+  // became a Sunday. The same tokenizer only *marks* a date that came from a
+  // whole-word weekday and nothing else, so the review card can say it was
+  // guessed and offer the week after.
+  const dateInferred = modelDateIsWeekdayGuess(rawText, time.localTimeSpec?.date);
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);
+  }
+
+  // The rules fallback for the prompt's appointment guidance (L4). A model that
+  // left a fixed appointment at its default is raised — as a guess, so the
+  // review card still says so. A level the user stated, or a low the model
+  // read, is theirs and is not touched.
+  if (
+    (type === 'task' || type === 'follow_up')
+    && priority.level === 'normal'
+    && priority.source !== 'user_explicit'
+    && isFixedAppointment(rawText, { hasDay: Boolean(time.localTimeSpec?.date), hasClock: Boolean(time.localTimeSpec?.time) })
+  ) {
+    priority = { ...priority, level: 'high', source: 'inferred' };
   }
   if (!time.remindAt && !time.dueAt && !missingFields.includes('time')) missingFields.push('time');
 
@@ -327,13 +362,16 @@ export function validateExtractionResult(
   // ── assemble ──────────────────────────────────────────────────────────
   return {
     type,
-    action: stringOrNull(raw['action']),
-    title: stringOrNull(raw['title']),
+    // The model may keep «سجّل» in its title as the rules path used to; the
+    // same function takes it off both (L4, fix round 2).
+    action: commandFree(stringOrNull(raw['action'])),
+    title: commandFree(stringOrNull(raw['title'])),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
     remindAt: time.remindAt,
     localTimeSpec: time.localTimeSpec,
     timeEvidence: time.timeEvidence,
+    dateInferred,
     priority,
     flexibility,
     category,

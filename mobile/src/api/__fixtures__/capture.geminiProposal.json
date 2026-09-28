@@ -9,7 +9,9 @@
       "resolvedTime": "2026-08-09T09:00:00.000Z",
       "needsClarification": false,
       "priority": "normal",
-      "priorityEstimated": true
+      "priorityEstimated": true,
+      "resolvedDate": "2026-08-10",
+      "dateEstimated": false
     }
   ],
   "seeds": [],

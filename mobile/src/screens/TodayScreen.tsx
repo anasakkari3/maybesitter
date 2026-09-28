@@ -20,6 +20,7 @@ import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
@@ -68,7 +69,8 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const upcoming = useUpcoming();
   // From the local cache (UC-3.2, #186). Today renders before any request has
   // finished, and a chip that arrived after the list would move rows about.
-  const busy = useBusyBlocks();
+  // The phone's busy time and Google's (CL6a review I1).
+  const busy = useConflictBusyBlocks(useBusyBlocks());
   const [refreshing, setRefreshing] = useState(false);
 
   // Off unless the account says otherwise, and off when the preference will not

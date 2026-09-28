@@ -36,6 +36,7 @@ import { FootballSettingsScreen } from './features/settings/FootballSettingsScre
 import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
+import { GoogleBusyHost } from './features/google/useGoogle';
 import { CalendarFeedsScreen } from './features/calendarFeeds/CalendarFeedsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
 import { LangAppearanceScreen } from './features/settings/LangAppearanceScreen';
@@ -46,7 +47,7 @@ import { WidgetSnapshotHost } from './features/widget/useWidgetSnapshotSync';
 import { googleCalendarDemoEnabled, icsFeedsEnabled } from './config/env';
 import { RemindersMount } from './features/reminders/RemindersMount';
 
-import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, PdfReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
+import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
 import { PersonalizationScreen, CommitmentsScreen, ContextualAssistantScreen } from './features/product/ContextScreens';
 import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product/WatcherScreens';
 
@@ -133,6 +134,10 @@ export function Root() {
               the conflict chips are on Today and on the review card, and both
               are screens the settings page is not open behind. */}
           <BusyCalendarHost />
+          {/* Its Google Calendar twin (CL6a review I1): refreshes Google busy
+              time on connect and on coming back to the front, so the plan and
+              the chips see Google meetings without the Calendar tab open. */}
+          <GoogleBusyHost />
           {/* Draws nothing either (UC-3.R1, #203). It writes the home-screen
               widget's snapshot — titles redacted unless this account opted in
               on this phone — and clears it before a sign-out and when this
@@ -147,7 +152,6 @@ export function Root() {
 {s.screen === 'personalization' && <PersonalizationScreen />}
 {s.screen === 'patchReview' && <PatchReviewScreen />}
 {s.screen === 'backgroundActivity' && <BackgroundActivityScreen />}
-{s.screen === 'pdfReview' && <PdfReviewScreen />}
 {s.screen === 'habitDetail' && <HabitDetailScreen />}
 {s.screen === 'watchBuilder' && <WatchBuilderScreen />}
 {s.screen === 'commitments' && <CommitmentsScreen />}

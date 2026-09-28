@@ -16,6 +16,12 @@
 #   commitmentActionReceipts
 #                     30 days  - which notification taps were applied, so a
 #                                replayed tap is applied once (#200)
+#   providerOAuthStates
+#                     10 min   - an OAuth authorization nobody finished: an
+#                                encrypted PKCE verifier (CL6a)
+#   googlePickerTickets
+#                      2 min   - a one-time ticket for the Google Picker page,
+#                                stored as a digest (CL6a)
 #
 # Retention is enforced by Firestore rather than by a cron job we have to keep
 # alive: each document is written with an `expiresAt` timestamp and the TTL
@@ -64,10 +70,17 @@ COLLECTION_GROUPS=(
   "hardReminders"
   # UC-3.14 (#200): a phone's outbox gives up long before 30 days.
   "commitmentActionReceipts"
+  # CL6a: an OAuth authorization that was started and never finished. The
+  # callback consumes it; this removes the ones nobody came back for, with
+  # their encrypted PKCE verifier.
+  "providerOAuthStates"
+  # CL6a: the one-time ticket that opens the Google Picker page. Spent on the
+  # first page load; this removes the ones that were never opened.
+  "googlePickerTickets"
 )
 
 usage() {
-  sed -n '2,26p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
+  sed -n '2,32p' "$0" | sed 's/^#\{1,2\} \{0,1\}//'
 }
 
 while [ "$#" -gt 0 ]; do

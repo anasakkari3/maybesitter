@@ -33,7 +33,7 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
-import { resetWriterIdCache } from '../../../lib/deviceSettings/calendarDevice';
+import { resetWriterIdCache, saveExcludedCalendarIds } from '../../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar } from '../deviceCalendar';
 import { resetBusySyncForTests } from '../useBusyCalendar';
 
@@ -73,7 +73,7 @@ beforeEach(async () => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
-  await AsyncStorage.multiRemove(['calendar.busy.v1', 'calendar.busySyncedAt.v1']);
+  await AsyncStorage.multiRemove(['calendar.busy.v1', 'calendar.busySyncedAt.v1', 'calendar.excludedCalendarIds.v1']);
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [], calendarOrphans: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
@@ -156,6 +156,23 @@ describe('with the calendar switch on', () => {
  * the suite green. So the listener is captured here and driven by hand, with a
  * sync already recorded long enough ago that the throttle lets it through.
  */
+describe('a calendar switched off in Calendar settings (first iPhone run, L7)', () => {
+  it('is left out of the read the session runs', async () => {
+    await saveExcludedCalendarIds(['cal-work']);
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustWith(true) as never);
+    jest.spyOn(calendarEndpoints, 'postCalendarBusy').mockResolvedValue({
+      success: true, blocks: 1,
+      source: { sourceId: 'device:x', lastSyncedAt: null, windowStart: null, windowEnd: null },
+    } as never);
+
+    await openApp();
+
+    await waitFor(() => expect(deviceCalendar.fetchBusyBlocks).toHaveBeenCalled());
+    const options = (deviceCalendar.fetchBusyBlocks as jest.Mock).mock.calls[0]![0] as { excludedCalendarIds?: ReadonlySet<string> };
+    expect([...(options.excludedCalendarIds ?? [])]).toEqual(['cal-work']);
+  });
+});
+
 describe('coming back to the front', () => {
   function captureAppState() {
     const listeners: ((state: AppStateStatus) => void)[] = [];

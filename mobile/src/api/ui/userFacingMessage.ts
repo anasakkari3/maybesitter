@@ -1,7 +1,10 @@
 import type { Strings } from '../../i18n/strings';
 import {
+  CaptureConfirmRefusedError,
   ContractError,
+  FeatureUnavailableError,
   ForbiddenError,
+  GoogleRefusedError,
   IcsFeedRefusedError,
   InputTooLargeError,
   InvalidTransitionError,
@@ -51,8 +54,16 @@ const FORBIDDEN_REASONS: readonly string[] = [
   'feature_disabled',
 ];
 
-/** The reason a 403 carried, when the product has a screen for it. */
+/**
+ * The reason a 403 carried, when the product has a screen for it.
+ *
+ * A module the server has switched off answers 404 `feature_unavailable`
+ * (`moduleGate.ts`) where a withdrawn feature answers 403 `feature_disabled`.
+ * To the person they are the same thing — not available yet, and nothing a
+ * Retry can change — so both are that one state.
+ */
 export function forbiddenReason(error: unknown): ForbiddenReason | null {
+  if (error instanceof FeatureUnavailableError) return 'feature_disabled';
   if (!(error instanceof ForbiddenError)) return null;
   const reason = error.reason ?? '';
   return FORBIDDEN_REASONS.includes(reason) ? (reason as ForbiddenReason) : null;
@@ -73,6 +84,36 @@ const ICS_FEED_KEYS: Partial<Record<IcsFeedRefusedError['reason'], UserFacingKey
   feed_not_found: 'icsFeedsErrChanged',
   encryption_unavailable: 'icsFeedsErrUnavailable',
   feature_disabled: 'icsFeedsUnavailable',
+};
+
+/**
+ * One sentence per Google refusal (CL6a). Never Google's text: the server
+ * sends a closed reason and nothing else.
+ */
+const GOOGLE_KEYS: Record<GoogleRefusedError['reason'], UserFacingKey> = {
+  provider_not_configured: 'googleNotConfigured',
+  google_not_connected: 'googleErrNotConnected',
+  google_feature_not_granted: 'googleErrNotConnected',
+  google_reauth_required: 'googleReconnectBody',
+  google_account_mismatch: 'googleErrOtherAccount',
+  google_permission_not_granted: 'googleErrPermission',
+  google_access_denied: 'googleErrDenied',
+  google_state_invalid: 'googleErrExpired',
+  google_unavailable: 'googleErrUnavailable',
+  google_picker_unavailable: 'googleErrPickerUnavailable',
+  google_file_unsupported: 'googleErrFileUnsupported',
+  google_file_too_large: 'googleErrFileTooLarge',
+  ai_consent_required: 'googleNeedsAi',
+  calendar_consent_required: 'googleNeedsCalendarConsent',
+};
+
+/** One sentence per confirm refusal. A lost write is ours, not theirs. */
+const CAPTURE_CONFIRM_KEYS: Record<CaptureConfirmRefusedError['failureCode'], UserFacingKey> = {
+  proposal_not_found: 'captureConfirmExpired',
+  proposal_rejected: 'captureConfirmNothingReady',
+  invalid_selection: 'captureConfirmNothingReady',
+  invalid_edit: 'captureConfirmBadEdit',
+  persistence_failed: 'errorsServer',
 };
 
 /**
@@ -101,6 +142,7 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   // calendar" and "cannot be fetched" are both 422 and ask different things
   // of the user.
   if (error instanceof IcsFeedRefusedError) return ICS_FEED_KEYS[error.reason] ?? 'errorsGeneric';
+  if (error instanceof GoogleRefusedError) return GOOGLE_KEYS[error.reason];
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.
   if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';
@@ -132,8 +174,15 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   if (error instanceof ServerError || error instanceof ServiceUnavailableError || error instanceof ContractError) {
     return 'errorsServer';
   }
+  // A refused capture confirm, by the reason the server gave (#252). Each one
+  // asks something different of the person; "that didn't work" asked nothing.
+  if (error instanceof CaptureConfirmRefusedError) return CAPTURE_CONFIRM_KEYS[error.failureCode];
+  // A typed clarification answer nothing could be read out of. The question
+  // is still up, so the sentence points at it.
+  if (error instanceof ValidationError && error.reason === 'answer_not_understood') return 'clarifyNotUnderstood';
   if (error instanceof ValidationError) return 'errorsValidation';
   if (error instanceof UnauthorizedError) return 'authSessionExpired';
+  if (error instanceof FeatureUnavailableError) return 'errorsFeatureDisabled';
   if (error instanceof NotFoundError) return 'errorsNotFound';
   const reason = forbiddenReason(error);
   if (reason === 'revoked') return 'authSignedOutRevoked';

@@ -51,11 +51,30 @@ function render(
   return /\{[a-zA-Z]+\}/.test(text) ? null : text;
 }
 
+/** A server `date` parameter: a day key, never prose. */
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The question's words.
+ *
+ * `ask_time` may carry the day it is asking about (L4): "What time on Sunday,
+ * 27 Sep?" instead of "What time works?", so a guessed Sunday is visible at
+ * the moment the user is asked about it. The server sends a day key; the words
+ * for it come from the formatter the caller passes, because only the caller
+ * knows the language. Without it — or with a day key that is not one —
+ * the plain question is asked, never a question with a hole in it.
+ */
 export function questionText(
   questionKey: string,
   params: Record<string, string>,
   strings: Record<string, string>,
+  formatDayKey?: (dayKey: string) => string,
 ): string | null {
+  const date = params.date;
+  if (questionKey === 'ask_time' && date && DAY_KEY.test(date) && formatDayKey) {
+    const withDate = render('clarifyAskTimeOn', { ...params, date: formatDayKey(date) }, strings);
+    if (withDate) return withDate;
+  }
   return render(QUESTION_KEY[questionKey], params, strings);
 }
 

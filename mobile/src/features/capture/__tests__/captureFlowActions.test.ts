@@ -149,7 +149,7 @@ describe('confirm', () => {
       },
     });
 
-    expect(await confirmCapture(g.gateway, analyzed())).toEqual({ ok: false, reason: 'invalid_selection' });
+    expect(await confirmCapture(g.gateway, analyzed())).toEqual({ ok: false, reason: 'invalid_selection', messageKey: 'captureConfirmNothingReady' });
   });
 
   it('reports a thrown failure rather than propagating it', async () => {
@@ -157,7 +157,7 @@ describe('confirm', () => {
     error.name = 'NetworkError';
     const g = gateway({ confirm: async () => { throw error; } });
 
-    expect(await confirmCapture(g.gateway, analyzed())).toEqual({ ok: false, reason: 'NetworkError' });
+    expect(await confirmCapture(g.gateway, analyzed())).toEqual({ ok: false, reason: 'NetworkError', messageKey: 'errorsGeneric' });
   });
 
   it('carries edits only for items being confirmed', async () => {

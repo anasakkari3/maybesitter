@@ -1,7 +1,7 @@
 import { ClarityConsent } from '../../clarity/ClarityConsent';
 import { useClarityConsent } from '../../clarity/ClarityProvider';
 import React, { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Linking, Platform, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
@@ -22,6 +22,8 @@ import { Dialog } from '../../ui/dialog';
 import { SectionLabel, TextLink } from '../../ui/chrome';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { PilotIncidentInput } from '../../api/schemas/trust';
+import { deviceCalendar, type CalendarAccess } from '../calendar/deviceCalendar';
+import { exportPhaseCopy, useExportMyData } from '../account/useExportMyData';
 
 const INCIDENT_SURFACES: readonly PilotIncidentInput['surface'][] = ['capture', 'recommendation', 'calendar', 'analytics', 'account'];
 const INCIDENT_CATEGORIES: readonly PilotIncidentInput['category'][] = ['reliability', 'privacy', 'safety', 'consent', 'other'];
@@ -71,10 +73,13 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const setPersonalization = useSetPersonalizationConsent();
   const trustAction = useTrustAction();
   const report = useReportPilotIncident();
+  const exportData = useExportMyData();
   const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
+  // The phone's answer to the calendar question, once this screen has asked.
+  const [calendarAccess, setCalendarAccess] = useState<CalendarAccess | null>(null);
 
   const versions = consents.data?.currentVersions;
   const context = {
@@ -193,8 +198,28 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             body={t.trustCalendarNotConnected}
             value={state?.calendarConsent === true}
             disabled={state === undefined}
-            onChange={next => record(trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next }))}
+            onChange={async next => {
+              // On the way on, ask the phone first (first iPhone run, L7):
+              // recording the consent alone left the busy read failing,
+              // silently, as `denied`. `requestAccess` only prompts when the
+              // phone has not answered; after that it reports the answer.
+              if (next) setCalendarAccess(await deviceCalendar.requestAccess());
+              return record(trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next }));
+            }}
           />
+          {calendarAccess === 'denied' ? (
+            <View style={{ paddingHorizontal: 18, paddingTop: 12, gap: 10 }}>
+              <Txt size={13} color={p.mu} lh={1.5} testID="trust-calendar-denied">{t.calendarPermissionDenied}</Txt>
+              <Btn
+                label={t.notifOpenSettings}
+                testID="trust-calendar-open-settings"
+                onPress={() => void Linking.openSettings()}
+                style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: p.ln }}
+              >
+                <Txt size={14} color={p.ac}>{t.notifOpenSettings}</Txt>
+              </Btn>
+            </View>
+          ) : null}
           {/* The switch records consent; connecting the calendar is done in
               Calendar settings, which is one tap from here (Round 2). */}
           <View style={{ paddingHorizontal: 18, paddingBottom: 12 }}>
@@ -252,12 +277,23 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           )}
         </Card>
 
-        {/* Visible, honest, and not a fake. There is no export endpoint, so
-            this says so rather than producing a file that is not the user's
-            data (#174 step 7). */}
-        <Card pad={18} style={{ gap: 6 }}>
+        {/* The real export (#174 step 7): the server builds it from the same
+            collection list deletion uses, and the share sheet is handed the
+            file. The line under the button says when it is working or why it
+            did not. */}
+        <Card pad={18} style={{ gap: 10 }}>
           <Txt size={15}>{t.trustExport}</Txt>
-          <Txt size={13} color={p.mu} lh={1.5} testID="trust-export-unavailable">{t.trustExportBody}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5}>{t.trustExportBody}</Txt>
+          <Pill
+            testID="trust-export"
+            kind="outline"
+            label={exportData.phase === 'preparing' ? t.exportDataPreparing : t.exportDataAction}
+            disabled={exportData.phase === 'preparing'}
+            onPress={() => void exportData.start()}
+          />
+          {exportData.phase === 'failed' || exportData.phase === 'tooLarge' || exportData.phase === 'rateLimited' ? (
+            <Txt size={13} color={p.wm} testID="trust-export-failed">{exportPhaseCopy(exportData.phase, t)}</Txt>
+          ) : null}
         </Card>
       </ScreenScroll>
     </Screen>

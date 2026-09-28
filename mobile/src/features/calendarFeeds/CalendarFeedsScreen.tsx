@@ -191,7 +191,9 @@ function AddFeed({ rtl }: { rtl: boolean }) {
         textContentType="none"
         spellCheck={false}
         keyboardType="url"
-        // A link reads left to right in any language.
+        // A link reads left to right in any language, so this one field keeps
+        // the physical left on purpose.
+        // eslint-disable-next-line no-restricted-syntax
         style={{ ...inputStyle, textAlign: 'left', writingDirection: 'ltr' }}
       />
       <TextInput

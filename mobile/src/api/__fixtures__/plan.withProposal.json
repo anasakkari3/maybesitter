@@ -50,7 +50,11 @@
         },
         "maxShiftMinutes": 30
       }
-    ]
+    ],
+    "fixed": [],
+    "inputsChanged": false,
+    "rebuildsLeft": 3,
+    "workingEndsAt": "2026-08-09T09:00:00.000Z"
   },
   "proposal": {
     "proposalId": "prp_fixture",

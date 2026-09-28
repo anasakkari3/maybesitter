@@ -26,7 +26,7 @@ export type ImportResolution = 'replace' | 'keep_both';
 export type ImportStatus =
   /** Choosing which assistant. */
   | 'pick'
-  /** The question is on the clipboard and the assistant has been opened. */
+  /** The steps are on screen; the button copies the question and opens the assistant. */
   | 'handoff'
   /** Waiting for the answer to be pasted back. */
   | 'paste'

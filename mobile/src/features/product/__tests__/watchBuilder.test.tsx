@@ -10,7 +10,7 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import { WatchBuilderScreen } from '../WatcherScreens';
 import { strings } from '../../../i18n/strings';
 import * as watcherEndpoints from '../../../api/endpoints/watchers';
-import response from './watcher-route-response.json';
+import response from '../../../api/__fixtures__/watchers.created.json';
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 const user = { uid: 'watch-builder-user', email: null, emailVerified: true, displayName: null, providerIds: ['password'] };
@@ -54,4 +54,19 @@ it('creates the supported readiness watcher and labels future sources honestly',
 
   await fireEvent.press(screen.getByTestId('watch-create'));
   await waitFor(() => expect(create).toHaveBeenCalledWith('notify'));
+});
+
+it('sends one create however often the button is pressed while it is in flight', async () => {
+  // The owner's repro: each press after a failed-looking create made another
+  // watcher. The button is disabled while the create is pending.
+  let finish: (value: unknown) => void = () => undefined;
+  const create = jest.spyOn(watcherEndpoints, 'createReadinessWatcher')
+    .mockImplementation(() => new Promise(resolve => { finish = resolve; }) as never);
+  await show();
+  await fireEvent.press(screen.getByTestId('watch-create'));
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+  await fireEvent.press(screen.getByTestId('watch-create'));
+  await fireEvent.press(screen.getByTestId('watch-create'));
+  expect(create).toHaveBeenCalledTimes(1);
+  finish(response);
 });

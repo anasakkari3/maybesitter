@@ -343,6 +343,16 @@ export const PROVIDER_CREDENTIALS = 'providerCredentials';
 export const PROVIDER_OAUTH_STATES = 'providerOAuthStates';
 
 /**
+ * A one-time ticket for the Google Picker page (CL6a).
+ *
+ * The page opens in the system browser, which carries no Firebase token, so
+ * the app mints a ticket here first and the page redeems it once. The document
+ * id is SHA-256 of the ticket's random half — the ticket itself is never
+ * stored — and it lives two minutes; `expiresAt` is its TTL field.
+ */
+export const GOOGLE_PICKER_TICKETS = 'googlePickerTickets';
+
+/**
  * A watcher's definition plus its runtime baseline, one document per watcher
  * (#525). `users/{uid}/watchers/{watcherId}`.
  *
@@ -484,6 +494,7 @@ export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
   PROVIDER_OAUTH_STATES,
+  GOOGLE_PICKER_TICKETS,
   COMMITMENTS,
   INTENT_SEEDS,
   GOAL_GRAPH_LINKS,

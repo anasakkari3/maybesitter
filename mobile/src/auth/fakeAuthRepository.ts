@@ -23,6 +23,7 @@ export interface FakeAuthCall {
     | 'reauthenticateWithPassword'
     | 'reauthenticateWithGoogle'
     | 'reauthenticateWithApple'
+    | 'revokeAppleToken'
     | 'refreshIdentity';
   /**
    * The address only. Passwords are never recorded, so a failing test cannot
@@ -47,6 +48,10 @@ export interface FakeAuthRepository extends AuthRepository {
   cancelNextApple(): void;
   /** Re-authentications that succeeded, in order. Passwords are never kept. */
   readonly reauthentications: ReauthProvider[];
+  /** The Apple authorization codes handed to `revokeAppleToken`, in order. */
+  readonly appleRevocations: string[];
+  /** What the next Apple re-authentication hands back as its one-time code. */
+  setNextAppleAuthorizationCode(code: string | null): void;
 }
 
 export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAuthRepository {
@@ -59,6 +64,9 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
   let signOutReason: SignOutReason | null = null;
   const calls: FakeAuthCall[] = [];
   const reauthentications: ReauthProvider[] = [];
+  const appleRevocations: string[] = [];
+  let appleCodeCounter = 0;
+  let nextAppleCode: string | null | undefined;
   const failures = new Map<FakeAuthCall['method'], unknown>();
   let cancelGoogle = false;
   let cancelApple = false;
@@ -152,6 +160,18 @@ export function createFakeAuthRepository(options: FakeAuthOptions = {}): FakeAut
         throw new ReauthCancelled();
       }
       reauthentications.push('apple.com');
+      appleCodeCounter += 1;
+      const authorizationCode = nextAppleCode !== undefined ? nextAppleCode : `fake-apple-code-${appleCodeCounter}`;
+      nextAppleCode = undefined;
+      return { authorizationCode };
+    },
+    async revokeAppleToken(authorizationCode) {
+      record('revokeAppleToken');
+      appleRevocations.push(authorizationCode);
+    },
+    appleRevocations,
+    setNextAppleAuthorizationCode(code) {
+      nextAppleCode = code;
     },
     async refreshIdentity() {
       record('refreshIdentity');

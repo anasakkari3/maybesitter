@@ -14,7 +14,8 @@ import { clearAwareness, markAware } from '../../lib/deviceSettings/awarenessSto
 import { clearHardReceipts } from '../../lib/deviceSettings/hardReceiptQueue';
 import { drainHardReceipts } from './receiptUpload';
 import { AppState } from 'react-native';
-import { useToday, useUpcoming } from '../../api/queries';
+import { useReminderSettings, useToday, useUpcoming } from '../../api/queries';
+import { useNotificationPromptAtFirstMoment } from '../../notifications/firstMomentPrompt';
 import { useQueryClient } from '@tanstack/react-query';
 import NetInfo from '@react-native-community/netinfo';
 import { registerReminderActions } from '../../notifications/actions';
@@ -57,6 +58,11 @@ export function RemindersMount(): null {
   const upcoming = useUpcoming();
   const { resync } = useReminderSync();
   const queryClient = useQueryClient();
+  const reminderSettings = useReminderSettings();
+
+  // The OS prompt, right after the first confirmed commitment that has a time
+  // (first iPhone run, L7). See `notifications/firstMomentPrompt.ts`.
+  useNotificationPromptAtFirstMoment(queryClient, reminderSettings.data?.reminderSettings.softEnabled !== false);
 
   /*
    * The three listeners below are installed once and have to read the *current*

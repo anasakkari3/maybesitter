@@ -5,7 +5,9 @@ const readinessBandSchema = z.enum(['unknown', 'low', 'steady', 'high']);
 const readinessSourceKindSchema = z.enum(['healthkit', 'health_connect', 'whoop', 'subjective']);
 
 export const readinessSnapshotSchema = z.object({
-  version: z.number(),
+  // `MODULE_CONTRACT_VERSION` on the server (src/contracts/v1/moduleContracts.ts)
+  // — the string 'v1', never a number.
+  version: z.literal('v1'),
   schemaVersion: z.literal('readiness-v1'),
   scopeId: z.string(),
   computedAt: isoDateTime,
@@ -30,7 +32,9 @@ export const readinessSnapshotSchema = z.object({
 export const readinessResponseSchema = z.object({
   readiness: readinessSnapshotSchema.nullable(),
   selectedSource: z.enum(['current_subjective', 'recent_readiness', 'historical_inference', 'none']),
-  freshness: z.enum(['fresh', 'stale', 'none']),
+  // `missing` is an account with no check-in and no readiness signal yet
+  // (lib/integrations/readiness/subjectiveEnergy.ts). A state, not an error.
+  freshness: z.enum(['fresh', 'stale', 'missing']),
 });
 
 export const readinessSavedSchema = z.object({
