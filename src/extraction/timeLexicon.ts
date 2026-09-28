@@ -473,12 +473,15 @@ const HE_DAY_PREFIX = '[וש]?[בלכמ]?';
 const EN_NOT_POSSESSIVE = "(?!['’]s\\b)";
 /*
  * «غدا» is tomorrow in the standard language and lunch in the spoken one
- * (closure UAT round 4, N16 probes). Had with someone — «غدا مع أمي» — it is
- * the meal: «عندي غدا مع أمي بكرا» was titled «عندي مع أمي», the lunch taken
- * out as a day word. Written with its tanween («غداً مع…») or anywhere else
- * it is still tomorrow.
+ * (closure UAT round 4, N16 probes). «عندي غدا مع أمي بكرا» was titled «عندي
+ * مع أمي»: the lunch taken out as a day word. It is the meal only when it is
+ * had with someone («غدا مع …») *and* the sentence names its day some other
+ * way — «بكرا», «اليوم», a weekday. Otherwise it is tomorrow, as it always
+ * was: «اجتماع غدا مع العميل الساعة 11» is a meeting tomorrow with the client
+ * (POLISH-CAPTURE review, I1).
  */
-const AR_LUNCH_NOT_TOMORROW = 'غد\\p{M}*ا(?!\\s+مع(?![\\p{L}\\p{M}]))';
+const AR_OTHER_DAY_WORD = `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:بكرا|بكرة|بكره|باچر|باكر|اليوم|النهارده|النهاردة|الليلة|الليله|الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|الجمعه|السبت)${NOT_LETTER_AFTER}`;
+const AR_LUNCH_NOT_TOMORROW = `غد\\p{M}*ا(?!\\s+مع(?![\\p{L}\\p{M}])(?:(?=[\\s\\S]*${AR_OTHER_DAY_WORD})|(?<=${AR_OTHER_DAY_WORD}[\\s\\S]*)))`;
 const RELATIVE_DAYS: ReadonlyArray<{ offset: number; en: string; ar: string; he: string }> = [
   { offset: 2, en: 'day\\s+after\\s+tomorrow|after\\s+tomorrow|after\\s+tmrw', ar: 'بعد\\s+(?:بكرا|بكرة|بكره|غد\\p{M}*ا?)', he: 'מחרתיים' },
   { offset: 1, en: 'tomorrow|tmrw|tmr|tomorow', ar: `بكرا|بكرة|بكره|باچر|باكر|${AR_LUNCH_NOT_TOMORROW}`, he: 'מחר' },
