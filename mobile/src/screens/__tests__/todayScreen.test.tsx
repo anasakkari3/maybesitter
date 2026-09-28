@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppProvider } from '../../state/AppContext';
+import { AppProvider, useApp } from '../../state/AppContext';
 import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../api/auth';
@@ -32,7 +32,6 @@ import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 import * as planEndpoints from '../../api/endpoints/plans';
 import * as language from '../../i18n/language';
 import { fill, ltr } from '../../i18n/strings';
-import { useApp } from '../../state/AppContext';
 import { Txt } from '../../ui/primitives';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 
