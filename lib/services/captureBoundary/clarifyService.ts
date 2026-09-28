@@ -332,7 +332,7 @@ function dayOf(text: string, today: string, options: ClarifyOptions): string | n
  * negation or "can't" in it is refused — not understood, the buttons stay —
  * unless it is one of two plain shapes (round 4):
  *
- *   (a) a leading «لا»/"no"/«לא», then straight away the one day, and no
+ *   (a) a leading «لا/لأ/لاء»/"no/nope/nah"/«לא», then straight away the one day, and no
  *       other negation («לא יכול מחר» is "I can't", not "no — tomorrow"):
  *       «لا بكرا المسا», «لا، بكرا المسا», "no, tomorrow evening" → that day;
  *   (b) «مش/مو/لا»/"not"/«לא» X, then a comma or «بس»/"but"/«אבל», then Y —
@@ -357,11 +357,13 @@ const NOT_A_NEGATION = new RegExp(`${NOT_LETTER_BEFORE_WORD}(?:${[
   'no\\s+(?:problem|worries)', 'not\\s+a\\s+problem', 'אין\\s+בעיה',
 ].join('|')})${NOT_LETTER_AFTER_WORD}`, 'giu');
 const NEGATION = new RegExp(`${NOT_LETTER_BEFORE_WORD}(?:${[
-  'مش', 'مو', 'ما', 'لا', 'مب', 'ليس', 'لست', 'لن', 'مافي', 'مستحيل', 'بلاش',
-  'not', 'no', 'never', 'cannot', 'cant', 'wont', 'dont', 'unable', 'impossible', "[a-z]+n['’]t",
-  'לא', 'אין', 'אי',
+  'مش', 'مو', 'ما', 'لا', 'لأ', 'لاء', 'مب', 'ليس', 'لست', 'لن', 'مافي', 'مستحيل', 'بلاش', 'أبد\\p{M}*ا\\p{M}*', 'ابد\\p{M}*ا\\p{M}*',
+  // Busy is "I can't" too (round 4 addendum). «عندي شغل» is left out: "I have work" is not plainly a refusal.
+  'مشغول', 'مشغولة', 'مشغوله',
+  'not', 'no', 'nope', 'nah', 'never', 'cannot', 'cant', 'wont', 'dont', 'unable', 'impossible', 'busy', "[a-z]+n['’]t",
+  'לא', 'אין', 'אי', 'עסוק', 'עסוקה',
 ].join('|')})${NOT_LETTER_AFTER_WORD}`, 'iu');
-const LEADING_NO_SHAPE = /^\s*(?:لا|no|לא)(?:\s*[,،]\s*|\s+)([\s\S]+)$/i;
+const LEADING_NO_SHAPE = /^\s*(?:لا|لأ|لاء|no|nope|nah|לא)(?:\s*[,،]\s*|\s+)([\s\S]+)$/i;
 const RULED_OUT_SHAPE = /^\s*(?:مش|مو|لا|not|לא)\s+([^,،]+?)(?:\s*[,،]\s*(?:(?:بس|but|אבל)\s+)?|\s+(?:بس|but|אבל)\s+)([\s\S]+)$/i;
 const DAY_ALTERNATIVE = /(?:^|[\s,،])(?:بدل|بدال|عوض|أو|او|ولا|or|instead|או|במקום)(?=$|[\s,،?؟])/i;
 const DAY_AFTER_TODAY = /(?:^|[\s,،])(?:[وف]?(?:اليوم|النهار)\s+(?:التاني|الثاني|التالي)|(?:تاني|ثاني)\s+يوم|למחרת)(?=$|[\s,،])|\b(?:the\s+)?(?:next|following)\s+day\b/i;
