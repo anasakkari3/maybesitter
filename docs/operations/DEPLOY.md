@@ -95,6 +95,11 @@ gcloud secrets add-iam-policy-binding <name> \
 Then add it to `infra/cloudrun/flags.sh` as `--set-secrets NAME=<name>:latest`.
 Grant the accessor role on that one secret, never project-wide.
 
+`FOOTBALL_DATA_API_KEY` is intentionally mapped only for staging from
+`maybesitter-football-data-api-key`. A production deploy must not add that
+mapping until the owner separately approves production football sync after a
+successful staging run.
+
 ## Scheduled work
 
 There is no worker process beside the server. Cloud Run throttles CPU on idle

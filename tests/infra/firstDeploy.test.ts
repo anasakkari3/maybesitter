@@ -130,6 +130,22 @@ test('the memory module is on for staging and explicitly off for production', ()
   assert.match(production, /MAYBESITTER_KILL_SWITCH_MEMORY=true/, 'production has no independent block on memory');
 });
 
+test('the football-data.org credential is mounted on staging only', () => {
+  const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
+  const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
+
+  assert.match(
+    staging,
+    /FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest/,
+    'staging does not receive the managed football-data.org credential',
+  );
+  assert.doesNotMatch(
+    production,
+    /FOOTBALL_DATA_API_KEY/,
+    'production football sync was activated without an explicit production decision',
+  );
+});
+
 // ── Same-digest production promotion ────────────────────────────────────
 
 const buildStep = () => {
