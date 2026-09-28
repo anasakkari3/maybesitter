@@ -1,4 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
+import fs from 'node:fs';
+import path from 'node:path';
 import MessageFormat from 'intl-messageformat';
 import ar from '../locales/ar.json';
 import en from '../locales/en.json';
@@ -118,5 +120,65 @@ describe('locale file parity', () => {
 
   it('marks Hebrew as machine translated', () => {
     expect((he as { _meta?: { machine_translated?: boolean } })._meta?.machine_translated).toBe(true);
+  });
+});
+
+/**
+ * Every key in every object of a raw JSON text, with its dotted path, in
+ * order — duplicates included. `JSON.parse` and `import` keep only the last of
+ * two equal keys, so a duplicate is invisible to every test above: the
+ * 2026-09-28 closure merge of main produced `xPrepareBody` and `xWeeklyBody`
+ * twice in en.json and he.json, with no conflict marker, and the app showed
+ * the later (wrong) copy. This reads the text itself.
+ */
+function duplicateKeys(text: string): string[] {
+  const duplicates: string[] = [];
+  const stack: { keys: Set<string>; path: string; isObject: boolean; pendingKey: string | null }[] = [];
+  let expectKey = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (ch === '"') {
+      let j = i + 1;
+      let value = '';
+      while (j < text.length && text[j] !== '"') {
+        if (text[j] === '\\') { value += text.slice(j, j + 2); j += 2; continue; }
+        value += text[j];
+        j += 1;
+      }
+      const top = stack[stack.length - 1];
+      if (top?.isObject && expectKey) {
+        const key = JSON.parse(`"${value}"`) as string;
+        if (top.keys.has(key)) duplicates.push(top.path ? `${top.path}.${key}` : key);
+        top.keys.add(key);
+        top.pendingKey = key;
+        expectKey = false;
+      }
+      i = j;
+    } else if (ch === '{' || ch === '[') {
+      const parent = stack[stack.length - 1];
+      const segment = parent ? (parent.isObject ? parent.pendingKey ?? '' : '[]') : '';
+      const path = parent?.path ? `${parent.path}.${segment}` : segment;
+      stack.push({ keys: new Set(), path, isObject: ch === '{', pendingKey: null });
+      expectKey = ch === '{';
+    } else if (ch === '}' || ch === ']') {
+      stack.pop();
+      expectKey = false;
+    } else if (ch === ',') {
+      expectKey = stack[stack.length - 1]?.isObject === true;
+    }
+  }
+  return duplicates;
+}
+
+describe('locale files, as text', () => {
+  it('finds a duplicate key the parser would hide, at any depth, and nothing else', () => {
+    expect(duplicateKeys('{"a": "1", "b": "x", "a": "2"}')).toEqual(['a']);
+    expect(duplicateKeys('{"_meta": {"k": 1, "k": 2}, "k": "fine"}')).toEqual(['_meta.k']);
+    expect(duplicateKeys('{"a": "\\"a\\": 1, \\"a\\"", "b": ["a", "a"], "c": {"a": 1}}')).toEqual([]);
+  });
+
+  it.each(['ar', 'en', 'he'])('%s.json has no key twice in any object', (locale) => {
+    const text = fs.readFileSync(path.join(__dirname, '..', 'locales', `${locale}.json`), 'utf8');
+    expect(duplicateKeys(text)).toEqual([]);
   });
 });
