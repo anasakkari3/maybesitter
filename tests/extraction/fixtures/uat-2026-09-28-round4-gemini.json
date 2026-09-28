@@ -1,0 +1,123 @@
+{
+  "_about": "Gemini (gemini-2.5-flash, Vertex europe-west1) answers (prompt capture-v5) recorded on 2026-09-28 for the closure UAT round-4 captures (POLISH-CAPTURE: N15 «أخلص التقرير قبل آخر الشهر بيومين», N16 «بكرا العصرية بدي أروح عالسوق، والخميس الساعة 6 المسا عندي عشا مع العيلة»), one entry per model call, keyed by the exact payload sent. Recorded with scripts/live-capture-check.ts --only PC --raw --record before the fix (2 calls); replayed by tests/extraction/polishCaptureRegressions.test.ts. referenceTime 2026-09-28T03:58:00.000Z (N15) and 03:50 (N16), Asia/Hebron (the phone's zone in the UAT).",
+  "calls": [
+    {
+      "case": "PC N15 two days before the month end (before the fix)",
+      "shape": "single",
+      "payload": "أخلص التقرير قبل آخر الشهر بيومين",
+      "answer": {
+        "type": "task",
+        "action": "أخلص",
+        "title": "أخلص التقرير",
+        "person": null,
+        "dueAt": "2026-10-29T20:59:00Z",
+        "remindAt": null,
+        "localTimeSpec": {
+          "date": "2026-10-29",
+          "time": "23:59",
+          "timezone": "Asia/Hebron"
+        },
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": null,
+        "categoryConfidence": 0,
+        "confidence": {
+          "overall": 1,
+          "type": 1,
+          "action": 1,
+          "time": 1,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "PC N16 dinner with the family (before the fix)",
+      "shape": "batch",
+      "payload": [
+        "بكرا العصرية بدي أروح عالسوق",
+        "والخميس الساعة 6 المسا عندي عشا مع العيلة"
+      ],
+      "answer": {
+        "items": [
+          {
+            "clauseIndex": 0,
+            "type": "task",
+            "action": "أروح عالسوق",
+            "title": "أروح عالسوق",
+            "person": null,
+            "dueAt": "2026-09-29T12:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-09-29",
+              "time": "15:00",
+              "timezone": "Asia/Hebron"
+            },
+            "priority": {
+              "level": "normal",
+              "source": "default",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": null,
+            "categoryConfidence": 0,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          },
+          {
+            "clauseIndex": 1,
+            "type": "task",
+            "action": "عندي عشا",
+            "title": "عندي عشا",
+            "person": null,
+            "dueAt": "2026-10-01T15:00:00Z",
+            "remindAt": null,
+            "localTimeSpec": {
+              "date": "2026-10-01",
+              "time": "18:00",
+              "timezone": "Asia/Hebron"
+            },
+            "priority": {
+              "level": "high",
+              "source": "inferred",
+              "pressureAllowed": false,
+              "pressureImplied": false
+            },
+            "flexibility": "movable",
+            "category": "family",
+            "categoryConfidence": 0.8,
+            "confidence": {
+              "overall": 0.8,
+              "type": 1,
+              "action": 0.8,
+              "time": 0.8,
+              "priority": 1
+            },
+            "missingFields": [],
+            "ambiguityFlags": [],
+            "explicitReminderRequest": false,
+            "explicitPressureRequest": false
+          }
+        ]
+      }
+    }
+  ]
+}

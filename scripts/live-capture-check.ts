@@ -107,6 +107,10 @@ const CASES: ReadonlyArray<{ name: string; text: string; referenceTime?: string;
   { name: 'FZ1 N10 a passed night hour alone', text: 'اليوم الساعة 2 بالليل لازم أبعت الإيميل للمدير', referenceTime: '2026-09-28T00:22:00.000Z', timezone: 'Asia/Hebron', answer: 'بعد ساعة' },
   { name: 'FZ1 N6 the month-end report', text: 'أحضّر تقرير آخر الشهر', referenceTime: '2026-09-28T00:40:00.000Z', timezone: 'Asia/Hebron' },
   { name: 'FZ1 N6 the month-end report (must)', text: 'لازم أحضّر تقرير آخر الشهر', referenceTime: '2026-09-28T00:41:00.000Z', timezone: 'Asia/Hebron' },
+  // UAT round 4 (POLISH-CAPTURE), at the morning they were typed: Monday 28
+  // Sep, 06:58 and 06:50 on the phone's clock (Asia/Hebron).
+  { name: 'PC N15 two days before the month end', text: 'أخلص التقرير قبل آخر الشهر بيومين', referenceTime: '2026-09-28T03:58:00.000Z', timezone: 'Asia/Hebron' },
+  { name: 'PC N16 dinner with the family', text: 'بكرا العصرية بدي أروح عالسوق، والخميس الساعة 6 المسا عندي عشا مع العيلة', referenceTime: '2026-09-28T03:50:00.000Z', timezone: 'Asia/Hebron' },
 ];
 
 async function main(): Promise<void> {
