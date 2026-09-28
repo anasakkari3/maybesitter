@@ -614,6 +614,26 @@ export function validateExtractionResult(
     time = { ...time, localTimeSpec: { date: wordsDay.date, time: null, timezone: zone } };
     dateInferred = wordsDay.side === 'end';
   }
+  // The model named no day for a sentence that names today, tomorrow or the
+  // day after (final UAT, N19). At 10:04 on Monday, «سجّل موعد دكتور اليوم»
+  // reached the card as «موعد دكتور · بدون وقت» asking «أي وقت بناسبك؟» — no
+  // day — while «عندي موعد دكتور اليوم» a minute later kept «اليوم»: the
+  // model's variance, not the imperative (the rules path keeps the day for
+  // both). The words' day fills an absent one, as a weekday's does above and
+  // as the rules path reads it (`relativeDayOffset`), said and not guessed.
+  // Only an absent day: a model day is never moved here (L4). Not when the
+  // words name today only to rule it out («مش اليوم», "not today"), nor
+  // beside a date or a weekday of their own.
+  if (
+    !time.localTimeSpec?.date && !time.dueAt && !time.remindAt && today
+    && !namesCalendarDate(rawText) && !readWeekdayReference(rawText)
+  ) {
+    const offset = relativeDayOffset(rawText);
+    if (offset !== null && !(offset === 0 && namesOtherDayThanToday(rawText))) {
+      time = { ...time, localTimeSpec: { date: shiftLocalDate(today, offset), time: null, timezone: zone } };
+      dateInferred = false;
+    }
+  }
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);
   }

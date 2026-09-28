@@ -111,6 +111,10 @@ const CASES: ReadonlyArray<{ name: string; text: string; referenceTime?: string;
   // Sep, 06:58 and 06:50 on the phone's clock (Asia/Hebron).
   { name: 'PC N15 two days before the month end', text: 'أخلص التقرير قبل آخر الشهر بيومين', referenceTime: '2026-09-28T03:58:00.000Z', timezone: 'Asia/Hebron' },
   { name: 'PC N16 dinner with the family', text: 'بكرا العصرية بدي أروح عالسوق، والخميس الساعة 6 المسا عندي عشا مع العيلة', referenceTime: '2026-09-28T03:50:00.000Z', timezone: 'Asia/Hebron' },
+  // The final UAT round (FINAL-BACKEND, N19), at 10:05 on Monday 28 Sep: the
+  // imperative lost «اليوم» on the phone, the possessive kept it.
+  { name: 'FINAL N19 log a doctor today', text: 'سجّل موعد دكتور اليوم', referenceTime: '2026-09-28T07:05:00.000Z' },
+  { name: 'FINAL N19 have a doctor today', text: 'عندي موعد دكتور اليوم', referenceTime: '2026-09-28T07:05:00.000Z' },
 ];
 
 async function main(): Promise<void> {
