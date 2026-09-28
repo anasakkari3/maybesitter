@@ -20,6 +20,7 @@ import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
+import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import {
   appendClarificationEvent,
   captureProposalPath,
@@ -93,6 +94,36 @@ const mobileGlobals = globalThis as MobileGlobals;
 const store: CaptureProposalStore = createStorageCaptureProposalStore();
 const persistence = mobileGlobals.__maybesitterMobilePersistence ?? new CommandServiceCapturePersistenceAdapter();
 mobileGlobals.__maybesitterMobilePersistence = persistence;
+
+/**
+ * Marks the items that happen *on* their day (UAT round 3, N11).
+ *
+ * The review edit sheet's «بدون وقت» sends `resolvedTime: null`, and the
+ * confirm then keeps an event on its day as an all-day event but drops a
+ * task's day (`keepEventOnItsDay`, FY1 M1). The card showed only «بدون وقت»
+ * either way, so the dentist the calendar kept on Friday read as having no
+ * day. The flag is the confirm's own test — a `YYYY-MM-DD` day on the stored
+ * reading and `isEventOnDay` over its words — read from the stored proposal,
+ * which holds the readings the contract does not. One read, and only when some
+ * item has a day to keep.
+ */
+async function withEventsOnTheirDay<T extends { proposalId: string; items: ReadonlyArray<{ itemId: string; resolvedDate?: string }> }>(
+  contract: T,
+): Promise<T> {
+  if (!contract.proposalId || !contract.items.some((item) => item.resolvedDate)) return contract;
+  const results = (await store.get(contract.proposalId))?.resultsByItemId;
+  if (!results) return contract;
+  return {
+    ...contract,
+    items: contract.items.map((item) => {
+      const result = results.get(item.itemId);
+      const date = result?.localTimeSpec?.date;
+      const onDay = Boolean(item.resolvedDate) && date === item.resolvedDate && /^\d{4}-\d{2}-\d{2}$/.test(date ?? '')
+        && isEventOnDay(result?.rawText ?? '');
+      return onDay ? { ...item, eventOnDay: true } : item;
+    }),
+  };
+}
 
 function scopeIdFrom(value: unknown, context: MobileBackendContext = {}): string {
   if (context.participantId) return context.participantId;
@@ -379,7 +410,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
       emitAnalyticsEvent(analytics, 'seed_proposed', { proposedCount: proposal.seeds.length }));
   }
 
-  return proposal;
+  return withEventsOnTheirDay(proposal);
 }
 
 /**
@@ -409,7 +440,7 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   // rules otherwise. Decided here from the stored consent, never the request.
   const consent = context.participantId ? await getAiConsent(context.participantId) : 'declined';
 
-  return answerClarification(
+  return withEventsOnTheirDay(await answerClarification(
     {
       proposalId,
       itemId,
@@ -430,7 +461,7 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
         : {}),
       recordEvent: (event) => appendClarificationEvent(scopeId, event),
     },
-  );
+  ));
 }
 
 export async function confirmMobileCapture(input: MobileConfirmInput, context: MobileBackendContext = {}): Promise<{
