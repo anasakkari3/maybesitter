@@ -1999,11 +1999,16 @@ test('R7 I-2: six clauses with a range and a «quarter to» in each chunk give s
   const { contract } = await proposeScripted(Object.keys(answers).join('; '), model);
   assert.deepEqual(model.log.map((call) => call.shape), ['batch', 'batch']);
   assert.equal(contract.status, 'proposed');
+  // «الساعة 5 إلا ربع» is 4:45 with no half of the day: the model's 16:45 is
+  // asked صبح or مسا, as the rules path asks it (UAT round 6, D1 — this row
+  // was settled at 16:45 until then). Every other clause keeps its own time.
   assert.deepEqual(contract.items.map((item) => item.resolvedTime), [
     '2026-09-27T11:00:00.000Z', '2026-09-27T15:00:00.000Z', '2026-10-02T14:00:00.000Z',
-    '2026-09-27T13:45:00.000Z', '2026-09-27T06:00:00.000Z', '2026-09-29T16:00:00.000Z',
+    null, '2026-09-27T06:00:00.000Z', '2026-09-29T16:00:00.000Z',
   ]);
-  assert.ok(contract.items.every((item) => !item.needsClarification));
+  assert.deepEqual(contract.items.map((item) => item.needsClarification), [false, false, false, true, false, false]);
+  assert.equal(contract.items[3]!.clarification?.questionKey, 'ask_am_pm');
+  assert.deepEqual(contract.items[3]!.clarification?.options.map((option) => option.value.localTime), ['04:45', '16:45']);
 });
 
 test('R7 I-2: the swap signatures are still re-asked — an hour that belongs to a sibling clause, or a missing hour a sibling carries', async () => {

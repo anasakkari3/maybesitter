@@ -150,11 +150,13 @@ test('FY1 N1: the literal three-clause capture on the model path keeps the room 
     // the words' «اليوم» fills it, as the rules path reads it (final UAT,
     // N19 — this row pinned the lost day until then).
     'أرتب الغرفة | 2026-09-27 - | ask_time',
-    // The past meeting's «الساعة 3» is not a time the proposal lost, so the
-    // bank keeps the 17:00 the person said.
-    'أروح عالبنك | 2026-09-28 17:00 | settled',
+    // The past meeting's «الساعة 3» is not a time the proposal lost. The
+    // bank's «الساعة 5» names no half of the day, so Gemini's recorded 17:00
+    // is asked صبح or مسا, as on the rules path below (UAT round 6, D1 —
+    // superseding the settled 17:00 this row pinned).
+    'أروح عالبنك | 2026-09-28 - | ask_am_pm',
   ]);
-  assert.equal(contract.status, 'proposed');
+  assert.equal(contract.status, 'needs_clarification');
 });
 
 test('FY1 N1: the literal three-clause capture on the rules path proposes nothing for the past meeting', async () => {

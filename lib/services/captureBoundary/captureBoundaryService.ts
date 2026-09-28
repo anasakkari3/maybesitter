@@ -7,7 +7,7 @@ import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToC
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
 import { hasActionEvidence, hasRequestEvidence, splitCaptureClauses } from '../../../src/extraction/clauseSplitter';
-import { localTimeSpecFor, statedClockHours } from '../../../src/extraction/timeLexicon';
+import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, normalizeClockText, statedClockHours } from '../../../src/extraction/timeLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
@@ -462,6 +462,49 @@ function isBareEarlyHour(result: ExtractionResult): boolean {
   return hour >= 1 && hour <= 6;
 }
 
+/**
+ * The one bare early clock the clause states — «الساعة 5» is `05:00`, "at
+ * 4:30" is `04:30`, «ב-5» is `05:00` — or null (UAT round 6, D1). One to six,
+ * no part of the day, no meridiem, and a single hour: the words the rules
+ * read as the morning and ask صبح or مسا about.
+ */
+function statedBareEarlyClock(text: string): string | null {
+  if (!isBareEarlyHourAnswer(text)) return null;
+  const normalized = normalizeClockText(text);
+  const clocks = new Set<string>();
+  for (const source of CLOCK_PATTERN_SOURCES) {
+    for (const match of Array.from(normalized.matchAll(new RegExp(source, 'gi')))) {
+      const digits = /(\d{1,2})(?::(\d{2}))?/.exec(match[0]);
+      if (digits) clocks.add(`${digits[1]!.padStart(2, '0')}:${digits[2] ?? '00'}`);
+    }
+  }
+  // Two hours («الساعة 5 أو 6») are not one to put a question on.
+  return clocks.size === 1 ? Array.from(clocks)[0]! : null;
+}
+
+/**
+ * A model reading of a bare early hour, put on the number the person said
+ * (UAT round 6, D1). «بكرا الساعة 5 لازم أروح عالبنك» came back from Gemini
+ * as 17:00 — or 05:00, or no hour — and one run in four was proposed,
+ * settled, at a half of the day nobody said. The rules read the same words
+ * as the morning and ask صبح or مسا (CL1 round 6); this gives the model's
+ * reading the same clock, so the same question follows. The day is the
+ * reading's own, never filled or moved: with no day there is nothing to put
+ * the hour on, and the reading is left as it is.
+ */
+function withStatedBareEarlyClock(result: ExtractionResult, clock: string, timezone: string): ExtractionResult {
+  const date = result.localTimeSpec?.date;
+  const stated = date ? instantFromLocal(date, clock, timezone)?.toISOString() : undefined;
+  if (!date || !stated) return result;
+  return {
+    ...result,
+    dueAt: result.dueAt || !result.remindAt ? stated : null,
+    remindAt: result.remindAt ? stated : null,
+    localTimeSpec: { date, time: clock, timezone },
+    missingFields: result.missingFields.filter((field) => field !== 'time'),
+  };
+}
+
 function auditEvent(outcome: 'succeeded' | 'rejected' | 'failed' | 'fell_back', raw: string, now: Date, reasonCode?: string, itemCount?: number): AuditEventEnvelope {
   return createAuditEvent({
     eventId: randomUUID(),
@@ -662,6 +705,12 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       } else {
         extracted = outcome.extracted;
       }
+      // A model reading of a bare early hour takes the number the person said
+      // (UAT round 6, D1), so it is asked as the rules reading is below.
+      const statedEarlyClock = extracted.engine !== 'rule-based' ? statedBareEarlyClock(segment) : null;
+      if (statedEarlyClock) {
+        extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
+      }
       /*
        * The model read the capture but not this clause — its chunk timed out,
        * the budget ran out before its re-ask, or its answer could not be used
@@ -755,7 +804,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let clearedPastTime = false;
       // The rules' morning reading of a bare early hour (round 7, I-3): asked
       // as صبح or مسا, whether or not that morning has already gone.
-      const bareEarlyHour = extracted.engine === 'rule-based' && isBareEarlyHour(extracted.result);
+      const bareEarlyHour = (extracted.engine === 'rule-based' || statedEarlyClock !== null) && isBareEarlyHour(extracted.result);
       if (failure === 'past_time' || passedHour) {
         extracted = { ...extracted, result: withoutPastTime(extracted.result, options.now, options.timezone) };
         failure = semanticFailure(extracted.result, options.now);

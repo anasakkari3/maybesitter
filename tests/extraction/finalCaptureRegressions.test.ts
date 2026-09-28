@@ -597,3 +597,175 @@ test('R6 boundary: a refusal the person wrote still declines, beside an unsettle
     assert.deepEqual([contract.status, contract.noCommitmentReason], ['no_commitment', 'negated_request'], text);
   }
 });
+
+// ── UAT round 6, D1: a bare early hour on the model path is always asked ──
+
+/*
+ * «بكرا الساعة 5 لازم أروح عالبنك» ×4 on the consented Gemini path (shots
+ * 581–584): runs 2–4 asked «أي 5 قصدت؟», run 1 went straight to «أروح عالبنك
+ * · بكرا · 17:00 · لازم», settled, no mark. The words give the number and
+ * no half of the day; the rules path asks صبح or مسا (CL1 round 6), and the
+ * model's half of the day is the same guess (controller ruling, r6). Every
+ * row below is SCRIPTED: the model answers one way per variant, and the item
+ * must end as the same am/pm question on the day the person said.
+ */
+const R6_BANK = 'بكرا الساعة 5 لازم أروح عالبنك';
+
+function bankModel(fields: Record<string, unknown>, title = 'أروح عالبنك') {
+  const answer = {
+    type: 'task', action: title, title, person: null,
+    dueAt: null, remindAt: null, localTimeSpec: null,
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'movable', category: null, categoryConfidence: 0,
+    confidence: { overall: 0.9, type: 1, action: 0.9, time: 0.9, priority: 1 },
+    missingFields: [], ambiguityFlags: [], explicitReminderRequest: false, explicitPressureRequest: false,
+    ...fields,
+  };
+  return async (prompt: string): Promise<string> => {
+    const payload = payloadOf(prompt);
+    return Array.isArray(payload)
+      ? JSON.stringify({ items: payload.map((_, clauseIndex) => ({ clauseIndex, ...answer })) })
+      : JSON.stringify(answer);
+  };
+}
+
+const at = (date: string, time: string) => new Date(`${date}T${time}:00+03:00`).toISOString();
+const R6_BANK_VARIANTS: ReadonlyArray<{ name: string; fields: Record<string, unknown> }> = [
+  // UAT run 1, and Gemini's recorded answer for this sentence (uat-2026-09-27-gemini.json).
+  { name: '17:00, no flags, confident', fields: { dueAt: at(TOMORROW, '17:00'), localTimeSpec: { date: TOMORROW, time: '17:00', timezone: TZ } } },
+  { name: '17:00 with vague_time', fields: { dueAt: at(TOMORROW, '17:00'), localTimeSpec: { date: TOMORROW, time: '17:00', timezone: TZ }, ambiguityFlags: ['vague_time'] } },
+  { name: '05:00, no flags', fields: { dueAt: at(TOMORROW, '05:00'), localTimeSpec: { date: TOMORROW, time: '05:00', timezone: TZ } } },
+  { name: '05:00 with vague_time', fields: { dueAt: at(TOMORROW, '05:00'), localTimeSpec: { date: TOMORROW, time: '05:00', timezone: TZ }, ambiguityFlags: ['vague_time'] } },
+  { name: 'the instant only (14:00Z), no local spec', fields: { dueAt: at(TOMORROW, '17:00') } },
+  { name: 'remindAt 17:00 only', fields: { remindAt: at(TOMORROW, '17:00'), localTimeSpec: { date: TOMORROW, time: '17:00', timezone: TZ } } },
+  { name: 'no hour, the day only', fields: { localTimeSpec: { date: TOMORROW, time: null, timezone: TZ }, missingFields: ['time'], ambiguityFlags: ['vague_time'] } },
+  { name: 'no time and no day at all', fields: { missingFields: ['time'] } },
+  { name: '17:00 at full confidence', fields: { dueAt: at(TOMORROW, '17:00'), localTimeSpec: { date: TOMORROW, time: '17:00', timezone: TZ }, confidence: { overall: 1, type: 1, action: 1, time: 1, priority: 1 } } },
+];
+
+type AmPmItem = {
+  resolvedDate?: string; resolvedTime: string | null; needsClarification: boolean;
+  clarification?: { questionKey?: string; options: Array<{ optionId: string; value: { localDate?: string; localTime?: string } }> } | null;
+};
+/** The card and its question: the day, no hour, asked صبح or مسا about the 5 on that day. */
+const amPmShown = (item: AmPmItem) => [
+  item.resolvedDate ?? null, item.resolvedTime, item.needsClarification, item.clarification?.questionKey ?? null,
+  (item.clarification?.options ?? []).map((option) => `${option.optionId} ${option.value.localDate} ${option.value.localTime}`),
+];
+const ASKED_TOMORROW = [TOMORROW, null, true, 'ask_am_pm', [`am ${TOMORROW} 05:00`, `pm ${TOMORROW} 17:00`]];
+
+for (const variant of R6_BANK_VARIANTS) {
+  test(`R6 D1 model path (SCRIPTED, ${variant.name}): «${R6_BANK}» is asked صبح or مسا, never settled`, async () => {
+    const { contract } = await proposeModel(R6_BANK, bankModel(variant.fields));
+    assert.equal(contract.provenance.executedEngine, 'gemini');
+    assert.equal(contract.status, 'needs_clarification');
+    assert.equal(contract.items.length, 1);
+    assert.equal(contract.items[0]!.title, 'أروح عالبنك');
+    assert.deepEqual(amPmShown(contract.items[0]!), ASKED_TOMORROW);
+  });
+}
+
+test('R6 D1: the rules path asks the same question about the same sentence', async () => {
+  setStorageForTests(createMemoryStorage());
+  const proposal = await proposeMobileCapture({ text: R6_BANK, timezone: TZ, referenceTime: NOW.toISOString() }).finally(() => resetStorageForTests());
+  assert.deepEqual(amPmShown(proposal.items[0]!), ASKED_TOMORROW);
+});
+
+for (const variant of [R6_BANK_VARIANTS[0]!, R6_BANK_VARIANTS[6]!]) test(`R6 D1 (SCRIPTED, ${variant.name}): answered «مسا», the model-path item is the bank tomorrow at 17:00, confirmed as a time to be at`, async () => {
+  const { contract, store, persistence } = await proposeModel(R6_BANK, bankModel(variant.fields));
+  const item = contract.items[0]!;
+  const updated = await answerClarification(
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'pm' },
+    { now: NOW, timezone: TZ, scopeId: 'n19' },
+    { store, recordEvent: () => undefined },
+  );
+  assert.deepEqual([updated.items[0]!.resolvedTime, updated.items[0]!.needsClarification], [at(TOMORROW, '17:00'), false]);
+  const confirmed = await confirmCapture(
+    { proposalId: contract.proposalId, scopeId: 'n19', selectedItemIds: [item.itemId], idempotencyKey: 'k-r6-bank', now: NOW },
+    { store, persistence },
+  );
+  assert.equal(confirmed.success, true, JSON.stringify(confirmed));
+  const [saved] = Object.values((await persistence.snapshot()).commitments);
+  assert.deepEqual([saved!.timeSpec.kind, saved!.timeSpec.dueAt], ['scheduled_event', at(TOMORROW, '17:00')]);
+});
+
+test('R6 D1 (SCRIPTED): English and Hebrew bare early hours are asked on the model path too', async () => {
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['I have to go to the bank tomorrow at 5', 'go to the bank'],
+    ['מחר ב-5 אני חייבת ללכת לבנק', 'ללכת לבנק'],
+    ['بكرا الساعة 5:30 لازم أروح عالبنك', 'أروح عالبنك'],
+  ];
+  for (const [text, title] of rows) {
+    const minutes = text.includes('5:30') ? '30' : '00';
+    const { contract } = await proposeModel(text, bankModel({ dueAt: at(TOMORROW, `17:${minutes}`), localTimeSpec: { date: TOMORROW, time: `17:${minutes}`, timezone: TZ } }, title));
+    assert.equal(contract.items.length, 1, text);
+    assert.deepEqual(amPmShown(contract.items[0]!), [TOMORROW, null, true, 'ask_am_pm', [`am ${TOMORROW} 05:${minutes}`, `pm ${TOMORROW} 17:${minutes}`]], text);
+  }
+});
+
+test('R6 D1 (SCRIPTED): in a two-clause capture the bank is asked and the other clause is untouched', async () => {
+  const text = `${R6_BANK}، وبدي أشتري خبز`;
+  const provider = async (prompt: string): Promise<string> => {
+    const payload = payloadOf(prompt);
+    const read = async (clause: string) => JSON.parse(await (clause.includes('البنك') || clause.includes('عالبنك')
+      ? bankModel(R6_BANK_VARIANTS[0]!.fields)
+      : bankModel({ localTimeSpec: null, missingFields: ['time'], priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false } }, 'أشتري خبز'))(`BEGIN_UNTRUSTED_USER_MESSAGE\n${JSON.stringify(clause)}`)) as Record<string, unknown>;
+    if (!Array.isArray(payload)) return JSON.stringify(await read(payload));
+    return JSON.stringify({ items: await Promise.all(payload.map(async (clause, clauseIndex) => ({ ...(await read(clause)), clauseIndex }))) });
+  };
+  const { contract } = await proposeModel(text, provider);
+  assert.equal(contract.provenance.executedEngine, 'gemini');
+  const bank = contract.items.find((item) => item.title === 'أروح عالبنك')!;
+  assert.deepEqual(amPmShown(bank), ASKED_TOMORROW);
+  assert.ok(contract.items.some((item) => item.title === 'أشتري خبز'));
+});
+
+test('R6 D1 (SCRIPTED): a bare early hour today whose morning has gone is asked, the afternoon the only option — as on the rules path', async () => {
+  const text = 'اليوم الساعة 5 لازم أروح عالبنك';
+  const { contract } = await proposeModel(text, bankModel({ dueAt: at(TODAY, '17:00'), localTimeSpec: { date: TODAY, time: '17:00', timezone: TZ } }));
+  assert.deepEqual(amPmShown(contract.items[0]!), [TODAY, null, true, 'ask_am_pm', [`pm ${TODAY} 17:00`]]);
+  setStorageForTests(createMemoryStorage());
+  const rules = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() }).finally(() => resetStorageForTests());
+  assert.deepEqual(amPmShown(rules.items[0]!), [TODAY, null, true, 'ask_am_pm', [`pm ${TODAY} 17:00`]]);
+});
+
+test('R6 D1 controls (SCRIPTED): a period word, a night hour, 12 in the evening, a bare 7–12 and a passed hour keep their own readings', async () => {
+  const settled = async (text: string, date: string, time: string) => {
+    const { contract } = await proposeModel(text, bankModel({ dueAt: at(date, time), localTimeSpec: { date, time, timezone: TZ } }));
+    return [contract.items[0]!.resolvedTime, contract.items[0]!.needsClarification, contract.items[0]!.clarification?.questionKey ?? null];
+  };
+  // «5 المسا» / "5pm" / «5 בערב»: the half of the day is said.
+  assert.deepEqual(await settled('بكرا الساعة 5 المسا لازم أروح عالبنك', TOMORROW, '17:00'), [at(TOMORROW, '17:00'), false, null]);
+  assert.deepEqual(await settled('I have to go to the bank tomorrow at 5pm', TOMORROW, '17:00'), [at(TOMORROW, '17:00'), false, null]);
+  assert.deepEqual(await settled('מחר ב-5 בערב אני חייבת ללכת לבנק', TOMORROW, '17:00'), [at(TOMORROW, '17:00'), false, null]);
+  // «الساعة 2 بالليل»: the small hours, said (FZ1 N10).
+  assert.deepEqual(await settled('بكرا الساعة 2 بالليل لازم أبعت الإيميل', TOMORROW, '02:00'), [at(TOMORROW, '02:00'), false, null]);
+  // A bare 7–12 is the base behaviour: the model's reading of the number is kept.
+  assert.deepEqual(await settled('بكرا الساعة 9 لازم أروح عالبنك', TOMORROW, '09:00'), [at(TOMORROW, '09:00'), false, null]);
+  // «12 المسا»: noon to some, midnight to others — the hour is asked (POLISH M7).
+  assert.deepEqual(await settled('بكرا الساعة 12 المسا لازم أروح عالبنك', TOMORROW, '12:00'), [null, true, 'ask_time']);
+  // A passed hour that is not a bare early one: a new time is asked.
+  assert.deepEqual(await settled('اليوم الساعة 9 لازم أروح عالبنك', TODAY, '09:00'), [null, true, 'ask_time']);
+});
+
+test('R6 D1 (SCRIPTED): two bare hours are not narrowed to a question about one of them, and neither is settled', async () => {
+  const text = 'بكرا الساعة 5 أو الساعة 6 لازم أروح عالبنك';
+  const { contract } = await proposeModel(text, bankModel(R6_BANK_VARIANTS[0]!.fields));
+  const item = contract.items[0]!;
+  assert.deepEqual([item.resolvedTime, item.needsClarification], [null, true]);
+  assert.notEqual(item.clarification?.questionKey, 'ask_am_pm');
+});
+
+test('R6 D1 (SCRIPTED): the reading kept for the answer is one reading — its instant is the clock the question is about, and no hour is missing', async () => {
+  for (const index of [0, 5, 6]) {
+    const variant = R6_BANK_VARIANTS[index]!;
+    const { contract, store } = await proposeModel(R6_BANK, bankModel(variant.fields));
+    const kept = (await store.get(contract.proposalId))!.resultsByItemId!.get(contract.items[0]!.itemId)!;
+    const stated = at(TOMORROW, '05:00');
+    assert.deepEqual(
+      [kept.localTimeSpec?.time, kept.remindAt ?? kept.dueAt, kept.remindAt ? kept.dueAt : null, kept.missingFields.includes('time')],
+      ['05:00', stated, null, false],
+      variant.name,
+    );
+  }
+});

@@ -1,5 +1,5 @@
 {
- "_about": "FX3 review probe set (obligation words → Must, the month's end as an all-day deadline), 109 rows: rules path through proposeMobileCapture (obligation + month end, 53; titles, un-split items, negation edges, 28) and the model path with a scripted Gemini answer (28). Asia/Jerusalem, reference 2026-09-26T07:00Z unless the row says. `expected` is the answer at the FX3 fix round; `atCb9982b7` is the answer before FX3 where it differs, every one an intended change (FX3-report.md).",
+ "_about": "FX3 review probe set (obligation words → Must, the month's end as an all-day deadline), 109 rows: rules path through proposeMobileCapture (obligation + month end, 53; titles, un-split items, negation edges, 28) and the model path with a scripted Gemini answer (28). Asia/Jerusalem, reference 2026-09-26T07:00Z unless the row says. `expected` is the answer at the FX3 fix round; `atCb9982b7` is the answer before FX3 where it differs, every one an intended change (FX3-report.md). `atB1b87a9b` is the answer before UAT round 6 D1 (fix-r6-hour) where it differs: a model reading of a bare hour from one to six with no part of the day is asked صبح or مسا, as on the rules path, instead of settled at the model's half of the day.",
  "rules": [
   {
    "text": "لازم أروح عالبنك بكرا الساعة 5",
@@ -1021,15 +1021,21 @@
     "source": "default"
    },
    "expected": {
-    "status": "proposed",
+    "status": "needs_clarification",
     "items": [
-     "بكرا الساعة 5 لازم أروح عالبنك | 2026-09-27 17:00 |  | high"
+     "بكرا الساعة 5 لازم أروح عالبنك | 2026-09-27 - | ask_am_pm | high"
     ]
    },
    "atCb9982b7": {
     "status": "proposed",
     "items": [
      "بكرا الساعة 5 لازم أروح عالبنك | 2026-09-27 17:00 |  | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "بكرا الساعة 5 لازم أروح عالبنك | 2026-09-27 17:00 |  | high"
     ]
    }
   },
@@ -1042,15 +1048,21 @@
     "source": "inferred"
    },
    "expected": {
-    "status": "proposed",
+    "status": "needs_clarification",
     "items": [
-     "لازم أروح عند الدكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high"
+     "لازم أروح عند الدكتور بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | high"
     ]
    },
    "atCb9982b7": {
     "status": "proposed",
     "items": [
      "لازم أروح عند الدكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "لازم أروح عند الدكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high"
     ]
    }
   },
@@ -1063,6 +1075,12 @@
     "source": "inferred"
    },
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي دكتور بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | high~"
+    ]
+   },
+   "atB1b87a9b": {
     "status": "proposed",
     "items": [
      "عندي دكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high~"
@@ -1078,6 +1096,12 @@
     "source": "default"
    },
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي دكتور بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | high~"
+    ]
+   },
+   "atB1b87a9b": {
     "status": "proposed",
     "items": [
      "عندي دكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high~"
@@ -1093,6 +1117,12 @@
     "source": "default"
    },
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atB1b87a9b": {
     "status": "proposed",
     "items": [
      "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 18:00 |  | normal~"
@@ -1108,6 +1138,12 @@
     "source": "user_explicit"
    },
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 - | ask_am_pm | high"
+    ]
+   },
+   "atB1b87a9b": {
     "status": "proposed",
     "items": [
      "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 18:00 |  | high"
@@ -1136,6 +1172,12 @@
     "source": "default"
    },
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atB1b87a9b": {
     "status": "proposed",
     "items": [
      "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 17:00 |  | normal~"
@@ -1223,15 +1265,21 @@
     "source": "default"
    },
    "expected": {
-    "status": "proposed",
+    "status": "needs_clarification",
     "items": [
-     "אני חייב להתקשר לבנק מחר ב-5 | 2026-09-27 17:00 |  | high"
+     "אני חייב להתקשר לבנק מחר ב-5 | 2026-09-27 - | ask_am_pm | high"
     ]
    },
    "atCb9982b7": {
     "status": "proposed",
     "items": [
      "אני חייב להתקשר לבנק מחר ב-5 | 2026-09-27 17:00 |  | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "אני חייב להתקשר לבנק מחר ב-5 | 2026-09-27 17:00 |  | high"
     ]
    }
   },
@@ -1244,6 +1292,12 @@
     "source": "default"
    },
    "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "אני צריך להתקשר לבנק מחר ב-5 | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atB1b87a9b": {
     "status": "proposed",
     "items": [
      "אני צריך להתקשר לבנק מחר ב-5 | 2026-09-27 17:00 |  | normal~"
@@ -1485,16 +1539,23 @@
     "source": "default"
    },
    "expected": {
-    "status": "proposed",
+    "status": "needs_clarification",
     "items": [
      "بكرا لازم أسلّم التقرير | 2026-09-27 - | ask_time | high",
-     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 00:00 |  | normal~"
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | normal~"
     ]
    },
    "atCb9982b7": {
     "status": "proposed",
     "items": [
      "بكرا لازم أسلّم التقرير | 2026-09-27 - | ask_time | normal~",
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 00:00 |  | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "بكرا لازم أسلّم التقرير | 2026-09-27 - | ask_time | high",
      "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 00:00 |  | normal~"
     ]
    }
