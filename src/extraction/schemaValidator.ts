@@ -201,7 +201,8 @@ function withMonthEndWords(title: string | null, rawText: string, words: string 
  * the prompt's own example «عندي دكتور» is two words. The company is the
  * person's words, as «آخر الشهر» is (FY1 N6): put back only where it was —
  * the model's title as the person wrote it, followed directly by «مع»/"with"/
- * «עם» — up to three words, stopping at a time, a day or a preposition.
+ * «עם» — up to three words, stopping at a time or day word (`timeOfDayEvidence`
+ * reads both), a number or a preposition.
  */
 const COMPANION_MARKER = new RegExp('^(\\s+)(مع|with|עם)(?=\\s)', 'i');
 const COMPANION_TRAILING_PUNCTUATION = /[،,.;!?؟:]+$/;
@@ -221,7 +222,7 @@ function withCompanion(title: string | null, rawText: string): string | null {
   const words: string[] = [];
   for (const word of rest.split(/\s+/).filter(Boolean)) {
     const bare = word.replace(COMPANION_TRAILING_PUNCTUATION, '');
-    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || namesDay(bare) || timeOfDayEvidence(bare) !== 'none' || COMPANION_NUMBER.test(bare)) break;
+    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || timeOfDayEvidence(bare) !== 'none' || COMPANION_NUMBER.test(bare)) break;
     words.push(bare);
     if (bare !== word || words.length === 3) break;
   }
