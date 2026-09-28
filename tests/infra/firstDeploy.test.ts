@@ -310,3 +310,38 @@ test('the deploy step sources its image from whichever of build or resolve ran',
     'the deploy step cannot get an image on a production run',
   );
 });
+
+// ── The production image survives registry cleanup ──────────────────────
+
+test('the cleanup policy keeps every version tagged prod-*', () => {
+  // The Delete rule removes anything older than 30 days outside the newest
+  // 10, and staging pushes on every merge, so without this the digest
+  // production runs becomes deletable within days of being promoted.
+  const policy = JSON.parse(read('infra/artifact-cleanup.json')) as Array<{
+    action: { type: string };
+    condition?: { tagState?: string; tagPrefixes?: string[] };
+  }>;
+  const keepProd = policy.filter((rule) => rule.action.type === 'Keep'
+    && rule.condition?.tagState === 'tagged'
+    && (rule.condition.tagPrefixes ?? []).includes('prod-'));
+  assert.equal(keepProd.length, 1, 'no Keep rule protects prod-* tags');
+});
+
+test('a production run tags the promoted digest prod-<sha> before any revision uses it or traffic moves', () => {
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  assert.notEqual(start, -1, 'there is no step that tags the production image');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  assert.match(step, /if:\s*env\.TARGET == 'production'/, 'the prod- tag must only be written by a production run');
+  assert.match(step, /IMAGE_DIGEST: \$\{\{ steps\.resolve\.outputs\.image_digest \}\}/, 'the tag must go on the digest staging is serving');
+  assert.match(
+    step,
+    /gcloud artifacts docker tags add "\$\{IMAGE_DIGEST\}" \\\n\s*"\$\{REGION\}-docker\.pkg\.dev\/\$\{PROJECT_ID\}\/\$\{REPOSITORY\}\/\$\{IMAGE\}:prod-\$\{GITHUB_SHA\}"/,
+  );
+  // Order: resolve → tag → deploy → smoke → traffic.
+  assert.ok(workflow.indexOf('Resolve the staging image') < start);
+  assert.ok(start < workflow.indexOf('Deploy (behind a tag'));
+  assert.ok(start < workflow.indexOf('Send traffic to the new revision'));
+  // Tagging needs artifactregistry.tags.create/update, which the writer role
+  // the deployer already has on the repository includes.
+  assert.match(read('infra/bootstrap.sh'), /--member="serviceAccount:\$\{DEPLOYER_SA\}" --role=roles\/artifactregistry\.writer/);
+});

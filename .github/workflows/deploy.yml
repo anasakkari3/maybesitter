@@ -117,6 +117,21 @@ jobs:
 
           echo "image_digest=${IMAGE_DIGEST}" >>"${GITHUB_OUTPUT}"
 
+      - name: Protect the production image from registry cleanup
+        if: env.TARGET == 'production'
+        env:
+          IMAGE_DIGEST: ${{ steps.resolve.outputs.image_digest }}
+        run: |
+          # infra/artifact-cleanup.json deletes any version older than 30 days
+          # outside the newest 10, and staging pushes a version on every merge,
+          # so the digest production runs would soon become deletable. Its Keep
+          # rule spares versions tagged `prod-*`. The tag goes on before any
+          # production revision references the digest, so there is no window
+          # in which production runs an unprotected image. Re-running for the
+          # same commit moves the same tag onto the same digest: a no-op.
+          gcloud artifacts docker tags add "${IMAGE_DIGEST}" \
+            "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:prod-${GITHUB_SHA}"
+
       - name: Deploy (behind a tag once the service exists)
         id: deploy
         run: |

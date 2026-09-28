@@ -58,6 +58,17 @@ gcloud run services update-traffic maybesitter-api \
 
 Traffic moves immediately; no rebuild is involved.
 
+A rollback needs the old digest to still exist. `infra/artifact-cleanup.json`
+deletes versions older than 30 days outside the newest 10, so every production
+run first tags the digest it promotes `prod-<sha>`, and the policy's Keep rule
+spares `prod-*`. The policy file only takes effect when applied:
+
+```bash
+gcloud artifacts repositories set-cleanup-policies maybesitter \
+  --location europe-west1 --project maybesitter-app \
+  --policy infra/artifact-cleanup.json --no-dry-run
+```
+
 ## Service settings
 
 They live in `infra/cloudrun/flags.sh` so the workflow and a manual deploy
