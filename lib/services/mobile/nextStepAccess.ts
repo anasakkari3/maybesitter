@@ -71,6 +71,12 @@ export interface NextStepAccess {
    * be a second read that could disagree with the one the decision used.
    */
   trust: PilotTrustState;
+  /**
+   * With `quiet_hours` only: the `HH:mm` the window ends, on the profile's
+   * clock (UAT round 3, N12). Quiet hours end by themselves, and the card says
+   * when; quiet mode has no end, so it carries none.
+   */
+  quietUntil?: string;
 }
 
 export interface NextStepAccessOptions {
@@ -143,7 +149,7 @@ export async function resolveNextStepAccess(
 
   const profile = await readRoutineProfile(uid, options);
   if (profile?.quietHours && isWithinWindow(profile.quietHours, at, profile.timezone)) {
-    return { allowed: false, reason: 'quiet_hours', trust };
+    return { allowed: false, reason: 'quiet_hours', trust, quietUntil: profile.quietHours.end };
   }
 
   return { allowed: true, reason: 'authorized', trust };
