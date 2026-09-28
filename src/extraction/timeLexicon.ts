@@ -471,9 +471,22 @@ const CLOCK_MARKER = new RegExp(
  */
 const HE_DAY_PREFIX = '[וש]?[בלכמ]?';
 const EN_NOT_POSSESSIVE = "(?!['’]s\\b)";
+/*
+ * «غدا» is tomorrow in the standard language and lunch in the spoken one
+ * (closure UAT round 4, N16 probes). «عندي غدا مع أمي بكرا» was titled «عندي
+ * مع أمي»: the lunch taken out as a day word. It is the meal only when it is
+ * had — right after «عندي/عندنا/عنا» — with someone («غدا مع …»), *and* the
+ * sentence names its day some other way («بكرا», «اليوم», a weekday).
+ * Otherwise it is tomorrow, as it always was: «اجتماع غدا مع العميل الساعة
+ * 11» is a meeting tomorrow (POLISH-CAPTURE review, I1), and so is «اجتماع
+ * غدا مع المدير بخصوص تقرير اليوم», whose «اليوم» is the report's (N-I1).
+ */
+const AR_OTHER_DAY_WORD = `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:بكرا|بكرة|بكره|باچر|باكر|اليوم|النهارده|النهاردة|الليلة|الليله|الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|الجمعه|السبت)${NOT_LETTER_AFTER}`;
+const AR_HAD = `${NOT_LETTER_BEFORE}[وف]?(?:عندي|عندنا|عنا|عنّا)\\s+`;
+const AR_LUNCH_NOT_TOMORROW = `غد\\p{M}*ا(?!(?<=${AR_HAD}غد\\p{M}*ا)\\s+مع(?![\\p{L}\\p{M}])(?:(?=[\\s\\S]*${AR_OTHER_DAY_WORD})|(?<=${AR_OTHER_DAY_WORD}[\\s\\S]*)))`;
 const RELATIVE_DAYS: ReadonlyArray<{ offset: number; en: string; ar: string; he: string }> = [
   { offset: 2, en: 'day\\s+after\\s+tomorrow|after\\s+tomorrow|after\\s+tmrw', ar: 'بعد\\s+(?:بكرا|بكرة|بكره|غد\\p{M}*ا?)', he: 'מחרתיים' },
-  { offset: 1, en: 'tomorrow|tmrw|tmr|tomorow', ar: 'بكرا|بكرة|بكره|باچر|باكر|غد\\p{M}*ا', he: 'מחר' },
+  { offset: 1, en: 'tomorrow|tmrw|tmr|tomorow', ar: `بكرا|بكرة|بكره|باچر|باكر|${AR_LUNCH_NOT_TOMORROW}`, he: 'מחר' },
   {
     offset: 0,
     en: 'today|tonight|this\\s+(?:morning|afternoon|evening)',
@@ -577,6 +590,16 @@ const OTHER_DAY_THAN_TODAY = new RegExp(
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:العيد|عيد|الأعياد|الاعياد)${NOT_LETTER_AFTER}`,
     '\\bholidays?\\b',
     `${NOT_LETTER_BEFORE}[בל]?(?:אחרי\\s+)?ה?(?:חג|חגים)${NOT_LETTER_AFTER}`,
+    // The day after (FZ1 review, N-M1): "the next day", «تاني يوم», «למחרת»
+    '\\b(?:the\\s+)?(?:next|following)\\s+day\\b|\\bthe\\s+day\\s+after\\b',
+    `${NOT_LETTER_BEFORE}(?:تاني|ثاني|تانى|ثانى)\\s+(?:يوم|نهار)${NOT_LETTER_AFTER}|${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:اليوم|النهار)\\s+(?:التاني|الثاني|التالي|اللي\\s+بعده)${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}למחרת${NOT_LETTER_AFTER}`,
+    // The night's end, and its midnight, run past today's date (N-M1): «آخر
+    // الليل», «نص الليل», «الساعة 12 بالليل», "midnight", «חצות»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:آخر|اخر|نص|نصف|منتصف)\\s+(?:ال)?ليل${NOT_LETTER_AFTER}`,
+    `(?:الساعة|الساعه|${NOT_LETTER_BEFORE})\\s*(?:12|١٢)\\s*(?:بالليل|الليل|بليل)${NOT_LETTER_AFTER}`,
+    '\\bmidnight\\b|\\b12\\s*(?:at\\s+night|tonight|midnight)\\b',
+    `${NOT_LETTER_BEFORE}[בל]?חצות${NOT_LETTER_AFTER}|(?:בשעה|ב-?)\\s*12\\s+בלילה${NOT_LETTER_AFTER}`,
   ].join('|'),
   'iu',
 );
@@ -1112,6 +1135,23 @@ export function withoutTimeOfDay(rawText: string): string {
   let stripped = normalizeClockFractions(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(rawText)));
   for (const pattern of TIME_OF_DAY_STRIP) stripped = stripped.replace(pattern, ' ');
   return stripped.replace(/[ \t]+/g, ' ').trim();
+}
+
+/*
+ * «12 المسا», "12 in the evening", «12 בערב» (FZ1 round 4 note; POLISH-CAPTURE
+ * review M2, M7): noon to some and midnight to others. Asked, not guessed —
+ * typed as an answer, or said in the capture itself. "12 pm", «12 م» and «12
+ * الضهر» are the clock's noon, and «12 بالليل» the night's midnight (FZ1 N10).
+ */
+const TWELVE_IN_THE_EVENING = new RegExp(
+  '(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around|בשעה)\\s+|ב-?)?(?:12|١٢|۱۲)(?::[0-9٠-٩]{2})?\\s*'
+    + '(?:بالمسا|المساء|المسا|مساءً|مساءا|مساء|مسا|(?:in\\s+the\\s+)?evening|בערב)(?![\\p{L}\\p{M}])',
+  'iu',
+);
+
+/** The text says twelve with an evening word — an hour nobody can read without asking. */
+export function namesTwelveInTheEvening(rawText: string): boolean {
+  return typeof rawText === 'string' && TWELVE_IN_THE_EVENING.test(rawText);
 }
 
 /** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */

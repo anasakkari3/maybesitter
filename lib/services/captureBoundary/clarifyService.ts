@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, nightClockHour, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, nightClockHour, relativeDayOffset, relativeDaySource, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -14,7 +14,7 @@ import {
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
-import { namesCalendarDate, namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
+import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate, WEEKDAY_MENTION_SOURCES } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
@@ -66,6 +66,11 @@ export type ClarifyFailure =
   | 'answer_required'
   | 'free_text_too_long'
   | 'option_not_found'
+  /**
+   * Free text to a question that takes none (`allowFreeText: false`, the am/pm
+   * question). The round is not spent; an option still answers it.
+   */
+  | 'free_text_not_allowed'
   /** Free text that answered nothing the question asked. The round is not spent. */
   | 'answer_not_understood';
 
@@ -255,24 +260,6 @@ function allDayAppointment(result: ExtractionResult, timezone: string): Extracti
   } as ExtractionResult;
 }
 
-/**
- * The am/pm question answered by typing a half of the day (FZ1 round 2): the
- * hour it asked about, in that half — «5» + «المسا»/"pm"/«م»/«בערב» is 17:00,
- * + «الصبح»/"am"/«ص» is 05:00, + «بالليل» follows the night's rule. The time
- * question's buttons (09/14/19) are for a day with no hour; here the hour was
- * said. Null for any other question, or an answer that states a clock (a new
- * hour) or names no half.
- */
-function amPmAnswerTime(result: ExtractionResult, question: ClarificationContract, freeText: string): string | null {
-  if (question.field !== 'time_period' || statesClock(freeText)) return null;
-  const half = typedHalfOfDay(freeText);
-  const hour = Number(question.params?.hour);
-  if (!half || !Number.isInteger(hour) || hour < 1 || hour > 11) return null;
-  const minutes = /^\d{2}:(\d{2})$/.exec(result.localTimeSpec?.time ?? '')?.[1] ?? '00';
-  const answered = half === 'am' ? hour : half === 'pm' ? hour + 12 : nightClockHour(hour);
-  return `${String(answered).padStart(2, '0')}:${minutes}`;
-}
-
 /*
  * A typed number with a half of the day and no clock word — «5 المسا», «5 م»,
  * "5 in the evening", «5 בערב» (FZ1 review, M5a): that hour in that half,
@@ -312,6 +299,141 @@ function typedHourWithHalf(freeText: string): string | 'ambiguous' | null {
   if (hour === 12 && half === 'am') return 'ambiguous';
   const answered = half === 'am' ? hour % 12 : half === 'pm' ? (hour % 12) + 12 : nightClockHour(hour);
   return `${String(answered).padStart(2, '0')}:00`;
+}
+
+/**
+ * The day a typed answer names on its own — «بكرا», "tonight", «מחר», «الخميس»
+ * — on the person's clock, or null (FY1 re-review 2, R2-M1). Read from the
+ * answer alone: re-read together with «سجّل موعد دكتور يوم الأحد», the
+ * sentence's Sunday came first and «بكرا المسا» stayed on Sunday.
+ */
+function dayTypedIn(freeText: string, options: ClarifyOptions): string | 'ambiguous' | null {
+  const today = localTimeSpecFor(options.now, options.timezone)?.date ?? null;
+  if (!today) return null;
+  return typedDay(freeText, (text) => dayOf(text, today, options));
+}
+
+/** The day one day expression (or a whole answer) names, on the person's clock. */
+function dayOf(text: string, today: string, options: ClarifyOptions): string | null {
+  const offset = relativeDayOffset(text);
+  if (offset !== null) {
+    const [year, month, day] = today.split('-').map(Number) as [number, number, number];
+    return new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10);
+  }
+  return resolveWeekdayDate(text, options.now, options.timezone)?.date ?? null;
+}
+
+/*
+ * Which day a typed answer means (POLISH-CAPTURE review I3; rounds 3 and 4).
+ *
+ * Negations in free text do not converge: «ما بقدر بكرا المسا», "I can't
+ * tomorrow evening", «مش الأحد، الأحد اللي بعد الجاي» each settled on a day
+ * the person had ruled out, one reading at a time. So an answer with any
+ * negation or "can't" in it is refused — not understood, the buttons stay —
+ * unless it is one of two plain shapes (round 4):
+ *
+ *   (a) a leading «لا/لأ/لاء»/"no/nope/nah"/«לא», then straight away the one day, and no
+ *       other negation («לא יכול מחר» is "I can't", not "no — tomorrow"):
+ *       «لا بكرا المسا», «لا، بكرا المسا», "no, tomorrow evening" → that day;
+ *   (b) «مش/مو/لا»/"not"/«לא» X, then a comma or «بس»/"but"/«אבל», then Y —
+ *       X nothing but a day, Y opening with one: «مش اليوم، بكرا المسا», "not today but
+ *       tomorrow evening" → Y. Each is read with the words after it up to
+ *       the next comma, so a week suffix is kept («مش الأحد، الأحد اللي بعد
+ *       الجاي» → the Sunday after); when X and Y are the same date the answer
+ *       is refused («مش الخميس، الخميس اللي بعده» → both read 1 Oct).
+ *
+ * Words that only look like a negation — «مش مشكلة», "no problem», «بعد ما»,
+ * «شو ما», «ما بعد الضهر», «אין בעיה» — are set aside first.
+ *
+ * With no negation: one day is that day (read from the whole answer, so «الأحد
+ * اللي بعد الجاي» keeps its week); two days, an alternative («بدل», «أو»,
+ * «ولا», "or") or "the next day" is refused. Null when no day is named.
+ */
+const NOT_LETTER_BEFORE_WORD = "(?<![\\p{L}\\p{M}'’])";
+const NOT_LETTER_AFTER_WORD = '(?![\\p{L}\\p{M}])';
+const NOT_A_NEGATION = new RegExp(`${NOT_LETTER_BEFORE_WORD}(?:${[
+  'مش\\s+مشكلة', 'مو\\s+مشكلة', 'لا\\s+مشكلة', 'ما\\s+في(?:ه|ش)?\\s+مشكلة', 'مافي\\s+مشكلة',
+  '(?:بعد|قبل|شو|وين|متى|كل|زي|مثل|متل|أول|اول|قد|حسب|مهما)\\s+ما', 'ما\\s+بعد\\s+(?:الضهر|الظهر)',
+  'no\\s+(?:problem|worries)', 'not\\s+a\\s+problem', 'אין\\s+בעיה',
+].join('|')})${NOT_LETTER_AFTER_WORD}`, 'giu');
+const NEGATION = new RegExp(`${NOT_LETTER_BEFORE_WORD}(?:${[
+  'مش', 'مو', 'ما', 'لا', 'لأ', 'لاء', 'مب', 'ليس', 'لست', 'لن', 'مافي', 'مستحيل', 'بلاش', 'أبد\\p{M}*ا\\p{M}*', 'ابد\\p{M}*ا\\p{M}*',
+  // Busy is "I can't" too (round 4 addendum). «عندي شغل» is left out: "I have work" is not plainly a refusal.
+  'مشغول', 'مشغولة', 'مشغوله',
+  'not', 'no', 'nope', 'nah', 'never', 'cannot', 'cant', 'wont', 'dont', 'unable', 'impossible', 'busy', "[a-z]+n['’]t",
+  'לא', 'אין', 'אי', 'עסוק', 'עסוקה',
+].join('|')})${NOT_LETTER_AFTER_WORD}`, 'iu');
+const LEADING_NO_SHAPE = /^\s*(?:لا|لأ|لاء|no|nope|nah|לא)(?:\s*[,،]\s*|\s+)([\s\S]+)$/i;
+const RULED_OUT_SHAPE = /^\s*(?:مش|مو|لا|not|לא)\s+([^,،]+?)(?:\s*[,،]\s*(?:(?:بس|but|אבל)\s+)?|\s+(?:بس|but|אבל)\s+)([\s\S]+)$/i;
+const DAY_ALTERNATIVE = /(?:^|[\s,،])(?:بدل|بدال|عوض|أو|او|ولا|or|instead|או|במקום)(?=$|[\s,،?؟])/i;
+const DAY_AFTER_TODAY = /(?:^|[\s,،])(?:[وف]?(?:اليوم|النهار)\s+(?:التاني|الثاني|التالي)|(?:تاني|ثاني)\s+يوم|למחרת)(?=$|[\s,،])|\b(?:the\s+)?(?:next|following)\s+day\b/i;
+const DAY_MENTIONS: readonly RegExp[] = [
+  ...([0, 1, 2] as const).map((offset) => new RegExp(relativeDaySource(offset), 'giu')),
+  ...WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu')),
+  /\b(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi,
+];
+
+function dayMentions(text: string): Array<{ start: number; end: number }> {
+  const found = DAY_MENTIONS.flatMap((pattern) => Array.from(text.matchAll(pattern), (match) => ({
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+  })));
+  // «بعد بكرا» holds «بكرا», "day after tomorrow" holds "tomorrow": one mention.
+  return found.filter((mention) => !found.some((other) => other !== mention
+    && other.start <= mention.start && other.end >= mention.end && (other.end - other.start) > (mention.end - mention.start)));
+}
+
+const dayMentionCount = (text: string): number => dayMentions(text).length;
+
+/** "this"/"the"/«هاد» before a day are part of saying it. */
+const DAY_LEAD = /^(?:(?:this|the|هاد|هادا|هاي)\s+)*/i;
+
+/** The text opens with its one day: «بكرا المسا», "the Thursday after that", «ביום חמישי». */
+function opensWithTheDay(text: string): boolean {
+  const rest = text.trim().replace(DAY_LEAD, '');
+  const mentions = dayMentions(rest);
+  return mentions.length === 1 && mentions[0]!.start === 0;
+}
+
+/** The text is its one day and nothing else: «بكرا», "this Sunday", «الأحد». */
+function isOnlyTheDay(text: string): boolean {
+  const rest = text.trim().replace(DAY_LEAD, '');
+  const mentions = dayMentions(rest);
+  return mentions.length === 1 && mentions[0]!.start === 0 && rest.slice(mentions[0]!.end).trim() === '';
+}
+
+function hasNegation(text: string): boolean {
+  return NEGATION.test(text.replace(NOT_A_NEGATION, ' '));
+}
+
+/** The first comma-separated part: a day read "with the words after it up to the next comma". */
+const firstPart = (text: string): string => text.split(/[,،]/)[0] ?? text;
+
+function typedDay(freeText: string, dateOf: (text: string) => string | null): string | 'ambiguous' | null {
+  if (DAY_AFTER_TODAY.test(freeText)) return 'ambiguous';
+  if (!hasNegation(freeText)) {
+    const count = dayMentionCount(freeText);
+    if (count === 0) return null;
+    if (count > 1 || DAY_ALTERNATIVE.test(freeText)) return 'ambiguous';
+    return dateOf(freeText) ?? 'ambiguous';
+  }
+  if (DAY_ALTERNATIVE.test(freeText)) return 'ambiguous';
+  // (a) «لا بكرا المسا»: one day after a leading «لا», nothing else negated.
+  const leading = LEADING_NO_SHAPE.exec(freeText);
+  if (leading && !hasNegation(leading[1]!) && opensWithTheDay(leading[1]!)) {
+    return dateOf(leading[1]!) ?? 'ambiguous';
+  }
+  // (b) «مش X، Y» / "not X but Y": Y, unless it is X's own date.
+  const ruledOut = RULED_OUT_SHAPE.exec(freeText);
+  if (
+    ruledOut && !hasNegation(ruledOut[2]!) && isOnlyTheDay(ruledOut[1]!)
+    && dayMentionCount(ruledOut[2]!) === 1 && opensWithTheDay(firstPart(ruledOut[2]!))
+  ) {
+    const notThis = dateOf(ruledOut[1]!);
+    const thisOne = dateOf(firstPart(ruledOut[2]!));
+    if (notThis && thisOne && notThis !== thisOne) return thisOne;
+  }
+  return 'ambiguous';
 }
 
 /** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */
@@ -372,22 +494,21 @@ async function readFreeTextAnswer(
   // «الساعة 4» typed alone: the unlikely morning or a guess (FY1 re-review);
   // not understood, and the صبح/مسا buttons are still there.
   if (TIME_FIELDS.has(question.field) && isBareEarlyHourAnswer(freeText)) throw new ClarifyError('answer_not_understood');
+  if (TIME_FIELDS.has(question.field) && namesTwelveInTheEvening(freeText)) throw new ClarifyError('answer_not_understood');
+  // The day the answer typed (R2-M1), read before anything else: an answer
+  // that rules a day out outside the two plain shapes, names two days, or
+  // hesitates is not understood — nothing is re-read (POLISH-CAPTURE round 4).
+  const typed = TIME_FIELDS.has(question.field) ? dayTypedIn(freeText, options) : null;
+  if (typed === 'ambiguous') throw new ClarifyError('answer_not_understood');
   // "What time?" answered with no time of day and no day — «بعد ساعة»,
   // "later", «אחר כך». Whatever hour a re-read finds is not one the person
   // typed: the sentence's own passed hour, or the engine's guess (closure UAT
   // round 3, FZ1 N10: Gemini re-read «اليوم الساعة 2 بالليل…» + «بعد ساعة» at
   // 03:22 as Tuesday 02:00, applied as «بكرا · 02:00»). Not understood; the
   // buttons stay. A named day alone («بكرا») keeps the person's own hour on
-  // it (FY1 I4), and the am/pm question's «ص»/"pm" is its own field.
+  // it (FY1 I4). (The am/pm question takes no typed answer at all.)
   if (question.field === 'time' && forbidsResolvedTime(freeText) && !namesDay(freeText) && !namesCalendarDate(freeText)) {
     throw new ClarifyError('answer_not_understood');
-  }
-  // «5 الصبح ولا المسا؟» answered «المسا» with no day: the asked hour, in
-  // that half, on the item's day — no re-read (FZ1 round 2).
-  const amPmTime = amPmAnswerTime(result, question, freeText);
-  const itemDay = result.localTimeSpec?.date ?? null;
-  if (amPmTime && itemDay && !namesDay(freeText) && !namesCalendarDate(freeText) && !readWeekdayReference(freeText)) {
-    return notPast(withResolvedTime(result, { date: itemDay, time: amPmTime }, options.timezone), options.now);
   }
   const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
   const combined = `${original}\n${freeText}`.trim();
@@ -426,6 +547,15 @@ async function readFreeTextAnswer(
     // still moves it.
     const itemDate = result.localTimeSpec?.date ?? null;
     const rereadTime = reread.localTimeSpec?.time ?? null;
+    // The day the answer typed wins over the item's (R2-M1): «بكرا المسا» to
+    // the Sunday doctor is tomorrow evening. When the typed day cannot take
+    // the typed hour — «اليوم الصبح» at 10:00 — the answer is not understood,
+    // never quietly put on Sunday or tomorrow instead.
+    const typedDay = typed;
+    const onTypedDay = (answered: ExtractionResult): ExtractionResult => {
+      if (typedDay && answered.localTimeSpec?.date !== typedDay) throw new ClarifyError('answer_not_understood');
+      return answered;
+    };
     // A part of the day typed with no clock is its button's hour (FY1
     // re-review): «بالمسا» is 19:00 like «المسا», tonight while it is ahead.
     // A day named with it is the re-read's; otherwise the item's.
@@ -435,11 +565,11 @@ async function readFreeTextAnswer(
     if (typedHour === 'ambiguous') throw new ClarifyError('answer_not_understood');
     const numberedTime = typedHour;
     if (typedPart !== null || numberedTime) {
-      // On the am/pm question the half is of the hour it asked (FZ1 round 2).
-      const time = amPmTime ?? numberedTime ?? answeredDayPartTime(typedPart!);
-      const namedDay = readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null;
+      const time = numberedTime ?? answeredDayPartTime(typedPart!);
+      const namedDay = typedDay ?? (readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null);
       const day = dayForAnswer(time, namedDay ?? itemDate, { now: options.now, timezone: options.timezone });
-      if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
+      if (day) return onTypedDay(withResolvedTime(result, { date: day, time }, options.timezone));
+      if (typedDay) throw new ClarifyError('answer_not_understood');
     }
     if (
       readable && (reread.remindAt || reread.dueAt)
@@ -449,18 +579,23 @@ async function readFreeTextAnswer(
       const day = dayForAnswer(rereadTime, itemDate, { now: options.now, timezone: options.timezone });
       if (day) return withResolvedTime(result, { date: day, time: rereadTime }, options.timezone);
     }
-    if (readable && (reread.remindAt || reread.dueAt)) return notPast(withTimeFrom(result, reread), options.now);
+    if (readable && (reread.remindAt || reread.dueAt)) {
+      // The re-read's hour on the day the answer typed, whichever day the
+      // engine put it on (R2-M1).
+      if (typedDay && rereadTime) return notPast(withResolvedTime(result, { date: typedDay, time: rereadTime }, options.timezone), options.now);
+      return notPast(onTypedDay(withTimeFrom(result, reread)), options.now);
+    }
     // The answer to "when?": its part of the day is the answer, even before
     // another word ("morning is fine").
     const hour = numberedTime ? null : dayPartHour(freeText, { answer: true });
     if (hour !== null) {
       const time = answeredDayPartTime(hour);
-      const preferred = result.localTimeSpec?.date
+      const preferred = typedDay ?? result.localTimeSpec?.date
         ?? (result.remindAt || result.dueAt
           ? localTimeSpecFor(new Date(Date.parse((result.remindAt || result.dueAt)!)), options.timezone)?.date ?? null
           : null);
       const day = dayForAnswer(time, preferred, { now: options.now, timezone: options.timezone });
-      if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
+      if (day) return onTypedDay(withResolvedTime(result, { date: day, time }, options.timezone));
     }
     throw new ClarifyError('answer_not_understood');
   }
@@ -523,6 +658,13 @@ export async function answerClarification(
   const freeText = typeof input.freeText === 'string' ? input.freeText.trim() : '';
   if (!input.optionId && !freeText) throw new ClarifyError('answer_required');
   if (freeText.length > CLARIFICATION_FREE_TEXT_MAX) throw new ClarifyError('free_text_too_long');
+
+  // A question that offers only its options takes no typed answer (FY1
+  // re-review, R2-M2). The phone shows no text box for it, but the server read
+  // one anyway: «بعد بكرا pm» and "I am not sure" typed to «5 الصبح ولا
+  // المسا؟» came back 05:00 (FZ1, M3) — the unlikely half, picked silently.
+  // Refused before anything is read, with the round intact.
+  if (!input.optionId && question.allowFreeText === false) throw new ClarifyError('free_text_not_allowed');
 
   let answered: ExtractionResult;
   let answerKind: 'option' | 'free_text';

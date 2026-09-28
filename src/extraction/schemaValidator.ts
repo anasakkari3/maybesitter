@@ -29,7 +29,9 @@ import {
   namesDay,
   namesOtherDayThanToday,
   namesTodayOnly,
+  namesTwelveInTheEvening,
   readPeriodEndDeadline,
+  relativeDayOffset,
   thisMonthEndWords,
   timeAnchorOf,
   timeOfDayEvidence,
@@ -193,6 +195,55 @@ function withMonthEndWords(title: string | null, rawText: string, words: string 
   return lead && after.slice(lead.length).startsWith(words) ? `${title}${lead}${words}` : title;
 }
 
+/*
+ * Who it is with, when the model's title stopped just before it (closure UAT
+ * round 4, N16). «…والخميس الساعة 6 المسا عندي عشا مع العيلة» came back from
+ * Gemini titled «عندي عشا», and the dinner was saved without the family —
+ * the prompt's own example «عندي دكتور» is two words. The company is the
+ * person's words, as «آخر الشهر» is (FY1 N6): put back only where it was —
+ * the model's title as the person wrote it, followed directly by «مع»/"with"/
+ * «עם» — up to three words, stopping at a time or day word (`timeOfDayEvidence`
+ * reads both), a number, a preposition, or another «مع»/"with"/«עם», so the
+ * title never ends on one (POLISH-CAPTURE review, M1). Only company: «مع
+ * السلامة», «مع إني…», "with love", "with it", «עם זאת» are not who it is
+ * with, and nothing is put back for them.
+ */
+const COMPANION_MARKER = new RegExp('^(\\s+)(مع|with|עם)(?=\\s)', 'i');
+const COMPANION_TRAILING_PUNCTUATION = /[،,.;!?؟:]+$/;
+const COMPANION_NUMBER = /^[0-9٠-٩]|^ב-?[0-9]/;
+const COMPANION_STOP = new Set([
+  'on', 'at', 'by', 'in', 'before', 'after', 'for', 'to', 'from', 'until', 'and', 'then',
+  'يوم', 'نهار', 'الساعة', 'الساعه', 'قبل', 'بعد', 'عند', 'على', 'ع', 'في', 'لحد', 'حتى', 'من',
+  'ביום', 'בשעה', 'לפני', 'אחרי', 'עד', 'ב', 'ו',
+  'مع', 'with', 'עם',
+]);
+/** What follows «مع»/"with"/«עם» without being company. */
+const NOT_COMPANY = new Set([
+  'السلامة', 'السلامه', 'إني', 'اني', 'إنه', 'انه', 'إنو', 'انو', 'إنها', 'انها', 'هيك', 'ذلك', 'هذا', 'هاد', 'العلم',
+  'love', 'it', 'that', 'this', 'regards', 'pleasure', 'thanks', 'care',
+  'זאת', 'זה',
+]);
+/** An Arabic word that starts with a preposition and the article: «عالبحر», «بالبيت», «للسوق». */
+const PREPOSITIONAL_WORD = /^(?:عال|بال|لل)/;
+function withCompanion(title: string | null, rawText: string): string | null {
+  if (!title) return title;
+  const at = rawText.indexOf(title);
+  if (at < 0) return title;
+  const marker = COMPANION_MARKER.exec(rawText.slice(at + title.length));
+  if (!marker) return title;
+  const rest = rawText.slice(at + title.length + marker[0].length);
+  const words: string[] = [];
+  const first = rest.split(/\s+/).find(Boolean)?.replace(COMPANION_TRAILING_PUNCTUATION, '').toLowerCase();
+  if (!first || NOT_COMPANY.has(first)) return title;
+  for (const word of rest.split(/\s+/).filter(Boolean)) {
+    const bare = word.replace(COMPANION_TRAILING_PUNCTUATION, '');
+    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || timeOfDayEvidence(bare) !== 'none' || COMPANION_NUMBER.test(bare) || PREPOSITIONAL_WORD.test(bare)) break;
+    words.push(bare);
+    if (bare !== word || words.length === 3) break;
+  }
+  return words.length > 0 ? `${title}${marker[1]}${marker[2]} ${words.join(' ')}` : title;
+}
+
 export function reconcileLocalTimeSpec(
   parsed: { dueAt: string | null; remindAt: string | null; localTimeSpec: LocalTimeSpec | null },
   rawText: string,
@@ -246,6 +297,12 @@ export function reconcileLocalTimeSpec(
   }
 
   return { dueAt, remindAt, localTimeSpec, timeEvidence: evidence, flags };
+}
+
+/** A `YYYY-MM-DD` date `days` days on (or back). */
+function shiftLocalDate(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 /** The calendar day after a local `YYYY-MM-DD`. */
@@ -362,6 +419,21 @@ export function validateExtractionResult(
     rawText,
     context,
   );
+  // «الساعة 12 المسا» said in the capture (POLISH-CAPTURE review, M7): the
+  // model's 12:00 or 00:00 is a guess at an hour nobody can read. Its day is
+  // kept and the hour is asked, as on the rules path.
+  if (namesTwelveInTheEvening(rawText) && (time.localTimeSpec?.time || time.dueAt || time.remindAt)) {
+    const zone = context?.timezone || time.localTimeSpec?.timezone || 'UTC';
+    const instant = time.dueAt ?? time.remindAt;
+    const date = time.localTimeSpec?.date ?? (instant ? localTimeSpecFor(new Date(Date.parse(instant)), zone)?.date ?? null : null);
+    time = {
+      ...time,
+      dueAt: null,
+      remindAt: null,
+      localTimeSpec: date ? { date, time: null, timezone: zone } : null,
+      flags: time.flags.includes('vague_time') ? time.flags : [...time.flags, 'vague_time'],
+    };
+  }
   // The model's date is never moved here (controller ruling, L4 fix round 1):
   // an override built on a word list moved correct dates — "the first report"
   // became a Sunday. The same tokenizer only *marks* a date that came from a
@@ -443,14 +515,62 @@ export function validateExtractionResult(
     time = { ...time, dueAt: null, remindAt: null, localTimeSpec: null };
     dateInferred = false;
   }
-  const modelDay = time.localTimeSpec?.date ?? null;
   // The day the words' month end means on the person's clock, counted back or
   // on when they carry an offset (FZ1 round 2): «قبل آخر الشهر بأسبوع» is the
   // 23rd, not the 30th FX3 settled. A model 30th under such an offset is the
   // month's end the words moved away from, and gives way to it.
   const wordsDay = context?.now ? monthEndDay(rawText, context.now, zone) : null;
+  // A counted day before this month's end is the words' own, whatever day the
+  // model gave (closure UAT round 4, N15). At 06:58 on Monday 28 Sep, «أخلص
+  // التقرير قبل آخر الشهر بيومين» — the 28th, today — came back from Gemini
+  // as 29 or 30 October (4 of 4), and FY1 left any model day under an offset
+  // to the model: a next-month reading nobody said, picked for the person.
+  // The words win; a stated hour the model read goes with them. Not when the
+  // words name a day of their own as well — that one is the model's to read.
+  const countedBefore = wordsDay?.side === 'before' && !namesDay(rawText) && !namesExplicitDate(rawText) ? wordsDay.date : null;
+  if (countedBefore && time.localTimeSpec?.date && time.localTimeSpec.date !== countedBefore) {
+    const stated = forbidsResolvedTime(rawText) ? null : time.localTimeSpec.time;
+    const instant = stated ? instantFromLocal(countedBefore, stated, zone) : null;
+    time = {
+      ...time,
+      dueAt: instant ? instant.toISOString() : null,
+      remindAt: instant && time.remindAt ? instant.toISOString() : null,
+      localTimeSpec: { date: countedBefore, time: instant ? stated : null, timezone: zone },
+    };
+    dateInferred = false;
+  }
+  const modelDay = time.localTimeSpec?.date ?? null;
   const deadlineDay = wordsDay && wordsDay.side !== 'after' ? wordsDay.date : null;
+  const today = context?.now ? localTimeSpecFor(context.now, zone)?.date ?? null : null;
+  // A day the words name beside «قبل آخر الشهر» — «بدي أخلص تقرير اليوم قبل
+  // آخر الشهر», «…بكرا قبل آخر الشهر», «…يوم الخميس قبل آخر الشهر» (FZ1
+  // review, N-M3). The rules path has always read the named day (the month's
+  // end only "when nothing else in the sentence named a day"), and asked the
+  // hour; a model that gave no day, or the month's end, was settled on the
+  // 30th here — the later reading, picked silently. Both engines now read the
+  // named day and ask.
+  const namedOffset = relativeDayOffset(rawText);
+  const namedDay = today && namedOffset !== null
+    ? shiftLocalDate(today, namedOffset)
+    : context?.now ? resolveWeekdayDate(rawText, context.now, zone) : null;
+  const namedDate = typeof namedDay === 'string' ? namedDay : namedDay?.date ?? null;
   if (
+    namedDate && wordsDay?.side === 'end' && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
+    && (modelDay === null || modelDay === monthLastDay)
+  ) {
+    time = { ...time, dueAt: null, remindAt: null, localTimeSpec: { date: namedDate, time: null, timezone: zone } };
+    dateInferred = typeof namedDay === 'string' ? false : namedDay?.inferred ?? false;
+  } else if (
+    countedBefore && countedBefore === today && forbidsResolvedTime(rawText)
+    && (modelDay === null || modelDay === countedBefore)
+  ) {
+    // The counted day is today (N15): that day, and the hour asked — not an
+    // all-day limit whose midnight has already gone. (A counted day that has
+    // gone takes the deadline below, which the guard refuses as past, and the
+    // boundary asks with no day: never next month.)
+    time = { ...time, dueAt: null, remindAt: null, localTimeSpec: { date: countedBefore, time: null, timezone: zone } };
+    dateInferred = false;
+  } else if (
     deadlineDay && monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
     && (modelDay === null || modelDay === monthLastDay || modelDay === deadlineDay)
   ) {
@@ -547,7 +667,7 @@ export function validateExtractionResult(
     // string.
     action: commandFree(stringOrNull(raw['action']))
       ?? (type === 'task' || type === 'follow_up' ? commandFree(stringOrNull(raw['title'])) : null),
-    title: allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords),
+    title: withCompanion(allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords), rawText),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
     remindAt: time.remindAt,

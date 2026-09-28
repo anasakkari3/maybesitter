@@ -374,12 +374,16 @@ async function answerAmPm(text: string, freeText: string, engine: 'rules' | 'mod
     const contract = await proposeCapture(text, { now, timezone: TZ, scopeId: 'fz1-ampm', requestedEngine: 'rules' }, { store, persistence });
     const item = contract.items[0]!;
     assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
-    const updated = await answerClarification(
-      { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText },
-      { now, timezone: TZ, scopeId: 'fz1-ampm' },
-      { store, recordEvent: () => undefined, extractor: guardedMobileExtract, llmEngine: 'gemini', llmProvider: async () => { calls += 1; throw new LLMUnavailableError('provider_error'); } },
-    );
-    return { line: line(updated.items[0]!), calls };
+    try {
+      const updated = await answerClarification(
+        { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText },
+        { now, timezone: TZ, scopeId: 'fz1-ampm' },
+        { store, recordEvent: () => undefined, extractor: guardedMobileExtract, llmEngine: 'gemini', llmProvider: async () => { calls += 1; throw new LLMUnavailableError('provider_error'); } },
+      );
+      return { line: line(updated.items[0]!), calls };
+    } catch (error) {
+      return { line: `refused: ${(error as { failure?: string }).failure ?? String(error)}`, calls };
+    }
   }
   const uid = 'fz1-ampm';
   return withMemoryStorage(async () => {
@@ -400,37 +404,52 @@ async function answerAmPm(text: string, freeText: string, engine: 'rules' | 'mod
 
 const BANK_AT_5 = 'بكرا الساعة 5 بدي أروح عالبنك';
 
-test('FZ1 round 2: a typed half of the day answers the am/pm question about the hour it asked — «المسا» is 17:00, «الصبح» 05:00', async () => {
-  const rows: Array<[string, string]> = [
-    ['المسا', '17:00'], ['بالمسا', '17:00'], ['مسا', '17:00'], ['العصر', '17:00'], ['بعد الظهر', '17:00'],
-    ['الصبح', '05:00'], ['الصباح', '05:00'], ['بالصبح', '05:00'],
-    ['pm', '17:00'], ['PM', '17:00'], ['p.m.', '17:00'], ['am', '05:00'], ['a.m.', '05:00'],
-    ['م', '17:00'], ['ص', '05:00'], ['مساءً', '17:00'], ['صباحاً', '05:00'],
-    ['in the evening', '17:00'], ['evening', '17:00'], ['afternoon', '17:00'], ['morning', '05:00'], ['in the morning', '05:00'],
-    ['בערב', '17:00'], ['אחרי הצהריים', '17:00'], ['בבוקר', '05:00'],
-    // The night's own rule (nightClockHour): 5 at night is the small hours.
-    ['بالليل', '05:00'], ['בלילה', '05:00'],
+// Superseded (POLISH-CAPTURE, FY1 re-review R2-M2): the am/pm question takes
+// no typed answer — `allowFreeText: false`, and the phone shows no text box —
+// so the server now refuses one (`free_text_not_allowed`) instead of reading
+// it. Round 2 read these rows as the asked hour in that half (17:00 / 05:00);
+// FZ1's M3 rows («بعد بكرا pm», "I am not sure") read the morning. The
+// question and its buttons are what answer it.
+test('FZ1 round 2 (superseded by R2-M2): a typed half of the day to the am/pm question is refused, and its buttons answer the hour it asked', async () => {
+  const rows = [
+    'المسا', 'بالمسا', 'مسا', 'العصر', 'بعد الظهر', 'الصبح', 'الصباح', 'بالصبح',
+    'pm', 'PM', 'p.m.', 'am', 'a.m.', 'م', 'ص', 'مساءً', 'صباحاً',
+    'in the evening', 'evening', 'afternoon', 'morning', 'in the morning',
+    'בערב', 'אחרי הצהריים', 'בבוקר', 'بالليل', 'בלילה',
   ];
-  for (const [freeText, time] of rows) {
-    assert.equal((await answerAmPm(BANK_AT_5, freeText)).line, `أروح عالبنك | 2026-09-29 ${time} | settled`, freeText);
+  for (const freeText of rows) {
+    assert.equal((await answerAmPm(BANK_AT_5, freeText)).line, 'refused: free_text_not_allowed', freeText);
   }
-  // 6 at night is the evening half.
-  assert.equal((await answerAmPm('بكرا الساعة 6 لازم أتصل بسامي', 'بالليل')).line, 'أتصل بسامي | 2026-09-29 18:00 | settled');
-  assert.equal((await answerAmPm('بكرا الساعة 6 لازم أتصل بسامي', 'الصبح')).line, 'أتصل بسامي | 2026-09-29 06:00 | settled');
-  // Minutes are kept: «5:30» answered «المسا» is 17:30.
-  assert.equal((await answerAmPm('بكرا الساعة 5:30 بدي أروح عالبنك', 'المسا')).line, 'أروح عالبنك | 2026-09-29 17:30 | settled');
-  // "I am busy" names no half; «ماما» and «صح» are not «م»/«ص».
+  // The buttons: the asked hour in each half (minutes kept).
+  assert.equal((await answerAmPmOption(BANK_AT_5, 'pm')), 'أروح عالبنك | 2026-09-29 17:00 | settled');
+  assert.equal((await answerAmPmOption(BANK_AT_5, 'am')), 'أروح عالبنك | 2026-09-29 05:00 | settled');
+  assert.equal((await answerAmPmOption('بكرا الساعة 5:30 بدي أروح عالبنك', 'pm')), 'أروح عالبنك | 2026-09-29 17:30 | settled');
+  // `typedHalfOfDay` still reads the half for the time question's «5 المسا»
+  // (M5a): "I am busy" names no half; «ماما» and «صح» are not «م»/«ص».
   for (const text of ['I am busy', 'ماما', 'صح', 'بعد ساعة']) assert.equal(typedHalfOfDay(text), null, text);
 });
 
-test('FZ1 round 2: the typed half needs no model re-read, and a typed new hour or a day is still read as before', async () => {
-  const typed = await answerAmPm(BANK_AT_5, 'المسا', 'model');
-  assert.deepEqual(typed, { line: 'أروح عالبنك | 2026-09-29 17:00 | settled', calls: 0 });
-  // A typed clock is a new hour, not a half of the old one.
-  assert.equal((await answerAmPm(BANK_AT_5, 'الساعة 7 المسا')).line, 'أروح عالبنك | 2026-09-29 19:00 | settled');
-  // A day with the half: the half applies to the asked hour on that day.
-  assert.equal((await answerAmPm(BANK_AT_5, 'بعد بكرا المسا')).line, 'أروح عالبنك | 2026-09-30 17:00 | settled');
+test('FZ1 round 2 (superseded by R2-M2): on the model engine too a typed answer to the am/pm question is refused, with no model call', async () => {
+  for (const freeText of ['المسا', 'الساعة 7 المسا', 'بعد بكرا المسا']) {
+    assert.deepEqual(await answerAmPm(BANK_AT_5, freeText, 'model'), { line: 'refused: free_text_not_allowed', calls: 0 }, freeText);
+    assert.equal((await answerAmPm(BANK_AT_5, freeText)).line, 'refused: free_text_not_allowed', freeText);
+  }
 });
+
+/** The am/pm question answered with one of its buttons, on the rules path. */
+async function answerAmPmOption(text: string, optionId: 'am' | 'pm') {
+  const uid = 'fz1-ampm-option';
+  return withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: N10_NOW.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_am_pm', text);
+    const updated = await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId,
+      timezone: TZ, referenceTime: N10_NOW.toISOString(),
+    }, { participantId: uid });
+    return line(updated.items[0]!);
+  });
+}
 
 // ── Round 2 (coordinator): an offset on this month's end ──────────────────
 
@@ -744,7 +763,10 @@ test('FZ1 round 4: a number that is not the hour — a count, a unit, a date —
 
 test('FZ1 round 4: the number right before the part of the day is the hour, with «ع/على/حوالي/الساعة», "at/about" or "in the" around it', async () => {
   // The half is the word after the number, not another one elsewhere in the answer.
-  for (const freeText of ['5 المسا', 'ع 5 المسا', 'على 5 المسا', 'حوالي 5 المسا', 'at 5 in the evening', 'about 5 in the evening', '5 in the evening', '5 בערב', '٥ المسا', '5 المسا مش الصبح']) {
+  // («5 المسا مش الصبح» was here; since POLISH-CAPTURE round 4 a typed answer
+  // with a negation is refused unless it is one of two plain shapes, so the row
+  // that pins "the half is the word after the number" names no negation.)
+  for (const freeText of ['5 المسا', 'ع 5 المسا', 'على 5 المسا', 'حوالي 5 المسا', 'at 5 in the evening', 'about 5 in the evening', '5 in the evening', '5 בערב', '٥ المسا', '5 المسا، الصبح بكون بالشغل']) {
     assert.equal(hourOf(await answerTomorrowEmail(freeText)), '17:00', freeText);
   }
 });

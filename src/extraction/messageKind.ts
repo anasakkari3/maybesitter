@@ -166,11 +166,20 @@ const INFORMATIONAL = new RegExp([
   /היה לי|אני מרגיש|אני מרגישה|עייף|עייפה|שאל אותי|שאלה אותי|ביקש ממני|מחכה|מחכים/.source,
 ].join('|'), 'i');
 
-/** Already happened, and nothing is being asked about it. */
+/**
+ * Already happened, and nothing is being asked about it.
+ *
+ * «خلص» ("it's over", «خلصت» "I finished") only where it starts a word
+ * (closure UAT round 4, N15): as a substring it matched the first-person
+ * «أخلص» — "I (will) finish" — and «أخلص التقرير قبل آخر الشهر بيومين» was
+ * no commitment at all on the rules path. «نخلص», «بخلص», «يخلص» are the
+ * same verb, still to be done. A conjunction before it is still the past —
+ * «وخلص الاجتماع», «فخلص الموضوع» (POLISH-CAPTURE review, I2).
+ */
 const PAST = new RegExp([
   /\b(?:yesterday|last night|last week|last month|earlier today|this morning already)\b/.source,
   /\b(?:was|were|had|met|saw|went|finished|cancelled|canceled)\b.*\b(?:yesterday|last week|last night)\b/.source,
-  /مبارح|امبارح|أمس|الأسبوع الماضي|الشهر الماضي|انتهى|خلص/.source,
+  /مبارح|امبارح|أمس|الأسبوع الماضي|الشهر الماضي|انتهى|(?<![\u0600-\u06FF])[وف]?خلص/.source,
   /אתמול|שלשום|בשבוע שעבר|בחודש שעבר|נגמר|בוטל/.source,
 ].join('|'), 'i');
 
