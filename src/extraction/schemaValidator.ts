@@ -30,6 +30,7 @@ import {
   namesOtherDayThanToday,
   namesTodayOnly,
   readPeriodEndDeadline,
+  relativeDayOffset,
   thisMonthEndWords,
   timeAnchorOf,
   timeOfDayEvidence,
@@ -283,6 +284,12 @@ export function reconcileLocalTimeSpec(
 }
 
 /** The calendar day after a local `YYYY-MM-DD`. */
+/** A `YYYY-MM-DD` date `days` days on (or back). */
+function shiftLocalDate(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
 function nextLocalDate(date: string): string {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
@@ -504,7 +511,25 @@ export function validateExtractionResult(
   const modelDay = time.localTimeSpec?.date ?? null;
   const deadlineDay = wordsDay && wordsDay.side !== 'after' ? wordsDay.date : null;
   const today = context?.now ? localTimeSpecFor(context.now, zone)?.date ?? null : null;
+  // A day the words name beside «قبل آخر الشهر» — «بدي أخلص تقرير اليوم قبل
+  // آخر الشهر», «…بكرا قبل آخر الشهر», «…يوم الخميس قبل آخر الشهر» (FZ1
+  // review, N-M3). The rules path has always read the named day (the month's
+  // end only "when nothing else in the sentence named a day"), and asked the
+  // hour; a model that gave no day, or the month's end, was settled on the
+  // 30th here — the later reading, picked silently. Both engines now read the
+  // named day and ask.
+  const namedOffset = relativeDayOffset(rawText);
+  const namedDay = today && namedOffset !== null
+    ? shiftLocalDate(today, namedOffset)
+    : context?.now ? resolveWeekdayDate(rawText, context.now, zone) : null;
+  const namedDate = typeof namedDay === 'string' ? namedDay : namedDay?.date ?? null;
   if (
+    namedDate && wordsDay?.side === 'end' && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
+    && (modelDay === null || modelDay === monthLastDay)
+  ) {
+    time = { ...time, dueAt: null, remindAt: null, localTimeSpec: { date: namedDate, time: null, timezone: zone } };
+    dateInferred = typeof namedDay === 'string' ? false : namedDay?.inferred ?? false;
+  } else if (
     countedBefore && countedBefore === today && forbidsResolvedTime(rawText)
     && (modelDay === null || modelDay === countedBefore)
   ) {
