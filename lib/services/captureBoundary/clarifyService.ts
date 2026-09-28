@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, nightClockHour, relativeDayOffset, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, nightClockHour, relativeDayOffset, relativeDaySource, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -14,7 +14,7 @@ import {
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
-import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from '../../../src/extraction/weekdayLexicon';
+import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate, WEEKDAY_MENTION_SOURCES } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
@@ -310,44 +310,85 @@ function typedHourWithHalf(freeText: string): string | 'ambiguous' | null {
 function dayTypedIn(freeText: string, options: ClarifyOptions): string | 'ambiguous' | null {
   const today = localTimeSpecFor(options.now, options.timezone)?.date ?? null;
   if (!today) return null;
-  if (typedDayIsAmbiguous(freeText)) return 'ambiguous';
-  const offset = relativeDayOffset(freeText);
+  const choice = typedDayChoice(freeText);
+  if (choice === 'ambiguous' || choice === null) return choice;
+  const dates = new Set(choice.map((text) => dayOf(text, today, options)));
+  if (dates.size !== 1 || dates.has(null)) return 'ambiguous';
+  return Array.from(dates)[0]!;
+}
+
+/** The day one day mention (or a whole answer) names, on the person's clock. */
+function dayOf(text: string, today: string, options: ClarifyOptions): string | null {
+  const offset = relativeDayOffset(text);
   if (offset !== null) {
     const [year, month, day] = today.split('-').map(Number) as [number, number, number];
     return new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10);
   }
-  return resolveWeekdayDate(freeText, options.now, options.timezone)?.date ?? null;
+  return resolveWeekdayDate(text, options.now, options.timezone)?.date ?? null;
 }
 
 /*
- * A typed answer that names a day it does not mean, or two days (POLISH-CAPTURE
- * review, I3): «بكرا لا، الخميس المسا», "not tomorrow, Thursday evening",
- * «الخميس بدل بكرا المسا», «بكرا أو الخميس المسا», «اليوم التاني المسا» ("the
- * next day"). The first day word is the one it said *not* to use, or one of
- * two. Not understood; the buttons stay.
+ * Which day a typed answer means (POLISH-CAPTURE review I3, and round 3).
+ *
+ * Every day word is found, and the ones it rules out are set aside: a
+ * negation right before it («مش بكرا», "not today", «לא מחר») or «لا» right
+ * after it («بكرا لا، الخميس»). A leading «لا»/"no"/«לא» straight before the
+ * answer's only day is the reply "no — that day": «لا بكرا المسا» is
+ * tomorrow; before one of two, it rules that one out. What is left
+ * must be exactly one day: «مش اليوم، بكرا المسا», "not today but tomorrow
+ * evening", «بكرا لا، الخميس المسا» take the day that is left.
+ *
+ * Refused — not understood, the buttons stay: two days left («بكرا الخميس
+ * المسا»), none left («مش بكرا المسا»), an alternative or an undecided
+ * question («بدل», «أو», «ولا», "or": «الخميس ولا بكرا؟ الخميس المسا»), and
+ * "the next day" («اليوم التاني المسا»). A day ruled out is never the one
+ * settled (`onTypedDay` checks the result against the day chosen here).
+ *
+ * Returns the text to read the day from — the whole answer when it has one
+ * day word and no negation, so «الأحد اللي بعد الجاي» keeps its week — or
+ * the mentions left, or null when the answer names no day.
  */
-const DAY_NEGATION = new Set(['مش', 'مو', 'ما', 'لا', 'مب', 'not', 'no', 'לא']);
-const DAY_ALTERNATIVE = /(?:^|[\s,،])(?:بدل|بدال|عوض|أو|او|ولا|or|instead|או|במקום)(?=$|[\s,،])/i;
+const DAY_ALTERNATIVE = /(?:^|[\s,،])(?:بدل|بدال|عوض|أو|او|ولا|or|instead|או|במקום)(?=$|[\s,،?؟])/i;
 const DAY_AFTER_TODAY = /(?:^|[\s,،])(?:[وف]?(?:اليوم|النهار)\s+(?:التاني|الثاني|التالي)|(?:تاني|ثاني)\s+يوم|למחרת)(?=$|[\s,،])|\b(?:the\s+)?(?:next|following)\s+day\b/i;
-const EDGE_MARKS = new RegExp('^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$', 'gu');
-function typedDayIsAmbiguous(freeText: string): boolean {
-  const relative = relativeDayOffset(freeText) !== null;
-  const weekday = readWeekdayReference(freeText) !== null;
-  if (!relative && !weekday) return false;
-  if (DAY_AFTER_TODAY.test(freeText)) return true;
-  if (relative && weekday) return true;
-  if (DAY_ALTERNATIVE.test(freeText)) return true;
-  // A negation right beside a day word: «مش بكرا», "not tomorrow", «מחר לא».
-  // A negation with its own comma is a reply of its own: «لا، بكرا المسا» is
-  // "no — tomorrow evening", so the word before is compared as typed.
-  const words = freeText.split(/\s+/).filter(Boolean);
-  return words.some((word, index) => {
-    if (!namesDay(word.replace(EDGE_MARKS, ''))) return false;
-    const before = words[index - 1];
-    const after = words[index + 1];
-    return (before !== undefined && DAY_NEGATION.has(before.toLowerCase()))
-      || (after !== undefined && DAY_NEGATION.has(after.replace(EDGE_MARKS, '').toLowerCase()));
+const NEGATION_BEFORE = /(?:^|\s)(?:مش|مو|ما|لا|مب|not|no|לא)\s+$/i;
+const LEADING_NO = /^\s*(?:لا|no|לא)\s+$/i;
+const NEGATION_AFTER = /^\s+(?:لا|no|לא)(?=$|[\s,،.!?؟])/i;
+const DAY_MENTIONS: readonly RegExp[] = [
+  ...([0, 1, 2] as const).map((offset) => new RegExp(relativeDaySource(offset), 'giu')),
+  ...WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu')),
+  /\b(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi,
+];
+
+function dayMentions(text: string): Array<{ start: number; end: number; text: string }> {
+  const found = DAY_MENTIONS.flatMap((pattern) => Array.from(text.matchAll(pattern), (match) => ({
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+    text: match[0],
+  })));
+  // «بعد بكرا» holds «بكرا», "day after tomorrow" holds "tomorrow": the longer one.
+  return found.filter((mention) => !found.some((other) => other !== mention
+    && other.start <= mention.start && other.end >= mention.end && (other.end - other.start) > (mention.end - mention.start)));
+}
+
+function typedDayChoice(freeText: string): string[] | 'ambiguous' | null {
+  const mentions = dayMentions(freeText);
+  if (mentions.length === 0) return null;
+  if (DAY_AFTER_TODAY.test(freeText) || DAY_ALTERNATIVE.test(freeText)) return 'ambiguous';
+  let negated = false;
+  let leadingNo = false;
+  const left = mentions.filter((mention) => {
+    const before = freeText.slice(0, mention.start);
+    if (LEADING_NO.test(before)) leadingNo = true;
+    const ruledOut = NEGATION_BEFORE.test(before) || NEGATION_AFTER.test(freeText.slice(mention.end));
+    if (ruledOut) negated = true;
+    return !ruledOut;
   });
+  // «لا بكرا المسا» alone is "no — tomorrow evening"; beside another day —
+  // «לא היום, מחר בערב» — it rules its day out like any negation.
+  if (left.length === 0 && leadingNo && mentions.length === 1) return [freeText];
+  if (left.length === 0) return 'ambiguous';
+  if (mentions.length === 1 && !negated) return [freeText];
+  return left.map((mention) => mention.text);
 }
 
 /** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */

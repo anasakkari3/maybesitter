@@ -501,7 +501,7 @@ test('fix I3: a typed answer that negates a day, offers two, or says "the next d
   // (Round 3: an answer that rules one day out and names exactly one other is
   // clear, and takes that other day — see the next test. These stay refused.)
   for (const freeText of [
-    'الخميس بدل بكرا المسا', 'بكرا أو الخميس المسا', 'tomorrow or Thursday evening', 'اليوم التاني المسا', 'לא מחר, ביום חמישי בערב',
+    'الخميس بدل بكرا المسا', 'بكرا أو الخميس المسا', 'tomorrow or Thursday evening', 'اليوم التاني المسا',
     // Each rule on its own: two days; an alternative; only a negated day.
     'بكرا الخميس المسا', 'بكرا أو بعد بكرا المسا', 'tomorrow or the day after tomorrow in the evening',
     'مش بكرا المسا', 'not tomorrow, in the evening',
@@ -596,6 +596,11 @@ test('round 3: an answer that rules a day out and names exactly one other takes 
     ['مش بكرا، الأحد المسا', 'موعد دكتور | 2026-10-04 19:00 | settled'],
     ['الأحد مش بكرا، المسا', 'موعد دكتور | 2026-10-04 19:00 | settled'],
     ['بكرا، مش الخميس، المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    // A leading «لا»/«לא» before one of two days rules that one out.
+    ['לא מחר, ביום חמישי בערב', 'موعد دكتور | 2026-10-01 19:00 | settled'],
+    ['לא היום, מחר בערב', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['لا اليوم، بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['לא מחר בערב', 'موعد دكتور | 2026-09-29 19:00 | settled'],
   ];
   for (const [freeText, expected] of rows) {
     assert.equal((await answerDoctor(freeText)).line, expected, freeText);
