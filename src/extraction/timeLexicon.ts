@@ -960,7 +960,7 @@ function monthEndOffsetDays(rawText: string): number | null {
   if (unit.counted && count === null) return null;
   const days = (count ?? 1) * unit.days;
   if (!Number.isFinite(days) || days < 1 || days > 60) return null;
-  return /^(?:قبل|before|לפני)$/iu.test(direction!) ? -days : days;
+  return /^(?:قبل|before|לפני)$/i.test(direction!) ? -days : days;
 }
 
 /**
