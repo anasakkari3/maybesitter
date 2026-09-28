@@ -587,7 +587,7 @@ const UNSETTLED_RELATIVE_DAY = new RegExp(
   'iu',
 );
 /** A cheap gate: no negation or «أو»/"or" word at all means nothing to look for. */
-const UNSETTLED_GATE = /مش|مو|مب|بلاش|أو|او|ولا|not|or|לא|או/iu;
+const UNSETTLED_GATE = new RegExp('مش|مو|مب|بلاش|أو|او|ولا|not|or|לא|או', 'iu');
 
 /** The words' relative day is ruled out or one of two alternatives: not a day to fill. */
 export function relativeDayIsUnsettled(rawText: string): boolean {
