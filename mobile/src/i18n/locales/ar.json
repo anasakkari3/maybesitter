@@ -404,7 +404,7 @@
   "readinessSourceNone": "ما في إشارة جاهزية مستخدمة.",
   "readinessFreshnessFresh": "حديثة كفاية للتخطيط.",
   "readinessFreshnessStale": "قديمة للتخطيط.",
-  "readinessFreshnessNone": "ما في نافذة حداثة بعد.",
+  "readinessFreshnessNone": "لسّا ما في إشي جديد نخطّط عليه.",
   "readinessHealthTitle": "بيانات الصحة",
   "readinessHealthBody": "منقرأ النوم والنبض والخطوات من تطبيق الصحة، ومنحفظ الملخص بس.",
   "readinessHealthConnect": "استعمل بيانات الصحة",

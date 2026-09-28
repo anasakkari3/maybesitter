@@ -407,7 +407,7 @@
   "readinessSourceNone": "לא משתמשים באות מוכנות.",
   "readinessFreshnessFresh": "טרי מספיק לתכנון.",
   "readinessFreshnessStale": "ישן מדי לתכנון.",
-  "readinessFreshnessNone": "אין עדיין חלון טריות.",
+  "readinessFreshnessNone": "עדיין אין משהו עדכני לתכנן לפיו.",
   "readinessHealthTitle": "נתוני בריאות",
   "readinessHealthBody": "אנחנו קוראים שינה, דופק וצעדים מאפליקציית Health ושומרים רק סיכום.",
   "readinessHealthConnect": "להשתמש בנתוני בריאות",

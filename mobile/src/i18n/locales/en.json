@@ -404,7 +404,7 @@
   "readinessSourceNone": "No readiness signal is being used.",
   "readinessFreshnessFresh": "Fresh enough for planning.",
   "readinessFreshnessStale": "Stale for planning.",
-  "readinessFreshnessNone": "No freshness window yet.",
+  "readinessFreshnessNone": "Nothing recent to plan from yet.",
   "readinessHealthTitle": "Health data",
   "readinessHealthBody": "We read sleep, heart and steps from Health, and keep only the summary.",
   "readinessHealthConnect": "Use Health data",

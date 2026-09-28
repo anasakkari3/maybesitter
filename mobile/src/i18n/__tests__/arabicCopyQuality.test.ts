@@ -17,6 +17,14 @@ describe('production Arabic copy', () => {
     expect(Object.values(ar).join('\n')).not.toMatch(/الجولة القادمة|تُصمَّم|roadmap/i);
   });
 
+  // POLISH-MOBILE sweep: no promise of a later build, and no planner jargon
+  // («نافذة حداثة», "freshness window") on a screen the person reads.
+  it('promises nothing for later and speaks no internal jargon', () => {
+    expect(Object.values(ar).join('\n')).not.toMatch(/(^|[^ت])(قريبًا|قريباً)|نافذة حداثة/); // «تقريباً» is 'about'
+    expect(Object.values(en).join('\n')).not.toMatch(/coming soon|freshness window/i);
+    expect(Object.values(he).join('\n')).not.toMatch(/חלון טריות/);
+  });
+
   it('pins the audited critical repairs', () => {
     // Parcels (and flights) are not offered anywhere until a provider is
     // approved (closure CL7, council ruling): the key is gone, not renamed.
