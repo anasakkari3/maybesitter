@@ -17,6 +17,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppProvider, useApp } from '../../../state/AppContext';
 import { strings } from '../../../i18n/strings';
+import { isolateAuto } from '../../../i18n/bidi';
 import { weekResponseSchema, type Week } from '../../../api/schemas/plan';
 import fixture from '../../../api/__fixtures__/plan.week.json';
 import type { WeekDecisions } from '../../../api/endpoints/plans';
@@ -215,13 +216,58 @@ describe('the week', () => {
   it('says a day with nothing on it is free rather than drawing it empty', async () => {
     await show();
     const t = language();
-    const free = RECORDED.days.find(day => day.items.length === 0 && day.fixed.length === 0)!;
+    const free = RECORDED.days.find(day => day.items.length === 0 && day.fixed.length === 0 && day.allDay.length === 0)!;
     expect(screen.getByTestId(`week-free-${free.date}`).props.children).toBe(t.weekFreeDay);
     expect(screen.queryByTestId(`week-save-${free.date}`)).toBeNull();
   });
 
+  it('shows an all-day appointment on its day as a fixed all-day row, from the real route (UAT round 3, N13)', async () => {
+    await show();
+    const t = language();
+    const day = RECORDED.days.find(candidate => candidate.allDay.length > 0)!;
+    const appointment = day.allDay[0]!;
+    const row = within(screen.getByTestId(`week-day-${day.date}`)).getByTestId(`week-allday-${appointment.itemId}`);
+    expect(within(row).getByText(isolateAuto(appointment.title!))).toBeTruthy();
+    expect(within(row).getByText(t.noTimeYet)).toBeTruthy();
+    expect(within(row).getByText(t.planItemFixed)).toBeTruthy();
+    // One element for a screen reader, and nothing to press: never a step.
+    expect(row.props.accessibilityRole).toBe('text');
+    expect(row.props.accessibilityLabel).toContain(t.noTimeYet);
+    expect(screen.queryByTestId(`week-step-${appointment.itemId}`)).toBeNull();
+    expect(screen.queryByTestId(`week-move-${appointment.itemId}`)).toBeNull();
+    expect(screen.queryByTestId(`week-drop-${appointment.itemId}`)).toBeNull();
+  });
+
+  it('a day holding only an all-day appointment is not «يوم فاضي», and has nothing to save (UAT round 3, N13)', async () => {
+    const appointment = { itemId: 'dentist', title: 'موعد أسنان' };
+    const target = PROPOSED[PROPOSED.length - 1]!;
+    mockWeek = {
+      ...RECORDED,
+      days: RECORDED.days.map(day => (day.date === target.date ? { ...day, items: [], fixed: [], unplaced: [], allDay: [appointment] } : day)),
+    };
+    await show();
+    expect(screen.queryByTestId(`week-free-${target.date}`)).toBeNull();
+    expect(within(screen.getByTestId(`week-day-${target.date}`)).getByTestId('week-allday-dentist')).toBeTruthy();
+    expect(screen.queryByTestId(`week-save-${target.date}`)).toBeNull();
+  });
+
+  it('a week holding only all-day appointments is not an empty week (UAT round 3, N13)', async () => {
+    mockWeek = {
+      ...RECORDED,
+      days: RECORDED.days.map((day, index) => ({
+        ...day, state: 'proposed' as const, items: [], fixed: [], unplaced: [],
+        allDay: index === 5 ? [{ itemId: 'dentist', title: 'موعد أسنان' }] : [],
+      })),
+      drops: [],
+      waiting: 0,
+    };
+    await show();
+    expect(screen.queryByTestId('week-empty')).toBeNull();
+    expect(screen.getByTestId('week-allday-dentist')).toBeTruthy();
+  });
+
   it('says so when there is nothing to place this week', async () => {
-    mockWeek = { ...RECORDED, days: RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], unplaced: [] })), drops: [], waiting: 0 };
+    mockWeek = { ...RECORDED, days: RECORDED.days.map(day => ({ ...day, state: 'proposed' as const, items: [], fixed: [], allDay: [], unplaced: [] })), drops: [], waiting: 0 };
     await show();
     const t = language();
     expect(within(screen.getByTestId('week-empty')).getByText(t.weekEmpty)).toBeTruthy();
