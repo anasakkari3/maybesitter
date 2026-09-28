@@ -310,6 +310,10 @@ test('«يوم الأحد الصبح» is Sunday at the morning hour capture giv
     const followUp = proposal.items[1]!;
     // 09:00 on Sunday in Jerusalem (UTC+3).
     assert.equal(followUp.resolvedTime, '2026-10-04T06:00:00.000Z');
+    // …and marked as our hour for «الصبح», as capture marks it (UAT round 6,
+    // D2). The prep step's instant is the product's plan, not a guessed hour.
+    assert.equal(followUp.timeEstimated, true);
+    assert.equal(proposal.items[0]!.timeEstimated, false);
 
     const result = await confirmMobileCapture(
       { proposalId: proposal.proposalId, itemIds: proposal.items.map((item) => item.itemId) },
@@ -710,6 +714,7 @@ test('the meeting\'s own «الساعة ١٠» does not let a guessed hour onto 
       assert.notEqual(followUp.resolvedTime, '2026-10-04T04:00:00.000Z', `the model's 07:00 got through: ${notes}`);
       if (expected === 'morning') {
         assert.equal(followUp.resolvedTime, '2026-10-04T06:00:00.000Z', notes);
+        assert.equal(followUp.timeEstimated, true, notes);
       } else {
         assert.equal(followUp.resolvedTime, null, notes);
         assert.equal(followUp.resolvedDate, '2026-10-04', notes);
@@ -740,6 +745,8 @@ test('a follow-up whose own clause writes the hour keeps it, whatever else the n
         now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
       });
       assert.equal(proposal.items[1]!.resolvedTime, '2026-10-04T13:00:00.000Z', notes);
+      // The hour is written, so it is theirs, not marked as ours (D2).
+      assert.equal(proposal.items[1]!.timeEstimated, false, notes);
     } finally { end(); }
   }
 });

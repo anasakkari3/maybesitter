@@ -53,6 +53,9 @@ export const ALLOWED_ITEM_FIELDS: readonly string[] = [
   // a weekday lost its whole item as `unknown_field`.
   'resolvedDate',
   'dateEstimated',
+  // Whether the hour shown is our guess from a part of the day (UAT round 6,
+  // D2). Missing here, a shared «اليوم المسا» lost its whole item.
+  'timeEstimated',
   // An event on that day keeps it when its hour is cleared (UAT round 3,
   // N11). Missing here, every shared appointment was dropped whole as
   // `unknown_field` once the capture wrapper began to send it.
@@ -430,6 +433,8 @@ export function applyShareActionAllowlist<T>(raw: unknown): ShareAllowlistResult
       item.resolvedTime = null;
     }
     item.needsClarification = candidate.needsClarification === true;
+    // True only beside the time it is about: a guess flag with no hour marks nothing.
+    if (owns(candidate, 'timeEstimated')) item.timeEstimated = item.resolvedTime !== null && candidate.timeEstimated === true;
     if (owns(candidate, 'priority')) {
       if (typeof candidate.priority === 'string' && PRIORITY_LEVELS.includes(candidate.priority)) {
         item.priority = candidate.priority;

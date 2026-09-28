@@ -68,6 +68,23 @@ export interface CaptureProposalItemContract {
    */
   dateEstimated?: boolean;
   /**
+   * True when the hour of `resolvedTime` is the product's guess: the person
+   * named only a part of the day — «المسا», "tonight", «בערב» — and no number
+   * (UAT round 6, D2). «لازم أتصل بأمي اليوم المسا» is 18:00, on both
+   * engines, and the review card marks it «حزرنا الساعة» the way it marks a
+   * guessed day. Which hour is picked does not change.
+   *
+   * False when the person stated the hour («5 المسا», «الساعة 7», "7pm"),
+   * when they chose it answering the question (a button or typed words), and
+   * when `resolvedTime` is null. A question about something else — the action,
+   * or which day for the hour already shown — leaves a guessed hour a guess.
+   * A content-free boolean: it is never persisted with the commitment, and a
+   * confirm-time edit of the time makes the hour theirs (the phone drops the
+   * mark as soon as the time is edited). Absent from an older server, which
+   * the phone reads as false.
+   */
+  timeEstimated?: boolean;
+  /**
    * True when the item is an event *on* `resolvedDate` with no hour — an
    * appointment answered "no specific time" (FY1 N4) — rather than a deadline
    * *by* that day. Absent otherwise. A settled item with a day and no

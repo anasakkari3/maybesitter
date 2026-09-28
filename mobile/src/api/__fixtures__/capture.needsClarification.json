@@ -8,6 +8,7 @@
       "title": "call Dana",
       "resolvedTime": null,
       "needsClarification": true,
+      "timeEstimated": false,
       "priority": "normal",
       "priorityEstimated": true,
       "clarification": {

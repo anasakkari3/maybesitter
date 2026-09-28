@@ -788,6 +788,19 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       },
     })));
 
+    // ── a part of the day and no hour (UAT round 6, D2) ────────────
+    // «… اليوم المسا …», literally, through the real route: the call keeps
+    // the product's 18:00 and says it is our guess (`timeEstimated`); the
+    // bread, with no time, does not. The phone's schema must keep the flag.
+    const guessedHour = await record('capture.guessedHour', 200, await capturePost(request('/api/mobile/capture', {
+      body: { text: 'لازم أتصل بأمي اليوم المسا وبعدين أشتري خبز', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    const hourItems = guessedHour.items as Array<{ title: string; resolvedTime: string | null; timeEstimated?: boolean }>;
+    assert.deepEqual(hourItems.map((item) => [item.title, item.resolvedTime !== null, item.timeEstimated]), [
+      ['أتصل بأمي', true, true],
+      ['أشتري خبز', false, false],
+    ]);
+
     // ── an appointment answered "no specific time" (FY1 N4) ────────
     // The same doctor, answered «بدون وقت محدد»: settled on its Sunday with no
     // hour, and `allDayEvent` says it is *on* that day, not a deadline by it.

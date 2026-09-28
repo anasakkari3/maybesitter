@@ -558,6 +558,10 @@ function ItemCard({
   // The day is our guess from a weekday name, and it is on screen. Gone once
   // the user sets the time themselves: then the day is theirs (#164's rule).
   const dateGuessed = Boolean(item.dateEstimated && item.resolvedDate && (editedInstant || pendingDay || dueByDay) && edit?.localDateTime === undefined);
+  // The hour is ours: the person named only a part of the day — «المسا» —
+  // and 18:00 is what we made of it (UAT round 6, D2). Marked while that hour
+  // is the one on screen; gone once they set the time themselves.
+  const timeGuessed = Boolean(item.timeEstimated && item.resolvedTime && editedInstant && edit?.localDateTime === undefined);
   const priority = edit?.priority ?? item.priority;
 
   const imp = priority ? PRIORITY_IMP[priority] : null;
@@ -569,7 +573,7 @@ function ItemCard({
       scaleTo={0.99}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
-      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}${dateGuessed ? `, ${t.reviewDateEstimated}` : ''}`}
+      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}${dateGuessed ? `, ${t.reviewDateEstimated}` : ''}${timeGuessed ? `, ${t.reviewTimeEstimated}` : ''}`}
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
         // Selection belongs to the explicit checkbox, not the proposal border.
@@ -612,6 +616,21 @@ function ItemCard({
             style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
           >
             <Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt>
+          </Btn>
+        ) : null}
+        {/* The same mark for a guessed hour; a tap opens the edit sheet, where
+            the time they set is theirs (D2). Both marks can show at once. */}
+        {timeGuessed ? (
+          <Btn
+            testID={`review-time-estimated-${item.itemId}`}
+            label={t.reviewTimeEstimated}
+            hint={t.reviewEdit}
+            onPress={onEdit}
+            hitSlop={12}
+            scaleTo={0.97}
+            style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
+          >
+            <Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt>
           </Btn>
         ) : null}
         {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}

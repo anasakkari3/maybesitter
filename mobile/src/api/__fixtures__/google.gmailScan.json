@@ -8,6 +8,7 @@
       "title": "Return the signed trip form",
       "resolvedTime": null,
       "needsClarification": true,
+      "timeEstimated": false,
       "priority": "normal",
       "priorityEstimated": true,
       "resolvedDate": "2026-08-13",

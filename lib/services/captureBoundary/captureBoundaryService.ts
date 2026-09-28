@@ -23,6 +23,7 @@ import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent
 import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
 import { applyEditToCommands, InvalidEditError, keepEventOnItsDay, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
+import { hourIsPartOfDayGuess } from './timeGuess';
 import { isPastReading } from '../commitments/timeRules';
 import { NegatedRequestError, PastCommitmentTimeError } from '../mobile/safety';
 import { readCategoryPreferences } from '../categories/categoryPreferences';
@@ -841,13 +842,18 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        */
       const needsClarification = clearedPastTime || gated || bareEarlyHour || disposition === 'needs_clarification';
       const itemId = randomUUID();
+      // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
+      // says which day, and no instant is shown as if somebody chose it.
+      const resolvedTime = needsClarification || extracted.result.allDay ? null : extracted.result.remindAt || extracted.result.dueAt;
       items.push({
         itemId,
         title: (extracted.result.title || extracted.result.action || '').trim(),
-        // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
-        // says which day, and no instant is shown as if somebody chose it.
-        resolvedTime: needsClarification || extracted.result.allDay ? null : extracted.result.remindAt || extracted.result.dueAt,
+        resolvedTime,
         needsClarification,
+        // The hour shown is ours when the clause gave only a part of the day
+        // (UAT round 6, D2): «اليوم المسا» is 18:00 on both engines, and the
+        // card says we guessed it. The words decide, not the engine.
+        timeEstimated: resolvedTime !== null && hourIsPartOfDayGuess(segment),
         // Sent so the review screen can show Must/Should/Nice without a second
         // call — and so the user can see which of the two it is (#164).
         priority: extracted.result.priority.level,
@@ -899,7 +905,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     if (timesAccountedFor < timesInInput) {
       for (let i = 0; i < items.length; i++) {
         if (items[i].needsClarification) continue;
-        items[i] = { ...items[i], resolvedTime: null, needsClarification: true };
+        items[i] = { ...items[i], resolvedTime: null, needsClarification: true, timeEstimated: false };
         commandsByItemId.set(items[i].itemId, []);
       }
     }
