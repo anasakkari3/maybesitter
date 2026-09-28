@@ -16,7 +16,9 @@
  *
  * Every arm is driven, through `getLiveNextStep` — the function the route
  * calls — because the UAT server pinned `personalized` and the arms reorder
- * only what the baseline found eligible.
+ * only what the baseline found eligible. Today's own list ranking
+ * (`rankForMobile`, the fallback card's "why first" line) is held to the same
+ * rule at the end.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,6 +28,7 @@ import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { getLiveNextStep } from '../../lib/services/nextStepLiveService.ts';
 import { candidatesFromDomainState, scoreBaselineCandidate } from '../../lib/services/nextStepBaseline.ts';
+import { rankForMobile } from '../../lib/priority/mobileRanking.ts';
 import { NEXT_STEP_PINNED_ARM_ENV } from '../../lib/experiments/experimentControls.ts';
 import { NEXT_STEP_ARMS } from '../../src/contracts/v1/experimentContracts.ts';
 import { MODULE_FEATURE_FLAG_DEFAULTS, MODULE_KILL_SWITCH_DEFAULTS } from '../../src/contracts/v1/runtimeControls.ts';
@@ -151,5 +154,55 @@ test('N18: a deadline named as a day is due by the end of that day, not its midn
     assert.ok(!codes(new Date('2026-09-28T20:59:00.000Z')).includes('overdue'));
     assert.ok(codes(new Date('2026-09-28T21:01:00.000Z')).includes('overdue'));
     assert.ok(codes(TOMORROW).includes('overdue'));
+  });
+});
+
+/*
+ * The same midnight on Today's own list (N18, the fallback card). With no
+ * next step to show — the all-day appointment alone, now that it is no
+ * candidate — Today falls back to the list's top item and prints its ranking
+ * `reasonCodes` as the "why first" line: `overdue` is «الوقت مرق». The list
+ * ranking reads the day the same way the selector now does.
+ */
+function codesOn(state: DomainState, id: string, at: Date): readonly string[] {
+  const ranked = rankForMobile(Object.values(state.commitments), Object.values(state.reminders), at.toISOString());
+  return ranked.find((entry) => entry.commitmentId === id)!.reasonCodes;
+}
+
+test('N18 (Today list): the all-day appointment is «اليوم» on its day, never «الوقت مرق» — on its day or after it', async () => {
+  await withMemoryStorage(async () => {
+    const state = await uatMorning();
+    const doctor = byTitle(state, 'موعد دكتور');
+    const lunch = byTitle(state, 'الغدا');
+    assert.ok(!codesOn(state, doctor.id, NOW).includes('overdue'), `on its day: ${codesOn(state, doctor.id, NOW).join(', ')}`);
+    assert.ok(codesOn(state, doctor.id, NOW).includes('due_today'));
+    assert.ok(!codesOn(state, doctor.id, TOMORROW).includes('overdue'), `after its day: ${codesOn(state, doctor.id, TOMORROW).join(', ')}`);
+    // And it no longer sits above lunch at 14:00 as the late thing.
+    const ranked = rankForMobile(Object.values(state.commitments), Object.values(state.reminders), NOW.toISOString());
+    assert.equal(ranked[0]!.commitmentId, lunch.id);
+  });
+});
+
+test('N18 (Today list): a deadline named as a day is «اليوم» on its day and late only after it', async () => {
+  await withMemoryStorage(async () => {
+    await captureNoHour('بدي أتصل بسامي اليوم');
+    const state = await getParticipantStateSnapshot(UID);
+    const call = byTitle(state, 'سامي');
+    assert.ok(!codesOn(state, call.id, NOW).includes('overdue'), codesOn(state, call.id, NOW).join(', '));
+    assert.ok(codesOn(state, call.id, NOW).includes('due_today'));
+    assert.ok(codesOn(state, call.id, TOMORROW).includes('overdue'));
+  });
+});
+
+test('N18 (Today list): the day after, yesterday\'s all-day appointment is not the late thing at the top', async () => {
+  await withMemoryStorage(async () => {
+    await captureNoHour('عندي موعد دكتور اليوم');
+    await captureNoHour('بدي أتصل بسامي بكرا');
+    const state = await getParticipantStateSnapshot(UID);
+    const doctor = byTitle(state, 'موعد دكتور');
+    const call = byTitle(state, 'سامي');
+    const ranked = rankForMobile(Object.values(state.commitments), Object.values(state.reminders), TOMORROW.toISOString());
+    assert.equal(ranked[0]!.commitmentId, call.id, `the top of Tuesday's list: ${ranked.map((entry) => entry.commitmentId === doctor.id ? 'doctor' : entry.commitmentId === call.id ? 'call' : '?').join(', ')}`);
+    assert.deepEqual(ranked.find((entry) => entry.commitmentId === doctor.id)!.reasonCodes.filter((code) => code.startsWith('due') || code === 'overdue'), []);
   });
 });
