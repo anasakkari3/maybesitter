@@ -202,7 +202,10 @@ function withMonthEndWords(title: string | null, rawText: string, words: string 
  * person's words, as «آخر الشهر» is (FY1 N6): put back only where it was —
  * the model's title as the person wrote it, followed directly by «مع»/"with"/
  * «עם» — up to three words, stopping at a time or day word (`timeOfDayEvidence`
- * reads both), a number or a preposition.
+ * reads both), a number, a preposition, or another «مع»/"with"/«עם», so the
+ * title never ends on one (POLISH-CAPTURE review, M1). Only company: «مع
+ * السلامة», «مع إني…», "with love", "with it", «עם זאת» are not who it is
+ * with, and nothing is put back for them.
  */
 const COMPANION_MARKER = new RegExp('^(\\s+)(مع|with|עם)(?=\\s)', 'i');
 const COMPANION_TRAILING_PUNCTUATION = /[،,.;!?؟:]+$/;
@@ -211,7 +214,16 @@ const COMPANION_STOP = new Set([
   'on', 'at', 'by', 'in', 'before', 'after', 'for', 'to', 'from', 'until', 'and', 'then',
   'يوم', 'نهار', 'الساعة', 'الساعه', 'قبل', 'بعد', 'عند', 'على', 'ع', 'في', 'لحد', 'حتى', 'من',
   'ביום', 'בשעה', 'לפני', 'אחרי', 'עד', 'ב', 'ו',
+  'مع', 'with', 'עם',
 ]);
+/** What follows «مع»/"with"/«עם» without being company. */
+const NOT_COMPANY = new Set([
+  'السلامة', 'السلامه', 'إني', 'اني', 'إنه', 'انه', 'إنو', 'انو', 'إنها', 'انها', 'هيك', 'ذلك', 'هذا', 'هاد', 'العلم',
+  'love', 'it', 'that', 'this', 'regards', 'pleasure', 'thanks', 'care',
+  'זאת', 'זה',
+]);
+/** An Arabic word that starts with a preposition and the article: «عالبحر», «بالبيت», «للسوق». */
+const PREPOSITIONAL_WORD = /^(?:عال|بال|لل)/;
 function withCompanion(title: string | null, rawText: string): string | null {
   if (!title) return title;
   const at = rawText.indexOf(title);
@@ -220,9 +232,11 @@ function withCompanion(title: string | null, rawText: string): string | null {
   if (!marker) return title;
   const rest = rawText.slice(at + title.length + marker[0].length);
   const words: string[] = [];
+  const first = rest.split(/\s+/).find(Boolean)?.replace(COMPANION_TRAILING_PUNCTUATION, '').toLowerCase();
+  if (!first || NOT_COMPANY.has(first)) return title;
   for (const word of rest.split(/\s+/).filter(Boolean)) {
     const bare = word.replace(COMPANION_TRAILING_PUNCTUATION, '');
-    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || timeOfDayEvidence(bare) !== 'none' || COMPANION_NUMBER.test(bare)) break;
+    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || timeOfDayEvidence(bare) !== 'none' || COMPANION_NUMBER.test(bare) || PREPOSITIONAL_WORD.test(bare)) break;
     words.push(bare);
     if (bare !== word || words.length === 3) break;
   }
@@ -284,13 +298,13 @@ export function reconcileLocalTimeSpec(
   return { dueAt, remindAt, localTimeSpec, timeEvidence: evidence, flags };
 }
 
-/** The calendar day after a local `YYYY-MM-DD`. */
 /** A `YYYY-MM-DD` date `days` days on (or back). */
 function shiftLocalDate(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
+/** The calendar day after a local `YYYY-MM-DD`. */
 function nextLocalDate(date: string): string {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
   return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
