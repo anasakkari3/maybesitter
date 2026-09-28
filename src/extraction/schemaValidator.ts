@@ -202,7 +202,9 @@ function withMonthEndWords(title: string | null, rawText: string, words: string 
  * the model's title as the person wrote it, followed directly by «مع»/"with"/
  * «עם» — up to three words, stopping at a time, a day or a preposition.
  */
-const COMPANION_MARKER = /^(\s+)(مع|with|עם)(?=\s)/iu;
+const COMPANION_MARKER = new RegExp('^(\\s+)(مع|with|עם)(?=\\s)', 'i');
+const COMPANION_TRAILING_PUNCTUATION = /[،,.;!?؟:]+$/;
+const COMPANION_NUMBER = /^[0-9٠-٩]|^ב-?[0-9]/;
 const COMPANION_STOP = new Set([
   'on', 'at', 'by', 'in', 'before', 'after', 'for', 'to', 'from', 'until', 'and', 'then',
   'يوم', 'نهار', 'الساعة', 'الساعه', 'قبل', 'بعد', 'عند', 'على', 'ع', 'في', 'لحد', 'حتى', 'من',
@@ -217,8 +219,8 @@ function withCompanion(title: string | null, rawText: string): string | null {
   const rest = rawText.slice(at + title.length + marker[0].length);
   const words: string[] = [];
   for (const word of rest.split(/\s+/).filter(Boolean)) {
-    const bare = word.replace(/[،,.;!?؟:]+$/u, '');
-    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || namesDay(bare) || timeOfDayEvidence(bare) !== 'none' || /^[\d٠-٩]|^ב-?\d/u.test(bare)) break;
+    const bare = word.replace(COMPANION_TRAILING_PUNCTUATION, '');
+    if (!bare || COMPANION_STOP.has(bare.toLowerCase()) || namesDay(bare) || timeOfDayEvidence(bare) !== 'none' || COMPANION_NUMBER.test(bare)) break;
     words.push(bare);
     if (bare !== word || words.length === 3) break;
   }
