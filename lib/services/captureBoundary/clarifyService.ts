@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, nightClockHour, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -252,6 +252,24 @@ function allDayAppointment(result: ExtractionResult, timezone: string): Extracti
   } as ExtractionResult;
 }
 
+/**
+ * The am/pm question answered by typing a half of the day (FZ1 round 2): the
+ * hour it asked about, in that half — «5» + «المسا»/"pm"/«م»/«בערב» is 17:00,
+ * + «الصبح»/"am"/«ص» is 05:00, + «بالليل» follows the night's rule. The time
+ * question's buttons (09/14/19) are for a day with no hour; here the hour was
+ * said. Null for any other question, or an answer that states a clock (a new
+ * hour) or names no half.
+ */
+function amPmAnswerTime(result: ExtractionResult, question: ClarificationContract, freeText: string): string | null {
+  if (question.field !== 'time_period' || statesClock(freeText)) return null;
+  const half = typedHalfOfDay(freeText);
+  const hour = Number(question.params?.hour);
+  if (!half || !Number.isInteger(hour) || hour < 1 || hour > 11) return null;
+  const minutes = /^\d{2}:(\d{2})$/.exec(result.localTimeSpec?.time ?? '')?.[1] ?? '00';
+  const answered = half === 'am' ? hour : half === 'pm' ? hour + 12 : nightClockHour(hour);
+  return `${String(answered).padStart(2, '0')}:${minutes}`;
+}
+
 /** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */
 function notPast(answered: ExtractionResult, now: Date): ExtractionResult {
   const at = answered.remindAt ?? answered.dueAt;
@@ -320,6 +338,13 @@ async function readFreeTextAnswer(
   if (question.field === 'time' && forbidsResolvedTime(freeText) && !namesDay(freeText) && !namesCalendarDate(freeText)) {
     throw new ClarifyError('answer_not_understood');
   }
+  // «5 الصبح ولا المسا؟» answered «المسا» with no day: the asked hour, in
+  // that half, on the item's day — no re-read (FZ1 round 2).
+  const amPmTime = amPmAnswerTime(result, question, freeText);
+  const itemDay = result.localTimeSpec?.date ?? null;
+  if (amPmTime && itemDay && !namesDay(freeText) && !namesCalendarDate(freeText) && !readWeekdayReference(freeText)) {
+    return notPast(withResolvedTime(result, { date: itemDay, time: amPmTime }, options.timezone), options.now);
+  }
   const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
   const combined = `${original}\n${freeText}`.trim();
   let extracted: Awaited<ReturnType<typeof extractor>>;
@@ -362,7 +387,8 @@ async function readFreeTextAnswer(
     // A day named with it is the re-read's; otherwise the item's.
     const typedPart = statesClock(freeText) ? null : dayPartHour(freeText, { answer: true });
     if (typedPart !== null) {
-      const time = answeredDayPartTime(typedPart);
+      // On the am/pm question the half is of the hour it asked (FZ1 round 2).
+      const time = amPmTime ?? answeredDayPartTime(typedPart);
       const namedDay = readWeekdayReference(freeText) || namesExplicitDate(freeText) ? reread.localTimeSpec?.date ?? null : null;
       const day = dayForAnswer(time, namedDay ?? itemDate, { now: options.now, timezone: options.timezone });
       if (day) return withResolvedTime(result, { date: day, time }, options.timezone);
