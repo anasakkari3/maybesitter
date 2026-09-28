@@ -28,6 +28,8 @@ import {
   handleEarlyAccess,
   handleEarlyAccessEvent,
   isLegacyShape,
+  EARLY_ACCESS_ERRORS,
+  type EarlyAccessErrorCode,
   type EarlyAccessOptions,
   type EarlyAccessRegistration,
   type EarlyAccessStore,
@@ -164,21 +166,46 @@ test('an invalid legacy email or device is a 422 in the shape that page renders,
   // launch.js: `showErrors(data.fields)` indexes by field name, then shows `data.error`.
   assert.deepEqual(await json(response), {
     error: 'Please check the highlighted fields.',
+    code: 'invalid_fields',
     fields: { email: 'Please enter a valid email address.', device: 'Please choose iPhone or Android.' },
   });
   assert.deepEqual(await stored(storage), []);
 });
 
-test('legacy failures carry words the legacy page can show, not codes', async () => {
-  const limited = harness({ hourlyLimit: 0 });
-  const busy = await limited.run(post('/api/early-access', legacyBody()));
-  assert.equal(busy.status, 429);
-  assert.match(String((await json(busy)).error), /busy right now/);
-
+test('every error answer carries a sentence in `error` and the machine code in `code`, before or after the body is read', async () => {
+  // The legacy page prints `data.error` verbatim, including for the answers
+  // given before any body is read, when nobody can tell which page sent it.
   const failing: EarlyAccessStore = { allow: async () => true, register: async () => { throw new Error('UNAVAILABLE'); } };
-  const down = await handleEarlyAccess(post('/api/early-access', legacyBody()), { storeFactory: () => failing, env: CLOUD_RUN_ENV });
-  assert.equal(down.status, 503);
-  assert.match(String((await json(down)).error), /couldn’t save your place/);
+  const onlyBody = (body: string) => post('/api/early-access', body);
+  const cases: Array<[string, () => Promise<Response>, number, EarlyAccessErrorCode]> = [
+    ['GET', () => harness().run(new Request('https://api.internal.example/api/early-access', { headers: { origin: ORIGIN } })), 405, 'method_not_allowed'],
+    ['unlisted origin', () => harness().run(post('/api/early-access', legacyBody(), { origin: 'https://evil.example' })), 403, 'forbidden_origin'],
+    ['form encoding', () => harness().run(post('/api/early-access', 'a=b', { 'content-type': 'application/x-www-form-urlencoded' })), 415, 'unsupported_media_type'],
+    ['declared too large', () => harness().run(post('/api/early-access', legacyBody(), { 'content-length': '5000' })), 413, 'payload_too_large'],
+    ['not JSON', () => harness().run(onlyBody('{nope')), 400, 'invalid_json'],
+    ['legacy invalid', () => harness().run(post('/api/early-access', legacyBody({ email: 'x' }))), 422, 'invalid_fields'],
+    ['current invalid', () => harness().run(post('/api/early-access', currentBody({ email: 'x' }))), 422, 'invalid_fields'],
+    ['legacy rate limited', () => harness({ hourlyLimit: 0 }).run(post('/api/early-access', legacyBody())), 429, 'rate_limited'],
+    ['current rate limited', () => harness({ hourlyLimit: 0 }).run(post('/api/early-access', currentBody())), 429, 'rate_limited'],
+    ['store down', () => handleEarlyAccess(post('/api/early-access', legacyBody()), { storeFactory: () => failing, env: CLOUD_RUN_ENV }), 503, 'unavailable'],
+    ['/events GET', () => handleEarlyAccessEvent(new Request('https://api.internal.example/api/early-access/events', { headers: { origin: ORIGIN } }), { env: CLOUD_RUN_ENV }), 405, 'method_not_allowed'],
+    ['/events unlisted origin', () => handleEarlyAccessEvent(post('/api/early-access/events', '{}', { origin: 'https://evil.example' }), { env: CLOUD_RUN_ENV }), 403, 'forbidden_origin'],
+  ];
+  for (const [label, run, status, code] of cases) {
+    const response = await run();
+    assert.equal(response.status, status, label);
+    const body = await json(response);
+    assert.equal(body.code, code, label);
+    assert.equal(body.error, EARLY_ACCESS_ERRORS[code], label);
+    // A sentence a person can read, never the code itself.
+    assert.match(String(body.error), /^[A-Z][^_]*\.$/, `${label}: ${String(body.error)}`);
+  }
+});
+
+test('the stranded endpoint\'s own words reach the legacy page', () => {
+  assert.equal(EARLY_ACCESS_ERRORS.forbidden_origin, 'Please register from the MaybeSitter website.');
+  assert.equal(EARLY_ACCESS_ERRORS.rate_limited, 'Registration is busy right now. Please try again in a little while.');
+  assert.equal(EARLY_ACCESS_ERRORS.unavailable, 'We couldn’t save your place just now. Your details are still here—please try again.');
 });
 
 test('a body with any current-only field is never read as legacy, so consent cannot be smuggled through it', async () => {
@@ -201,11 +228,16 @@ test('a body with any current-only field is never read as legacy, so consent can
   assert.deepEqual(await stored(storage), []);
 });
 
-test('the current site\'s answers are unchanged: codes, and field names as a list', async () => {
+test('the current site still gets the field names as a list, and reads only the status', async () => {
   const { run } = harness();
   const response = await run(post('/api/early-access', currentBody({ device: 'nokia' })));
   assert.equal(response.status, 422);
-  assert.deepEqual(await json(response), { error: 'invalid_fields', fields: ['device'] });
+  assert.deepEqual(await json(response), { error: 'Please check the highlighted fields.', code: 'invalid_fields', fields: ['device'] });
+  // site/landing.js branches on `response.ok` and `response.status === 422` only, so `error`
+  // becoming a sentence changes nothing it shows.
+  const landing = readFileSync(join(repoRoot, 'site', 'landing.js'), 'utf8');
+  assert.match(landing, /response\.status === 422 \? 'invalid' : 'error'/);
+  assert.doesNotMatch(landing, /\.json\(\)|\.error\b|\.code\b/);
 });
 
 test('a legacy and a current sign-up for the same email: first one wins, same answer', async () => {

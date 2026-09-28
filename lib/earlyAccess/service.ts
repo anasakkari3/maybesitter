@@ -231,19 +231,36 @@ export function validateLegacyEarlyAccess(body: Record<string, unknown>): Valida
 }
 
 /**
- * The legacy page prints `error` to the visitor and reads `fields` as
- * `{field: message}`, so its answers carry the stranded endpoint's own words.
+ * Every error answer carries a sentence in `error` and the machine code in
+ * `code`. The stranded launch page prints `error` to the visitor verbatim
+ * (its `launch.js` throws `new Error(data.error)` and shows the message),
+ * including for answers produced before any body is read, so `error` must
+ * always be something a person can read. The current site reads only the
+ * status (`site/landing.js`). The sentences are the stranded endpoint's own.
  */
-const LEGACY_MESSAGES = {
+export const EARLY_ACCESS_ERRORS = {
+  method_not_allowed: 'Method not allowed.',
+  forbidden_origin: 'Please register from the MaybeSitter website.',
+  unsupported_media_type: 'Please refresh the page and try again.',
+  payload_too_large: 'The form is too large.',
+  invalid_json: 'Please check your form and try again.',
   invalid_fields: 'Please check the highlighted fields.',
-  email: 'Please enter a valid email address.',
-  device: 'Please choose iPhone or Android.',
   rate_limited: 'Registration is busy right now. Please try again in a little while.',
   unavailable: 'We couldn’t save your place just now. Your details are still here—please try again.',
+} as const;
+export type EarlyAccessErrorCode = keyof typeof EARLY_ACCESS_ERRORS;
+
+/** The legacy page reads `fields` as `{field: message}`; these are its per-field words. */
+const LEGACY_FIELD_MESSAGES = {
+  email: 'Please enter a valid email address.',
+  device: 'Please choose iPhone or Android.',
 } as const;
 
 const respond = (body: unknown, status: number, extra: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra } });
+
+const fail = (code: EarlyAccessErrorCode, status: number, extra: Record<string, string> = {}, more: Record<string, unknown> = {}) =>
+  respond({ error: EARLY_ACCESS_ERRORS[code], code, ...more }, status, extra);
 
 /** The shared streaming reader (`lib/net/requestBody.ts`), at this form's own 4 KiB bound. */
 async function boundedJson(request: Request): Promise<unknown> {
@@ -275,23 +292,23 @@ export interface EarlyAccessOptions {
 
 export async function handleEarlyAccess(request: Request, options: EarlyAccessOptions = {}): Promise<Response> {
   const env = options.env ?? process.env;
-  if (request.method !== 'POST') return respond({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
-  if (!originAllowed(request, env)) return respond({ error: 'forbidden_origin' }, 403);
+  if (request.method !== 'POST') return fail('method_not_allowed', 405, { Allow: 'POST' });
+  if (!originAllowed(request, env)) return fail('forbidden_origin', 403);
   if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
-    return respond({ error: 'unsupported_media_type' }, 415);
+    return fail('unsupported_media_type', 415);
   }
   if (Number(request.headers.get('content-length') || 0) > EARLY_ACCESS_BODY_LIMIT_BYTES) {
-    return respond({ error: 'payload_too_large' }, 413);
+    return fail('payload_too_large', 413);
   }
 
   let body: unknown;
   try {
     body = await boundedJson(request);
   } catch (error) {
-    if (error instanceof RequestBodyTooLargeError) return respond({ error: 'payload_too_large' }, 413);
-    return respond({ error: 'invalid_json' }, 400);
+    if (error instanceof RequestBodyTooLargeError) return fail('payload_too_large', 413);
+    return fail('invalid_json', 400);
   }
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return respond({ error: 'invalid_json' }, 400);
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return fail('invalid_json', 400);
   const fields = body as Record<string, unknown>;
 
   // A bot filled the field people never see. Answer as if it worked, and touch nothing.
@@ -300,23 +317,24 @@ export async function handleEarlyAccess(request: Request, options: EarlyAccessOp
   const legacy = isLegacyShape(fields);
   const validation = legacy ? validateLegacyEarlyAccess(fields) : validateEarlyAccess(fields);
   if (!validation.ok) {
-    if (!legacy) return respond({ error: 'invalid_fields', fields: validation.fields }, 422);
-    const messages = Object.fromEntries(validation.fields.map((field) => [field, LEGACY_MESSAGES[field as 'email' | 'device']]));
-    return respond({ error: LEGACY_MESSAGES.invalid_fields, fields: messages }, 422);
+    // The current site gets the field names as a list; the legacy page indexes `fields` by name.
+    if (!legacy) return fail('invalid_fields', 422, {}, { fields: validation.fields });
+    const messages = Object.fromEntries(validation.fields.map((field) => [field, LEGACY_FIELD_MESSAGES[field as 'email' | 'device']]));
+    return fail('invalid_fields', 422, {}, { fields: messages });
   }
 
   try {
     const store = (options.storeFactory ?? productionEarlyAccessStore)();
     const now = (options.now ?? Date.now)();
     if (!(await store.allow(now, options.hourlyLimit ?? EARLY_ACCESS_HOURLY_LIMIT))) {
-      return respond({ error: legacy ? LEGACY_MESSAGES.rate_limited : 'rate_limited' }, 429, { 'Retry-After': '3600' });
+      return fail('rate_limited', 429, { 'Retry-After': '3600' });
     }
     // First registration wins, and the answer is the same either way, so the
     // endpoint never reveals whether an email is already on the list.
     await store.register({ ...validation.value, registeredAt: new Date(now).toISOString() });
     return respond({ ok: true }, 200);
   } catch {
-    return respond({ error: legacy ? LEGACY_MESSAGES.unavailable : 'unavailable' }, 503, { 'Retry-After': '30' });
+    return fail('unavailable', 503, { 'Retry-After': '30' });
   }
 }
 
@@ -330,7 +348,7 @@ export async function handleEarlyAccess(request: Request, options: EarlyAccessOp
  */
 export async function handleEarlyAccessEvent(request: Request, options: Pick<EarlyAccessOptions, 'env'> = {}): Promise<Response> {
   const env = options.env ?? process.env;
-  if (request.method !== 'POST') return respond({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
-  if (!originAllowed(request, env)) return respond({ error: 'forbidden_origin' }, 403);
+  if (request.method !== 'POST') return fail('method_not_allowed', 405, { Allow: 'POST' });
+  if (!originAllowed(request, env)) return fail('forbidden_origin', 403);
   return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 }

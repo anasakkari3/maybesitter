@@ -125,7 +125,8 @@ for (const [field, value] of [
     const response = await run(post(landingBody({ [field]: value })));
     assert.equal(response.status, 422);
     const body = await json(response);
-    assert.equal(body.error, 'invalid_fields');
+    assert.equal(body.code, 'invalid_fields');
+    assert.equal(body.error, 'Please check the highlighted fields.');
     assert.ok((body.fields as string[]).includes(field), `fields ${JSON.stringify(body.fields)} must name ${field}`);
     assert.deepEqual(await stored(storage), []);
   });
