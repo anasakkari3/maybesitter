@@ -31,6 +31,13 @@ import {
   financialContextResponseSchema,
 } from '../../../api/schemas/financial';
 
+// The phone's zone for every test here: Amman is +03:00 in August, so a UTC
+// clock on screen reads three hours early (UAT round 5, N20).
+jest.mock('../../../i18n/timezone', () => ({
+  ...(jest.requireActual('../../../i18n/timezone') as object),
+  useTimeZone: () => 'Asia/Amman',
+}));
+
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
@@ -89,6 +96,18 @@ describe('the picture', () => {
     expect(screen.getByTestId('financial-buffer').props.children).toContain('-2,622.00');
     expect(screen.getByTestId('financial-band').props.children).toBe(en.financialBandNegative);
     expect(screen.getByTestId('financial-as-of')).toBeTruthy();
+  });
+
+  it('says when it was true in the phone\'s own zone and words, not a raw UTC stamp (N20)', async () => {
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-as-of')).toBeTruthy());
+    // The fixture's `asOf` is 2026-08-09T08:00Z: 11:00 on Sunday 9 August in Amman.
+    const line = [screen.getByTestId('financial-as-of').props.children].flat().join('');
+    expect(line).toContain(en.financialAsOf);
+    expect(line).toContain('11:00');
+    expect(line).toContain('Aug 9');
+    expect(line).not.toContain('08:00');
+    expect(line).not.toContain('2026-08-09');
   });
 
   it('says where every figure came from', async () => {
