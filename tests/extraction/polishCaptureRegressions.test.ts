@@ -202,10 +202,16 @@ test('N16: on the model path the literal capture keeps «مع العيلة» in 
   const { contract } = await proposeModel(N16, N16_NOW, model.provider);
   assert.equal(model.calls(), 1);
   assert.equal(contract.provenance.executedEngine, 'gemini');
+  // Gemini's recorded 15:00 for «العصرية» is the model's hour for a part of
+  // the day with no number: since UAT round 6 batch 4 the market is at the
+  // product's 14:00 (`dayPartHour`), as on the rules path. The dinner's 6 is
+  // the person's.
   assert.deepEqual(contract.items.map(line), [
-    'أروح عالسوق | 2026-09-29 15:00 | settled',
+    'أروح عالسوق | 2026-09-29 14:00 | settled',
     'عندي عشا مع العيلة | 2026-10-01 18:00 | settled',
   ]);
+  const rules = await proposeRules(N16, N16_NOW);
+  assert.deepEqual(rules.items.map(line), contract.items.map(line));
 });
 
 test('N16: the rules path keeps the company too, and «غدا» said with someone is lunch, not tomorrow', async () => {

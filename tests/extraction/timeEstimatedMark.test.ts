@@ -272,3 +272,211 @@ test('D2 share: the owner\'s proposal passes the share allowlist whole', async (
   assert.deepEqual(drops, []);
   assert.deepEqual(marks(proposal.items), marks(contract.items));
 });
+
+// ── UAT round 6, batch 4: the model's hour for a part of the day ────
+//
+// «لازم أتصل بأمي بكرا المسا» ×3 on Gemini (build e1871874, shots 772–774)
+// came back «بكرا · 21:00» twice and «بكرا · 18:00» once, marked «حزرنا
+// الساعة» every time. The mark kept it honest, but the hour was the model's
+// whim. When the clause's words give only a part of the day and no number,
+// the model path takes the product's hour for it (`dayPartHour`) — the rules
+// path's — on the model's day, still marked as our guess. A stated hour, a
+// passed part of today and the bare-hour am/pm question are untouched.
+
+/** Local wall-clock on 28 Sep 2026 in Jerusalem (UTC+3). */
+const jlm = (time: string) => new Date(`${TODAY}T${time}:00+03:00`);
+
+/** SCRIPTED: the call read by a model on `date` at `time` (`null`: a day and no hour, as Gemini answers a vague time). */
+function callModel(date: string, time: string | null) {
+  return scriptedModel(() => time
+    ? { action: 'أتصل بأمي', title: 'أتصل بأمي', dueAt: at(date, time), localTimeSpec: { date, time, timezone: TZ } }
+    : { action: 'أتصل بأمي', title: 'أتصل بأمي', localTimeSpec: { date, time: null, timezone: TZ }, missingFields: ['time'], ambiguityFlags: ['vague_time'] });
+}
+
+async function proposeAt(text: string, now: Date, provider?: (prompt: string) => Promise<string>) {
+  const contract = await proposeCapture(
+    text,
+    { now, timezone: TZ, scopeId: 'r6-b4', requestedEngine: provider ? 'model' : 'rules' },
+    {
+      store: new MemoryCaptureProposalStore(),
+      persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+      ...(provider ? { extractor: guardedMobileExtract, llmProvider: provider, llmEngine: 'gemini' } : {}),
+    },
+  );
+  return contract;
+}
+
+type Card = { resolvedDate?: string; resolvedTime: string | null; needsClarification: boolean; timeEstimated?: boolean; clarification?: { questionKey?: string } | null };
+/** What the review card shows: the day, the hour, whether it asks (and what), and the mark. */
+const card = (item: Card) => [item.resolvedDate ?? null, item.resolvedTime, item.needsClarification, item.clarification?.questionKey ?? null, item.timeEstimated ?? null];
+
+const MODEL_HOURS = ['18:00', '21:00', '20:00', '19:30', null] as const;
+
+test('R6 batch 4 model path (SCRIPTED 18:00, 21:00, 20:00, 19:30, no hour): «لازم أتصل بأمي بكرا المسا» is tomorrow 18:00 every time, marked — the rules path\'s card', async () => {
+  const text = 'لازم أتصل بأمي بكرا المسا';
+  const now = jlm('15:00');
+  const rules = await proposeAt(text, now);
+  assert.deepEqual(card(rules.items[0]!), [TOMORROW, at(TOMORROW, '18:00'), false, null, true]);
+  for (const time of MODEL_HOURS) {
+    const contract = await proposeAt(text, now, callModel(TOMORROW, time));
+    assert.equal(contract.provenance?.executedEngine, 'gemini', String(time));
+    assert.equal(contract.items.length, 1, String(time));
+    assert.deepEqual(card(contract.items[0]!), card(rules.items[0]!), `model answered ${time}`);
+  }
+});
+
+/** Every part of the day, three languages: [text, day, product hour]. Read at 06:00, so every part is still ahead today. */
+const PARTS_BY_MODEL: ReadonlyArray<readonly [string, string, string]> = [
+  ['بكرا الصبح لازم أتصل بأمي', TOMORROW, '09:00'],
+  ['بكرا الضهر لازم أتصل بأمي', TOMORROW, '12:00'],
+  ['بكرا العصر لازم أتصل بأمي', TOMORROW, '14:00'],
+  ['بكرا المسا لازم أتصل بأمي', TOMORROW, '18:00'],
+  ['بكرا بالليل لازم أتصل بأمي', TOMORROW, '20:00'],
+  ['لازم أتصل بأمي الليلة', TODAY, '20:00'],
+  ['call mom this morning', TODAY, '09:00'],
+  ['call mom this afternoon', TODAY, '14:00'],
+  ['call mom this evening', TODAY, '18:00'],
+  ['I need to call mom tonight', TODAY, '20:00'],
+  ['מחר בבוקר אני צריך להתקשר לאמא', TOMORROW, '09:00'],
+  ['מחר אחר הצהריים אני צריך להתקשר לאמא', TOMORROW, '14:00'],
+  ['מחר בערב אני צריך להתקשר לאמא', TOMORROW, '18:00'],
+  ['הלילה אני צריך להתקשר לאמא', TODAY, '20:00'],
+];
+
+for (const [text, date, time] of PARTS_BY_MODEL) {
+  test(`R6 batch 4 model path (SCRIPTED an hour and a half off, and no hour): «${text}» is ${date} ${time}, marked, as on the rules path`, async () => {
+    const now = jlm('06:00');
+    const rules = await proposeAt(text, now);
+    assert.deepEqual(card(rules.items[0]!), [date, at(date, time), false, null, true], 'rules');
+    const [hour] = time.split(':').map(Number) as [number];
+    const off = `${String(hour + 1).padStart(2, '0')}:30`;
+    for (const modelTime of [off, null]) {
+      const contract = await proposeAt(text, now, callModel(date, modelTime));
+      assert.equal(contract.items.length, 1, String(modelTime));
+      assert.deepEqual(card(contract.items[0]!), [date, at(date, time), false, null, true], `model answered ${modelTime}`);
+    }
+  });
+}
+
+test('R6 batch 4 model path (SCRIPTED): the product hour goes on the model\'s day, not one the words did not say', async () => {
+  // No day in the words: the model's Wednesday stays Wednesday, at the part's hour.
+  const contract = await proposeAt('لازم أتصل بأمي المسا', jlm('15:00'), callModel('2026-09-30', '21:00'));
+  assert.deepEqual(card(contract.items[0]!), ['2026-09-30', at('2026-09-30', '18:00'), false, null, true]);
+});
+
+// ── Controls: a stated hour, the bare-hour question, a passed part of today ──
+
+test('R6 batch 4 control (SCRIPTED): an hour the person stated is theirs — the part of the day does not replace it', async () => {
+  const rows: ReadonlyArray<readonly [string, string, string]> = [
+    ['بكرا الساعة 5 المسا لازم أتصل بأمي', '18:00', '17:00'],
+    ['بكرا الساعة 7 المسا لازم أتصل بأمي', '19:00', '19:00'],
+    ['بكرا الساعة سبعة المسا لازم أتصل بأمي', '19:00', '19:00'],
+    ['call mom tomorrow evening at 7pm', '19:00', '19:00'],
+    ['מחר בערב ב-19:30 להתקשר לאמא', '19:30', '19:30'],
+  ];
+  for (const [text, modelTime, shownTime] of rows) {
+    const contract = await proposeAt(text, jlm('15:00'), callModel(TOMORROW, modelTime));
+    assert.deepEqual(card(contract.items[0]!), [TOMORROW, at(TOMORROW, shownTime), false, null, false], text);
+  }
+});
+
+test('R6 batch 4 control (SCRIPTED): a bare early hour is still asked صبح or مسا, and «12 المسا» still asked', async () => {
+  const bare = await proposeAt('بكرا الساعة 5 لازم أروح عالبنك', jlm('15:00'), callModel(TOMORROW, '17:00'));
+  assert.deepEqual(card(bare.items[0]!), [TOMORROW, null, true, 'ask_am_pm', false]);
+  const twelve = await proposeAt('بكرا الساعة 12 المسا لازم أتصل بأمي', jlm('15:00'), callModel(TOMORROW, '12:00'));
+  assert.deepEqual(card(twelve.items[0]!).slice(0, 3), [TOMORROW, null, true]);
+});
+
+test('R6 batch 4 passed part (SCRIPTED): «اليوم المسا» at 23:29 is asked on today whatever the model answered — never 18:00 gone by, never tomorrow', async () => {
+  const text = 'لازم أتصل بأمي اليوم المسا';
+  const now = jlm('23:29');
+  const rules = await proposeAt(text, now);
+  assert.deepEqual(card(rules.items[0]!), [TODAY, null, true, 'ask_time', false]);
+  for (const [date, time] of [[TODAY, '18:00'], [TODAY, '21:00'], [TODAY, null], [TOMORROW, '18:00'], [TOMORROW, '21:00']] as const) {
+    const contract = await proposeAt(text, now, callModel(date, time));
+    assert.deepEqual(card(contract.items[0]!), card(rules.items[0]!), `model answered ${date} ${time}`);
+  }
+});
+
+test('R6 batch 4 passed part (SCRIPTED): «اليوم المسا» at 19:00 answered 21:00 is asked, as the rules ask — the product hour has gone', async () => {
+  const text = 'لازم أتصل بأمي اليوم المسا';
+  const rules = await proposeAt(text, jlm('19:00'));
+  assert.deepEqual(card(rules.items[0]!), [TODAY, null, true, 'ask_time', false]);
+  const contract = await proposeAt(text, jlm('19:00'), callModel(TODAY, '21:00'));
+  assert.deepEqual(card(contract.items[0]!), card(rules.items[0]!));
+});
+
+test('R6 batch 4 passed part (SCRIPTED): «اليوم الصبح» at 15:00 answered 10:00 or 16:00 is asked on today', async () => {
+  const text = 'لازم أتصل بأمي اليوم الصبح';
+  const rules = await proposeAt(text, jlm('15:00'));
+  assert.deepEqual(card(rules.items[0]!), [TODAY, null, true, 'ask_time', false]);
+  for (const time of ['10:00', '16:00', null] as const) {
+    const contract = await proposeAt(text, jlm('15:00'), callModel(TODAY, time));
+    assert.deepEqual(card(contract.items[0]!), card(rules.items[0]!), String(time));
+  }
+});
+
+test('R6 batch 4 model path (SCRIPTED no hour, «vague»): the stored reading is the rules\' — nothing missing, nothing vague, an hour to remind at', async () => {
+  const text = 'لازم أتصل بأمي بكرا المسا';
+  const read = async (provider?: (prompt: string) => Promise<string>) => {
+    const store = new MemoryCaptureProposalStore();
+    const contract = await proposeCapture(
+      text,
+      { now: jlm('15:00'), timezone: TZ, scopeId: 'r6-b4', requestedEngine: provider ? 'model' : 'rules' },
+      {
+        store,
+        persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
+        ...(provider ? { extractor: guardedMobileExtract, llmProvider: provider, llmEngine: 'gemini' } : {}),
+      },
+    );
+    const stored = await store.get(contract.proposalId);
+    const result = stored!.resultsByItemId?.get(contract.items[0]!.itemId);
+    assert.ok(result, 'no stored reading');
+    return [result.localTimeSpec?.time ?? null, result.missingFields.includes('time'), result.ambiguityFlags.includes('vague_time')];
+  };
+  assert.deepEqual(await read(), ['18:00', false, false]);
+  assert.deepEqual(await read(callModel(TOMORROW, null)), ['18:00', false, false]);
+});
+
+test('R6 batch 4 model path (SCRIPTED a reminder at 21:00): «ذكرني أتصل بأمي بكرا المسا» reminds at 18:00, marked', async () => {
+  const provider = scriptedModel(() => ({
+    action: 'أتصل بأمي', title: 'أتصل بأمي', explicitReminderRequest: true,
+    remindAt: at(TOMORROW, '21:00'), localTimeSpec: { date: TOMORROW, time: '21:00', timezone: TZ },
+  }));
+  const contract = await proposeAt('ذكرني أتصل بأمي بكرا المسا', jlm('15:00'), provider);
+  assert.deepEqual(card(contract.items[0]!), [TOMORROW, at(TOMORROW, '18:00'), false, null, true]);
+});
+
+test('R6 batch 4 control (SCRIPTED 19:00): an hour the clock readers miss is the model\'s to read — «المسا ع سبعة», «ع 7», «בערב בשבע», "evening at seven" keep 19:00', async () => {
+  // The rules read these as the evening alone (18:00, marked); the model read
+  // the seven, and the part of the day's hour does not replace it.
+  for (const text of [
+    'لازم أتصل بأمي بكرا المسا ع سبعة', 'لازم أتصل بأمي بكرا المسا عالسبعة', 'لازم أتصل بأمي بكرا المسا ع 7', 'لازم أتصل بأمي بكرا المسا ع ٧',
+    'מחר בערב בשבע אני צריך להתקשר לאמא', 'מחר בערב ב7 אני צריך להתקשר לאמא', 'call mom tomorrow evening at seven', 'call mom tomorrow evening 7ish',
+  ]) {
+    const contract = await proposeAt(text, jlm('15:00'), callModel(TOMORROW, '19:00'));
+    assert.deepEqual(card(contract.items[0]!).slice(0, 4), [TOMORROW, at(TOMORROW, '19:00'), false, null], text);
+  }
+});
+
+test('R6 batch 4 control (SCRIPTED 16:00): a part-of-day word that is not a time — "the morning show" — is asked, as on the rules path', async () => {
+  const text = 'call the morning show tomorrow';
+  const rules = await proposeAt(text, jlm('15:00'));
+  assert.deepEqual(card(rules.items[0]!), [TOMORROW, null, true, 'ask_time', false]);
+  const contract = await proposeAt(text, jlm('15:00'), callModel(TOMORROW, '16:00'));
+  assert.deepEqual(card(contract.items[0]!), card(rules.items[0]!));
+});
+
+test('R6 batch 4 control (SCRIPTED): midnight and the night\'s end are no evening — «نص الليل», «آخر الليل», "tonight at midnight", «בחצות» keep the model\'s hour', async () => {
+  // Monday 22:00: the model reads each on Tuesday's small hours.
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['اليوم نص الليل لازم أبعت الإيميل', '00:00'],
+    ['اليوم آخر الليل لازم أبعت الإيميل', '01:00'],
+    ['send the email tonight at midnight', '00:00'],
+    ['הלילה בחצות אני צריך לשלוח את המייל', '00:00'],
+  ];
+  for (const [text, time] of rows) {
+    const contract = await proposeAt(text, jlm('22:00'), callModel(TOMORROW, time));
+    assert.deepEqual(card(contract.items[0]!).slice(0, 3), [TOMORROW, at(TOMORROW, time), false], text);
+  }
+});
