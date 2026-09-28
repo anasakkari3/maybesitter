@@ -102,3 +102,66 @@ test('model path: each literal input reaches the model as one clause, and is one
     assert.equal(contract.items.length, 1, `${text}: ${JSON.stringify(contract.items.map((item) => item.title))}`);
   }
 });
+
+/*
+ * Only into a neighbour that states no day and no clock of its own (review
+ * P-I1). Merged into «…اليوم الساعة 5 المسا», «وبكرا» made the furthest day win
+ * silently — Sami settled on Tuesday 17:00 — and «وبكرا الساعة 9» lost its 9.
+ * The previous clause is tried first, then the next on the same terms; with
+ * neither free, the clause stays as it is (and is asked what to do, as it
+ * always was).
+ */
+const WITH_A_TIME_OF_ITS_OWN: ReadonlyArray<{ text: string; clauses: string[]; sami: string }> = [
+  {
+    text: 'بدي أتصل بسامي اليوم الساعة 5 المسا، وبكرا، لازم أروح عالبنك',
+    clauses: ['بدي أتصل بسامي اليوم الساعة 5 المسا', 'وبكرا لازم أروح عالبنك'],
+    sami: 'أتصل بسامي | 2026-09-28 14:00Z',
+  },
+  {
+    text: 'بدي أتصل بسامي الساعة 5، وبكرا الساعة 9',
+    clauses: ['بدي أتصل بسامي الساعة 5', 'وبكرا الساعة 9'],
+    sami: 'أتصل بسامي | 2026-09-28 -',
+  },
+  {
+    text: 'بدي أتصل بسامي اليوم، بكرا، وبعدين لازم أروح عالبنك',
+    clauses: ['بدي أتصل بسامي اليوم', 'بكرا لازم أروح عالبنك'],
+    sami: 'أتصل بسامي | 2026-09-28 -',
+  },
+  {
+    text: 'بدي أتصل بسامي اليوم، وبكرا',
+    clauses: ['بدي أتصل بسامي اليوم', 'وبكرا'],
+    sami: 'أتصل بسامي | 2026-09-28 -',
+  },
+];
+
+test('P-I1: a time-only clause never merges into a neighbour that has its own day or clock', () => {
+  for (const { text, clauses } of WITH_A_TIME_OF_ITS_OWN) assert.deepEqual(splitCaptureClauses(text), clauses, text);
+});
+
+test('P-I1: Sami keeps the day and hour he was said with, on the rules path', async () => {
+  for (const { text, sami } of WITH_A_TIME_OF_ITS_OWN) {
+    setStorageForTests(createMemoryStorage());
+    try {
+      const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
+      const item = proposal.items.find((candidate) => candidate.title === 'أتصل بسامي');
+      assert.ok(item, `${text}: ${JSON.stringify(proposal.items.map((candidate) => candidate.title))}`);
+      const hour = item.resolvedTime ? `${item.resolvedTime.slice(11, 16)}Z` : '-';
+      assert.equal(`${item.title} | ${item.resolvedDate ?? '-'} ${hour}`, sami, text);
+    } finally {
+      resetStorageForTests();
+    }
+  }
+});
+
+test('P-I1: nor into the clause after it when that one has its own day — the bank stays today', async () => {
+  const text = 'بدي أتصل بسامي اليوم، وبكرا، واليوم لازم أروح عالبنك';
+  assert.deepEqual(splitCaptureClauses(text), ['بدي أتصل بسامي اليوم', 'وبكرا', 'واليوم لازم أروح عالبنك']);
+  setStorageForTests(createMemoryStorage());
+  try {
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
+    const bank = proposal.items.find((item) => item.title === 'أروح عالبنك');
+    assert.equal(bank?.resolvedDate, '2026-09-28', JSON.stringify(proposal.items.map(line)));
+  } finally {
+    resetStorageForTests();
+  }
+});

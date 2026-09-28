@@ -567,20 +567,31 @@ export function namesTodayOnly(rawText: string): boolean {
  * «היום או מחר». Neither is a day anybody said, so nothing may be filled from
  * it. Each part is linear: a fixed word, whitespace, a fixed word.
  */
-const RELATIVE_DAY_ANY = `(?:${RELATIVE_DAY_MENTION_SOURCES.join('|')})`;
+// Plain day words only (review P-I2): built from the full relative-day
+// sources, with the «غدا مع» lunch lookarounds, this ran at every offset of a
+// 2000-character capture several times per request and pushed the #508
+// bound from under 60 ms to 88. Which «غدا» is lunch does not matter here:
+// «مش غدا» and «اليوم أو غدا» are days ruled out or left open either way.
+const UNSETTLED_DAY = [
+  `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:بعد\\s+)?(?:بكرا|بكرة|بكره|باچر|باكر|غدا|غدًا|اليوم|النهارده|النهاردة|الليلة|الليله)${NOT_LETTER_AFTER}`,
+  '\\b(?:today|tonight|tomorrow|tmrw|tmr)\\b',
+  `${NOT_LETTER_BEFORE}${HE_DAY_PREFIX}(?:היום|מחרתיים|מחר|הערב|הלילה)${NOT_LETTER_AFTER}`,
+].join('|');
 const UNSETTLED_RELATIVE_DAY = new RegExp(
   [
-    `${NOT_LETTER_BEFORE}[وف]?(?:مش|مو|مب|بلاش)\\s+${RELATIVE_DAY_ANY}`,
-    `\\bnot\\s+${RELATIVE_DAY_ANY}`,
-    `${NOT_LETTER_BEFORE}ו?לא\\s+${RELATIVE_DAY_ANY}`,
-    `${RELATIVE_DAY_ANY}(?:\\s*[،,])?\\s*(?:أو|او|ولا|or|או)\\s+${RELATIVE_DAY_ANY}`,
+    `${NOT_LETTER_BEFORE}[وف]?(?:مش|مو|مب|بلاش)\\s+(?:${UNSETTLED_DAY})`,
+    `\\bnot\\s+(?:${UNSETTLED_DAY})`,
+    `${NOT_LETTER_BEFORE}ו?לא\\s+(?:${UNSETTLED_DAY})`,
+    `(?:${UNSETTLED_DAY})(?:\\s*[،,])?\\s*(?:أو|او|ولا|or|או)\\s+(?:${UNSETTLED_DAY})`,
   ].join('|'),
   'iu',
 );
+/** A cheap gate: no negation or «أو»/"or" word at all means nothing to look for. */
+const UNSETTLED_GATE = /مش|مو|مب|بلاش|أو|او|ولا|not|or|לא|או/iu;
 
 /** The words' relative day is ruled out or one of two alternatives: not a day to fill. */
 export function relativeDayIsUnsettled(rawText: string): boolean {
-  return typeof rawText === 'string' && UNSETTLED_RELATIVE_DAY.test(rawText);
+  return typeof rawText === 'string' && UNSETTLED_GATE.test(rawText) && UNSETTLED_RELATIVE_DAY.test(rawText);
 }
 
 /*

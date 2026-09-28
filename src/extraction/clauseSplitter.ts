@@ -399,26 +399,53 @@ function isTimeOnlyClause(clause: string): boolean {
   return rest.replace(TIME_ONLY_FILLER, ' ').replace(NOT_LETTERS, '').length === 0;
 }
 
+/** The clause names a day or a clock time of its own. */
+function statesATime(clause: string): boolean {
+  return namesDay(clause) || statesClock(clause);
+}
+
 /**
  * Time-only clauses joined to their neighbour, before any extraction (both
- * engines read these segments): onto the clause before, or — for a leading
- * one, «بكرا، بدي أتصل بسامي» — onto the clause after. The «،» that cut them
- * apart was a pause inside one commitment, not the start of another.
+ * engines read these segments). A run of them («، وبكرا، الساعة 9») goes as
+ * one: onto the clause before it, or — a leading run, «بكرا، بدي أتصل
+ * بسامي», or when the one before is not free — onto the clause after it. The
+ * «،» that cut them apart was a pause inside one commitment.
+ *
+ * Only onto a clause that states no day and no clock of its own (review
+ * P-I1): merged into «بدي أتصل بسامي اليوم الساعة 5 المسا», «وبكرا» made the
+ * furthest day win silently, and «وبكرا الساعة 9» lost its 9 beside «الساعة
+ * 5». With neither neighbour free the run stays a clause of its own, as it
+ * always was.
  */
 function withTimeOnlyClausesMerged(segments: readonly string[]): string[] {
+  if (segments.length < 2) return [...segments];
+  const timeOnly = segments.map(isTimeOnlyClause);
+  if (!timeOnly.includes(true)) return [...segments];
   const merged: string[] = [];
-  let leading: string[] = [];
-  for (const segment of segments) {
-    if (isTimeOnlyClause(segment)) {
-      if (merged.length > 0) merged[merged.length - 1] = `${merged[merged.length - 1]} ${segment}`;
-      else leading.push(segment);
+  let index = 0;
+  while (index < segments.length) {
+    if (!timeOnly[index]) {
+      merged.push(segments[index]!);
+      index += 1;
       continue;
     }
-    merged.push(leading.length > 0 ? `${leading.join(' ')} ${segment}` : segment);
-    leading = [];
+    let end = index;
+    while (end + 1 < segments.length && timeOnly[end + 1]) end += 1;
+    const run = segments.slice(index, end + 1).join(' ');
+    const previous = merged[merged.length - 1];
+    const next = segments[end + 1];
+    if (previous !== undefined && !statesATime(previous)) {
+      merged[merged.length - 1] = `${previous} ${run}`;
+      index = end + 1;
+    } else if (next !== undefined && !statesATime(next)) {
+      merged.push(`${run} ${next}`);
+      index = end + 2;
+    } else {
+      merged.push(run);
+      index = end + 1;
+    }
   }
-  // Nothing but time: left as it was, for the extractor to answer.
-  return merged.length > 0 ? merged : [...segments];
+  return merged;
 }
 
 export function splitCaptureClauses(raw: string): string[] {
