@@ -24,7 +24,7 @@
  * Google sentence.
  */
 import React from 'react';
-import { AccessibilityInfo, View } from 'react-native';
+import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAiConsentGranted, useTrust } from '../../api/queries';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
@@ -33,6 +33,7 @@ import { fill } from '../../i18n/strings';
 import { isolate } from '../../i18n/bidi';
 import { Dialog } from '../../ui/dialog';
 import { Pill, Txt } from '../../ui/primitives';
+import { useAnnounceOnIos } from '../../ui/announce';
 import { AvailabilityBadge, ProductActions, ProductPage, ProductSection } from '../../ui/product';
 import { useCaptureFlow } from '../capture/CaptureProvider';
 import { mailboxShortfall } from './mailboxShortfall';
@@ -65,11 +66,10 @@ export function GoogleIntegrationScreen() {
   const [confirming, setConfirming] = React.useState(false);
   // The live region below speaks on Android only; VoiceOver has to be told.
   // The outcome of a press lands after the auth session closes, away from
-  // the button, so without this it is silent on iOS.
+  // the button, so without this it is silent on iOS. On iOS only: TalkBack
+  // hears the region, and told as well it said it twice (review n1).
   const noticeText = notice ? (notice.values ? fill(t[notice.key], notice.values) : t[notice.key]) : null;
-  React.useEffect(() => {
-    if (noticeText) AccessibilityInfo.announceForAccessibility(noticeText);
-  }, [noticeText]);
+  useAnnounceOnIos(noticeText);
 
   const busy = connect.isPending || disconnect.isPending || sync.isPending || scan.isPending || pick.isPending;
   const google: GoogleStatus | undefined = status.data;
