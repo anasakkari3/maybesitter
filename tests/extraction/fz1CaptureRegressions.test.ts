@@ -678,3 +678,24 @@ test('FZ1 round 3 add-on: any answered time keeps the person\'s zone on the stor
     assert.equal(commitment.timeSpec.dueAt, '2026-09-29T06:00:00.000Z');
   });
 });
+
+test('FZ1 round 3 add-on: west of UTC the cleared appointment is still on Friday — its local midnight, in its own zone', async () => {
+  const uid = 'fz1-dentist-west';
+  const zone = 'America/Los_Angeles';
+  const now = new Date('2026-09-28T17:00:00.000Z'); // Mon 10:00 in Los Angeles
+  await withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'morning',
+      timezone: zone, referenceTime: now.toISOString(),
+    }, { participantId: uid });
+    const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: null }] }, { participantId: uid });
+    assert.equal(confirmed.success, true, JSON.stringify(confirmed));
+    const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
+    // Friday 2 Oct, 00:00 in Los Angeles (UTC-7). UTC midnight would be Thursday 17:00 there.
+    assert.equal(commitment.timeSpec.dueAt, '2026-10-02T07:00:00.000Z');
+    assert.equal(commitment.timeSpec.timezone, zone);
+    assert.equal(localTimeSpecFor(new Date(commitment.timeSpec.dueAt!), zone)?.date, '2026-10-02');
+  });
+});
