@@ -601,6 +601,8 @@ test('round 3: an answer that rules a day out and names exactly one other takes 
     ['לא היום, מחר בערב', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     ['لا اليوم، بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
     ['לא מחר בערב', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    // One day, no negation: the whole answer is read, so the week after keeps its week.
+    ['الأحد اللي بعد الجاي المسا', 'موعد دكتور | 2026-10-11 19:00 | settled'],
   ];
   for (const [freeText, expected] of rows) {
     assert.equal((await answerDoctor(freeText)).line, expected, freeText);
