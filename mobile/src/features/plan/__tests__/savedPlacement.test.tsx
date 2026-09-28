@@ -191,7 +191,7 @@ describe('a step saved for another day, after «احفظ هاليوم»', () => 
     expect(ar.plannedDueAside).toBe('موعدها {when}');
     expect(en.plannedDueAside).toBe('Due: {when}');
     expect(he.plannedDueAside).toBe('המועד: {when}');
-    expect([ar.plannedRowLabel, en.plannedRowLabel, he.plannedRowLabel]).toEqual(['بخطّتك', 'In your plan', 'בתוכנית שלך']);
+    expect([ar.plannedRowLabel, en.plannedRowLabel, he.plannedRowLabel]).toEqual(['بخطتك', 'In your plan', 'בתוכנית שלך']);
   });
 });
 
