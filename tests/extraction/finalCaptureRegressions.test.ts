@@ -769,3 +769,94 @@ test('R6 D1 (SCRIPTED): the reading kept for the answer is one reading — its i
     );
   }
 });
+
+/* ── A clock number left in the title (closure UAT round 6, sibling lane) ── */
+
+/*
+ * «بكرا 5 المسا لازم أتصل بأمي» was titled «5 لازم أتصل بأمي» on the rules
+ * path: `stripTiming` lifted the part of the day («المسا») before the clocks,
+ * so the clock «5 المسا» — the reading the item's 17:00 came from — was a bare
+ * «5» by the time the clock patterns looked for it, and stayed in the title
+ * (and kept «لازم» there, since the obligation strip is anchored at the start).
+ * «بكرا الساعة 5 المسا» was clean only because «الساعة» marks the 5 by itself.
+ * The number goes with its time words; the day and the hour are unchanged.
+ * A number the item did not take as its hour (a quantity, a bare «5» with no
+ * marker) stays where the person put it.
+ */
+const R6_TITLE_HOURS: ReadonlyArray<{ text: string; title: string; date: string | null; time: string | null }> = [
+  { text: 'بكرا 5 المسا لازم أتصل بأمي', title: 'أتصل بأمي', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'بكرا الساعة 5 المسا لازم أتصل بأمي', title: 'أتصل بأمي', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: '5 المسا بكرا بدي أتصل بأمي', title: 'أتصل بأمي', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'لازم أتصل بأمي بكرا 5 المسا', title: 'أتصل بأمي', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'بكرا ٥ المسا لازم أتصل بأمي', title: 'أتصل بأمي', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'بكرا 5 الصبح لازم أتصل بأمي', title: 'أتصل بأمي', date: TOMORROW, time: '2026-09-29T02:00:00.000Z' },
+  { text: 'اليوم 8 بالليل لازم أتصل بأمي', title: 'أتصل بأمي', date: TODAY, time: '2026-09-28T17:00:00.000Z' },
+  { text: 'بكرا 5 م لازم أتصل بأمي', title: 'أتصل بأمي', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'tomorrow 5pm call mom', title: 'call mom', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'מחר ב-5 בערב להתקשר לאמא', title: 'להתקשר לאמא', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'מחר 5 בערב להתקשר לאמא', title: 'להתקשר לאמא', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  { text: 'מחר ב5 בערב להתקשר לאמא', title: 'להתקשר לאמא', date: TOMORROW, time: '2026-09-29T14:00:00.000Z' },
+  // A number that is not the hour keeps its place.
+  { text: 'أكتب 3 نقاط للنقاش', title: 'أكتب 3 نقاط للنقاش', date: null, time: null },
+  { text: 'اشتري 2 كيلو بندورة', title: 'اشتري 2 كيلو بندورة', date: null, time: null },
+  { text: 'أكتب 3 نقاط للنقاش بكرا المسا', title: 'أكتب 3 نقاط للنقاش', date: TOMORROW, time: '2026-09-29T15:00:00.000Z' },
+  { text: 'من الساعة 2 للساعة 4 المسا اجتماع', title: 'اجتماع', date: TODAY, time: '2026-09-28T11:00:00.000Z' },
+];
+
+test('R6 title hour: on the rules path a clock number leaves the title with its time words, the day and hour unchanged', async () => {
+  const seen: unknown[] = [];
+  for (const probe of R6_TITLE_HOURS) {
+    setStorageForTests(createMemoryStorage());
+    try {
+      const proposal = await proposeMobileCapture({ text: probe.text, timezone: TZ, referenceTime: NOW.toISOString() });
+      seen.push([probe.text, proposal.items.map((item) => [item.title, item.resolvedDate ?? null, item.resolvedTime])]);
+    } finally {
+      resetStorageForTests();
+    }
+  }
+  assert.deepEqual(seen, R6_TITLE_HOURS.map((probe) => [probe.text, [[probe.title, probe.date, probe.time]]]));
+});
+
+test('R6 title hour: a bare «5» the item did not take as its hour stays in the title, and is asked as it was', async () => {
+  setStorageForTests(createMemoryStorage());
+  try {
+    const proposal = await proposeMobileCapture({ text: 'بكرا 5 لازم أتصل بأمي', timezone: TZ, referenceTime: NOW.toISOString() });
+    const item = proposal.items[0]!;
+    assert.deepEqual([proposal.items.length, item.title, item.resolvedDate ?? null, item.resolvedTime], [1, '5 لازم أتصل بأمي', TOMORROW, null]);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('R6 title hour (SCRIPTED): the model path keeps the model\'s clean title and its 17:00; with the model down the rules fallback is clean too', async () => {
+  const text = 'بكرا 5 المسا لازم أتصل بأمي';
+  const fields = { dueAt: at(TOMORROW, '17:00'), localTimeSpec: { date: TOMORROW, time: '17:00', timezone: TZ } };
+  for (const title of ['أتصل بأمي', 'لازم أتصل بأمي']) {
+    const { contract } = await proposeModel(text, bankModel(fields, title));
+    assert.equal(contract.provenance.executedEngine, 'gemini');
+    assert.deepEqual(contract.items.map((item) => [item.title, item.resolvedDate ?? null, item.resolvedTime]), [[title, TOMORROW, at(TOMORROW, '17:00')]]);
+  }
+  const { contract } = await proposeModel(text, async () => { throw new LLMUnavailableError('provider_error'); });
+  assert.notEqual(contract.provenance.executedEngine, 'gemini');
+  assert.deepEqual(contract.items.map((item) => [item.title, item.resolvedDate ?? null, item.resolvedTime]), [['أتصل بأمي', TOMORROW, at(TOMORROW, '17:00')]]);
+});
+
+test('R6 title hour: a capture that is only «بكرا 5 المسا» asks what to do, as «بكرا الساعة 5 المسا» and "tomorrow 5pm" do — not rejected over a title «5»', async () => {
+  const seen: unknown[] = [];
+  for (const text of ['بكرا 5 المسا', 'اليوم 8 بالليل', 'بكرا الساعة 5 المسا', 'tomorrow 5pm', 'מחר ב-5 בערב']) {
+    setStorageForTests(createMemoryStorage());
+    try {
+      const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
+      seen.push([text, proposal.status, proposal.items.map((item) => [item.resolvedDate ?? null, item.clarification?.questionKey ?? null])]);
+    } finally {
+      resetStorageForTests();
+    }
+  }
+  assert.deepEqual(seen, [
+    ['بكرا 5 المسا', 'needs_clarification', [[TOMORROW, 'ask_action']]],
+    ['اليوم 8 بالليل', 'needs_clarification', [[TODAY, 'ask_action']]],
+    ['بكرا الساعة 5 المسا', 'needs_clarification', [[TOMORROW, 'ask_action']]],
+    ['tomorrow 5pm', 'needs_clarification', [[TOMORROW, 'ask_action']]],
+    ['מחר ב-5 בערב', 'needs_clarification', [[TOMORROW, 'ask_action']]],
+  ]);
+});

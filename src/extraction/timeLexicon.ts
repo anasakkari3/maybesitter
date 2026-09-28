@@ -189,6 +189,17 @@ export function normalizeClockText(value: string): string {
 }
 
 /**
+ * A clock whose hour is marked by the part of the day right after it: «5
+ * المسا», «8 بالليل», «ב-5 בערב». The hour is read from the pair, so the pair
+ * leaves a title together: `stripTiming` takes these before the parts of the
+ * day, or «5 المسا» would lose «المسا» first and leave «5 لازم أتصل بأمي»
+ * (closure UAT round 6).
+ */
+const AR_CLOCK_WITH_PERIOD = /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/.source;
+const HE_CLOCK_WITH_PERIOD = /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source;
+export const CLOCK_WITH_PERIOD_SOURCES: readonly string[] = [AR_CLOCK_WITH_PERIOD, HE_CLOCK_WITH_PERIOD];
+
+/**
  * What a single clock time looks like. `stripTiming` removes these from a
  * title and `countTimeExpressions` counts them; both read this one list, so
  * the two cannot drift apart. Stored as sources: every caller builds a fresh
@@ -197,9 +208,9 @@ export function normalizeClockText(value: string): string {
 export const CLOCK_PATTERN_SOURCES: readonly string[] = [
   /\b(?:at|by|around)?\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
   /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/.source,
-  /(?:الساعة|الساعه|عند|على)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م)(?=$|[\s,.،])/.source,
+  AR_CLOCK_WITH_PERIOD,
   /(?:الساعة|الساعه|عند|على)\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?(?=$|[\s,.،])/.source,
-  /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source,
+  HE_CLOCK_WITH_PERIOD,
   /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
   // Last, after the marked shapes: `stripTiming` runs these in order, and a
   // bare `4:30` taken out first left «الساعة» behind in the title (CL1
