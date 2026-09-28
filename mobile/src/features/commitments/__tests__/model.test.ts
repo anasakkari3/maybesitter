@@ -120,6 +120,38 @@ describe('a time that has passed', () => {
   });
 });
 
+/*
+ * Final UAT, N18: the all-day doctor's appointment today at 10:05 was said to
+ * be late — its day's midnight read as a deadline. The phone has its own rule
+ * for "past" (`isPast`: an all-day item is today's until the day ends), and a
+ * server `overdue` the phone disagrees with is not said.
+ */
+describe('an all-day item is late only once its day is over (N18)', () => {
+  const AT_1005 = '2026-09-28T07:05:00.000Z'; // 10:05 in Amman
+  const allDayToday = (kind: 'scheduled_event' | 'due_by') => commitment({
+    id: kind, reasonCodes: ['overdue', 'user_must'],
+    timeSpec: { kind, dueAt: '2026-09-27T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Amman' },
+  } as Partial<Commitment> & { id: string });
+
+  it('an all-day item on its own day carries no overdue reason, whatever the server ranked', () => {
+    for (const kind of ['scheduled_event', 'due_by'] as const) {
+      const view = toViewModel(allDayToday(kind), AT_1005);
+      expect([kind, view.isPast, view.reasonCodes]).toEqual([kind, false, ['user_must']]);
+    }
+  });
+
+  it('keeps it once the day is over', () => {
+    const view = toViewModel(allDayToday('due_by'), '2026-09-28T21:30:00.000Z'); // 00:30 the next day in Amman
+    expect(view.isPast).toBe(true);
+    expect(view.reasonCodes).toEqual(['overdue', 'user_must']);
+  });
+
+  it('says which items are appointments on a day, and only those', () => {
+    expect(toViewModel(allDayToday('scheduled_event'), AT_1005).allDayEvent).toBe(true);
+    expect(toViewModel(allDayToday('due_by'), AT_1005).allDayEvent).toBe(false);
+  });
+});
+
 describe('grouping', () => {
   it('puts each item in the group its importance names', () => {
     const groups = groupForToday(

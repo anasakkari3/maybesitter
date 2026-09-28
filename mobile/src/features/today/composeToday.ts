@@ -150,7 +150,9 @@ export function composeToday(input: {
     // open item of the first non-empty group, Must before Should before Nice
     // (#169). Whether it has a reason to give is a separate question the
     // screen asks with `whyFirstLine`; `topItemFor` answers that one, not this.
-    const top = open[0] ?? null;
+    // An appointment on a day is not a step: it stays in its group as the
+    // day's context, and the card goes to the first thing to do (N18).
+    const top = open.find((c) => !c.allDayEvent) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 
@@ -180,11 +182,11 @@ export function composeToday(input: {
   // One rule: the day is empty only when every source has answered and none
   // of them has anything to show.
   //
-  // `primary.kind === 'none'` is already the list's whole answer — it is the
-  // one kind that draws nothing, and it is reached only when the day has no
-  // open item, nothing finished (that is `allDone`), no recommendation to
-  // show and no request for quiet. So the list is not re-tested here; a
-  // second, redundant clause would be a line no mutation could kill.
+  // `primary.kind === 'none'` is the one kind that draws nothing. It is
+  // reached with no open item, nothing finished (that is `allDone`), no
+  // recommendation to show and no request for quiet — or when every open
+  // item is an appointment on the day (N18), which is still a day with
+  // something on it. So the open count is part of the answer.
   const planShowsWork = (planRow.kind === 'proposed' || planRow.kind === 'accepted') && planRow.placed > 0;
   // Pending or failed is *not* an answer. Saying «empty» while a source is
   // still talking is the false empty state itself, and on failure the empty
@@ -201,6 +203,6 @@ export function composeToday(input: {
     openTotal: open.length,
     plan: planRow,
     later,
-    isEmpty: primary.kind === 'none' && !planShowsWork && later.length === 0 && !stillAsking,
+    isEmpty: primary.kind === 'none' && open.length === 0 && !planShowsWork && later.length === 0 && !stillAsking,
   };
 }

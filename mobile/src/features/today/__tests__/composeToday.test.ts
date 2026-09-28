@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from '@jest/globals';
 import { composeToday, type NextStepInput, type PlanInput } from '../composeToday';
-import type { CommitmentView, TodayGroups } from '../../commitments/model';
+import { groupForToday, type CommitmentView, type TodayGroups } from '../../commitments/model';
+import type { Commitment } from '../../../api/schemas/common';
 import type { NextStepRecommendation } from '../../../api/schemas/nextStep';
 import type { DailyPlan } from '../../../api/schemas/plan';
 
@@ -217,5 +218,54 @@ describe('a refusal is an answer, a failure is not', () => {
   it('a refusal does not change what is drawn: there is still no card to show', () => {
     const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ isError: true, unavailable: true }), plan: plan(), upcoming: [] });
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'a' } });
+  });
+});
+
+/*
+ * Final UAT, N18: «عندي موعد دكتور اليوم» answered «بدون وقت محدد» is an
+ * all-day appointment (`scheduled_event`, `allDay`, due at today's local
+ * midnight). At 10:05, with no recommendation to show, the list's own top item
+ * became «خطوتك التالية» — and the only open item was the appointment. An
+ * appointment on a day is not a step: it is on Today as context, in its group,
+ * and the card goes to the first thing that is one (the server leaves it out of
+ * the next-step candidates for the same reason, FINAL-BACKEND d2762718).
+ */
+describe('an all-day appointment is never the step (N18)', () => {
+  const NOW = '2026-09-28T07:05:00.000Z'; // 10:05 in Amman
+  const base = {
+    kind: 'task', description: null, person: null, status: 'active',
+    currentAckState: 'not_seen', postponedUntil: null,
+    createdAt: '2026-09-28T07:00:00.000Z', updatedAt: '2026-09-28T07:00:00.000Z', confirmedAt: '2026-09-28T07:00:00.000Z',
+    completedAt: null, droppedAt: null,
+  };
+  const doctor = {
+    ...base, id: 'doctor', title: 'عندي موعد دكتور',
+    priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
+    timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-27T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Amman' },
+  } as unknown as Commitment;
+  const lunch = {
+    ...base, id: 'lunch', title: 'أحضّر الغداء',
+    priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
+    timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T11:30:00.000Z', remindAt: null, allDay: false, timezone: 'Asia/Amman' },
+  } as unknown as Commitment;
+
+  it('the literal case: the appointment alone is context, not the card, and the day is not empty', () => {
+    const m = composeToday({ groups: groupForToday([doctor], NOW), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'none' });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['doctor']);
+    expect(m.openTotal).toBe(1);
+    expect(m.isEmpty).toBe(false);
+  });
+
+  it('with lunch at 14:00 on the day, lunch is the step and the appointment stays in its group', () => {
+    const m = composeToday({ groups: groupForToday([doctor, lunch], NOW), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'lunch' } });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['doctor']);
+  });
+
+  it('an all-day *task* — a thing to do by the end of the day — is still a step', () => {
+    const bill = { ...doctor, id: 'bill', timeSpec: { ...doctor.timeSpec, kind: 'due_by' } } as Commitment;
+    const m = composeToday({ groups: groupForToday([bill], NOW), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'bill' } });
   });
 });

@@ -20,6 +20,7 @@ import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
+import type { CommitmentView } from '../../commitments/model';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -73,7 +74,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-async function show(data: unknown = response()) {
+async function show(data: unknown = response(), lookup?: ReadonlyMap<string, CommitmentView>) {
   const get = jest.spyOn(nextStepEndpoints, 'getNextStep');
   if (data instanceof Error) get.mockRejectedValue(data);
   else get.mockResolvedValue(data as never);
@@ -81,7 +82,7 @@ async function show(data: unknown = response()) {
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
         <AuthProvider repository={repository} isDevBundle={false}>
-          <QueryClientProvider client={client}><NextStepCard /></QueryClientProvider>
+          <QueryClientProvider client={client}><NextStepCard lookup={lookup} /></QueryClientProvider>
         </AuthProvider>
       </AppProvider>
     </SafeAreaProvider>,
@@ -177,6 +178,32 @@ describe('the why', () => {
       evidenceCodes: [{ code: 'invented_next_sprint' }],
     } }));
     expect(screen.queryByTestId('next-step-why-toggle')).toBeNull();
+  });
+});
+
+/*
+ * Final UAT, N18: the all-day doctor's appointment today, at 10:05, carried
+ * «الوقت راح». The server no longer offers an appointment on a day as a step
+ * (FINAL-BACKEND d2762718); the phone also never says an all-day item is late
+ * on its own day, whatever reason the server sends.
+ */
+describe('«the time has passed» on an all-day item (N18)', () => {
+  const allDay = (isPast: boolean): CommitmentView => ({
+    id: 'c-1', title: 'Doctor', importance: 'must', status: 'active',
+    shownAt: '2026-09-27T21:00:00.000Z', allDay: true, isPast,
+    importanceIsStated: true, rank: undefined, reasonCodes: [],
+  });
+
+  it('is not said on the item\'s own day', async () => {
+    await show(response(), new Map([['c-1', allDay(false)]]));
+    expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
+    // The other reason still stands.
+    expect(screen.getByTestId('next-step-evidence')).toBeTruthy();
+  });
+
+  it('is said once the day is over', async () => {
+    await show(response(), new Map([['c-1', allDay(true)]]));
+    expect(screen.getByText(en.evidenceOverdue)).toBeTruthy();
   });
 });
 

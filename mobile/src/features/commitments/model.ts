@@ -46,6 +46,13 @@ export interface CommitmentView {
    * (FX3). Optional so a view built by hand reads as timed.
    */
   allDay?: boolean;
+  /**
+   * An appointment on a day with no hour (`scheduled_event` + `allDay`): it
+   * happens on its day, and is never «خطوتك التالية» (final UAT, N18). An
+   * all-day *task* is still something to do by the day's end. Optional so a
+   * view built by hand reads as neither.
+   */
+  allDayEvent?: boolean;
   /** Separate from the due time: postponing pauses resurfacing, not the deadline. */
   postponedUntil?: string | null;
   /** Past its shown time, and still active. Not a status — see the header. */
@@ -87,6 +94,10 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
   const status = STATUS[commitment.status] ?? 'active';
   const shownMs = shownAt ? Date.parse(shownAt) : Number.NaN;
   const allDay = commitment.timeSpec.allDay === true;
+  const isPast = status === 'active' && !Number.isNaN(shownMs) && (allDay
+    ? dayHasEnded(shownMs, now, resolveTimeZone(commitment.timeSpec.timezone))
+    : shownMs < Date.parse(now));
+  const reasonCodes = commitment.reasonCodes ?? [];
   return {
     id: commitment.id,
     title: commitment.title,
@@ -94,13 +105,15 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
     status,
     shownAt,
     allDay,
+    allDayEvent: allDay && commitment.timeSpec.kind === 'scheduled_event',
     postponedUntil: commitment.currentAckState === 'postponed' ? commitment.postponedUntil : null,
-    isPast: status === 'active' && !Number.isNaN(shownMs) && (allDay
-      ? dayHasEnded(shownMs, now, resolveTimeZone(commitment.timeSpec.timezone))
-      : shownMs < Date.parse(now)),
+    isPast,
     importanceIsStated: commitment.priority.source === 'user_explicit',
     rank: commitment.rank,
-    reasonCodes: commitment.reasonCodes ?? [],
+    // An all-day item is late only once its day is over (`isPast`): the
+    // server read its midnight as the deadline and called the appointment late
+    // at 10:05 on its own day (final UAT, N18).
+    reasonCodes: allDay && !isPast ? reasonCodes.filter((code) => code !== 'overdue') : reasonCodes,
   };
 }
 
