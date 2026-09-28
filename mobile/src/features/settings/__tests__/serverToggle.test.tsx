@@ -9,6 +9,7 @@
 import React from 'react';
 import { describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
@@ -101,6 +102,25 @@ describe('which failure it says (UAT round 3, N9)', () => {
     await failWith(new Error('the phone said no'));
     expect(screen.queryByText(en.trustActionFailed)).toBeNull();
     expect(screen.queryByText(en.trustActionNotSaved)).not.toBeNull();
+  });
+});
+
+/*
+ * FZ2 review M5: the failure line appears under the switch after the tap, and
+ * nothing told a screen reader. TalkBack hears it from a live region;
+ * VoiceOver is told the line itself.
+ */
+describe('a failure is announced', () => {
+  it('sits in a live region, and VoiceOver is told the line once it appears', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
+    await show({ onChange: (async () => { throw new NetworkError('offline'); }) as never });
+    expect(announce).not.toHaveBeenCalled();
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+    expect(screen.getByTestId('toggle-failed-live').props.accessibilityLiveRegion).toBe('polite');
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(en.trustActionFailed));
+    announce.mockRestore();
   });
 });
 

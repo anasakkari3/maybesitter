@@ -11,6 +11,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -467,6 +468,29 @@ describe('an appointment, and a step moved by quiet hours', () => {
       await waitFor(() => expect(screen.getByTestId('review-prep-no-reminder').props.children).toBe(en.reviewPrepNoTime));
       expect(screen.queryByTestId('review-prep-rings-at')).toBeNull();
       expect(screen.queryByTestId('review-prep-after-meeting')).toBeNull();
+    });
+
+    /*
+     * FY3 review m4: the line changed after an edit and nobody using a screen
+     * reader was told. Android hears it from the live region the lines sit in;
+     * VoiceOver has no live regions, so it is told the new line — once the
+     * person has edited, never for the line Review opened with.
+     */
+    it('an edit that changes the line is announced; the line Review opened with is not', async () => {
+      settingsWith();
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+      // React Native's jest setup makes this a shared mock: earlier cases' calls stay on it.
+      announce.mockClear();
+      await reviewWith({});
+      expect(screen.getByTestId('review-prep-live').props.accessibilityLiveRegion).toBe('polite');
+      expect(announce).not.toHaveBeenCalled();
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(screen.getByTestId('review-prep-rings-at')).toBeTruthy());
+      const ring = String(screen.getByTestId('review-prep-rings-at').props.children);
+      await waitFor(() => expect(announce).toHaveBeenLastCalledWith(`${en.reviewPrepAfterMeeting} ${ring}`));
+      await edit('');
+      await waitFor(() => expect(announce).toHaveBeenLastCalledWith(en.reviewPrepNoTime));
     });
 
     it('with reminders off, an edited time still says nothing will ring, and why', async () => {

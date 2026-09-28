@@ -3,6 +3,7 @@ import { ActivityIndicator, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Txt } from '../../ui/primitives';
 import { useLayoutMode } from '../../theme/textScale';
+import { useAnnounceOnIos } from '../../ui/announce';
 import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 
 /**
@@ -25,7 +26,8 @@ import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMes
  *
  * Not a toast. A toast for "analytics could not be turned off" disappears
  * while the switch is still sitting in the position the user did not choose.
- * The message stays under the control it is about until the next attempt.
+ * The message stays under the control it is about until the next attempt,
+ * and is announced when it appears (a live region, and VoiceOver told).
  * Which message is `toggleFailureKey`'s: «didn't reach the server» only for a
  * request that did not (UAT round 3, N9).
  *
@@ -61,6 +63,9 @@ export function ServerToggle({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState<UserFacingKey | null>(null);
   const blocked = value && blockedNote ? blockedNote : null;
+  // The failure line appears away from the switch the person touched, so it
+  // is announced: a live region for TalkBack, and VoiceOver told (FZ2 M5).
+  useAnnounceOnIos(failed ? t[failed] : null);
 
   return (
     <View style={{ paddingVertical: 18, paddingHorizontal: 18, gap: 8, borderBottomWidth: 1, borderBottomColor: p.ln }}>
@@ -97,7 +102,9 @@ export function ServerToggle({
         <Txt size={13} color={p.wm} weight={600} testID={`${testID ?? 'toggle'}-blocked`}>{blocked}</Txt>
       ) : null}
       {failed ? (
-        <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t[failed]}</Txt>
+        <View accessibilityLiveRegion="polite" testID={`${testID ?? 'toggle'}-failed-live`}>
+          <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t[failed]}</Txt>
+        </View>
       ) : null}
     </View>
   );
