@@ -69,6 +69,8 @@ function nineOn(key: string): string {
 }
 
 let eventOnDay = true;
+/** Still waiting on its hour: the edit sheet then saves «بدون وقت» on any save. */
+let stillAsking = false;
 
 function proposal() {
   return {
@@ -80,8 +82,8 @@ function proposal() {
         itemId: 'dentist',
         title: 'موعد أسنان',
         // «الصبح» answered: Friday 09:00.
-        resolvedTime: nineOn(FRIDAY),
-        needsClarification: false,
+        resolvedTime: stillAsking ? null : nineOn(FRIDAY),
+        needsClarification: stillAsking,
         priority: 'high',
         priorityEstimated: true,
         resolvedDate: FRIDAY,
@@ -114,6 +116,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await cleanup();
   eventOnDay = true;
+  stillAsking = false;
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -165,6 +168,34 @@ describe('«بدون وقت» from the review edit sheet (UAT round 3, N11)', ()
   it('a task, which the server saves with no day, still reads a bare «بدون وقت»', async () => {
     eventOnDay = false;
     await reachReviewAndClearTheTime();
+    expect(textOf('review-when-dentist')).toBe(ar.noTimeYet);
+  });
+});
+
+describe('an item still asking for its hour (review M2)', () => {
+  it('saved from the edit sheet without a time, it promises no day: the confirm keeps nothing of it', async () => {
+    // A server that flagged it anyway (FZ2 before M2): the card must not read
+    // «الجمعة · بدون وقت» for an item that cannot be confirmed as it is.
+    stillAsking = true;
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><Root /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId('tab-capture')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('tab-capture'));
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'سجّل موعد أسنان يوم الجمعة');
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-dentist')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('review-edit-dentist'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-save')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('edit-item-save'));
+    await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).toBeNull());
     expect(textOf('review-when-dentist')).toBe(ar.noTimeYet);
   });
 });

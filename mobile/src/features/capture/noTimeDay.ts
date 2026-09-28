@@ -12,8 +12,11 @@ import type { CaptureItemEdit } from './captureMachine';
  * dentist, a bare «بدون وقت» for a call.
  */
 export function dayKeptWithoutTime(
-  item: Pick<CaptureProposalItem, 'resolvedDate' | 'eventOnDay'> | undefined,
+  item: Pick<CaptureProposalItem, 'resolvedDate' | 'eventOnDay' | 'needsClarification'> | undefined,
   edit: CaptureItemEdit | undefined,
 ): string | undefined {
+  // An item still asking for its hour is not confirmable with no time, so
+  // the confirm keeps nothing of it and no day is promised (review M2).
+  if (item?.needsClarification === true) return undefined;
   return edit?.localDateTime === '' && item?.eventOnDay === true ? item.resolvedDate : undefined;
 }

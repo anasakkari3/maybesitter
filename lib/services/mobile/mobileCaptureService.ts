@@ -30,6 +30,7 @@ import {
   type CaptureConfirmationCommitter,
   proposeCapture,
   type CaptureProposalStore,
+  type StoredCaptureProposal,
   type CapturePersistenceAdapter,
 } from '../captureBoundary';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
@@ -107,15 +108,27 @@ mobileGlobals.__maybesitterMobilePersistence = persistence;
  * which holds the readings the contract does not. One read, and only when some
  * item has a day to keep.
  */
-async function withEventsOnTheirDay<T extends { proposalId: string; items: ReadonlyArray<{ itemId: string; resolvedDate?: string }> }>(
+async function withEventsOnTheirDay<T extends { proposalId: string; items: ReadonlyArray<{ itemId: string; resolvedDate?: string; needsClarification?: boolean }> }>(
   contract: T,
 ): Promise<T> {
   if (!contract.proposalId || !contract.items.some((item) => item.resolvedDate)) return contract;
-  const results = (await store.get(contract.proposalId))?.resultsByItemId;
+  // The proposal (or the clarify answer) is already stored when this runs. A
+  // failed read here must not turn a saved answer into an error — a retry
+  // would meet `already_clarified` — so it degrades to no flag, which reads a
+  // bare «بدون وقت»: the safe direction (review M3).
+  let results: StoredCaptureProposal['resultsByItemId'];
+  try {
+    results = (await store.get(contract.proposalId))?.resultsByItemId;
+  } catch {
+    return contract;
+  }
   if (!results) return contract;
   return {
     ...contract,
     items: contract.items.map((item) => {
+      // Still asking for its hour: the confirm keeps nothing of it as it is,
+      // so no day is promised (review M2).
+      if (item.needsClarification) return item;
       const result = results.get(item.itemId);
       const date = result?.localTimeSpec?.date;
       const onDay = Boolean(item.resolvedDate) && date === item.resolvedDate && /^\d{4}-\d{2}-\d{2}$/.test(date ?? '')

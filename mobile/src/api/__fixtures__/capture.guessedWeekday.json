@@ -56,8 +56,7 @@
           }
         ],
         "allowFreeText": true
-      },
-      "eventOnDay": true
+      }
     }
   ],
   "seeds": [],

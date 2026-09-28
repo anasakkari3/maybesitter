@@ -16,6 +16,8 @@ import { clarifyMobileCapture, confirmMobileCapture, proposeMobileCapture } from
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
+import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
+import { CAPTURE_PROPOSALS } from '../../lib/storage/paths.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Monday 28 September 2026, 03:37 in Jerusalem: when the round-3 UAT ran it. */
@@ -55,7 +57,12 @@ async function answeredMorningThenNoTime(text: string, uid: string) {
 }
 
 test('N11: the dentist, answered «الصبح», says it stays on Friday without a time — and the confirm keeps Friday', async () => {
-  const { answered, commitment } = await withMemoryStorage(() => answeredMorningThenNoTime('سجّل موعد أسنان يوم الجمعة', 'n11-dentist'));
+  const { proposed, answered, commitment } = await withMemoryStorage(() => answeredMorningThenNoTime('سجّل موعد أسنان يوم الجمعة', 'n11-dentist'));
+  // Still asking for its hour: not confirmable, so nothing is promised yet
+  // (review M2). An edit-sheet save would otherwise read «الجمعة · بدون وقت»
+  // on an item the confirm keeps nothing of.
+  assert.equal(proposed.needsClarification, true);
+  assert.equal(proposed.eventOnDay, undefined);
   assert.equal(answered.eventOnDay, true);
   assert.equal(answered.resolvedDate, FRIDAY);
   // What the flag promises is what the confirm did.
@@ -86,4 +93,78 @@ test('N11: an appointment with its hour already said is flagged on the first pro
     assert.equal(item.resolvedDate, FRIDAY);
     assert.equal(item.eventOnDay, true);
   });
+});
+
+/**
+ * Storage whose proposal reads fail once a proposal has been written while
+ * `armed` — the flag's own read, after the answer or the proposal is saved.
+ */
+function failingFlagRead(): { storage: StorageAdapter; arm(): void; failed(): number } {
+  const inner = createMemoryStorage();
+  let armed = false;
+  let written = false;
+  let failures = 0;
+  const storage = new Proxy(inner, {
+    get(target, key, receiver) {
+      const value = Reflect.get(target, key, receiver) as unknown;
+      if (typeof value !== 'function') return value;
+      if (key === 'set') {
+        return async (path: string, data: unknown) => {
+          if (armed && path.includes(`/${CAPTURE_PROPOSALS}/`)) written = true;
+          return (value as (p: string, d: unknown) => Promise<void>).call(target, path, data);
+        };
+      }
+      if (key === 'listGroup') {
+        return async (collection: string, options: unknown) => {
+          if (armed && written && collection === CAPTURE_PROPOSALS) {
+            failures += 1;
+            throw new Error('UNAVAILABLE: transient read');
+          }
+          return (value as (c: string, o: unknown) => Promise<unknown>).call(target, collection, options);
+        };
+      }
+      return (value as (...args: unknown[]) => unknown).bind(target);
+    },
+  }) as StorageAdapter;
+  return { storage, arm: () => { armed = true; }, failed: () => failures };
+}
+
+test('N11 review M3: a failed flag read after a saved clarify answer returns the answer, unflagged, not an error', async () => {
+  const { storage, arm, failed } = failingFlagRead();
+  setStorageForTests(storage);
+  try {
+    const uid = 'n11-flaky';
+    const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    const morning = item.clarification!.options.find((option) => option.value.localTime === '09:00')!;
+    arm();
+    const updated = await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: morning.optionId,
+      timezone: TZ, referenceTime: NOW.toISOString(),
+    }, { participantId: uid });
+    assert.equal(failed(), 1, 'the flag read was never made to fail, so this proves nothing');
+    const answered = updated.items[0] as ProposedItem;
+    assert.ok(answered.resolvedTime, 'the saved answer did not come back');
+    assert.equal(answered.eventOnDay, undefined);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('N11 review M3: a failed flag read after a stored proposal returns the proposal, unflagged, not an error', async () => {
+  const { storage, arm, failed } = failingFlagRead();
+  setStorageForTests(storage);
+  try {
+    arm();
+    const proposal = await proposeMobileCapture(
+      { text: 'موعد دكتور يوم الجمعة الساعة 10 الصبح', timezone: TZ, referenceTime: NOW.toISOString() },
+      { participantId: 'n11-flaky-propose' },
+    );
+    assert.equal(failed(), 1, 'the flag read was never made to fail, so this proves nothing');
+    const item = proposal.items[0] as ProposedItem;
+    assert.equal(item.resolvedDate, FRIDAY);
+    assert.equal(item.eventOnDay, undefined);
+  } finally {
+    resetStorageForTests();
+  }
 });
