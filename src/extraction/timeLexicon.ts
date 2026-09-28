@@ -594,6 +594,13 @@ export function relativeDayIsUnsettled(rawText: string): boolean {
   return typeof rawText === 'string' && UNSETTLED_GATE.test(rawText) && UNSETTLED_RELATIVE_DAY.test(rawText);
 }
 
+/** Where the words rule out or leave open a relative day, as said: «مش بكرا», "today or tomorrow". */
+export function unsettledRelativeDayPhrase(rawText: string): { index: number; text: string } | null {
+  if (typeof rawText !== 'string' || !UNSETTLED_GATE.test(rawText)) return null;
+  const match = UNSETTLED_RELATIVE_DAY.exec(rawText);
+  return match ? { index: match.index, text: match[0] } : null;
+}
+
 /*
  * Words that put the commitment on some day other than today even when
  * «اليوم»/"today"/«היום» is the only relative day in them (FZ1 review, I1):

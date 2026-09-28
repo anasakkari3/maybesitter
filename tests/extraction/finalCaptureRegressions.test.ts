@@ -295,3 +295,85 @@ test('M2 titles sweep: no rules-path title in the probe corpora starts or ends w
   }
   assert.deepEqual(dangling, []);
 });
+
+/* ── Model-path titles of an unsettled day (closure UAT round 6, shot 506) ── */
+
+/*
+ * On the phone, «بدي أتصل بسامي بس مش بكرا» went to Gemini (backend log:
+ * `capture_extraction`, outcome ok, 12:54:08Z) and came back titled «أتصل
+ * بسامي». The item was rightly asked with no day, but «فهمت منك:» showed the
+ * call without its limit: the model's short title dropped «بس مش بكرا», and
+ * nothing on the model path put it back (the rules path keeps it, above).
+ * The words are the person's; the title keeps them, and the day stays unfilled.
+ */
+
+/** SCRIPTED: one answer per clause, each with its own title and no day. */
+function titledNoDayModel(titles: readonly string[]) {
+  const base = CALLS.find((call) => call.case === 'FINAL N19 log a doctor today')!.answer;
+  const answerFor = (title: string) => ({
+    ...base, action: title, title, dueAt: null, remindAt: null, localTimeSpec: null,
+    missingFields: ['time'], ambiguityFlags: [],
+  });
+  return async (prompt: string): Promise<string> => {
+    const payload = payloadOf(prompt);
+    return Array.isArray(payload)
+      ? JSON.stringify({ items: payload.map((_, clauseIndex) => ({ clauseIndex, ...answerFor(titles[clauseIndex] ?? titles[0]!) })) })
+      : JSON.stringify(answerFor(titles[0]!));
+  };
+}
+
+const R6_MODEL_TITLES: ReadonlyArray<{ text: string; model: string; title: string }> = [
+  { text: 'بدي أتصل بسامي بس مش بكرا', model: 'أتصل بسامي', title: 'أتصل بسامي بس مش بكرا' },
+  { text: 'بدي أتصل بسامي، ومش بكرا', model: 'أتصل بسامي', title: 'أتصل بسامي ومش بكرا' },
+  { text: 'call Sam, but not tomorrow', model: 'call Sam', title: 'call Sam, but not tomorrow' },
+  { text: 'להתקשר לסאמי אבל לא מחר', model: 'להתקשר לסאמי', title: 'להתקשר לסאמי אבל לא מחר' },
+  { text: 'اليوم أو بكرا بدي أتصل بسامي', model: 'أتصل بسامي', title: 'اليوم أو بكرا أتصل بسامي' },
+  { text: 'اليوم ولا بكرا بدي أتصل بسامي', model: 'أتصل بسامي', title: 'اليوم ولا بكرا أتصل بسامي' },
+  { text: 'call Sam today or tomorrow', model: 'call Sam', title: 'call Sam today or tomorrow' },
+  { text: 'today or tomorrow, call Sam', model: 'call Sam', title: 'today or tomorrow, call Sam' },
+  { text: 'להתקשר לסאמי היום או מחר', model: 'להתקשר לסאמי', title: 'להתקשר לסאמי היום או מחר' },
+  // A model title that is not the person's words verbatim still gets the limit.
+  { text: 'call Sam, but not tomorrow', model: 'Phone Sam', title: 'Phone Sam not tomorrow' },
+  // A model title that stops inside the phrase gets the rest of it.
+  { text: 'بدي أتصل بسامي بس مش بكرا', model: 'أتصل بسامي بس مش', title: 'أتصل بسامي بس مش بكرا' },
+  // Already there: nothing is added twice.
+  { text: 'بدي أتصل بسامي بس مش بكرا', model: 'أتصل بسامي بس مش بكرا', title: 'أتصل بسامي بس مش بكرا' },
+  { text: 'call Sam, but not tomorrow', model: 'Phone Sam, not tomorrow', title: 'Phone Sam, not tomorrow' },
+];
+
+for (const probe of R6_MODEL_TITLES) {
+  test(`R6 model path (SCRIPTED «${probe.model}»): «${probe.text}» keeps its unsettled day in the title, asked with no day`, async () => {
+    const { contract } = await proposeModel(probe.text, titledNoDayModel([probe.model]));
+    assert.equal(contract.provenance.executedEngine, 'gemini');
+    assert.equal(contract.items.length, 1, JSON.stringify(contract.items.map((item) => item.title)));
+    const item = contract.items[0]!;
+    assert.equal(item.title, probe.title);
+    assert.ok(!DANGLING_EDGE.test(item.title), `dangling edge in «${item.title}»`);
+    assert.deepEqual([item.resolvedDate ?? null, item.resolvedTime, item.needsClarification], [null, null, true]);
+  });
+}
+
+test('R6 model path (SCRIPTED): a settled day word still leaves the model\'s title, and the day is filled', async () => {
+  for (const [text, model] of [
+    ['بدي أتصل بسامي بكرا', 'أتصل بسامي'],
+    ['call Sam tomorrow', 'call Sam'],
+    ['להתקשר לסאמי מחר', 'להתקשר לסאמי'],
+    // A time-only clause is merged into the call: one item, the day taken.
+    ['بدي أتصل بسامي، بكرا', 'أتصل بسامي'],
+  ] as const) {
+    const { contract } = await proposeModel(text, titledNoDayModel([model]));
+    assert.equal(contract.items.length, 1, text);
+    assert.deepEqual([contract.items[0]!.title, contract.items[0]!.resolvedDate], [model, TOMORROW], text);
+  }
+});
+
+test('R6 model path (SCRIPTED): in a two-clause capture only the unsettled clause keeps its phrase', async () => {
+  const { contract } = await proposeModel(
+    'بدي أتصل بسامي بس مش بكرا، وبكرا بدي أروح عالسوق',
+    titledNoDayModel(['أتصل بسامي', 'أروح عالسوق']),
+  );
+  assert.deepEqual(
+    contract.items.map((item) => [item.title, item.resolvedDate ?? null]),
+    [['أتصل بسامي بس مش بكرا', null], ['أروح عالسوق', TOMORROW]],
+  );
+});

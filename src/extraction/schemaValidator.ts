@@ -36,6 +36,7 @@ import {
   thisMonthEndWords,
   timeAnchorOf,
   timeOfDayEvidence,
+  unsettledRelativeDayPhrase,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
 import { modelDateIsWeekdayGuess, namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
@@ -243,6 +244,41 @@ function withCompanion(title: string | null, rawText: string): string | null {
     if (bare !== word || words.length === 3) break;
   }
   return words.length > 0 ? `${title}${marker[1]}${marker[2]} ${words.join(' ')}` : title;
+}
+
+/*
+ * A day the words rule out or leave open, when the model's title left it out
+ * (closure UAT round 6, shot 506). «بدي أتصل بسامي بس مش بكرا» came back from
+ * Gemini titled «أتصل بسامي»: the item was rightly asked with no day, but the
+ * review card showed the call without its limit. The phrase is the person's
+ * (review M2 ruling): the title keeps it verbatim, as the rules path does
+ * (`stripTiming`). Only the title changes; no day or time is read from it.
+ * Where the model's title is the person's words next to the phrase, with at
+ * most a connector between («بس», "but", «אבל», a comma), the stretch they
+ * cover is taken as written; otherwise the phrase is put on the side it was
+ * said.
+ */
+const UNSETTLED_TITLE_GAP = new RegExp('^[\\s،,;:.\\-–—]*(?:(?:و?بس|و?لكن|but|and|yet|אבל|ו)[\\s،,]*)?$', 'iu');
+function withUnsettledDay(title: string | null, rawText: string): string | null {
+  if (!title) return title;
+  const phrase = unsettledRelativeDayPhrase(rawText);
+  if (!phrase || title.includes(phrase.text)) return title;
+  const phraseEnd = phrase.index + phrase.text.length;
+  const at = rawText.indexOf(title);
+  if (at < 0) return `${title} ${phrase.text}`;
+  const titleEnd = at + title.length;
+  if (phrase.index >= titleEnd) {
+    return UNSETTLED_TITLE_GAP.test(rawText.slice(titleEnd, phrase.index))
+      ? rawText.slice(at, phraseEnd)
+      : `${title} ${phrase.text}`;
+  }
+  if (phraseEnd <= at) {
+    return UNSETTLED_TITLE_GAP.test(rawText.slice(phraseEnd, at))
+      ? rawText.slice(phrase.index, titleEnd)
+      : `${phrase.text} ${title}`;
+  }
+  // The title holds part of the phrase («أتصل بسامي بس مش»): the whole stretch.
+  return rawText.slice(Math.min(at, phrase.index), Math.max(titleEnd, phraseEnd));
 }
 
 export function reconcileLocalTimeSpec(
@@ -689,7 +725,7 @@ export function validateExtractionResult(
     // string.
     action: commandFree(stringOrNull(raw['action']))
       ?? (type === 'task' || type === 'follow_up' ? commandFree(stringOrNull(raw['title'])) : null),
-    title: withCompanion(allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords), rawText),
+    title: withUnsettledDay(withCompanion(allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords), rawText), rawText),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
     remindAt: time.remindAt,
