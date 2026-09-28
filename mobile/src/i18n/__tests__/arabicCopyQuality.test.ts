@@ -62,10 +62,7 @@ describe('production Arabic copy', () => {
     expect(copy).not.toMatch(/خطّة|هذي|موديل/);
     expect(ar.icsFeedsHelp).toContain('Moodle (مودل)');
     expect(`${ar.obRecBody}\n${ar.financialPrivacyNote}`).toMatch(/نموذج ذكاء اصطناعي/);
-    // The contract wording in mobile/AGENTS.md. Closure CL2a (UAT #17) moved it
-    // from the MSA «هذا اقتراح. لم يتغيّر أي شيء بعد.» to spoken Levantine, and
-    // its register guard (arabicRegister.test.ts) bans the MSA form.
-    expect(ar.suggestionNote).toBe('هاد اقتراح. لسّا ما تغيّر إشي.');
+    expect(ar.suggestionNote).toBe('هذا اقتراح. لم يتغيّر أي شيء بعد.');
   });
 });
 

@@ -65,7 +65,7 @@ name: The one clarification, answered and skipped
 - assertVisible:
     id: 'clarify-question'
 # Answering is still not saving. The notice stays up either way.
-- assertVisible: 'هاد اقتراح. لسّا ما تغيّر إشي.'
+- assertVisible: 'هذا اقتراح. لم يتغيّر أي شيء بعد.'
 - tapOn:
     id: 'clarify-option-.*'
 

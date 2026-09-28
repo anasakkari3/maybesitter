@@ -5,6 +5,9 @@
  * لم يتغيّر أي شيء بعد.» on every proposal, «النص يُرسل لخادمنا لنفهمه، ولا
  * نحتفظ به.» under the composer — and explanatory bodies long enough that the
  * calendar and personalization screens read like terms of service.
+ *
+ * The proposal note has since gone back to its fusha wording by the owner's
+ * copy direction (#687); it is the one exact exception below.
  */
 import { describe, expect, it } from '@jest/globals';
 import ar from '../locales/ar.json';
@@ -30,10 +33,21 @@ const MSA: readonly RegExp[] = [
  */
 const ALLOWED = new Set(['todayGroupShould']);
 
+/**
+ * One sentence allowed in MSA, and only word for word. The proposal note is a
+ * product-contract sentence (mobile/AGENTS.md): the owner's copy direction
+ * behind #687 is simple fusha with light Levantine, and it keeps this line in
+ * fusha (ARABIC_STYLE_GUIDE.md). Any other wording of the key, and MSA in any
+ * other key, is still refused.
+ */
+const ALLOWED_EXACT: Readonly<Record<string, string>> = {
+  suggestionNote: 'هذا اقتراح. لم يتغيّر أي شيء بعد.',
+};
+
 describe('Arabic register', () => {
   it('no Arabic string is written in formal MSA', () => {
     const offenders = Object.entries(ar as Bundle)
-      .filter(([key, value]) => !ALLOWED.has(key) && typeof value === 'string' && MSA.some((re) => re.test(value)))
+      .filter(([key, value]) => !ALLOWED.has(key) && ALLOWED_EXACT[key] !== value && typeof value === 'string' && MSA.some((re) => re.test(value)))
       .map(([key, value]) => `${key}: ${String(value).slice(0, 60)}`);
     expect(offenders).toEqual([]);
   });

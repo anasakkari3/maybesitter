@@ -381,7 +381,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               }
               testID="plan-proposal-note"
             >
-              هاد اقتراح. لسّا ما تغيّر إشي.
+              هذا اقتراح. لم يتغيّر أي شيء بعد.
             </Text>
             <Text
               style={

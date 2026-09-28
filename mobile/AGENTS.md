@@ -39,7 +39,7 @@ Rules the design fixes, which code must keep:
   a text label and uses the contrast-tested pair from `src/theme/tokens.ts`.
 - There is no "overdue". Only active, done, rearranged, dropped on purpose.
   «أسقطه بوعي» has the same weight as «تمّت».
-- Suggestions always say «هاد اقتراح. لسّا ما تغيّر إشي.» (`suggestionNote`) and
+- Suggestions always say «هذا اقتراح. لم يتغيّر أي شيء بعد.» (`suggestionNote`) and
   nothing is saved without an explicit confirm.
 - Spoken Arabic for actions: تمّت · لسّا · احكيها · أسقطه بوعي.
 - Colours come from `src/theme/tokens.ts`; never hard-code hex in screens.
