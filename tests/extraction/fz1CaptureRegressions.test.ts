@@ -262,13 +262,14 @@ test('FZ1 N10: a model day after the "today" the words say is not kept; the word
     const result = validateExtractionResult(answer, text, { now, timezone: TZ });
     return `${result.localTimeSpec?.date ?? '-'} ${result.localTimeSpec?.time ?? '-'}`;
   };
-  // The passed hour goes back to today — the guarded extractor then refuses it
-  // as past and the boundary asks, as for any passed hour.
-  assert.equal(at(N10, modelAnswer('2026-09-29', '02:00')), '2026-09-28 02:00');
-  // An hour still ahead today stays today.
-  assert.equal(at('اليوم الساعة 5 المسا لازم أبعت الإيميل', modelAnswer('2026-09-29', '17:00')), '2026-09-28 17:00');
-  assert.equal(at('send the email to my manager today at 5pm', modelAnswer('2026-10-02', '17:00')), '2026-09-28 17:00');
-  assert.equal(at('לשלוח את המייל היום ב-5 אחר הצהריים', modelAnswer('2026-09-29', '17:00')), '2026-09-28 17:00');
+  // The passed hour goes back to today, with no hour: the boundary asks
+  // (FZ1 round 3: the move never settles).
+  assert.equal(at(N10, modelAnswer('2026-09-29', '02:00')), '2026-09-28 -');
+  // An hour still ahead today: today, and the hour asked — never settled.
+  assert.equal(at('اليوم الساعة 5 المسا لازم أبعت الإيميل', modelAnswer('2026-09-29', '17:00')), '2026-09-28 -');
+  assert.equal(at('לשלוח את המייל היום ב-5 אחר הצהריים', modelAnswer('2026-09-29', '17:00')), '2026-09-28 -');
+  // Only a model day of exactly tomorrow is moved (round 3): a later one is the model's.
+  assert.equal(at('send the email to my manager today at 5pm', modelAnswer('2026-10-02', '17:00')), '2026-10-02 17:00');
   // Today with no hour: the day is today.
   assert.equal(at('اليوم لازم أبعت الإيميل', modelAnswer('2026-09-29', null)), '2026-09-28 -');
   // The model's own today is untouched.
@@ -493,4 +494,130 @@ test('FZ1 round 2: a counted day that has already gone is not moved to the 30th'
   const proposal = await proposeRules('بدي أخلص التقرير قبل آخر الشهر بأسبوع', N6_NOW);
   assert.notEqual(proposal.items[0]?.resolvedDate, '2026-09-30');
   assert.equal(proposal.items[0]?.needsClarification, true);
+});
+
+// ── Round 3 (review FZ1-review.md: I1, I2, I3, M2, M5a, M5b) ─────────────
+
+/** Monday 28 Sep 2026, 09:00 on the phone. */
+const MON_9 = new Date('2026-09-28T06:00:00.000Z');
+
+function answerOn(date: string, time: string | null, title: string) {
+  return { ...modelAnswer(date, time), action: title, title };
+}
+
+test('FZ1 round 3 I1: a model day the words name some other way than "today" is the model\'s — never moved to today and settled', async () => {
+  const rows: Array<[string, Date, string, string | null]> = [
+    // The review's rows (Mon 09:00): the model's day is right.
+    ['اليوم الدكتور قلي ارجعله يوم 5 الساعة 10', MON_9, '2026-10-05', '10:00'],
+    ['اليوم المدير قلي لازم أسلم التقرير آخر الشهر الساعة 12', MON_9, '2026-09-30', '12:00'],
+    ['today my boss said the report is due at the end of the month at noon', MON_9, '2026-09-30', '12:00'],
+    ['اليوم عرفت إنه الاجتماع أول الشهر الساعة 10', MON_9, '2026-10-01', '10:00'],
+    ['היום הרופא אמר לחזור ב-5 לחודש בשעה 10', MON_9, '2026-10-05', '10:00'],
+    ['بدي أتصل بسامي بس مش اليوم', MON_9, '2026-09-29', null],
+    ['not today, call Sami', MON_9, '2026-09-29', null],
+    ['לא היום, להתקשר לסאמי', MON_9, '2026-09-29', null],
+    // The same words when that day *is* tomorrow: still the model's.
+    ['اليوم المدير قلي لازم أسلم التقرير آخر الشهر الساعة 12', new Date('2026-09-29T06:00:00.000Z'), '2026-09-30', '12:00'],
+    ['اليوم عرفت إنه الاجتماع أول الشهر الساعة 10', new Date('2026-09-30T06:00:00.000Z'), '2026-10-01', '10:00'],
+    ['اليوم الدكتور قلي ارجعله يوم 5 الساعة 10', new Date('2026-10-04T06:00:00.000Z'), '2026-10-05', '10:00'],
+    ['היום הרופא אמר לחזור ב-5 לחודש בשעה 10', new Date('2026-10-04T06:00:00.000Z'), '2026-10-05', '10:00'],
+    // Friday 2 Oct: the weekend, and after the feast, are tomorrow.
+    ['اليوم قررت أروح عالبحر الويكند الساعة 10', new Date('2026-10-02T06:00:00.000Z'), '2026-10-03', '10:00'],
+    ['today I decided to go to the beach this weekend at 10am', new Date('2026-10-02T06:00:00.000Z'), '2026-10-03', '10:00'],
+    ['اليوم بدي أحجز موعد بعد العيد الساعة 10', new Date('2026-10-02T06:00:00.000Z'), '2026-10-03', '10:00'],
+  ];
+  for (const [text, now, date, time] of rows) {
+    const result = validateExtractionResult(answerOn(date, time, 'x'), text, { now, timezone: TZ });
+    assert.equal(`${result.localTimeSpec?.date} ${result.localTimeSpec?.time ?? '-'}`, `${date} ${time ?? '-'}`, text);
+  }
+});
+
+test('FZ1 round 3 I1: a moved day is always a question — an hour still ahead today is asked on today, never settled', async () => {
+  const text = 'اليوم الساعة 5 المسا لازم أبعت الإيميل للمدير';
+  const { contract } = await proposeModel(text, MON_9, recordedModel({ [text]: modelAnswer('2026-09-29', '17:00') }).provider);
+  assert.equal(contract.status, 'needs_clarification');
+  assert.deepEqual(contract.items.map(line), ['أبعت الإيميل للمدير | 2026-09-28 - | ask_time']);
+  assertAskedAhead(contract.items[0]!, MON_9);
+  // The literal N10 capture is still asked (its hour has passed).
+  const n10 = await proposeModel(N10, N10_NOW, recordedModel({}, 'run 1').provider);
+  assert.deepEqual(n10.contract.items.map(line), ['أبعت الإيميل للمدير | 2026-09-28 - | ask_time']);
+});
+
+test('FZ1 round 3 I2: «ب 3 أيام», «ب٣ أيام», «قبل ما يخلص الشهر بأسبوع» and «بخمس تيام» are counted, on both paths', async () => {
+  const rows: Array<[string, string]> = [
+    ['بدي أخلص التقرير قبل آخر الشهر ب 3 أيام', 'أخلص التقرير | 2026-09-27 - | settled'],
+    ['بدي أخلص التقرير قبل آخر الشهر ب٣ أيام', 'أخلص التقرير | 2026-09-27 - | settled'],
+    ['بدي أخلص التقرير قبل آخر الشهر بـ٣ أيام', 'أخلص التقرير | 2026-09-27 - | settled'],
+    ['بدي أخلص التقرير قبل ما يخلص الشهر بأسبوع', 'أخلص التقرير | 2026-09-23 - | settled'],
+    ['بدي أخلص التقرير قبل آخر الشهر بخمس تيام', 'أخلص التقرير | 2026-09-25 - | settled'],
+  ];
+  for (const [text, expected] of rows) {
+    assert.deepEqual((await proposeRules(text, SEP_10)).items.map(line), [expected], text);
+    const { contract } = await proposeModel(text, SEP_10, recordedModel({ [text]: reportAnswer(null, 'أخلص التقرير') }).provider);
+    assert.deepEqual(contract.items.map(line), [expected], `model: ${text}`);
+  }
+});
+
+test('FZ1 round 3 I2: an offset with no count is no day of ours — the hour is asked and the title keeps the offset', async () => {
+  const rows: Array<[string, string]> = [
+    ['بدي أخلص التقرير قبل آخر الشهر بأسابيع', 'بأسابيع'],
+    ['بدي أخلص التقرير قبل آخر الشهر بكم يوم', 'بكم يوم'],
+    ['بدي أخلص التقرير قبل آخر الشهر بشي أسبوع', 'بشي أسبوع'],
+    ['بدي أخلص التقرير قبل ما يخلص الشهر بكم يوم', 'بكم يوم'],
+    ['finish the report a few days before the end of the month', 'a few days'],
+    ['לסיים את הדוח כמה ימים לפני סוף החודש', 'כמה ימים'],
+  ];
+  for (const [text, words] of rows) {
+    const item = (await proposeRules(text, SEP_10)).items[0]!;
+    assert.equal(item.resolvedDate, undefined, text);
+    assert.equal(item.clarification?.questionKey, 'ask_time', text);
+    assert.ok(item.title.includes(words), `${text}: ${item.title}`);
+    const { contract } = await proposeModel(text, SEP_10, recordedModel({ [text]: reportAnswer(null, 'أخلص التقرير') }).provider);
+    assert.equal(contract.items[0]?.resolvedDate, undefined, `model: ${text}`);
+  }
+});
+
+test('FZ1 round 3 I3: an offset before another month\'s end is not counted on this month — no day, and the title keeps the month', async () => {
+  const text = 'להגיש את הדוח שבוע לפני סוף חודש אוקטובר';
+  const item = (await proposeRules(text, SEP_10)).items[0]!;
+  assert.equal(item.resolvedDate, undefined);
+  assert.equal(item.clarification?.questionKey, 'ask_time');
+  assert.notEqual(item.title, 'להגיש את הדוח אוקטובר');
+  assert.ok(item.title.includes('סוף חודש אוקטובר'), item.title);
+  const { contract } = await proposeModel(text, SEP_10, recordedModel({ [text]: reportAnswer(null, 'להגיש את הדוח') }).provider);
+  assert.equal(contract.items[0]?.resolvedDate, undefined);
+  for (const other of ['بدي أخلص التقرير قبل آخر شهر 10 بأسبوع', 'submit the report a week before the end of October']) {
+    assert.equal((await proposeRules(other, SEP_10)).items[0]?.resolvedDate, undefined, other);
+  }
+});
+
+test('FZ1 round 3 M2: on the model path the month-end report with a stated hour gets no month-end day of ours', async () => {
+  const text = 'أحضّر تقرير آخر الشهر الساعة 5 المسا';
+  const { contract } = await proposeModel(text, N6_NOW, recordedModel({ [text]: reportAnswer(null) }).provider);
+  assert.notEqual(contract.items[0]?.resolvedDate, '2026-09-30');
+});
+
+test('FZ1 round 3 M5a: a typed number with a part of the day answers the time question with that hour in that half, not the button\'s 19:00', async () => {
+  for (const freeText of ['5 المسا', 'الساعة 5 المسا', '5 in the evening', '5 בערב', '٥ المسا']) {
+    assert.deepEqual((await answerN10OnRules(freeText)).items, ['أبعت الإيميل للمدير | 2026-09-28 17:00 | settled'], freeText);
+  }
+  // No number: the button's hour, as FY1 ruled.
+  assert.deepEqual((await answerN10OnRules('بالمسا')).items, ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled']);
+});
+
+test('FZ1 round 3 M5b: a spoken Hebrew hour at night — «מחר בשתיים בלילה» — is 02:00, and leaves the title', async () => {
+  const evening = new Date('2026-09-27T17:00:00.000Z');
+  for (const [text, expected] of [
+    ['לשלוח את המייל מחר בשתיים בלילה', '2026-09-28 02:00'],
+    ['לשלוח את המייל מחר באחת עשרה בלילה', '2026-09-28 23:00'],
+    ['לשלוח את המייל מחר בחמש בבוקר', '2026-09-28 05:00'],
+    ['לשלוח את המייל מחר בשש בערב', '2026-09-28 18:00'],
+  ] as const) {
+    const { result } = await extractWithFallback(text, { now: evening, timezone: TZ }, { llmProvider: async () => { throw new LLMUnavailableError('provider_none'); } });
+    assert.equal(`${result.localTimeSpec?.date} ${result.localTimeSpec?.time}`, expected, text);
+    assert.equal(result.title, 'לשלוח את המייל', text);
+  }
+  // A count that is not an hour keeps its word.
+  const { result } = await extractWithFallback('לסיים שלוש משימות מחר בבוקר', { now: evening, timezone: TZ }, { llmProvider: async () => { throw new LLMUnavailableError('provider_none'); } });
+  assert.ok(result.title?.includes('שלוש'), result.title ?? '');
 });
