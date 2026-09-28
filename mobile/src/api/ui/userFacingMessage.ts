@@ -1,5 +1,6 @@
 import type { Strings } from '../../i18n/strings';
 import {
+  ApiError,
   CaptureConfirmRefusedError,
   ContractError,
   FeatureUnavailableError,
@@ -195,4 +196,27 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
 
 export function userFacingMessage(error: unknown, t: Strings): string {
   return t[userFacingMessageKey(error)];
+}
+
+/**
+ * The line under a server-backed switch that did not move (UAT round 3, N9).
+ *
+ * `error` is what the write threw, or `null` when the caller answered `false`
+ * without saying why. «ما وصل للسيرفر» (`trustActionFailed`) is said only when
+ * that is what happened — no connection, or no answer in time. A new account
+ * turning its calendar on got it for a 400 the server had plainly sent, and
+ * went looking for a network problem that did not exist.
+ *
+ * A refusal the server answered reads as a refusal; a fault of ours and the
+ * product states (quiet mode, switched off…) take this table's own lines; and
+ * a failure that is not the server's at all — the phone saying no, a `false`
+ * with no reason — claims nothing about the server.
+ */
+export function toggleFailureKey(error: unknown): UserFacingKey {
+  if (error instanceof NetworkError || error instanceof TimeoutError) return 'trustActionFailed';
+  if (!(error instanceof ApiError)) return 'trustActionNotSaved';
+  const key = userFacingMessageKey(error);
+  // The generic lines ask the person to check what they typed; a switch has
+  // nothing to check.
+  return key === 'errorsValidation' || key === 'errorsGeneric' ? 'trustActionRefused' : key;
 }

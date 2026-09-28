@@ -5,6 +5,7 @@ import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
+import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import { useSetCalendarWriteTarget, useToday, useTrust, useTrustAction, useUpcoming } from '../../api/queries';
 import {
   useCalendarSettings,
@@ -251,13 +252,17 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   // said no: one button that does all of it.
   const canAllow = calendarReadEnabled() && trust.data !== undefined && access !== null && !denied && !reading;
   const [allowing, setAllowing] = useState(false);
+  // What went wrong on the last Allow, said under the button. It used to say
+  // nothing at all, so a refused grant read as a button that did nothing
+  // (UAT round 3, N9). The button stays, because nothing changed.
+  const [allowFailed, setAllowFailed] = useState<UserFacingKey | null>(null);
   const allow = useCallback(async () => {
     setAllowing(true);
+    setAllowFailed(null);
     try {
       await changeRead(true);
-    } catch {
-      // The switch above shows the same failure on its next attempt; the
-      // button simply stays, because nothing changed.
+    } catch (error: unknown) {
+      setAllowFailed(toggleFailureKey(error));
     } finally {
       setAllowing(false);
     }
@@ -299,6 +304,11 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
               >
                 <Txt size={15} weight={600} color={p.onAccent}>{t.calendarDeviceAllow}</Txt>
               </Btn>
+              {allowFailed ? (
+                <View accessibilityLiveRegion="polite" style={{ paddingTop: 8 }}>
+                  <Txt size={13} color={p.wm} testID="calendar-read-allow-failed">{t[allowFailed]}</Txt>
+                </View>
+              ) : null}
             </View>
           ) : null}
           {reading && phoneCalendars !== null && phoneCalendars.length === 0 ? (

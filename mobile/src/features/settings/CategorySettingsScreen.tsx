@@ -68,17 +68,13 @@ export function CategorySettingsScreen({ onBack }: { onBack: () => void }) {
   /**
    * Sends a whole preference and reports whether the server took it.
    *
-   * `ServerToggle` reads the boolean to decide whether to show its failure
-   * line, so a rejected write has to come back as `false` rather than as a
-   * thrown error nobody catches.
+   * A rejected write is thrown on to `ServerToggle`, which catches it and
+   * says which failure it was: a refusal is not "didn't reach the server"
+   * (UAT round 3, N9).
    */
   const write = async (next: CategoryPreferences): Promise<boolean> => {
-    try {
-      await save.mutateAsync(next);
-      return true;
-    } catch {
-      return false;
-    }
+    await save.mutateAsync(next);
+    return true;
   };
 
   const setGrouping = (grouping: boolean) =>

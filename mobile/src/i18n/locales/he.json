@@ -338,6 +338,8 @@
   "trustTitle": "מרכז האמון",
   "trustLede": "מה מותר ל־MaybeSitter לעשות. כולם כבויים עד שתדליק, וכבים ברגע שתכבה.",
   "trustActionFailed": "זה לא הגיע לשרת. שום דבר לא השתנה.",
+  "trustActionRefused": "השרת לא קיבל את זה. שום דבר לא השתנה.",
+  "trustActionNotSaved": "זה לא נשמר. שום דבר לא השתנה.",
   "trustQuietMode": "מצב שקט",
   "trustQuietModeBody": "בלי שום הצעות עד שתכבה את זה.",
   "trustCalendar": "יומן",

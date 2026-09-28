@@ -179,8 +179,10 @@ describe('the switch is the server’s record', () => {
     await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('plan-morning-toggle-failed')).not.toBeNull());
     expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(false);
-    // The words are the copy table's, never the server's message.
-    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+    // The words are the copy table's, never the server's message — and a 400
+    // is an answer, so never «didn't reach the server» (UAT round 3, N9).
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.queryByText(en.trustActionRefused)).not.toBeNull();
     expect(screen.queryByText(/HH:mm/)).toBeNull();
   });
 

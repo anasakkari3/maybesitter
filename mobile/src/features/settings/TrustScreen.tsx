@@ -89,14 +89,13 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const state = trust.data?.trust;
   const policy = privacyPolicyUrl(lang);
 
-  /** True when the write landed. `ServerToggle` shows the failure otherwise. */
+  /**
+   * True when the write landed. A failure is thrown on to `ServerToggle`, which
+   * says which one it was — a refusal is not "didn't reach the server" (N9).
+   */
   const record = async (run: Promise<unknown>): Promise<boolean> => {
-    try {
-      await run;
-      return true;
-    } catch {
-      return false;
-    }
+    await run;
+    return true;
   };
 
   return (

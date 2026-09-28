@@ -335,6 +335,8 @@
   "trustTitle": "مركز الثقة",
   "trustLede": "شو مسموح لـMaybeSitter يعمل. كلهن مطفيين لحد ما تشغّلهن، وبيطفوا أول ما تطفيهن.",
   "trustActionFailed": "هاد ما وصل للسيرفر. ما تغيّر إشي.",
+  "trustActionRefused": "السيرفر ما قبل هاد. ما تغيّر إشي.",
+  "trustActionNotSaved": "هاد ما انحفظ. ما تغيّر إشي.",
   "trustQuietMode": "وضع الهدوء",
   "trustQuietModeBody": "ما في أي اقتراحات لحد ما تطفي هاد.",
   "trustCalendar": "التقويم",

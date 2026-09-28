@@ -13,6 +13,7 @@ import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
 import en from '../../../i18n/locales/en.json';
+import { NetworkError, ServerError, TimeoutError, ValidationError } from '../../../api/errors';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -51,13 +52,55 @@ describe('the position is the server’s', () => {
     await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
     expect(screen.getByTestId('toggle').props.value).toBe(false);
-    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+    // `false` says the write did not take, not why. It used to read «ما وصل
+    // للسيرفر», which is a claim about the network nobody had checked.
+    expect(screen.queryByText(en.trustActionNotSaved)).not.toBeNull();
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
   });
 
   it('treats a thrown error the same as a refusal', async () => {
     await show({ onChange: (async () => { throw new Error('offline'); }) as never });
     await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+  });
+});
+
+describe('which failure it says (UAT round 3, N9)', () => {
+  async function failWith(error: unknown) {
+    await show({ onChange: (async () => { throw error; }) as never });
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+  }
+
+  it('a refusal the server answered never says it did not reach the server', async () => {
+    // The literal N9 answer: 400 from `/api/mobile/pilot/trust`.
+    await failWith(new ValidationError('calendar consent is available only after first value'));
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.queryByText(en.trustActionRefused)).not.toBeNull();
+    // The server's own words are never shown.
+    expect(screen.queryByText(/first value/)).toBeNull();
+  });
+
+  it('a request that never arrived says so', async () => {
+    await failWith(new NetworkError('offline'));
+    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+  });
+
+  it('a request nobody answered in time says so too', async () => {
+    await failWith(new TimeoutError('slow'));
+    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+  });
+
+  it('a server fault reads as ours, not as the network', async () => {
+    await failWith(new ServerError('boom', 500));
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.queryByText(en.errorsServer)).not.toBeNull();
+  });
+
+  it('a failure that is not an answer from the server claims nothing about it', async () => {
+    await failWith(new Error('the phone said no'));
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.queryByText(en.trustActionNotSaved)).not.toBeNull();
   });
 });
 

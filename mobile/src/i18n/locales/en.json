@@ -335,6 +335,8 @@
   "trustTitle": "Trust centre",
   "trustLede": "What MaybeSitter may do. Every one of these is off until you turn it on, and off again the moment you turn it off.",
   "trustActionFailed": "That didn't reach the server. Nothing changed.",
+  "trustActionRefused": "The server didn't accept that. Nothing changed.",
+  "trustActionNotSaved": "That didn't save. Nothing changed.",
   "trustQuietMode": "Quiet mode",
   "trustQuietModeBody": "No suggestions at all until you turn this off.",
   "trustCalendar": "Calendar",
