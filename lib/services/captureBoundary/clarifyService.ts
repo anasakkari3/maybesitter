@@ -532,6 +532,23 @@ async function readFreeTextAnswer(
       if (typedDay && answered.localTimeSpec?.date !== typedDay) throw new ClarifyError('answer_not_understood');
       return answered;
     };
+    // An hour typed alone answers the question about the item's day (UAT
+    // round 6, batch 3). When that hour on it has gone, a re-read that put it
+    // on another day — Gemini reading «المسا» at 23:29 as tomorrow — is not
+    // the person's answer: not understood, never «بكرا» unasked. A day they
+    // type, name or date still moves it.
+    const namesNoDay = !typedDay && !readWeekdayReference(freeText) && !namesExplicitDate(freeText);
+    const onAskedDay = (answered: ExtractionResult): ExtractionResult => {
+      if (!itemDate || !namesNoDay || question.field === 'which_day') return answered;
+      const at = answered.remindAt ?? answered.dueAt;
+      const local = at ? localTimeSpecFor(new Date(Date.parse(at)), options.timezone) : null;
+      const time = answered.localTimeSpec?.time ?? local?.time ?? null;
+      if ((answered.localTimeSpec?.date ?? local?.date ?? null) === itemDate) return answered;
+      if (!time || dayForAnswer(time, itemDate, { now: options.now, timezone: options.timezone }) === null) {
+        throw new ClarifyError('answer_not_understood');
+      }
+      return answered;
+    };
     // A part of the day typed with no clock is its button's hour (FY1
     // re-review): «بالمسا» is 19:00 like «المسا», tonight while it is ahead.
     // A day named with it is the re-read's; otherwise the item's.
@@ -559,7 +576,7 @@ async function readFreeTextAnswer(
       // The re-read's hour on the day the answer typed, whichever day the
       // engine put it on (R2-M1).
       if (typedDay && rereadTime) return notPast(withResolvedTime(result, { date: typedDay, time: rereadTime }, options.timezone), options.now);
-      return notPast(onTypedDay(withTimeFrom(result, reread)), options.now);
+      return notPast(onAskedDay(onTypedDay(withTimeFrom(result, reread))), options.now);
     }
     // The answer to "when?": its part of the day is the answer, even before
     // another word ("morning is fine").
@@ -661,6 +678,11 @@ export async function answerClarification(
       ?? (noTime
         ? noHourAnswer(result, options.timezone)
         : withResolvedTime(result, appliedLocal(result, option.value), options.timezone));
+    // A button whose hour went by while it was on the screen — «المسا»
+    // offered at 18:59 and tapped at 19:01 (UAT round 6, batch 3) — is held to
+    // the typed answer's rule (FY1 I3): refused, the round kept, never saved
+    // in the past and never moved to another day.
+    if (!noTime) notPast(answered, options.now);
     answerKind = 'option';
   } else {
     answered = await readFreeTextAnswer(result, question, freeText, options, dependencies);

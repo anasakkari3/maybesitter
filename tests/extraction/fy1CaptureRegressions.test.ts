@@ -509,8 +509,10 @@ test('FY1 fix I3: a typed answer to the passed-hour question wins over the hour 
   // «بالمسا» at 18:08 is tonight, as the «المسا» button is (fix round 2).
   assert.deepEqual(await answerN1Alone('بالمسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
   assert.deepEqual(await answerN1Alone('المسا'), ['أبعت الإيميل للمدير | 2026-09-27 19:00 | settled']);
-  // A passed part of the day is its next one, as the button's own day rule.
-  assert.deepEqual(await answerN1Alone('الصبح'), ['أبعت الإيميل للمدير | 2026-09-28 09:00 | settled']);
+  // A passed part of the day is not understood, the buttons kept (UAT round
+  // 6, batch 3 — supersedes "its next one, as the button's own day rule": the
+  // question is about today, and tomorrow was never asked for). Nothing moved.
+  await assert.rejects(answerN1Alone('الصبح'), (error: { failure?: string }) => error.failure === 'answer_not_understood');
   // A day named with it keeps that day.
   assert.deepEqual(await answerN1Alone('بكرا المسا'), ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled']);
 });
@@ -629,8 +631,11 @@ test('FY1 fix round 2: a typed bare hour from 1 to 6 with no part of the day is 
     await notUnderstood(N1_ALONE, (title) => title.includes('الإيميل'), freeText);
     await notUnderstood(DOCTOR, (title) => title.includes('دكتور'), freeText);
   }
-  // With its part of the day it is a time.
-  assert.deepEqual(await answerN1Alone('الساعة 4 العصر'), ['أبعت الإيميل للمدير | 2026-09-28 16:00 | settled']);
+  // With its part of the day it is a time — on the day asked about. 16:00
+  // today has gone at 18:08, so it is not understood rather than moved to
+  // tomorrow (UAT round 6, batch 3; was «2026-09-28 16:00»).
+  await assert.rejects(answerN1Alone('الساعة 4 العصر'), (error: { failure?: string }) => error.failure === 'answer_not_understood');
+  assert.deepEqual(await answerN1Alone('بكرا الساعة 4 العصر'), ['أبعت الإيميل للمدير | 2026-09-28 16:00 | settled']);
   assert.deepEqual(await answerN1Alone('الساعة 9 المسا'), ['أبعت الإيميل للمدير | 2026-09-27 21:00 | settled']);
 });
 

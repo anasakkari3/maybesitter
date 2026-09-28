@@ -43,6 +43,7 @@ import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { setAiConsent } from '../../lib/consents/aiConsentService.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
+import { instantFromLocal } from '../../src/extraction/timeLexicon.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Monday 28 Sep 2026, 10:05 in Jerusalem. */
@@ -1035,4 +1036,299 @@ test('R6 stated hour: a typed answer reads the number and its part of the day as
     ['11 الضهر', 'refused: answer_not_understood'],
     ['9 العصر', 'refused: answer_not_understood'],
   ]);
+});
+
+// ── UAT round 6 batch 3: a part of today that has gone is never offered, and never moved ──
+
+/*
+ * «لازم أتصل بأمي اليوم المسا وبعدين أشتري خبز» at 23:29 and 23:31, Monday 28
+ * Sep 2026, Asia/Hebron (shots 679–683, build e1871874, rules path). The
+ * evening had gone, so the call was asked «أي ساعة يوم الاثنين، 28 سبتمبر؟» —
+ * rightly (a passed hour is asked, CL1 rounds 1 and 3; FY1 N1) — but the
+ * buttons under that question were «الصبح / العصر / المسا» valued on *Tuesday*:
+ * each part that had gone today was quietly re-dated to tomorrow
+ * (`clarificationBuilder`, step 4's `dayFor` fallback), and the typed
+ * «المسا» took the same way (`dayForAnswer`). Tapping «المسا» gave «أتصل بأمي
+ * · بكرا · 19:00», no note, no mark.
+ *
+ * Owner rule: never silently pick or move a date or time; a passed time is
+ * asked, never refused and never moved; nothing in the past is persisted. So
+ * a question about a named day offers only the parts of *that* day still
+ * ahead, plus «بدون وقت محدد» (always offered, #474 — on a named day it keeps
+ * the day, UAT round 2 N3) and the typed box, where a day the person types
+ * («بكرا المسا», R2-M1) is theirs to choose. A part of that day that has gone,
+ * typed or tapped late, is not understood and the buttons stay (FY1 I3: an
+ * answered time already behind now is not an answer anyone can keep).
+ *
+ * An item with no day at all («أشتري خبز», «أي وقت بناسبك؟») is unchanged:
+ * its parts land on the next day they are ahead (the builder's contract test
+ * "the parts of today that have gone are not offered").
+ */
+const HEBRON = 'Asia/Hebron';
+const R6B3_MOM = 'لازم أتصل بأمي اليوم المسا وبعدين أشتري خبز';
+/** A local clock on Monday 28 Sep 2026 in Hebron, read from the zone. */
+const hebron = (time: string, date = TODAY) => instantFromLocal(date, time, HEBRON)!;
+const hebronIso = (date: string, time: string) => hebron(time, date).toISOString();
+
+type AskedItem = Item & { itemId: string; needsClarification?: boolean; clarification?: { questionId: string; questionKey?: string; params?: { date?: string }; options: Array<{ optionId: string; value: { localDate?: string; localTime?: string } }> } | null };
+/** What the question offers: each button with the day and hour it would save. */
+const offered = (item: AskedItem) => (item.clarification?.options ?? []).map((option) => `${option.optionId} ${option.value.localDate ?? '-'} ${option.value.localTime ?? '-'}`);
+
+/** A rules-path capture at `now`, and its first item's answer at `answeredAt` (default `now`). */
+async function rulesAsked(
+  text: string,
+  now: Date,
+  answer?: { optionId?: string; freeText?: string },
+  answeredAt: Date = now,
+): Promise<{ items: AskedItem[]; answered?: AskedItem | string }> {
+  setStorageForTests(createMemoryStorage());
+  try {
+    const proposal = await proposeMobileCapture({ text, timezone: HEBRON, referenceTime: now.toISOString() }, { participantId: 'r6-passed' });
+    const items = proposal.items as AskedItem[];
+    if (!answer) return { items };
+    const item = items[0]!;
+    try {
+      const updated = await clarifyMobileCapture({
+        proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, ...answer,
+        timezone: HEBRON, referenceTime: answeredAt.toISOString(),
+      }, { participantId: 'r6-passed' });
+      return { items, answered: (updated.items as AskedItem[]).find((candidate) => candidate.itemId === item.itemId)! };
+    } catch (error) {
+      return { items, answered: `refused: ${(error as { failure?: string }).failure ?? String(error)}` };
+    }
+  } finally {
+    resetStorageForTests();
+  }
+}
+
+const cardOf = (answered: AskedItem | string | undefined) => (typeof answered === 'string' || !answered
+  ? answered
+  : [answered.resolvedDate ?? null, answered.resolvedTime, answered.needsClarification ?? null]);
+
+test('R6 passed part (UAT literal, 23:29): the call is asked on today with only «بدون وقت محدد» — no passed part, nothing on tomorrow', async () => {
+  const { items } = await rulesAsked(R6B3_MOM, hebron('23:29'));
+  const mom = items.find((item) => item.title === 'أتصل بأمي')!;
+  assert.deepEqual(shown(mom), [TODAY, null, 'ask_time', TODAY]);
+  assert.deepEqual(offered(mom), ['none - -']);
+  // The bread has no day: its parts are on the next day they are ahead, as before.
+  const bread = items.find((item) => item.title === 'أشتري خبز')!;
+  assert.deepEqual(shown(bread), [null, null, 'ask_time', null]);
+  assert.deepEqual(offered(bread), [`morning ${TOMORROW} 09:00`, `afternoon ${TOMORROW} 14:00`, `evening ${TOMORROW} 19:00`, 'none - -']);
+});
+
+test('R6 passed part (23:29): every way of saying the passed evening is refused, the buttons kept; a day the person types is theirs', async () => {
+  const seen: unknown[] = [];
+  const answers: Array<{ optionId?: string; freeText?: string }> = [
+    // An old client's «المسا» (the button this question no longer has).
+    { optionId: 'evening' },
+    { freeText: 'المسا' }, { freeText: 'بالمسا' }, { freeText: 'الليلة' }, { freeText: 'اليوم المسا' }, { freeText: 'الصبح' },
+    // Chosen, not picked for them: tomorrow typed is tomorrow.
+    { freeText: 'بكرا المسا' },
+    { optionId: 'none' },
+  ];
+  for (const answer of answers) {
+    const { answered } = await rulesAsked(R6B3_MOM, hebron('23:29'), answer);
+    seen.push([answer.optionId ?? answer.freeText, cardOf(answered)]);
+  }
+  assert.deepEqual(seen, [
+    ['evening', 'refused: option_not_found'],
+    ['المسا', 'refused: answer_not_understood'],
+    ['بالمسا', 'refused: answer_not_understood'],
+    ['الليلة', 'refused: answer_not_understood'],
+    ['اليوم المسا', 'refused: answer_not_understood'],
+    ['الصبح', 'refused: answer_not_understood'],
+    ['بكرا المسا', [TOMORROW, hebronIso(TOMORROW, '19:00'), false]],
+    // That day, no hour: today all day (UAT round 2, N3), never tomorrow.
+    ['none', [TODAY, null, false]],
+  ]);
+});
+
+test('R6 passed part ("tonight"/«الليلة»/«הערב», 23:29): asked on today with only «بدون وقت محدد»; the same word typed back is refused', async () => {
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ['لازم أتصل بأمي الليلة', 'الليلة'],
+    ['لازم أتصل بأمي اليوم', 'المسا'],
+    ['call mom tonight', 'tonight'],
+    ['call mom this evening', 'in the evening'],
+    ['להתקשר לאמא הערב', 'הערב'],
+    ['להתקשר לאמא היום', 'בערב'],
+  ];
+  const seen: unknown[] = [];
+  for (const [text, typed] of rows) {
+    const { items, answered } = await rulesAsked(text, hebron('23:29'), { freeText: typed });
+    seen.push([text, shown(items[0]!), offered(items[0]!), cardOf(answered)]);
+  }
+  assert.deepEqual(seen, rows.map(([text]) => [text, [TODAY, null, 'ask_time', TODAY], ['none - -'], 'refused: answer_not_understood']));
+});
+
+test('R6 passed part (15:00, 12:00, 06:00): a question about today offers only the parts of today still ahead, all on today', async () => {
+  const text = 'لازم أتصل بأمي اليوم وبعدين أشتري خبز';
+  const seen: unknown[] = [];
+  for (const clock of ['15:00', '12:00', '06:00']) {
+    const { items } = await rulesAsked(text, hebron(clock));
+    seen.push([clock, shown(items[0]!), offered(items[0]!)]);
+  }
+  assert.deepEqual(seen, [
+    ['15:00', [TODAY, null, 'ask_time', TODAY], [`evening ${TODAY} 19:00`, 'none - -']],
+    ['12:00', [TODAY, null, 'ask_time', TODAY], [`afternoon ${TODAY} 14:00`, `evening ${TODAY} 19:00`, 'none - -']],
+    ['06:00', [TODAY, null, 'ask_time', TODAY], [`morning ${TODAY} 09:00`, `afternoon ${TODAY} 14:00`, `evening ${TODAY} 19:00`, 'none - -']],
+  ]);
+});
+
+test('R6 passed part (15:00): the evening still ahead is tonight; a part that has gone, typed, is refused — never tomorrow', async () => {
+  const text = 'لازم أتصل بأمي اليوم وبعدين أشتري خبز';
+  const seen: unknown[] = [];
+  for (const answer of [{ optionId: 'evening' }, { freeText: 'المسا' }, { freeText: 'الصبح' }, { freeText: 'العصر' }, { freeText: 'بكرا الصبح' }]) {
+    const { answered } = await rulesAsked(text, hebron('15:00'), answer);
+    seen.push([answer.optionId ?? answer.freeText, cardOf(answered)]);
+  }
+  assert.deepEqual(seen, [
+    ['evening', [TODAY, hebronIso(TODAY, '19:00'), false]],
+    ['المسا', [TODAY, hebronIso(TODAY, '19:00'), false]],
+    ['الصبح', 'refused: answer_not_understood'],
+    ['العصر', 'refused: answer_not_understood'],
+    ['بكرا الصبح', [TOMORROW, hebronIso(TOMORROW, '09:00'), false]],
+  ]);
+});
+
+test('R6 passed part controls (15:00, 06:00): «اليوم المسا» still ahead is proposed tonight as before, nothing asked', async () => {
+  for (const clock of ['15:00', '06:00']) {
+    const { items } = await rulesAsked(R6B3_MOM, hebron(clock));
+    const mom = items.find((item) => item.title === 'أتصل بأمي')!;
+    assert.deepEqual(shown(mom), [TODAY, hebronIso(TODAY, '18:00'), null, null], clock);
+  }
+});
+
+test('R6 passed part (race across the hour): a button tapped after its hour went is refused, the round kept — never rolled to tomorrow', async () => {
+  // Asked at 18:59 with tonight's 19:00 on offer; tapped at 19:01.
+  const late = await rulesAsked('لازم أتصل بأمي اليوم', hebron('18:59'), { optionId: 'evening' }, hebron('19:01'));
+  assert.deepEqual(offered(late.items[0]!), [`evening ${TODAY} 19:00`, 'none - -']);
+  assert.equal(late.answered, 'refused: answer_not_understood');
+  // The am/pm chips for today: «5 المسا» offered at 16:59, tapped at 17:01.
+  const amPm = await rulesAsked('اليوم الساعة 5 لازم أروح عالبنك', hebron('16:59'), { optionId: 'pm' }, hebron('17:01'));
+  assert.deepEqual(offered(amPm.items[0]!), [`pm ${TODAY} 17:00`]);
+  assert.equal(amPm.answered, 'refused: answer_not_understood');
+});
+
+test('R6 passed part (race): the refused tap does not spend the round — «بدون وقت محدد» still answers it', async () => {
+  setStorageForTests(createMemoryStorage());
+  try {
+    const proposal = await proposeMobileCapture({ text: 'لازم أتصل بأمي اليوم', timezone: HEBRON, referenceTime: hebron('18:59').toISOString() }, { participantId: 'r6-race' });
+    const item = proposal.items[0]!;
+    const ask = (optionId: string) => clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId,
+      timezone: HEBRON, referenceTime: hebron('19:01').toISOString(),
+    }, { participantId: 'r6-race' });
+    await assert.rejects(ask('evening'), (error: { failure?: string }) => error.failure === 'answer_not_understood');
+    const updated = await ask('none');
+    assert.deepEqual(cardOf(updated.items[0] as AskedItem), [TODAY, null, false]);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+test('R6 passed part (23:29): the today am/pm chips are never offered once both halves have gone', async () => {
+  const { items } = await rulesAsked('اليوم الساعة 5 لازم أروح عالبنك', hebron('23:29'));
+  for (const option of items[0]!.clarification?.options ?? []) {
+    if (!option.value.localTime) continue;
+    assert.equal(option.value.localDate, TODAY, JSON.stringify(option));
+    assert.ok(hebron(option.value.localTime).getTime() > hebron('23:29').getTime(), JSON.stringify(option));
+  }
+});
+
+/** The mom clause read by a scripted model at `now`, and its first item answered through the same model. */
+async function modelAsked(
+  text: string,
+  now: Date,
+  capture: Record<string, unknown>,
+  reread: Record<string, unknown>,
+  answer: { optionId?: string; freeText?: string },
+) {
+  // The capture's own clause, then the clarify re-read (the sentence and the answer on two lines).
+  const provider = async (prompt: string): Promise<string> => {
+    const payload = payloadOf(prompt);
+    const fields = typeof payload === 'string' && payload.includes('\n') ? reread : capture;
+    return bankModel(fields, 'أتصل بأمي')(prompt);
+  };
+  const store = new MemoryCaptureProposalStore();
+  const persistence = new TransactionalCapturePersistenceAdapter(createEmptyDomainState());
+  const contract = await proposeCapture(
+    text,
+    { now, timezone: HEBRON, scopeId: 'r6-passed-model', requestedEngine: 'model' },
+    { store, persistence, extractor: guardedMobileExtract, llmProvider: provider, llmEngine: 'gemini' },
+  );
+  const item = contract.items[0] as AskedItem;
+  let answered: AskedItem | string;
+  try {
+    const updated = await answerClarification(
+      { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, ...answer },
+      { now, timezone: HEBRON, scopeId: 'r6-passed-model' },
+      { store, extractor: guardedMobileExtract, llmProvider: provider, llmEngine: 'gemini', recordEvent: () => undefined },
+    );
+    answered = updated.items[0] as AskedItem;
+  } catch (error) {
+    answered = `refused: ${(error as { failure?: string }).failure ?? String(error)}`;
+  }
+  return { contract, item, answered, store, persistence };
+}
+
+const MODEL_TONIGHT = { dueAt: hebronIso(TODAY, '18:00'), localTimeSpec: { date: TODAY, time: '18:00', timezone: HEBRON } };
+const MODEL_TOMORROW_EVENING = { dueAt: hebronIso(TOMORROW, '18:00'), localTimeSpec: { date: TOMORROW, time: '18:00', timezone: HEBRON } };
+
+test('R6 passed part model path (SCRIPTED, the model\'s passed 18:00 today): asked on today with only «بدون وقت محدد», as on the rules path', async () => {
+  for (const capture of [MODEL_TONIGHT, { localTimeSpec: { date: TODAY, time: null, timezone: HEBRON }, missingFields: ['time'], ambiguityFlags: ['vague_time'] }]) {
+    const { contract, item } = await modelAsked('لازم أتصل بأمي اليوم المسا', hebron('23:29'), capture, MODEL_TONIGHT, { optionId: 'none' });
+    assert.equal(contract.provenance.executedEngine, 'gemini');
+    assert.deepEqual(shown(item), [TODAY, null, 'ask_time', TODAY], JSON.stringify(capture));
+    assert.deepEqual(offered(item), ['none - -'], JSON.stringify(capture));
+  }
+});
+
+test('R6 passed part model path (SCRIPTED): a re-read that puts the typed «المسا» on tomorrow is not taken — refused, the buttons kept', async () => {
+  const seen: unknown[] = [];
+  for (const [name, reread] of [['re-read tonight (passed)', MODEL_TONIGHT], ['re-read rolled to tomorrow', MODEL_TOMORROW_EVENING]] as const) {
+    for (const freeText of ['المسا', 'الليلة']) {
+      const { answered } = await modelAsked('لازم أتصل بأمي اليوم المسا', hebron('23:29'), MODEL_TONIGHT, reread, { freeText });
+      seen.push([name, freeText, cardOf(answered)]);
+    }
+  }
+  assert.deepEqual(seen, [
+    ['re-read tonight (passed)', 'المسا', 'refused: answer_not_understood'],
+    ['re-read tonight (passed)', 'الليلة', 'refused: answer_not_understood'],
+    ['re-read rolled to tomorrow', 'المسا', 'refused: answer_not_understood'],
+    ['re-read rolled to tomorrow', 'الليلة', 'refused: answer_not_understood'],
+  ]);
+});
+
+test('R6 passed part model path (SCRIPTED): «بكرا المسا» typed is tomorrow; «بدون وقت محدد» is saved as today, all day — nothing past, nothing moved', async () => {
+  const typed = await modelAsked('لازم أتصل بأمي اليوم المسا', hebron('23:29'), MODEL_TONIGHT, MODEL_TOMORROW_EVENING, { freeText: 'بكرا المسا' });
+  assert.deepEqual(cardOf(typed.answered), [TOMORROW, hebronIso(TOMORROW, '19:00'), false]);
+
+  const none = await modelAsked('لازم أتصل بأمي اليوم المسا', hebron('23:29'), MODEL_TONIGHT, MODEL_TONIGHT, { optionId: 'none' });
+  assert.deepEqual(cardOf(none.answered), [TODAY, null, false]);
+  const confirmed = await confirmCapture(
+    { proposalId: none.contract.proposalId, scopeId: 'r6-passed-model', selectedItemIds: [none.item.itemId], idempotencyKey: 'k-r6-passed', now: hebron('23:29') },
+    { store: none.store, persistence: none.persistence },
+  );
+  assert.equal(confirmed.success, true, JSON.stringify(confirmed));
+  const [saved] = Object.values((await none.persistence.snapshot()).commitments);
+  assert.deepEqual([saved!.timeSpec.allDay, saved!.timeSpec.dueAt], [true, hebronIso(TODAY, '00:00')]);
+});
+
+test('R6 passed part model path (SCRIPTED, the model\'s own «today»): a typed hour alone re-read onto tomorrow is refused; one still ahead today is taken', async () => {
+  // No «اليوم» in the words: the day is the model's, so the words cannot pull
+  // a rolled re-read back. The question is about Monday; Tuesday is not an answer to it.
+  const seen: unknown[] = [];
+  for (const text of ['لازم أتصل بأمي المسا', 'call mom in the evening']) {
+    for (const freeText of ['المسا', 'الساعة 8 المسا', 'at 8pm']) {
+      const reread = freeText === 'المسا' ? MODEL_TOMORROW_EVENING : { dueAt: hebronIso(TOMORROW, '20:00'), localTimeSpec: { date: TOMORROW, time: '20:00', timezone: HEBRON } };
+      const { item, answered } = await modelAsked(text, hebron('23:29'), MODEL_TONIGHT, reread, { freeText });
+      seen.push([text, freeText, offered(item), cardOf(answered)]);
+    }
+  }
+  assert.deepEqual(seen, ['لازم أتصل بأمي المسا', 'call mom in the evening'].flatMap((text) => ['المسا', 'الساعة 8 المسا', 'at 8pm']
+    .map((freeText) => [text, freeText, ['none - -'], 'refused: answer_not_understood'])));
+  // Control: at 15:00 the same typed hour on the asked day is kept there.
+  const ahead = await modelAsked('لازم أتصل بأمي', hebron('15:00'), { localTimeSpec: { date: TODAY, time: null, timezone: HEBRON }, missingFields: ['time'], ambiguityFlags: ['vague_time'] },
+    { dueAt: hebronIso(TODAY, '20:00'), localTimeSpec: { date: TODAY, time: '20:00', timezone: HEBRON } }, { freeText: 'الساعة 8 المسا' });
+  assert.deepEqual(cardOf(ahead.answered), [TODAY, hebronIso(TODAY, '20:00'), false]);
 });
