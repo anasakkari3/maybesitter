@@ -1,4 +1,4 @@
-import { deadlineOfTimeSpec, type Commitment, type DomainState } from '../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, isAllDayEventSpec, type Commitment, type DomainState } from '../../src/domain/stateMachine';
 import type {
   NextStepEvidenceContract,
   NextStepLocale,
@@ -7,6 +7,8 @@ import type {
 import { evidenceLabels as labelsFor } from './nextStepEvidence';
 import { proposeNextStep } from './nextStepReviewService';
 import { compareByCodePoint } from '../planning/shared/compare';
+import { dayHorizon } from './dailyPlan/buildDailyPlan';
+import { localDateOf } from './dailyPlan/planSettings';
 
 export interface BaselineCandidate {
   commitmentId: string;
@@ -166,24 +168,46 @@ export function selectBaselineNextStep(
   return { recommendation, scores, selectedCommitmentId: selected?.commitmentId || null };
 }
 
+/**
+ * When a commitment is late, for the selector.
+ *
+ * A deadline named as a day — «لحد اليوم» answered «بدون وقت محدد», FX3's
+ * all-day limit — is due by the end of that day in its own zone, not by the
+ * midnight that opens it; the week has read it that way since N3. Read as its
+ * midnight, it was «الوقت راح» from 00:00 on the very day it was due (final
+ * UAT, N18). Everything else is `deadlineOfTimeSpec`.
+ */
+function selectorDeadline(timeSpec: Commitment['timeSpec']): string | null {
+  const due = deadlineOfTimeSpec(timeSpec);
+  if (!due || !timeSpec.allDay) return due;
+  return dayHorizon(localDateOf(due, timeSpec.timezone), timeSpec.timezone).endsAt;
+}
+
 export function candidatesFromDomainState(state: DomainState): BaselineCandidate[] {
-  return Object.values(state.commitments).map((commitment) => ({
-    commitmentId: commitment.id,
-    title: commitment.title,
-    confirmed: commitment.confirmedAt !== null,
-    status: commitment.status,
-    // The deadline, not the hour it is shown at: a meeting's prep step is late
-    // after the meeting starts, not at 14:00 (`deadlineOfTimeSpec`, FX1).
-    dueAt: deadlineOfTimeSpec(commitment.timeSpec),
-    remindAt: commitment.timeSpec.remindAt,
-    // Three sources, and only two of them are an opinion about this
-    // commitment. `default` is the fallback `normal` that every commitment
-    // starts with — nobody said anything, and counting it would hand a band to
-    // every item alike and put "it looks like a Should" on most cards.
-    importance: commitment.priority.source === 'default' ? null : commitment.priority.level,
-    importanceIsStated: commitment.priority.source === 'user_explicit',
-    explicitEffortMinutes: null,
-  }));
+  return Object.values(state.commitments)
+    // An appointment on a day with no hour (FY1 N4) is not a step (final UAT,
+    // N18). It happens on its day; ranked, its midnight read as a deadline
+    // ten hours gone, and at 10:05 «موعد دكتور» was the top next step with
+    // «الوقت راح», above lunch at 14:00. After its day it is simply past — an
+    // event, never an overdue task. Other screens still show it on its day.
+    .filter((commitment) => !isAllDayEventSpec(commitment.timeSpec))
+    .map((commitment) => ({
+      commitmentId: commitment.id,
+      title: commitment.title,
+      confirmed: commitment.confirmedAt !== null,
+      status: commitment.status,
+      // The deadline, not the hour it is shown at: a meeting's prep step is late
+      // after the meeting starts, not at 14:00 (`deadlineOfTimeSpec`, FX1).
+      dueAt: selectorDeadline(commitment.timeSpec),
+      remindAt: commitment.timeSpec.remindAt,
+      // Three sources, and only two of them are an opinion about this
+      // commitment. `default` is the fallback `normal` that every commitment
+      // starts with — nobody said anything, and counting it would hand a band to
+      // every item alike and put "it looks like a Should" on most cards.
+      importance: commitment.priority.source === 'default' ? null : commitment.priority.level,
+      importanceIsStated: commitment.priority.source === 'user_explicit',
+      explicitEffortMinutes: null,
+    }));
 }
 
 export interface VariantComparison {

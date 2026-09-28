@@ -43,7 +43,7 @@
  * view entirely — is **not** in this module and is not done. #383 is the one
  * place that rule is written down, and both halves answer to it.
  */
-import { deadlineOfTimeSpec, isTimedWindow, type Commitment } from '../../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, isAllDayEventSpec, isTimedWindow, type Commitment } from '../../../src/domain/stateMachine';
 import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
 import type {
   FixedEvent,
@@ -321,7 +321,7 @@ export function fixedStartOf(commitment: Commitment): Instant | null {
  * an all-day busy block (#186), it occupies no clock time in any plan.
  */
 export function isAllDayEvent(commitment: Commitment): boolean {
-  return commitment.timeSpec.kind === 'scheduled_event' && commitment.timeSpec.allDay === true && !commitment.postponedUntil;
+  return isAllDayEventSpec(commitment.timeSpec) && !commitment.postponedUntil;
 }
 
 /** Confirmed, still open, and not already done or abandoned. */
