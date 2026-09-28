@@ -32,7 +32,8 @@ import {
   TransactionalCapturePersistenceAdapter,
 } from '../../lib/services/captureBoundary/index.ts';
 import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
-import { clarifyMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
+import { clarifyMobileCapture, confirmMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
+import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
@@ -620,4 +621,48 @@ test('FZ1 round 3 M5b: a spoken Hebrew hour at night — «מחר בשתיים �
   // A count that is not an hour keeps its word.
   const { result } = await extractWithFallback('לסיים שלוש משימות מחר בבוקר', { now: evening, timezone: TZ }, { llmProvider: async () => { throw new LLMUnavailableError('provider_none'); } });
   assert.ok(result.title?.includes('שלוש'), result.title ?? '');
+});
+
+// ── Round 3 add-on (FZ2's finding): the person's zone on an answered item ──
+
+test('FZ1 round 3 add-on: an appointment answered «الصبح», then cleared to «بدون وقت» in the edit sheet, is stored at local midnight in the person\'s zone', async () => {
+  const uid = 'fz1-dentist';
+  const zone = 'Asia/Jerusalem';
+  const now = new Date('2026-09-28T07:00:00.000Z'); // Mon 10:00
+  await withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text: 'سجّل موعد أسنان يوم الجمعة', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_time');
+    const answered = await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'morning',
+      timezone: zone, referenceTime: now.toISOString(),
+    }, { participantId: uid });
+    assert.equal(answered.items[0]!.resolvedDate, '2026-10-02');
+    const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: null }] }, { participantId: uid });
+    assert.equal(confirmed.success, true, JSON.stringify(confirmed));
+    const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
+    assert.deepEqual(
+      { kind: commitment.timeSpec.kind, allDay: commitment.timeSpec.allDay, dueAt: commitment.timeSpec.dueAt, timezone: commitment.timeSpec.timezone },
+      // Friday 2 Oct, 00:00 in Jerusalem (UTC+3).
+      { kind: 'scheduled_event', allDay: true, dueAt: '2026-10-01T21:00:00.000Z', timezone: zone },
+    );
+  });
+});
+
+test('FZ1 round 3 add-on: any answered time keeps the person\'s zone on the stored commitment, not UTC', async () => {
+  const uid = 'fz1-zone';
+  const zone = 'Asia/Jerusalem';
+  const now = new Date('2026-09-28T07:00:00.000Z');
+  await withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: zone, referenceTime: now.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, optionId: 'morning',
+      timezone: zone, referenceTime: now.toISOString(),
+    }, { participantId: uid });
+    await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: uid });
+    const commitment = Object.values((await getParticipantStateSnapshot(uid)).commitments)[0]!;
+    assert.equal(commitment.timeSpec.timezone, zone);
+    assert.equal(commitment.timeSpec.dueAt, '2026-09-29T06:00:00.000Z');
+  });
 });
