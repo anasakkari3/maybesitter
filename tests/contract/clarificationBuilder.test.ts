@@ -84,6 +84,34 @@ test('a bare hour is asked as am or pm, with both on the same day', () => {
   assert.equal(question?.allowFreeText, false);
 });
 
+test('a bare hour with minutes is asked with its minutes, and applies them (UAT r6, shots 823/824)', () => {
+  // «بكرا سبعة إلا ربع بدي أصحى»: the person said 6:45, and «أي 6 قصدت؟» with
+  // «6 الصبح / 6 المسا» asked about an hour they never said alone. The words
+  // carry the minutes; the options' values were already right and stay so.
+  const question = buildClarification(result({
+    timeEvidence: 'clock_marker',
+    localTimeSpec: { date: '2026-09-15', time: '06:45', timezone: TZ },
+  }), context('2026-09-14T10:00:00+03:00'));
+
+  assert.equal(question?.questionKey, 'ask_am_pm');
+  assert.equal(question?.params.hour, '6:45');
+  assert.deepEqual(question?.options.map(o => o.labelParams), [
+    { hour: '6:45', period: 'am' },
+    { hour: '6:45', period: 'pm' },
+  ]);
+  assert.deepEqual(question?.options.map(o => o.value.localTime), ['06:45', '18:45']);
+
+  // On the hour it is the plain hour, never «8:00»; single-digit minutes keep two digits.
+  for (const [time, hour] of [['08:00', '8'], ['11:05', '11:05'], ['01:30', '1:30']] as const) {
+    const asked = buildClarification(result({
+      timeEvidence: 'clock_marker',
+      localTimeSpec: { date: '2026-09-15', time, timezone: TZ },
+    }), context('2026-09-14T10:00:00+03:00'));
+    assert.equal(asked?.params.hour, hour, time);
+    assert.deepEqual(asked?.options.map(o => o.labelParams.hour), [hour, hour], time);
+  }
+});
+
 test('an am option already past is not offered', () => {
   // Asked at 14:00 about "8" today: eight in the morning has gone.
   const question = buildClarification(result({
