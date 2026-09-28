@@ -212,10 +212,10 @@ test('A3: the model leaving localTimeSpec null does not hide the day the text na
   const result = validateExtractionResult(answer, 'سجّل موعد دكتور يوم الأحد', context);
   assert.equal(result.priority.level, 'high');
   assert.equal(result.priority.source, 'inferred');
-  // A day stated another way, which no weekday fill supplies: the text's
-  // «بكرا» is still a fixed day for the priority.
+  // «بكرا» with no model day: the words' day fills it (final UAT, N19 — this
+  // assertion pinned the lost day until then), and the doctor is high.
   const tomorrow = validateExtractionResult(answer, 'عندي دكتور بكرا', context);
-  assert.equal(tomorrow.localTimeSpec, null);
+  assert.deepEqual(tomorrow.localTimeSpec, { date: '2026-09-27', time: null, timezone: 'Asia/Jerusalem' });
   assert.equal(tomorrow.priority.level, 'high');
 });
 

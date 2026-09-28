@@ -108,6 +108,17 @@ export function isTimedWindow(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt
 }
 
 /**
+ * An event on a day with no hour anybody chose (FY1 N4): «موعد دكتور يوم
+ * الأحد» answered «بدون وقت محدد». It happens on its day; it is not work to do
+ * and has no deadline, so nothing may rank it as a step or call its midnight
+ * late (final UAT, N18). The day plan's `isAllDayEvent` adds its own
+ * placement nuance (a postponed one has a time again) on top of this.
+ */
+export function isAllDayEventSpec(timeSpec: Pick<TimeSpec, 'kind' | 'allDay'>): boolean {
+  return timeSpec.kind === 'scheduled_event' && timeSpec.allDay === true;
+}
+
+/**
  * When a commitment must be done by: the instant lateness is measured against
  * and the firmer reminders count back from. A window's end; otherwise `dueAt`.
  */

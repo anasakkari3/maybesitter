@@ -60,7 +60,7 @@
  *     sentence is about something, not asking for it (`followedByObject`).
  */
 import { stripTimeExpressions } from './ruleBasedExtractor';
-import { namesDay, statesClock, timeOfDayEvidence } from './timeLexicon';
+import { namesDay, RELATIVE_DAY_MENTION_SOURCES, statesClock, timeOfDayEvidence } from './timeLexicon';
 import { LEADING_CONNECTOR, NOT_LETTERS, REQUEST_MARKER, opensWithAction } from './requestEvidence';
 
 const B = '(?<![\\p{L}\\p{M}])';
@@ -368,6 +368,86 @@ const CLAUSE_OPENER = new RegExp(
   'giu',
 );
 
+/*
+ * What a clause may hold and still be only a time (FINAL-BACKEND review): the
+ * connectors and negations around a day or an hour — «و», «بس», «مش», «أو»,
+ * «ولا», "and", "or", "but", "not", "at", «ו», «לא», «או», «אבל», «ב» — once
+ * `stripTimeExpressions` has taken the day, the hour and the part of the day.
+ */
+const TIME_ONLY_FILLER = new RegExp(
+  [
+    `${B}[وف]?(?:مش|مو|مب|بلاش|بس|أو|او|ولا|لا|و|يوم|الساعة|الساعه|على|ع)${A}`,
+    "\\b(?:and|or|but|not|at|on|by|around|about|the|o'?clock)\\b",
+    `${B}[ו]?(?:לא|או|אבל|ב|בשעה|ביום)${A}`,
+  ].join('|'),
+  'giu',
+);
+const RELATIVE_DAY_WORDS = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+
+/**
+ * A clause that is only a time: a day, an hour, a part of the day, their
+ * negation or alternatives, and connectors — «بكرا», «ومش بكرا», «الساعة 5»,
+ * "tomorrow at 5". It names nothing to do, so it is not a commitment of its
+ * own; it belongs to the clause beside it.
+ */
+function isTimeOnlyClause(clause: string): boolean {
+  if (!namesDay(clause) && !statesClock(clause) && timeOfDayEvidence(clause) === 'none') return false;
+  // The day words go whatever the words did with them: `stripTimeExpressions`
+  // keeps an unsettled one («مش بكرا») in a title, and here it is still a day.
+  let rest = stripTimeExpressions(clause);
+  for (const pattern of RELATIVE_DAY_WORDS) rest = rest.replace(pattern, ' ');
+  return rest.replace(TIME_ONLY_FILLER, ' ').replace(NOT_LETTERS, '').length === 0;
+}
+
+/** The clause names a day or a clock time of its own. */
+function statesATime(clause: string): boolean {
+  return namesDay(clause) || statesClock(clause);
+}
+
+/**
+ * Time-only clauses joined to their neighbour, before any extraction (both
+ * engines read these segments). A run of them («، وبكرا، الساعة 9») goes as
+ * one: onto the clause before it, or — a leading run, «بكرا، بدي أتصل
+ * بسامي», or when the one before is not free — onto the clause after it. The
+ * «،» that cut them apart was a pause inside one commitment.
+ *
+ * Only onto a clause that states no day and no clock of its own (review
+ * P-I1): merged into «بدي أتصل بسامي اليوم الساعة 5 المسا», «وبكرا» made the
+ * furthest day win silently, and «وبكرا الساعة 9» lost its 9 beside «الساعة
+ * 5». With neither neighbour free the run stays a clause of its own, as it
+ * always was.
+ */
+function withTimeOnlyClausesMerged(segments: readonly string[]): string[] {
+  if (segments.length < 2) return [...segments];
+  const timeOnly = segments.map(isTimeOnlyClause);
+  if (!timeOnly.includes(true)) return [...segments];
+  const merged: string[] = [];
+  let index = 0;
+  while (index < segments.length) {
+    if (!timeOnly[index]) {
+      merged.push(segments[index]!);
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (end + 1 < segments.length && timeOnly[end + 1]) end += 1;
+    const run = segments.slice(index, end + 1).join(' ');
+    const previous = merged[merged.length - 1];
+    const next = segments[end + 1];
+    if (previous !== undefined && !statesATime(previous)) {
+      merged[merged.length - 1] = `${previous} ${run}`;
+      index = end + 1;
+    } else if (next !== undefined && !statesATime(next)) {
+      merged.push(`${run} ${next}`);
+      index = end + 2;
+    } else {
+      merged.push(run);
+      index = end + 1;
+    }
+  }
+  return merged;
+}
+
 export function splitCaptureClauses(raw: string): string[] {
   const segments = sentencesOf(raw)
     .join('|')
@@ -383,5 +463,5 @@ export function splitCaptureClauses(raw: string): string[] {
     .map((part) => part.trim())
     .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ])|ו)\s*/i, '').trim())
     .filter(Boolean);
-  return segments.length > 0 ? segments : [raw];
+  return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [raw];
 }

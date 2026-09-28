@@ -561,6 +561,40 @@ export function namesTodayOnly(rawText: string): boolean {
 }
 
 /*
+ * A relative day the words rule out or leave open (FINAL-BACKEND review, M2):
+ * «مش بكرا», "not tomorrow", «לא מחר», and two day words offered as
+ * alternatives — «اليوم أو بكرا», «اليوم ولا بكرا», "today or tomorrow",
+ * «היום או מחר». Neither is a day anybody said, so nothing may be filled from
+ * it. Each part is linear: a fixed word, whitespace, a fixed word.
+ */
+// Plain day words only (review P-I2): built from the full relative-day
+// sources, with the «غدا مع» lunch lookarounds, this ran at every offset of a
+// 2000-character capture several times per request and pushed the #508
+// bound from under 60 ms to 88. Which «غدا» is lunch does not matter here:
+// «مش غدا» and «اليوم أو غدا» are days ruled out or left open either way.
+const UNSETTLED_DAY = [
+  `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:بعد\\s+)?(?:بكرا|بكرة|بكره|باچر|باكر|غدا|غدًا|اليوم|النهارده|النهاردة|الليلة|الليله)${NOT_LETTER_AFTER}`,
+  '\\b(?:today|tonight|tomorrow|tmrw|tmr)\\b',
+  `${NOT_LETTER_BEFORE}${HE_DAY_PREFIX}(?:היום|מחרתיים|מחר|הערב|הלילה)${NOT_LETTER_AFTER}`,
+].join('|');
+const UNSETTLED_RELATIVE_DAY = new RegExp(
+  [
+    `${NOT_LETTER_BEFORE}[وف]?(?:مش|مو|مب|بلاش)\\s+(?:${UNSETTLED_DAY})`,
+    `\\bnot\\s+(?:${UNSETTLED_DAY})`,
+    `${NOT_LETTER_BEFORE}ו?לא\\s+(?:${UNSETTLED_DAY})`,
+    `(?:${UNSETTLED_DAY})(?:\\s*[،,])?\\s*(?:أو|او|ولا|or|או)\\s+(?:${UNSETTLED_DAY})`,
+  ].join('|'),
+  'iu',
+);
+/** A cheap gate: no negation or «أو»/"or" word at all means nothing to look for. */
+const UNSETTLED_GATE = new RegExp('مش|مو|مب|بلاش|أو|او|ولا|not|or|לא|או', 'iu');
+
+/** The words' relative day is ruled out or one of two alternatives: not a day to fill. */
+export function relativeDayIsUnsettled(rawText: string): boolean {
+  return typeof rawText === 'string' && UNSETTLED_GATE.test(rawText) && UNSETTLED_RELATIVE_DAY.test(rawText);
+}
+
+/*
  * Words that put the commitment on some day other than today even when
  * «اليوم»/"today"/«היום» is the only relative day in them (FZ1 review, I1):
  * «اليوم الدكتور قلي ارجعله يوم 5», «اليوم عرفت إنه الاجتماع أول الشهر»,

@@ -1,0 +1,83 @@
+{
+  "_about": "Gemini (gemini-2.5-flash, Vertex europe-west1) answers recorded on 2026-09-28 for the final UAT's N19 pair («سجّل موعد دكتور اليوم», which lost its day on the phone, and «عندي موعد دكتور اليوم», which kept it), one entry per model call, keyed by the exact payload sent. Recorded with scripts/live-capture-check.ts --only 'FINAL N19' --raw --record before the fix (2 calls), referenceTime 2026-09-28T07:05:00.000Z, Asia/Jerusalem. Both answers carry the day; the UAT's own answer was not recorded (see tests/extraction/finalCaptureRegressions.test.ts). Replayed by that test.",
+  "calls": [
+    {
+      "case": "FINAL N19 log a doctor today",
+      "shape": "single",
+      "payload": "سجّل موعد دكتور اليوم",
+      "answer": {
+        "type": "task",
+        "action": "سجّل",
+        "title": "سجّل موعد دكتور",
+        "person": null,
+        "dueAt": "2026-09-28T21:00:00Z",
+        "remindAt": null,
+        "localTimeSpec": {
+          "date": "2026-09-28",
+          "time": "21:00",
+          "timezone": "Asia/Jerusalem"
+        },
+        "priority": {
+          "level": "normal",
+          "source": "default",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": "health",
+        "categoryConfidence": 0.5,
+        "confidence": {
+          "overall": 0.8,
+          "type": 1,
+          "action": 1,
+          "time": 0.8,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [
+          "vague_time"
+        ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "FINAL N19 have a doctor today",
+      "shape": "single",
+      "payload": "عندي موعد دكتور اليوم",
+      "answer": {
+        "type": "task",
+        "action": "عندي موعد دكتور",
+        "title": "عندي موعد دكتور",
+        "person": null,
+        "dueAt": "2026-09-28T07:05:00Z",
+        "remindAt": null,
+        "localTimeSpec": {
+          "date": "2026-09-28",
+          "time": "07:05",
+          "timezone": "Asia/Jerusalem"
+        },
+        "priority": {
+          "level": "high",
+          "source": "inferred",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": "health",
+        "categoryConfidence": 1,
+        "confidence": {
+          "overall": 0.9,
+          "type": 1,
+          "action": 0.9,
+          "time": 0.9,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    }
+  ]
+}

@@ -146,7 +146,10 @@ test('FY1 N1: the literal three-clause capture on the model path keeps the room 
   assert.notEqual(contract.status, 'rejected');
   assert.equal(contract.provenance.executedEngine, 'gemini');
   assert.deepEqual(contract.items.map(line), [
-    'أرتب الغرفة | - - | ask_time',
+    // Gemini's recorded answer for «واليوم لازم أرتب الغرفة» names no day;
+    // the words' «اليوم» fills it, as the rules path reads it (final UAT,
+    // N19 — this row pinned the lost day until then).
+    'أرتب الغرفة | 2026-09-27 - | ask_time',
     // The past meeting's «الساعة 3» is not a time the proposal lost, so the
     // bank keeps the 17:00 the person said.
     'أروح عالبنك | 2026-09-28 17:00 | settled',

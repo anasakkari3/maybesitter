@@ -1,4 +1,5 @@
 import { zoneOffsetMs } from '../../planning/shared/time';
+import { deadlineOfTimeSpec, type TimeSpec } from '../../../src/domain/stateMachine';
 
 export const DEFAULT_MOBILE_TIMEZONE = 'Asia/Jerusalem';
 
@@ -143,4 +144,20 @@ export function addLocalDays(instant: string, days: number, timezone: string): s
   const zone = normalizeTimezone(timezone);
   const shifted = Date.parse(`${localDayKey(instant, zone)}T00:00:00.000Z`) + days * MS_PER_DAY;
   return localMidnightOf(new Date(shifted).toISOString().slice(0, 10), zone);
+}
+
+/**
+ * The instant a commitment is late after, for anything that says «الوقت مرق».
+ *
+ * `deadlineOfTimeSpec` — a window's end, otherwise `dueAt` — except for a day
+ * named with no hour (`allDay`): its `dueAt` is the midnight that *opens* that
+ * day, and it is due by the one that closes it, in its own zone. The week has
+ * read it that way since N3; the next step and Today's list read it as the
+ * midnight, so «لحد اليوم» and FY1's all-day appointment were «الوقت راح» from
+ * 00:00 on their own day (final UAT, N18).
+ */
+export function latenessDeadline(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay' | 'timezone'>): string | null {
+  const due = deadlineOfTimeSpec(timeSpec);
+  if (!due || !timeSpec.allDay) return due;
+  return addLocalDays(due, 1, timeSpec.timezone);
 }
