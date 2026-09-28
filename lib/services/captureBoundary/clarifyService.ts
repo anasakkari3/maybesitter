@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, nightClockHour, relativeDayOffset, relativeDaySource, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, hourWithDayPart, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, relativeDayOffset, relativeDaySource, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -267,39 +267,14 @@ function allDayAppointment(result: ExtractionResult, timezone: string): Extracti
  * 17:00. The time question's button hours (09/14/19) are for a part of the
  * day typed with no number; with one, FY1's button mapping gave 19:00.
  *
- * Only the number right before the part of the day (FZ1 round 4): «ع/على/
- * حوالي/الساعة», "at/about/around" may come before it and "in the" between.
- * A count or a date is not an hour — «بعد 2 يوم الصبح», «3 مرات المسا», "in 3
- * days in the evening", «يوم 5 المسا», "the 5th in the evening" — so a unit
- * after the number, «يوم»/"the" before it, or an ordinal ending refuses it,
- * and the answer is read as before.
+ * Only the number right before the part of the day (FZ1 round 4); a count or
+ * a date is not an hour. The words and the halves are the capture's own
+ * (`hourWithDayPart`, closure UAT round 6), so «خمسة المسا» typed here and
+ * said in the capture are the same 17:00, and «12 الصبح» is asked in both.
  */
-const DIGIT = '[0-9٠-٩۰-۹]';
-const HALF_WORD = [
-  'بالمسا', 'المساء', 'المسا', 'مساءً', 'مساء', 'مسا', 'بالصبح', 'الصباح', 'الصبح', 'صباحاً', 'صباحا', 'صبح',
-  'بالعصر', 'العصر', 'بعد\\s+الظهر', 'بعد\\s+الضهر', 'الظهر', 'الضهر', 'بالليل', 'الليل', 'م', 'ص',
-  '(?:in\\s+the\\s+)?(?:morning|afternoon|evening)', 'at\\s+night', 'tonight', 'am', 'pm', 'a\\.m\\.?', 'p\\.m\\.?',
-  'בבוקר', 'בערב', 'בלילה', 'בצהריים', 'אחרי\\s+הצהריים', 'אחה["״]צ',
-].join('|');
-const HOUR_BEFORE_HALF = new RegExp(
-  `(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around)\\s+)?(${DIGIT}{1,2})\\s*(${HALF_WORD})(?![\\p{L}\\p{M}])`,
-  'iu',
-);
-/** «يوم 5», "the 5", "day 5", «ב-5 לחודש»: the number names a day. */
-const DAY_BEFORE_NUMBER = new RegExp(`(?:يوم|نهار|day|the|ב-?)\\s*${DIGIT}{1,2}\\s*(?:${HALF_WORD})(?![\\p{L}\\p{M}])`, 'iu');
-
 function typedHourWithHalf(freeText: string): string | 'ambiguous' | null {
   if (statesClock(freeText)) return null;
-  const match = HOUR_BEFORE_HALF.exec(freeText);
-  if (!match || DAY_BEFORE_NUMBER.test(freeText)) return null;
-  const hour = Number(match[1]!.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0)));
-  if (!Number.isInteger(hour) || hour < 1 || hour > 12) return null;
-  const half = typedHalfOfDay(match[2]!);
-  if (!half) return null;
-  // «12 الصبح» is midnight to some and noon to others: asked, not guessed (round 4).
-  if (hour === 12 && half === 'am') return 'ambiguous';
-  const answered = half === 'am' ? hour % 12 : half === 'pm' ? (hour % 12) + 12 : nightClockHour(hour);
-  return `${String(answered).padStart(2, '0')}:00`;
+  return hourWithDayPart(freeText);
 }
 
 /**

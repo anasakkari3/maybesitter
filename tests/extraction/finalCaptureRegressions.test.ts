@@ -36,7 +36,7 @@ import {
   TransactionalCapturePersistenceAdapter,
 } from '../../lib/services/captureBoundary/index.ts';
 import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
-import { proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
+import { clarifyMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
@@ -858,5 +858,181 @@ test('R6 title hour: a capture that is only «بكرا 5 المسا» asks what 
     ['بكرا الساعة 5 المسا', 'needs_clarification', [[TOMORROW, 'ask_action']]],
     ['tomorrow 5pm', 'needs_clarification', [[TOMORROW, 'ask_action']]],
     ['מחר ב-5 בערב', 'needs_clarification', [[TOMORROW, 'ask_action']]],
+  ]);
+});
+
+/* ── A stated hour replaced by the part of the day's hour (closure UAT round 6) ── */
+
+/*
+ * «بكرا 5 العصر لازم أتصل بأمي» was proposed at 14:00, "tomorrow 5 in the
+ * evening" and «بكرا خمسة المسا» at 18:00: the rules read a number as the
+ * hour only after «الساعة» or right before a meridiem they knew (مسا, صبح,
+ * بالليل, pm…), never before العصر, الضهر, "in the evening", «אחר הצהריים»,
+ * and never a spelled one, so the part of the day gave its own hour and the
+ * number stayed in the title. On the model path nothing checked the model's
+ * hour against the words: «بكرا 5 المسا» answered 18:00 was shown at 18:00,
+ * unmarked. The rule the typed answers already follow (FZ1 M5a) now reads
+ * the capture too, on both engines: the number right before the part of the
+ * day is the hour, the part of the day picks its half, and a pair that names
+ * no hour anybody can read («12 الصبح», «11 الضهر») is asked.
+ */
+const hourShown = (item: Item & { timeEstimated?: boolean }) => [
+  item.title,
+  item.resolvedTime ? new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(item.resolvedTime)) : null,
+  item.timeEstimated === true,
+  item.clarification?.questionKey ?? null,
+];
+const R6_STATED_HOURS: ReadonlyArray<readonly [string, string, string | null, boolean, string | null]> = [
+  // [text, title, hour, marked «حزرنا الساعة», question]
+  ['بكرا 5 العصر لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا ٥ العصر لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا خمسة العصر لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا خمسة المسا لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا الساعة خمسة المسا لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا 5 بعد الضهر لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا 5 عالمسا لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا 5 بالمسا لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا 2 الضهر لازم أتصل بأمي', 'أتصل بأمي', '14:00', false, null],
+  ['بكرا وحدة الضهر لازم أتصل بأمي', 'أتصل بأمي', '13:00', false, null],
+  ['بكرا اتناعش الضهر لازم أتصل بأمي', 'أتصل بأمي', '12:00', false, null],
+  ['بكرا تمانية الصبح لازم أتصل بأمي', 'أتصل بأمي', '08:00', false, null],
+  ['بكرا 5 الصبح بكير لازم أتصل بأمي', 'أتصل بأمي', '05:00', false, null],
+  ['بكرا إحدعش الصبح لازم أتصل بأمي', 'أتصل بأمي', '11:00', false, null],
+  ['بكرا الساعة إحدعش المسا لازم أتصل بأمي', 'أتصل بأمي', '23:00', false, null],
+  // The spoken 11 and 12 after «الساعة», as said: read as «الساعة 11» is (the title kept «الساعة إحدعش»).
+  ['بكرا الساعة إحدعش لازم أتصل بأمي', 'أتصل بأمي', '11:00', false, null],
+  ['بكرا الساعة اتناعش لازم أتصل بأمي', 'أتصل بأمي', '12:00', false, null],
+  ['بكرا الساعة اتنين لازم أتصل بأمي', 'أتصل بأمي', null, false, 'ask_am_pm'],
+  ['بكرا عشرة المسا لازم أتصل بأمي', 'أتصل بأمي', '22:00', false, null],
+  ['بكرا تلاتة بالليل لازم أتصل بأمي', 'أتصل بأمي', '03:00', false, null],
+  ['بكرا 5:30 العصر لازم أتصل بأمي', 'أتصل بأمي', '17:30', false, null],
+  ['بكرا خمسة ونص المسا لازم أتصل بأمي', 'أتصل بأمي', '17:30', false, null],
+  ['tomorrow 5 in the evening call mom', 'call mom', '17:00', false, null],
+  ['tomorrow 5 in the afternoon call mom', 'call mom', '17:00', false, null],
+  ['tomorrow 8 in the morning call mom', 'call mom', '08:00', false, null],
+  ['tomorrow 11 at night call mom', 'call mom', '23:00', false, null],
+  ['מחר 5 אחר הצהריים להתקשר לאמא', 'להתקשר לאמא', '17:00', false, null],
+  ['מחר 8 בבוקר להתקשר לאמא', 'להתקשר לאמא', '08:00', false, null],
+  // The part of the day the number is said with, not another one in the sentence (was 21:00).
+  ['بكرا 9 الصبح بدي أجهز للاجتماع اللي العصر', 'أجهز للاجتماع اللي', '09:00', false, null],
+  // A pair that names no hour anybody can read is asked, never settled.
+  ['بكرا 12 الصبح لازم أتصل بأمي', 'أتصل بأمي', null, false, 'ask_time'],
+  ['tomorrow at 12 in the morning call mom', 'call mom', null, false, 'ask_time'],
+  ['بكرا الساعة 11 الضهر لازم أتصل بأمي', 'أتصل بأمي', null, false, 'ask_time'],
+  ['מחר 11 בצהריים להתקשר לאמא', 'להתקשר לאמא', null, false, 'ask_time'],
+  ['بكرا 9 العصر لازم أتصل بأمي', 'أتصل بأمي', null, false, 'ask_time'],
+  ['بكرا اتناعش المسا لازم أتصل بأمي', 'أتصل بأمي', null, false, 'ask_time'],
+  // Unchanged.
+  ['بكرا 5 المسا لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا الساعة 5 العصر لازم أتصل بأمي', 'أتصل بأمي', '17:00', false, null],
+  ['بكرا بالمسا لازم أتصل بأمي', 'أتصل بأمي', '18:00', true, null],
+  ['بكرا الساعة 5 لازم أتصل بأمي', 'أتصل بأمي', null, false, 'ask_am_pm'],
+  ['بكرا 5 لازم أتصل بأمي', '5 لازم أتصل بأمي', null, false, 'ask_time'],
+  ['بكرا 2 بالليل لازم أتصل بأمي', 'أتصل بأمي', '02:00', false, null],
+  ['بكرا 12 المسا لازم أتصل بأمي', 'أتصل بأمي', null, false, 'ask_time'],
+  ['بكرا الصبح أكتب 3 نقاط للنقاش', 'أكتب 3 نقاط للنقاش', '09:00', true, null],
+  ['بكرا المسا اشتري 2 كيلو بندورة', 'اشتري 2 كيلو بندورة', '18:00', true, null],
+  ['بكرا المسا بدي أمشي ساعتين', 'أمشي ساعتين', '18:00', true, null],
+  ['بكرا عندي 3 اجتماعات العصر', 'عندي 3 اجتماعات', '14:00', true, null],
+  ['من الساعة 2 للساعة 4 المسا اجتماع', 'اجتماع', '14:00', false, null],
+];
+
+test('R6 stated hour: on the rules path the number before the part of the day is the hour, in the half that part names; its words leave the title', async () => {
+  const seen: unknown[] = [];
+  for (const [text] of R6_STATED_HOURS) {
+    setStorageForTests(createMemoryStorage());
+    try {
+      const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() });
+      seen.push([text, ...proposal.items.map((item) => hourShown(item))]);
+    } finally {
+      resetStorageForTests();
+    }
+  }
+  assert.deepEqual(seen, R6_STATED_HOURS.map(([text, ...shownRow]) => [text, shownRow]));
+});
+
+test('R6 stated hour: «اليوم 9 الصبح» at 10:05 is a passed hour and asked, as it was', async () => {
+  setStorageForTests(createMemoryStorage());
+  try {
+    const proposal = await proposeMobileCapture({ text: 'اليوم 9 الصبح لازم أتصل بأمي', timezone: TZ, referenceTime: NOW.toISOString() });
+    assert.deepEqual(proposal.items.map((item) => [item.resolvedDate, ...hourShown(item)]), [[TODAY, 'أتصل بأمي', null, false, 'ask_time']]);
+  } finally {
+    resetStorageForTests();
+  }
+});
+
+const R6_STATED_MODEL: ReadonlyArray<readonly [string, string, string | null, string | null, boolean, string | null]> = [
+  // [text, title, the model's hour, shown hour, marked, question]
+  ['بكرا 5 المسا لازم أتصل بأمي', 'أتصل بأمي', '18:00', '17:00', false, null],
+  ['بكرا الساعة 5 المسا لازم أتصل بأمي', 'أتصل بأمي', '18:00', '17:00', false, null],
+  ['بكرا 5 العصر لازم أتصل بأمي', 'أتصل بأمي', '14:00', '17:00', false, null],
+  ['بكرا الساعة 5 العصر لازم أتصل بأمي', 'أتصل بأمي', '05:00', '17:00', false, null],
+  ['بكرا خمسة المسا لازم أتصل بأمي', 'أتصل بأمي', '18:00', '17:00', false, null],
+  ['tomorrow 5 in the evening call mom', 'call mom', '18:00', '17:00', false, null],
+  ['מחר 5 בערב להתקשר לאמא', 'להתקשר לאמא', '18:00', '17:00', false, null],
+  ['بكرا 10 بالليل لازم أتصل بأمي', 'أتصل بأمي', '20:00', '22:00', false, null],
+  ['بكرا 5 م لازم أتصل بأمي', 'أتصل بأمي', '18:00', '17:00', false, null],
+  ['tomorrow 5am call mom', 'call mom', '17:00', '05:00', false, null],
+  // The model's day with no hour: the words give it.
+  ['بكرا 5 العصر لازم أتصل بأمي', 'أتصل بأمي', null, '17:00', false, null],
+  // The model agreeing is left alone.
+  ['بكرا 5 العصر لازم أتصل بأمي', 'أتصل بأمي', '17:00', '17:00', false, null],
+  // No hour to read: the model's is dropped and the hour asked.
+  ['بكرا 12 الصبح لازم أتصل بأمي', 'أتصل بأمي', '00:00', null, false, 'ask_time'],
+  ['بكرا 11 الضهر لازم أتصل بأمي', 'أتصل بأمي', '12:00', null, false, 'ask_time'],
+  // Unchanged: a range keeps the model's start; a part of the day alone is our marked guess.
+  ['بكرا من 5 لـ 7 المسا اجتماع', 'اجتماع', '17:00', '17:00', false, null],
+  ['بكرا بالمسا لازم أتصل بأمي', 'أتصل بأمي', '18:00', '18:00', true, null],
+];
+
+test('R6 stated hour (SCRIPTED): on the model path a model hour that contradicts the stated number and part of the day loses to the words', async () => {
+  const seen: unknown[] = [];
+  for (const [text, title, modelHour] of R6_STATED_MODEL) {
+    const fields = modelHour
+      ? { dueAt: at(TOMORROW, modelHour), localTimeSpec: { date: TOMORROW, time: modelHour, timezone: TZ } }
+      : { localTimeSpec: { date: TOMORROW, time: null, timezone: TZ }, missingFields: ['time'] };
+    const { contract } = await proposeModel(text, bankModel(fields, title));
+    assert.equal(contract.provenance.executedEngine, 'gemini', text);
+    seen.push([text, modelHour, ...contract.items.map((item) => hourShown(item))]);
+  }
+  assert.deepEqual(seen, R6_STATED_MODEL.map(([text, title, modelHour, hour, marked, question]) => [text, modelHour, [title, hour, marked, question]]));
+});
+
+test('R6 stated hour (SCRIPTED): another clock hour in the words is another reading — a model that took it is not overruled', async () => {
+  // «ذكرني الساعة 4 … موعد 5 المسا»: the model's 16:00 is the reminder the person asked for at 4.
+  const text = 'بكرا ذكرني الساعة 4 إنه عندي موعد 5 المسا';
+  const { contract, store } = await proposeModel(text, bankModel({ remindAt: at(TOMORROW, '16:00'), localTimeSpec: { date: TOMORROW, time: '16:00', timezone: TZ } }, 'عندي موعد'));
+  const kept = (await store.get(contract.proposalId))!.resultsByItemId!.get(contract.items[0]!.itemId)!;
+  assert.deepEqual([kept.localTimeSpec?.time, kept.remindAt], ['16:00', at(TOMORROW, '16:00')]);
+});
+
+test('R6 stated hour: a typed answer reads the number and its part of the day as the capture does', async () => {
+  const seen: unknown[] = [];
+  for (const freeText of ['خمسة المسا', '5 العصر', 'tomorrow 5 in the evening', '11 الضهر', '9 العصر']) {
+    setStorageForTests(createMemoryStorage());
+    try {
+      const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: 'r6-stated' });
+      const item = proposal.items[0]!;
+      assert.equal(item.clarification?.questionKey, 'ask_time');
+      try {
+        const updated = await clarifyMobileCapture({
+          proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText,
+          timezone: TZ, referenceTime: NOW.toISOString(),
+        }, { participantId: 'r6-stated' });
+        seen.push([freeText, updated.items[0]!.resolvedTime]);
+      } catch (error) {
+        seen.push([freeText, `refused: ${(error as { failure?: string }).failure ?? String(error)}`]);
+      }
+    } finally {
+      resetStorageForTests();
+    }
+  }
+  assert.deepEqual(seen, [
+    ['خمسة المسا', at(TOMORROW, '17:00')],
+    ['5 العصر', at(TOMORROW, '17:00')],
+    ['tomorrow 5 in the evening', at(TOMORROW, '17:00')],
+    // A number outside its part of the day names no hour: not understood, the buttons stay (was 23:00, 21:00).
+    ['11 الضهر', 'refused: answer_not_understood'],
+    ['9 العصر', 'refused: answer_not_understood'],
   ]);
 });

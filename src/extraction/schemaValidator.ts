@@ -21,6 +21,7 @@ import type {
 } from './extractionTypes';
 import {
   forbidsResolvedTime,
+  hourWithDayPart,
   instantFromLocal,
   lastDayOfMonth,
   localTimeSpecFor,
@@ -30,8 +31,10 @@ import {
   namesDayOfMonth,
   namesOtherDayThanToday,
   namesTodayOnly,
+  namesTimeRange,
   namesTwelveInTheEvening,
   readPeriodEndDeadline,
+  statedClockHours,
   relativeDayIsUnsettled,
   relativeDayOffset,
   thisMonthEndWords,
@@ -487,10 +490,16 @@ export function validateExtractionResult(
     rawText,
     context,
   );
+  // A number with its part of the day — «5 المسا», «5 العصر», "5 in the
+  // evening" — is the person's hour in the half that part names (closure UAT
+  // round 6), read as the rules path and the typed answers read it. Not in a
+  // range, which starts at its start.
+  const statedWithDayPart = namesTimeRange(rawText) ? null : hourWithDayPart(rawText);
   // «الساعة 12 المسا» said in the capture (POLISH-CAPTURE review, M7): the
   // model's 12:00 or 00:00 is a guess at an hour nobody can read. Its day is
-  // kept and the hour is asked, as on the rules path.
-  if (namesTwelveInTheEvening(rawText) && (time.localTimeSpec?.time || time.dueAt || time.remindAt)) {
+  // kept and the hour is asked, as on the rules path. So is any pair nobody
+  // can read — «12 الصبح», «11 الضهر» (closure UAT round 6).
+  if ((namesTwelveInTheEvening(rawText) || statedWithDayPart === 'ambiguous') && (time.localTimeSpec?.time || time.dueAt || time.remindAt)) {
     const zone = context?.timezone || time.localTimeSpec?.timezone || 'UTC';
     const instant = time.dueAt ?? time.remindAt;
     const date = time.localTimeSpec?.date ?? (instant ? localTimeSpecFor(new Date(Date.parse(instant)), zone)?.date ?? null : null);
@@ -501,6 +510,31 @@ export function validateExtractionResult(
       localTimeSpec: date ? { date, time: null, timezone: zone } : null,
       flags: time.flags.includes('vague_time') ? time.flags : [...time.flags, 'vague_time'],
     };
+  }
+  // The model's hour against the words' (closure UAT round 6): «بكرا 5 المسا
+  // لازم أتصل بأمي» answered 18:00 — the part of the day's hour, not the
+  // person's — was shown at 18:00 with nothing on it. The words win: their
+  // hour on the model's day, whatever hour the model gave or left out. Only
+  // when every clock number in the words is that one hour («الساعة 7 … 5
+  // المسا» is not one reading), and never without a model day to put it on.
+  const statedDate = time.localTimeSpec?.date ?? null;
+  if (
+    statedWithDayPart && statedWithDayPart !== 'ambiguous' && statedDate && time.localTimeSpec?.time !== statedWithDayPart
+    && Array.from(statedClockHours(rawText)).every((hour) => hour === Number(statedWithDayPart.slice(0, 2)) % 12)
+  ) {
+    const zone = context?.timezone || time.localTimeSpec?.timezone || 'UTC';
+    const instant = instantFromLocal(statedDate, statedWithDayPart, zone)?.toISOString() ?? null;
+    if (instant) {
+      time = {
+        ...time,
+        dueAt: time.dueAt || !time.remindAt ? instant : null,
+        remindAt: time.remindAt ? instant : null,
+        localTimeSpec: { date: statedDate, time: statedWithDayPart, timezone: zone },
+      };
+      for (let index = missingFields.length - 1; index >= 0; index -= 1) {
+        if (missingFields[index] === 'time') missingFields.splice(index, 1);
+      }
+    }
   }
   // The model's date is never moved here (controller ruling, L4 fix round 1):
   // an override built on a word list moved correct dates — "the first report"
