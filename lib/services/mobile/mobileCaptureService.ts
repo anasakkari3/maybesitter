@@ -20,7 +20,7 @@ import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
-import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
+import { eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
   captureProposalPath,
@@ -103,8 +103,8 @@ mobileGlobals.__maybesitterMobilePersistence = persistence;
  * confirm then keeps an event on its day as an all-day event but drops a
  * task's day (`keepEventOnItsDay`, FY1 M1). The card showed only «بدون وقت»
  * either way, so the dentist the calendar kept on Friday read as having no
- * day. The flag is the confirm's own test — a `YYYY-MM-DD` day on the stored
- * reading and `isEventOnDay` over its words — read from the stored proposal,
+ * day. The flag is the confirm's own test — `eventDayOf`, a `YYYY-MM-DD` day on
+ * the stored reading and `isEventOnDay` over its words — read from the stored proposal,
  * which holds the readings the contract does not. One read, and only when some
  * item has a day to keep.
  */
@@ -129,10 +129,9 @@ async function withEventsOnTheirDay<T extends { proposalId: string; items: Reado
       // Still asking for its hour: the confirm keeps nothing of it as it is,
       // so no day is promised (review M2).
       if (item.needsClarification) return item;
-      const result = results.get(item.itemId);
-      const date = result?.localTimeSpec?.date;
-      const onDay = Boolean(item.resolvedDate) && date === item.resolvedDate && /^\d{4}-\d{2}-\d{2}$/.test(date ?? '')
-        && isEventOnDay(result?.rawText ?? '');
+      // The confirm's own test (`eventDayOf`, shared with `keepEventOnItsDay`),
+      // on the day this card shows.
+      const onDay = Boolean(item.resolvedDate) && eventDayOf(results.get(item.itemId)) === item.resolvedDate;
       return onDay ? { ...item, eventOnDay: true } : item;
     }),
   };

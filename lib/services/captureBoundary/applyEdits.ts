@@ -262,6 +262,22 @@ function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' 
 }
 
 /**
+ * The day an item happens *on*, or null (FY1 M1; UAT round 3, N11).
+ *
+ * A `YYYY-MM-DD` day on the reading the item came from, and words that make
+ * it an event on that day (`isEventOnDay`: an appointment, a meeting, a
+ * wedding). The one test behind both halves of "no time keeps an event on its
+ * day": the confirm keeping it there (`keepEventOnItsDay`), and the review
+ * card saying so before the confirm (`eventOnDay`, mobileCaptureService).
+ * Two copies of it would let the card promise a day the confirm drops.
+ */
+export function eventDayOf(result: ExtractionResult | undefined): string | null {
+  const date = result?.localTimeSpec?.date;
+  if (!result || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isEventOnDay(result.rawText ?? '')) return null;
+  return date;
+}
+
+/**
  * "No time" on something that happens on a day keeps it on that day (FY1
  * review, M1): «موعد دكتور يوم الأحد الساعة 10 الصبح» with its time cleared in
  * the edit sheet was stored `unscheduled`, its Sunday gone. It is the same
@@ -273,8 +289,8 @@ function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' 
  * its day.
  */
 export function keepEventOnItsDay(commands: readonly Command[], result: ExtractionResult | undefined): Command[] {
-  const date = result?.localTimeSpec?.date;
-  if (!result || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isEventOnDay(result.rawText ?? '')) return [...commands];
+  const date = eventDayOf(result);
+  if (!result || !date) return [...commands];
   return commands.map((command): Command => {
     if (command.type !== 'CreateDraft') return command;
     const timezone = command.commitment.timeSpec?.timezone && command.commitment.timeSpec.timezone !== 'UTC'
