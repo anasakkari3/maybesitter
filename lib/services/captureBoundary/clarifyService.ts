@@ -319,15 +319,47 @@ const TWELVE_IN_THE_EVENING = new RegExp(
  * answer alone: re-read together with «سجّل موعد دكتور يوم الأحد», the
  * sentence's Sunday came first and «بكرا المسا» stayed on Sunday.
  */
-function dayTypedIn(freeText: string, options: ClarifyOptions): string | null {
+function dayTypedIn(freeText: string, options: ClarifyOptions): string | 'ambiguous' | null {
   const today = localTimeSpecFor(options.now, options.timezone)?.date ?? null;
   if (!today) return null;
+  if (typedDayIsAmbiguous(freeText)) return 'ambiguous';
   const offset = relativeDayOffset(freeText);
   if (offset !== null) {
     const [year, month, day] = today.split('-').map(Number) as [number, number, number];
     return new Date(Date.UTC(year, month - 1, day + offset)).toISOString().slice(0, 10);
   }
   return resolveWeekdayDate(freeText, options.now, options.timezone)?.date ?? null;
+}
+
+/*
+ * A typed answer that names a day it does not mean, or two days (POLISH-CAPTURE
+ * review, I3): «بكرا لا، الخميس المسا», "not tomorrow, Thursday evening",
+ * «الخميس بدل بكرا المسا», «بكرا أو الخميس المسا», «اليوم التاني المسا» ("the
+ * next day"). The first day word is the one it said *not* to use, or one of
+ * two. Not understood; the buttons stay.
+ */
+const DAY_NEGATION = new Set(['مش', 'مو', 'ما', 'لا', 'مب', 'not', 'no', 'לא']);
+const DAY_ALTERNATIVE = /(?:^|[\s,،])(?:بدل|بدال|عوض|أو|او|ولا|or|instead|או|במקום)(?=$|[\s,،])/i;
+const DAY_AFTER_TODAY = /(?:^|[\s,،])(?:[وف]?(?:اليوم|النهار)\s+(?:التاني|الثاني|التالي)|(?:تاني|ثاني)\s+يوم|למחרת)(?=$|[\s,،])|\b(?:the\s+)?(?:next|following)\s+day\b/i;
+const EDGE_MARKS = new RegExp('^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$', 'gu');
+function typedDayIsAmbiguous(freeText: string): boolean {
+  const relative = relativeDayOffset(freeText) !== null;
+  const weekday = readWeekdayReference(freeText) !== null;
+  if (!relative && !weekday) return false;
+  if (DAY_AFTER_TODAY.test(freeText)) return true;
+  if (relative && weekday) return true;
+  if (DAY_ALTERNATIVE.test(freeText)) return true;
+  // A negation right beside a day word, with no comma between: «مش بكرا»,
+  // "not tomorrow", «מחר לא». «لا، بكرا المسا» is "no — tomorrow evening".
+  const words = freeText.split(/\s+/).filter(Boolean);
+  return words.some((word, index) => {
+    if (!namesDay(word.replace(EDGE_MARKS, ''))) return false;
+    const before = words[index - 1];
+    const after = words[index + 1];
+    const negatedBefore = before !== undefined && !/[,،]$/.test(before) && DAY_NEGATION.has(before.toLowerCase());
+    const negatedAfter = after !== undefined && !/[,،]$/.test(word) && DAY_NEGATION.has(after.replace(EDGE_MARKS, '').toLowerCase());
+    return negatedBefore || negatedAfter;
+  });
 }
 
 /** An answered time already behind `now` is not an answer anyone can keep (FY1 review, I3). */
@@ -440,7 +472,9 @@ async function readFreeTextAnswer(
     // the Sunday doctor is tomorrow evening. When the typed day cannot take
     // the typed hour — «اليوم الصبح» at 10:00 — the answer is not understood,
     // never quietly put on Sunday or tomorrow instead.
-    const typedDay = dayTypedIn(freeText, options);
+    const typed = dayTypedIn(freeText, options);
+    if (typed === 'ambiguous') throw new ClarifyError('answer_not_understood');
+    const typedDay = typed;
     const onTypedDay = (answered: ExtractionResult): ExtractionResult => {
       if (typedDay && answered.localTimeSpec?.date !== typedDay) throw new ClarifyError('answer_not_understood');
       return answered;
