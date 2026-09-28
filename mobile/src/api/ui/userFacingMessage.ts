@@ -227,7 +227,7 @@ const TOGGLE_KEYS: Partial<Record<UserFacingKey, UserFacingKey>> = {
   errorsServer: 'toggleServerFailed',
   errorsConsentRequired: 'toggleConsentRequired',
   errorsQuietMode: 'toggleQuietMode',
-  errorsFeatureDisabled: 'errorsFeatureDisabled',
+  errorsFeatureDisabled: 'toggleFeatureDisabled',
   authSessionExpired: 'authSessionExpired',
   authSignedOutRevoked: 'authSignedOutRevoked',
   authSignedOutDeleted: 'authSignedOutDeleted',

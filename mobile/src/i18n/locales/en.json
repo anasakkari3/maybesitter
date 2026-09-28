@@ -340,6 +340,7 @@
   "toggleServerFailed": "Something on our side didn't answer, so nothing changed. Try again in a moment.",
   "toggleConsentRequired": "This needs your permission first, so nothing changed.",
   "toggleQuietMode": "Quiet mode is on, so nothing changed.",
+  "toggleFeatureDisabled": "This feature isn't available, so nothing changed.",
   "trustQuietMode": "Quiet mode",
   "trustQuietModeBody": "No suggestions at all until you turn this off.",
   "trustCalendar": "Calendar",

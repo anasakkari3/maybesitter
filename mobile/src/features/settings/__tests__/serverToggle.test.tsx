@@ -14,6 +14,8 @@ import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import { ForbiddenError, NetworkError, ServerError, TimeoutError, ValidationError } from '../../../api/errors';
 
 const METRICS: Metrics = {
@@ -158,9 +160,26 @@ describe('every failure line reads under a switch', () => {
     expect(await lineFor(new ForbiddenError('no', 'consent_required'))).toBe(en.toggleConsentRequired);
   });
 
+  it('a module switched off on the server also says nothing changed (review m8)', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'feature_disabled'))).toBe(en.toggleFeatureDisabled);
+  });
+
   it('quiet mode is said about this switch, not about suggestions', async () => {
     expect(await lineFor(new ForbiddenError('no', 'quiet_mode'))).toBe(en.toggleQuietMode);
   });
+});
+
+/* Every switch line ends with what happened to the switch, in all three (review m8). */
+it('says nothing changed in every switch line, in ar, en and he', () => {
+  const keys = ['toggleServerFailed', 'toggleConsentRequired', 'toggleQuietMode', 'toggleFeatureDisabled'] as const;
+  for (const key of keys) {
+    expect(ar[key]).toContain('فما تغيّر إشي');
+    expect(en[key]).toContain('so nothing changed');
+    expect(he[key]).toContain('אז שום דבר לא השתנה');
+  }
+  // Spelling (review m7): the shadda is written.
+  expect(ar.toggleServerFailed).toContain('عنّا');
+  expect(ar.toggleConsentRequired).toContain('أوّل');
 });
 
 describe('while a write is in flight', () => {
