@@ -81,6 +81,16 @@ cannot drift:
   `MAYBESITTER_KILL_SWITCH_MEMORY=true` as a second, independent block —
   the same belt-and-braces shape as `MAYBESITTER_AI_DISABLED` next to
   `MAYBESITTER_LLM_PROVIDER=none`.
+- `MAYBESITTER_KMS_KEY_NAME` (the `user-secrets` key) on both services. It
+  seals Google refresh tokens and ICS feed URLs; without it Google connect
+  answers `not_configured`. It used to be set on staging by hand only.
+- `MAYBESITTER_SITE_ORIGINS` on production only: `https://maybesitter.com`,
+  `https://maybesitter-app.web.app`, `https://maybesitter-app.firebaseapp.com`,
+  the exact origins the early-access form may post from. `www` redirects to
+  the apex at Hosting, so it is not listed.
+- The env list is passed as `--update-env-vars=^;^A=1;B=2;…` (gcloud's custom
+  delimiter, `gcloud topic escaping`), because `MAYBESITTER_SITE_ORIGINS` is
+  itself comma-separated. Add a variable with `;`, never `,`.
 
 ## Adding a secret
 

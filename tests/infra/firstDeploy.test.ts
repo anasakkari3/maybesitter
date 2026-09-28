@@ -20,6 +20,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { handleEarlyAccessEvent } from '../../lib/earlyAccess/service.ts';
+
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (file: string) => readFileSync(join(repoRoot, file), 'utf8');
 const workflow = read('.github/workflows/deploy.yml');
@@ -144,6 +146,101 @@ test('the football-data.org credential is mounted on staging only', () => {
     /FOOTBALL_DATA_API_KEY/,
     'production football sync was activated without an explicit production decision',
   );
+});
+
+// ── The env list gcloud actually receives ───────────────────────────────
+
+const flagsFor = (target: 'staging' | 'production') =>
+  execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), target], { encoding: 'utf8' });
+
+/**
+ * `--update-env-vars` parsed the way gcloud's ArgDict does (`gcloud topic
+ * escaping`): an optional `^D^` prefix picks the pair delimiter, else `,`;
+ * each pair splits on its first `=`. The workflow expands flags.sh unquoted,
+ * so words are what bash would split on whitespace.
+ */
+function envVarsOf(printed: string): Map<string, string> {
+  const words = printed.trim().split(/\s+/);
+  const flag = words.filter((word) => word.startsWith('--update-env-vars='));
+  assert.equal(flag.length, 1, 'exactly one --update-env-vars word (a second one would replace the first)');
+  let value = flag[0]!.slice('--update-env-vars='.length);
+  let delimiter = ',';
+  const custom = /^\^([^^]+)\^/.exec(value);
+  if (custom) {
+    delimiter = custom[1]!;
+    value = value.slice(custom[0].length);
+  }
+  const vars = new Map<string, string>();
+  for (const pair of value.split(delimiter)) {
+    const at = pair.indexOf('=');
+    const key = at < 0 ? pair : pair.slice(0, at);
+    // A comma-separated value split on the default delimiter shows up here as
+    // a "key" like `https://maybesitter-app.web.app`, which gcloud rejects.
+    assert.match(key, /^[A-Z_][A-Z0-9_]*$/, `"${pair}" is not a KEY=VALUE pair: the delimiter is splitting a value`);
+    assert.ok(!vars.has(key), `${key} is set twice`);
+    vars.set(key, pair.slice(at + 1));
+  }
+  return vars;
+}
+
+const PRODUCTION_SITE_ORIGINS = [
+  'https://maybesitter.com',
+  'https://maybesitter-app.web.app',
+  'https://maybesitter-app.firebaseapp.com',
+];
+const KMS_KEY = 'projects/maybesitter-app/locations/europe-west1/keyRings/maybesitter/cryptoKeys/user-secrets';
+
+test('production allows exactly the live site origins, the custom domain included, as one env value', () => {
+  // Before this the value lived on the service only because someone set it by
+  // hand, without maybesitter.com: sign-ups from the custom domain got a 403.
+  const production = envVarsOf(flagsFor('production'));
+  assert.deepEqual(production.get('MAYBESITTER_SITE_ORIGINS')?.split(','), PRODUCTION_SITE_ORIGINS);
+  for (const origin of PRODUCTION_SITE_ORIGINS) {
+    // The service compares the Origin header exactly: no path, no trailing slash.
+    assert.equal(new URL(origin).origin, origin);
+  }
+  // No website posts to staging's sign-up.
+  assert.equal(envVarsOf(flagsFor('staging')).has('MAYBESITTER_SITE_ORIGINS'), false);
+});
+
+test('each production site origin passes the sign-up\'s own origin check with the value flags.sh sets', async () => {
+  const env = { K_SERVICE: 'maybesitter-api', MAYBESITTER_SITE_ORIGINS: envVarsOf(flagsFor('production')).get('MAYBESITTER_SITE_ORIGINS') } as unknown as NodeJS.ProcessEnv;
+  const ping = (origin: string) => handleEarlyAccessEvent(
+    new Request('https://maybesitter-api.example/api/early-access/events', { method: 'POST', headers: { origin, 'sec-fetch-site': 'same-origin' } }),
+    { env },
+  );
+  for (const origin of PRODUCTION_SITE_ORIGINS) assert.equal((await ping(origin)).status, 204, origin);
+  assert.equal((await ping('https://www.maybesitter.com')).status, 403, 'www redirects at Hosting and is not listed');
+});
+
+test('both services are deployed with the KMS key that seals per-user secrets', () => {
+  // Staging had it by hand and production not at all, so Google connect on
+  // production answered `not_configured`. A deploy must carry it.
+  for (const target of ['staging', 'production'] as const) {
+    assert.equal(envVarsOf(flagsFor(target)).get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY, target);
+  }
+});
+
+test('switching the env list to a custom delimiter dropped none of the existing settings', () => {
+  const production = envVarsOf(flagsFor('production'));
+  const staging = envVarsOf(flagsFor('staging'));
+  for (const [key, value] of [
+    ['MAYBESITTER_ENV', 'production'],
+    ['MAYBESITTER_STORAGE_BACKEND', 'firestore'],
+    ['MAYBESITTER_FIRESTORE_DATABASE_ID', '(default)'],
+    ['GOOGLE_CLOUD_PROJECT', 'maybesitter-app'],
+    ['MAYBESITTER_LLM_PROVIDER', 'none'],
+    ['MAYBESITTER_AI_DISABLED', 'true'],
+    ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '3000'],
+    ['MAYBESITTER_FEATURE_MEMORY', 'false'],
+    ['MAYBESITTER_KILL_SWITCH_MEMORY', 'true'],
+  ] as const) {
+    assert.equal(production.get(key), value, `production ${key}`);
+  }
+  assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
+  assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
+  assert.equal(production.size, 22);
+  assert.equal(staging.size, 21);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────
