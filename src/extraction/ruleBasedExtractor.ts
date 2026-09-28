@@ -2,6 +2,7 @@ import type { ExtractionContext, ExtractionResult, LocalTimeSpec } from './extra
 import { classifyMessageKind, createsNothing, stripLeadingGreetings } from './messageKind';
 import {
   CLOCK_PATTERN_SOURCES,
+  CLOCK_WITH_PERIOD_SOURCES,
   DAY_PART_MENTION_SOURCES,
   RELATIVE_DAY_MENTION_SOURCES,
   RANGE_PATTERN_SOURCES,
@@ -339,6 +340,8 @@ const DAY_PART_STRIP = DAY_PART_MENTION_SOURCES.map((source) => new RegExp(sourc
 const RELATIVE_DAY_STRIP = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
 const WEEKDAY_STRIP = WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'gu'));
 const CLOCK_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi'));
+// Ranges first, so «من الساعة 2 للساعة 4 المسا» is not cut inside its range.
+const CLOCK_WITH_PERIOD_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_WITH_PERIOD_SOURCES].map((source) => new RegExp(source, 'gi'));
 // The counted offset whole first («قبل آخر الشهر بأسبوع»), so «بأسبوع» is not
 // left behind in the title (FZ1 round 2).
 const MONTH_END_STRIP = [MONTH_END_OFFSET_SOURCE, ...MONTH_END_MENTION_SOURCES].map((source) => new RegExp(source, 'giu'));
@@ -373,6 +376,9 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   // "tomorrow" that frames "tomorrow morning" is still there to be read. A
   // word that only contains one — «المساعدة», «המערב», "the morning report"
   // — stays in the title whole, and «عالمسا» leaves no «ع» behind.
+  // A clock with its part of the day («5 المسا», «ב-5 בערב») goes whole first:
+  // taking «المسا» alone would leave its «5» in the title (closure UAT r6).
+  for (const pattern of CLOCK_WITH_PERIOD_STRIP) stripped = stripped.replace(pattern, ' ');
   const dayNamed = namesDay(text);
   for (const pattern of DAY_PART_STRIP) {
     stripped = stripped.replace(pattern, (match) => (!dayNamed && HE_THE_MORNING.test(match) ? match : ' '));
