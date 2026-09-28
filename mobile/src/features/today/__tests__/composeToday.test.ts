@@ -28,6 +28,27 @@ const aPlan = (status: DailyPlan['status'], placed = 2): DailyPlan => ({
   unscheduled: [], edited: false, protections: [],
 });
 
+describe('which quiet it is (UAT round 3, N12)', () => {
+  const quiet = (over: Partial<NextStepInput>) =>
+    composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ silenced: true, ...over }), plan: plan(), upcoming: [] }).primary;
+
+  it('quiet hours are not quiet mode, and say when they end', () => {
+    expect(quiet({ silencedReason: 'quiet_hours', quietUntil: '07:30' })).toEqual({ kind: 'quiet', why: 'hours', until: '07:30' });
+  });
+
+  it('quiet hours from a server that sends no end are still quiet hours', () => {
+    expect(quiet({ silencedReason: 'quiet_hours' })).toEqual({ kind: 'quiet', why: 'hours', until: null });
+  });
+
+  it('quiet mode is the person\'s switch, with no end', () => {
+    expect(quiet({ silencedReason: 'quiet_mode', quietUntil: '07:30' })).toEqual({ kind: 'quiet', why: 'mode', until: null });
+  });
+
+  it('a stop that is neither — the kill switch — is not called quiet mode', () => {
+    expect(quiet({ silencedReason: 'kill_switch_active' })).toEqual({ kind: 'quiet', why: 'paused', until: null });
+  });
+});
+
 describe('exactly one primary', () => {
   it('the recommendation wins, and its item leaves the list', () => {
     const m = composeToday({ groups: groups({ must: [item('a', 'must')], should: [item('b')] }), next: next({ recommendation: rec('b') }), plan: plan(), upcoming: [] });
@@ -65,8 +86,8 @@ describe('exactly one primary', () => {
   });
 
   it('is quiet when the user asked for quiet, even with open items and a recommendation', () => {
-    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('a'), silenced: true }), plan: plan(), upcoming: [] });
-    expect(m.primary).toEqual({ kind: 'quiet' });
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('a'), silenced: true, silencedReason: 'quiet_mode' }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'quiet', why: 'mode', until: null });
     expect(m.groups.must).toHaveLength(1);
   });
 
@@ -132,8 +153,8 @@ describe('the day is empty only when every source has answered with nothing', ()
   });
 
   it('is not empty when the user asked for quiet: the quiet card is the content', () => {
-    const m = composeToday({ groups: empty, next: next({ silenced: true }), plan: plan(), upcoming: [] });
-    expect(m.primary).toEqual({ kind: 'quiet' });
+    const m = composeToday({ groups: empty, next: next({ silenced: true, silencedReason: 'quiet_mode' }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'quiet', why: 'mode', until: null });
     expect(m.isEmpty).toBe(false);
   });
 

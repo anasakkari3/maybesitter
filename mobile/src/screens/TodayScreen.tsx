@@ -6,7 +6,7 @@ import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
-import { ltr, type Lang } from '../i18n/strings';
+import { fill, ltr, type Lang } from '../i18n/strings';
 import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
@@ -116,6 +116,8 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
     next: {
       recommendation: next.data?.recommendation,
       silenced: next.data?.exposure?.allowed === false,
+      silencedReason: next.data?.exposure?.reason,
+      quietUntil: next.data?.exposure?.until,
       isPending: next.isPending,
       isError: next.isError,
       // A 403 is the route answering, not failing: recommendations are off
@@ -249,11 +251,24 @@ function PrimaryCard({ primary, lookup, strings, timezone, lang, busy }: {
   const { t, p, actions } = useApp();
   switch (primary.kind) {
     case 'quiet':
+      // Three different silences (UAT round 3, N12). Only quiet mode is a
+      // switch the person turned on, so only it points at Trust; quiet hours
+      // end by themselves and point at where they are set; the operator's
+      // pause offers nothing to switch.
       return (
         <Card pad={18} style={{ gap: 8 }} testID="today-quiet">
           <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
-          <Txt size={15} lh={1.5}>{t.todayQuietModeOn}</Txt>
-          <TextLink label={t.sTrust} onPress={() => actions.go('trust')} testID="today-quiet-trust" />
+          <Txt size={15} lh={1.5}>
+            {primary.why === 'mode' ? t.todayQuietModeOn
+              : primary.why === 'paused' ? t.todayNextPaused
+                : primary.until ? fill(t.todayQuietHoursUntil, { time: ltr(primary.until) }) : t.todayQuietHours}
+          </Txt>
+          {primary.why === 'mode' ? (
+            <TextLink label={t.sTrust} onPress={() => actions.go('trust')} testID="today-quiet-trust" />
+          ) : null}
+          {primary.why === 'hours' ? (
+            <TextLink label={t.notifQuietTitle} onPress={() => actions.go('notificationsSettings')} testID="today-quiet-hours" />
+          ) : null}
         </Card>
       );
     case 'allDone':
