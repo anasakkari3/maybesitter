@@ -29,6 +29,7 @@ import {
   namesDay,
   namesOtherDayThanToday,
   namesTodayOnly,
+  namesTwelveInTheEvening,
   readPeriodEndDeadline,
   relativeDayOffset,
   thisMonthEndWords,
@@ -418,6 +419,21 @@ export function validateExtractionResult(
     rawText,
     context,
   );
+  // «الساعة 12 المسا» said in the capture (POLISH-CAPTURE review, M7): the
+  // model's 12:00 or 00:00 is a guess at an hour nobody can read. Its day is
+  // kept and the hour is asked, as on the rules path.
+  if (namesTwelveInTheEvening(rawText) && (time.localTimeSpec?.time || time.dueAt || time.remindAt)) {
+    const zone = context?.timezone || time.localTimeSpec?.timezone || 'UTC';
+    const instant = time.dueAt ?? time.remindAt;
+    const date = time.localTimeSpec?.date ?? (instant ? localTimeSpecFor(new Date(Date.parse(instant)), zone)?.date ?? null : null);
+    time = {
+      ...time,
+      dueAt: null,
+      remindAt: null,
+      localTimeSpec: date ? { date, time: null, timezone: zone } : null,
+      flags: time.flags.includes('vague_time') ? time.flags : [...time.flags, 'vague_time'],
+    };
+  }
   // The model's date is never moved here (controller ruling, L4 fix round 1):
   // an override built on a word list moved correct dates — "the first report"
   // became a Sunday. The same tokenizer only *marks* a date that came from a

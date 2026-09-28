@@ -15,6 +15,7 @@ import {
   forbidsResolvedTime,
   lastDayOfMonth,
   monthEndDay,
+  namesTwelveInTheEvening,
   MONTH_END_MENTION_SOURCES,
   MONTH_END_OFFSET_SOURCE,
   NIGHT_HOUR,
@@ -168,7 +169,10 @@ interface ParsedTime {
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   const now = context.now;
   const tz = resolveTimezone(context);
-  const clock = parseClock(raw);
+  // «الساعة 12 المسا» names no hour anybody can read (POLISH-CAPTURE review,
+  // M7): no clock and no part of the day, so the day is kept and the hour asked.
+  const twelveInTheEvening = namesTwelveInTheEvening(raw);
+  const clock = twelveInTheEvening ? null : parseClock(raw);
   let targetDate: Date | null = null;
   let timeConfidence = 0;
   let dateInferred = false;
@@ -240,7 +244,7 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   // hour the user never said and never asked about it. A caller that sets
   // `defaultReminderHour` has *chosen* a default and still gets one; its
   // absence now means "no time stated" rather than "six".
-  const daypart = dayPartHour(raw);
+  const daypart = twelveInTheEvening ? null : dayPartHour(raw);
   let hour: number;
   let minute = 0;
   if (clock) {

@@ -1135,6 +1135,23 @@ export function withoutTimeOfDay(rawText: string): string {
   return stripped.replace(/[ \t]+/g, ' ').trim();
 }
 
+/*
+ * «12 المسا», "12 in the evening", «12 בערב» (FZ1 round 4 note; POLISH-CAPTURE
+ * review M2, M7): noon to some and midnight to others. Asked, not guessed —
+ * typed as an answer, or said in the capture itself. "12 pm", «12 م» and «12
+ * الضهر» are the clock's noon, and «12 بالليل» the night's midnight (FZ1 N10).
+ */
+const TWELVE_IN_THE_EVENING = new RegExp(
+  '(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around|בשעה)\\s+|ב-?)?(?:12|١٢|۱۲)(?::[0-9٠-٩]{2})?\\s*'
+    + '(?:بالمسا|المساء|المسا|مساءً|مساءا|مساء|مسا|(?:in\\s+the\\s+)?evening|בערב)(?![\\p{L}\\p{M}])',
+  'iu',
+);
+
+/** The text says twelve with an evening word — an hour nobody can read without asking. */
+export function namesTwelveInTheEvening(rawText: string): boolean {
+  return typeof rawText === 'string' && TWELVE_IN_THE_EVENING.test(rawText);
+}
+
 /** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */
 export function lastDayOfMonth(now: Date, timeZone: string): string {
   const today = localTimeSpecFor(now, timeZone)?.date ?? now.toISOString().slice(0, 10);

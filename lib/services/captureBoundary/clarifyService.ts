@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, nightClockHour, relativeDayOffset, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, nightClockHour, relativeDayOffset, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -301,18 +301,6 @@ function typedHourWithHalf(freeText: string): string | 'ambiguous' | null {
   return `${String(answered).padStart(2, '0')}:00`;
 }
 
-/*
- * «12 المسا», "12 in the evening", «12 בערב» (FZ1 round 4, note): noon to some
- * and midnight to others, and read as 12:00 without a word. Asked, not
- * guessed — like «12 الصبح» — so the buttons stay. "12 pm" and «12 م» are the
- * clock's noon, and «12 بالليل» the night's midnight (FZ1 N10).
- */
-const TWELVE_IN_THE_EVENING = new RegExp(
-  '(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around|בשעה)\\s+)?(?:12|١٢|۱۲)(?::00|:٠٠)?\\s*'
-    + '(?:بالمسا|المساء|المسا|مساءً|مساءا|مساء|مسا|(?:in\\s+the\\s+)?evening|בערב)(?![\\p{L}\\p{M}])',
-  'iu',
-);
-
 /**
  * The day a typed answer names on its own — «بكرا», "tonight", «מחר», «الخميس»
  * — on the person's clock, or null (FY1 re-review 2, R2-M1). Read from the
@@ -420,7 +408,7 @@ async function readFreeTextAnswer(
   // «الساعة 4» typed alone: the unlikely morning or a guess (FY1 re-review);
   // not understood, and the صبح/مسا buttons are still there.
   if (TIME_FIELDS.has(question.field) && isBareEarlyHourAnswer(freeText)) throw new ClarifyError('answer_not_understood');
-  if (TIME_FIELDS.has(question.field) && TWELVE_IN_THE_EVENING.test(freeText)) throw new ClarifyError('answer_not_understood');
+  if (TIME_FIELDS.has(question.field) && namesTwelveInTheEvening(freeText)) throw new ClarifyError('answer_not_understood');
   // "What time?" answered with no time of day and no day — «بعد ساعة»,
   // "later", «אחר כך». Whatever hour a re-read finds is not one the person
   // typed: the sentence's own passed hour, or the engine's guess (closure UAT
