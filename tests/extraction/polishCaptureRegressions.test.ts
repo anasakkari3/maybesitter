@@ -501,6 +501,9 @@ test('fix I3: a typed answer that negates a day, offers two, or says "the next d
   for (const freeText of [
     'بكرا لا، الخميس المسا', 'not tomorrow, Thursday evening', 'الخميس بدل بكرا المسا', 'الأحد مش بكرا، المسا',
     'مش بكرا، الأحد المسا', 'بكرا أو الخميس المسا', 'tomorrow or Thursday evening', 'اليوم التاني المسا', 'לא מחר, ביום חמישי בערב',
+    // Each rule on its own: two days; an alternative; a negation beside a day.
+    'بكرا الخميس المسا', 'بكرا أو بعد بكرا المسا', 'tomorrow or the day after tomorrow in the evening',
+    'مش بكرا، بعد بكرا المسا', 'not tomorrow, the day after tomorrow in the evening', 'بكرا لا، بعد بكرا المسا',
   ]) {
     assert.deepEqual(await answerDoctor(freeText), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 }, freeText);
   }
@@ -518,6 +521,8 @@ test('fix M1: company is only who it is with — no dangling preposition, no «�
     ['לשלוח את הדוח עם זאת מחר', 'לשלוח את הדוח', 'לשלוח את הדוח'],
     ['send the card with love tomorrow', 'send the card', 'send the card'],
     ['I am done with it, tomorrow call Sami', 'I am done', 'I am done'],
+    // Another «مع» ends the company: never «… مع سامي مع إني».
+    ['بكرا بدي أحكي مع سامي مع إني تعبان', 'أحكي', 'أحكي مع سامي'],
     // Still restored.
     ['والخميس الساعة 6 المسا عندي عشا مع العيلة', 'عندي عشا', 'عندي عشا مع العيلة'],
     ['meeting with John tomorrow at 5', 'meeting', 'meeting with John'],

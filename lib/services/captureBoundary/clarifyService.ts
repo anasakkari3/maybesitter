@@ -337,16 +337,16 @@ function typedDayIsAmbiguous(freeText: string): boolean {
   if (DAY_AFTER_TODAY.test(freeText)) return true;
   if (relative && weekday) return true;
   if (DAY_ALTERNATIVE.test(freeText)) return true;
-  // A negation right beside a day word, with no comma between: «مش بكرا»,
-  // "not tomorrow", «מחר לא». «لا، بكرا المسا» is "no — tomorrow evening".
+  // A negation right beside a day word: «مش بكرا», "not tomorrow", «מחר לא».
+  // A negation with its own comma is a reply of its own: «لا، بكرا المسا» is
+  // "no — tomorrow evening", so the word before is compared as typed.
   const words = freeText.split(/\s+/).filter(Boolean);
   return words.some((word, index) => {
     if (!namesDay(word.replace(EDGE_MARKS, ''))) return false;
     const before = words[index - 1];
     const after = words[index + 1];
-    const negatedBefore = before !== undefined && !/[,،]$/.test(before) && DAY_NEGATION.has(before.toLowerCase());
-    const negatedAfter = after !== undefined && !/[,،]$/.test(word) && DAY_NEGATION.has(after.replace(EDGE_MARKS, '').toLowerCase());
-    return negatedBefore || negatedAfter;
+    return (before !== undefined && DAY_NEGATION.has(before.toLowerCase()))
+      || (after !== undefined && DAY_NEGATION.has(after.replace(EDGE_MARKS, '').toLowerCase()));
   });
 }
 
