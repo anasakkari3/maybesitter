@@ -31,12 +31,12 @@ export function uniqueCommitments(items: readonly Commitment[]) {
  * stays on Today until the user acts on it (#383), with no "overdue" label.
  *
  * An all-day item is judged by its day, not its instant: its `dueAt` is that
- * day's local midnight, and it is ahead until the day ends (review I-1). Order
+ * day's local midnight, and it is ahead until the day ends in its own zone
+ * (review I-1; `toViewModel`'s `isPast`). Order
  * is by day; within a day, timed items first, then the all-day ones; items
  * with no time come last.
  */
 export function nextUsefulItem(items: readonly Commitment[], now: string, timeZone: string) {
-  const today = dayKey(new Date(now), timeZone);
   const NO_DAY = '9999-99-99';
   type Ranked = { view: CommitmentView; day: string; tier: number; at: number; allDayZone: string | null };
   const ranked = items.flatMap((record): Ranked[] => {
@@ -44,9 +44,11 @@ export function nextUsefulItem(items: readonly Commitment[], now: string, timeZo
     if (view.status !== 'active') return [];
     if (!view.shownAt) return [{ view, day: NO_DAY, tier: 2, at: 0, allDayZone: null }];
     if (record.timeSpec.allDay) {
+      // Past by the one rule `toViewModel` holds: its day has ended in its own
+      // zone (POLISH-MOBILE review m1), not by the phone's calendar day.
+      if (view.isPast) return [];
       const allDayZone = resolveTimeZone(record.timeSpec.timezone);
-      const day = dayKey(new Date(view.shownAt), allDayZone);
-      return day < today ? [] : [{ view, day, tier: 1, at: 0, allDayZone }];
+      return [{ view, day: dayKey(new Date(view.shownAt), allDayZone), tier: 1, at: 0, allDayZone }];
     }
     if (view.isPast) return [];
     return [{ view, day: dayKey(new Date(view.shownAt), timeZone), tier: 0, at: Date.parse(view.shownAt), allDayZone: null }];
