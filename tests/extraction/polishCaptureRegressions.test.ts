@@ -626,9 +626,15 @@ test('round 4 R3-I2: a negation or "can\'t" anywhere in the answer, outside the 
     // Shapes the ruling does not whitelist: refused, the safe side.
     'بكرا لا، الخميس المسا', 'الأحد مش بكرا، المسا', 'بكرا، مش الخميس، المسا', 'بكرا لا، بعد بكرا المسا',
     'لا بكرا مش المسا', 'لا، المسا', 'not in the morning, the evening', '5 المسا مش الصبح',
+    // Shape (b) only when X is nothing but a day, and Y opens with one day, carries no negation, alternative or second day.
+    'مش أكيد بكرا، الخميس المسا', 'مش بكرا، الخميس مش المسا', 'not tomorrow, maybe Thursday evening', 'مش بكرا، يمكن الخميس المسا',
+    'مش بكرا، الخميس المسا، الجمعة الصبح', 'not tomorrow, Thursday evening or later', 'مش بكرا، الخميس المسا أو بعدين',
   ]) {
     assert.deepEqual(await answerDoctor(freeText), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 }, freeText);
   }
+  // Refused before anything is re-read: no model call is spent on it.
+  const reread = reportAnswer('2026-09-29', 'موعد دكتور', '19:00');
+  assert.deepEqual(await answerDoctor('ما بقدر بكرا المسا', { reread }), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 });
 });
 
 test('round 4: words that only look like a negation — «مش مشكلة», "no problem", «بعد ما», «ما بعد الضهر» — leave the answer readable', async () => {
