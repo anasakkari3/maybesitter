@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -29,7 +29,7 @@ export function BackgroundActivityScreen() {
     : t.xNotObserved;
   return <ProductPage id="background" title={t.xBackground} subtitle={t.xBackgroundBody} overlay={deleting ? <Dialog title={t.xRemoveWatch} body={t.xRemoveWatchBody} confirmLabel={t.memoryDelete} cancelLabel={t.cancel}
       onCancel={() => setDeleting(null)} onConfirm={() => { action.mutate({ id: deleting, action: 'delete' }); setDeleting(null); }} /> : null}>
-    <ProductSection title={t.xBackground} body={t.xBackgroundBody} icon="shield">
+    <ProductSection title={t.xBackground} icon="shield">
       <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
         <ServerToggle title={t.xPause} body={t.xWatchLimits} testID="monitoring-pause" value={query.data?.paused ?? false} disabled={query.data === undefined} onChange={async paused => {
           await setMonitoring.mutateAsync(paused);
@@ -77,6 +77,19 @@ export function WatchBuilderScreen() {
   const { t, p, actions } = useApp();
   const [effect, setEffect] = useState<keyof typeof effectKeys>('notify');
   const create = useCreateReadinessWatcher();
+  // One create in flight, however fast the taps come. `disabled` only takes
+  // effect on the next render, and two taps inside that frame each made a
+  // watcher; this is checked synchronously, before the request goes out.
+  const creating = useRef(false);
+  const submit = () => {
+    if (creating.current) return;
+    creating.current = true;
+    create.mutate(effect, {
+      // The finished builder hands its place to Background activity (L6).
+      onSuccess: () => actions.replace('backgroundActivity'),
+      onSettled: () => { creating.current = false; },
+    });
+  };
   return <ProductPage id="watch" title={t.xWatch} subtitle={t.xWatchBody}>
     <ProductSection title={`1 · ${t.xSource}`} body={t.xChooseSubject} icon="watch">
       <Choice id="watch-source-readiness" title={t.xReadiness} checked onPress={() => undefined} />
@@ -95,7 +108,7 @@ export function WatchBuilderScreen() {
       <Txt role="supporting">{t[effectKeys[effect]]}</Txt><AvailabilityBadge status="LIVE" />
     </Card>
     {create.error ? <Txt color={p.wm}>{userFacingMessage(create.error, t)}</Txt> : null}
-    <Pill testID="watch-create" label={t.xCreateWatch} disabled={create.isPending} onPress={() => create.mutate(effect, { onSuccess: () => actions.go('backgroundActivity') })} />
+    <Pill testID="watch-create" label={t.xCreateWatch} disabled={create.isPending} onPress={submit} />
   </ProductPage>;
 }
 function Choice({ title, checked, onPress, id }: { title: string; checked: boolean; onPress: () => void; id?: string }) {

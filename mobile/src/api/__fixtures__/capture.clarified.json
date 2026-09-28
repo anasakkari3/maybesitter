@@ -10,7 +10,9 @@
       "needsClarification": false,
       "priority": "normal",
       "priorityEstimated": true,
-      "clarification": null
+      "clarification": null,
+      "resolvedDate": "2026-08-10",
+      "dateEstimated": false
     }
   ],
   "seeds": [],

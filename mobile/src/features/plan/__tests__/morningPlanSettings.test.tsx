@@ -249,7 +249,10 @@ describe('the way to the plan itself', () => {
     expect(screen.queryByTestId('plan-open')).not.toBeNull();
   });
 
-  it('offers the way to the OS settings, which is where a no can be undone', async () => {
+  it('offers the way to the OS settings once the phone has said no, which is where a no can be undone', async () => {
+    // Only after a no (first iPhone run, L7): before the phone is asked there
+    // is no switch in phone settings to find.
+    jest.spyOn(permission, 'getNotificationPermission').mockResolvedValue('denied');
     await settled();
     expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull();
   });

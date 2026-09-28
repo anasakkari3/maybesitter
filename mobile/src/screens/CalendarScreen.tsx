@@ -2,7 +2,7 @@ import { ProductRow } from '../ui/product';
 import { importantDeadline } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import React, { useMemo, useState } from 'react';
-import { RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, View } from 'react-native';
 import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
@@ -10,6 +10,7 @@ import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTim
 import { ltr } from '../i18n/strings';
 import { useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
+import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { ScreenHeader, Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
@@ -19,6 +20,7 @@ import { groupUpcoming, toViewModel, type CommitmentView } from '../features/com
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
 import { Btn, Card, Txt } from '../ui/primitives';
+import { DirectionalScrollRow } from '../ui/directionalScroll';
 import { cardShadow } from '../theme/tokens';
 
 /**
@@ -58,7 +60,8 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const today = useToday();
   const upcoming = useUpcoming();
   const trust = useTrust();
-  const busy = useBusyBlocks();
+  // Google Calendar's busy time (CL6a) beside the phone's; see `useConflictBusyBlocks`.
+  const busy = useConflictBusyBlocks(useBusyBlocks());
   const calendarConnected = trust.data?.trust.calendarConsent === true;
   const [refreshing, setRefreshing] = useState(false);
 
@@ -141,7 +144,9 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           onRetry={() => { void today.refetch(); void upcoming.refetch(); }}
         >
           <Card pad={0} style={{ paddingVertical: 14, paddingHorizontal: 10 }}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 4 }}>
+            {/* Today reads first: at the right in Arabic and Hebrew. A horizontal
+                ScrollView ignores the root's `direction`, so the row mirrors itself. */}
+            <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 4 }} itemStyle={stacked ? undefined : { flex: 1 }}>
               {keys.map((key, offset) => (
                 <DayCell
                   key={key}
@@ -153,7 +158,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
                   onPress={() => actions.setSelDay(offset)}
                 />
               ))}
-            </ScrollView>
+            </DirectionalScrollRow>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingTop: 12, paddingHorizontal: 8 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                 <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.mu }} />

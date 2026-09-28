@@ -353,3 +353,202 @@ test('a timed option still resolves a time after the no-time change', async () =
     cleanup();
   }
 });
+
+/**
+ * The dead end the owner hit on the first iPhone run: every question answered,
+ * and still nothing could be saved.
+ *
+ * An item the extractor flagged for *low confidence* (below the policy's 0.6
+ * floor, kept only because the user asked to be reminded) was asked when, was
+ * told when, and came back still flagged — `needsClarification: true` with
+ * `clarification: null` and no command — because an answer set the time and
+ * left the confidence where the extractor had put it. The one allowed round was
+ * spent, so there was no second question either; the confirm refused it with
+ * `invalid_selection`. A user's explicit answer to the question that was asked
+ * settles that question.
+ */
+async function confirmAnswered(proposalId: string, itemId: string) {
+  const { confirmMobileCapture } = await import('../../lib/services/mobile/mobileCaptureService.ts');
+  const { getParticipantStateSnapshot } = await import('../../lib/services/mobile/participantState.ts');
+  const result = await confirmMobileCapture(
+    { proposalId, itemIds: [itemId], idempotencyKey: `k-${itemId}` },
+    { participantId: UID },
+  );
+  const commitmentId = result.persisted[0]?.commitmentId;
+  const commitment = commitmentId ? (await getParticipantStateSnapshot(UID)).commitments[commitmentId] : undefined;
+  return { result, commitment };
+}
+
+for (const text of ['Remind me to maybe call Dana', 'ذكرني يمكن اتصل بدانا', 'remind me to call Dana and email Sam']) {
+  test(`a low-confidence reminder answered with an option can be saved: «${text}»`, async () => {
+    const cleanup = setup();
+    try {
+      const { proposal, item } = await proposeAmbiguous(text);
+      assert.ok(item, 'expected an item carrying a question');
+      const question = item.clarification!;
+      const evening = question.options.find((option) => option.optionId === 'evening') ?? question.options.find((option) => option.value.localTime)!;
+
+      const updated = await clarifyMobileCapture(
+        { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: evening.optionId, timezone: ZONE, referenceTime: NOW },
+        { participantId: UID },
+      );
+      const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+      assert.equal(answered.needsClarification, false, 'the answered question did not settle the item');
+      assert.ok(answered.resolvedTime, 'the chosen time is not on the item');
+      assert.equal(updated.status, 'proposed');
+
+      const { result, commitment } = await confirmAnswered(proposal.proposalId, item.itemId);
+      assert.equal(result.success, true, `confirm failed with ${result.failureCode}`);
+      assert.equal(result.persisted.length, 1);
+      assert.ok(commitment, 'no commitment exists after a successful confirm');
+      assert.equal(commitment.status, 'active');
+      assert.equal(commitment.timeSpec.remindAt ?? commitment.timeSpec.dueAt, answered.resolvedTime);
+    } finally {
+      cleanup();
+    }
+  });
+}
+
+/**
+ * The free-text path, literally: a capture with no "remind me" in it, answered
+ * with words the rules alone read as a note. The item used to come back
+ * *resolved* — `needsClarification: false` — holding zero commands, so the
+ * review screen offered a Confirm the server then refused.
+ */
+test('a free-text answer the rules read as a note still leaves a commitment that can be saved', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous('Call Dana');
+    assert.ok(item, 'expected an item carrying a question');
+    const updated = await clarifyMobileCapture(
+      { proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText: 'maybe in the evening', timezone: ZONE, referenceTime: NOW },
+      { participantId: UID },
+    );
+    const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+    assert.equal(answered.needsClarification, false);
+    assert.ok(answered.resolvedTime, 'an evening answer resolved no time');
+    // The answer was about *when*. The title the user saw is the one they keep.
+    assert.equal(answered.title, item.title);
+
+    const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
+    assert.ok((stored?.commandsByItemId.get(item.itemId) ?? []).length > 0, 'resolved with zero commands');
+
+    const { result, commitment } = await confirmAnswered(proposal.proposalId, item.itemId);
+    assert.equal(result.success, true, `confirm failed with ${result.failureCode}`);
+    assert.ok(commitment);
+    assert.equal(commitment.title, item.title);
+  } finally {
+    cleanup();
+  }
+});
+
+test('a typed time moves the time and leaves the title the user saw', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const updated = await clarifyMobileCapture(
+      { proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText: 'maybe later at 9pm', timezone: ZONE, referenceTime: NOW },
+      { participantId: UID },
+    );
+    const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+    // Re-read together, "Remind me to call Dana / maybe later at 9pm" comes back
+    // titled "call Dana maybe later". The question was when, not what.
+    assert.equal(answered.title, item.title);
+    const hour = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, hour: '2-digit', hour12: false }).format(new Date(answered.resolvedTime!));
+    assert.equal(hour, '21');
+  } finally {
+    cleanup();
+  }
+});
+
+test('a free-text part of the day answers a time question in Arabic', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const updated = await clarifyMobileCapture(
+      { proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText: 'بالمسا', timezone: ZONE, referenceTime: NOW },
+      { participantId: UID },
+    );
+    const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+    assert.equal(answered.needsClarification, false);
+    assert.equal(answered.title, item.title, 'the answer leaked into the title');
+    const hour = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, hour: '2-digit', hour12: false }).format(new Date(answered.resolvedTime!));
+    assert.equal(hour, '18');
+    const { result } = await confirmAnswered(proposal.proposalId, item.itemId);
+    assert.equal(result.success, true, `confirm failed with ${result.failureCode}`);
+  } finally {
+    cleanup();
+  }
+});
+
+/**
+ * An answer nothing can be read out of does not spend the round. The question
+ * stays, so the app can say "didn't get that" and the person can tap an
+ * option — rather than an item that is flagged, has no question and no way to
+ * be saved.
+ */
+test('an answer that says nothing about the question keeps the question and the round', async () => {
+  const cleanup = setup();
+  try {
+    const { proposal, item } = await proposeAmbiguous();
+    assert.ok(item);
+    const question = item.clarification!;
+    await assert.rejects(
+      () => clarifyMobileCapture(
+        { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'hello', timezone: ZONE, referenceTime: NOW },
+        { participantId: UID },
+      ),
+      (error: unknown) => error instanceof ClarifyError && error.failure === 'answer_not_understood',
+    );
+    const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
+    const still = stored!.contract.items.find((candidate) => candidate.itemId === item.itemId)!;
+    assert.equal(still.clarification?.questionId, question.questionId, 'the question was taken away');
+
+    const option = question.options.find((candidate) => candidate.value.localTime)!;
+    const updated = await clarifyMobileCapture(
+      { proposalId: proposal.proposalId, itemId: item.itemId, questionId: question.questionId, optionId: option.optionId, timezone: ZONE, referenceTime: NOW },
+      { participantId: UID },
+    );
+    assert.equal(updated.items.find((candidate) => candidate.itemId === item.itemId)!.needsClarification, false);
+  } finally {
+    cleanup();
+  }
+});
+
+/**
+ * The invariant, over every answer shape: after a round that was accepted, an
+ * item is confirmable with commands. `needsClarification: true` beside
+ * `clarification: null` is the dead end, and no accepted answer may produce it.
+ */
+test('no accepted answer leaves an item flagged with no question and no command', async () => {
+  const cleanup = setup();
+  try {
+    const cases: Array<[string, { optionId?: string; freeText?: string }]> = [
+      ['Remind me to maybe call Dana', { optionId: 'morning' }],
+      ['Remind me to maybe call Dana', { optionId: 'none' }],
+      ['Remind me to maybe call Dana', { freeText: 'at 9pm' }],
+      ['Remind me to call Dana', { freeText: 'tomorrow at 6pm' }],
+      ['Call Dana', { freeText: 'maybe in the evening' }],
+      ['ذكرني يمكن اتصل بدانا', { freeText: 'الساعة 8 المسا' }],
+      ['follow up with Sam', { optionId: 'afternoon' }],
+    ];
+    for (const [text, answer] of cases) {
+      const { proposal, item } = await proposeAmbiguous(text);
+      assert.ok(item, `no question for «${text}»`);
+      const updated = await clarifyMobileCapture(
+        { proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, ...answer, timezone: ZONE, referenceTime: NOW },
+        { participantId: UID },
+      );
+      const answered = updated.items.find((candidate) => candidate.itemId === item.itemId)!;
+      assert.equal(answered.needsClarification, false, `«${text}» + ${JSON.stringify(answer)} stayed flagged`);
+      const stored = await createStorageCaptureProposalStore().get(proposal.proposalId);
+      assert.ok((stored?.commandsByItemId.get(item.itemId) ?? []).length > 0, `«${text}» + ${JSON.stringify(answer)} has no command`);
+      const { result } = await confirmAnswered(proposal.proposalId, item.itemId);
+      assert.equal(result.success, true, `«${text}» + ${JSON.stringify(answer)} failed to confirm: ${result.failureCode}`);
+    }
+  } finally {
+    cleanup();
+  }
+});

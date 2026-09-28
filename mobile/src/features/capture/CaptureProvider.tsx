@@ -30,7 +30,7 @@ import {
 import { useTimeZone } from '../../i18n/timezone';
 import { deleteCommitment } from '../../api/endpoints/commitments';
 import { InputTooLargeError, isRetryable, QuotaExceededError, ValidationError } from '../../api/errors';
-import { userFacingMessageKey } from '../../api/ui/userFacingMessage';
+import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { CaptureProposal } from '../../api/schemas/capture';
 import {
   captureReducer,
@@ -90,12 +90,19 @@ interface CaptureContextValue {
    * leaves the proposal as it was and reports it, rather than clearing the
    * question and pretending the answer landed.
    */
-  clarify(itemId: string, answer: { optionId?: string; freeText?: string }): Promise<boolean>;
+  clarify(itemId: string, answer: { optionId?: string; freeText?: string }): Promise<ClarifyOutcome>;
   confirm(): Promise<void>;
   undo(): Promise<UndoOutcome>;
   backToComposer(): void;
   close(): void;
 }
+
+/**
+ * How an answer went. A failure carries the line to show under the question,
+ * which stays up: an unanswered question is the honest state, and a silent
+ * reset looked like the answer had landed.
+ */
+export type ClarifyOutcome = { ok: true } | { ok: false; messageKey: UserFacingKey };
 
 const CaptureContext = createContext<CaptureContextValue | null>(null);
 
@@ -198,7 +205,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const clarify = useCallback(async (itemId: string, answer: { optionId?: string; freeText?: string }) => {
     const proposal = state.proposal;
     const question = proposal?.items.find((item) => item.itemId === itemId)?.clarification;
-    if (!proposal || !question) return false;
+    if (!proposal || !question) return { ok: false, messageKey: 'errorsGeneric' } as const;
     try {
       const updated = await clarifyCapture.mutateAsync({
         proposalId: proposal.proposalId,
@@ -212,11 +219,12 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       // `clarified`, not `analyzeSucceeded`: the other items keep their
       // selection and edits (#474).
       dispatch({ type: 'clarified', proposal: updated });
-      return true;
-    } catch {
+      return { ok: true } as const;
+    } catch (error) {
       // The proposal is untouched. The screen keeps the question rather than
-      // clearing it, because an unanswered question is the honest state.
-      return false;
+      // clearing it, because an unanswered question is the honest state — and
+      // says why, because a question that silently comes back looks broken.
+      return { ok: false, messageKey: userFacingMessageKey(error) } as const;
     }
   }, [clarifyCapture, state.proposal]);
   const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
@@ -239,7 +247,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     );
     if (!outcome) return;
     if (!outcome.ok) {
-      dispatch({ type: 'confirmFailed', reason: outcome.reason });
+      dispatch({ type: 'confirmFailed', reason: outcome.reason, messageKey: outcome.messageKey });
       return;
     }
     dispatch({ type: 'confirmSucceeded', confirmation: outcome.confirmation });

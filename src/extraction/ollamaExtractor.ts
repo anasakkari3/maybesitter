@@ -485,6 +485,10 @@ export function detectPromptInjection(rawText: string): string | null {
 /**
  * The prompt's own version, so a report can say which wording produced it.
  *
+ * v4 (L4) adds the appointment-priority rule and the weekday rule. Both are
+ * also enforced after the model answers (`schemaValidator.ts`); the prompt is
+ * there so the model's own answer usually already agrees.
+ *
  * v3 (#415) adds the category rules. The wording is per-user — the model is
  * shown only the categories this account kept — so this version names the
  * *rules*, not the exact string, and two users on v3 can be sent different
@@ -494,7 +498,7 @@ export function detectPromptInjection(rawText: string): string | null {
  * rule, and title constraints. It is a version string, not a feature flag:
  * there is one prompt, and this names it.
  */
-export const PROMPT_VERSION = 'capture-v3';
+export const PROMPT_VERSION = 'capture-v4';
 
 /**
  * Titles the review screen can show without editing.
@@ -534,13 +538,27 @@ const TIME_RULES: readonly string[] = [
   'An hour with no AM/PM and no part-of-day word is ambiguous: "8", «الساعة ٨», «בשמונה» could be 08:00 or 20:00. Report the hour you read and include vague_time; do not pick a half of the day.',
   'A part-of-day word is enough: "tomorrow morning" is 09:00, «بكرة الصبح» is 09:00, «מחר בערב» is 18:00.',
   'localTimeSpec is the user-local wall clock and is authoritative. dueAt/remindAt must be the same instant expressed in UTC; when they disagree, localTimeSpec is what is used.',
+  'A weekday name ("Sunday", «الأحد», «الأحد الجاي», "next Sunday", «יום ראשון הבא») means the nearest upcoming one that is not today; if today is that weekday, it is 7 days from today. Add 7 more days only for "the Sunday after next", «الأحد اللي بعد الجاي», «مش هالأحد، اللي بعده», «בעוד שבוע ביום ראשון».',
+];
+
+/**
+ * Importance, for the one case the text rarely states it (L4).
+ *
+ * A doctor on Sunday is not a "should", but nobody says «مهم» about it. Marked
+ * `inferred`, never `user_explicit`: it is our reading, and the review screen
+ * shows it as a guess.
+ */
+const PRIORITY_RULES: readonly string[] = [
+  'priority.level is high with source user_explicit only when the text says it is urgent or important. Hedges ("maybe", «يمكن», «אולי») are low.',
+  'An appointment with a fixed day or time — doctor, dentist, clinic, hospital, exam or test, interview, flight, court, or a meeting at a stated time — is high with source inferred. Calling, booking or cancelling one is an ordinary task: leave it normal.',
+  'Otherwise priority is normal with source default.',
 ];
 
 const FEW_SHOTS: readonly string[] = [
   // ar — dialectal, Arabic-Indic digits, a bare day, a spoken hour
   'INPUT: "بكرا بعد الشغل لازم أمرّ على الصيدلية" -> {"type":"task","title":"أمرّ على الصيدلية","localTimeSpec":null,"ambiguityFlags":["vague_time"]} (a day, no hour)',
   'INPUT: "ذكرني بكرة الساعة ٧ مساءً أحكي مع أحمد" -> {"type":"task","title":"أحكي مع أحمد","localTimeSpec":{"time":"19:00"},"explicitReminderRequest":true}',
-  'INPUT: "الأربعاء الجاي عندي دكتور الساعة تلاتة العصر" -> {"type":"task","title":"عندي دكتور","localTimeSpec":{"time":"15:00"}}',
+  'INPUT: "الأربعاء الجاي عندي دكتور الساعة تلاتة العصر" -> {"type":"task","title":"عندي دكتور","localTimeSpec":{"time":"15:00"},"priority":{"level":"high","source":"inferred"}} (a fixed appointment)',
   'INPUT: "مبارح شفت أحمد" -> {"type":"informational_context","title":null,"ambiguityFlags":["informational_without_action"]} (past, nothing requested)',
   // he
   'INPUT: "תזכיר לי מחר בשמונה להתקשר לדוד" -> {"type":"task","title":"להתקשר לדוד","localTimeSpec":{"time":"08:00"},"ambiguityFlags":["vague_time"],"explicitReminderRequest":true} (eight, but which eight)',
@@ -606,6 +624,7 @@ export function buildPrompt(rawText: string, context: ExtractionContext): string
     'Use ISO-8601 strings with a timezone for dueAt and remindAt, or null.',
     'When dueAt or remindAt is present, include localTimeSpec with user-local date, time, and timezone. Otherwise use null.',
     ...TIME_RULES,
+    ...PRIORITY_RULES,
     ...TITLE_RULES,
     ...DIALECT_RULES,
     ...categoryRules(context),

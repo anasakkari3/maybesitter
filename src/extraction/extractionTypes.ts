@@ -67,6 +67,16 @@ export interface ExtractionResult {
    * half of the day they meant — kept, but soft.
    */
   timeEvidence: TimeEvidence;
+  /**
+   * True when the day in `localTimeSpec` came from a weekday name alone —
+   * "Sunday", «الأحد الجاي» — so it is the product's guess at *which* Sunday
+   * (`src/extraction/weekdayLexicon.ts`). Carried to the review card the way
+   * `priority.source` is, so a guessed day is shown as one.
+   *
+   * Optional: absent means no guess was recorded, which every producer that
+   * predates it meant.
+   */
+  dateInferred?: boolean;
   priority: {
     level: 'low' | 'normal' | 'high';
     source: 'default' | 'inferred' | 'user_explicit';

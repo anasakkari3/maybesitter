@@ -21,6 +21,7 @@ import {
   GoogleAuthProvider,
   OAuthProvider,
   reauthenticateWithCredential,
+  revokeToken,
   sendPasswordResetEmail,
   signInWithCredential,
   signInWithEmailAndPassword,
@@ -190,6 +191,20 @@ export function createFirebaseAuthRepository(): AuthRepository {
           rawNonce: credential.rawNonce,
         }),
       );
+      // Handed back for exactly one use — revoking this account's Apple
+      // tokens before deletion — and not kept here or anywhere else.
+      return { authorizationCode: credential.authorizationCode };
+    },
+
+    /**
+     * Revokes the account's Sign in with Apple tokens (App Store rule
+     * 5.1.1(v)). Firebase exchanges the code with Apple using the Services ID,
+     * Team ID and key configured on the Apple provider in the Firebase
+     * console — none of which is in this app. The SDK error is rethrown as-is
+     * for the caller to classify; nothing here logs it.
+     */
+    async revokeAppleToken(authorizationCode) {
+      await revokeToken(getAuth(), authorizationCode);
     },
 
     async refreshIdentity() {

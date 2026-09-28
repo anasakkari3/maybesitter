@@ -4,6 +4,7 @@ import { useApp } from '../../state/AppContext';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
 import { CLARIFICATION_FREE_TEXT_MAX, optionLabel, questionText } from './clarificationCopy';
+import { CIVIL_ZONE, civilDate, formatDate } from '../../i18n/format';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
 
 /**
@@ -19,12 +20,16 @@ import type { CaptureProposalItem } from '../../api/schemas/capture';
  *
  * An unrecognised `questionKey` renders nothing and the caller opens #164's
  * edit sheet instead, which can express anything a fixed question cannot.
+ *
+ * The caller keys it by item id, so what was typed for one question never
+ * carries into the next one's box.
  */
 export function ClarifySheet({
   item,
   position,
   total,
   busy,
+  error,
   onAnswer,
   onSkip,
 }: {
@@ -33,21 +38,27 @@ export function ClarifySheet({
   position: number;
   total: number;
   busy: boolean;
+  /** Why the last answer did not land, already in words. The question stays up. */
+  error?: string | null;
   onAnswer(answer: { optionId?: string; freeText?: string }): void;
   onSkip(): void;
 }) {
-  const { t, tr, p, rtl, script } = useApp();
+  const { t, tr, p, rtl, script, lang } = useApp();
   const [freeText, setFreeText] = useState('');
   const strings = t as unknown as Record<string, string>;
   const question = item.clarification;
   if (!question) return null;
 
-  const heading = questionText(question.questionKey, question.params, strings);
+  const heading = questionText(question.questionKey, question.params, strings, (key) => formatDate(civilDate(key), 'weekday', { locale: lang, timeZone: CIVIL_ZONE }));
   // A key this build has no words for. Rendering the key, or the raw params,
   // would put an internal token in front of somebody.
   if (!heading) return null;
 
   const typed = freeText.trim();
+  // Only a question that offers "no specific time" can be skipped *into* an
+  // answer (#474); anywhere else skipping just sets the question aside, and a
+  // pill promising "without a time" there would be a promise the tap breaks.
+  const skipsToNoTime = question.options.some((option) => !option.value.localTime && !option.value.localDate);
 
   return (
     <View style={{ gap: 14 }} testID="clarify-sheet">
@@ -105,12 +116,18 @@ export function ClarifySheet({
         </View>
       ) : null}
 
+      {error ? (
+        <View accessibilityLiveRegion="polite">
+          <Txt role="supporting" color={p.wm} testID="clarify-error">{error}</Txt>
+        </View>
+      ) : null}
+
       {/* Skipping is an answer too. Where the question offers "no specific
           time", the review screen sends that answer and the item is saved
           without one (#474); otherwise the item stays flagged and #164's edit
           sheet can still fix it — a question nobody wants to answer must not
           be a wall. */}
-      <Pill testID="clarify-skip" label={t.skipNoTime} onPress={onSkip} kind="ghost" size={13} weight={400} pad={6} />
+      <Pill testID="clarify-skip" label={skipsToNoTime ? t.skipNoTime : t.clarifySkip} onPress={onSkip} kind="ghost" size={13} weight={400} pad={6} />
     </View>
   );
 }

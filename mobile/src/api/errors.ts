@@ -1,6 +1,7 @@
 import type { Commitment } from './schemas/common';
 import type { PlanEditRejected, PlanProposalRejected } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
+import type { GoogleRefusalReason } from './schemas/google';
 
 /**
  * Every way a call to `/api/mobile/**` can fail, as types the UI can switch on.
@@ -81,6 +82,47 @@ export class ForbiddenError extends ApiError {
 }
 
 export class NotFoundError extends ApiError {}
+
+/**
+ * 404 `feature_unavailable` — the server has this module switched off
+ * (`lib/services/mobile/moduleGate.ts`).
+ *
+ * Still a `NotFoundError`, because the screens that hide a switched-off section
+ * on a 404 (the memory card, the memory screen) must keep hiding it. What
+ * changes is the sentence: "that's gone" is wrong for something that was never
+ * turned on, so it reads as `feature_disabled` does — «هاي لسّا مش متاحة» —
+ * and, like it, offers no Retry.
+ */
+export class FeatureUnavailableError extends NotFoundError {}
+
+/**
+ * A capture confirm the server refused, with the reason it gave (#252).
+ *
+ * The route answers 404 or 400 with the confirmation body, whose `failureCode`
+ * is what the person needs: "this expired, send it again" and "nothing here is
+ * ready to save" ask for different things. The generic 404/400 classes drop
+ * the body, so every refusal used to read as "that didn't work".
+ */
+export type CaptureConfirmFailureCode =
+  | 'proposal_not_found'
+  | 'proposal_rejected'
+  | 'invalid_selection'
+  | 'persistence_failed'
+  | 'invalid_edit';
+
+export const CAPTURE_CONFIRM_FAILURE_CODES: readonly CaptureConfirmFailureCode[] = [
+  'proposal_not_found',
+  'proposal_rejected',
+  'invalid_selection',
+  'persistence_failed',
+  'invalid_edit',
+];
+
+export class CaptureConfirmRefusedError extends ApiError {
+  constructor(readonly failureCode: CaptureConfirmFailureCode) {
+    super(`the capture confirm was refused: ${failureCode}`);
+  }
+}
 
 /** 409 — someone else moved first. A next-step proposal went stale. */
 export class ConflictError extends ApiError {}
@@ -291,5 +333,20 @@ export function isRetryable(error: unknown): boolean {
 export class IcsFeedRefusedError extends ApiError {
   constructor(readonly reason: IcsFeedReason, readonly detail: string | null) {
     super(`the calendar feed request was refused: ${reason}`);
+  }
+}
+
+/**
+ * A Google route refused, with its own closed reason (CL6a).
+ *
+ * One class for every status those routes use, because the row's words depend
+ * on the reason — "reconnect", "that was a different Google account" and "the
+ * owner has not set this up yet" are all non-2xx and ask different things of
+ * the person. None of them is ever a 401: a dead Google grant is not this
+ * app's session expiring.
+ */
+export class GoogleRefusedError extends ApiError {
+  constructor(readonly reason: GoogleRefusalReason) {
+    super(`the Google request was refused: ${reason}`);
   }
 }

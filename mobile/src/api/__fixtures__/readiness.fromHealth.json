@@ -1,0 +1,74 @@
+{
+  "readiness": {
+    "version": "v1",
+    "schemaVersion": "readiness-v1",
+    "scopeId": "HealthFixtureUserxxxxxxxxxxx",
+    "computedAt": "2026-08-09T09:00:00.000Z",
+    "windowStart": "2026-08-09T09:00:00.000Z",
+    "windowEnd": "2026-08-09T09:00:00.000Z",
+    "band": "high",
+    "score": 0.9375,
+    "normalizedSignals": {},
+    "subjective": null,
+    "derived": {
+      "readinessBand": "high",
+      "confidence": 0.72
+    },
+    "signals": [
+      {
+        "signalId": "healthkit-sleep",
+        "source": {
+          "kind": "healthkit"
+        },
+        "metric": "sleep",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "normalizedScore": 0.9375,
+        "nativeValue": null,
+        "nativeUnit": "minutes",
+        "confidence": 0.75
+      },
+      {
+        "signalId": "healthkit-resting-heart-rate",
+        "source": {
+          "kind": "healthkit"
+        },
+        "metric": "heart_rate",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "normalizedScore": null,
+        "nativeValue": null,
+        "nativeUnit": "beats_per_minute",
+        "confidence": 0.7
+      },
+      {
+        "signalId": "healthkit-hrv",
+        "source": {
+          "kind": "healthkit"
+        },
+        "metric": "hrv",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "normalizedScore": null,
+        "nativeValue": null,
+        "nativeUnit": "milliseconds",
+        "confidence": 0.7
+      },
+      {
+        "signalId": "healthkit-steps",
+        "source": {
+          "kind": "healthkit"
+        },
+        "metric": "steps",
+        "observedAt": "2026-08-09T09:00:00.000Z",
+        "normalizedScore": 0.42,
+        "nativeValue": null,
+        "nativeUnit": "count",
+        "confidence": 0.65
+      }
+    ],
+    "sourceKinds": [
+      "healthkit"
+    ],
+    "missingSourceKinds": []
+  },
+  "selectedSource": "recent_readiness",
+  "freshness": "fresh"
+}

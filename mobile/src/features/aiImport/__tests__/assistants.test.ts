@@ -28,6 +28,12 @@ describe('the assistants', () => {
     }
   });
 
+  it('opens paths the vendors\' apps claim (AASA, checked 2026-09-25)', () => {
+    // chatgpt.com claims /app, not /: the bare domain always opened Safari.
+    expect(ASSISTANTS.chatgpt.url).toBe('https://chatgpt.com/app');
+    expect(ASSISTANTS.claude.url).toBe('https://claude.ai/new');
+  });
+
   it('has nothing to open for an unnamed assistant', () => {
     // "Another assistant" is a real choice: the prompt is still worth copying.
     expect(ASSISTANTS.other.url).toBeNull();

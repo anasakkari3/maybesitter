@@ -15,7 +15,7 @@ import {
 import type { GoalConfirmationSelection } from '../../api/endpoints/goals';
 import type { GoalGraph } from '../../api/schemas/goals';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
-import { userFacingMessage } from '../../api/ui/userFacingMessage';
+import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
 import { isolate } from '../../i18n/bidi';
 import { formatNumber } from '../../i18n/format';
 import { fill } from '../../i18n/strings';
@@ -31,16 +31,23 @@ type DraftSelection = { as: 'commitment' } | { as: 'habit'; count: number; durat
 type Notice = 'saved' | 'partial' | 'stale' | 'refused' | 'unlinked' | null;
 
 export function GoalExecutionScreen() {
-  const { t, p, rtl, lang, actions } = useApp();
+  const { t, p, rtl, lang, actions, s } = useApp();
   const memory = useMemory();
   const create = useCreateMemory();
   const [draft, setDraft] = React.useState('');
-  const [openGoal, setOpenGoal] = React.useState<{ id: string; title: string } | null>(null);
-  useClarityStage(openGoal ? null : 'goal_list');
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
+  // The open goal is a step in the navigation history, not local state, so the
+  // header back, the in-page back and Android's back all close it first (L6).
+  const openGoal = s.goalId ? { id: s.goalId, title: goals.find(goal => goal.id === s.goalId)?.content ?? '' } : null;
+  useClarityStage(openGoal ? null : 'goal_list');
 
   return <ProductPage id="goals" title={t.xGoals} {...(openGoal ? {} : { subtitle: t.xGoalBody })}>
-    {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={() => setOpenGoal(null)} /> : <>
+    {openGoal ? <GoalDetail goalId={openGoal.id} title={openGoal.title} onBack={actions.back} /> : forbiddenReason(memory.error) === 'feature_disabled' ? (
+      // Goals are kept in memory. With memory switched off on the server there
+      // is nowhere to save one, so the screen says so once instead of offering
+      // an input whose save can only fail.
+      <ProductSection title={t.xAddGoal} body={t.errorsFeatureDisabled} icon="goal" />
+    ) : <>
       <ProductSection title={t.xAddGoal} body={t.xAddGoalBody} icon="goal">
         <TextInput
           testID="goal-add-input"
@@ -66,7 +73,7 @@ export function GoalExecutionScreen() {
             title={isolate(goal.content)}
             body={t.xGoalOpen}
             icon="goal"
-            onPress={() => setOpenGoal({ id: goal.id, title: goal.content })}
+            onPress={() => actions.openGoal(goal.id)}
           />)}
           <Pill label={t.memoryScreenTitle} kind="outline" onPress={() => actions.go('knows')} />
         </ProductSection>

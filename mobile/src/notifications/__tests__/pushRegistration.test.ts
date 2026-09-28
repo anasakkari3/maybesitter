@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   deregisterDeviceForPush,
+  refreshPushAfterPrompt,
   registerDeviceForPush,
   reportablePermission,
   type PushRegistrationDeps,
@@ -172,6 +173,33 @@ describe('signing out', () => {
       await deregisterDeviceForPush(recorder, credentialIsGood);
       expect(recorder.order).toEqual([]);
     }
+  });
+});
+
+describe('after the prompt (first iPhone run, L7 review)', () => {
+  it('registers once when the phone just said yes', async () => {
+    const recorder = deps();
+    expect(await refreshPushAfterPrompt('undetermined', 'granted', recorder)).toBe('registered');
+    expect(recorder.registered).toHaveLength(1);
+    expect(recorder.registered[0]!.pushPermission).toBe('granted');
+  });
+
+  it('registers nothing after a no', async () => {
+    const recorder = deps({ permission: async () => 'denied' });
+    expect(await refreshPushAfterPrompt('undetermined', 'denied', recorder)).toBeNull();
+    expect(recorder.registered).toHaveLength(0);
+  });
+
+  it('registers nothing when the answer did not change', async () => {
+    const recorder = deps();
+    expect(await refreshPushAfterPrompt('granted', 'granted', recorder)).toBeNull();
+    expect(recorder.registered).toHaveLength(0);
+  });
+
+  it('registers nothing while the phone still has not answered', async () => {
+    const recorder = deps({ permission: async () => 'undetermined' });
+    expect(await refreshPushAfterPrompt(null, 'undetermined', recorder)).toBeNull();
+    expect(recorder.registered).toHaveLength(0);
   });
 });
 

@@ -53,6 +53,11 @@ const BLOCKED_IN_PRODUCTION = [
   // page views, so it must not come back by accident.
   '/api/early-access/events',
   '/api/early-accessx',
+  // Only the two exact Google pages are open (CL6a); nothing beside or under them.
+  '/api/oauth/google',
+  '/api/oauth/google/token',
+  '/api/oauth/google/callback/extra',
+  '/api/oauth/github/callback',
   '/',
   '/assistant',
 ];
@@ -66,6 +71,8 @@ const SERVED_IN_PRODUCTION = [
   '/api/mobile/pilot/trust',
   '/api/internal/anything',
   '/api/early-access',
+  '/api/oauth/google/callback',
+  '/api/oauth/google/picker',
 ];
 
 test('on Cloud Run the legacy surface is 404, including the URL-id routes', () => {

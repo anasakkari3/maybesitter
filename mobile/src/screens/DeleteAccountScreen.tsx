@@ -6,6 +6,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { useSingleFlight } from '../auth/useSingleFlight';
 import { useAccountDeletion } from '../features/account/AccountDeletionProvider';
 import { ReauthCancelled } from '../features/account/reauthenticate';
+import type { AppleReauthentication } from '../auth/types';
 import { useIsOnline } from '../api/ui/OfflineBanner';
 import { accountDeletionUrl } from '../config/env';
 import { Card, Pill, Txt } from '../ui/primitives';
@@ -27,7 +28,7 @@ import { TaskHeader } from '../ui/taskHeader';
  * else, so dismissing the alert makes zero network calls. A test asserts it.
  */
 export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
-  const { t, p } = useApp();
+  const { t, p, rtl } = useApp();
   const { repository } = useAuth();
   const online = useIsOnline();
   const { phase, requestDeletion, retryAfterReauth, cancelReauth } = useAccountDeletion();
@@ -53,6 +54,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
     (provider: 'password' | 'google.com' | 'apple.com') =>
       run(async () => {
         setReauthFailed(false);
+        let apple: AppleReauthentication | undefined;
         try {
           if (provider === 'password') {
             await repository.reauthenticateWithPassword(password);
@@ -62,7 +64,9 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
           } else if (provider === 'google.com') {
             await repository.reauthenticateWithGoogle();
           } else {
-            await repository.reauthenticateWithApple();
+            // Its one-time code goes straight to the retry, which revokes the
+            // account's Apple tokens with it. Held for this call only.
+            apple = await repository.reauthenticateWithApple();
           }
           // `auth_time` is fresh on the account now, but the cached ID token
           // still carries the old claim until it is re-minted.
@@ -76,7 +80,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
         }
         // One deliberate attempt, from a place the user just acted. Not a
         // retry queue, and not automatic.
-        await retryAfterReauth();
+        await retryAfterReauth(apple);
       }),
     [run, repository, password, retryAfterReauth],
   );
@@ -113,6 +117,8 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
                   fontSize: 16,
                   color: p.tx,
                   minHeight: 52,
+                  // A TextInput takes the physical edge; the root's `direction` does not move it.
+                  textAlign: rtl ? 'right' : 'left',
                 }}
               />
               <Pill

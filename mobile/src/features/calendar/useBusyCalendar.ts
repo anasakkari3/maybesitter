@@ -48,7 +48,7 @@ import {
   saveBusySyncedAt,
   saveCachedBusyBlocks,
 } from '../../lib/deviceSettings/calendarBusy';
-import { loadWrittenEventIds, resolveWriterId } from '../../lib/deviceSettings/calendarDevice';
+import { loadExcludedCalendarIds, loadWrittenEventIds, resolveWriterId } from '../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar, BUSY_LOOK_AHEAD_DAYS } from './deviceCalendar';
 import type { DeviceBusyBlock } from './busyBlocks';
 import {
@@ -103,7 +103,10 @@ function windowFrom(now: Date): { startAt: string; endAt: string } {
 
 function apiBusyPorts(): BusySyncPorts {
   return {
-    readBusy: (ownEventIds, now) => deviceCalendar.fetchBusyBlocks({ ownEventIds, now }),
+    // Calendars switched off in Calendar settings are never read (L7).
+    readBusy: async (ownEventIds, now) => deviceCalendar.fetchBusyBlocks({
+      ownEventIds, now, excludedCalendarIds: new Set(await loadExcludedCalendarIds()),
+    }),
     ownEventIds: loadWrittenEventIds,
     cache: saveCachedBusyBlocks,
     upload: async (body) => { await postCalendarBusy(body); },

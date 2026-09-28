@@ -65,7 +65,7 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
           <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} icon="watch" testID="settings-background" />
           <SettingsRow label={t.financialTitle} onPress={() => actions.go('financialContext')} icon="file" testID="settings-financial" />
           <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} icon="calendar" testID="settings-calendar" />
-          <SettingsRow label={t.settingsSources} sub={t.settingsSourcesSub} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" />
+          <SettingsRow label={t.settingsSources} sub={icsFeedsEnabled() ? t.settingsSourcesSub : t.settingsSourcesSubNoIcs} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" />
         </Group>
 
         <Group title={t.settingsGroupReminders}>

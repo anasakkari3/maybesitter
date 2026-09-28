@@ -1,0 +1,99 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "needs_clarification",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "Return the signed trip form",
+      "resolvedTime": null,
+      "needsClarification": true,
+      "priority": "normal",
+      "priorityEstimated": true,
+      "resolvedDate": "2026-08-13",
+      "dateEstimated": false,
+      "clarification": {
+        "questionId": "00000000-0000-4000-8000-000000000003",
+        "field": "time",
+        "questionKey": "ask_time",
+        "params": {
+          "title": "Return the signed trip form",
+          "date": "2026-08-13"
+        },
+        "options": [
+          {
+            "optionId": "morning",
+            "labelKey": "morning",
+            "labelParams": {},
+            "value": {
+              "localTime": "09:00",
+              "localDate": "2026-08-13"
+            }
+          },
+          {
+            "optionId": "afternoon",
+            "labelKey": "afternoon",
+            "labelParams": {},
+            "value": {
+              "localTime": "14:00",
+              "localDate": "2026-08-13"
+            }
+          },
+          {
+            "optionId": "evening",
+            "labelKey": "evening",
+            "labelParams": {},
+            "value": {
+              "localTime": "19:00",
+              "localDate": "2026-08-13"
+            }
+          },
+          {
+            "optionId": "none",
+            "labelKey": "noTime",
+            "labelParams": {},
+            "value": {}
+          }
+        ],
+        "allowFreeText": true
+      }
+    }
+  ],
+  "seeds": [],
+  "provenance": {
+    "requestedEngine": "model",
+    "executedEngine": "gemini",
+    "fallbackUsed": false
+  },
+  "share": {
+    "channel": "email",
+    "kind": "text",
+    "fileCount": 0,
+    "totalBytes": 0,
+    "ignoredSegments": 0,
+    "suggestedNextAction": {
+      "kind": "plan_time",
+      "itemId": "00000000-0000-4000-8000-000000000004"
+    },
+    "evidence": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000005",
+        "sourceIndex": null,
+        "excerpt": "Please return the signed trip form by Friday."
+      }
+    ],
+    "evidenceDropped": false,
+    "metrics": {
+      "messagesFound": 1,
+      "messagesRead": 1,
+      "messagesRefused": 0,
+      "messagesWithItems": 1,
+      "messagesNotRead": 0,
+      "modelUnavailable": 0,
+      "messagesPastDeadline": 0,
+      "modelCalls": 1,
+      "itemCount": 1
+    },
+    "document": null
+  }
+}

@@ -43,5 +43,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ dat
   }
 
   const state = await loadDomainState(getStorage(), user.uid);
-  return Response.json({ success: true, plan: planToDto(outcome.stored, titlesOf(Object.values(state.commitments))) });
+  const commitments = Object.values(state.commitments);
+  return Response.json({ success: true, plan: planToDto(outcome.stored, titlesOf(commitments), { commitments }) });
 }

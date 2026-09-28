@@ -13,6 +13,15 @@ export type ExampleKey = 'doctor' | 'report' | 'sami' | 'study' | 'hi';
 
 export const EXAMPLE_KEYS: readonly ExampleKey[] = ['doctor', 'report', 'sami', 'study', 'hi'];
 
+/**
+ * The three the composer shows. Five chips plus a hint stacked above the fold
+ * pushed the field and Analyze under the keyboard. `doctor` is the field's own
+ * placeholder, so a chip repeating it was the same sentence twice; `hi` is the
+ * nothing-to-commit example, which is not what somebody opening the composer
+ * came to do.
+ */
+export const COMPOSER_EXAMPLE_KEYS: readonly ExampleKey[] = ['report', 'sami', 'study'];
+
 export function exampleText(key: ExampleKey, t: Strings): string {
   switch (key) {
     case 'doctor': return t.exDoctor;

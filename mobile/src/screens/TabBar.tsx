@@ -3,7 +3,7 @@ import { Platform, View, type LayoutChangeEvent, type TextLayoutEventData, type 
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
-import type { Screen } from '../state/types';
+import type { Tab as NavTab } from '../state/navigation';
 import { accentGlow, barShadow } from '../theme/tokens';
 import { useLayoutMode, useTextScale, type LayoutMode } from '../theme/textScale';
 import { Btn, Txt } from '../ui/primitives';
@@ -48,13 +48,13 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
     if (labelOverflows(e.nativeEvent.lines, slotWidth)) setOverflowAt(key);
   };
 
-  const Tab = ({ screen, label, testID, icon }: { screen: Screen; label: string; testID: string; icon: (c: string) => React.ReactNode }) => {
+  const Tab = ({ screen, label, testID, icon }: { screen: NavTab; label: string; testID: string; icon: (c: string) => React.ReactNode }) => {
     const on = s.screen === screen;
     const color = on ? p.ac : p.tx;
     const [slot, setSlot] = useState(0);
     return (
       <Btn
-        onPress={() => actions.go(screen)}
+        onPress={() => actions.switchTab(screen)}
         label={label}
         testID={testID}
         scaleTo={0.92}

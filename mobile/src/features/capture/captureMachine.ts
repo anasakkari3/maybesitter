@@ -185,7 +185,7 @@ export type CaptureEvent =
   | { type: 'clearEdit'; itemId: string }
   | { type: 'confirmStarted' }
   | { type: 'confirmSucceeded'; confirmation: CaptureConfirmation }
-  | { type: 'confirmFailed'; reason?: string }
+  | { type: 'confirmFailed'; reason?: string; messageKey?: UserFacingKey }
   | { type: 'undoWindowClosed' }
   | { type: 'backToComposer' }
   | { type: 'reset' };
@@ -520,7 +520,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
 
     case 'confirmStarted':
       if (confirmPayload(state).itemIds.length === 0) return state;
-      return { ...state, status: 'confirming', errorReason: null };
+      return { ...state, status: 'confirming', errorReason: null, messageKey: null };
 
     case 'confirmSucceeded':
       return {
@@ -536,8 +536,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       };
 
     case 'confirmFailed':
-      // The proposal survives, so Retry has something to retry.
-      return { ...state, status: 'confirmFailed', errorReason: event.reason ?? null };
+      // The proposal survives, so Retry has something to retry. The line shown
+      // is the failure's own, when it has one.
+      return { ...state, status: 'confirmFailed', errorReason: event.reason ?? null, messageKey: event.messageKey ?? null };
 
     case 'undoWindowClosed':
       return { ...state, undoable: false };

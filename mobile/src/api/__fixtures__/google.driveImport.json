@@ -1,0 +1,74 @@
+{
+  "version": "v1",
+  "proposalId": "00000000-0000-4000-8000-000000000001",
+  "status": "proposed",
+  "items": [
+    {
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "title": "Submit the lab report",
+      "resolvedTime": "2026-08-09T09:00:00.000Z",
+      "needsClarification": false,
+      "priority": "normal",
+      "priorityEstimated": true,
+      "resolvedDate": "2026-08-13",
+      "dateEstimated": false
+    }
+  ],
+  "seeds": [],
+  "provenance": {
+    "requestedEngine": "model",
+    "executedEngine": "gemini",
+    "fallbackUsed": false
+  },
+  "share": {
+    "channel": "document",
+    "kind": "textFile",
+    "fileCount": 1,
+    "totalBytes": 50,
+    "ignoredSegments": 0,
+    "suggestedNextAction": {
+      "kind": "set_reminder",
+      "itemId": "00000000-0000-4000-8000-000000000003"
+    },
+    "evidence": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000004",
+        "sourceIndex": 0,
+        "excerpt": "Thursday 13 August",
+        "document": {
+          "kind": "assignment",
+          "page": 1,
+          "confidence": 0.9,
+          "dueAt": "2026-08-09T09:00:00.000Z",
+          "needsClarification": false
+        }
+      }
+    ],
+    "evidenceDropped": false,
+    "metrics": {
+      "bytes": 50,
+      "itemCount": 1,
+      "droppedPast": 0,
+      "ignoredSegments": 0,
+      "tokens": 900,
+      "isPdf": 0,
+      "isTextFile": 1,
+      "isCalendarFile": 0,
+      "modelCalls": 1,
+      "outputTokens": 80,
+      "latencyMs": 0,
+      "truncatedCharacters": 0,
+      "tooLarge": 0,
+      "injectedItems": 0,
+      "undatedItems": 0,
+      "hiddenTextDropped": 0,
+      "captionDropped": 0,
+      "recurringSessions": 0
+    },
+    "document": {
+      "documentTitle": null,
+      "courseName": null,
+      "recurringSessions": []
+    }
+  }
+}

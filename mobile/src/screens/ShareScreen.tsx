@@ -67,7 +67,7 @@ export function ShareScreen() {
   if (state.status === 'unavailable') {
     return (
       <View testID="share-screen" style={{ flex: 1, backgroundColor: p.bg }}>
-        <TaskHeader pill={t.back} onPill={() => actions.go('today')} title={t.shareTitle} pillTestID="share-back" />
+        <TaskHeader pill={t.back} onPill={() => actions.back()} title={t.shareTitle} pillTestID="share-back" />
         <ScrollView contentContainerStyle={{ padding: 16, gap: 18, flexGrow: 1, justifyContent: 'center' }}>
           <Txt size={20} weight={600}>{t.shareTitle}</Txt>
           <Txt size={15} color={p.mu} lh={1.5} testID="share-notice">{t.shareUnavailable}</Txt>
@@ -80,7 +80,9 @@ export function ShareScreen() {
 
   return (
     <View testID="share-screen" style={{ flex: 1, backgroundColor: p.bg }}>
-      <TaskHeader pill={t.back} onPill={() => actions.go('today')} title={t.shareTitle} pillTestID="share-back" />
+      {/* Back is the history's back, the same step as Android's: it closes
+          this task and leaves the tab underneath exactly as it was. */}
+      <TaskHeader pill={t.back} onPill={() => actions.back()} title={t.shareTitle} pillTestID="share-back" />
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, flexGrow: 1 }}>
         <Txt size={15} color={p.mu} lh={1.5}>{t.shareNothingSentYet}</Txt>
 
@@ -116,9 +118,9 @@ export function ShareScreen() {
         <View style={{ gap: 10 }}>
           {/* Reading a picture or a file is a model call, and the user has not
               agreed to those. The way forward is the Trust screen, the same
-              place `CaptureScreen`'s AI chip goes — and the payload survives
-              the trip, because this provider is mounted above the screens, so
-              they can agree and come straight back to it. */}
+              place `CaptureScreen`'s AI chip goes. Trust opens over this task,
+              so back from it returns here, and the payload is still there
+              because this provider is mounted above the screens. */}
           {blocked ? (
             <Pill
               label={t.shareTurnOnAi}

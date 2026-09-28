@@ -165,6 +165,20 @@ describe('from Settings, on the merged Root', () => {
     expect(screen.queryByText(en.icsFeedsTitle)).not.toBeNull();
   });
 
+  it('Sources does not advertise calendar links in a build without them (L7)', async () => {
+    process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = 'false';
+    await openApp();
+    await openSettings();
+    expect(screen.queryByText(en.settingsSourcesSub)).toBeNull();
+    expect(screen.queryByText(en.settingsSourcesSubNoIcs)).not.toBeNull();
+  });
+
+  it('Sources names calendar links when the build has them', async () => {
+    await openApp();
+    await openSettings();
+    expect(screen.queryByText(en.settingsSourcesSub)).not.toBeNull();
+  });
+
   it('reaches the readiness settings screen', async () => {
     await openApp();
     await openSettings();

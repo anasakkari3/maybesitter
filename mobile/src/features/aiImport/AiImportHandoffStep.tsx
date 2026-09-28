@@ -4,12 +4,20 @@ import { useApp } from '../../state/AppContext';
 import { fill } from '../../i18n/strings';
 import { Card, Txt } from '../../ui/primitives';
 import { Notice } from '../../ui/chrome';
+import { NumberedSteps } from '../../ui/steps';
 import { Footer, PrimaryButton, SecondaryButton } from './AiImportButtons';
 import { ASSISTANTS, type ImportAssistant } from './assistants';
 import { buildAssistantPrompt } from './importPrompt';
 
 /**
- * "We copied the question — go ask it."
+ * What happens next, then the one button that does it.
+ *
+ * ── Explain, then hand off ───────────────────────────────────────
+ *
+ * Picking an assistant lands here with nothing copied and nothing opened. The
+ * three steps are read in this app, and only the button copies the question and
+ * opens the assistant — the way back then lands on the paste step. (Copying and
+ * opening on the pick itself meant the steps were only seen after returning.)
  *
  * ── The failure case is the interesting one ──────────────────────
  *
@@ -19,34 +27,45 @@ import { buildAssistantPrompt } from './importPrompt';
  * away the part that actually works, which is the clipboard.
  */
 export function AiImportHandoffStep({
-  assistant, openFailed, onCopyAgain, onReady,
+  assistant, openFailed, onHandOff, onCopyAgain, onReady,
 }: {
   assistant: ImportAssistant;
   openFailed: boolean;
+  onHandOff: () => void;
   onCopyAgain: () => void;
   onReady: () => void;
 }) {
   const { t, p } = useApp();
   const name = String(t[ASSISTANTS[assistant].labelKey]);
+  const opens = ASSISTANTS[assistant].url !== null;
+
+  if (!openFailed) {
+    return (
+      <View style={{ gap: 16 }}>
+        <Txt size={20} weight={600}>{t.aiImportStepsTitle}</Txt>
+        <NumberedSteps testID="ai-import-steps" steps={[
+          t.aiImportStep1,
+          opens ? fill(t.aiImportStep2, { assistant: name }) : t.aiImportStep2Other,
+          t.aiImportStep3,
+        ]} />
+        <Footer>
+          <PrimaryButton
+            label={opens ? fill(t.aiImportCopyAndOpen, { assistant: name }) : t.aiImportCopyOnly}
+            onPress={onHandOff}
+            testID="ai-import-go"
+          />
+        </Footer>
+      </View>
+    );
+  }
 
   return (
     <View style={{ gap: 16 }}>
-      <View style={{ gap: 6 }}>
-        <Txt size={20} weight={600}>{t.aiImportHandoffTitle}</Txt>
-        <Txt size={14} color={p.mu} lh={1.5}>
-          {fill(openFailed ? t.aiImportHandoffOpenFailed : t.aiImportHandoffBody, { assistant: name })}
-        </Txt>
-      </View>
-
-      {/* Shown always, not only on failure: somebody who switched apps and lost
-          the clipboard to a password manager needs it as much as somebody whose
-          browser refused to open. */}
+      <Txt size={20} weight={600}>{t.aiImportHandoffTitle}</Txt>
+      <Notice text={fill(t.aiImportHandoffOpenFailed, { assistant: name })} testID="ai-import-open-failed" />
       <Card pad={16}>
-        <Txt size={14} color={p.mu} lh={1.55} testID="ai-import-prompt-text">{buildAssistantPrompt(t)}</Txt>
+        <Txt size={14} color={p.mu} lh={1.55} testID="ai-import-prompt-text" selectable>{buildAssistantPrompt(t)}</Txt>
       </Card>
-
-      {openFailed ? <Notice text={fill(t.aiImportHandoffOpenFailed, { assistant: name })} testID="ai-import-open-failed" /> : null}
-
       <Footer>
         <PrimaryButton label={t.aiImportHandoffReady} onPress={onReady} testID="ai-import-ready" />
         <SecondaryButton label={t.aiImportHandoffCopyAgain} onPress={onCopyAgain} testID="ai-import-copy" />
