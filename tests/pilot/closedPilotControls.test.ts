@@ -51,11 +51,38 @@ test('closed pilot: exposure requires runtime controls and explicit consent', ()
   assert.equal(decidePilotExposure({ ...base, trust: consented, killSwitchActive: true }).reason, 'kill_switch_active');
 });
 
-test('closed pilot: calendar consent is progressive and unavailable before first value', () => {
+// This used to assert the opposite: `set_calendar_consent` threw «calendar
+// consent is available only after first value», a closed-pilot rule from
+// 2026-08-01 about when the product may *ask*. Every `set_calendar_consent`
+// that reaches this function is somebody tapping a switch or «اسمح بالوصول
+// للتقويم» themselves, so the rule refused the person, not the product: a new
+// account could not connect its calendar from Settings (UAT round 3, N9). An
+// explicit grant is consent whatever the account has or has not done yet.
+test('calendar consent: an explicit grant is accepted before the first value (UAT round 3, N9)', () => {
   const initial = createPilotTrustState('pilot-1', AT);
-  assert.throws(() => applyPilotTrustAction(initial, { type: 'set_calendar_consent', granted: true, at: AT }), /after first value/);
+  assert.equal(initial.firstValueAt, null);
+  const granted = applyPilotTrustAction(initial, { type: 'set_calendar_consent', granted: true, at: AT });
+  assert.equal(granted.calendarConsent, true);
+  assert.equal(granted.firstValueAt, null, 'granting calendar consent must not invent a first value');
   const valued = applyPilotTrustAction(initial, { type: 'record_first_value', at: AT });
   assert.equal(applyPilotTrustAction(valued, { type: 'set_calendar_consent', granted: true, at: AT }).calendarConsent, true);
+});
+
+test('calendar consent: the ordering rules still hold without the first-value gate', () => {
+  const initial = createPilotTrustState('pilot-1', AT);
+  const later = new Date(Date.parse(AT) + 60_000).toISOString();
+  const earlier = new Date(Date.parse(AT) - 60_000).toISOString();
+  const revoked = applyPilotTrustAction(initial, { type: 'revoke', at: later });
+  // A delayed grant can never undo a later revoke.
+  assert.throws(() => applyPilotTrustAction(revoked, { type: 'set_calendar_consent', granted: true, at: later }), /can only be deleted/);
+  // A grant stamped before the record's last write is refused as backdated.
+  const moved = applyPilotTrustAction(initial, { type: 'set_quiet_mode', enabled: false, at: later });
+  assert.throws(() => applyPilotTrustAction(moved, { type: 'set_calendar_consent', granted: true, at: earlier }), /cannot be backdated/);
+  // Turning it off stays available and ordered.
+  const on = applyPilotTrustAction(initial, { type: 'set_calendar_consent', granted: true, at: AT });
+  assert.equal(applyPilotTrustAction(on, { type: 'set_calendar_consent', granted: false, at: later }).calendarConsent, false);
+  const deleted = applyPilotTrustAction(on, { type: 'delete', at: later });
+  assert.throws(() => applyPilotTrustAction(deleted, { type: 'set_calendar_consent', granted: true, at: later }), /deleted pilot state/);
 });
 
 test('closed pilot: recording a first value again is a no-op, including from a clock that is behind', () => {
