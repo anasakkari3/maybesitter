@@ -34,6 +34,7 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
 import * as planEndpoints from '../../../api/endpoints/plans';
 import nextStepFixture from '../../../api/__fixtures__/nextStep.recommendation.json';
+import { instantAt } from '../../../testing/wallClock';
 
 jest.mock('../../../i18n/timezone', () => ({
   ...(jest.requireActual('../../../i18n/timezone') as object),
@@ -45,10 +46,14 @@ const METRICS: Metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, inset
 const USER: AuthUser = { uid: 'week-user', email: 'a@b.c', emailVerified: true, displayName: null, providerIds: ['password'] };
 const TODAY_KEY = dayKey(new Date(), ZONE);
 
-/** `hour`:00 local on the day `offset` days from today. Jerusalem is +03 until late October. */
+/**
+ * `hour`:00 in Jerusalem on the day `offset` days from today. The offset is
+ * the zone's own on that day — a literal +03:00 made this suite fail once the
+ * days it builds crossed the end of summer time (last Sunday of October).
+ */
 function at(offset: number, hour: number): string {
   const key = shiftDayKey(TODAY_KEY, offset);
-  return new Date(`${key}T${String(hour).padStart(2, '0')}:00:00.000+03:00`).toISOString();
+  return instantAt(`${key}T${String(hour).padStart(2, '0')}:00:00`, ZONE);
 }
 
 const DUE = at(1, 15);
@@ -202,7 +207,7 @@ describe('a step saved for another day, after «احفظ هاليوم»', () => 
  * hour, and its local midnight is never printed as «00:00».
  */
 describe('an all-day deadline, through the same helpers (FX1 × FX3)', () => {
-  const midnight = (offset: number) => new Date(`${shiftDayKey(TODAY_KEY, offset)}T00:00:00.000+03:00`).toISOString();
+  const midnight = (offset: number) => instantAt(`${shiftDayKey(TODAY_KEY, offset)}T00:00:00`, ZONE);
   const allDay = (offset: number): Commitment => ({
     ...market(),
     timeSpec: { kind: 'due_by', dueAt: midnight(offset), endAt: null, remindAt: null, allDay: true, timezone: ZONE },

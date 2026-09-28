@@ -27,6 +27,7 @@ import ar from '../../../i18n/locales/ar.json';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { captureProposalSchema } from '../../../api/schemas/capture';
 import guessedHour from '../../../api/__fixtures__/capture.guessedHour.json';
+import { instantAt } from '../../../testing/wallClock';
 
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
@@ -55,9 +56,13 @@ function dayKeyIn(days: number): string {
 }
 
 const DAY = dayKeyIn(10);
-/** 18:00 in Jerusalem on `DAY` (UTC+3 in the autumn; the card shows the wall clock). */
-const EVENING = new Date(`${DAY}T18:00:00+03:00`).toISOString();
-const FIVE_PM = new Date(`${DAY}T17:00:00+03:00`).toISOString();
+/**
+ * 18:00 in Jerusalem on `DAY`; the card shows the wall clock. The offset is the
+ * zone's own on `DAY`: a literal +03:00 was an hour off from ten days before
+ * summer time ended (`DAY` is today + 10) until the spring.
+ */
+const EVENING = instantAt(`${DAY}T18:00:00`, ZONE);
+const FIVE_PM = instantAt(`${DAY}T17:00:00`, ZONE);
 
 function proposal() {
   return {
@@ -218,7 +223,7 @@ describe('a guessed hour on the review card', () => {
     await fireEvent(
       screen.getByTestId('edit-item-picker'),
       'change',
-      { nativeEvent: { timestamp: Date.parse(new Date(`${DAY}T19:30:00+03:00`).toISOString()), utcOffset: 0 } },
+      { nativeEvent: { timestamp: Date.parse(instantAt(`${DAY}T19:30:00`, ZONE)), utcOffset: 0 } },
     );
     await fireEvent.press(screen.getByTestId('edit-item-save'));
     await waitFor(() => expect(screen.queryByTestId('edit-item-sheet')).toBeNull());
