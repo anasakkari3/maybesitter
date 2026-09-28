@@ -312,16 +312,49 @@ test('text/plain wins over text/html, and attachment bytes are never fetched', a
   assert.equal(GMAIL_TRANSPORT_POLICY.fetchesAttachmentBytes, false);
 });
 
-test('base64url is decoded by its own alphabet and a standard-base64 body is rejected', async () => {
+test('base64url accepts legal trailing padding and rejects the standard alphabet or embedded padding', async () => {
   // Real round trip: the fixture's encoding is genuine, so this compares
   // decoded bytes against declared plaintext rather than a string to itself.
   const part = MESSAGE_FULL.body.payload?.parts?.[0];
   assert.equal(decodeBase64Url(String(part?.body.data), 'messages.get'), BODY_TEXT_PLAIN);
 
-  // `+`, `/` and embedded `=` are standard base64, not base64url. Decoding
-  // them under the wrong alphabet produces plausible, wrong bytes, so this
-  // must throw rather than guess.
+  // RFC 4648 base64url uses the URL-safe alphabet and permits `=` padding at
+  // the end. Gmail's REST schema calls this field `bytes`; a live response can
+  // therefore be padded even though our hand-authored fixtures were not.
+  assert.equal(decodeBase64Url('SGVsbG8=', 'messages.get'), 'Hello');
+  assert.equal(decodeBase64Url('SGk=', 'messages.get'), 'Hi');
+
+  // `+`, `/` and embedded `=` are not legal base64url here. Decoding them
+  // under the wrong alphabet produces plausible, wrong bytes, so this must
+  // still throw rather than guess.
   assert.throws(() => decodeBase64Url('SGks+/DQo=Zm9v', 'messages.get'), /no readable base64url body data/);
+});
+
+test('a recent-mail read accepts a padded body after successful list and get operations', async () => {
+  const { fetchImpl, calls } = scriptedFetch({
+    messagesList: ok({ messages: [{ id: MSG_ID_1, threadId: MESSAGE_FULL.body.threadId }], resultSizeEstimate: 1 }),
+    messagesGet: ok({
+      ...MESSAGE_FULL.body,
+      payload: {
+        partId: '',
+        mimeType: 'text/plain',
+        filename: '',
+        headers: MESSAGE_FULL.body.payload?.headers ?? [],
+        body: { size: 5, data: 'SGVsbG8=' },
+      },
+    }),
+  });
+  const transport = createGmailTransport(transportDeps(fetchImpl));
+
+  const messages = await transport.listRecentMessages({
+    query: 'category:primary newer_than:7d',
+    maxResults: 20,
+  });
+
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.text, 'Hello');
+  assert.deepEqual(calls.map((call) => call.endpoint), ['messagesList', 'messagesGet']);
+  assert.equal(calls[0]?.url.searchParams.get('q'), 'category:primary newer_than:7d');
 });
 
 /* ══ Failure classification ═══════════════════════════════════════ */
