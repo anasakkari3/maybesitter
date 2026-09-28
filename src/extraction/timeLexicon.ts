@@ -338,6 +338,22 @@ const DAY_PARTS: readonly DayPartWords[] = [
   { hour: 18, en: 'evening', ar: 'المساء?|مسا(?:ء\\p{M}*ا?)?|الفترة\\s+المسائي[ةه]', he: 'ערב' },
 ];
 
+/** The hour `dayPartHour` gives the night («بالليل», "tonight", «בלילה»). */
+export const NIGHT_HOUR = 20;
+
+/*
+ * A clock hour said "at night" (closure UAT round 3, FZ1 N10). «الساعة 2
+ * بالليل», «ב-2 בלילה» and "2 at night" are two in the morning — the small
+ * hours are night too — so only 6 to 11 move to the evening half; 12 at night
+ * is midnight. The rules read every night hour as pm, so «اليوم الساعة 2
+ * بالليل» typed at 03:22 was proposed, settled, for 14:00.
+ */
+export function nightClockHour(hour: number): number {
+  if (hour === 12) return 0;
+  if (hour >= 1 && hour <= 5) return hour;
+  return hour < 12 ? hour + 12 : hour;
+}
+
 /**
  * A title loses the preposition with the part of the day — "call mom at
  * noon" is "call mom", not "call mom at".

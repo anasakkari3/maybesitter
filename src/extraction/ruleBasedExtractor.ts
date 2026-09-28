@@ -14,6 +14,8 @@ import {
   instantFromLocal,
   lastDayOfMonth,
   MONTH_END_MENTION_SOURCES,
+  NIGHT_HOUR,
+  nightClockHour,
   readPeriodEndDeadline,
   relativeDayOffset,
   timeAnchorOf,
@@ -126,7 +128,7 @@ function resolveTimezone(context: ExtractionContext): string {
   return context.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-function parseClock(raw: string): { hour: number; minute: number } | null {
+function parseClock(raw: string): { hour: number; minute: number; night?: true } | null {
   const normalized = normalizeClockText(raw).toLowerCase();
   const explicit =
     normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
@@ -138,8 +140,10 @@ function parseClock(raw: string): { hour: number; minute: number } | null {
   const minute = explicit[2] ? Number(explicit[2]) : 0;
   const period = explicit[3] || '';
   if (hour < 1 || hour > 23 || minute < 0 || minute > 59) return null;
-  if (/(pm|مساء|المسا|المساء|بالليل|م|בערב|ערב|בלילה|לילה|אחרי הצהריים|אחה"צ|בצהריים|צהריים)/.test(period) && hour < 12) hour += 12;
-  if (/(am|صباح|الصبح|ص|בבוקר|בוקר|בלילה|לילה)/.test(period) && hour === 12) hour = 0;
+  // At night, the small hours are the morning half (FZ1 N10): «2 بالليل» is 02:00.
+  if (/(بالليل|בלילה|לילה)/.test(period)) return { hour: nightClockHour(hour), minute, night: true };
+  if (/(pm|مساء|المسا|المساء|م|בערב|ערב|אחרי הצהריים|אחה"צ|בצהריים|צהריים)/.test(period) && hour < 12) hour += 12;
+  if (/(am|صباح|الصبح|ص|בבוקר|בוקר)/.test(period) && hour === 12) hour = 0;
   return { hour, minute };
 }
 
@@ -226,7 +230,11 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     // word is exactly the meridiem the sentence gave, so it is used as one.
     // Only when there was no explicit AM/PM to begin with: `ampm` and `hhmm`
     // have already said which half of the day they mean.
-    if (evidence === 'daypart' && daypart !== null && daypart >= 12 && hour >= 1 && hour <= 11) {
+    // A night hour is read by the night's own rule (FZ1 N10): «الساعة 2
+    // بالليل» is 02:00, "at 11 tonight" is 23:00.
+    if (evidence === 'daypart' && daypart === NIGHT_HOUR) {
+      if (!clock.night) hour = nightClockHour(hour);
+    } else if (evidence === 'daypart' && daypart !== null && daypart >= 12 && hour >= 1 && hour <= 11) {
       hour += 12;
     }
     timeConfidence = Math.max(timeConfidence, 0.95);
