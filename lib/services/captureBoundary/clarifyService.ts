@@ -13,7 +13,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
-import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
+import { answeredDayPartTime, dayForAnswer, resolvedLocalTime } from './clarificationBuilder';
 import { hourIsPartOfDayGuess } from './timeGuess';
 import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate, WEEKDAY_MENTION_SOURCES } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
@@ -522,7 +522,12 @@ async function readFreeTextAnswer(
     // re-read; a typed answer that names a day, or a "which day" question,
     // still moves it.
     const itemDate = result.localTimeSpec?.date ?? null;
-    const rereadTime = reread.localTimeSpec?.time ?? null;
+    // The hour the re-read found, on the person's clock — from its wall clock,
+    // or else from its instant (never an all-day reading's midnight). Read
+    // from `localTimeSpec` alone, an instant-only reading of «at 10» to the
+    // Sunday doctor had no hour here, fell through to the re-read's own
+    // instant, and was saved on Thursday (UAT round 6, FIX-R6-TYPEDDAY).
+    const rereadTime = resolvedLocalTime(reread, { now: options.now, timezone: options.timezone });
     // The day the answer typed wins over the item's (R2-M1): «بكرا المسا» to
     // the Sunday doctor is tomorrow evening. When the typed day cannot take
     // the typed hour — «اليوم الصبح» at 10:00 — the answer is not understood,
@@ -533,21 +538,20 @@ async function readFreeTextAnswer(
       return answered;
     };
     // An hour typed alone answers the question about the item's day (UAT
-    // round 6, batch 3). When that hour on it has gone, a re-read that put it
-    // on another day — Gemini reading «المسا» at 23:29 as tomorrow — is not
-    // the person's answer: not understood, never «بكرا» unasked. A day they
-    // type, name or date still moves it.
+    // round 6, batch 3). A re-read hour still ahead on that day was put on it
+    // below; one that reaches here on another day either has gone on the
+    // asked day — Gemini reading «المسا» at 23:29 as tomorrow — or was no
+    // hour at all. Neither is the person's answer: not understood, never
+    // another day unasked (FIX-R6-TYPEDDAY: the Sunday doctor answered «at
+    // 10» was kept on the re-read's Thursday while 10:00 Sunday was ahead). A
+    // day they type, name or date still moves it.
     const namesNoDay = !typedDay && !readWeekdayReference(freeText) && !namesExplicitDate(freeText);
     const onAskedDay = (answered: ExtractionResult): ExtractionResult => {
       if (!itemDate || !namesNoDay || question.field === 'which_day') return answered;
       const at = answered.remindAt ?? answered.dueAt;
       const local = at ? localTimeSpecFor(new Date(Date.parse(at)), options.timezone) : null;
-      const time = answered.localTimeSpec?.time ?? local?.time ?? null;
       if ((answered.localTimeSpec?.date ?? local?.date ?? null) === itemDate) return answered;
-      if (!time || dayForAnswer(time, itemDate, { now: options.now, timezone: options.timezone }) === null) {
-        throw new ClarifyError('answer_not_understood');
-      }
-      return answered;
+      throw new ClarifyError('answer_not_understood');
     };
     // A part of the day typed with no clock is its button's hour (FY1
     // re-review): «بالمسا» is 19:00 like «المسا», tonight while it is ahead.
