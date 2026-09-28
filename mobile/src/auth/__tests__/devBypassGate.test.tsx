@@ -89,6 +89,7 @@ describe('dev bypass through the gate', () => {
     setEnv(appEnv, 'http://localhost:3000', 'local-dev-token');
     await renderWithBundle(true);
     expect(screen.queryByText('THE APP')).toBeNull();
+    expect(screen.queryByText(en.authDevMode)).toBeNull();
   });
 
   it('is inert when a development build points at a real backend', async () => {

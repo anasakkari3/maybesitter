@@ -1157,7 +1157,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     }
                     testID="plan-why-text"
                   >
-                    رتّبناها حوالين مواعيدك وضمن ساعاتك.
+                    رتّبناها حول مواعيدك وضمن ساعاتك.
                   </Text>
                 </View>
                 <Text
@@ -1192,7 +1192,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               }
             >
               <View
-                accessibilityLabel="تمام هيك"
+                accessibilityLabel="اقبل الخطة"
                 accessibilityRole="button"
                 accessibilityState={
                   {
@@ -1258,7 +1258,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     ]
                   }
                 >
-                  تمام هيك
+                  اقبل الخطة
                 </Text>
               </View>
               <View
@@ -1442,7 +1442,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 }
                 testID="plan-regenerate-left"
               >
-                ضلّ 4 طلبات اليوم
+                ضلّت 4 طلبات اليوم
               </Text>
             </View>
           </View>

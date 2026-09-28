@@ -147,16 +147,30 @@ export function fill(template: string, values: Record<string, string>): string {
  * two that no `{count}` template can produce. A duration this version never
  * bucketed falls back to bare minutes rather than a phrase nobody worded.
  */
-export function durationText(minutes: number, strings: Record<string, string>): string {
+type DurationTranslator = (
+  key: 'memoryDurationMinutes' | 'memoryDurationHours' | 'memoryDurationHoursAndHalf',
+  values: { count: number },
+) => string;
+
+export function durationText(
+  minutes: number,
+  strings: Record<string, string>,
+  translateCount?: DurationTranslator,
+): string {
   if (minutes === 30) return strings.memoryDurationHalfHour ?? '';
   if (minutes < 60 || minutes % 30 !== 0) {
-    return fill(strings.memoryDurationMinutes ?? '', { count: String(minutes) });
+    return translateCount
+      ? translateCount('memoryDurationMinutes', { count: minutes })
+      : fill(strings.memoryDurationMinutes ?? '', { count: String(minutes) });
   }
   const hours = Math.floor(minutes / 60);
   const half = minutes % 60 === 30;
   if (hours === 1) return (half ? strings.memoryDurationHourAndHalf : strings.memoryDurationHour) ?? '';
   if (hours === 2) return (half ? strings.memoryDurationTwoHoursAndHalf : strings.memoryDurationTwoHours) ?? '';
-  return fill((half ? strings.memoryDurationHoursAndHalf : strings.memoryDurationHours) ?? '', { count: String(hours) });
+  const key = half ? 'memoryDurationHoursAndHalf' : 'memoryDurationHours';
+  return translateCount
+    ? translateCount(key, { count: hours })
+    : fill(strings[key] ?? '', { count: String(hours) });
 }
 
 /**
