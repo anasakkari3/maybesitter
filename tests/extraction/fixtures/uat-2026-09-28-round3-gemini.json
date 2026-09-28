@@ -1,8 +1,8 @@
 {
-  "_about": "Gemini (gemini-2.5-flash, Vertex europe-west1) answers (prompt capture-v5) recorded on 2026-09-28 for the closure UAT round-3 captures (FZ1: N10 «اليوم الساعة 2 بالليل لازم أبعت الإيميل للمدير» and its typed answer «بعد ساعة», N6 «أحضّر تقرير آخر الشهر» and «لازم أحضّر تقرير آخر الشهر»), one entry per model call, keyed by the exact payload sent. Recorded with scripts/live-capture-check.ts --only FZ1 --raw --record, before the FZ1 fix; replayed by tests/extraction/fz1CaptureRegressions.test.ts. referenceTime 2026-09-28T00:22:00.000Z (N10), 00:40 and 00:41 (N6), Asia/Hebron (the phone's zone in the UAT).",
+  "_about": "Gemini (gemini-2.5-flash, Vertex europe-west1) answers (prompt capture-v5) recorded on 2026-09-28 for the closure UAT round-3 captures (FZ1: N10 «اليوم الساعة 2 بالليل لازم أبعت الإيميل للمدير» and its typed answer «بعد ساعة», N6 «أحضّر تقرير آخر الشهر» and «لازم أحضّر تقرير آخر الشهر»), one entry per model call, keyed by the exact payload sent. Recorded with scripts/live-capture-check.ts --only FZ1 --raw --record, run 1 before the FZ1 fix (3 calls), run 2 of N10 after the rules and validator fixes and before the clarify guard (2 calls: the capture, then its typed answer); replayed by tests/extraction/fz1CaptureRegressions.test.ts. referenceTime 2026-09-28T00:22:00.000Z (N10), 00:40 and 00:41 (N6), Asia/Hebron (the phone's zone in the UAT).",
   "calls": [
     {
-      "case": "FZ1 N10 a passed night hour alone",
+      "case": "FZ1 N10 a passed night hour alone (run 1, before the fix)",
       "shape": "single",
       "payload": "اليوم الساعة 2 بالليل لازم أبعت الإيميل للمدير",
       "answer": {
@@ -109,6 +109,82 @@
         "ambiguityFlags": [
           "vague_time"
         ],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "FZ1 N10 a passed night hour alone (run 2, after the rules and validator fixes)",
+      "shape": "single",
+      "payload": "اليوم الساعة 2 بالليل لازم أبعت الإيميل للمدير",
+      "answer": {
+        "type": "task",
+        "action": "أبعت الإيميل",
+        "title": "أبعت الإيميل للمدير",
+        "person": "المدير",
+        "dueAt": "2026-09-28T23:00:00Z",
+        "remindAt": null,
+        "localTimeSpec": {
+          "date": "2026-09-28",
+          "time": "02:00",
+          "timezone": "Asia/Hebron"
+        },
+        "priority": {
+          "level": "high",
+          "source": "user_explicit",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": null,
+        "categoryConfidence": 0,
+        "confidence": {
+          "overall": 0.8,
+          "type": 1,
+          "action": 0.8,
+          "time": 0.8,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [],
+        "explicitReminderRequest": false,
+        "explicitPressureRequest": false
+      }
+    },
+    {
+      "case": "FZ1 N10 a passed night hour alone (run 2) / the typed answer «بعد ساعة», re-read with the sentence",
+      "shape": "single",
+      "payload": "اليوم الساعة 2 بالليل لازم أبعت الإيميل للمدير\nبعد ساعة",
+      "answer": {
+        "type": "task",
+        "action": "أبعت الإيميل للمدير",
+        "title": "أبعت الإيميل للمدير",
+        "person": "المدير",
+        "dueAt": "2026-09-28T23:00:00.000Z",
+        "remindAt": "2026-09-28T22:00:00.000Z",
+        "localTimeSpec": {
+          "date": "2026-09-29",
+          "time": "02:00",
+          "timezone": "Asia/Hebron"
+        },
+        "priority": {
+          "level": "high",
+          "source": "user_explicit",
+          "pressureAllowed": false,
+          "pressureImplied": false
+        },
+        "flexibility": "movable",
+        "category": null,
+        "categoryConfidence": 0,
+        "confidence": {
+          "overall": 0.9,
+          "type": 1,
+          "action": 0.9,
+          "time": 0.9,
+          "priority": 1
+        },
+        "missingFields": [],
+        "ambiguityFlags": [],
         "explicitReminderRequest": false,
         "explicitPressureRequest": false
       }

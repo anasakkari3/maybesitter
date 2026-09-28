@@ -59,14 +59,19 @@ function payloadOf(prompt: string): string | string[] {
   return JSON.parse(lines[lines.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE') + 1]!) as string | string[];
 }
 
-/** A model that answers each payload with its recording, or an override; anything else fails. */
-function recordedModel(overrides: Record<string, unknown> = {}) {
+/**
+ * A model that answers each payload with its recording, or an override;
+ * anything else fails. N10 was recorded twice (`run`): Gemini gave the same
+ * clause two different readings.
+ */
+function recordedModel(overrides: Record<string, unknown> = {}, run?: string) {
   let calls = 0;
+  const recorded = run ? CALLS.filter((call) => call.case.includes(run)) : CALLS;
   const provider = async (prompt: string): Promise<string> => {
     calls += 1;
     const payload = payloadOf(prompt);
     if (typeof payload === 'string' && payload in overrides) return JSON.stringify(overrides[payload]);
-    const hit = CALLS.find((call) => JSON.stringify(call.payload) === JSON.stringify(payload));
+    const hit = recorded.find((call) => JSON.stringify(call.payload) === JSON.stringify(payload));
     if (hit) return JSON.stringify(hit.answer);
     throw new LLMUnavailableError('provider_error');
   };
@@ -120,13 +125,69 @@ test('FZ1 N10: on the rules path «الساعة 2 بالليل» today at 03:22 
 });
 
 test('FZ1 N10: on the model path the literal answer (Gemini moved today\'s 02:00 to tomorrow) is asked about, not proposed as «بكرا · 02:00»', async () => {
-  const model = recordedModel();
+  const model = recordedModel({}, 'run 1');
   const { contract } = await proposeModel(N10, N10_NOW, model.provider);
   assert.equal(model.calls(), 1);
   assert.equal(contract.provenance.executedEngine, 'gemini');
   assert.equal(contract.status, 'needs_clarification');
   assert.deepEqual(contract.items.map(line), ['أبعت الإيميل للمدير | 2026-09-28 - | ask_time']);
   assertAskedAhead(contract.items[0]!, N10_NOW);
+});
+
+test('FZ1 N10: the second recorded reading (today\'s 02:00, with tomorrow\'s instant beside it) is asked about too', async () => {
+  const model = recordedModel({}, 'run 2');
+  const { contract } = await proposeModel(N10, N10_NOW, model.provider);
+  assert.equal(model.calls(), 1);
+  assert.deepEqual(contract.items.map(line), ['أبعت الإيميل للمدير | 2026-09-28 - | ask_time']);
+});
+
+/**
+ * The literal N10 question on the model path, answered by typing `freeText`;
+ * the re-read is Gemini's recorded answer, or `reread` when a row scripts one.
+ */
+async function answerN10OnModel(freeText: string, reread?: object) {
+  const combined = `${N10}\n${freeText}`;
+  const model = recordedModel(reread ? { [combined]: reread } : {}, 'run 2');
+  const { contract, store } = await proposeModel(N10, N10_NOW, model.provider);
+  const item = contract.items[0]!;
+  assert.equal(item.clarification?.questionKey, 'ask_time');
+  const answer = (input: { freeText?: string; optionId?: string }) => answerClarification(
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, ...input },
+    { now: N10_NOW, timezone: TZ, scopeId: 'fz1' },
+    { store, recordEvent: () => undefined, extractor: guardedMobileExtract, llmProvider: model.provider, llmEngine: 'gemini' },
+  );
+  let refused: string | null = null;
+  let items: string[] | null = null;
+  try {
+    items = (await answer({ freeText })).items.map(line);
+  } catch (error) {
+    refused = (error as { failure?: string }).failure ?? String(error);
+  }
+  const after = refused ? (await answer({ optionId: 'evening' })).items.map(line) : null;
+  return { refused, items, after, calls: model.calls() };
+}
+
+test('FZ1 N10: on the model path the literal «بعد ساعة» (Gemini re-read it as Tuesday 02:00) is not understood, and the buttons still answer', async () => {
+  const later = await answerN10OnModel('بعد ساعة');
+  assert.deepEqual(
+    { refused: later.refused, items: later.items, after: later.after },
+    { refused: 'answer_not_understood', items: null, after: ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled'] },
+  );
+});
+
+test('FZ1 N10: a typed answer to "what time?" with no time of day and no day takes no hour from the re-read, whatever the engine reads into it', async () => {
+  // Scripted re-reads: what a model could make of words that give no hour —
+  // «بعد ساعة» as 04:22, «بعد شوي» as 05:00, "later" as tonight. None is an
+  // hour the person typed; the question stays.
+  for (const [freeText, date, time] of [['بعد ساعة', '2026-09-28', '04:22'], ['بعد شوي', '2026-09-28', '05:00'], ['later', '2026-09-28', '20:00'], ['אחר כך', '2026-09-28', '09:00']] as const) {
+    const result = await answerN10OnModel(freeText, modelAnswer(date, time));
+    assert.deepEqual({ refused: result.refused, after: result.after }, { refused: 'answer_not_understood', after: ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled'] }, freeText);
+  }
+  // A typed hour, a typed part of the day or a named day still answers.
+  assert.deepEqual((await answerN10OnModel('الساعة 7 المسا', modelAnswer('2026-09-28', '19:00'))).items, ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled']);
+  assert.deepEqual((await answerN10OnModel('بالمسا', modelAnswer('2026-09-28', '19:00'))).items, ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled']);
+  // «بكرا» alone: the person's own hour on the day they named (FY1 I4).
+  assert.deepEqual((await answerN10OnModel('بكرا', modelAnswer('2026-09-29', '02:00'))).items, ['أبعت الإيميل للمدير | 2026-09-29 02:00 | settled']);
 });
 
 /** The literal N10 question on the rules path, answered by typing `freeText`. */
