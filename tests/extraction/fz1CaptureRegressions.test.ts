@@ -604,6 +604,18 @@ test('FZ1 round 3 M5a: a typed number with a part of the day answers the time qu
   }
   // No number: the button's hour, as FY1 ruled.
   assert.deepEqual((await answerN10OnRules('بالمسا')).items, ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled']);
+  // A number at night follows the night's rule: «2 بالليل» for tomorrow's email is 02:00.
+  const uid = 'fz1-m5a-night';
+  const items = await withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: TZ, referenceTime: MON_9.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    const updated = await clarifyMobileCapture({
+      proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText: '2 بالليل',
+      timezone: TZ, referenceTime: MON_9.toISOString(),
+    }, { participantId: uid });
+    return updated.items.map(line);
+  });
+  assert.deepEqual(items, ['أبعت الإيميل للمدير | 2026-09-29 02:00 | settled']);
 });
 
 test('FZ1 round 3 M5b: a spoken Hebrew hour at night — «מחר בשתיים בלילה» — is 02:00, and leaves the title', async () => {
