@@ -377,3 +377,90 @@ test('R6 model path (SCRIPTED): in a two-clause capture only the unsettled claus
     [['أتصل بسامي بس مش بكرا', null], ['أروح عالسوق', TOMORROW]],
   );
 });
+
+// ── R6 month end: «حزرنا التاريخ» whatever day the model gave ─────────────
+/*
+ * UAT round 6 (Gemini consented, `capture_extraction` ok on all three runs):
+ * «لازم أحضّر تقرير آخر الشهر» ×3 reached the card on Wednesday 30 Sep with
+ * the hour asked every time, but one run of three had no «حزرنا التاريخ»
+ * (shots 572/574/576). The day is read from a name for the report, not said
+ * as a date (controller ruling N6): it is marked a guess. The mark was set
+ * only when the model gave no day, or a later one FY1 discarded — so a model
+ * that itself answered 30 Sep left the day unmarked.
+ */
+const R6_MONTH_END = 'لازم أحضّر تقرير آخر الشهر';
+const MONTH_LAST = '2026-09-30';
+
+/** SCRIPTED: the recorded month-end answer shape, with the day (and hour) the variant says. */
+function monthEndModel(date: string | null, clock: string | null = null, flags: string[] = ['vague_time']) {
+  const answer = {
+    type: 'task', action: null, title: 'أحضّر تقرير', person: null,
+    dueAt: date ? new Date(`${date}T${clock ?? '00:00'}:00+03:00`).toISOString() : null, remindAt: null,
+    localTimeSpec: date ? { date, time: clock, timezone: TZ } : null,
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'movable', category: null, categoryConfidence: 0,
+    confidence: { overall: 1, type: 1, action: 1, time: 0.5, priority: 1 },
+    missingFields: date ? [] : ['time'], ambiguityFlags: flags, explicitReminderRequest: false, explicitPressureRequest: false,
+  };
+  return async (): Promise<string> => JSON.stringify(answer);
+}
+
+const R6_MONTH_END_VARIANTS: ReadonlyArray<{ name: string; provider: () => Promise<string> }> = [
+  { name: 'the model\'s own 30 Sep, all day at midnight', provider: monthEndModel(MONTH_LAST) },
+  { name: 'the model\'s own 30 Sep, no vague flag', provider: monthEndModel(MONTH_LAST, null, []) },
+  { name: 'no day from the model', provider: monthEndModel(null) },
+  { name: 'the model\'s 30 Sep at 23:59', provider: monthEndModel(MONTH_LAST, '23:59') },
+  { name: 'the model\'s 30 Sep at 09:00, no vague flag', provider: monthEndModel(MONTH_LAST, '09:00', []) },
+  { name: 'the model\'s 31 Oct', provider: monthEndModel('2026-10-31') },
+  { name: 'the model\'s 1 Oct', provider: monthEndModel('2026-10-01') },
+];
+
+test('R6 month end (SCRIPTED, the model\'s 29 Sep): the model\'s earlier day is kept (FY1 I2) and marked a guess, the hour asked', async () => {
+  for (const provider of [monthEndModel('2026-09-29'), monthEndModel('2026-09-29', null, []), monthEndModel('2026-09-29', '23:59')]) {
+    const { contract } = await proposeModel(R6_MONTH_END, provider);
+    const item = contract.items[0]!;
+    assert.deepEqual(
+      [item.resolvedDate ?? null, item.resolvedTime, item.needsClarification, item.clarification?.questionKey ?? null, item.dateEstimated],
+      ['2026-09-29', null, true, 'ask_time', true],
+    );
+  }
+});
+
+for (const variant of R6_MONTH_END_VARIANTS) {
+  test(`R6 month end (SCRIPTED, ${variant.name}): «${R6_MONTH_END}» is on 30 Sep, marked a guess, the hour asked`, async () => {
+    const { contract } = await proposeModel(R6_MONTH_END, variant.provider);
+    assert.equal(contract.provenance.executedEngine, 'gemini');
+    assert.equal(contract.items.length, 1);
+    const item = contract.items[0]!;
+    assert.deepEqual(
+      [item.resolvedDate ?? null, item.resolvedTime, item.needsClarification, item.clarification?.questionKey ?? null, item.dateEstimated],
+      [MONTH_LAST, null, true, 'ask_time', true],
+    );
+  });
+}
+
+test('R6 month end: the rules path marks the same day the same way', async () => {
+  setStorageForTests(createMemoryStorage());
+  const proposal = await proposeMobileCapture({ text: R6_MONTH_END, timezone: TZ, referenceTime: NOW.toISOString() }).finally(() => resetStorageForTests());
+  const item = proposal.items[0]!;
+  assert.deepEqual([item.resolvedDate ?? null, item.resolvedTime, item.clarification?.questionKey ?? null, item.dateEstimated], [MONTH_LAST, null, 'ask_time', true]);
+});
+
+test('R6 month end (SCRIPTED): a counted offset, another month or a date the person named is not marked by the month-end rule', async () => {
+  const rows: ReadonlyArray<[string, string, string | null]> = [
+    // A counted day is the words' own, said rather than guessed (N15).
+    ['لازم أخلص التقرير قبل آخر الشهر بيومين', '2026-09-28', '2026-09-28'],
+    // Next month's end is the model's to read.
+    ['بدي أحضّر تقرير آخر الشهر الجاي', '2026-10-31', '2026-10-31'],
+    // A date the person named is theirs.
+    ['بدي أحضّر تقرير آخر الشهر يوم 29', '2026-09-29', '2026-09-29'],
+    ['بدي أحضّر تقرير آخر الشهر يوم 30', '2026-09-30', '2026-09-30'],
+    ['بدي أحضّر تقرير آخر الشهر 29/9', '2026-09-29', '2026-09-29'],
+  ];
+  for (const [text, modelDay, expected] of rows) {
+    const { contract } = await proposeModel(text, monthEndModel(modelDay));
+    const item = contract.items[0]!;
+    assert.equal(item.resolvedDate ?? null, expected, text);
+    assert.notEqual(item.dateEstimated, true, text);
+  }
+});

@@ -601,6 +601,19 @@ export function unsettledRelativeDayPhrase(rawText: string): { index: number; te
   return match ? { index: match.index, text: match[0] } : null;
 }
 
+// A day of the month by its number: «يوم 5», «بـ 5 الشهر», «ב-5 לחודש».
+const DAY_OF_MONTH_SOURCES = [
+  `${NOT_LETTER_BEFORE}يوم\\s*[0-9٠-٩]{1,2}(?![0-9٠-٩:])`,
+  `${NOT_LETTER_BEFORE}(?:ب|بـ)\\s*[0-9٠-٩]{1,2}\\s+(?:من\\s+)?(?:ال|هال|ل)?شهر`,
+  `${NOT_LETTER_BEFORE}ב-?\\s*[0-9]{1,2}\\s+(?:ל|ב)?חודש`,
+];
+const DAY_OF_MONTH = new RegExp(DAY_OF_MONTH_SOURCES.join('|'), 'iu');
+
+/** The words name a day of the month by its number — «يوم 29», «بـ 29 الشهر» (R6). */
+export function namesDayOfMonth(rawText: string): boolean {
+  return typeof rawText === 'string' && DAY_OF_MONTH.test(rawText);
+}
+
 /*
  * Words that put the commitment on some day other than today even when
  * «اليوم»/"today"/«היום» is the only relative day in them (FZ1 review, I1):
@@ -615,9 +628,7 @@ const OTHER_DAY_THAN_TODAY = new RegExp(
     '\\bnot\\s+today\\b',
     `${NOT_LETTER_BEFORE}לא\\s+היום${NOT_LETTER_AFTER}`,
     // «يوم 5», «بـ 5 الشهر», «ב-5 לחודש», "on the 5th"
-    `${NOT_LETTER_BEFORE}يوم\\s*[0-9٠-٩]{1,2}(?![0-9٠-٩:])`,
-    `${NOT_LETTER_BEFORE}(?:ب|بـ)\\s*[0-9٠-٩]{1,2}\\s+(?:من\\s+)?(?:ال|هال|ل)?شهر`,
-    `${NOT_LETTER_BEFORE}ב-?\\s*[0-9]{1,2}\\s+(?:ל|ב)?חודש`,
+    ...DAY_OF_MONTH_SOURCES,
     // The month's start: «أول الشهر», "the beginning of the month", «תחילת החודש»
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:أول|اول|بداية|بدايه|مطلع)\\s+(?:هال|ال)?شهر`,
     '\\b(?:beginning|start)\\s+of\\s+(?:the\\s+|next\\s+)?month\\b',

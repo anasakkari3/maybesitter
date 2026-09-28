@@ -27,6 +27,7 @@ import {
   monthEndDay,
   monthEndIsNotTheDay,
   namesDay,
+  namesDayOfMonth,
   namesOtherDayThanToday,
   namesTodayOnly,
   namesTwelveInTheEvening,
@@ -650,6 +651,24 @@ export function validateExtractionResult(
   ) {
     time = { ...time, localTimeSpec: { date: wordsDay.date, time: null, timezone: zone } };
     dateInferred = wordsDay.side === 'end';
+  }
+  // The same guess when the model gave this month's last day itself (closure
+  // UAT round 6): «لازم أحضّر تقرير آخر الشهر» ×3 was on Wednesday 30 Sep
+  // every time, but one run had no «حزرنا التاريخ» — that one's model had
+  // answered 30 Sep, and only a day filled above was marked. The mark is the
+  // words', not the model's (N6): the same day, with no time of day and no
+  // other day in the words, and no hour settled on it. Not an FX3 deadline.
+  // An earlier model day this month (the 29th) keeps its day (FY1 I2) but is
+  // marked all the same: the person did not say it (coordinator ruling, R6).
+  // A day of the month they did say — «آخر الشهر يوم 29» — is theirs.
+  const guessedDay = time.localTimeSpec?.date ?? null;
+  if (
+    wordsDay?.side === 'end' && !allDay && forbidsResolvedTime(rawText)
+    && !namesDay(rawText) && !namesExplicitDate(rawText) && !namesDayOfMonth(rawText)
+    && guessedDay !== null && guessedDay.slice(0, 7) === wordsDay.date.slice(0, 7) && guessedDay <= wordsDay.date
+    && !time.localTimeSpec?.time && !time.dueAt && !time.remindAt
+  ) {
+    dateInferred = true;
   }
   // The model named no day for a sentence that names today, tomorrow or the
   // day after (final UAT, N19). At 10:04 on Monday, «سجّل موعد دكتور اليوم»
