@@ -58,8 +58,16 @@ jest.mock('../../../i18n/timezone', () => ({
 }));
 
 const HOUR = 3_600_000;
+/**
+ * The phone's clock for every case: midday in the device zone (12:00 in
+ * Asia/Jerusalem). Calendar shows the busy blocks of *today*, so a meeting
+ * three hours after the wall clock left today's list from 21:00 on and 29 cases
+ * failed every evening. Pinned, the day and the lead are the same at any hour,
+ * in any zone the runner happens to be in.
+ */
+const NOW = new Date('2026-09-28T09:00:00.000Z');
 /** Today, three hours from now: a meeting there is time to prepare for. */
-const mockStart = new Date(Math.ceil((Date.now() + 3 * HOUR) / (5 * 60_000)) * 5 * 60_000);
+const mockStart = new Date(NOW.getTime() + 3 * HOUR);
 const START = mockStart.toISOString();
 const END = new Date(mockStart.getTime() + 45 * 60_000).toISOString();
 /** What the phone's calendar hands over: times, never a title. */
@@ -152,6 +160,18 @@ async function show(options: { aiGranted?: boolean; today?: Commitment[] } = {})
 }
 
 beforeEach(async () => {
+  // Only `Date` is faked: every timer stays real, so RNTL's `waitFor` and the
+  // ring that passes while Review is open (n-2) run as they do on the phone,
+  // with the clock moving on from NOW in real time.
+  jest.useFakeTimers({
+    now: NOW,
+    advanceTimers: true,
+    doNotFake: [
+      'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame', 'cancelAnimationFrame',
+      'requestIdleCallback', 'cancelIdleCallback', 'setImmediate', 'clearImmediate', 'setInterval', 'clearInterval',
+      'setTimeout', 'clearTimeout',
+    ],
+  });
   onlineManager.setOnline(true);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
@@ -166,6 +186,7 @@ afterEach(() => {
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
+  jest.useRealTimers();
 });
 
 describe('the entry points', () => {
