@@ -699,3 +699,57 @@ test('FZ1 round 3 add-on: west of UTC the cleared appointment is still on Friday
     assert.equal(localTimeSpecFor(new Date(commitment.timeSpec.dueAt!), zone)?.date, '2026-10-02');
   });
 });
+
+// ── Round 4 (re-review: M5a's number must sit right before the part of day) ──
+
+/** «بكرا لازم أبعت الإيميل للمدير» asked for its hour at Mon 10:00, answered by typing `freeText`. */
+async function answerTomorrowEmail(freeText: string): Promise<string> {
+  const uid = 'fz1-r4';
+  const now = new Date('2026-09-28T07:00:00.000Z');
+  return withMemoryStorage(async () => {
+    const proposal = await proposeMobileCapture({ text: 'بكرا لازم أبعت الإيميل للمدير', timezone: TZ, referenceTime: now.toISOString() }, { participantId: uid });
+    const item = proposal.items[0]!;
+    assert.equal(item.clarification?.questionKey, 'ask_time');
+    try {
+      const updated = await clarifyMobileCapture({
+        proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText,
+        timezone: TZ, referenceTime: now.toISOString(),
+      }, { participantId: uid });
+      return line(updated.items[0]!);
+    } catch (error) {
+      return `refused: ${(error as { failure?: string }).failure ?? String(error)}`;
+    }
+  });
+}
+
+const hourOf = (answer: string) => answer.split(' | ')[1]?.split(' ')[1] ?? answer;
+
+test('FZ1 round 4: a number that is not the hour — a count, a unit, a date — is not read as one; the part of the day keeps its button hour', async () => {
+  const rows: Array<[string, string]> = [
+    ['بعد 2 يوم الصبح', '09:00'],
+    ['بعد 3 أيام المسا', '19:00'],
+    ['in 3 days in the evening', '19:00'],
+    ['בעוד 3 ימים בערב', '19:00'],
+    ['3 مرات المسا', '19:00'],
+    ['مع 2 من الشباب المسا', '19:00'],
+    ['يوم 5 المسا', '19:00'],
+    ['the 5th in the evening', '19:00'],
+  ];
+  for (const [freeText, hour] of rows) {
+    const answer = await answerTomorrowEmail(freeText);
+    assert.ok(!answer.startsWith('refused'), `${freeText}: ${answer}`);
+    assert.equal(hourOf(answer), hour, `${freeText}: ${answer}`);
+  }
+});
+
+test('FZ1 round 4: the number right before the part of the day is the hour, with «ع/على/حوالي/الساعة», "at/about" or "in the" around it', async () => {
+  for (const freeText of ['5 المسا', 'ع 5 المسا', 'على 5 المسا', 'حوالي 5 المسا', 'at 5 in the evening', 'about 5 in the evening', '5 in the evening', '5 בערב', '٥ المسا']) {
+    assert.equal(hourOf(await answerTomorrowEmail(freeText)), '17:00', freeText);
+  }
+});
+
+test('FZ1 round 4: «12 الصبح» / "12 in the morning" is ambiguous — not understood, the buttons stay', async () => {
+  for (const freeText of ['12 الصبح', '12 in the morning', '12 בבוקר']) {
+    assert.equal(await answerTomorrowEmail(freeText), 'refused: answer_not_understood', freeText);
+  }
+});
