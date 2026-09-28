@@ -498,12 +498,15 @@ test('fix I2: a past «خلص» after «و»/«ف» is still past narration; the
 });
 
 test('fix I3: a typed answer that negates a day, offers two, or says "the next day" is not understood — never the day it said not to use', async () => {
+  // (Round 3: an answer that rules one day out and names exactly one other is
+  // clear, and takes that other day — see the next test. These stay refused.)
   for (const freeText of [
-    'بكرا لا، الخميس المسا', 'not tomorrow, Thursday evening', 'الخميس بدل بكرا المسا', 'الأحد مش بكرا، المسا',
-    'مش بكرا، الأحد المسا', 'بكرا أو الخميس المسا', 'tomorrow or Thursday evening', 'اليوم التاني المسا', 'לא מחר, ביום חמישי בערב',
-    // Each rule on its own: two days; an alternative; a negation beside a day.
+    'الخميس بدل بكرا المسا', 'بكرا أو الخميس المسا', 'tomorrow or Thursday evening', 'اليوم التاني المسا', 'לא מחר, ביום חמישי בערב',
+    // Each rule on its own: two days; an alternative; only a negated day.
     'بكرا الخميس المسا', 'بكرا أو بعد بكرا المسا', 'tomorrow or the day after tomorrow in the evening',
-    'مش بكرا، بعد بكرا المسا', 'not tomorrow, the day after tomorrow in the evening', 'بكرا لا، بعد بكرا المسا',
+    'مش بكرا المسا', 'not tomorrow, in the evening',
+    // Undecided (round 3): a question, «ولا».
+    'الخميس ولا بكرا؟ الخميس المسا', 'بكرا المسا ولا الصبح؟', 'بكرا ولا يهمك، المسا',
   ]) {
     assert.deepEqual(await answerDoctor(freeText), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 }, freeText);
   }
@@ -557,4 +560,44 @@ test('fix M7: «الساعة 12 المسا» in the capture itself is asked on i
   // Noon and midnight said as such are unchanged.
   assert.equal(line((await proposeRules('بكرا الساعة 12 الضهر بدي أتصل بأمي', MON_10)).items[0]!).split(' | ')[1], '2026-09-29 12:00');
   assert.equal(line((await proposeRules('بكرا الساعة 12 بالليل بدي أتصل بأمي', MON_10)).items[0]!).split(' | ')[1], '2026-09-29 00:00');
+});
+
+// ── Round 3 (re-review of the fix round) ──────────────────────────────────
+
+test('round 3 N-I1: «غدا مع» is lunch only right after «عندي» — a day that belongs to something else does not make it lunch', async () => {
+  const rows: Array<[string, string, string | null]> = [
+    ['اجتماع غدا مع المدير بخصوص تقرير اليوم الساعة 11', '2026-09-29', '11:00'],
+    ['موعد غدا مع الطبيب الساعة 4 بدل موعد اليوم', '2026-09-29', null],
+    ['ذكرني اليوم إنه عندي اجتماع غدا مع المدير', '2026-09-29', null],
+  ];
+  for (const [text, date, time] of rows) {
+    const item = (await proposeRules(text, MON_10)).items[0];
+    assert.equal(item?.resolvedDate, date, text);
+    if (time) assert.equal(localTimeSpecFor(new Date(item!.resolvedTime!), TZ)?.time, time, text);
+  }
+  // The pinned lunch rows are unchanged.
+  assert.deepEqual((await proposeRules('عندي غدا مع أمي بكرا', MON_10)).items.map(line), ['عندي غدا مع أمي | 2026-09-29 - | ask_time']);
+  assert.deepEqual((await proposeRules('يوم الخميس عندي غدا مع أمي', MON_10)).items.map((item) => [item.title, item.resolvedDate]), [['عندي غدا مع أمي', '2026-10-01']]);
+  assert.deepEqual((await proposeRules('الخميس عنا غدا مع العيلة', MON_10)).items.map((item) => [item.title, item.resolvedDate]), [['عنا غدا مع العيلة', '2026-10-01']]);
+});
+
+test('round 3: an answer that rules a day out and names exactly one other takes that one — never the day ruled out', async () => {
+  const rows: Array<[string, string]> = [
+    ['لا بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['no, tomorrow evening', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['not today, tomorrow evening', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['not today but tomorrow evening', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['مش اليوم، بكرا المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+    ['بكرا لا، الخميس المسا', 'موعد دكتور | 2026-10-01 19:00 | settled'],
+    ['not tomorrow, Thursday evening', 'موعد دكتور | 2026-10-01 19:00 | settled'],
+    ['مش بكرا، بعد بكرا المسا', 'موعد دكتور | 2026-09-30 19:00 | settled'],
+    ['not tomorrow, the day after tomorrow in the evening', 'موعد دكتور | 2026-09-30 19:00 | settled'],
+    ['بكرا لا، بعد بكرا المسا', 'موعد دكتور | 2026-09-30 19:00 | settled'],
+    ['مش بكرا، الأحد المسا', 'موعد دكتور | 2026-10-04 19:00 | settled'],
+    ['الأحد مش بكرا، المسا', 'موعد دكتور | 2026-10-04 19:00 | settled'],
+    ['بكرا، مش الخميس، المسا', 'موعد دكتور | 2026-09-29 19:00 | settled'],
+  ];
+  for (const [freeText, expected] of rows) {
+    assert.equal((await answerDoctor(freeText)).line, expected, freeText);
+  }
 });
