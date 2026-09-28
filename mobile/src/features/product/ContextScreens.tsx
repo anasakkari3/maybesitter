@@ -24,7 +24,7 @@ export function uniqueCommitments(items: readonly Commitment[]) {
 }
 
 export function PersonalizationScreen() {
-  const { t, p, rtl, lang, actions } = useApp();
+  const { t, tr, p, rtl, lang, actions } = useApp();
   const zone = useTimeZone();
   const consents = useConsents();
   const setConsent = useSetPersonalizationConsent();
@@ -54,11 +54,11 @@ export function PersonalizationScreen() {
         {decide.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(decide.error, t)}</Txt> : null}
         {suggestions.map(suggestion => <Card key={suggestion.fingerprint} style={{ gap: 12 }}>
           <Txt role="card">{isolate(suggestion.ruleId === 'R2_defer_default'
-            ? fill(t.memorySuggestionDeferDefault, { duration: durationText(suggestion.deferMinutes, t as unknown as Record<string, string>) })
+            ? fill(t.memorySuggestionDeferDefault, { duration: durationText(suggestion.deferMinutes, t as unknown as Record<string, string>, (key, values) => tr(key, values)) })
             : suggestion.ruleId === 'R3_plan_time'
               ? fill(t.memorySuggestionPlanTime, { time: suggestion.planTime })
               : fill(t.memorySuggestionFocusWindow, suggestion.window))}</Txt>
-          <Txt role="supporting" color={p.mu}>{isolate(fill(t.memorySuggestionEvidence, { days: suggestion.evidence.lookbackDays, total: suggestion.evidence.totalCount, matching: suggestion.evidence.matchingCount }))}</Txt>
+          <Txt role="supporting" color={p.mu}>{isolate(tr('memorySuggestionEvidence', { days: suggestion.evidence.lookbackDays, total: suggestion.evidence.totalCount, matching: suggestion.evidence.matchingCount }))}</Txt>
           {editing === suggestion.fingerprint ? <View style={{ gap: 12 }}>
             <Txt role="supporting" color={p.mu}>{t.xEditLearningBody}</Txt>
             <TextInput testID="personalization-edit-input" accessibilityLabel={t.memoryEdit} value={draft} onChangeText={setDraft} maxLength={200} multiline
@@ -71,7 +71,7 @@ export function PersonalizationScreen() {
             <Pill label={t.memoryEdit} kind="outline" disabled={decide.isPending} onPress={() => {
               create.reset();
               setDraft(suggestion.ruleId === 'R2_defer_default'
-                ? fill(t.memorySuggestionDeferDefault, { duration: durationText(suggestion.deferMinutes, t as unknown as Record<string, string>) })
+                ? fill(t.memorySuggestionDeferDefault, { duration: durationText(suggestion.deferMinutes, t as unknown as Record<string, string>, (key, values) => tr(key, values)) })
                 : suggestion.ruleId === 'R3_plan_time'
                   ? fill(t.memorySuggestionPlanTime, { time: suggestion.planTime })
                   : fill(t.memorySuggestionFocusWindow, suggestion.window));

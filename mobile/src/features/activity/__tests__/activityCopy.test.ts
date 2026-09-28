@@ -122,9 +122,9 @@ describe('the activity copy', () => {
   });
 
   it('reaches the Arabic dual and the Hebrew dual rather than falling back to "other"', () => {
-    // Two is its own word in both — «شيئين», «יומיים» — so a count of two that
+    // Two is its own word in both — «إشيين», «יומיים» — so a count of two that
     // reads as the plural form is how a lost locale shows itself.
-    expect(tFor('ar')('activityWeekDone', { n: 2 })).toBe('خلّصت شيئين');
+    expect(tFor('ar')('activityWeekDone', { n: 2 })).toBe('خلّصت إشيين');
     expect(tFor('ar')('activityWeekPlanned', { n: 2 })).toBe('يومين إلهم خطة');
     expect(tFor('he')('activityWeekPlanned', { n: 2 })).toBe('יומיים עם תוכנית');
     // Three is not the dual, in either.

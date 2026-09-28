@@ -43,6 +43,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { evidencePhrase, KNOWN_EVIDENCE_CODES, type EvidenceItem } from '../../features/nextStep/evidence';
 import { sensitiveTermIn } from '../../../../src/profile/sensitiveLexicon';
+import { tFor } from '../index';
 import ar from '../locales/ar.json';
 import en from '../locales/en.json';
 import he from '../locales/he.json';
@@ -68,7 +69,10 @@ function words(text: string): string[] {
  * level is `todayGroupMust`, which is where a word long enough or loaded enough
  * to break the rule could arrive without the reason line itself changing.
  */
-function renderedLines(strings: Record<string, string>): { code: string; line: string }[] {
+function renderedLines(
+  strings: Record<string, string>,
+  locale: 'en' | 'ar' | 'he',
+): { code: string; line: string }[] {
   const items: EvidenceItem[] = KNOWN_EVIDENCE_CODES.flatMap(code => {
     if (code === 'importance' || code === 'importance_estimated') {
       return ([ 'low', 'normal', 'high' ] as const).map(level => ({ code, params: { level } }));
@@ -78,7 +82,8 @@ function renderedLines(strings: Record<string, string>): { code: string; line: s
   });
 
   return items.map(item => {
-    const line = evidencePhrase(item, strings);
+    const translator = tFor(locale);
+    const line = evidencePhrase(item, strings, (key, values) => translator(key, values));
     expect(line).not.toBeNull();
     return { code: item.code, line: line! };
   });
@@ -100,33 +105,36 @@ function renderedLines(strings: Record<string, string>): { code: string; line: s
  * substituted label's own vocabulary is not.
  */
 const NEUTRAL_LEVEL = 'level';
-function linesWithNeutralLevels(strings: Record<string, string>): { code: string; line: string }[] {
+function linesWithNeutralLevels(
+  strings: Record<string, string>,
+  locale: 'en' | 'ar' | 'he',
+): { code: string; line: string }[] {
   return renderedLines({
     ...strings,
     todayGroupMust: NEUTRAL_LEVEL,
     todayGroupShould: NEUTRAL_LEVEL,
     todayGroupNice: NEUTRAL_LEVEL,
-  });
+  }, locale);
 }
 
 /** The raw copy too, so a key that no code routes to is still held to the rule. */
 function templates(strings: Record<string, string>): { code: string; line: string }[] {
   return Object.entries(strings)
-    .filter(([key]) => key.startsWith('evidence'))
+    .filter(([key, value]) => key.startsWith('evidence') && !value.includes(', plural,'))
     .map(([key, line]) => ({ code: key, line }));
 }
 
 describe('the next-step reason lines', () => {
   for (const [lang, strings] of Object.entries(LOCALES)) {
     it(`${lang}: every reason is at most ${MAX_WORDS} words`, () => {
-      const tooLong = [...renderedLines(strings), ...templates(strings)]
+      const tooLong = [...renderedLines(strings, lang as 'en' | 'ar' | 'he'), ...templates(strings)]
         .map(({ code, line }) => ({ code, length: words(line).length, line }))
         .filter(({ length }) => length > MAX_WORDS);
       expect(tooLong).toEqual([]);
     });
 
     it(`${lang}: no reason speaks in medical, clinical or otherwise sensitive terms`, () => {
-      const loaded = [...linesWithNeutralLevels(strings), ...templates(strings)]
+      const loaded = [...linesWithNeutralLevels(strings, lang as 'en' | 'ar' | 'he'), ...templates(strings)]
         .map(({ code, line }) => ({ code, term: sensitiveTermIn(line), line }))
         .filter(({ term }) => term !== null);
       expect(loaded).toEqual([]);

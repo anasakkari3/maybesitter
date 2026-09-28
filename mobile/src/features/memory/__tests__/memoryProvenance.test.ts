@@ -27,8 +27,15 @@ import {
 import ar from '../../../i18n/locales/ar.json';
 import en from '../../../i18n/locales/en.json';
 import he from '../../../i18n/locales/he.json';
+import { tFor } from '../../../i18n';
 
 const LOCALES = { en, ar, he } as unknown as Record<string, Record<string, string>>;
+const TRANSLATORS = { en: tFor('en'), ar: tFor('ar'), he: tFor('he') };
+const duration = (minutes: number, locale: keyof typeof TRANSLATORS) => durationText(
+  minutes,
+  LOCALES[locale]!,
+  (key, values) => TRANSLATORS[locale](key, values),
+);
 const LABELS = memorySourceLabelSchema.options as readonly MemorySourceLabel[];
 
 const RECORDED = '2026-09-13T09:00:00.000Z';
@@ -191,32 +198,32 @@ describe('a "Later" duration in words (UC-3.14, #532)', () => {
     [120, en.memoryDurationTwoHours, ar.memoryDurationTwoHours, he.memoryDurationTwoHours],
     [150, en.memoryDurationTwoHoursAndHalf, ar.memoryDurationTwoHoursAndHalf, he.memoryDurationTwoHoursAndHalf],
   ])('words %s minutes from its own string in every language', (minutes, english, arabic, hebrew) => {
-    expect(durationText(minutes as number, LOCALES.en!)).toBe(english);
-    expect(durationText(minutes as number, LOCALES.ar!)).toBe(arabic);
-    expect(durationText(minutes as number, LOCALES.he!)).toBe(hebrew);
+    expect(duration(minutes as number, 'en')).toBe(english);
+    expect(duration(minutes as number, 'ar')).toBe(arabic);
+    expect(duration(minutes as number, 'he')).toBe(hebrew);
   });
 
   it('counts past two hours, with and without the half', () => {
-    expect(durationText(180, LOCALES.en!)).toBe('3 hours');
-    expect(durationText(210, LOCALES.en!)).toBe('3.5 hours');
-    expect(durationText(1440, LOCALES.en!)).toBe('24 hours');
-    for (const bundle of Object.values(LOCALES)) {
+    expect(duration(180, 'en')).toBe('3 hours');
+    expect(duration(210, 'en')).toBe('3.5 hours');
+    expect(duration(1440, 'en')).toBe('24 hours');
+    for (const locale of Object.keys(LOCALES) as (keyof typeof TRANSLATORS)[]) {
       for (const minutes of [180, 210, 1440]) {
-        expect(durationText(minutes, bundle)).toContain(String(Math.floor(minutes / 60)));
+        expect(duration(minutes, locale)).toContain(String(Math.floor(minutes / 60)));
       }
     }
   });
 
   it('falls back to bare minutes for a length no bucket ever produced', () => {
-    expect(durationText(45, LOCALES.en!)).toBe('45 minutes');
-    expect(durationText(45, LOCALES.ar!)).toContain('45');
-    expect(durationText(45, LOCALES.he!)).toContain('45');
+    expect(duration(45, 'en')).toBe('45 minutes');
+    expect(duration(45, 'ar')).toBe('45 دقيقة');
+    expect(duration(45, 'he')).toContain('45');
   });
 
   it('never leaves a placeholder or an empty string, in any language', () => {
-    for (const bundle of Object.values(LOCALES)) {
+    for (const locale of Object.keys(LOCALES) as (keyof typeof TRANSLATORS)[]) {
       for (const minutes of [30, 45, 60, 90, 120, 150, 180, 210, 1440]) {
-        const text = durationText(minutes, bundle);
+        const text = duration(minutes, locale);
         expect(text.trim()).not.toBe('');
         expect(text).not.toMatch(/\{|\}/);
       }

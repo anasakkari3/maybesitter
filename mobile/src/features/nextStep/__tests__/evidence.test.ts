@@ -12,6 +12,7 @@ import { NEXT_STEP_EVIDENCE_CODES } from '../../../../../lib/services/nextStepEv
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 import he from '../../../i18n/locales/he.json';
+import { tFor } from '../../../i18n';
 
 const asStrings = (locale: object) => locale as unknown as Record<string, string>;
 const LOCALES = { en: asStrings(en), ar: asStrings(ar), he: asStrings(he) };
@@ -54,7 +55,12 @@ describe('the app can say every reason the server can give', () => {
     });
 
     it(`${lang}: effort names the number`, () => {
-      const phrase = evidencePhrase({ code: 'effort', params: { minutes: 45 } }, strings)!;
+      const translator = tFor(lang as 'en' | 'ar' | 'he');
+      const phrase = evidencePhrase(
+        { code: 'effort', params: { minutes: 45 } },
+        strings,
+        (key, values) => translator(key, values),
+      )!;
       expect(phrase).toContain('45');
       expect(phrase).not.toContain('{minutes}');
     });

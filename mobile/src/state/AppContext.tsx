@@ -83,8 +83,8 @@ function useAppModel() {
   const system = useColorScheme();
   const scheme: Scheme = themePref === 'system' ? (system === 'dark' ? 'dark' : 'light') : themePref;
   const t: Strings = strings[lang];
-  // ICU-aware, key-checked `t` for the three count messages `fill` cannot
-  // inflect (confirmN, lockedTitle, progressWords). See src/i18n/README.md.
+  // ICU-aware, key-checked translator for count messages `fill` cannot
+  // inflect. See src/i18n/README.md.
   const tr = useMemo(() => tFor(lang), [lang]);
   const reduceTransparency = useReducedTransparency();
   const p: Palette = useMemo(() => reduceTransparency
