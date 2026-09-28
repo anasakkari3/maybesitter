@@ -766,7 +766,7 @@ test('FZ1 round 4: the number right before the part of the day is the hour, with
   // («5 المسا مش الصبح» was here; since POLISH-CAPTURE round 4 a typed answer
   // with a negation is refused unless it is one of two plain shapes, so the row
   // that pins "the half is the word after the number" names no negation.)
-  for (const freeText of ['5 المسا', 'ع 5 المسا', 'على 5 المسا', 'حوالي 5 المسا', 'at 5 in the evening', 'about 5 in the evening', '5 in the evening', '5 בערב', '٥ المسا', '5 المسا، الصبح مشغول']) {
+  for (const freeText of ['5 المسا', 'ع 5 المسا', 'على 5 المسا', 'حوالي 5 المسا', 'at 5 in the evening', 'about 5 in the evening', '5 in the evening', '5 בערב', '٥ المسا', '5 المسا، الصبح بكون بالشغل']) {
     assert.equal(hourOf(await answerTomorrowEmail(freeText)), '17:00', freeText);
   }
 });
