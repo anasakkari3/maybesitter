@@ -342,13 +342,15 @@ test('FY1 N6: the literal «أحضّر تقرير آخر الشهر» on the mod
   const { contract } = await proposeModel(N6_REPORT, N6_NOW, recordedModel().provider);
   assert.equal(contract.provenance.executedEngine, 'gemini');
   // The rules path's own answer to the same words (FX3 probe «بدي أحضّر تقرير
-  // آخر الشهر»): the report keeps what it is, and the hour is asked.
-  assert.deepEqual(contract.items.map(line), ['أحضّر تقرير آخر الشهر | - - | ask_time']);
+  // آخر الشهر»): the report keeps what it is, and the hour is asked — on this
+  // month's last day, the words' own (FZ1 N6; it had no day at all).
+  assert.deepEqual(contract.items.map(line), ['أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time']);
 });
 
-test('FY1 N6: the rules path is unchanged — «أحضّر تقرير آخر الشهر» keeps its title', async () => {
+test('FY1 N6: the rules path — «أحضّر تقرير آخر الشهر» keeps its title', async () => {
   const proposal = await withMemoryStorage(() => proposeRules(N6_REPORT, N6_NOW));
-  assert.deepEqual(proposal.items.map(line), ['أحضّر تقرير آخر الشهر | - - | ask_time']);
+  // FZ1 N6: on this month's last day, the hour asked (it had no day at all).
+  assert.deepEqual(proposal.items.map(line), ['أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time']);
 });
 
 function reportAnswer(date: string | null, title = 'أحضّر تقرير') {
@@ -365,10 +367,12 @@ function reportAnswer(date: string | null, title = 'أحضّر تقرير') {
 
 test('FY1 N6: a model day after this month\'s end is discarded; none, the last day or an earlier day is the model\'s', async () => {
   const rows: Array<[string | null, string]> = [
-    ['2026-10-31', 'أحضّر تقرير آخر الشهر | - - | ask_time'],
+    // Discarded, and the words' own day given instead (FZ1 N6; it had none).
+    ['2026-10-31', 'أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time'],
     // Before the month's end: not the N6 defect, and possibly right (fix round, I2).
     ['2026-09-29', 'أحضّر تقرير آخر الشهر | 2026-09-29 - | ask_time'],
-    [null, 'أحضّر تقرير آخر الشهر | - - | ask_time'],
+    // No model day: the words' own (FZ1 N6; it had none).
+    [null, 'أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time'],
     // This month's last day on the person's clock: the model's day stays, and
     // the hour is asked (the idafa is not a deadline, FX3).
     ['2026-09-30', 'أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time'],
@@ -471,9 +475,10 @@ test('FY1 fix I2: a model day is kept when the words put an offset on the month\
     const { contract } = await proposeModel(text, now, recordedModel({ [text]: reportAnswer(date, text) }).provider);
     assert.equal(contract.items[0]?.resolvedDate, date, text);
   }
-  // The literal N6 row is still discarded and asked.
+  // The literal N6 row is still discarded and asked — on this month's last
+  // day, the words' own (superseded by FZ1 N6: it had no day at all).
   const { contract } = await proposeModel(N6_REPORT, N6_NOW, recordedModel().provider);
-  assert.deepEqual(contract.items.map(line), ['أحضّر تقرير آخر الشهر | - - | ask_time']);
+  assert.deepEqual(contract.items.map(line), ['أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time']);
 });
 
 async function answerN1Alone(freeText: string) {

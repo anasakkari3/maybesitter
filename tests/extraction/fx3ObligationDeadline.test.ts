@@ -360,12 +360,14 @@ async function probeLine(text: string, referenceTime = NOW.toISOString()) {
 test('FX3 I-1: the month-end phrase that nothing read stays in the title, and a noun it modifies is not a deadline (review rows, as at cb9982b7)', async () => {
   const rows: Array<[string, string, string]> = [
     ['بدي أحضّر تقرير آخر الشهر بكرا الساعة 10', 'proposed', 'أحضّر تقرير آخر الشهر | 2026-09-27 10:00 |  | normal~'],
-    ['بدي أحضّر تقرير آخر الشهر', 'needs_clarification', 'أحضّر تقرير آخر الشهر | - - | ask_time | normal~'],
+    // Still not a deadline: the hour is asked, and the day is the words'
+    // own, this month's last (superseded by FZ1 N6: it had no day at all).
+    ['بدي أحضّر تقرير آخر الشهر', 'needs_clarification', 'أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time | normal~'],
     ['بدي أحسب رواتب آخر الشهر بكرا الساعة 10', 'proposed', 'أحسب رواتب آخر الشهر | 2026-09-27 10:00 |  | normal~'],
     ['عندي جرد نهاية الشهر بكرا الساعة 9', 'proposed', 'عندي جرد نهاية الشهر | 2026-09-27 09:00 |  | normal~'],
     ['بكرا بدي أحكي مع صاحب البيت عن إيجار آخر الشهر', 'needs_clarification', 'أحكي مع صاحب البيت عن إيجار آخر الشهر | 2026-09-27 - | ask_time | normal~'],
     ['Prepare the end of the month report tomorrow at 10am', 'proposed', 'Prepare the end of the month report | 2026-09-27 10:00 |  | normal~'],
-    ['Prepare the end of the month report', 'needs_clarification', 'Prepare the end of the month report | - - | ask_time | normal~'],
+    ['Prepare the end of the month report', 'needs_clarification', 'Prepare the end of the month report | 2026-09-30 - | ask_time | normal~'],
     ['Finish the month-end close tomorrow at 9am', 'proposed', 'Finish the month-end close | 2026-09-27 09:00 |  | normal~'],
     ['Tomorrow at 5pm call the landlord about the rent due by the end of the month', 'proposed', 'call the landlord about the rent due by the end of the month | 2026-09-27 17:00 |  | normal~'],
     ['להכין את דוח סוף החודש מחר ב-10', 'proposed', 'להכין את דוח סוף החודש | 2026-09-27 10:00 |  | normal~'],

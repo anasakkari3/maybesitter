@@ -12,8 +12,11 @@ import {
   normalizeSpokenHebrewHours,
   namesDay,
   instantFromLocal,
+  forbidsResolvedTime,
   lastDayOfMonth,
+  monthEndIsNotTheDay,
   MONTH_END_MENTION_SOURCES,
+  thisMonthEndWords,
   NIGHT_HOUR,
   nightClockHour,
   readPeriodEndDeadline,
@@ -198,6 +201,18 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   if (monthEnd) {
     targetDate = instantFromLocal(monthEnd, '12:00', tz);
     timeConfidence = 0.9;
+  }
+
+  // «أحضّر تقرير آخر الشهر» (FZ1 N6): this month's end named, not as a
+  // deadline («تقرير آخر الشهر» is the month-end report), and nothing else
+  // in the sentence says when. The words win for this month's end
+  // (controller ruling): its last day, the hour asked, the day marked a
+  // guess, and the words kept in the title. Never with an offset or another
+  // month (FY1 review, I2), nor beside a time of day.
+  if (!targetDate && forbidsResolvedTime(raw) && thisMonthEndWords(raw) && !monthEndIsNotTheDay(raw)) {
+    targetDate = instantFromLocal(lastDayOfMonth(now, tz), '12:00', tz);
+    timeConfidence = 0.6;
+    dateInferred = true;
   }
 
   if (!targetDate && clock) {

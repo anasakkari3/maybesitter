@@ -459,6 +459,23 @@ export function validateExtractionResult(
       }
     }
   }
+  // This month's end in the person's words, and no day at all from the model
+  // — it gave none, or FY1 discarded a later one (closure UAT round 3, FZ1
+  // N6). «أحضّر تقرير آخر الشهر» at 03:40 on Monday kept its title and got
+  // no day: Gemini answered `localTimeSpec: null` (twice, recorded). The
+  // words win for this month's end (controller ruling): the day is this
+  // month's last on the person's clock, the hour is asked, and the day is
+  // marked a guess — it is read from a name for the report, not said as a
+  // date. Only with no time of day and no other day in the words, and never
+  // with an offset or another month (FY1 review, I2).
+  if (
+    !time.localTimeSpec?.date && !time.dueAt && !time.remindAt
+    && monthEndWords && monthLastDay && forbidsResolvedTime(rawText)
+    && !monthEndIsNotTheDay(rawText) && !namesDay(rawText) && !namesExplicitDate(rawText)
+  ) {
+    time = { ...time, localTimeSpec: { date: monthLastDay, time: null, timezone: zone } };
+    dateInferred = true;
+  }
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);
   }
