@@ -822,7 +822,7 @@
   "calendarPermissionDenied": "ל‏MaybeSitter אין גישה ליומן שלך. הטלפון שואל רק פעם אחת, אז צריך להפעיל את זה בהגדרות הטלפון.",
   "calendarPickTitle": "איזה יומן",
   "calendarPickBody": "האירועים ייכנסו לכאן. בחר את זה שאתה רוצה שאחרים יראו, או אחד שרק אתה קורא.",
-  "calendarPickNeeded": "עוד לא נבחר יומן. שום דבר לא יתווסף אליו עד שתבחר אחד.",
+  "calendarPickNeeded": "לא נבחר יומן. שום דבר לא יתווסף אליו עד שתבחר אחד.",
   "calendarNoneWritable": "אין ביומן של הטלפון הזה יומן שאפשר לכתוב אליו.",
   "calendarRemoveBody": "מסיר רק את האירועים ש‏MaybeSitter הוסיף. כל מה שהכנסת ליומן בעצמך נשאר.",
   "calendarRemoveAction": "להסיר את האירועים ש‏MaybeSitter הוסיף",

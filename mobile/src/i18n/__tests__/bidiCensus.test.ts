@@ -34,6 +34,7 @@ const ALLOWED: readonly RegExp[] = [
   /^`\$\{sign\}\$\{major\.toLocaleString\('en-US'\)\}\.\$\{cents\} \$\{currency\}`$/, // an amount
   /^new Date\([^)]*\)\.toISOString\(\)/, // an ISO date or timestamp
   /^String\(conflict\.(providerValue|manualValue)\)$/, // a number from the ledger
+  /^`\$\{length\} \/ \$\{cap\}`$/, // SetupChatStep's answer counter: two numbers, "50 / 150"
 ];
 
 function sourceFiles(dir: string): string[] {
