@@ -282,6 +282,27 @@ function withUnsettledDay(title: string | null, rawText: string): string | null 
   return rawText.slice(Math.min(at, phrase.index), Math.max(titleEnd, phraseEnd));
 }
 
+/**
+ * Any negation left once every day the words rule out or leave open is taken
+ * out: «مش/مو/ما/لا/مب/بلاش/بطّل», "not/never/no/don't/stop", «לא/אל/תפסיק».
+ */
+const ANY_NEGATION = new RegExp(
+  "(?<![\\p{L}\\p{M}])(?:[وف]?(?:مش|مو|ما|لا|مب|بلاش|بطل|بطّل|بلا)|not|never|no|don't|dont|doesn't|stop|won't|can't|ו?לא|אל|אין|תפסיק|תפסיקי)(?![\\p{L}\\p{M}'])",
+  'iu',
+);
+/** A negation in the words, and every one of them is on an unsettled day. */
+function negationIsOnlyTheDays(rawText: string): boolean {
+  let rest = rawText;
+  let found = false;
+  for (let guard = 0; guard < 8; guard += 1) {
+    const phrase = unsettledRelativeDayPhrase(rest);
+    if (!phrase) break;
+    found = true;
+    rest = `${rest.slice(0, phrase.index)} ${rest.slice(phrase.index + phrase.text.length)}`;
+  }
+  return found && !ANY_NEGATION.test(rest);
+}
+
 export function reconcileLocalTimeSpec(
   parsed: { dueAt: string | null; remindAt: string | null; localTimeSpec: LocalTimeSpec | null },
   rawText: string,
@@ -385,6 +406,15 @@ export function validateExtractionResult(
     .filter((f): f is AmbiguityFlag => f !== null && VALID_AMBIGUITY_FLAGS.has(f as AmbiguityFlag));
   if (rawTextHasNegatedReminder && !ambiguityFlags.includes('negated_request')) {
     ambiguityFlags.push('negated_request');
+  }
+  // The day's «مش» is not a refusal (closure UAT round 6, shots 577–579):
+  // Gemini flagged «بدي أتصل بسامي بس مش بكرا» `negated_request`, and the
+  // call was declined as «تمام. ما عملنا تذكير.». Where ruling out or
+  // leaving open a day is the words' only negation, the model's flag is
+  // dropped and the item goes on to be asked. A refusal the words carry
+  // themselves (`rawTextHasNegatedReminder`) always stands.
+  if (!rawTextHasNegatedReminder && ambiguityFlags.includes('negated_request') && negationIsOnlyTheDays(rawText)) {
+    ambiguityFlags.splice(ambiguityFlags.indexOf('negated_request'), 1);
   }
 
   const missingFields = (Array.isArray(raw['missingFields']) ? raw['missingFields'] : [])
