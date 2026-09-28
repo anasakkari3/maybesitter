@@ -743,7 +743,8 @@ test('FZ1 round 4: a number that is not the hour — a count, a unit, a date —
 });
 
 test('FZ1 round 4: the number right before the part of the day is the hour, with «ع/على/حوالي/الساعة», "at/about" or "in the" around it', async () => {
-  for (const freeText of ['5 المسا', 'ع 5 المسا', 'على 5 المسا', 'حوالي 5 المسا', 'at 5 in the evening', 'about 5 in the evening', '5 in the evening', '5 בערב', '٥ المسا']) {
+  // The half is the word after the number, not another one elsewhere in the answer.
+  for (const freeText of ['5 المسا', 'ع 5 المسا', 'على 5 المسا', 'حوالي 5 المسا', 'at 5 in the evening', 'about 5 in the evening', '5 in the evening', '5 בערב', '٥ المسا', '5 المسا مش الصبح']) {
     assert.equal(hourOf(await answerTomorrowEmail(freeText)), '17:00', freeText);
   }
 });
