@@ -6,6 +6,7 @@ import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { ClarifySheet } from '../features/capture/ClarifySheet';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
+import { dayKeptWithoutTime } from '../features/capture/noTimeDay';
 import { questionText } from '../features/capture/clarificationCopy';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
@@ -543,8 +544,9 @@ function ItemCard({
     ? item.resolvedDate
     : undefined;
   // An appointment answered "no specific time" (FY1 N4) is *on* its day, not
-  // due by it: «الأحد · بدون وقت», never «لحد الأحد».
-  const onDay = pendingDay ?? (item.allDayEvent ? dueByDay : undefined);
+  // due by it: «الأحد · بدون وقت», never «لحد الأحد». So is one whose hour was
+  // cleared in the edit sheet: the confirm keeps it there (N11).
+  const onDay = pendingDay ?? (item.allDayEvent ? dueByDay : undefined) ?? dayKeptWithoutTime(item, edit);
   const when = editedInstant
     ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(editedInstant, { locale: lang, timeZone: timezone }))}`
     : onDay

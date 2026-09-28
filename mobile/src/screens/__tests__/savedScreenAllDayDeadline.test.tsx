@@ -131,3 +131,28 @@ describe('an appointment answered «بدون وقت محدد» on the saved scre
     expect(when.endsWith(ar.noTimeYet)).toBe(true);
   });
 });
+
+describe('«بدون وقت» chosen in the review edit sheet (UAT round 3, N11)', () => {
+  const TIMED = {
+    proposal: {
+      version: 'v1', proposalId: 'p', status: 'proposed', seeds: [],
+      items: [
+        proposalItem('dentist', { resolvedTime: '2030-10-04T06:00:00.000Z', resolvedDate: DAY, dateEstimated: false, eventOnDay: true }),
+        proposalItem('call', { resolvedTime: '2030-10-04T06:00:00.000Z', resolvedDate: DAY, dateEstimated: false }),
+      ],
+    },
+    persisted: [
+      { itemId: 'dentist', commitmentId: 'c1', title: 'موعد أسنان', resolvedTime: null },
+      { itemId: 'call', commitmentId: 'c2', title: 'أتصل بسامي', resolvedTime: null },
+    ],
+  };
+
+  it('an appointment reads «<day> · بدون وقت»; a task, whose day the server dropped, reads «بدون وقت»', async () => {
+    await renderSaved({ dentist: { localDateTime: '' }, call: { localDateTime: '' } }, TIMED);
+    const dentist = textOf('saved-when-dentist');
+    expect(dentist).toContain(String(Number(DAY.slice(8, 10))));
+    expect(dentist.endsWith(ar.noTimeYet)).toBe(true);
+    expect(dentist.startsWith(ar.reviewDueByDay.split('{day}')[0]!)).toBe(false);
+    expect(textOf('saved-when-call')).toBe(ar.noTimeYet);
+  });
+});
