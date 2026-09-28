@@ -109,8 +109,14 @@ export function dayForAnswer(
   return day && isFuture(day, time, context) ? day : null;
 }
 
-/** The local hour a resolved instant fell on, or null. */
-function resolvedLocalTime(result: ExtractionResult, context: ClarificationContext): string | null {
+/**
+ * The local hour a resolved instant fell on, or null.
+ *
+ * Exported for the typed answer's re-read (UAT round 6, FIX-R6-TYPEDDAY): a
+ * reading that carries only an instant still has an hour on the person's
+ * clock, and the answer to "what time on Sunday?" is that hour on Sunday.
+ */
+export function resolvedLocalTime(result: ExtractionResult, context: ClarificationContext): string | null {
   if (result.localTimeSpec?.time) return result.localTimeSpec.time;
   // An all-day reading's `dueAt` is its midnight, not an hour anybody said (FX3).
   if (result.allDay) return null;
