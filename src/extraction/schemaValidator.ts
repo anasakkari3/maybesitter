@@ -26,13 +26,14 @@ import {
   localTimeSpecFor,
   monthEndIsNotTheDay,
   namesDay,
+  namesTodayOnly,
   readPeriodEndDeadline,
   thisMonthEndWords,
   timeAnchorOf,
   timeOfDayEvidence,
 } from './timeLexicon';
 import { isCommitmentCategory } from '../contracts/v1/categoryContracts';
-import { modelDateIsWeekdayGuess, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
+import { modelDateIsWeekdayGuess, namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate } from './weekdayLexicon';
 import { isFixedAppointment, statedObligation } from './priorityLexicon';
 import { stripCaptureCommand } from './captureCommand';
 
@@ -373,6 +374,28 @@ export function validateExtractionResult(
     if (weekday) {
       time = { ...time, localTimeSpec: { date: weekday.date, time: null, timezone: zone } };
       dateInferred = weekday.inferred;
+    }
+  }
+  // The words say today and no other day, and the model's day is later
+  // (closure UAT round 3, FZ1 N10). At 03:22 on Monday, «اليوم الساعة 2 بالليل
+  // لازم أبعت الإيميل للمدير» came back one run in five as Tuesday 02:00, and
+  // was proposed, settled, as «بكرا · 02:00»: a later reading nobody said,
+  // picked for the person (CL1: never). The words' day wins, with the model's
+  // hour on it; an hour that has gone is then refused as past, and the
+  // boundary asks for a new one, as for any passed hour today.
+  if (context?.now && time.localTimeSpec?.date && namesTodayOnly(rawText) && !readWeekdayReference(rawText) && !namesCalendarDate(rawText)) {
+    const zone = context.timezone || 'UTC';
+    const today = localTimeSpecFor(context.now, zone)?.date ?? null;
+    if (today && time.localTimeSpec.date > today) {
+      const clock = time.localTimeSpec.time;
+      const at = clock ? instantFromLocal(today, clock, zone)?.toISOString() ?? null : null;
+      time = {
+        ...time,
+        dueAt: at && time.dueAt ? at : null,
+        remindAt: at && time.remindAt ? at : null,
+        localTimeSpec: { date: today, time: at ? clock : null, timezone: zone },
+      };
+      dateInferred = false;
     }
   }
   // «قبل آخر الشهر» (FX3): a deadline on the month's last day, all day. Gemini

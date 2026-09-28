@@ -253,6 +253,16 @@ export function namesExplicitDate(rawText: string): boolean {
   return EXPLICIT_DATE.test(text) || TODAY_TOKEN.test(text) || OTHER_RELATIVE_DAY.test(text);
 }
 
+/**
+ * A date the text states other than by a day word or a weekday — a calendar
+ * date, an ordinal day, a count of days or weeks (`namesExplicitDate` without
+ * today and tomorrow; FZ1 N10).
+ */
+export function namesCalendarDate(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  return EXPLICIT_DATE.test(withoutFollowingWeekPhrases(foldDigits(rawText.toLowerCase())));
+}
+
 export interface WeekdayResolution {
   /** `YYYY-MM-DD`, on the user's clock. */
   date: string;

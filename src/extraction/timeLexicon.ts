@@ -491,6 +491,28 @@ export function relativeDaySource(offset: 0 | 1 | 2): string {
  */
 export const RELATIVE_DAY_MENTION_SOURCES: readonly string[] = RELATIVE_DAYS.flatMap(relativeDaySources);
 
+/*
+ * "Tonight" runs past midnight: "tonight at 1", «الليلة الساعة 1» and
+ * «הלילה ב-1» are read as the coming small hours, tomorrow's date, rightly.
+ */
+const TONIGHT = new RegExp(
+  [
+    '\\btonight\\b',
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:الليلة|الليله)\\p{M}*${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}${HE_DAY_PREFIX}הלילה${NOT_LETTER_AFTER}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * The words' only relative day is today — «اليوم», "today", «היום» — and not
+ * "tonight" (closure UAT round 3, FZ1 N10). A weekday or a date named beside
+ * it is the caller's to check.
+ */
+export function namesTodayOnly(rawText: string): boolean {
+  return relativeDayOffset(rawText) === 0 && !TONIGHT.test(rawText);
+}
+
 /**
  * A day, without any time of day. English, Arabic and Hebrew.
  *
