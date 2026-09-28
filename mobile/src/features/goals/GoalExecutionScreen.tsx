@@ -22,6 +22,7 @@ import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { Card, Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import { ProductActions, ProductPage, ProductRow, ProductSection } from '../../ui/product';
 import { currentGoalProgressPeriod } from './progressPeriod';
 
@@ -197,10 +198,12 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
               ? generate.mutate(undefined, { onSuccess: beginReview })
               : regenerate.mutate(canonicalGraph?.generation ?? generation, { onSuccess: beginReview })}
           />
-          {generate.error || regenerate.error ? <View testID="goal-generate-failed" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ gap: 4 }}>
-            <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
-            <Txt role="metadata" color={p.mu}>{userFacingMessage(generate.error ?? regenerate.error, t)}</Txt>
-          </View> : null}
+          <LiveRegion alert testID="goal-generate-live">
+            {generate.error || regenerate.error ? <View testID="goal-generate-failed" style={{ gap: 4 }}>
+              <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
+              <Txt role="metadata" color={p.mu}>{userFacingMessage(generate.error ?? regenerate.error, t)}</Txt>
+            </View> : null}
+          </LiveRegion>
         </ProductSection> : <ProposalReview
           graph={reviewGraph}
           proposals={proposals}
@@ -306,10 +309,12 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
     })}
     {checkpoints.length > 0 ? <Card style={{ gap: 8 }}><Txt role="label">{t.xCheckpoints}</Txt>{checkpoints.map(node => <ProductRow key={node.nodeId} title={isolateAuto(node.title)} icon="goal" />)}</Card> : null}
     {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
-    {regenerateError ? <View testID="goal-generate-failed" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ gap: 4 }}>
-      <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
-      <Txt role="metadata" color={p.mu}>{userFacingMessage(regenerateError, t)}</Txt>
-    </View> : null}
+    <LiveRegion alert testID="goal-generate-live">
+      {regenerateError ? <View testID="goal-generate-failed" style={{ gap: 4 }}>
+        <Txt role="supporting" color={p.wm}>{t.xGoalGenerateFailed}</Txt>
+        <Txt role="metadata" color={p.mu}>{userFacingMessage(regenerateError, t)}</Txt>
+      </View> : null}
+    </LiveRegion>
     <ProductActions>
       <Pill testID="goal-confirm-selected" label={t.xGoalConfirmSelected} disabled={busy || Object.keys(selections).length === 0} onPress={onConfirm} />
       <Pill testID="goal-review-regenerate" label={t.xGoalSuggestOthers} kind="outline" disabled={busy} onPress={onRegenerate} />

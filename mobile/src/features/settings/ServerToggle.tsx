@@ -4,6 +4,7 @@ import { useApp } from '../../state/AppContext';
 import { Txt } from '../../ui/primitives';
 import { useLayoutMode } from '../../theme/textScale';
 import { useAnnounceOnIos } from '../../ui/announce';
+import { LiveRegion } from '../../ui/liveRegion';
 import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 
 /**
@@ -101,11 +102,10 @@ export function ServerToggle({
       {blocked ? (
         <Txt size={13} color={p.wm} weight={600} testID={`${testID ?? 'toggle'}-blocked`}>{blocked}</Txt>
       ) : null}
-      {failed ? (
-        <View accessibilityLiveRegion="polite" testID={`${testID ?? 'toggle'}-failed-live`}>
-          <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t[failed]}</Txt>
-        </View>
-      ) : null}
+      {/* Mounted before anything fails, so TalkBack hears the line arrive (review I1). */}
+      <LiveRegion testID={`${testID ?? 'toggle'}-failed-live`}>
+        {failed ? <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t[failed]}</Txt> : null}
+      </LiveRegion>
     </View>
   );
 }

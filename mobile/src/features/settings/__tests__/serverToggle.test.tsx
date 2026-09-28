@@ -112,6 +112,17 @@ describe('which failure it says (UAT round 3, N9)', () => {
  * VoiceOver is told the line itself.
  */
 describe('a failure is announced', () => {
+  /*
+   * POLISH-MOBILE review I1: a region mounted together with its line is not
+   * heard by TalkBack. The region is there before anything fails; only its
+   * line comes and goes.
+   */
+  it('has its live region mounted before anything fails', async () => {
+    await show();
+    expect(screen.queryByTestId('toggle-failed')).toBeNull();
+    expect(screen.getByTestId('toggle-failed-live').props.accessibilityLiveRegion).toBe('polite');
+  });
+
   it('sits in a live region, and VoiceOver is told the line once it appears', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
     announce.mockClear();

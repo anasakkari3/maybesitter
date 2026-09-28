@@ -40,14 +40,16 @@ export function ToastHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toast?.id]);
 
-  if (!toast) return null;
+  // The host stays mounted with nothing in it: its live region has to exist
+  // before a toast arrives, or TalkBack is not told (review I1).
   return (
     <Animated.View
+      testID="toast-live"
       pointerEvents="box-none"
       accessibilityLiveRegion="polite"
       style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 84, zIndex: 35, alignItems: 'center', opacity }}
     >
-      <Btn
+      {toast ? <Btn
         testID="toast"
         label={toast.undo ? `${toast.text}. ${t.undo}` : toast.text}
         onPress={() => { if (toast.undo) toast.undo(); actions.dismissToast(toast.id); }}
@@ -60,7 +62,7 @@ export function ToastHost() {
           <UndoRing left={left} track="rgba(255,255,255,0.25)" color={p.acOnInk} />
           <Txt size={10} weight={600} color={p.onInk} align="center" lh={1.2} latin>{String(left)}</Txt>
         </View>
-      </Btn>
+      </Btn> : null}
     </Animated.View>
   );
 }

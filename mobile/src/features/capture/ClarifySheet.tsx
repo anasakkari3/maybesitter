@@ -3,6 +3,7 @@ import { TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import { CLARIFICATION_FREE_TEXT_MAX, optionLabel, questionText } from './clarificationCopy';
 import { CIVIL_ZONE, civilDate, formatDate } from '../../i18n/format';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
@@ -116,11 +117,9 @@ export function ClarifySheet({
         </View>
       ) : null}
 
-      {error ? (
-        <View accessibilityLiveRegion="polite">
-          <Txt role="supporting" color={p.wm} testID="clarify-error">{error}</Txt>
-        </View>
-      ) : null}
+      <LiveRegion>
+        {error ? <Txt role="supporting" color={p.wm} testID="clarify-error">{error}</Txt> : null}
+      </LiveRegion>
 
       {/* Skipping is an answer too. Where the question offers "no specific
           time", the review screen sends that answer and the item is saved
