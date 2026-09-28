@@ -14,9 +14,21 @@
  *   stored, because the message test is read from them;
  * - a phone number is stored **only** with `whatsappOptIn: true`, and that
  *   opt-in means "you may contact me about the test on WhatsApp", nothing more;
- * - there is no `/events` route and no page-view counting. The site has no
- *   analytics; the message test's denominator is the link taps each platform
- *   reports.
+ * - there is no page-view counting. The site has no analytics; the message
+ *   test's denominator is the link taps each platform reports.
+ *
+ * **The legacy shape.** Until main's `site/` is on Hosting, the page people
+ * load at maybesitter.com is still the stranded launch page. It posts
+ * `{name, email, device, phone, website, source}` with no `v`, and pings
+ * `/api/early-access/events`. So that a production deploy of main does not
+ * break that page, a body with *none* of the current-only fields
+ * (`LEGACY_DISCRIMINATOR_FIELDS`) is read as the legacy shape
+ * (`validateLegacyEarlyAccess`) and stored with `v: 'legacy'`. It stores only
+ * what the current privacy policy lists: no `name` (the policy says we do
+ * not ask for one) and no `phone` (the policy stores a number only with the
+ * WhatsApp opt-in, which the legacy page never asked for, so it is dropped
+ * rather than turned into a consent nobody gave). `/events` is answered 204
+ * and counts nothing (`handleEarlyAccessEvent`).
  *
  * Nothing in the stored record comes from the request's transport: no IP,
  * user-agent, cookie or visitor identifier is ever read into it.
@@ -46,18 +58,34 @@ export type EarlyAccessLanguage = (typeof LANGUAGES)[number];
 export type EarlyAccessKnowsFounder = (typeof KNOWS_FOUNDER)[number];
 export type EarlyAccessArm = (typeof ARMS)[number];
 
+/**
+ * The `v` stored for a sign-up from the stranded launch page. It is never
+ * accepted from a request: a body that sends any `v` is the current shape.
+ */
+export const LEGACY_ARM = 'legacy';
+/** The legacy page is English-only (`<html lang="en">`); this is the page it was, not a preference it asked for. */
+export const LEGACY_PAGE_LANGUAGE: EarlyAccessLanguage = 'en';
+/**
+ * Fields only the current site sends. A body carrying any of them is held to
+ * the current contract, so a current-site bug that drops `v` is a 422, not a
+ * quiet legacy row, and nobody can smuggle `whatsappOptIn` + `phone` through
+ * the legacy path.
+ */
+export const LEGACY_DISCRIMINATOR_FIELDS = ['v', 'language', 'pageLanguage', 'knowsFounder', 'whatsappOptIn'] as const;
+
 /** Exactly what is stored, and nothing else. `site/SIGNUP_CONTRACT.md` and the privacy policy promise this list. */
 export interface EarlyAccessRegistration {
   email: string;
   device: EarlyAccessDevice;
   language: EarlyAccessLanguage;
   pageLanguage: EarlyAccessLanguage;
-  knowsFounder: EarlyAccessKnowsFounder;
+  /** `null` only on a legacy sign-up: that page never asked. */
+  knowsFounder: EarlyAccessKnowsFounder | null;
   whatsappOptIn: boolean;
   /** `null` unless `whatsappOptIn` is true. A number is never marketing consent. */
   phone: string | null;
   source: string;
-  v: EarlyAccessArm;
+  v: EarlyAccessArm | typeof LEGACY_ARM;
   registeredAt: string;
 }
 
@@ -169,6 +197,51 @@ export function validateEarlyAccess(body: Record<string, unknown>): Validation {
   };
 }
 
+/** True when the body is the stranded launch page's: none of the current-only fields is present. */
+export function isLegacyShape(body: Record<string, unknown>): boolean {
+  return LEGACY_DISCRIMINATOR_FIELDS.every((key) => body[key] === undefined);
+}
+
+/**
+ * The stranded launch page's body, mapped onto the current record. `name` and
+ * `phone` are read by nothing here, so neither can reach the store; the
+ * record claims no consent (`whatsappOptIn: false`) and no founder answer
+ * (`knowsFounder: null`) that the page never asked for.
+ */
+export function validateLegacyEarlyAccess(body: Record<string, unknown>): Validation {
+  const fields: EarlyAccessField[] = [];
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (!email || email.length > 254 || CONTROL.test(email) || !EMAIL.test(email)) fields.push('email');
+  if (!oneOf(DEVICES, body.device)) fields.push('device');
+  if (fields.length) return { ok: false, fields };
+  return {
+    ok: true,
+    value: {
+      email,
+      device: body.device as EarlyAccessDevice,
+      language: LEGACY_PAGE_LANGUAGE,
+      pageLanguage: LEGACY_PAGE_LANGUAGE,
+      knowsFounder: null,
+      whatsappOptIn: false,
+      phone: null,
+      source: sourceOf(body.source),
+      v: LEGACY_ARM,
+    },
+  };
+}
+
+/**
+ * The legacy page prints `error` to the visitor and reads `fields` as
+ * `{field: message}`, so its answers carry the stranded endpoint's own words.
+ */
+const LEGACY_MESSAGES = {
+  invalid_fields: 'Please check the highlighted fields.',
+  email: 'Please enter a valid email address.',
+  device: 'Please choose iPhone or Android.',
+  rate_limited: 'Registration is busy right now. Please try again in a little while.',
+  unavailable: 'We couldn’t save your place just now. Your details are still here—please try again.',
+} as const;
+
 const respond = (body: unknown, status: number, extra: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', ...extra } });
 
@@ -224,20 +297,40 @@ export async function handleEarlyAccess(request: Request, options: EarlyAccessOp
   // A bot filled the field people never see. Answer as if it worked, and touch nothing.
   if (fields.website !== undefined && fields.website !== '') return respond({ ok: true }, 200);
 
-  const validation = validateEarlyAccess(fields);
-  if (!validation.ok) return respond({ error: 'invalid_fields', fields: validation.fields }, 422);
+  const legacy = isLegacyShape(fields);
+  const validation = legacy ? validateLegacyEarlyAccess(fields) : validateEarlyAccess(fields);
+  if (!validation.ok) {
+    if (!legacy) return respond({ error: 'invalid_fields', fields: validation.fields }, 422);
+    const messages = Object.fromEntries(validation.fields.map((field) => [field, LEGACY_MESSAGES[field as 'email' | 'device']]));
+    return respond({ error: LEGACY_MESSAGES.invalid_fields, fields: messages }, 422);
+  }
 
   try {
     const store = (options.storeFactory ?? productionEarlyAccessStore)();
     const now = (options.now ?? Date.now)();
     if (!(await store.allow(now, options.hourlyLimit ?? EARLY_ACCESS_HOURLY_LIMIT))) {
-      return respond({ error: 'rate_limited' }, 429, { 'Retry-After': '3600' });
+      return respond({ error: legacy ? LEGACY_MESSAGES.rate_limited : 'rate_limited' }, 429, { 'Retry-After': '3600' });
     }
     // First registration wins, and the answer is the same either way, so the
     // endpoint never reveals whether an email is already on the list.
     await store.register({ ...validation.value, registeredAt: new Date(now).toISOString() });
     return respond({ ok: true }, 200);
   } catch {
-    return respond({ error: 'unavailable' }, 503, { 'Retry-After': '30' });
+    return respond({ error: legacy ? LEGACY_MESSAGES.unavailable : 'unavailable' }, 503, { 'Retry-After': '30' });
   }
+}
+
+/**
+ * `POST /api/early-access/events`: the stranded launch page's page-view ping
+ * (`{event, source}`, fire-and-forget). Main keeps no page-view counts — the
+ * privacy policy says the site counts nothing — so this is a 204 that reads
+ * no body and touches no store. It exists only so the page that is still live
+ * gets an answer instead of a 404 after main reaches production, and it keeps
+ * the sign-up's origin check so it is no more open than the form.
+ */
+export async function handleEarlyAccessEvent(request: Request, options: Pick<EarlyAccessOptions, 'env'> = {}): Promise<Response> {
+  const env = options.env ?? process.env;
+  if (request.method !== 'POST') return respond({ error: 'method_not_allowed' }, 405, { Allow: 'POST' });
+  if (!originAllowed(request, env)) return respond({ error: 'forbidden_origin' }, 403);
+  return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 }

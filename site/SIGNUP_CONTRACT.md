@@ -69,6 +69,37 @@ site and the endpoint one origin).
    and by `knowsFounder = "no"`. The denominators are the link taps each platform reports.
    The site never counts visitors.
 
+## Legacy shape: the stranded launch page (until main's `site/` is on Hosting)
+
+Production Hosting still serves the stranded launch page (`ba7f74f0`), which posts
+`{name, email, device, phone, website, source}` (all strings, no `v`) and pings
+`POST /api/early-access/events` with `{event, source}`. So a production deploy of main
+does not break it, `lib/earlyAccess/service.ts` accepts that body as a **versioned legacy
+shape**:
+
+- **Detection.** A body with none of `v`, `language`, `pageLanguage`, `knowsFounder`,
+  `whatsappOptIn` is legacy. Any one of them present means the current contract above,
+  so a current-site bug that drops `v` is a 422, and an opt-in cannot be smuggled in
+  through the legacy path.
+- **Stored.** `email`, `device`, `source`, the date, `language: "en"` and
+  `pageLanguage: "en"` (that page is English-only), `knowsFounder: null` (never asked),
+  `whatsappOptIn: false`, `phone: null`, `v: "legacy"`. A strict subset of the list the
+  privacy policy promises.
+- **Dropped.** `name`, because the policy says we do not ask for one. `phone`, because
+  the policy keeps a number only with the WhatsApp opt-in, the legacy page never asked
+  for it, and treating a typed number as that consent would invent it.
+- **Honeypot.** `website` is the same hidden field on both pages and is handled
+  identically: non-empty → 200 `{ok:true}`, nothing written, not even the rate window.
+- **Answers.** 200 `{ok:true}` as before. On 422, 429 and 503 the legacy page prints
+  `error` and reads `fields` as `{field: message}`, so those answers carry the stranded
+  endpoint's own English messages. Origin, media-type, size and JSON checks are shared
+  and answer with the current codes.
+- **`/events`.** `POST` only, same origin check, **204 with no body read and nothing
+  stored**. The current site sends no page views and main keeps no page-view store.
+
+Remove the legacy shape and the `/events` route once main's `site/` has been on Hosting
+long enough that no cached copy of the old page is still posting.
+
 ## Owner
 
 `OWNER_UNRESOLVED` → backend. Porting the stranded service is the smallest path, with
