@@ -198,7 +198,12 @@ function Ready({
   const timezone = useTimeZone();
   const step = recommendation.primaryStep!;
   const [draft, setDraft] = useState(step.title);
-  const phrases = evidencePhrases(recommendation.explanation?.evidenceCodes ?? [], strings, translateCount);
+  // An all-day item is late only once its day is over, by the phone's own
+  // rule (`isPast`): «الوقت راح» on today's all-day appointment at 10:05 was
+  // the server reading its midnight as a deadline (final UAT, N18).
+  const evidence = (recommendation.explanation?.evidenceCodes ?? [])
+    .filter((e) => !(e.code === 'overdue' && item?.allDay === true && !item.isPast));
+  const phrases = evidencePhrases(evidence, strings, translateCount);
   // The server's list, in the server's order, filtered to what this build can
   // render — never a fixed row with the rest greyed out.
   const actionsOffered = DECISIONS.filter((decision) => recommendation.availableActions?.includes(decision));

@@ -1448,7 +1448,7 @@
   "financialFreeBuffer": "Left over",
   "financialFixedMonthly": "Fixed each month",
   "financialNextIncome": "Next income",
-  "financialAsOf": "As of",
+  "financialAsOf": "Last updated: {when}",
   "financialBandComfortable": "There is room.",
   "financialBandTight": "It's tight until your next income.",
   "financialBandNegative": "More is due than you have.",

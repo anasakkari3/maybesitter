@@ -1448,7 +1448,7 @@
   "financialFreeBuffer": "الباقي",
   "financialFixedMonthly": "ثابت كل شهر",
   "financialNextIncome": "الدخل الجاي",
-  "financialAsOf": "بتاريخ",
+  "financialAsOf": "آخر تحديث: {when}",
   "financialBandComfortable": "في مجال.",
   "financialBandTight": "ضيّقة لحد دخلك الجاي.",
   "financialBandNegative": "المستحق أكتر من اللي معك.",
