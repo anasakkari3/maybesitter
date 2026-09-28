@@ -450,7 +450,7 @@
   "notifCeilingFollowUp": "Gentle + follow-up",
   "notifCeilingHard": "Ring for Must items",
   "notifHardExplainTitle": "Ring for Must items?",
-  "notifHardExplainBody": "Only commitments you marked Must. Your phone rings 10 minutes before they start, even if the app is closed. You can turn it off here any time.",
+  "notifHardExplainBody": "Only commitments you marked Must that have a time. Your phone rings 10 minutes before they start, even if the app is closed. You can turn it off here any time.",
   "notifHardExplainConfirm": "Turn it on",
   "notifHardExplainCancel": "Not now",
   "notifMustQuiet": "Let Must reminders through quiet hours",

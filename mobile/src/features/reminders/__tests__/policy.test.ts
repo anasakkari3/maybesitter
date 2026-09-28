@@ -14,6 +14,9 @@ import {
   type ReminderPriority,
   type ReminderSettings,
 } from '../policy';
+import ar from '../../../i18n/locales/ar.json';
+import en from '../../../i18n/locales/en.json';
+import he from '../../../i18n/locales/he.json';
 
 /**
  * The stage ladder (UC-3.11, #196).
@@ -124,6 +127,19 @@ describe('the Must stage', () => {
   it('never rings for an all-day commitment, whose start is a midnight nobody chose', () => {
     const ring = settings({ escalationCeiling: 'hard', hardEnabled: true });
     expect(planFor(commitment({ allDay: true }), ring).map(stage => stage.stage)).toEqual(['soft', 'followUp']);
+  });
+
+  /*
+   * FY1 review M2, decided: an all-day «لازم» (a doctor on Sunday, no hour)
+   * keeps no Must ring — the contract above and the server's `hardFireAtFor`
+   * agree, and a ring at an hour nobody chose is the thing the rule forbids.
+   * So the words that turn the ring on may not promise it for every Must
+   * item: they say it is for Must items that have a time.
+   */
+  it('is promised in the settings only for Must items that have a time', () => {
+    expect(en.notifHardExplainBody).toMatch(/Must that have a time\./);
+    expect(ar.notifHardExplainBody).toMatch(/ضرورية وإلها وقت\./);
+    expect(he.notifHardExplainBody).toMatch(/כחובה ויש להן שעה\./);
   });
 
   it('stays silent when the survey says none, even with the opt-in', () => {

@@ -226,4 +226,23 @@ describe('an all-day commitment', () => {
     expect(clockOf(toViewModel(commitment({ id: 'timed' }), NOW), opts)).toContain('15:00');
     expect(clockOf({ shownAt: null }, opts)).toBeNull();
   });
+
+  /*
+   * FY1 review M2: an all-day appointment on its own day read `isPast` from
+   * 00:00, because its stored instant is that day's local midnight. It is
+   * today's until the day ends — in the zone the day was named in.
+   */
+  it('is not past on its own day, and is past once that day has ended in its zone', () => {
+    const sunday = commitment({
+      id: 'doctor',
+      priority: { level: 'high', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-26T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' },
+    } as Partial<Commitment> & { id: string });
+    // Sunday 27 Sep in Jerusalem: 00:30, noon, 23:59.
+    expect(toViewModel(sunday, '2026-09-26T21:30:00.000Z').isPast).toBe(false);
+    expect(toViewModel(sunday, '2026-09-27T09:00:00.000Z').isPast).toBe(false);
+    expect(toViewModel(sunday, '2026-09-27T20:59:00.000Z').isPast).toBe(false);
+    // Monday 00:00 in Jerusalem: Sunday is over.
+    expect(toViewModel(sunday, '2026-09-27T21:00:00.000Z').isPast).toBe(true);
+  });
 });

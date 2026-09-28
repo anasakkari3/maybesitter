@@ -453,7 +453,7 @@
   "notifCeilingFollowUp": "עדין + מעקב",
   "notifCeilingHard": "לצלצל לדברי חובה",
   "notifHardExplainTitle": "לצלצל לדברי חובה?",
-  "notifHardExplainBody": "רק מחויבויות שסימנת כחובה. הטלפון מצלצל 10 דקות לפני שהן מתחילות, גם כשהאפליקציה סגורה. אפשר לכבות את זה כאן בכל זמן.",
+  "notifHardExplainBody": "רק מחויבויות שסימנת כחובה ויש להן שעה. הטלפון מצלצל 10 דקות לפני שהן מתחילות, גם כשהאפליקציה סגורה. אפשר לכבות את זה כאן בכל זמן.",
   "notifHardExplainConfirm": "להפעיל",
   "notifHardExplainCancel": "לא עכשיו",
   "notifMustQuiet": "לתת לתזכורות חובה לעבור בשעות שקט",
