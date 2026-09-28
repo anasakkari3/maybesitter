@@ -585,6 +585,16 @@ const OTHER_DAY_THAN_TODAY = new RegExp(
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:العيد|عيد|الأعياد|الاعياد)${NOT_LETTER_AFTER}`,
     '\\bholidays?\\b',
     `${NOT_LETTER_BEFORE}[בל]?(?:אחרי\\s+)?ה?(?:חג|חגים)${NOT_LETTER_AFTER}`,
+    // The day after (FZ1 review, N-M1): "the next day", «تاني يوم», «למחרת»
+    '\\b(?:the\\s+)?(?:next|following)\\s+day\\b|\\bthe\\s+day\\s+after\\b',
+    `${NOT_LETTER_BEFORE}(?:تاني|ثاني|تانى|ثانى)\\s+(?:يوم|نهار)${NOT_LETTER_AFTER}|${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:اليوم|النهار)\\s+(?:التاني|الثاني|التالي|اللي\\s+بعده)${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}למחרת${NOT_LETTER_AFTER}`,
+    // The night's end, and its midnight, run past today's date (N-M1): «آخر
+    // الليل», «نص الليل», «الساعة 12 بالليل», "midnight", «חצות»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:آخر|اخر|نص|نصف|منتصف)\\s+(?:ال)?ليل${NOT_LETTER_AFTER}`,
+    `(?:الساعة|الساعه|${NOT_LETTER_BEFORE})\\s*(?:12|١٢)\\s*(?:بالليل|الليل|بليل)${NOT_LETTER_AFTER}`,
+    '\\bmidnight\\b|\\b12\\s*(?:at\\s+night|tonight|midnight)\\b',
+    `${NOT_LETTER_BEFORE}[בל]?חצות${NOT_LETTER_AFTER}|(?:בשעה|ב-?)\\s*12\\s+בלילה${NOT_LETTER_AFTER}`,
   ].join('|'),
   'iu',
 );
