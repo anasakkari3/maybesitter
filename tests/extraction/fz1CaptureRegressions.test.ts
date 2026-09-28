@@ -179,7 +179,7 @@ test('FZ1 N10: a typed answer to "what time?" with no time of day and no day tak
   // Scripted re-reads: what a model could make of words that give no hour —
   // «بعد ساعة» as 04:22, «بعد شوي» as 05:00, "later" as tonight. None is an
   // hour the person typed; the question stays.
-  for (const [freeText, date, time] of [['بعد ساعة', '2026-09-28', '04:22'], ['بعد شوي', '2026-09-28', '05:00'], ['later', '2026-09-28', '20:00'], ['אחר כך', '2026-09-28', '09:00']] as const) {
+  for (const [freeText, date, time] of [['بعد ساعة', '2026-09-28', '04:22'], ['بعد شوي', '2026-09-28', '05:00'], ['later', '2026-09-28', '20:00'], ['אחר כך', '2026-09-28', '09:00'], ['هلأ', '2026-09-28', '03:22'], ['now', '2026-09-28', '03:23']] as const) {
     const result = await answerN10OnModel(freeText, modelAnswer(date, time));
     assert.deepEqual({ refused: result.refused, after: result.after }, { refused: 'answer_not_understood', after: ['أبعت الإيميل للمدير | 2026-09-28 19:00 | settled'] }, freeText);
   }

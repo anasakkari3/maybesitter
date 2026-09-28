@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
@@ -14,7 +14,7 @@ import {
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { answeredDayPartTime, dayForAnswer } from './clarificationBuilder';
-import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
+import { namesCalendarDate, namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 
@@ -310,6 +310,16 @@ async function readFreeTextAnswer(
   // «الساعة 4» typed alone: the unlikely morning or a guess (FY1 re-review);
   // not understood, and the صبح/مسا buttons are still there.
   if (TIME_FIELDS.has(question.field) && isBareEarlyHourAnswer(freeText)) throw new ClarifyError('answer_not_understood');
+  // "What time?" answered with no time of day and no day — «بعد ساعة»,
+  // "later", «אחר כך». Whatever hour a re-read finds is not one the person
+  // typed: the sentence's own passed hour, or the engine's guess (closure UAT
+  // round 3, FZ1 N10: Gemini re-read «اليوم الساعة 2 بالليل…» + «بعد ساعة» at
+  // 03:22 as Tuesday 02:00, applied as «بكرا · 02:00»). Not understood; the
+  // buttons stay. A named day alone («بكرا») keeps the person's own hour on
+  // it (FY1 I4), and the am/pm question's «ص»/"pm" is its own field.
+  if (question.field === 'time' && forbidsResolvedTime(freeText) && !namesDay(freeText) && !namesCalendarDate(freeText)) {
+    throw new ClarifyError('answer_not_understood');
+  }
   const original = replacesTime ? withoutTimeOfDay(result.rawText ?? '') : result.rawText ?? '';
   const combined = `${original}\n${freeText}`.trim();
   let extracted: Awaited<ReturnType<typeof extractor>>;
