@@ -24,6 +24,7 @@ import {
   instantFromLocal,
   lastDayOfMonth,
   localTimeSpecFor,
+  monthEndDay,
   monthEndIsNotTheDay,
   namesDay,
   namesTodayOnly,
@@ -434,11 +435,17 @@ export function validateExtractionResult(
     dateInferred = false;
   }
   const modelDay = time.localTimeSpec?.date ?? null;
+  // The day the words' month end means on the person's clock, counted back or
+  // on when they carry an offset (FZ1 round 2): «قبل آخر الشهر بأسبوع» is the
+  // 23rd, not the 30th FX3 settled. A model 30th under such an offset is the
+  // month's end the words moved away from, and gives way to it.
+  const wordsDay = context?.now ? monthEndDay(rawText, context.now, zone) : null;
+  const deadlineDay = wordsDay && wordsDay.side !== 'after' ? wordsDay.date : null;
   if (
-    monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
-    && (modelDay === null || modelDay === monthLastDay)
+    deadlineDay && monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
+    && (modelDay === null || modelDay === monthLastDay || modelDay === deadlineDay)
   ) {
-    const date = monthLastDay;
+    const date = deadlineDay;
     const midnight = instantFromLocal(date, '00:00', zone);
     if (midnight) {
       allDay = true;
@@ -468,13 +475,15 @@ export function validateExtractionResult(
   // marked a guess — it is read from a name for the report, not said as a
   // date. Only with no time of day and no other day in the words, and never
   // with an offset or another month (FY1 review, I2).
+  // A counted offset after it («بعد آخر الشهر بيومين») is the day counted
+  // to, said rather than guessed, with or without an hour (FZ1 round 2).
   if (
     !time.localTimeSpec?.date && !time.dueAt && !time.remindAt
-    && monthEndWords && monthLastDay && forbidsResolvedTime(rawText)
-    && !monthEndIsNotTheDay(rawText) && !namesDay(rawText) && !namesExplicitDate(rawText)
+    && wordsDay && (wordsDay.side !== 'end' || forbidsResolvedTime(rawText))
+    && !namesDay(rawText) && !namesExplicitDate(rawText)
   ) {
-    time = { ...time, localTimeSpec: { date: monthLastDay, time: null, timezone: zone } };
-    dateInferred = true;
+    time = { ...time, localTimeSpec: { date: wordsDay.date, time: null, timezone: zone } };
+    dateInferred = wordsDay.side === 'end';
   }
   for (const flag of time.flags) {
     if (!ambiguityFlags.includes(flag)) ambiguityFlags.push(flag);

@@ -879,7 +879,106 @@ const MONTH_END_NOT_THE_DAY = new RegExp(
  * so the day it means is not this month's last (FY1 review, I2).
  */
 export function monthEndIsNotTheDay(rawText: string): boolean {
-  return typeof rawText === 'string' && MONTH_END_NOT_THE_DAY.test(rawText);
+  // A counted offset in words («بتلات أيام», "three days") too (FZ1 round 2).
+  return typeof rawText === 'string' && (MONTH_END_NOT_THE_DAY.test(rawText) || MONTH_END_OFFSET.test(rawText));
+}
+
+/*
+ * A counted offset on this month's end (closure UAT round 3, FZ1 round 2):
+ * «قبل آخر الشهر بأسبوع», «أسبوع قبل آخر الشهر», «بعد آخر الشهر بيومين»,
+ * "two days before the end of the month", «שבוע לפני סוף החודש». FX3 read
+ * the limit word and settled all of these on the month's last day — a later
+ * deadline than the person said. The count is read here, on the person's
+ * clock; an offset with no count («بعد آخر الشهر», "after the end of the
+ * month") is left uncounted, and gets no day.
+ */
+const AR_COUNT: ReadonlyArray<[string, number]> = [
+  ['تلاتة|ثلاثة|تلات|ثلاث|تلت', 3], ['أربعة|اربعة|أربع|اربع', 4], ['خمسة|خمس', 5], ['ستة|ست', 6],
+  ['سبعة|سبع', 7], ['تمانية|ثمانية|تمن|ثمان', 8], ['تسعة|تسع', 9], ['عشرة|عشر', 10],
+];
+const EN_COUNT: ReadonlyArray<[string, number]> = [
+  ['a\\s+couple\\s+of|couple\\s+of', 2], ['an|a|one', 1], ['two', 2], ['three', 3], ['four', 4], ['five', 5],
+  ['six', 6], ['seven', 7], ['eight', 8], ['nine', 9], ['ten', 10],
+];
+const HE_COUNT: ReadonlyArray<[string, number]> = [
+  ['שלושה|שלוש', 3], ['ארבעה|ארבע', 4], ['חמישה|חמש', 5], ['שישה|שש', 6], ['שבעה|שבע', 7], ['עשרה|עשר', 10],
+];
+const countSource = (counts: ReadonlyArray<[string, number]>) => `\\d{1,2}|${counts.map(([words]) => words).join('|')}`;
+/** Days per unit, and whether the unit needs a count («أيام», "days", «ימים»). */
+const OFFSET_UNITS: ReadonlyArray<{ words: string; days: number; counted: boolean }> = [
+  { words: 'أسبوعين|اسبوعين|جمعتين|שבועיים', days: 14, counted: false },
+  { words: 'أسابيع|اسابيع|weeks|שבועות', days: 7, counted: true },
+  { words: 'أسبوع|اسبوع|جمعة|week|שבוע', days: 7, counted: false },
+  { words: 'يومين|יומיים', days: 2, counted: false },
+  { words: 'أيام|ايام|days|ימים', days: 1, counted: true },
+  { words: 'يوم|day|יום', days: 1, counted: false },
+];
+const UNIT_SOURCE = OFFSET_UNITS.map((unit) => unit.words).join('|');
+const MONTH_END_OFFSET = new RegExp(
+  [
+    // «قبل آخر الشهر بأسبوع», «بعد آخر الشهر بتلات أيام»
+    `${NOT_LETTER_BEFORE}[وف]?(قبل|بعد)\\s+${AR_END}\\s+${AR_MONTH_WORD}\\s+(?:ب|بـ\\s*)(?:(${countSource(AR_COUNT)})\\s*)?(${UNIT_SOURCE})${NOT_LETTER_AFTER}`,
+    // «أسبوع قبل آخر الشهر», «بيومين بعد آخر الشهر»
+    `${NOT_LETTER_BEFORE}[وف]?ب?(?:(${countSource(AR_COUNT)})\\s*)?(${UNIT_SOURCE})\\s+(قبل|بعد)\\s+${AR_END}\\s+${AR_MONTH_WORD}${NOT_LETTER_AFTER}${AR_NOT_ANOTHER_MONTH}`,
+    // "two days before the end of the month", "a week after month end"
+    `\\b(${countSource(EN_COUNT)})\\s+(${UNIT_SOURCE})\\s+(before|after)\\s+(?:the\\s+)?(?:end\\s+of\\s+(?:the\\s+|this\\s+)?month|month[\\s-]end)\\b${EN_NOT_ANOTHER_MONTH}`,
+    // «שבוע לפני סוף החודש», «שלושה ימים אחרי סוף החודש»
+    `${NOT_LETTER_BEFORE}(?:(${countSource(HE_COUNT)})\\s+)?(${UNIT_SOURCE})\\s+(לפני|אחרי)\\s+ה?סוף\\s+ה?חודש${NOT_LETTER_AFTER}${HE_NOT_ANOTHER_MONTH}`,
+  ].join('|'),
+  'iu',
+);
+
+/** The whole offset phrases, for a title that used them as its deadline to lose them. */
+export const MONTH_END_OFFSET_SOURCE: string = MONTH_END_OFFSET.source;
+
+function countOf(word: string | undefined): number | null {
+  if (word === undefined) return null;
+  if (/^\d+$/.test(word)) return Number(word);
+  for (const [words, value] of [...AR_COUNT, ...EN_COUNT, ...HE_COUNT]) {
+    if (new RegExp(`^(?:${words})$`, 'iu').test(word.trim())) return value;
+  }
+  return null;
+}
+
+/** Signed days from the month's end, or null when the text counts none. */
+function monthEndOffsetDays(rawText: string): number | null {
+  const match = MONTH_END_OFFSET.exec(rawText);
+  if (!match) return null;
+  // Each alternative captures (direction, count, unit) in its own order.
+  const groups: Array<[string | undefined, string | undefined, string | undefined]> = [
+    [match[1], match[2], match[3]],
+    [match[6], match[4], match[5]],
+    [match[9], match[7], match[8]],
+    [match[12], match[10], match[11]],
+  ];
+  const found = groups.find(([direction, , unitWord]) => direction && unitWord);
+  if (!found) return null;
+  const [direction, countWord, unitWord] = found;
+  const unit = OFFSET_UNITS.find((candidate) => new RegExp(`^(?:${candidate.words})$`, 'iu').test(unitWord!.trim()));
+  if (!unit) return null;
+  const count = countOf(countWord);
+  if (unit.counted && count === null) return null;
+  const days = (count ?? 1) * unit.days;
+  if (!Number.isFinite(days) || days < 1 || days > 60) return null;
+  return /^(?:قبل|before|לפני)$/iu.test(direction!) ? -days : days;
+}
+
+/**
+ * The day this month's end in the person's words means, on their clock:
+ * the month's last day (`end`), or that day counted back or on (`before`,
+ * `after`). Null when the text names no end of this month, or puts on it an
+ * offset it does not count or another month («סוף חודש אוקטובר») — no day
+ * of ours, the hour asked (FY1 review, I2).
+ */
+export function monthEndDay(rawText: string, now: Date, timeZone: string): { date: string; side: 'end' | 'before' | 'after' } | null {
+  // «قبل ما يخلص الشهر» names the month's end without the words (FX3).
+  if (!thisMonthEndWords(rawText) && readPeriodEndDeadline(rawText) !== 'month') return null;
+  const last = lastDayOfMonth(now, timeZone);
+  const offset = monthEndOffsetDays(rawText);
+  if (offset === null) return monthEndIsNotTheDay(rawText) ? null : { date: last, side: 'end' };
+  const [year, month, day] = last.split('-').map(Number) as [number, number, number];
+  const shifted = new Date(Date.UTC(year, month - 1, day + offset));
+  return { date: shifted.toISOString().slice(0, 10), side: offset < 0 ? 'before' : 'after' };
 }
 
 /** The number a clock word names, or an early h:mm with no marker. */

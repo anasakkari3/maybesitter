@@ -14,9 +14,9 @@ import {
   instantFromLocal,
   forbidsResolvedTime,
   lastDayOfMonth,
-  monthEndIsNotTheDay,
+  monthEndDay,
   MONTH_END_MENTION_SOURCES,
-  thisMonthEndWords,
+  MONTH_END_OFFSET_SOURCE,
   NIGHT_HOUR,
   nightClockHour,
   readPeriodEndDeadline,
@@ -196,8 +196,13 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   }
 
   // «قبل آخر الشهر», "by the end of the month", «עד סוף החודש» (FX3): the
-  // month's last day, when nothing else in the sentence named a day.
-  const monthEnd = !targetDate && readPeriodEndDeadline(raw) === 'month' ? lastDayOfMonth(now, tz) : null;
+  // month's last day, when nothing else in the sentence named a day. With a
+  // counted offset before it — «قبل آخر الشهر بأسبوع», "two days before the
+  // end of the month" — the day counted back on the person's clock (FZ1
+  // round 2; FX3 settled all of these on the 30th). Another month named, or an
+  // offset it cannot count, gets no day.
+  const wordsDay = !targetDate ? monthEndDay(raw, now, tz) : null;
+  const monthEnd = wordsDay && wordsDay.side !== 'after' && readPeriodEndDeadline(raw) === 'month' ? wordsDay.date : null;
   if (monthEnd) {
     targetDate = instantFromLocal(monthEnd, '12:00', tz);
     timeConfidence = 0.9;
@@ -207,12 +212,14 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   // deadline («تقرير آخر الشهر» is the month-end report), and nothing else
   // in the sentence says when. The words win for this month's end
   // (controller ruling): its last day, the hour asked, the day marked a
-  // guess, and the words kept in the title. Never with an offset or another
-  // month (FY1 review, I2), nor beside a time of day.
-  if (!targetDate && forbidsResolvedTime(raw) && thisMonthEndWords(raw) && !monthEndIsNotTheDay(raw)) {
-    targetDate = instantFromLocal(lastDayOfMonth(now, tz), '12:00', tz);
-    timeConfidence = 0.6;
-    dateInferred = true;
+  // guess, and the words kept in the title. Not beside a time of day.
+  // A counted offset after it — «بعد آخر الشهر بيومين» — is the day the
+  // person counted to, said rather than guessed, with or without an hour
+  // (FZ1 round 2).
+  if (!targetDate && wordsDay && (wordsDay.side !== 'end' || forbidsResolvedTime(raw))) {
+    targetDate = instantFromLocal(wordsDay.date, '12:00', tz);
+    timeConfidence = wordsDay.side === 'end' ? 0.6 : 0.9;
+    dateInferred = wordsDay.side === 'end';
   }
 
   if (!targetDate && clock) {
@@ -319,7 +326,9 @@ const DAY_PART_STRIP = DAY_PART_MENTION_SOURCES.map((source) => new RegExp(sourc
 const RELATIVE_DAY_STRIP = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
 const WEEKDAY_STRIP = WEEKDAY_MENTION_SOURCES.map((source) => new RegExp(source, 'gu'));
 const CLOCK_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_PATTERN_SOURCES].map((source) => new RegExp(source, 'gi'));
-const MONTH_END_STRIP = MONTH_END_MENTION_SOURCES.map((source) => new RegExp(source, 'giu'));
+// The counted offset whole first («قبل آخر الشهر بأسبوع»), so «بأسبوع» is not
+// left behind in the title (FZ1 round 2).
+const MONTH_END_STRIP = [MONTH_END_OFFSET_SOURCE, ...MONTH_END_MENTION_SOURCES].map((source) => new RegExp(source, 'giu'));
 /**
  * «הבוקר» is "this morning" and also "the morning" («ישיבת הבוקר»). It gives
  * an item no time unless the text names a day, and then it is kept in the
