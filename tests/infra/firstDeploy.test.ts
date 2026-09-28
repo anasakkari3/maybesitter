@@ -397,7 +397,7 @@ test('the tag step, run against a stand-in gcloud: adds when absent, no-op when 
             TAG_STATE: tagState,
             REGION: 'europe-west1', PROJECT_ID: 'p', REPOSITORY: 'r', IMAGE: 'api', GITHUB_SHA: 'c0ffee',
             IMAGE_DIGEST: `europe-west1-docker.pkg.dev/p/r/api@${digest}`,
-          },
+          } as unknown as NodeJS.ProcessEnv,
         });
       } catch (error) {
         status = (error as { status: number }).status;
