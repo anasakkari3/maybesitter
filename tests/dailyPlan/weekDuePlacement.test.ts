@@ -562,3 +562,125 @@ test('N13: an all-day appointment is an all-day row on its own day, and still no
     assert.deepEqual(after.days[2]!.allDay, [{ itemId: 'doctor', title: 'موعد دكتور' }]);
   }, seeds);
 });
+
+/* ── UAT round 6, complaint #23: two steps on Thursday, none today ─── */
+
+/*
+ * Monday 28 September 2026 at 17:13 (Asia/Hebron, UTC+3), the round-6 account
+ * — focus hours «بيركّز 09:00–17:00» — opened «خطّط أسبوعي» (shots 594–596):
+ * Tuesday the market (11:30–12:00, due Tuesday), Wednesday the bill, and
+ * Thursday **two** steps, «أخلّص التقرير» 09:00–09:30 and «أجدد الهوية»
+ * 09:30–10:00, both «موعدها بهاليوم»; nothing on today. Friday was a day the
+ * person had already saved, Saturday empty, all-day appointments on Monday,
+ * Wednesday, Friday and Sunday.
+ *
+ * That is the N3 ruling, not a defect: dated work takes the latest free day on
+ * or before its due day *that it fits*; work that no such day can take stays on
+ * its own due day beside that day's step. Tuesday and Wednesday were taken by
+ * work due on them, and today could take nothing — its working window closed at
+ * 17:00, and the planner never places before the moment it is built. The
+ * second Thursday step is the one way a day shows two. Opened an hour earlier,
+ * today had room, and the second Thursday item is proposed today instead.
+ */
+const R6_TZ = 'Asia/Hebron';
+const R6_USER = uidFor('WeekRound6User');
+/** Monday 28 September 2026, 17:13 in Hebron (UTC+3): when round 6 opened the week. */
+const R6_NOW = new Date('2026-09-28T14:13:00.000Z');
+const R6_WEEK = ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'];
+const r6At = (date: string, time: string): string => new Date(Date.parse(`${date}T${time}:00.000Z`) - 3 * 3_600_000).toISOString();
+const r6Midnight = (date: string): string => r6At(date, '00:00');
+const r6DueAllDay = (date: string): Omit<TimeSpec, 'timezone'> => ({ kind: 'due_by', dueAt: r6Midnight(date), endAt: null, remindAt: null, allDay: true });
+const r6EventAllDay = (date: string): Omit<TimeSpec, 'timezone'> => ({ kind: 'scheduled_event', dueAt: r6Midnight(date), endAt: null, remindAt: null, allDay: true });
+const r6Event = (date: string, time: string): Omit<TimeSpec, 'timezone'> => ({ kind: 'scheduled_event', dueAt: r6At(date, time), endAt: null, remindAt: r6At(date, time), allDay: false });
+
+/** The round-6 account's open commitments, as the week page listed them (594 .ax.txt). */
+const ROUND6: readonly Seed[] = [
+  // Today: an all-day appointment and two fixed evening rows.
+  { id: 'doctor_mon', title: 'عندي موعد دكتور', level: 'high', dueDay: R6_WEEK[0]!, timeSpec: r6EventAllDay(R6_WEEK[0]!) },
+  { id: 'lunch', title: 'أحضّر الغداء', level: 'high', dueDay: R6_WEEK[0]!, timeSpec: r6Event(R6_WEEK[0]!, '18:00') },
+  { id: 'dinner', title: 'أحضّر العشا', level: 'high', dueDay: R6_WEEK[0]!, timeSpec: r6Event(R6_WEEK[0]!, '20:00') },
+  // Tuesday: fixed 09:00 hand-in, the 09:00–11:00 prep window, the 11:00 meeting, the 17:00 bank.
+  { id: 'hand_in', title: 'أسلّم التقرير', level: 'high', dueDay: R6_WEEK[1]!, timeSpec: r6Event(R6_WEEK[1]!, '09:00') },
+  { id: 'prep', title: 'أجهّز أرقام المبيعات وأكتب ٣ نقاط للنقاش', level: 'normal', dueDay: R6_WEEK[1]!,
+    timeSpec: { kind: 'due_by', dueAt: r6At(R6_WEEK[1]!, '09:00'), endAt: r6At(R6_WEEK[1]!, '11:00'), remindAt: r6At(R6_WEEK[1]!, '09:00'), allDay: false } },
+  { id: 'boss', title: 'اجتماع مع المدير', level: 'high', dueDay: R6_WEEK[1]!, timeSpec: r6Event(R6_WEEK[1]!, '11:00') },
+  { id: 'bank', title: 'أروح عالبنك', level: 'high', dueDay: R6_WEEK[1]!, timeSpec: r6Event(R6_WEEK[1]!, '17:00') },
+  // «وبكرا العصرية بدي أروح عالسوق» → «بكرا · 14:00» («حزرناها»): due by Tuesday 14:00.
+  { id: 'market', title: 'أروح عالسوق', level: 'normal', dueDay: R6_WEEK[1]!,
+    timeSpec: { kind: 'due_by', dueAt: r6At(R6_WEEK[1]!, '14:00'), endAt: null, remindAt: r6At(R6_WEEK[1]!, '14:00'), allDay: false } },
+  // Wednesday: the lawyer (all day) and «قبل آخر الشهر لازم أدفع الفاتورة» → «لحد الأربعاء، 30 سبتمبر».
+  { id: 'lawyer', title: 'عندي موعد عند المحامي', level: 'high', dueDay: R6_WEEK[2]!, timeSpec: r6EventAllDay(R6_WEEK[2]!) },
+  { id: 'bill', title: 'أدفع الفاتورة', level: 'high', dueDay: R6_WEEK[2]!, timeSpec: r6DueAllDay(R6_WEEK[2]!) },
+  // Thursday: two pieces of work due that day.
+  { id: 'report', title: 'أخلّص التقرير', level: 'high', dueDay: R6_WEEK[3]!, timeSpec: r6DueAllDay(R6_WEEK[3]!) },
+  { id: 'id_card', title: 'أجدد الهوية', level: 'high', dueDay: R6_WEEK[3]!, timeSpec: r6DueAllDay(R6_WEEK[3]!) },
+  // Friday's dentist and Sunday's doctor: all-day appointments, never steps.
+  { id: 'dentist', title: 'عندي موعد عند طبيب الأسنان', level: 'high', dueDay: R6_WEEK[4]!, timeSpec: r6EventAllDay(R6_WEEK[4]!) },
+  { id: 'doctor_sun', title: 'عندي موعد دكتور', level: 'high', dueDay: R6_WEEK[6]!, timeSpec: r6EventAllDay(R6_WEEK[6]!) },
+];
+
+/** «بيركّز 09:00–17:00»: the routine the round-6 account answered. */
+const R6_ROUTINE = {
+  schemaVersion: 1,
+  updatedAt: '2026-09-20T00:00:00.000Z',
+  timezone: R6_TZ,
+  sleepWindow: { start: '23:00', end: '07:00' },
+  focusWindows: [{ start: '09:00', end: '17:00', label: 'work_study' }],
+  fixedCommitmentWindows: [],
+  preferredReminderIntensity: 'followUp',
+  quietHours: null,
+  surveySkipped: false,
+};
+
+async function round6Week(now: Date): Promise<WeekDto> {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    await persistParticipantState(R6_USER, seededState(ROUND6.map((seed) => seed)));
+    const user = await storage.get<Record<string, unknown>>(userDoc(R6_USER));
+    await storage.set(userDoc(R6_USER), { ...(user ?? {}), timezone: R6_TZ, locale: 'ar', profile: { routine: R6_ROUTINE } });
+    return weekToDto(await composeWeek(R6_USER, { moves: [], drops: [] }, { storage, now: () => now, busyBlocks: async () => [] }));
+  } finally {
+    resetStorageForTests();
+  }
+}
+
+const stepsByDay = (dto: WeekDto) => Object.fromEntries(dto.days.map((day) => [
+  day.date,
+  day.items.map((item) => `${item.itemId} ${item.startsAt.slice(11, 16)}Z ${item.reason}`),
+]));
+
+test('R6 #23: at 17:13 on Monday the week is the N3 ruling — Thursday holds its two own-day items, today none', async () => {
+  const dto = await round6Week(R6_NOW);
+  assert.equal(dto.today, R6_WEEK[0]);
+  assert.deepEqual(stepsByDay(dto), {
+    [R6_WEEK[0]!]: [], // 17:13, the 09:00–17:00 window has closed
+    [R6_WEEK[1]!]: ['market 08:30Z due'], // 11:30 local, after the prep window and the meeting
+    [R6_WEEK[2]!]: ['bill 06:00Z due'],
+    [R6_WEEK[3]!]: ['id_card 06:00Z due', 'report 06:30Z due'], // both due Thursday
+    [R6_WEEK[4]!]: [],
+    [R6_WEEK[5]!]: [],
+    [R6_WEEK[6]!]: [],
+  });
+  // The one-step cap holds everywhere; a second step is only ever due that same day.
+  const dueOn = new Map(ROUND6.map((seed) => [seed.id, seed.dueDay]));
+  for (const day of dto.days) {
+    for (const item of day.items.slice(1)) assert.equal(dueOn.get(item.itemId), day.date, `${day.date} holds ${item.itemId} beyond the cap`);
+  }
+  assert.deepEqual(dto.days[0]!.fixed.map((row) => row.itemId), ['lunch', 'dinner']);
+  assert.equal(dto.waiting, 0);
+});
+
+test('R6 #23: today is left out only because its window has closed — at 16:00 the second Thursday item is proposed today', async () => {
+  const dto = await round6Week(new Date(Date.parse(r6At(R6_WEEK[0]!, '16:00'))));
+  const today = dto.days[0]!;
+  assert.equal(today.items.length, 1, JSON.stringify(stepsByDay(dto)));
+  assert.equal(today.items[0]!.reason, 'due_later');
+  // It is one of Thursday's two: Tuesday and Wednesday keep their own work.
+  assert.equal(ROUND6.find((seed) => seed.id === today.items[0]!.itemId)?.dueDay, R6_WEEK[3]);
+  assert.deepEqual([dto.days[1]!.items.map((item) => item.itemId), dto.days[2]!.items.map((item) => item.itemId)], [['market'], ['bill']]);
+  assert.ok(Date.parse(today.items[0]!.startsAt) >= Date.parse(r6At(R6_WEEK[0]!, '16:00')));
+  assert.ok(Date.parse(today.items[0]!.endsAt) <= Date.parse(r6At(R6_WEEK[0]!, '17:00')));
+  // Thursday is back to one step.
+  assert.equal(dto.days[3]!.items.length, 1, JSON.stringify(stepsByDay(dto)));
+});

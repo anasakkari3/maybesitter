@@ -408,6 +408,26 @@ describe('the feature\'s name', () => {
   });
 });
 
+describe('what the page promises (UAT round 6, #23)', () => {
+  /*
+   * The week proposes one step a day, and a second only for work due that same
+   * day that no earlier day could take (N3; `weekPlan.ts`). Round 6 saw Thursday
+   * hold two steps, both due Thursday, under a subtitle that said «خطوة وحدة لكل
+   * يوم». The placement was the ruling; the promise was wrong.
+   */
+  it('names the one exception to a step a day: work due that same day', () => {
+    expect(strings.ar.weekBody).toContain('بنفس اليوم');
+    expect(strings.en.weekBody).toContain('that same day');
+    expect(strings.he.weekBody).toContain('באותו יום');
+  });
+
+  it('the row that opens the week does not promise exactly one step a day', () => {
+    expect(strings.ar.xWeeklyBody).not.toContain('خطوة وحدة');
+    expect(strings.en.xWeeklyBody).not.toMatch(/^One step/);
+    expect(strings.he.xWeeklyBody).not.toContain('צעד אחד');
+  });
+});
+
 describe('the entry point in «اختار شو بدك تعمل»', () => {
   it('is a live row that opens the Week screen, not a Coming-soon section', async () => {
     await show(<ActionModesScreen />);
