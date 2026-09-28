@@ -504,7 +504,7 @@ test('fix I3: a typed answer that negates a day, offers two, or says "the next d
     'الخميس بدل بكرا المسا', 'بكرا أو الخميس المسا', 'tomorrow or Thursday evening', 'اليوم التاني المسا',
     // Each rule on its own: two days; an alternative; only a negated day.
     'بكرا الخميس المسا', 'بكرا أو بعد بكرا المسا', 'tomorrow or the day after tomorrow in the evening',
-    'مش بكرا المسا', 'not tomorrow, in the evening',
+    'مش بكرا المسا', 'not tomorrow, in the evening', 'لا بكرا، مش الخميس المسا',
     // Undecided (round 3): a question, «ولا».
     'الخميس ولا بكرا؟ الخميس المسا', 'بكرا المسا ولا الصبح؟', 'بكرا ولا يهمك، المسا',
   ]) {
