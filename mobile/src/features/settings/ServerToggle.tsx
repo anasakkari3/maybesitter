@@ -3,6 +3,7 @@ import { ActivityIndicator, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Txt } from '../../ui/primitives';
 import { useLayoutMode } from '../../theme/textScale';
+import { toggleFailureKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 
 /**
  * A switch whose position is the server's answer, never this component's
@@ -25,6 +26,8 @@ import { useLayoutMode } from '../../theme/textScale';
  * Not a toast. A toast for "analytics could not be turned off" disappears
  * while the switch is still sitting in the position the user did not choose.
  * The message stays under the control it is about until the next attempt.
+ * Which message is `toggleFailureKey`'s: «didn't reach the server» only for a
+ * request that did not (UAT round 3, N9).
  *
  * ── On, but blocked by the phone ─────────────────────────────────
  *
@@ -56,7 +59,7 @@ export function ServerToggle({
   const { t, p } = useApp();
   const stacked = useLayoutMode() === 'xl';
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<UserFacingKey | null>(null);
   const blocked = value && blockedNote ? blockedNote : null;
 
   return (
@@ -81,10 +84,10 @@ export function ServerToggle({
             // would land in an order nobody chose.
             if (disabled || busy) return;
             setBusy(true);
-            setFailed(false);
+            setFailed(null);
             void onChange(next)
-              .then(ok => setFailed(!ok))
-              .catch(() => setFailed(true))
+              .then(ok => setFailed(ok ? null : toggleFailureKey(null)))
+              .catch((error: unknown) => setFailed(toggleFailureKey(error)))
               .finally(() => setBusy(false));
           }}
         />
@@ -94,7 +97,7 @@ export function ServerToggle({
         <Txt size={13} color={p.wm} weight={600} testID={`${testID ?? 'toggle'}-blocked`}>{blocked}</Txt>
       ) : null}
       {failed ? (
-        <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t.trustActionFailed}</Txt>
+        <Txt size={13} color={p.wm} testID={`${testID ?? 'toggle'}-failed`}>{t[failed]}</Txt>
       ) : null}
     </View>
   );

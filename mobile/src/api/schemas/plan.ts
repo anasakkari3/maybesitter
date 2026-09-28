@@ -368,6 +368,12 @@ export const weekDaySchema = z.object({
   state: z.enum(['proposed', 'planned', 'accepted']),
   items: z.array(weekItemSchema),
   fixed: z.array(weekRowSchema),
+  /**
+   * Appointments on the day with no hour (FY1's all-day event, UAT round 3
+   * N13): shown on their day, never placed. Defaults to none for a server
+   * that predates it.
+   */
+  allDay: z.array(z.object({ itemId: z.string(), title: z.string().nullable() })).default([]),
   unplaced: z.array(z.object({ itemId: z.string(), title: z.string().nullable() })),
 });
 

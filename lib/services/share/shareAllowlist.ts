@@ -53,6 +53,10 @@ export const ALLOWED_ITEM_FIELDS: readonly string[] = [
   // a weekday lost its whole item as `unknown_field`.
   'resolvedDate',
   'dateEstimated',
+  // An event on that day keeps it when its hour is cleared (UAT round 3,
+  // N11). Missing here, every shared appointment was dropped whole as
+  // `unknown_field` once the capture wrapper began to send it.
+  'eventOnDay',
   'clarification',
 ];
 
@@ -443,6 +447,11 @@ export function applyShareActionAllowlist<T>(raw: unknown): ShareAllowlistResult
       } else {
         report('resolvedDate');
       }
+    }
+    // Only beside the day it is about: a flag with no day marks nothing.
+    if (owns(candidate, 'eventOnDay')) {
+      if (candidate.eventOnDay === true && item.resolvedDate !== undefined) item.eventOnDay = true;
+      else if (candidate.eventOnDay !== true) report('eventOnDay');
     }
     if (owns(candidate, 'clarification')) {
       const clarification = rebuildClarification(candidate.clarification, report);

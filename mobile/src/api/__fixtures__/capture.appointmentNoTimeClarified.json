@@ -13,7 +13,8 @@
       "clarification": null,
       "allDayEvent": true,
       "resolvedDate": "2026-08-16",
-      "dateEstimated": true
+      "dateEstimated": true,
+      "eventOnDay": true
     }
   ],
   "seeds": [],

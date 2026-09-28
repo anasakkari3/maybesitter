@@ -241,7 +241,9 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
       participantId,
       recommendation: silentRecommendation(localeFrom(input.locale)),
       assignment: resolveNextStepArm(participantId),
-      exposure: { allowed: false, reason: access.reason },
+      // When quiet hours end, so the card can say suggestions come back then
+      // rather than calling it quiet mode (UAT round 3, N12).
+      exposure: { allowed: false, reason: access.reason, ...(access.quietUntil ? { until: access.quietUntil } : {}) },
     };
   }
 

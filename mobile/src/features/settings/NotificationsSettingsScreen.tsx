@@ -496,12 +496,9 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
                 body={t.notifMustQuietBody}
                 value={engine?.mustThroughQuietHours === true}
                 onChange={async next_ => {
-                  try {
-                    const saved = await save.mutateAsync({ mustThroughQuietHours: next_ });
-                    return saved.reminderSettings.mustThroughQuietHours === next_;
-                  } catch {
-                    return false;
-                  }
+                  // A throw is left to `ServerToggle`, which says which failure it was.
+                  const saved = await save.mutateAsync({ mustThroughQuietHours: next_ });
+                  return saved.reminderSettings.mustThroughQuietHours === next_;
                 }}
                 testID="must-through-quiet-switch"
               />
@@ -547,17 +544,15 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               // the way on for the same reason the reminders switch asks — and
               // a denial does not stop the write. See the note at the top.
               if (next_) await askForPermission();
-              try {
-                const saved = await savePlan.mutateAsync({
-                  enabled: next_,
-                  // The hour is only sent when the user has one. Omitting it
-                  // leaves the stored value alone rather than re-asserting it.
-                  ...(deliveryLocalTime ? { deliveryLocalTime } : {}),
-                });
-                return saved.enabled === next_;
-              } catch {
-                return false;
-              }
+              // A throw is left to `ServerToggle`, which says which failure it
+              // was: a refusal is not "didn't reach the server" (UAT round 3, N9).
+              const saved = await savePlan.mutateAsync({
+                enabled: next_,
+                // The hour is only sent when the user has one. Omitting it
+                // leaves the stored value alone rather than re-asserting it.
+                ...(deliveryLocalTime ? { deliveryLocalTime } : {}),
+              });
+              return saved.enabled === next_;
             }}
           />
           <SettingsRow
@@ -587,12 +582,8 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             value={plan?.continuousReplanEnabled === true}
             disabled={plan === null}
             onChange={async next_ => {
-              try {
-                const saved = await savePlan.mutateAsync({ continuousReplanEnabled: next_ });
-                return saved.continuousReplanEnabled === next_;
-              } catch {
-                return false;
-              }
+              const saved = await savePlan.mutateAsync({ continuousReplanEnabled: next_ });
+              return saved.continuousReplanEnabled === next_;
             }}
           />
           <View style={{ paddingHorizontal: 18, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: p.ln }}>

@@ -26,8 +26,16 @@ import type { DailyPlan } from '../../api/schemas/plan';
  *   LATER     a glimpse of the coming days, so Today ends with what is next
  *             rather than with a wall.
  */
+/**
+ * Why there is no card (UAT round 3, N12). `mode`: the person's own quiet-mode
+ * switch, on until they turn it off. `hours`: inside their quiet hours, which
+ * end by themselves at `until`. `paused`: anything else the route went quiet
+ * for — the kill switch — which nobody on this phone can turn off.
+ */
+export type QuietWhy = 'mode' | 'hours' | 'paused';
+
 export type Primary =
-  | { kind: 'quiet' }
+  | { kind: 'quiet'; why: QuietWhy; until: string | null }
   | { kind: 'allDone' }
   | { kind: 'next'; recommendation: NextStepRecommendation; item: CommitmentView | null }
   | { kind: 'fallback'; item: CommitmentView }
@@ -66,6 +74,10 @@ export interface NextStepInput {
   recommendation: NextStepRecommendation | null | undefined;
   /** `exposure.allowed === false`: the user asked for quiet. */
   silenced: boolean;
+  /** `exposure.reason` when silenced: `quiet_mode`, `quiet_hours` or `kill_switch_active`. */
+  silencedReason?: string | undefined;
+  /** `exposure.until`: the `HH:mm` quiet hours end, when that is the reason. */
+  quietUntil?: string | undefined;
   isPending: boolean;
   isError: boolean;
   /**
@@ -123,7 +135,13 @@ export function composeToday(input: {
     // recommendation route thinks — it may still name a thing from tomorrow.
     primary = { kind: 'allDone' };
   } else if (next.silenced) {
-    primary = { kind: 'quiet' };
+    // Quiet hours used to be drawn as quiet mode — «ما رح نقترح إشي لحد ما
+    // تطفّيه» at 04:00 with quiet mode off (UAT round 3, N12). They are told
+    // apart here, once, for whatever draws the card. A missing reason is read
+    // as quiet mode, which is what every silence was drawn as before.
+    const why: QuietWhy = next.silencedReason === 'quiet_hours' ? 'hours'
+      : next.silencedReason === undefined || next.silencedReason === 'quiet_mode' ? 'mode' : 'paused';
+    primary = { kind: 'quiet', why, until: why === 'hours' ? next.quietUntil ?? null : null };
   } else if (ready && rec.primaryStep) {
     primary = { kind: 'next', recommendation: rec, item: byId.get(rec.primaryStep.commitmentId) ?? null };
   } else {

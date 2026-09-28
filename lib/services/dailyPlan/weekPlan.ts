@@ -68,7 +68,7 @@ import { schedulePlan } from '../../planning/scheduler';
 import { toEpochMs } from '../../planning/shared/time';
 import type { Plan, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
 import { deadlineOfTimeSpec, type Commitment } from '../../../src/domain/stateMachine';
-import { buildDailyPlanInput, dayHorizon, fixedStartOf, pinnedEventsOnDay, type DayAssignment } from './buildDailyPlan';
+import { buildDailyPlanInput, dayHorizon, fixedStartOf, isAllDayEvent, isPlannable, pinnedEventsOnDay, type DayAssignment } from './buildDailyPlan';
 import {
   PlanDateOutOfRangeError,
   composeDailyPlanRequest,
@@ -514,6 +514,12 @@ export interface WeekDayDto {
   readonly items: readonly WeekItemDto[];
   /** Commitments pinned to a time on the day (L5): fixed, never moved. */
   readonly fixed: readonly WeekRowDto[];
+  /**
+   * Appointments on the day with no hour (FY1's all-day `scheduled_event`,
+   * UAT round 3 N13). Shown on their day and never placed: the planner leaves
+   * them out (`isAllDayEvent`), so without this the day read «يوم فاضي».
+   */
+  readonly allDay: readonly { readonly itemId: string; readonly title: string | null }[];
   /** Work the person moved here that does not fit the day. Proposed days only. */
   readonly unplaced: readonly { readonly itemId: string; readonly title: string | null }[];
 }
@@ -532,6 +538,10 @@ export function weekToDto(layout: WeekLayout): WeekDto {
   const titles = titlesOf(layout.commitments);
   const byId = new Map(layout.commitments.map((commitment) => [commitment.id, commitment]));
   const title = (itemId: string): string | null => titles.get(itemId) ?? null;
+  // Read from the commitments, not the plan: a plan never holds them (N13).
+  const allDayOn = (date: string): WeekDayDto['allDay'] => layout.commitments
+    .filter((commitment) => isPlannable(commitment) && isAllDayEvent(commitment) && dueDayOf(commitment, layout.timezone) === date)
+    .map((commitment) => ({ itemId: commitment.id, title: title(commitment.id) }));
   return {
     today: layout.today,
     timezone: layout.timezone,
@@ -551,6 +561,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
             reason: reasonFor(byId.get(row.itemId), day.date, layout.today, layout.timezone),
           })),
           fixed: dto.fixed.map((row) => ({ itemId: row.itemId, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt })),
+          allDay: allDayOn(day.date),
           unplaced: [],
         };
       }
@@ -575,6 +586,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
             reason: day.reasons.get(item.itemId) ?? null,
           })),
         fixed,
+        allDay: allDayOn(day.date),
         unplaced: day.plan.unscheduled.map((item) => ({ itemId: item.itemId, title: title(item.itemId) })),
       };
     }),

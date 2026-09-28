@@ -34,6 +34,7 @@ import { deviceCalendar, type DeviceEventCalendar } from '../../calendar/deviceC
 import { loadExcludedCalendarIds, resetWriterIdCache, saveExcludedCalendarIds } from '../../../lib/deviceSettings/calendarDevice';
 import { resetCalendarSyncForTests } from '../../calendar/useDeviceCalendarSync';
 import { resetBusySyncForTests } from '../../calendar/useBusyCalendar';
+import { ValidationError } from '../../../api/errors';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -193,6 +194,24 @@ describe('turning reading on from here', () => {
     await waitFor(() => expect(trustEndpoints.updateTrust).toHaveBeenCalledWith({ type: 'set_calendar_consent', granted: true }));
     await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
     expect(screen.queryByTestId('calendar-read-allow')).toBeNull();
+  });
+
+  it('a refusal from the server is not called a network failure, on the switch or under Allow (UAT round 3, N9)', async () => {
+    consent = false;
+    jest.spyOn(trustEndpoints, 'updateTrust')
+      .mockRejectedValue(new ValidationError('calendar consent is available only after first value') as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-allow')).not.toBeNull());
+
+    // Allow used to do nothing visible at all.
+    await fireEvent.press(screen.getByTestId('calendar-read-allow'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-allow-failed')).not.toBeNull());
+    expect(screen.getByTestId('calendar-read-allow-failed').props.children).toBe(en.trustActionRefused);
+
+    await fireEvent(screen.getByTestId('calendar-read-toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-toggle-failed')).not.toBeNull());
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.getByTestId('calendar-read-toggle-failed').props.children).toBe(en.trustActionRefused);
   });
 
   it('with the read flag off, lists nothing and offers no Allow', async () => {

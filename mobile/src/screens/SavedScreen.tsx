@@ -13,6 +13,7 @@ import { CheckIcon, UndoRing } from '../ui/icons';
 import { Pop, ScreenIn } from '../ui/motion';
 import { UNDO_WINDOW_MS } from '../features/capture/captureMachine';
 import type { UndoOutcome } from '../features/capture/CaptureProvider';
+import { dayKeptWithoutTime } from '../features/capture/noTimeDay';
 
 const TICK_MS = 1000;
 
@@ -81,6 +82,10 @@ export function SavedScreen() {
     ? `${formatRelativeDay(new Date(resolvedTime), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(resolvedTime), { locale: lang, timeZone: timezone }))}`
     : t.noTimeYet);
   const savedWhenOf = (item: { itemId: string; resolvedTime: string | null }) => {
+    // An appointment whose hour was cleared in review stays on its day (N11).
+    const proposed = state.proposal?.items.find((candidate) => candidate.itemId === item.itemId);
+    const kept = item.resolvedTime ? undefined : dayKeptWithoutTime(proposed, state.edits?.[item.itemId]);
+    if (kept) return `${formatDayKey(kept, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`;
     const day = item.resolvedTime ? null : dueByDayOf(item.itemId);
     if (!day) return whenOf(item.resolvedTime);
     // An appointment with no hour is on its day, not due by it (FY1 N4).

@@ -12,7 +12,8 @@
       "priorityEstimated": true,
       "clarification": null,
       "resolvedDate": "2026-08-16",
-      "dateEstimated": true
+      "dateEstimated": true,
+      "eventOnDay": true
     }
   ],
   "seeds": [],

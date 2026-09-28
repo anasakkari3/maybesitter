@@ -999,6 +999,9 @@ async function shareLive(number: number, propose?: ShareIntakeContext['propose']
 test('a shared email\'s appointment reaches review as a fixed time on its day, and a Must', async () => {
   const dentist = await shareLive(1);
   assert.deepEqual(appointmentsIn(dentist), [LIVE_APPOINTMENTS[0]]);
+  // It keeps its day if its hour is cleared in review, and says so (UAT
+  // round 3, N11) — the share allowlist dropped the whole item for that field.
+  assert.equal(dentist.items.find((item) => item.title === 'Dentist appointment')?.eventOnDay, true);
   // Beside the chores it came with, still one proposal the person confirms.
   assert.equal(dentist.items.length, 3);
   assert.equal(dentist.share.evidenceDropped, false);

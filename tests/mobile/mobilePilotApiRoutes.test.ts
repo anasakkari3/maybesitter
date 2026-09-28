@@ -591,6 +591,28 @@ test('the trust write route forces a fresh revocation read rather than trusting 
   }
 });
 
+test('a brand-new account can turn calendar reading on from Settings before any commitment (UAT round 3, N9)', async () => {
+  const cleanup = setup();
+  try {
+    // No capture, no confirm, no next step: the account has seen no first
+    // value. The server used to answer 400 «calendar consent is available only
+    // after first value», and the app read that as "didn't reach the server".
+    const response = await updateTrust(request('/api/mobile/pilot/trust', {
+      participantId: NEWCOMER,
+      body: { action: { type: 'set_calendar_consent', granted: true } },
+    }));
+    assert.equal(response.status, 200);
+    const body = await json(response);
+    const trust = body.trust as Record<string, unknown>;
+    assert.equal(trust.calendarConsent, true);
+    assert.equal(trust.firstValueAt, null);
+    const read = await json(await getTrust(request('/api/mobile/pilot/trust', { participantId: NEWCOMER })));
+    assert.equal((read.trust as Record<string, unknown>).calendarConsent, true);
+  } finally {
+    cleanup();
+  }
+});
+
 test('recommendation action idempotency is uid-scoped and durable', async () => {
   const cleanup = setup();
   try {

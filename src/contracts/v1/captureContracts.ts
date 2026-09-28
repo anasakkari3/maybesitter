@@ -76,6 +76,15 @@ export interface CaptureProposalItemContract {
    */
   allDayEvent?: boolean;
   /**
+   * True when the item happens *on* `resolvedDate` — an appointment, a
+   * meeting — so clearing its hour in the review edit sheet keeps it there as
+   * an all-day event (FY1 M1, `keepEventOnItsDay`); a task cleared of its hour
+   * loses the day. Added by the mobile capture wrapper from the same test the
+   * confirm uses, so the card can say «<day> · بدون وقت» only when the confirm
+   * will keep the day (UAT round 3, N11). Absent otherwise.
+   */
+  eventOnDay?: boolean;
+  /**
    * The one question worth asking about this item (UC-2.5, #165).
    *
    * Declared here rather than only produced: `captureBoundaryService` has been

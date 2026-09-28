@@ -65,9 +65,9 @@ function setup(): () => void {
 
 /** Somebody who has turned "read my calendar" on, which most of these need. */
 async function withConsent(uid = USER): Promise<void> {
-  // `set_calendar_consent` refuses before the account has seen its first value
-  // (lib/pilot/closedPilotControls). That is the pilot's rule and not this
-  // issue's, so the switch is armed the way the product arms it.
+  // The first value is recorded as well, although `set_calendar_consent` no
+  // longer needs it (UAT round 3, N9): these cases describe an account that is
+  // already using the product, and that is what one looks like.
   await applyTrustAction(uid, { type: 'record_first_value', at: new Date(ANCHOR).toISOString() });
   await applyTrustAction(uid, { type: 'set_calendar_consent', granted: true, at: new Date(ANCHOR).toISOString() });
 }

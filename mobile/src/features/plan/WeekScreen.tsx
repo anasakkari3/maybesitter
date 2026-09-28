@@ -103,7 +103,7 @@ function WeekBody({ week, decisions, redrawing, onMove, onDrop, onUndrop }: {
   const [moving, setMoving] = useState<string | null>(null);
   const [savedDate, setSavedDate] = useState<string | null>(null);
 
-  const empty = week.days.every(day => day.items.length === 0 && day.fixed.length === 0) && week.drops.length === 0;
+  const empty = week.days.every(day => day.items.length === 0 && day.fixed.length === 0 && day.allDay.length === 0) && week.drops.length === 0;
   if (empty) return <EmptyState testID="week-empty" title={t.weekEmpty} body={t.weekEmptyBody} top={24} />;
 
   // Only a day that is still a suggestion can take a step; a stored day is
@@ -211,7 +211,10 @@ function DayCard({
         {day.state === 'accepted' ? <Tag kind="started" label={t.weekSaved} testID={`week-state-${day.date}`} /> : null}
       </View>
 
-      {rows.length === 0 ? <Txt role="supporting" color={p.mu} testID={`week-free-${day.date}`}>{t.weekFreeDay}</Txt> : null}
+      {rows.length === 0 && day.allDay.length === 0 ? <Txt role="supporting" color={p.mu} testID={`week-free-${day.date}`}>{t.weekFreeDay}</Txt> : null}
+      {/* An appointment with no hour opens its day, as a calendar puts an
+          all-day event (UAT round 3, N13). A day holding one is not free. */}
+      {day.allDay.map(row => <AllDayWeekRow key={`allday-${row.itemId}`} row={row} />)}
       {rows.map(entry => entry.kind === 'fixed' ? (
         <FixedWeekRow key={`fixed-${entry.row.itemId}`} row={entry.row} zone={zone} />
       ) : proposed ? (
@@ -332,6 +335,24 @@ function FixedWeekRow({ row, zone }: { row: WeekRow; zone: string }) {
     <View testID={`week-fixed-${row.itemId}`} accessible accessibilityRole="text" accessibilityLabel={[title, time, t.planItemFixed].join(lang === 'ar' ? '، ' : ', ')}
       style={{ gap: 4, alignItems: 'flex-start', backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
       <Txt size={13} weight={600} latin color={p.mu}>{time}</Txt>
+      <Txt size={15}>{title}</Txt>
+      <Tag kind="fixed" label={t.planItemFixed} />
+    </View>
+  );
+}
+
+/**
+ * An appointment on the day with no hour (FY1's all-day event, UAT round 3
+ * N13): the fixed row's look, «بدون وقت» where the time would be — the words
+ * the Calendar uses for the same item. Never a step: nothing to move or drop.
+ */
+function AllDayWeekRow({ row }: { row: WeekDay['allDay'][number] }) {
+  const { t, p, lang } = useApp();
+  const title = row.title ? isolateAuto(row.title) : t.planRemovedItem;
+  return (
+    <View testID={`week-allday-${row.itemId}`} accessible accessibilityRole="text" accessibilityLabel={[title, t.noTimeYet, t.planItemFixed].join(lang === 'ar' ? '، ' : ', ')}
+      style={{ gap: 4, alignItems: 'flex-start', backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
+      <Txt size={13} weight={600} color={p.mu}>{t.noTimeYet}</Txt>
       <Txt size={15}>{title}</Txt>
       <Tag kind="fixed" label={t.planItemFixed} />
     </View>

@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppProvider } from '../../state/AppContext';
+import { AppProvider, useApp } from '../../state/AppContext';
 import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../api/auth';
@@ -31,6 +31,9 @@ import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 import * as planEndpoints from '../../api/endpoints/plans';
 import * as language from '../../i18n/language';
+import { fill, ltr } from '../../i18n/strings';
+import { Txt } from '../../ui/primitives';
+import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -414,5 +417,55 @@ describe('Round 3 progressive density', () => {
     expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
     expect(screen.getAllByTestId(/^today-item-/).map(node => node.props.testID)).toEqual(['today-item-primary', 'today-item-overflow']);
     expect(screen.queryByTestId('today-plan-preview-overflow')).toBeNull();
+  });
+});
+
+/** Where the app would go next, rendered where a test can read it. */
+function ScreenProbe() {
+  const { s } = useApp();
+  return <Txt testID="screen-probe">{s.screen}</Txt>;
+}
+
+describe('the top card during quiet hours is not quiet mode (UAT round 3, N12)', () => {
+  async function showSilenced(response: unknown) {
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue(response as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [withPriority('a', 'high')] } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><TodayScreen /><ScreenProbe /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId('today-quiet')).not.toBeNull());
+  }
+
+  it('says when suggestions come back, offers no "turn it off", and links to where quiet hours are set', async () => {
+    // The real route's answer at 00:30 inside 22:30–07:30.
+    await showSilenced(quietHoursFixture);
+    const card = within(screen.getByTestId('today-quiet'));
+    expect(card.queryByText(en.todayQuietModeOn)).toBeNull();
+    expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-trust')).toBeNull();
+    await fireEvent.press(screen.getByTestId('today-quiet-hours'));
+    await waitFor(() => expect(screen.getByTestId('screen-probe').props.children).toBe('notificationsSettings'));
+  });
+
+  it('quiet mode keeps its own words and the way to turn it off', async () => {
+    await showSilenced({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_mode' } });
+    expect(within(screen.getByTestId('today-quiet')).queryByText(en.todayQuietModeOn)).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-trust')).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-hours')).toBeNull();
+  });
+
+  it('the operator\u2019s pause is neither, and offers nothing to switch', async () => {
+    await showSilenced({ ...quietHoursFixture, exposure: { allowed: false, reason: 'kill_switch_active' } });
+    const card = within(screen.getByTestId('today-quiet'));
+    expect(card.queryByText(en.todayQuietModeOn)).toBeNull();
+    expect(card.queryByText(en.todayNextPaused)).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-trust')).toBeNull();
+    expect(screen.queryByTestId('today-quiet-hours')).toBeNull();
   });
 });
