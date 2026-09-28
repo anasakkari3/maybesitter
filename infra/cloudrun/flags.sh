@@ -23,9 +23,7 @@ case "${TARGET}" in
     max_instances=2
     database_id="staging"
     env_name="staging"
-    # UC-2.0 (#160) / UC-2.1 (#161): the hosted model, on staging only.
-    # Production stays `none` until the owner decides otherwise — enabling a
-    # paid model for real users is not something a deploy should do by itself.
+    # UC-2.0 (#160) / UC-2.1 (#161): the hosted model.
     llm_provider="gemini"
     # UC-4.5 (#181): the model is on here, so the brakes have to be too.
     ai_disabled="false"
@@ -33,6 +31,7 @@ case "${TARGET}" in
     # 2026-09-25). See the "Memory module" comment block below.
     memory_feature="true"
     memory_kill_switch="false"
+    global_daily_call_cap="3000"
     # The owner supplied a football-data.org credential on 2026-09-28. Keep
     # the first live sync in staging; production needs its own explicit deploy
     # decision after the provider call and projection are evidenced there.
@@ -44,12 +43,33 @@ case "${TARGET}" in
     max_instances=3
     database_id="(default)"
     env_name="production"
-    llm_provider="none"
-    # Belt and braces. The provider is already `none`, and this is the switch an
-    # operator flips without a code change if that ever stops being true.
-    ai_disabled="true"
-    memory_feature="false"
-    memory_kill_switch="true"
+    # OWNER SPEND DECISION (pending): the hosted model and memory on for real
+    # users. Nothing else in this block changes. The brakes that remain: the
+    # per-user caps below, a production-only global cap of 500 calls/day (a
+    # sixth of staging's), and MAYBESITTER_AI_DISABLED /
+    # MAYBESITTER_KILL_SWITCH_MEMORY, which an operator flips on the service
+    # without a code change.
+    #
+    # Worst case at the cap: about $4-8/day (~$120-240/month). A call may
+    # carry 20,000 characters (~7-10k input tokens) and up to 2,048 output
+    # tokens, and withSingleRetry can bill a second request on a timeout;
+    # 500 such calls, retried, is the top of that range. Typical pilot use is
+    # far below it. The monthly budget alert (100 ILS, ~$27) alerts only; it
+    # does not cap.
+    #
+    # Owner prerequisites before this reaches production (not done here):
+    #   - a production-scoped AI alert: "Vertex AI requests above 1500/day"
+    #     counts the whole project, and staging alone may reach 3000, so it
+    #     cannot see a production spike (infra/cloudrun/ai-cost-alerts.sh);
+    #   - MAYBESITTER_LLM_UID_SALT as a secret: unset, model log lines carry an
+    #     unsalted sha256 of each uid.
+    # With 60 calls/user/day, about 8 heavy users exhaust 500/day; everyone
+    # then falls back to the rule-based path until UTC midnight.
+    llm_provider="gemini"
+    ai_disabled="false"
+    memory_feature="true"
+    memory_kill_switch="false"
+    global_daily_call_cap="500"
     football_secret=""
     # The origins the early-access form posts from (lib/earlyAccess/service.ts,
     # exact match). Unset fails closed, and it was only ever on the service by
@@ -108,21 +128,11 @@ esac
 # candidates and the AI context import call the hosted model, which is a
 # spending decision the same way `llm_provider` is.
 #
-# The owner approved memory for staging only (2026-09-25); production stays
-# off until that is revisited deliberately. `memory_feature=false` in
-# production matches `MODULE_FEATURE_FLAG_DEFAULTS.memory` in
-# `src/contracts/v1/runtimeControls.ts`, so this line changes no behaviour —
-# it is written explicitly so the decision is visible on the deployed
-# service's own env vars rather than resting on a default nobody reading
-# `gcloud run services describe` would see.
-#
-# `memory_kill_switch=true` in production is belt and braces, the same shape
-# as `ai_disabled` above: the feature flag already keeps memory off, and the
-# kill switch is a second, independent block, so a future accidental
-# `MAYBESITTER_FEATURE_MEMORY=true` on production cannot turn it on by
-# itself. Staging sets the switch explicitly to `false` for the opposite
-# reason `MAYBESITTER_KILL_SWITCH_RECOMMENDATION` does: the switch an
-# operator flips in an incident is already present on the service.
+# The owner approved memory for staging on 2026-09-25. Production follows
+# with the model (see the production block): the feature flag is on and the
+# kill switch is present and `false`, so an operator can take memory out in
+# an incident with one value change and no code change, the same way
+# `MAYBESITTER_AI_DISABLED` takes out every model call.
 #
 # CPU throttling is the Cloud Run default and is not passed explicitly: the flag
 # to *disable* it (--no-cpu-throttling) is the one that costs money, and it is
@@ -159,6 +169,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000;MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME}${site_origins}" \
+  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=${global_daily_call_cap};MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME}${site_origins}" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest${football_secret}"
 printf '\n'
