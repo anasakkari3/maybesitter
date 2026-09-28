@@ -332,7 +332,9 @@ test('FZ1 N6: FY1\'s narrowing is kept — an offset, another month, next month 
   // (An offset *before* the month's end with a limit word — «قبل آخر الشهر
   // بأسبوع» — is FX3's deadline reading, on both paths, before and after FZ1.)
   const rows: Array<[string, string]> = [
-    ['بدي أدفع الفاتورة بعد آخر الشهر بيومين', 'أدفع الفاتورة'],
+    // An offset after the month's end with no count: no day (a counted one is
+    // computed, round 2 below).
+    ['بدي أدفع الفاتورة بعد آخر الشهر', 'أدفع الفاتورة'],
     ['pay the bill after the end of the month', 'pay the bill'],
     ['بدي أحضّر تقرير آخر الشهر الجاي', 'أحضّر تقرير'],
     ['Prepare the report for the end of next month', 'Prepare the report'],
@@ -344,7 +346,7 @@ test('FZ1 N6: FY1\'s narrowing is kept — an offset, another month, next month 
     assert.equal(contract.items[0]?.resolvedDate, undefined, text);
   }
   // Next month, or an offset after the month's end, on the rules path: no day, as before.
-  for (const text of ['بدي أحضّر تقرير آخر الشهر الجاي', 'بدي أحضّر تقرير بعد آخر الشهر بيومين', 'pay the bill after the end of the month']) {
+  for (const text of ['بدي أحضّر تقرير آخر الشهر الجاي', 'بدي أحضّر تقرير بعد آخر الشهر', 'pay the bill after the end of the month']) {
     assert.equal((await proposeRules(text, N6_NOW)).items[0]?.resolvedDate, undefined, text);
   }
   // A day or an hour the person said is theirs: the words do not move it.
@@ -426,4 +428,64 @@ test('FZ1 round 2: the typed half needs no model re-read, and a typed new hour o
   assert.equal((await answerAmPm(BANK_AT_5, 'الساعة 7 المسا')).line, 'أروح عالبنك | 2026-09-29 19:00 | settled');
   // A day with the half: the half applies to the asked hour on that day.
   assert.equal((await answerAmPm(BANK_AT_5, 'بعد بكرا المسا')).line, 'أروح عالبنك | 2026-09-30 17:00 | settled');
+});
+
+// ── Round 2 (coordinator): an offset on this month's end ──────────────────
+
+/** Thursday 10 Sep 2026, 12:00 on the phone: every offset below is ahead. */
+const SEP_10 = new Date('2026-09-10T09:00:00.000Z');
+
+const OFFSET_ROWS: Array<[string, string]> = [
+  // Before: a deadline on that day, all day — as «قبل آخر الشهر» is on the 30th (FX3).
+  ['بدي أخلص التقرير قبل آخر الشهر بأسبوع', 'أخلص التقرير | 2026-09-23 - | settled'],
+  ['لازم أدفع الفاتورة قبل آخر الشهر بيومين', 'أدفع الفاتورة | 2026-09-28 - | settled'],
+  ['بدي أدفع الإيجار أسبوع قبل آخر الشهر', 'أدفع الإيجار | 2026-09-23 - | settled'],
+  ['بدي أخلص التقرير قبل آخر الشهر بتلات أيام', 'أخلص التقرير | 2026-09-27 - | settled'],
+  ['بدي أخلص التقرير قبل آخر الشهر بأسبوعين', 'أخلص التقرير | 2026-09-16 - | settled'],
+  ['submit the report two days before the end of the month', 'submit the report | 2026-09-28 - | settled'],
+  ['pay the rent a week before the end of the month', 'pay the rent | 2026-09-23 - | settled'],
+  ['להגיש את הדוח שבוע לפני סוף החודש', 'להגיש את הדוח | 2026-09-23 - | settled'],
+  ['לשלם חשבון יומיים לפני סוף החודש', 'לשלם חשבון | 2026-09-28 - | settled'],
+  // A stated hour stays, on that day (FX3 #7).
+  ['لازم أدفع الفاتورة قبل آخر الشهر بأسبوع الساعة 5 المسا', 'أدفع الفاتورة | 2026-09-23 17:00 | settled'],
+  // After: the day they counted to, and the hour asked — not a limit.
+  ['بدي أدفع الفاتورة بعد آخر الشهر بيومين', 'أدفع الفاتورة بعد آخر الشهر بيومين | 2026-10-02 - | ask_time'],
+  ['pay the bill 3 days after the end of the month', 'pay the bill 3 days after the end of the month | 2026-10-03 - | ask_time'],
+  ['לשלם חשבון יומיים אחרי סוף החודש', 'לשלם חשבון יומיים אחרי סוף החודש | 2026-10-02 - | ask_time'],
+];
+
+test('FZ1 round 2: on the rules path an offset on this month\'s end is counted on the person\'s clock, never settled on the 30th', async () => {
+  for (const [text, expected] of OFFSET_ROWS) {
+    assert.deepEqual((await proposeRules(text, SEP_10)).items.map(line), [expected], text);
+  }
+  // Another month named, or an offset with no count: no day, the hour asked.
+  for (const text of ['לסיים דוח עד סוף חודש אוקטובר', 'pay the bill after the end of the month', 'بدي أدفع الفاتورة بعد آخر الشهر']) {
+    const items = (await proposeRules(text, SEP_10)).items;
+    assert.equal(items[0]?.resolvedDate, undefined, text);
+    assert.equal(items[0]?.clarification?.questionKey, 'ask_time', text);
+  }
+});
+
+test('FZ1 round 2: on the model path, with no day from the model, the same offsets are counted; a model 30th under "a week before" is the words\' 23rd', async () => {
+  // Scripted: the model gave the title and no day (the stated-hour row is the
+  // model's to read, so it is left out).
+  for (const [text, expected] of OFFSET_ROWS.filter(([, row]) => !/\d{2}:\d{2}/.test(row))) {
+    const title = expected.split(' | ')[0]!;
+    const { contract } = await proposeModel(text, SEP_10, recordedModel({ [text]: reportAnswer(null, title) }).provider);
+    assert.deepEqual(contract.items.map(line), [expected], text);
+  }
+  const weekBefore = 'بدي أخلص التقرير قبل آخر الشهر بأسبوع';
+  const { contract } = await proposeModel(weekBefore, SEP_10, recordedModel({ [weekBefore]: reportAnswer('2026-09-30', 'أخلص التقرير') }).provider);
+  assert.deepEqual(contract.items.map(line), ['أخلص التقرير | 2026-09-23 - | settled']);
+  // Another month named, with no model day: no day of ours.
+  const october = 'לסיים דוח עד סוף חודש אוקטובר';
+  const none = await proposeModel(october, SEP_10, recordedModel({ [october]: reportAnswer(null, 'לסיים דוח') }).provider);
+  assert.equal(none.contract.items[0]?.resolvedDate, undefined);
+});
+
+test('FZ1 round 2: a counted day that has already gone is not moved to the 30th', async () => {
+  // Monday 28 Sep: a week before the month's end was the 23rd.
+  const proposal = await proposeRules('بدي أخلص التقرير قبل آخر الشهر بأسبوع', N6_NOW);
+  assert.notEqual(proposal.items[0]?.resolvedDate, '2026-09-30');
+  assert.equal(proposal.items[0]?.needsClarification, true);
 });
