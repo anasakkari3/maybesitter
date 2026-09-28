@@ -26,6 +26,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
 import { LLMUnavailableError } from '../../src/extraction/llm/llmProvider.ts';
 import {
   answerClarification,
@@ -39,6 +40,9 @@ import { proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureSer
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
+import { setAiConsent } from '../../lib/consents/aiConsentService.ts';
+import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
+import { resetProviderForTests } from '../../src/extraction/llm/index.ts';
 
 const TZ = 'Asia/Jerusalem';
 /** Monday 28 Sep 2026, 10:05 in Jerusalem. */
@@ -462,5 +466,134 @@ test('R6 month end (SCRIPTED): a counted offset, another month or a date the per
     const item = contract.items[0]!;
     assert.equal(item.resolvedDate ?? null, expected, text);
     assert.notEqual(item.dateEstimated, true, text);
+  }
+});
+
+/* ── Round 6, re-run on 191f0f9d: the day's «مش» read as a refusal ── */
+
+/*
+ * On the phone (17:01–17:03, shots 577–579, Gemini `capture_extraction` ok
+ * ×3), «بدي أتصل بسامي بس مش بكرا» gave no review at all: «ما لقينا التزام» /
+ * «تمام. ما عملنا تذكير.» — `noCommitmentReason: negated_request`. Nothing in
+ * the words refuses a reminder (neither `NEGATED_REQUEST` in the mobile guard
+ * nor the validator's own check matches); the only negation is the day's.
+ * The one answer that reproduces it end to end is Gemini flagging
+ * `negated_request`, and that answer declines on 388bfd7a exactly as it does
+ * after the title fix — the title is not read for it. A «مش»/"not"/«לא» that
+ * rules out a day is a limit on the call, not a refusal of it: the model's flag
+ * is dropped when the unsettled day is the words' only negation. A refusal the
+ * person wrote still declines.
+ */
+
+const GENAI_STUB_URL = 'maybesitter-test:google-genai-r6';
+const GENAI_STUB_SOURCE = `
+export class GoogleGenAI {
+  constructor(options) { this.options = options; }
+  get models() {
+    return { generateContent: async (input) => globalThis.__r6VertexGenerate(input) };
+  }
+}
+`;
+type R6Globals = typeof globalThis & { __r6VertexGenerate?: () => Promise<unknown> };
+
+/** The model's no-day answer for the call, with the flags given. */
+function callAnswer(title: string, ambiguityFlags: string[]) {
+  const base = CALLS.find((call) => call.case === 'FINAL N19 log a doctor today')!.answer;
+  return {
+    ...base, action: title, title, dueAt: null, remindAt: null, localTimeSpec: null,
+    missingFields: ['time'], ambiguityFlags,
+  };
+}
+
+/**
+ * The route's own path, in process: `proposeMobileCapture` with the account's
+ * consent read from storage and the Vertex SDK stubbed, so the metered,
+ * consent-gated provider, `guardedMobileExtract` and the capture boundary all
+ * run as they do behind `/api/mobile/capture`. `answer: null` is no consent:
+ * the rules path.
+ */
+async function proposeThroughRoute(text: string, answer: Record<string, unknown> | null) {
+  setStorageForTests(createMemoryStorage());
+  let calls = 0;
+  (globalThis as R6Globals).__r6VertexGenerate = async () => {
+    calls += 1;
+    return { text: JSON.stringify(answer), modelVersion: 'gemini-2.5-flash', usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 10 } };
+  };
+  const hooks = registerHooks({
+    resolve(specifier, context, nextResolve) {
+      if (specifier === '@google/genai') return { url: GENAI_STUB_URL, shortCircuit: true };
+      return nextResolve(specifier, context);
+    },
+    load(url, context, nextLoad) {
+      if (url === GENAI_STUB_URL) return { format: 'module', source: GENAI_STUB_SOURCE, shortCircuit: true };
+      return nextLoad(url, context);
+    },
+  });
+  const previous = { provider: process.env.MAYBESITTER_LLM_PROVIDER, location: process.env.MAYBESITTER_VERTEX_LOCATION };
+  try {
+    const uid = 'r6-route';
+    if (answer) {
+      await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
+      process.env.MAYBESITTER_LLM_PROVIDER = 'gemini';
+      process.env.MAYBESITTER_VERTEX_LOCATION = 'europe-west1';
+    }
+    resetProviderForTests();
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: uid });
+    return { proposal, calls };
+  } finally {
+    hooks.deregister();
+    delete (globalThis as R6Globals).__r6VertexGenerate;
+    if (previous.provider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
+    else process.env.MAYBESITTER_LLM_PROVIDER = previous.provider;
+    if (previous.location === undefined) delete process.env.MAYBESITTER_VERTEX_LOCATION;
+    else process.env.MAYBESITTER_VERTEX_LOCATION = previous.location;
+    resetProviderForTests();
+    resetStorageForTests();
+  }
+}
+
+const itemsOf = (proposal: { items: Item[] }) => proposal.items.map((item) => [item.title, item.resolvedDate ?? null, (item as { needsClarification?: boolean }).needsClarification ?? null]);
+
+test('R6 route (SCRIPTED Gemini flags negated_request): «بدي أتصل بسامي بس مش بكرا» is an asked call, not «ما عملنا تذكير»', async () => {
+  const { proposal, calls } = await proposeThroughRoute('بدي أتصل بسامي بس مش بكرا', callAnswer('أتصل بسامي', ['negated_request']));
+  assert.equal(calls, 1);
+  assert.deepEqual(
+    [proposal.status, proposal.provenance.executedEngine, (proposal as { noCommitmentReason?: string }).noCommitmentReason ?? null],
+    ['needs_clarification', 'gemini', null],
+  );
+  assert.deepEqual(itemsOf(proposal), [['أتصل بسامي بس مش بكرا', null, true]]);
+});
+
+test('R6 route: the same capture without consent (rules) and with a plain model answer is the same asked call', async () => {
+  for (const answer of [null, callAnswer('أتصل بسامي', [])]) {
+    const { proposal } = await proposeThroughRoute('بدي أتصل بسامي بس مش بكرا', answer);
+    assert.equal(proposal.status, 'needs_clarification', JSON.stringify(answer));
+    assert.deepEqual(itemsOf(proposal), [['أتصل بسامي بس مش بكرا', null, true]]);
+  }
+});
+
+test('R6 boundary (SCRIPTED negated_request): every unsettled-day shape survives as an asked item that keeps its phrase', async () => {
+  for (const { text, phrase } of M2_TITLES) {
+    const model = /[a-z]/i.test(text) ? 'call Sam' : /[א-ת]/.test(text) ? 'להתקשר לסאמי' : 'أتصل بسامي';
+    const { contract } = await proposeModel(text, async () => JSON.stringify(callAnswer(model, ['negated_request'])));
+    assert.equal(contract.status, 'needs_clarification', text);
+    assert.equal(contract.items.length, 1, text);
+    const item = contract.items[0]!;
+    assert.ok(item.title.includes(phrase), `${text}: «${item.title}» lost «${phrase}»`);
+    assert.deepEqual([item.resolvedDate ?? null, item.resolvedTime, item.needsClarification], [null, null, true], text);
+  }
+});
+
+test('R6 boundary: a refusal the person wrote still declines, beside an unsettled day or not', async () => {
+  // Refused by the words themselves, whatever the model says.
+  for (const text of ['لا تذكرني أتصل بسامي بكرا', "don't remind me to call Sam tomorrow", 'אל תזכיר לי להתקשר לסאמי מחר']) {
+    const { contract } = await proposeModel(text, async () => JSON.stringify(callAnswer('x', [])));
+    assert.deepEqual([contract.status, contract.noCommitmentReason], ['no_commitment', 'negated_request'], text);
+  }
+  // The model's flag stands where the words carry a negation of their own:
+  // another negation beside the day's, or no unsettled day at all.
+  for (const text of ['never mind calling Sam, not tomorrow', 'خلص ما عاد بدي أتصل بسامي', 'call Sam tomorrow']) {
+    const { contract } = await proposeModel(text, async () => JSON.stringify(callAnswer('call Sam', ['negated_request'])));
+    assert.deepEqual([contract.status, contract.noCommitmentReason], ['no_commitment', 'negated_request'], text);
   }
 });
