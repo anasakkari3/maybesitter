@@ -464,3 +464,92 @@ test('«بدي أخلص تقرير اليوم قبل آخر الشهر»: both e
   const fx3 = await proposeModel(plain, MON_10, recordedModel({ [plain]: reportAnswer(null, 'أدفع الفاتورة') }).provider);
   assert.deepEqual(fx3.contract.items.map(line), ['أدفع الفاتورة | 2026-09-30 - | settled']);
 });
+
+// ── Fix round (POLISH-CAPTURE-review.md) ─────────────────────────────────
+
+test('fix I1: «غدا مع …» is tomorrow unless the sentence names another day — standard-Arabic "tomorrow with" keeps its day', async () => {
+  const tomorrow: Array<[string, string | null]> = [
+    ['اجتماع غدا مع العميل الساعة 11', '11:00'],
+    ['عندي اجتماع غدا مع المدير الساعة 10', '10:00'],
+    ['غدا مع المدير اجتماع الساعة 10', '10:00'],
+    ['أراك غدا مع الفريق الساعة 9 صباحا', '09:00'],
+    ['لدي اجتماع غدا مع مديري', null],
+    ['سأتصل بأمي غدا مع الصباح', '09:00'],
+  ];
+  for (const [text, time] of tomorrow) {
+    const item = (await proposeRules(text, MON_10)).items[0];
+    assert.equal(item?.resolvedDate, '2026-09-29', text);
+    if (time) assert.equal(localTimeSpecFor(new Date(item!.resolvedTime!), TZ)?.time, time, text);
+  }
+  // Another day named: «غدا» is the lunch, and stays in the title.
+  assert.deepEqual((await proposeRules('عندي غدا مع أمي بكرا', MON_10)).items.map(line), ['عندي غدا مع أمي | 2026-09-29 - | ask_time']);
+  assert.deepEqual((await proposeRules('يوم الخميس عندي غدا مع أمي', MON_10)).items.map((item) => [item.title, item.resolvedDate]), [['عندي غدا مع أمي', '2026-10-01']]);
+});
+
+test('fix I2: a past «خلص» after «و»/«ف» is still past narration; the first-person «أخلص»/«بخلص» are still commitments', async () => {
+  for (const text of ['وخلص الاجتماع', 'وخلصت التقرير', 'والحمدلله وخلصنا المشروع', 'فخلص الموضوع', 'وخلصت الدورة اليوم', 'خلص الاجتماع', 'الاجتماع خلص', 'اليوم خلصت الدورة']) {
+    const proposal = await proposeRules(text, MON_10);
+    assert.equal(proposal.status, 'no_commitment', text);
+    assert.equal(proposal.items.length, 0, text);
+  }
+  for (const text of ['أخلص التقرير بكرا', 'بخلص الشغل بكرا الساعة 5 المسا']) {
+    assert.equal((await proposeRules(text, MON_10)).items.length, 1, text);
+  }
+});
+
+test('fix I3: a typed answer that negates a day, offers two, or says "the next day" is not understood — never the day it said not to use', async () => {
+  for (const freeText of [
+    'بكرا لا، الخميس المسا', 'not tomorrow, Thursday evening', 'الخميس بدل بكرا المسا', 'الأحد مش بكرا، المسا',
+    'مش بكرا، الأحد المسا', 'بكرا أو الخميس المسا', 'tomorrow or Thursday evening', 'اليوم التاني المسا', 'לא מחר, ביום חמישי בערב',
+  ]) {
+    assert.deepEqual(await answerDoctor(freeText), { line: 'refused: answer_not_understood', after: 'موعد دكتور | 2026-10-04 19:00 | settled', calls: 0 }, freeText);
+  }
+  // A plain day, or «لا،» as its own reply before one, still answers.
+  assert.equal((await answerDoctor('بكرا المسا')).line, 'موعد دكتور | 2026-09-29 19:00 | settled');
+  assert.equal((await answerDoctor('لا، بكرا المسا')).line, 'موعد دكتور | 2026-09-29 19:00 | settled');
+  assert.equal((await answerDoctor('الخميس المسا')).line, 'موعد دكتور | 2026-10-01 19:00 | settled');
+});
+
+test('fix M1: company is only who it is with — no dangling preposition, no «مع السلامة», "with love" or «עם זאת»', () => {
+  const rows: Array<[string, string, string]> = [
+    ['بكرا بدي أطلع مع صحابي عالبحر مع العيلة', 'أطلع', 'أطلع مع صحابي'],
+    ['بدي أتصل بسامي مع السلامة بكرا', 'أتصل بسامي', 'أتصل بسامي'],
+    ['لازم أروح عالجيم مع إني تعبان بكرا', 'أروح عالجيم', 'أروح عالجيم'],
+    ['לשלוח את הדוח עם זאת מחר', 'לשלוח את הדוח', 'לשלוח את הדוח'],
+    ['send the card with love tomorrow', 'send the card', 'send the card'],
+    ['I am done with it, tomorrow call Sami', 'I am done', 'I am done'],
+    // Still restored.
+    ['والخميس الساعة 6 المسا عندي عشا مع العيلة', 'عندي عشا', 'عندي عشا مع العيلة'],
+    ['meeting with John tomorrow at 5', 'meeting', 'meeting with John'],
+    ['dinner with the family on Thursday at 6pm', 'dinner', 'dinner with the family'],
+  ];
+  for (const [text, title, expected] of rows) {
+    const result = validateExtractionResult({ ...reportAnswer('2026-10-01', title, '18:00'), action: title }, text, { now: N16_NOW, timezone: TZ });
+    assert.equal(result.title, expected, text);
+  }
+});
+
+test('fix M2: «12:30 المسا» typed to the time question is ambiguous too', async () => {
+  for (const freeText of ['12:30 المسا', 'الساعة 12:30 المسا', '12:15 in the evening']) {
+    assert.equal((await answerDoctor(freeText)).line, 'refused: answer_not_understood', freeText);
+  }
+});
+
+test('fix M7: «الساعة 12 المسا» in the capture itself is asked on its day, on both engines — never 12:00 or 00:00 picked', async () => {
+  const rows: Array<[string, string]> = [
+    ['بكرا الساعة 12 المسا بدي أتصل بأمي', 'أتصل بأمي'],
+    ['call mom tomorrow at 12 in the evening', 'call mom'],
+    ['מחר ב-12 בערב להתקשר לאמא', 'להתקשר לאמא'],
+  ];
+  for (const [text, title] of rows) {
+    const rules = (await proposeRules(text, MON_10)).items;
+    assert.deepEqual(rules.map((item) => line(item).split(' | ').slice(1).join(' | ')), ['2026-09-29 - | ask_time'], `rules: ${text}`);
+    for (const [date, time] of [['2026-09-29', '12:00'], ['2026-09-30', '00:00']] as const) {
+      const { contract } = await proposeModel(text, MON_10, recordedModel({ [text]: reportAnswer(date, title, time) }).provider);
+      assert.deepEqual(contract.items.map((item) => line(item).split(' | ').slice(1).join(' | ')), [`${date} - | ask_time`], `model ${date} ${time}: ${text}`);
+    }
+  }
+  // Noon and midnight said as such are unchanged.
+  assert.equal(line((await proposeRules('بكرا الساعة 12 الضهر بدي أتصل بأمي', MON_10)).items[0]!).split(' | ')[1], '2026-09-29 12:00');
+  assert.equal(line((await proposeRules('بكرا الساعة 12 بالليل بدي أتصل بأمي', MON_10)).items[0]!).split(' | ')[1], '2026-09-29 00:00');
+});
