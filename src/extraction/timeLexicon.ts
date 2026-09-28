@@ -533,6 +533,50 @@ export function namesTodayOnly(rawText: string): boolean {
   return relativeDayOffset(rawText) === 0 && !TONIGHT.test(rawText);
 }
 
+/*
+ * Words that put the commitment on some day other than today even when
+ * «اليوم»/"today"/«היום» is the only relative day in them (FZ1 review, I1):
+ * «اليوم الدكتور قلي ارجعله يوم 5», «اليوم عرفت إنه الاجتماع أول الشهر»,
+ * "not today", the weekend, after the feast. A model day for those is the
+ * model's reading of those words, not a "today" it moved.
+ */
+const OTHER_DAY_THAN_TODAY = new RegExp(
+  [
+    // «مش اليوم», "not today", «לא היום»
+    `${NOT_LETTER_BEFORE}(?:مش|مو|ما|لا|مب)\\s+${AR_PROCLITIC}(?:اليوم|النهارده|النهاردة)${NOT_LETTER_AFTER}`,
+    '\\bnot\\s+today\\b',
+    `${NOT_LETTER_BEFORE}לא\\s+היום${NOT_LETTER_AFTER}`,
+    // «يوم 5», «بـ 5 الشهر», «ב-5 לחודש», "on the 5th"
+    `${NOT_LETTER_BEFORE}يوم\\s*[0-9٠-٩]{1,2}(?![0-9٠-٩:])`,
+    `${NOT_LETTER_BEFORE}(?:ب|بـ)\\s*[0-9٠-٩]{1,2}\\s+(?:من\\s+)?(?:ال|هال|ل)?شهر`,
+    `${NOT_LETTER_BEFORE}ב-?\\s*[0-9]{1,2}\\s+(?:ל|ב)?חודש`,
+    // The month's start: «أول الشهر», "the beginning of the month", «תחילת החודש»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:أول|اول|بداية|بدايه|مطلع)\\s+(?:هال|ال)?شهر`,
+    '\\b(?:beginning|start)\\s+of\\s+(?:the\\s+|next\\s+)?month\\b',
+    `${NOT_LETTER_BEFORE}[בל]?(?:תחילת|ראשית)\\s+ה?חודש`,
+    // The weekend: «الويكند», «آخر الأسبوع», "the weekend", «סוף השבוע», «סופ"ש»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:الويكند|الويك\\s+اند|ويكند)`,
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:آخر|اخر|نهاية|نهايه)\\s+(?:هال|ال)?(?:أسبوع|اسبوع|جمعة)`,
+    '\\bweek\\s*-?\\s*end\\b',
+    `${NOT_LETTER_BEFORE}[בל]?(?:סוף\\s+ה?שבוע|סופ["״]?ש)`,
+    // A feast or a holiday: «بعد العيد», "after the holidays", «אחרי החג»
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:العيد|عيد|الأعياد|الاعياد)${NOT_LETTER_AFTER}`,
+    '\\bholidays?\\b',
+    `${NOT_LETTER_BEFORE}[בל]?(?:אחרי\\s+)?ה?(?:חג|חגים)${NOT_LETTER_AFTER}`,
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * The words name a day that is not today although «اليوم»/"today" is their
+ * only relative day: a negated today, a day of the month, the month's start
+ * or end, the weekend, a feast (FZ1 review, I1).
+ */
+export function namesOtherDayThanToday(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  return OTHER_DAY_THAN_TODAY.test(rawText) || thisMonthEndWords(rawText) !== null || readPeriodEndDeadline(rawText) !== null;
+}
+
 /**
  * A day, without any time of day. English, Arabic and Hebrew.
  *

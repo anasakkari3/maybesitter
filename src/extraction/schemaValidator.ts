@@ -27,6 +27,7 @@ import {
   monthEndDay,
   monthEndIsNotTheDay,
   namesDay,
+  namesOtherDayThanToday,
   namesTodayOnly,
   readPeriodEndDeadline,
   thisMonthEndWords,
@@ -247,6 +248,12 @@ export function reconcileLocalTimeSpec(
   return { dueAt, remindAt, localTimeSpec, timeEvidence: evidence, flags };
 }
 
+/** The calendar day after a local `YYYY-MM-DD`. */
+function nextLocalDate(date: string): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
 /**
  * Validate and normalise raw JSON (already parsed) from the LLM into a well-typed ExtractionResult.
  *
@@ -377,25 +384,27 @@ export function validateExtractionResult(
       dateInferred = weekday.inferred;
     }
   }
-  // The words say today and no other day, and the model's day is later
+  // The words say today and no other day, and the model's day is tomorrow
   // (closure UAT round 3, FZ1 N10). At 03:22 on Monday, «اليوم الساعة 2 بالليل
   // لازم أبعت الإيميل للمدير» came back one run in five as Tuesday 02:00, and
   // was proposed, settled, as «بكرا · 02:00»: a later reading nobody said,
-  // picked for the person (CL1: never). The words' day wins, with the model's
-  // hour on it; an hour that has gone is then refused as past, and the
-  // boundary asks for a new one, as for any passed hour today.
-  if (context?.now && time.localTimeSpec?.date && namesTodayOnly(rawText) && !readWeekdayReference(rawText) && !namesCalendarDate(rawText)) {
+  // picked for the person (CL1: never). The words' day wins — and nothing is
+  // settled on it: the model's hour is dropped, so the item is asked for an
+  // hour on today, like a passed hour (FZ1 review, I1).
+  //
+  // Narrow on purpose (FZ1 review, I1): only a model day of exactly tomorrow
+  // (the passed or night hour rolled over), and never when the words name the
+  // day some other way — «يوم 5», «آخر الشهر», «أول الشهر», «مش اليوم», the
+  // weekend, the feast — which the model reads rightly.
+  if (
+    context?.now && time.localTimeSpec?.date && namesTodayOnly(rawText)
+    && !readWeekdayReference(rawText) && !namesCalendarDate(rawText) && !namesOtherDayThanToday(rawText)
+  ) {
     const zone = context.timezone || 'UTC';
     const today = localTimeSpecFor(context.now, zone)?.date ?? null;
-    if (today && time.localTimeSpec.date > today) {
-      const clock = time.localTimeSpec.time;
-      const at = clock ? instantFromLocal(today, clock, zone)?.toISOString() ?? null : null;
-      time = {
-        ...time,
-        dueAt: at && time.dueAt ? at : null,
-        remindAt: at && time.remindAt ? at : null,
-        localTimeSpec: { date: today, time: at ? clock : null, timezone: zone },
-      };
+    const tomorrow = today ? nextLocalDate(today) : null;
+    if (today && time.localTimeSpec.date === tomorrow) {
+      time = { ...time, dueAt: null, remindAt: null, localTimeSpec: { date: today, time: null, timezone: zone } };
       dateInferred = false;
     }
   }
