@@ -443,14 +443,44 @@ export function validateExtractionResult(
     time = { ...time, dueAt: null, remindAt: null, localTimeSpec: null };
     dateInferred = false;
   }
-  const modelDay = time.localTimeSpec?.date ?? null;
   // The day the words' month end means on the person's clock, counted back or
   // on when they carry an offset (FZ1 round 2): «قبل آخر الشهر بأسبوع» is the
   // 23rd, not the 30th FX3 settled. A model 30th under such an offset is the
   // month's end the words moved away from, and gives way to it.
   const wordsDay = context?.now ? monthEndDay(rawText, context.now, zone) : null;
+  // A counted day before this month's end is the words' own, whatever day the
+  // model gave (closure UAT round 4, N15). At 06:58 on Monday 28 Sep, «أخلص
+  // التقرير قبل آخر الشهر بيومين» — the 28th, today — came back from Gemini
+  // as 29 or 30 October (4 of 4), and FY1 left any model day under an offset
+  // to the model: a next-month reading nobody said, picked for the person.
+  // The words win; a stated hour the model read goes with them. Not when the
+  // words name a day of their own as well — that one is the model's to read.
+  const countedBefore = wordsDay?.side === 'before' && !namesDay(rawText) && !namesExplicitDate(rawText) ? wordsDay.date : null;
+  if (countedBefore && time.localTimeSpec?.date && time.localTimeSpec.date !== countedBefore) {
+    const stated = forbidsResolvedTime(rawText) ? null : time.localTimeSpec.time;
+    const instant = stated ? instantFromLocal(countedBefore, stated, zone) : null;
+    time = {
+      ...time,
+      dueAt: instant ? instant.toISOString() : null,
+      remindAt: instant && time.remindAt ? instant.toISOString() : null,
+      localTimeSpec: { date: countedBefore, time: instant ? stated : null, timezone: zone },
+    };
+    dateInferred = false;
+  }
+  const modelDay = time.localTimeSpec?.date ?? null;
   const deadlineDay = wordsDay && wordsDay.side !== 'after' ? wordsDay.date : null;
+  const today = context?.now ? localTimeSpecFor(context.now, zone)?.date ?? null : null;
   if (
+    countedBefore && countedBefore === today && forbidsResolvedTime(rawText)
+    && (modelDay === null || modelDay === countedBefore)
+  ) {
+    // The counted day is today (N15): that day, and the hour asked — not an
+    // all-day limit whose midnight has already gone. (A counted day that has
+    // gone takes the deadline below, which the guard refuses as past, and the
+    // boundary asks with no day: never next month.)
+    time = { ...time, dueAt: null, remindAt: null, localTimeSpec: { date: countedBefore, time: null, timezone: zone } };
+    dateInferred = false;
+  } else if (
     deadlineDay && monthLastDay && forbidsResolvedTime(rawText) && readPeriodEndDeadline(rawText) === 'month'
     && (modelDay === null || modelDay === monthLastDay || modelDay === deadlineDay)
   ) {

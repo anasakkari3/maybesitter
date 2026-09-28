@@ -264,10 +264,14 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     hour = daypart;
   } else if (context.defaultReminderHour !== undefined) {
     hour = context.defaultReminderHour;
-  } else if (monthEnd) {
+  } else if (monthEnd && !(wordsDay?.side === 'before' && monthEnd === localTimeSpecFor(now, tz)?.date)) {
     // A deadline that is a day and not an hour: due by the month's last day,
     // all day. Nothing to ask — "what time is the end of the month?" has no
     // answer the person is holding.
+    //
+    // Except a counted day that is today (closure UAT round 4, N15): «قبل آخر
+    // الشهر بيومين» said on the 28th is today, and the hour is asked on it —
+    // it falls through to the day with no hour, below.
     const midnight = instantFromLocal(monthEnd, '00:00', tz);
     if (midnight) {
       return {
@@ -294,6 +298,8 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
       evidence,
       localTimeSpec: day ? { ...day, time: null } : null,
       dateInferred,
+      // A counted day today (N15): the month-end words are its time, not its title.
+      ...(monthEnd ? { monthEnd: true } : {}),
     };
   }
 
