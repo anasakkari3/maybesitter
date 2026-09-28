@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { AccessibilityInfo, Platform, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { fill, type Strings } from '../../i18n/strings';
+import { fill, ltr, type Strings } from '../../i18n/strings';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { chipSeparator, hasChip, toggleChipAmong } from '../../ui/chipText';
 import { OnboardingChrome } from './OnboardingChrome';
@@ -230,7 +230,8 @@ export function SetupChatStep({
           ) : null}
         </View>
         <Txt size={12} color={overCap ? p.wm : p.mu} weight={overCap ? 600 : 400} latin testID="setup-answer-count">
-          {`${length} / ${cap}`}
+          {/* One left-to-right unit: bare, an Arabic layout read «150 / 50» (UAT round 6, shot 742). */}
+          {ltr(`${length} / ${cap}`)}
         </Txt>
       </View>
 

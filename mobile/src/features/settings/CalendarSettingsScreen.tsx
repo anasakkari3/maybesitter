@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Switch, View } from 'react-native';
+import { ActivityIndicator, AppState, Linking, Platform, Switch, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
+import { Dialog } from '../../ui/dialog';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
 import { ServerToggle } from './ServerToggle';
@@ -40,6 +41,11 @@ export function groupByAccount(calendars: readonly DeviceEventCalendar[]): { sou
     groups.set(source, [...(groups.get(source) ?? []), calendar]);
   }
   return [...groups.entries()].map(([source, list]) => ({ source, calendars: list }));
+}
+
+/** A writable calendar as the picker names it: the source tells two "Calendar"s apart. */
+function calendarOptionLabel(calendar: WritableCalendar): string {
+  return calendar.sourceName ? `${calendar.title} · ${calendar.sourceName}` : calendar.title;
 }
 
 /**
@@ -126,17 +132,21 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const [busy, setBusy] = useState(false);
   const [disconnected, setDisconnected] = useState<null | 'done' | 'localOnly'>(null);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
 
   const target = settings.data?.calendarSettings.writeTarget ?? 'off';
   const on = target === 'device';
 
-  const loadCalendars = useCallback(async () => {
+  const loadCalendars = useCallback(async (): Promise<WritableCalendar[]> => {
     try {
-      setCalendars(await deviceCalendar.listWritableCalendars());
+      const list = await deviceCalendar.listWritableCalendars();
+      setCalendars(list);
+      return list;
     } catch {
       // A read that fails is a list nobody can pick from, which the screen
       // already renders as "no calendar chosen". It is not an error to report.
       setCalendars([]);
+      return [];
     }
   }, []);
 
@@ -163,6 +173,34 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     return () => { cancelled = true; };
   }, [loadCalendars, loadPhoneCalendars]);
 
+  // The phone's answer can only change in the phone's settings, so it is read
+  // again whenever the app comes back from there. Without this, allowing
+  // access in Settings left this screen saying "denied" until a relaunch, and
+  // taking it away left both switches reading on (UAT round 6, D-c).
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      void (async () => {
+        const current = await deviceCalendar.getAccess();
+        setAccess(current);
+        if (current === 'granted') await Promise.all([loadCalendars(), loadPhoneCalendars()]);
+      })();
+    });
+    return () => subscription.remove();
+  }, [loadCalendars, loadPhoneCalendars]);
+
+  // "Disconnected" is about the moment the button was pressed. Once reading is
+  // back on — here, or from the Trust Center — the line would be saying
+  // something that is no longer true (UAT round 6, D-c, shot 759).
+  // Adjusted while rendering, from the last consent this screen saw, rather
+  // than in an effect: only a change *to* on clears it, so a disconnect whose
+  // account half failed (consent still on) keeps saying so.
+  const [seenConsent, setSeenConsent] = useState(consented);
+  if (seenConsent !== consented) {
+    setSeenConsent(consented);
+    if (consented) setDisconnected(null);
+  }
+
   /** Asks the phone if it has not answered yet; reads the calendars on a yes. */
   const askPhone = useCallback(async (): Promise<CalendarAccess> => {
     const answer = access === 'granted' ? 'granted' : await deviceCalendar.requestAccess();
@@ -180,6 +218,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
    * same rule the reminders switch follows.
    */
   const changeRead = useCallback(async (next: boolean): Promise<boolean> => {
+    if (next) setDisconnected(null);
     if (next) await askPhone();
     await trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next });
     return true;
@@ -192,6 +231,13 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     await saveExcludedCalendarIds(next);
     void busyCalendar.syncNow('refresh');
   }, [busyCalendar, excluded]);
+
+  const pick = useCallback(async (calendarId: string) => {
+    setChosen(calendarId);
+    await saveChosenCalendarId(calendarId);
+    // The pass had nothing to write into until now.
+    await sync.runNow();
+  }, [sync]);
 
   /**
    * Turning it on: ask the OS first, and write the setting only if it said yes.
@@ -209,17 +255,20 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     const granted = access === 'granted' ? 'granted' : await deviceCalendar.requestAccess();
     setAccess(granted);
     if (granted !== 'granted') return false;
-    await loadCalendars();
+    const writable = await loadCalendars();
     await setTarget.mutateAsync('device');
+    // A confirm used to reach the calendar only after somebody came back here
+    // and tapped the one row there was (UAT round 6, D-a, shot 793).
+    if (chosen === null && writable.length === 1) await pick(writable[0]!.id);
     return true;
-  }, [access, loadCalendars, setTarget]);
+  }, [access, chosen, loadCalendars, pick, setTarget]);
 
-  const pick = useCallback(async (calendarId: string) => {
-    setChosen(calendarId);
-    await saveChosenCalendarId(calendarId);
-    // The pass had nothing to write into until now.
-    await sync.runNow();
-  }, [sync]);
+  // Nothing picked on this phone and exactly one calendar it can write to:
+  // that is not a choice, so it shows as chosen — it is the one the sync pass
+  // writes into (`adoptSoleCalendar`), and turning writing on saves it (UAT
+  // round 6, D-a). With two or more, nothing is chosen for them: the card says
+  // so and waits (`calendarPickNeeded`).
+  const shownChosen = chosen ?? (calendars.length === 1 ? calendars[0]!.id : null);
 
   const removeAll = useCallback(async () => {
     setBusy(true);
@@ -234,6 +283,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   }, [sync]);
 
   const disconnect = useCallback(async () => {
+    setConfirmDisconnect(false);
     setDisconnecting(true);
     setDisconnected(null);
     try {
@@ -270,7 +320,27 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   }, [changeRead]);
 
   return (
-    <Screen pinned={<SettingsHeader title={t.calendarWriteTitle} onBack={onBack} />}>
+    <Screen
+      pinned={<SettingsHeader title={t.calendarWriteTitle} onBack={onBack} />}
+      overlay={confirmDisconnect ? (
+        // The one shape for "are you sure" (Round 2): deleting the busy times
+        // from the phone and the account cannot be taken back, and an
+        // accidental tap did exactly that (UAT round 6, shot 757).
+        <Dialog
+          testID="calendar-disconnect-dialog"
+          title={t.calendarDisconnectTitle}
+          body={t.calendarDisconnectConfirmBody}
+          confirmLabel={t.calendarDisconnectConfirm}
+          cancelLabel={t.calendarDisconnectKeep}
+          tone="ink"
+          busy={disconnecting}
+          onConfirm={() => void disconnect()}
+          onCancel={() => setConfirmDisconnect(false)}
+          confirmTestID="calendar-disconnect-confirm"
+          cancelTestID="calendar-disconnect-keep"
+        />
+      ) : null}
+    >
       <ScreenScroll>
 
         {/* Reading first: the calendars already on the phone (L7). */}
@@ -278,8 +348,12 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
           <ServerToggle
             title={t.calendarReadTitle}
             body={t.calendarReadBody}
-            value={consented}
-            disabled={!calendarReadEnabled() || trust.data === undefined}
+            // Off while the phone refuses: consent alone reads nothing, and a
+            // switch on over the "no access" card is a switch that lies (UAT
+            // round 6, D-c, shot 761). The consent itself is kept, so allowing
+            // it in phone settings brings the switch straight back.
+            value={consented && !denied}
+            disabled={!calendarReadEnabled() || trust.data === undefined || denied}
             onChange={changeRead}
             testID="calendar-read-toggle"
           />
@@ -370,7 +444,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
           <Btn
             label={t.calendarDisconnectAction}
             testID="calendar-disconnect"
-            onPress={() => void disconnect()}
+            onPress={() => setConfirmDisconnect(true)}
             disabled={disconnecting}
             style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
           >
@@ -389,8 +463,8 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
           <ServerToggle
             title={t.calendarWriteToggle}
             body={t.calendarWriteBody}
-            value={on}
-            disabled={!calendarWriteEnabled() || settings.isLoading}
+            value={on && !denied}
+            disabled={!calendarWriteEnabled() || settings.isLoading || denied}
             onChange={change}
             testID="calendar-write-toggle"
           />
@@ -411,12 +485,21 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
             <View style={{ paddingVertical: 14, paddingHorizontal: 18 }}>
               <Txt size={15}>{t.calendarPickTitle}</Txt>
               <Txt size={13} color={p.mu} lh={1.5}>{t.calendarPickBody}</Txt>
+              <LiveRegion>
+                {shownChosen === null && calendars.length > 1
+                  ? <Txt size={13} color={p.wm} weight={600} lh={1.5} testID="calendar-pick-needed">{t.calendarPickNeeded}</Txt>
+                  : null}
+              </LiveRegion>
             </View>
             {calendars.map((calendar, index) => (
               <Btn
                 key={calendar.id}
-                label={calendar.title}
+                label={calendarOptionLabel(calendar)}
                 testID={`calendar-option-${calendar.id}`}
+                // One calendar is written into: a single choice, and the
+                // chosen one says so to a screen reader, not only in colour.
+                accessibilityRole="radio"
+                accessibilityState={{ checked: shownChosen === calendar.id }}
                 onPress={() => void pick(calendar.id)}
                 scaleTo={0.98}
                 style={{
@@ -432,8 +515,8 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
               >
                 {/* The source, not just the name: two accounts usually both
                     have a calendar called "Calendar". */}
-                <Txt size={15}>{calendar.sourceName ? `${calendar.title} · ${calendar.sourceName}` : calendar.title}</Txt>
-                {chosen === calendar.id ? <Txt size={13} color={p.ac}>{t.done}</Txt> : null}
+                <Txt size={15}>{calendarOptionLabel(calendar)}</Txt>
+                {shownChosen === calendar.id ? <Txt size={13} color={p.ac}>{t.done}</Txt> : null}
               </Btn>
             ))}
             {calendars.length === 0 ? (
