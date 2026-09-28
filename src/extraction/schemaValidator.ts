@@ -767,8 +767,9 @@ export function validateExtractionResult(
   // that has gone is then a past hour, asked like the rules' — never the
   // model's later one, never tomorrow. The model's «vague» and «time
   // missing» go with its hour: the reading is the rules' one. Not while the
-  // words carry a number the clock readers cannot place — «المسا ع سبعة» is
-  // the person's seven, which the model read (`namesAnyNumber`). Nor for
+  // words carry a number of any kind (`namesAnyNumber`): one the clock
+  // readers place — «المسا ع سبعة» — is the person's hour, read above, and
+  // one they cannot is the model's to read. Nor for
   // midnight or the night's end — «نص الليل», «آخر الليل», «חצות» — which
   // are no evening and run past the day (`namesNightEnd`). (An all-day
   // limit is read only from words with no time of day, so it never meets a
