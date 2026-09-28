@@ -249,20 +249,31 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const nonEmptyString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim() !== '';
 
-/** Base64url per RFC 4648 §5, unpadded, as Gmail emits it (CONTRACT.md §4.3). */
-const BASE64URL = /^[A-Za-z0-9_-]*$/;
+/** Base64url per RFC 4648 §5, accepting its legal padded and unpadded forms. */
+const BASE64URL = /^([A-Za-z0-9_-]*)(={0,2})$/;
 
 /**
  * Decodes a base64url body part.
  *
- * Rejects rather than guesses. A standard-base64 decode of a base64url string
- * silently corrupts any byte that happened to encode as `-` or `_`, so a
- * payload carrying `+`, `/` or embedded `=` is a contract violation and is
- * reported as one instead of producing plausible-looking wrong text.
+ * Rejects rather than guesses. RFC 4648 base64url uses `-` and `_` and permits
+ * the ordinary one or two `=` padding characters at the end; Gmail's bytes
+ * field is seen both padded and unpadded. A payload carrying `+`, `/`, embedded
+ * padding or the wrong amount of trailing padding is still a contract
+ * violation instead of something to decode into plausible-looking wrong text.
  */
 export function decodeBase64Url(data: string, endpoint: GmailEndpoint): string {
-  if (!BASE64URL.test(data)) throw new GmailWireError(endpoint, 'base64url body data');
-  return Buffer.from(data, 'base64url').toString('utf8');
+  const matched = BASE64URL.exec(data);
+  if (!matched) throw new GmailWireError(endpoint, 'base64url body data');
+
+  const unpadded = matched[1] ?? '';
+  const suppliedPadding = matched[2]?.length ?? 0;
+  const remainder = unpadded.length % 4;
+  const requiredPadding = remainder === 0 ? 0 : 4 - remainder;
+  if (remainder === 1 || (suppliedPadding > 0 && suppliedPadding !== requiredPadding)) {
+    throw new GmailWireError(endpoint, 'base64url body data');
+  }
+
+  return Buffer.from(unpadded, 'base64url').toString('utf8');
 }
 
 function headerValue(headers: unknown, name: string): string | null {
