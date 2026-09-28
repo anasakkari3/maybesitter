@@ -14,7 +14,7 @@ import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
 import en from '../../../i18n/locales/en.json';
-import { NetworkError, ServerError, TimeoutError, ValidationError } from '../../../api/errors';
+import { ForbiddenError, NetworkError, ServerError, TimeoutError, ValidationError } from '../../../api/errors';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -95,7 +95,8 @@ describe('which failure it says (UAT round 3, N9)', () => {
   it('a server fault reads as ours, not as the network', async () => {
     await failWith(new ServerError('boom', 500));
     expect(screen.queryByText(en.trustActionFailed)).toBeNull();
-    expect(screen.queryByText(en.errorsServer)).not.toBeNull();
+    // Its own line under a switch, which also says nothing changed (FZ2 M6).
+    expect(screen.queryByText(en.toggleServerFailed)).not.toBeNull();
   });
 
   it('a failure that is not an answer from the server claims nothing about it', async () => {
@@ -121,6 +122,33 @@ describe('a failure is announced', () => {
     expect(screen.getByTestId('toggle-failed-live').props.accessibilityLiveRegion).toBe('polite');
     await waitFor(() => expect(announce).toHaveBeenCalledWith(en.trustActionFailed));
     announce.mockRestore();
+  });
+});
+
+/*
+ * FZ2 review M6: some lines passed through were written for other screens —
+ * «شغّلها من الإعدادات حتى تشوف الاقتراحات» under a consent switch, a server
+ * fault that never said nothing changed. Under a switch every line says what
+ * happened to the switch.
+ */
+describe('every failure line reads under a switch', () => {
+  async function lineFor(error: unknown): Promise<string> {
+    await show({ onChange: (async () => { throw error; }) as never });
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+    return String(screen.getByTestId('toggle-failed').props.children);
+  }
+
+  it('a server fault says nothing changed', async () => {
+    expect(await lineFor(new ServerError('boom', 500))).toBe(en.toggleServerFailed);
+  });
+
+  it('a consent the server still needs is said about this switch, not about suggestions', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'consent_required'))).toBe(en.toggleConsentRequired);
+  });
+
+  it('quiet mode is said about this switch, not about suggestions', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'quiet_mode'))).toBe(en.toggleQuietMode);
   });
 });
 
