@@ -1332,3 +1332,33 @@ test('R6 passed part model path (SCRIPTED, the model\'s own «today»): a typed 
     { dueAt: hebronIso(TODAY, '20:00'), localTimeSpec: { date: TODAY, time: '20:00', timezone: HEBRON } }, { freeText: 'الساعة 8 المسا' });
   assert.deepEqual(cardOf(ahead.answered), [TODAY, hebronIso(TODAY, '20:00'), false]);
 });
+
+/* ── Round 6, batch 4: the model's hour for «المسا» (build e1871874) ── */
+
+/*
+ * «لازم أتصل بأمي بكرا المسا» ×3 on Gemini (shots 772–774) was «بكرا ·
+ * 21:00» twice and «بكرا · 18:00» once, «حزرنا الساعة» every time. Through
+ * the route's own path: whatever hour the model gives for a part of the day
+ * with no number, the phone gets the rules path's 18:00 on the model's day,
+ * still marked as our guess.
+ */
+test('R6 batch 4 route (SCRIPTED Gemini 21:00, 19:30, no hour): «لازم أتصل بأمي بكرا المسا» reaches the phone as tomorrow 18:00, marked — as without consent', async () => {
+  const text = 'لازم أتصل بأمي بكرا المسا';
+  const evening = new Date(`${TOMORROW}T18:00:00+03:00`).toISOString();
+  const cardOfRoute = (proposal: { items: Item[] }) => proposal.items.map((item) => [
+    item.resolvedDate ?? null, item.resolvedTime, (item as { needsClarification?: boolean }).needsClarification, (item as { timeEstimated?: boolean }).timeEstimated,
+  ]);
+  const rules = await proposeThroughRoute(text, null);
+  assert.deepEqual(cardOfRoute(rules.proposal), [[TOMORROW, evening, false, true]]);
+  for (const time of ['21:00', '19:30', null]) {
+    const answer = {
+      ...callAnswer('أتصل بأمي', time ? [] : ['vague_time']),
+      ...(time ? { dueAt: new Date(`${TOMORROW}T${time}:00+03:00`).toISOString(), missingFields: [] } : {}),
+      localTimeSpec: { date: TOMORROW, time, timezone: TZ },
+    };
+    const { proposal, calls } = await proposeThroughRoute(text, answer);
+    assert.equal(calls, 1, String(time));
+    assert.equal(proposal.provenance.executedEngine, 'gemini', String(time));
+    assert.deepEqual(cardOfRoute(proposal), cardOfRoute(rules.proposal), `Gemini answered ${time}`);
+  }
+});

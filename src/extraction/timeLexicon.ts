@@ -751,6 +751,19 @@ export function namesDayOfMonth(rawText: string): boolean {
 }
 
 /*
+ * The night's end, and its midnight: «آخر الليل», «نص الليل», «الساعة 12
+ * بالليل», "midnight", «חצות». They run past today's date (N-M1), and they are
+ * no evening: «نص الليل» holds «الليل», which `dayPartHour` reads as 20:00.
+ */
+const NIGHT_END_SOURCES: readonly string[] = [
+  `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:آخر|اخر|نص|نصف|منتصف)\\s+(?:ال)?ليل${NOT_LETTER_AFTER}`,
+  `(?:الساعة|الساعه|${NOT_LETTER_BEFORE})\\s*(?:12|١٢)\\s*(?:بالليل|الليل|بليل)${NOT_LETTER_AFTER}`,
+  '\\bmidnight\\b|\\b12\\s*(?:at\\s+night|tonight|midnight)\\b',
+  `${NOT_LETTER_BEFORE}[בל]?חצות${NOT_LETTER_AFTER}|(?:בשעה|ב-?)\\s*12\\s+בלילה${NOT_LETTER_AFTER}`,
+];
+const NIGHT_END = new RegExp(NIGHT_END_SOURCES.join('|'), 'iu');
+
+/*
  * Words that put the commitment on some day other than today even when
  * «اليوم»/"today"/«היום» is the only relative day in them (FZ1 review, I1):
  * «اليوم الدكتور قلي ارجعله يوم 5», «اليوم عرفت إنه الاجتماع أول الشهر»,
@@ -782,15 +795,16 @@ const OTHER_DAY_THAN_TODAY = new RegExp(
     '\\b(?:the\\s+)?(?:next|following)\\s+day\\b|\\bthe\\s+day\\s+after\\b',
     `${NOT_LETTER_BEFORE}(?:تاني|ثاني|تانى|ثانى)\\s+(?:يوم|نهار)${NOT_LETTER_AFTER}|${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:اليوم|النهار)\\s+(?:التاني|الثاني|التالي|اللي\\s+بعده)${NOT_LETTER_AFTER}`,
     `${NOT_LETTER_BEFORE}למחרת${NOT_LETTER_AFTER}`,
-    // The night's end, and its midnight, run past today's date (N-M1): «آخر
-    // الليل», «نص الليل», «الساعة 12 بالليل», "midnight", «חצות»
-    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:آخر|اخر|نص|نصف|منتصف)\\s+(?:ال)?ليل${NOT_LETTER_AFTER}`,
-    `(?:الساعة|الساعه|${NOT_LETTER_BEFORE})\\s*(?:12|١٢)\\s*(?:بالليل|الليل|بليل)${NOT_LETTER_AFTER}`,
-    '\\bmidnight\\b|\\b12\\s*(?:at\\s+night|tonight|midnight)\\b',
-    `${NOT_LETTER_BEFORE}[בל]?חצות${NOT_LETTER_AFTER}|(?:בשעה|ב-?)\\s*12\\s+בלילה${NOT_LETTER_AFTER}`,
+    // The night's end, and its midnight, run past today's date (N-M1).
+    ...NIGHT_END_SOURCES,
   ].join('|'),
   'iu',
 );
+
+/** The words name the night's end or its midnight (`NIGHT_END_SOURCES`). */
+export function namesNightEnd(rawText: string): boolean {
+  return typeof rawText === 'string' && NIGHT_END.test(rawText);
+}
 
 /**
  * The words name a day that is not today although «اليوم»/"today" is their
@@ -1340,6 +1354,44 @@ const TWELVE_IN_THE_EVENING = new RegExp(
 /** The text says twelve with an evening word — an hour nobody can read without asking. */
 export function namesTwelveInTheEvening(rawText: string): boolean {
   return typeof rawText === 'string' && TWELVE_IN_THE_EVENING.test(rawText);
+}
+
+/**
+ * The product's hour for a part of the day the words give with no number, or
+ * null (UAT round 6, D2 and batch 4). «بكرا المسا», "this evening", «מחר
+ * בערב» are `dayPartHour`'s hour — the same one on both engines — and ours,
+ * not the person's. Null when the words state a clock number anywhere — «5
+ * المسا», «الساعة 7», "7pm", «ב-19:00», «الساعة سبعة المسا» are the person's
+ * hour — and for «12 المسا», which is asked, never settled.
+ */
+export function partOfDayOnlyHour(rawText: string): number | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const hour = dayPartHour(rawText);
+  if (hour === null || namesTwelveInTheEvening(rawText)) return null;
+  return !statesClock(rawText) && statedClockHours(rawText).size === 0 ? hour : null;
+}
+
+/*
+ * Any number in the words — a digit, or an hour said as a word: «ع سبعة»,
+ * «عالسبعة», «בערב בשבע», "evening at seven". The clock readers take a spoken
+ * hour only after «الساعة»/«בשעה» or right before a part of the day, so these
+ * are no clock to them, and `partOfDayOnlyHour` reads «بكرا المسا ع سبعة» as
+ * the evening alone. The model does read the seven; its hour is not replaced
+ * by the part of the day's while such a number is there (UAT round 6, batch 4).
+ */
+const ANY_NUMBER = new RegExp(
+  [
+    '[0-9\u0660-\u0669\u06F0-\u06F9]',
+    `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:ال)?(?:${ARABIC_CARDINAL_HOURS.map(([words]) => words).join('|')})${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}${HE_PREFIX}-?(?:אחת|אחד|שתיים|שתים|שניים|שנים|שלוש|שלושה|שלש|ארבע|ארבעה|חמש|חמישה|שש|שישה|שבע|שבעה|שמונה|תשע|תשעה|עשר|עשרה)${NOT_LETTER_AFTER}`,
+    '\\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\b',
+  ].join('|'),
+  'iu',
+);
+
+/** The words carry a number of any kind, digits or a spoken hour. */
+export function namesAnyNumber(rawText: string): boolean {
+  return typeof rawText === 'string' && ANY_NUMBER.test(rawText);
 }
 
 /** The last day of the month `now` falls in, on the user's own clock, `YYYY-MM-DD`. */

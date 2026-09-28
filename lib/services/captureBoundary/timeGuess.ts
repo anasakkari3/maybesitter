@@ -1,4 +1,4 @@
-import { dayPartHour, namesTwelveInTheEvening, statedClockHours, statesClock } from '../../../src/extraction/timeLexicon';
+import { partOfDayOnlyHour } from '../../../src/extraction/timeLexicon';
 
 /**
  * The words give a part of the day and no hour (UAT round 6, D2).
@@ -16,12 +16,12 @@ import { dayPartHour, namesTwelveInTheEvening, statedClockHours, statesClock } f
  * «ב-19:00», «الساعة سبعة المسا» are the person's hour. «12 المسا» is asked,
  * never settled, so it is never a guess shown as a time.
  *
+ * The model path puts the same hour on its day (`partOfDayOnlyHour`, UAT
+ * round 6 batch 4), so the words decide the hour as well as the mark.
+ *
  * Content-free: it reads the words and answers a boolean; nothing of them is
  * kept.
  */
 export function hourIsPartOfDayGuess(text: string): boolean {
-  if (typeof text !== 'string' || !text.trim()) return false;
-  if (dayPartHour(text) === null) return false;
-  if (namesTwelveInTheEvening(text)) return false;
-  return !statesClock(text) && statedClockHours(text).size === 0;
+  return partOfDayOnlyHour(text) !== null;
 }

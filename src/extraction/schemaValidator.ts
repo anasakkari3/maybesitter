@@ -27,12 +27,15 @@ import {
   localTimeSpecFor,
   monthEndDay,
   monthEndIsNotTheDay,
+  namesAnyNumber,
   namesDay,
   namesDayOfMonth,
+  namesNightEnd,
   namesOtherDayThanToday,
   namesTodayOnly,
   namesTimeRange,
   namesTwelveInTheEvening,
+  partOfDayOnlyHour,
   readPeriodEndDeadline,
   statedClockHours,
   relativeDayIsUnsettled,
@@ -753,6 +756,41 @@ export function validateExtractionResult(
     if (offset !== null && !(offset === 0 && namesOtherDayThanToday(rawText)) && !relativeDayIsUnsettled(rawText)) {
       time = { ...time, localTimeSpec: { date: shiftLocalDate(today, offset), time: null, timezone: zone } };
       dateInferred = false;
+    }
+  }
+  // A part of the day and no number in the words (UAT round 6, batch 4):
+  // «لازم أتصل بأمي بكرا المسا» ×3 on Gemini came back 21:00, 21:00 and
+  // 18:00 — all marked «حزرنا الساعة», but the hour was the model's whim. The
+  // hour is the product's for that part (`dayPartHour`), as on the rules
+  // path, on the model's day as settled above; the capture boundary still
+  // marks it a guess. Whatever hour the model gave, or none. A part of today
+  // that has gone is then a past hour, asked like the rules' — never the
+  // model's later one, never tomorrow. The model's «vague» and «time
+  // missing» go with its hour: the reading is the rules' one. Not while the
+  // words carry a number the clock readers cannot place — «المسا ع سبعة» is
+  // the person's seven, which the model read (`namesAnyNumber`). Nor for
+  // midnight or the night's end — «نص الليل», «آخر الليل», «חצות» — which
+  // are no evening and run past the day (`namesNightEnd`). (An all-day
+  // limit is read only from words with no time of day, so it never meets a
+  // part of the day here.)
+  const partHour = partOfDayOnlyHour(rawText);
+  const partDay = time.localTimeSpec?.date ?? null;
+  if (partHour !== null && partDay && !namesAnyNumber(rawText) && !namesNightEnd(rawText)) {
+    const clock = `${String(partHour).padStart(2, '0')}:00`;
+    const instant = instantFromLocal(partDay, clock, zone)?.toISOString() ?? null;
+    if (instant) {
+      time = {
+        ...time,
+        dueAt: time.dueAt || !time.remindAt ? instant : null,
+        remindAt: time.remindAt ? instant : null,
+        localTimeSpec: { date: partDay, time: clock, timezone: zone },
+      };
+      for (let index = ambiguityFlags.length - 1; index >= 0; index -= 1) {
+        if (ambiguityFlags[index] === 'vague_time') ambiguityFlags.splice(index, 1);
+      }
+      for (let index = missingFields.length - 1; index >= 0; index -= 1) {
+        if (missingFields[index] === 'time') missingFields.splice(index, 1);
+      }
     }
   }
   for (const flag of time.flags) {
