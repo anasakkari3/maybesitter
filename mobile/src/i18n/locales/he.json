@@ -75,6 +75,7 @@
   "savedTomorrow": "נכנס ליום שלך מחר",
   "savedDay": "נכנס ליום שלך ב{d}",
   "undo": "ביטול פעולה",
+  "toastUndoWithin": "{s, plural, one{ביטול תוך שנייה} other{ביטול תוך # שניות}}",
   "viewToday": "לראות את היום",
   "viewTomorrow": "לראות את מחר",
   "viewDay": "לראות את {d}",

@@ -72,6 +72,7 @@
   "savedTomorrow": "نزلت بيومك بكرا",
   "savedDay": "نزلت بيومك يوم {d}",
   "undo": "تراجع",
+  "toastUndoWithin": "{s, plural, zero{تراجع} one{تراجع خلال ثانية} two{تراجع خلال ثانيتين} few{تراجع خلال # ثواني} many{تراجع خلال # ثانية} other{تراجع خلال # ثانية}}",
   "viewToday": "شوف اليوم",
   "viewTomorrow": "شوف بكرا",
   "viewDay": "شوف {d}",

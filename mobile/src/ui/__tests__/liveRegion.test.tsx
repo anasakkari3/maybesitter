@@ -15,12 +15,12 @@ import React from 'react';
 import { readdirSync, readFileSync, statSync } from 'fs';
 import { join, relative } from 'path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen } from '@testing-library/react-native';
-import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native';
+import { act, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo, Animated, Platform, StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { LiveRegion } from '../liveRegion';
 import { useAnnounceOnIos } from '../announce';
-import { AppProvider } from '../../state/AppContext';
+import { AppProvider, useApp } from '../../state/AppContext';
 import { ToastHost } from '../toast';
 
 const SRC = join(__dirname, '..', '..');
@@ -104,10 +104,71 @@ describe('LiveRegion', () => {
 const METRICS: Metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 
 describe('the toast host', () => {
+  const app: { current: ReturnType<typeof useApp> | null } = { current: null };
+  function Probe() {
+    const value = useApp();
+    React.useEffect(() => { app.current = value; });
+    return null;
+  }
+  async function showHost() {
+    await render(<SafeAreaProvider initialMetrics={METRICS}><AppProvider><ToastHost /><Probe /></AppProvider></SafeAreaProvider>);
+  }
+
+  /**
+   * Everything inside the region a screen reader could be told about: every
+   * label and every line of text, except in subtrees hidden from it. Android
+   * raises a live-region change for a text change anywhere that is not hidden.
+   */
+  type Node = ReturnType<typeof screen.getByTestId>;
+  function readable(node: Node | string): string {
+    if (typeof node === 'string') return node;
+    const props = node.props as { importantForAccessibility?: string; accessibilityElementsHidden?: boolean; accessibilityLabel?: string };
+    if (props.importantForAccessibility === 'no-hide-descendants' || props.accessibilityElementsHidden) return '';
+    const own = typeof node.type === 'string' && props.accessibilityLabel ? [props.accessibilityLabel] : [];
+    return [...own, ...(node.children as (Node | string)[]).map(readable)].filter(Boolean).join(' | ');
+  }
+
+  afterEach(() => { jest.useRealTimers(); });
+
   it('keeps its live region mounted while no toast shows', async () => {
-    await render(<SafeAreaProvider initialMetrics={METRICS}><AppProvider><ToastHost /></AppProvider></SafeAreaProvider>);
+    await showHost();
     expect(screen.getByTestId('toast-live').props.accessibilityLiveRegion).toBe('polite');
     expect(screen.queryByTestId('toast')).toBeNull();
+  });
+
+  /*
+   * POLISH-MOBILE review n6: the 5→1 countdown ticked inside the region, so
+   * TalkBack could announce the toast again every second. The region says
+   * the message and the undo window once; the ticking digits are hidden.
+   */
+  it('says the message and the undo window once, and nothing changes as the countdown ticks', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T09:00:00.000Z') });
+    await showHost();
+    await act(async () => { app.current!.actions.toast('Marked done', () => undefined); });
+    const window = app.current!.tr('toastUndoWithin', { s: 5 });
+    const first = readable(screen.getByTestId('toast-live'));
+    expect(first).toContain('Marked done');
+    expect(first.split(window)).toHaveLength(2);
+    await act(async () => { jest.advanceTimersByTime(2_000); });
+    // The digits did tick; they are hidden, so only a hidden-inclusive query finds them.
+    expect(screen.getByText('3', { includeHiddenElements: true })).toBeTruthy();
+    expect(readable(screen.getByTestId('toast-live'))).toBe(first);
+  });
+
+  /*
+   * Review n3: a new toast fades in from nothing, not from where the last one
+   * was. The fade runs on the native driver, which Jest does not animate, so
+   * the reset itself is what is observed.
+   */
+  it('puts the fade back to transparent when one toast gives way to the next', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T09:00:00.000Z') });
+    await showHost();
+    await act(async () => { app.current!.actions.toast('First'); });
+    await act(async () => { jest.advanceTimersByTime(1_000); });
+    const setValue = jest.spyOn(Animated.Value.prototype, 'setValue');
+    await act(async () => { app.current!.actions.toast('Second'); });
+    expect(setValue).toHaveBeenCalledWith(0);
+    setValue.mockRestore();
   });
 });
 

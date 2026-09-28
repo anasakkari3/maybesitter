@@ -72,6 +72,7 @@
   "savedTomorrow": "Landed in your day tomorrow",
   "savedDay": "Landed in your day on {d}",
   "undo": "Undo",
+  "toastUndoWithin": "{s, plural, one{Undo within # second} other{Undo within # seconds}}",
   "viewToday": "See today",
   "viewTomorrow": "See tomorrow",
   "viewDay": "See {d}",
