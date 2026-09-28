@@ -10,6 +10,7 @@ import {
   localTimeSpecFor,
   normalizeArabicDigits,
   normalizeSpokenHours,
+  hasClockDigit,
   namesDay,
   instantFromLocal,
   forbidsResolvedTime,
@@ -394,7 +395,9 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   // — stays in the title whole, and «عالمسا» leaves no «ع» behind.
   // A clock with its part of the day («5 المسا», «ב-5 בערב») goes whole first:
   // taking «المسا» alone would leave its «5» in the title (closure UAT r6).
-  for (const pattern of CLOCK_WITH_PERIOD_STRIP) stripped = stripped.replace(pattern, ' ');
+  // Every range and clock pattern reads a digit (`hasClockDigit`), so a title
+  // without one skips them (FIX-R6-PERF); the strips in between add none.
+  if (hasClockDigit(stripped)) for (const pattern of CLOCK_WITH_PERIOD_STRIP) stripped = stripped.replace(pattern, ' ');
   const dayNamed = namesDay(text);
   for (const pattern of DAY_PART_STRIP) {
     stripped = stripped.replace(pattern, (match) => (!dayNamed && HE_THE_MORNING.test(match) ? match : ' '));
@@ -417,7 +420,7 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   for (const pattern of WEEKDAY_STRIP) stripped = stripped.replace(pattern, ' ');
   // Ranges before the clocks inside them: taking "2pm" first would leave
   // "meeting from to" as the title.
-  for (const pattern of CLOCK_STRIP) stripped = stripped.replace(pattern, ' ');
+  if (hasClockDigit(stripped)) for (const pattern of CLOCK_STRIP) stripped = stripped.replace(pattern, ' ');
   return stripped.replace(/\s+/g, ' ').trim();
 }
 
@@ -710,6 +713,8 @@ export function countTimeExpressions(raw: string): number {
   // Count what the parser reads: «الساعة تسعة» and «בשעה תשע» both become 9,
   // «5 ونص» becomes 5:30.
   const text = normalizeClockText(raw);
+  // No digit, no range or clock to count (`hasClockDigit`).
+  if (!hasClockDigit(text)) return 0;
 
   // Count positions, not matches: two patterns can describe the same mention
   // ("at 9am" matches both the am-suffixed and the bare-hour shape), and
@@ -742,6 +747,7 @@ export function countTimeExpressions(raw: string): number {
 export function clockTimesIn(raw: string): Array<{ hour: number; minute: number }> {
   if (typeof raw !== 'string' || !raw.trim()) return [];
   const text = normalizeSpokenHours(normalizeArabicDigits(raw));
+  if (!hasClockDigit(text)) return [];
   const at = new Set<number>();
   forEachTimeMention(RANGE_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));
   forEachTimeMention(CLOCK_PATTERN_SOURCES, text, (_start, _end, digitAt) => at.add(digitAt));

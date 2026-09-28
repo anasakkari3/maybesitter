@@ -155,7 +155,16 @@ function arabicCardinalHour(word: string): string | null {
   return ARABIC_CARDINAL_HOURS.find(([words]) => new RegExp(`^(?:${words})$`).test(word))?.[1] ?? null;
 }
 
+/*
+ * Cheap gates (FIX-R6-PERF): each reader below needs a letter of its own
+ * script, and the English ones "ish" or an hour word, so a text without one is
+ * returned as it is instead of being scanned by patterns that cannot match.
+ */
+const ANY_ARABIC_LETTER = /[\u0600-\u06FF]/;
+const ANY_HEBREW_LETTER = /[\u0590-\u05FF]/;
+
 export function normalizeSpokenArabicHours(value: string): string {
+  if (!ANY_ARABIC_LETTER.test(value)) return value;
   const beforeDayPart = value
     // «عالسبعة المسا» is «7 المسا»: the clock word goes with the article.
     .replace(AR_CARDINAL_HOUR, (match, lead: string, _article: string | undefined, word: string) => {
@@ -220,6 +229,7 @@ function hebrewSpokenHour(word: string): string | null {
 }
 
 export function normalizeSpokenHebrewHours(value: string): string {
+  if (!ANY_HEBREW_LETTER.test(value)) return value;
   // Only rewrite where a clock is actually being named, so «שלוש משימות»
   // (three tasks) keeps its word and only «בשעה שלוש» or «שעה שלוש» becomes a number.
   const beforeDayPart = value
@@ -260,6 +270,9 @@ const EN_ISH = new RegExp(
   `\\b(at|by|around|about)\\s+${EN_ISH_SOURCE}|(?<=\\b${EN_DAY_PART_BEFORE_HOUR}\\s{1,3})()${EN_ISH_SOURCE}|\\b()${EN_ISH_SOURCE}(?=\\s+${EN_DAY_PART_AFTER_HOUR}\\b)`,
   'gi',
 );
+/** The gates: every "7ish" says "ish", and every spelled hour is one of the hour words. */
+const EN_ISH_WORD = /ish/i;
+const EN_ANY_HOUR_WORD = new RegExp(EN_HOUR_WORD, 'i');
 /** "at seven in the evening", "at seven tonight": a spoken hour right before its part of the day. */
 const EN_WORD_BEFORE_DAY_PART = new RegExp(`\\b(at|around|about)\\s+(${EN_HOUR_WORD})(?=\\s+${EN_DAY_PART_AFTER_HOUR}\\b)`, 'gi');
 /** "evening at seven", "tonight at seven": a spoken hour right after its part of the day. */
@@ -273,12 +286,15 @@ const EN_WORD_AFTER_DAY_PART = new RegExp(`(?<=\\b${EN_DAY_PART_BEFORE_HOUR}\\s{
  * stays a count.
  */
 export function normalizeSpokenEnglishHours(value: string): string {
-  return value
-    .replace(EN_ISH, (...groups: Array<string | undefined>) => {
+  const aboutHour = EN_ISH_WORD.test(value)
+    ? value.replace(EN_ISH, (...groups: Array<string | undefined>) => {
       const lead = groups[1] ?? groups[3] ?? groups[5];
       const hour = (groups[2] ?? groups[4] ?? groups[6])!;
       return `${lead && lead.toLowerCase() !== 'at' ? lead : 'around'} ${enHour(hour)}`;
     })
+    : value;
+  if (!EN_ANY_HOUR_WORD.test(aboutHour)) return aboutHour;
+  return aboutHour
     .replace(EN_WORD_BEFORE_DAY_PART, (_, lead: string, hour: string) => `${lead} ${enHour(hour)}`)
     .replace(EN_WORD_AFTER_DAY_PART, (_, lead: string, hour: string) => `${lead} ${enHour(hour)}`);
 }
@@ -287,6 +303,63 @@ export function normalizeSpokenEnglishHours(value: string): string {
 export function normalizeSpokenHours(value: string): string {
   return normalizeSpokenEnglishHours(normalizeSpokenHebrewHours(normalizeSpokenArabicHours(value)));
 }
+
+/*
+ * The fraction patterns, built once (FIX-R6-PERF): every clock reader runs
+ * this on every capture, several times over, and building and compiling
+ * two dozen `u`-flag patterns per call was most of a cold capture's cost.
+ * `String.prototype.replace` starts a global pattern from 0 every time, so a
+ * shared one carries nothing from one call to the next.
+ */
+const FRACTION_DIGIT = '([0-9\\u0660-\\u0669\\u06F0-\\u06F9]{1,2})';
+/** Any digit a clock or fraction pattern can read, ASCII or Arabic-Indic. */
+const ANY_CLOCK_DIGIT = /[0-9\u0660-\u0669\u06F0-\u06F9]/;
+
+/**
+ * The text has a digit a clock pattern could read (FIX-R6-PERF). Every range
+ * and clock pattern here — `RANGE_PATTERN_SOURCES`, `CLOCK_PATTERN_SOURCES`,
+ * `CLOCK_WITH_PERIOD_SOURCES` — reads at least one, so a text without one is
+ * no clock to any of them, and a reader can skip them all.
+ */
+export function hasClockDigit(value: string): boolean {
+  return ANY_CLOCK_DIGIT.test(value);
+}
+// A fraction is a clock time only where a clock is being named: after a
+// clock word, or before a part of the day. «3 ونص كيلو رز» and
+// «150 ونص شيكل» are quantities and keep their words.
+const FRACTION_LEAD =
+  `((?:الساعة|الساعه|عند|على)\\s*|(?<=${DAY_PART_BEFORE_HOUR})(?:ع|حوالي|حوالى)\\s*|\\b(?:at|by|around)\\s+|(?:בשעה|שעה|בסביבות|סביב|לקראת|עד)\\s*|(?<![\\p{L}\\p{M}])ב-?)`;
+const FRACTION_PERIOD =
+  '(?=\\s*(?:صباحا|صباحاً|الصبح|مساء|مساءً|المسا|المساء|بالليل|بعد\\s+الضهر|بعد\\s+الظهر|العصر|am|pm|בבוקר|בצהריים|אחרי\\s+הצהריים|בערב|בלילה)(?![\\p{L}\\p{M}]))';
+const fractionHourOf = (digits: string) => Number(normalizeArabicDigits(digits));
+const fractionBefore = (digits: string, minutes: string) => {
+  const hour = fractionHourOf(digits);
+  return `${hour === 1 ? 12 : hour - 1}:${minutes}`;
+};
+type FractionRewrite = readonly [RegExp, (digits: string) => string, boolean];
+/** A fraction in a clock: after its clock word (the lead is kept), and before a part of the day. */
+const inClockFraction = (fraction: string, toClock: (digits: string) => string): FractionRewrite[] => [
+  [new RegExp(`${FRACTION_LEAD}${FRACTION_DIGIT}${fraction}(?![\\p{L}\\p{M}])`, 'giu'), toClock, true],
+  [new RegExp(`(?<![\\d:\\p{L}\\p{M}])${FRACTION_DIGIT}${fraction}${FRACTION_PERIOD}`, 'giu'), toClock, false],
+];
+/** In order: each rewrite reads the text the one before it left. */
+const FRACTION_REWRITES: readonly FractionRewrite[] = [
+  ...inClockFraction('\\s*(?:و\\s*)?(?:نص|نصف)', (d) => `${fractionHourOf(d)}:30`),
+  ...inClockFraction('\\s*(?:و\\s*)?ربع', (d) => `${fractionHourOf(d)}:15`),
+  ...inClockFraction('\\s*(?:و\\s*)?(?:ثلث|تلت)', (d) => `${fractionHourOf(d)}:20`),
+  ...inClockFraction('\\s*(?:إلا|الا|إلّا)\\s*ربع', (d) => fractionBefore(d, '45')),
+  ...inClockFraction('\\s*(?:إلا|الا|إلّا)\\s*(?:ثلث|تلت)', (d) => fractionBefore(d, '40')),
+  // «7 إلا ربع» names a clock by itself: a quarter to seven is no count (FIX-R6-SPOKENHOUR).
+  [new RegExp(`(?<![\\d:\\p{L}\\p{M}])${FRACTION_DIGIT}\\s*(?:إلا|الا|إلّا)\\s*ربع(?![\\p{L}\\p{M}])`, 'giu'), (d) => fractionBefore(d, '45'), false],
+  [new RegExp(`(?<![\\d:\\p{L}\\p{M}])${FRACTION_DIGIT}\\s*(?:إلا|الا|إلّا)\\s*(?:ثلث|تلت)(?![\\p{L}\\p{M}])`, 'giu'), (d) => fractionBefore(d, '40'), false],
+  ...inClockFraction('\\s*וחצי', (d) => `${fractionHourOf(d)}:30`),
+  ...inClockFraction('\\s*ורבע', (d) => `${fractionHourOf(d)}:15`),
+  ...inClockFraction('\\s*פחות\\s*רבע', (d) => fractionBefore(d, '45')),
+  // "half past 5" and "quarter to 5" name a clock by themselves.
+  [new RegExp(`\\bhalf\\s+past\\s+${FRACTION_DIGIT}\\b`, 'giu'), (d) => `${fractionHourOf(d)}:30`, false],
+  [new RegExp(`\\b(?:a\\s+)?quarter\\s+past\\s+${FRACTION_DIGIT}\\b`, 'giu'), (d) => `${fractionHourOf(d)}:15`, false],
+  [new RegExp(`\\b(?:a\\s+)?quarter\\s+to\\s+${FRACTION_DIGIT}\\b`, 'giu'), (d) => fractionBefore(d, '45'), false],
+];
 
 /**
  * A spoken fraction of the hour, written as minutes (CL1 round 7, I-3):
@@ -298,41 +371,15 @@ export function normalizeSpokenHours(value: string): string {
  * way to the am/pm question.
  */
 export function normalizeClockFractions(value: string): string {
-  const D = '([0-9\\u0660-\\u0669\\u06F0-\\u06F9]{1,2})';
-  // A fraction is a clock time only where a clock is being named: after a
-  // clock word, or before a part of the day. «3 ونص كيلو رز» and
-  // «150 ونص شيكل» are quantities and keep their words.
-  const LEAD =
-    `((?:الساعة|الساعه|عند|على)\\s*|(?<=${DAY_PART_BEFORE_HOUR})(?:ع|حوالي|حوالى)\\s*|\\b(?:at|by|around)\\s+|(?:בשעה|שעה|בסביבות|סביב|לקראת|עד)\\s*|(?<![\\p{L}\\p{M}])ב-?)`;
-  const PERIOD =
-    '(?=\\s*(?:صباحا|صباحاً|الصبح|مساء|مساءً|المسا|المساء|بالليل|بعد\\s+الضهر|بعد\\s+الظهر|العصر|am|pm|בבוקר|בצהריים|אחרי\\s+הצהריים|בערב|בלילה)(?![\\p{L}\\p{M}]))';
-  const hourOf = (digits: string) => Number(normalizeArabicDigits(digits));
-  const before = (digits: string, minutes: string) => {
-    const hour = hourOf(digits);
-    return `${hour === 1 ? 12 : hour - 1}:${minutes}`;
-  };
-  const inClock = (text: string, fraction: string, toClock: (digits: string) => string) =>
-    text
-      .replace(new RegExp(`${LEAD}${D}${fraction}(?![\\p{L}\\p{M}])`, 'giu'), (_, lead: string, d: string) => `${lead}${toClock(d)}`)
-      .replace(new RegExp(`(?<![\\d:\\p{L}\\p{M}])${D}${fraction}${PERIOD}`, 'giu'), (_, d: string) => toClock(d));
+  // Every pattern reads a digit: with none there is nothing to rewrite.
+  if (!ANY_CLOCK_DIGIT.test(value)) return value;
   let out = value;
-  out = inClock(out, '\\s*(?:و\\s*)?(?:نص|نصف)', (d) => `${hourOf(d)}:30`);
-  out = inClock(out, '\\s*(?:و\\s*)?ربع', (d) => `${hourOf(d)}:15`);
-  out = inClock(out, '\\s*(?:و\\s*)?(?:ثلث|تلت)', (d) => `${hourOf(d)}:20`);
-  out = inClock(out, '\\s*(?:إلا|الا|إلّا)\\s*ربع', (d) => before(d, '45'));
-  out = inClock(out, '\\s*(?:إلا|الا|إلّا)\\s*(?:ثلث|تلت)', (d) => before(d, '40'));
-  // «7 إلا ربع» names a clock by itself: a quarter to seven is no count (FIX-R6-SPOKENHOUR).
-  out = out
-    .replace(new RegExp(`(?<![\\d:\\p{L}\\p{M}])${D}\\s*(?:إلا|الا|إلّا)\\s*ربع(?![\\p{L}\\p{M}])`, 'giu'), (_, d: string) => before(d, '45'))
-    .replace(new RegExp(`(?<![\\d:\\p{L}\\p{M}])${D}\\s*(?:إلا|الا|إلّا)\\s*(?:ثلث|تلت)(?![\\p{L}\\p{M}])`, 'giu'), (_, d: string) => before(d, '40'));
-  out = inClock(out, '\\s*וחצי', (d) => `${hourOf(d)}:30`);
-  out = inClock(out, '\\s*ורבע', (d) => `${hourOf(d)}:15`);
-  out = inClock(out, '\\s*פחות\\s*רבע', (d) => before(d, '45'));
-  // "half past 5" and "quarter to 5" name a clock by themselves.
-  return out
-    .replace(new RegExp(`\\bhalf\\s+past\\s+${D}\\b`, 'giu'), (_, d: string) => `${hourOf(d)}:30`)
-    .replace(new RegExp(`\\b(?:a\\s+)?quarter\\s+past\\s+${D}\\b`, 'giu'), (_, d: string) => `${hourOf(d)}:15`)
-    .replace(new RegExp(`\\b(?:a\\s+)?quarter\\s+to\\s+${D}\\b`, 'giu'), (_, d: string) => before(d, '45'));
+  for (const [pattern, toClock, keepsLead] of FRACTION_REWRITES) {
+    out = keepsLead
+      ? out.replace(pattern, (_, lead: string, d: string) => `${lead}${toClock(d)}`)
+      : out.replace(pattern, (_, d: string) => toClock(d));
+  }
+  return out;
 }
 
 /** Every rewrite a clock reader needs, in order: digits, spoken hours, fractions. */
@@ -380,6 +427,8 @@ export const CLOCK_PATTERN_SOURCES: readonly string[] = [
   // round 7). The counter anchors on digit positions, so its order is moot.
   /\b\d{1,2}:\d{2}(?=$|[\s,.،])/.source,
 ];
+/** Built once, for `timeAnchorOf` (FIX-R6-PERF). Not global: `test` keeps no position. */
+const CLOCK_PATTERNS_ANY_CASE = CLOCK_PATTERN_SOURCES.map((source) => new RegExp(source, 'i'));
 
 /**
  * A start-to-end range is one appointment, not two times. English
@@ -640,6 +689,8 @@ function hourInHalf(hour: number, word: string): number | 'ambiguous' | null {
 export function hourWithDayPart(rawText: string): string | 'ambiguous' | null {
   if (typeof rawText !== 'string' || !rawText.trim()) return null;
   const text = normalizeClockText(rawText);
+  // Every pattern below reads an hour's digit (FIX-R6-PERF).
+  if (!ANY_CLOCK_DIGIT.test(text)) return null;
   if (DAY_BEFORE_NUMBER.test(text)) return null;
   const readings = new Set<string>();
   for (const match of Array.from(text.matchAll(HOUR_BEFORE_HALF))) {
@@ -1083,9 +1134,9 @@ const DEADLINE_MARKER = new RegExp(
 export function timeAnchorOf(rawText: string): 'event' | 'deadline' | null {
   if (typeof rawText !== 'string' || !rawText.trim()) return null;
   const text = normalizeSpokenHours(normalizeArabicDigits(rawText));
-  if (RANGE_PATTERN_SOURCES.some((source) => new RegExp(source, 'i').test(text))) return 'event';
+  if (RANGE_PATTERNS.some((pattern) => pattern.test(text))) return 'event';
   if (DEADLINE_MARKER.test(text)) return 'deadline';
-  return CLOCK_PATTERN_SOURCES.some((source) => new RegExp(source, 'i').test(text)) ? 'event' : null;
+  return CLOCK_PATTERNS_ANY_CASE.some((pattern) => pattern.test(text)) ? 'event' : null;
 }
 
 /**
