@@ -216,3 +216,83 @@ test('N19 guard (SCRIPTED): a model day is never moved — only an absent one is
   const { contract } = await proposeModel('سجّل موعد دكتور اليوم', async () => JSON.stringify(answer));
   assert.equal(contract.items[0]?.resolvedDate, '2026-09-30');
 });
+
+/* ── Rules-path titles of an unsettled day (FINAL-BACKEND review, last item) ── */
+
+/*
+ * The rules path took the day word out of the title and left its negation or
+ * its «أو» behind: «أتصل بسامي بس مش», «أو بدي أتصل بسامي», "call Sam or".
+ * An unsettled day is not a time the item took — the item is asked — so the
+ * phrase stays in the title exactly as the person said it.
+ */
+const M2_TITLES: ReadonlyArray<{ text: string; phrase: string }> = [
+  { text: 'بدي أتصل بسامي بس مش بكرا', phrase: 'بس مش بكرا' },
+  { text: 'بدي أتصل بسامي، ومش بكرا', phrase: 'ومش بكرا' },
+  { text: 'call Sam, but not tomorrow', phrase: 'but not tomorrow' },
+  { text: 'להתקשר לסאמי אבל לא מחר', phrase: 'אבל לא מחר' },
+  { text: 'اليوم أو بكرا بدي أتصل بسامي', phrase: 'اليوم أو بكرا' },
+  { text: 'اليوم ولا بكرا بدي أتصل بسامي', phrase: 'اليوم ولا بكرا' },
+  { text: 'call Sam today or tomorrow', phrase: 'today or tomorrow' },
+  { text: 'להתקשר לסאמי היום או מחר', phrase: 'היום או מחר' },
+];
+
+async function rulesTitles(text: string, referenceTime = NOW.toISOString()): Promise<string[]> {
+  setStorageForTests(createMemoryStorage());
+  try {
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime });
+    return proposal.items.map((item) => item.title);
+  } finally {
+    resetStorageForTests();
+  }
+}
+
+/**
+ * A connector or a negation standing alone at either end of a title. «مش
+ * لازم …» ("no need to …") opens a title rightly: that negation is the
+ * person's, on the obligation, not a day's left behind. So does the whole
+ * unsettled phrase when the «،» made it a clause of its own («ومش بكرا»).
+ */
+const DANGLING_EDGE = new RegExp(
+  [
+    '^(?:و?مش|مو|مب|بلاش|أو|او|ولا|و?بس|و|or|not|but|and|לא|ולא|או|אבל)(?=\\s|$)(?!\\s+(?:لازم|ضروري|مهم)(?:\\s|$))(?!\\s+(?:مش\\s+|not\\s+|לא\\s+)?(?:اليوم|بكرا|today|tomorrow|היום|מחר)(?:\\s|$))',
+    '(?:^|\\s)(?:و?مش|مو|مب|بلاش|أو|او|ولا|و?بس|و|or|not|but|and|לא|ולא|או|אבל)$',
+  ].join('|'),
+  'iu',
+);
+
+test('M2 titles: the rules path keeps an unsettled day phrase verbatim, never a dangling «مش/أو/or/לא»', async () => {
+  for (const { text, phrase } of M2_TITLES) {
+    const titles = await rulesTitles(text);
+    // «، ومش بكرا» is split at the «،» into a clause of its own, as «، بكرا»
+    // always has been (the splitter's rule, not this one's): that clause's
+    // title is then the phrase itself, whole.
+    assert.equal(titles.length, text.includes('،') ? 2 : 1, `${text}: ${JSON.stringify(titles)}`);
+    assert.ok(titles.some((title) => title.includes(phrase)), `${text}: the titles ${JSON.stringify(titles)} lost «${phrase}»`);
+    for (const title of titles) assert.ok(!DANGLING_EDGE.test(title), `${text}: dangling edge in «${title}»`);
+  }
+});
+
+test('M2 titles: a settled day word still leaves the title', async () => {
+  assert.deepEqual(await rulesTitles('بدي أتصل بسامي بكرا'), ['أتصل بسامي']);
+  assert.deepEqual(await rulesTitles('call Sam tomorrow'), ['call Sam']);
+  assert.deepEqual(await rulesTitles('להתקשר לסאמי מחר'), ['להתקשר לסאמי']);
+});
+
+test('M2 titles sweep: no rules-path title in the probe corpora starts or ends with a dangling connector or negation', async () => {
+  const corpus = (name: string) => (JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8')) as {
+    rules: Array<{ text: string; referenceTime?: string }>;
+  }).rules;
+  const rows = [
+    ...corpus('cl1-capture-probes.json').map((row) => ({ text: row.text, referenceTime: '2026-09-26T07:00:00.000Z' })),
+    ...corpus('fx3-capture-probes.json').map((row) => ({ text: row.text, referenceTime: row.referenceTime ?? '2026-09-27T07:00:00.000Z' })),
+    ...M2_TITLES.map((row) => ({ text: row.text, referenceTime: NOW.toISOString() })),
+  ];
+  assert.ok(rows.length > 100, `only ${rows.length} probes; the sweep would be vacuous`);
+  const dangling: string[] = [];
+  for (const row of rows) {
+    for (const title of await rulesTitles(row.text, row.referenceTime)) {
+      if (DANGLING_EDGE.test(title)) dangling.push(`${row.text} → «${title}»`);
+    }
+  }
+  assert.deepEqual(dangling, []);
+});

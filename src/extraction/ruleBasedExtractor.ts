@@ -379,7 +379,13 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   }
   // The relative days the same way, the day after before tomorrow: a partial
   // match never takes letters out of a word («الغداء», «اليومي» stay whole).
-  for (const pattern of RELATIVE_DAY_STRIP) stripped = stripped.replace(pattern, ' ');
+  // Not a day the words rule out or leave open — «بس مش بكرا», «اليوم أو
+  // بكرا», "today or tomorrow": the item took no day from it and is asked, so
+  // the phrase stays as said, rather than «أتصل بسامي بس مش» or "call Sam or"
+  // (FINAL-BACKEND review).
+  if (!relativeDayIsUnsettled(text)) {
+    for (const pattern of RELATIVE_DAY_STRIP) stripped = stripped.replace(pattern, ' ');
+  }
   stripped = stripped
     .replace(/\b(?:on|this|next)\s+(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ')
     .replace(/\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/gi, ' ');
