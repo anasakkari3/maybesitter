@@ -11,6 +11,12 @@ TARGET="${1:?usage: flags.sh staging|production}"
 PROJECT_ID="${PROJECT_ID:-maybesitter-app}"
 REGION="${REGION:-europe-west1}"
 RUN_SA="maybesitter-run@${PROJECT_ID}.iam.gserviceaccount.com"
+# The key that seals per-user secrets (Google refresh tokens, ICS feed URLs).
+# Both services share it and the runtime SA already has
+# cryptoKeyEncrypterDecrypter on it (infra/bootstrap.sh). Staging only had it
+# because someone set it by hand; a production deploy must carry it, or
+# Google connect answers `not_configured` and a feed URL cannot be stored.
+KMS_KEY_NAME="projects/${PROJECT_ID}/locations/${REGION}/keyRings/maybesitter/cryptoKeys/user-secrets"
 
 case "${TARGET}" in
   staging)
@@ -31,6 +37,8 @@ case "${TARGET}" in
     # the first live sync in staging; production needs its own explicit deploy
     # decision after the provider call and projection are evidenced there.
     football_secret=",FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest"
+    # No website posts to staging's sign-up, so no origin is allowed there.
+    site_origins=""
     ;;
   production)
     max_instances=3
@@ -43,6 +51,11 @@ case "${TARGET}" in
     memory_feature="false"
     memory_kill_switch="true"
     football_secret=""
+    # The origins the early-access form posts from (lib/earlyAccess/service.ts,
+    # exact match). Unset fails closed, and it was only ever on the service by
+    # hand. maybesitter.com is the live custom domain; www 301-redirects to it
+    # at Hosting, so a form is never posted from www.
+    site_origins=";MAYBESITTER_SITE_ORIGINS=https://maybesitter.com,https://maybesitter-app.web.app,https://maybesitter-app.firebaseapp.com"
     ;;
   *)
     echo "unknown target: ${TARGET} (expected staging or production)" >&2
@@ -126,6 +139,12 @@ esac
 # the first deploy). --set-env-vars replaces the whole set, so every deploy
 # would erase them and the internal job routes would answer 503 until
 # someone re-ran scheduler.sh.
+#
+# The env list is `;`-delimited (gcloud's `^;^` form, `gcloud topic escaping`)
+# because MAYBESITTER_SITE_ORIGINS is itself a comma-separated list: with the
+# default `,` delimiter gcloud would split it into bogus KEY=VALUE pairs. The
+# whole flag stays one word with no spaces, since the workflow expands this
+# script's output unquoted.
 printf '%s ' \
   "--region=${REGION}" \
   "--service-account=${RUN_SA}" \
@@ -140,6 +159,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=MAYBESITTER_ENV=${env_name},MAYBESITTER_STORAGE_BACKEND=firestore,MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id},GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_PROVIDER=${llm_provider},MAYBESITTER_LLM_MODEL=gemini-2.5-flash,MAYBESITTER_VERTEX_LOCATION=${REGION},MAYBESITTER_GCP_PROJECT=${PROJECT_ID},MAYBESITTER_LLM_TIMEOUT_MS=8000,MAYBESITTER_LLM_MAX_RETRIES=1,MAYBESITTER_AI_DISABLED=${ai_disabled},MAYBESITTER_LLM_DAILY_CALL_CAP=60,MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000,MAYBESITTER_LLM_MINUTE_CALL_CAP=8,MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000,MAYBESITTER_FEATURE_RECOMMENDATION=true,MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false,MAYBESITTER_NEXT_STEP_ARM=personalized,MAYBESITTER_FEATURE_MEMORY=${memory_feature},MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch}" \
+  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000;MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME}${site_origins}" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest${football_secret}"
 printf '\n'

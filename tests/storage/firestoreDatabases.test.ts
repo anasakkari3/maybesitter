@@ -31,7 +31,19 @@ function serviceEnv(target: 'staging' | 'production'): Record<string, string> {
   // database each service is pointed at, not how the flag is spelled.
   const match = /--(?:set|update)-env-vars=(\S+)/.exec(flags);
   assert.ok(match, `flags.sh ${target} sets no env vars`);
-  return Object.fromEntries(match[1]!.split(',').map((pair) => pair.split('=') as [string, string]));
+  // gcloud's `^D^` prefix (`gcloud topic escaping`) picks the pair delimiter;
+  // flags.sh uses `^;^` because one value is a comma-separated list.
+  let value = match[1]!;
+  let delimiter = ',';
+  const custom = /^\^([^^]+)\^/.exec(value);
+  if (custom) {
+    delimiter = custom[1]!;
+    value = value.slice(custom[0].length);
+  }
+  return Object.fromEntries(value.split(delimiter).map((pair) => {
+    const at = pair.indexOf('=');
+    return [pair.slice(0, at), pair.slice(at + 1)] as [string, string];
+  }));
 }
 
 /** The `FIRESTORE_DATABASES=(...)` list in a shell script. */

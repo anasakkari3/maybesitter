@@ -49,9 +49,11 @@ const BLOCKED_IN_PRODUCTION = [
   '/api/release',
   '/api/dev/seed-demo',
   '/api/reminders/run',
-  // The stranded launch build had a page-view endpoint here. The site sends no
-  // page views, so it must not come back by accident.
-  '/api/early-access/events',
+  // `/api/early-access` and its no-op `/events` sibling are matched exactly:
+  // nothing beside or beneath them.
+  '/api/early-access/events/extra',
+  '/api/early-access/eventsx',
+  '/api/early-access/other',
   '/api/early-accessx',
   // Only the two exact Google pages are open (CL6a); nothing beside or under them.
   '/api/oauth/google',
@@ -71,6 +73,7 @@ const SERVED_IN_PRODUCTION = [
   '/api/mobile/pilot/trust',
   '/api/internal/anything',
   '/api/early-access',
+  '/api/early-access/events',
   '/api/oauth/google/callback',
   '/api/oauth/google/picker',
 ];

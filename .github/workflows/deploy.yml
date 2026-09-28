@@ -117,6 +117,38 @@ jobs:
 
           echo "image_digest=${IMAGE_DIGEST}" >>"${GITHUB_OUTPUT}"
 
+      - name: Protect the production image from registry cleanup
+        if: env.TARGET == 'production'
+        env:
+          IMAGE_DIGEST: ${{ steps.resolve.outputs.image_digest }}
+        run: |
+          # infra/artifact-cleanup.json deletes any version older than 30 days
+          # outside the newest 10, and staging pushes a version on every merge,
+          # so the digest production runs would soon become deletable. Its Keep
+          # rule spares versions tagged `prod-*`. The tag goes on before any
+          # production revision references the digest, so there is no window
+          # in which production runs an unprotected image.
+          #
+          # Re-runs must work: a smoke-test flake or a Firestore-step failure is
+          # retried for the same commit. `gcloud artifacts docker tags add` on
+          # an existing tag deletes and recreates it, which needs
+          # artifactregistry.tags.delete, and the deployer's writer role does not
+          # have it. So the tag is only added when absent; when it already names
+          # this digest there is nothing to do; when it names another digest the
+          # run stops rather than silently moving a production marker.
+          TAG_URI="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE}:prod-${GITHUB_SHA}"
+          WANT="${IMAGE_DIGEST#*@}"
+          if CURRENT="$(gcloud artifacts docker images describe "${TAG_URI}" --format='value(image_summary.digest)' 2>/dev/null)" && [ -n "${CURRENT}" ]; then
+            if [ "${CURRENT}" = "${WANT}" ]; then
+              echo "${TAG_URI} already protects ${WANT}; nothing to do"
+            else
+              echo "::error::${TAG_URI} already points at ${CURRENT}, not the digest being promoted (${WANT}). Staging re-pushed this commit after an earlier production run tagged it. Refusing to move a production tag: someone with roles/artifactregistry.repoAdmin must check which digest production runs, then move or delete the tag, and re-run."
+              exit 1
+            fi
+          else
+            gcloud artifacts docker tags add "${IMAGE_DIGEST}" "${TAG_URI}"
+          fi
+
       - name: Deploy (behind a tag once the service exists)
         id: deploy
         run: |

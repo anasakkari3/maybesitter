@@ -63,9 +63,13 @@ const PRODUCTION_PATHS: readonly RegExp[] = [
   /^\/api\/health/,
   /^\/api\/internal(?:\/|$)/,
   // The website's tester sign-up (site/SIGNUP_CONTRACT.md): unauthenticated by
-  // design and same-origin only. Matched exactly, so nothing beneath it (no
-  // `/events` page-view endpoint) is ever served.
+  // design and same-origin only. Matched exactly, so nothing else beneath it
+  // is ever served.
   /^\/api\/early-access$/,
+  // The stranded launch page's page-view ping: a 204 that reads no body and
+  // counts nothing, kept so that page is not answered 404 once main reaches
+  // production. Matched exactly as well.
+  /^\/api\/early-access\/events$/,
   // The two pages the system browser opens while connecting Google (CL6a):
   // the OAuth redirect URI, which only forwards `code`/`state` to the app's
   // scheme, and the Picker page, which renders only for a one-time ticket an

@@ -11,7 +11,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createMemoryStorage, type StorageAdapter } from '../../lib/storage/index.ts';
@@ -26,7 +26,6 @@ import {
   type EarlyAccessRegistration,
   type EarlyAccessStore,
 } from '../../lib/earlyAccess/service.ts';
-import { isProductionPath } from '../../src/middleware.ts';
 
 const repoRoot = process.cwd();
 const ORIGIN = 'https://site.example';
@@ -126,7 +125,8 @@ for (const [field, value] of [
     const response = await run(post(landingBody({ [field]: value })));
     assert.equal(response.status, 422);
     const body = await json(response);
-    assert.equal(body.error, 'invalid_fields');
+    assert.equal(body.code, 'invalid_fields');
+    assert.equal(body.error, 'Please check the highlighted fields.');
     assert.ok((body.fields as string[]).includes(field), `fields ${JSON.stringify(body.fields)} must name ${field}`);
     assert.deepEqual(await stored(storage), []);
   });
@@ -294,12 +294,4 @@ test('the exact body the landing page sends is accepted, and it carries no name'
   assert.equal((await run(post(landingBody()))).status, 200);
 });
 
-test('there is no page-view endpoint: no /events route, and production does not serve that path', () => {
-  assert.equal(existsSync(join(repoRoot, 'src', 'app', 'api', 'early-access', 'events')), false);
-  assert.equal(isProductionPath('/api/early-access/events'), false);
-  assert.equal(isProductionPath('/api/early-access'), true);
-
-  const route = readFileSync(join(repoRoot, 'src', 'app', 'api', 'early-access', 'route.ts'), 'utf8');
-  const verbs = Array.from(route.matchAll(/export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b/g), (m) => m[1]);
-  assert.deepEqual(verbs, ['POST']);
-});
+// The legacy launch page's shape and the no-op `/events` route: tests/earlyAccess/earlyAccessLegacy.test.ts.

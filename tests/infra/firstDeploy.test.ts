@@ -16,9 +16,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { handleEarlyAccessEvent } from '../../lib/earlyAccess/service.ts';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (file: string) => readFileSync(join(repoRoot, file), 'utf8');
@@ -146,6 +149,101 @@ test('the football-data.org credential is mounted on staging only', () => {
   );
 });
 
+// ── The env list gcloud actually receives ───────────────────────────────
+
+const flagsFor = (target: 'staging' | 'production') =>
+  execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), target], { encoding: 'utf8' });
+
+/**
+ * `--update-env-vars` parsed the way gcloud's ArgDict does (`gcloud topic
+ * escaping`): an optional `^D^` prefix picks the pair delimiter, else `,`;
+ * each pair splits on its first `=`. The workflow expands flags.sh unquoted,
+ * so words are what bash would split on whitespace.
+ */
+function envVarsOf(printed: string): Map<string, string> {
+  const words = printed.trim().split(/\s+/);
+  const flag = words.filter((word) => word.startsWith('--update-env-vars='));
+  assert.equal(flag.length, 1, 'exactly one --update-env-vars word (a second one would replace the first)');
+  let value = flag[0]!.slice('--update-env-vars='.length);
+  let delimiter = ',';
+  const custom = /^\^([^^]+)\^/.exec(value);
+  if (custom) {
+    delimiter = custom[1]!;
+    value = value.slice(custom[0].length);
+  }
+  const vars = new Map<string, string>();
+  for (const pair of value.split(delimiter)) {
+    const at = pair.indexOf('=');
+    const key = at < 0 ? pair : pair.slice(0, at);
+    // A comma-separated value split on the default delimiter shows up here as
+    // a "key" like `https://maybesitter-app.web.app`, which gcloud rejects.
+    assert.match(key, /^[A-Z_][A-Z0-9_]*$/, `"${pair}" is not a KEY=VALUE pair: the delimiter is splitting a value`);
+    assert.ok(!vars.has(key), `${key} is set twice`);
+    vars.set(key, pair.slice(at + 1));
+  }
+  return vars;
+}
+
+const PRODUCTION_SITE_ORIGINS = [
+  'https://maybesitter.com',
+  'https://maybesitter-app.web.app',
+  'https://maybesitter-app.firebaseapp.com',
+];
+const KMS_KEY = 'projects/maybesitter-app/locations/europe-west1/keyRings/maybesitter/cryptoKeys/user-secrets';
+
+test('production allows exactly the live site origins, the custom domain included, as one env value', () => {
+  // Before this the value lived on the service only because someone set it by
+  // hand, without maybesitter.com: sign-ups from the custom domain got a 403.
+  const production = envVarsOf(flagsFor('production'));
+  assert.deepEqual(production.get('MAYBESITTER_SITE_ORIGINS')?.split(','), PRODUCTION_SITE_ORIGINS);
+  for (const origin of PRODUCTION_SITE_ORIGINS) {
+    // The service compares the Origin header exactly: no path, no trailing slash.
+    assert.equal(new URL(origin).origin, origin);
+  }
+  // No website posts to staging's sign-up.
+  assert.equal(envVarsOf(flagsFor('staging')).has('MAYBESITTER_SITE_ORIGINS'), false);
+});
+
+test('each production site origin passes the sign-up\'s own origin check with the value flags.sh sets', async () => {
+  const env = { K_SERVICE: 'maybesitter-api', MAYBESITTER_SITE_ORIGINS: envVarsOf(flagsFor('production')).get('MAYBESITTER_SITE_ORIGINS') } as unknown as NodeJS.ProcessEnv;
+  const ping = (origin: string) => handleEarlyAccessEvent(
+    new Request('https://maybesitter-api.example/api/early-access/events', { method: 'POST', headers: { origin, 'sec-fetch-site': 'same-origin' } }),
+    { env },
+  );
+  for (const origin of PRODUCTION_SITE_ORIGINS) assert.equal((await ping(origin)).status, 204, origin);
+  assert.equal((await ping('https://www.maybesitter.com')).status, 403, 'www redirects at Hosting and is not listed');
+});
+
+test('both services are deployed with the KMS key that seals per-user secrets', () => {
+  // Staging had it by hand and production not at all, so Google connect on
+  // production answered `not_configured`. A deploy must carry it.
+  for (const target of ['staging', 'production'] as const) {
+    assert.equal(envVarsOf(flagsFor(target)).get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY, target);
+  }
+});
+
+test('switching the env list to a custom delimiter dropped none of the existing settings', () => {
+  const production = envVarsOf(flagsFor('production'));
+  const staging = envVarsOf(flagsFor('staging'));
+  for (const [key, value] of [
+    ['MAYBESITTER_ENV', 'production'],
+    ['MAYBESITTER_STORAGE_BACKEND', 'firestore'],
+    ['MAYBESITTER_FIRESTORE_DATABASE_ID', '(default)'],
+    ['GOOGLE_CLOUD_PROJECT', 'maybesitter-app'],
+    ['MAYBESITTER_LLM_PROVIDER', 'none'],
+    ['MAYBESITTER_AI_DISABLED', 'true'],
+    ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '3000'],
+    ['MAYBESITTER_FEATURE_MEMORY', 'false'],
+    ['MAYBESITTER_KILL_SWITCH_MEMORY', 'true'],
+  ] as const) {
+    assert.equal(production.get(key), value, `production ${key}`);
+  }
+  assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
+  assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
+  assert.equal(production.size, 22);
+  assert.equal(staging.size, 21);
+});
+
 // ── Same-digest production promotion ────────────────────────────────────
 
 const buildStep = () => {
@@ -212,4 +310,117 @@ test('the deploy step sources its image from whichever of build or resolve ran',
     /steps\.build\.outputs\.image_digest \|\| steps\.resolve\.outputs\.image_digest/,
     'the deploy step cannot get an image on a production run',
   );
+});
+
+// ── The production image survives registry cleanup ──────────────────────
+
+test('the cleanup policy keeps every version tagged prod-*', () => {
+  // The Delete rule removes anything older than 30 days outside the newest
+  // 10, and staging pushes on every merge, so without this the digest
+  // production runs becomes deletable within days of being promoted.
+  const policy = JSON.parse(read('infra/artifact-cleanup.json')) as Array<{
+    action: { type: string };
+    condition?: { tagState?: string; tagPrefixes?: string[] };
+  }>;
+  const keepProd = policy.filter((rule) => rule.action.type === 'Keep'
+    && rule.condition?.tagState === 'tagged'
+    && (rule.condition.tagPrefixes ?? []).includes('prod-'));
+  assert.equal(keepProd.length, 1, 'no Keep rule protects prod-* tags');
+});
+
+test('a production run tags the promoted digest prod-<sha> before any revision uses it or traffic moves', () => {
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  assert.notEqual(start, -1, 'there is no step that tags the production image');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  assert.match(step, /if:\s*env\.TARGET == 'production'/, 'the prod- tag must only be written by a production run');
+  assert.match(step, /IMAGE_DIGEST: \$\{\{ steps\.resolve\.outputs\.image_digest \}\}/, 'the tag must go on the digest staging is serving');
+  assert.match(step, /TAG_URI="\$\{REGION\}-docker\.pkg\.dev\/\$\{PROJECT_ID\}\/\$\{REPOSITORY\}\/\$\{IMAGE\}:prod-\$\{GITHUB_SHA\}"/);
+  assert.match(step, /gcloud artifacts docker tags add "\$\{IMAGE_DIGEST\}" "\$\{TAG_URI\}"/);
+  // Order: resolve → tag → deploy → smoke → traffic.
+  assert.ok(workflow.indexOf('Resolve the staging image') < start);
+  assert.ok(start < workflow.indexOf('Deploy (behind a tag'));
+  assert.ok(start < workflow.indexOf('Send traffic to the new revision'));
+  // Tagging needs artifactregistry.tags.create/update, which the writer role
+  // the deployer already has on the repository includes.
+  assert.match(read('infra/bootstrap.sh'), /--member="serviceAccount:\$\{DEPLOYER_SA\}" --role=roles\/artifactregistry\.writer/);
+});
+
+test('re-running a production deploy for the same commit does not need tags.delete', () => {
+  // `gcloud artifacts docker tags add` on an existing tag is delete + create
+  // (docker_util.AddDockerTag), and roles/artifactregistry.writer has no
+  // tags.delete. So the step looks first, and adds only when the tag is absent.
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  const lookup = step.indexOf('gcloud artifacts docker images describe "${TAG_URI}"');
+  const add = step.indexOf('gcloud artifacts docker tags add "${IMAGE_DIGEST}"');
+  assert.notEqual(lookup, -1, 'the step does not look the tag up before adding it');
+  assert.ok(lookup < add, 'the lookup must come before the add');
+  assert.match(step, /WANT="\$\{IMAGE_DIGEST#\*@\}"/, 'the comparison must be against the bare sha256 digest');
+  assert.match(step, /if \[ "\$\{CURRENT\}" = "\$\{WANT\}" \]; then\n\s*echo "[^"]*nothing to do"/, 'an identical tag must be a no-op');
+  // A tag on another digest fails loudly; it is never silently moved.
+  assert.match(step, /else\n\s*echo "::error::[^"]*Refusing to move a production tag[^"]*"\n\s*exit 1\n\s*fi\n\s*else\n\s*gcloud artifacts docker tags add/);
+  assert.equal(step.split('gcloud artifacts docker tags add "').length - 1, 1, 'exactly one add, in the absent branch');
+});
+
+test('the tag step, run against a stand-in gcloud: adds when absent, no-op when same, fails when different', () => {
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  const body = step.slice(step.indexOf('run: |\n') + 'run: |\n'.length);
+  const script = body.split('\n').map((line) => line.replace(/^ {10}/, '')).join('\n');
+
+  const digest = 'sha256:' + 'a'.repeat(64);
+  const dir = mkdtempSync(join(tmpdir(), 'prod-tag-'));
+  try {
+    const log = join(dir, 'calls.log');
+    // `describe` answers from $TAG_STATE: absent → exit 1, else prints that digest.
+    writeFileSync(join(dir, 'gcloud'), [
+      '#!/usr/bin/env bash',
+      `echo "$*" >>"${log}"`,
+      'if [ "$1 $2 $3 $4" = "artifacts docker images describe" ]; then',
+      '  [ "${TAG_STATE}" = absent ] && { echo "NOT_FOUND" >&2; exit 1; }',
+      '  echo "${TAG_STATE}"; exit 0',
+      'fi',
+      'exit 0',
+    ].join('\n'));
+    chmodSync(join(dir, 'gcloud'), 0o755);
+
+    const run = (tagState: string) => {
+      rmSync(log, { force: true });
+      let status = 0;
+      let output = '';
+      try {
+        output = execFileSync('bash', ['-e', '-c', script], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            PATH: `${dir}:${process.env.PATH}`,
+            TAG_STATE: tagState,
+            REGION: 'europe-west1', PROJECT_ID: 'p', REPOSITORY: 'r', IMAGE: 'api', GITHUB_SHA: 'c0ffee',
+            IMAGE_DIGEST: `europe-west1-docker.pkg.dev/p/r/api@${digest}`,
+          } as unknown as NodeJS.ProcessEnv,
+        });
+      } catch (error) {
+        status = (error as { status: number }).status;
+        output = String((error as { stdout: string }).stdout);
+      }
+      let calls: string[] = [];
+      try { calls = readFileSync(log, 'utf8').trim().split('\n'); } catch { /* no calls */ }
+      return { status, output, adds: calls.filter((call) => call.startsWith('artifacts docker tags add')) };
+    };
+
+    const absent = run('absent');
+    assert.equal(absent.status, 0);
+    assert.deepEqual(absent.adds, [`artifacts docker tags add europe-west1-docker.pkg.dev/p/r/api@${digest} europe-west1-docker.pkg.dev/p/r/api:prod-c0ffee`]);
+
+    const same = run(digest);
+    assert.equal(same.status, 0, 'a re-run for the same digest must succeed');
+    assert.deepEqual(same.adds, [], 'a re-run must not call tags add (it would need tags.delete)');
+
+    const other = run('sha256:' + 'b'.repeat(64));
+    assert.notEqual(other.status, 0, 'a tag on another digest must fail the run');
+    assert.deepEqual(other.adds, [], 'a production tag is never silently moved');
+    assert.match(other.output, /::error::.*Refusing to move a production tag/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
