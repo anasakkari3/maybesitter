@@ -526,6 +526,18 @@ describe('an appointment, and a step moved by quiet hours', () => {
       expect(announce).toHaveBeenCalledTimes(1);
     });
 
+    /* Review n3: settings that cannot be read still let VoiceOver hear what is known. */
+    it('announces what is known when the settings cannot be read', async () => {
+      jest.spyOn(reminderEndpoints, 'getReminderSettings').mockRejectedValue(new Error('offline'));
+      jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);
+      const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+      announce.mockClear();
+      await reviewWith({});
+      await edit(localOf(mockStart.getTime() + 2 * HOUR));
+      await waitFor(() => expect(announce).toHaveBeenCalledWith(en.reviewPrepAfterMeeting));
+      expect(screen.queryByTestId('review-prep-rings-at')).toBeNull();
+    });
+
     it('announces the proposed line again when an edit is taken back (m3)', async () => {
       settingsWith();
       jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue(emptyProfileFixture as never);

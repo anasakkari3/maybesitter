@@ -593,6 +593,25 @@ describe('the top card during quiet hours is not quiet mode (UAT round 3, N12)',
     }
   });
 
+  /* Review n3: an ask that fails after Today has closed schedules no retry. */
+  it('does not retry for a Today that has closed while the ask was out', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext, view } = await showQuietUntil2230('empty');
+      let fail: (error: Error) => void = () => undefined;
+      getNext.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }) as never);
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      expect(getNext.mock.calls.length).toBe(before + 1);
+      await view.unmount();
+      await act(async () => { fail(new Error('offline')); });
+      await act(async () => { jest.advanceTimersByTime(120_000); });
+      expect(getNext.mock.calls.length).toBe(before + 1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('quiet mode keeps its own words and the way to turn it off', async () => {
     await showSilenced({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_mode' } });
     expect(within(screen.getByTestId('today-quiet')).queryByText(en.todayQuietModeOn)).not.toBeNull();
