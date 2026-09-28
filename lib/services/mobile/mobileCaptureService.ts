@@ -272,9 +272,14 @@ async function persistedItem(
     title: commitment?.title ?? item.title,
     // An all-day commitment has no hour (FX3); its `dueAt` is the day's
     // midnight, which the saved screen would otherwise print as «00:00».
-    resolvedTime: commitment?.timeSpec.allDay
-      ? null
-      : commitment?.timeSpec.remindAt ?? commitment?.timeSpec.dueAt ?? item.resolvedTime,
+    // What was stored, when it can be read: a time cleared at confirm is no
+    // time, not the proposal's old one (FY1 re-review, R-M4). The proposal's
+    // time is only the fallback for a commitment the snapshot does not hold.
+    resolvedTime: !commitment
+      ? item.resolvedTime
+      : commitment.timeSpec.allDay
+        ? null
+        : commitment.timeSpec.remindAt ?? commitment.timeSpec.dueAt ?? null,
   };
 }
 
