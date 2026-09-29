@@ -204,6 +204,13 @@ test('FIX-R8 1: «كل أسبوع» with no day and a clock — the day is asked
   assert.equal(items[0]!.clarification?.questionKey, 'ask_day');
   assert.deepEqual(items[0]!.recurrenceHint, { weekdays: [] });
   assert.equal(items[0]!.title, 'عندي اجتماع كل أسبوع');
+  // The rules reader on its own already keeps the hour with no day: a clock
+  // alone is today only when no recurrence was said.
+  const read = extract('عندي اجتماع كل أسبوع الساعة 10', { now: TUE, timezone: TZ });
+  assert.equal(read.localTimeSpec, null);
+  assert.equal(read.dueAt, null);
+  assert.equal(read.undatedTime, '10:00');
+  assert.equal(extract('عندي اجتماع الساعة 12', { now: TUE, timezone: TZ }).localTimeSpec?.date, '2026-09-29');
 });
 
 // ── 4: the owner's two engagements ───────────────────────────────────────
