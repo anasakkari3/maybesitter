@@ -20,6 +20,8 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
 import { TrustScreen } from '../TrustScreen';
 import answered from '../../../api/__fixtures__/consents.answered.json';
 import trustState from '../../../api/__fixtures__/trust.state.json';
@@ -100,7 +102,9 @@ async function show() {
       </AppProvider>
     </SafeAreaProvider>,
   );
-  await waitFor(() => expect(screen.getByTestId('trust-calendar').props.disabled).not.toBe(true));
+  // Loaded when the trust state is: the calendar switch itself stays disabled
+  // while the phone refuses, so it cannot be what this waits on.
+  await waitFor(() => expect(screen.getByTestId('trust-analytics').props.disabled).not.toBe(true));
 }
 
 /** The line, once it has settled on one. */
@@ -172,5 +176,61 @@ describe('the calendar line in the Trust Center', () => {
     await act(async () => { for (const listener of listeners) listener('active'); });
     await lineIs(en.trustCalendarReadingWriting);
     expect(screen.queryByTestId('trust-calendar-denied')).toBeNull();
+    // The consent was kept, so the switch is straight back on and usable.
+    expect(screen.getByTestId('trust-calendar').props.value).toBe(true);
+    expect(screen.getByTestId('trust-calendar').props.accessibilityState).toEqual({ checked: true, disabled: false });
+  });
+});
+
+/**
+ * UAT round 6, batch 6 (shots 882/883): the phone refused calendar access with
+ * reading consent on. Settings → Calendar showed its switches off and disabled;
+ * the Trust Center showed «التقويم» on, in red, right above the refusal card.
+ * The two screens say the same thing now.
+ */
+describe('the calendar switch while the phone refuses', () => {
+  it('reads off and cannot be moved, the same as Settings → Calendar, and keeps the consent', async () => {
+    const update = jest.spyOn(trustEndpoints, 'updateTrust');
+    given({ access: 'denied' });
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('trust-calendar-denied')).not.toBeNull());
+
+    const toggle = screen.getByTestId('trust-calendar');
+    expect(toggle.props.value).toBe(false);
+    expect(toggle.props.disabled).toBe(true);
+    // Said to VoiceOver/TalkBack too: off, dimmed, and named for what it is.
+    expect(toggle.props.accessibilityState).toEqual({ checked: false, disabled: true });
+    expect(toggle.props.accessibilityLabel).toBe(en.trustCalendar);
+    // The account's consent is not touched: allowing access brings it back.
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('is still on and usable when the phone allows access', async () => {
+    given({ access: 'granted' });
+    await show();
+    await lineIs(en.trustCalendarReadingWriting);
+    expect(screen.getByTestId('trust-calendar').props.value).toBe(true);
+    expect(screen.getByTestId('trust-calendar').props.disabled).not.toBe(true);
+  });
+
+  it('shows the consent on a phone that has not been asked yet, as Settings → Calendar does', async () => {
+    // Only a refusal turns it off. «Not asked yet» is a consent waiting for its
+    // one prompt, and the switch is where that prompt comes from.
+    given({ access: 'undetermined' });
+    await show();
+    await lineIs(en.trustCalendarNotConnected);
+    expect(screen.getByTestId('trust-calendar').props.value).toBe(true);
+    expect(screen.getByTestId('trust-calendar').props.disabled).not.toBe(true);
+  });
+
+  it('says reading is blocked as well as adding, in every language', () => {
+    // The card sits under a switch about reading; «فما بنقدر نضيف إشي» alone
+    // told half of it.
+    expect(ar.calendarPermissionDenied).toMatch(/نقرا/);
+    expect(ar.calendarPermissionDenied).toMatch(/نضيف/);
+    expect(en.calendarPermissionDenied).toMatch(/\bread\b/);
+    expect(en.calendarPermissionDenied).toMatch(/\badd\b/);
+    expect(he.calendarPermissionDenied).toMatch(/לקרוא/);
+    expect(he.calendarPermissionDenied).toMatch(/להוסיף/);
   });
 });

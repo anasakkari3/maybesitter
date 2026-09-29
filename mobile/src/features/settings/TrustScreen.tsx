@@ -198,8 +198,13 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
             // What is actually connected, not a fixed «مش موصول من هون»
             // (UAT round 6, D-d, shot 845). A refusal is the card below.
             body={calendarLine}
-            value={state?.calendarConsent === true}
-            disabled={state === undefined}
+            // Off and still while the phone refuses, the same as Settings →
+            // Calendar: consent alone reads and adds nothing, and a switch on
+            // over the refusal card is a switch that lies (UAT round 6, shots
+            // 882/883). The consent is kept on the account, so allowing access
+            // in phone settings brings the switch straight back.
+            value={state?.calendarConsent === true && calendar.access !== 'denied'}
+            disabled={state === undefined || calendar.access === 'denied'}
             onChange={async next => {
               // On the way on, ask the phone first (first iPhone run, L7):
               // recording the consent alone left the busy read failing,
