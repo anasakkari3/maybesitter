@@ -26,6 +26,7 @@ import {
   saveExcludedCalendarIds,
 } from '../../lib/deviceSettings/calendarDevice';
 import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
+import { useWeeklyBlockDeviceSync } from '../weeklyBlocks/useWeeklyBlockDeviceSync';
 import { useIcsFeedsAvailable } from '../calendarFeeds/availability';
 import { useBusyBlocks, useBusyCalendar } from '../calendar/useBusyCalendar';
 import { fill } from '../../i18n/strings';
@@ -119,6 +120,7 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
   const today = useToday();
   const upcoming = useUpcoming();
   const sync = useDeviceCalendarSync([today.data, upcoming.data]);
+  const weeklySync = useWeeklyBlockDeviceSync();
   const busyCalendar = useBusyCalendar();
   const busyBlocks = useBusyBlocks();
   const trust = useTrust();
@@ -277,12 +279,14 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
     setRemoved(null);
     try {
       const result = await sync.removeAll();
-      if (result.permissionDenied) setAccess('denied');
-      else setRemoved(result.removed);
+      // The weekly blocks' recurring events are events MaybeSitter added too.
+      const weekly = result.permissionDenied ? { removed: 0, permissionDenied: true } : await weeklySync.removeAll();
+      if (result.permissionDenied || weekly.permissionDenied) setAccess('denied');
+      else setRemoved(result.removed + weekly.removed);
     } finally {
       setBusy(false);
     }
-  }, [sync]);
+  }, [sync, weeklySync]);
 
   const disconnect = useCallback(async () => {
     setConfirmDisconnect(false);

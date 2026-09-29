@@ -76,3 +76,4 @@ export const weeklyBlockOccurrencesSchema = z.object({
 export type WeeklyBlock = z.infer<typeof weeklyBlockSchema>;
 export type WeeklyBlockOffer = z.infer<typeof weeklyBlockOfferSchema>;
 export type WeeklyBlockOccurrence = z.infer<typeof weeklyBlockOccurrenceSchema>;
+export type WeeklyBlockDeviceEvent = z.infer<typeof weeklyBlockDeviceEventSchema>;
