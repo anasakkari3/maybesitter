@@ -272,6 +272,8 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '500'],
     ['MAYBESITTER_FEATURE_MEMORY', 'true'],
     ['MAYBESITTER_KILL_SWITCH_MEMORY', 'false'],
+    ['MAYBESITTER_FEATURE_CONTEXT_ENRICHMENT', 'false'],
+    ['MAYBESITTER_KILL_SWITCH_CONTEXT_ENRICHMENT', 'true'],
     ['MAYBESITTER_LLM_DAILY_CALL_CAP', '60'],
     ['MAYBESITTER_LLM_DAILY_TOKEN_CAP', '150000'],
     ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
@@ -282,8 +284,10 @@ test('switching the env list to a custom delimiter dropped none of the existing 
   assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
   assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
-  assert.equal(production.size, 23);
-  assert.equal(staging.size, 22);
+  assert.equal(staging.get('MAYBESITTER_FEATURE_CONTEXT_ENRICHMENT'), 'false');
+  assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_CONTEXT_ENRICHMENT'), 'false');
+  assert.equal(production.size, 25);
+  assert.equal(staging.size, 24);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

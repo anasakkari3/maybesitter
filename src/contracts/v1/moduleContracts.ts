@@ -5,6 +5,7 @@ export const MODULE_CONTRACT_VERSION = 'v1' as const;
 
 export const INTELLIGENCE_MODULES = [
   'capture',
+  'contextEnrichment',
   'lifeState',
   'memory',
   'priority',
@@ -120,6 +121,21 @@ export const INTELLIGENCE_MODULE_CONTRACTS: Record<IntelligenceModuleName, Intel
       disposition: 'proposed',
       commitmentCount: 0,
     } satisfies CaptureOutput),
+  },
+  contextEnrichment: {
+    version: MODULE_CONTRACT_VERSION,
+    module: 'contextEnrichment',
+    owner: 'backend',
+    allowsDirectStateWrites: false,
+    allowedDependencyLayers: ['contracts', 'deterministic-services', 'adapters'],
+    inputDescription: 'Explicitly consented, scope-bound memory, goals, commitments, busy intervals, and opaque external references.',
+    outputDescription: 'A bounded ephemeral UserContextSnapshot; no persistence and no canonical state writes.',
+    execute: async (invocation: ModuleInvocation<unknown>) => placeholderExecutor(invocation.provenance, {
+      status: 'implemented',
+      module: 'contextEnrichment',
+      schemaVersion: 'user-context-v1',
+      entryPoint: 'lib/userContext/buildUserContextSnapshot#buildUserContextSnapshot',
+    } satisfies ImplementedModuleOutput),
   },
   lifeState: {
     version: MODULE_CONTRACT_VERSION,

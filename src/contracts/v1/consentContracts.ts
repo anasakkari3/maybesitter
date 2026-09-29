@@ -43,6 +43,16 @@ export const RECOMMENDATION_CONSENT_VERSION = 'rec-consent-v1';
  */
 export const PERSONALIZATION_CONSENT_VERSION = 'personalization-consent-v1';
 
+/**
+ * Allows a bounded snapshot of the user's own context to be sent to Vertex AI.
+ *
+ * This is deliberately independent of `ai-consent-v1`: that older promise
+ * explicitly excludes calendar data, and neither OAuth nor selecting a Drive
+ * file is consent to combine it with memory, goals, or commitments for model
+ * processing.
+ */
+export const CONTEXT_ENRICHMENT_CONSENT_VERSION = 'context-enrichment-consent-v1';
+
 export type AiConsentState = 'granted' | 'declined';
 export type ConsentLocale = 'ar' | 'he' | 'en';
 export type ConsentPlatform = 'ios' | 'android';
@@ -85,8 +95,25 @@ export const PERSONALIZATION_CONSENT_CLAIMS_V1 = [
   'optional:off_by_default,changeable_in_settings',
 ] as const;
 
+export const CONTEXT_ENRICHMENT_CONSENT_CLAIMS_V1 = [
+  'what_it_does:use_bounded_active_memory,goals,open_commitments,and_selected_external_context_for_capture_or_recommendation',
+  'calendar:busy_intervals_only,no_titles,no_details,no_attendees',
+  'gmail:user_triggered_one_shot_scan_only,no_recurring_sync',
+  'drive:user_selected_file_only,no_unselected_files',
+  'to_whom:google_cloud_vertex_ai_gemini,europe_west1',
+  'never_sent:oauth_tokens,authorization_headers,credentials,contacts,revoked_or_expired_memory',
+  'handling:external_content_is_request_scoped_and_ephemeral,model_output_is_proposal_only',
+  'optional:off_by_default,changeable_in_settings,rules_only_fallback',
+] as const;
+
 /** A digest of the claims, so a change to them without a version bump is caught. */
 export function aiConsentClaimsDigest(claims: readonly string[] = AI_CONSENT_CLAIMS_V1): string {
+  return createHash('sha256').update(claims.join('\n')).digest('hex').slice(0, 16);
+}
+
+export function contextEnrichmentConsentClaimsDigest(
+  claims: readonly string[] = CONTEXT_ENRICHMENT_CONSENT_CLAIMS_V1,
+): string {
   return createHash('sha256').update(claims.join('\n')).digest('hex').slice(0, 16);
 }
 
@@ -107,6 +134,14 @@ export const SUPPORTED_PERSONALIZATION_CONSENT_VERSIONS: readonly string[] = [PE
 
 export function isSupportedPersonalizationConsentVersion(version: unknown): version is string {
   return typeof version === 'string' && SUPPORTED_PERSONALIZATION_CONSENT_VERSIONS.includes(version);
+}
+
+export const SUPPORTED_CONTEXT_ENRICHMENT_CONSENT_VERSIONS: readonly string[] = [
+  CONTEXT_ENRICHMENT_CONSENT_VERSION,
+];
+
+export function isSupportedContextEnrichmentConsentVersion(version: unknown): version is string {
+  return typeof version === 'string' && SUPPORTED_CONTEXT_ENRICHMENT_CONSENT_VERSIONS.includes(version);
 }
 
 /**
