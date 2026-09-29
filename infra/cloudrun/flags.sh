@@ -37,6 +37,9 @@ case "${TARGET}" in
     # the first live sync in staging; production needs its own explicit deploy
     # decision after the provider call and projection are evidenced there.
     football_secret=",FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest"
+    # UC-3.4 (#188): calendar links (ICS feeds), on staging. See the
+    # "Calendar links" comment block below.
+    ics_feeds="true"
     # No website posts to staging's sign-up, so no origin is allowed there.
     site_origins=""
     ;;
@@ -51,6 +54,11 @@ case "${TARGET}" in
     memory_feature="false"
     memory_kill_switch="true"
     football_secret=""
+    # Calendar links stay off here until staging has evidence. This is the
+    # switch the owner flips (to "true") in a deliberate production deploy;
+    # it is written out, not left unset, so the decision is visible on the
+    # service. See the "Calendar links" comment block below.
+    ics_feeds="false"
     # The origins the early-access form posts from (lib/earlyAccess/service.ts,
     # exact match). Unset fails closed, and it was only ever on the service by
     # hand. maybesitter.com is the live custom domain; www 301-redirects to it
@@ -124,6 +132,24 @@ esac
 # reason `MAYBESITTER_KILL_SWITCH_RECOMMENDATION` does: the switch an
 # operator flips in an incident is already present on the service.
 #
+# ── Calendar links (UC-3.4 #188) ────────────────────────────────────────────
+#
+# `ICS_FEEDS_ENABLED` (lib/calendar/icsFeeds.ts, on only for the literal
+# `true`) gates `/api/mobile/calendar/ics/**` and the 30-minute refresh job
+# (infra/scheduler.sh). It was set on neither service, so a build with the
+# screen got 404 `feature_disabled` on every call and the owner's phone showed
+# «Calendar links are not available in this version.» (2026-09-29).
+#
+# Staging: on. Production: `false`, written explicitly — the same shape as the
+# football credential: production follows only after the fetch, the refresh
+# and the proposals are evidenced on staging, by an owner decision.
+#
+# Every feed URL is sealed with `MAYBESITTER_KMS_KEY_NAME` (fieldEncryption,
+# purpose `ics-url` per feed) before it is stored, and both services already
+# carry that key, so turning this on needs no other variable. The server
+# fetches the URL through `safeFetch` (https only, no private addresses) and no
+# model reads a feed, so this is not a spending decision.
+#
 # CPU throttling is the Cloud Run default and is not passed explicitly: the flag
 # to *disable* it (--no-cpu-throttling) is the one that costs money, and it is
 # absent.
@@ -159,6 +185,6 @@ printf '%s ' \
   "--min-instances=0" \
   "--max-instances=${max_instances}" \
   "--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6" \
-  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000;MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME}${site_origins}" \
+  "--update-env-vars=^;^MAYBESITTER_ENV=${env_name};MAYBESITTER_STORAGE_BACKEND=firestore;MAYBESITTER_FIRESTORE_DATABASE_ID=${database_id};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_PROVIDER=${llm_provider};MAYBESITTER_LLM_MODEL=gemini-2.5-flash;MAYBESITTER_VERTEX_LOCATION=${REGION};MAYBESITTER_GCP_PROJECT=${PROJECT_ID};MAYBESITTER_LLM_TIMEOUT_MS=8000;MAYBESITTER_LLM_MAX_RETRIES=1;MAYBESITTER_AI_DISABLED=${ai_disabled};MAYBESITTER_LLM_DAILY_CALL_CAP=60;MAYBESITTER_LLM_DAILY_TOKEN_CAP=150000;MAYBESITTER_LLM_MINUTE_CALL_CAP=8;MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000;MAYBESITTER_FEATURE_RECOMMENDATION=true;MAYBESITTER_KILL_SWITCH_RECOMMENDATION=false;MAYBESITTER_NEXT_STEP_ARM=personalized;MAYBESITTER_FEATURE_MEMORY=${memory_feature};MAYBESITTER_KILL_SWITCH_MEMORY=${memory_kill_switch};MAYBESITTER_KMS_KEY_NAME=${KMS_KEY_NAME};ICS_FEEDS_ENABLED=${ics_feeds}${site_origins}" \
   "--set-secrets=MAYBESITTER_DELETION_RECEIPT_PEPPER=maybesitter-deletion-receipt-pepper:latest${football_secret}"
 printf '\n'

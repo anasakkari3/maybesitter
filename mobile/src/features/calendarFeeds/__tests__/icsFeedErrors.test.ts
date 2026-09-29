@@ -19,6 +19,7 @@ import { userFacingMessage, type UserFacingKey } from '../../../api/ui/userFacin
 import { strings } from '../../../i18n/strings';
 import invalidUrl from '../../../api/__fixtures__/icsFeeds.invalidUrl.json';
 import refreshTooSoon from '../../../api/__fixtures__/icsFeeds.refreshTooSoon.json';
+import disabled from '../../../api/__fixtures__/icsFeeds.disabled.json';
 
 const okSchema = z.object({ ok: z.boolean() });
 
@@ -43,6 +44,8 @@ describe('feed refusals keep their reason', () => {
   const CASES: [number, unknown, IcsFeedRefusedError['reason'], UserFacingKey][] = [
     [400, invalidUrl, 'invalid_url', 'icsFeedsErrInvalidUrl'],
     [429, refreshTooSoon, 'refresh_too_soon', 'icsFeedsErrTooSoon'],
+    // A server without ICS_FEEDS_ENABLED, as recorded from the real handler.
+    [404, disabled, 'feature_disabled', 'icsFeedsUnavailable'],
     [422, { success: false, error: 'not_a_calendar', reason: 'not_a_calendar' }, 'not_a_calendar', 'icsFeedsErrNotCalendar'],
     [422, { success: false, error: 'fetch_failed', reason: 'fetch_failed', detail: 'timeout' }, 'fetch_failed', 'icsFeedsErrFetch'],
     [409, { success: false, error: 'too_many_feeds', reason: 'too_many_feeds' }, 'too_many_feeds', 'icsFeedsErrTooMany'],

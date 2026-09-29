@@ -1111,6 +1111,12 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         request(`/api/mobile/calendar/ics/${feedId}`, { method: 'DELETE', uid: ICS_USER }),
         ICS_USER, feedId, icsDeps,
       ));
+      // What every deployed server without ICS_FEEDS_ENABLED answers (owner's
+      // phone, 2026-09-29): the app hides the entry on exactly this body.
+      await record('icsFeeds.disabled', 404, await handleListFeeds(
+        request('/api/mobile/calendar/ics', { uid: ICS_USER }),
+        ICS_USER, { ...icsDeps, env: { NODE_ENV: 'test' } as NodeJS.ProcessEnv },
+      ));
     }
 
     await applyTrustAction(USER, { type: 'set_calendar_consent', granted: false, at: new Date().toISOString() });

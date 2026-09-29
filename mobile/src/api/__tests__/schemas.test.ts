@@ -319,6 +319,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['icsFeeds.deleted', icsFeedDeletedSchema],
   ['icsFeeds.invalidUrl', icsFeedRefusalSchema],
   ['icsFeeds.refreshTooSoon', icsFeedRefusalSchema],
+  // A server with ICS_FEEDS_ENABLED unset (every deploy until 2026-09-29).
+  ['icsFeeds.disabled', icsFeedRefusalSchema],
   // The Google connection (CL6a), recorded from the routes against a fake
   // Google. `google.notConfigured` is what every build gets until the owner
   // adds the OAuth client; the Gmail scan and the Drive import are the share

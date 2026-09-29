@@ -154,6 +154,16 @@ describe('the build flag', () => {
     expect(screen.queryByTestId('ics-url-input')).toBeNull();
     expect(feedEndpoints.listIcsFeeds).not.toHaveBeenCalled();
   });
+
+  it('offers nothing to fill in when the server has calendar links switched off', async () => {
+    // Its entries are hidden then (owner's Redmi, 2026-09-29); a screen
+    // already open when the server says so offers no form that can only fail.
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockRejectedValue(new IcsFeedRefusedError('feature_disabled', null));
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('ics-unavailable')).not.toBeNull());
+    expect(screen.queryByTestId('ics-url-input')).toBeNull();
+    expect(screen.queryByTestId('ics-consent')).toBeNull();
+  });
 });
 
 describe('consent', () => {

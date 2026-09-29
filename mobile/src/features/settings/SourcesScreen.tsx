@@ -11,8 +11,8 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
  * on their own — subscribed calendar links and followed football clubs — in
  * one place, so "why is this in my day?" has one answer.
  *
- * Calendar links stay behind their build flag: a row that leads to a screen
- * that refuses is worse than no row. Football shows only when the server holds
+ * Calendar links show only when the build has them and the server has them
+ * switched on: a row that leads to a screen that refuses is worse than no row. Football shows only when the server holds
  * the match data key (closure CL7) — without it nothing is ever fetched.
  */
 export function SourcesScreen({ onBack }: { onBack: () => void }) {

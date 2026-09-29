@@ -25,7 +25,8 @@ import {
   saveChosenCalendarId,
   saveExcludedCalendarIds,
 } from '../../lib/deviceSettings/calendarDevice';
-import { calendarReadEnabled, calendarWriteEnabled, icsFeedsEnabled } from '../../config/env';
+import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
+import { useIcsFeedsAvailable } from '../calendarFeeds/availability';
 import { useBusyBlocks, useBusyCalendar } from '../calendar/useBusyCalendar';
 import { fill } from '../../i18n/strings';
 import { SectionLabel } from '../../ui/chrome';
@@ -112,6 +113,7 @@ function calendarOptionLabel(calendar: WritableCalendar): string {
  */
 export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void; onFeeds?: () => void }) {
   const { t, p } = useApp();
+  const feedsAvailable = useIcsFeedsAvailable();
   const settings = useCalendarSettings();
   const setTarget = useSetCalendarWriteTarget();
   const today = useToday();
@@ -547,8 +549,9 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
 
         {/* A university calendar link (UC-3.4, #188), secondary on purpose:
             the phone's own calendars are listed above with nothing to fill in.
-            Absent, not disabled, when the build does not have the feature. */}
-        {icsFeedsEnabled() && onFeeds ? (
+            Absent, not disabled, when the build does not have the feature
+            or the server has it switched off (owner's Redmi, 2026-09-29). */}
+        {feedsAvailable && onFeeds ? (
           <Card pad={0} style={{ overflow: 'hidden', paddingHorizontal: 18 }}>
             <SettingsRow first label={t.calendarUniLinkEntry} sub={t.icsFeedsEntryBody} onPress={onFeeds} testID="calendar-feeds-entry" />
           </Card>
