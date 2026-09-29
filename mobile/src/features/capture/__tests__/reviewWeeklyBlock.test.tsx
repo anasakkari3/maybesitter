@@ -14,7 +14,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -116,6 +116,15 @@ describe('the card', () => {
     // The one-off's date chip steps aside while it is weekly.
     expect(screen.queryByTestId(`review-when-${ITEM}`)).toBeNull();
     expect(screen.getByTestId(`review-item-${ITEM}`).props.accessibilityLabel).toContain('كل سبت، من 10:00 لـ 16:00');
+  });
+
+  it('keeps the radios outside the checkbox, so a screen reader can reach them', async () => {
+    await reachReview();
+    // A Pressable is one element to VoiceOver/TalkBack: radios inside the
+    // card's checkbox could not be focused at all.
+    expect(within(screen.getByTestId(`review-item-${ITEM}`)).queryByTestId(`review-weekly-every-${ITEM}`)).toBeNull();
+    expect(within(screen.getByTestId(`review-card-${ITEM}`)).queryByTestId(`review-weekly-every-${ITEM}`)).not.toBeNull();
+    expect(screen.getByTestId(`review-weekly-every-${ITEM}`).props.accessibilityRole).toBe('radio');
   });
 
   it('switches to once in one tap, and shows the one-off\'s date again', async () => {

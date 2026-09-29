@@ -586,104 +586,113 @@ function ItemCard({
   const imp = priority ? PRIORITY_IMP[priority] : null;
   const impLabel = imp === 'must' ? t.todayGroupMust : imp === 'should' ? t.todayGroupShould : imp === 'nice' ? t.todayGroupNice : null;
   return (
-    <Btn
-      testID={`review-item-${item.itemId}`}
-      onPress={onToggle}
-      scaleTo={0.99}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}
-      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${whenSpoken}${!asWeekly && dateGuessed ? `, ${t.reviewDateEstimated}` : ''}${!asWeekly && timeGuessed ? `, ${t.reviewTimeEstimated}` : ''}`}
+    // The dashed card is this View, not the checkbox: the weekly choice sits
+    // inside the card but outside the checkbox, because a Pressable is one
+    // element to VoiceOver and TalkBack, and two radios inside it could not be
+    // reached at all.
+    <View
+      testID={`review-card-${item.itemId}`}
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
         // Selection belongs to the explicit checkbox, not the proposal border.
-        backgroundColor: p.sf, borderRadius: 24, paddingVertical: 16, paddingHorizontal: 18, gap: 10,
-        alignItems: 'flex-start', overflow: 'hidden',
+        backgroundColor: p.sf, borderRadius: 24, overflow: 'hidden',
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop,
-
       }}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, alignSelf: 'stretch' }}>
-        <View
-          testID={`review-check-${item.itemId}`}
-          style={{
-            width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 2,
-            backgroundColor: selected ? p.acs : 'transparent',
-            borderWidth: 2, borderColor: selected ? p.acd : p.lnStrong,
-          }}
-        >
-          {selected ? <CheckIcon size={16} color={p.acd} /> : null}
+      <Btn
+        testID={`review-item-${item.itemId}`}
+        onPress={onToggle}
+        scaleTo={0.99}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: selected }}
+        label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${whenSpoken}${!asWeekly && dateGuessed ? `, ${t.reviewDateEstimated}` : ''}${!asWeekly && timeGuessed ? `, ${t.reviewTimeEstimated}` : ''}`}
+        style={{ paddingVertical: 16, paddingHorizontal: 18, gap: 10, alignItems: 'flex-start' }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, alignSelf: 'stretch' }}>
+          <View
+            testID={`review-check-${item.itemId}`}
+            style={{
+              width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginTop: 2,
+              backgroundColor: selected ? p.acs : 'transparent',
+              borderWidth: 2, borderColor: selected ? p.acd : p.lnStrong,
+            }}
+          >
+            {selected ? <CheckIcon size={16} color={p.acd} /> : null}
+          </View>
+          <Txt role="card" style={{ flex: 1 }}>{title}</Txt>
+          <TextLink testID={`review-edit-${item.itemId}`} label={t.reviewEdit} onPress={onEdit} size={13} />
         </View>
-        <Txt role="card" style={{ flex: 1 }}>{title}</Txt>
-        <TextLink testID={`review-edit-${item.itemId}`} label={t.reviewEdit} onPress={onEdit} size={13} />
-      </View>
 
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        {asWeekly ? null : (
-          <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 }}>
-            <Txt size={12} weight={item.needsClarification ? 600 : 400} color={item.needsClarification ? p.wm : p.tx} testID={`review-when-${item.itemId}`}>{when}</Txt>
-          </View>
-        )}
-        {/* Same dashed mark as the priority guess below, naming what was
-            guessed. A tap opens the edit sheet, which offers the same weekday a
-            week later in one tap (L4). */}
-        {dateGuessed && !asWeekly ? (
-          <Btn
-            testID={`review-date-estimated-${item.itemId}`}
-            label={t.reviewDateEstimated}
-            hint={t.reviewEdit}
-            onPress={onEdit}
-            hitSlop={12}
-            scaleTo={0.97}
-            style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
-          >
-            <Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt>
-          </Btn>
-        ) : null}
-        {/* The same mark for a guessed hour; a tap opens the edit sheet, where
-            the time they set is theirs (D2). Both marks can show at once. */}
-        {timeGuessed && !asWeekly ? (
-          <Btn
-            testID={`review-time-estimated-${item.itemId}`}
-            label={t.reviewTimeEstimated}
-            hint={t.reviewEdit}
-            onPress={onEdit}
-            hitSlop={12}
-            scaleTo={0.97}
-            style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
-          >
-            <Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt>
-          </Btn>
-        ) : null}
-        {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
-        {/* A guess named as one — and no longer a guess once the user has set
-            it themselves. A level presented as a fact they stated is how a
-            product loses the right to guess at all (#164). */}
-        {item.priorityEstimated && edit?.priority === undefined ? (
-          <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}>
-            <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
-          </View>
-        ) : null}
-        {docFacts?.page ? (
-          <View style={{ backgroundColor: p.sf2, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8 }} testID={`review-page-${item.itemId}`}>
-            <Txt size={11} color={p.mu}>{fill(t.syllabusPageChip, { page: docFacts.page })}</Txt>
-          </View>
-        ) : null}
-        {needsQuestion ? (
-          <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt>
-        ) : null}
-        {/* Checked against the time the card *shows*, which is the edited one
-            when there is an edit: a chip about the time the server proposed
-            would be a note about something the user has already changed. It
-            never blocks Confirm — see `BusyConflictChip`. */}
-        <BusyConflictChip
-          blocks={editedInstant && !asWeekly ? busyAt(editedInstant.toISOString(), busy) : []}
-          testID={`review-busy-${item.itemId}`}
-        />
-      </View>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+          {asWeekly ? null : (
+            <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 }}>
+              <Txt size={12} weight={item.needsClarification ? 600 : 400} color={item.needsClarification ? p.wm : p.tx} testID={`review-when-${item.itemId}`}>{when}</Txt>
+            </View>
+          )}
+          {/* Same dashed mark as the priority guess below, naming what was
+              guessed. A tap opens the edit sheet, which offers the same weekday a
+              week later in one tap (L4). */}
+          {dateGuessed && !asWeekly ? (
+            <Btn
+              testID={`review-date-estimated-${item.itemId}`}
+              label={t.reviewDateEstimated}
+              hint={t.reviewEdit}
+              onPress={onEdit}
+              hitSlop={12}
+              scaleTo={0.97}
+              style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
+            >
+              <Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt>
+            </Btn>
+          ) : null}
+          {/* The same mark for a guessed hour; a tap opens the edit sheet, where
+              the time they set is theirs (D2). Both marks can show at once. */}
+          {timeGuessed && !asWeekly ? (
+            <Btn
+              testID={`review-time-estimated-${item.itemId}`}
+              label={t.reviewTimeEstimated}
+              hint={t.reviewEdit}
+              onPress={onEdit}
+              hitSlop={12}
+              scaleTo={0.97}
+              style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
+            >
+              <Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt>
+            </Btn>
+          ) : null}
+          {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
+          {/* A guess named as one — and no longer a guess once the user has set
+              it themselves. A level presented as a fact they stated is how a
+              product loses the right to guess at all (#164). */}
+          {item.priorityEstimated && edit?.priority === undefined ? (
+            <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}>
+              <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
+            </View>
+          ) : null}
+          {docFacts?.page ? (
+            <View style={{ backgroundColor: p.sf2, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8 }} testID={`review-page-${item.itemId}`}>
+              <Txt size={11} color={p.mu}>{fill(t.syllabusPageChip, { page: docFacts.page })}</Txt>
+            </View>
+          ) : null}
+          {needsQuestion ? (
+            <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt>
+          ) : null}
+          {/* Checked against the time the card *shows*, which is the edited one
+              when there is an edit: a chip about the time the server proposed
+              would be a note about something the user has already changed. It
+              never blocks Confirm — see `BusyConflictChip`. */}
+          <BusyConflictChip
+            blocks={editedInstant && !asWeekly ? busyAt(editedInstant.toISOString(), busy) : []}
+            testID={`review-busy-${item.itemId}`}
+          />
+        </View>
+      </Btn>
       {offer && weekly && onWeekly ? (
-        <WeeklyChoice itemId={item.itemId} offer={offer} title={edit?.title ?? offer.title} choice={weekly} locked={weeklyLocked} onChoose={onWeekly} />
+        <View style={{ paddingHorizontal: 18, paddingBottom: 16 }}>
+          <WeeklyChoice itemId={item.itemId} offer={offer} title={edit?.title ?? offer.title} choice={weekly} locked={weeklyLocked} onChoose={onWeekly} />
+        </View>
       ) : null}
-    </Btn>
+    </View>
   );
 }
 
