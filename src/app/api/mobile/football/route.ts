@@ -4,7 +4,7 @@ import { listClubs, type ClubLanguage } from '../../../../../lib/football/clubs'
 import { setUserLocale } from '../../../../../lib/storage/userLocale';
 
 const TITLE_LANGUAGES: readonly ClubLanguage[] = ['ar', 'he', 'en'];
-import { getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
+import { UnknownClubError, getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
 import { listActiveFixtureCommitments, projectFixturesForUser } from '../../../../../lib/football/projectFixtures';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 import { footballProviderConfigured, reconcileFootballWatchers } from '../../../../../lib/football/footballWatchers';
@@ -121,22 +121,51 @@ export async function PUT(request: Request) {
   try {
     followedClubIds = await setFollowedClubs(user.uid, body.clubIds as string[], now);
   } catch (error) {
-    // `setFollowedClubs` throws a plain `Error` naming the offending id --
-    // see its own header for why an unknown club id is refused here, before
-    // anything is written, rather than becoming a silent permanent no-op in
-    // every future sync.
-    return mobileError(error instanceof Error ? error.message : 'could not save followed clubs', 400);
+    // `setFollowedClubs` refuses an unknown club id before anything is
+    // written -- see its own header for why that is refused here rather than
+    // becoming a silent permanent no-op in every future sync. That is the
+    // caller's mistake (400); anything else is the server failing to write,
+    // said as such and without the storage error's own text.
+    if (error instanceof UnknownClubError) return mobileError(error.message, 400);
+    console.error('[football] saving followed clubs failed', error instanceof Error ? error.message : 'unknown error');
+    return Response.json(
+      { success: false, error: 'followed clubs could not be saved', reason: 'follow_not_saved' },
+      { status: 503 },
+    );
   }
+
+  // ── Everything below is after the follow is saved ─────────────────────
+  // Live P1 (2026-09-29): the fixtures-by-team query had no composite index
+  // on production, the projection threw here, and the route answered a bare
+  // 500 -- so the app said "check your connection" about a follow that had
+  // in fact been saved. Each step below is best-effort and repeated by the
+  // nightly job (`runFootballSyncJob`), so a failure reports the saved follow
+  // with `fixturesDeferred: true` rather than denying it. Each step runs on
+  // its own so one failing does not skip the others.
+  let fixturesDeferred = false;
+  const bestEffort = async (step: string, run: () => Promise<unknown>): Promise<void> => {
+    try {
+      await run();
+    } catch (error) {
+      fixturesDeferred = true;
+      console.error(`[football] ${step} after a saved follow failed`, error instanceof Error ? error.message : 'unknown error');
+    }
+  };
 
   // Remembered, not only used: the nightly projection has no request of its
   // own and reads the account's locale to keep titling matches in it.
-  if (language) await setUserLocale(user.uid, language, now);
+  if (language) await bestEffort('saving the locale', () => setUserLocale(user.uid, language, now));
   // One follow, one watcher: the watcher screen lists exactly what this list
   // follows (closure CL7, `lib/football/footballWatchers.ts`).
-  await reconcileFootballWatchers(user.uid, followedClubIds, now, { language, createMissing: configured });
-  await projectFixturesForUser(user.uid, now, { language });
-  const fixtures = await listActiveFixtureCommitments(user.uid);
+  await bestEffort('reconciling watchers', () =>
+    reconcileFootballWatchers(user.uid, followedClubIds, now, { language, createMissing: configured }));
+  await bestEffort('projecting fixtures', () => projectFixturesForUser(user.uid, now, { language }));
+  let fixtures: Awaited<ReturnType<typeof listActiveFixtureCommitments>> = [];
+  await bestEffort('listing fixtures', async () => {
+    fixtures = await listActiveFixtureCommitments(user.uid);
+  });
   return Response.json({
     success: true, providerConfigured: configured, clubs: listClubs(), followedClubIds, fixtures,
+    ...(fixturesDeferred ? { fixturesDeferred: true } : {}),
   });
 }

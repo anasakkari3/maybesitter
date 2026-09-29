@@ -129,6 +129,19 @@ export class CaptureConfirmRefusedError extends ApiError {
 export class ConflictError extends ApiError {}
 
 /**
+ * 409 `currency_required` — an amount sent before the account has a currency
+ * (`/api/mobile/financial/manual`). Nothing was saved, and the way forward is
+ * to pick a currency, which is not what "that didn't save" tells anyone (live
+ * P2, 2026-09-29). Read from `reason`, or from `code` for a server that
+ * predates `reason` on this refusal.
+ */
+export class CurrencyRequiredError extends ConflictError {
+  constructor() {
+    super('set your currency before entering an amount');
+  }
+}
+
+/**
  * 409 `stale_commitment` — another device changed this commitment (#148).
  *
  * It carries the commitment **as it actually is**, because that is the

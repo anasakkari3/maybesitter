@@ -24,6 +24,7 @@ import type { AuthUser } from '../../../auth/types';
 import en from '../../../i18n/locales/en.json';
 import { FinancialContextScreen } from '../FinancialContextScreen';
 import * as financialEndpoints from '../../../api/endpoints/financial';
+import { CurrencyRequiredError } from '../../../api/errors';
 import contextFixture from '../../../api/__fixtures__/financial.context.json';
 import connectedFixture from '../../../api/__fixtures__/financial.connected.json';
 import connectionOffFixture from '../../../api/__fixtures__/financial.connectionOff.json';
@@ -300,6 +301,117 @@ describe('correcting a figure', () => {
     await fireEvent.press(screen.getByTestId('financial-correction-save'));
 
     await waitFor(() => expect(screen.getByTestId('financial-save-failed')).toBeTruthy());
+  });
+});
+
+/*
+ * Live P2 (2026-09-29): on production the owner typed a figure into an account
+ * with no currency, the route refused it 409 `currency_required` twice, and the
+ * screen said only «ما انحفظ» with no way forward. The currency is now asked
+ * for first, beside the figure, and the refusal says what it is.
+ */
+describe('the currency comes first', () => {
+  const NO_CURRENCY = { ...CONTEXT, state: { ...CONTEXT.state, currency: null } } as typeof CONTEXT;
+
+  async function typeFigure(figure: string) {
+    await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('financial-correction-input'), figure);
+    await waitFor(() => expect(screen.getByTestId('financial-correction-input').props.value).toBe(figure));
+  }
+
+  it('asks for a currency, with none picked for the person, when the account has none', async () => {
+    jest.spyOn(financialEndpoints, 'getFinancialContext').mockResolvedValue(NO_CURRENCY);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-currency-picker')).toBeTruthy());
+    for (const code of ['ILS', 'JOD', 'USD', 'EUR']) {
+      const option = screen.getByTestId(`financial-currency-${code}`);
+      expect(option.props.accessibilityRole).toBe('radio');
+      expect(option.props.accessibilityState.checked).toBe(false);
+    }
+  });
+
+  it('does not send a figure before a currency is picked', async () => {
+    jest.spyOn(financialEndpoints, 'getFinancialContext').mockResolvedValue(NO_CURRENCY);
+    const save = jest.spyOn(financialEndpoints, 'putFinancialField').mockResolvedValue({ success: true as const });
+    await show();
+    await typeFigure('1800');
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByTestId('financial-correction-save').props.accessibilityState.disabled).toBe(true);
+  });
+
+  it('saves the picked currency, then the figure', async () => {
+    jest.spyOn(financialEndpoints, 'getFinancialContext').mockResolvedValue(NO_CURRENCY);
+    const save = jest.spyOn(financialEndpoints, 'putFinancialField').mockResolvedValue({ success: true as const });
+    await show();
+    await typeFigure('1800');
+    await fireEvent.press(screen.getByTestId('financial-currency-JOD'));
+    await waitFor(() => expect(screen.getByTestId('financial-currency-JOD').props.accessibilityState.checked).toBe(true));
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[0]?.[0]).toEqual({ field: 'currency', kind: 'statement', value: 'JOD' });
+    expect(save.mock.calls[1]?.[0]).toEqual({ field: 'cash_available', kind: 'correction', value: 180_000 });
+  });
+
+  it('does not ask again when the account already has one', async () => {
+    const save = jest.spyOn(financialEndpoints, 'putFinancialField').mockResolvedValue({ success: true as const });
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-cash-origin')).toBeTruthy());
+    expect(screen.queryByTestId('financial-currency-picker')).toBeNull();
+    await typeFigure('1800');
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0]?.[0]).toEqual({ field: 'cash_available', kind: 'correction', value: 180_000 });
+  });
+
+  it('says what the refusal is and offers the picker, instead of a bare «didn\'t save»', async () => {
+    // The screen believed a currency was known; the server did not. Say so,
+    // and put the way forward right there.
+    jest.spyOn(financialEndpoints, 'putFinancialField').mockRejectedValue(new CurrencyRequiredError());
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-cash-origin')).toBeTruthy());
+    await typeFigure('1800');
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
+
+    await waitFor(() => expect(screen.getByTestId('financial-currency-required')).toBeTruthy());
+    expect(screen.getByTestId('financial-currency-required').props.children).toBe(en.financialCurrencyRequired);
+    expect(screen.queryByTestId('financial-save-failed')).toBeNull();
+    expect(screen.getByTestId('financial-currency-picker')).toBeTruthy();
+  });
+
+  it('after a refusal, keeps the picker up once a currency is picked and sends it before the figure', async () => {
+    const save = jest.spyOn(financialEndpoints, 'putFinancialField')
+      .mockRejectedValueOnce(new CurrencyRequiredError())
+      .mockResolvedValue({ success: true as const });
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-cash-origin')).toBeTruthy());
+    await typeFigure('1800');
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await waitFor(() => expect(screen.getByTestId('financial-currency-required')).toBeTruthy());
+
+    await fireEvent.press(screen.getByTestId('financial-currency-ILS'));
+    await waitFor(() => expect(screen.getByTestId('financial-currency-ILS').props.accessibilityState.checked).toBe(true));
+    expect(screen.queryByTestId('financial-currency-required')).toBeNull();
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(3));
+    expect(save.mock.calls[1]?.[0]).toEqual({ field: 'currency', kind: 'statement', value: 'ILS' });
+    expect(save.mock.calls[2]?.[0]).toEqual({ field: 'cash_available', kind: 'correction', value: 180_000 });
+    await waitFor(() => expect(screen.queryByTestId('financial-currency-picker')).toBeNull());
+  });
+
+  it('never picks a bill\'s currency for the person when the account has none', async () => {
+    jest.spyOn(financialEndpoints, 'getFinancialContext').mockResolvedValue(NO_CURRENCY);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-currency-picker')).toBeTruthy());
+    expect(screen.getByTestId('financial-bill-currency').props.value).toBe('');
+  });
+
+  it('starts a bill in the account\'s own currency when there is one', async () => {
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-bill-currency').props.value).toBe('ILS'));
   });
 });
 

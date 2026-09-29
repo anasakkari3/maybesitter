@@ -71,6 +71,17 @@ export async function getFollowedClubs(
 }
 
 /**
+ * A club id outside the curated list — the caller's mistake, not the
+ * server's, which is why the route answers it 400 and any other failure 503.
+ */
+export class UnknownClubError extends Error {
+  constructor(readonly clubId: string) {
+    super(`unknown club id "${clubId}": not in the curated club list (see lib/football/clubs.ts)`);
+    this.name = 'UnknownClubError';
+  }
+}
+
+/**
  * Replaces the user's whole follow list.
  *
  * Rejects, naming the offending id, if any of them is not in the curated
@@ -89,7 +100,7 @@ export async function setFollowedClubs(
   const deduped = Array.from(new Set(clubIds));
   for (const clubId of deduped) {
     if (!clubById(clubId)) {
-      throw new Error(`unknown club id "${clubId}": not in the curated club list (see lib/football/clubs.ts)`);
+      throw new UnknownClubError(clubId);
     }
   }
   const storage = storageOf(deps);

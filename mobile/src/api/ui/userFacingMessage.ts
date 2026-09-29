@@ -3,6 +3,7 @@ import {
   ApiError,
   CaptureConfirmRefusedError,
   ContractError,
+  CurrencyRequiredError,
   FeatureUnavailableError,
   ForbiddenError,
   GoogleRefusedError,
@@ -159,6 +160,9 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
     return error.action === 'reject_proposal' ? 'errorsPlanProposalReplaced' : 'errorsPlanProposalStale';
   }
   if (error instanceof InvalidTransitionError) return 'errorsInvalidTransition';
+  // Before any generic branch: nothing is wrong with the figure or the
+  // connection; the account needs a currency first, and the line says so.
+  if (error instanceof CurrencyRequiredError) return 'financialCurrencyRequired';
   // Before the generic branches. A spent quota is not a server fault and not a
   // bad request; it is a limit that will clear, and which one decides the words
   // (#181). `global_daily` is nobody's fault and says so.
