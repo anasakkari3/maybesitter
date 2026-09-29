@@ -1575,5 +1575,12 @@
   "wbDayRange": "מ{from} עד {to}",
   "wbListSep": ", ",
   "wbAnd": " ו",
-  "wbA11yTime": "מ-{start} עד {end}"
+  "wbA11yTime": "מ-{start} עד {end}",
+  "wbReviewQuestion": "לשמור את זה כל שבוע?",
+  "wbReviewWeekly": "כל שבוע",
+  "wbReviewOnce": "רק פעם אחת",
+  "wbReviewWeeklyNote": "יישמר כקבוע שבועי: הזמן הזה יישאר פנוי כל שבוע, ויופיע ביומן בטלפון אם זה מופעל.",
+  "wbReviewOnceNote": "יישמר פעם אחת בלבד, במועד הקרוב.",
+  "wbReviewLocked": "שינית את הזמן או המקום, ולכן זה יישמר פעם אחת. שעות קבועות שבועיות משנים בהגדרות ← קבוע שבועי.",
+  "wbSavedNote": "אפשר להשהות, לשנות או למחוק בהגדרות ← קבוע שבועי."
 }

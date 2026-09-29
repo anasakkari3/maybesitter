@@ -1572,5 +1572,12 @@
   "wbDayRange": "{from} to {to}",
   "wbListSep": ", ",
   "wbAnd": " and ",
-  "wbA11yTime": "from {start} to {end}"
+  "wbA11yTime": "from {start} to {end}",
+  "wbReviewQuestion": "Keep it every week?",
+  "wbReviewWeekly": "Every week",
+  "wbReviewOnce": "Just once",
+  "wbReviewWeeklyNote": "Saved as a weekly fixed block: this time stays free every week, and it goes in your phone's calendar if that is on.",
+  "wbReviewOnceNote": "Saved once, on the next one only.",
+  "wbReviewLocked": "You changed its time or place, so it is saved once. Weekly hours are changed in Settings → Weekly fixed time.",
+  "wbSavedNote": "You can pause, change or delete it in Settings → Weekly fixed time."
 }

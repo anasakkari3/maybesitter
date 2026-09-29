@@ -28,7 +28,9 @@ import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
-import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
+import { confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
+import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
+import { weeklyA11yLabel } from '../features/weeklyBlocks/weeklyText';
 import { postManualBusy } from '../api/endpoints/calendar';
 import { mailboxShortfall } from '../features/google/mailboxShortfall';
 import type { CaptureProposalItem } from '../api/schemas/capture';
@@ -458,6 +460,9 @@ export function ReviewScreen() {
                   needsQuestion={item.needsClarification && !confirmable.includes(item.itemId)}
                   onToggle={() => flow.toggleItem(item.itemId)}
                   onEdit={() => setEditingItemId(item.itemId)}
+                  weekly={weeklyChoice(state, item.itemId)}
+                  weeklyLocked={weeklyLockedByEdit(state, item.itemId)}
+                  onWeekly={(weekly) => flow.setWeekly(item.itemId, weekly)}
                   lang={lang}
                   busy={busyBlocks}
                   docFacts={evidenceByItemId.get(item.itemId)}
@@ -475,6 +480,9 @@ export function ReviewScreen() {
               needsQuestion={item.needsClarification && !confirmable.includes(item.itemId)}
               onToggle={() => flow.toggleItem(item.itemId)}
               onEdit={() => setEditingItemId(item.itemId)}
+              weekly={weeklyChoice(state, item.itemId)}
+              weeklyLocked={weeklyLockedByEdit(state, item.itemId)}
+              onWeekly={(weekly) => flow.setWeekly(item.itemId, weekly)}
               lang={lang}
               busy={busyBlocks}
               docFacts={evidenceByItemId.get(item.itemId)}
@@ -511,7 +519,7 @@ export function ReviewScreen() {
 const PRIORITY_IMP = { high: 'must', normal: 'should', low: 'nice' } as const;
 
 function ItemCard({
-  item, edit, selected, needsQuestion, onToggle, onEdit, lang, busy, docFacts,
+  item, edit, selected, needsQuestion, onToggle, onEdit, weekly = null, weeklyLocked = false, onWeekly, lang, busy, docFacts,
 }: {
   item: CaptureProposalItem;
   edit: CaptureItemEdit | undefined;
@@ -519,6 +527,10 @@ function ItemCard({
   needsQuestion: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  /** «كل أسبوع» / «مرة وحدة بس» for an item the server offered a weekly block for; null otherwise. */
+  weekly?: 'weekly' | 'once' | null;
+  weeklyLocked?: boolean;
+  onWeekly?: (weekly: boolean) => void;
   lang: Lang;
   busy: readonly DeviceBusyBlock[];
   docFacts?: ShareDocumentFacts | undefined;
@@ -564,6 +576,13 @@ function ItemCard({
   const timeGuessed = Boolean(item.timeEstimated && item.resolvedTime && editedInstant && edit?.localDateTime === undefined);
   const priority = edit?.priority ?? item.priority;
 
+  // Kept weekly, the card is the block — «كل سبت · 10:00–16:00» — not the one
+  // Saturday the one-off would have been; the date chip and its guess marks
+  // describe that one-off and step aside.
+  const offer = item.weeklyBlock;
+  const asWeekly = weekly === 'weekly' && offer !== undefined;
+  const whenSpoken = asWeekly ? weeklyA11yLabel({ ...offer, title }, lang, { withTitle: false }) : when;
+
   const imp = priority ? PRIORITY_IMP[priority] : null;
   const impLabel = imp === 'must' ? t.todayGroupMust : imp === 'should' ? t.todayGroupShould : imp === 'nice' ? t.todayGroupNice : null;
   return (
@@ -573,7 +592,7 @@ function ItemCard({
       scaleTo={0.99}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
-      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}${dateGuessed ? `, ${t.reviewDateEstimated}` : ''}${timeGuessed ? `, ${t.reviewTimeEstimated}` : ''}`}
+      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${whenSpoken}${!asWeekly && dateGuessed ? `, ${t.reviewDateEstimated}` : ''}${!asWeekly && timeGuessed ? `, ${t.reviewTimeEstimated}` : ''}`}
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
         // Selection belongs to the explicit checkbox, not the proposal border.
@@ -599,13 +618,15 @@ function ItemCard({
       </View>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 }}>
-          <Txt size={12} weight={item.needsClarification ? 600 : 400} color={item.needsClarification ? p.wm : p.tx} testID={`review-when-${item.itemId}`}>{when}</Txt>
-        </View>
+        {asWeekly ? null : (
+          <View style={{ backgroundColor: item.needsClarification ? p.wms : p.sf2, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 }}>
+            <Txt size={12} weight={item.needsClarification ? 600 : 400} color={item.needsClarification ? p.wm : p.tx} testID={`review-when-${item.itemId}`}>{when}</Txt>
+          </View>
+        )}
         {/* Same dashed mark as the priority guess below, naming what was
             guessed. A tap opens the edit sheet, which offers the same weekday a
             week later in one tap (L4). */}
-        {dateGuessed ? (
+        {dateGuessed && !asWeekly ? (
           <Btn
             testID={`review-date-estimated-${item.itemId}`}
             label={t.reviewDateEstimated}
@@ -620,7 +641,7 @@ function ItemCard({
         ) : null}
         {/* The same mark for a guessed hour; a tap opens the edit sheet, where
             the time they set is theirs (D2). Both marks can show at once. */}
-        {timeGuessed ? (
+        {timeGuessed && !asWeekly ? (
           <Btn
             testID={`review-time-estimated-${item.itemId}`}
             label={t.reviewTimeEstimated}
@@ -655,10 +676,13 @@ function ItemCard({
             would be a note about something the user has already changed. It
             never blocks Confirm — see `BusyConflictChip`. */}
         <BusyConflictChip
-          blocks={editedInstant ? busyAt(editedInstant.toISOString(), busy) : []}
+          blocks={editedInstant && !asWeekly ? busyAt(editedInstant.toISOString(), busy) : []}
           testID={`review-busy-${item.itemId}`}
         />
       </View>
+      {offer && weekly && onWeekly ? (
+        <WeeklyChoice itemId={item.itemId} offer={offer} title={edit?.title ?? offer.title} choice={weekly} locked={weeklyLocked} onChoose={onWeekly} />
+      ) : null}
     </Btn>
   );
 }

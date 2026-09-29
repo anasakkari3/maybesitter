@@ -64,6 +64,7 @@ async function renderSaved(edits: Record<string, unknown> = {}, data: { proposal
       failed: [],
       collisions: [],
       undoable: false,
+      weeklySaved: [],
     },
     close: jest.fn(),
     undo: jest.fn(),
