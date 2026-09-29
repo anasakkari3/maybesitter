@@ -268,7 +268,7 @@ it in Cloud Run → Edit & deploy new revision → Variables. It is read per cal
 it takes effect on the next request rather than after a restart.
 
 Production ships with it present and `false`, and `MAYBESITTER_LLM_PROVIDER=gemini`,
-by the owner's spend decision (branch `closure/prod-ai-on`). Setting it to `true`
+by the owner's spend decision of 2026-09-29. Setting it to `true`
 is still the one-value way to take the model out.
 
 **We do not disable billing programmatically.** That takes the whole app down for
@@ -301,6 +301,12 @@ The application logs one JSON line per refusal, `{"event":"ai_quota_exceeded",
 "scope":…,"uidHash":…}`, carrying a scope and a hashed uid and nothing a person
 wrote. `global_daily` above zero is the alert that matters: it means everyone is
 being refused, which is a different problem from one heavy account.
+
+Production also has an alert of its own, "Production model calls above
+400/day": a log metric (`ai_production_llm_calls`) over the `llm_call` lines
+from `maybesitter-api` alone, excluding `cost_cap` refusals, at 80% of the
+production cap of 500. The Vertex alert counts the whole project and cannot
+see a production spike behind staging's traffic.
 
 ### Still owner-side
 

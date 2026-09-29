@@ -134,20 +134,40 @@ test('the memory module is on in both environments, with its kill switch present
   }
 });
 
-test('the football-data.org credential is mounted on staging only', () => {
-  const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
-  const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
+/** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
+function secretsOf(printed: string): Map<string, string> {
+  const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
+  assert.equal(flag.length, 1, 'exactly one --set-secrets word (a second one would replace the first)');
+  const secrets = new Map<string, string>();
+  for (const pair of flag[0]!.slice('--set-secrets='.length).split(',')) {
+    const at = pair.indexOf('=');
+    assert.ok(at > 0, `"${pair}" is not a KEY=secret:version pair`);
+    const key = pair.slice(0, at);
+    assert.ok(!secrets.has(key), `${key} is mounted twice`);
+    secrets.set(key, pair.slice(at + 1));
+  }
+  return secrets;
+}
 
-  assert.match(
-    staging,
-    /FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest/,
-    'staging does not receive the managed football-data.org credential',
-  );
-  assert.doesNotMatch(
-    production,
-    /FOOTBALL_DATA_API_KEY/,
-    'production football sync was activated without an explicit production decision',
-  );
+test('both services mount the same secrets: deletion pepper, model-log uid salt and the football credential', () => {
+  // Owner decision 2026-09-29: production gets the same features as staging,
+  // football fixtures included; and the uid salt the production model spend
+  // decision required, so model log lines never carry an unsalted uid hash.
+  const mounts: Array<[string, string]> = [
+    ['MAYBESITTER_DELETION_RECEIPT_PEPPER', 'maybesitter-deletion-receipt-pepper:latest'],
+    ['MAYBESITTER_LLM_UID_SALT', 'maybesitter-llm-uid-salt:latest'],
+    ['FOOTBALL_DATA_API_KEY', 'maybesitter-football-data-api-key:latest'],
+  ];
+  const expected = new Map(mounts);
+  for (const target of ['staging', 'production'] as const) {
+    const printed = flagsFor(target);
+    assert.deepEqual(secretsOf(printed), expected, target);
+    // A secret is never passed as a plain env value.
+    const env = envVarsOf(printed);
+    for (const [key] of mounts) assert.equal(env.has(key), false, `${target} passes ${key} as a plain env value`);
+  }
+  // The consumer reads exactly the name flags.sh mounts.
+  assert.match(read('lib/llm/llmLog.ts'), /process\.env\.MAYBESITTER_LLM_UID_SALT/);
 });
 
 // ── The env list gcloud actually receives ───────────────────────────────
@@ -215,21 +235,20 @@ test('each production site origin passes the sign-up\'s own origin check with th
   assert.equal((await ping('https://www.maybesitter.com')).status, 403, 'www redirects at Hosting and is not listed');
 });
 
-test('calendar links (ICS feeds) are on for staging and explicitly off for production', () => {
+test('calendar links (ICS feeds) are on for staging and production', () => {
   // Owner's Redmi, 2026-09-29: Settings → calendar links led to «Calendar
   // links are not available in this version.» because ICS_FEEDS_ENABLED was
   // set on neither service, so every route answered 404 `feature_disabled`.
-  // Staging gets it on; production is written out as `false`, the switch the
-  // owner flips after staging has evidence — the football pattern.
-  const staging = envVarsOf(flagsFor('staging'));
-  const production = envVarsOf(flagsFor('production'));
-  assert.equal(staging.get('ICS_FEEDS_ENABLED'), 'true', 'staging leaves calendar links off');
-  assert.equal(production.get('ICS_FEEDS_ENABLED'), 'false', 'production turns calendar links on without an owner decision, or hides the switch');
-  // Where it is on, the key that seals each feed URL is there too.
-  assert.equal(staging.get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY);
-  // And the server reads it exactly the way flags.sh writes it.
-  assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: staging.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), true);
-  assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: production.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), false);
+  // The same day the owner decided production gets the same features as
+  // staging, so both are on, each written out so an operator can turn it off.
+  for (const target of ['staging', 'production'] as const) {
+    const env = envVarsOf(flagsFor(target));
+    assert.equal(env.get('ICS_FEEDS_ENABLED'), 'true', `${target} leaves calendar links off`);
+    // Where it is on, the key that seals each feed URL is there too.
+    assert.equal(env.get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY, target);
+    // And the server reads it exactly the way flags.sh writes it.
+    assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: env.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), true, target);
+  }
 });
 
 test('both services are deployed with the KMS key that seals per-user secrets', () => {
@@ -256,7 +275,7 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_LLM_DAILY_CALL_CAP', '60'],
     ['MAYBESITTER_LLM_DAILY_TOKEN_CAP', '150000'],
     ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
-    ['ICS_FEEDS_ENABLED', 'false'],
+    ['ICS_FEEDS_ENABLED', 'true'],
   ] as const) {
     assert.equal(production.get(key), value, `production ${key}`);
   }

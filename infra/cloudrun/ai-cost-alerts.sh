@@ -27,6 +27,13 @@ NOTIFY_EMAIL="${2:-}"
 PROJECT_ID="${PROJECT_ID:-maybesitter-app}"
 REGION="${REGION:-europe-west1}"
 SERVICE="${SERVICE:-maybesitter-api}"
+# The production service by name, not ${SERVICE}: the production-only model
+# alert below must never follow an override to staging.
+PRODUCTION_SERVICE="maybesitter-api"
+# Production's global cap (MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP in
+# infra/cloudrun/flags.sh) and the alert at 80% of it.
+PRODUCTION_GLOBAL_DAILY_CALL_CAP=500
+PRODUCTION_LLM_CALLS_ALERT=400
 
 if [ "${MODE}" != "print" ] && [ "${MODE}" != "apply" ]; then
   echo "usage: ai-cost-alerts.sh print|apply [notification-email]" >&2
@@ -54,6 +61,17 @@ run gcloud logging metrics create ai_global_quota_exceeded \
   --project="${PROJECT_ID}" \
   --description="Model calls refused by the global daily quota (UC-4.5 #181)" \
   --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="ai_quota_exceeded" AND jsonPayload.scope="global_daily"'
+
+echo
+echo "# 7e — production's own model calls. The Vertex count (7a) is project-wide,"
+echo "#      and staging alone may make 3000 calls a day, so it cannot see a"
+echo "#      production spike. Every model call logs one \`llm_call\` JSON line"
+echo "#      (lib/llm/llmLog.ts); this counts those from the production service."
+echo "#      A \`cost_cap\` line is a refusal, not a call, and is not counted."
+run gcloud logging metrics create ai_production_llm_calls \
+  --project="${PROJECT_ID}" \
+  --description="Model calls logged by the production service (owner decision 2026-09-29)" \
+  --log-filter='resource.type="cloud_run_revision" AND resource.labels.service_name="'"${PRODUCTION_SERVICE}"'" AND jsonPayload.event="llm_call" AND jsonPayload.outcome!="cost_cap"'
 
 echo
 echo "# The notification channel every policy below reports to."
@@ -143,6 +161,14 @@ echo "#      is being refused, which is a different problem from one heavy accou
 policy "Model refused for everyone (global quota)" \
   '"metric.type=\"logging.googleapis.com/user/ai_global_quota_exceeded\" resource.type=\"cloud_run_revision\""' \
   "COMPARISON_GT" "0" "0s" "ALIGN_SUM"
+
+echo
+echo "# 7e — production model calls above ${PRODUCTION_LLM_CALLS_ALERT}/day, 80% of its"
+echo "#      ${PRODUCTION_GLOBAL_DAILY_CALL_CAP}/day global cap: the warning before every"
+echo "#      production user falls back to the rules until UTC midnight."
+policy "Production model calls above ${PRODUCTION_LLM_CALLS_ALERT}/day" \
+  '"metric.type=\"logging.googleapis.com/user/ai_production_llm_calls\" resource.type=\"cloud_run_revision\""' \
+  "COMPARISON_GT" "${PRODUCTION_LLM_CALLS_ALERT}" "0s" "ALIGN_SUM" "86400s"
 
 echo
 echo "# 7 — the budget's threshold rules. The budget itself already exists and"

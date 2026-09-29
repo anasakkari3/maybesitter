@@ -83,31 +83,38 @@ cannot drift:
   keeps the bill near zero; max doubles as a cost circuit-breaker.
 - `--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6`
 - Secrets only through `--set-secrets`, never plain env.
+- **One product (owner decision, 2026-09-29).** Production gets the same
+  features as staging: the hosted model, memory, football fixtures and
+  calendar links. What still differs is deliberate: the Firestore database,
+  `--max-instances`, the global model cap and `MAYBESITTER_SITE_ORIGINS`.
 - The hosted model (`MAYBESITTER_LLM_PROVIDER=gemini`) and the memory module
   (`MAYBESITTER_FEATURE_MEMORY=true`) are on in both environments (production:
-  owner spend decision, branch `closure/prod-ai-on`). Both kill switches,
+  the owner approved the spend on 2026-09-29). Both kill switches,
   `MAYBESITTER_AI_DISABLED` and `MAYBESITTER_KILL_SWITCH_MEMORY`, are set to
   `false` rather than left unset, so turning either off in an incident is a
   one-value change on the service. Production's global cap,
   `MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP`, is 500 calls/day (staging 3000).
   Worst case at that cap is about $4–8/day (~$120–240/month): 20,000-character
-  inputs, 2,048-token outputs and one billed retry per call. Owner prerequisites
-  before production: a production-scoped AI alert (the existing "Vertex AI
-  requests above 1500/day" alert counts the whole project, which staging alone can
-  exceed) and a `MAYBESITTER_LLM_UID_SALT` secret (unset, model logs carry an
-  unsalted hash of each uid). About 8 heavy users exhaust 500/day, after which
-  everyone falls back to the rule-based path until UTC midnight.
+  inputs, 2,048-token outputs and one billed retry per call. The two
+  prerequisites the spend decision named are in the repository: a
+  production-scoped alert, "Production model calls above 400/day" (80% of the
+  cap, counted from production's own `llm_call` log lines; the "Vertex AI
+  requests above 1500/day" alert counts the whole project, which staging alone
+  can exceed), which an operator creates with `ai-cost-alerts.sh apply`; and
+  `MAYBESITTER_LLM_UID_SALT`, mounted from Secret Manager on both services, so
+  model logs carry a salted hash of each uid. About 8 heavy users exhaust
+  500/day, after which everyone falls back to the rule-based path until UTC
+  midnight.
 - `MAYBESITTER_KMS_KEY_NAME` (the `user-secrets` key) on both services. It
   seals Google refresh tokens and ICS feed URLs; without it Google connect
   answers `not_configured`. It used to be set on staging by hand only.
-- `ICS_FEEDS_ENABLED` (calendar links, UC-3.4 #188): `true` on staging,
-  `false` written explicitly on production. It gates
+- `ICS_FEEDS_ENABLED` (calendar links, UC-3.4 #188): `true` on both services
+  (production by the owner decision of 2026-09-29), written explicitly so an
+  operator turns it off with one value. It gates
   `/api/mobile/calendar/ics/**` and the `ics-feed-refresh` job; unset, every
   call answers 404 `feature_disabled` and the app has nothing to offer
   (owner's phone, 2026-09-29). Feed URLs are sealed with
-  `MAYBESITTER_KMS_KEY_NAME`, so no other variable is needed. Production is
-  switched on by changing that one value in `flags.sh` after staging has
-  evidence — an owner decision, like the football credential below.
+  `MAYBESITTER_KMS_KEY_NAME`, so no other variable is needed.
 - `MAYBESITTER_SITE_ORIGINS` on production only: `https://maybesitter.com`,
   `https://maybesitter-app.web.app`, `https://maybesitter-app.firebaseapp.com`,
   the exact origins the early-access form may post from. `www` redirects to
@@ -129,10 +136,19 @@ gcloud secrets add-iam-policy-binding <name> \
 Then add it to `infra/cloudrun/flags.sh` as `--set-secrets NAME=<name>:latest`.
 Grant the accessor role on that one secret, never project-wide.
 
-`FOOTBALL_DATA_API_KEY` is intentionally mapped only for staging from
-`maybesitter-football-data-api-key`. A production deploy must not add that
-mapping until the owner separately approves production football sync after a
-successful staging run.
+Both services mount the same three secrets (the runtime SA has
+`secretAccessor` on each, checked 2026-09-29):
+
+| Env var | Secret | Used by |
+| --- | --- | --- |
+| `MAYBESITTER_DELETION_RECEIPT_PEPPER` | `maybesitter-deletion-receipt-pepper` | deletion receipts |
+| `MAYBESITTER_LLM_UID_SALT` | `maybesitter-llm-uid-salt` | the uid hash in model log lines (`lib/llm/llmLog.ts`) |
+| `FOOTBALL_DATA_API_KEY` | `maybesitter-football-data-api-key` | football fixtures (football-data.org) |
+
+The football credential was first synced on staging (2026-09-28); production
+mounts it by the owner decision of 2026-09-29. `--set-secrets` replaces the
+service's whole secret set, so a secret added by hand and not listed in
+`flags.sh` is removed by the next deploy.
 
 ## Scheduled work
 
@@ -215,8 +231,9 @@ deletion, so a failed check is a financial gate rather than permission to apply.
 
 `bash infra/cloudrun/ai-cost-alerts.sh print` emits the notification-channel,
 Cloud Run 5xx-ratio, max-instance saturation, Vertex usage, global-refusal,
-budget-threshold and TTL commands without changing cloud state. The generated
+production model calls (above 400/day on `maybesitter-api`), budget-threshold
+and TTL commands without changing cloud state. The generated
 policies are regression-tested by `tests/infra/aiCostAlerts.test.ts`. The
-`apply` form creates a user-defined log metric and related monitoring resources;
+`apply` form creates two user-defined log metrics and related monitoring resources;
 run it only after approving the possible Observability charges and supplying an
 owner-controlled notification email.
