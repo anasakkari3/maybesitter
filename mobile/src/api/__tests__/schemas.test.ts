@@ -136,6 +136,9 @@ const CASES: Array<[string, z.ZodType]> = [
   ['capture.appointmentNoTimeConfirmation', captureConfirmationSchema],
   ['capture.allDayDeadline', captureProposalSchema],
   ['capture.allDayDeadlineConfirmation', captureConfirmationSchema],
+  // «كل سبت من 10 لـ 4» (FIX-R8-CAPTURE): the optional weekly hint.
+  ['capture.weeklyRange', captureProposalSchema],
+  ['capture.weeklyRangeConfirmation', captureConfirmationSchema],
   // The same schema again, over a proposal the model answered (#338). Without
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.

@@ -206,6 +206,7 @@ const GOAL_USER = uidFor('GoalFixtureUser');
 const MEETING_USER = uidFor('MeetingFixtureUser');
 /** The all-day deadline (FX3) records under its own account, so no list or count fixture moves. */
 const DEADLINE_USER = uidFor('DeadlineFixtureUser');
+const WEEKLY_USER = uidFor('WeeklyFixtureUser');
 const APPOINTMENT_DAY_USER = uidFor('AppointmentDayFixtureUser');
 /** A block three hours from the real clock: the route refuses one that has started. */
 function meetingBlock(): { startAt: string; endAt: string } {
@@ -855,6 +856,23 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // No hour was chosen, so none is reported back: the midnight in `dueAt`
     // is not a time to show on the saved screen.
     assert.deepEqual((billConfirmed.persisted as Array<{ resolvedTime: string | null }>).map((item) => item.resolvedTime), [null]);
+
+    // «عندي تدريب كل سبت من الساعة 10 لـ 4» (FIX-R8-CAPTURE): a one-off on
+    // the next Saturday, the day marked ours, with the weekly hint the
+    // recurring-block lane will read; confirmed, an event with its end.
+    const weekly = await record('capture.weeklyRange', 200, await capturePost(request('/api/mobile/capture', {
+      uid: WEEKLY_USER,
+      body: { text: 'عندي تدريب كل سبت من الساعة 10 لـ 4', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    const weeklyItems = weekly.items as Array<{ itemId: string; title: string; resolvedDate?: string; dateEstimated?: boolean; recurrenceHint?: unknown }>;
+    assert.deepEqual(weeklyItems.map((item) => [item.title, item.resolvedDate, item.dateEstimated, item.recurrenceHint]), [
+      ['عندي تدريب كل سبت', '2026-08-15', true, { weekdays: [6], start: '10:00', end: '16:00' }],
+    ]);
+    const weeklyConfirmed = await record('capture.weeklyRangeConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+      uid: WEEKLY_USER,
+      body: { proposalId: weekly.proposalId, itemIds: [weeklyItems[0]!.itemId] },
+    })));
+    assert.equal(weeklyConfirmed.success, true);
 
     // ── share intake (UC-3.0, #183) ────────────────────────────────
     // The same proposal shape as `capture.proposal`, plus the `share`
