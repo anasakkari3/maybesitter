@@ -1,6 +1,6 @@
 import React, { useId, useMemo } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import Svg, { Defs, G, Image as SvgImage, LinearGradient, Mask, RadialGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { useApp } from '../state/AppContext';
 import { referenceGradients, referencePalettes } from '../theme/tokens';
 import { useLayoutMode } from '../theme/textScale';
@@ -51,27 +51,6 @@ export function ReferenceCard({ children, tone = 'surface', pad = 16, style, tes
   }, style]}>
     <ReferenceBackdrop tone={tone} />
     {children}
-  </View>;
-}
-
-/** Cropped decorative vignette only; every label and control is a native view. */
-export function ReferenceLaptop() {
-  const { scheme, reduceTransparency } = useApp();
-  const id = `laptop${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
-  if (scheme !== 'dark' || reduceTransparency) return null;
-  return <View style={{ width: 98, height: 74, pointerEvents: 'none' }} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
-    <Svg width="100%" height="100%" viewBox="0 0 190 143">
-      <Defs>
-        <RadialGradient id={`${id}fade`} cx="55%" cy="52%" rx="60%" ry="55%">
-          <Stop offset="45%" stopColor="white" stopOpacity={1} />
-          <Stop offset="100%" stopColor="white" stopOpacity={0} />
-        </RadialGradient>
-        <Mask id={`${id}mask`}><Rect width="190" height="143" fill={`url(#${id}fade)`} /></Mask>
-      </Defs>
-      <G mask={`url(#${id}mask)`}>
-        <SvgImage href={require('../../assets/reference/today-calendar.png')} x={-390} y={-402} width={1312} height={1199} />
-      </G>
-    </Svg>
   </View>;
 }
 

@@ -27,9 +27,9 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
-import { Btn, Card, Txt } from '../ui/primitives';
-import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
-import { CheckIcon, ChevronIcon, Glow } from '../ui/icons';
+import { Btn, Txt } from '../ui/primitives';
+import { ActionRow, EmptyState, SectionLabel, Tag, TextLink } from '../ui/chrome';
+import { CheckIcon, ChevronIcon } from '../ui/icons';
 import { isolateAuto } from '../i18n/bidi';
 import { occurrenceCovering, occurrencesAsBusy, useWeeklyOccurrences } from '../features/weeklyBlocks/occurrences';
 import { hideWeeklyDuplicates } from '../features/weeklyBlocks/weeklyDeviceEvents';
@@ -37,8 +37,7 @@ import { useWeeklyEventIds } from '../features/weeklyBlocks/useWeeklyBlockDevice
 import { WeeklyOccurrenceRow } from '../features/weeklyBlocks/WeeklyOccurrenceRow';
 import type { WeeklyBlockOccurrence } from '../api/schemas/weeklyBlocks';
 import { Screen, ScreenScroll } from '../ui/screen';
-import { useLayoutMode } from '../theme/textScale';
-import { ReferenceBackdrop, ReferenceCard, ReferenceHeader, ReferenceIcon, ReferenceLaptop, useReferencePalette } from '../ui/referenceDesign';
+import { ReferenceBackdrop, ReferenceCard, ReferenceHeader, ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
 
 /**
  * Today (UC-2.R3 #173, ordering from UC-2.8 #169; Round 2, Phase C).
@@ -249,6 +248,11 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
               {/* Fixed today: taken time, not things to do. */}
               <WeeklyToday items={weeklyToday} />
 
+              {/* SECONDARY · the plan, always present, always honest. Above the
+                  rest: the items it previews are taken out of those groups, so
+                  below them they would land under the finished ones. */}
+              <TodayPlanRow row={model.plan} preview={preview} />
+
               {/* The rest of today, in the user's own groups */}
               {hasRest ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, paddingTop: 8 }}>
@@ -268,9 +272,6 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
                 />
               ))}
               {restGroups.finished.length > 0 ? <FinishedGroup items={restGroups.finished} /> : null}
-
-              {/* The compact plan entry retains every state and its real slots. */}
-              <TodayPlanRow row={model.plan} preview={preview} />
 
               {/* TERTIARY · later */}
               {later.length > 0 ? (
@@ -417,7 +418,6 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
 }) {
   const { t, actions } = useApp();
   const p = useReferencePalette();
-  const stacked = useLayoutMode() !== 'normal';
   const act = useCommitmentAction();
   const why = whyFirstLine(item.reasonCodes, strings);
   const drawn = drawnClockAt(item);
@@ -453,7 +453,6 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
             ) : null}
             {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
           </View>
-          {!stacked ? <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 98 }}><ReferenceLaptop /></View> : null}
         </View>
       </Btn>
       <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />

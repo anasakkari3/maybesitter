@@ -17,7 +17,7 @@ import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
 import { drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
-import { ReferenceCard, ReferenceIcon, ReferenceLaptop, useReferencePalette } from '../../ui/referenceDesign';
+import { ReferenceCard, ReferenceIcon, useReferencePalette } from '../../ui/referenceDesign';
 
 /**
  * The one suggestion, and the answers to it (UC-2.R3 #173, UC-2.9 #170;
@@ -246,7 +246,6 @@ function Ready({
             </> : null}
             {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
           </View>
-          {!stacked ? <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 98 }}><ReferenceLaptop /></View> : null}
         </View>
       </Btn>
 

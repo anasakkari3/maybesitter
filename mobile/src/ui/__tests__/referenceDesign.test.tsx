@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { AppProvider, useApp } from '../../state/AppContext';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
 import { THEME_STORAGE_KEY } from '../../lib/deviceSettings/theme';
-import { ReferenceCard, ReferenceHeader, ReferenceLaptop, useReferencePalette } from '../referenceDesign';
+import { ReferenceCard, ReferenceHeader, useReferencePalette } from '../referenceDesign';
 import { Btn, Txt } from '../primitives';
 import ar from '../../i18n/locales/ar.json';
 import en from '../../i18n/locales/en.json';
@@ -86,7 +86,6 @@ describe('reference decoration leaves native content usable', () => {
       <HeaderHarness />
       <PaletteProbe />
       <ReferenceCard testID="reference-card" tone="hero">
-        <ReferenceLaptop />
         <Btn label="Open commitment" onPress={onPress}><Txt>Open commitment</Txt></Btn>
       </ReferenceCard>
     </AppProvider>);
