@@ -68,6 +68,11 @@ import readinessCurrent from './__fixtures__/readiness.current.json';
 import readinessSaved from './__fixtures__/readiness.saved.json';
 import trustState from './__fixtures__/trust.state.json';
 import trustUpdated from './__fixtures__/trust.updated.json';
+import weeklyBlocksCreated from './__fixtures__/weeklyBlocks.created.json';
+import weeklyBlocksDeleted from './__fixtures__/weeklyBlocks.deleted.json';
+import weeklyBlocksList from './__fixtures__/weeklyBlocks.list.json';
+import weeklyBlocksOccurrences from './__fixtures__/weeklyBlocks.occurrences.json';
+import weeklyBlocksPaused from './__fixtures__/weeklyBlocks.paused.json';
 
 export interface MockResponse {
   status: number;
@@ -91,6 +96,14 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['GET', /^\/api\/mobile\/commitments\/[^/]+$/, { status: 200, body: commitmentsOne }],
   ['PATCH', /^\/api\/mobile\/commitments\/[^/]+$/, { status: 200, body: commitmentsPatched }],
   ['DELETE', /^\/api\/mobile\/commitments\/[^/]+$/, { status: 200, body: commitmentsDeleted }],
+
+  // Weekly fixed blocks («ثابت أسبوعي»). A PATCH answers the paused fixture
+  // whatever it changed — nothing accumulates here.
+  ['GET', /^\/api\/mobile\/weekly-blocks\/occurrences$/, { status: 200, body: weeklyBlocksOccurrences }],
+  ['GET', /^\/api\/mobile\/weekly-blocks$/, { status: 200, body: weeklyBlocksList }],
+  ['POST', /^\/api\/mobile\/weekly-blocks$/, { status: 201, body: weeklyBlocksCreated }],
+  ['PATCH', /^\/api\/mobile\/weekly-blocks\/[^/]+$/, { status: 200, body: weeklyBlocksPaused }],
+  ['DELETE', /^\/api\/mobile\/weekly-blocks\/[^/]+$/, { status: 200, body: weeklyBlocksDeleted }],
 
   ['GET', /^\/api\/mobile\/recommendations\/next-step$/, { status: 200, body: nextStepRecommendation }],
   ['POST', /^\/api\/mobile\/recommendations\/next-step\/actions$/, { status: 200, body: nextStepDecision }],

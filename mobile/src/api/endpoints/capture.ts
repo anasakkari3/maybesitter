@@ -82,6 +82,14 @@ export async function confirmCapture(input: {
    * permanently if it fails.
    */
   edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
+  /**
+   * The selected items the person chose to keep as a weekly fixed block
+   * («كل أسبوع»). Only these become a block; every other selected item — one
+   * with the offer included — confirms as the one-off it also is. Sent only
+   * when non-empty, so a confirm with no weekly choice is byte-for-byte the
+   * one an older app sends.
+   */
+  weeklyBlockItemIds?: string[];
   idempotencyKey?: string;
 }): Promise<CaptureConfirmation> {
   const result = await apiRequest('POST', '/api/mobile/capture/confirm', {
@@ -89,6 +97,7 @@ export async function confirmCapture(input: {
       proposalId: input.proposalId,
       itemIds: input.itemIds,
       ...(input.edits?.length ? { edits: input.edits } : {}),
+      ...(input.weeklyBlockItemIds?.length ? { weeklyBlockItemIds: input.weeklyBlockItemIds } : {}),
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     },
     schema: captureConfirmationSchema,

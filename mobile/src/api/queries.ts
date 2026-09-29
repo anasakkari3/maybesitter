@@ -39,6 +39,15 @@ import { getTrust, reportPilotIncident, updateTrust } from './endpoints/trust';
 import { flagAlphaFeedback, getFeedbackHistory, revokeFeedback } from './endpoints/feedback';
 import { recordAnalyticsEvent } from './endpoints/analytics';
 import { putCalendarWriteTarget } from './endpoints/calendar';
+import {
+  createWeeklyBlock,
+  deleteWeeklyBlock,
+  listWeeklyBlockOccurrences,
+  listWeeklyBlocks,
+  patchWeeklyBlock,
+  type NewWeeklyBlock,
+  type WeeklyBlockPatch,
+} from './endpoints/weeklyBlocks';
 import type { CalendarWriteTarget } from './schemas/calendar';
 import { dismissFixture, getFootballSettings, putFollowedClubs } from './endpoints/football';
 import type { FootballSettingsResponse } from './schemas/football';
@@ -178,6 +187,10 @@ export const queryKeys = {
     'user', uid, 'goalExecution', goalId, generation, period?.fromLocalDate ?? null, period?.toLocalDate ?? null,
   ] as const,
   habits: (uid: string) => ['user', uid, 'habits'] as const,
+  /** Weekly fixed blocks («ثابت أسبوعي»), paused ones included. */
+  weeklyBlocks: (uid: string) => ['user', uid, 'weeklyBlocks'] as const,
+  /** Their occurrences in `[from, to)`. Under `weeklyBlocks`, so one invalidation covers both. */
+  weeklyBlockOccurrences: (uid: string, from: string, to: string) => ['user', uid, 'weeklyBlocks', 'occurrences', from, to] as const,
 };
 
 /** The signed-in uid, or the one value that can never collide with one. */
@@ -231,6 +244,60 @@ function invalidateCommitments(client: QueryClient, uid: string, id?: string): v
   // request for nothing.
   void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
   void client.invalidateQueries({ queryKey: ['user', uid, 'activitySummary'] });
+}
+
+/**
+ * Everything a weekly block change can move: the blocks and their occurrences,
+ * the plans that keep their hours free, and the next step — which is silent
+ * while one is under way.
+ */
+function invalidateWeeklyBlocks(client: QueryClient, uid: string): void {
+  void client.invalidateQueries({ queryKey: queryKeys.weeklyBlocks(uid) });
+  void client.invalidateQueries({ queryKey: ['user', uid, 'plan'] });
+  void client.invalidateQueries({ queryKey: ['user', uid, 'nextStep'] });
+}
+
+/** The account's weekly fixed blocks («ثابت أسبوعي»). */
+export function useWeeklyBlocks() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.weeklyBlocks(uid),
+    queryFn: listWeeklyBlocks,
+    enabled: uid !== 'signed-out',
+  });
+}
+
+/**
+ * The blocks' occurrences in `[from, to)` — what Today and the Calendar draw
+ * as fixed time. `from`/`to` are ISO instants the caller derives from day
+ * keys, so the key is stable for a whole day rather than moving every render.
+ */
+export function useWeeklyBlockOccurrences(from: string, to: string) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.weeklyBlockOccurrences(uid, from, to),
+    queryFn: () => listWeeklyBlockOccurrences({ from, to }),
+    enabled: uid !== 'signed-out',
+  });
+}
+
+function useWeeklyBlockMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<TResult>) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({ mutationFn, onSuccess: () => invalidateWeeklyBlocks(client, uid) });
+}
+
+/** Creating one by hand. The caller passes the moment the person confirmed it. */
+export function useCreateWeeklyBlock() {
+  return useWeeklyBlockMutation((input: NewWeeklyBlock) => createWeeklyBlock(input));
+}
+
+export function usePatchWeeklyBlock() {
+  return useWeeklyBlockMutation((input: { id: string; patch: WeeklyBlockPatch }) => patchWeeklyBlock(input.id, input.patch));
+}
+
+export function useDeleteWeeklyBlock() {
+  return useWeeklyBlockMutation((id: string) => deleteWeeklyBlock(id));
 }
 
 export function useToday() {
@@ -527,6 +594,8 @@ type ConfirmInput = {
   proposalId: string;
   itemIds: string[];
   edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
+  /** The items kept as a weekly block («كل أسبوع»); see `confirmCapture`. */
+  weeklyBlockItemIds?: string[];
 };
 
 /**
@@ -537,7 +606,14 @@ export function confirmIntent(input: ConfirmInput): string {
   const edits = [...(input.edits ?? [])]
     .sort((a, b) => a.itemId.localeCompare(b.itemId))
     .map(edit => [edit.itemId, edit.title ?? null, edit.resolvedTime === undefined ? '∅' : edit.resolvedTime, edit.priority ?? null]);
-  return JSON.stringify([input.proposalId, [...input.itemIds].sort(), edits]);
+  // Weekly-or-once is part of what the confirm means: switching an item from
+  // «كل أسبوع» to «مرة وحدة بس» after a timed-out press is a different request,
+  // and must not be answered with the first one's stored result. Appended only
+  // when present, so a confirm without it keeps the key it always had.
+  const weekly = [...(input.weeklyBlockItemIds ?? [])].sort();
+  return JSON.stringify(weekly.length > 0
+    ? [input.proposalId, [...input.itemIds].sort(), edits, weekly]
+    : [input.proposalId, [...input.itemIds].sort(), edits]);
 }
 
 /**
@@ -568,7 +644,11 @@ export function useConfirmCapture() {
       }
       return confirmCapture({ ...input, idempotencyKey });
     },
-    onSuccess: () => invalidateCommitments(client, uid),
+    onSuccess: (confirmation) => {
+      invalidateCommitments(client, uid);
+      // A confirm that kept a weekly block changed the blocks and their busy time.
+      if ((confirmation.weeklyBlocks?.length ?? 0) > 0) invalidateWeeklyBlocks(client, uid);
+    },
   });
 }
 
