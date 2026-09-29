@@ -16,6 +16,7 @@ import {
   FIELD_MIN_HEIGHT,
   FIELD_ONE_LINE,
   FIELD_PADDING,
+  composerLayout,
   fieldHeights,
   revealOffset,
 } from '../composerFit';
@@ -96,5 +97,38 @@ describe('revealOffset', () => {
   it('before anything is measured, does nothing', () => {
     expect(revealOffset({ scrollY: 0, fieldTop: 58, fieldHeight: 0, viewport: 207 })).toBeNull();
     expect(revealOffset({ scrollY: 0, fieldTop: 58, fieldHeight: 141, viewport: 0 })).toBeNull();
+  });
+});
+
+/**
+ * UAT round 6, D-g (shots 1049–1050, app 73b3e4dc): at the accessibility
+ * text sizes the fixed header (~248pt) and the stacked footer (~246pt) took
+ * all 405pt left between the verify-email banner and the keyboard. The
+ * ScrollView — and with it the field — was 69pt at AX1, 38 at AX2 and 0 from
+ * AX3 on; at AX4/AX5 «فهمها» itself went behind the keyboard.
+ */
+describe('composerLayout', () => {
+  it('default and large text keep the layout they had', () => {
+    expect(composerLayout('normal')).toEqual({ headerScrolls: false, footer: 'row', languageInFooter: true });
+    expect(composerLayout('large')).toEqual({ headerScrolls: false, footer: 'stacked', languageInFooter: true });
+  });
+
+  it('at the accessibility sizes the header scrolls away and the footer is one row: mic and «فهمها»', () => {
+    expect(composerLayout('xl')).toEqual({ headerScrolls: true, footer: 'row', languageInFooter: false });
+  });
+
+  it('what that leaves at AX5 on the UAT device holds two lines of the field', () => {
+    // 405pt between the banner (134) and the keyboard (539); a one-row
+    // footer is 10 + «فهمها» (17pt × 3.12 × 1.6 + 2 × 14 ≈ 113) + 10.
+    const viewport = 405 - 133;
+    const line = 32 * 3.12;
+    // The field's top is far down the content (below the header), so the
+    // fit gives it the two-line floor and the ScrollView reveals it.
+    const { maxHeight } = fieldHeights({ viewport, fieldTop: 340, cap: 260, line });
+    expect(maxHeight).toBeGreaterThanOrEqual(FIELD_PADDING + 2 * line - 1);
+    expect(maxHeight + FIELD_MARGIN).toBeLessThanOrEqual(viewport);
+    const y = revealOffset({ scrollY: 0, fieldTop: 340, fieldHeight: maxHeight, viewport });
+    expect(340 + maxHeight + FIELD_MARGIN - (y ?? 0)).toBeLessThanOrEqual(viewport);
+    expect(340 - (y ?? 0)).toBeGreaterThanOrEqual(0);
   });
 });
