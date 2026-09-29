@@ -34,6 +34,7 @@ const RAW_ALLOWED: Record<string, string> = {
   'ui/liveRegion.tsx': 'the component itself',
   'ui/toast.tsx': 'the host view is always mounted; only the pill is conditional',
   'screens/ReviewScreen.tsx': 'review-prep-live wraps whichever line shows',
+  'screens/PlanScreen.tsx': 'plan-accept-slot is always mounted and measured; the button or the accepted line inside it changes',
   'features/onboarding/SetupChatStep.tsx': 'the row cell is always mounted',
   'features/google/GoogleIntegrationScreen.tsx': 'the status view is always mounted',
   'features/capture/voice/VoiceButton.tsx': 'announced explicitly on every platform',

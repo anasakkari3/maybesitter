@@ -64,6 +64,11 @@ export type AppState = {
   taskResumed: boolean;
 };
 
+/** Opening the Calendar by name opens it on today (offset 0); see `actions.go`. */
+function onToday(screen: Screen): Partial<AppState> | undefined {
+  return screen === 'calendar' ? { selDay: 0 } : undefined;
+}
+
 /** Recompute the derived fields from the history. Every nav change goes through here. */
 function withNav(st: AppState, next: nav.Nav): AppState {
   const d = nav.derive(next);
@@ -157,8 +162,14 @@ function useAppModel() {
 
   const actions = {
     resetForNewUser,
-    /** A tab switches, a task opens, anything else is pushed onto the current tab. */
-    go: (screen: Screen) => move(n => nav.go(n, screen)),
+    /**
+     * A tab root opens, a task opens, anything else is pushed onto the current tab.
+     *
+     * Asking for the Calendar by name — «شوف يومي», "see all" on Today — opens
+     * it on today (UAT round 6, N-e). The day left open earlier in the session
+     * is kept only by the tab bar (`switchTab`), like the rest of that tab.
+     */
+    go: (screen: Screen) => move(n => nav.go(n, screen), onToday(screen)),
     /** The tab bar: switch tabs, keeping each tab's stack where it was left. */
     switchTab: (tab: nav.Tab) => move(n => nav.switchTab(n, tab)),
     /** Hand the screen on top over to another (a finished flow to its result); back skips the flow. */
@@ -185,7 +196,7 @@ function useAppModel() {
      */
     arriveAtPlan: (date: string) => move(n => nav.arrive(n, { name: 'plan', planDate: date })),
     /** A tab or task named by a link. */
-    arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen })),
+    arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen }), onToday(screen)),
     setSelDay: (d: number) => set({ selDay: d }),
 
     /**
@@ -240,7 +251,7 @@ function useAppModel() {
         // staging or production build set at all (UC-1.8 #152).
         case 'calendarDemo': if (googleCalendarDemoEnabled()) move(n => nav.arrive(n, { name: 'calendarDemo' })); return;
         case 'today': case 'calendar': case 'settings':
-          move(n => nav.arrive(n, { name })); return;
+          move(n => nav.arrive(n, { name }), onToday(name)); return;
         // Capture has one entry now. The gallery's old `typing`, `listening`,
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`
         // jumps each forced a mock sub-state directly; those states are the

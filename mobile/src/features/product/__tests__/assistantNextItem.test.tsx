@@ -13,9 +13,10 @@
  */
 import React from 'react';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, render, screen } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react-native';
+import { Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { AppProvider } from '../../../state/AppContext';
+import { AppProvider, useApp } from '../../../state/AppContext';
 import { ContextualAssistantScreen, nextUsefulItem } from '../ContextScreens';
 import { strings } from '../../../i18n/strings';
 import { deviceTimeZone } from '../../../i18n/timezone';
@@ -160,5 +161,30 @@ describe('all-day items are judged by their day, not their midnight', () => {
     // Its day, never its bookkeeping midnight as a time, and never the day before.
     expect(screen.queryAllByText(/\d{1,2}:\d{2}/)).toHaveLength(0);
     expect(screen.getByText(new RegExp(`\\b${+key.slice(8, 10)}\\b`))).toBeTruthy();
+  });
+});
+
+/**
+ * UAT round 6, N-e: «شوف يومي» opened the Calendar on Wednesday («بكرا») at
+ * 04:00 on Tuesday — the day tapped earlier in the session, still held as app
+ * state. The button names today, so it opens on today.
+ */
+describe('«شوف يومي»', () => {
+  function Probe() {
+    const { s, actions } = useApp();
+    return (
+      <>
+        <Text testID="probe">{`${s.screen}:${s.selDay}`}</Text>
+        <Text testID="probe-pick-later" onPress={() => actions.setSelDay(1)}>pick</Text>
+      </>
+    );
+  }
+
+  it('opens the Calendar on today, not on the day left open earlier', async () => {
+    await render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><ContextualAssistantScreen /><Probe /></AppProvider></SafeAreaProvider>);
+    await fireEvent.press(screen.getByTestId('probe-pick-later'));
+    expect(screen.getByTestId('probe').props.children).toBe('today:1');
+    await fireEvent.press(screen.getByTestId('assistant-agenda'));
+    expect(screen.getByTestId('probe').props.children).toBe('calendar:0');
   });
 });

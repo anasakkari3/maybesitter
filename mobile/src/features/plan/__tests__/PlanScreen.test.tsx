@@ -221,10 +221,47 @@ describe('“Looks good”', () => {
   });
 
   it('confirms what just happened, and stops offering it', async () => {
+    // UAT round 6, N-f: «حفظنا خطة اليوم» showed while «اقبل الخطة» was still
+    // drawn under it — disabled, but still reading as the thing left to do.
     await loaded();
     await fireEvent.press(screen.getByTestId('plan-accept'));
     await waitFor(() => expect(screen.queryByText(en.planAcceptedToast)).not.toBeNull());
-    expect(screen.getByTestId('plan-accept').props.accessibilityState.disabled).toBe(true);
+    expect(screen.queryByTestId('plan-accept')).toBeNull();
+    expect(screen.queryByText(en.planAccept)).toBeNull();
+    // Nothing left to tap, so nothing to save twice.
+    expect(planEndpoints.actOnPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so where the button was, once, so the footer does not jump under the finger', async () => {
+    await loaded();
+    // The slot is measured while it holds the button…
+    await fireEvent(screen.getByTestId('plan-accept-slot'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 342, height: 53 } } });
+    await fireEvent.press(screen.getByTestId('plan-accept'));
+    await waitFor(() => expect(screen.queryByTestId('plan-accepted')).not.toBeNull());
+    // …and keeps that height once the confirmation replaces it, so «ابنِ من
+    // جديد» does not slide up under a second tap.
+    // The chip's own, shorter layout must not re-measure the slot down.
+    await fireEvent(screen.getByTestId('plan-accept-slot'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 342, height: 28 } } });
+    const slot = screen.getByTestId('plan-accept-slot');
+    expect(slot.props.style).toEqual(expect.objectContaining({ minHeight: 53 }));
+    expect(screen.getAllByTestId('plan-accepted')).toHaveLength(1);
+    // In the footer: after the reasoning, before the rebuild.
+    const order: string[] = [];
+    const walk = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      const n = node as { props?: { testID?: string }; children?: unknown };
+      if (n.props?.testID) order.push(n.props.testID);
+      walk(n.children);
+    };
+    walk(screen.toJSON());
+    const at = (id: string) => order.indexOf(id);
+    expect(at('plan-why-text')).toBeGreaterThanOrEqual(0);
+    expect(at('plan-accepted')).toBeGreaterThan(at('plan-why-text'));
+    expect(at('plan-accepted')).toBeLessThan(at('plan-regenerate'));
+    // A polite live region, so TalkBack hears the confirmation that replaced
+    // the control it was on.
+    expect(slot.props.accessibilityLiveRegion).toBe('polite');
   });
 
   it('shows as accepted on a fresh launch, from the server’s own record', async () => {
@@ -237,7 +274,7 @@ describe('“Looks good”', () => {
     // today" about something done yesterday morning would read as an event.
     expect(screen.queryByText(en.planAcceptedStatus)).not.toBeNull();
     expect(screen.queryByText(en.planAcceptedToast)).toBeNull();
-    expect(screen.getByTestId('plan-accept').props.accessibilityState.disabled).toBe(true);
+    expect(screen.queryByTestId('plan-accept')).toBeNull();
   });
 
   it('sets the plan aside without touching a commitment', async () => {
@@ -246,6 +283,15 @@ describe('“Looks good”', () => {
     await fireEvent.press(screen.getByTestId('plan-dismiss'));
     await waitFor(() => expect(screen.queryByTestId('plan-dismissed')).not.toBeNull());
     expect(planEndpoints.actOnPlan).toHaveBeenCalledWith(DATE, { action: 'dismiss' });
+  });
+
+  it('still offers accepting a plan set aside, in case the person changes their mind', async () => {
+    jest.spyOn(planEndpoints, 'actOnPlan').mockResolvedValue(planWith({ status: 'dismissed' }) as never);
+    await loaded();
+    await fireEvent.press(screen.getByTestId('plan-dismiss'));
+    await waitFor(() => expect(screen.queryByTestId('plan-dismissed')).not.toBeNull());
+    expect(screen.getByTestId('plan-accept').props.accessibilityState.disabled).toBe(false);
+    expect(screen.queryByTestId('plan-accepted')).toBeNull();
   });
 });
 
