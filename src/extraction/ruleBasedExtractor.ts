@@ -30,12 +30,16 @@ import {
   timeOfDayEvidence,
   normalizeClockFractions,
   normalizeClockText,
+  readClockRange,
+  rangeStartTime,
   type TimeEvidence,
 } from './timeLexicon';
 import {
   FOLLOWING_WEEK_STRIP_SOURCES,
+  RECURRENCE_PHRASE_SOURCES,
   WEEKDAY_MENTION_SOURCES,
   daysUntilWeekday,
+  readRecurrence,
   readWeekdayReference,
 } from './weekdayLexicon';
 import { isFixedAppointment, statedObligation } from './priorityLexicon';
@@ -139,7 +143,7 @@ function resolveTimezone(context: ExtractionContext): string {
 function parseClock(raw: string): { hour: number; minute: number; night?: true; settled?: true } | null {
   const normalized = normalizeClockText(raw).toLowerCase();
   const explicit =
-    normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
+    normalized.match(/(?:\b(?:at|by|around)\b|الساعة|الساعه|عند|على|(?<![\u0600-\u06FF])عال|בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)?(?=$|[\s,.،])/) ||
     normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|صباحا|صباحاً|الصبح|ص|مساء|مساءً|المسا|المساء|بالليل|م|בבוקר|בוקר|בצהריים|צהריים|אחרי הצהריים|אחה"צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/) ||
     // A bare hh:mm is read last, so a part of the day after it («5:30 المسا») is not lost.
     normalized.match(/\b(\d{1,2}):(\d{2})(?=$|[\s,.،])/);
@@ -173,6 +177,8 @@ interface ParsedTime {
   allDay?: boolean;
   /** The day came from the month's end (FX3), with or without an hour: its words are the time. */
   monthEnd?: boolean;
+  /** An hour said with no day to put it on (FIX-R8-CAPTURE): see `ExtractionResult.undatedTime`. */
+  undatedTime?: string;
 }
 
 function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
@@ -189,7 +195,22 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
   // range: «من الساعة 2 للساعة 4 المسا» starts at the range's start.
   const statedWithDayPart = namesTimeRange(raw) ? null : hourWithDayPart(raw);
   const twelveInTheEvening = namesTwelveInTheEvening(raw) || statedWithDayPart === 'ambiguous';
-  const clock = twelveInTheEvening ? null : statedWithDayPart ? clockOf(statedWithDayPart) : parseClock(raw);
+  // A range's start is its clock (FIX-R8-CAPTURE): «מ-10 עד 4» was read from
+  // «עד 4» alone, a Saturday 04:00 deadline. A start with no half of the day
+  // of its own takes the end's when the end has one («من 10 لـ 4 المسا» is
+  // 10:00, `rangeStartTime`); otherwise it is the start's number, read by
+  // every existing clock rule (a bare 1–6 is asked).
+  const range = twelveInTheEvening || statedWithDayPart ? null : readClockRange(raw);
+  const rangeStart = range ? rangeStartTime(range) : null;
+  const clock = twelveInTheEvening
+    ? null
+    : statedWithDayPart
+      ? clockOf(statedWithDayPart)
+      : rangeStart
+        ? clockOf(rangeStart)
+        : range
+          ? { hour: range.start.hour, minute: range.start.minute }
+          : parseClock(raw);
   let targetDate: Date | null = null;
   let timeConfidence = 0;
   let dateInferred = false;
@@ -245,6 +266,11 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     dateInferred = wordsDay.side === 'end';
   }
 
+  // A clock alone is today — except in words that state a recurrence (FIX-R8-
+  // CAPTURE): «كل أسبوع الساعة 10», «كل جمعة الساعة 5» name no day of their
+  // own, and the owner's «كل سبت من 10 لـ 4» became an event today. The hour
+  // is kept with no day (`undatedTime`) and the day is asked.
+  const undated = !targetDate && clock !== null && readRecurrence(raw) !== null;
   if (!targetDate && clock) {
     targetDate = new Date(now);
     timeConfidence = 0.72;
@@ -328,6 +354,17 @@ function parseDateTime(raw: string, context: ExtractionContext): ParsedTime {
     };
   }
 
+  if (undated) {
+    return {
+      dueAt: null,
+      remindAt: null,
+      confidence: 0.1,
+      evidence,
+      localTimeSpec: null,
+      dateInferred: false,
+      undatedTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
+    };
+  }
   const withTime = setTimeTz(targetDate, hour, minute, tz);
   // A clock time with no meridiem is the user's number and the product's guess
   // at which half of the day it belongs to. It is kept, and it is named, so the
@@ -362,6 +399,11 @@ const CLOCK_WITH_PERIOD_STRIP = [...RANGE_PATTERN_SOURCES, ...CLOCK_WITH_PERIOD_
 // The counted offset whole first («قبل آخر الشهر بأسبوع»), so «بأسبوع» is not
 // left behind in the title (FZ1 round 2).
 const MONTH_END_STRIP = [MONTH_END_OFFSET_SOURCE, ...MONTH_END_MENTION_SOURCES].map((source) => new RegExp(source, 'giu'));
+const RECURRENCE_KEEP = RECURRENCE_PHRASE_SOURCES.map((source) => new RegExp(source, 'giu'));
+/** Private-use marks around a kept phrase's index: no pattern below reads them as a letter, a digit or a space. */
+const KEPT_OPEN = '\uE000';
+const KEPT_CLOSE = '\uE001';
+const KEPT_PHRASE = /\uE000(\d+)\uE001/g;
 /**
  * «הבוקר» is "this morning" and also "the morning" («ישיבת הבוקר»). It gives
  * an item no time unless the text names a day, and then it is kept in the
@@ -383,6 +425,18 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   // Digits are left as typed (a title keeps its «٢٠٠ شيكل»); only the
   // spoken hours and fractions are rewritten so the clock patterns find them.
   let stripped = normalizeClockFractions(normalizeSpokenHours(text));
+  // A recurrence phrase stays in the title whole (FIX-R8-CAPTURE): «تدريب كل
+  // سبت», "internship every Saturday", «התמחות כל שבת». Until a weekly block
+  // exists the item is a one-off on the next Saturday, and these words are
+  // the only place the person can see it was said to repeat. Taking the day
+  // out of it left «كل» / "every" / «כל» dangling in the title.
+  const kept: string[] = [];
+  for (const pattern of RECURRENCE_KEEP) {
+    stripped = stripped.replace(pattern, (phrase) => {
+      kept.push(phrase.trim());
+      return ` ${KEPT_OPEN}${kept.length - 1}${KEPT_CLOSE} `;
+    });
+  }
   // "The one after" phrases whole, before the bare day names below take their
   // weekday and leave «اللي بعد الجاي» behind in the title.
   for (const pattern of FOLLOWING_WEEK_STRIP) stripped = stripped.replace(pattern, ' ');
@@ -421,6 +475,7 @@ function stripTiming(text: string, options: { monthEnd?: boolean } = {}): string
   // Ranges before the clocks inside them: taking "2pm" first would leave
   // "meeting from to" as the title.
   if (hasClockDigit(stripped)) for (const pattern of CLOCK_STRIP) stripped = stripped.replace(pattern, ' ');
+  if (kept.length > 0) stripped = stripped.replace(KEPT_PHRASE, (_, index: string) => kept[Number(index)] ?? ' ');
   return stripped.replace(/\s+/g, ' ').trim();
 }
 
@@ -460,6 +515,9 @@ function cleanAction(raw: string, options: { monthEnd?: boolean } = {}): string 
   return withoutDanglingLimit(title, raw);
 }
 
+/** «ذكرني بـ»/«ذكرني بال…»/«ذكرني ب…ة»: the preposition after the reminder, see `cleanCommand`. */
+const REMIND_OF_PREPOSITION = new RegExp('^(\\s*)(?:ذكرني|ذكريني|ذكّرني|ذكّريني)\\s+ب(?:ـ\\s*)?(?=ال[\\p{L}]|[\\p{L}]+ة(?![\\p{L}\\p{M}]))', 'u');
+
 function cleanCommand(raw: string, options: { monthEnd?: boolean } = {}): string {
   // «سجّل», «حط لي», "note:" — an instruction to the app, not the task (L4).
   // A greeting it opens with is not the task: «בוקר טוב, להתקשר לאמא» (CL1).
@@ -467,6 +525,11 @@ function cleanCommand(raw: string, options: { monthEnd?: boolean } = {}): string
     .replace(/^\s*(please\s+)?(remind me to|remind me|remember to|i need to|need to|i have to|have to|todo:?|task:?)\s+/i, '')
     .replace(/^\s*(urgent|asap|critical|important|must|maybe|optional)[:\s-]+/i, '')
     .replace(/\s+(urgent|asap|critical|important|must|maybe|optional)\s*$/i, '')
+    // «ذكرني بخطبة صاحبي» is "remind me *of* my friend's engagement": the «ب»
+    // is the reminder's preposition, not the thing (FIX-R8-CAPTURE). Only
+    // onto a noun it cannot be part of — «بال…», «بـ», or a word ending in
+    // «ة» — so «ذكرني بعت الإيميل» ("send") and «ذكرني بدي…» keep their «ب».
+    .replace(REMIND_OF_PREPOSITION, '$1')
     // «ذكرني ليش» is a question to answer, not a reminder to strip (L4).
     .replace(/^\s*(ذكرني اني|ذكرني|ذكريني|بدي|لازم|محتاج|احتاج|علي|عليّ)\s+(?!(?:ليش|ليه|شو|مين|وين|كيف|قديش|امتى|إمتى|ايمتى|إيمتى|متى)(?:\s|$))/i, '')
     .replace(/^\s*(ضروري|مستعجل|مهم|لازم|يمكن|عادي|مش ضروري)[:\s-]+/i, '')
@@ -691,6 +754,7 @@ export function extract(rawText: string, context: ExtractionContext): Extraction
     // The month's end is always a limit (FX3).
     timeAnchor: allDay ? 'deadline' : timeAnchorOf(raw),
     ...(allDay ? { allDay: true } : {}),
+    ...(parsedTime.undatedTime ? { undatedTime: parsedTime.undatedTime } : {}),
     parserVersion: PARSER_VERSION,
   };
 }

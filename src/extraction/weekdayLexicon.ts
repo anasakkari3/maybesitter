@@ -43,6 +43,20 @@ export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
   'الخميس': 4,
   'الجمعة': 5,
   'السبت': 6,
+  // Without the article, only inside a frame that makes them days (FIX-R8-
+  // CAPTURE): «يوم سبت», «كل سبت», «كل يوم خميس» — see `AR_BARE_DAY`.
+  'أحد': 0,
+  'احد': 0,
+  'اثنين': 1,
+  'إثنين': 1,
+  'ثلاثاء': 2,
+  'ثلثاء': 2,
+  'أربعاء': 3,
+  'اربعاء': 3,
+  'خميس': 4,
+  'جمعة': 5,
+  'جمعه': 5,
+  'سبت': 6,
   'ראשון': 0,
   'שני': 1,
   'שלישי': 2,
@@ -84,11 +98,24 @@ const AR_UNAMBIGUOUS_DAY = '(الأحد|الاحد|الثلاثاء|الثلثا
 const AR_MONDAY = '(الاثنين|الإثنين|الأثنين)';
 const AR_HOUR_WORD = '(?:اللي|الّي|الساعة|الساعه|الصبح|الصباح|الظهر|الضهر|العصر|المسا|المساء|بالليل|عالساعة)';
 const HE_SUFFIX = '(?:\\s+(?:הבא|הבאה|הקרוב|הקרובה))?';
+/*
+ * A day name without «ال» (FIX-R8-CAPTURE, the owner's «كل سبت»). Spoken
+ * Levantine drops the article after «يوم» and «كل»: «يوم سبت», «كل سبت», «كل
+ * يوم خميس». Bare, every one of these has an ordinary second meaning — «أحد»
+ * is "anyone", «اثنين» "two", «جمعة» "a week" — so each counts only in its
+ * frame: any of them after «يوم»; after «كل» alone only the four whose other
+ * meaning cannot follow «كل» («كل أحد» is "everyone", «كل اثنين» "every
+ * two", «كل جمعة» "every week" as often as "every Friday").
+ */
+const AR_BARE_DAY = '(أحد|احد|اثنين|إثنين|ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|جمعة|جمعه|سبت)';
+const AR_BARE_DAY_AFTER_EVERY = '(ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|سبت)';
 
 /** Every whole-word weekday mention, as sources. Group 1 is the day name. */
 const MENTION_SOURCES: readonly string[] = [
   `\\b${EN_DAY}\\b`,
   `${NOT_LETTER_BEFORE}(?:يوم\\s+)?و?${AR_UNAMBIGUOUS_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}و?يوم\\s+${AR_BARE_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
+  `(?<=${NOT_LETTER_BEFORE}كل\\s+)${AR_BARE_DAY_AFTER_EVERY}${NOT_LETTER_AFTER}`,
   `${NOT_LETTER_BEFORE}يوم\\s+${AR_MONDAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
   `${NOT_LETTER_BEFORE}و?${AR_MONDAY}(?:\\s+${AR_COMING}${NOT_LETTER_AFTER}|(?=\\s+${AR_HOUR_WORD}${NOT_LETTER_AFTER}))`,
   // «قبل الاثنين», «حتى الاثنين» — a deadline preposition makes it a day. Not
@@ -261,6 +288,87 @@ export function namesExplicitDate(rawText: string): boolean {
 export function namesCalendarDate(rawText: string): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
   return EXPLICIT_DATE.test(withoutFollowingWeekPhrases(foldDigits(rawText.toLowerCase())));
+}
+
+/*
+ * ══ A RECURRENCE IS SAID, NOT A DATE (FIX-R8-CAPTURE) ══
+ *
+ * «عندي تدريب كل سبت من الساعة 10 لـ 4» on the owner's phone became one event
+ * *today*, Tuesday, at 10:00 — «سبت» without «ال» was not a day, and a clock
+ * alone falls back to today. Nothing stores a weekly block yet (a later lane
+ * does), so until then an item that states a recurrence is a one-off on the
+ * next occurrence of its weekday by rule 1 — never today, never a day nobody
+ * named — and carries `recurrenceHint` so that lane can turn it into a weekly
+ * proposal. The phrase itself stays in the title («تدريب كل سبت»).
+ *
+ *   Arabic   «كل سبت» (the four days `AR_BARE_DAY_AFTER_EVERY` allows), «كل
+ *            يوم سبت», «كل يوم السبت», «كل السبت», and the week itself: «كل
+ *            أسبوع», «كل جمعة» ("every week" as often as "every Friday"),
+ *            «أسبوعياً».
+ *   English  "every/each Saturday", "on Saturdays", "every week", "weekly".
+ *   Hebrew   «כל שבת», «בכל שבת», «כל יום ראשון», «כל שבוע», «מדי שבוע»,
+ *            «שבועי/שבועית».
+ *
+ * «كل يوم» alone is every day, not a weekday, and is not read here.
+ */
+const AR_EVERY = `${NOT_LETTER_BEFORE}[وف]?(?:ب|في\\s+)?كل`;
+const RECURRENCE_SOURCES: readonly string[] = [
+  `${AR_EVERY}\\s+(?:يوم\\s+)?${AR_UNAMBIGUOUS_DAY}${NOT_LETTER_AFTER}`,
+  `${AR_EVERY}\\s+يوم\\s+(?:${AR_BARE_DAY}|${AR_MONDAY})${NOT_LETTER_AFTER}`,
+  `${AR_EVERY}\\s+${AR_BARE_DAY_AFTER_EVERY}${NOT_LETTER_AFTER}`,
+  `\\b(?:every|each)\\s+${EN_DAY}\\b`,
+  '\\bon\\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)s\\b',
+  `${NOT_LETTER_BEFORE}ו?ב?כל\\s+(?:יום\\s+${HE_DAY}|(שבת))${NOT_LETTER_AFTER}`,
+];
+/** The week itself, with no day in the phrase: the day comes from elsewhere in the words, or is asked. */
+const WEEKLY_SOURCES: readonly string[] = [
+  `${AR_EVERY}\\s+(?:أسبوع|اسبوع|جمعة|جمعه)${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}(?:أسبوعي|اسبوعي)(?:اً|ا|ًا)?${NOT_LETTER_AFTER}`,
+  '\\b(?:every|each)\\s+week\\b',
+  '\\bweekly\\b',
+  `${NOT_LETTER_BEFORE}ו?ב?(?:כל|מדי)\\s+שבוע${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}(?:שבועי|שבועית)${NOT_LETTER_AFTER}`,
+];
+const RECURRENCE_PATTERNS = RECURRENCE_SOURCES.map((source) => new RegExp(source, 'giu'));
+const WEEKLY_PATTERNS = WEEKLY_SOURCES.map((source) => new RegExp(source, 'giu'));
+
+/** Every recurrence phrase, as sources, for `stripTiming` to keep whole in a title. */
+export const RECURRENCE_PHRASE_SOURCES: readonly string[] = [...RECURRENCE_SOURCES, ...WEEKLY_SOURCES];
+
+export interface StatedRecurrence {
+  /** 0 = Sunday … 6 = Saturday, in the order said; empty when only the week was said. */
+  weekdays: number[];
+  /** The phrases as the person wrote them, in order. */
+  phrases: string[];
+}
+
+/** The weekly recurrence the words state, or null. */
+export function readRecurrence(rawText: string): StatedRecurrence | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const lower = rawText.toLowerCase();
+  const found: Array<{ index: number; text: string; weekday: number | null }> = [];
+  for (const pattern of RECURRENCE_PATTERNS) {
+    for (const match of Array.from(lower.matchAll(pattern))) {
+      const name = match.slice(1).find((group) => group !== undefined);
+      const weekday = name === undefined ? undefined : WEEKDAY_INDEX[name];
+      if (weekday !== undefined) found.push({ index: match.index ?? 0, text: rawText.slice(match.index ?? 0, (match.index ?? 0) + match[0].length).trim(), weekday });
+    }
+  }
+  for (const pattern of WEEKLY_PATTERNS) {
+    for (const match of Array.from(lower.matchAll(pattern))) {
+      found.push({ index: match.index ?? 0, text: rawText.slice(match.index ?? 0, (match.index ?? 0) + match[0].length).trim(), weekday: null });
+    }
+  }
+  if (found.length === 0) return null;
+  found.sort((left, right) => left.index - right.index);
+  const weekdays: number[] = [];
+  for (const { weekday } of found) if (weekday !== null && !weekdays.includes(weekday)) weekdays.push(weekday);
+  // "every week on Saturday", «كل أسبوع يوم السبت»: the week's day is the one named beside it.
+  if (weekdays.length === 0) {
+    const mention = readWeekdayReference(rawText);
+    if (mention) weekdays.push(mention.weekday);
+  }
+  return { weekdays, phrases: found.map(({ text }) => text) };
 }
 
 export interface WeekdayResolution {

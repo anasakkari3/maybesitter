@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
-import { dayPartHour, forbidsResolvedTime, hourWithDayPart, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, relativeDayOffset, relativeDaySource, statesClock, timeAnchorOf, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, forbidsResolvedTime, hourWithDayPart, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, namesTwelveInTheEvening, nightClockHour, relativeDayOffset, relativeDaySource, statesClock, timeAnchorOf, typedHalfOfDay, withoutTimeOfDay } from '../../../src/extraction/timeLexicon';
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
+import { recurrenceHintOf } from '../../../src/extraction/extractionService';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
@@ -13,7 +14,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
-import { answeredDayPartTime, dayForAnswer, resolvedLocalTime } from './clarificationBuilder';
+import { answeredDayPartTime, buildClarification, dayForAnswer, resolvedLocalTime } from './clarificationBuilder';
 import { hourIsPartOfDayGuess } from './timeGuess';
 import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate, WEEKDAY_MENTION_SOURCES } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
@@ -180,8 +181,10 @@ function withResolvedTime(
 ): ExtractionResult {
   if (!local.date) return result;
   const instant = local.time ? instantFromLocal(local.date, local.time, timezone) : null;
+  // A day answered: the hour that waited for one (FIX-R8-CAPTURE) is placed.
+  const { undatedTime: _undated, ...placed } = result;
   return {
-    ...result,
+    ...placed,
     // The person's zone travels with the answer (FZ1 round 3 add-on): left
     // out, the command was drafted in UTC, and an appointment cleared to «بدون
     // وقت» at confirm landed on UTC midnight instead of its local one.
@@ -431,6 +434,24 @@ function withTimeFrom(result: ExtractionResult, source: ExtractionResult): Extra
 }
 
 /**
+ * The bare early hour an item waits to place on a day (FIX-R8-CAPTURE):
+ * «والثاني الحنعة عال٦» is 6 with no day and no half. `HH:MM`, or null.
+ */
+function undatedBareEarlyHour(result: ExtractionResult): string | null {
+  const time = result.undatedTime;
+  if (!time || result.localTimeSpec || result.timeEvidence !== 'clock_marker') return null;
+  const hour = Number(time.slice(0, 2));
+  return hour >= 1 && hour <= 6 ? time : null;
+}
+
+/** That hour in the half a typed answer names — «الجمعة المسا» for a 6 is 18:00. */
+function bareHourInHalf(time: string, half: 'am' | 'pm' | 'night'): string {
+  const hour = Number(time.slice(0, 2));
+  const inHalf = half === 'am' ? hour : half === 'pm' ? hour + 12 : nightClockHour(hour);
+  return `${String(inHalf).padStart(2, '0')}:${time.slice(3, 5)}`;
+}
+
+/**
  * Reads a typed answer, and applies what it says to the field that was asked.
  *
  * The original text and the answer are re-read together, by the engine the
@@ -476,6 +497,19 @@ async function readFreeTextAnswer(
   // hesitates is not understood — nothing is re-read (POLISH-CAPTURE round 4).
   const typed = TIME_FIELDS.has(question.field) ? dayTypedIn(freeText, options) : null;
   if (typed === 'ambiguous') throw new ClarifyError('answer_not_understood');
+  // An hour waiting for its day (FIX-R8-CAPTURE) is placed only on a day the
+  // person typed: "which day?" answered «المسا» is not today by default.
+  if (question.field === 'which_day' && result.undatedTime && !typed && !readWeekdayReference(freeText) && !namesExplicitDate(freeText)) {
+    throw new ClarifyError('answer_not_understood');
+  }
+  // …and a bare early one takes the half typed with the day: «الجمعة المسا»
+  // is that 6 on Friday evening, 18:00 — not the evening button's 19:00.
+  const waitingHour = question.field === 'which_day' ? undatedBareEarlyHour(result) : null;
+  const waitingHalf = waitingHour && !statesClock(freeText) ? typedHalfOfDay(freeText) : null;
+  if (waitingHour && waitingHalf && typeof typed === 'string') {
+    const time = bareHourInHalf(waitingHour, waitingHalf);
+    return notPast(withResolvedTime(result, { date: typed, time }, options.timezone), options.now);
+  }
   // "What time?" answered with no time of day and no day — «بعد ساعة»,
   // "later", «אחר כך». Whatever hour a re-read finds is not one the person
   // typed: the sentence's own passed hour, or the engine's guess (closure UAT
@@ -689,6 +723,21 @@ export async function answerClarification(
     if (!noTime) notPast(answered, options.now);
     answerKind = 'option';
   } else {
+    /*
+     * The one follow-up the server asks (FIX-R8-CAPTURE). «والثاني الحنعة
+     * عال٦» is 6 with no day and no half: the owner's rule is that both are
+     * asked, and neither is picked. "Which day?" answered with a day alone —
+     * «الجمعة» — places the 6 on Friday and asks صبح or مسا about it, as the
+     * same 6 said with its day would have been asked (CL1 round 6). A day
+     * with its half, or a clock, settles in this one round as always; a
+     * contract "never a chain" still holds for every other question.
+     */
+    const waitingHour = question.field === 'which_day' ? undatedBareEarlyHour(result) : null;
+    if (waitingHour && !statesClock(freeText) && typedHalfOfDay(freeText) === null) {
+      const day = dayTypedIn(freeText, options);
+      if (typeof day !== 'string') throw new ClarifyError('answer_not_understood');
+      return askHalfAfterDay({ stored, index, item, result, day, hour: waitingHour, input, question, options, dependencies });
+    }
     answered = await readFreeTextAnswer(result, question, freeText, options, dependencies);
     answerKind = 'free_text';
   }
@@ -754,6 +803,10 @@ export async function answerClarification(
     clarification: null,
   };
   items[index] = withDateGuess(items[index]!, answered, result);
+  // A weekly hint's hour is settled now (FIX-R8-CAPTURE).
+  if (answered.recurrenceHint) {
+    items[index] = { ...items[index]!, recurrenceHint: recurrenceHintOf(answered, options.timezone, resolvedTime !== null) };
+  }
 
   const contract: CaptureProposalContract = {
     ...stored.contract,
@@ -827,4 +880,65 @@ function withDateGuess(
   const reextracted = answered.rawText !== before.rawText;
   const stillGuessed = answered.dateInferred === true && (reextracted || date === before.localTimeSpec?.date);
   return { ...rest, resolvedDate: date, dateEstimated: stillGuessed };
+}
+
+
+/**
+ * «الجمعة» answered to "which day?" for a bare early hour with no day
+ * (FIX-R8-CAPTURE): the hour is put on that day, still the person's number
+ * with no half, and the صبح/مسا question is asked about it — the halves that
+ * are still ahead on that day. The round is not spent: that question is the
+ * item's one remaining one, and it takes only its two buttons.
+ */
+async function askHalfAfterDay(args: {
+  stored: StoredCaptureProposal;
+  index: number;
+  item: CaptureProposalContract['items'][number];
+  result: ExtractionResult;
+  day: string;
+  hour: string;
+  input: ClarifyInput;
+  question: ClarificationContract;
+  options: ClarifyOptions;
+  dependencies: ClarifyDependencies;
+}): Promise<CaptureProposalContract> {
+  const { stored, index, item, result, day, hour, input, question, options, dependencies } = args;
+  const placed: ExtractionResult = {
+    ...withResolvedTime(result, { date: day, time: hour }, options.timezone),
+    // Still the number said with no half: the review marks it and asks.
+    timeEvidence: 'clock_marker',
+    dateInferred: false,
+  };
+  const clarification = buildClarification(placed, { now: options.now, timezone: options.timezone });
+  const items = [...stored.contract.items];
+  items[index] = {
+    ...item,
+    resolvedTime: null,
+    needsClarification: true,
+    resolvedDate: day,
+    dateEstimated: false,
+    timeEstimated: false,
+    clarification,
+    ...(placed.recurrenceHint ? { recurrenceHint: recurrenceHintOf(placed, options.timezone, false) } : {}),
+  };
+  const contract: CaptureProposalContract = {
+    ...stored.contract,
+    items,
+    status: items.every((candidate) => candidate.needsClarification) ? 'needs_clarification' : 'proposed',
+  };
+  const commands = new Map(stored.commandsByItemId);
+  commands.set(input.itemId, []);
+  const results = new Map(stored.resultsByItemId);
+  results.set(input.itemId, placed);
+  // Not added to `clarifiedItemIds`: the صبح/مسا question is still to answer.
+  await dependencies.store.put({ ...stored, contract, commandsByItemId: commands, resultsByItemId: results });
+  await dependencies.recordEvent({
+    type: 'clarification_answered',
+    proposalId: input.proposalId,
+    itemId: input.itemId,
+    field: question.field,
+    answerKind: 'free_text',
+    at: options.now.toISOString(),
+  });
+  return contract;
 }

@@ -215,7 +215,7 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
         // after it, or to no time, it is an ordinary step at the time chosen. Left as it was, the stale end made the confirm refuse the
         // whole proposal, or rang the day after the time chosen (review C1).
         ...(commitment.timeSpec?.endAt
-          ? { endAt: windowEndAfterMove(windowOf(commitment.timeSpec), edit.resolvedTime) }
+          ? { endAt: endAfterMove(commitment.timeSpec, edit.resolvedTime) }
           : {}),
         // A time the person picked, or none: either way no longer a whole day
         // (FX3). Left true, a timed `dueAt` would fail `allDay`'s midnight rule.
@@ -252,6 +252,21 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
 }
 
 /** A draft's partial time spec, completed just enough to ask whether it is a window. */
+/**
+ * The end a moved commitment keeps. A prep window follows ruling R2
+ * (`windowEndAfterMove`). An event with the end its words gave — «تدريب من 10
+ * لـ 4» (FIX-R8-CAPTURE) — keeps its length from the new start; moved to no
+ * time, it has no end.
+ */
+function endAfterMove(timeSpec: Partial<TimeSpec>, dueAt: string | null): string | null {
+  if (timeSpec.kind === 'scheduled_event' && !timeSpec.allDay && timeSpec.dueAt && timeSpec.endAt && dueAt) {
+    const length = Date.parse(timeSpec.endAt) - Date.parse(timeSpec.dueAt);
+    const start = Date.parse(dueAt);
+    return length > 0 && Number.isFinite(start) ? new Date(start + length).toISOString() : null;
+  }
+  return windowEndAfterMove(windowOf(timeSpec), dueAt);
+}
+
 function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'> {
   return {
     kind: timeSpec.kind ?? 'unscheduled',
@@ -306,6 +321,9 @@ export function keepEventOnItsDay(commands: readonly Command[], result: Extracti
           ...command.commitment.timeSpec,
           kind: 'scheduled_event' as const,
           dueAt: midnight.toISOString(),
+          // A whole day has no end hour: a range's end would fail `allDay`'s
+          // midnight rule (FIX-R8-CAPTURE).
+          endAt: null,
           remindAt: null,
           allDay: true,
           timezone,

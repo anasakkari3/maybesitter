@@ -70,6 +70,21 @@ export const captureProposalSchema = z.object({
        */
       eventOnDay: z.boolean().optional(),
       /**
+       * The words said this repeats weekly — «كل سبت», "every Saturday"
+       * (FIX-R8-CAPTURE). Content-free: weekdays 0 = Sunday … 6 = Saturday,
+       * `start`/`end` as `HH:MM` once the hour is settled. Optional and not
+       * yet rendered: the item itself is a one-off on the next occurrence,
+       * and an older server sends nothing.
+       */
+      recurrenceHint: z
+        .object({
+          weekdays: z.array(z.number().int().min(0).max(6)),
+          start: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          end: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+        })
+        .nullable()
+        .optional(),
+      /**
        * The one question to ask about this item (UC-2.5, #165).
        *
        * Keys and parameters, never a sentence: the phone renders the question

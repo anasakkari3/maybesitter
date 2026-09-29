@@ -50,6 +50,13 @@ export interface LocalTimeSpec {
 /** Why a resolved time was believed. See `src/extraction/timeLexicon.ts`. */
 export type TimeEvidence = 'none' | 'day_only' | 'clock_marker' | 'daypart' | 'ampm' | 'hhmm';
 
+/** See `ExtractionResult.recurrenceHint`. 0 = Sunday … 6 = Saturday; `HH:MM` on the person's clock. */
+export interface RecurrenceHint {
+  weekdays: number[];
+  start?: string;
+  end?: string;
+}
+
 export interface ExtractionResult {
   type: ExtractionType;
   action: string | null;
@@ -95,6 +102,29 @@ export interface ExtractionResult {
    * none, which every producer that predates it meant.
    */
   allDay?: boolean;
+  /**
+   * An hour the words said with no day to put it on (FIX-R8-CAPTURE), `HH:MM`
+   * as read — «كل أسبوع الساعة 10», or the second conjunct of «…الاول يوم
+   * الجمعة عال ٤ والثاني الحنعة عال٦» whose day word was not a day. Set only
+   * when `localTimeSpec`, `dueAt` and `remindAt` are all null: the day is
+   * asked (`ask_day`), never today, and the hour is kept for the answer.
+   */
+  undatedTime?: string;
+  /**
+   * How long the event lasts, in minutes, when the words gave a range — «من
+   * 10 لـ 4», "10 to 4", «מ-10 עד 4» (FIX-R8-CAPTURE). Counted from the start,
+   * so an answered صبح/مسا or an edited start moves the end with it;
+   * `mapExtractionToCommand` writes it as the command's `endAt`.
+   */
+  rangeMinutes?: number;
+  /**
+   * The words said this repeats weekly (FIX-R8-CAPTURE). Content-free: day
+   * numbers and clock times only. Nothing stores a weekly block yet, so the
+   * item is a one-off on the next occurrence; this is what the recurring-block
+   * lane turns into a weekly proposal. `start`/`end` only when the hour is
+   * settled (not a صبح/مسا still to ask).
+   */
+  recurrenceHint?: RecurrenceHint | null;
   priority: {
     level: 'low' | 'normal' | 'high';
     source: 'default' | 'inferred' | 'user_explicit';

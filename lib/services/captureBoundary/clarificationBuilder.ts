@@ -233,6 +233,37 @@ export function buildClarification(
     }
   }
 
+  // 3b. An hour said with no day (FIX-R8-CAPTURE): «كل أسبوع الساعة 10», the
+  //     second of «…الاول يوم الجمعة عال ٤ والثاني الحنعة عال٦». Which day is
+  //     asked, never taken to be today. A bare 1–6 offers no day buttons: each
+  //     would carry a half of the day nobody chose, so the day is typed and
+  //     the half is asked after it (`clarifyService`, the one follow-up).
+  if (!localTime && !localDate && result.undatedTime) {
+    const undated = result.undatedTime;
+    const hour = Number(undated.slice(0, 2));
+    const bareEarly = result.timeEvidence === 'clock_marker' && hour >= 1 && hour <= 6;
+    const options = bareEarly
+      ? []
+      : [
+        { optionId: 'today', labelKey: 'today', offset: 0 },
+        { optionId: 'tomorrow', labelKey: 'tomorrow', offset: 1 },
+      ]
+        .map(({ optionId, labelKey, offset }) => {
+          const date = localDay(context, offset);
+          return date ? option(optionId, labelKey, {}, { localDate: date, localTime: undated }) : null;
+        })
+        .filter((candidate): candidate is ClarificationOptionContract => candidate !== null)
+        .filter((candidate) => isFuture(candidate.value.localDate!, undated, context));
+    return {
+      questionId: randomUUID(),
+      field: 'which_day',
+      questionKey: 'ask_day',
+      params: bareEarly ? { title } : { title, time: undated },
+      options,
+      allowFreeText: true,
+    };
+  }
+
   // 4. A day, but no hour. The mildest case: the item is real, the question is
   //    only when.
   //

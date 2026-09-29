@@ -6,10 +6,10 @@ import { decideExtractionDisposition } from './extractionPolicy';
 import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
-import { relativeDayOffset } from './timeLexicon';
-import { readWeekdayReference } from './weekdayLexicon';
+import { instantFromLocal, localTimeSpecFor, rangeMinutesFrom, relativeDayOffset } from './timeLexicon';
+import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
 import type { Command } from '../domain/stateMachine';
-import type { ExtractionContext, ExtractionDisposition, ExtractionResult } from './extractionTypes';
+import type { ExtractionContext, ExtractionDisposition, ExtractionResult, RecurrenceHint } from './extractionTypes';
 
 export type ExtractionEngine = 'gemini' | 'ollama' | 'rule-based';
 
@@ -248,10 +248,127 @@ export async function extractWithFallback(
   if (/תזכיר\s+לי/.test(rawText) && result.type === 'task') {
     result = { ...result, explicitReminderRequest: true };
   }
+  result = withStatedShape(result, rawText, context);
 
   return {
     result,
     engine,
     fallbackReason,
   };
+}
+
+
+/* ── What the words themselves say about the shape (FIX-R8-CAPTURE) ──
+ *
+ * Read after either engine answered, before the past-time guard, so the model
+ * and the rules cannot disagree about a recurrence or a range:
+ *
+ *   a recurrence   «كل سبت», "every Saturday", «כל שבת»: never a one-off on
+ *                  today or on a day nobody named. With a weekday, the item is
+ *                  on its next occurrence by the weekday rule (never today;
+ *                  `weekdayLexicon` rule 1) and that day is marked ours — a
+ *                  model that answered today or tomorrow is put there, its
+ *                  hour kept. With only the week («كل أسبوع») a day the words
+ *                  did not state is dropped and asked. The phrase stays in the
+ *                  title, and `recurrenceHint` carries it for the weekly lane.
+ *   a range        «من 10 لـ 4»: `rangeMinutes`, counted from the start that
+ *                  was read (`rangeMinutesFrom`).
+ */
+function localTimeOf(result: ExtractionResult, timeZone: string): string | null {
+  if (result.allDay) return null;
+  if (result.localTimeSpec?.time) return result.localTimeSpec.time;
+  const instant = result.remindAt ?? result.dueAt;
+  if (instant) return localTimeSpecFor(new Date(Date.parse(instant)), timeZone)?.time ?? null;
+  return result.undatedTime ?? null;
+}
+
+function nextOccurrence(weekdays: readonly number[], now: Date, timeZone: string): string | null {
+  const today = localTimeSpecFor(now, timeZone)?.date;
+  if (!today || weekdays.length === 0) return null;
+  const [year, month, day] = today.split('-').map(Number) as [number, number, number];
+  const current = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const ahead = Math.min(...weekdays.map((weekday) => daysUntilWeekday(current, { weekday, weeksLater: 0, today: false })));
+  return new Date(Date.UTC(year, month - 1, day + ahead)).toISOString().slice(0, 10);
+}
+
+function onRecurrenceDay(result: ExtractionResult, recurrence: StatedRecurrence, rawText: string, now: Date, timeZone: string): ExtractionResult {
+  const date = result.localTimeSpec?.date
+    ?? (result.remindAt ?? result.dueAt ? localTimeSpecFor(new Date(Date.parse((result.remindAt ?? result.dueAt)!)), timeZone)?.date ?? null : null);
+  // A calendar date the words give («every Saturday from 10 October») is theirs.
+  if (namesCalendarDate(rawText)) return result;
+  const time = localTimeOf(result, timeZone);
+  if (recurrence.weekdays.length === 0) {
+    // «كل أسبوع»: the week, no day. A day the words did state (today,
+    // tomorrow) stays; any other is a guess, and is asked.
+    if (!date || namesExplicitDate(rawText)) return result;
+    return {
+      ...result,
+      dueAt: null,
+      remindAt: null,
+      localTimeSpec: null,
+      dateInferred: false,
+      allDay: false,
+      ...(time ? { undatedTime: time } : {}),
+      missingFields: result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time'],
+    };
+  }
+  const target = nextOccurrence(recurrence.weekdays, now, timeZone);
+  if (!target) return result;
+  if (date === target) return { ...result, dateInferred: true };
+  const { undatedTime: _undated, ...rest } = result;
+  if (result.allDay) {
+    const midnight = instantFromLocal(target, '00:00', timeZone)?.toISOString() ?? null;
+    return { ...rest, dueAt: midnight, localTimeSpec: { date: target, time: null, timezone: timeZone }, dateInferred: true };
+  }
+  const instant = time ? instantFromLocal(target, time, timeZone)?.toISOString() ?? null : null;
+  return {
+    ...rest,
+    dueAt: instant && (result.dueAt || !result.remindAt) ? instant : null,
+    remindAt: instant && result.remindAt ? instant : null,
+    localTimeSpec: { date: target, time: instant ? time : null, timezone: timeZone },
+    dateInferred: true,
+  };
+}
+
+/** The recurrence phrase in the title, as the person said it, when an engine's title dropped it. */
+function withPhraseInTitle(result: ExtractionResult, phrases: readonly string[]): ExtractionResult {
+  const title = result.title?.trim();
+  if (!title) return result;
+  const missing = phrases.filter((phrase) => !title.toLowerCase().includes(phrase.toLowerCase()));
+  if (missing.length === 0) return result;
+  const titled = `${title} ${missing.join(' ')}`;
+  return { ...result, title: titled, ...(result.action === result.title ? { action: titled } : {}) };
+}
+
+function withStatedShape(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
+  if (result.type !== 'task' && result.type !== 'follow_up') return result;
+  const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
+  let shaped = result;
+  const recurrence = readRecurrence(rawText);
+  if (recurrence) {
+    shaped = withPhraseInTitle(onRecurrenceDay(shaped, recurrence, rawText, context.now, timeZone), recurrence.phrases);
+  }
+  const minutes = shaped.timeAnchor === 'deadline' ? null : rangeMinutesFrom(rawText, localTimeOf(shaped, timeZone));
+  if (minutes) shaped = { ...shaped, rangeMinutes: minutes };
+  if (recurrence) shaped = { ...shaped, recurrenceHint: { weekdays: recurrence.weekdays } };
+  return shaped;
+}
+
+/**
+ * The weekly hint a proposal item carries (FIX-R8-CAPTURE): the days, and —
+ * once the hour is settled, not a صبح/مسا still to ask — the start and the
+ * end the words gave, `HH:MM` on the person's clock. Null when the words
+ * state no recurrence. Content-free by construction.
+ */
+export function recurrenceHintOf(result: ExtractionResult, timeZone: string, settled: boolean): RecurrenceHint | null {
+  if (!result.recurrenceHint) return null;
+  const hint: RecurrenceHint = { weekdays: [...result.recurrenceHint.weekdays] };
+  const start = settled && (result.localTimeSpec?.time || result.remindAt || result.dueAt) ? localTimeOf(result, timeZone) : null;
+  if (!start) return hint;
+  hint.start = start;
+  if (result.rangeMinutes) {
+    const minutes = (Number(start.slice(0, 2)) * 60 + Number(start.slice(3, 5)) + result.rangeMinutes) % (24 * 60);
+    hint.end = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  }
+  return hint;
 }

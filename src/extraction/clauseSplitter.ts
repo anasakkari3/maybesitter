@@ -448,7 +448,73 @@ function withTimeOnlyClausesMerged(segments: readonly string[]): string[] {
   return merged;
 }
 
+/*
+ * ══ «…الأول … والثاني …»: ONE HEAD, TWO COMMITMENTS (FIX-R8-CAPTURE) ══
+ *
+ * The owner typed «ذكرني بخطبة صاحبي الاول يوم الجمعة عال ٤ والثاني الحنعة
+ * عال٦» — the first friend's engagement on Friday at 4, and the second one's
+ * at 6 on a day he mistyped. It was one item titled with both. A bare «و» is
+ * never a boundary («أحمد وسامي» is one errand), but «والثاني/والتاني/
+ * والثانية» after a «الأول» with its own time is the second of two: the
+ * clause is split there and the shared head («ذكرني بخطبة صاحبي») is carried
+ * into the second, so each reads as a whole request — on both engines.
+ *
+ * Only when the first conjunct says a time after its «الأول» and the second
+ * says something after its ordinal: «الفصل الأول والثاني بكرا» (chapters one
+ * and two, tomorrow) stays one item.
+ *
+ * The second conjunct is `elliptical`: it never inherits the first one's day,
+ * and a day it does not state itself is asked, never guessed and never today
+ * (the capture boundary drops it). When the first conjunct's day stood where
+ * the second has one unreadable «ال» word — «الجمعة عال ٤» against «الحنعة
+ * عال٦» — that word is the day that could not be read (`unreadDayWord`): it is
+ * not matched to Friday by any likeness, and the title does not keep it
+ * (the question asks for that day instead).
+ */
+const AR_FIRST_ORDINAL = new RegExp(`${B}(?:ال)?(?:أول|اول|أوّل|اوّل|أولى|اولى)${A}`, 'gu');
+const AR_SECOND_CONJUNCT = new RegExp(`\\s+و((?:ال)?(?:ثاني|تاني|ثانية|تانية|ثانيه|تانيه))${A}`, 'u');
+
+const DEFINITE_WORD = new RegExp('^ال[\\p{L}\\p{M}]{2,}$', 'u');
+
+/** One clause of a capture, and how it was cut. */
+export interface CaptureClause {
+  text: string;
+  /** The second of «…الأول … والثاني …»: its head was carried from the first. */
+  elliptical?: true;
+  /** The one word standing where the first conjunct had its day, read as no day. */
+  unreadDayWord?: string;
+}
+
+function ellipticalConjuncts(segment: string): CaptureClause[] {
+  const second = AR_SECOND_CONJUNCT.exec(segment);
+  if (!second) return [{ text: segment }];
+  const first = segment.slice(0, second.index);
+  const rest = segment.slice(second.index + second[0].length).trim();
+  const ordinals = Array.from(first.matchAll(AR_FIRST_ORDINAL));
+  const ordinal = ordinals[ordinals.length - 1];
+  if (!ordinal || !rest) return [{ text: segment }];
+  const firstTail = first.slice(ordinal.index! + ordinal[0].length);
+  if (!statesATime(firstTail)) return [{ text: segment }];
+  const head = first.slice(0, ordinal.index).trimEnd();
+  if (!head) return [{ text: segment }];
+  const clause: CaptureClause = { text: `${head} ${second[1]} ${rest}`, elliptical: true };
+  if (namesDay(firstTail) && !namesDay(rest)) {
+    const words = stripTimeExpressions(rest).split(/\s+/).filter(Boolean);
+    if (words.length === 1 && DEFINITE_WORD.test(words[0]!) && words[0] !== rest.trim()) clause.unreadDayWord = words[0];
+  }
+  return [{ text: first.trim() }, clause];
+}
+
+/** The clauses of one capture, with how each was cut (`CaptureClause`). */
+export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
+  return segmentsOf(raw).flatMap((segment) => ellipticalConjuncts(segment));
+}
+
 export function splitCaptureClauses(raw: string): string[] {
+  return splitCaptureClauseDetails(raw).map((clause) => clause.text);
+}
+
+function segmentsOf(raw: string): string[] {
   const segments = sentencesOf(raw)
     .join('|')
     .replace(CLAUSE_OPENER, '|')
