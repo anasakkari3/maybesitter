@@ -180,7 +180,12 @@ test('an amount with no currency behind it is refused, not quietly swallowed', a
       body: JSON.stringify({ field: 'savings_goal', kind: 'statement', value: 4_200 }),
     }));
     assert.equal(refused.status, 409);
-    assert.equal((await refused.json() as { code: string }).code, 'currency_required');
+    const refusal = await refused.json() as { code: string; reason: string };
+    assert.equal(refusal.code, 'currency_required');
+    // `reason` is the key every other /api/mobile refusal uses and the one the
+    // app's client reads (live P2, 2026-09-29: the app showed a generic
+    // failure for this). `code` stays for builds already in people's hands.
+    assert.equal(refusal.reason, 'currency_required');
 
     // And nothing was written, so a later read cannot surface it half-formed.
     const state = await readFinancialState({ uid: ALICE, asOf: AS_OF });
