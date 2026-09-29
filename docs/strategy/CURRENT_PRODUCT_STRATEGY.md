@@ -75,19 +75,21 @@ Each step requires progressive disclosure, scoped consent, visible value, revoca
 
 ## 11. Module unlock matrix
 
-| Module | Issues | Market gate | Module evidence |
-|---|---|---|---|
-| Life-State & Memory | #9–#12 | Required | Retention, missing-context need, calendar/history opt-in, trust, controls |
-| Feedback aggregation | #13–#16 | Required | Enough real events; append-only/reversible; inspect/undo |
-| Priority | #17–#24 | Required | Multi-commitment competition; baseline insufficiency; behavioral lift |
-| Decomposition | #25–#28 | Required | Size/ambiguity evidence and completion lift |
-| Planning | #29–#32 | Required | Demand beyond one step, lift, calendar/trust |
-| Advanced Recommendations | #33–#36 | Required | Repeated wedge value and material baseline lift |
-| Coaching | #37–#40 | Required | Helpful/non-judgmental, disable control, behavioral lift |
-| Personalization | #41–#44 | Required | ≥20% baseline lift, inspect/revoke, no private-memory training |
-| Shadow Release | #45–#48 | Required | All included modules pass; immutable shadow; operations visible |
+Stage B modules are separated into a **Build Gate** (`ENGINEERING_ALLOWED` for local/staging implementation behind default-off flags) and a **Release Gate** (`RELEASE_LOCKED` prohibiting user exposure or production deployment before market evidence).
 
-A global GO does not unlock all modules. Gate #61 names each allowed module and scope.
+| Module | Issues | Status | Market gate | Module evidence |
+|---|---|---|---|---|
+| Life-State & Memory | #9–#12 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | Retention, missing-context need, calendar/history opt-in, trust, controls |
+| Feedback aggregation | #13–#16 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | Enough real events; append-only/reversible; inspect/undo |
+| Priority | #17–#24 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | Multi-commitment competition; baseline insufficiency; behavioral lift |
+| Decomposition | #25–#28 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | Size/ambiguity evidence and completion lift |
+| Planning | #29–#32 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | Demand beyond one step, lift, calendar/trust |
+| Advanced Recommendations | #33–#36 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | Repeated wedge value and material baseline lift |
+| Coaching | #37–#40 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | Helpful/non-judgmental, disable control, behavioral lift |
+| Personalization | #41–#44 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | ≥20% baseline lift, inspect/revoke, no private-memory training |
+| Shadow Release | #45–#48 | `ENGINEERING_ALLOWED / RELEASE_LOCKED` | Required | All included modules pass; immutable shadow; operations visible |
+
+A global GO does not unlock all modules. Gate #61 names each allowed module and scope. Engineering completion is not product evidence and does not satisfy #61.
 
 ## 12. Positioning language
 
@@ -110,7 +112,7 @@ A global GO does not unlock all modules. Gate #61 names each allowed module and 
 
 ## 14. Current roadmap stage
 
-Approved sequence: Foundations (#1–#4), Capture Quality (#5–#8), V02 (#50–#53), V03 (#54–#57), and V04 (#58–#61). Issues #9–#48 are preserved as a conditional North Star and remain locked.
+Approved sequence: Foundations (#1–#4), Capture Quality (#5–#8), V02 (#50–#53), V03 (#54–#57), and V04 (#58–#61). Issues #9–#48 are preserved as a conditional North Star and are classified as `ENGINEERING_ALLOWED / RELEASE_LOCKED` (engineering permitted on staging/local behind default-off feature flags; production release locked pending Market Evidence Gate #61).
 
 ## 15. Product issue readiness rule
 

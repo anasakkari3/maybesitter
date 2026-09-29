@@ -50,16 +50,27 @@ If an issue's acceptance criteria describe user-facing behaviour, that behaviour
 must exist in the React Native client. Implementing it in the web UI does not
 close the issue, does not count as evidence, and does not satisfy a gate.
 
-## 6. Stage B remains evidence-gated and locked
+## 6. Stage B engineering and release gates
 
-Issues #9–#48 (Sprints 02–11: Life-State, Memory, Feedback aggregation,
-Priority, Decomposition, Planning, Advanced Recommendations, Coaching,
-Personalization, Shadow Release) are **locked**.
+Stage B engineering may proceed before market evidence only when all work is:
 
-Stage B work must not begin merely because an engineering review gate passed. It
-additionally requires the Market Evidence Gate (#61) and the relevant
-module-specific evidence gate. See `docs/strategy/CURRENT_PRODUCT_STRATEGY.md`
-and issue #49.
+- behind default-off feature flags and kill switches;
+- limited to local development and staging;
+- excluded from production and general user exposure;
+- proposal-only: model output cannot mutate canonical state;
+- protected by explicit versioned consent;
+- covered by account isolation, deletion, provenance, cost, and fallback tests;
+- prevented from enabling recurring paid ingestion without separate approval.
+
+Market Evidence Gate #61 remains mandatory before:
+
+- enabling Stage B for real users;
+- production deployment or production feature activation;
+- recurring external-source ingestion;
+- making product or effectiveness claims;
+- closing module review gates as GO.
+
+Engineering completion is not product evidence and does not satisfy #61.
 
 The sprint dates on those milestones are historical planning assumptions, not
 approved execution commitments.
