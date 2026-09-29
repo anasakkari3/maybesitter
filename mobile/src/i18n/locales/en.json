@@ -818,7 +818,7 @@
   "calendarWriteToggle": "Add my commitments to my calendar",
   "calendarWriteBody": "Only the title and time are written, and edits here reach the calendar.",
   "calendarWriteUnavailable": "Calendar writing is switched off in this build.",
-  "calendarPermissionDenied": "MaybeSitter can't see your calendar. Your phone only asks once, so turn it on in phone settings.",
+  "calendarPermissionDenied": "MaybeSitter can't read your calendar or add to it. Your phone only asks once, so turn it on in phone settings.",
   "calendarPickTitle": "Which calendar",
   "calendarPickBody": "Events go here. Pick the one you want other people to see, or one only you read.",
   "calendarPickNeeded": "No calendar chosen yet. Nothing is added to it until you pick one.",
