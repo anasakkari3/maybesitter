@@ -160,6 +160,57 @@ describe('the open day', () => {
     expect(screen.queryByTestId('calendar-item-mine')).toBeNull();
   });
 
+  /** Stands in for «شوف يومي» / "see all" (`go`) and for the tab bar (`switchTab`). */
+  function Nav() {
+    const { actions } = useApp();
+    return (
+      <>
+        <Text testID="nav-go-calendar" onPress={() => actions.go('calendar')}>go</Text>
+        <Text testID="nav-tab-calendar" onPress={() => actions.switchTab('calendar')}>tab</Text>
+      </>
+    );
+  }
+
+  async function showWithNav(today: Commitment[], upcoming: Commitment[]) {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: today } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: upcoming } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><CalendarScreen /><Nav /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId(`calendar-day-${TODAY_KEY}`)).not.toBeNull());
+  }
+
+  it('opens on today when «شوف يومي» asks for the calendar, whatever day was left open (UAT r6 N-e)', async () => {
+    // A day tapped earlier in the session is app state; «شوف يومي» used to
+    // open the calendar on it — tomorrow, in the round-6 run — rather than on
+    // the day it names.
+    await showWithNav([item('mine', onDay(0))], [item('later', onDay(1))]);
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 1)}`));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-later')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('nav-go-calendar'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull());
+    expect(screen.queryByTestId('calendar-item-later')).toBeNull();
+    expect(screen.getByTestId(`calendar-day-${TODAY_KEY}`).props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('calendar-selected-day').props.children).toBe(en.today);
+  });
+
+  it('keeps the day it was left on when only the tab is switched back to', async () => {
+    // The tab bar keeps every stack where it was left (`switchTab`); the open
+    // day is part of that.
+    await showWithNav([item('mine', onDay(0))], [item('later', onDay(1))]);
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 1)}`));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-later')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('nav-tab-calendar'));
+    expect(screen.queryByTestId('calendar-item-later')).not.toBeNull();
+    expect(screen.queryByTestId('calendar-item-mine')).toBeNull();
+  });
+
   it('says a day is free rather than showing nothing at all', async () => {
     await show([], []);
     expect(screen.queryByTestId('calendar-day-free')).not.toBeNull();

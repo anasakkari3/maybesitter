@@ -7,6 +7,7 @@ import { useApp } from '../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackHeader, EmptyState, SectionLabel, Skeleton, Tag, TextLink } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
+import { useAnnounceOnIos } from '../ui/announce';
 import { ProcessingDots } from '../ui/motion';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { useIsOnline } from '../api/ui/OfflineBanner';
@@ -297,7 +298,13 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
     [plan.date, lang, zone],
   );
 
-  const settled = plan.status === 'accepted' || plan.status === 'dismissed';
+  const accepted = plan.status === 'accepted';
+  const acceptedLine = accepted ? (accept.isSuccess ? t.planAcceptedToast : t.planAcceptedStatus) : null;
+  // The accept button's height, measured while it is drawn (see `plan-accept-slot`).
+  const [slotHeight, setSlotHeight] = useState<number | null>(null);
+  // Said to VoiceOver only for the tap that just landed, not on a later look.
+  useAnnounceOnIos(accepted && accept.isSuccess ? acceptedLine : null);
+  const settled = accepted || plan.status === 'dismissed';
   const proposal = !settled;
   // The explanation is rendered only in the language the app is showing.
   // The route says which language it wrote in; when that is not this one,
@@ -322,18 +329,8 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
         </Card>
       ) : null}
 
-      {/* Two sentences, one line. Right after the tap it confirms what just
-          happened; on every later look it is a status. The app-wide toast sheet
-          is deliberately not used: its only button is `closeSheetHome`, which
-          would throw the user off this screen the moment they accepted the
-          plan they were reading. */}
-      {plan.status === 'accepted' ? (
-        <View style={{ alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 }}>
-          <Txt size={13} weight={600} color={p.acd} testID="plan-accepted">
-            {accept.isSuccess ? t.planAcceptedToast : t.planAcceptedStatus}
-          </Txt>
-        </View>
-      ) : null}
+      {/* An accepted plan says so in the footer, in the accept button's place
+          (see `plan-accept-slot`). */}
       {plan.status === 'dismissed' ? (
         <Txt size={14} color={p.mu} testID="plan-dismissed">{t.planDismissedStatus}</Txt>
       ) : null}
@@ -474,19 +471,45 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
       </Card>
 
       <View style={{ gap: 10, paddingTop: 6 }}>
-        <Pill
-          label={t.planAccept}
-          size={17}
-          pad={14}
-          testID="plan-accept"
-          // Disabled once it is accepted, and while the one request is in
-          // flight. "Looks good" sends exactly one accept: the criterion is
-          // about the request count, not about how fast somebody taps. It
-          // stays drawn after acceptance, disabled, so the footer does not
-          // jump under the finger that just pressed it.
-          disabled={readOnly || accept.isPending || plan.status === 'accepted'}
-          onPress={() => send('accept')}
-        />
+        {/* Once the plan is accepted the button is gone and its slot says so
+            (UAT round 6, N-f: a disabled «اقبل الخطة» under «حفظنا خطة اليوم»
+            still read as the thing left to do). Two sentences, one line: right
+            after the tap it confirms what just happened; on every later look
+            it is a status. The slot keeps the button's measured height, so
+            «ابنِ من جديد» does not slide up under a second tap. It is a polite
+            live region, always mounted, so TalkBack hears the line that
+            replaced the control it was on; VoiceOver is told below. The
+            app-wide toast sheet is deliberately not used: its only button is
+            `closeSheetHome`, which would throw the user off this screen the
+            moment they accepted the plan they were reading. */}
+        <View
+          testID="plan-accept-slot"
+          accessibilityLiveRegion="polite"
+          onLayout={event => {
+            if (accepted) return;
+            const height = event.nativeEvent.layout.height;
+            setSlotHeight(current => (current === height ? current : height));
+          }}
+          style={accepted && slotHeight ? { minHeight: slotHeight, justifyContent: 'center' } : undefined}
+        >
+          {accepted ? (
+            <View style={{ alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 }}>
+              <Txt size={13} weight={600} color={p.acd} testID="plan-accepted">{acceptedLine}</Txt>
+            </View>
+          ) : (
+            <Pill
+              label={t.planAccept}
+              size={17}
+              pad={14}
+              testID="plan-accept"
+              // Disabled while the one request is in flight. "Looks good"
+              // sends exactly one accept: the criterion is about the request
+              // count, not about how fast somebody taps (`accepting` above).
+              disabled={readOnly || accept.isPending}
+              onPress={() => send('accept')}
+            />
+          )}
+        </View>
         <ActionRow>
           <Pill
             label={t.planRegenerate}

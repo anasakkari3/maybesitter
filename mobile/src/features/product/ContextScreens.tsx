@@ -189,7 +189,7 @@ export function ContextualAssistantScreen() {
         {item ? <Pill label={t.xOpenCommitment} testID="assistant-detail" onPress={() => actions.openDetail(item.id)} /> : <Pill label={t.xQuick} onPress={() => actions.go('capture')} />}
       </ProductSection>
     </QueryBoundary>
-    <ProductActions><Pill label={t.xAgenda} kind="outline" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="outline" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>
+    <ProductActions><Pill label={t.xAgenda} kind="outline" testID="assistant-agenda" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="outline" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>
     {/* «حضّرني» (CL5a) starts from a meeting: a busy time on the Calendar
         tab, where each one carries the button. The calendar is where the
         person can see which meeting they mean; this screen cannot. */}
