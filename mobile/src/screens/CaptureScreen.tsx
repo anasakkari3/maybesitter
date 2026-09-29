@@ -10,7 +10,7 @@ import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
 import { readClipboardText, type ClipboardImport } from '../features/capture/clipboardImport';
 import { fill } from '../i18n/strings';
 import { family, LINE_HEIGHT } from '../theme/fonts';
-import { useLayoutMode } from '../theme/textScale';
+import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { VoiceButton, VoiceNote } from '../features/capture/voice/VoiceButton';
 import { appendDictation } from '../features/capture/voice/dictationText';
 import type { SpeechStatus } from '../features/capture/voice/SpeechCaptureService';
@@ -27,6 +27,7 @@ import { TaskHeader } from '../ui/taskHeader';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
 import { AvoidKeyboard } from '../ui/keyboard';
+import { useComposerFit } from '../features/capture/composerFit';
 
 /**
  * The composer (UC-2.R2, #172).
@@ -71,8 +72,12 @@ import { AvoidKeyboard } from '../ui/keyboard';
  * keyboard-avoiding container (`AvoidKeyboard`), so the keyboard pushes them
  * up instead of hiding them — measured in the window, so the email banner
  * above this screen cannot throw it off.
- * The field has a maxHeight and scrolls itself, so a long draft cannot push
- * its own caret under the keyboard. Hints and examples scroll.
+ * The field scrolls itself, so iOS keeps the caret inside the field's frame;
+ * and the frame fits the room the keyboard leaves (`useComposerFit`): its cap
+ * shrinks to end above the footer, and when even that is too little the
+ * ScrollView scrolls until the whole field shows. A fixed 220pt cap was
+ * taller than that room with the keyboard up, so the line being typed hid
+ * under «فهمها» (UAT round 6, #5). Hints and examples scroll.
  */
 export function CaptureScreen() {
   const { t, p, rtl, script, lang, actions } = useApp();
@@ -145,6 +150,10 @@ export function CaptureScreen() {
   const failed = isFailedStatus(state.status) ? state.status : null;
   const composing = !confirmingDiscard && !clipboard && failed === null
     && state.status !== 'analyzing' && state.status !== 'noCommitment';
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldLine = Math.round(20 * LINE_HEIGHT[script]);
+  const textScale = useTextScale();
+  const fit = useComposerFit(scrollRef, { cap: stacked ? 260 : 220, active: composing, line: fieldLine * textScale });
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
@@ -175,8 +184,12 @@ export function CaptureScreen() {
           }
         />
         <ScrollView
+          ref={scrollRef}
           testID="capture-scroll"
           keyboardShouldPersistTaps="handled"
+          onLayout={fit.onScrollLayout}
+          onScroll={fit.onScroll}
+          scrollEventThrottle={32}
           // The footer owns the bottom inset while composing.
           contentContainerStyle={{ flexGrow: 1, paddingTop: 16, paddingHorizontal: 16, paddingBottom: composing ? 16 : 34, gap: 14 }}
         >
@@ -213,9 +226,9 @@ export function CaptureScreen() {
                 onBack={() => flow.backToComposer()}
               />
           ) : (
-            <View style={{ flex: 1, gap: 16 }}>
+            <View style={{ flex: 1, gap: 16 }} testID="capture-editor" onLayout={fit.onEditorLayout}>
               <Txt role="section" style={{ paddingHorizontal: 4 }}>{t.sayItLikeYouThink}</Txt>
-              <View>
+              <View testID="capture-field" onLayout={fit.onFieldLayout}>
                 <TextInput
                   testID="capture-input"
                   value={state.text}
@@ -224,17 +237,18 @@ export function CaptureScreen() {
                   placeholderTextColor={p.mu}
                   autoFocus
                   multiline
-                  // Capped, and scrolls itself: a long draft keeps its caret
-                  // in view instead of growing under the keyboard.
+                  // Capped to the room above the footer, and scrolls itself:
+                  // a long draft keeps its caret in view instead of growing
+                  // under the footer and the keyboard.
                   scrollEnabled
                   textAlignVertical="top"
                   accessibilityLabel={t.sayItLikeYouThink}
                   style={[
                     {
-                      minHeight: 140, maxHeight: stacked ? 260 : 220, backgroundColor: p.sf, borderWidth: 1,
+                      minHeight: fit.heights.minHeight, maxHeight: fit.heights.maxHeight, backgroundColor: p.sf, borderWidth: 1,
                       borderColor: tooLong ? p.wm : p.lnStrong, borderRadius: 24,
                       paddingTop: 18, paddingHorizontal: 18, paddingBottom: 34,
-                      fontSize: 20, lineHeight: Math.round(20 * LINE_HEIGHT[script]), color: p.tx, fontFamily: family(400, script),
+                      fontSize: 20, lineHeight: fieldLine, color: p.tx, fontFamily: family(400, script),
                       textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
                     },
                   ]}
