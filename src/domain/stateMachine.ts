@@ -487,14 +487,23 @@ export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec 
  * One commitment as it was stored, completed for the fields since added (#185).
  *
  * Applied by `loadDomainState` to every document it reads, which is the single
- * place a stored commitment becomes a domain one. Only `timeSpec` is completed:
- * it is the only object on `Commitment` this product has ever widened after
- * data existed. `priority`'s required fields date from the initial commit, so
- * no stored document has ever been without them — when that stops being true,
- * this is where the next one goes.
+ * place a stored commitment becomes a domain one. `timeSpec` was widened after
+ * data existed (#185), and so were `category` / `categorySource` (#415): a
+ * document from before them has neither, and the phone requires both keys
+ * (category may be `null`, never absent). One such row blanked the owner's
+ * Today screen on 2026-09-29. A missing category is "none", and a category
+ * nobody chose is `inferred`, as `createCommitment` stores it. `priority`'s
+ * required fields date from the initial commit, so no stored document has ever
+ * been without them — when that stops being true, this is where the next one
+ * goes.
  */
 export function normalizeStoredCommitment(commitment: Commitment): Commitment {
-  return { ...commitment, timeSpec: normalizeStoredTimeSpec(commitment.timeSpec) };
+  return {
+    ...commitment,
+    category: commitment.category ?? null,
+    categorySource: commitment.categorySource ?? 'inferred',
+    timeSpec: normalizeStoredTimeSpec(commitment.timeSpec),
+  };
 }
 
 function defaultTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec {

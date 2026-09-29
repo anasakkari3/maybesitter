@@ -181,3 +181,45 @@ test('repairing a read does not invent a time the document never had', async () 
     teardown();
   }
 });
+
+// ── A commitment stored before categories existed (#415) ──────────────────
+//
+// Found on the owner's Redmi (2026-09-29): a commitment from 2026-09-14 had
+// neither `category` nor `categorySource`. `commitmentToMobileDto` copied both
+// through as `undefined`, JSON dropped them, and the phone's `commitmentSchema`
+// (category: enum | null, categorySource: enum — both required) refused the
+// whole Today list: «Something on our side didn't answer». Same class as the
+// timeSpec widening above, and repaired in the same place.
+
+test('a commitment stored before categories existed is served with category null, source inferred', async () => {
+  const teardown = setup();
+  try {
+    await storeLegacyCommitment('legacy-cat');
+    const today = await (await todayGet(todayRequest())).json() as { items: Record<string, unknown>[] };
+    assert.equal(today.items.length, 1);
+    const item = today.items[0]!;
+    assert.ok(Object.prototype.hasOwnProperty.call(item, 'category'), 'today: category is missing');
+    assert.equal(item.category, null);
+    assert.equal(item.categorySource, 'inferred');
+
+    const one = await (await commitmentGet(authed('/api/mobile/commitments/legacy-cat'), {
+      params: Promise.resolve({ id: 'legacy-cat' }),
+    })).json() as Record<string, unknown>;
+    assert.equal(one.category, null, 'single read');
+    assert.equal(one.categorySource, 'inferred', 'single read');
+  } finally {
+    teardown();
+  }
+});
+
+test('a stored category is kept as it was', async () => {
+  const teardown = setup();
+  try {
+    await storeLegacyCommitment('cat-kept', { category: 'health', categorySource: 'user_explicit' });
+    const today = await (await todayGet(todayRequest())).json() as { items: Record<string, unknown>[] };
+    assert.equal(today.items[0]!.category, 'health');
+    assert.equal(today.items[0]!.categorySource, 'user_explicit');
+  } finally {
+    teardown();
+  }
+});
