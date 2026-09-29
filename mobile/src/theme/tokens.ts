@@ -265,3 +265,10 @@ export function barShadow(p: Palette) {
 export function accentGlow(p: Palette, strength = 0.28) {
   return { shadowColor: p.ac, shadowOpacity: strength, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 6 };
 }
+
+/** Chat reference supplied 2026-09-29; the other product surfaces keep their palette. */
+export function captureChatPalette(scheme: Scheme, base: Palette): Palette & { iconBg: string } {
+  if (scheme === 'light') return { ...base, iconBg: base.acs };
+  return { ...base, bg: '#17191B', sf: '#222426', sf2: '#282A2D',
+    acs: '#6D3745', ac: '#FD7B94', acd: '#FF93A8', success: '#2ED889', iconBg: '#352930' };
+}

@@ -24,12 +24,19 @@ const ORDER: readonly SpeechLanguagePref[] = ['ar', 'he', 'en'];
 export function VoiceLanguageChip({
   value,
   onChange,
+  renderControl,
 }: {
   value: SpeechLanguagePref;
   onChange(next: SpeechLanguagePref): void;
+  /** Allows the independently built page to supply the visual control. */
+  renderControl?(control: { label: string; accessibilityLabel: string; onPress(): void }): React.ReactNode;
 }) {
   const { p } = useApp();
   const next = ORDER[(ORDER.indexOf(value) + 1) % ORDER.length]!;
+
+  if (renderControl) {
+    return <>{renderControl({ label: ENDONYM[value], accessibilityLabel: `${ENDONYM[value]} → ${ENDONYM[next]}`, onPress: () => onChange(next) })}</>;
+  }
 
   return (
     <Btn

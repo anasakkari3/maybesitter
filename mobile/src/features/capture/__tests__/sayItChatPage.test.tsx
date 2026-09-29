@@ -1,0 +1,139 @@
+import React from 'react';
+import { describe, expect, it, jest } from '@jest/globals';
+import { Pressable, Text } from 'react-native';
+import { fireEvent, render, screen, within } from '@testing-library/react-native';
+import { ChatMicrophone, SayItChatPage, type SayItChatPageProps } from '../SayItChatPage';
+
+const baseProps: SayItChatPageProps = {
+  colors: {
+    bg: '#17191b', sf: '#222426', sf2: '#282a2d', tx: '#f7f5f5', mu: '#b5b3ba',
+    ln: '#303236', lnStrong: '#424448', ac: '#fd7b94', acd: '#ff93a8', acs: '#6d3745',
+    onAccent: '#17191b', dis: '#343538', disTx: '#b5b3ba', success: '#2ed889',
+  },
+  fonts: { regular: 'Outfit-Regular', semibold: 'Outfit-SemiBold', lineRatio: 1.3 },
+  copy: {
+    title: 'Say it', subtitle: 'Here to help you make it happen', placeholder: 'Just say it…',
+    closeLabel: 'Back', moreLabel: 'More options', pasteLabel: 'Paste',
+    sendLabel: 'Understand it', confirmLabel: 'Add to my schedule',
+  },
+  text: '', canSend: false,
+  onChangeText: () => {}, onSend: () => {}, onClose: () => {}, onMore: () => {}, onPaste: () => {},
+};
+
+describe('SayItChatPage', () => {
+  it('keeps the microphone controller mounted as speech fills the draft and the send control appears', async () => {
+    const mounted = jest.fn();
+    const unmounted = jest.fn();
+    const onVoicePress = jest.fn();
+    const onSend = jest.fn();
+    function MicrophoneProbe({ listening }: { listening: boolean }) {
+      React.useEffect(() => {
+        mounted();
+        return () => { unmounted(); };
+      }, []);
+      return <ChatMicrophone colors={baseProps.colors} listening={listening}
+        label={listening ? 'Stop listening' : 'Start listening'} onPress={onVoicePress} />;
+    }
+    const page = (text: string, listening: boolean) => <SayItChatPage {...baseProps}
+      text={text} canSend={!!text} listening={listening} onSend={onSend}
+      microphone={<MicrophoneProbe listening={listening} />} />;
+
+    const view = await render(page('', false));
+    expect(mounted).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Start listening' })).toBeTruthy();
+
+    // A typed prefix still offers dictation alongside Send.
+    await view.rerender(page('Doctor', false));
+    await fireEvent.press(screen.getByRole('button', { name: 'Start listening' }));
+    expect(onVoicePress).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('capture-analyze')).toBeTruthy();
+
+    // The first partial transcript must not unmount the recognizer or hide Stop.
+    await view.rerender(page('Doctor at nine', true));
+    expect(screen.getByTestId('voice-stop-glyph')).toBeTruthy();
+    expect(screen.queryByTestId('capture-analyze')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Stop listening' }));
+    expect(onVoicePress).toHaveBeenCalledTimes(2);
+
+    // After listening ends, another dictation remains available alongside Send.
+    await view.rerender(page('Doctor at nine', false));
+    expect(screen.getByRole('button', { name: 'Start listening' })).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    expect(onSend).toHaveBeenCalledTimes(1);
+
+    await view.rerender(page('', false));
+    expect(screen.getByRole('button', { name: 'Start listening' })).toBeTruthy();
+    expect(mounted).toHaveBeenCalledTimes(1);
+    expect(unmounted).not.toHaveBeenCalled();
+    await view.unmount();
+    expect(unmounted).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps row selection, editing, and recurring metadata controls independently accessible', async () => {
+    const onToggle = jest.fn();
+    const onEdit = jest.fn();
+    const onWeekly = jest.fn();
+    await render(<SayItChatPage {...baseProps} onRowToggle={onToggle} onRowPress={onEdit}
+      scheduleGroups={[{
+        id: 'tomorrow', title: 'Tomorrow', rows: [{
+          id: 'doctor', title: 'Doctor', subtitle: '9:00 AM – 9:30 AM', selected: true,
+          accessibilityLabel: 'Doctor, selected, tomorrow at 9:00 AM',
+          extra: <Pressable testID="weekly-doctor" accessibilityRole="button"
+            accessibilityLabel="Repeat weekly" onPress={onWeekly}><Text>Repeat weekly</Text></Pressable>,
+        }],
+      }]} />);
+
+    const card = screen.getByTestId('review-card-doctor');
+    const selection = within(card).getByRole('checkbox', { name: 'Doctor, selected, tomorrow at 9:00 AM' });
+    expect(selection.props.accessibilityState.checked).toBe(true);
+    expect(within(card).getByTestId('review-when-doctor').props.children).toBe('9:00 AM – 9:30 AM');
+    expect(within(selection).queryByTestId('weekly-doctor')).toBeNull();
+    await fireEvent.press(within(card).getByRole('button', { name: 'Repeat weekly' }));
+    expect(onWeekly).toHaveBeenCalledTimes(1);
+    expect(onToggle).not.toHaveBeenCalled();
+    await fireEvent.press(within(card).getByRole('button', { name: 'More options: Doctor' }));
+    expect(onEdit).toHaveBeenCalledWith('doctor');
+    expect(onToggle).not.toHaveBeenCalled();
+    await fireEvent.press(selection);
+    expect(onToggle).toHaveBeenCalledWith('doctor');
+  });
+
+  it('prevents typing, pasting, and header actions while input is disabled', async () => {
+    const onChangeText = jest.fn();
+    const onPaste = jest.fn();
+    const onMore = jest.fn();
+    const onClose = jest.fn();
+    const callbacks = { onChangeText, onPaste, onMore, onClose };
+    const view = await render(<SayItChatPage {...baseProps} {...callbacks} inputDisabled />);
+    const input = screen.getByTestId('capture-input');
+    expect(input.props.editable).toBe(false);
+    expect(input.props.accessibilityState.disabled).toBe(true);
+    await fireEvent.changeText(input, 'New text');
+    expect(onChangeText).not.toHaveBeenCalled();
+    for (const id of ['capture-paste', 'chat-more', 'capture-cancel']) {
+      const action = screen.getByTestId(id);
+      expect(action.props.accessibilityState.disabled).toBe(true);
+      await fireEvent.press(action);
+    }
+    expect(onPaste).not.toHaveBeenCalled();
+    expect(onMore).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await view.rerender(<SayItChatPage {...baseProps} {...callbacks} />);
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'New text');
+    await fireEvent.press(screen.getByTestId('capture-paste'));
+    expect(onChangeText).toHaveBeenCalledWith('New text');
+    expect(onPaste).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a disabled send action when voice is unavailable and enables it for a typed draft', async () => {
+    const onSend = jest.fn();
+    const view = await render(<SayItChatPage {...baseProps} onSend={onSend} />);
+    expect(screen.getByTestId('capture-analyze').props.accessibilityState.disabled).toBe(true);
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    expect(onSend).not.toHaveBeenCalled();
+    await view.rerender(<SayItChatPage {...baseProps} text="Doctor at nine" canSend onSend={onSend} />);
+    await fireEvent.press(screen.getByTestId('capture-analyze'));
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});

@@ -303,7 +303,7 @@ describe('the pasted draft is not written down', () => {
     await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
 
     // Closing with text asks first, and throwing it away forgets it.
-    await fireEvent.press(screen.getByText(en.cancel));
+    await fireEvent.press(screen.getByRole('button', { name: en.cancel }));
     await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
@@ -357,7 +357,8 @@ describe('there is only one way in', () => {
     const source = readFileSync(join(__dirname, '..', '..', '..', 'screens', 'CaptureScreen.tsx'), 'utf8');
     // The import sheet's only output is wired to `setText`. If a future edit
     // gave it an `analyze()` or an endpoint of its own, this is what notices.
-    expect(source).toMatch(/onUse=\{\(text\) => \{ flow\.setText\(text\); setClipboard\(null\); \}\}/);
+    expect(source).toMatch(/onUse=\{text => \{ changeText\(text\); setClipboard\(null\); \}\}/);
+    expect(source).toContain('if (reviewing) setReply(text); else flow.setText(text);');
     const sheet = readFileSync(join(__dirname, '..', 'ClipboardImportSheet.tsx'), 'utf8');
     for (const forbidden of ['flow.analyze', 'useCaptureFlow', 'api/endpoints', 'apiRequest', 'proposeCapture', 'confirmCapture']) {
       expect(sheet).not.toContain(forbidden);

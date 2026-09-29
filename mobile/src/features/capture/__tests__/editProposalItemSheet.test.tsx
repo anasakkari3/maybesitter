@@ -331,8 +331,10 @@ describe('what the sheet refuses, while it is still open', () => {
     // Still open, with the change still in it: the user has something to fix.
     expect(screen.queryByTestId('edit-item-sheet')).not.toBeNull();
 
-    // And confirming the rest of the proposal carries no edit at all, so the
-    // server is never given the chance to fail the whole write on it.
+    // The chat keeps confirmation out of reach while the editor is open.
+    expect(screen.queryByTestId('review-confirm')).toBeNull();
+    await fireEvent.press(screen.getByTestId('edit-item-cancel'));
+    // Leaving without saving cannot send the refused edit.
     expect(await confirmAndReadEdits()).toEqual([]);
   });
 
@@ -348,6 +350,8 @@ describe('what the sheet refuses, while it is still open', () => {
 
     await pressSave();
     expect(screen.queryByTestId('edit-item-sheet')).not.toBeNull();
+    expect(screen.queryByTestId('review-confirm')).toBeNull();
+    await fireEvent.press(screen.getByTestId('edit-item-cancel'));
     expect(await confirmAndReadEdits()).toEqual([]);
   });
 });

@@ -112,7 +112,7 @@ describe('the capture footer clears the keyboard', () => {
     // The screen's bottom edge is the window's; the keyboard covers its last
     // 336pt, and the footer has to clear all of them — not 336 − 134.
     await waitFor(() => expect(bottomPadding()).toBe(KEYBOARD_HEIGHT));
-    expect(within(screen.getByTestId('capture-kav')).queryByTestId('capture-footer')).not.toBeNull();
+    expect(within(screen.getByTestId('capture-kav')).queryByTestId('chat-composer')).not.toBeNull();
   });
 
   it('with nothing above the screen, it lifts by the keyboard too', async () => {
