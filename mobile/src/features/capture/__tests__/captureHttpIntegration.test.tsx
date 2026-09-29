@@ -3,6 +3,17 @@
  * Endpoint functions and response bodies are not mocked. Only native device
  * modules (the suite's normal setup), Firebase identity and server storage are
  * replaced. The child host refuses all external network access.
+ *
+ * ── Not in the default mobile run ────────────────────────────────
+ *
+ * This suite needs the repository ROOT's dependencies: `node-fetch` is not a
+ * mobile dependency, and the forked host (`tests/support/mobileCaptureHttpServer.ts`)
+ * loads the real Next.js routes and services. CI's mobile jobs install only
+ * `mobile/`, so the mobile jest config ignores this file (`testPathIgnorePatterns`
+ * in `mobile/package.json`). Run it explicitly, after `npm ci` in the root AND
+ * in `mobile/`:
+ *
+ *     cd mobile && npm run test:capture-http
  */
 import React from 'react';
 import { fork, type ChildProcess } from 'node:child_process';

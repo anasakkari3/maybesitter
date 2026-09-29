@@ -85,11 +85,16 @@
     "eas-build-on-success": "bash scripts/export-sourcemap.sh",
     "verify:release-android": "bash scripts/verify-release-android.sh",
     "check:privacy-manifests": "node scripts/check-privacy-manifests.mjs",
-    "check:android-manifest": "bash scripts/check-android-manifest-merge.sh"
+    "check:android-manifest": "bash scripts/check-android-manifest-merge.sh",
+    "test:capture-http": "jest --testPathIgnorePatterns=/node_modules/ --runTestsByPath src/features/capture/__tests__/captureHttpIntegration.test.tsx"
   },
   "private": true,
   "jest": {
     "preset": "jest-expo",
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/src/features/capture/__tests__/captureHttpIntegration\\.test\\.tsx$"
+    ],
     "transformIgnorePatterns": [
       "/node_modules/(?!(.pnpm|react-native|@react-native|@react-native-community|expo|@expo|@expo-google-fonts|react-navigation|@react-navigation|@sentry/react-native|native-base|standard-navigation|intl-messageformat|@formatjs))",
       "/node_modules/react-native-reanimated/plugin/",
