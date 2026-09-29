@@ -31,6 +31,8 @@ export interface CaptureGateway {
     proposalId: string;
     itemIds: string[];
     edits: Record<string, CaptureItemEdit>;
+    /** The selected items kept as weekly blocks (`confirmPayload`). */
+    weeklyBlockItemIds: string[];
   }): Promise<CaptureConfirmation>;
   /** Soft delete. Used only by undo, only for ids the server said it saved. */
   remove(commitmentId: string): Promise<unknown>;

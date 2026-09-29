@@ -1557,5 +1557,20 @@
   "captureConfirmBadEdit": "One change couldn't be saved. Check the title and time.",
   "clarifyNotUnderstood": "Didn't catch that. Pick an option or try again.",
   "clarifySkip": "Skip",
-  "readinessNoCheckIn": "No check-in yet. Pick a number above."
+  "readinessNoCheckIn": "No check-in yet. Pick a number above.",
+  "wbDays": [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
+  ],
+  "wbEvery": "every {days}",
+  "wbEveryDay": "every day",
+  "wbDayRange": "{from} to {to}",
+  "wbListSep": ", ",
+  "wbAnd": " and ",
+  "wbA11yTime": "from {start} to {end}"
 }

@@ -83,6 +83,8 @@ interface CaptureContextValue {
   selectAll(): void;
   deselectAll(): void;
   editItem(itemId: string, edit: CaptureItemEdit): void;
+  /** «كل أسبوع» or «مرة وحدة بس» on an item the server offered a weekly block for. */
+  setWeekly(itemId: string, weekly: boolean): void;
   /**
    * Answers the one question on one item (UC-2.5, #165).
    *
@@ -229,6 +231,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     }
   }, [clarifyCapture, state.proposal]);
   const editItem = useCallback((itemId: string, edit: CaptureItemEdit) => dispatch({ type: 'editItem', itemId, edit }), []);
+  const setWeekly = useCallback((itemId: string, weekly: boolean) => dispatch({ type: 'setWeekly', itemId, weekly }), []);
 
   const confirm = useCallback(async () => {
     if (confirmPayload(state).itemIds.length === 0) return;
@@ -238,10 +241,12 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       // afterwards: what the user saw when they pressed confirm is what gets
       // written, or nothing is.
       {
-        confirm: ({ proposalId, itemIds, edits }) => confirmCapture.mutateAsync({
+        confirm: ({ proposalId, itemIds, edits, weeklyBlockItemIds }) => confirmCapture.mutateAsync({
           proposalId,
           itemIds,
           edits: toServerEdits(edits, timezone),
+          // «كل أسبوع» — only these become a block; the rest confirm once.
+          weeklyBlockItemIds,
         }),
       },
       state,
@@ -290,8 +295,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<CaptureContextValue>(() => ({
-    state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, clarify, confirm, undo, backToComposer, close,
-  }), [state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, clarify, confirm, undo, backToComposer, close]);
+    state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close,
+  }), [state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

@@ -1560,5 +1560,20 @@
   "captureConfirmBadEdit": "שינוי אחד לא נשמר. בדוק את הכותרת והשעה.",
   "clarifyNotUnderstood": "לא הבנתי. בחר אפשרות או נסה שוב.",
   "clarifySkip": "לדלג",
-  "readinessNoCheckIn": "עוד לא דיווחת על אנרגיה. בחר מספר למעלה."
+  "readinessNoCheckIn": "עוד לא דיווחת על אנרגיה. בחר מספר למעלה.",
+  "wbDays": [
+    "ראשון",
+    "שני",
+    "שלישי",
+    "רביעי",
+    "חמישי",
+    "שישי",
+    "שבת"
+  ],
+  "wbEvery": "כל {days}",
+  "wbEveryDay": "כל יום",
+  "wbDayRange": "מ{from} עד {to}",
+  "wbListSep": ", ",
+  "wbAnd": " ו",
+  "wbA11yTime": "מ-{start} עד {end}"
 }

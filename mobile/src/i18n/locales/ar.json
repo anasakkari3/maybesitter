@@ -1557,5 +1557,20 @@
   "captureConfirmBadEdit": "في تعديل ما انحفظ. شوف العنوان والوقت.",
   "clarifyNotUnderstood": "ما فهمتها. اختار من الخيارات أو جرّب كمان مرّة.",
   "clarifySkip": "تخطّاها",
-  "readinessNoCheckIn": "لسّا ما سجّلت طاقتك. اختار رقم من فوق."
+  "readinessNoCheckIn": "لسّا ما سجّلت طاقتك. اختار رقم من فوق.",
+  "wbDays": [
+    "أحد",
+    "اثنين",
+    "ثلاثاء",
+    "أربعاء",
+    "خميس",
+    "جمعة",
+    "سبت"
+  ],
+  "wbEvery": "كل {days}",
+  "wbEveryDay": "كل يوم",
+  "wbDayRange": "من {from} لل{to}",
+  "wbListSep": "، ",
+  "wbAnd": " و",
+  "wbA11yTime": "من {start} لـ {end}"
 }
