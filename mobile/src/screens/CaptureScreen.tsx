@@ -27,7 +27,7 @@ import { TaskHeader } from '../ui/taskHeader';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
 import { AvoidKeyboard } from '../ui/keyboard';
-import { useComposerFit } from '../features/capture/composerFit';
+import { composerLayout, useComposerFit } from '../features/capture/composerFit';
 
 /**
  * The composer (UC-2.R2, #172).
@@ -78,11 +78,21 @@ import { useComposerFit } from '../features/capture/composerFit';
  * ScrollView scrolls until the whole field shows. A fixed 220pt cap was
  * taller than that room with the keyboard up, so the line being typed hid
  * under «فهمها» (UAT round 6, #5). Hints and examples scroll.
+ *
+ * ── At the accessibility sizes only the controls are fixed ───────
+ *
+ * From AX1 on, a fixed header and a stacked footer left the field no room at
+ * all with the keyboard up — 0pt from AX3, «فهمها» behind the keyboard at AX4
+ * (UAT round 6, D-g). There the header scrolls with the content and the
+ * footer is one row, the mic and «فهمها»; the language chip moves beside
+ * Paste (`composerLayout`). The default and large sizes are unchanged.
  */
 export function CaptureScreen() {
   const { t, p, rtl, script, lang, actions } = useApp();
   const flow = useCaptureFlow();
-  const stacked = useLayoutMode() !== 'normal';
+  const mode = useLayoutMode();
+  const stacked = mode !== 'normal';
+  const shape = composerLayout(mode);
   const insets = useSafeAreaInsets();
   const keyboardShown = useKeyboardShown();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -155,34 +165,46 @@ export function CaptureScreen() {
   const textScale = useTextScale();
   const fit = useComposerFit(scrollRef, { cap: stacked ? 260 : 220, active: composing, line: fieldLine * textScale });
 
+  const header = (
+    <TaskHeader
+      pill={t.cancel}
+      onPill={requestClose}
+      title={t.captureTitle}
+      end={
+        // The AI chip is display only. Analyze works either way — the
+        // server picks rules and makes no model call — so this says what
+        // will happen, it does not gate anything (#161). Round 2 puts it
+        // in the header's end slot, where a status belongs.
+        !flow.aiGranted ? (
+          <Btn
+            testID="capture-ai-off"
+            label={`${t.captureAiOff}. ${t.captureAiOffHint}`}
+            onPress={() => actions.go('trust')}
+            hitSlop={8}
+            style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}
+          >
+            <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt>
+          </Btn>
+        ) : null
+      }
+    />
+  );
+  // A language chooser beside a mic this device cannot offer is a setting
+  // for nothing.
+  const languageChip = voiceStatus !== 'unavailable' ? (
+    <VoiceLanguageChip
+      value={speechLang}
+      onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
+    />
+  ) : null;
+
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       {/* Renders nothing; it gives the recogniser's hooks a component to live
           in so the service can stay a plain object (UC-2.3, #163). */}
       <SpeechEventBridge />
       <AvoidKeyboard testID="capture-kav" style={{ flex: 1 }}>
-        <TaskHeader
-          pill={t.cancel}
-          onPill={requestClose}
-          title={t.captureTitle}
-          end={
-            // The AI chip is display only. Analyze works either way — the
-            // server picks rules and makes no model call — so this says what
-            // will happen, it does not gate anything (#161). Round 2 puts it
-            // in the header's end slot, where a status belongs.
-            !flow.aiGranted ? (
-              <Btn
-                testID="capture-ai-off"
-                label={`${t.captureAiOff}. ${t.captureAiOffHint}`}
-                onPress={() => actions.go('trust')}
-                hitSlop={8}
-                style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}
-              >
-                <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt>
-              </Btn>
-            ) : null
-          }
-        />
+        {shape.headerScrolls ? null : header}
         <ScrollView
           ref={scrollRef}
           testID="capture-scroll"
@@ -193,6 +215,11 @@ export function CaptureScreen() {
           // The footer owns the bottom inset while composing.
           contentContainerStyle={{ flexGrow: 1, paddingTop: 16, paddingHorizontal: 16, paddingBottom: composing ? 16 : 34, gap: 14 }}
         >
+          {/* At the accessibility sizes the header is content: the first
+              thing read, and scrolled away to make room for the field. The
+              negative margins undo the content's padding, which the header
+              brings its own of. */}
+          {shape.headerScrolls ? <View style={{ marginHorizontal: -16, marginTop: -16 }}>{header}</View> : null}
           {confirmingDiscard ? (
             <View style={{ flex: 1, justifyContent: 'center', gap: 14 }} testID="capture-discard">
               <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt>
@@ -274,6 +301,12 @@ export function CaptureScreen() {
                 <Txt role="supporting" weight={600}>{t.capturePaste}</Txt>
               </Btn>
 
+              {/* Out of the footer at the accessibility sizes, so the footer
+                  stays one row above the keyboard. */}
+              {shape.languageInFooter || !languageChip ? null : (
+                <View style={{ alignItems: 'flex-start' }}>{languageChip}</View>
+              )}
+
               {/* One hint line and three examples. The share hint, two more
                   chips and a chip repeating the placeholder used to stack up
                   here and push the field under the keyboard. */}
@@ -313,7 +346,7 @@ export function CaptureScreen() {
             }}
           >
             <VoiceNote status={voiceStatus} />
-            <View style={stacked
+            <View testID="capture-footer-row" style={shape.footer === 'stacked'
               ? { gap: 10, alignItems: 'stretch' }
               : { flexDirection: 'row', alignItems: 'center', gap: 10 }}
             >
@@ -329,14 +362,7 @@ export function CaptureScreen() {
                   onPartial={onDictated}
                   onFinal={onDictated}
                 />
-                {/* A language chooser beside a mic this device cannot offer is a
-                    setting for nothing. */}
-                {voiceStatus !== 'unavailable' ? (
-                  <VoiceLanguageChip
-                    value={speechLang}
-                    onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
-                  />
-                ) : null}
+                {shape.languageInFooter ? languageChip : null}
               </View>
               <Pill
                 testID="capture-analyze"
@@ -347,7 +373,7 @@ export function CaptureScreen() {
                 disabled={!canAnalyze}
                 size={17}
                 pad={14}
-                style={stacked ? undefined : { flex: 1 }}
+                style={shape.footer === 'stacked' ? undefined : { flex: 1 }}
               />
             </View>
           </View>

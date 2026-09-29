@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type RefObject } from 'react';
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, ScrollView } from 'react-native';
+import type { LayoutMode } from '../../theme/textScale';
 
 /**
  * The composer field fits the room the keyboard leaves (UAT round 6, #5).
@@ -26,6 +27,42 @@ import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, Scroll
  *
  * No animation: the lift is instant (UAT round 5, N17), and so is this.
  */
+
+/**
+ * Where the composer's parts sit at each layout mode (UAT round 6, D-g).
+ *
+ * The fit below can only share out the room the ScrollView gets. At the
+ * accessibility text sizes the header (~248pt: the pill, the name and the AI
+ * chip, stacked) and the stacked footer (~246pt: mic and language chip on one
+ * line, «فهمها» under them) were fixed blocks, and with the keyboard up and
+ * the verify-email banner above they took all 405pt there was: the ScrollView
+ * was 69pt at AX1, 38 at AX2 and 0 from AX3 on, and «فهمها» went behind the
+ * keyboard at AX4 and AX5.
+ *
+ * So from the first accessibility size — the boundary where the task header
+ * stacks — nothing but the controls that act on the text is fixed:
+ *
+ * - the header is scroll content, so the ScrollView owns everything between
+ *   the banner and the footer, and `revealOffset` scrolls the header away to
+ *   show the field (scrolling back up brings Cancel back);
+ * - the footer is one row, the mic and «فهمها» — the default size's row — and
+ *   the language chip, which only says which language the mic listens for,
+ *   moves into the scroll content beside Paste.
+ *
+ * At AX5 that footer is ~133pt, leaving the ScrollView ~272 of the 405: room
+ * for the field's two-line floor (~252) and its margin.
+ *
+ * Below the accessibility sizes nothing changes: `normal` is the row the
+ * design draws, and `large` keeps the stacked footer that fits there.
+ */
+export function composerLayout(mode: LayoutMode): {
+  headerScrolls: boolean;
+  footer: 'row' | 'stacked';
+  languageInFooter: boolean;
+} {
+  if (mode === 'xl') return { headerScrolls: true, footer: 'row', languageInFooter: false };
+  return { headerScrolls: false, footer: mode === 'large' ? 'stacked' : 'row', languageInFooter: true };
+}
 
 /** The field's resting minimum, with the keyboard down. */
 export const FIELD_MIN_HEIGHT = 140;

@@ -256,6 +256,93 @@ describe('the line being typed stays above the footer and keyboard (#5)', () => 
   });
 });
 
+/**
+ * UAT round 6, D-g (shots 1049a–d, 1050a–e on 73b3e4dc). With the software
+ * keyboard up, the header and the stacked footer were fixed blocks: at
+ * accessibility-medium the field's viewport was 69pt, at accessibility-large
+ * 38pt, and from accessibility-extra-large on it was 0 — the field left the
+ * screen and the AX tree, and at AX4/AX5 «فهمها» went behind the keyboard.
+ *
+ * From the first accessibility size (the same boundary where the task header
+ * stacks) the header is part of the scroll content, so the ScrollView owns
+ * everything between the banner and the footer and scrolls the header away
+ * to show the field; and the footer is one row — the mic and «فهمها» — with
+ * the language chip moved into the scroll content beside Paste.
+ */
+describe('at the accessibility text sizes the field and «فهمها» both fit above the keyboard (D-g)', () => {
+  const layout = (height: number, y = 0) => ({ nativeEvent: { layout: { x: 0, y, width: 358, height } } });
+  const atScale = (fontScale: number) =>
+    useWindowDimensions.mockReturnValue({ width: 402, height: 874, scale: 3, fontScale });
+
+  it.each([1, 1.12, 1.35])('at fontScale %s the header and footer are where they were', async (fontScale) => {
+    atScale(fontScale);
+    await showComposer();
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('task-header')).toBeNull();
+    expect(screen.getByTestId('task-header')).toBeTruthy();
+    const footer = within(screen.getByTestId('capture-footer'));
+    expect(footer.queryByTestId('voice-language')).not.toBeNull();
+    expect(footer.queryByTestId('voice-button')).not.toBeNull();
+    expect(footer.queryByTestId('capture-analyze')).not.toBeNull();
+  });
+
+  it.each([1.64, 1.94, 2.35, 2.76, 3.12])('at fontScale %s the header scrolls with the content', async (fontScale) => {
+    atScale(fontScale);
+    await showComposer();
+    const scroll = within(screen.getByTestId('capture-scroll'));
+    expect(scroll.queryByTestId('task-header')).not.toBeNull();
+    // Cancel is still there, and still first in reading order.
+    expect(scroll.getByLabelText('Cancel')).toBeTruthy();
+    expect(screen.getAllByTestId('task-header')).toHaveLength(1);
+  });
+
+  it.each([1.64, 3.12])('at fontScale %s the footer is one row: the mic and «فهمها», the language chip scrolls', async (fontScale) => {
+    atScale(fontScale);
+    await showComposer();
+    const footer = within(screen.getByTestId('capture-footer'));
+    expect(footer.queryByTestId('voice-button')).not.toBeNull();
+    expect(footer.queryByTestId('capture-analyze')).not.toBeNull();
+    expect(footer.queryByTestId('voice-language')).toBeNull();
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('voice-language')).not.toBeNull();
+    const row = screen.getByTestId('capture-footer-row');
+    expect(flat(row.props.style).flexDirection).toBe('row');
+    expect(flat(screen.getByTestId('capture-analyze').props.style).flex).toBe(1);
+  });
+
+  it('the language chip still switches the language from the scroll content', async () => {
+    atScale(3.12);
+    await showComposer();
+    const chip = screen.getByTestId('voice-language');
+    const before = chip.props.accessibilityLabel as string;
+    await fireEvent.press(chip);
+    await waitFor(() => expect(screen.getByTestId('voice-language').props.accessibilityLabel).not.toBe(before));
+  });
+
+  it('with the header above it in the content, the ScrollView scrolls it away to show the whole field', async () => {
+    // AX5 on the UAT phone with the banner: 405pt above the keyboard, a
+    // one-row footer of ~133, so a 272pt viewport. The header, the label and
+    // the paddings put the field ~340pt down the content.
+    atScale(3.12);
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    await showComposer();
+    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(272));
+    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(900, 230));
+    const maxHeight = flat(screen.getByTestId('capture-input').props.style).maxHeight as number;
+    // Two lines of English at AX5 (28pt × 3.12) plus the padding.
+    expect(maxHeight).toBe(Math.round(52 + 2 * 28 * 3.12));
+    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(maxHeight, 110));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 340 + maxHeight + 8 - 272, animated: false });
+  });
+
+  it('the discard question keeps the header (and Cancel) in the scroll content', async () => {
+    atScale(2.35);
+    await showComposer();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('task-header')).not.toBeNull();
+  });
+});
+
 describe('less copy above the fold', () => {
   it('shows three examples, not five, and no share hint', async () => {
     await showComposer();
