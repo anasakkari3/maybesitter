@@ -417,13 +417,17 @@ test('a task cleared to no time at confirm echoes no time — the echo is what w
     assert.equal(commitment.timeSpec.remindAt ?? null, null);
     assert.deepEqual(confirmed.persisted.map((persisted) => persisted.resolvedTime), [null]);
   });
-  // A time edited to another one echoes the new one.
+  // A time edited to another one echoes the new one. The mobile confirm checks
+  // an edited time against the server's clock, not the proposal's reference
+  // time, so a fixed instant here turned red the moment the real clock passed
+  // it (2026-09-29 16:00Z). Two days ahead, on the hour, stays in the future.
+  const later = new Date(Math.ceil((Date.now() + 2 * 86_400_000) / 3_600_000) * 3_600_000).toISOString();
   await withMemoryStorage(async () => {
     const text = 'لازم أشتري دوا من الصيدلية بكرا الساعة 5 المسا';
     const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: MON_10.toISOString() }, { participantId: uid });
     const item = proposal.items[0]!;
-    const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: '2026-09-29T16:00:00.000Z' }] }, { participantId: uid });
-    assert.deepEqual(confirmed.persisted.map((persisted) => persisted.resolvedTime), ['2026-09-29T16:00:00.000Z']);
+    const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], edits: [{ itemId: item.itemId, resolvedTime: later }] }, { participantId: uid });
+    assert.deepEqual(confirmed.persisted.map((persisted) => persisted.resolvedTime), [later]);
   });
 });
 

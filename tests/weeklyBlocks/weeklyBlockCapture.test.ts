@@ -161,7 +161,9 @@ test('a title edit renames the block; a time edit on a weekly item is refused', 
   const itemId = items[0]!.itemId;
   const timed = await confirmMobileCapture({
     proposalId: proposal.proposalId, itemIds: [itemId], weeklyBlockItemIds: [itemId],
-    edits: [{ itemId, resolvedTime: '2026-10-03T08:00:00.000Z' }],
+    // Future on the server's clock, so the refusal is the weekly rule's and
+    // not the past-time guard's once a fixed date has gone by.
+    edits: [{ itemId, resolvedTime: new Date(Math.ceil((Date.now() + 2 * 86_400_000) / 3_600_000) * 3_600_000).toISOString() }],
   }, { participantId: uid });
   assert.equal(timed.success, false);
   assert.equal(timed.failureCode, 'invalid_edit');
