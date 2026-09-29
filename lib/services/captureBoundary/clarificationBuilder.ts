@@ -51,6 +51,18 @@ const DAYPART_OPTIONS: readonly { optionId: string; labelKey: string; localTime:
   { optionId: 'evening', labelKey: 'evening', localTime: '19:00' },
 ];
 
+/**
+ * The hour a typed part of the day means as an answer: the one its button
+ * uses (FY1 re-review). The lexicon reads «المسا» as 18:00 while the «المسا»
+ * button is 19:00, so at 18:08 a typed «بالمسا» rolled to tomorrow while the
+ * button still offered tonight. Parts with no button keep the lexicon's hour.
+ */
+const LEXICON_HOUR_TO_OPTION: Readonly<Record<number, string>> = { 9: 'morning', 14: 'afternoon', 18: 'evening' };
+export function answeredDayPartTime(lexiconHour: number): string {
+  const option = DAYPART_OPTIONS.find((candidate) => candidate.optionId === LEXICON_HOUR_TO_OPTION[lexiconHour]);
+  return option ? option.localTime : `${String(lexiconHour).padStart(2, '0')}:00`;
+}
+
 /** `YYYY-MM-DD` for a day offset from now, on the user's own clock. */
 function localDay(context: ClarificationContext, offsetDays: number): string | null {
   const shifted = new Date(context.now.getTime() + offsetDays * 86_400_000);
@@ -89,14 +101,25 @@ export function dayForAnswer(
   preferredDate: string | null,
   context: ClarificationContext,
 ): string | null {
-  if (preferredDate && isFuture(preferredDate, time, context)) return preferredDate;
+  // A day the item names is the day the answer is about (UAT round 6, batch
+  // 3): «المسا» typed at 23:29 to «أي ساعة يوم الاثنين؟» was put on Tuesday.
+  // When that hour on it has gone there is no answer here, never another day.
+  if (preferredDate) return isFuture(preferredDate, time, context) ? preferredDate : null;
   const day = dayFor(time, context);
   return day && isFuture(day, time, context) ? day : null;
 }
 
-/** The local hour a resolved instant fell on, or null. */
-function resolvedLocalTime(result: ExtractionResult, context: ClarificationContext): string | null {
+/**
+ * The local hour a resolved instant fell on, or null.
+ *
+ * Exported for the typed answer's re-read (UAT round 6, FIX-R6-TYPEDDAY): a
+ * reading that carries only an instant still has an hour on the person's
+ * clock, and the answer to "what time on Sunday?" is that hour on Sunday.
+ */
+export function resolvedLocalTime(result: ExtractionResult, context: ClarificationContext): string | null {
   if (result.localTimeSpec?.time) return result.localTimeSpec.time;
+  // An all-day reading's `dueAt` is its midnight, not an hour anybody said (FX3).
+  if (result.allDay) return null;
   const instant = result.remindAt ?? result.dueAt;
   if (!instant) return null;
   return localTimeSpecFor(new Date(Date.parse(instant)), context.timezone)?.time ?? null;
@@ -155,13 +178,19 @@ export function buildClarification(
   if (result.timeEvidence === 'clock_marker' && localTime) {
     const hour = Number(localTime.slice(0, 2));
     if (Number.isFinite(hour) && hour >= 1 && hour <= 11) {
-      const morning = `${String(hour).padStart(2, '0')}:${localTime.slice(3, 5)}`;
-      const evening = `${String(hour + 12).padStart(2, '0')}:${localTime.slice(3, 5)}`;
+      const minutes = localTime.slice(3, 5);
+      const morning = `${String(hour).padStart(2, '0')}:${minutes}`;
+      const evening = `${String(hour + 12).padStart(2, '0')}:${minutes}`;
+      // The time as the person said it, with its minutes (UAT r6, shots
+      // 823/824): «سبعة إلا ربع» was asked «أي 6 قصدت؟» with «6 الصبح / 6
+      // المسا», an hour nobody said alone. On the hour it stays the plain
+      // hour. The phone substitutes it verbatim; Western digits, as before.
+      const said = minutes === '00' ? String(hour) : `${hour}:${minutes}`;
       const day = localDate ?? dayFor(evening, context);
       const options = day
         ? [
-          option('am', 'amPmOption', { hour: String(hour), period: 'am' }, { localTime: morning, localDate: day }),
-          option('pm', 'amPmOption', { hour: String(hour), period: 'pm' }, { localTime: evening, localDate: day }),
+          option('am', 'amPmOption', { hour: said, period: 'am' }, { localTime: morning, localDate: day }),
+          option('pm', 'amPmOption', { hour: said, period: 'pm' }, { localTime: evening, localDate: day }),
         ].filter((candidate) => isFuture(day, candidate.value.localTime!, context))
         : [];
       // Both in the past means the day itself is wrong, and am/pm is the wrong
@@ -171,7 +200,7 @@ export function buildClarification(
           questionId: randomUUID(),
           field: 'time_period',
           questionKey: 'ask_am_pm',
-          params: { hour: String(hour), title },
+          params: { hour: said, title },
           options,
           allowFreeText: false,
         };
@@ -206,10 +235,19 @@ export function buildClarification(
 
   // 4. A day, but no hour. The mildest case: the item is real, the question is
   //    only when.
+  //
+  //    The question names the item's day («أي ساعة يوم الاثنين، 28 سبتمبر؟»),
+  //    so every part it offers is on that day, and a part of it that has gone
+  //    is not offered at all (UAT round 6, batch 3). It used to be offered on
+  //    tomorrow under the same heading: «المسا» tapped at 23:29 saved «بكرا ·
+  //    19:00» with nothing said. When every part of the day has gone, «بدون
+  //    وقت محدد» and the typed box are what is left — a day the person types
+  //    («بكرا المسا») is theirs to choose. Only an item with no day at all has
+  //    its parts on the next day they are ahead.
   if (!localTime) {
     const options = DAYPART_OPTIONS
       .map(({ optionId, labelKey, localTime: time }) => {
-        const day = localDate && isFuture(localDate, time, context) ? localDate : dayFor(time, context);
+        const day = localDate ?? dayFor(time, context);
         return day && isFuture(day, time, context)
           ? option(optionId, labelKey, {}, { localTime: time, localDate: day })
           : null;

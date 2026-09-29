@@ -1,16 +1,16 @@
 import React from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
-import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, usePatchCommitment } from '../api/queries';
+import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, usePatchCommitment, useSavedWeek } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { NotFoundError } from '../api/errors';
-import { toViewModel, type CommitmentView } from '../features/commitments/model';
+import { clockOf, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { impLabel } from '../state/derive';
 import type { CommitmentCategory } from '../features/commitments/categoryFilter';
 import { activityKindLabel } from '../features/activity/ActivityScreen';
@@ -18,9 +18,13 @@ import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
+import { PlaceReminderSection } from '../features/places/PlaceReminderSection';
+import { dueApart, placeView, savedPlacements } from '../features/plan/savedPlacement';
+import { commitmentPrepTarget } from '../features/meetings/prepTargets';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
+import { useReducedMotion } from '../ui/motion';
 
 /**
  * One commitment, from the account (UC-2.R3 #173; Round 2, Phase E).
@@ -65,10 +69,35 @@ export function DetailsScreen() {
   // The phone's busy time and Google's (CL6a review I1).
   const busy = useConflictBusyBlocks(useBusyBlocks());
   const activity = useActivity();
+  // The place form opens in place, below everything else and above the pinned
+  // actions; it is scrolled up into view when it opens (FX1).
+  const scroll = React.useRef<ScrollView>(null);
+  const placeY = React.useRef<number | null>(null);
+  const reduced = useReducedMotion();
+  const revealPlaceForm = React.useCallback(() => {
+    if (placeY.current === null) return;
+    scroll.current?.scrollTo({ y: Math.max(0, placeY.current - 8), animated: !reduced });
+  }, [reduced]);
 
-  const view = query.data ? toViewModel(query.data, new Date().toISOString()) : null;
+  // Where a saved week day puts it (FX1): said here as on Today and the Calendar.
+  const savedWeek = useSavedWeek();
+  const view = query.data ? placeView(toViewModel(query.data, new Date().toISOString()), savedPlacements(savedWeek.data)) : null;
+  const planned = view?.plannedAt && (dueApart(view) || !view.shownAt) ? view.plannedAt : null;
   const gone = query.error instanceof NotFoundError;
+  // Once the commitment is drawn, flash the scroll indicator (UAT round 2,
+  // N8): the pinned actions take a quarter of the screen and the place
+  // reminder, the category and the history sit below the fold with nothing
+  // saying so. Once per screen.
+  const drawn = view !== null;
+  const flashed = React.useRef(false);
+  React.useEffect(() => {
+    if (!drawn || flashed.current) return;
+    flashed.current = true;
+    scroll.current?.flashScrollIndicators();
+  }, [drawn]);
   const open = view?.status === 'active';
+  // «حضّرني» (CL5a) on a meeting or an appointment that has not started.
+  const prepTarget = query.data && open ? commitmentPrepTarget(query.data, new Date()) : null;
 
   const preferences = useCategoryPreferences();
   const patch = usePatchCommitment();
@@ -94,7 +123,7 @@ export function DetailsScreen() {
   const category = query.data?.category ?? null;
 
   const controls = (view && !gone ? (
-        <View style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
+        <View testID="details-actions" style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
           {open ? (
             <>
               <ActionRow>
@@ -123,7 +152,20 @@ export function DetailsScreen() {
         </View>
       )}
     >
-      <ScreenScroll grow bottom={20} gap={16} topGap={14}>
+      {/* The place-name field (FY3 review I1): Details is not lifted by an
+          AvoidKeyboard, so the scroller's own keyboard inset is the one that
+          applies, and a tap on «احفظ التذكير» saves on the first press
+          instead of only closing the keyboard. */}
+      <ScreenScroll
+        testID="details-scroll"
+        grow
+        bottom={20}
+        gap={16}
+        topGap={14}
+        scrollRef={scroll}
+        automaticallyAdjustKeyboardInsets
+        keyboardShouldPersistTaps="handled"
+      >
 
         {gone ? (
           <EmptyState testID="details-gone" title={t.detailsNotFoundTitle} body={t.detailsNotFoundBody} top={60} />
@@ -143,11 +185,18 @@ export function DetailsScreen() {
                 ) : null}
 
                 <Card pad={0} style={{ paddingVertical: 4, paddingHorizontal: 18 }}>
+                  {/* Where the saved week put it, first; its own day and time,
+                      which Edit changes, below it (FX1). */}
+                  {planned ? (
+                    <Row label={t.plannedRowLabel} testID="details-planned">
+                      {`${formatRelativeDay(new Date(planned), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(planned), { locale: lang, timeZone: timezone }))}`}
+                    </Row>
+                  ) : null}
                   <Row label={t.dayLabel} testID="details-day">
                     {view.shownAt ? formatRelativeDay(new Date(view.shownAt), { locale: lang, timeZone: timezone }) : t.noTimeYet}
                   </Row>
                   <Row label={t.timeLabel} testID="details-time" latin>
-                    {view.shownAt ? ltr(formatTime(new Date(view.shownAt), { locale: lang, timeZone: timezone })) : t.noTimeYet}
+                    {clockOf(view, { locale: lang, timeZone: timezone }) ?? t.noTimeYet}
                   </Row>
                   {view.postponedUntil ? <Row label={t.postponeReturn} testID="details-postponed-until">
                     {`${formatRelativeDay(new Date(view.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(view.postponedUntil), { locale: lang, timeZone: timezone }))}`}
@@ -164,7 +213,23 @@ export function DetailsScreen() {
                 </Card>
 
                 {/* What else is happening then (UC-3.2, #186), as a note. */}
-                <BusyConflictChip blocks={view.shownAt ? busyAt(view.shownAt, busy) : []} testID="details-busy" />
+                <BusyConflictChip blocks={view.shownAt && !view.allDay ? busyAt(view.shownAt, busy) : []} testID="details-busy" />
+
+                {prepTarget ? (
+                  <View style={{ alignItems: 'flex-start' }}>
+                    <Pill testID="details-prepare" label={t.xPrepare} kind="outline" onPress={() => actions.openMeetingPrep(prepTarget)} radius={20} pad={12} size={15} />
+                  </View>
+                ) : null}
+
+                {/* "Remind me when I arrive / leave" (closure CL4). */}
+                {query.data ? (
+                  <PlaceReminderSection
+                    commitment={query.data}
+                    canEdit={safeCommitmentPatchEnabled() && open}
+                    onLayout={(event) => { placeY.current = event.nativeEvent.layout.y; }}
+                    onFormOpen={revealPlaceForm}
+                  />
+                ) : null}
 
                 {!open ? <Txt size={13} color={p.mu} testID="details-closed-note">{t.detailsClosedNote}</Txt> : null}
 

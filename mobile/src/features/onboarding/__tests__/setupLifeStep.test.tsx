@@ -73,7 +73,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   jest.restoreAllMocks();
   await AsyncStorage.clear();
 });

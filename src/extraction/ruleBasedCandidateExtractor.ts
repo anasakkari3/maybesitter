@@ -1,4 +1,5 @@
 import type { MemoryCandidate, CandidateModality, CandidatePrecision } from '../domain/memory/memoryTypes.ts';
+import { relativeDaySource } from './timeLexicon.ts';
 
 interface RuleBasedCandidateContext {
   now: Date;
@@ -103,13 +104,15 @@ function confidenceForModality(modality: CandidateModality): number {
 }
 
 const TIME_PATTERNS: { pattern: RegExp; precision: CandidatePrecision }[] = [
-  { pattern: mk(['بكرا', 'بكره', 'tomorrow', 'מחר']), precision: 'day' },
+  // The relative days as the capture parser reads them — whole words, so
+  // «الغداء» (lunch) and «اليومي» (daily) name no day (CL1 review m-1).
+  { pattern: new RegExp(relativeDaySource(1), 'iu'), precision: 'day' },
   { pattern: mk(['الأسبوع\\s+الجاي', 'next\\s+week', 'שבוע\\s+הבא']), precision: 'day' },
   { pattern: mk(['الساعة\\s+[\\d٠-٩۰-۹]{1,2}', 'at\\s+[\\d٠-٩۰-۹]{1,2}', 'בשעה\\s+[\\d٠-٩۰-۹]{1,2}']), precision: 'exact' },
   { pattern: mk(['الخميس', 'Thursday', 'יום\\s+חמישי']), precision: 'day' },
   { pattern: mk(['الجمعة', 'Friday', 'יום\\s+שישי']), precision: 'day' },
-  { pattern: mk(['بعد\\s+بكرا', 'day\\s+after\\s+tomorrow', 'מחרתיים']), precision: 'day' },
-  { pattern: mk(['اليوم', 'today', 'היום']), precision: 'day' },
+  { pattern: new RegExp(relativeDaySource(2), 'iu'), precision: 'day' },
+  { pattern: new RegExp(relativeDaySource(0), 'iu'), precision: 'day' },
 ];
 
 function extractTemporal(text: string): MemoryCandidate['temporal'] | undefined {

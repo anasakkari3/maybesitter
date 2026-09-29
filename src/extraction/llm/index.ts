@@ -26,6 +26,7 @@ import { createGeminiProvider, isRetryable } from './geminiProvider';
 import {
   LLMUnavailableError,
   NONE_PROVIDER,
+  RETRY_BACKOFF_MAX_MS,
   structuredFromJson,
   type LlmProvider,
   type LlmProviderName,
@@ -40,7 +41,9 @@ export { toVertexSchema } from './vertexSchema';
 
 export const DEFAULT_MAX_RETRIES = 1;
 const RETRY_BASE_MS = 250;
-const RETRY_JITTER_MS = 500;
+// Base + jitter never reaches `RETRY_BACKOFF_MAX_MS`: the capture boundary's
+// time budget counts the back-off at that ceiling (CL1 round 4, N3).
+const RETRY_JITTER_MS = RETRY_BACKOFF_MAX_MS - RETRY_BASE_MS;
 
 export function configuredProviderName(env: NodeJS.ProcessEnv = process.env): LlmProviderName {
   const raw = (env.MAYBESITTER_LLM_PROVIDER ?? '').trim();
@@ -66,14 +69,14 @@ export function withSingleRetry(
   const delayMs = options.delayMs ?? (() => RETRY_BASE_MS + Math.floor(Math.random() * RETRY_JITTER_MS));
 
   /** One attempt loop, whichever call shape is being retried. */
-  async function attempt<T>(run: () => Promise<T>): Promise<T> {
+  async function attempt<T>(run: () => Promise<T>, allowed = retries): Promise<T> {
     let lastError: unknown;
-    for (let tries = 0; tries <= retries; tries += 1) {
+    for (let tries = 0; tries <= allowed; tries += 1) {
       try {
         return await run();
       } catch (error) {
         lastError = error;
-        if (tries === retries || !isRetryable(error)) break;
+        if (tries === allowed || !isRetryable(error)) break;
         await sleep(delayMs());
       }
     }
@@ -90,7 +93,8 @@ export function withSingleRetry(
     // less. Leaving it unretried would have made the one call shape that needs
     // a second attempt the only one without one.
     generateStructured(request: LlmStructuredRequest): Promise<LlmResponse> {
-      return attempt(() => provider.generateStructured(request));
+      // A caller that budgets its own attempts gets exactly one here.
+      return attempt(() => provider.generateStructured(request), request.retry === false ? 0 : retries);
     },
   };
 }

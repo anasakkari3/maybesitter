@@ -1,13 +1,14 @@
 import { dayProgress, importantDeadline, planPreview } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import { weekStripKeys } from '../features/commitments/weekStrip';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useApp } from '../state/AppContext';
-import { useTimeZone } from '../i18n/timezone';
+import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
-import { ltr, type Lang } from '../i18n/strings';
-import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useToday, useUpcoming } from '../api/queries';
+import { fill, ltr, type Lang } from '../i18n/strings';
+import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
+import { quietHoursEndAt } from '../features/today/quietHoursEnd';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
 import { groupForToday, toViewModel, type CommitmentView, type TodayGroups } from '../features/commitments/model';
@@ -24,6 +25,7 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
+import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
@@ -45,8 +47,9 @@ import { Screen, ScreenScroll } from '../ui/screen';
  *
  * ── A deadline is a point, not a block ───────────────────────────
  *
- * Every commitment here is a *deadline* (`mapExtractionToCommand.ts` only
- * ever emits `due_by` or `unscheduled`), so rows show a time, never an extent.
+ * A commitment here names a point: a deadline (`due_by`), or since CL1 a time
+ * to be at (`scheduled_event`, for "at 5" with no "by"), both with no end the
+ * user gave. So rows show a time, never an extent.
  *
  * ── The groups are the user's answer, and ranking works inside them ──
  *
@@ -67,6 +70,10 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const next = useNextStep();
   const plan = usePlan(dayKey(new Date(), timezone));
   const upcoming = useUpcoming();
+  // Where the saved week days put things (FX1): a row shows that, and its own
+  // due beside it, as the Calendar and Details do.
+  const savedWeek = useSavedWeek();
+  const placements = useMemo(() => savedPlacements(savedWeek.data), [savedWeek.data]);
   // From the local cache (UC-3.2, #186). Today renders before any request has
   // finished, and a chip that arrived after the list would move rows about.
   // The phone's busy time and Google's (CL6a review I1).
@@ -90,17 +97,19 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const groups: TodayGroups = useMemo(
     () => {
       const items = today.data?.items ?? [];
-      return groupForToday(showBar ? filterByCategory(items, chip) : items, now);
+      const grouped = groupForToday(showBar ? filterByCategory(items, chip) : items, now);
+      const place = (views: CommitmentView[]) => views.map((view) => placeView(view, placements));
+      return { must: place(grouped.must), should: place(grouped.should), nice: place(grouped.nice), finished: grouped.finished };
     },
     // `now` deliberately excluded: re-grouping on every render would move rows
     // under the user's finger as the clock ticks past a due time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [today.data, showBar, chip],
+    [today.data, showBar, chip, placements],
   );
   const upcomingViews = useMemo(
-    () => (upcoming.data?.items ?? []).map((c) => toViewModel(c, now)),
+    () => (upcoming.data?.items ?? []).map((c) => placeView(toViewModel(c, now), placements)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [upcoming.data],
+    [upcoming.data, placements],
   );
 
   const model = useMemo(() => composeToday({
@@ -108,6 +117,8 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
     next: {
       recommendation: next.data?.recommendation,
       silenced: next.data?.exposure?.allowed === false,
+      silencedReason: next.data?.exposure?.reason,
+      quietUntil: next.data?.exposure?.until,
       isPending: next.isPending,
       isError: next.isError,
       // A 403 is the route answering, not failing: recommendations are off
@@ -124,7 +135,7 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   }, [groups]);
 
   const visibleRecords = showBar ? filterByCategory(today.data?.items ?? [], chip) : today.data?.items ?? [];
-  const preview = planPreview(plan.data, visibleRecords);
+  const preview = planPreview(plan.data, visibleRecords, new Date());
   const previewIds = new Set(preview.map(item => item.id));
   const progress = dayProgress(visibleRecords, dayKey(new Date(), timezone), timezone);
   const futureRecords = showBar ? filterByCategory(upcoming.data?.items ?? [], chip) : upcoming.data?.items ?? [];
@@ -140,9 +151,38 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   const strings = t as unknown as Record<string, string>;
   const hasRest = Object.values(restGroups).some(items => items.length > 0);
 
+  // Quiet hours end on the profile's clock (FZ2 review M4): said on the
+  // phone's, and asked again the moment they end, so a card that says
+  // "back at 07:30" does not outlive 07:30 on an open screen. With no
+  // profile yet the card says no hour rather than a wrong one.
+  const profileZone = useProfile().data?.routine?.timezone;
+  const quietUntil = next.data?.exposure?.reason === 'quiet_hours' ? next.data.exposure.until : undefined;
+  const quietEndsAt = useMemo(
+    () => (quietUntil && isValidTimeZone(profileZone) ? quietHoursEndAt(quietUntil, profileZone, new Date()) : null),
+    // Recomputed per answer, not per render: `new Date()` is read when the
+    // route answered, which is what `until` was true of.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [quietUntil, profileZone, next.dataUpdatedAt],
+  );
+  const refetchNext = next.refetch;
+  useEffect(() => {
+    if (!quietEndsAt) return undefined;
+    // Asked once at the end, and once more if that ask fails (review m6), so a
+    // dropped request does not leave "back at 07:30" standing after 07:30.
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let gone = false;
+    const wait = Math.min(Math.max(0, quietEndsAt.getTime() - Date.now()) + QUIET_END_MARGIN_MS, MAX_TIMER_MS);
+    const timer = setTimeout(() => {
+      void refetchNext().then((result) => {
+        if (result.isError && !gone) retry = setTimeout(() => { void refetchNext(); }, QUIET_END_RETRY_MS);
+      });
+    }, wait);
+    return () => { gone = true; clearTimeout(timer); clearTimeout(retry); };
+  }, [quietEndsAt, refetchNext]);
+
   const refresh = () => {
     setRefreshing(true);
-    void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch()]).finally(() => setRefreshing(false));
+    void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
   };
 
   return (
@@ -180,7 +220,7 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
               </Txt>
 
               {/* PRIMARY · what matters now */}
-              <PrimaryCard primary={model.primary} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
+              <PrimaryCard primary={model.primary} quietEndsAt={quietEndsAt} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
 
               {/* SECONDARY · the plan, always present, always honest */}
               <TodayPlanRow row={model.plan} preview={preview} />
@@ -229,9 +269,18 @@ const GROUP_TITLE = {
   nice: 'todayGroupNice',
 } as const;
 
+/** A beat after quiet hours end, so the route asked again is already past them. */
+const QUIET_END_MARGIN_MS = 2_000;
+/** How long before the one retry, when the ask at the end fails. */
+const QUIET_END_RETRY_MS = 30_000;
+/** setTimeout's ceiling (about 24.8 days). */
+const MAX_TIMER_MS = 2_147_483_647;
+
 /** Exactly one of these renders. See `composeToday`. */
-function PrimaryCard({ primary, lookup, strings, timezone, lang, busy }: {
+function PrimaryCard({ primary, quietEndsAt, lookup, strings, timezone, lang, busy }: {
   primary: Primary;
+  /** When quiet hours end, as an instant; null until it is known on which clock. */
+  quietEndsAt: Date | null;
   lookup: ReadonlyMap<string, CommitmentView>;
   strings: Record<string, string>;
   timezone: string;
@@ -241,11 +290,24 @@ function PrimaryCard({ primary, lookup, strings, timezone, lang, busy }: {
   const { t, p, actions } = useApp();
   switch (primary.kind) {
     case 'quiet':
+      // Three different silences (UAT round 3, N12). Only quiet mode is a
+      // switch the person turned on, so only it points at Trust; quiet hours
+      // end by themselves and point at where they are set; the operator's
+      // pause offers nothing to switch.
       return (
         <Card pad={18} style={{ gap: 8 }} testID="today-quiet">
           <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
-          <Txt size={15} lh={1.5}>{t.todayQuietModeOn}</Txt>
-          <TextLink label={t.sTrust} onPress={() => actions.go('trust')} testID="today-quiet-trust" />
+          <Txt size={15} lh={1.5}>
+            {primary.why === 'mode' ? t.todayQuietModeOn
+              : primary.why === 'paused' ? t.todayNextPaused
+                : quietEndsAt ? fill(t.todayQuietHoursUntil, { time: ltr(formatTime(quietEndsAt, { locale: lang, timeZone: timezone })) }) : t.todayQuietHours}
+          </Txt>
+          {primary.why === 'mode' ? (
+            <TextLink label={t.sTrust} onPress={() => actions.go('trust')} testID="today-quiet-trust" />
+          ) : null}
+          {primary.why === 'hours' ? (
+            <TextLink label={t.notifQuietTitle} onPress={() => actions.go('notificationsSettings')} testID="today-quiet-hours" />
+          ) : null}
         </Card>
       );
     case 'allDone':
@@ -282,29 +344,33 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
   const { t, p, actions } = useApp();
   const act = useCommitmentAction();
   const why = whyFirstLine(item.reasonCodes, strings);
-  const when = item.shownAt ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone })) : t.noTimeYet;
+  const drawn = drawnClockAt(item);
+  const line = drawnWhenLine(item, lang, timezone);
+  const when = line?.text ?? t.noTimeYet;
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   return (
     <Card focus pad={22} style={{ gap: 16, borderStartWidth: 3, borderStartColor: item.importance === 'must' ? p.wm : p.lnStrong }} testID="today-primary">
       <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
       <Btn
         testID={`today-item-${item.id}`}
-        label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
+        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.99}
         style={{ alignItems: 'flex-start', gap: 4 }}
       >
         <Txt role="section">{item.title}</Txt>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Txt size={14} color={p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
+          <Txt size={14} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
           <Txt size={14} color={p.mu}>·</Txt>
           <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} />
           {!item.importanceIsStated && item.importance === 'must' ? (
             <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
           ) : null}
         </View>
+        {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
       </Btn>
-      <BusyConflictChip blocks={item.shownAt ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
+      <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
       {why ? <Txt role="supporting" color={p.mu} testID="today-why-first">{why}</Txt> : null}
       <ActionRow>
         <Btn testID={`today-primary-complete`} label={t.doneS} onPress={() => act.mutate({ id: item.id, action: 'complete' })} style={{ minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 16, backgroundColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
@@ -359,9 +425,10 @@ function Row({ item, first, timezone, lang, busy }: {
     complete: () => act.mutate({ id: item.id, action: 'complete' }),
     postpone: () => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) }),
   });
-  const when = item.shownAt
-    ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
-    : t.noTimeYet;
+  const drawn = drawnClockAt(item);
+  const line = drawnWhenLine(item, lang, timezone);
+  const when = line?.text ?? t.noTimeYet;
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
 
   return (
     <SwipeableRow actions={rowActions} testID={`today-swipe-${item.id}`}>
@@ -371,7 +438,7 @@ function Row({ item, first, timezone, lang, busy }: {
         onAccessibilityAction={(event) => {
           rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
         }}
-        label={rowAccessibilityLabel(item, t, item.shownAt ? when : null)}
+        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.98}
         style={{
@@ -392,15 +459,16 @@ function Row({ item, first, timezone, lang, busy }: {
             {/* A deadline is a point in time, so it reads as one. There is no
                 "overdue": a time that has passed is shown in the accent, not in
                 a warning colour, because a missed thing is not a failure state. */}
-            <Txt size={12} color={p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
+            <Txt size={12} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
             {/* The importance was read off their words, not stated by them (#169). */}
             {!item.importanceIsStated && item.importance === 'must' ? (
               <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{`· ${t.todayEstimatedMark}`}</Txt>
             ) : null}
           </View>
+          {aside ? <Txt size={12} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
           {/* What else is happening then (UC-3.2, #186): a muted note, never a
               warning, never something that stops the row being opened. */}
-          <BusyConflictChip blocks={item.shownAt ? busyAt(item.shownAt, busy) : []} testID={`today-busy-${item.id}`} />
+          <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
         </View>
       </Btn>
     </SwipeableRow>
@@ -409,16 +477,17 @@ function Row({ item, first, timezone, lang, busy }: {
 
 function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first: boolean; timezone: string; lang: Lang }) {
   const { t, p, actions } = useApp();
-  const when = item.shownAt
-    ? `${formatRelativeDay(new Date(item.shownAt), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))}`
-    : t.noTimeYet;
+  // Its day is said even when it has no hour (an all-day deadline, FX3).
+  const drawn = drawnAt(item);
+  const when = laterWhen(item, lang, timezone, t.noTimeYet);
+  const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const returnWhen = item.postponedUntil
     ? `${t.postponeReturn} ${formatRelativeDay(new Date(item.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(item.postponedUntil), { locale: lang, timeZone: timezone }))}`
     : null;
   return (
     <Btn
       testID={`today-later-${item.id}`}
-      label={`${rowAccessibilityLabel(item, t, item.shownAt ? when : null)}${returnWhen ? `, ${returnWhen}` : ''}`}
+      label={`${rowAccessibilityLabel(item, t, drawn ? when : null)}${aside ? `, ${aside}` : ''}${returnWhen ? `, ${returnWhen}` : ''}`}
       onPress={() => actions.openDetail(item.id)}
       scaleTo={0.98}
       style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 18, minHeight: 56, borderTopWidth: first ? 0 : 1, borderTopColor: p.ln }}
@@ -426,7 +495,8 @@ function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
       <View style={{ flex: 1, gap: 2 }}>
         <Txt size={15}>{item.title}</Txt>
-        <Txt size={12} color={p.mu}>{when}</Txt>
+        <Txt size={12} color={p.mu} testID={`today-later-when-${item.id}`}>{when}</Txt>
+        {aside ? <Txt size={12} color={p.mu} testID={`today-later-due-${item.id}`}>{aside}</Txt> : null}
         {returnWhen ? <Txt size={12} color={p.mu} testID={`today-postponed-${item.id}`}>{returnWhen}</Txt> : null}
       </View>
     </Btn>
@@ -478,3 +548,4 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
     </Card>
   );
 }
+

@@ -4,6 +4,7 @@ import type {
   CommitmentCategory,
   CommitmentCategorySource,
 } from '../contracts/v1/categoryContracts';
+import type { LocationTrigger } from '../contracts/v1/locationTriggerContracts';
 
 export type CommitmentKind = 'task' | 'follow_up';
 export type CommitmentStatus =
@@ -86,6 +87,64 @@ export interface TimeSpec {
   timezone: string;
 }
 
+/**
+ * A timed `due_by` with an end is a *window*: something to do from `dueAt`,
+ * done by `endAt` (post-UAT FX1, controller ruling R1).
+ *
+ * «حضّرني» is its one producer: the prep step is shown at 14:00, the hour
+ * before a 15:00 meeting, and it is done by the meeting's start. Every screen
+ * shows `dueAt`; the phone's gentle reminder rings at `dueAt` itself, whatever
+ * the account's lead (the lead is how far ahead of a *deadline* to warn, and
+ * this one is already the warning); lateness and the firmer stages count from
+ * `endAt`, so it is never «الوقت مرق» before the meeting has started.
+ *
+ * `scheduled_event` is excluded (an event's end is when it is over, not a
+ * deadline), and so is an all-day entry (its end is the day's edge). The
+ * phone's `reminderInputs.ts` restates this one line; a root test runs both on
+ * the same stored commitments.
+ */
+export function isTimedWindow(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>): boolean {
+  return timeSpec.kind === 'due_by' && !timeSpec.allDay && !!timeSpec.dueAt && !!timeSpec.endAt;
+}
+
+/**
+ * An event on a day with no hour anybody chose (FY1 N4): «موعد دكتور يوم
+ * الأحد» answered «بدون وقت محدد». It happens on its day; it is not work to do
+ * and has no deadline, so nothing may rank it as a step or call its midnight
+ * late (final UAT, N18). The day plan's `isAllDayEvent` adds its own
+ * placement nuance (a postponed one has a time again) on top of this.
+ */
+export function isAllDayEventSpec(timeSpec: Pick<TimeSpec, 'kind' | 'allDay'>): boolean {
+  return timeSpec.kind === 'scheduled_event' && timeSpec.allDay === true;
+}
+
+/**
+ * When a commitment must be done by: the instant lateness is measured against
+ * and the firmer reminders count back from. A window's end; otherwise `dueAt`.
+ */
+export function deadlineOfTimeSpec(timeSpec: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>): string | null {
+  return isTimedWindow(timeSpec) ? timeSpec.endAt : timeSpec.dueAt;
+}
+
+/**
+ * The end a window keeps when its start is moved to `dueAt` (ruling R2).
+ *
+ * Still strictly before the deadline — on any day, the evening before
+ * included — it is the same window from the new time: the prep step moved
+ * from 14:00 to 14:30, or from Sun 21:55 to 21:30 for a Mon 07:32 meeting, is
+ * still done by that meeting, rings at the time chosen and is not late before
+ * it. At or after the deadline, or with no time at all, it is no longer a
+ * prep window: the end is dropped and it is an ordinary step at the time
+ * chosen — never a range that ends before it starts.
+ */
+export function windowEndAfterMove(
+  current: Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'>,
+  dueAt: string | null,
+): string | null {
+  if (!isTimedWindow(current) || !dueAt) return null;
+  return Date.parse(dueAt) < Date.parse(current.endAt as string) ? current.endAt : null;
+}
+
 export interface Commitment {
   id: string;
   kind: CommitmentKind;
@@ -113,6 +172,13 @@ export interface Commitment {
    */
   categorySource: CommitmentCategorySource;
   timeSpec: TimeSpec;
+  /**
+   * "Remind me when I arrive / leave" (closure CL4). Absent when there is none.
+   *
+   * Only that the reminder exists, which way it fires and what the place is
+   * called — never where it is. See `locationTriggerContracts.ts`.
+   */
+  locationTrigger?: LocationTrigger;
   currentAckState: AckState;
   postponedUntil: string | null;
   createdAt: string;
@@ -186,6 +252,8 @@ export type CreateDraft = {
     priority?: Partial<Priority>;
     category?: CommitmentCategory | null;
     timeSpec?: Partial<TimeSpec>;
+    /** Set in review, before the commitment exists (closure CL4). */
+    locationTrigger?: LocationTrigger | null;
   };
   draftStatus?: Extract<CommitmentStatus, 'draft' | 'needs_clarification' | 'pending_confirmation'>;
 };
@@ -268,6 +336,11 @@ export type UpdateCommitment = {
      */
     categorySource?: CommitmentCategorySource;
     timeSpec?: Partial<TimeSpec>;
+    /**
+     * The place reminder (closure CL4). `null` removes it; leaving the key out
+     * means "do not touch it", the same split `category` makes.
+     */
+    locationTrigger?: LocationTrigger | null;
   };
 };
 
@@ -414,14 +487,23 @@ export function normalizeStoredTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec 
  * One commitment as it was stored, completed for the fields since added (#185).
  *
  * Applied by `loadDomainState` to every document it reads, which is the single
- * place a stored commitment becomes a domain one. Only `timeSpec` is completed:
- * it is the only object on `Commitment` this product has ever widened after
- * data existed. `priority`'s required fields date from the initial commit, so
- * no stored document has ever been without them — when that stops being true,
- * this is where the next one goes.
+ * place a stored commitment becomes a domain one. `timeSpec` was widened after
+ * data existed (#185), and so were `category` / `categorySource` (#415): a
+ * document from before them has neither, and the phone requires both keys
+ * (category may be `null`, never absent). One such row blanked the owner's
+ * Today screen on 2026-09-29. A missing category is "none", and a category
+ * nobody chose is `inferred`, as `createCommitment` stores it. `priority`'s
+ * required fields date from the initial commit, so no stored document has ever
+ * been without them — when that stops being true, this is where the next one
+ * goes.
  */
 export function normalizeStoredCommitment(commitment: Commitment): Commitment {
-  return { ...commitment, timeSpec: normalizeStoredTimeSpec(commitment.timeSpec) };
+  return {
+    ...commitment,
+    category: commitment.category ?? null,
+    categorySource: commitment.categorySource ?? 'inferred',
+    timeSpec: normalizeStoredTimeSpec(commitment.timeSpec),
+  };
 }
 
 function defaultTimeSpec(timeSpec?: Partial<TimeSpec>): TimeSpec {
@@ -646,6 +728,7 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
         confirmedAt: null,
         completedAt: null,
         droppedAt: null,
+        ...(command.commitment.locationTrigger ? { locationTrigger: { ...command.commitment.locationTrigger } } : {}),
       };
       newState.commitments[commitment.id] = commitment;
       ensureEscalationState(newState, commitment.id);
@@ -852,13 +935,23 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
         ? incomingCategorySource
         : commitment.categorySource;
 
+      // Absent and `null` differ as they do for the category: absent is "not
+      // mentioned", `null` is the person removing the place reminder.
+      const triggerOffered = command.updates.locationTrigger !== undefined;
+      const nextTrigger = triggerOffered
+        ? (command.updates.locationTrigger ?? null)
+        : (commitment.locationTrigger ?? null);
+      const triggerChanged = triggerOffered
+        && JSON.stringify(commitment.locationTrigger ?? null) !== JSON.stringify(nextTrigger);
+
       if (
         commitment.title === nextTitle &&
         commitment.description === nextDescription &&
         commitment.person === nextPerson &&
         JSON.stringify(commitment.priority) === JSON.stringify(nextPriority) &&
         !categoryChanged &&
-        !timeSpecChanged
+        !timeSpecChanged &&
+        !triggerChanged
       ) {
         break;
       }
@@ -870,6 +963,10 @@ export function applyCommand(state: DomainState, command: Command): StateTransit
       commitment.category = nextCategory;
       commitment.categorySource = nextCategorySource;
       commitment.timeSpec = nextTimeSpec;
+      if (triggerChanged) {
+        if (nextTrigger) commitment.locationTrigger = { ...nextTrigger };
+        else delete commitment.locationTrigger;
+      }
       commitment.updatedAt = command.now;
       if (timeSpecChanged) {
         cancelOpenReminders(newState, commitment.id, command.now);

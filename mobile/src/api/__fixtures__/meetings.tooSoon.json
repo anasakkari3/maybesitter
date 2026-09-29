@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "meeting prep refused: meeting_too_soon",
+  "reason": "meeting_too_soon"
+}

@@ -159,6 +159,12 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}): LlmPr
     maxOutputTokens: number,
     deadlineMs: number = timeoutMs,
   ): Promise<LlmResponse> {
+    // A caller that already gave up is not called on its behalf. Without this,
+    // `withSingleRetry` would answer a caller's abort — which the catch below
+    // maps to a retryable `timeout` — with a second, full-length request whose
+    // listener is added to a signal that has already fired and so never fires
+    // again (CL3 review, I-1: the goal planner's deadline).
+    if (request.signal?.aborted) throw new LLMUnavailableError('aborted');
     const generate = await resolveGenerate(options);
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -207,6 +213,8 @@ export function createGeminiProvider(options: GeminiProviderOptions = {}): LlmPr
       };
     } catch (error) {
       if (error instanceof LLMUnavailableError) throw error;
+      // The caller's abort is theirs, not the provider's: not retryable.
+      if (request.signal?.aborted) throw new LLMUnavailableError('aborted');
       // The message is never included: a provider error body can quote the
       // request, and the request is the user's sentence (#160 step 10).
       throw new LLMUnavailableError(reasonFor(error) ?? terminalReason(error));

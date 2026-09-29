@@ -5,8 +5,9 @@ import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { icsFeedsEnabled } from '../../config/env';
+import { isIcsFeedsSwitchedOff } from './availability';
 import { fill } from '../../i18n/strings';
-import { isolate } from '../../i18n/bidi';
+import { isolate, isolateAuto } from '../../i18n/bidi';
 import { formatDate, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import {
@@ -49,7 +50,11 @@ import type { IcsDeadline, IcsDeadlineAction, IcsFeed } from '../../api/schemas/
  */
 export function CalendarFeedsScreen({ onBack }: { onBack: () => void }) {
   const { t, p, rtl } = useApp();
-  const enabled = icsFeedsEnabled();
+  const feeds = useIcsFeeds();
+  // The server's `feature_disabled` as well as the build flag: its entries are
+  // hidden then (`useIcsFeedsAvailable`), and a screen already open offers no
+  // form that can only fail (owner's Redmi, 2026-09-29).
+  const enabled = icsFeedsEnabled() && !isIcsFeedsSwitchedOff(feeds.error);
 
   return (
     <Screen pinned={<SettingsHeader title={t.icsFeedsTitle} onBack={onBack} />}>
@@ -248,7 +253,9 @@ function useWhen() {
   return (iso: string, allDay: boolean): string => {
     const date = new Date(iso);
     const day = formatDate(date, 'weekday', { locale: lang, timeZone });
-    return isolate(allDay ? day : `${day} ${formatTime(date, { locale: lang, timeZone })}`);
+    // The day is words, so its own first letter decides; only the time is
+    // held left-to-right.
+    return isolateAuto(allDay ? day : `${day} ${isolate(formatTime(date, { locale: lang, timeZone }))}`);
   };
 }
 

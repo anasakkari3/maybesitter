@@ -15,6 +15,11 @@ import {
   PackWatcherLockedError,
 } from '../../../../../../lib/packs/packWatcherGuard';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
+import {
+  assertFootballWatcherEffect,
+  isFootballWatcherSource,
+  releaseClubAfterWatcherRemoved,
+} from '../../../../../../lib/football/footballWatchers';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +58,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const patch = parseWatcherPatch(body);
     const now = new Date().toISOString();
     const store = createWatcherStore(user.uid);
+    if (patch.effect !== undefined) {
+      // A followed club reconsiders the plan or notifies; nothing else it
+      // could do has a reader in the app (closure CL7).
+      const current = await store.get(watcherId);
+      if (current && isFootballWatcherSource(current.definition.source)) assertFootballWatcherEffect(patch.effect);
+    }
     if (patch.enabled === true) {
       // A pack's watchers are switched on by enabling the pack, never one at a
       // time from here: otherwise a lapsed subscriber could resume premium
@@ -95,12 +106,18 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const { id } = await context.params;
   try {
     const watcherId = parseWatcherId(id);
-    const existed = await createWatcherStore(user.uid).remove(watcherId);
+    const store = createWatcherStore(user.uid);
+    const removed = await store.get(watcherId);
+    const existed = await store.remove(watcherId);
     if (!existed) return mobileError('no such watcher', 404);
+    const now = new Date().toISOString();
     // A pack's record must not keep claiming a watcher that is gone (#528):
     // a dangling id is swallowed silently by every later enable and disable,
     // so the record would quietly claim more than it owns.
-    await forgetPackWatcher(user.uid, watcherId, new Date().toISOString());
+    await forgetPackWatcher(user.uid, watcherId, now);
+    // "Stop following" a club takes its matches still ahead off the calendar
+    // with it (closure CL7).
+    if (removed) await releaseClubAfterWatcherRemoved(user.uid, removed, now);
     return Response.json({ success: true, watcherId, deleted: true });
   } catch (error) {
     if (error instanceof WatcherValidationError) return watcherValidationResponse(error);

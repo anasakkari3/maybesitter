@@ -203,7 +203,12 @@ export function applyPilotTrustAction(state: PilotTrustState, action: PilotTrust
     case 'record_first_value':
       return { ...state, firstValueAt: state.firstValueAt || action.at, updatedAt: action.at };
     case 'set_calendar_consent':
-      if (action.granted && !state.firstValueAt) throw new Error('calendar consent is available only after first value');
+      // No first-value gate (UAT round 3, N9). The closed pilot refused a grant
+      // before the account's first value; that rule is about when the product
+      // may *ask*, and this action is only ever the person's own tap in
+      // Settings, Trust or the calendar-feed screen. Refusing it left a new
+      // account unable to connect its calendar at all. The revoke/delete and
+      // backdating guards above still order it.
       return { ...state, calendarConsent: action.granted, updatedAt: action.at };
     case 'set_quiet_mode':
       return { ...state, quietMode: action.enabled, updatedAt: action.at };

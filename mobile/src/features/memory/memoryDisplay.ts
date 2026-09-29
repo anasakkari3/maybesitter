@@ -17,6 +17,7 @@
  * false in the one direction nobody can check.
  */
 import { routineFactKeyOf, type RoutineFactKey } from './routineFactKeys';
+import { formatClockRange } from '../../i18n/format';
 
 export interface MemoryDisplayInput {
   content: string;
@@ -55,7 +56,10 @@ export function memorySentence({ content, strings }: MemoryDisplayInput): string
 
   const [from, to] = value.split('-');
   if (!from || !to) return content;
-  return fill(strings[WINDOW_TEMPLATE[key]] ?? '{from}–{to}', { from, to });
+  // One left-to-right unit, as every other range in the app. Filled as two
+  // bare times around a dash, the Arabic line laid the pair out right to
+  // left: «بيركّز 09:00–17:00» read with 17:00 first (UAT round 3, N14).
+  return fill(strings[WINDOW_TEMPLATE[key]] ?? '{range}', { range: formatClockRange(from, to) });
 }
 
 export type ProvenanceChip = 'you' | 'survey' | 'ai' | 'capture' | 'noticed' | null;

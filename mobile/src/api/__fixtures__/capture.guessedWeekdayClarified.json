@@ -8,11 +8,13 @@
       "title": "موعد دكتور",
       "resolvedTime": "2026-08-09T09:00:00.000Z",
       "needsClarification": false,
+      "timeEstimated": false,
       "priority": "high",
       "priorityEstimated": true,
       "clarification": null,
       "resolvedDate": "2026-08-16",
-      "dateEstimated": true
+      "dateEstimated": true,
+      "eventOnDay": true
     }
   ],
   "seeds": [],

@@ -21,7 +21,7 @@
  *
  * Pure: the clock and the zone are arguments.
  */
-import { localTimeSpecFor } from './timeLexicon';
+import { localTimeSpecFor, relativeDaySource } from './timeLexicon';
 
 export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
   sunday: 0,
@@ -157,16 +157,15 @@ function withoutFollowingWeekPhrases(lower: string): string {
 }
 
 /** Rule 3: the text says today, or now. */
+// The relative days are `timeLexicon`'s, so «واليوم», «ومחר» and «למחר» read
+// the same here as in the parser (CL1 review m-1).
 const TODAY_TOKEN = new RegExp(
-  `\\b(?:today|tonight)\\b|${NOT_LETTER_BEFORE}(?:اليوم|النهارده|الليلة|الليله|هلأ|هلّأ|هلق|هلّق|היום|הערב|הלילה|עכשיו)${NOT_LETTER_AFTER}`,
+  `${relativeDaySource(0)}|${NOT_LETTER_BEFORE}(?:هلأ|هلّأ|هلق|هلّق|עכשיו)${NOT_LETTER_AFTER}`,
   'u',
 );
 
 /** Another relative day beside the weekday: the weekday may not be the date. */
-const OTHER_RELATIVE_DAY = new RegExp(
-  `\\b(?:tomorrow|tmrw|tmr|tomorow)\\b|${NOT_LETTER_BEFORE}(?:بكرا|بكرة|بكره|باچر|غدا|غداً|بعد غد|מחר|מחרתיים)${NOT_LETTER_AFTER}`,
-  'u',
-);
+const OTHER_RELATIVE_DAY = new RegExp(`${relativeDaySource(1)}|${relativeDaySource(2)}`, 'u');
 
 const MONTHS_EN = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
 const MONTHS_AR = '(?:يناير|فبراير|مارس|أبريل|ابريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر|كانون\\s+(?:الثاني|الأول|الاول)|شباط|آذار|اذار|نيسان|أيار|ايار|حزيران|تموز|آب|أيلول|ايلول|تشرين\\s+(?:الأول|الاول|الثاني))';
@@ -252,6 +251,16 @@ export function namesExplicitDate(rawText: string): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
   const text = withoutFollowingWeekPhrases(foldDigits(rawText.toLowerCase()));
   return EXPLICIT_DATE.test(text) || TODAY_TOKEN.test(text) || OTHER_RELATIVE_DAY.test(text);
+}
+
+/**
+ * A date the text states other than by a day word or a weekday — a calendar
+ * date, an ordinal day, a count of days or weeks (`namesExplicitDate` without
+ * today and tomorrow; FZ1 N10).
+ */
+export function namesCalendarDate(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  return EXPLICIT_DATE.test(withoutFollowingWeekPhrases(foldDigits(rawText.toLowerCase())));
 }
 
 export interface WeekdayResolution {

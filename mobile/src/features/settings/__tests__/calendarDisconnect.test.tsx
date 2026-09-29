@@ -26,6 +26,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { Platform } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -104,7 +105,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask: a settling request when the tree came down leaves React
   // work in flight, and RNTL v14's next `render` then mounts nothing.
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -128,10 +129,48 @@ async function show() {
   await waitFor(() => expect(screen.queryByTestId('calendar-disconnect')).not.toBeNull());
 }
 
+/** The button, then the dialog's confirm: the only way the deletion runs. */
+async function disconnectAndConfirm() {
+  await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+  await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-dialog')).not.toBeNull());
+  await fireEvent.press(screen.getByTestId('calendar-disconnect-confirm'));
+}
+
+/**
+ * UAT round 6, batch 4 (shot 757): the button ran on the first tap, and an
+ * accidental one wiped the busy times from the phone and the account. It now
+ * asks first, in the app's one shape for "are you sure".
+ */
+describe('before anything is deleted', () => {
+  it('asks, and deletes nothing until the answer is yes', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-dialog')).not.toBeNull());
+    expect(screen.getByText(en.calendarDisconnectTitle)).toBeTruthy();
+    expect(screen.getByText(en.calendarDisconnectConfirmBody)).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calendarEndpoints.deleteCalendarBusy).not.toHaveBeenCalled();
+    expect(trustEndpoints.updateTrust).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).not.toBeNull();
+  });
+
+  it('keeps everything when the answer is no', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-keep')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-disconnect-keep'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-dialog')).toBeNull());
+    expect(calendarEndpoints.deleteCalendarBusy).not.toHaveBeenCalled();
+    expect(trustEndpoints.updateTrust).not.toHaveBeenCalled();
+    expect(await AsyncStorage.getItem(BUSY_BLOCKS_KEY)).not.toBeNull();
+    expect(screen.queryByTestId('calendar-disconnect-result')).toBeNull();
+  });
+});
+
 describe('pressing disconnect', () => {
   it('clears the phone, the account and the switch', async () => {
     await show();
-    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await disconnectAndConfirm();
 
     await waitFor(() => expect(calendarEndpoints.deleteCalendarBusy).toHaveBeenCalledTimes(1));
     expect((calendarEndpoints.deleteCalendarBusy as jest.Mock).mock.calls[0]![0] as string)
@@ -147,7 +186,7 @@ describe('pressing disconnect', () => {
   it('says so, and says how many busy times the sync found', async () => {
     await show();
     await waitFor(() => expect(String(screen.getByTestId('calendar-busy-count').props.children)).toContain('1'));
-    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await disconnectAndConfirm();
     await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
     expect(String(screen.getByTestId('calendar-disconnect-result').props.children))
       .toBe(en.calendarDisconnectDone);
@@ -156,7 +195,7 @@ describe('pressing disconnect', () => {
   it('clears the phone even when the account cannot be reached, and says which half failed', async () => {
     jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockRejectedValue(new Error('offline') as never);
     await show();
-    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await disconnectAndConfirm();
 
     await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
     expect(String(screen.getByTestId('calendar-disconnect-result').props.children))
@@ -166,9 +205,28 @@ describe('pressing disconnect', () => {
 });
 
 describe('what the screen says without being asked', () => {
-  it('names the Android caveat rather than leaving it in an issue', async () => {
-    await show();
-    expect(String(screen.getByTestId('calendar-declined-note').props.children))
-      .toBe(en.calendarDeclinedNote);
+  it('names the Android caveat on Android', async () => {
+    const original = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
+    try {
+      await show();
+      expect(String(screen.getByTestId('calendar-declined-note').props.children))
+        .toBe(en.calendarDeclinedNote);
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
+    }
+  });
+
+  // UAT 2026-09-26, #17, shot 57: an iPhone was told what Android does.
+  it('says nothing about Android on an iPhone', async () => {
+    const original = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: 'ios', configurable: true });
+    try {
+      await show();
+      expect(screen.queryByTestId('calendar-busy-count')).not.toBeNull();
+      expect(screen.queryByTestId('calendar-declined-note')).toBeNull();
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
+    }
   });
 });

@@ -14,6 +14,9 @@ import {
   type ReminderPriority,
   type ReminderSettings,
 } from '../policy';
+import ar from '../../../i18n/locales/ar.json';
+import en from '../../../i18n/locales/en.json';
+import he from '../../../i18n/locales/he.json';
 
 /**
  * The stage ladder (UC-3.11, #196).
@@ -126,6 +129,19 @@ describe('the Must stage', () => {
     expect(planFor(commitment({ allDay: true }), ring).map(stage => stage.stage)).toEqual(['soft', 'followUp']);
   });
 
+  /*
+   * FY1 review M2, decided: an all-day «لازم» (a doctor on Sunday, no hour)
+   * keeps no Must ring — the contract above and the server's `hardFireAtFor`
+   * agree, and a ring at an hour nobody chose is the thing the rule forbids.
+   * So the words that turn the ring on may not promise it for every Must
+   * item: they say it is for Must items that have a time.
+   */
+  it('is promised in the settings only for Must items that have a time', () => {
+    expect(en.notifHardExplainBody).toMatch(/Must that have a time\./);
+    expect(ar.notifHardExplainBody).toMatch(/ضرورية وإلها وقت\./);
+    expect(he.notifHardExplainBody).toMatch(/כחובה ויש להן שעה\./);
+  });
+
   it('stays silent when the survey says none, even with the opt-in', () => {
     expect(planFor(commitment(), settings({ intensity: 'none', escalationCeiling: 'hard', hardEnabled: true })))
       .toEqual([]);
@@ -174,6 +190,39 @@ describe('when each stage fires', () => {
     // And at exactly 30 the two would land on the same instant.
     expect(leads(planFor(commitment(), settings({ intensity: 'followUp', softLeadMinutes: 30 })))).toEqual([
       ['soft', 30],
+    ]);
+  });
+});
+
+describe('a window: shown at its opening, done by its deadline (FX1, ruling R1)', () => {
+  // A prep step shown at 11:00 for a meeting at 12:00: `startsAt` is the
+  // deadline, `opensAt` the time every screen shows.
+  const OPENS = new Date(START - 60 * 60_000).toISOString();
+
+  it('rings the gentle stage at the opening, whatever the lead', () => {
+    for (const softLeadMinutes of [60, 30, 15]) {
+      expect(leads(planFor(commitment({ priority: 'should', opensAt: OPENS }), settings({ softLeadMinutes })))).toEqual([['soft', 60]]);
+    }
+  });
+
+  it('counts the firmer stages back from the deadline, and keeps only those after the opening', () => {
+    const hard = settings({ intensity: 'strongReminder', escalationCeiling: 'hard', hardEnabled: true, softLeadMinutes: 15 });
+    expect(leads(planFor(commitment({ opensAt: OPENS }), hard))).toEqual([
+      ['soft', 60],
+      ['followUp', FOLLOW_UP_LEAD_MINUTES],
+      ['strong', STRONG_LEAD_MINUTES],
+    ]);
+    // A window that opens 20 minutes before its deadline has room for the Must ring only.
+    const late = new Date(START - 20 * 60_000).toISOString();
+    expect(leads(planFor(commitment({ opensAt: late }), hard))).toEqual([
+      ['soft', 20],
+      ['strong', STRONG_LEAD_MINUTES],
+    ]);
+    // Shorter than ten minutes: the Must ring moves to the opening, never away (re-review Minor 1).
+    const short = new Date(START - 5 * 60_000).toISOString();
+    expect(leads(planFor(commitment({ opensAt: short }), hard))).toEqual([
+      ['soft', 5],
+      ['strong', 5],
     ]);
   });
 });

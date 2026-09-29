@@ -18,6 +18,9 @@ import { ExportDataRow } from '../ExportDataRow';
 import { capabilities } from '../../product/capabilities';
 import exported from '../../../api/__fixtures__/account.export.json';
 import en from '../../../i18n/locales/en.json';
+import { shareExportFile } from '../../../lib/dataExportFile';
+import * as Localization from 'expo-localization';
+import { deviceTimeZone } from '../../../i18n/timezone';
 
 const mockFiles = new Map<string, string>();
 
@@ -72,8 +75,8 @@ beforeEach(() => {
   }) as never;
 });
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
   resetAuthForTests();
   jest.restoreAllMocks();
 });
@@ -167,5 +170,42 @@ describe('export my data', () => {
     expect(uri).toMatch(/maybesitter-export-.*\.json$/);
     expect(options).toEqual({ mimeType: 'application/json', UTI: 'public.json', dialogTitle: en.exportDataShareTitle });
     await waitFor(() => expect(mockFiles.size).toBe(0));
+  });
+});
+
+/**
+ * UAT round 6, batch 4, D-b (shot 790): exported at 00:35 on 29 September, the
+ * file was called `maybesitter-export-2026-09-28.json` — the day in UTC, which
+ * the person was not in. The name is the day where they are.
+ */
+describe('the export file name', () => {
+  // 00:35 on the 29th in Jerusalem (UTC+3 in September), still the 28th in UTC.
+  const exportedAt = '2026-09-28T21:35:00.000Z';
+
+  async function nameFor(options: { exportedAt: string; timeZone: string }): Promise<string> {
+    let named = '';
+    await shareExportFile('{}', { dialogTitle: 'x', ...options }, async (uri) => { named = uri.split('/').pop() ?? ''; });
+    return named;
+  }
+
+  it('is the local day, not the UTC one', async () => {
+    expect(await nameFor({ exportedAt, timeZone: 'Asia/Jerusalem' })).toBe('maybesitter-export-2026-09-29.json');
+    expect(await nameFor({ exportedAt, timeZone: 'UTC' })).toBe('maybesitter-export-2026-09-28.json');
+    expect(await nameFor({ exportedAt, timeZone: 'America/New_York' })).toBe('maybesitter-export-2026-09-28.json');
+  });
+
+  it('still names a file when the server sends no usable time', async () => {
+    expect(await nameFor({ exportedAt: 'not a date', timeZone: 'Asia/Jerusalem' })).toBe('maybesitter-export-export.json');
+  });
+
+  it('is named for the phone\'s own zone when the row is pressed', async () => {
+    jest.spyOn(Localization, 'getCalendars').mockReturnValue([{ timeZone: 'Asia/Jerusalem' }] as never);
+    expect(deviceTimeZone()).toBe('Asia/Jerusalem');
+    responses = [{ status: 200, body: { ...exported, exportedAt } }];
+    const shared: string[] = [];
+    await show(async (uri) => { shared.push(uri); });
+    await fireEvent.press(screen.getByTestId('export-my-data'));
+    await waitFor(() => expect(shared).toHaveLength(1));
+    expect(shared[0]).toBe('file:///cache/maybesitter-export-2026-09-29.json');
   });
 });

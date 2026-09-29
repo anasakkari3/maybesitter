@@ -12,6 +12,9 @@ import { NotificationsSettingsScreen } from '../../settings/NotificationsSetting
 import type { PlanSettings } from '../../../api/schemas/plan';
 import { ValidationError } from '../../../api/errors';
 import { ltr } from '../../../i18n/strings';
+import { formatRelativeDay, formatTime } from '../../../i18n/format';
+import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { timeShowing } from '../pickerClock';
 import { deferred } from '../../../testing/deferred';
 import en from '../../../i18n/locales/en.json';
@@ -151,6 +154,24 @@ describe('the switch is the server’s record', () => {
     await waitFor(() => expect(screen.queryByTestId('plan-next-run')).not.toBeNull());
   });
 
+  // Review I-1 (CL2a): the whole "day · time" line sat in one left-to-right
+  // isolate, so Arabic read «07:00 · الاثنين». Only the time is isolated,
+  // like every other "day · time" line in the app, and the day reads first.
+  it('in Arabic, names the day before the time', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    try {
+      stored = ON;
+      await settled();
+      await waitFor(() => expect(screen.queryByTestId('plan-next-run')).not.toBeNull());
+      const day = formatRelativeDay(new Date(ON.nextRunAt!), { locale: 'ar', timeZone: 'Asia/Jerusalem' });
+      const time = formatTime(new Date(ON.nextRunAt!), { locale: 'ar', timeZone: 'Asia/Jerusalem' });
+      const line = String(screen.getByTestId('plan-next-run').props.children);
+      expect(line).toBe(`الجاي: \u2068${day} · ${ltr(time)}\u2069`);
+    } finally {
+      await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY);
+    }
+  });
+
   it('stays where it was when the write is refused, and says so', async () => {
     jest.spyOn(planEndpoints, 'putPlanSettings')
       .mockRejectedValue(new ValidationError('deliveryLocalTime must be HH:mm') as never);
@@ -158,8 +179,10 @@ describe('the switch is the server’s record', () => {
     await fireEvent(screen.getByTestId('plan-morning-toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('plan-morning-toggle-failed')).not.toBeNull());
     expect(screen.getByTestId('plan-morning-toggle').props.value).toBe(false);
-    // The words are the copy table's, never the server's message.
-    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+    // The words are the copy table's, never the server's message — and a 400
+    // is an answer, so never «didn't reach the server» (UAT round 3, N9).
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.queryByText(en.trustActionRefused)).not.toBeNull();
     expect(screen.queryByText(/HH:mm/)).toBeNull();
   });
 

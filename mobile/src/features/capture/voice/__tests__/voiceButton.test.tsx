@@ -140,7 +140,7 @@ describe('with a recogniser', () => {
     const service = new FakeService();
     const view = await show({ service, autoFocus: true });
     await waitFor(() => expect(service.started).toBe(1));
-    view.rerender(
+    await view.rerender(
       <SafeAreaProvider initialMetrics={METRICS}>
         <AppProvider>
           <VoiceButton service={service} autoFocus onPartial={onPartial} onFinal={onFinal} />

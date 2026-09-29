@@ -2,6 +2,7 @@ import React from 'react';
 import { Linking, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Card, Pill, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import type { HealthKitReadinessNativeModule } from '../../../modules/healthkit-readiness';
 import { useHealthReadiness, type HealthCardState } from './useHealthReadiness';
 
@@ -51,21 +52,24 @@ export function HealthDataCard({ nativeModule, platform, now }: {
 
   const statusKey = STATUS_COPY[state];
   const working = state === 'working';
-  const warn = state === 'noData' || state === 'denied' || state === 'failed';
+  // "No data yet" is not a problem to flag (closure CL2b, D5): Health is
+  // connected and simply has nothing from the last day. Only a refusal or a
+  // real failure takes the attention colour.
+  const warn = state === 'denied' || state === 'failed';
 
   return (
     <Card pad={18} style={{ gap: 10 }} testID="health-card">
       <Txt size={15} weight={600}>{t.readinessHealthTitle}</Txt>
       <Txt size={13} color={p.mu} lh={1.5}>{t.readinessHealthBody}</Txt>
-      {statusKey ? (
-        // A live region so a screen reader hears "Reading…" turn into the
-        // result without having to find it.
-        <View accessibilityLiveRegion="polite">
+      {/* A live region so a screen reader hears "Reading…" turn into the
+          result without having to find it — mounted before its first line. */}
+      <LiveRegion>
+        {statusKey ? (
           <Txt size={13} color={warn ? p.wm : p.mu} lh={1.5} testID={`health-status-${state}`}>
             {t[statusKey]}
           </Txt>
-        </View>
-      ) : null}
+        ) : null}
+      </LiveRegion>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {!connected && (state === 'idle' || state === 'failed' || state === 'denied' || working) ? (
           <Pill

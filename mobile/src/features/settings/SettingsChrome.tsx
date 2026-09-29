@@ -24,7 +24,7 @@ export function SettingsHeader({ title, onBack, end }: { title: string; onBack: 
  * the row is a flex row, and the root view's `direction` mirrors it.
  */
 export function SettingsRow({
-  label, sub, value, onPress, testID, tone, first, icon,
+  label, sub, value, onPress, testID, tone, first, icon, subTone, subTestID,
 }: {
   label: string;
   icon?: ProductIconName;
@@ -34,6 +34,9 @@ export function SettingsRow({
   testID?: string | undefined;
   tone?: 'default' | 'warn';
   first?: boolean | undefined;
+  /** `warn` when the second line reports something in the way (a blocked permission). */
+  subTone?: 'default' | 'warn' | undefined;
+  subTestID?: string | undefined;
 }) {
   const { p, rtl } = useApp();
   const stacked = useLayoutMode() !== 'normal';
@@ -57,7 +60,9 @@ export function SettingsRow({
       {icon && !stacked ? <ProductIcon name={icon} quiet /> : null}
       <View style={{ flex: 1, gap: 4 }}>
         <Txt role="action" color={tone === 'warn' ? p.wm : p.tx} {...(testID ? { testID } : {})}>{label}</Txt>
-        {sub ? <Txt role="supporting" color={p.mu}>{sub}</Txt> : null}
+        {sub ? (
+          <Txt role="supporting" color={subTone === 'warn' ? p.wm : p.mu} {...(subTestID ? { testID: subTestID } : {})}>{sub}</Txt>
+        ) : null}
         {value && stacked ? <Txt role="supporting" color={p.mu}>{value}</Txt> : null}
       </View>
       {value && !stacked ? <Txt role="label" weight={400} color={p.mu} style={{ flexShrink: 1, maxWidth: '45%' }}>{value}</Txt> : null}

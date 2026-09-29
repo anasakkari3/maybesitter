@@ -74,6 +74,19 @@ export const deviceCalendarLinkSchema = z.object({
 
 export type DeviceCalendarLink = z.infer<typeof deviceCalendarLinkSchema>;
 
+/**
+ * "Remind me when I arrive / leave" (closure CL4). Which way, the id of a place
+ * saved on *some* phone, and the place's name. Never a coordinate: those stay
+ * on the phone that saved the place (`src/lib/deviceSettings/placeReminders.ts`).
+ */
+export const locationTriggerSchema = z.object({
+  kind: z.enum(['arrive', 'leave']),
+  placeId: z.string(),
+  label: z.string(),
+});
+
+export type LocationTrigger = z.infer<typeof locationTriggerSchema>;
+
 export const commitmentSchema = z.object({
   id: z.string(),
   kind: z.enum(['task', 'follow_up']),
@@ -128,6 +141,8 @@ export const commitmentSchema = z.object({
    * picture from the responses the screens already hold.
    */
   deviceCalendarLink: deviceCalendarLinkSchema.nullable().optional(),
+  /** Absent when the commitment has no place reminder (closure CL4). */
+  locationTrigger: locationTriggerSchema.optional(),
 });
 
 export type Commitment = z.infer<typeof commitmentSchema>;
@@ -163,13 +178,8 @@ export const commitmentListSchema = z.object({
 
 export type CommitmentList = z.infer<typeof commitmentListSchema>;
 
-/**
- * The design's three importance levels, from the server's priority levels.
- * `high → Must`, `normal → Should`, `low → Nice`.
- */
-export function importanceOf(commitment: Commitment): 'must' | 'should' | 'nice' {
-  return commitment.priority.level === 'high' ? 'must' : commitment.priority.level === 'low' ? 'nice' : 'should';
-}
+/** The design's three importance levels; in its own file so it loads without zod. */
+export { importanceOf } from './importance';
 
 /**
  * The vocabulary a proposed fact is written in.

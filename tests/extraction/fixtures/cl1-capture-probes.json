@@ -1,0 +1,1566 @@
+{
+ "about": "CL1 capture probe harness (review of PR #678). Rules path = proposeMobileCapture, no participant; model path = proposeCapture with a scripted provider answering model date/time; clarify = the answer to ask_time for «بدي أروح عالسوق بكرا». Reference 2026-09-26 10:00 Asia/Jerusalem. atE26da115 is present on rows that changed from e26da115; each is an intended fix.",
+ "rules": [
+  {
+   "text": "ذكرني أتصل بأمي بكرا المسا",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ذكرني أتصل بأمي بكرة الصبح",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ذكرني أتصل بأمي بكره العصر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "لازم أروح عالبنك عبكرا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالبنك | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالبنك ع | 2026-09-27 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "وبكرا بدي أزور ستي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أزور ستي | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "و بدي أزور ستي | 2026-09-27 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالجيم عالصبح",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالجيم | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالجيم ع | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالجيم بالمسا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالجيم | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالجيم ب | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالجيم وبالمسا بدي أدرس",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالجيم بدي أدرس | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالجيم وب بدي أدرس | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "لازم أشتري خبز الصبح",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أشتري خبز | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "لازم أتصل بسامي العصر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أتصل بسامي | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "عندي موعد عند الدكتور المغرب",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي موعد عند الدكتور المغرب | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "لازم أمرق على البنك الظهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أمرق على البنك | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أمرق على البنك الظهر | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بعد بكرا عندي امتحان",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي امتحان | 2026-09-28 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بعد بكرة لازم أدفع الإيجار",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الإيجار | 2026-09-28 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "اليوم لازم أخلص التقرير",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أخلص التقرير | 2026-09-26 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "هلأ لازم أتصل بالمدرسة",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "هلأ لازم أتصل بالمدرسة | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "ذكرني هاليوم أشتري دوا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أشتري دوا | 2026-09-26 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "ه أشتري دوا | 2026-09-26 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أزور خالتي الصبحية",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أزور خالتي | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أزور خالتي ية | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أمرق على سامي العصرية",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أمرق على سامي | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أمرق على سامي ية | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بكرا الصبحية عندي اجتماع",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "عندي اجتماع | 2026-09-27 09:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "ية عندي اجتماع | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بكرا العصرية بدي أروح عالسوق",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أروح عالسوق | 2026-09-27 14:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "ية بدي أروح عالسوق | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بدي أتصل بخالي بكرا الضهرية",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بخالي | 2026-09-27 12:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "أتصل بخالي الضهرية | 2026-09-27 12:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ذكرني أتصل بأمي المسا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أتصل بأمي | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "ذكرني أتصل بأمي مسا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أتصل بأمي | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أتصل بأمي مسا | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أطلع أمشي بالليل",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أطلع أمشي | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "الليلة لازم أحضّر الشنطة",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أحضّر الشنطة | 2026-09-26 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بدي أدرس بالليل بكرا",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدرس | 2026-09-27 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ذكرني هالمسا أتصل بسامي",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بسامي | 2026-09-26 18:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "ه أتصل بسامي | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "لازم أحضّر الغداء اليوم الساعة 2 الظهر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أحضّر الغداء | 2026-09-26 14:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "أحضّر ال ء الظهر | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "سجّل موعد دكتور يوم الأحد",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "موعد دكتور | 2026-09-27 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "سجّل موعد دكتور يوم الأحد. وبدي أدفع فاتورة الكهربا قبل آخر الشهر، ولازم أرد على إيميل سامي بخصوص المشروع، وذكرني أتصل بأمي بكرا المسا، وكمان عندي تمرين بالجيم يوم الثلاثاء الساعة 7 المسا، وبدي أخلص تقرير الشغل قبل الخميس.",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "موعد دكتور | 2026-09-27 - | ask_time",
+     "أدفع فاتورة الكهربا | 2026-09-30 - | ",
+     "أرد على إيميل سامي بخصوص المشروع | - - | ask_time",
+     "أتصل بأمي | 2026-09-27 18:00 | ",
+     "عندي تمرين بالجيم | 2026-09-29 19:00 | ",
+     "أخلص تقرير الشغل | 2026-10-01 - | ask_time"
+    ]
+   },
+   "beforeFx3": {
+    "status": "proposed",
+    "items": [
+     "موعد دكتور | 2026-09-27 - | ask_time",
+     "أدفع فاتورة الكهربا قبل آخر الشهر | - - | ask_time",
+     "أرد على إيميل سامي بخصوص المشروع | - - | ask_time",
+     "أتصل بأمي | 2026-09-27 18:00 | ",
+     "عندي تمرين بالجيم | 2026-09-29 19:00 | ",
+     "أخلص تقرير الشغل | 2026-10-01 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "لازم أشتري دوا من الصيدلية اليوم الساعة 5 المسا",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أشتري دوا من الصيدلية | 2026-09-26 17:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ذكرني الساعة 6 المسا أتصل بأمي",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-26 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "اجتماع مع سامي الأحد. الساعة 10 الصبح. بالمكتب",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "اجتماع مع سامي بالمكتب | 2026-09-27 10:00 | "
+    ]
+   }
+  },
+  {
+   "text": "صباح الخير، ذكرني أتصل بأمي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أتصل بأمي | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "صباح الخير، ذكرني أتصل بأمي بكرا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أتصل بأمي | 2026-09-27 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "صباح الخير، اتصل بأمي بكرا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "اتصل بأمي | 2026-09-27 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "مسا الخير، بكرا عندي دكتور الساعة 4 العصر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "عندي دكتور | 2026-09-27 16:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "مسا الخير | - - | ask_time",
+     "عندي دكتور | 2026-09-27 16:00 | "
+    ]
+   }
+  },
+  {
+   "text": "صباح الخير، اليوم الجو حلو",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "الجو حلو | 2026-09-26 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "مرحبا، بكرا عطلة",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عطلة | 2026-09-27 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "مرحبا، كيفك اليوم؟",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "تصبح على خير، بشوفك بكرا",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "تصبح على خير | - - | ask_time",
+     "بشوفك | 2026-09-27 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "طلب المساعدة يوم الأحد",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "طلب المساعدة | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "طلب عدة | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "لازم أحسب المسافة بكرا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أحسب المسافة | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "أحسب فة | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "الاجتماع الصباحي يوم الأحد",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "الاجتماع الصباحي | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "الاجتماع ال ي | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "أكتب التقرير اليومي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أكتب التقرير اليومي | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أكتب التقرير ي | 2026-09-26 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أرتب البيت خلال اليومين الجاية",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أرتب البيت خلال اليومين الجاية | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أرتب البيت خلال ين الجاية | 2026-09-26 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أتصل بأمي بكرا عالضهر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-27 12:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي عالضهر | 2026-09-27 12:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بدي أشتري أغراض بعد الضهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أشتري أغراض | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "ذكرني بكرا الساعة 8 الصبح أوخذ الدوا",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أوخذ الدوا | 2026-09-27 08:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بكرا مساءً عندي اجتماع",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "عندي اجتماع | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "غداً صباحاً اجتماع مع المدير",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "اجتماع مع المدير | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالسوق غدًا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالسوق | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالسوق غدًا | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالسوق بكرا بالفترة المسائية",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أروح عالسوق | 2026-09-27 18:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "أروح عالسوق بالفترة ئية | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "להתקשר לאמא מחר בערב",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ומחר בבוקר לקנות חלב",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לקנות חלב | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "תזכיר לי להתקשר לאמא בבוקר",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "להתקשר לאמא | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "לקנות לחם הבוקר",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לקנות לחם הבוקר | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "פגישה עם דני הערב",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "פגישה עם דני | 2026-09-26 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "לשלם חשבון חשמל היום",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לשלם חשבון חשמל | 2026-09-26 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "מחרתיים תור לרופא",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "תור לרופא | 2026-09-28 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "להתקשר לאמא מחר אחר הצהריים",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 14:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא אחר הצהריים | 2026-09-27 12:00 | "
+    ]
+   }
+  },
+  {
+   "text": "להתקשר לאמא מחר אחה\"צ",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ללמוד ערבית מחר",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "ללמוד ערבית | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "ללמוד ערבית | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "לבדוק את המערב מחר",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לבדוק את המערב | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "לבדוק את המערב | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "להתקשר לאמא מחר; חשבון חשמל עד סוף החודש; ארוחת ערב עם סמי ביום שישי ב-8",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 - | ask_time",
+     "חשבון חשמל | 2026-09-30 - | ",
+     "ארוחת עם סמי | 2026-10-02 20:00 | "
+    ]
+   },
+   "beforeFx3": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 - | ask_time",
+     "חשבון חשמל עד סוף החודש | - - | ask_time",
+     "ארוחת עם סמי | 2026-10-02 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "תור לרופא ביום ראשון. תזכיר לי ב-6 בערב להתקשר לאמא",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "תור לרופא | 2026-09-27 - | ask_time",
+     "להתקשר לאמא | 2026-09-26 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "פגישה עם סמי ביום ראשון. אני צריך להגיע ב-10 בבוקר",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "פגישה עם סמי אני צריך להגיע | 2026-09-27 10:00 | "
+    ]
+   }
+  },
+  {
+   "text": "בוקר טוב, להתקשר לאמא מחר",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "בוקר טוב, להתקשר לאמא",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "להתקשר לאמא | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "בוקר טוב, היום יום יפה",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "לילה טוב, נתראה מחר",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "בצהריים לאסוף את הילדים מחר",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לאסוף את הילדים | 2026-09-27 12:00 | "
+    ]
+   }
+  },
+  {
+   "text": "למחר לקנות מתנה",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לקנות מתנה | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "למחר לקנות מתנה | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "לקבוע תור לרופא ביום ראשון בלילה",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לקבוע תור לרופא | 2026-09-27 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "call mom tomorrow evening",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "call mom | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "call mom tonight",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "call mom | 2026-09-26 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "send the morning report Sunday",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "send the morning report | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "send the report | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "night shift tomorrow",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "night shift | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "shift | 2026-09-27 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "morning run tomorrow",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "morning run | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "good morning, call mom tomorrow",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "call mom | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "good morning, call mom",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "call mom | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "remind me to call mom in the morning",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "call mom | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "call mom in the | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "dentist Sunday afternoon",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "dentist | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "finish today's report",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "finish today's report | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "finish 's report | 2026-09-26 - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "call mom this evening",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "call mom | 2026-09-26 18:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "call mom this | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "pay rent by the evening",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "pay rent | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "pay rent by the | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "thanks, see you tomorrow",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "good morning! today is a beautiful day",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "hi, tomorrow is a holiday",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "Morning, call mom tomorrow",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "call mom | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "lunch with Sara at noon tomorrow",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "lunch with Sara at noon | 2026-09-27 12:00 | "
+    ]
+   }
+  },
+  {
+   "text": "buy milk today at 5pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "buy milk | 2026-09-26 17:00 | "
+    ]
+   }
+  },
+  {
+   "text": "evening walk with dad tomorrow",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "evening walk with dad | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "remind me tomorrow morning to take pills",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "take pills | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "Friday night dinner with Sam",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "dinner with Sam | 2026-10-02 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "صباح الخير، اتصل بأمي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "اتصل بأمي | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "صباح الخير، اتصل بأمي الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "اتصل بأمي | 2026-09-26 - | ask_am_pm"
+    ]
+   }
+  },
+  {
+   "text": "hey, happy friday",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "good morning! tomorrow is the big day",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "hi, today I'm working from home",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "ok, tomorrow then",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "thanks, tomorrow works",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "good night, see you tomorrow at 8",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "שלום, מחר חג",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "בוקר טוב, מחר יום הולדת לדני",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "היי, היום אני בבית",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "hello, tonight is the game",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "good morning, call mom at 5pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "call mom | 2026-09-26 17:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "ישיבת בוקר מחר",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "ישיבת | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "عندي اجتماع الصبحية",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي اجتماع | - - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي اجتماع ية | - - | ask_time"
+    ]
+   }
+  },
+  {
+   "text": "بكرا عالصبحية بدي أروح عالسوق",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أروح عالسوق | 2026-09-27 09:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "ع ية بدي أروح عالسوق | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "يوم الأحد العصرية عندي درس",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "عندي درس | 2026-09-27 14:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "ية عندي درس | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "العصرية بكرا بدي أزور ستي",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أزور ستي | 2026-09-27 14:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "ية بدي أزور ستي | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالجيم بكرا الصبحيه",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أروح عالجيم | 2026-09-27 09:00 | "
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "أروح عالجيم يه | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "المدرسة العصرية بدها قسط بكرا",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "المدرسة العصرية بدها قسط | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "المدرسة ية بدها قسط | 2026-09-27 14:00 | "
+    ]
+   }
+  }
+ ],
+ "model": [
+  {
+   "text": "بكرا العصرية بدي أروح عالسوق",
+   "model": "2026-09-27 14:00",
+   "modelTitle": "أروح عالسوق",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أروح عالسوق | 2026-09-27 14:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بكرا الصبحية عندي اجتماع",
+   "model": "2026-09-27 09:00",
+   "modelTitle": "اجتماع",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "اجتماع | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بدي أتصل بخالي بكرا الضهرية",
+   "model": "2026-09-27 12:00",
+   "modelTitle": "أتصل بخالي",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بخالي | 2026-09-27 12:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالسوق بكرا بالفترة المسائية",
+   "model": "2026-09-27 18:00",
+   "modelTitle": "أروح عالسوق",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أروح عالسوق | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ذكرني أتصل بأمي بكرا المسا",
+   "model": "2026-09-27 18:00",
+   "modelTitle": "أتصل بأمي",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "ذكرني أتصل بأمي بكرا عالمسا",
+   "model": "2026-09-27 18:00",
+   "modelTitle": "أتصل بأمي",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أتصل بأمي | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "بكرا بالليل بدي أدرس",
+   "model": "2026-09-27 20:00",
+   "modelTitle": "أدرس",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدرس | 2026-09-27 20:00 | "
+    ]
+   }
+  },
+  {
+   "text": "الاجتماع الصباحي يوم الأحد",
+   "model": "2026-09-27 09:00",
+   "modelTitle": "الاجتماع الصباحي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "الاجتماع الصباحي | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "الاجتماع الصباحي | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "طلب المساعدة يوم الأحد",
+   "model": "2026-09-27 18:00",
+   "modelTitle": "طلب المساعدة",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "طلب المساعدة | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "طلب المساعدة | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "send the morning report Sunday",
+   "model": "2026-09-27 09:00",
+   "modelTitle": "send the morning report",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "send the morning report | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "send the morning report | 2026-09-27 09:00 | "
+    ]
+   }
+  },
+  {
+   "text": "morning run tomorrow",
+   "model": "2026-09-27 07:00",
+   "modelTitle": "morning run",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "morning run | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "morning run | 2026-09-27 07:00 | "
+    ]
+   }
+  },
+  {
+   "text": "night shift tomorrow",
+   "model": "2026-09-27 22:00",
+   "modelTitle": "night shift",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "night shift | 2026-09-27 - | ask_time"
+    ]
+   },
+   "atE26da115": {
+    "status": "proposed",
+    "items": [
+     "night shift | 2026-09-27 22:00 | "
+    ]
+   }
+  },
+  {
+   "text": "call mom tomorrow evening",
+   "model": "2026-09-27 18:00",
+   "modelTitle": "call mom",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "call mom | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "לקנות לחם הבוקר",
+   "model": "2026-09-26 09:00",
+   "modelTitle": "לקנות לחם",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לקנות לחם | 2026-09-26 - | ask_time"
+    ]
+   },
+   "at460c097b": {
+    "status": "rejected",
+    "items": []
+   },
+   "fy1": "intended (FY1 N1c): a single commitment whose hour has passed today is asked about, never refused"
+  },
+  {
+   "text": "להתקשר לאמא מחר בערב",
+   "model": "2026-09-27 18:00",
+   "modelTitle": "להתקשר לאמא",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "להתקשר לאמא | 2026-09-27 18:00 | "
+    ]
+   }
+  },
+  {
+   "text": "לחם הבוקר מחר",
+   "model": "2026-09-27 09:00",
+   "modelTitle": "לחם",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לחם | 2026-09-27 09:00 | "
+    ]
+   }
+  }
+ ],
+ "clarify": {
+  "text": "بدي أروح عالسوق بكرا",
+  "answers": [
+   {
+    "answer": "العصرية",
+    "expected": "2026-09-27 14:00 needs=false q="
+   },
+   {
+    "answer": "الصبحية",
+    "expected": "2026-09-27 09:00 needs=false q="
+   },
+   {
+    "answer": "الضهرية",
+    "expected": "2026-09-27 12:00 needs=false q="
+   },
+   {
+    "answer": "عالعصرية",
+    "expected": "2026-09-27 14:00 needs=false q="
+   },
+   {
+    "answer": "بالمسا",
+    "expected": "2026-09-27 19:00 needs=false q=",
+    "at460c097b": "2026-09-27 18:00 needs=false q=",
+    "fy1": "intended (FY1 re-review, controller ruling): a typed part of the day is its button's hour (evening 19:00, like the «المسا» option)"
+   },
+   {
+    "answer": "الصبح",
+    "expected": "2026-09-27 09:00 needs=false q="
+   }
+  ]
+ }
+}

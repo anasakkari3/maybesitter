@@ -1,5 +1,6 @@
 import type { Strings } from '../../i18n/strings';
 import {
+  ApiError,
   CaptureConfirmRefusedError,
   ContractError,
   FeatureUnavailableError,
@@ -59,8 +60,8 @@ const FORBIDDEN_REASONS: readonly string[] = [
  *
  * A module the server has switched off answers 404 `feature_unavailable`
  * (`moduleGate.ts`) where a withdrawn feature answers 403 `feature_disabled`.
- * To the person they are the same thing — not available yet, and nothing a
- * Retry can change — so both are that one state.
+ * To the person they are the same thing — not available, and nothing a Retry
+ * can change — so both are that one state.
  */
 export function forbiddenReason(error: unknown): ForbiddenReason | null {
   if (error instanceof FeatureUnavailableError) return 'feature_disabled';
@@ -196,3 +197,38 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
 export function userFacingMessage(error: unknown, t: Strings): string {
   return t[userFacingMessageKey(error)];
 }
+
+/**
+ * The line under a server-backed switch that did not move (UAT round 3, N9).
+ *
+ * `error` is what the write threw, or `null` when the caller answered `false`
+ * without saying why. «ما وصل للسيرفر» (`trustActionFailed`) is said only when
+ * that is what happened — no connection, or no answer in time. A new account
+ * turning its calendar on got it for a 400 the server had plainly sent, and
+ * went looking for a network problem that did not exist.
+ *
+ * A refusal the server answered reads as a refusal; a fault of ours and the
+ * product states (quiet mode, switched off…) take this table's own lines; and
+ * a failure that is not the server's at all — the phone saying no, a `false`
+ * with no reason — claims nothing about the server.
+ */
+export function toggleFailureKey(error: unknown): UserFacingKey {
+  if (error instanceof NetworkError || error instanceof TimeoutError) return 'trustActionFailed';
+  if (!(error instanceof ApiError)) return 'trustActionNotSaved';
+  // Only lines that read under a switch pass through (FZ2 review M6). The
+  // generic ones ask the person to check what they typed, and the rest were
+  // written for other screens — «…حتى تشوف الاقتراحات» under a consent switch,
+  // a fault of ours that never said nothing changed. Anything not listed is
+  // a refusal.
+  return TOGGLE_KEYS[userFacingMessageKey(error)] ?? 'trustActionRefused';
+}
+
+const TOGGLE_KEYS: Partial<Record<UserFacingKey, UserFacingKey>> = {
+  errorsServer: 'toggleServerFailed',
+  errorsConsentRequired: 'toggleConsentRequired',
+  errorsQuietMode: 'toggleQuietMode',
+  errorsFeatureDisabled: 'toggleFeatureDisabled',
+  authSessionExpired: 'authSessionExpired',
+  authSignedOutRevoked: 'authSignedOutRevoked',
+  authSignedOutDeleted: 'authSignedOutDeleted',
+};

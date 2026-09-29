@@ -204,3 +204,136 @@ export function isFixedAppointment(rawText: string, time: FixedTime): boolean {
   if (attends || ATTENDING.test(text)) return true;
   return time.hasClock && MEETING.test(text);
 }
+
+/**
+ * Something that happens *on* a day, not work done by it (FY1 review, event
+ * branch): «بدي أروح عالعرس يوم الخميس», "a wedding", «חתונה». An appointment
+ * or a meeting is not asked for its time here — the day is enough — and the
+ * social events have no priority rule of their own, so they are listed here
+ * rather than in `ATTENDING`.
+ */
+const SOCIAL_EVENT = new RegExp(
+  [
+    '\\b(?:wedding|engagement\\s+party|party|birthday|concert|conference|funeral|graduation|ceremony|festival)\\b',
+    `${B}[وف]?(?:لل|[بلك]ال|عال|ال|[بلكع])?(?:عرس|خطبة|خطبه|حفلة|حفله|حفل|عيد\\s+ميلاد|كونسرت|حفلة\\s+تخرج|تخرّج|تخرج|مؤتمر|عزا|عزاء|جنازة|جنازه)${A}`,
+    `${B}[ובלהמש]{0,2}(?:חתונה|חתונת|אירוסין|מסיבה|מסיבת|יום\\s+הולדת|הופעה|כנס|לוויה|טקס|סיום)${A}`,
+  ].join('|'),
+  'iu',
+);
+
+/** Going for something, not going to the event: «أجيب/أوصّل…», "to pick up". */
+const ERRAND = new RegExp(
+  [
+    '\\bto\\s+(?:pick\\s+up|drop\\s+off|get|grab|collect|fetch|return|deliver)\\b',
+    words(['آخد', 'اخد', 'آخذ', 'اخذ', 'أوصّل', 'اوصّل', 'أوصل', 'اوصل', 'وصّل', 'أسلّم', 'اسلّم', 'أسلم', 'اسلم', 'أرجّع', 'ارجع']),
+    words(['להביא', 'לקחת', 'לאסוף', 'להחזיר', 'להוריד', 'למסור']),
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * Getting ready for it, not going to it (FY1 re-review, R-M1): «أكوي البدلة
+ * للعرس», "iron my suit for the wedding", «לגהץ את החליפה לחתונה». A task done
+ * before the event, which a planner has to place, so never the event itself.
+ * Social events only: an appointment or a meeting is the appointment rule's
+ * (re-review 2, I5). Bare «احضر/حضر» is Levantine "attend" — «احضر العرس» is
+ * going to it — so only the shadda forms «أحضّر/حضّر» ("prepare") are here.
+ */
+const PREPARING = new RegExp(
+  [
+    '\\b(?:iron(?:ing)?|press|prepare|preparing|prep|pack(?:ing)?|wrap(?:ping)?|book(?:ing)?|buy(?:ing)?|order|pick\\s+out|choose|get\\s+ready|dress|decorate|bake|cook|clean|write|print|rehearse|practi[cs]e|plan)\\b',
+    words(['أكوي', 'اكوي', 'كوي', 'بكوي', 'أجهّز', 'اجهز', 'أجهز', 'جهّز', 'جهز', 'بجهز', 'أحضّر', 'حضّر', 'أغلّف', 'اغلف', 'أغلف', 'غلّف', 'أغسل', 'اغسل', 'أرتب', 'ارتب', 'رتّب', 'أطبخ', 'اطبخ', 'أخبز', 'اخبز', 'أزيّن', 'ازين', 'أزين', 'أكتب', 'اكتب', 'أطبع', 'اطبع', 'أتدرب', 'اتدرب', 'أفصّل', 'افصل', 'أختار', 'اختار', 'أحجز', 'احجز', 'أشتري', 'اشتري', 'أجيب', 'اجيب']),
+    words(['לגהץ', 'להכין', 'לארוז', 'לעטוף', 'לקנות', 'להזמין', 'לבחור', 'לבשל', 'לאפות', 'לנקות', 'לסדר', 'לקשט', 'לכתוב', 'להדפיס', 'להתאמן', 'לתפור']),
+  ].join('|'),
+  'iu',
+);
+
+/**
+ * True when the sentence names something the person attends on a day — an
+ * appointment, a meeting, a wedding — rather than work to do by it. Used for
+ * an item answered "no specific time": it stays an all-day event on its day.
+ * False whenever in doubt, so a task keeps its old answer.
+ */
+export function isEventOnDay(rawText: string): boolean {
+  if (typeof rawText !== 'string' || !rawText.trim()) return false;
+  // The day is what places it; a meeting needs no clock to happen on one. The
+  // appointment rule has its own exclusions, and a purpose after it — "to
+  // clean my teeth", "to plan the budget" — does not make it a task (I5).
+  if (isFixedAppointment(rawText, { hasDay: true, hasClock: true })) return true;
+  const text = rawText.trim();
+  if (!SOCIAL_EVENT.test(text)) return false;
+  if (PREPARING.test(text)) return false;
+  if (ARRANGING.test(text) || LOOSE_NOUN.test(text) || ERRAND.test(text)) return false;
+  return !NEGATED.test(text.replace(DONT_FORGET, ' '));
+}
+
+/**
+ * An obligation the person states in their own words (closure UAT 2026-09-27,
+ * FX3): «لازم أسلّم التقرير», "I have to call Sam", «אני חייב לשלם».
+ *
+ * The review card labels `high` «لازم» / Must. When somebody *says* «لازم»,
+ * the item is theirs to call a Must, and it was coming back «يُفضّل» because
+ * the model was told only "urgent" or "important" counts. Both engines read
+ * this: the rule-based extractor infers with it, the schema validator raises
+ * the model's default with it. The clause is what is read, never the whole
+ * capture, so «لازم» on one commitment does not make its neighbours Must.
+ *
+ * Chosen per word, and a miss is the safe side (Should, one tap to change):
+ *
+ *   must        «لازم», «لازمني/لازمنا» (+ و/ف), «ضروري», «مضطر/مضطرة»;
+ *               must, have/has to, have got to, 've got to; «חייב/חייבת/
+ *               חייבים/חייבות» (+ ו/ש), «חובה».
+ *   not needed  the same words negated right before them: «مش/مو/ما لازم»,
+ *               «مش ضروري», "don't/doesn't/not have to", "needn't", «לא חייב» —
+ *               except before "forget" (`MUST_NOT_FORGET`), which is a Must.
+ *   neither     wanting and needing: «بدي», "want to", "need to", «צריך»
+ *               (the everyday "need to", as common as "I need to" and no
+ *               stronger), and the words as nouns or adjectives — «اللازم»,
+ *               «اللازمة», «ملازم» — which the whole-word boundaries exclude.
+ *
+ * Returns `must` when any occurrence is not negated.
+ */
+const OBLIGATION = new RegExp(
+  [
+    `${B}([وف]?(?:لازم|لازمني|لازمنا|ضروري|مضطر|مضطرة|مضطرين))${A}`,
+    "\\b(must|(?:have|has)\\s+to(?!-)|(?:have|'ve|has|'s)\\s+got\\s+to)\\b",
+    `${B}([וש]?(?:חייב|חייבת|חייבים|חייבות|חובה))${A}`,
+  ].join('|'),
+  'giu',
+);
+
+/** The word just before an obligation that turns it into "not needed". */
+const NEGATION_BEFORE = new RegExp(
+  `(?:${B}(?:مش|مو|ما|مب|لا|לא|אין)|\\b(?:don'?t|doesn'?t|didn'?t|do\\s+not|does\\s+not|not|never|won'?t))\\s*$`,
+  'iu',
+);
+
+const NEEDNT = /\bneedn'?t\b|\bneed\s+not\b/i;
+
+/**
+ * "Must not forget" is an obligation said as a prohibition (review I-3):
+ * «ما لازم أنسى أدفع الفاتورة» is the person saying they must pay it, not that
+ * they need not. A negated «لازم» followed by a form of «نسي» (to forget),
+ * "mustn't forget", and «אסור (לי) לשכוח» all read as Must.
+ */
+const MUST_NOT_FORGET = new RegExp(
+  [
+    `${B}(?:مش|مو|ما|مب)\\s+[وف]?(?:لازم|لازمني|لازمنا|ضروري)\\s+(?:[أاتني]نس(?:ى|ا|ي|و|اه|اها|اهم)?|أنسا|انسا)${A}`,
+    "\\bmustn['’]?t\\s+forget\\b",
+    `${B}[וש]?אסור(?:\\s+ל(?:י|נו|ך|כם))?\\s+לשכוח${A}`,
+  ].join('|'),
+  'iu',
+);
+
+export function statedObligation(text: string): 'must' | 'not_needed' | null {
+  if (typeof text !== 'string' || !text.trim()) return null;
+  if (MUST_NOT_FORGET.test(text)) return 'must';
+  let negated = false;
+  for (const match of Array.from(text.matchAll(OBLIGATION))) {
+    const before = text.slice(0, match.index);
+    if (NEGATION_BEFORE.test(before)) negated = true;
+    else return 'must';
+  }
+  if (negated || NEEDNT.test(text)) return 'not_needed';
+  return null;
+}

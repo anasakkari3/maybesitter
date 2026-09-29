@@ -8,6 +8,7 @@ import {
   ConfirmationRequiredError,
   ConflictError,
   DeviceCalendarLinkConflictError,
+  WeekConflictError,
   ContractError,
   ForbiddenError,
   InvalidTransitionError,
@@ -34,7 +35,7 @@ import {
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
-import { planEditRejectedSchema, planProposalRejectedSchema } from './schemas/plan';
+import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
 
@@ -219,6 +220,12 @@ function conflictFor(body: unknown): Error {
     // the sync service acts on rather than failures it reports.
     if (record.reason === 'calendar_link_owned_elsewhere' || record.reason === 'calendar_link_detached') {
       return new DeviceCalendarLinkConflictError(record.reason);
+    }
+    // The week's save (CL5b): the refusal carries the week to redraw from.
+    // Parsed, not trusted; a body that does not match is a plain conflict.
+    if (record.reason === 'already_planned' || record.reason === 'week_changed') {
+      const refused = weekConflictSchema.safeParse(body);
+      if (refused.success) return new WeekConflictError(refused.data.reason, refused.data.week);
     }
   }
   return new ConflictError(refusal(body).message);

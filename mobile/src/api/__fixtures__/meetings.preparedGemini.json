@@ -1,0 +1,44 @@
+{
+  "success": true,
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000001",
+    "status": "proposed",
+    "items": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000002",
+        "title": "أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير",
+        "resolvedTime": "2026-08-09T08:00:00.000Z",
+        "timeEstimated": false,
+        "needsClarification": false,
+        "priority": "normal",
+        "priorityEstimated": true
+      },
+      {
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "title": "أبعت الملخص لسامي",
+        "resolvedTime": "2026-08-16T06:00:00.000Z",
+        "timeEstimated": true,
+        "needsClarification": false,
+        "priority": "normal",
+        "priorityEstimated": true
+      }
+    ],
+    "seeds": [],
+    "provenance": {
+      "requestedEngine": "model",
+      "executedEngine": "gemini",
+      "fallbackUsed": false
+    }
+  },
+  "prep": {
+    "itemId": "00000000-0000-4000-8000-000000000002",
+    "remindAt": "2026-08-09T08:00:00.000Z",
+    "silentBecause": null,
+    "dueAt": "2026-08-09T09:00:00.000Z",
+    "leadMinutes": 60,
+    "adjustment": "none",
+    "startAt": "2026-08-09T09:00:00.000Z",
+    "endAt": "2026-08-09T09:45:00.000Z"
+  }
+}

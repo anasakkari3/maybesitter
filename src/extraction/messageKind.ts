@@ -26,6 +26,8 @@
  * signal, and the rest are checked from most specific to least.
  */
 
+import { asksOrOpensWithAction } from './requestEvidence';
+
 export type MessageKind =
   /** Asks for something to be remembered, scheduled or done. */
   | 'request'
@@ -72,13 +74,58 @@ const NEGATED = new RegExp([
   /אל תזכיר לי|אל תזכירי לי|לא צריך להזכיר|תפסיק להזכיר|תפסיקי להזכיר/.source,
 ].join('|'), 'i');
 
-/** A greeting, or the opening of small talk. */
-const GREETING = new RegExp([
-  /^\s*(?:hi|hey|hello|yo|good\s+(?:morning|afternoon|evening|night)|morning|evening|thanks|thank you|ok|okay)\b/.source,
+/**
+ * A greeting, or the opening of small talk. Whole words: «שלום» inside
+ * «לשלום» (to Shalom), «سلام» inside «الإسلام», «هلا» inside «هلال» are not
+ * greetings. Farewells and wishes are small talk too — "see you tomorrow",
+ * «بشوفك بكرا», «נתראה מחר» — so the day in them is not a commitment.
+ */
+const GREETING_SOURCES: readonly string[] = [
+  // A bare "Morning" / "Evening" opens small talk only when it stands alone
+  // ("Morning!", "Morning, call mom…"); "morning run tomorrow" is the run.
+  /^\s*(?:hi|hey|hello|yo|good\s+(?:morning|afternoon|evening|night)|thanks|thank you|ok|okay)\b|^\s*(?:morning|evening)\b(?=\s*(?:[,!.]|$))/.source,
   /\bhow are you\b|\bwhat'?s up\b|\bhow'?s it going\b/.source,
-  /صباح الخير|صباح النور|مساء الخير|مرحبا|مرحبتين|أهلا|اهلا|هلا|سلام|السلام عليكم|كيفك|كيف حالك|شو الأخبار|شو الاخبار|شكرا/.source,
-  /בוקר טוב|צהריים טובים|ערב טוב|לילה טוב|שלום|היי|מה קורה|מה נשמע|מה העניינים|תודה/.source,
-].join('|'), 'i');
+  /\bgood\s+(?:morning|afternoon|evening|night)\b|\bsee you\b|\btalk (?:to you )?(?:later|soon)\b|\bcatch you later\b|\btake care\b|\bhave a (?:good|great|nice|lovely) (?:day|night|evening|weekend|one)\b/.source,
+  '(?<![\\p{L}\\p{M}])(?:صباح الخير|صباح النور|مساء الخير|مسا الخير|مرحبا|مرحبتين|أهلا|اهلا|هلا|سلام|السلام عليكم|مع السلامة|كيفك|كيف حالك|شو الأخبار|شو الاخبار|شكرا|تصبح على خير|تصبحي على خير|بشوفك|منشوفك|نشوفك|بنشوفك|يومك سعيد|نهارك سعيد)(?![\\p{L}\\p{M}])',
+  '(?<![\\p{L}\\p{M}])(?:בוקר טוב|צהריים טובים|ערב טוב|לילה טוב|שלום|היי|מה קורה|מה נשמע|מה העניינים|תודה|נתראה|נדבר|יום טוב|המשך יום טוב)(?![\\p{L}\\p{M}])',
+];
+const GREETING = new RegExp(GREETING_SOURCES.join('|'), 'iu');
+// Strings, not literals: the `u` flag is not available to a regex literal
+// under this tsconfig's target (see INTERROGATIVE below).
+const LEADING_MARKS = new RegExp('^[\\s,.!،؛:;-]+', 'u');
+const EVERY_GREETING = new RegExp(GREETING_SOURCES.join('|'), 'giu');
+
+/**
+ * What a greeting leaves once it is taken out — every greeting, the ones that
+ * open the message first, so "ok thanks, see you" leaves nothing.
+ */
+function withoutGreetings(text: string): string {
+  let rest = text;
+  for (let pass = 0; pass < 4; pass += 1) {
+    const next = rest.replace(EVERY_GREETING, ' ').replace(LEADING_MARKS, '');
+    if (next === rest) break;
+    rest = next;
+  }
+  return rest.trim();
+}
+
+const LEADING_GREETING = new RegExp(`^[\\s,.!،؛:;-]*(?:${GREETING_SOURCES.join('|')})[\\s,.!،؛:;-]*`, 'iu');
+
+/**
+ * The text without the greetings it opens with, for a title: "good morning,
+ * call mom" is "call mom". Only the opening ones — "tell dad good night" keeps
+ * its words.
+ */
+export function stripLeadingGreetings(text: string): string {
+  let rest = text;
+  for (let pass = 0; pass < 4; pass += 1) {
+    const next = rest.replace(LEADING_GREETING, '');
+    if (next === rest) break;
+    rest = next;
+  }
+  return rest;
+}
+
 
 /**
  * A question put to the assistant.
@@ -119,11 +166,20 @@ const INFORMATIONAL = new RegExp([
   /היה לי|אני מרגיש|אני מרגישה|עייף|עייפה|שאל אותי|שאלה אותי|ביקש ממני|מחכה|מחכים/.source,
 ].join('|'), 'i');
 
-/** Already happened, and nothing is being asked about it. */
+/**
+ * Already happened, and nothing is being asked about it.
+ *
+ * «خلص» ("it's over", «خلصت» "I finished") only where it starts a word
+ * (closure UAT round 4, N15): as a substring it matched the first-person
+ * «أخلص» — "I (will) finish" — and «أخلص التقرير قبل آخر الشهر بيومين» was
+ * no commitment at all on the rules path. «نخلص», «بخلص», «يخلص» are the
+ * same verb, still to be done. A conjunction before it is still the past —
+ * «وخلص الاجتماع», «فخلص الموضوع» (POLISH-CAPTURE review, I2).
+ */
 const PAST = new RegExp([
   /\b(?:yesterday|last night|last week|last month|earlier today|this morning already)\b/.source,
   /\b(?:was|were|had|met|saw|went|finished|cancelled|canceled)\b.*\b(?:yesterday|last week|last night)\b/.source,
-  /مبارح|امبارح|أمس|الأسبوع الماضي|الشهر الماضي|انتهى|خلص/.source,
+  /مبارح|امبارح|أمس|الأسبوع الماضي|الشهر الماضي|انتهى|(?<![\u0600-\u06FF])[وف]?خلص/.source,
   /אתמול|שלשום|בשבוע שעבר|בחודש שעבר|נגמר|בוטל/.source,
 ].join('|'), 'i');
 
@@ -144,7 +200,10 @@ const FORWARDED = /^\s*(?:fwd|fw|forwarded)\s*:/i;
  *  4. **past_event** — before `question` and `greeting`, because "was the
  *     meeting cancelled yesterday?" is about something that already happened.
  *  5. **question** — an interrogative or a trailing question mark.
- *  6. **greeting_or_chat** — a greeting with nothing asked.
+ *  6. **greeting_or_chat** — a greeting with nothing asked. What follows a
+ *     greeting is classified on its own when it asks for something — a
+ *     request word or an errand verb it opens with: a greeting does not
+ *     swallow a commitment, and does not make small talk one either.
  *  7. **informational** — a state, a feeling or news.
  *  8. otherwise a request, which keeps every plain imperative ("buy milk")
  *     working: that is the overwhelmingly common case and it carries none of
@@ -159,7 +218,17 @@ export function classifyMessageKind(rawText: string): MessageKind {
   if (FORWARDED.test(text)) return 'past_event';
   if (PAST.test(text)) return 'past_event';
   if (INTERROGATIVE.test(text) || QUESTION_MARK.test(text)) return 'question';
-  if (GREETING.test(text)) return 'greeting_or_chat';
+  if (GREETING.test(text)) {
+    // A greeting in front of a commitment does not swallow it (CL1): "good
+    // morning, call mom tomorrow" is the call. What is left is read on its
+    // own only when it asks for something — a request word or an errand verb
+    // it opens with. "Hello, tonight is the game", "hi, tomorrow is a
+    // holiday" and «שלום, מחר חג» name a day and ask for nothing: small talk,
+    // the #166 create-nothing class (CL1 review I-2). "Good morning,
+    // everyone" is small talk for the same reason.
+    const rest = withoutGreetings(text);
+    return rest && asksOrOpensWithAction(rest) ? classifyMessageKind(rest) : 'greeting_or_chat';
+  }
   if (INFORMATIONAL.test(text)) return 'informational';
   return 'request';
 }

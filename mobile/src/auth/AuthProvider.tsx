@@ -149,3 +149,12 @@ export function useAuth(): AuthModel {
   if (!value) throw new Error('useAuth must be used inside <AuthProvider>');
   return value;
 }
+
+/**
+ * The same, or null outside a provider. For a component that is drawn inside
+ * screens rendered on their own (the place-reminder editor, closure CL4) and
+ * only needs to know whose device-local data to read.
+ */
+export function useOptionalAuth(): AuthModel | null {
+  return useContext(Ctx);
+}

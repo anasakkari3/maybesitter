@@ -8,6 +8,7 @@
       "title": "موعد دكتور",
       "resolvedTime": null,
       "needsClarification": true,
+      "timeEstimated": false,
       "priority": "high",
       "priorityEstimated": true,
       "resolvedDate": "2026-08-16",

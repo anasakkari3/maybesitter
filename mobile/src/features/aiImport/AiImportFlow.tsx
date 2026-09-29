@@ -72,9 +72,8 @@ export function AiImportFlow({
       // copy had not happened yet, the user arrives at their assistant with
       // nothing to paste.
       await copyPrompt();
-      const url = ASSISTANTS[state.assistant].url;
       // Nothing to open for an unnamed assistant: the copy was the handoff.
-      const outcome = url === null ? 'copied' : await openAssistant(url);
+      const outcome = ASSISTANTS[state.assistant].webUrl === null ? 'copied' : await openAssistant(state.assistant);
       // Opened (or copied): coming back lands on the paste step. Failed: the
       // step stays and shows the question to copy by hand.
       dispatch(outcome === 'failed' ? { type: 'openFailed' } : { type: 'handedOff' });

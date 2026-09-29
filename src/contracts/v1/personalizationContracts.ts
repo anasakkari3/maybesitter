@@ -872,6 +872,12 @@ export interface PersonalizationDeletionReceipt {
    * followed club purges alongside them even though the user typed it.
    */
   readonly remainingFootballFollowsCount: number;
+  /**
+   * Goal steps a planner model or template proposed and nobody confirmed,
+   * still held after the purge (CL3). Inferred suggestions, purged like
+   * `profileProposals`; confirmed work built from them is kept.
+   */
+  readonly remainingGoalStepProposalCount: number;
   readonly remainingPersistedProfileCount: number;
   readonly emptyStateDigest: string;
 }
@@ -1502,6 +1508,8 @@ const RECEIPT_REMAINDER_FIELDS = Object.freeze([
   'remainingFeedbackEventCount',
   'remainingRuntimeMemoryRecordCount',
   'remainingFootballFollowsCount',
+  // CL3: checked from the day it exists, for the reason given above.
+  'remainingGoalStepProposalCount',
   'remainingPersistedProfileCount',
 ] as const);
 

@@ -9,10 +9,14 @@
 import React from 'react';
 import { describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
 import en from '../../../i18n/locales/en.json';
+import ar from '../../../i18n/locales/ar.json';
+import he from '../../../i18n/locales/he.json';
+import { ForbiddenError, NetworkError, ServerError, TimeoutError, ValidationError } from '../../../api/errors';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -41,24 +45,141 @@ describe('the position is the server’s', () => {
     // does, on the next render, from the caller.
     const onChange = jest.fn(async () => true);
     await show({ value: false, onChange: onChange as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(true));
     expect(screen.getByTestId('toggle').props.value).toBe(false);
   });
 
   it('stays where it was when the write fails, and says so', async () => {
     await show({ value: false, onChange: (async () => false) as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
     expect(screen.getByTestId('toggle').props.value).toBe(false);
-    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+    // `false` says the write did not take, not why. It used to read «ما وصل
+    // للسيرفر», which is a claim about the network nobody had checked.
+    expect(screen.queryByText(en.trustActionNotSaved)).not.toBeNull();
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
   });
 
   it('treats a thrown error the same as a refusal', async () => {
     await show({ onChange: (async () => { throw new Error('offline'); }) as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
   });
+});
+
+describe('which failure it says (UAT round 3, N9)', () => {
+  async function failWith(error: unknown) {
+    await show({ onChange: (async () => { throw error; }) as never });
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+  }
+
+  it('a refusal the server answered never says it did not reach the server', async () => {
+    // The literal N9 answer: 400 from `/api/mobile/pilot/trust`.
+    await failWith(new ValidationError('calendar consent is available only after first value'));
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.queryByText(en.trustActionRefused)).not.toBeNull();
+    // The server's own words are never shown.
+    expect(screen.queryByText(/first value/)).toBeNull();
+  });
+
+  it('a request that never arrived says so', async () => {
+    await failWith(new NetworkError('offline'));
+    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+  });
+
+  it('a request nobody answered in time says so too', async () => {
+    await failWith(new TimeoutError('slow'));
+    expect(screen.queryByText(en.trustActionFailed)).not.toBeNull();
+  });
+
+  it('a server fault reads as ours, not as the network', async () => {
+    await failWith(new ServerError('boom', 500));
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    // Its own line under a switch, which also says nothing changed (FZ2 M6).
+    expect(screen.queryByText(en.toggleServerFailed)).not.toBeNull();
+  });
+
+  it('a failure that is not an answer from the server claims nothing about it', async () => {
+    await failWith(new Error('the phone said no'));
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.queryByText(en.trustActionNotSaved)).not.toBeNull();
+  });
+});
+
+/*
+ * FZ2 review M5: the failure line appears under the switch after the tap, and
+ * nothing told a screen reader. TalkBack hears it from a live region;
+ * VoiceOver is told the line itself.
+ */
+describe('a failure is announced', () => {
+  /*
+   * POLISH-MOBILE review I1: a region mounted together with its line is not
+   * heard by TalkBack. The region is there before anything fails; only its
+   * line comes and goes.
+   */
+  it('has its live region mounted before anything fails', async () => {
+    await show();
+    expect(screen.queryByTestId('toggle-failed')).toBeNull();
+    expect(screen.getByTestId('toggle-failed-live').props.accessibilityLiveRegion).toBe('polite');
+  });
+
+  it('sits in a live region, and VoiceOver is told the line once it appears', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
+    await show({ onChange: (async () => { throw new NetworkError('offline'); }) as never });
+    expect(announce).not.toHaveBeenCalled();
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+    expect(screen.getByTestId('toggle-failed-live').props.accessibilityLiveRegion).toBe('polite');
+    await waitFor(() => expect(announce).toHaveBeenCalledWith(en.trustActionFailed));
+    announce.mockRestore();
+  });
+});
+
+/*
+ * FZ2 review M6: some lines passed through were written for other screens —
+ * «شغّلها من الإعدادات حتى تشوف الاقتراحات» under a consent switch, a server
+ * fault that never said nothing changed. Under a switch every line says what
+ * happened to the switch.
+ */
+describe('every failure line reads under a switch', () => {
+  async function lineFor(error: unknown): Promise<string> {
+    await show({ onChange: (async () => { throw error; }) as never });
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('toggle-failed')).not.toBeNull());
+    return String(screen.getByTestId('toggle-failed').props.children);
+  }
+
+  it('a server fault says nothing changed', async () => {
+    expect(await lineFor(new ServerError('boom', 500))).toBe(en.toggleServerFailed);
+  });
+
+  it('a consent the server still needs is said about this switch, not about suggestions', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'consent_required'))).toBe(en.toggleConsentRequired);
+  });
+
+  it('a module switched off on the server also says nothing changed (review m8)', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'feature_disabled'))).toBe(en.toggleFeatureDisabled);
+  });
+
+  it('quiet mode is said about this switch, not about suggestions', async () => {
+    expect(await lineFor(new ForbiddenError('no', 'quiet_mode'))).toBe(en.toggleQuietMode);
+  });
+});
+
+/* Every switch line ends with what happened to the switch, in all three (review m8). */
+it('says nothing changed in every switch line, in ar, en and he', () => {
+  const keys = ['toggleServerFailed', 'toggleConsentRequired', 'toggleQuietMode', 'toggleFeatureDisabled'] as const;
+  for (const key of keys) {
+    expect(ar[key]).toContain('فما تغيّر إشي');
+    expect(en[key]).toContain('so nothing changed');
+    expect(he[key]).toContain('אז שום דבר לא השתנה');
+  }
+  // Spelling (review m7): the shadda is written.
+  expect(ar.toggleServerFailed).toContain('عنّا');
+  expect(ar.toggleConsentRequired).toContain('أوّل');
 });
 
 describe('while a write is in flight', () => {
@@ -68,9 +189,9 @@ describe('while a write is in flight', () => {
     const onChange = jest.fn(() => pending);
     await show({ onChange: onChange as never });
 
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('toggle-busy')).not.toBeNull());
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     expect(onChange).toHaveBeenCalledTimes(1);
 
     release(true);
@@ -82,7 +203,7 @@ describe('when the caller has nothing to write against', () => {
   it('is disabled', async () => {
     const onChange = jest.fn(async () => true);
     await show({ disabled: true, onChange: onChange as never });
-    fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('toggle'), 'valueChange', true);
     expect(onChange).not.toHaveBeenCalled();
   });
 });

@@ -73,8 +73,8 @@ beforeEach(() => {
   mockAct.mockReset();
   useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
 });
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
   jest.restoreAllMocks();
 });
 

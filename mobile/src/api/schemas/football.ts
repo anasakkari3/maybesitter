@@ -61,6 +61,12 @@ export type FootballFixture = z.infer<typeof footballFixtureSchema>;
 /** Mirrors both `GET` and `PUT /api/mobile/football` -- one shape, one schema. */
 export const footballSettingsResponseSchema = z.object({
   success: z.literal(true),
+  /**
+   * Whether the server holds the match data key (closure CL7). False means
+   * nothing will ever be fetched, so every football entry point is hidden —
+   * a follow that never fills is worse than no row.
+   */
+  providerConfigured: z.boolean(),
   clubs: z.array(footballClubSchema),
   followedClubIds: z.array(z.string()),
   fixtures: z.array(footballFixtureSchema),

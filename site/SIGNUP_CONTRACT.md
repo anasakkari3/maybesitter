@@ -61,13 +61,62 @@ site and the endpoint one origin).
    be messaged about the test, and nothing else.
 3. **Answer identically** for a new and an existing email (no enumeration). 200 on
    success, 422 with field names on invalid input, 429 when rate-limited, 503 if the
-   store is down. The page maps 422 to "check the fields" and anything else to "try
+   store is down. Every error body is `{error: <sentence>, code: <machine code>}`
+   (see the legacy section for why `error` is a sentence). The page maps 422 to "check the fields" and anything else to "try
    again later".
 4. **No IP addresses, cookies or visitor identifiers** are stored. Rate-limit globally,
    like the stranded version did.
 5. **Reading the message test** needs only aggregate counts: sign-ups by `v`, by `source`,
    and by `knowsFounder = "no"`. The denominators are the link taps each platform reports.
    The site never counts visitors.
+
+## Legacy shape: the stranded launch page (until main's `site/` is on Hosting)
+
+Production Hosting still serves the stranded launch page (`ba7f74f0`), which posts
+`{name, email, device, phone, website, source}` (all strings, no `v`) and pings
+`POST /api/early-access/events` with `{event, source}`. So a production deploy of main
+does not break it, `lib/earlyAccess/service.ts` accepts that body as a **versioned legacy
+shape**:
+
+- **Detection.** A body with none of `v`, `language`, `pageLanguage`, `knowsFounder`,
+  `whatsappOptIn` is legacy. Any one of them present means the current contract above,
+  so a current-site bug that drops `v` is a 422, and an opt-in cannot be smuggled in
+  through the legacy path.
+- **Stored.** `email`, `device`, `source`, the date, `language: "en"` and
+  `pageLanguage: "en"` (that page is English-only), `knowsFounder: null` (never asked),
+  `whatsappOptIn: false`, `phone: null`, `v: "legacy"`. A strict subset of the list the
+  privacy policy promises.
+- **Dropped.** `name`, because the policy says we do not ask for one. `phone`, because
+  the policy keeps a number only with the WhatsApp opt-in, the legacy page never asked
+  for it, and treating a typed number as that consent would invent it.
+- **Honeypot.** `website` is the same hidden field on both pages and is handled
+  identically: non-empty → 200 `{ok:true}`, nothing written, not even the rate window.
+- **Answers.** 200 `{ok:true}` as before. Every error answer, for both shapes and both
+  routes, is `{error: <an English sentence>, code: <machine code>}` (plus `fields` on
+  422). The legacy page prints `error` verbatim, including for the 403/405/413/415/400
+  answers given before any body is read, so `error` is always the stranded endpoint's
+  own sentence; the current site reads only the status. On 422 the current site gets
+  `fields` as a list of names, the legacy page as `{field: message}`.
+- **`/events`.** `POST` only, same origin check, **204 with no body read and nothing
+  stored**. The current site sends no page views and main keeps no page-view store.
+
+### Known consequences for the owner
+
+- **Old stranded rows.** `earlyAccessRegistrations` already holds rows the stranded
+  service wrote, with `name` and `phone` (same document id, so first-wins keeps them).
+  The current privacy text says no name is collected and a number only with the opt-in.
+  Either strip `name`/`phone` where `whatsappOptIn !== true` once, or keep them under the
+  stranded notice that disclosed both; they are deletable on request like every other
+  row. `earlyAccessMetrics` (day/source/event counts, no personal data) stops growing.
+- **`language` on a legacy row is the page's language**, not a preference the visitor
+  gave. Exclude `v: "legacy"` from any count by `language` or `knowsFounder`, and count
+  the message test on `v` in `a | b | none`.
+- **The legacy page promises more than is kept.** Its form and dialog mention first name,
+  phone and page-visit counts; none is stored. Collecting less is safe, but anyone who
+  typed a phone number expecting to be called about access will not be.
+
+Remove the legacy shape and the `/events` route once main's `site/` has been on Hosting
+long enough that no cached copy of the old page is still posting.
 
 ## Owner
 

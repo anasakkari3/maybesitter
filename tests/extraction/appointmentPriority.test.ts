@@ -19,7 +19,11 @@ import { extract } from '../../src/extraction/ruleBasedExtractor.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { buildPrompt } from '../../src/extraction/ollamaExtractor.ts';
 import { stripCaptureCommand } from '../../src/extraction/captureCommand.ts';
-import { answerClarification, proposeCapture, MemoryCaptureProposalStore, TransactionalCapturePersistenceAdapter } from '../../lib/services/captureBoundary/index.ts';
+import { answerClarification, confirmCapture, proposeCapture, MemoryCaptureProposalStore, TransactionalCapturePersistenceAdapter } from '../../lib/services/captureBoundary/index.ts';
+import { guardedMobileExtract } from '../../lib/services/mobile/safety.ts';
+import { clarifyMobileCapture, proposeMobileCapture } from '../../lib/services/mobile/mobileCaptureService.ts';
+import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
+import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import type { ExtractionContext } from '../../src/extraction/extractionTypes.ts';
 
@@ -265,7 +269,11 @@ test('validator: a malformed model date is dropped, not passed to the phone', ()
     'سجّل موعد دكتور يوم الأحد',
     context,
   );
-  assert.equal(result.localTimeSpec, null);
+  // The malformed string never reaches the phone. Since CL1 round 1 the day the
+  // text names is filled by the rules path's rule instead, and marked a guess.
+  assert.notEqual(result.localTimeSpec?.date, 'next sunday');
+  assert.equal(result.localTimeSpec?.date, '2026-09-27');
+  assert.equal(result.dateInferred, true);
 });
 
 test('validator: an informational answer is not raised, whatever its nouns', () => {
@@ -347,13 +355,14 @@ test('share allowlist: a malformed day is stripped and reported, not passed to t
 
 async function proposeOwnerSentence() {
   const store = new MemoryCaptureProposalStore();
+  const persistence = new TransactionalCapturePersistenceAdapter(createEmptyDomainState());
   const contract = await proposeCapture(
     'سجّل موعد دكتور يوم الأحد',
     { now: context.now, timezone: TZ, scopeId: 'l4', requestedEngine: 'rules' },
-    { store, persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()) },
+    { store, persistence },
   );
   const item = contract.items[0]!;
-  return { store, contract, item, question: item.clarification! };
+  return { store, persistence, contract, item, question: item.clarification! };
 }
 
 const clarifyOptions = { now: context.now, timezone: TZ, scopeId: 'l4' };
@@ -401,27 +410,189 @@ test('clarify: a free-text answer that states another date replaces the day, and
   assert.equal(answered.dateEstimated, false);
 });
 
-test('clarify: an answer whose reading carries no local day drops the stale day and its guess', async () => {
-  const { store, contract, item, question } = await proposeOwnerSentence();
-  // An instant with no wall-clock day beside it: nothing says which day the
-  // card should call ours, so it says nothing rather than the old Sunday.
+// ── UAT round 6 (FIX-R6-TYPEDDAY): a typed hour answers the hour of the day that was asked ──
+//
+// Superseded ruling. This test used to be «an answer whose reading carries no
+// local day drops the stale day and its guess», and pinned `resolvedDate`
+// undefined: the card said no day, while the instant it kept — and the
+// commitment the confirm persisted — was Thursday 24 Sep 07:00Z, a day
+// nobody typed. The owner asked for the doctor on Sunday, was asked «أي ساعة
+// يوم الأحد، 27 سبتمبر؟», typed an hour, and got Thursday: a silently moved
+// date, which the binding owner rule forbids. A typed hour answers the hour
+// question for the day that was asked; a typed day wins only when the person
+// types a day (R2-M1). The re-read's instant is read in the person's zone for
+// its hour, and that hour lands on the asked Sunday — still a guessed Sunday,
+// as the tapped «الصبح» leaves it.
+
+/** SCRIPTED re-read: an instant with no wall-clock day beside it (`localTimeSpec` null), on `iso`. */
+function instantOnlyReread(iso: string, fields: Record<string, unknown> = {}) {
   const timed = extract('call the plumber', context);
+  return async (text: string) => ({
+    result: { ...timed, rawText: text, localTimeSpec: null, timeEvidence: 'hhmm' as const, dueAt: iso, remindAt: iso, ...fields },
+    engine: 'rule-based' as const,
+    fallbackReason: null,
+  });
+}
+
+const THURSDAY_10 = '2026-09-24T07:00:00.000Z';
+const SUNDAY_10 = '2026-09-27T07:00:00.000Z';
+
+test('clarify: an hour typed alone whose reading carries no local day lands on the asked Sunday, still a guess — and is persisted there', async () => {
+  const { store, persistence, contract, item, question } = await proposeOwnerSentence();
+  assert.equal(question.params.date, '2026-09-27');
   const next = await answerClarification(
     { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'at 10' },
     clarifyOptions,
-    {
-      store,
-      recordEvent: () => {},
-      extractor: async (text) => ({
-        result: { ...timed, rawText: text, localTimeSpec: null, timeEvidence: 'hhmm', dueAt: '2026-09-24T07:00:00.000Z', remindAt: '2026-09-24T07:00:00.000Z' },
-        engine: 'rule-based',
-        fallbackReason: null,
-      }),
-    },
+    { store, recordEvent: () => {}, extractor: instantOnlyReread(THURSDAY_10) },
   );
   const answered = next.items[0]!;
-  assert.equal(answered.resolvedDate, undefined);
-  assert.equal(answered.dateEstimated, undefined);
+  assert.deepEqual([answered.resolvedDate, answered.resolvedTime, answered.dateEstimated, answered.needsClarification], ['2026-09-27', SUNDAY_10, true, false]);
+  const confirmed = await confirmCapture(
+    { proposalId: contract.proposalId, scopeId: 'l4', selectedItemIds: [item.itemId], idempotencyKey: 'k-typedday', now: context.now },
+    { store, persistence },
+  );
+  assert.equal(confirmed.success, true, JSON.stringify(confirmed));
+  const [saved] = Object.values((await persistence.snapshot()).commitments);
+  assert.equal(saved!.timeSpec.dueAt, SUNDAY_10);
+});
+
+test('clarify: every typed hour alone (ar, he, en) with a day-less re-read on Thursday is the asked Sunday at that hour', async () => {
+  const seen: unknown[] = [];
+  for (const freeText of ['at 10', '10am', 'الساعة 10', '10 الصبح', 'الساعة 10 الصبح', 'בשעה 10', 'ב-10 בבוקר']) {
+    const { store, contract, item, question } = await proposeOwnerSentence();
+    try {
+      const next = await answerClarification(
+        { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText },
+        clarifyOptions,
+        { store, recordEvent: () => {}, extractor: instantOnlyReread(THURSDAY_10) },
+      );
+      seen.push([freeText, next.items[0]!.resolvedDate, next.items[0]!.resolvedTime]);
+    } catch (error) {
+      seen.push([freeText, `refused: ${(error as { failure?: string }).failure ?? String(error)}`]);
+    }
+  }
+  assert.deepEqual(seen, ['at 10', '10am', 'الساعة 10', '10 الصبح', 'الساعة 10 الصبح', 'בשעה 10', 'ב-10 בבוקר']
+    .map((freeText) => [freeText, '2026-09-27', SUNDAY_10]));
+});
+
+test('clarify: the typed hour on the asked day that has gone is refused, never another day', async () => {
+  // Answered on Sunday at 11:00: 10:00 on the asked Sunday is behind now; the
+  // re-read's Monday 10:00 is not the person's answer (FIX-R6-PASSEDPART).
+  const { store, contract, item, question } = await proposeOwnerSentence();
+  await assert.rejects(
+    answerClarification(
+      { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'at 10' },
+      { ...clarifyOptions, now: new Date('2026-09-27T11:00:00+03:00') },
+      { store, recordEvent: () => {}, extractor: instantOnlyReread('2026-09-28T07:00:00.000Z') },
+    ),
+    (error: { failure?: string }) => error.failure === 'answer_not_understood',
+  );
+});
+
+test('clarify: an all-day re-read has no hour to take — refused, never midnight on the asked day', async () => {
+  const { store, contract, item, question } = await proposeOwnerSentence();
+  await assert.rejects(
+    answerClarification(
+      { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'at 10' },
+      clarifyOptions,
+      { store, recordEvent: () => {}, extractor: instantOnlyReread('2026-09-23T21:00:00.000Z', { allDay: true }) },
+    ),
+    (error: { failure?: string }) => error.failure === 'answer_not_understood',
+  );
+});
+
+test('clarify: a day the person types still wins over the asked day (R2-M1)', async () => {
+  const { store, contract, item, question } = await proposeOwnerSentence();
+  const next = await answerClarification(
+    { proposalId: contract.proposalId, itemId: item.itemId, questionId: question.questionId, freeText: 'بكرا الساعة 10' },
+    clarifyOptions,
+    { store, recordEvent: () => {}, extractor: instantOnlyReread(THURSDAY_10) },
+  );
+  assert.deepEqual([next.items[0]!.resolvedDate, next.items[0]!.resolvedTime, next.items[0]!.dateEstimated], ['2026-09-24', THURSDAY_10, false]);
+});
+
+/** SCRIPTED model: the owner's Sunday with no hour, then the re-read `reread` of the sentence and the answer. */
+function doctorModel(reread: Record<string, unknown>) {
+  const answer = (fields: Record<string, unknown>) => ({
+    type: 'task', action: 'موعد دكتور', title: 'موعد دكتور', person: null, dueAt: null, remindAt: null, localTimeSpec: null,
+    priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureImplied: false },
+    flexibility: 'fixed', category: null, categoryConfidence: 0,
+    confidence: { overall: 0.9, type: 1, action: 0.9, time: 0.9, priority: 1 },
+    missingFields: [], ambiguityFlags: [], explicitReminderRequest: false, explicitPressureRequest: false, ...fields,
+  });
+  const sunday = { localTimeSpec: { date: '2026-09-27', time: null, timezone: TZ }, missingFields: ['time'], ambiguityFlags: ['vague_time'] };
+  return async (prompt: string): Promise<string> => {
+    const lines = prompt.split('\n');
+    const payload = JSON.parse(lines[lines.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE') + 1]!) as string | string[];
+    if (Array.isArray(payload)) return JSON.stringify({ items: payload.map((_, clauseIndex) => ({ clauseIndex, ...answer(sunday) })) });
+    return JSON.stringify(answer(payload.includes('\n') ? reread : sunday));
+  };
+}
+
+test('clarify model path (SCRIPTED Gemini): a typed hour re-read onto Thursday — instant only, or with Thursday\'s own day — is the asked Sunday', async () => {
+  const seen: unknown[] = [];
+  const rereads = {
+    'instant only': { dueAt: THURSDAY_10, remindAt: THURSDAY_10, localTimeSpec: null },
+    'thursday spec': { dueAt: THURSDAY_10, localTimeSpec: { date: '2026-09-24', time: '10:00', timezone: TZ } },
+  };
+  for (const [name, reread] of Object.entries(rereads)) {
+    for (const freeText of ['at 10', 'الساعة 10', 'בשעה 10']) {
+      const provider = doctorModel(reread);
+      const store = new MemoryCaptureProposalStore();
+      const contract = await proposeCapture(
+        'سجّل موعد دكتور يوم الأحد',
+        { now: context.now, timezone: TZ, scopeId: 'l4', requestedEngine: 'model' },
+        { store, persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()), extractor: guardedMobileExtract, llmProvider: provider, llmEngine: 'gemini' },
+      );
+      const item = contract.items[0]!;
+      const next = await answerClarification(
+        { proposalId: contract.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText },
+        clarifyOptions,
+        { store, extractor: guardedMobileExtract, llmProvider: provider, llmEngine: 'gemini', recordEvent: () => {} },
+      );
+      seen.push([name, freeText, contract.provenance.executedEngine, item.clarification?.params.date, next.items[0]!.resolvedDate, next.items[0]!.resolvedTime]);
+    }
+  }
+  assert.deepEqual(seen, Object.keys(rereads).flatMap((name) => ['at 10', 'الساعة 10', 'בשעה 10']
+    .map((freeText) => [name, freeText, 'gemini', '2026-09-27', '2026-09-27', SUNDAY_10])));
+});
+
+/** The route's rules path in process: the owner's sentence proposed at `now`, then answered. */
+async function throughRoute(text: string, answer: { optionId?: string; freeText?: string }, now = context.now) {
+  setStorageForTests(createMemoryStorage());
+  try {
+    const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() }, { participantId: 'typedday' });
+    const item = proposal.items[0] as { itemId: string; clarification: { questionId: string; questionKey: string; params: { date?: string } } };
+    try {
+      const updated = await clarifyMobileCapture({
+        proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification.questionId, ...answer, timezone: TZ, referenceTime: now.toISOString(),
+      }, { participantId: 'typedday' });
+      const answered = updated.items[0] as { resolvedDate?: string; resolvedTime: string | null };
+      return [item.clarification.questionKey, item.clarification.params.date ?? null, answered.resolvedDate ?? null, answered.resolvedTime];
+    } catch (error) {
+      return [item.clarification.questionKey, item.clarification.params.date ?? null, `refused: ${(error as { failure?: string }).failure ?? String(error)}`];
+    }
+  } finally {
+    resetStorageForTests();
+  }
+}
+
+test('clarify route (rules re-read): a typed hour (ar, he, en) or a tapped part is on the asked Sunday', async () => {
+  const seen: unknown[] = [];
+  for (const freeText of ['at 10', '10am', 'الساعة 10', '10 الصبح', 'בשעה 10']) seen.push([freeText, await throughRoute('سجّل موعد دكتور يوم الأحد', { freeText })]);
+  seen.push(['morning', await throughRoute('سجّل موعد دكتور يوم الأحد', { optionId: 'morning' })]);
+  assert.deepEqual(seen, [
+    ...['at 10', '10am', 'الساعة 10', '10 الصبح', 'בשעה 10'].map((freeText) => [freeText, ['ask_time', '2026-09-27', '2026-09-27', SUNDAY_10]]),
+    ['morning', ['ask_time', '2026-09-27', '2026-09-27', '2026-09-27T06:00:00.000Z']],
+  ]);
+});
+
+test('clarify route (control, unchanged): an item with no day keeps its no-day rule — the typed hour today while ahead, refused once gone', async () => {
+  // The ask_time contract for a day-less item (clarificationBuilder step 4:
+  // "Only an item with no day at all has its parts on the next day they are
+  // ahead"): nothing to be asked about, so no asked day to hold the hour to.
+  assert.deepEqual(await throughRoute('call the plumber', { freeText: 'at 10' }, new Date('2026-09-23T09:00:00+03:00')), ['ask_time', null, '2026-09-23', '2026-09-23T07:00:00.000Z']);
+  assert.deepEqual(await throughRoute('call the plumber', { freeText: 'at 10' }, new Date('2026-09-23T11:00:00+03:00')), ['ask_time', null, 'refused: answer_not_understood']);
 });
 
 // ── Fix round 2: the capture command is not part of the title ──────────

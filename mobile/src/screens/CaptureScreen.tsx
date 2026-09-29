@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Keyboard, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
@@ -10,7 +10,7 @@ import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
 import { readClipboardText, type ClipboardImport } from '../features/capture/clipboardImport';
 import { fill } from '../i18n/strings';
 import { family, LINE_HEIGHT } from '../theme/fonts';
-import { useLayoutMode } from '../theme/textScale';
+import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { VoiceButton, VoiceNote } from '../features/capture/voice/VoiceButton';
 import { appendDictation } from '../features/capture/voice/dictationText';
 import type { SpeechStatus } from '../features/capture/voice/SpeechCaptureService';
@@ -26,6 +26,8 @@ import { Btn, Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ProcessingDots, ScreenIn } from '../ui/motion';
+import { AvoidKeyboard } from '../ui/keyboard';
+import { composerLayout, useComposerFit } from '../features/capture/composerFit';
 
 /**
  * The composer (UC-2.R2, #172).
@@ -67,14 +69,30 @@ import { ProcessingDots, ScreenIn } from '../ui/motion';
  * ── The keyboard never covers Analyze ────────────────────────────
  *
  * Analyze and the mic live in a footer outside the ScrollView, inside the
- * KeyboardAvoidingView, so the keyboard pushes them up instead of hiding them.
- * The field has a maxHeight and scrolls itself, so a long draft cannot push
- * its own caret under the keyboard. Hints and examples scroll.
+ * keyboard-avoiding container (`AvoidKeyboard`), so the keyboard pushes them
+ * up instead of hiding them — measured in the window, so the email banner
+ * above this screen cannot throw it off.
+ * The field scrolls itself, so iOS keeps the caret inside the field's frame;
+ * and the frame fits the room the keyboard leaves (`useComposerFit`): its cap
+ * shrinks to end above the footer, and when even that is too little the
+ * ScrollView scrolls until the whole field shows. A fixed 220pt cap was
+ * taller than that room with the keyboard up, so the line being typed hid
+ * under «فهمها» (UAT round 6, #5). Hints and examples scroll.
+ *
+ * ── At the accessibility sizes only the controls are fixed ───────
+ *
+ * From AX1 on, a fixed header and a stacked footer left the field no room at
+ * all with the keyboard up — 0pt from AX3, «فهمها» behind the keyboard at AX4
+ * (UAT round 6, D-g). There the header scrolls with the content and the
+ * footer is one row, the mic and «فهمها»; the language chip moves beside
+ * Paste (`composerLayout`). The default and large sizes are unchanged.
  */
 export function CaptureScreen() {
   const { t, p, rtl, script, lang, actions } = useApp();
   const flow = useCaptureFlow();
-  const stacked = useLayoutMode() !== 'normal';
+  const mode = useLayoutMode();
+  const stacked = mode !== 'normal';
+  const shape = composerLayout(mode);
   const insets = useSafeAreaInsets();
   const keyboardShown = useKeyboardShown();
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
@@ -142,41 +160,66 @@ export function CaptureScreen() {
   const failed = isFailedStatus(state.status) ? state.status : null;
   const composing = !confirmingDiscard && !clipboard && failed === null
     && state.status !== 'analyzing' && state.status !== 'noCommitment';
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldLine = Math.round(20 * LINE_HEIGHT[script]);
+  const textScale = useTextScale();
+  const fit = useComposerFit(scrollRef, { cap: stacked ? 260 : 220, active: composing, line: fieldLine * textScale });
+
+  const header = (
+    <TaskHeader
+      pill={t.cancel}
+      onPill={requestClose}
+      title={t.captureTitle}
+      end={
+        // The AI chip is display only. Analyze works either way — the
+        // server picks rules and makes no model call — so this says what
+        // will happen, it does not gate anything (#161). Round 2 puts it
+        // in the header's end slot, where a status belongs.
+        !flow.aiGranted ? (
+          <Btn
+            testID="capture-ai-off"
+            label={`${t.captureAiOff}. ${t.captureAiOffHint}`}
+            onPress={() => actions.go('trust')}
+            hitSlop={8}
+            style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}
+          >
+            <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt>
+          </Btn>
+        ) : null
+      }
+    />
+  );
+  // A language chooser beside a mic this device cannot offer is a setting
+  // for nothing.
+  const languageChip = voiceStatus !== 'unavailable' ? (
+    <VoiceLanguageChip
+      value={speechLang}
+      onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
+    />
+  ) : null;
 
   return (
     <ScreenIn style={{ backgroundColor: p.bg }}>
       {/* Renders nothing; it gives the recogniser's hooks a component to live
           in so the service can stay a plain object (UC-2.3, #163). */}
       <SpeechEventBridge />
-      <KeyboardAvoidingView testID="capture-kav" style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <TaskHeader
-          pill={t.cancel}
-          onPill={requestClose}
-          title={t.captureTitle}
-          end={
-            // The AI chip is display only. Analyze works either way — the
-            // server picks rules and makes no model call — so this says what
-            // will happen, it does not gate anything (#161). Round 2 puts it
-            // in the header's end slot, where a status belongs.
-            !flow.aiGranted ? (
-              <Btn
-                testID="capture-ai-off"
-                label={`${t.captureAiOff}. ${t.captureAiOffHint}`}
-                onPress={() => actions.go('trust')}
-                hitSlop={8}
-                style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}
-              >
-                <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt>
-              </Btn>
-            ) : null
-          }
-        />
+      <AvoidKeyboard testID="capture-kav" style={{ flex: 1 }}>
+        {shape.headerScrolls ? null : header}
         <ScrollView
+          ref={scrollRef}
           testID="capture-scroll"
           keyboardShouldPersistTaps="handled"
+          onLayout={fit.onScrollLayout}
+          onScroll={fit.onScroll}
+          scrollEventThrottle={32}
           // The footer owns the bottom inset while composing.
           contentContainerStyle={{ flexGrow: 1, paddingTop: 16, paddingHorizontal: 16, paddingBottom: composing ? 16 : 34, gap: 14 }}
         >
+          {/* At the accessibility sizes the header is content: the first
+              thing read, and scrolled away to make room for the field. The
+              negative margins undo the content's padding, which the header
+              brings its own of. */}
+          {shape.headerScrolls ? <View style={{ marginHorizontal: -16, marginTop: -16 }}>{header}</View> : null}
           {confirmingDiscard ? (
             <View style={{ flex: 1, justifyContent: 'center', gap: 14 }} testID="capture-discard">
               <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt>
@@ -210,9 +253,9 @@ export function CaptureScreen() {
                 onBack={() => flow.backToComposer()}
               />
           ) : (
-            <View style={{ flex: 1, gap: 16 }}>
+            <View style={{ flex: 1, gap: 16 }} testID="capture-editor" onLayout={fit.onEditorLayout}>
               <Txt role="section" style={{ paddingHorizontal: 4 }}>{t.sayItLikeYouThink}</Txt>
-              <View>
+              <View testID="capture-field" onLayout={fit.onFieldLayout}>
                 <TextInput
                   testID="capture-input"
                   value={state.text}
@@ -221,17 +264,18 @@ export function CaptureScreen() {
                   placeholderTextColor={p.mu}
                   autoFocus
                   multiline
-                  // Capped, and scrolls itself: a long draft keeps its caret
-                  // in view instead of growing under the keyboard.
+                  // Capped to the room above the footer, and scrolls itself:
+                  // a long draft keeps its caret in view instead of growing
+                  // under the footer and the keyboard.
                   scrollEnabled
                   textAlignVertical="top"
                   accessibilityLabel={t.sayItLikeYouThink}
                   style={[
                     {
-                      minHeight: 140, maxHeight: stacked ? 260 : 220, backgroundColor: p.sf, borderWidth: 1,
+                      minHeight: fit.heights.minHeight, maxHeight: fit.heights.maxHeight, backgroundColor: p.sf, borderWidth: 1,
                       borderColor: tooLong ? p.wm : p.lnStrong, borderRadius: 24,
                       paddingTop: 18, paddingHorizontal: 18, paddingBottom: 34,
-                      fontSize: 20, lineHeight: Math.round(20 * LINE_HEIGHT[script]), color: p.tx, fontFamily: family(400, script),
+                      fontSize: 20, lineHeight: fieldLine, color: p.tx, fontFamily: family(400, script),
                       textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr',
                     },
                   ]}
@@ -256,6 +300,12 @@ export function CaptureScreen() {
               >
                 <Txt role="supporting" weight={600}>{t.capturePaste}</Txt>
               </Btn>
+
+              {/* Out of the footer at the accessibility sizes, so the footer
+                  stays one row above the keyboard. */}
+              {shape.languageInFooter || !languageChip ? null : (
+                <View style={{ alignItems: 'flex-start' }}>{languageChip}</View>
+              )}
 
               {/* One hint line and three examples. The share hint, two more
                   chips and a chip repeating the placeholder used to stack up
@@ -283,7 +333,7 @@ export function CaptureScreen() {
         </ScrollView>
 
         {composing ? (
-          // Pinned above the keyboard: the KeyboardAvoidingView lifts this,
+          // Pinned above the keyboard: AvoidKeyboard lifts this,
           // the ScrollView above it shrinks.
           <View
             testID="capture-footer"
@@ -296,7 +346,7 @@ export function CaptureScreen() {
             }}
           >
             <VoiceNote status={voiceStatus} />
-            <View style={stacked
+            <View testID="capture-footer-row" style={shape.footer === 'stacked'
               ? { gap: 10, alignItems: 'stretch' }
               : { flexDirection: 'row', alignItems: 'center', gap: 10 }}
             >
@@ -312,28 +362,23 @@ export function CaptureScreen() {
                   onPartial={onDictated}
                   onFinal={onDictated}
                 />
-                {/* A language chooser beside a mic this device cannot offer is a
-                    setting for nothing. */}
-                {voiceStatus !== 'unavailable' ? (
-                  <VoiceLanguageChip
-                    value={speechLang}
-                    onChange={(next) => { setSpeechLang(next); void saveSpeechLanguage(next); }}
-                  />
-                ) : null}
+                {shape.languageInFooter ? languageChip : null}
               </View>
               <Pill
                 testID="capture-analyze"
                 label={t.analyze}
-                onPress={() => void flow.analyze()}
+                // The field unmounts as analyzing starts; let go of it while
+                // it is still on screen, so the keyboard leaves with it.
+                onPress={() => { Keyboard.dismiss(); void flow.analyze(); }}
                 disabled={!canAnalyze}
                 size={17}
                 pad={14}
-                style={stacked ? undefined : { flex: 1 }}
+                style={shape.footer === 'stacked' ? undefined : { flex: 1 }}
               />
             </View>
           </View>
         ) : null}
-      </KeyboardAvoidingView>
+      </AvoidKeyboard>
     </ScreenIn>
   );
 }

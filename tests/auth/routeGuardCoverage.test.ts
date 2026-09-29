@@ -44,7 +44,7 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Eighty-eight today: CL6a added the eight Google routes under
+  // Ninety-one today: CL6a added the eight Google routes under
   // `/api/mobile/integrations/google` — status, connect, callback,
   // disconnect, calendar, gmail/scan, drive/picker and drive/import. The
   // callback is the one whose guard is load-bearing: the uid it binds a
@@ -196,7 +196,18 @@ test('every mobile route file exists and is enumerated', () => {
   // export`. It answers with everything one account holds in one response,
   // which makes it the single most valuable read on this list to reach without
   // a token; it takes the uid from the verified token and nowhere else.
-  assert.equal(files.length, 88, `found:\n${files.join('\n')}`);
+  // Eighty-one with «حضّرني» (CL5a): `POST /api/mobile/meetings/prepare`. It
+  // reads notes somebody wrote about their own meeting and stores a proposal
+  // under the caller's uid, which the capture confirm then turns into
+  // commitments — so an unguarded one would plant proposals in any account.
+  // Eighty-three with weekly planning mode (CL5b): `POST /api/mobile/plans/week`
+  // and `POST /api/mobile/plans/week/accept`. The first answers a week of the
+  // caller's commitments by title; the second stores and accepts a day's plan,
+  // so an unguarded one would write a plan into an account that is not theirs.
+  // The week file also answers `GET` (the saved week days for the Calendar
+  // strip, CL5b I4): one more handler, no more files, guarded the same way.
+  // Ninety-one with the eight Google routes (CL6a), described at the top.
+  assert.equal(files.length, 91, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

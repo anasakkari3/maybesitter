@@ -26,10 +26,22 @@
  * 'C: the guard runs above splitInput' in
  * tests/security/captureInputLimit.test.ts, which counts storage reads.
  *
+ * **Warm, then timed (FIX-R6-PERF).** What the bound is about is the scan at
+ * the cap, not the process's first capture. The first one at the cap took
+ * ~50ms on a quiet machine (~60ms before FIX-R6-PERF), right at the bound,
+ * while the next ones take 0.1ms (the split) and 0.7ms (the follow-up match):
+ * the difference is one-off compiling — the modules' functions, the lexicons'
+ * few hundred patterns, and V8 compiling each pattern to machine code. V8
+ * interprets a pattern on its first run and compiles it on its next (at once
+ * on a subject over ~1,000 characters), so the warm-up below sends both
+ * payload shapes through the capture path twice, at a length far below the
+ * cap. The timed runs are the same code on the same shapes at the cap, so a
+ * scan that grows faster than the text still shows here in full.
+ *
  * Run this on an idle machine. Under CPU contention it reports the machine,
  * which is why it is not in the gate.
  */
-import test from 'node:test';
+import test, { before } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
@@ -56,21 +68,33 @@ async function timeCapture(text: string): Promise<number> {
   return Number(process.hrtime.bigint() - started) / 1e6;
 }
 
+const splitPayload = (length: number) => `a${' '.repeat(length)}b`;
+const followUpPayload = (length: number) => `i need to follow up with bob about ${' at '.repeat(length)}\u2028`;
+
+before(async () => {
+  for (let round = 0; round < 2; round += 1) {
+    await timeCapture(splitPayload(40));
+    await timeCapture(followUpPayload(40));
+  }
+});
+
 // The bounds are loose on purpose. They guard an order of growth, not a machine.
 
-test('capture: the connector split is bounded at the enforced maximum length', async () => {
+test('capture: the connector split is bounded at the enforced maximum length', async (t) => {
   // `splitInput`'s worst case: one unbroken whitespace run, every offset in
   // which the engine retries at every length. 2.8ms at the cap, 167.9ms at
   // 20,000, 3555.9ms at 100,000.
-  const elapsedMs = await timeCapture(`a${' '.repeat(CAPTURE_INPUT_MAX_CHARACTERS)}b`);
+  const elapsedMs = await timeCapture(splitPayload(CAPTURE_INPUT_MAX_CHARACTERS));
+  t.diagnostic(`the connector split took ${elapsedMs.toFixed(1)}ms`);
   assert.ok(elapsedMs < 60, `the connector split took ${elapsedMs.toFixed(1)}ms at ${CAPTURE_INPUT_MAX_CHARACTERS} characters`);
 });
 
-test('capture: the rule-based follow-up match is bounded at the enforced maximum length', async () => {
+test('capture: the rule-based follow-up match is bounded at the enforced maximum length', async (t) => {
   // CodeQL #2's payload, and the worse of the two: the trailing U+2028 makes
   // the regex's `$` unreachable, so the lazy group retries at every offset.
   // 3.9ms at the cap, 294.8ms at 20,000, 7233.6ms at 100,000. This one runs for
   // every account that has not granted AI consent, which is every new account.
-  const elapsedMs = await timeCapture(`i need to follow up with bob about ${' at '.repeat(CAPTURE_INPUT_MAX_CHARACTERS)}\u2028`);
+  const elapsedMs = await timeCapture(followUpPayload(CAPTURE_INPUT_MAX_CHARACTERS));
+  t.diagnostic(`the follow-up match took ${elapsedMs.toFixed(1)}ms`);
   assert.ok(elapsedMs < 60, `the follow-up match took ${elapsedMs.toFixed(1)}ms at ${CAPTURE_INPUT_MAX_CHARACTERS} characters`);
 });

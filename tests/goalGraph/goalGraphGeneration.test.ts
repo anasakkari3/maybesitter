@@ -181,15 +181,25 @@ test('a stated timing the goal does not contain never reaches the graph', async 
   );
 });
 
-test('a goal the engine cannot split is one checkpoint that says why', async () => {
+/**
+ * This test used to pin the defect CL3 fixes: "a goal the engine cannot split
+ * is one checkpoint". That lone checkpoint is the empty proposal of the first
+ * phone run (shot 73). The engine's verdict is still recorded exactly as
+ * before; what changed is that the graph no longer stops there.
+ */
+test('a goal the engine cannot split still says why, and offers a starting point instead of nothing', async () => {
   const { goal } = await seedGoal('Learn Spanish');
   const { graph, violations } = await generateGoalExecutionGraph({ goal, generatedAt: NOW });
 
   assert.deepEqual(violations, []);
-  assert.deepEqual(graph.nodes.map((node) => node.kind), ['checkpoint']);
   assert.equal(graph.provenance.decompositionOutcome, 'atomic');
   assert.equal(graph.provenance.atomicReason, 'not_decomposable');
-  assert.deepEqual(graph.edges, []);
+  assert.equal(graph.provenance.stepSource, 'template');
+  const steps = graph.nodes.filter((node): node is DecompositionStepNode => node.kind === 'decomposition_step_proposal');
+  assert.ok(steps.length >= 2);
+  // Every template step contributes to the goal, and none depends on another.
+  assert.equal(graph.edges.filter((edge) => edge.kind === 'contributes_to').length, steps.length);
+  assert.deepEqual(graph.edges.filter((edge) => edge.kind === 'depends_on'), []);
 });
 
 test('the graph carries the goal’s own language and its own script', async () => {

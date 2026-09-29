@@ -210,7 +210,7 @@ afterEach(() => {
 
 describe('Syllabus grouped review (UC-3.7, #191)', () => {
   it('renders section headers grouped by kind with item counts', async () => {
-    renderReview();
+    await renderReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-section-exam')).toBeTruthy();
@@ -224,7 +224,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
   });
 
   it('renders page chips on item cards from document evidence', async () => {
-    renderReview();
+    await renderReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-page-assign-1')).toBeTruthy();
@@ -237,7 +237,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
   });
 
   it('sorts items inside a section by date ascending', async () => {
-    renderReview();
+    await renderReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-item-assign-1')).toBeTruthy();
@@ -253,7 +253,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
   });
 
   it('selects items with confidence >= 0.7 by default and leaves confidence < 0.7 unselected', async () => {
-    renderReview();
+    await renderReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-item-assign-1')).toBeTruthy();
@@ -269,7 +269,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
   });
 
   it('supports Select all and Select none controls', async () => {
-    renderReview();
+    await renderReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-select-all')).toBeTruthy();
@@ -277,7 +277,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
     });
 
     // Tap Select all -> all 4 items become checked
-    fireEvent.press(screen.getByTestId('review-select-all'));
+    await fireEvent.press(screen.getByTestId('review-select-all'));
     await waitFor(() => {
       expect(screen.getByTestId('review-item-quiz-opt').props.accessibilityState.checked).toBe(true);
     });
@@ -286,7 +286,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
     expect(screen.getByTestId('review-item-exam-midterm').props.accessibilityState.checked).toBe(true);
 
     // Tap Select none -> all items become unchecked
-    fireEvent.press(screen.getByTestId('review-select-none'));
+    await fireEvent.press(screen.getByTestId('review-select-none'));
     await waitFor(() => {
       expect(screen.getByTestId('review-item-quiz-opt').props.accessibilityState.checked).toBe(false);
     });
@@ -296,7 +296,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
   });
 
   it('offers recurring lecture times prompt and saves them via postManualBusy', async () => {
-    renderReview();
+    await renderReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-lecture-times-banner')).toBeTruthy();
@@ -305,7 +305,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
 
     expect(screen.getByText('Add lecture times as busy time?')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('review-add-lecture-times'));
+    await fireEvent.press(screen.getByTestId('review-add-lecture-times'));
 
     await waitFor(() => {
       expect(calendarEndpoints.postManualBusy).toHaveBeenCalledWith({
@@ -323,7 +323,7 @@ describe('Syllabus grouped review (UC-3.7, #191)', () => {
 
   it('renders localized copy in Arabic (ar) with RTL orientation', async () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
-    renderReview();
+    await renderReview();
 
     await waitFor(() => {
       expect(screen.getByTestId('review-section-exam')).toBeTruthy();

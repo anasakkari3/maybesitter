@@ -1,5 +1,5 @@
-import React, { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ScrollView, TextInput, View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { useSingleFlight } from '../auth/useSingleFlight';
@@ -14,6 +14,7 @@ import {
 import { fill } from '../i18n/strings';
 import { Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
+import { AvoidKeyboard } from '../ui/keyboard';
 
 export type EmailAuthMode = 'signIn' | 'signUp' | 'reset';
 
@@ -39,6 +40,27 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
   const { busy, run } = useSingleFlight();
   const [errorKey, setErrorKey] = useState<AuthMessageKey | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  /**
+   * The account call succeeded, and this screen is on its way out.
+   *
+   * With `busy`, this makes the form inert: no pointer events and no editable
+   * field while the call runs, and none after it succeeds. `busy` alone drops
+   * back to false when the call returns — `createAccount` still waits on the
+   * verification email — and the form would take edits and a second submit in
+   * the moment before the gate swaps the screen out. A refused call hands the
+   * form back.
+   */
+  const [signedIn, setSignedIn] = useState(false);
+  const inert = busy || signedIn;
+  const passwordRef = useRef<TextInput>(null);
+  // Bumped by a refused call; acted on once the fields are editable again.
+  const [refused, setRefused] = useState(0);
+  const refocused = useRef(0);
+  useEffect(() => {
+    if (inert || refused === refocused.current) return;
+    refocused.current = refused;
+    passwordRef.current?.focus();
+  }, [inert, refused]);
 
   const title = mode === 'reset' ? t.authResetTitle : mode === 'signUp' ? t.authModeSignUp : t.authModeSignIn;
   const submitLabel = busy
@@ -82,10 +104,15 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
           await repository.signInWithEmail(address, password);
         }
         // A success clears the password from state at once; the gate swaps
-        // this screen out on the auth change that follows.
+        // this screen out on the auth change that follows. Until it does —
+        // and in whatever native view outlives it — the form stays inert.
         setPassword('');
+        if (mode !== 'reset') setSignedIn(true);
       } catch (error) {
         setErrorKey(authErrorKey(error));
+        // The fields were locked for the call; once they are editable again
+        // the password takes the keyboard back, ready to retype.
+        if (mode !== 'reset') setRefused(count => count + 1);
       }
     });
   }, [run, email, password, mode, repository]);
@@ -108,7 +135,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: p.bg }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AvoidKeyboard testID="email-auth-root" pointerEvents={inert ? 'none' : 'auto'} style={{ flex: 1, backgroundColor: p.bg }}>
       <TaskHeader pill={t.back} onPill={onBack} title={t.authEmailTitle} />
       <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
         <Txt size={22} weight={600}>{title}</Txt>
@@ -134,7 +161,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
             // live (OWNER-A1 #137); until then this is simply inert.
             textContentType="username"
             autoComplete="email"
-            editable={!busy}
+            editable={!inert}
             style={inputStyle}
           />
         </View>
@@ -144,6 +171,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
             <Txt size={13} color={p.mu}>{t.authPasswordLabel}</Txt>
             <TextInput
               testID="authPasswordInput"
+              ref={passwordRef}
               accessibilityLabel={t.authPasswordLabel}
               value={password}
               onChangeText={setPassword}
@@ -152,7 +180,7 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
               autoCorrect={false}
               textContentType={mode === 'signUp' ? 'newPassword' : 'password'}
               autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
-              editable={!busy}
+              editable={!inert}
               style={inputStyle}
             />
             <Txt size={12} color={p.mu}>{fill(t.authPasswordHint, { n: MIN_PASSWORD_LENGTH })}</Txt>
@@ -175,6 +203,6 @@ export function EmailAuthScreen({ onBack, initialMode = 'signIn' }: { onBack: ()
           )}
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </AvoidKeyboard>
   );
 }

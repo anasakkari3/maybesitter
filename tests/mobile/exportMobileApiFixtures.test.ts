@@ -28,6 +28,7 @@
  *
  * Nothing here changes backend behaviour. It only reads it.
  */
+import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -40,7 +41,7 @@ import { setRecommendationConsent } from '../../lib/consents/recommendationConse
 import { createStorageFeedbackEventStore } from '../../lib/feedback/feedbackEventStore.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { getStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import { COMMITMENTS, EVENTS, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
+import { COMMITMENTS, EVENTS, footballClubSyncStateDoc, userDoc, userSubDoc, WATCHER_EVENTS, WATCHERS } from '../../lib/storage/paths.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
 import { POST as memorySuggestionPost } from '../../src/app/api/mobile/memory/suggestions/[ruleId]/route.ts';
 import { GET as financialContextGet } from '../../src/app/api/mobile/financial/context/route.ts';
@@ -89,6 +90,7 @@ import { POST as describePost } from '../../src/app/api/mobile/profile/describe/
 import { POST as describeConfirmPost } from '../../src/app/api/mobile/profile/describe/confirm/route.ts';
 import { POST as importPost } from '../../src/app/api/mobile/profile/import/route.ts';
 import { POST as importConfirmPost } from '../../src/app/api/mobile/profile/import/confirm/route.ts';
+import { POST as meetingPreparePost } from '../../src/app/api/mobile/meetings/prepare/route.ts';
 import {
   DELETE as memoryDeleteAll,
   GET as memoryGet,
@@ -109,13 +111,15 @@ import { POST as planActionPost } from '../../src/app/api/mobile/plans/[date]/ac
 import { POST as planRegeneratePost } from '../../src/app/api/mobile/plans/[date]/regenerate/route.ts';
 import { POST as planBuildPost } from '../../src/app/api/mobile/plans/[date]/build/route.ts';
 import { POST as planOpenedPost } from '../../src/app/api/mobile/plans/[date]/opened/route.ts';
+import { GET as planWeekGet, POST as planWeekPost } from '../../src/app/api/mobile/plans/week/route.ts';
+import { POST as planWeekAcceptPost } from '../../src/app/api/mobile/plans/week/accept/route.ts';
 import type { WatcherFireEvent } from '../../src/contracts/v1/watcherContracts.ts';
 import { GET as goalExecutionGet } from '../../src/app/api/mobile/goals/[goalId]/execution/route.ts';
 import { POST as goalGeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/generate/route.ts';
 import { POST as goalConfirmPost } from '../../src/app/api/mobile/goals/[goalId]/execution/confirm/route.ts';
 import { POST as goalRegeneratePost } from '../../src/app/api/mobile/goals/[goalId]/execution/regenerate/route.ts';
 import { PATCH as goalNodePatch } from '../../src/app/api/mobile/goals/[goalId]/execution/nodes/[nodeId]/route.ts';
-import { seedGoal, SPLITTABLE_GOAL } from '../goalGraph/goalGraphSupport.ts';
+import { RECORDED_GOAL_STEPS_V2, seedGoal, SPLITTABLE_GOAL, UAT_GOAL } from '../goalGraph/goalGraphSupport.ts';
 import { GET as planSettingsGet, PUT as planSettingsPut } from '../../src/app/api/mobile/settings/plan/route.ts';
 import { GET as calendarSettingsGet, PUT as calendarSettingsPut } from '../../src/app/api/mobile/settings/calendar/route.ts';
 import {
@@ -175,6 +179,8 @@ import { appendPlanEvent, planPath, readStoredPlan, storePlanProposal } from '..
 import { diffPlans } from '../../lib/planning/scheduler/index.ts';
 import { GET as readinessGet, PUT as readinessPut } from '../../src/app/api/mobile/readiness/route.ts';
 import { GET as watchersGet, POST as watchersPost } from '../../src/app/api/mobile/watchers/route.ts';
+import { GET as footballGet } from '../../src/app/api/mobile/football/route.ts';
+import { GET as backgroundActivityGet } from '../../src/app/api/mobile/trust/background-activity/route.ts';
 import { POST as watcherPausePost } from '../../src/app/api/mobile/watchers/[id]/pause/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
@@ -193,6 +199,66 @@ const WALL_CLOCK = new Date();
 const PATCHED_DUE_DATE = new Date(WALL_CLOCK.getTime() + 72 * 3_600_000).toISOString();
 const USER = uidFor('FixtureUser');
 const GOAL_USER = uidFor('GoalFixtureUser');
+/**
+ * «حضّرني» (CL5a) records under its own account, so its proposals and its
+ * daily counter change no other fixture — the account export in particular.
+ */
+const MEETING_USER = uidFor('MeetingFixtureUser');
+/** The all-day deadline (FX3) records under its own account, so no list or count fixture moves. */
+const DEADLINE_USER = uidFor('DeadlineFixtureUser');
+const APPOINTMENT_DAY_USER = uidFor('AppointmentDayFixtureUser');
+/** A block three hours from the real clock: the route refuses one that has started. */
+function meetingBlock(): { startAt: string; endAt: string } {
+  const start = Date.now() + 3 * 3_600_000;
+  return { startAt: new Date(start).toISOString(), endAt: new Date(start + 45 * 60_000).toISOString() };
+}
+/** The live run's note (CL5a-live-run-round1b.txt): a day for the follow-up, and no clock time. */
+const MEETING_NOTE = 'اجتماع بكرا مع مدير القسم عن ميزانية الربع الجاي، وبدو يشوف ليش المصاريف زادت.\nبدي أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير قبل ما أفوت.\nبعد الاجتماع لازم أبعت الملخص لسامي يوم الأحد الصبح.';
+
+/** The local day `days` after an instant, in Jerusalem. */
+function jerusalemDay(instant: string, days = 0): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(Date.parse(instant) + days * 86_400_000));
+}
+
+/**
+ * Keeps what a meeting-prep response says about itself (CL5a M-5).
+ *
+ * `stabilise` renumbers every uuid it meets and collapses every instant to one
+ * value, which records a response the server never sends: `prep.itemId` stops
+ * naming the first item, and the prep step's reminder, its due time and the
+ * meeting's start all read as the same instant. Here the relations are put
+ * back: the id, and every instant and day as an offset from the stable start.
+ */
+function pinMeetingPrep(live: Record<string, unknown>, stable: Record<string, unknown>): Record<string, unknown> {
+  const liveProposal = live.proposal as { items: Array<{ resolvedTime: string | null; resolvedDate?: string }> };
+  const liveStart = Date.parse((live.prep as { startAt: string }).startAt);
+  const stableStart = Date.parse(STABLE_INSTANT);
+  const shift = (instant: string | null) => (instant === null ? null : new Date(stableStart + Date.parse(instant) - liveStart).toISOString());
+  const startDay = jerusalemDay(new Date(liveStart).toISOString());
+  const shiftDay = (day: string) => jerusalemDay(STABLE_INSTANT, Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${startDay}T00:00:00Z`)) / 86_400_000));
+  const proposal = stable.proposal as { items: Array<Record<string, unknown>> };
+  const prep = live.prep as Record<string, string | null>;
+  return {
+    ...stable,
+    proposal: {
+      ...proposal,
+      items: proposal.items.map((item, index) => ({
+        ...item,
+        resolvedTime: shift(liveProposal.items[index]!.resolvedTime),
+        ...(liveProposal.items[index]!.resolvedDate ? { resolvedDate: shiftDay(liveProposal.items[index]!.resolvedDate!) } : {}),
+      })),
+    },
+    prep: {
+      ...(stable.prep as Record<string, unknown>),
+      itemId: proposal.items[0]!.itemId,
+      remindAt: shift(prep.remindAt),
+      dueAt: shift(prep.dueAt),
+      startAt: shift(prep.startAt),
+      endAt: shift(prep.endAt),
+    },
+  };
+}
 
 const FIXTURES = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -449,6 +515,7 @@ async function record(
   expectedStatus: number,
   response: Response,
   pin: (body: Record<string, unknown>) => Record<string, unknown> = (body) => body,
+  after: (live: Record<string, unknown>, stable: Record<string, unknown>) => Record<string, unknown> = (_live, stable) => stable,
 ): Promise<Record<string, unknown>> {
   const body = await response.json() as Record<string, unknown>;
   assert.equal(
@@ -456,7 +523,7 @@ async function record(
     expectedStatus,
     `${name}: expected ${expectedStatus}, got ${response.status} — ${JSON.stringify(body)}`,
   );
-  const stable = stabilise(pin(body), new Map());
+  const stable = after(body, stabilise(pin(body), new Map()) as Record<string, unknown>);
   writeFileSync(join(FIXTURES, `${name}.json`), `${JSON.stringify(stable, null, 2)}\n`, 'utf8');
   // The live body is returned, not the normalised one: the rest of this test
   // chains real ids into the next call.
@@ -721,6 +788,74 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       },
     })));
 
+    // ── a part of the day and no hour (UAT round 6, D2) ────────────
+    // «… اليوم المسا …», literally, through the real route: the call keeps
+    // the product's 18:00 and says it is our guess (`timeEstimated`); the
+    // bread, with no time, does not. The phone's schema must keep the flag.
+    const guessedHour = await record('capture.guessedHour', 200, await capturePost(request('/api/mobile/capture', {
+      body: { text: 'لازم أتصل بأمي اليوم المسا وبعدين أشتري خبز', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    const hourItems = guessedHour.items as Array<{ title: string; resolvedTime: string | null; timeEstimated?: boolean }>;
+    assert.deepEqual(hourItems.map((item) => [item.title, item.resolvedTime !== null, item.timeEstimated]), [
+      ['أتصل بأمي', true, true],
+      ['أشتري خبز', false, false],
+    ]);
+
+    // ── an appointment answered "no specific time" (FY1 N4) ────────
+    // The same doctor, answered «بدون وقت محدد»: settled on its Sunday with no
+    // hour, and `allDayEvent` says it is *on* that day, not a deadline by it.
+    // Its own account, so no other fixture's commitment list changes.
+    const dayDoctor = await capturePost(request('/api/mobile/capture', {
+      uid: APPOINTMENT_DAY_USER,
+      body: { text: 'سجّل موعد دكتور يوم الأحد', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })).then((response) => response.json()) as { proposalId: string; items: typeof doctorItems };
+    const dayDoctorItem = dayDoctor.items[0]!;
+    const noTime = dayDoctorItem.clarification!.options.find((option) => option.optionId === 'none');
+    assert.ok(noTime, 'the hour question offers "no specific time"');
+    const dayClarified = await record('capture.appointmentNoTimeClarified', 200, await clarifyPost(request('/api/mobile/capture/clarify', {
+      uid: APPOINTMENT_DAY_USER,
+      body: {
+        proposalId: dayDoctor.proposalId,
+        itemId: dayDoctorItem.itemId,
+        questionId: dayDoctorItem.clarification!.questionId,
+        optionId: noTime.optionId,
+        referenceTime: REFERENCE_TIME,
+        timezone: 'Asia/Jerusalem',
+      },
+    })));
+    const dayItems = dayClarified.items as Array<{ title: string; resolvedTime: string | null; resolvedDate?: string; needsClarification: boolean; allDayEvent?: boolean }>;
+    assert.deepEqual(dayItems.map((item) => [item.title, item.resolvedTime, item.resolvedDate, item.needsClarification, item.allDayEvent]), [
+      ['موعد دكتور', null, '2026-08-16', false, true],
+    ]);
+    const dayConfirmed = await record('capture.appointmentNoTimeConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+      uid: APPOINTMENT_DAY_USER,
+      body: { proposalId: dayDoctor.proposalId, itemIds: [dayDoctorItem.itemId] },
+    })));
+    assert.equal(dayConfirmed.success, true);
+    assert.deepEqual((dayConfirmed.persisted as Array<{ resolvedTime: string | null }>).map((item) => item.resolvedTime), [null]);
+
+    // ── a deadline with a day and no hour (FX3) ────────────────────
+    // «بدي أدفع فاتورة الكهربا قبل آخر الشهر», through the real route: one
+    // settled item — the month's last day in `resolvedDate`, no `resolvedTime`,
+    // no question — which confirms as an all-day `due_by`.
+    const bill = await record('capture.allDayDeadline', 200, await capturePost(request('/api/mobile/capture', {
+      uid: DEADLINE_USER,
+      body: { text: 'بدي أدفع فاتورة الكهربا قبل آخر الشهر', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })));
+    assert.equal(bill.status, 'proposed');
+    const billItems = bill.items as Array<{ itemId: string; title: string; resolvedTime: string | null; resolvedDate?: string; dateEstimated?: boolean; needsClarification: boolean }>;
+    assert.deepEqual(billItems.map((item) => [item.title, item.resolvedTime, item.resolvedDate, item.dateEstimated, item.needsClarification]), [
+      ['أدفع فاتورة الكهربا', null, '2026-08-31', false, false],
+    ]);
+    const billConfirmed = await record('capture.allDayDeadlineConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+      uid: DEADLINE_USER,
+      body: { proposalId: bill.proposalId, itemIds: [billItems[0]!.itemId] },
+    })));
+    assert.equal(billConfirmed.success, true);
+    // No hour was chosen, so none is reported back: the midnight in `dueAt`
+    // is not a time to show on the saved screen.
+    assert.deepEqual((billConfirmed.persisted as Array<{ resolvedTime: string | null }>).map((item) => item.resolvedTime), [null]);
+
     // ── share intake (UC-3.0, #183) ────────────────────────────────
     // The same proposal shape as `capture.proposal`, plus the `share`
     // envelope. Generated from a real multipart body.
@@ -780,6 +915,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       }),
       params(commitmentId),
     ));
+
+    // The place reminder (closure CL4): what the edit sheet sends, and the DTO
+    // it gets back. Removed again straight away, so every later fixture reads
+    // the commitment exactly as it did before this one was added.
+    await record('commitments.placeReminder', 200, await commitmentPatch(
+      new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${tokenFor(USER)}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ locationTrigger: { kind: 'arrive', placeId: 'place_home', label: 'Home' } }),
+      }),
+      params(commitmentId),
+    ));
+    const placeReminderCleared = await commitmentPatch(
+      new Request(`${BASE}/api/mobile/commitments/${commitmentId}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${tokenFor(USER)}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ locationTrigger: null }),
+      }),
+      params(commitmentId),
+    );
+    assert.equal(placeReminderCleared.status, 200);
 
     await record('commitments.action', 200, await actionPost(
       request(`/api/mobile/commitments/${commitmentId}/actions`, { body: { action: 'complete' } }),
@@ -954,6 +1110,12 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       await record('icsFeeds.deleted', 200, await handleDeleteFeed(
         request(`/api/mobile/calendar/ics/${feedId}`, { method: 'DELETE', uid: ICS_USER }),
         ICS_USER, feedId, icsDeps,
+      ));
+      // What every deployed server without ICS_FEEDS_ENABLED answers (owner's
+      // phone, 2026-09-29): the app hides the entry on exactly this body.
+      await record('icsFeeds.disabled', 404, await handleListFeeds(
+        request('/api/mobile/calendar/ics', { uid: ICS_USER }),
+        ICS_USER, { ...icsDeps, env: { NODE_ENV: 'test' } as NodeJS.ProcessEnv },
       ));
     }
 
@@ -1273,6 +1435,19 @@ test('exports a fixture for every /api/mobile call the React Native client makes
 
     await record('profile.one', 200, await profileGet(request('/api/mobile/profile')));
 
+    // UAT round 3, N12: the next step inside those quiet hours. The clock is
+    // pinned to 00:30 in Jerusalem, inside 22:30–07:30, so the answer is the
+    // quiet-hours one every run and carries the hour they end.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-08-10T21:30:00.000Z') });
+    try {
+      const quiet = await record('nextStep.quietHours', 200, await nextStepGet(
+        request('/api/mobile/recommendations/next-step?locale=ar'),
+      ));
+      assert.deepEqual(quiet.exposure, { allowed: false, reason: 'quiet_hours', until: '07:30' });
+    } finally {
+      mock.timers.reset();
+    }
+
     // ── the self-description pair (#168) ───────────────────────────
     // No model is configured here, so the suggestion list comes back empty —
     // which is the shape the client must handle anyway, and the honest record
@@ -1322,6 +1497,34 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         body: { proposalId: 'not-a-real-proposal', accepted: [] },
       }),
     ));
+
+    // ── meeting prep «حضّرني» (CL5a) ───────────────────────────────
+    // No AI consent on this account, so this is the rules-only answer: one
+    // prep step read off the notes' first action sentence, and no follow-ups.
+    await record('meetings.prepared', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+      body: { notes: MEETING_NOTE, ...meetingBlock(), timezone: 'Asia/Jerusalem' },
+      uid: MEETING_USER,
+    })), undefined, pinMeetingPrep);
+    // A meeting twenty minutes away with the account's reminders switched
+    // off: nothing will ring, so the response claims no reminder and says why
+    // (I-3). Since FX1's window (ruling R1) the prep step rings its own time
+    // whatever the lead, so "too close" no longer silences it; the switch is
+    // the real way a person hears nothing. Switched back on afterwards.
+    // The clock is pinned: the short-notice prep instant is rounded up to a
+    // five-minute step from *now*, so `leadMinutes` read the wall clock and
+    // the fixture changed from one export to the next.
+    mock.timers.enable({ apis: ['Date'], now: Date.parse(REFERENCE_TIME) });
+    await saveReminderSettings(MEETING_USER, { softEnabled: false }, new Date().toISOString());
+    await record('meetings.preparedNoReminder', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+      body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 20 * 60_000).toISOString(), timezone: 'Asia/Jerusalem' },
+      uid: MEETING_USER,
+    })).finally(() => mock.timers.reset()), undefined, pinMeetingPrep);
+    await saveReminderSettings(MEETING_USER, { softEnabled: true }, new Date().toISOString());
+    // The refusal the sheet renders when the meeting is about to start.
+    await record('meetings.tooSoon', 400, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+      body: { notes: MEETING_NOTE, startAt: new Date(Date.now() + 60_000).toISOString(), timezone: 'Asia/Jerusalem' },
+      uid: MEETING_USER,
+    })));
 
     // The survey's own facts, each with the provenance chip the screen renders.
     await record('memory.list', 200, await memoryGet(request('/api/mobile/memory')));
@@ -1777,6 +1980,58 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       assert.equal(refreshedPlan.generation, 2, 'the stale, untouched plan was not refreshed on read');
       assert.deepEqual(refreshedPlan.fixed.map((row) => row.itemId), ['plan_fixture_pinned']);
       assert.equal(refreshedPlan.rebuildsLeft, 4, 'the automatic refresh was charged as a rebuild');
+
+      // CL5b: weekly planning mode. Today and tomorrow already have plans
+      // (above), which hold the three undated tasks, so two more commitments
+      // give the proposal days something to be about: one undated, one due on
+      // the 12th. The week is recorded, then one of its days is accepted, then
+      // accepted again — the 409 the Week screen redraws from.
+      const weekState = [
+        { id: 'plan_fixture_week_open', title: 'Return the library books', dueAt: null },
+        { id: 'plan_fixture_week_due', title: 'Renew the passport', dueAt: '2026-08-12T14:00:00.000Z' },
+      ].reduce((state, { id, title, dueAt }) => {
+        const drafted = applyDomainCommand(state, {
+          type: 'CreateDraft',
+          now: REFERENCE_TIME,
+          commitment: { id, kind: 'task', title, timeSpec: { kind: 'due_by', dueAt, remindAt: null, timezone: 'Asia/Jerusalem' } },
+          draftStatus: 'pending_confirmation',
+        }).newState;
+        return applyDomainCommand(drafted, { type: 'ConfirmCommitment', commitmentId: id, now: REFERENCE_TIME, reminders: [] }).newState;
+      }, await readParticipantState(USER));
+      // UAT round 3, N13: an appointment with no hour (FY1's all-day
+      // `scheduled_event`) on the 13th, so the week's `allDay` rows are pinned
+      // by a real, non-empty answer. Never a step: the planner leaves it out.
+      const withAppointment = applyDomainCommand(applyDomainCommand(weekState, {
+        type: 'CreateDraft',
+        now: REFERENCE_TIME,
+        commitment: {
+          id: 'plan_fixture_week_all_day',
+          kind: 'task',
+          title: 'Dentist appointment',
+          timeSpec: { kind: 'scheduled_event', dueAt: '2026-08-12T21:00:00.000Z', remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' },
+        },
+        draftStatus: 'pending_confirmation',
+      }).newState, { type: 'ConfirmCommitment', commitmentId: 'plan_fixture_week_all_day', now: REFERENCE_TIME, reminders: [] }).newState;
+      await persistParticipantState(USER, withAppointment);
+      const proposedWeek = await record('plan.week', 200, await planWeekPost(request('/api/mobile/plans/week', { body: {} })));
+      const weekDays = (proposedWeek.week as { days: Array<{ date: string; state: string; items: unknown[]; fixed: unknown[]; allDay: Array<{ itemId: string }> }> }).days;
+      assert.deepEqual(
+        weekDays.filter((day) => day.allDay.length > 0).map((day) => [day.date, day.allDay.map((row) => row.itemId)]),
+        [['2026-08-13', ['plan_fixture_week_all_day']]],
+        'the week fixture does not show the all-day appointment on its day',
+      );
+      assert.deepEqual(weekDays.map((day) => day.state).slice(0, 2), ['planned', 'planned'], 'the week fixture does not show the stored days as plans');
+      assert.ok(weekDays.some((day) => day.state === 'proposed' && day.items.length > 0), 'the week fixture proposes nothing, so the step schema it exists to pin is never exercised');
+      assert.ok(weekDays.some((day) => day.fixed.length > 0), 'the week fixture has no fixed row');
+      const shownOn11th = [...weekDays.find((day) => day.date === '2026-08-11')!.items]
+        .map((item) => (item as { itemId: string }).itemId);
+      // A card that no longer matches the week (I1): refused, with the week to redraw.
+      await record('plan.weekChanged', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: ['plan_fixture_not_on_this_day'] } })));
+      await record('plan.weekAccepted', 200, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
+      await record('plan.weekAlreadyPlanned', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
+      // The saved week days the Calendar strip draws (I4): the day just saved.
+      const savedWeek = await record('plan.weekSaved', 200, await planWeekGet(request('/api/mobile/plans/week')));
+      assert.deepEqual((savedWeek.saved as Array<{ date: string }>).map((day) => day.date), ['2026-08-11'], 'the saved-week fixture does not hold the day just saved');
     } finally {
       mock.timers.reset();
     }
@@ -1935,6 +2190,58 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     ));
     await record('watchers.list', 200, await watchersGet(request('/api/mobile/watchers', { uid: WATCHER_USER })));
 
+    // ── football as a watcher source (closure CL7) ──────────────────
+    // Recorded twice: the server with no match data key (the real state of
+    // staging and production today — the app must hide football) and with
+    // one. A follow, and a followed club whose last fetch failed, are
+    // recorded with the key, so the watcher screen's "retrying" state is a
+    // value the server really emits.
+    const FOOTBALL_USER = uidFor('FootballWatcherFixtureUser');
+    const previousFootballKey = process.env.FOOTBALL_DATA_API_KEY;
+    try {
+      delete process.env.FOOTBALL_DATA_API_KEY;
+      const off = await record('football.settings', 200, await footballGet(request('/api/mobile/football', { uid: FOOTBALL_USER })));
+      assert.equal(off.providerConfigured, false);
+      process.env.FOOTBALL_DATA_API_KEY = 'fixture-key';
+      const on = await record('football.settings.configured', 200, await footballGet(request('/api/mobile/football', { uid: FOOTBALL_USER })));
+      assert.equal(on.providerConfigured, true);
+      const followed = await record('watchers.football.created', 201, await watchersPost(request('/api/mobile/watchers', {
+        body: {
+          enabled: true,
+          label: 'برشلونة',
+          source: { provider: 'football_data', connectionId: null, signalKind: 'football_team', subjectRef: 'barcelona' },
+          condition: { kind: 'digest_changed' },
+          effect: 'replan_if_impacted',
+          createdBy: 'user',
+        },
+        uid: FOOTBALL_USER,
+      })));
+      assert.equal((followed.watcher as { source: { signalKind: string } }).source.signalKind, 'football_team');
+      await getStorage().set(footballClubSyncStateDoc('barcelona'), {
+        clubId: 'barcelona',
+        lastSyncedAt: REFERENCE_TIME,
+        lastOutcome: 'failed',
+        failureKind: 'rate_limited',
+        lastSucceededAt: null,
+        changeDigest: null,
+        lastChangedAt: null,
+      });
+      // `monitorId` is `mon_` + the watcher id; pinned to the stable spelling
+      // the watcher id itself is normalised to, so the fixture never churns.
+      const retrying = await record('backgroundActivity.footballRetrying', 200,
+        await backgroundActivityGet(request('/api/mobile/trust/background-activity', { uid: FOOTBALL_USER })),
+        (body) => ({
+          ...body,
+          monitors: (body.monitors as Array<Record<string, unknown>>).map((monitor) => ({
+            ...monitor, monitorId: 'mon_wtc_00000000-0000-4000-8000-000000000001',
+          })),
+        }));
+      assert.deepEqual((retrying.monitors as Array<{ status: string }>).map((monitor) => monitor.status), ['retrying']);
+    } finally {
+      if (previousFootballKey === undefined) delete process.env.FOOTBALL_DATA_API_KEY;
+      else process.env.FOOTBALL_DATA_API_KEY = previousFootballKey;
+    }
+
     // ── the Gemini capture (#160, #338) ────────────────────────────
     // Last, and with the environment restored straight afterwards, so every
     // fixture above is recorded by a server with no model configured — which
@@ -1946,6 +2253,8 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const previousProvider = process.env.MAYBESITTER_LLM_PROVIDER;
     const previousLocation = process.env.MAYBESITTER_VERTEX_LOCATION;
     let vertexCalls = 0;
+    let meetingCalls = 0;
+    let meetingFollowUpDay = '';
     const removeStub = installVertexStub(async (input) => {
       vertexCalls += 1;
       // The prompt is split at BEGIN_UNTRUSTED_USER_MESSAGE before it gets
@@ -1957,6 +2266,32 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         'string',
         'the capture prompt reached the provider without a system instruction',
       );
+      // The goal planner asks for `{ steps: [...] }`; everything else here is
+      // the capture extraction. Answered with what Gemini really returned for
+      // the UAT goal (CL3), so the goal fixture is the real shape.
+      const schema = (input.config as { responseSchema?: { properties?: Record<string, unknown> } }).responseSchema;
+      if (schema?.properties && 'steps' in schema.properties) {
+        return {
+          text: RECORDED_GOAL_STEPS_V2,
+          modelVersion: 'gemini-2.5-flash',
+          usageMetadata: { promptTokenCount: 388, candidatesTokenCount: 132 },
+        };
+      }
+      // The meeting prep prompt asks for its own shape (CL5a).
+      if (String((input.config as { systemInstruction?: unknown }).systemInstruction).includes('get ready for one meeting')) {
+        meetingCalls += 1;
+        return {
+          // The live run's answer (CL5a-live-run-round1b.txt), verbatim except
+          // the day: there it was the Sunday after the meeting, here it is the
+          // day a week after this run's block, so the fixture does not age.
+          text: JSON.stringify({
+            prepStep: { action: 'أراجع جدول المصاريف تبع آخر ٣ شهور وأطبع التقرير' },
+            followUps: [{ action: 'أبعت الملخص لسامي', deadlineDate: meetingFollowUpDay, deadlineTime: null }],
+          }),
+          modelVersion: 'gemini-2.5-flash',
+          usageMetadata: { promptTokenCount: 574, candidatesTokenCount: 65 },
+        };
+      }
       return {
         text: geminiExtraction(),
         modelVersion: 'gemini-2.5-flash',
@@ -1986,6 +2321,55 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       assert.equal(geminiItems.length, 1);
       assert.equal(geminiItems[0]!.title, 'Call the dentist');
       assert.ok(geminiItems[0]!.resolvedTime, 'a Gemini proposal with no resolved time records nothing useful');
+
+      // ── a goal's steps from the planner model (CL3) ────────────────
+      // The same consented account as the capture above, so the model path
+      // is the one a consented user gets, and the fixture carries
+      // `suggestedAs` / `suggestedWhen` for the client schema to accept.
+      const { goal: uatGoal } = await seedGoal(UAT_GOAL, { scopeId: USER, language: 'ar', storage: getStorage() });
+      const geminiGoal = await record('goal.geminiGenerated', 200, await goalGeneratePost(
+        request(`/api/mobile/goals/${uatGoal.id}/execution/generate`, { body: {} }),
+        { params: Promise.resolve({ goalId: uatGoal.id }) },
+      ));
+      assert.equal(vertexCalls, 2, 'the goal never reached the provider');
+      const geminiGraph = geminiGoal.graph as { provenance: { stepSource: string }; nodes: Array<{ kind: string; suggestedAs?: string }> };
+      assert.equal(geminiGraph.provenance.stepSource, 'model');
+      assert.equal(geminiGraph.nodes.filter((node) => node.kind === 'decomposition_step_proposal').length, 5);
+
+      // «حضّرني» with consent and a model (CL5a): one prep step, one follow-up.
+      await aiConsentPut(request('/api/mobile/consents/ai-processing', {
+        method: 'PUT',
+        body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+        uid: MEETING_USER,
+      }));
+      // Pinned: the follow-up now has an hour (09:00, M-3 round 3), and its
+      // distance from the meeting's start — which is what the fixture keeps —
+      // would otherwise follow the time of day the export ran at. Three hours
+      // before the stable instant, so the block starts exactly on it and the
+      // recorded times read as they were: Sunday 09:00 is 06:00Z.
+      mock.timers.enable({ apis: ['Date'], now: Date.parse(STABLE_INSTANT) - 3 * 3_600_000 });
+      const block = meetingBlock();
+      meetingFollowUpDay = jerusalemDay(block.startAt, 7);
+      const prepared = await record('meetings.preparedGemini', 200, await meetingPreparePost(request('/api/mobile/meetings/prepare', {
+        body: { notes: MEETING_NOTE, ...block, timezone: 'Asia/Jerusalem' },
+        uid: MEETING_USER,
+      })).finally(() => mock.timers.reset()), undefined, pinMeetingPrep);
+      assert.equal(meetingCalls, 1, 'the meeting prep never reached the provider');
+      // Capture, the goal (CL3), then this prep (CL5a): one provider call each.
+      assert.equal(vertexCalls, 3, 'the meeting prep reached the provider more than once, or not at all');
+      const preparedProposal = prepared.proposal as { items: unknown[]; provenance: { executedEngine: string } };
+      assert.equal(preparedProposal.provenance.executedEngine, 'gemini');
+      assert.equal(preparedProposal.items.length, 2);
+      // «يوم الأحد الصبح»: the model gave no hour and the notes write no clock
+      // time, so it is that day at the product's morning hour, 09:00 — what
+      // capture makes of the same words (M-3, round 3).
+      const followUp = (prepared.proposal as { items: Array<{ resolvedTime: string | null; resolvedDate?: unknown }> }).items[1]!;
+      assert.equal(followUp.resolvedDate, undefined);
+      assert.equal(
+        new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+          .format(new Date(followUp.resolvedTime!)),
+        `${meetingFollowUpDay}, 09:00`,
+      );
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
@@ -2080,6 +2464,17 @@ test('exports the Google connection fixtures', async () => {
         recurringSessions: [],
         transcriptSample: 'Submit the lab report by Thursday 13 August.',
       });
+    } else if ((input.config as { responseSchema?: { properties?: Record<string, unknown> } }).responseSchema?.properties?.items) {
+      // Since CL1 the clauses of one capture are read in one call: the
+      // clauses arrive as an array and the answer is `{ items: [...] }`, each
+      // object echoing its clause's position (GEMINI_BATCH_EXTRACTION_SCHEMA).
+      const user = (input.contents as Array<{ parts: Array<{ text?: string }> }>).flatMap((content) => content.parts).map((part) => part.text ?? '').join('\n');
+      const lines = user.split('\n');
+      const clauses = JSON.parse(lines[lines.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE') + 1]!) as string[];
+      answer = JSON.stringify({ items: clauses.map((clause, clauseIndex) => ({
+        clauseIndex,
+        ...JSON.parse(extraction(clause.includes('lab report') ? 'Submit the lab report' : 'Return the signed trip form')) as Record<string, unknown>,
+      })) });
     } else {
       answer = extraction(text.includes('lab report') ? 'Submit the lab report' : 'Return the signed trip form');
     }
@@ -2232,9 +2627,18 @@ test('exports the Google connection fixtures', async () => {
       mimeType: 'application/vnd.google-apps.document',
       content: 'Lab 3\nSubmit the lab report by Thursday 13 August.',
     });
+    // `metrics.latencyMs` is the wall-clock time the stubbed model call took:
+    // 0 ms on a quiet machine, 1 ms under load. It is pinned so the fixture
+    // records the shape (a number), not how busy the machine was (FX3 review).
+    const pinLatency = (body: Record<string, unknown>) => {
+      const share = body.share as { metrics?: Record<string, unknown> } | undefined;
+      return share?.metrics && 'latencyMs' in share.metrics
+        ? { ...body, share: { ...share, metrics: { ...share.metrics, latencyMs: 0 } } }
+        : body;
+    };
     const imported = await record('google.driveImport', 200, await googleDriveImportPost(as('/api/mobile/integrations/google/drive/import', {
       body: { fileId: 'doc_fixture_12345', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
-    })));
+    })), pinLatency);
     assert.ok((imported.items as unknown[]).length >= 1, 'the import fixture must carry an item, not the empty answer');
     assert.equal((imported.share as { channel: string }).channel, 'document');
 

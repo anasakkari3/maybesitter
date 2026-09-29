@@ -16,6 +16,8 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import { WatchBuilderScreen } from '../WatcherScreens';
 import * as watcherEndpoints from '../../../api/endpoints/watchers';
+import * as footballEndpoints from '../../../api/endpoints/football';
+import footballOff from '../../../api/__fixtures__/football.settings.json';
 import response from '../../../api/__fixtures__/watchers.created.json';
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
@@ -24,13 +26,14 @@ let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 
 beforeEach(() => {
+  jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(footballOff as never);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: user });
   setAuthRepository(repository);
 });
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();

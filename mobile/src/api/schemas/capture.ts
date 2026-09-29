@@ -52,6 +52,24 @@ export const captureProposalSchema = z.object({
       /** True when that day is our guess from a weekday name, not their words. */
       dateEstimated: z.boolean().optional(),
       /**
+       * True when the hour of `resolvedTime` is our guess: the person named
+       * only a part of the day — «المسا», "tonight" — and no number (UAT round
+       * 6, D2). Optional: an older server sends nothing, read as false.
+       */
+      timeEstimated: z.boolean().optional(),
+      /**
+       * True when the item happens *on* `resolvedDate` with no hour (an
+       * appointment answered "no specific time", FY1 N4), not by it.
+       */
+      allDayEvent: z.boolean().optional(),
+      /**
+       * True when the item happens *on* `resolvedDate`, so clearing its hour
+       * in the edit sheet keeps it there (the server's confirm rule, FY1 M1).
+       * The card then reads «<day> · بدون وقت» rather than a bare «بدون وقت»
+       * (UAT round 3, N11). Absent for a task, which loses the day.
+       */
+      eventOnDay: z.boolean().optional(),
+      /**
        * The one question to ask about this item (UC-2.5, #165).
        *
        * Keys and parameters, never a sentence: the phone renders the question

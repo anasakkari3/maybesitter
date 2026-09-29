@@ -77,6 +77,24 @@ export interface ExtractionResult {
    * predates it meant.
    */
   dateInferred?: boolean;
+  /**
+   * What the stated time is to the person (CL1, D2; `timeAnchorOf` in
+   * `timeLexicon.ts`): `event` — a clock time to do it at («الساعة 5», "at
+   * 5pm"), which becomes a `scheduled_event` the planner keeps where it is;
+   * `deadline` — a limit ("by", «قبل», «עד»), which stays a `due_by`.
+   *
+   * Optional: absent or null means a deadline, which is what every producer
+   * that predates it wrote.
+   */
+  timeAnchor?: 'event' | 'deadline' | null;
+  /**
+   * The commitment names a day and nobody chose the hour (FX3): «قبل آخر
+   * الشهر» is due by the month's last day. `dueAt` is that day's local
+   * midnight, `remindAt` is null and `localTimeSpec.time` is null — the same
+   * shape `TimeSpec.allDay` stores. Optional: absent means a timed reading or
+   * none, which every producer that predates it meant.
+   */
+  allDay?: boolean;
   priority: {
     level: 'low' | 'normal' | 'high';
     source: 'default' | 'inferred' | 'user_explicit';

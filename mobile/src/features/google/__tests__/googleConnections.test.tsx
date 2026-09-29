@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Text } from 'react-native';
+import { AccessibilityInfo, Platform, Text } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { AppProvider, useApp } from '../../../state/AppContext';
 import { strings, type Lang, type Strings } from '../../../i18n/strings';
@@ -102,7 +102,7 @@ beforeEach(() => {
   mockConsent.calendar = true;
   jest.clearAllMocks();
 });
-afterEach(() => { cleanup(); client.clear(); });
+afterEach(async () => { await cleanup(); client.clear(); });
 
 describe('not configured', () => {
   it('says the one honest line and offers no connect button anywhere', async () => {
@@ -115,7 +115,7 @@ describe('not configured', () => {
     }
     expect(screen.queryByTestId('google-disconnect')).toBeNull();
     // Never "coming soon".
-    expect(screen.queryByText(copy().xSoon)).toBeNull();
+    expect(screen.queryByText(/Coming soon|قريبًا|בקרוב/)).toBeNull();
     expect(screen.queryByTestId('row-status-COMING_SOON')).toBeNull();
   });
 });
@@ -141,6 +141,31 @@ describe('connect', () => {
     // Gmail was not part of this grant, so it still offers its own connect.
     expect(screen.getByTestId('google-connect-gmail')).toBeTruthy();
     expect(textOf('google-notice', copy().googleConnected)).toBeTruthy();
+  });
+
+  /*
+   * POLISH-MOBILE review n1: the notice sits in a live region, which TalkBack
+   * hears; announcing it too said it twice on Android. VoiceOver, which has
+   * no live regions, is still told.
+   */
+  it.each<['ios' | 'android', number]>([['ios', 1], ['android', 0]])('a notice is announced by hand on %s only where no live region speaks', async (os, times) => {
+    const originalOs = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: os, configurable: true });
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+    announce.mockClear();
+    try {
+      await show(statusOf(notConnected));
+      await waitFor(() => expect(screen.getByTestId('google-connect-calendar')).toBeTruthy());
+      api.startGoogleConnect.mockResolvedValue(connectStarted as never);
+      browser.openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'maybesitter://oauth/google?code=c&state=s' } as never);
+      api.completeGoogleConnect.mockRejectedValue(new GoogleRefusedError('google_account_mismatch'));
+      await fireEvent.press(screen.getByTestId('google-connect-calendar'));
+      await waitFor(() => expect(textOf('google-notice', copy().googleErrOtherAccount)).toBeTruthy());
+      expect(announce.mock.calls.filter(([text]) => text === copy().googleErrOtherAccount)).toHaveLength(times);
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: originalOs, configurable: true });
+      announce.mockRestore();
+    }
   });
 
   it('closing the auth session is not a failure and sends nothing', async () => {

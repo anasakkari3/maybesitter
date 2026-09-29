@@ -330,6 +330,20 @@ test('base64url accepts legal trailing padding and rejects the standard alphabet
   assert.throws(() => decodeBase64Url('SGks+/DQo=Zm9v', 'messages.get'), /no readable base64url body data/);
 });
 
+test('base64url rejects trailing padding of the wrong length', () => {
+  // RFC 4648 fixes the padding by the data length: none when it is a multiple
+  // of four characters, one `=` for a remainder of three, two for a remainder
+  // of two. Any other count is not base64url; #689 accepts padding, and this
+  // pins that it accepts only the right amount of it.
+  assert.throws(() => decodeBase64Url('SGVsbG8==', 'messages.get'), /no readable base64url body data/); // needs one
+  assert.throws(() => decodeBase64Url('SGk==', 'messages.get'), /no readable base64url body data/); // needs one
+  assert.throws(() => decodeBase64Url('SGVs=', 'messages.get'), /no readable base64url body data/); // needs none
+  assert.throws(() => decodeBase64Url('SA=', 'messages.get'), /no readable base64url body data/); // needs two
+  // The right amount, and none at all, still decode.
+  assert.equal(decodeBase64Url('SA==', 'messages.get'), 'H');
+  assert.equal(decodeBase64Url('SA', 'messages.get'), 'H');
+});
+
 test('a recent-mail read accepts a padded body after successful list and get operations', async () => {
   const { fetchImpl, calls } = scriptedFetch({
     messagesList: ok({ messages: [{ id: MSG_ID_1, threadId: MESSAGE_FULL.body.threadId }], resultSizeEstimate: 1 }),

@@ -20,6 +20,7 @@ import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
+import type { CommitmentView } from '../../commitments/model';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -73,7 +74,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-async function show(data: unknown = response()) {
+async function show(data: unknown = response(), lookup?: ReadonlyMap<string, CommitmentView>) {
   const get = jest.spyOn(nextStepEndpoints, 'getNextStep');
   if (data instanceof Error) get.mockRejectedValue(data);
   else get.mockResolvedValue(data as never);
@@ -81,7 +82,7 @@ async function show(data: unknown = response()) {
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
         <AuthProvider repository={repository} isDevBundle={false}>
-          <QueryClientProvider client={client}><NextStepCard /></QueryClientProvider>
+          <QueryClientProvider client={client}><NextStepCard lookup={lookup} /></QueryClientProvider>
         </AuthProvider>
       </AppProvider>
     </SafeAreaProvider>,
@@ -107,6 +108,30 @@ describe('it never implies it has acted', () => {
   it('says so, every time, unconditionally', async () => {
     await show();
     expect(screen.getByTestId('next-step-note').props.children).toBe(en.suggestionNote);
+  });
+
+  // UAT 2026-09-27 (#17, shot 38): the tag «اقتراح · ما تغيّر شي بعد» sat
+  // above the note «هذا اقتراح. لم يتغيّر أي شيء بعد.» — the same fact twice on
+  // one card. The note is the rule (mobile/AGENTS.md); the dashed edge is the
+  // shape. The tag is only for the state the note does not name: started.
+  it('says so once: no proposal tag beside the note, in any language', async () => {
+    await show();
+    expect(screen.queryByTestId('next-step-tag')).toBeNull();
+    expect(screen.getAllByText(en.suggestionNote)).toHaveLength(1);
+    for (const bundle of [en, ar] as unknown as Record<string, unknown>[]) {
+      expect(Object.keys(bundle)).not.toContain('nextStepTagProposal');
+    }
+  });
+
+  it('shows the started tag once the user accepts', async () => {
+    mockDecision();
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-accept'));
+    await waitFor(() => expect(screen.getByTestId('next-step-tag')).toHaveTextContent(en.nextStepTagStarted));
+    // Review round 2 (minor): the started note does not say the tag again.
+    for (const bundle of [en, ar] as unknown as Record<string, string>[]) {
+      expect(bundle.nextStepStartedNote).not.toContain(bundle.nextStepTagStarted!);
+    }
   });
 
   it('still says so once the why is open', async () => {
@@ -156,6 +181,32 @@ describe('the why', () => {
   });
 });
 
+/*
+ * Final UAT, N18: the all-day doctor's appointment today, at 10:05, carried
+ * «الوقت راح». The server no longer offers an appointment on a day as a step
+ * (FINAL-BACKEND d2762718); the phone also never says an all-day item is late
+ * on its own day, whatever reason the server sends.
+ */
+describe('«the time has passed» on an all-day item (N18)', () => {
+  const allDay = (isPast: boolean): CommitmentView => ({
+    id: 'c-1', title: 'Doctor', importance: 'must', status: 'active',
+    shownAt: '2026-09-27T21:00:00.000Z', allDay: true, isPast,
+    importanceIsStated: true, rank: undefined, reasonCodes: [],
+  });
+
+  it('is not said on the item\'s own day', async () => {
+    await show(response(), new Map([['c-1', allDay(false)]]));
+    expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
+    // The other reason still stands.
+    expect(screen.getByTestId('next-step-evidence')).toBeTruthy();
+  });
+
+  it('is said once the day is over', async () => {
+    await show(response(), new Map([['c-1', allDay(true)]]));
+    expect(screen.getByText(en.evidenceOverdue)).toBeTruthy();
+  });
+});
+
 describe('only the answers the server offered', () => {
   it('shows all five when all five are available — accept and defer up front, the rest behind More', async () => {
     await show();
@@ -201,8 +252,8 @@ describe('one tap is one decision', () => {
     // guard can stop the second. Un-awaited `fireEvent` calls would leave work
     // pending past the end of this test and break the next one.
     await act(async () => {
-      fireEvent.press(button);
-      fireEvent.press(button);
+      await fireEvent.press(button);
+      await fireEvent.press(button);
     });
     await waitFor(() => expect(decide).toHaveBeenCalled());
     expect(decide).toHaveBeenCalledTimes(1);

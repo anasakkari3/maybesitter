@@ -45,9 +45,12 @@ async function wrap(ui: React.ReactElement) {
 
 describe('Mobile Pre-Launch UI Reality Audit Regressions', () => {
   describe('Keyboard Avoidance', () => {
-    it('OnboardingChrome wraps screen content in KeyboardAvoidingView with iOS padding behavior', async () => {
+    // The shared container replaced RN's KeyboardAvoidingView (UAT 2026-09-26,
+    // #6): that one under-padded by whatever chrome sat above it. See
+    // src/ui/__tests__/keyboard.test.tsx for the census.
+    it('OnboardingChrome wraps screen content in the shared keyboard-avoiding container', async () => {
       const src = readFileSync(join(__dirname, '../../features/onboarding/OnboardingChrome.tsx'), 'utf8');
-      expect(src).toMatch(/behavior=\{Platform\.OS === 'ios' \? 'padding' : undefined\}/);
+      expect(src).toMatch(/<AvoidKeyboard\b/);
 
       await wrap(
         <OnboardingChrome
@@ -64,9 +67,9 @@ describe('Mobile Pre-Launch UI Reality Audit Regressions', () => {
       expect(flat(kav.props.style).flex).toBe(1);
     });
 
-    it('ReviewScreen wraps body in KeyboardAvoidingView with iOS padding behavior', async () => {
+    it('ReviewScreen wraps body in the shared keyboard-avoiding container', async () => {
       const src = readFileSync(join(__dirname, '../ReviewScreen.tsx'), 'utf8');
-      expect(src).toMatch(/behavior=\{Platform\.OS === 'ios' \? 'padding' : undefined\}/);
+      expect(src).toMatch(/<AvoidKeyboard\b/);
 
       await wrap(<ReviewScreen />);
       const kav = screen.getByTestId('review-kav');

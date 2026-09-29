@@ -7,7 +7,7 @@
  * the product overruling them with an estimate.
  */
 import { describe, expect, it } from '@jest/globals';
-import { groupForToday, toViewModel, topItemFor } from '../model';
+import { clockOf, groupForToday, toViewModel, topItemFor } from '../model';
 import type { Commitment } from '../../../api/schemas/common';
 
 const NOW = '2026-09-13T09:00:00.000Z';
@@ -120,6 +120,38 @@ describe('a time that has passed', () => {
   });
 });
 
+/*
+ * Final UAT, N18: the all-day doctor's appointment today at 10:05 was said to
+ * be late — its day's midnight read as a deadline. The phone has its own rule
+ * for "past" (`isPast`: an all-day item is today's until the day ends), and a
+ * server `overdue` the phone disagrees with is not said.
+ */
+describe('an all-day item is late only once its day is over (N18)', () => {
+  const AT_1005 = '2026-09-28T07:05:00.000Z'; // 10:05 in Amman
+  const allDayToday = (kind: 'scheduled_event' | 'due_by') => commitment({
+    id: kind, reasonCodes: ['overdue', 'user_must'],
+    timeSpec: { kind, dueAt: '2026-09-27T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Amman' },
+  } as Partial<Commitment> & { id: string });
+
+  it('an all-day item on its own day carries no overdue reason, whatever the server ranked', () => {
+    for (const kind of ['scheduled_event', 'due_by'] as const) {
+      const view = toViewModel(allDayToday(kind), AT_1005);
+      expect([kind, view.isPast, view.reasonCodes]).toEqual([kind, false, ['user_must']]);
+    }
+  });
+
+  it('keeps it once the day is over', () => {
+    const view = toViewModel(allDayToday('due_by'), '2026-09-28T21:30:00.000Z'); // 00:30 the next day in Amman
+    expect(view.isPast).toBe(true);
+    expect(view.reasonCodes).toEqual(['overdue', 'user_must']);
+  });
+
+  it('says which items are appointments on a day, and only those', () => {
+    expect(toViewModel(allDayToday('scheduled_event'), AT_1005).allDayEvent).toBe(true);
+    expect(toViewModel(allDayToday('due_by'), AT_1005).allDayEvent).toBe(false);
+  });
+});
+
 describe('grouping', () => {
   it('puts each item in the group its importance names', () => {
     const groups = groupForToday(
@@ -198,5 +230,51 @@ describe('the "why first" line', () => {
   it('goes to nobody when there is nothing open', () => {
     const groups = groupForToday([commitment({ id: 'done', status: 'completed' })], NOW);
     expect(topItemFor(groups)).toBeNull();
+  });
+});
+
+/**
+ * An all-day commitment names a day, not an hour (FX3): «أدفع فاتورة الكهربا
+ * قبل آخر الشهر» is due by the 30th, stored as that day's local midnight with
+ * `allDay`. The midnight is not a time anybody chose, so no screen may show it
+ * as «00:00».
+ */
+describe('an all-day commitment', () => {
+  const allDay = commitment({
+    id: 'bill',
+    timeSpec: { kind: 'due_by', dueAt: '2026-09-29T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' },
+  });
+
+  it('is marked all-day on the view, and keeps its day', () => {
+    const view = toViewModel(allDay, NOW);
+    expect(view.allDay).toBe(true);
+    expect(view.shownAt).toBe('2026-09-29T21:00:00.000Z');
+    expect(toViewModel(commitment({ id: 'timed' }), NOW).allDay).toBe(false);
+  });
+
+  it('has no clock to show, while a timed one does', () => {
+    const opts = { locale: 'en' as const, timeZone: 'Asia/Jerusalem' };
+    expect(clockOf(toViewModel(allDay, NOW), opts)).toBeNull();
+    expect(clockOf(toViewModel(commitment({ id: 'timed' }), NOW), opts)).toContain('15:00');
+    expect(clockOf({ shownAt: null }, opts)).toBeNull();
+  });
+
+  /*
+   * FY1 review M2: an all-day appointment on its own day read `isPast` from
+   * 00:00, because its stored instant is that day's local midnight. It is
+   * today's until the day ends — in the zone the day was named in.
+   */
+  it('is not past on its own day, and is past once that day has ended in its zone', () => {
+    const sunday = commitment({
+      id: 'doctor',
+      priority: { level: 'high', source: 'default', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-26T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Jerusalem' },
+    } as Partial<Commitment> & { id: string });
+    // Sunday 27 Sep in Jerusalem: 00:30, noon, 23:59.
+    expect(toViewModel(sunday, '2026-09-26T21:30:00.000Z').isPast).toBe(false);
+    expect(toViewModel(sunday, '2026-09-27T09:00:00.000Z').isPast).toBe(false);
+    expect(toViewModel(sunday, '2026-09-27T20:59:00.000Z').isPast).toBe(false);
+    // Monday 00:00 in Jerusalem: Sunday is over.
+    expect(toViewModel(sunday, '2026-09-27T21:00:00.000Z').isPast).toBe(true);
   });
 });

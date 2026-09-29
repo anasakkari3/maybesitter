@@ -100,6 +100,9 @@ export type Screen =
   // Settings → Home screen widget (UC-3.R1, #203). Whether commitment titles
   // may appear on this phone's home and lock screens, with a preview.
   | 'widgetSettings'
+  // Settings → My places (closure CL4). Home, Work and the rest, pinned from
+  // where the phone is; the pins stay on the phone.
+  | 'places'
   // Settings → Football (football fixtures MVP, Task 11). Pick clubs, see
   // the matches following them just projected, dismiss the ones you don't want.
   | 'footballSettings'
@@ -126,7 +129,11 @@ export type Screen =
   // rather than deriving one: the link names the day the plan is for, and a
   // screen that recomputed "today" would open a different plan from the one
   // the notification was about for anybody tapping it just after midnight.
-  | 'plan';
+  | 'plan'
+  // Weekly planning mode, «خطّط أسبوعي» (CL5b). One card per day for today
+  // and the six after it; reached from «اختار شو بدك تعمل» and from the
+  // Calendar tab's header. Pushed onto whichever tab it was opened from.
+  | 'weekPlan';
 
 export type CapState = 'idle' | 'listening' | 'transcript' | 'typing' | 'processing' | 'nothing';
 
@@ -143,7 +150,21 @@ export type Sheet =
   | 'postpone'
   | 'edit'
   | 'confirmDrop'
-  | 'confirmDelete';
+  | 'confirmDelete'
+  // «حضّرني» (CL5a): notes about one meeting, for the block in
+  // `AppState.meetingPrep`.
+  | 'meetingPrep';
+
+/**
+ * The meeting a «حضّرني» sheet is about: a busy block's times, or a
+ * commitment's. Times only — a calendar event's title is never read.
+ */
+export type MeetingPrepTarget = {
+  startAt: string;
+  endAt: string | null;
+  /** The person's title names an appointment (a dentist, an exam), not a meeting: the sheet says «الموعد». */
+  appointment?: true;
+};
 
 /**
  * A write that worked, said once at the bottom of the screen (Round 2). It

@@ -163,6 +163,31 @@ test('inside the user’s own quiet window there is no card, and no error', asyn
   }
 });
 
+test('quiet hours say when they end, so the card can say when suggestions come back (UAT round 3, N12)', async () => {
+  const cleanup = setup();
+  try {
+    await onboardingConsent(UID);
+    const window = windowAroundNow();
+    await saveRoutineProfile(UID, { ...ROUTINE, quietHours: window }, AT);
+    const result = await getMobileNextStep(UID, { locale: 'ar' });
+    assert.deepEqual(result.exposure, { allowed: false, reason: 'quiet_hours', until: window.end });
+  } finally {
+    cleanup();
+  }
+});
+
+test('quiet mode carries no end time: it lasts until the person turns it off', async () => {
+  const cleanup = setup();
+  try {
+    await onboardingConsent(UID);
+    await applyTrustAction(UID, { type: 'set_quiet_mode', enabled: true, at: AT });
+    const result = await getMobileNextStep(UID, { locale: 'ar' });
+    assert.deepEqual(result.exposure, { allowed: false, reason: 'quiet_mode' });
+  } finally {
+    cleanup();
+  }
+});
+
 test('no proposal is computed at all during quiet hours', async () => {
   const cleanup = setup();
   try {

@@ -8,6 +8,7 @@
       "title": "Submit the lab report",
       "resolvedTime": "2026-08-09T09:00:00.000Z",
       "needsClarification": false,
+      "timeEstimated": false,
       "priority": "normal",
       "priorityEstimated": true,
       "resolvedDate": "2026-08-13",

@@ -28,13 +28,27 @@ const OPTION_KEY: Record<string, string> = {
   noTime: 'clarifyNoTime',
   today: 'clarifyToday',
   tomorrow: 'clarifyTomorrow',
-  amPmOption: 'clarifyAmPmOption',
+};
+
+/** The one option key whose words depend on a parameter (see PERIOD_KEY). */
+const AM_PM_OPTION = 'amPmOption';
+
+/**
+ * `amPmOption` carries `period: 'am' | 'pm'` — a token, like a key, so it is
+ * never substituted into the words (UAT r6, shot 582: «am 5» on an Arabic
+ * chip). Each period has its own phone-owned string; one this build does not
+ * know renders null and the chip is left out, because the hour alone would put
+ * two identical «5» chips side by side that apply different times.
+ */
+const PERIOD_KEY: Record<string, string> = {
+  am: 'clarifyAmPmOptionAm',
+  pm: 'clarifyAmPmOptionPm',
 };
 
 /** Every question key this build can render. A test pins it against the contract. */
 export const KNOWN_QUESTION_KEYS = Object.keys(QUESTION_KEY);
 /** Every option label key this build can render. */
-export const KNOWN_OPTION_KEYS = Object.keys(OPTION_KEY);
+export const KNOWN_OPTION_KEYS = [...Object.keys(OPTION_KEY), AM_PM_OPTION];
 
 function render(
   key: string | undefined,
@@ -83,5 +97,10 @@ export function optionLabel(
   labelParams: Record<string, string>,
   strings: Record<string, string>,
 ): string | null {
+  if (labelKey === AM_PM_OPTION) {
+    const { period, ...rest } = labelParams;
+    const key = period && Object.prototype.hasOwnProperty.call(PERIOD_KEY, period) ? PERIOD_KEY[period] : undefined;
+    return render(key, rest, strings);
+  }
   return render(OPTION_KEY[labelKey], labelParams, strings);
 }

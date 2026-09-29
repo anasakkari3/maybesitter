@@ -13,10 +13,10 @@ import React from 'react';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppProvider } from '../../state/AppContext';
+import { AppProvider, useApp } from '../../state/AppContext';
 import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../api/auth';
@@ -30,7 +30,25 @@ import he from '../../i18n/locales/he.json';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 import * as planEndpoints from '../../api/endpoints/plans';
+import * as profileEndpoints from '../../api/endpoints/profile';
 import * as language from '../../i18n/language';
+import { fill, ltr } from '../../i18n/strings';
+import { Txt } from '../../ui/primitives';
+import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
+import profileFixture from '../../api/__fixtures__/profile.one.json';
+
+/** The phone's zone, when a case needs one other than the suite's. */
+let mockDeviceZone: string | null = null;
+jest.mock('../../i18n/timezone', () => {
+  const actual = jest.requireActual('../../i18n/timezone') as typeof import('../../i18n/timezone');
+  return {
+    ...actual,
+    useTimeZone: () => {
+      const real = actual.useTimeZone();
+      return mockDeviceZone ?? real;
+    },
+  };
+});
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -91,6 +109,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mockDeviceZone = null;
   client.clear();
   resetAuthForTests();
   jest.restoreAllMocks();
@@ -414,5 +433,248 @@ describe('Round 3 progressive density', () => {
     expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
     expect(screen.getAllByTestId(/^today-item-/).map(node => node.props.testID)).toEqual(['today-item-primary', 'today-item-overflow']);
     expect(screen.queryByTestId('today-plan-preview-overflow')).toBeNull();
+  });
+});
+
+/**
+ * UAT round 6 N-h (app 73b3e4dc): «اليوم الساعة 8 المسا لازم أحضّر العشا»,
+ * confirmed at 20:00, planned as «أحضّر العشا 20:00–20:30 ثابت», plan
+ * accepted — and Today's plan card still said «ما في إشي إله وقت اليوم».
+ * A commitment pinned to a time is in the plan's `fixed`, not `scheduled`.
+ *
+ * The slots are built from the real clock, one ahead of it and one behind,
+ * so each case reads the same whenever it runs.
+ */
+describe('the plan card counts what is pinned to a time (UAT round 6, N-h)', () => {
+  const HOUR = 3_600_000;
+  const slot = (itemId: string, fromNowMs: number) => ({
+    itemId, title: itemId, blockId: null,
+    startsAt: new Date(Date.now() + fromNowMs).toISOString(),
+    endsAt: new Date(Date.now() + fromNowMs + HOUR / 2).toISOString(),
+  });
+  const acceptedPlan = (fixed: ReturnType<typeof slot>[]) => ({
+    date: '2026-09-27', timezone: 'UTC', status: 'accepted' as const, generation: 1, inputDigest: '',
+    generatedAt: new Date(Date.now() - 3 * HOUR).toISOString(), acceptedAt: new Date(Date.now() - 3 * HOUR).toISOString(),
+    explanation: { text: '', locale: 'en' as const, source: 'template' as const }, edited: false, unscheduled: [],
+    scheduled: [], fixed, protections: [],
+  });
+
+  it('an accepted plan whose one row is fixed says it has one thing, and previews it as next', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(acceptedPlan([slot('dinner', 2 * HOUR)]));
+    await show([item({ id: 'dinner', timeSpec: { kind: 'scheduled_event', dueAt: new Date(Date.now() + 2 * HOUR).toISOString(), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } })]);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    expect(screen.getByTestId('today-plan-summary')).toHaveTextContent('One thing has a time today');
+    const row = screen.getByTestId('today-plan-preview-dinner');
+    expect(within(row).getByText(en.planPreviewNext)).toBeTruthy();
+  });
+
+  it('after the fixed row has ended it still counts, but is no longer called next', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(acceptedPlan([slot('dinner', -2 * HOUR)]));
+    await show([item({ id: 'dinner', timeSpec: { kind: 'scheduled_event', dueAt: new Date(Date.now() - 2 * HOUR).toISOString(), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } })]);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    expect(screen.getByTestId('today-plan-summary')).toHaveTextContent('One thing has a time today');
+    const row = screen.getByTestId('today-plan-preview-dinner');
+    expect(within(row).queryByText(en.planPreviewNext)).toBeNull();
+    expect(within(row).getByText(en.planPreviewPlanned)).toBeTruthy();
+  });
+
+  it('a truly empty accepted plan keeps the honest empty line', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(acceptedPlan([]));
+    await show([withPriority('open', 'normal')]);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-summary')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('today-plan-summary')).toHaveTextContent('Nothing needed a time today'));
+  });
+});
+
+/** Where the app would go next, rendered where a test can read it. */
+function ScreenProbe() {
+  const { s } = useApp();
+  return <Txt testID="screen-probe">{s.screen}</Txt>;
+}
+
+describe('the top card during quiet hours is not quiet mode (UAT round 3, N12)', () => {
+  async function showSilenced(response: unknown) {
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue(response as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [withPriority('a', 'high')] } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><TodayScreen /><ScreenProbe /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId('today-quiet')).not.toBeNull());
+  }
+
+  /** The profile the route read `until` on, in `timezone`. */
+  function profileIn(timezone: string) {
+    jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({
+      ...profileFixture, routine: { ...profileFixture.routine, timezone },
+    } as never);
+  }
+
+  it('says when suggestions come back, offers no "turn it off", and links to where quiet hours are set', async () => {
+    // The real route's answer at 00:30 inside 22:30–07:30, phone and profile in one zone.
+    mockDeviceZone = 'Asia/Jerusalem';
+    profileIn('Asia/Jerusalem');
+    await showSilenced(quietHoursFixture);
+    await waitFor(() => expect(within(screen.getByTestId('today-quiet'))
+      .queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).not.toBeNull());
+    const card = within(screen.getByTestId('today-quiet'));
+    expect(card.queryByText(en.todayQuietModeOn)).toBeNull();
+    expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-trust')).toBeNull();
+    await fireEvent.press(screen.getByTestId('today-quiet-hours'));
+    await waitFor(() => expect(screen.getByTestId('screen-probe').props.children).toBe('notificationsSettings'));
+  });
+
+  /*
+   * FZ2 review M4. `until` is on the profile's clock. A person whose profile
+   * is Tokyo, travelling with the phone in Delhi, read «07:30» when the
+   * suggestions came back at 04:00 on the phone. Zones with no clock change.
+   */
+  it('says the end on the phone\u2019s clock when the profile is in another zone', async () => {
+    mockDeviceZone = 'Asia/Kolkata';
+    profileIn('Asia/Tokyo');
+    await showSilenced(quietHoursFixture);
+    const card = within(screen.getByTestId('today-quiet'));
+    await waitFor(() => expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('04:00') }))).not.toBeNull());
+    expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).toBeNull();
+  });
+
+  it('says no hour at all until it knows which clock `until` is on', async () => {
+    mockDeviceZone = 'Asia/Kolkata';
+    jest.spyOn(profileEndpoints, 'getProfile').mockReturnValue(new Promise(() => undefined) as never);
+    await showSilenced(quietHoursFixture);
+    const card = within(screen.getByTestId('today-quiet'));
+    expect(card.queryByText(en.todayQuietHours)).not.toBeNull();
+    expect(card.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('07:30') }))).toBeNull();
+  });
+
+  it('asks again when quiet hours end while Today is open, and the quiet card goes', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      mockDeviceZone = 'UTC';
+      profileIn('UTC');
+      const getNext = jest.spyOn(nextStepEndpoints, 'getNextStep')
+        .mockResolvedValueOnce({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_hours', until: '22:30' } } as never)
+        .mockResolvedValue({
+          success: true, participantId: USER.uid,
+          recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+        } as never);
+      jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [withPriority('a', 'high')] } as never);
+      await render(
+        <SafeAreaProvider initialMetrics={METRICS}>
+          <AppProvider>
+            <AuthProvider repository={repository} isDevBundle={false}>
+              <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+            </AuthProvider>
+          </AppProvider>
+        </SafeAreaProvider>,
+      );
+      await waitFor(() => expect(screen.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('22:30') }))).not.toBeNull());
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      await waitFor(() => expect(screen.queryByTestId('today-quiet')).toBeNull());
+      expect(getNext.mock.calls.length).toBeGreaterThan(before);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /** Today with quiet hours until 22:30 UTC, rendered at 22:29:30 under fake timers. */
+  async function showQuietUntil2230(then: 'empty' | 'fail-once') {
+    mockDeviceZone = 'UTC';
+    profileIn('UTC');
+    const empty = {
+      success: true, participantId: USER.uid,
+      recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
+    };
+    const getNext = jest.spyOn(nextStepEndpoints, 'getNextStep')
+      .mockResolvedValueOnce({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_hours', until: '22:30' } } as never);
+    if (then === 'fail-once') getNext.mockRejectedValueOnce(new Error('offline'));
+    getNext.mockResolvedValue(empty as never);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [withPriority('a', 'high')] } as never);
+    const view = await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><TodayScreen /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByText(fill(en.todayQuietHoursUntil, { time: ltr('22:30') }))).not.toBeNull());
+    return { getNext, view };
+  }
+
+  /* POLISH-MOBILE review m4: nothing is asked before the end, and an unmounted Today asks nothing. */
+  it('asks nothing before quiet hours end, and nothing once Today is gone', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext, view } = await showQuietUntil2230('empty');
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(20_000); });
+      expect(getNext.mock.calls.length).toBe(before);
+      await view.unmount();
+      await act(async () => { jest.advanceTimersByTime(120_000); });
+      expect(getNext.mock.calls.length).toBe(before);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /* POLISH-MOBILE review m6: a failed ask at the end is tried once more. */
+  it('tries once more when the ask at the end fails', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext } = await showQuietUntil2230('fail-once');
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      await waitFor(() => expect(getNext.mock.calls.length).toBe(before + 1));
+      expect(screen.queryByTestId('today-quiet')).not.toBeNull();
+      await act(async () => { jest.advanceTimersByTime(60_000); });
+      await waitFor(() => expect(screen.queryByTestId('today-quiet')).toBeNull());
+      expect(getNext.mock.calls.length).toBe(before + 2);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /* Review n3: an ask that fails after Today has closed schedules no retry. */
+  it('does not retry for a Today that has closed while the ask was out', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-28T22:29:30.000Z') });
+    try {
+      const { getNext, view } = await showQuietUntil2230('empty');
+      let fail: (error: Error) => void = () => undefined;
+      getNext.mockImplementationOnce(() => new Promise((_, reject) => { fail = reject; }) as never);
+      const before = getNext.mock.calls.length;
+      await act(async () => { jest.advanceTimersByTime(45_000); });
+      expect(getNext.mock.calls.length).toBe(before + 1);
+      await view.unmount();
+      await act(async () => { fail(new Error('offline')); });
+      await act(async () => { jest.advanceTimersByTime(120_000); });
+      expect(getNext.mock.calls.length).toBe(before + 1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('quiet mode keeps its own words and the way to turn it off', async () => {
+    await showSilenced({ ...quietHoursFixture, exposure: { allowed: false, reason: 'quiet_mode' } });
+    expect(within(screen.getByTestId('today-quiet')).queryByText(en.todayQuietModeOn)).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-trust')).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-hours')).toBeNull();
+  });
+
+  it('the operator\u2019s pause is neither, and offers nothing to switch', async () => {
+    await showSilenced({ ...quietHoursFixture, exposure: { allowed: false, reason: 'kill_switch_active' } });
+    const card = within(screen.getByTestId('today-quiet'));
+    expect(card.queryByText(en.todayQuietModeOn)).toBeNull();
+    expect(card.queryByText(en.todayNextPaused)).not.toBeNull();
+    expect(screen.queryByTestId('today-quiet-trust')).toBeNull();
+    expect(screen.queryByTestId('today-quiet-hours')).toBeNull();
   });
 });

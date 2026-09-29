@@ -18,7 +18,9 @@
  * one first", and it is deliberately not a status.
  */
 import type { Commitment } from '../../api/schemas/common';
-import { dayKey } from '../../i18n/format';
+import { dayKey, formatTime, type FormatOptions } from '../../i18n/format';
+import { ltr } from '../../i18n/strings';
+import { resolveTimeZone } from '../../i18n/timezone';
 
 export type Importance = 'must' | 'should' | 'nice';
 
@@ -32,6 +34,25 @@ export interface CommitmentView {
   status: ViewStatus;
   /** The instant the screen shows: the due time, or the reminder if that is all there is. */
   shownAt: string | null;
+  /**
+   * Where a saved plan puts it, when one does (`features/plan/savedPlacement`):
+   * the screens show it at this time, and its own due beside it when the two
+   * differ (post-UAT FX1). Absent for anything no saved day holds.
+   */
+  plannedAt?: string | null;
+  /**
+   * The commitment names a day and no hour (`TimeSpec.allDay`): `shownAt` is
+   * that day's local midnight, which nobody chose. Show its day, never «00:00»
+   * (FX3). Optional so a view built by hand reads as timed.
+   */
+  allDay?: boolean;
+  /**
+   * An appointment on a day with no hour (`scheduled_event` + `allDay`): it
+   * happens on its day, and is never «خطوتك التالية» (final UAT, N18). An
+   * all-day *task* is still something to do by the day's end. Optional so a
+   * view built by hand reads as neither.
+   */
+  allDayEvent?: boolean;
   /** Separate from the due time: postponing pauses resurfacing, not the deadline. */
   postponedUntil?: string | null;
   /** Past its shown time, and still active. Not a status — see the header. */
@@ -72,18 +93,37 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
   const shownAt = commitment.timeSpec.dueAt ?? commitment.timeSpec.remindAt;
   const status = STATUS[commitment.status] ?? 'active';
   const shownMs = shownAt ? Date.parse(shownAt) : Number.NaN;
+  const allDay = commitment.timeSpec.allDay === true;
+  const isPast = status === 'active' && !Number.isNaN(shownMs) && (allDay
+    ? dayHasEnded(shownMs, now, resolveTimeZone(commitment.timeSpec.timezone))
+    : shownMs < Date.parse(now));
+  const reasonCodes = commitment.reasonCodes ?? [];
   return {
     id: commitment.id,
     title: commitment.title,
     importance: IMPORTANCE[commitment.priority.level],
     status,
     shownAt,
+    allDay,
+    allDayEvent: allDay && commitment.timeSpec.kind === 'scheduled_event',
     postponedUntil: commitment.currentAckState === 'postponed' ? commitment.postponedUntil : null,
-    isPast: status === 'active' && !Number.isNaN(shownMs) && shownMs < Date.parse(now),
+    isPast,
     importanceIsStated: commitment.priority.source === 'user_explicit',
     rank: commitment.rank,
-    reasonCodes: commitment.reasonCodes ?? [],
+    // An all-day item is late only once its day is over (`isPast`): the
+    // server read its midnight as the deadline and called the appointment late
+    // at 10:05 on its own day (final UAT, N18).
+    reasonCodes: allDay && !isPast ? reasonCodes.filter((code) => code !== 'overdue') : reasonCodes,
   };
+}
+
+/**
+ * An all-day commitment's instant is its day's local midnight, which nobody
+ * chose: it is today's until that day ends, in the zone the day was named in
+ * (FY1 review M2), the same rule `nextUsefulItem` judges it by.
+ */
+function dayHasEnded(dayStartMs: number, now: string, timeZone: string): boolean {
+  return dayKey(new Date(dayStartMs), timeZone) < dayKey(new Date(now), timeZone);
 }
 
 export interface TodayGroups {
@@ -224,4 +264,15 @@ export function groupUpcoming(
       ));
       return { key, at: sorted[0]!.shownAt!, items: sorted };
     });
+}
+
+/**
+ * The clock a row shows for a commitment, or `null` when there is none to show:
+ * no time at all, or an all-day one whose midnight is not an hour (FX3). Every
+ * screen that prints a commitment's time asks this, so «00:00» cannot come back
+ * through one that forgot.
+ */
+export function clockOf(view: Pick<CommitmentView, 'shownAt' | 'allDay'>, options: FormatOptions): string | null {
+  if (!view.shownAt || view.allDay) return null;
+  return ltr(formatTime(new Date(view.shownAt), options));
 }

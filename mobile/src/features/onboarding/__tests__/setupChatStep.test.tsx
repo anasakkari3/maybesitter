@@ -14,23 +14,24 @@
  * callback each button calls, on which question, with what on screen. The
  * two together make "Read my answers" mean something; neither does alone.
  */
-import React from 'react';
+import React, { useState } from 'react';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { AccessibilityInfo, StyleSheet } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { SetupChatStep } from '../SetupChatStep';
 import { EMPTY_SETUP_ANSWERS, type SetupAnswers } from '../setupChat';
 import en from '../../../i18n/locales/en.json';
+import { ltr, stripIsolates } from '../../../i18n/bidi';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await cleanup();
 });
 
 /** Mounts the step with every callback spied; the answers are what the caller says. */
@@ -116,7 +117,18 @@ describe('answering', () => {
 
   it('shows how much of the cap is used', async () => {
     await renderStep({ index: 1, answers: { ...EMPTY_SETUP_ANSWERS, day: 'I teach' } });
-    expect(screen.getByTestId('setup-answer-count').props.children).toBe('7 / 150');
+    expect(screen.getByTestId('setup-answer-count').props.children).toBe(ltr('7 / 150'));
+  });
+
+  // UAT round 6, batch 4 (shot 742): in an Arabic layout the bare "50 / 150"
+  // was laid out right to left and read «150 / 50» — the cap first, as if the
+  // answer were three times over it. One left-to-right unit reads as written.
+  it('reads used-then-cap in an Arabic layout too', async () => {
+    await renderStep({ index: 1, answers: { ...EMPTY_SETUP_ANSWERS, day: 'x'.repeat(50) } });
+    const count = screen.getByTestId('setup-answer-count').props.children as string;
+    expect(count.startsWith('\u2066')).toBe(true);
+    expect(count.endsWith('\u2069')).toBe(true);
+    expect(stripIsolates(count)).toBe('50 / 150');
   });
 
   it('shows the smaller cap when a long narrative has used the budget', async () => {
@@ -126,7 +138,177 @@ describe('answering', () => {
     await renderStep({ index: 3, answers });
     const cap = screen.getByTestId('setup-answer-input').props.maxLength as number;
     expect(cap).toBeLessThan(150);
-    expect(screen.getByTestId('setup-answer-count').props.children).toBe(`0 / ${cap}`);
+    expect(screen.getByTestId('setup-answer-count').props.children).toBe(ltr(`0 / ${cap}`));
+  });
+});
+
+/**
+ * The chips combine (closure CL2b, complaint #3).
+ *
+ * On the 2026-09-26 simulator run the second chip tapped on "What does a
+ * typical day look like?" replaced the first (evidence shot 22). A day can be
+ * "long hours" *and* "every day is different"; the literal repro is two taps
+ * on the same question, so these drive a stateful harness rather than a spy.
+ */
+function Harness({ initial = EMPTY_SETUP_ANSWERS, index = 1 }: { initial?: SetupAnswers; index?: number }) {
+  const [answers, setAnswers] = useState<SetupAnswers>(initial);
+  return (
+    <SetupChatStep
+      answers={answers}
+      index={index}
+      onChange={(update) => setAnswers(update)}
+      onIndexChange={() => {}}
+      onRead={() => {}}
+      onSkip={() => {}}
+      onBack={() => {}}
+    />
+  );
+}
+
+async function renderHarness(initial?: SetupAnswers, index?: number) {
+  await render(
+    <SafeAreaProvider initialMetrics={METRICS}>
+      <AppProvider>
+        <Harness {...(initial ? { initial } : {})} {...(index !== undefined ? { index } : {})} />
+      </AppProvider>
+    </SafeAreaProvider>,
+  );
+}
+
+const fieldValue = () => screen.getByTestId('setup-answer-input').props.value as string;
+const checked = (testID: string) =>
+  (screen.getByTestId(testID).props.accessibilityState as { checked?: boolean } | undefined)?.checked;
+
+describe('combining chips', () => {
+  it('a second chip adds to the first instead of replacing it, in the order tapped', async () => {
+    await renderHarness();
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    await fireEvent.press(screen.getByTestId('setup-chip-day-2'));
+    expect(fieldValue()).toBe(`${en.obSetupDayChip3}, ${en.obSetupDayChip2}`);
+  });
+
+  it('is a checkbox, and both chips read as checked', async () => {
+    await renderHarness();
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    await fireEvent.press(screen.getByTestId('setup-chip-day-2'));
+    expect(screen.getByTestId('setup-chip-day-3').props.accessibilityRole).toBe('checkbox');
+    expect(checked('setup-chip-day-3')).toBe(true);
+    expect(checked('setup-chip-day-2')).toBe(true);
+    expect(checked('setup-chip-day-1')).toBe(false);
+  });
+
+  it('tapping a checked chip takes it out and leaves the others', async () => {
+    await renderHarness();
+    await fireEvent.press(screen.getByTestId('setup-chip-day-1'));
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    await fireEvent.press(screen.getByTestId('setup-chip-day-4'));
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    expect(fieldValue()).toBe(`${en.obSetupDayChip1}, ${en.obSetupDayChip4}`);
+    expect(checked('setup-chip-day-3')).toBe(false);
+  });
+
+  it('keeps what was typed and adds the chip after it', async () => {
+    await renderHarness();
+    await fireEvent.changeText(screen.getByTestId('setup-answer-input'), 'I teach');
+    await fireEvent.press(screen.getByTestId('setup-chip-day-4'));
+    expect(fieldValue()).toBe(`I teach, ${en.obSetupDayChip4}`);
+    expect(checked('setup-chip-day-4')).toBe(true);
+  });
+
+  it('does not light a chip whose words only sit inside a longer sentence', async () => {
+    await renderHarness({ ...EMPTY_SETUP_ANSWERS, day: `Honestly ${en.obSetupDayChip4.toLowerCase()} and ${en.obSetupDayChip4}ish` });
+    expect(checked('setup-chip-day-4')).toBe(false);
+  });
+});
+
+describe('over the cap', () => {
+  // The chips are not cut to fit any more: a cut chip would be words the user
+  // never chose. So the whole text is shown, the counter says it is over, and
+  // Next waits until they trim it.
+  const overCap = { ...EMPTY_SETUP_ANSWERS, day: `${'x'.repeat(140)}` };
+
+  it('shows the whole combined text, says it is too long, and blocks Next', async () => {
+    await renderHarness(overCap);
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    const value = fieldValue();
+    expect(value).toBe(`${'x'.repeat(140)}, ${en.obSetupDayChip3}`);
+    expect(Array.from(value).length).toBeGreaterThan(150);
+    // The field must not truncate what it is showing.
+    expect(screen.getByTestId('setup-answer-input').props.maxLength).toBeGreaterThanOrEqual(Array.from(value).length);
+    expect(screen.getByTestId('setup-answer-count').props.children).toBe(ltr(`${Array.from(value).length} / 150`));
+    expect(screen.queryByTestId('setup-answer-too-long')).not.toBeNull();
+    expect(screen.getByLabelText(en.obSetupNext).props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it('blocks Read on the last question the same way', async () => {
+    const { onRead } = await renderStep({ index: 4, answers: { ...EMPTY_SETUP_ANSWERS, habits: 'h'.repeat(151) } });
+    expect(screen.queryByTestId('setup-answer-too-long')).not.toBeNull();
+    await press(en.obSetupRead);
+    expect(onRead).not.toHaveBeenCalled();
+  });
+
+  it('lets Next through again once trimmed back under the cap', async () => {
+    await renderHarness(overCap);
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    expect(screen.queryByTestId('setup-answer-too-long')).toBeNull();
+    expect(screen.getByLabelText(en.obSetupNext).props.accessibilityState).toMatchObject({ disabled: false });
+  });
+});
+
+/*
+ * Round 2 (review m3): "Nothing comes to mind" is the absence of an answer,
+ * so it cannot sit next to "Finished a course". Picking it clears the other
+ * chips; picking another chip clears it. Typed words are the user's and stay.
+ */
+describe('the "nothing comes to mind" chip', () => {
+  const NOTHING = 'setup-chip-done-5';
+
+  it('picking it clears the chips already picked', async () => {
+    await renderHarness(undefined, 3);
+    await fireEvent.press(screen.getByTestId('setup-chip-done-1'));
+    await fireEvent.press(screen.getByTestId('setup-chip-done-4'));
+    await fireEvent.press(screen.getByTestId(NOTHING));
+    expect(fieldValue()).toBe(en.obSetupDoneChip5);
+    expect(checked(NOTHING)).toBe(true);
+    expect(checked('setup-chip-done-1')).toBe(false);
+    expect(checked('setup-chip-done-4')).toBe(false);
+  });
+
+  it('picking another chip clears it', async () => {
+    await renderHarness(undefined, 3);
+    await fireEvent.press(screen.getByTestId(NOTHING));
+    await fireEvent.press(screen.getByTestId('setup-chip-done-2'));
+    expect(fieldValue()).toBe(en.obSetupDoneChip2);
+    expect(checked(NOTHING)).toBe(false);
+  });
+
+  it('keeps typed words when it clears the chips', async () => {
+    await renderHarness({ ...EMPTY_SETUP_ANSWERS, done: `Moved flat, ${en.obSetupDoneChip1}` }, 3);
+    await fireEvent.press(screen.getByTestId(NOTHING));
+    expect(fieldValue()).toBe(`Moved flat, ${en.obSetupDoneChip5}`);
+  });
+});
+
+/*
+ * Round 2 (review m4): `accessibilityLiveRegion` is Android-only, so VoiceOver
+ * never heard that the answer went over the cap — only a Next that stopped
+ * working. iOS is told once, when the line appears.
+ */
+describe('announcing the cap on iOS', () => {
+  it('announces the too-long line when a chip takes the answer over the cap, once', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    // Already a jest.fn in the RN preset: earlier over-cap cases' calls are on it.
+    announce.mockClear();
+    await renderHarness({ ...EMPTY_SETUP_ANSWERS, day: 'x'.repeat(140) });
+    expect(announce).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith(en.obSetupTooLong);
+    // Taking it back under the cap says nothing more.
+    await fireEvent.press(screen.getByTestId('setup-chip-day-3'));
+    expect(announce).toHaveBeenCalledTimes(1);
+    announce.mockRestore();
   });
 });
 

@@ -16,6 +16,7 @@ import {
 } from '../schemas/commitments';
 import { captureConfirmationSchema, captureProposalSchema } from '../schemas/capture';
 import { shareProposalSchema } from '../schemas/share';
+import { meetingPrepResponseSchema } from '../schemas/meetings';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
 import { pilotIncidentResponseSchema, trustResponseSchema } from '../schemas/trust';
 import { habitChangedSchema } from '../schemas/habits';
@@ -45,7 +46,8 @@ import {
   profileResponseSchema,
   routineSavedSchema,
 } from '../schemas/profile';
-import { backgroundActivityHistorySchema } from '../schemas/backgroundActivity';
+import { backgroundActivityHistorySchema, backgroundActivitySchema } from '../schemas/backgroundActivity';
+import { footballSettingsResponseSchema } from '../schemas/football';
 import {
   planCauseResponseSchema,
   planEditRejectedSchema,
@@ -53,6 +55,10 @@ import {
   planOpenedSchema,
   planResponseSchema,
   planSettingsResponseSchema,
+  weekAcceptResponseSchema,
+  weekConflictSchema,
+  savedWeekResponseSchema,
+  weekResponseSchema,
 } from '../schemas/plan';
 import {
   calendarBusyDeletedSchema,
@@ -121,10 +127,25 @@ const CASES: Array<[string, z.ZodType]> = [
   // still waiting on its hour, then the same item answered.
   ['capture.guessedWeekday', captureProposalSchema],
   ['capture.guessedWeekdayClarified', captureProposalSchema],
+  // «… اليوم المسا …» (UAT round 6, D2): an hour we picked for a part of the
+  // day, marked `timeEstimated`.
+  ['capture.guessedHour', captureProposalSchema],
+  // «قبل آخر الشهر» (FX3): a settled item with a day and no hour, and its
+  // confirmation as an all-day deadline.
+  ['capture.appointmentNoTimeClarified', captureProposalSchema],
+  ['capture.appointmentNoTimeConfirmation', captureConfirmationSchema],
+  ['capture.allDayDeadline', captureProposalSchema],
+  ['capture.allDayDeadlineConfirmation', captureConfirmationSchema],
   // The same schema again, over a proposal the model answered (#338). Without
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.
   ['capture.geminiProposal', captureProposalSchema],
+  // «حضّرني» (CL5a): the rules-only answer, the one a model gave, and the
+  // refusal for a meeting that is about to start.
+  ['meetings.prepared', meetingPrepResponseSchema],
+  ['meetings.preparedGemini', meetingPrepResponseSchema],
+  ['meetings.preparedNoReminder', meetingPrepResponseSchema],
+  ['meetings.tooSoon', errorBodySchema],
   // The share proposal is the capture proposal plus an envelope, and it is
   // parsed with its own schema rather than with `captureProposalSchema`, so
   // that a missing `share` block fails here instead of being ignored (#183).
@@ -135,6 +156,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['commitments.upcoming', commitmentListSchema],
   ['commitments.one', commitmentSchema],
   ['commitments.patched', commitmentSchema],
+  ['commitments.placeReminder', commitmentSchema],
   ['commitments.action', commitmentActionResultSchema],
   ['commitments.deleted', commitmentDeleteResultSchema],
   ['commitments.notFound', errorBodySchema],
@@ -178,10 +200,13 @@ const CASES: Array<[string, z.ZodType]> = [
   ['memory.withPlanTimeSuggestion', memoryListSchema],
   ['memory.planTimeSuggestionKept', memorySuggestionKeptSchema],
   ['nextStep.recommendation', nextStepResponseSchema],
+  ['nextStep.quietHours', nextStepResponseSchema],
   ['nextStep.decision', nextStepDecisionResponseSchema],
   ['trust.state', trustResponseSchema],
   ['trust.updated', trustResponseSchema],
   ['backgroundActivity.history', backgroundActivityHistorySchema],
+  // Closure CL7: a followed club whose last fetch failed says "retrying".
+  ['backgroundActivity.footballRetrying', backgroundActivitySchema],
   ['pilot.incident', pilotIncidentResponseSchema],
   ['feedback.history', feedbackHistorySchema],
   ['feedback.revoked', feedbackRevokeSchema],
@@ -214,6 +239,12 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.proposal.stale', planProposalRejectedSchema],
   ['plan.settingsDefault', planSettingsResponseSchema],
   ['plan.settingsSaved', planSettingsResponseSchema],
+  // Weekly planning mode (CL5b): the week, a day saved from it, and the 409.
+  ['plan.week', weekResponseSchema],
+  ['plan.weekAccepted', weekAcceptResponseSchema],
+  ['plan.weekAlreadyPlanned', weekConflictSchema],
+  ['plan.weekChanged', weekConflictSchema],
+  ['plan.weekSaved', savedWeekResponseSchema],
   // The device calendar (UC-3.1, #185). `commitments.one` above is a commitment
   // with no link and `commitments.oneLinked` the same read once one exists, so
   // both halves of the nullable field are parsed from a real response.
@@ -254,6 +285,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['financial.connectionOff', financialConnectionSchema],
   ['habit.created', habitChangedSchema],
   ['goal.generated', goalGraphResponseSchema],
+  ['goal.geminiGenerated', goalGraphResponseSchema],
   ['goal.execution', goalExecutionResponseSchema],
   ['goal.confirmed', goalConfirmResponseSchema],
   ['goal.regenerated', goalGraphResponseSchema],
@@ -270,6 +302,10 @@ const CASES: Array<[string, z.ZodType]> = [
   ['watchers.paused', watcherChangedSchema],
   ['watchers.resumed', watcherChangedSchema],
   ['watchers.list', watcherListSchema],
+  // Closure CL7: football as a watcher source, gated on the server's key.
+  ['watchers.football.created', watcherChangedSchema],
+  ['football.settings', footballSettingsResponseSchema],
+  ['football.settings.configured', footballSettingsResponseSchema],
   ['devices.registered', deviceRegisteredSchema],
   ['devices.forgotten', deviceForgottenSchema],
   // Subscribed calendar feeds (UC-3.4, #188). The schemas are strict: a
@@ -283,6 +319,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['icsFeeds.deleted', icsFeedDeletedSchema],
   ['icsFeeds.invalidUrl', icsFeedRefusalSchema],
   ['icsFeeds.refreshTooSoon', icsFeedRefusalSchema],
+  // A server with ICS_FEEDS_ENABLED unset (every deploy until 2026-09-29).
+  ['icsFeeds.disabled', icsFeedRefusalSchema],
   // The Google connection (CL6a), recorded from the routes against a fake
   // Google. `google.notConfigured` is what every build gets until the owner
   // adds the OAuth client; the Gmail scan and the Drive import are the share
@@ -482,6 +520,17 @@ describe('what the schemas assert about the shape', () => {
     expect(typeof response.recommendation).toBe('object');
     expect(response.recommendation.proposalId).toEqual(expect.any(String));
     expect(response.recommendation.state).toBe('ready');
+  });
+
+  it('keeps the fields UAT round 3 added, from the real routes (N11, N12, N13)', () => {
+    // Zod drops keys a schema does not name, so a field the server sends and
+    // the schema forgot is silently gone on the phone.
+    const clarified = captureProposalSchema.parse(fixture('capture.appointmentNoTimeClarified'));
+    expect(clarified.items[0]!.eventOnDay).toBe(true);
+    const quiet = nextStepResponseSchema.parse(fixture('nextStep.quietHours'));
+    expect(quiet.exposure).toEqual({ allowed: false, reason: 'quiet_hours', until: '07:30' });
+    const week = weekResponseSchema.parse(fixture('plan.week'));
+    expect(week.week.days.flatMap(day => day.allDay.map(row => row.itemId))).toEqual(['plan_fixture_week_all_day']);
   });
 
   it('carries the newer commitment in a stale-edit refusal', () => {

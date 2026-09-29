@@ -57,6 +57,10 @@ const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Objec
   // Reading a profile about the person, same as `profile_extraction`: it is not
   // capture, not planning, and not an integration sync.
   ai_context_import: 'other',
+  // Steps towards a goal become commitments and habits the planner places.
+  goal_decomposition: 'planning',
+  // «حضّرني» (CL5a): the feature the cost contract already names for it.
+  meeting_prep: 'meeting_intelligence',
 });
 
 function statusFor(outcome: LlmOutcome): CostOperationStatus {

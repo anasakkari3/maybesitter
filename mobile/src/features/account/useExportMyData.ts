@@ -3,6 +3,7 @@ import { useApp } from '../../state/AppContext';
 import { getAccountExport } from '../../api/endpoints/accountExport';
 import { InputTooLargeError, QuotaExceededError } from '../../api/errors';
 import { shareExportFile, type ShareFile } from '../../lib/dataExportFile';
+import { deviceTimeZone } from '../../i18n/timezone';
 
 /**
  * "Export my data" (#174 step 7): fetch, hand to the share sheet, forget.
@@ -28,7 +29,8 @@ export function useExportMyData(share?: ShareFile | undefined) {
       const exported = await getAccountExport();
       await shareExportFile(
         JSON.stringify(exported, null, 2),
-        { dialogTitle: t.exportDataShareTitle, exportedAt: exported.exportedAt },
+        // The phone's zone as of the press: the file is named for the person's day.
+        { dialogTitle: t.exportDataShareTitle, exportedAt: exported.exportedAt, timeZone: deviceTimeZone() },
         share,
       );
       setPhase('idle');

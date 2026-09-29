@@ -59,6 +59,35 @@ test('global quota metric excludes individual user cap events', () => {
   assert.equal(c.aggregations[0].crossSeriesReducer, 'REDUCE_SUM');
 });
 
+test('production model calls alert at 80% of the production cap, on the production service only', () => {
+  // Owner decision 2026-09-29: the model is on in production with a 500/day
+  // global cap. The Vertex count is project-wide and staging alone may make
+  // 3000 calls a day, so production needs an alert of its own.
+  const flags = readFileSync(fileURLToPath(new URL('../../infra/cloudrun/flags.sh', import.meta.url)), 'utf8');
+  const cap = /production\)[\s\S]*?global_daily_call_cap="(\d+)"/.exec(flags);
+  assert.ok(cap, 'flags.sh no longer sets a production global cap');
+  const c = condition('Production model calls above 400/day');
+  assert.equal(c.thresholdValue, Number(cap[1]) * 0.8, 'the alert is not at 80% of the production cap');
+  assert.match(c.filter, /logging\.googleapis\.com\/user\/ai_production_llm_calls/);
+  assert.equal(c.comparison, 'COMPARISON_GT');
+  assert.equal(c.aggregations[0].alignmentPeriod, '86400s');
+  assert.equal(c.aggregations[0].perSeriesAligner, 'ALIGN_SUM');
+  assert.equal(c.aggregations[0].crossSeriesReducer, 'REDUCE_SUM');
+
+  const filter = /metrics create ai_production_llm_calls [^\n]*--log-filter=(.*?) *$/m.exec(commands)?.[1];
+  assert.ok(filter, 'no ai_production_llm_calls metric is created');
+  assert.match(filter, /resource\.type="cloud_run_revision"/);
+  assert.match(filter, /resource\.labels\.service_name="maybesitter-api"/);
+  assert.match(filter, /jsonPayload\.event="llm_call"/);
+  // A per-user refusal is logged as llm_call with outcome cost_cap; it is not a call.
+  assert.match(filter, /jsonPayload\.outcome!="cost_cap"/);
+
+  // An override of SERVICE (for the Cloud Run policies) must not move it to staging.
+  const overridden = execFileSync('bash', [script, 'print'], { encoding: 'utf8', env: { ...process.env, SERVICE: 'maybesitter-api-staging' } })
+    .replace(/\\(.)/g, '$1');
+  assert.match(overridden, /metrics create ai_production_llm_calls [^\n]*service_name="maybesitter-api" /);
+});
+
 test('apply passes the same valid policy JSON and an intact global filter to gcloud', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ai-alerts-test-'));
   const log = join(dir, 'calls.jsonl');
@@ -95,7 +124,7 @@ test('instance ceiling sums across revisions before the fifteen-minute retest', 
   assert.ok(2 + 1 >= c.thresholdValue); // Neither revision alone is at 3.
 });
 
-test('printed commands execute as shell with four independently valid policy inputs', () => {
+test('printed commands execute as shell with five independently valid policy inputs', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ai-alerts-print-test-'));
   const log = join(dir, 'calls.jsonl');
   try {
@@ -113,7 +142,7 @@ fs.appendFileSync(process.env.ALERT_TEST_LOG, JSON.stringify({args, policy})+'\\
     });
     const calls = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
     assert.deepEqual(calls.filter(c => c.policy).map(c => c.policy), policies);
-    assert.equal(calls.filter(c => c.policy).length, 4);
+    assert.equal(calls.filter(c => c.policy).length, 5);
     assert.ok(calls.some(c => c.args[0] === 'billing'));
     assert.equal(calls.filter(c => c.args[0] === 'firestore').length, 2);
   } finally {

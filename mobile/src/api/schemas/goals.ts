@@ -15,6 +15,10 @@ export const goalNodeSchema = z.discriminatedUnion('kind', [
     inferred: z.boolean(),
     statedTiming: z.string().nullable(),
     statedOwner: z.string().nullable(),
+    // Present when a goal planner proposed the step (CL3); absent on a step
+    // split out of the goal's own sentence. Hints for the review, never a date.
+    suggestedAs: z.enum(['commitment', 'habit']).optional(),
+    suggestedWhen: z.enum(['today', 'this_week', 'this_month']).optional(),
   }),
   z.object({ ...nodeBase, kind: z.literal('linked_commitment'), commitmentId: z.string() }),
   z.object({ ...nodeBase, kind: z.literal('linked_habit'), habitId: z.string() }),
@@ -46,6 +50,8 @@ export const goalGraphSchema = z.object({
   provenance: z.object({
     decompositionProposalId: z.string(),
     decompositionOutcome: z.enum(['decomposed', 'atomic', 'rejected']),
+    // Optional so a server from before CL3 still parses.
+    stepSource: z.enum(['sentence', 'sentence_and_model', 'model', 'template']).optional(),
   }).passthrough(),
 });
 

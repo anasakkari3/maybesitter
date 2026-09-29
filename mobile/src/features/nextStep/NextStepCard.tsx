@@ -15,6 +15,7 @@ import type { CommitmentView } from '../commitments/model';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
+import { drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
 
 /**
@@ -27,7 +28,8 @@ import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/sch
  * and is not conditional. The contract says `persistence.occurred: false` and
  * `confirmationRequired: true` on every proposal; the line is that fact in
  * words. Round 2 adds the same fact as a *shape*: the card's edge is dashed in
- * the proposal colour until a decision is made, and a tag says «اقتراح».
+ * the proposal colour until a decision is made. There is no «اقتراح» tag as
+ * well: that said the note's words a second time on the same card (#17).
  *
  * ── Only the actions the server offered ──────────────────────────
  *
@@ -110,8 +112,11 @@ export function NextStepCard({ lookup }: {
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
             <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
-            {recommendation.state === 'ready' ? (
-              <Tag kind={started ? 'started' : 'proposal'} label={started ? t.nextStepTagStarted : t.nextStepTagProposal} testID="next-step-tag" />
+            {/* Started only. A proposal already says so in `suggestionNote`
+                and the dashed edge; a tag saying it again was #17's
+                duplicate (UAT 2026-09-27). */}
+            {recommendation.state === 'ready' && started ? (
+              <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" />
             ) : null}
           </View>
 
@@ -193,13 +198,23 @@ function Ready({
   const timezone = useTimeZone();
   const step = recommendation.primaryStep!;
   const [draft, setDraft] = useState(step.title);
-  const phrases = evidencePhrases(recommendation.explanation?.evidenceCodes ?? [], strings, translateCount);
+  // An all-day item is late only once its day is over, by the phone's own
+  // rule (`isPast`): «الوقت راح» on today's all-day appointment at 10:05 was
+  // the server reading its midnight as a deadline (final UAT, N18).
+  const evidence = (recommendation.explanation?.evidenceCodes ?? [])
+    .filter((e) => !(e.code === 'overdue' && item?.allDay === true && !item.isPast));
+  const phrases = evidencePhrases(evidence, strings, translateCount);
   // The server's list, in the server's order, filtered to what this build can
   // render — never a fixed row with the rest greyed out.
   const actionsOffered = DECISIONS.filter((decision) => recommendation.availableActions?.includes(decision));
   const offers = (d: NextStepDecisionKind) => actionsOffered.includes(d);
   const folded = actionsOffered.filter((d) => d !== 'accept' && d !== 'defer');
-  const when = item?.shownAt ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone })) : null;
+  // Where a saved week day puts it, as Today's rows, the Calendar and Details
+  // say it, with its own due beside it when that differs (FX1, review I1).
+  // Its day as well, when that is not today — a due two weeks back read as
+  // this morning beside «الوقت راح» (owner's Redmi, 2026-09-29).
+  const when = item ? drawnWhenLine(item, lang, timezone) : null;
+  const dueAside = item ? dueAsideText(item, t.plannedDueAside, lang, timezone) : null;
   const impLabel = item ? (item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice) : null;
 
   const run = (decision: NextStepDecisionKind) => {
@@ -210,15 +225,16 @@ function Ready({
 
   return (
     <>
-      <Btn label={step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
+      <Btn label={dueAside ? `${step.title}, ${dueAside}` : step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
         <Txt role="section" testID="next-step-title">{step.title}</Txt>
         {item ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Txt size={14} color={p.mu} latin testID="next-step-when">{when ?? t.noTimeYet}</Txt>
+            <Txt size={14} color={p.mu} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt>
             {impLabel ? <Txt size={14} color={p.mu}>·</Txt> : null}
             {impLabel ? <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
           </View>
         ) : null}
+        {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
       </Btn>
 
       {/* Unconditional. See the header: the contract says nothing has been

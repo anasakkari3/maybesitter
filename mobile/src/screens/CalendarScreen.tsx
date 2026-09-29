@@ -6,9 +6,10 @@ import { RefreshControl, View } from 'react-native';
 import { useLayoutMode, useTextScale } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
-import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
-import { ltr } from '../i18n/strings';
-import { useToday, useTrust, useUpcoming } from '../api/queries';
+import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTime, formatTimeRange } from '../i18n/format';
+import { fill, ltr } from '../i18n/strings';
+import { drawnAt, drawnClockAt, dueAsideText, savedPlacements } from '../features/plan/savedPlacement';
+import { useSavedWeek, useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
@@ -19,9 +20,10 @@ import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
-import { Btn, Card, Txt } from '../ui/primitives';
+import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { DirectionalScrollRow } from '../ui/directionalScroll';
 import { cardShadow } from '../theme/tokens';
+import { busyBlockPrepTarget } from '../features/meetings/prepTargets';
 
 /**
  * The week ahead, from the account (UC-2.R3, #173).
@@ -52,6 +54,14 @@ import { cardShadow } from '../theme/tokens';
  * Both queries are keyed by timezone and the server groups by local day, so
  * the strip does too. Cells are day *keys* — calendar arithmetic with no time
  * in it — which is why a DST change cannot shorten a day here.
+ *
+ * ── Steps saved from the week view (CL5b, I4) ─────────────────────
+ *
+ * A step the person saved for a day from «خطّط أسبوعي» is drawn on that day,
+ * at the time the saved day holds it — not on its due date, and not on today
+ * where an undated commitment otherwise sits. The saved days come from their
+ * stored plans (`GET /api/mobile/plans/week`); if that read fails, the strip
+ * draws commitments where they are due, as it did before.
  */
 export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
   const { s, t, p, lang, actions } = useApp();
@@ -59,6 +69,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const stacked = useLayoutMode() !== 'normal';
   const today = useToday();
   const upcoming = useUpcoming();
+  const savedWeek = useSavedWeek();
   const trust = useTrust();
   // Google Calendar's busy time (CL6a) beside the phone's; see `useConflictBusyBlocks`.
   const busy = useConflictBusyBlocks(useBusyBlocks());
@@ -80,11 +91,29 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
     for (const day of groupUpcoming(upcoming.data?.items ?? [], now.toISOString(), timezone)) {
       map.set(day.key, day.items);
     }
+    // A saved week step moves to the day it was saved for, at its saved time;
+    // its own due stays on the view, and the row says it when they differ (FX1).
+    const savedOn = savedPlacements(savedWeek.data);
+    if (savedOn.size > 0) {
+      const moved: [string, CommitmentView][] = [];
+      for (const [key, views] of Array.from(map)) {
+        map.set(key, views.filter((view) => {
+          const saved = savedOn.get(view.id);
+          if (!saved) return true;
+          moved.push([saved.date, { ...view, plannedAt: saved.startsAt }]);
+          return false;
+        }));
+      }
+      const at = (view: CommitmentView) => { const drawn = drawnAt(view); return drawn ? Date.parse(drawn) : Infinity; };
+      for (const [date, view] of moved) {
+        map.set(date, [...(map.get(date) ?? []), view].sort((a, b) => at(a) - at(b)));
+      }
+    }
     return map;
     // `now` excluded on purpose: re-deriving every render would move rows under
     // the user's finger as the clock ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today.data, upcoming.data, timezone, todayKey]);
+  }, [today.data, upcoming.data, savedWeek.data, timezone, todayKey]);
 
   const busyByDay = useMemo(() => {
     const map = new Map<string, DeviceBusyBlock[]>();
@@ -103,18 +132,19 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   // Commitments and busy blocks in one list, in time order; an undated
   // commitment sorts last.
   const dayRows = [
-    ...selected.map((item) => ({ kind: 'commitment' as const, at: item.shownAt ? Date.parse(item.shownAt) : Number.POSITIVE_INFINITY, item })),
+    ...selected.map((item) => ({ kind: 'commitment' as const, at: drawnAt(item) ? Date.parse(drawnAt(item)!) : Number.POSITIVE_INFINITY, item })),
     ...selectedBusy.map((block) => ({ kind: 'busy' as const, at: Date.parse(block.startAt), block })),
   ].sort((a, b) => a.at - b.at);
   const load = selected.length === 0 ? t.loadLight : selected.length < 3 ? t.loadNormal : t.loadFull;
 
   const refresh = () => {
     setRefreshing(true);
-    void Promise.all([today.refetch(), upcoming.refetch()]).finally(() => setRefreshing(false));
+    void Promise.all([today.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
   };
 
-  const range = `${formatDate(civilDate(keys[0]!), 'short', { locale: lang, timeZone: CIVIL_ZONE })} – ${
-    formatDate(civilDate(keys[STRIP_DAYS - 1]!), 'short', { locale: lang, timeZone: CIVIL_ZONE })}`;
+  const range = formatDayRange(keys[0]!, keys[STRIP_DAYS - 1]!, { locale: lang });
+  // «موعدها بكرا · 15:00» beside a step a saved day put elsewhere, as Today says it.
+  const dueAsideFor = (item: CommitmentView): string | null => dueAsideText(item, t.plannedDueAside, lang, timezone);
 
   return (
     <Screen>
@@ -125,13 +155,20 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
         <ScreenHeader
-          eyebrow={ltr(range)}
+          eyebrow={range}
           eyebrowTestID="calendar-range"
           title={t.calendarTitle}
           end={(
-            <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" hitSlop={8} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
-              <SettingsIcon color={p.mu} knob={p.sf} />
-            </Btn>
+            <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-end' : 'center', gap: 8, flexShrink: 1 }}>
+              {/* Weekly planning mode (CL5b): the week ahead is where somebody
+                  goes to plan it. A labelled pill, not an icon: the words are
+                  the affordance. At the large text sizes the two stack, so
+                  the label keeps its room and the title keeps its own. */}
+              <Pill label={t.weekTitle} kind="soft" size={14} pad={8} onPress={() => actions.go('weekPlan')} testID="calendar-plan-week" />
+              <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" hitSlop={8} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
+                <SettingsIcon color={p.mu} knob={p.sf} />
+              </Btn>
+            </View>
           )}
         />
         {trust.data && !calendarConnected ? (
@@ -183,33 +220,50 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           </View>
 
           <View style={{ gap: 8 }}>
-            {dayRows.map((row) => row.kind === 'busy' ? (
-              <View key={`busy-${row.block.nativeId}`} testID="calendar-busy-row" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
-                <Txt size={14} color={p.mu} style={{ flex: 1 }}>{t.calendarBusyLegend}</Txt>
+            {dayRows.map((row) => row.kind === 'busy' ? ((block, prep) => (
+              <View key={`busy-${block.nativeId}-${block.startAt}`} testID="calendar-busy-row" style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
+                <Txt size={14} color={p.mu} style={stacked ? undefined : { flex: 1 }}>{t.calendarBusyLegend}</Txt>
                 <Txt size={12} color={p.mu} latin>
-                  {row.block.allDay ? '' : ltr(`${formatTime(new Date(row.block.startAt), { locale: lang, timeZone: timezone })}–${formatTime(new Date(row.block.endAt), { locale: lang, timeZone: timezone })}`)}
+                  {block.allDay ? '' : formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone: timezone })}
                 </Txt>
+                {/* «حضّرني» (CL5a): only on a timed block that has not started.
+                    The block has no title, so the sheet asks what it is. */}
+                {prep ? (
+                  <Btn
+                    testID="calendar-busy-prepare"
+                    // Which meeting, out loud: every busy row reads «مشغول».
+                    label={fill(t.xPrepareFor, { time: ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone: timezone })) })}
+                    onPress={() => actions.openMeetingPrep(prep)}
+                    scaleTo={0.97}
+                    style={{ minHeight: 44, justifyContent: 'center', backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 }}
+                  >
+                    <Txt size={13} weight={600}>{t.xPrepare}</Txt>
+                  </Btn>
+                ) : null}
               </View>
-            ) : ((item) => (
+            ))(row.block, busyBlockPrepTarget(row.block, now)) : ((item, drawn, due) => (
               <Btn
                 key={item.id}
                 testID={`calendar-item-${item.id}`}
-                label={rowAccessibilityLabel(item, t, item.shownAt
-                  ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
-                  : null)}
+                label={`${rowAccessibilityLabel(item, t, drawn
+                  ? ltr(formatTime(new Date(drawn), { locale: lang, timeZone: timezone }))
+                  : null)}${due ? `, ${due}` : ''}`}
                 onPress={() => actions.openDetail(item.id)}
                 scaleTo={0.98}
                 style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }, cardShadow(p)]}
               >
                 <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
-                <Txt role="body" style={stacked ? undefined : { flex: 1 }}>{item.title}</Txt>
+                <View style={stacked ? { gap: 2 } : { flex: 1, gap: 2 }}>
+                  <Txt role="body">{item.title}</Txt>
+                  {due ? <Txt size={12} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+                </View>
                 <Txt size={12} color={p.mu} latin testID={`calendar-time-${item.id}`}>
-                  {item.shownAt
-                    ? ltr(formatTime(new Date(item.shownAt), { locale: lang, timeZone: timezone }))
+                  {drawn
+                    ? ltr(formatTime(new Date(drawn), { locale: lang, timeZone: timezone }))
                     : t.noTimeYet}
                 </Txt>
               </Btn>
-            ))(row.item))}
+            ))(row.item, drawnClockAt(row.item), dueAsideFor(row.item)))}
             {dayRows.length === 0 ? (
               <View style={{ padding: 18, backgroundColor: p.sf, borderRadius: 18 }} testID="calendar-day-free">
                 <Txt size={14} color={p.mu} align="center">{t.dayFree}</Txt>

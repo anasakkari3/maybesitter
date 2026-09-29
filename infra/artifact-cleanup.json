@@ -1,5 +1,10 @@
 [
   {
+    "name": "keep-production-images",
+    "action": { "type": "Keep" },
+    "condition": { "tagState": "tagged", "tagPrefixes": ["prod-"] }
+  },
+  {
     "name": "keep-recent-versions",
     "action": { "type": "Keep" },
     "mostRecentVersions": { "keepCount": 10 }

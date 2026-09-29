@@ -85,3 +85,19 @@ describe('the address itself has to be an emulator address', () => {
     expect(authEmulatorUrl({ ...base, host: 'http://127.0.0.1:9099' })).toBe('http://127.0.0.1:9099');
   });
 });
+
+// A Debug build crashed at launch here: `(raw ?? '').trim()` threw "undefined
+// is not a function" when the configured value arrived as something other than
+// a string. A value this function cannot read is not an emulator address.
+describe('a value that is not a string', () => {
+  it.each([9099, {}, true, ['127.0.0.1:9099']])('host %p is refused, not thrown on', (host) => {
+    expect(() => authEmulatorUrl({ ...base, host: host as never })).not.toThrow();
+    expect(authEmulatorUrl({ ...base, host: host as never })).toBeNull();
+  });
+
+  it.each([3000, {}, true])('apiBaseUrl %p is refused, not thrown on', (apiBaseUrl) => {
+    expect(() => authEmulatorAllowed({ ...base, apiBaseUrl: apiBaseUrl as never })).not.toThrow();
+    expect(authEmulatorAllowed({ ...base, apiBaseUrl: apiBaseUrl as never })).toBe(false);
+  });
+});
+

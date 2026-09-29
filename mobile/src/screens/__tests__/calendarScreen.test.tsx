@@ -10,17 +10,24 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppProvider } from '../../state/AppContext';
+import { Text } from 'react-native';
+import { AppProvider, useApp } from '../../state/AppContext';
 import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../api/auth';
 import type { AuthUser } from '../../auth/types';
 import { CalendarScreen } from '../CalendarScreen';
 import type { Commitment } from '../../api/schemas/common';
-import { dayKey, shiftDayKey } from '../../i18n/format';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CIVIL_ZONE, civilDate, dayKey, formatDate, shiftDayKey } from '../../i18n/format';
+import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
+import ar from '../../i18n/locales/ar.json';
 import en from '../../i18n/locales/en.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
+import * as planEndpoints from '../../api/endpoints/plans';
+import { savedWeekResponseSchema, type SavedWeek } from '../../api/schemas/plan';
+import savedWeekFixture from '../../api/__fixtures__/plan.weekSaved.json';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -73,7 +80,12 @@ beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
+  savedWeek = { today: TODAY_KEY, saved: [] };
+  jest.spyOn(planEndpoints, 'getSavedWeek').mockImplementation(async () => savedWeek);
 });
+
+/** What `GET /api/mobile/plans/week` answers in each case; nothing saved unless a case says so. */
+let savedWeek: SavedWeek;
 
 afterEach(() => {
   client.clear();
@@ -148,6 +160,57 @@ describe('the open day', () => {
     expect(screen.queryByTestId('calendar-item-mine')).toBeNull();
   });
 
+  /** Stands in for «شوف يومي» / "see all" (`go`) and for the tab bar (`switchTab`). */
+  function Nav() {
+    const { actions } = useApp();
+    return (
+      <>
+        <Text testID="nav-go-calendar" onPress={() => actions.go('calendar')}>go</Text>
+        <Text testID="nav-tab-calendar" onPress={() => actions.switchTab('calendar')}>tab</Text>
+      </>
+    );
+  }
+
+  async function showWithNav(today: Commitment[], upcoming: Commitment[]) {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: today } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: upcoming } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><CalendarScreen /><Nav /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId(`calendar-day-${TODAY_KEY}`)).not.toBeNull());
+  }
+
+  it('opens on today when «شوف يومي» asks for the calendar, whatever day was left open (UAT r6 N-e)', async () => {
+    // A day tapped earlier in the session is app state; «شوف يومي» used to
+    // open the calendar on it — tomorrow, in the round-6 run — rather than on
+    // the day it names.
+    await showWithNav([item('mine', onDay(0))], [item('later', onDay(1))]);
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 1)}`));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-later')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('nav-go-calendar'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull());
+    expect(screen.queryByTestId('calendar-item-later')).toBeNull();
+    expect(screen.getByTestId(`calendar-day-${TODAY_KEY}`).props.accessibilityState.selected).toBe(true);
+    expect(screen.getByTestId('calendar-selected-day').props.children).toBe(en.today);
+  });
+
+  it('keeps the day it was left on when only the tab is switched back to', async () => {
+    // The tab bar keeps every stack where it was left (`switchTab`); the open
+    // day is part of that.
+    await showWithNav([item('mine', onDay(0))], [item('later', onDay(1))]);
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 1)}`));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-later')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('nav-tab-calendar'));
+    expect(screen.queryByTestId('calendar-item-later')).not.toBeNull();
+    expect(screen.queryByTestId('calendar-item-mine')).toBeNull();
+  });
+
   it('says a day is free rather than showing nothing at all', async () => {
     await show([], []);
     expect(screen.queryByTestId('calendar-day-free')).not.toBeNull();
@@ -158,6 +221,39 @@ describe('the open day', () => {
     // on. They must not disappear from the calendar entirely.
     await show([item('someday', null)], []);
     expect(screen.getByTestId('calendar-time-someday').props.children).toBe(en.noTimeYet);
+  });
+});
+
+describe('the week header', () => {
+  // UAT 2026-09-26, complaint #16, shot 83: «سبتمبر – 2 أكتوبر 26». The range
+  // was wrapped whole in a left-to-right isolate, so the Arabic run inside it
+  // reversed around the dash and the first day's number fell off the end.
+  const LRI = '\u2066';
+  const RLI = '\u2067';
+  const FSI = '\u2068';
+  const PDI = '\u2069';
+
+  afterEach(async () => { await AsyncStorage.clear(); });
+
+  it('in Arabic, reads first day – last day, each date whole', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await show([], []);
+    await waitFor(() => expect(screen.queryByText(ar.calendarTitle)).not.toBeNull());
+    const first = formatDate(civilDate(TODAY_KEY), 'short', { locale: 'ar', timeZone: CIVIL_ZONE });
+    const last = formatDate(civilDate(shiftDayKey(TODAY_KEY, 6)), 'short', { locale: 'ar', timeZone: CIVIL_ZONE });
+    const header = screen.getByTestId('calendar-range').props.children as string;
+    // Logical order, right-to-left as a whole, each date its own isolate.
+    expect(header).toBe(`${RLI}${FSI}${first}${PDI} – ${FSI}${last}${PDI}${PDI}`);
+    expect(header.startsWith(LRI)).toBe(false);
+  });
+
+  it('in English, stays left-to-right', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
+    await show([], []);
+    const first = formatDate(civilDate(TODAY_KEY), 'short', { locale: 'en', timeZone: CIVIL_ZONE });
+    const last = formatDate(civilDate(shiftDayKey(TODAY_KEY, 6)), 'short', { locale: 'en', timeZone: CIVIL_ZONE });
+    expect(screen.getByTestId('calendar-range').props.children)
+      .toBe(`${LRI}${FSI}${first}${PDI} – ${FSI}${last}${PDI}${PDI}`);
   });
 });
 
@@ -176,5 +272,68 @@ describe('failure', () => {
     );
     await waitFor(() => expect(screen.queryByTestId('query-loading')).toBeNull());
     expect(screen.queryByTestId(`calendar-day-${TODAY_KEY}`)).toBeNull();
+  });
+});
+
+describe('weekly planning mode (CL5b)', () => {
+  /**
+   * The recorded saved-week answer (`plan.weekSaved.json`, from the real
+   * route), moved onto this strip's dates: its one saved day becomes the day
+   * after tomorrow, and its step one of the commitments below.
+   */
+  function savedOn(offset: number, itemId: string, hour: number): SavedWeek {
+    const recorded = savedWeekResponseSchema.parse(savedWeekFixture);
+    const day = recorded.saved[0]!;
+    const at = onDay(offset, hour);
+    return {
+      today: TODAY_KEY,
+      saved: [{ ...day, date: shiftDayKey(TODAY_KEY, offset), items: [{ ...day.items[0]!, itemId, startsAt: at, endsAt: at }] }],
+    };
+  }
+
+  it('draws a saved week step on the day it was saved for, not on today (I4)', async () => {
+    // Undated, so the server lists it on today; the person saved it for the day after tomorrow.
+    savedWeek = savedOn(2, 'someday', 10);
+    await show([item('someday', null)], []);
+    await waitFor(() => expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 2)}`)).toHaveLength(1));
+    expect(screen.queryAllByTestId(`calendar-bar-${TODAY_KEY}`)).toHaveLength(0);
+    expect(screen.queryByTestId('calendar-item-someday')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 2)}`));
+    await waitFor(() => expect(screen.queryByTestId('calendar-item-someday')).not.toBeNull());
+    // At the time the saved day holds it, not "no time yet".
+    expect(screen.getByTestId('calendar-time-someday').props.children).not.toBe(en.noTimeYet);
+  });
+
+  it('draws a saved week step on its saved day, not on its due date (I4)', async () => {
+    savedWeek = savedOn(1, 'report', 9);
+    await show([], [item('report', onDay(5))]);
+    await waitFor(() => expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 1)}`)).toHaveLength(1));
+    expect(screen.queryAllByTestId(`calendar-bar-${shiftDayKey(TODAY_KEY, 5)}`)).toHaveLength(0);
+  });
+
+  function Probe() {
+    const { s } = useApp();
+    return <Text testID="probe-screen">{s.screen}</Text>;
+  }
+
+  it('is reached from the Calendar tab\'s header, labelled in words', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><CalendarScreen /><Probe /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId(`calendar-day-${TODAY_KEY}`)).not.toBeNull());
+    const entry = screen.getByTestId('calendar-plan-week');
+    expect(entry.props.accessibilityRole).toBe('button');
+    expect(screen.getByText(en.weekTitle)).toBeTruthy();
+    await fireEvent.press(entry);
+    expect(screen.getByTestId('probe-screen').props.children).toBe('weekPlan');
   });
 });

@@ -14,6 +14,7 @@ import { StyleSheet } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
+import { stripIsolates } from '../../../i18n/bidi';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
@@ -30,6 +31,13 @@ import {
   financialConnectionSchema,
   financialContextResponseSchema,
 } from '../../../api/schemas/financial';
+
+// The phone's zone for every test here: Amman is +03:00 in August, so a UTC
+// clock on screen reads three hours early (UAT round 5, N20).
+jest.mock('../../../i18n/timezone', () => ({
+  ...(jest.requireActual('../../../i18n/timezone') as object),
+  useTimeZone: () => 'Asia/Amman',
+}));
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -57,7 +65,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask, for the reason the calendar screen's test gives: a
   // request settling after the tree came down leaves React work in flight and
   // RNTL v14's next `render` mounts nothing.
@@ -89,6 +97,31 @@ describe('the picture', () => {
     expect(screen.getByTestId('financial-buffer').props.children).toContain('-2,622.00');
     expect(screen.getByTestId('financial-band').props.children).toBe(en.financialBandNegative);
     expect(screen.getByTestId('financial-as-of')).toBeTruthy();
+  });
+
+  it('says when it was true in the phone\'s own zone and words, not a raw UTC stamp (N20)', async () => {
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-as-of')).toBeTruthy());
+    // The fixture's `asOf` is 2026-08-09T08:00Z: 11:00 on Sunday 9 August in Amman.
+    const line = [screen.getByTestId('financial-as-of').props.children].flat().join('');
+    expect(line).toContain('11:00');
+    expect(line).toContain('Aug 9');
+    expect(line).not.toContain('08:00');
+    expect(line).not.toContain('2026-08-09');
+  });
+
+  // Review n5: «آخر تحديث: اليوم · 13:05», one template per language (#687),
+  // not a label with a date glued after it.
+  it('reads «Last updated: Today · HH:MM» for a picture from today', async () => {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    jest.spyOn(financialEndpoints, 'getFinancialContext')
+      .mockResolvedValue({ ...CONTEXT, state: { ...CONTEXT.state!, asOf: now.toISOString() } } as typeof CONTEXT);
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-as-of')).toBeTruthy());
+    const clock = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Amman', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now);
+    const line = stripIsolates([screen.getByTestId('financial-as-of').props.children].flat().join(''));
+    expect(line).toBe(`Last updated: Today · ${clock}`);
   });
 
   it('says where every figure came from', async () => {
@@ -199,13 +232,13 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
 
-    fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
+    await fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
     // Waiting on the input's own value, not on the button's disabled state:
     // the handler reads the typed text out of a closure, so what has to have
     // settled is the text, and `accessibilityState` is not where a Pressable
     // in this app reports it.
     await waitFor(() => expect(screen.getByTestId('financial-correction-input').props.value).toBe('1800'));
-    fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
 
     // The first argument only. TanStack Query v5 passes a second one — the
     // client, the meta and the mutation key — so `toHaveBeenCalledWith` on the
@@ -222,7 +255,7 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-undo')).toBeTruthy());
 
-    cleanup();
+    await cleanup();
     await new Promise(resolve => setTimeout(resolve, 0));
     jest.spyOn(financialEndpoints, 'getFinancialContext').mockResolvedValue({
       ...CONTEXT,
@@ -248,10 +281,10 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
 
-    fireEvent.changeText(screen.getByTestId('financial-correction-input'), 'about two thousand');
+    await fireEvent.changeText(screen.getByTestId('financial-correction-input'), 'about two thousand');
     await waitFor(() => expect(screen.getByTestId('financial-correction-input').props.value)
       .toBe('about two thousand'));
-    fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
 
     await waitFor(() => expect(screen.getByTestId('financial-save-failed')).toBeTruthy());
     expect(save).not.toHaveBeenCalled();
@@ -262,9 +295,9 @@ describe('correcting a figure', () => {
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
 
-    fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
+    await fireEvent.changeText(screen.getByTestId('financial-correction-input'), '1800');
     await waitFor(() => expect(screen.getByTestId('financial-correction-input').props.value).toBe('1800'));
-    fireEvent.press(screen.getByTestId('financial-correction-save'));
+    await fireEvent.press(screen.getByTestId('financial-correction-save'));
 
     await waitFor(() => expect(screen.getByTestId('financial-save-failed')).toBeTruthy());
   });
@@ -294,6 +327,15 @@ describe('in Arabic', () => {
    */
   afterEach(async () => {
     await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY);
+  });
+
+  it('says «آخر تحديث: …» in Arabic', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await show();
+    await waitFor(() => expect(screen.getByTestId('financial-as-of')).toBeTruthy());
+    const line = stripIsolates([screen.getByTestId('financial-as-of').props.children].flat().join(''));
+    expect(line.startsWith('آخر تحديث: ')).toBe(true);
+    expect(line).toContain('11:00');
   });
 
   it('starts every field on the right', async () => {

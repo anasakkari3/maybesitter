@@ -35,7 +35,9 @@ same reason the language preference is:
   instants and a boolean, never a title. The first is "the user said they
   know", the second is "this phone will ring for that Must reminder", waiting
   to be told to the server. Both are keyed by account and cleared on sign-out;
-  each header makes the full argument.
+  each header makes the full argument. The awareness store's shapes and rules
+  are in `awareness.ts`, which touches no storage, so the reminder planning can
+  be loaded without a native module.
 
 - **`actionOutbox.ts`** (UC-3.14 #200) — notification-button taps (Done,
   Later, the body tap) waiting to reach the server: a commitment id, an action,
@@ -48,6 +50,13 @@ same reason the language preference is:
   #186) — busy intervals and calendar/event ids for this phone's calendar;
   `calendarDevice.ts` also keeps which of this phone's calendars the user
   switched off for busy time (ids only). Each header makes the argument.
+
+- **`placeReminders.ts`** (closure CL4) — saved places (a name and a pin) and
+  the place reminders this phone is watching. The pins are the one thing the
+  server is forbidden to hold, so the phone is their only home; the armed list
+  carries the commitment title because a region crossing wakes the app with no
+  network to ask. Keyed by account or cleared with it on sign-out and account
+  deletion. The header makes the full argument.
 
 Anything new here needs the same argument made in its own header, or it belongs
 on the account instead.

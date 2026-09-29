@@ -12,7 +12,7 @@
  *   KeyboardAvoidingView), and the input has a maxHeight and scrolls itself.
  */
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -57,6 +57,15 @@ jest.mock('../../features/capture/voice/speechService', () => ({
   SpeechEventBridge: () => null,
 }));
 
+// The reader's text size, per test: 1 unless a test is about large text.
+jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
+  __esModule: true,
+  default: jest.fn(),
+}));
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const useWindowDimensions = require('react-native/Libraries/Utilities/useWindowDimensions')
+  .default as jest.Mock<() => { width: number; height: number; scale: number; fontScale: number }>;
+
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
@@ -69,6 +78,7 @@ function flat(style: unknown): Record<string, unknown> {
 let client: QueryClient;
 
 beforeEach(async () => {
+  useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 1 });
   mockSpeech.started = 0;
   mockSpeech.status = 'idle';
   client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
@@ -161,6 +171,175 @@ describe('the keyboard cannot hide Analyze or the text', () => {
     expect(typeof style.maxHeight).toBe('number');
     expect(style.maxHeight as number).toBeGreaterThanOrEqual(style.minHeight as number);
     expect(input.props.scrollEnabled).toBe(true);
+  });
+});
+
+/**
+ * UAT round 6, #5 (eef25054, shots 1034–1040): with the software keyboard up
+ * the field was 313–531pt, the ScrollView's viewport ended at 462 and the
+ * footer covered 462–538 — the line being typed and the caret were under
+ * «فهمها», and `capture-scroll` never scrolled. Jest has no keyboard, so the
+ * geometry arrives as the layout events the device sends: the ScrollView
+ * shrinks to ~207pt when AvoidKeyboard lifts the footer, and the field starts
+ * 58pt into the scroll content (16pt padding + the label and its gap).
+ */
+describe('the line being typed stays above the footer and keyboard (#5)', () => {
+  const layout = (height: number, y = 0) => ({ nativeEvent: { layout: { x: 0, y, width: 358, height } } });
+
+  async function keyboardUp(viewport: number) {
+    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(viewport));
+    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(400, 16));
+    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(140, 42));
+  }
+
+  it('the field shrinks to end above the footer instead of keeping its 220pt cap', async () => {
+    await showComposer();
+    await keyboardUp(207);
+    const style = flat(screen.getByTestId('capture-input').props.style);
+    // 58pt down + the field + an 8pt gap ≤ the 207pt viewport.
+    expect(58 + (style.maxHeight as number) + 8).toBeLessThanOrEqual(207);
+    expect(style.minHeight as number).toBeLessThanOrEqual(style.maxHeight as number);
+    expect(screen.getByTestId('capture-input').props.scrollEnabled).toBe(true);
+  });
+
+  it('with the keyboard down the field keeps its resting cap', async () => {
+    await showComposer();
+    await keyboardUp(600);
+    expect(flat(screen.getByTestId('capture-input').props.style).maxHeight).toBe(220);
+  });
+
+  it('a field that cannot fit under the label scrolls the ScrollView so its bottom shows', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    await showComposer();
+    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(150));
+    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(400, 16));
+    const maxHeight = flat(screen.getByTestId('capture-input').props.style).maxHeight as number;
+    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(maxHeight, 42));
+    // The field's bottom (58 + maxHeight) plus the gap, at the viewport's bottom edge.
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 58 + maxHeight + 8 - 150, animated: false });
+  });
+
+  it('scrolled down to the privacy line, typing a line brings the field back', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    await showComposer();
+    await keyboardUp(207);
+    await fireEvent.scroll(screen.getByTestId('capture-scroll'), { nativeEvent: { contentOffset: { x: 0, y: 300 } } });
+    scrollTo.mockClear();
+    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(141, 42));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 58, animated: false });
+  });
+
+  it('at the largest text size the field keeps two whole lines and the ScrollView scrolls to show it', async () => {
+    // English at 20pt × 1.4 = 28pt a line; at fontScale 3.1 (AX5) ≈ 87pt.
+    useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 3.1 });
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    await showComposer();
+    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(260));
+    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(600, 16));
+    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(140, 150));
+    const maxHeight = flat(screen.getByTestId('capture-input').props.style).maxHeight as number;
+    expect(maxHeight).toBe(52 + 2 * Math.round(28 * 3.1));
+    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(maxHeight, 150));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 166 + maxHeight + 8 - 260, animated: false });
+  });
+
+  it('with the field gone (the discard question), a layout change does not scroll to where it was', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    await showComposer();
+    await keyboardUp(207);
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    scrollTo.mockClear();
+    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(100));
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * UAT round 6, D-g (shots 1049a–d, 1050a–e on 73b3e4dc). With the software
+ * keyboard up, the header and the stacked footer were fixed blocks: at
+ * accessibility-medium the field's viewport was 69pt, at accessibility-large
+ * 38pt, and from accessibility-extra-large on it was 0 — the field left the
+ * screen and the AX tree, and at AX4/AX5 «فهمها» went behind the keyboard.
+ *
+ * From the first accessibility size (the same boundary where the task header
+ * stacks) the header is part of the scroll content, so the ScrollView owns
+ * everything between the banner and the footer and scrolls the header away
+ * to show the field; and the footer is one row — the mic and «فهمها» — with
+ * the language chip moved into the scroll content beside Paste.
+ */
+describe('at the accessibility text sizes the field and «فهمها» both fit above the keyboard (D-g)', () => {
+  const layout = (height: number, y = 0) => ({ nativeEvent: { layout: { x: 0, y, width: 358, height } } });
+  const atScale = (fontScale: number) =>
+    useWindowDimensions.mockReturnValue({ width: 402, height: 874, scale: 3, fontScale });
+
+  it.each([1, 1.12, 1.35])('at fontScale %s the header and footer are where they were', async (fontScale) => {
+    atScale(fontScale);
+    await showComposer();
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('task-header')).toBeNull();
+    expect(screen.getByTestId('task-header')).toBeTruthy();
+    const footer = within(screen.getByTestId('capture-footer'));
+    expect(footer.queryByTestId('voice-language')).not.toBeNull();
+    expect(footer.queryByTestId('voice-button')).not.toBeNull();
+    expect(footer.queryByTestId('capture-analyze')).not.toBeNull();
+  });
+
+  it.each([1.64, 1.94, 2.35, 2.76, 3.12])('at fontScale %s the header scrolls with the content', async (fontScale) => {
+    atScale(fontScale);
+    await showComposer();
+    const scroll = within(screen.getByTestId('capture-scroll'));
+    expect(scroll.queryByTestId('task-header')).not.toBeNull();
+    // Cancel is still there, and still first in reading order.
+    expect(scroll.getByLabelText('Cancel')).toBeTruthy();
+    expect(screen.getAllByTestId('task-header')).toHaveLength(1);
+  });
+
+  it.each([1.64, 3.12])('at fontScale %s the footer is one row: the mic and «فهمها», the language chip scrolls', async (fontScale) => {
+    atScale(fontScale);
+    await showComposer();
+    const footer = within(screen.getByTestId('capture-footer'));
+    expect(footer.queryByTestId('voice-button')).not.toBeNull();
+    expect(footer.queryByTestId('capture-analyze')).not.toBeNull();
+    expect(footer.queryByTestId('voice-language')).toBeNull();
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('voice-language')).not.toBeNull();
+    const row = screen.getByTestId('capture-footer-row');
+    expect(flat(row.props.style).flexDirection).toBe('row');
+    expect(flat(screen.getByTestId('capture-analyze').props.style).flex).toBe(1);
+  });
+
+  it('the language chip still switches the language from the scroll content', async () => {
+    atScale(3.12);
+    await showComposer();
+    const chip = screen.getByTestId('voice-language');
+    const before = chip.props.accessibilityLabel as string;
+    await fireEvent.press(chip);
+    await waitFor(() => expect(screen.getByTestId('voice-language').props.accessibilityLabel).not.toBe(before));
+  });
+
+  it('with the header above it in the content, the ScrollView scrolls it away to show the whole field', async () => {
+    // AX5 on the UAT phone with the banner: 405pt above the keyboard, a
+    // one-row footer of ~133, so a 272pt viewport. The header, the label and
+    // the paddings put the field ~340pt down the content.
+    atScale(3.12);
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    await showComposer();
+    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(272));
+    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(900, 230));
+    const maxHeight = flat(screen.getByTestId('capture-input').props.style).maxHeight as number;
+    // Two lines of English at AX5 (28pt × 3.12) plus the padding.
+    expect(maxHeight).toBe(Math.round(52 + 2 * 28 * 3.12));
+    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(maxHeight, 110));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 340 + maxHeight + 8 - 272, animated: false });
+  });
+
+  it('the discard question keeps the header (and Cancel) in the scroll content', async () => {
+    atScale(2.35);
+    await showComposer();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
+    await fireEvent.press(screen.getByLabelText('Cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('task-header')).not.toBeNull();
   });
 });
 

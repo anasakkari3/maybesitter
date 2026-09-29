@@ -43,7 +43,7 @@ describe('useWidgetTitlesAllowed', () => {
     // Account B's read never comes back.
     jest.spyOn(AsyncStorage, 'getItem').mockImplementation(() => new Promise(() => {}));
     await act(async () => {
-      view.rerender(<Probe uid="account-b" />);
+      await view.rerender(<Probe uid="account-b" />);
     });
     expect(screen.getByTestId('state').props.children).toBe('false/false');
   });

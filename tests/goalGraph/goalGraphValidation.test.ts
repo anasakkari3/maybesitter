@@ -42,6 +42,8 @@ function graphOf(nodes: readonly GoalNode[], edges: readonly GoalEdge[] = []): G
       decomposition: { requestedEngine: 'rules', executedEngine: 'rules', fallbackUsed: false },
       atomicReason: null,
       violations: [],
+      stepSource: 'sentence',
+      stepSourceReason: 'model_not_requested',
     },
   };
 }

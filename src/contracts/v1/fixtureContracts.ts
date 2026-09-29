@@ -67,6 +67,58 @@ export interface FixtureProvider {
   listFixtures(providerTeamId: string, window: FixtureWindow): Promise<readonly Fixture[]>;
 }
 
+/* ── The football watcher source (closure CL7, «تابعلي») ──────────── */
+
+/**
+ * The provider name a football watcher names. The watcher vocabulary is a
+ * lowercase token (`watcherApi.ts`'s `PROVIDER`), so this is the adapter's
+ * `football-data` spelled with an underscore; nothing joins the two.
+ */
+export const FOOTBALL_WATCHER_PROVIDER = 'football_data' as const;
+/**
+ * A watcher over one followed club's fixtures. `subjectRef` is the curated
+ * `clubId` (`lib/football/clubs.ts`), never a provider team id.
+ */
+export const FOOTBALL_TEAM_SIGNAL_KIND = 'football_team' as const;
+
+/**
+ * Why the last fetch of a club failed, in a closed vocabulary: the provider's
+ * own message never leaves the adapter. `rate_limited` is a 429 (the free
+ * tier's per-minute cap); everything else — a timeout, a 5xx, an unreadable
+ * body — is `unavailable`.
+ */
+export type ClubSyncFailureKind = 'rate_limited' | 'unavailable';
+
+/**
+ * A club whose last fetch failed is asked again this long after that attempt
+ * (the per-minute poll's retry). Here, next to `ClubSyncState`, because both
+ * the poll and the background-monitor row read it: the row's "next check" for
+ * a retrying watcher is `lastSyncedAt` plus this.
+ */
+export const FOOTBALL_RETRY_AFTER_MS = 10 * 60 * 1000;
+
+/**
+ * `footballClubSyncState/{clubId}`: when a club was last asked of the
+ * provider, how that went, and a digest that moves only when an
+ * already-known match materially changed (kickoff moved, postponed,
+ * cancelled). The football watcher's observer reads this document and
+ * nothing else, so a match merely entering or leaving the sync window never
+ * reads as a change.
+ *
+ * Every field after `lastSyncedAt` is optional: documents written before
+ * CL7 carry only the first two.
+ */
+export interface ClubSyncState {
+  readonly clubId: string;
+  /** The last attempt, success or failure. */
+  readonly lastSyncedAt: string;
+  readonly lastOutcome?: 'ok' | 'failed';
+  readonly failureKind?: ClubSyncFailureKind | null;
+  readonly lastSucceededAt?: string | null;
+  readonly changeDigest?: string | null;
+  readonly lastChangedAt?: string | null;
+}
+
 /**
  * Decides whether a fixture changed since it was last seen. Sorts its keys
  * before hashing so the result depends only on content, never on the order a

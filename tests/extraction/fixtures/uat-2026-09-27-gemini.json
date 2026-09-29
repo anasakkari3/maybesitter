@@ -1,0 +1,240 @@
+{
+  "_about": "Gemini (gemini-2.5-flash, Vertex europe-west1, prompt capture-v4) answers recorded on 2026-09-27 for the closure UAT captures of that day (FX3: «لازم» in the person’s own words, «قبل آخر الشهر»), keyed by the exact clause text the capture boundary sent. Recorded with scripts/live-capture-check.ts --only FX3 --raw --record, before the FX3 fix; replayed by tests/extraction/fx3ObligationDeadline.test.ts. referenceTime 2026-09-26T07:00:00.000Z, Asia/Jerusalem.",
+  "responses": {
+    "بكرا لازم أسلّم التقرير للمدير": {
+      "type": "task",
+      "action": "أسلّم",
+      "title": "أسلّم التقرير للمدير",
+      "person": "المدير",
+      "dueAt": "2026-09-27T06:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-27",
+        "time": "",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "movable",
+      "category": "work",
+      "categoryConfidence": 0.8,
+      "confidence": {
+        "overall": 0.8,
+        "type": 1,
+        "action": 0.8,
+        "time": 0.8,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [
+        "vague_time"
+      ],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    },
+    "وسجّل موعد دكتور يوم الأحد": {
+      "type": "task",
+      "action": "سجّل",
+      "title": "سجّل موعد دكتور",
+      "person": null,
+      "dueAt": "2026-09-27T06:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-27",
+        "time": "",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "movable",
+      "category": "health",
+      "categoryConfidence": 0.8,
+      "confidence": {
+        "overall": 0.8,
+        "type": 1,
+        "action": 0.8,
+        "time": 0.8,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [
+        "vague_time"
+      ],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    },
+    "بدي أتصل بأمي الساعة 5": {
+      "type": "task",
+      "action": "أتصل",
+      "title": "أتصل بأمي",
+      "person": "أمي",
+      "dueAt": "2026-09-26T14:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-26",
+        "time": "17:00",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "movable",
+      "category": "family",
+      "categoryConfidence": 0.8,
+      "confidence": {
+        "overall": 0.8,
+        "type": 1,
+        "action": 0.8,
+        "time": 0.8,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    },
+    "لازم أحضّر الغداء اليوم الساعة 2 الظهر": {
+      "type": "task",
+      "action": "أحضّر",
+      "title": "أحضّر الغداء",
+      "person": null,
+      "dueAt": "2026-09-26T11:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-26",
+        "time": "14:00",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "movable",
+      "category": null,
+      "categoryConfidence": 0,
+      "confidence": {
+        "overall": 0.8,
+        "type": 1,
+        "action": 0.8,
+        "time": 0.8,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    },
+    "بدي أدفع فاتورة الكهربا قبل آخر الشهر": {
+      "type": "task",
+      "action": "أدفع",
+      "title": "أدفع فاتورة الكهربا",
+      "person": null,
+      "dueAt": "2026-09-30T21:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-30",
+        "time": "23:59",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "movable",
+      "category": "finance",
+      "categoryConfidence": 0.8,
+      "confidence": {
+        "overall": 0.8,
+        "type": 1,
+        "action": 0.8,
+        "time": 0.8,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    },
+    "وبكرا العصرية بدي أروح عالسوق": {
+      "type": "task",
+      "action": "أروح",
+      "title": "أروح عالسوق",
+      "person": null,
+      "dueAt": "2026-09-27T12:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-27",
+        "time": "15:00",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "movable",
+      "category": null,
+      "categoryConfidence": 0,
+      "confidence": {
+        "overall": 0.8,
+        "type": 1,
+        "action": 0.8,
+        "time": 0.8,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    },
+    "بكرا الساعة 5 لازم أروح عالبنك": {
+      "type": "task",
+      "action": "أروح عالبنك",
+      "title": "أروح عالبنك",
+      "person": null,
+      "dueAt": "2026-09-27T14:00:00Z",
+      "remindAt": null,
+      "localTimeSpec": {
+        "date": "2026-09-27",
+        "time": "17:00",
+        "timezone": "Asia/Jerusalem"
+      },
+      "priority": {
+        "level": "normal",
+        "source": "default",
+        "pressureAllowed": false,
+        "pressureImplied": false
+      },
+      "flexibility": "movable",
+      "category": null,
+      "categoryConfidence": 0,
+      "confidence": {
+        "overall": 0.9,
+        "type": 1,
+        "action": 0.9,
+        "time": 0.9,
+        "priority": 1
+      },
+      "missingFields": [],
+      "ambiguityFlags": [],
+      "explicitReminderRequest": false,
+      "explicitPressureRequest": false
+    }
+  }
+}

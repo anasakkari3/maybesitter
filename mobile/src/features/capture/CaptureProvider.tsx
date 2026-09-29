@@ -41,6 +41,7 @@ import {
   type CaptureInputMode,
   type CaptureItemEdit,
   type CaptureSource,
+  type MeetingReviewContext,
   type CaptureState,
 } from './captureMachine';
 import { toServerEdits } from './editPayload';
@@ -77,7 +78,7 @@ interface CaptureContextValue {
    * chat export, and would make `hasUnsavedText` true for content the user
    * never typed.
    */
-  adoptProposal(proposal: CaptureProposal, source?: CaptureSource): void;
+  adoptProposal(proposal: CaptureProposal, source?: CaptureSource, meeting?: MeetingReviewContext): void;
   toggleItem(itemId: string): void;
   selectAll(): void;
   deselectAll(): void;
@@ -191,10 +192,10 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       : { type: 'analyzeFailed', kind: outcome.kind, messageKey: outcome.messageKey });
   }, [capture, state.text]);
 
-  const adoptProposal = useCallback((proposal: CaptureProposal, source: CaptureSource = 'share') => {
+  const adoptProposal = useCallback((proposal: CaptureProposal, source: CaptureSource = 'share', meeting?: MeetingReviewContext) => {
     // `open` first, so nothing of a previous capture — a draft, a selection, an
     // armed undo — is still in the state the shared proposal lands in.
-    dispatch({ type: 'open', source });
+    dispatch({ type: 'open', source, ...(meeting ? { meeting } : {}) });
     dispatch({ type: 'analyzeSucceeded', proposal });
   }, []);
 

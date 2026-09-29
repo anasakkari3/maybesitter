@@ -10,6 +10,11 @@ const assignmentSchema = z.object({
 const exposureSchema = z.object({
   allowed: z.boolean(),
   reason: z.string(),
+  /**
+   * With `quiet_hours`: the `HH:mm` they end (UAT round 3, N12), so Today can
+   * say when suggestions come back. Absent for quiet mode, which has no end.
+   */
+  until: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
 });
 
 /**

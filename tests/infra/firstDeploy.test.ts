@@ -16,9 +16,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { handleEarlyAccessEvent } from '../../lib/earlyAccess/service.ts';
+import { icsFeedsEnabled } from '../../lib/calendar/icsFeeds.ts';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (file: string) => readFileSync(join(repoRoot, file), 'utf8');
@@ -86,16 +90,19 @@ test('the deploy target is resolved once, and an unknown one is refused rather t
   assert.doesNotMatch(steps, /inputs\.target/, 'a step still reads inputs.target instead of TARGET');
 });
 
-test('the hosted model is configured for staging and switched off for production', () => {
-  // Enabling a paid model for real users is an owner decision, not something a
-  // deploy does because a branch landed (UC-2.0 #160, UC-2.1 #161). Staging is
-  // where it is exercised; production stays `none` until someone changes this
-  // line deliberately and a reviewer sees it.
+test('the hosted model is on in both environments, pinned to the EU, with a tighter global cap in production', () => {
+  // Owner spend decision (closure/prod-ai-on): production calls the paid model
+  // too. What keeps it bounded is the global cap, set lower than staging's so
+  // the ceiling is a known, small daily amount, and the kill switch being
+  // present and false rather than absent.
   const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
   const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
 
   assert.match(staging, /MAYBESITTER_LLM_PROVIDER=gemini/);
-  assert.match(production, /MAYBESITTER_LLM_PROVIDER=none/, 'production is configured to call a paid model');
+  assert.match(production, /MAYBESITTER_LLM_PROVIDER=gemini/);
+  assert.match(production, /MAYBESITTER_AI_DISABLED=false/, 'the kill switch must be present, and off');
+  assert.match(production, /MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=500(?:;|\s)/, 'production global cap is not 500/day');
+  assert.match(staging, /MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000(?:;|\s)/);
 
   // A region, never `global`: capture text is processed where the consent
   // screen says it is.
@@ -114,36 +121,169 @@ test('the deployer may pass firebase-tools\' API-enabled check before deploying 
   }
 });
 
-test('the memory module is on for staging and explicitly off for production', () => {
-  // UC-2.7a (#167). The owner approved memory for staging only; production
-  // stays off until that changes deliberately. `MAYBESITTER_KILL_SWITCH_MEMORY`
-  // is belt and braces the same way `MAYBESITTER_AI_DISABLED` is above the
-  // model provider: the feature flag already keeps memory off in production,
-  // and the kill switch is a second, independent block.
+test('the memory module is on in both environments, with its kill switch present and off', () => {
+  // UC-2.7a (#167). Staging since 2026-09-25; production with the model
+  // (closure/prod-ai-on). The switch is set to `false` rather than left
+  // unset, so turning memory off in an incident is a one-value change.
   const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
   const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
 
-  assert.match(staging, /MAYBESITTER_FEATURE_MEMORY=true/, 'staging does not enable memory');
-  assert.match(staging, /MAYBESITTER_KILL_SWITCH_MEMORY=false/, 'staging leaves no explicit kill switch for an incident');
-
-  assert.match(production, /MAYBESITTER_FEATURE_MEMORY=false/, 'production enables memory without an explicit owner decision');
-  assert.match(production, /MAYBESITTER_KILL_SWITCH_MEMORY=true/, 'production has no independent block on memory');
+  for (const [name, flags] of [['staging', staging], ['production', production]] as const) {
+    assert.match(flags, /MAYBESITTER_FEATURE_MEMORY=true/, `${name} does not enable memory`);
+    assert.match(flags, /MAYBESITTER_KILL_SWITCH_MEMORY=false/, `${name} leaves no explicit kill switch for an incident`);
+  }
 });
 
-test('the football-data.org credential is mounted on staging only', () => {
-  const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
-  const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
+/** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
+function secretsOf(printed: string): Map<string, string> {
+  const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
+  assert.equal(flag.length, 1, 'exactly one --set-secrets word (a second one would replace the first)');
+  const secrets = new Map<string, string>();
+  for (const pair of flag[0]!.slice('--set-secrets='.length).split(',')) {
+    const at = pair.indexOf('=');
+    assert.ok(at > 0, `"${pair}" is not a KEY=secret:version pair`);
+    const key = pair.slice(0, at);
+    assert.ok(!secrets.has(key), `${key} is mounted twice`);
+    secrets.set(key, pair.slice(at + 1));
+  }
+  return secrets;
+}
 
-  assert.match(
-    staging,
-    /FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest/,
-    'staging does not receive the managed football-data.org credential',
+test('both services mount the same secrets: deletion pepper, model-log uid salt and the football credential', () => {
+  // Owner decision 2026-09-29: production gets the same features as staging,
+  // football fixtures included; and the uid salt the production model spend
+  // decision required, so model log lines never carry an unsalted uid hash.
+  const mounts: Array<[string, string]> = [
+    ['MAYBESITTER_DELETION_RECEIPT_PEPPER', 'maybesitter-deletion-receipt-pepper:latest'],
+    ['MAYBESITTER_LLM_UID_SALT', 'maybesitter-llm-uid-salt:latest'],
+    ['FOOTBALL_DATA_API_KEY', 'maybesitter-football-data-api-key:latest'],
+  ];
+  const expected = new Map(mounts);
+  for (const target of ['staging', 'production'] as const) {
+    const printed = flagsFor(target);
+    assert.deepEqual(secretsOf(printed), expected, target);
+    // A secret is never passed as a plain env value.
+    const env = envVarsOf(printed);
+    for (const [key] of mounts) assert.equal(env.has(key), false, `${target} passes ${key} as a plain env value`);
+  }
+  // The consumer reads exactly the name flags.sh mounts.
+  assert.match(read('lib/llm/llmLog.ts'), /process\.env\.MAYBESITTER_LLM_UID_SALT/);
+});
+
+// ── The env list gcloud actually receives ───────────────────────────────
+
+const flagsFor = (target: 'staging' | 'production') =>
+  execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), target], { encoding: 'utf8' });
+
+/**
+ * `--update-env-vars` parsed the way gcloud's ArgDict does (`gcloud topic
+ * escaping`): an optional `^D^` prefix picks the pair delimiter, else `,`;
+ * each pair splits on its first `=`. The workflow expands flags.sh unquoted,
+ * so words are what bash would split on whitespace.
+ */
+function envVarsOf(printed: string): Map<string, string> {
+  const words = printed.trim().split(/\s+/);
+  const flag = words.filter((word) => word.startsWith('--update-env-vars='));
+  assert.equal(flag.length, 1, 'exactly one --update-env-vars word (a second one would replace the first)');
+  let value = flag[0]!.slice('--update-env-vars='.length);
+  let delimiter = ',';
+  const custom = /^\^([^^]+)\^/.exec(value);
+  if (custom) {
+    delimiter = custom[1]!;
+    value = value.slice(custom[0].length);
+  }
+  const vars = new Map<string, string>();
+  for (const pair of value.split(delimiter)) {
+    const at = pair.indexOf('=');
+    const key = at < 0 ? pair : pair.slice(0, at);
+    // A comma-separated value split on the default delimiter shows up here as
+    // a "key" like `https://maybesitter-app.web.app`, which gcloud rejects.
+    assert.match(key, /^[A-Z_][A-Z0-9_]*$/, `"${pair}" is not a KEY=VALUE pair: the delimiter is splitting a value`);
+    assert.ok(!vars.has(key), `${key} is set twice`);
+    vars.set(key, pair.slice(at + 1));
+  }
+  return vars;
+}
+
+const PRODUCTION_SITE_ORIGINS = [
+  'https://maybesitter.com',
+  'https://maybesitter-app.web.app',
+  'https://maybesitter-app.firebaseapp.com',
+];
+const KMS_KEY = 'projects/maybesitter-app/locations/europe-west1/keyRings/maybesitter/cryptoKeys/user-secrets';
+
+test('production allows exactly the live site origins, the custom domain included, as one env value', () => {
+  // Before this the value lived on the service only because someone set it by
+  // hand, without maybesitter.com: sign-ups from the custom domain got a 403.
+  const production = envVarsOf(flagsFor('production'));
+  assert.deepEqual(production.get('MAYBESITTER_SITE_ORIGINS')?.split(','), PRODUCTION_SITE_ORIGINS);
+  for (const origin of PRODUCTION_SITE_ORIGINS) {
+    // The service compares the Origin header exactly: no path, no trailing slash.
+    assert.equal(new URL(origin).origin, origin);
+  }
+  // No website posts to staging's sign-up.
+  assert.equal(envVarsOf(flagsFor('staging')).has('MAYBESITTER_SITE_ORIGINS'), false);
+});
+
+test('each production site origin passes the sign-up\'s own origin check with the value flags.sh sets', async () => {
+  const env = { K_SERVICE: 'maybesitter-api', MAYBESITTER_SITE_ORIGINS: envVarsOf(flagsFor('production')).get('MAYBESITTER_SITE_ORIGINS') } as unknown as NodeJS.ProcessEnv;
+  const ping = (origin: string) => handleEarlyAccessEvent(
+    new Request('https://maybesitter-api.example/api/early-access/events', { method: 'POST', headers: { origin, 'sec-fetch-site': 'same-origin' } }),
+    { env },
   );
-  assert.doesNotMatch(
-    production,
-    /FOOTBALL_DATA_API_KEY/,
-    'production football sync was activated without an explicit production decision',
-  );
+  for (const origin of PRODUCTION_SITE_ORIGINS) assert.equal((await ping(origin)).status, 204, origin);
+  assert.equal((await ping('https://www.maybesitter.com')).status, 403, 'www redirects at Hosting and is not listed');
+});
+
+test('calendar links (ICS feeds) are on for staging and production', () => {
+  // Owner's Redmi, 2026-09-29: Settings → calendar links led to «Calendar
+  // links are not available in this version.» because ICS_FEEDS_ENABLED was
+  // set on neither service, so every route answered 404 `feature_disabled`.
+  // The same day the owner decided production gets the same features as
+  // staging, so both are on, each written out so an operator can turn it off.
+  for (const target of ['staging', 'production'] as const) {
+    const env = envVarsOf(flagsFor(target));
+    assert.equal(env.get('ICS_FEEDS_ENABLED'), 'true', `${target} leaves calendar links off`);
+    // Where it is on, the key that seals each feed URL is there too.
+    assert.equal(env.get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY, target);
+    // And the server reads it exactly the way flags.sh writes it.
+    assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: env.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), true, target);
+  }
+});
+
+test('both services are deployed with the KMS key that seals per-user secrets', () => {
+  // Staging had it by hand and production not at all, so Google connect on
+  // production answered `not_configured`. A deploy must carry it.
+  for (const target of ['staging', 'production'] as const) {
+    assert.equal(envVarsOf(flagsFor(target)).get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY, target);
+  }
+});
+
+test('switching the env list to a custom delimiter dropped none of the existing settings', () => {
+  const production = envVarsOf(flagsFor('production'));
+  const staging = envVarsOf(flagsFor('staging'));
+  for (const [key, value] of [
+    ['MAYBESITTER_ENV', 'production'],
+    ['MAYBESITTER_STORAGE_BACKEND', 'firestore'],
+    ['MAYBESITTER_FIRESTORE_DATABASE_ID', '(default)'],
+    ['GOOGLE_CLOUD_PROJECT', 'maybesitter-app'],
+    ['MAYBESITTER_LLM_PROVIDER', 'gemini'],
+    ['MAYBESITTER_AI_DISABLED', 'false'],
+    ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '500'],
+    ['MAYBESITTER_FEATURE_MEMORY', 'true'],
+    ['MAYBESITTER_KILL_SWITCH_MEMORY', 'false'],
+    ['MAYBESITTER_LLM_DAILY_CALL_CAP', '60'],
+    ['MAYBESITTER_LLM_DAILY_TOKEN_CAP', '150000'],
+    ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
+    ['ICS_FEEDS_ENABLED', 'true'],
+  ] as const) {
+    assert.equal(production.get(key), value, `production ${key}`);
+  }
+  assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
+  assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
+  assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
+  assert.equal(production.size, 23);
+  assert.equal(staging.size, 22);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────
@@ -212,4 +352,117 @@ test('the deploy step sources its image from whichever of build or resolve ran',
     /steps\.build\.outputs\.image_digest \|\| steps\.resolve\.outputs\.image_digest/,
     'the deploy step cannot get an image on a production run',
   );
+});
+
+// ── The production image survives registry cleanup ──────────────────────
+
+test('the cleanup policy keeps every version tagged prod-*', () => {
+  // The Delete rule removes anything older than 30 days outside the newest
+  // 10, and staging pushes on every merge, so without this the digest
+  // production runs becomes deletable within days of being promoted.
+  const policy = JSON.parse(read('infra/artifact-cleanup.json')) as Array<{
+    action: { type: string };
+    condition?: { tagState?: string; tagPrefixes?: string[] };
+  }>;
+  const keepProd = policy.filter((rule) => rule.action.type === 'Keep'
+    && rule.condition?.tagState === 'tagged'
+    && (rule.condition.tagPrefixes ?? []).includes('prod-'));
+  assert.equal(keepProd.length, 1, 'no Keep rule protects prod-* tags');
+});
+
+test('a production run tags the promoted digest prod-<sha> before any revision uses it or traffic moves', () => {
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  assert.notEqual(start, -1, 'there is no step that tags the production image');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  assert.match(step, /if:\s*env\.TARGET == 'production'/, 'the prod- tag must only be written by a production run');
+  assert.match(step, /IMAGE_DIGEST: \$\{\{ steps\.resolve\.outputs\.image_digest \}\}/, 'the tag must go on the digest staging is serving');
+  assert.match(step, /TAG_URI="\$\{REGION\}-docker\.pkg\.dev\/\$\{PROJECT_ID\}\/\$\{REPOSITORY\}\/\$\{IMAGE\}:prod-\$\{GITHUB_SHA\}"/);
+  assert.match(step, /gcloud artifacts docker tags add "\$\{IMAGE_DIGEST\}" "\$\{TAG_URI\}"/);
+  // Order: resolve → tag → deploy → smoke → traffic.
+  assert.ok(workflow.indexOf('Resolve the staging image') < start);
+  assert.ok(start < workflow.indexOf('Deploy (behind a tag'));
+  assert.ok(start < workflow.indexOf('Send traffic to the new revision'));
+  // Tagging needs artifactregistry.tags.create/update, which the writer role
+  // the deployer already has on the repository includes.
+  assert.match(read('infra/bootstrap.sh'), /--member="serviceAccount:\$\{DEPLOYER_SA\}" --role=roles\/artifactregistry\.writer/);
+});
+
+test('re-running a production deploy for the same commit does not need tags.delete', () => {
+  // `gcloud artifacts docker tags add` on an existing tag is delete + create
+  // (docker_util.AddDockerTag), and roles/artifactregistry.writer has no
+  // tags.delete. So the step looks first, and adds only when the tag is absent.
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  const lookup = step.indexOf('gcloud artifacts docker images describe "${TAG_URI}"');
+  const add = step.indexOf('gcloud artifacts docker tags add "${IMAGE_DIGEST}"');
+  assert.notEqual(lookup, -1, 'the step does not look the tag up before adding it');
+  assert.ok(lookup < add, 'the lookup must come before the add');
+  assert.match(step, /WANT="\$\{IMAGE_DIGEST#\*@\}"/, 'the comparison must be against the bare sha256 digest');
+  assert.match(step, /if \[ "\$\{CURRENT\}" = "\$\{WANT\}" \]; then\n\s*echo "[^"]*nothing to do"/, 'an identical tag must be a no-op');
+  // A tag on another digest fails loudly; it is never silently moved.
+  assert.match(step, /else\n\s*echo "::error::[^"]*Refusing to move a production tag[^"]*"\n\s*exit 1\n\s*fi\n\s*else\n\s*gcloud artifacts docker tags add/);
+  assert.equal(step.split('gcloud artifacts docker tags add "').length - 1, 1, 'exactly one add, in the absent branch');
+});
+
+test('the tag step, run against a stand-in gcloud: adds when absent, no-op when same, fails when different', () => {
+  const start = workflow.indexOf('Protect the production image from registry cleanup');
+  const step = workflow.slice(start, workflow.indexOf('- name:', workflow.indexOf('\n', start)));
+  const body = step.slice(step.indexOf('run: |\n') + 'run: |\n'.length);
+  const script = body.split('\n').map((line) => line.replace(/^ {10}/, '')).join('\n');
+
+  const digest = 'sha256:' + 'a'.repeat(64);
+  const dir = mkdtempSync(join(tmpdir(), 'prod-tag-'));
+  try {
+    const log = join(dir, 'calls.log');
+    // `describe` answers from $TAG_STATE: absent → exit 1, else prints that digest.
+    writeFileSync(join(dir, 'gcloud'), [
+      '#!/usr/bin/env bash',
+      `echo "$*" >>"${log}"`,
+      'if [ "$1 $2 $3 $4" = "artifacts docker images describe" ]; then',
+      '  [ "${TAG_STATE}" = absent ] && { echo "NOT_FOUND" >&2; exit 1; }',
+      '  echo "${TAG_STATE}"; exit 0',
+      'fi',
+      'exit 0',
+    ].join('\n'));
+    chmodSync(join(dir, 'gcloud'), 0o755);
+
+    const run = (tagState: string) => {
+      rmSync(log, { force: true });
+      let status = 0;
+      let output = '';
+      try {
+        output = execFileSync('bash', ['-e', '-c', script], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: {
+            PATH: `${dir}:${process.env.PATH}`,
+            TAG_STATE: tagState,
+            REGION: 'europe-west1', PROJECT_ID: 'p', REPOSITORY: 'r', IMAGE: 'api', GITHUB_SHA: 'c0ffee',
+            IMAGE_DIGEST: `europe-west1-docker.pkg.dev/p/r/api@${digest}`,
+          } as unknown as NodeJS.ProcessEnv,
+        });
+      } catch (error) {
+        status = (error as { status: number }).status;
+        output = String((error as { stdout: string }).stdout);
+      }
+      let calls: string[] = [];
+      try { calls = readFileSync(log, 'utf8').trim().split('\n'); } catch { /* no calls */ }
+      return { status, output, adds: calls.filter((call) => call.startsWith('artifacts docker tags add')) };
+    };
+
+    const absent = run('absent');
+    assert.equal(absent.status, 0);
+    assert.deepEqual(absent.adds, [`artifacts docker tags add europe-west1-docker.pkg.dev/p/r/api@${digest} europe-west1-docker.pkg.dev/p/r/api:prod-c0ffee`]);
+
+    const same = run(digest);
+    assert.equal(same.status, 0, 'a re-run for the same digest must succeed');
+    assert.deepEqual(same.adds, [], 'a re-run must not call tags add (it would need tags.delete)');
+
+    const other = run('sha256:' + 'b'.repeat(64));
+    assert.notEqual(other.status, 0, 'a tag on another digest must fail the run');
+    assert.deepEqual(other.adds, [], 'a production tag is never silently moved');
+    assert.match(other.output, /::error::.*Refusing to move a production tag/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -64,13 +64,21 @@
  * that wiring creates against `dismissFixtureCommitment` and why it is not
  * made worse here.
  */
+import { createHash } from 'node:crypto';
 import { FOOTBALL_DATA_REQUEST_TIMEOUT_MS } from './footballDataProvider';
 import {
   getStorage,
   type StorageAdapter,
 } from '../storage';
-import { footballClubSyncStateDoc } from '../storage/paths';
-import type { FixtureProvider, FixtureWindow } from '../../src/contracts/v1/fixtureContracts';
+import { fixtureDoc, footballClubSyncStateDoc } from '../storage/paths';
+import {
+  FOOTBALL_RETRY_AFTER_MS,
+  type ClubSyncFailureKind,
+  type ClubSyncState,
+  type Fixture,
+  type FixtureProvider,
+  type FixtureWindow,
+} from '../../src/contracts/v1/fixtureContracts';
 import { listClubs, type Club } from './clubs';
 import { upsertFixtures } from './fixtureStore';
 import { listFollowedClubIdsAcrossUsers } from './followedClubs';
@@ -128,10 +136,6 @@ export interface SyncReport {
   stoppedBy: 'drained' | 'budget';
 }
 
-interface ClubSyncStateDoc {
-  readonly clubId: string;
-  readonly lastSyncedAt: string;
-}
 
 function storageOf(deps: SyncFollowedClubsDeps): StorageAdapter {
   return deps.storage ?? getStorage();
@@ -148,23 +152,92 @@ function reasonOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function readClubSyncState(clubId: string, storage: StorageAdapter): Promise<ClubSyncState | null> {
+  return (await storage.get<ClubSyncState>(footballClubSyncStateDoc(clubId))) ?? null;
+}
+
 async function readLastSyncedAt(clubId: string, storage: StorageAdapter): Promise<string | null> {
-  const doc = await storage.get<ClubSyncStateDoc>(footballClubSyncStateDoc(clubId));
-  return doc?.lastSyncedAt ?? null;
+  return (await readClubSyncState(clubId, storage))?.lastSyncedAt ?? null;
 }
 
 /**
- * Records that `clubId` was asked of the provider at `now`, success or
- * failure alike. A failing club still needs to rotate out of "least recently
- * synced" — the alternative (only advancing on success) would let a
- * persistently broken club sort first forever, consuming the start of every
- * future tick's budget retrying it before any other followed club gets a
- * turn. Recording an attempt is not the same claim as recording a result:
- * the fixture data itself is untouched on failure (see `upsertFixtures`), so
- * marking the *attempt* here does not risk anyone's stored fixtures.
+ * A provider failure in the closed vocabulary the sync state stores. The
+ * adapter's message names the HTTP status (`request failed: 429 …`); nothing
+ * else about it is kept.
  */
-async function recordClubSynced(clubId: string, now: string, storage: StorageAdapter): Promise<void> {
-  await storage.set<ClubSyncStateDoc>(footballClubSyncStateDoc(clubId), { clubId, lastSyncedAt: now });
+export function classifyFetchFailure(error: unknown): ClubSyncFailureKind {
+  const message = error instanceof Error ? error.message : String(error);
+  return /request failed: 429\b/.test(message) ? 'rate_limited' : 'unavailable';
+}
+
+/**
+ * A change the football watcher should hear about: a match this store already
+ * knew whose kickoff moved, or that was postponed or cancelled. A match that
+ * is new to the store is not a change (it is the window moving forward), and
+ * neither is one that finished — that is time passing, not news.
+ */
+function materialChange(before: Fixture | null, after: Fixture): boolean {
+  if (!before) return false;
+  if (before.kickoffUtc !== after.kickoffUtc) return true;
+  return before.status !== after.status && (after.status === 'postponed' || after.status === 'cancelled');
+}
+
+export type ClubFetchResult =
+  | { readonly ok: true; readonly fetched: number; readonly written: number; readonly changed: number }
+  | { readonly ok: false; readonly reason: string; readonly failureKind: ClubSyncFailureKind };
+
+/**
+ * Asks the provider for one club, stores what came back, and records the
+ * attempt on the club's sync state — its outcome, and (when an already-known
+ * match materially changed) a new `changeDigest` that the football watcher's
+ * observer reads. Shared by the nightly sync and the per-minute poll, so the
+ * two can never disagree about what counts as a change.
+ *
+ * Never throws for a provider failure: that is recorded as `failed` with a
+ * closed-vocabulary `failureKind`, and the stored fixtures are untouched.
+ */
+export async function fetchAndStoreClub(
+  club: Club,
+  deps: { readonly provider: FixtureProvider; readonly now: string; readonly storage: StorageAdapter },
+): Promise<ClubFetchResult> {
+  const { provider, now, storage } = deps;
+  const previous = await readClubSyncState(club.clubId, storage);
+  let fixtures: readonly Fixture[];
+  try {
+    fixtures = await provider.listFixtures(club.providerTeamId, syncWindow(now));
+  } catch (error) {
+    const failureKind = classifyFetchFailure(error);
+    await storage.set<ClubSyncState>(footballClubSyncStateDoc(club.clubId), {
+      clubId: club.clubId,
+      lastSyncedAt: now,
+      lastOutcome: 'failed',
+      failureKind,
+      lastSucceededAt: previous?.lastSucceededAt ?? null,
+      changeDigest: previous?.changeDigest ?? null,
+      lastChangedAt: previous?.lastChangedAt ?? null,
+    });
+    return { ok: false, reason: reasonOf(error), failureKind };
+  }
+
+  const changes: string[] = [];
+  for (const fixture of fixtures) {
+    const before = await storage.get<Fixture>(fixtureDoc(fixture.provider, fixture.providerMatchId));
+    if (materialChange(before ?? null, fixture)) changes.push(`${fixture.providerMatchId}:${fixture.contentHash}`);
+  }
+  const result = await upsertFixtures(fixtures, { storage });
+  const changeDigest = changes.length === 0
+    ? previous?.changeDigest ?? null
+    : createHash('sha256').update(`${previous?.changeDigest ?? ''}|${changes.sort().join(',')}`).digest('hex');
+  await storage.set<ClubSyncState>(footballClubSyncStateDoc(club.clubId), {
+    clubId: club.clubId,
+    lastSyncedAt: now,
+    lastOutcome: 'ok',
+    failureKind: null,
+    lastSucceededAt: now,
+    changeDigest,
+    lastChangedAt: changes.length === 0 ? previous?.lastChangedAt ?? null : now,
+  });
+  return { ok: true, fetched: fixtures.length, written: result.written, changed: changes.length };
 }
 
 /**
@@ -210,7 +283,6 @@ export async function syncFollowedClubs(deps: SyncFollowedClubsDeps): Promise<Sy
   const sleep = deps.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
   const clock = deps.clock ?? Date.now;
   const budgetMs = deps.budgetMs ?? DEFAULT_SYNC_BUDGET_MS;
-  const window = syncWindow(deps.now);
   const started = clock();
 
   const candidates = await orderedCandidates(storage);
@@ -244,21 +316,83 @@ export async function syncFollowedClubs(deps: SyncFollowedClubsDeps): Promise<Sy
 
     const club = candidates[i]!;
     report.attempted += 1;
-    try {
-      const fixtures = await deps.provider.listFixtures(club.providerTeamId, window);
-      report.fetched += fixtures.length;
-      const result = await upsertFixtures(fixtures, { storage });
+    // One club's fetch failing must not stop the rest -- and must never read
+    // as "this club has no matches" (see fixtureStore.ts and
+    // footballDataProvider.ts: a failed fetch never deletes). The attempt is
+    // recorded for both outcomes, so a persistently broken club rotates out
+    // of "least recently synced" instead of eating the start of every tick.
+    const result = await fetchAndStoreClub(club, { provider: deps.provider, now: deps.now, storage });
+    if (result.ok) {
+      report.fetched += result.fetched;
       report.written += result.written;
-    } catch (error) {
-      // One club's fetch failing must not stop the rest -- and must never
-      // read as "this club has no matches" (see fixtureStore.ts and
-      // footballDataProvider.ts: a failed fetch never deletes, because
-      // nothing is written here on this path).
-      report.failures.push({ clubId: club.clubId, reason: reasonOf(error) });
+    } else {
+      report.failures.push({ clubId: club.clubId, reason: result.reason });
     }
-    // Recorded for both outcomes -- see recordClubSynced's own comment.
-    await recordClubSynced(club.clubId, deps.now, storage);
   }
 
+  return report;
+}
+
+/* ── The per-minute poll (closure CL7) ──────────────────────────────── */
+
+/** A club whose last fetch worked is asked again after this long. */
+export const FOOTBALL_POLL_INTERVAL_MS = 6 * 60 * 60 * 1000;
+/**
+ * A club whose last fetch failed is retried after this long. Defined with the
+ * sync state it reads, so the monitor row can say when the retry is due.
+ */
+export { FOOTBALL_RETRY_AFTER_MS };
+/**
+ * At most this many provider requests per poll. The poll runs once a minute
+ * (it rides the watcher sweep's cron), so this is at most one request a
+ * minute on top of the nightly sync — inside the free tier's ten a minute
+ * (`REQUEST_SPACING_MS`) even while the nightly sync is running.
+ */
+export const FOOTBALL_POLL_MAX_FETCHES = 1;
+
+export interface PollFollowedClubsDeps {
+  readonly provider: FixtureProvider;
+  readonly now: string;
+  readonly storage?: StorageAdapter;
+  readonly maxFetches?: number;
+}
+
+export interface PollReport {
+  /** Followed clubs whose sync state made them due this minute. */
+  due: number;
+  attempted: number;
+  /** Clubs fetched and stored successfully this poll; their followers need projecting. */
+  refreshed: string[];
+  failures: Array<{ clubId: string; failureKind: ClubSyncFailureKind }>;
+}
+
+function isDue(state: ClubSyncState | null, now: string): boolean {
+  if (!state) return true;
+  const age = Date.parse(now) - Date.parse(state.lastSyncedAt);
+  return state.lastOutcome === 'failed' ? age >= FOOTBALL_RETRY_AFTER_MS : age >= FOOTBALL_POLL_INTERVAL_MS;
+}
+
+/**
+ * The followed clubs that are due, least recently synced first, fetched up to
+ * `maxFetches` — what makes a new follow show its matches within a minute or
+ * two, a kickoff that moves reach the watcher within `FOOTBALL_POLL_INTERVAL_MS`,
+ * and a failed fetch retry in `FOOTBALL_RETRY_AFTER_MS` rather than tomorrow
+ * night.
+ */
+export async function pollFollowedClubs(deps: PollFollowedClubsDeps): Promise<PollReport> {
+  const storage = deps.storage ?? getStorage();
+  const maxFetches = deps.maxFetches ?? FOOTBALL_POLL_MAX_FETCHES;
+  const report: PollReport = { due: 0, attempted: 0, refreshed: [], failures: [] };
+  const due: Club[] = [];
+  for (const club of await orderedCandidates(storage)) {
+    if (isDue(await readClubSyncState(club.clubId, storage), deps.now)) due.push(club);
+  }
+  report.due = due.length;
+  for (const club of due.slice(0, maxFetches)) {
+    report.attempted += 1;
+    const result = await fetchAndStoreClub(club, { provider: deps.provider, now: deps.now, storage });
+    if (result.ok) report.refreshed.push(club.clubId);
+    else report.failures.push({ clubId: club.clubId, failureKind: result.failureKind });
+  }
   return report;
 }

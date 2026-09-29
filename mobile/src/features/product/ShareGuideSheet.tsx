@@ -1,5 +1,5 @@
 import React from 'react';
-import { Animated, Pressable, ScrollView, View } from 'react-native';
+import { Animated, Platform, Pressable, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
@@ -14,23 +14,28 @@ import { NumberedSteps } from '../../ui/steps';
  * `/api/mobile/capture/share`). There is nothing in this app to open for them,
  * so their rows open this instead of a screen that is about something else.
  * It is only reachable when share intake is switched on in the build; with it
- * off those rows are Coming soon and have no action at all.
+ * off those rows are not drawn at all.
  */
 export type ShareGuideKind = 'whatsapp' | 'files';
 
-const STEPS = {
-  // Only the export path, which is verified end to end: WhatsApp exports a
-  // .zip (iOS) or .txt (Android) the share extension accepts. Forwarding
-  // single messages differs by platform and message type, so it is not taught.
-  whatsapp: { title: 'xWhatsappGuideTitle', steps: ['xWhatsappStep1', 'xWhatsappStep2', 'xWhatsappStep3'] },
-  files: { title: 'xFilesGuideTitle', steps: ['xFilesStep1', 'xFilesStep2', 'xShareStepPick'] },
-} as const;
+/**
+ * Only the export path, which is verified end to end: WhatsApp exports a
+ * .zip (iOS) or .txt (Android) the share extension accepts. Forwarding
+ * single messages differs by platform and message type, so it is not taught.
+ * Step 2 is this phone's menus only: an iPhone never reads Android's ⋮
+ * (UAT 2026-09-27, #17).
+ */
+function steps(kind: ShareGuideKind) {
+  if (kind === 'files') return { title: 'xFilesGuideTitle', steps: ['xFilesStep1', 'xFilesStep2', 'xShareStepPick'] } as const;
+  const export2 = Platform.OS === 'android' ? 'xWhatsappStep2Android' : 'xWhatsappStep2Ios';
+  return { title: 'xWhatsappGuideTitle', steps: ['xWhatsappStep1', export2, 'xWhatsappStep3'] } as const;
+}
 
 export function ShareGuideSheet({ kind, onClose }: { kind: ShareGuideKind; onClose: () => void }) {
   const { t, p } = useApp();
   const m = useSheetMotion();
   const insets = useSafeAreaInsets();
-  const guide = STEPS[kind];
+  const guide = steps(kind);
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40, justifyContent: 'flex-end' }}>
       <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: p.scrim }, m.scrim]}>

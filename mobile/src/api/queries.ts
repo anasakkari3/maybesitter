@@ -1,11 +1,12 @@
 import { useCallback, useRef } from 'react';
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
 import { clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
+import { prepareMeeting } from './endpoints/meetings';
 import type { UploadFile } from './client';
 import {
   actOnCommitment,
@@ -21,13 +22,17 @@ import { getWeeklySummary, listActivity } from './endpoints/activity';
 import { getCategoryPreferences, putCategoryPreferences } from './endpoints/categories';
 import type { CategoryPreferences } from './schemas/categories';
 import {
+  acceptWeekDay,
   actOnPlan,
   buildPlan,
   getPlan,
   getPlanSettings,
+  getSavedWeek,
+  proposeWeek,
   putPlanSettings,
   regeneratePlan,
   type PlanEdit,
+  type WeekDecisions,
 } from './endpoints/plans';
 import { getNextStep, recordNextStepDecision } from './endpoints/nextStep';
 import { getTrust, reportPilotIncident, updateTrust } from './endpoints/trust';
@@ -89,7 +94,14 @@ import type { PilotIncidentInput, TrustAction } from './schemas/trust';
 import type { MemorySuggestion } from './schemas/profile';
 import type { AlphaFeedbackCategory } from './schemas/feedback';
 import type { AnalyticsProperties, ClientReportableEvent } from './schemas/analytics';
-import { ForbiddenError, InvalidTransitionError, PlanProposalRefusedError, StaleCommitmentError } from './errors';
+import {
+  ConflictError,
+  ForbiddenError,
+  InvalidTransitionError,
+  PlanProposalRefusedError,
+  StaleCommitmentError,
+  WeekConflictError,
+} from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
   createIcsFeed,
@@ -143,6 +155,14 @@ export const queryKeys = {
    * today's heading and a push for one date cannot show another's.
    */
   plan: (uid: string, date: string) => ['user', uid, 'plan', date] as const,
+  /**
+   * The week's proposals (CL5b), keyed by the decisions they were composed
+   * under: a move is a different week, not an edit of the cached one. Under
+   * `plan`, so everything that invalidates plans invalidates the week too.
+   */
+  week: (uid: string, decisions: string) => ['user', uid, 'plan', 'week', decisions] as const,
+  /** The saved week days of the next seven (CL5b, I4), for the Calendar strip. Under `plan` too. */
+  savedWeek: (uid: string) => ['user', uid, 'plan', 'savedWeek'] as const,
   planSettings: (uid: string) => ['user', uid, 'planSettings'] as const,
   reminderSettings: (uid: string) => ['user', uid, 'reminderSettings'] as const,
   readiness: (uid: string) => ['user', uid, 'readiness'] as const,
@@ -445,6 +465,20 @@ export function useCapture() {
   const timezone = useTimeZone();
   return useMutation({
     mutationFn: (text: string) => proposeCapture({ text, timezone }),
+  });
+}
+
+/**
+ * «حضّرني» (CL5a): notes about one busy block, read into a capture proposal.
+ *
+ * `retry: false`, as the share analyze has it: each attempt spends one of the
+ * day's preps, and the person is on the sheet to press it again.
+ */
+export function usePrepareMeeting() {
+  const timezone = useTimeZone();
+  return useMutation({
+    retry: false,
+    mutationFn: (input: { notes: string; startAt: string; endAt: string | null }) => prepareMeeting({ ...input, timezone }),
   });
 }
 
@@ -801,6 +835,85 @@ export function useRegeneratePlan(date: string) {
   return useMutation({
     mutationFn: (_: void) => regeneratePlan(date),
     onSuccess: plan => adoptPlan(client, uid, date, plan),
+  });
+}
+
+/** One stable string per set of decisions, for the week's query key. */
+export function weekDecisionsKey(decisions: WeekDecisions): string {
+  const moves = [...decisions.moves].map(move => `${move.itemId}>${move.date}`).sort();
+  const drops = [...decisions.drops].sort();
+  return JSON.stringify({ moves, drops });
+}
+
+/**
+ * The week's proposals under the person's decisions (CL5b).
+ *
+ * The previous week stays on screen while the next one is composed, so a move
+ * redraws in place instead of flashing a skeleton over the whole week.
+ */
+export function useWeek(decisions: WeekDecisions) {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.week(uid, weekDecisionsKey(decisions)),
+    queryFn: () => proposeWeek(decisions),
+    enabled: uid !== 'signed-out',
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * A refused save (CL5b): the week on screen is stale. The 409 carries the
+ * week as it is now, which replaces it without another call (I1); a conflict
+ * without one reads the week again.
+ */
+export function adoptWeekConflict(client: QueryClient, uid: string, decisions: WeekDecisions, error: unknown): void {
+  if (error instanceof WeekConflictError) {
+    client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), error.week);
+    return;
+  }
+  if (error instanceof ConflictError) void client.invalidateQueries({ queryKey: ['user', uid, 'plan', 'week'] });
+}
+
+/** What "Save this day" sends: the day, and the steps its card showed (I1). */
+export interface WeekDaySave {
+  date: string;
+  shown: readonly string[];
+}
+
+/**
+ * "Save this day" (CL5b).
+ *
+ * The answer is the day's plan and the week after it: the plan goes into that
+ * date's plan query exactly as "Looks good" would put it, the week into the
+ * query for the decisions it was saved under, and the Calendar's saved week
+ * is read again. Not retried, like every mutation here; a refusal (409) comes
+ * back with the week, which is drawn in place of the stale one.
+ */
+export function useAcceptWeekDay(decisions: WeekDecisions) {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useMutation({
+    mutationFn: ({ date, shown }: WeekDaySave) => acceptWeekDay(date, shown, decisions),
+    onSuccess: ({ plan, week }) => {
+      adoptPlan(client, uid, plan.date, plan);
+      client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), week);
+      void client.invalidateQueries({ queryKey: queryKeys.savedWeek(uid) });
+    },
+    onError: error => adoptWeekConflict(client, uid, decisions, error),
+  });
+}
+
+/**
+ * The days of the next seven saved from the week view (CL5b, I4): the
+ * Calendar strip draws their steps on those dates. A failure here is not the
+ * strip's failure; the strip then draws commitments where they are due.
+ */
+export function useSavedWeek() {
+  const uid = useUid();
+  return useQuery({
+    queryKey: queryKeys.savedWeek(uid),
+    queryFn: getSavedWeek,
+    enabled: uid !== 'signed-out',
   });
 }
 

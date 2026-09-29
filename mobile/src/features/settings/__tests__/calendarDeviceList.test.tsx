@@ -15,11 +15,11 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Linking } from 'react-native';
+import { AppState, Linking, type AppStateStatus } from 'react-native';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
@@ -34,6 +34,7 @@ import { deviceCalendar, type DeviceEventCalendar } from '../../calendar/deviceC
 import { loadExcludedCalendarIds, resetWriterIdCache, saveExcludedCalendarIds } from '../../../lib/deviceSettings/calendarDevice';
 import { resetCalendarSyncForTests } from '../../calendar/useDeviceCalendarSync';
 import { resetBusySyncForTests } from '../../calendar/useBusyCalendar';
+import { ValidationError } from '../../../api/errors';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -91,7 +92,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   await new Promise(resolve => setTimeout(resolve, 0));
   client.clear();
   resetAuthForTests();
@@ -195,6 +196,24 @@ describe('turning reading on from here', () => {
     expect(screen.queryByTestId('calendar-read-allow')).toBeNull();
   });
 
+  it('a refusal from the server is not called a network failure, on the switch or under Allow (UAT round 3, N9)', async () => {
+    consent = false;
+    jest.spyOn(trustEndpoints, 'updateTrust')
+      .mockRejectedValue(new ValidationError('calendar consent is available only after first value') as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-allow')).not.toBeNull());
+
+    // Allow used to do nothing visible at all.
+    await fireEvent.press(screen.getByTestId('calendar-read-allow'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-allow-failed')).not.toBeNull());
+    expect(screen.getByTestId('calendar-read-allow-failed').props.children).toBe(en.trustActionRefused);
+
+    await fireEvent(screen.getByTestId('calendar-read-toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.queryByTestId('calendar-read-toggle-failed')).not.toBeNull());
+    expect(screen.queryByText(en.trustActionFailed)).toBeNull();
+    expect(screen.getByTestId('calendar-read-toggle-failed').props.children).toBe(en.trustActionRefused);
+  });
+
   it('with the read flag off, lists nothing and offers no Allow', async () => {
     process.env.EXPO_PUBLIC_FEATURE_CALENDAR_READ = 'false';
     await show();
@@ -246,5 +265,86 @@ describe('the university calendar link', () => {
     await show(() => {});
     await waitFor(() => expect(screen.queryByTestId('calendar-read-toggle')).not.toBeNull());
     expect(screen.queryByTestId('calendar-feeds-entry')).toBeNull();
+  });
+});
+
+/**
+ * UAT round 6, batch 4, D-c (shot 761): with calendar access taken away in the
+ * phone's settings, both switches on this screen still read on over the card
+ * that says MaybeSitter has no access. They now read off, cannot be flipped
+ * (the phone will not ask twice; the card's button is the way), and come back
+ * the moment the app returns from phone settings with access allowed.
+ */
+describe('when the phone refuses calendar access', () => {
+  function captureAppState() {
+    const listeners: ((state: AppStateStatus) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation(((_type: string, listener: (state: AppStateStatus) => void) => {
+      listeners.push(listener);
+      return { remove: () => {} };
+    }) as never);
+    return (state: AppStateStatus) => { for (const listener of listeners) listener(state); };
+  }
+
+  it('shows both switches off and still, and brings them back when access returns', async () => {
+    process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE = 'true';
+    try {
+      const fire = captureAppState();
+      jest.spyOn(calendarEndpoints, 'getCalendarSettings')
+        .mockResolvedValue({ success: true, calendarSettings: { writeTarget: 'device', updatedAt: null } } as never);
+      const access = jest.spyOn(deviceCalendar, 'getAccess').mockResolvedValue('denied');
+      await show();
+      await waitFor(() => expect(screen.queryByTestId('calendar-permission-denied')).not.toBeNull());
+      await waitFor(() => expect(screen.getByTestId('calendar-write-toggle').props.disabled).toBe(true));
+      for (const id of ['calendar-read-toggle', 'calendar-write-toggle']) {
+        expect(screen.getByTestId(id).props.value).toBe(false);
+        expect(screen.getByTestId(id).props.disabled).toBe(true);
+        expect(screen.getByTestId(id).props.accessibilityState).toEqual(expect.objectContaining({ checked: false }));
+      }
+
+      access.mockResolvedValue('granted');
+      await act(async () => { fire('active'); });
+      await waitFor(() => expect(screen.queryByTestId('calendar-permission-denied')).toBeNull());
+      await waitFor(() => expect(screen.getByTestId('calendar-read-toggle').props.value).toBe(true));
+      expect(screen.getByTestId('calendar-write-toggle').props.value).toBe(true);
+    } finally {
+      delete process.env.EXPO_PUBLIC_FEATURE_CALENDAR_WRITE;
+    }
+  });
+});
+
+/**
+ * UAT round 6, batch 4, D-c (shot 759): after «افصل وامسح الأوقات المشغولة» and
+ * then connecting again, «انفصل. الأوقات المشغولة راحت…» stayed under the
+ * button, with the calendars listed and read again, until a relaunch.
+ */
+describe('connecting again after a disconnect', () => {
+  it('takes the "disconnected" line away', async () => {
+    jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 0 } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await fireEvent.press(screen.getByTestId('calendar-disconnect-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('calendar-read-toggle').props.value).toBe(false));
+
+    await fireEvent(screen.getByTestId('calendar-read-toggle'), 'valueChange', true);
+    await waitFor(() => expect(screen.getByTestId('calendar-read-toggle').props.value).toBe(true));
+    expect(screen.queryByTestId('calendar-disconnect-result')).toBeNull();
+  });
+
+  it('takes it away when reading comes back from somewhere else too', async () => {
+    jest.spyOn(calendarEndpoints, 'deleteCalendarBusy').mockResolvedValue({ success: true, deleted: 0 } as never);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-device-g-work')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-disconnect'));
+    await fireEvent.press(screen.getByTestId('calendar-disconnect-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-disconnect-result')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('calendar-read-toggle').props.value).toBe(false));
+
+    // The Trust Center's switch, not this screen's: the account says yes again.
+    consent = true;
+    await act(async () => { await client.invalidateQueries(); });
+    await waitFor(() => expect(screen.getByTestId('calendar-read-toggle').props.value).toBe(true));
+    expect(screen.queryByTestId('calendar-disconnect-result')).toBeNull();
   });
 });

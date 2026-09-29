@@ -33,9 +33,17 @@ import {
   CAPTURE_EDIT_TITLE_MIN,
   type CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
-import type { Command } from '../../../src/domain/stateMachine';
+import {
+  LocationTriggerValidationError,
+  parseLocationTrigger,
+  type LocationTrigger,
+} from '../../../src/contracts/v1/locationTriggerContracts';
+import { windowEndAfterMove, type Command, type TimeSpec } from '../../../src/domain/stateMachine';
 import { isPastCommitmentTime } from '../commitments/timeRules';
 import { isDateOnly, parseIsoInstant } from '../mobile/time';
+import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
+import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
+import { instantFromLocal } from '../../../src/extraction/timeLexicon';
 
 export class InvalidEditError extends Error {
   constructor(readonly itemId: string, readonly field: string, readonly detail: string) {
@@ -57,6 +65,8 @@ export interface NormalisedEdit {
   title?: string;
   resolvedTime?: string | null;
   priority?: 'low' | 'normal' | 'high';
+  /** `null` is "no place reminder", which a new commitment has anyway. */
+  locationTrigger?: LocationTrigger | null;
 }
 
 /**
@@ -144,6 +154,21 @@ export function validateEdit(
     normalised.priority = edit.priority;
   }
 
+  if (edit.locationTrigger !== undefined) {
+    if (edit.locationTrigger === null) {
+      normalised.locationTrigger = null;
+    } else {
+      try {
+        normalised.locationTrigger = parseLocationTrigger(edit.locationTrigger);
+      } catch (error) {
+        if (error instanceof LocationTriggerValidationError) {
+          throw new InvalidEditError(edit.itemId, 'locationTrigger', error.field);
+        }
+        throw error;
+      }
+    }
+  }
+
   return normalised;
 }
 
@@ -162,7 +187,10 @@ type CreateDraft = Extract<Command, { type: 'CreateDraft' }>;
  * nothing to remind anyone about is how a reminder silently never fires.
  */
 export function applyEditToCommands(commands: readonly Command[], edit: NormalisedEdit): Command[] {
-  if (edit.title === undefined && edit.resolvedTime === undefined && edit.priority === undefined) {
+  if (
+    edit.title === undefined && edit.resolvedTime === undefined && edit.priority === undefined
+    && !edit.locationTrigger
+  ) {
     return [...commands];
   }
 
@@ -175,9 +203,23 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
       ? commitment.timeSpec
       : {
         ...commitment.timeSpec,
-        kind: edit.resolvedTime === null ? ('unscheduled' as const) : ('due_by' as const),
+        // A new time for an «الساعة 5» item is still a time to be at (CL1, D2):
+        // moving it must not quietly turn it into a deadline.
+        kind: edit.resolvedTime === null
+          ? ('unscheduled' as const)
+          : commitment.timeSpec?.kind === 'scheduled_event' ? ('scheduled_event' as const) : ('due_by' as const),
         dueAt: edit.resolvedTime,
         remindAt: edit.resolvedTime,
+        // A meeting's prep step is a window, done by the meeting (FX1). Moved
+        // to any time before the meeting it stays one; moved to the start or
+        // after it, or to no time, it is an ordinary step at the time chosen. Left as it was, the stale end made the confirm refuse the
+        // whole proposal, or rang the day after the time chosen (review C1).
+        ...(commitment.timeSpec?.endAt
+          ? { endAt: windowEndAfterMove(windowOf(commitment.timeSpec), edit.resolvedTime) }
+          : {}),
+        // A time the person picked, or none: either way no longer a whole day
+        // (FX3). Left true, a timed `dueAt` would fail `allDay`'s midnight rule.
+        allDay: false,
       };
 
     return {
@@ -197,6 +239,7 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
             },
           }
           : {}),
+        ...(edit.locationTrigger ? { locationTrigger: edit.locationTrigger } : {}),
         timeSpec,
       },
     };
@@ -206,4 +249,68 @@ export function applyEditToCommands(commands: readonly Command[], edit: Normalis
     return rewritten.filter((command) => command.type !== 'ConfirmCommitment');
   }
   return rewritten;
+}
+
+/** A draft's partial time spec, completed just enough to ask whether it is a window. */
+function windowOf(timeSpec: Partial<TimeSpec>): Pick<TimeSpec, 'kind' | 'dueAt' | 'endAt' | 'allDay'> {
+  return {
+    kind: timeSpec.kind ?? 'unscheduled',
+    dueAt: timeSpec.dueAt ?? null,
+    endAt: timeSpec.endAt ?? null,
+    allDay: timeSpec.allDay === true,
+  };
+}
+
+/**
+ * The day an item happens *on*, or null (FY1 M1; UAT round 3, N11).
+ *
+ * A `YYYY-MM-DD` day on the reading the item came from, and words that make
+ * it an event on that day (`isEventOnDay`: an appointment, a meeting, a
+ * wedding). The one test behind both halves of "no time keeps an event on its
+ * day": the confirm keeping it there (`keepEventOnItsDay`), and the review
+ * card saying so before the confirm (`eventOnDay`, mobileCaptureService).
+ * Two copies of it would let the card promise a day the confirm drops.
+ */
+export function eventDayOf(result: ExtractionResult | undefined): string | null {
+  const date = result?.localTimeSpec?.date;
+  if (!result || !date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !isEventOnDay(result.rawText ?? '')) return null;
+  return date;
+}
+
+/**
+ * "No time" on something that happens on a day keeps it on that day (FY1
+ * review, M1): «موعد دكتور يوم الأحد الساعة 10 الصبح» with its time cleared in
+ * the edit sheet was stored `unscheduled`, its Sunday gone. It is the same
+ * all-day event on its day that the «بدون وقت محدد» answer gives
+ * (`clarifyService.allDayAppointment`). A task keeps the plain "no time".
+ *
+ * Applied after `applyEditToCommands`, and only to an edit that cleared the
+ * time; `result` is the reading the item came from, which holds its words and
+ * its day.
+ */
+export function keepEventOnItsDay(commands: readonly Command[], result: ExtractionResult | undefined): Command[] {
+  const date = eventDayOf(result);
+  if (!result || !date) return [...commands];
+  return commands.map((command): Command => {
+    if (command.type !== 'CreateDraft') return command;
+    const timezone = command.commitment.timeSpec?.timezone && command.commitment.timeSpec.timezone !== 'UTC'
+      ? command.commitment.timeSpec.timezone
+      : result.localTimeSpec?.timezone || 'UTC';
+    const midnight = instantFromLocal(date, '00:00', timezone);
+    if (!midnight) return command;
+    return {
+      ...command,
+      commitment: {
+        ...command.commitment,
+        timeSpec: {
+          ...command.commitment.timeSpec,
+          kind: 'scheduled_event' as const,
+          dueAt: midnight.toISOString(),
+          remindAt: null,
+          allDay: true,
+          timezone,
+        },
+      },
+    };
+  });
 }

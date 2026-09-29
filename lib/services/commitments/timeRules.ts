@@ -80,6 +80,35 @@ export function isPastCommitmentTime(instant: Date | number, now: Date): boolean
 }
 
 /**
+ * The same question for an all-day commitment (FX3): a *day*, whose `dueAt`
+ * is only its local midnight. «قبل آخر الشهر» said on the 30th is due today,
+ * and today's midnight has already gone by — so the day, not the instant, is
+ * what is compared: past only when it is before today on the person's clock.
+ */
+export function isPastCommitmentDay(date: string, now: Date, timeZone: string): boolean {
+  let today: string;
+  try {
+    today = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  } catch {
+    today = now.toISOString().slice(0, 10);
+  }
+  return date < today;
+}
+
+/** Whether an extracted reading's time is behind the clock, all-day readings by their day. */
+export function isPastReading(
+  reading: { allDay?: boolean; dueAt: string | null; remindAt: string | null; localTimeSpec: { date: string; timezone?: string } | null },
+  now: Date,
+  timeZone?: string,
+): boolean {
+  if (reading.allDay && reading.localTimeSpec?.date) {
+    return isPastCommitmentDay(reading.localTimeSpec.date, now, timeZone || reading.localTimeSpec.timezone || 'UTC');
+  }
+  const resolved = reading.remindAt || reading.dueAt;
+  return Boolean(resolved) && isPastCommitmentTime(Date.parse(resolved!), now);
+}
+
+/**
  * The wording a postpone to a time not after now has always been refused
  * with, by the service and by the state machine's own `Postpone` guard alike.
  */

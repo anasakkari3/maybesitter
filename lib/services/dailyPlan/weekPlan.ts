@@ -1,0 +1,709 @@
+/**
+ * Weekly planning mode, «خطّط أسبوعي» (CL5b; council verdict 2026-09-26, item 6).
+ *
+ * ── Not a planner: the daily planner, seven times ────────────────
+ *
+ * The strategy excludes a "complete planner", and the council held weekly mode
+ * to that: the week is the **existing** daily planner run once per date,
+ * today … today+6, each run through the same `composeDailyPlanRequest` the
+ * morning build and every rebuild use, with an explicit `builtAt` (#500) and
+ * that date's own busy time, routine and readiness. There is no second solver
+ * here and no cross-day optimisation. What this module adds is only the
+ * bookkeeping the per-date runs need so that one commitment is not proposed
+ * on seven days at once.
+ *
+ * ── One step per day, never after its due day ────────────────────
+ *
+ * The council's cap: each day proposes **one** realistic next step, fitted
+ * around that day's busy time. Whether a piece of work fits a day is the daily
+ * planner's answer for that date (its busy time, routine, working window, the
+ * clock); which day gets which step is the only thing decided here, in two
+ * passes:
+ *
+ *   1. Dated work due this week, most urgent first, takes the **latest** free
+ *      day on or before its due day that it fits: on its day when it can be,
+ *      earlier when that day is taken, and never later. Work due on a day that
+ *      no day up to it can take stays on its due day, beside that day's step:
+ *      the daily rule already puts it there, it is the person's own date and not
+ *      the week's choice, and saving the day without it would keep it off its
+ *      own day (`weekHolds.ts`). That is the one way a day shows two steps.
+ *   2. The rest — undated work that matters and work already overdue (#383) —
+ *      fills the days still free, in order, each taking the planner's own first
+ *      placement among it.
+ *
+ * Until UAT round 2 (N3) there was one pass: every day took the planner's
+ * first placement over everything, and #383's roll-over carried whatever lost
+ * to the next day, so one step a day pushed dated work past its date — the room
+ * due today to Tuesday, the market due Monday to Friday.
+ *
+ * Each day is then solved over its steps alone (plus anything the person moved
+ * there), which is exactly the request an acceptance will compose — so the
+ * times shown are the times stored.
+ *
+ * ── Nothing is stored until a day is accepted ────────────────────
+ *
+ * A proposal is not a plan. `plans/{date}` *is* the day's plan: the morning
+ * job skips a date that has one and every reader shows it. So the week is
+ * recomputed from the account on every call and written nowhere — no draft
+ * collection, nothing to delete, export or expire. The person's moves and
+ * drops are the client's to hold until they accept, and arrive with each call
+ * (`WeekDecisions`); decisions about work the week does not hold are ignored
+ * rather than stored. That is the product's rule for every suggestion: nothing
+ * is saved without an explicit confirm.
+ *
+ * Accepting a day is the daily flow: `storeWeekDayPlan` (the same build, a
+ * generation that counts toward that date's cap) and then `acceptPlan` (the
+ * same status, ledger entry and activity counter as "Looks good"). From then
+ * on the day is an ordinary accepted plan — #626 keeps any automatic write off
+ * it, #587 keeps a declined patch declined, the rebuild cap is its date's own —
+ * with one record beside it, `weekPlan`, saying which of the day's work the
+ * week held elsewhere (`planStore.ts`).
+ *
+ * A date that already has a plan is shown as that plan and never re-proposed:
+ * the week does not rewrite a stored day, touched or not.
+ */
+import { getStorage, type StorageAdapter } from '../../storage';
+import { userDoc } from '../../storage/paths';
+import { schedulePlan } from '../../planning/scheduler';
+import { toEpochMs } from '../../planning/shared/time';
+import type { Plan, PlanningConstraints } from '../../../src/contracts/v1/planningContracts';
+import { deadlineOfTimeSpec, type Commitment } from '../../../src/domain/stateMachine';
+import { buildDailyPlanInput, dayHorizon, fixedStartOf, isAllDayEvent, isPlannable, pinnedEventsOnDay, type DayAssignment } from './buildDailyPlan';
+import {
+  PlanDateOutOfRangeError,
+  composeDailyPlanRequest,
+  type DailyPlanRequest,
+  preloadDailyPlanRequest,
+  storeWeekDayPlan,
+  titlesOf,
+  type DailyPlanDeps,
+} from './dailyPlanService';
+import { acceptPlan, effectiveSchedule } from './planActions';
+import { planToDto } from './planDto';
+import { readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
+import { isPlanDate, localDateOf, planSettingsOf } from './planSettings';
+import { PLAN_PROPOSAL_DAYS, heldBySavedWeekDay, planDatesFrom } from './weekHolds';
+import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
+import { reserveDailyAction } from '../../llm/usageGuard';
+
+/* ── What the client sends ─────────────────────────────────────────── */
+
+/** One step the person moved to another day of the week. */
+export interface WeekMove {
+  readonly itemId: string;
+  readonly date: string;
+}
+
+/**
+ * The person's decisions about this week's proposals, held by the client
+ * until a day is accepted. `drops` are steps taken off the week ("not this
+ * week"); nothing about the commitment itself changes.
+ */
+export interface WeekDecisions {
+  readonly moves: readonly WeekMove[];
+  readonly drops: readonly string[];
+}
+
+/** The daily counter both week routes spend (`reserveDailyAction`, I5). */
+export const WEEK_PLAN_ACTION = 'week_propose';
+/** Generous: a person moving steps around makes a call per move. A loop does not. */
+export const MAX_WEEK_PLANS_PER_DAY = 300;
+/** A full valid body is about 25 KB (50 moves, 50 drops, 50 shown ids of 200 characters). */
+export const WEEK_BODY_LIMIT_BYTES = 32 * 1024;
+
+/**
+ * Spends one of today's week calls. False over the cap, and false when the
+ * counter cannot be read: it fails closed like every daily action.
+ */
+export async function reserveWeekPlan(uid: string): Promise<boolean> {
+  return await reserveDailyAction(uid, WEEK_PLAN_ACTION, MAX_WEEK_PLANS_PER_DAY) === 'ok';
+}
+
+/** 429 with a static message: nothing about the account in it. */
+export function weekRateLimitedResponse(): Response {
+  return Response.json(
+    { success: false, error: 'too many week plans today', reason: 'week_rate_limited', maxPerDay: MAX_WEEK_PLANS_PER_DAY },
+    { status: 429 },
+  );
+}
+
+export const NO_WEEK_DECISIONS: WeekDecisions = Object.freeze({ moves: [], drops: [] });
+
+/** A bound on the body, not a product rule: a week holds a handful of steps. */
+export const MAX_WEEK_DECISIONS = 50;
+const MAX_ID_LENGTH = 200;
+
+export class WeekDecisionsInvalid extends Error {
+  readonly reason = 'invalid_decisions' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'WeekDecisionsInvalid';
+  }
+}
+
+function isId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_ID_LENGTH;
+}
+
+/** Parses `{ moves?, drops? }`. Throws `WeekDecisionsInvalid` on anything else. */
+export function parseWeekDecisions(body: unknown): WeekDecisions {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new WeekDecisionsInvalid('the body must be an object');
+  }
+  const { moves = [], drops = [] } = body as { moves?: unknown; drops?: unknown };
+  if (!Array.isArray(moves) || !Array.isArray(drops)) throw new WeekDecisionsInvalid('moves and drops must be lists');
+  if (moves.length > MAX_WEEK_DECISIONS || drops.length > MAX_WEEK_DECISIONS) {
+    throw new WeekDecisionsInvalid(`at most ${MAX_WEEK_DECISIONS} moves and ${MAX_WEEK_DECISIONS} drops`);
+  }
+  const parsedMoves = moves.map((move: unknown) => {
+    const { itemId, date } = (typeof move === 'object' && move !== null ? move : {}) as { itemId?: unknown; date?: unknown };
+    if (!isId(itemId) || !isPlanDate(date)) throw new WeekDecisionsInvalid('a move is { itemId, date: YYYY-MM-DD }');
+    return { itemId, date };
+  });
+  const parsedDrops = drops.map((drop: unknown) => {
+    if (!isId(drop)) throw new WeekDecisionsInvalid('a drop is an item id');
+    return drop;
+  });
+  return { moves: parsedMoves, drops: parsedDrops };
+}
+
+/**
+ * Parses the `shown` of an accept body: the ids of the steps the day's card
+ * showed (its `items` and `unplaced`), which the saved day must equal (I1).
+ * Required, bounded like the decisions. Throws `WeekDecisionsInvalid`.
+ */
+export function parseShown(body: unknown): string[] {
+  const shown = typeof body === 'object' && body !== null ? (body as { shown?: unknown }).shown : undefined;
+  if (!Array.isArray(shown)) throw new WeekDecisionsInvalid('shown must list the ids the day showed');
+  if (shown.length > MAX_WEEK_DECISIONS) throw new WeekDecisionsInvalid(`at most ${MAX_WEEK_DECISIONS} shown ids`);
+  return shown.map((itemId: unknown) => {
+    if (!isId(itemId)) throw new WeekDecisionsInvalid('a shown id is an item id');
+    return itemId;
+  });
+}
+
+/* ── The week, composed ────────────────────────────────────────────── */
+
+/**
+ * Why a step is on its day, as the card says it. Codes, never text.
+ *
+ * Each says only what is true of the work and the day it is shown on: `due`,
+ * due that day; `due_later`, due on a later day (pulled ahead because its own
+ * day was taken); `due_earlier`, due on an earlier day that is still ahead —
+ * the week never proposes that, but a day the person saved or moved work onto
+ * can hold it (FX1); `carried`, due on a day that has already gone (#383's
+ * roll-over); `open`, no due date at all; `moved`, the person put it there.
+ */
+export type WeekStepReason = 'due' | 'due_later' | 'due_earlier' | 'carried' | 'open' | 'moved';
+
+interface ProposedDay {
+  readonly kind: 'proposed';
+  readonly date: string;
+  /** Floating work the daily rule puts on this day, before the week decides. */
+  readonly rule: readonly string[];
+  readonly constraints: PlanningConstraints;
+  readonly plan: Plan;
+  readonly assignment: DayAssignment;
+  readonly reasons: ReadonlyMap<string, WeekStepReason | null>;
+}
+
+interface StoredDay {
+  readonly kind: 'stored';
+  readonly date: string;
+  readonly rule: readonly string[];
+  readonly stored: StoredDailyPlan;
+}
+
+export type WeekDay = ProposedDay | StoredDay;
+
+export interface WeekLayout {
+  readonly today: string;
+  readonly timezone: string;
+  readonly days: readonly WeekDay[];
+  /** The decisions that applied, after the ones about nothing were ignored. */
+  readonly decisions: WeekDecisions;
+  /** Floating work that belongs to a day of this week and is placed on none. */
+  readonly waiting: readonly string[];
+  readonly commitments: readonly Commitment[];
+  /**
+   * Where the week puts each piece of work it holds on one day: the floating
+   * work it placed, and the commitments pinned to a time still ahead, on the
+   * local date of that time.
+   */
+  readonly placedOn: ReadonlyMap<string, string>;
+}
+
+/** The floating work the daily rule puts on `date`: `buildDailyPlanInput`'s own filter. */
+function dailyRuleFor(uid: string, date: string, timezone: string, commitments: readonly Commitment[], builtAt: string): string[] {
+  return buildDailyPlanInput({
+    uid,
+    date,
+    timezone,
+    commitments,
+    // Which work is on the day reads neither busy time nor the routine.
+    busyBlocks: [],
+    profile: null,
+    focusHint: null,
+    builtAt,
+  }).constraints.items.map((item) => item.itemId);
+}
+
+const PRIORITY_ORDER: Record<Commitment['priority']['level'], number> = { high: 3, normal: 2, low: 1 };
+
+/**
+ * The local day a commitment is due on, on the account's clock; null when it
+ * has no date. An all-day commitment is due on the day it names, in the zone it
+ * was named in (its `dueAt` is that day's midnight there).
+ */
+function dueDayOf(commitment: Commitment, timezone: string): string | null {
+  const { allDay } = commitment.timeSpec;
+  const due = deadlineOfTimeSpec(commitment.timeSpec);
+  if (!due) return null;
+  return allDay ? localDateOf(due, commitment.timeSpec.timezone) : localDateOf(due, timezone);
+}
+
+/**
+ * The instant a dated commitment is due by; null for undated work. A window is
+ * due by its end, the meeting's start (`deadlineOfTimeSpec`, FX1 R1); an
+ * all-day day by its end, not by the midnight that opens it (N3).
+ */
+function dueDeadlineOf(commitment: Commitment): string | null {
+  const { allDay, timezone } = commitment.timeSpec;
+  const due = deadlineOfTimeSpec(commitment.timeSpec);
+  if (!due) return null;
+  return allDay ? dayHorizon(localDateOf(due, timezone), timezone).endsAt : due;
+}
+
+/** Why `commitment` is on `date`, compared by day (N3). Null for work that is not a commitment. */
+function reasonFor(commitment: Commitment | undefined, date: string, today: string, timezone: string): WeekStepReason | null {
+  if (!commitment) return null;
+  const due = dueDayOf(commitment, timezone);
+  if (due === null) return 'open';
+  if (due === date) return 'due';
+  if (due > date) return 'due_later';
+  return due < today ? 'carried' : 'due_earlier';
+}
+
+/**
+ * The week as it stands for this account now, with the person's decisions
+ * applied. Reads only; writes nothing.
+ */
+export async function composeWeek(
+  uid: string,
+  decisions: WeekDecisions,
+  deps: DailyPlanDeps = {},
+): Promise<WeekLayout> {
+  const storage: StorageAdapter = deps.storage ?? getStorage();
+  const now = (deps.now ?? (() => new Date()))();
+  const nowIso = now.toISOString();
+  // Everything that does not depend on the date is read once for the week
+  // (I5): the account document (its settings and routine with it), the
+  // commitments and the kept focus window. Seven dates used to read them
+  // seven times over, on every move.
+  const user = await storage.get<Record<string, unknown> & { timezone?: string | null }>(userDoc(uid));
+  const settings = planSettingsOf(user as Parameters<typeof planSettingsOf>[0], user?.timezone ?? DEFAULT_MOBILE_TIMEZONE);
+  const timezone = settings.timezone;
+  const today = localDateOf(nowIso, timezone);
+  const dates = planDatesFrom(today, PLAN_PROPOSAL_DAYS);
+
+  const preloaded = await preloadDailyPlanRequest(uid, nowIso, user, storage);
+  const commitments = preloaded.commitments;
+  const byId = new Map(commitments.map((commitment) => [commitment.id, commitment]));
+  const storedByDate = new Map<string, StoredDailyPlan>();
+  for (const date of dates) {
+    const stored = await readStoredPlan(uid, date, storage);
+    if (stored) storedByDate.set(date, stored);
+  }
+  const rules = new Map(dates.map((date) => [date, dailyRuleFor(uid, date, timezone, commitments, nowIso)]));
+  // A commitment pinned to a time today or later happens at that time: it is a
+  // fixed row on its own day, and the day plan pins it there all day long.
+  // Planning a later day on its own, the daily rule reads it as yesterday's
+  // unfinished work (#383) — true on that morning if it is still open, but not
+  // something to propose for it now. That holds once its hour has passed too
+  // (FY2 review, I1): at 13:30, inside the 13:00 prep window before a 15:00
+  // meeting, or at 15:30, after it, the prep is Monday's — late, if it is late
+  // (FX1, R1) — and never a fresh movable step on Tuesday.
+  const pinnedAhead = new Map(commitments.flatMap((commitment) => {
+    const start = fixedStartOf(commitment);
+    const day = start === null ? null : localDateOf(start, timezone);
+    return day !== null && day >= today ? [[commitment.id, day] as const] : [];
+  }));
+
+  // Work a stored plan of this week already places is that day's, whatever
+  // its status — except a plan the person dismissed, which places nothing —
+  // and a commitment pinned to a time ahead is its own day's.
+  const placedOn = new Map<string, string>(Array.from(pinnedAhead));
+  for (const [date, stored] of Array.from(storedByDate)) {
+    if (stored.status === 'dismissed') continue;
+    for (const item of effectiveSchedule(stored)) placedOn.set(item.itemId, date);
+  }
+
+  // Decisions apply only to floating work this week holds and has not stored,
+  // and a move only onto a day that is still a proposal.
+  const inWeek = new Set(Array.from(rules.values()).flat());
+  const movable = (itemId: string): boolean => inWeek.has(itemId) && !placedOn.has(itemId);
+  const drops = Array.from(new Set(decisions.drops.filter(movable)));
+  const dropped = new Set(drops);
+  const movedTo = new Map<string, string>();
+  for (const move of decisions.moves) {
+    if (!movable(move.itemId) || dropped.has(move.itemId)) continue;
+    if (!rules.has(move.date) || storedByDate.has(move.date)) continue;
+    movedTo.delete(move.itemId); // the last move of an item is the one that stands
+    movedTo.set(move.itemId, move.date);
+  }
+
+  // Which work may still be given a day, and what each day's request is. A
+  // day's request holds every piece of it, so the planner can be asked whether
+  // any one of them fits that day.
+  const free = (itemId: string): boolean => !placedOn.has(itemId) && !dropped.has(itemId) && !movedTo.has(itemId);
+  const unplaced = Array.from(inWeek).filter(free);
+  const proposalDates = dates.filter((date) => !storedByDate.has(date));
+  const forcedOn = (date: string): string[] => Array.from(movedTo).filter(([, to]) => to === date).map(([itemId]) => itemId);
+  const requests = new Map<string, DailyPlanRequest>();
+  for (const date of proposalDates) {
+    const rule = rules.get(date)!;
+    const candidates = new Set([...unplaced, ...forcedOn(date)]);
+    requests.set(date, await composeDailyPlanRequest({
+      uid,
+      date,
+      timezone,
+      now: nowIso,
+      userDocument: user,
+      previousBlocks: null,
+      assignment: { include: Array.from(candidates), exclude: rule.filter((itemId) => !candidates.has(itemId)) },
+    }, { storage, preloaded, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) }));
+  }
+  /** The planner's placements on `date` when asked about `itemIds` alone. */
+  const solveOver = (date: string, itemIds: ReadonlySet<string>) => {
+    const request = requests.get(date)!;
+    return schedulePlan({ ...request.constraints, items: request.constraints.items.filter((item) => itemIds.has(item.itemId)) }, request.config);
+  };
+  const fits = (itemId: string, date: string): boolean => solveOver(date, new Set([itemId])).scheduled.length > 0;
+
+  const stepOn = new Map<string, string>();
+  const alsoDueOn = new Map<string, string[]>();
+
+  // 1. Dated work, most urgent first: the latest free day on or before its due
+  //    day that it fits; else its own due day, beside that day's step. Never a
+  //    day after it. Work already overdue — its day gone, or its hour gone
+  //    today — is due today (#383) and comes first; when today cannot take it,
+  //    it joins the rest below rather than piling a backlog onto today's card:
+  //    every later day is after its date, and the card says so.
+  const nowMs = toEpochMs(nowIso);
+  const overdue = new Set(unplaced.filter((itemId) => {
+    const deadline = byId.has(itemId) ? dueDeadlineOf(byId.get(itemId)!) : null;
+    return deadline !== null && toEpochMs(deadline) <= nowMs;
+  }));
+  const dueDay = new Map(unplaced.flatMap((itemId) => {
+    const commitment = byId.get(itemId);
+    const day = commitment ? dueDayOf(commitment, timezone) : null;
+    return day !== null ? [[itemId, overdue.has(itemId) ? today : day] as const] : [];
+  }));
+  const rest = new Set(unplaced.filter((itemId) => !dueDay.has(itemId)));
+  const urgency = (itemId: string): readonly [number, number] => [
+    toEpochMs(dueDeadlineOf(byId.get(itemId)!)!),
+    -PRIORITY_ORDER[byId.get(itemId)!.priority.level],
+  ];
+  const dated = Array.from(dueDay.keys()).sort((left, right) => {
+    const [leftDue, leftRank] = urgency(left);
+    const [rightDue, rightRank] = urgency(right);
+    return leftDue - rightDue || leftRank - rightRank || (left < right ? -1 : left > right ? 1 : 0);
+  });
+  for (const itemId of dated) {
+    const due = dueDay.get(itemId)!;
+    const day = proposalDates.filter((date) => date <= due && !stepOn.has(date) && fits(itemId, date)).pop();
+    if (day !== undefined) {
+      stepOn.set(day, itemId);
+    } else if (overdue.has(itemId)) {
+      rest.add(itemId);
+    } else if (requests.has(due)) {
+      alsoDueOn.set(due, [...(alsoDueOn.get(due) ?? []), itemId]);
+    }
+    // Otherwise its own day is already saved, and it waits (`waiting`).
+  }
+
+  // 2. The rest — undated work that matters, and overdue work today could not
+  //    take — on the days still free, in order: each the planner's own first
+  //    placement.
+  for (const date of proposalDates) {
+    if (stepOn.has(date) || rest.size === 0) continue;
+    const step = [...solveOver(date, rest).scheduled]
+      .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
+      .find((item) => rest.has(item.itemId)) ?? null;
+    if (!step) continue;
+    stepOn.set(date, step.itemId);
+    rest.delete(step.itemId);
+  }
+
+  const days: WeekDay[] = [];
+  for (const date of dates) {
+    const rule = rules.get(date)!;
+    const stored = storedByDate.get(date);
+    if (stored) {
+      days.push({ kind: 'stored', date, rule, stored });
+      continue;
+    }
+
+    const forced = forcedOn(date);
+    const step = stepOn.get(date);
+    const final = [...(step !== undefined ? [step] : []), ...(alsoDueOn.get(date) ?? []), ...forced];
+    const finalSet = new Set(final);
+    const request = requests.get(date)!;
+    // The request an acceptance composes (`assignment` below) holds exactly
+    // these items; every other part of it is this request's.
+    const constraints: PlanningConstraints = {
+      ...request.constraints,
+      items: request.constraints.items.filter((item) => finalSet.has(item.itemId)),
+    };
+    const plan = schedulePlan(constraints, request.config);
+    const reasons = new Map<string, WeekStepReason | null>(final.map((itemId) => [
+      itemId,
+      movedTo.has(itemId) ? 'moved' : reasonFor(byId.get(itemId), date, today, timezone),
+    ]));
+    for (const itemId of final) placedOn.set(itemId, date);
+    days.push({
+      kind: 'proposed',
+      date,
+      rule,
+      constraints,
+      plan,
+      assignment: { include: final, exclude: rule.filter((itemId) => !finalSet.has(itemId)) },
+      reasons,
+    });
+  }
+
+  const waiting = Array.from(inWeek).filter((itemId) => !placedOn.has(itemId) && !dropped.has(itemId));
+  return {
+    today,
+    timezone,
+    days,
+    decisions: { moves: Array.from(movedTo).map(([itemId, date]) => ({ itemId, date })), drops },
+    waiting,
+    commitments,
+    placedOn,
+  };
+}
+
+/* ── What the client reads ─────────────────────────────────────────── */
+
+export interface WeekItemDto {
+  readonly itemId: string;
+  readonly title: string | null;
+  readonly startsAt: string;
+  readonly endsAt: string;
+  /** Why the step is on its day, by its due date; null for work that is not a commitment. */
+  readonly reason: WeekStepReason | null;
+}
+
+export interface WeekRowDto {
+  readonly itemId: string;
+  readonly title: string | null;
+  readonly startsAt: string;
+  readonly endsAt: string;
+}
+
+export interface WeekDayDto {
+  readonly date: string;
+  /**
+   * `proposed`: a suggestion, nothing stored. `planned`: the date has a plan
+   * the person has not accepted (built by the morning or on the plan screen).
+   * `accepted`: the date's plan is accepted.
+   */
+  readonly state: 'proposed' | 'planned' | 'accepted';
+  /** The day's floating work, in time order: the step, or the plan's rows. */
+  readonly items: readonly WeekItemDto[];
+  /** Commitments pinned to a time on the day (L5): fixed, never moved. */
+  readonly fixed: readonly WeekRowDto[];
+  /**
+   * Appointments on the day with no hour (FY1's all-day `scheduled_event`,
+   * UAT round 3 N13). Shown on their day and never placed: the planner leaves
+   * them out (`isAllDayEvent`), so without this the day read «يوم فاضي».
+   */
+  readonly allDay: readonly { readonly itemId: string; readonly title: string | null }[];
+  /** Work the person moved here that does not fit the day. Proposed days only. */
+  readonly unplaced: readonly { readonly itemId: string; readonly title: string | null }[];
+}
+
+export interface WeekDto {
+  readonly today: string;
+  readonly timezone: string;
+  readonly days: readonly WeekDayDto[];
+  readonly moves: readonly WeekMove[];
+  readonly drops: readonly { readonly itemId: string; readonly title: string | null }[];
+  /** How much of the week's floating work no day holds: it waits for later. */
+  readonly waiting: number;
+}
+
+export function weekToDto(layout: WeekLayout): WeekDto {
+  const titles = titlesOf(layout.commitments);
+  const byId = new Map(layout.commitments.map((commitment) => [commitment.id, commitment]));
+  const title = (itemId: string): string | null => titles.get(itemId) ?? null;
+  // Read from the commitments, not the plan: a plan never holds them (N13).
+  const allDayOn = (date: string): WeekDayDto['allDay'] => layout.commitments
+    .filter((commitment) => isPlannable(commitment) && isAllDayEvent(commitment) && dueDayOf(commitment, layout.timezone) === date)
+    .map((commitment) => ({ itemId: commitment.id, title: title(commitment.id) }));
+  return {
+    today: layout.today,
+    timezone: layout.timezone,
+    days: layout.days.map((day): WeekDayDto => {
+      if (day.kind === 'stored') {
+        const dto = planToDto(day.stored, titles, { commitments: layout.commitments });
+        return {
+          date: day.date,
+          state: day.stored.status === 'accepted' ? 'accepted' : 'planned',
+          // The same due label the day was proposed with (N3, 174): a saved
+          // row is still the work it was, due when it is due.
+          items: dto.scheduled.map((row) => ({
+            itemId: row.itemId,
+            title: row.title,
+            startsAt: row.startsAt,
+            endsAt: row.endsAt,
+            reason: reasonFor(byId.get(row.itemId), day.date, layout.today, layout.timezone),
+          })),
+          fixed: dto.fixed.map((row) => ({ itemId: row.itemId, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt })),
+          allDay: allDayOn(day.date),
+          unplaced: [],
+        };
+      }
+      const fixed = pinnedEventsOnDay(day.constraints.fixedEvents, day.constraints.horizon)
+        .flatMap((event) => event.sourceCommitmentId === null ? [] : [{
+          itemId: event.sourceCommitmentId,
+          title: title(event.sourceCommitmentId),
+          startsAt: event.interval.startsAt,
+          endsAt: event.interval.endsAt,
+        }])
+        .sort((left, right) => toEpochMs(left.startsAt) - toEpochMs(right.startsAt));
+      return {
+        date: day.date,
+        state: 'proposed',
+        items: [...day.plan.scheduled]
+          .sort((left, right) => toEpochMs(left.interval.startsAt) - toEpochMs(right.interval.startsAt))
+          .map((item) => ({
+            itemId: item.itemId,
+            title: title(item.itemId),
+            startsAt: item.interval.startsAt,
+            endsAt: item.interval.endsAt,
+            reason: day.reasons.get(item.itemId) ?? null,
+          })),
+        fixed,
+        allDay: allDayOn(day.date),
+        unplaced: day.plan.unscheduled.map((item) => ({ itemId: item.itemId, title: title(item.itemId) })),
+      };
+    }),
+    moves: layout.decisions.moves,
+    drops: layout.decisions.drops.map((itemId) => ({ itemId, title: title(itemId) })),
+    waiting: layout.waiting.length,
+  };
+}
+
+/* ── Accepting one day ─────────────────────────────────────────────── */
+
+export type WeekAcceptOutcome =
+  | { readonly outcome: 'accepted'; readonly stored: StoredDailyPlan; readonly layout: WeekLayout }
+  /** The date has a plan already; it is returned untouched. */
+  | { readonly outcome: 'already_planned'; readonly stored: StoredDailyPlan; readonly layout: WeekLayout }
+  /**
+   * The day is not the day the card showed (I1): the account changed since
+   * the person looked, or the plan was gone by the time it was accepted (M-a).
+   * Nothing was accepted; `layout` is the week as it is now, to redraw.
+   */
+  | { readonly outcome: 'week_changed'; readonly layout: WeekLayout };
+
+/** Whether the proposed day holds exactly the steps its card showed. Order does not matter. */
+function sameSteps(day: ProposedDay, shown: readonly string[]): boolean {
+  const onDay = new Set(day.assignment.include);
+  const seen = new Set(shown);
+  return onDay.size === seen.size && Array.from(seen).every((itemId) => onDay.has(itemId));
+}
+
+/**
+ * Stores and accepts one day of the week as proposed under `decisions`.
+ *
+ * `shown` is the steps the day's card showed. The week is composed again
+ * here, from the account as it is now; if that day's steps are not exactly
+ * `shown`, nothing is stored and the answer is `week_changed` with the fresh
+ * week (I1). The person confirmed a card, and only that card may be saved.
+ *
+ * Throws `PlanDateOutOfRangeError` for a date outside today … today+6, before
+ * anything is written. The answer carries the week as it stands after, so the
+ * client redraws from one response.
+ */
+export async function acceptWeekDay(
+  uid: string,
+  date: string,
+  decisions: WeekDecisions,
+  shown: readonly string[],
+  deps: DailyPlanDeps = {},
+): Promise<WeekAcceptOutcome> {
+  const storage = deps.storage ?? getStorage();
+  const layout = await composeWeek(uid, decisions, { ...deps, storage });
+  const day = layout.days.find((candidate) => candidate.date === date);
+  if (!day) throw new PlanDateOutOfRangeError(date, PLAN_PROPOSAL_DAYS);
+  if (day.kind === 'stored') return { outcome: 'already_planned', stored: day.stored, layout };
+  if (!sameSteps(day, shown)) return { outcome: 'week_changed', layout };
+
+  const onThisDay = new Set(day.assignment.include);
+  const origin: WeekPlanOrigin = {
+    considered: [...day.rule],
+    heldElsewhere: day.rule.flatMap((itemId) => {
+      const elsewhere = layout.placedOn.get(itemId);
+      return !onThisDay.has(itemId) && elsewhere !== undefined && elsewhere !== date ? [{ itemId, date: elsewhere }] : [];
+    }),
+    // Today's plan is on screen as it is accepted; the morning has nothing to announce.
+    announced: date === layout.today,
+  };
+
+  const { created, stored } = await storeWeekDayPlan(uid, date, { assignment: day.assignment, origin }, { ...deps, storage });
+  if (!created) {
+    return { outcome: 'already_planned', stored, layout: await composeWeek(uid, decisions, { ...deps, storage }) };
+  }
+  const accepted = await acceptPlan(uid, date, { storage, ...(deps.now ? { now: deps.now } : {}) });
+  const after = await composeWeek(uid, decisions, { ...deps, storage });
+  // No plan to accept by the time the accept ran (M-a): the document went
+  // between the store and the accept. Never answered as accepted.
+  if (!accepted) return { outcome: 'week_changed', layout: after };
+  return { outcome: 'accepted', stored: accepted, layout: after };
+}
+
+/* ── The saved week, for the Calendar strip (I4) ───────────────────── */
+
+export interface SavedWeekDayDto {
+  readonly date: string;
+  /** The steps the saved day holds, at the times it holds them. */
+  readonly items: readonly { readonly itemId: string; readonly startsAt: string; readonly endsAt: string }[];
+}
+
+export interface SavedWeekDto {
+  readonly today: string;
+  /** Days of today … today+6 the person saved from the week view, in date order. */
+  readonly saved: readonly SavedWeekDayDto[];
+}
+
+/**
+ * The days of the next seven the person saved from the week view, and what
+ * each holds: what the Calendar's strip draws on each saved date, instead of
+ * the step's due date or today. Reads only: the account document and the
+ * seven plan documents. A dismissed day, or a plan built on its own, is not a
+ * saved week day.
+ */
+export async function readSavedWeek(uid: string, deps: Pick<DailyPlanDeps, 'storage' | 'now'> = {}): Promise<SavedWeekDto> {
+  const storage = deps.storage ?? getStorage();
+  const nowIso = (deps.now ?? (() => new Date()))().toISOString();
+  const user = await storage.get<Record<string, unknown> & { timezone?: string | null }>(userDoc(uid));
+  const settings = planSettingsOf(user as Parameters<typeof planSettingsOf>[0], user?.timezone ?? DEFAULT_MOBILE_TIMEZONE);
+  const today = localDateOf(nowIso, settings.timezone);
+  const saved: SavedWeekDayDto[] = [];
+  for (const date of planDatesFrom(today, PLAN_PROPOSAL_DAYS)) {
+    const stored = await readStoredPlan(uid, date, storage);
+    if (!stored) continue;
+    const held = new Set(heldBySavedWeekDay(stored));
+    if (held.size === 0) continue;
+    saved.push({
+      date,
+      items: effectiveSchedule(stored)
+        .filter((item) => held.has(item.itemId))
+        .map((item) => ({ itemId: item.itemId, startsAt: item.interval.startsAt, endsAt: item.interval.endsAt })),
+    });
+  }
+  return { today, saved };
+}

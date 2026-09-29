@@ -11,7 +11,7 @@ import { googleCalendarDemoEnabled } from '../config/env';
 import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { useReducedTransparency } from '../theme/useReducedTransparency';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
-import type { Screen, Sheet, ThemePref, Toast } from './types';
+import type { MeetingPrepTarget, Screen, Sheet, ThemePref, Toast } from './types';
 import * as nav from './navigation';
 import type { CaptureInputMode, CaptureSource } from '../features/capture/captureMachine';
 
@@ -39,6 +39,8 @@ export type AppState = {
   captureSource: CaptureSource;
   captureInput: CaptureInputMode;
   sheet: Sheet;
+  /** The meeting the «حضّرني» sheet is open for (CL5a). Set with the sheet, and only read by it. */
+  meetingPrep: MeetingPrepTarget | null;
   toast: Toast | null;
   /**
    * Which day of the week strip is open, as an offset from today (0 = today).
@@ -62,6 +64,11 @@ export type AppState = {
   taskResumed: boolean;
 };
 
+/** Opening the Calendar by name opens it on today (offset 0); see `actions.go`. */
+function onToday(screen: Screen): Partial<AppState> | undefined {
+  return screen === 'calendar' ? { selDay: 0 } : undefined;
+}
+
 /** Recompute the derived fields from the history. Every nav change goes through here. */
 function withNav(st: AppState, next: nav.Nav): AppState {
   const d = nav.derive(next);
@@ -71,7 +78,7 @@ function withNav(st: AppState, next: nav.Nav): AppState {
 const initial: AppState = {
   nav: nav.initialNav, screen: 'today', showTabs: true,
   captureSource: 'tab', captureInput: 'text',
-  sheet: null, toast: null,
+  sheet: null, meetingPrep: null, toast: null,
   selDay: 0, detailId: null, planDate: null, goalId: null, taskResumed: false,
 };
 
@@ -155,8 +162,14 @@ function useAppModel() {
 
   const actions = {
     resetForNewUser,
-    /** A tab switches, a task opens, anything else is pushed onto the current tab. */
-    go: (screen: Screen) => move(n => nav.go(n, screen)),
+    /**
+     * A tab root opens, a task opens, anything else is pushed onto the current tab.
+     *
+     * Asking for the Calendar by name — «شوف يومي», "see all" on Today — opens
+     * it on today (UAT round 6, N-e). The day left open earlier in the session
+     * is kept only by the tab bar (`switchTab`), like the rest of that tab.
+     */
+    go: (screen: Screen) => move(n => nav.go(n, screen), onToday(screen)),
     /** The tab bar: switch tabs, keeping each tab's stack where it was left. */
     switchTab: (tab: nav.Tab) => move(n => nav.switchTab(n, tab)),
     /** Hand the screen on top over to another (a finished flow to its result); back skips the flow. */
@@ -183,7 +196,7 @@ function useAppModel() {
      */
     arriveAtPlan: (date: string) => move(n => nav.arrive(n, { name: 'plan', planDate: date })),
     /** A tab or task named by a link. */
-    arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen })),
+    arriveAt: (screen: Screen) => move(n => nav.arrive(n, { name: screen }), onToday(screen)),
     setSelDay: (d: number) => set({ selDay: d }),
 
     /**
@@ -207,6 +220,8 @@ function useAppModel() {
     openEdit: () => set({ sheet: 'edit' }),
     openConfirmDrop: () => set({ sheet: 'confirmDrop' }),
     openConfirmDelete: () => set({ sheet: 'confirmDelete' }),
+    /** «حضّرني» (CL5a): the notes sheet, for one meeting's times. */
+    openMeetingPrep: (target: MeetingPrepTarget) => set({ sheet: 'meetingPrep', meetingPrep: target }),
     /**
      * The calm confirmation of a write that worked (Round 2): a line at the
      * bottom that fades on its own, carrying undo when the write can be
@@ -236,7 +251,7 @@ function useAppModel() {
         // staging or production build set at all (UC-1.8 #152).
         case 'calendarDemo': if (googleCalendarDemoEnabled()) move(n => nav.arrive(n, { name: 'calendarDemo' })); return;
         case 'today': case 'calendar': case 'settings':
-          move(n => nav.arrive(n, { name })); return;
+          move(n => nav.arrive(n, { name }), onToday(name)); return;
         // Capture has one entry now. The gallery's old `typing`, `listening`,
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`
         // jumps each forced a mock sub-state directly; those states are the

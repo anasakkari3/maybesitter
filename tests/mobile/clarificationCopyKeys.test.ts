@@ -200,3 +200,26 @@ for (const locale of LOCALES) {
     }
   });
 }
+
+test('a bare hour with minutes reads with its minutes on the phone, in every language (UAT r6, shots 823/824)', () => {
+  // «بكرا سبعة إلا ربع بدي أصحى» asked «أي 6 قصدت؟» with «6 الصبح / 6 المسا».
+  // The phone's strings substitute `{hour}` verbatim, so the builder's own
+  // output, not a hand-written param, is what is rendered here.
+  const question = buildClarification(
+    result({ timeEvidence: 'clock_marker', localTimeSpec: { date: '2026-09-15', time: '06:45', timezone: TZ } }),
+    NOW,
+  );
+  assert.equal(question?.questionKey, 'ask_am_pm');
+  const expected: Record<(typeof LOCALES)[number], [string, string, string]> = {
+    ar: ['أي 6:45 قصدت؟', '6:45 الصبح', '6:45 المسا'],
+    en: ['Which 6:45 did you mean?', '6:45 am', '6:45 pm'],
+    he: ['לאיזו 6:45 התכוונת?', '6:45 בבוקר', '6:45 בערב'],
+  };
+  for (const locale of LOCALES) {
+    const bundle = strings(locale);
+    assert.deepEqual([
+      questionText(question!.questionKey, question!.params, bundle),
+      ...question!.options.map((option) => optionLabel(option.labelKey, option.labelParams, bundle)),
+    ], expected[locale], locale);
+  }
+});

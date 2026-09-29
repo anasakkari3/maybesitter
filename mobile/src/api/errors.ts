@@ -1,5 +1,5 @@
 import type { Commitment } from './schemas/common';
-import type { PlanEditRejected, PlanProposalRejected } from './schemas/plan';
+import type { PlanEditRejected, PlanProposalRejected, Week } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
 import type { GoogleRefusalReason } from './schemas/google';
 
@@ -90,7 +90,8 @@ export class NotFoundError extends ApiError {}
  * Still a `NotFoundError`, because the screens that hide a switched-off section
  * on a 404 (the memory card, the memory screen) must keep hiding it. What
  * changes is the sentence: "that's gone" is wrong for something that was never
- * turned on, so it reads as `feature_disabled` does — «هاي لسّا مش متاحة» —
+ * turned on, so it reads as `feature_disabled` does — «هاي الميزة مش متاحة.», with no
+ * promise of "yet" and no switch implied (UAT 2026-09-27, #17) —
  * and, like it, offers no Retry.
  */
 export class FeatureUnavailableError extends NotFoundError {}
@@ -138,6 +139,21 @@ export class ConflictError extends ApiError {}
 export class StaleCommitmentError extends ConflictError {
   constructor(readonly current: Commitment) {
     super('the commitment changed on another device');
+  }
+}
+
+/**
+ * 409 from `POST /api/mobile/plans/week/accept` (CL5b): the day was not
+ * saved, and the week as it is now came back with the refusal.
+ *
+ * `already_planned` — the date got a plan elsewhere (the morning, another
+ * phone). `week_changed` — the day is no longer what its card showed, so
+ * saving it would save something the person never saw (I1). Either way the
+ * screen redraws from `week`; nothing is resubmitted.
+ */
+export class WeekConflictError extends ConflictError {
+  constructor(readonly reason: 'already_planned' | 'week_changed', readonly week: Week) {
+    super(reason === 'week_changed' ? 'the week changed since it was shown' : 'that day already has a plan');
   }
 }
 

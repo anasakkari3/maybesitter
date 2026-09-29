@@ -7,6 +7,7 @@ const TITLE_LANGUAGES: readonly ClubLanguage[] = ['ar', 'he', 'en'];
 import { getFollowedClubs, setFollowedClubs } from '../../../../../lib/football/followedClubs';
 import { listActiveFixtureCommitments, projectFixturesForUser } from '../../../../../lib/football/projectFixtures';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
+import { footballProviderConfigured, reconcileFootballWatchers } from '../../../../../lib/football/footballWatchers';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +39,12 @@ export async function GET(request: Request) {
     getFollowedClubs(user.uid),
     listActiveFixtureCommitments(user.uid),
   ]);
-  return Response.json({ success: true, clubs: listClubs(), followedClubIds, fixtures });
+  // `providerConfigured` (closure CL7): whether this server holds the match
+  // data key. Without it nothing is ever fetched, so the app hides the
+  // football source everywhere instead of offering a follow that never fills.
+  return Response.json({
+    success: true, providerConfigured: footballProviderConfigured(), clubs: listClubs(), followedClubIds, fixtures,
+  });
 }
 
 /**
@@ -95,6 +101,21 @@ export async function PUT(request: Request) {
   }
   const language = body.locale as ClubLanguage | undefined;
 
+  // Without the match data key nothing is ever fetched, so a club added here
+  // would be a follow the server cannot keep: refused, nothing written. A
+  // list that only keeps or drops clubs is still saved — stopping a follow
+  // never needs the key (closure CL7).
+  const configured = footballProviderConfigured();
+  if (!configured) {
+    const current = new Set(await getFollowedClubs(user.uid));
+    if ((body.clubIds as string[]).some((clubId) => !current.has(clubId))) {
+      return Response.json(
+        { success: false, error: 'match data is not set up on this server', reason: 'provider_not_configured' },
+        { status: 409 },
+      );
+    }
+  }
+
   const now = new Date().toISOString();
   let followedClubIds: readonly string[];
   try {
@@ -110,7 +131,12 @@ export async function PUT(request: Request) {
   // Remembered, not only used: the nightly projection has no request of its
   // own and reads the account's locale to keep titling matches in it.
   if (language) await setUserLocale(user.uid, language, now);
+  // One follow, one watcher: the watcher screen lists exactly what this list
+  // follows (closure CL7, `lib/football/footballWatchers.ts`).
+  await reconcileFootballWatchers(user.uid, followedClubIds, now, { language, createMissing: configured });
   await projectFixturesForUser(user.uid, now, { language });
   const fixtures = await listActiveFixtureCommitments(user.uid);
-  return Response.json({ success: true, clubs: listClubs(), followedClubIds, fixtures });
+  return Response.json({
+    success: true, providerConfigured: configured, clubs: listClubs(), followedClubIds, fixtures,
+  });
 }

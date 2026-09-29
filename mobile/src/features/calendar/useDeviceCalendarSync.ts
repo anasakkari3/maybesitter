@@ -42,9 +42,12 @@ import {
   loadChosenCalendarId,
   rememberWrittenEventId,
   resolveWriterId,
+  saveChosenCalendarId,
 } from '../../lib/deviceSettings/calendarDevice';
 import { deviceCalendar } from './deviceCalendar';
 import {
+  adoptSoleCalendar,
+  needsCalendar,
   reconcile,
   removeAllWrittenEvents,
   type SyncOutcome,
@@ -199,11 +202,20 @@ export function useDeviceCalendarSync(
     passInFlight = true;
     setIsRunning(true);
     try {
+      const writerId = await resolveWriterId();
+      let calendarId = await loadChosenCalendarId();
+      // Nothing picked on this phone yet (a fresh install, or writing turned on
+      // without a tap on the picker): with one calendar there is nothing to
+      // pick, so it is taken rather than the confirm writing nothing (UAT
+      // round 6, D-a). Asked only when something is actually waiting for it.
+      if (calendarId === null && needsCalendar({ ...current, writerId })) {
+        calendarId = await adoptSoleCalendar(deviceCalendar, saveChosenCalendarId);
+      }
       const result = await reconcile({
         subjects: current.subjects,
         writeTarget: current.writeTarget,
-        writerId: await resolveWriterId(),
-        calendarId: await loadChosenCalendarId(),
+        writerId,
+        calendarId,
         deviceTimeZone: current.deviceTimeZone,
         ports: apiSyncPorts(),
       });

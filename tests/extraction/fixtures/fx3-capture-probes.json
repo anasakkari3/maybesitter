@@ -1,0 +1,1564 @@
+{
+ "_about": "FX3 review probe set (obligation words → Must, the month's end as an all-day deadline), 109 rows: rules path through proposeMobileCapture (obligation + month end, 53; titles, un-split items, negation edges, 28) and the model path with a scripted Gemini answer (28). Asia/Jerusalem, reference 2026-09-26T07:00Z unless the row says. `expected` is the answer at the FX3 fix round; `atCb9982b7` is the answer before FX3 where it differs, every one an intended change (FX3-report.md). `atB1b87a9b` is the answer before UAT round 6 D1 (fix-r6-hour) where it differs: a model reading of a bare hour from one to six with no part of the day is asked صبح or مسا, as on the rules path, instead of settled at the model's half of the day.",
+ "rules": [
+  {
+   "text": "لازم أروح عالبنك بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالبنك | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "لازمني أخلص التقرير بكرا الساعة 3",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "لازمني أخلص التقرير | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "مش لازم أروح عالجيم بكرا الساعة 6",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم | 2026-09-27 - | ask_am_pm | low~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "ما لازم أتصل بخالي بكرا الساعة 4",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "ما لازم أتصل بخالي | 2026-09-27 - | ask_am_pm | low~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "ما لازم أتصل بخالي | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "ضروري أدفع الإيجار بكرا الساعة 10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الإيجار | 2026-09-27 10:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "مش ضروري أغسل السيارة بكرا الساعة 11",
+   "expected": {
+    "status": "no_commitment",
+    "items": []
+   }
+  },
+  {
+   "text": "بدي أشتري خبز بكرا الساعة 8",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أشتري خبز | 2026-09-27 08:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "لازم أدفع الفاتورة قبل آخر الشهر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الفاتورة | 2026-09-30 - |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة قبل آخر الشهر | - - | ask_time | high"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا آخر الشهر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع فاتورة الكهربا | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع فاتورة الكهربا آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الإيجار أول الشهر الجاي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الإيجار أول الشهر الجاي | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أجدد الاشتراك الشهر الجاي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أجدد الاشتراك الشهر الجاي | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع القسط آخر الشهر الجاي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع القسط آخر الشهر الجاي | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بكرا لازم أسلّم التقرير، وبدي أتصل بأمي بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أسلّم التقرير | 2026-09-27 - | ask_time | high",
+     "أتصل بأمي | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أروح عالسوق بكرا الساعة 4، ولازم أدفع الفاتورة قبل آخر الشهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالسوق | 2026-09-27 - | ask_am_pm | normal~",
+     "أدفع الفاتورة | 2026-09-30 - |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالسوق | 2026-09-27 - | ask_am_pm | normal~",
+     "أدفع الفاتورة قبل آخر الشهر | - - | ask_time | high"
+    ]
+   }
+  },
+  {
+   "text": "مش لازم أروح عالجيم بكرا الساعة 6، ولازم أدرس بكرا الساعة 8",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم | 2026-09-27 - | ask_am_pm | low~",
+     "أدرس | 2026-09-27 - |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم | 2026-09-27 - | ask_am_pm | high",
+     "أدرس | 2026-09-27 - |  | high"
+    ]
+   }
+  },
+  {
+   "text": "بكرا لازم أسلّم التقرير للمدير، وسجّل موعد دكتور يوم الأحد، وبدي أتصل بأمي الساعة 5، ولازم أحضّر الغداء اليوم الساعة 2 الظهر، وبدي أدفع فاتورة الكهربا قبل آخر الشهر، وبكرا العصرية بدي أروح عالسوق",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أسلّم التقرير للمدير | 2026-09-27 - | ask_time | high",
+     "وسجّل موعد دكتور | 2026-09-27 - | ask_time | high~",
+     "أتصل بأمي | 2026-09-26 - | ask_am_pm | normal~",
+     "أحضّر الغداء | 2026-09-26 14:00 |  | high",
+     "أدفع فاتورة الكهربا | 2026-09-30 - |  | normal~",
+     "أروح عالسوق | 2026-09-27 14:00 |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "أسلّم التقرير للمدير | 2026-09-27 - | ask_time | high",
+     "وسجّل موعد دكتور | 2026-09-27 - | ask_time | high~",
+     "أتصل بأمي | 2026-09-26 - | ask_am_pm | normal~",
+     "أحضّر الغداء | 2026-09-26 14:00 |  | high",
+     "أدفع فاتورة الكهربا قبل آخر الشهر | - - | ask_time | normal~",
+     "أروح عالسوق | 2026-09-27 14:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بكرا الساعة 5 لازم أروح عالبنك",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالبنك | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "عندي دكتور بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي دكتور | 2026-09-27 - | ask_am_pm | high~"
+    ]
+   }
+  },
+  {
+   "text": "لازم أروح عند الدكتور بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عند الدكتور | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "لا، لازم أروح عالبنك بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أروح عالبنك | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "بدي أجيب الأغراض اللازمة بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أجيب الأغراض اللازمة | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أجيب الأغراض اللازمة | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "بدي أجيب الأغراض الضرورية بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أجيب الأغراض الضرورية | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أجيب الأغراض الضرورية | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "لازملي خبز بكرا الساعة 8",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "لازملي خبز | 2026-09-27 08:00 |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "لازملي خبز | 2026-09-27 08:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "بدي أخلص المشروع لحد آخر الشهر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أخلص المشروع | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أخلص المشروع لحد آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "قبل ما يخلص الشهر لازم أجدد الإقامة",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أجدد الإقامة | 2026-09-30 - |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "قبل ما يخلص الشهر لازم أجدد الإقامة | - - | ask_time | high"
+    ]
+   }
+  },
+  {
+   "text": "بآخر الشهر بدي أدفع الإيجار الساعة 10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الإيجار | 2026-09-30 10:00 |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "بآخر الشهر بدي أدفع الإيجار | 2026-09-26 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "عندي مهمة بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي مهمة | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "I must call the bank tomorrow at 5pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I must call the bank | 2026-09-27 17:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "I have to submit the report tomorrow at 3pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "submit the report | 2026-09-27 15:00 |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "submit the report | 2026-09-27 15:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I need to buy milk tomorrow at 8am",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "buy milk | 2026-09-27 08:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I should call Sam tomorrow at 4pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I should call Sam | 2026-09-27 16:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I don't have to go to the gym tomorrow at 6pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I don't have to go to the gym | 2026-09-27 18:00 |  | low~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "I don't have to go to the gym | 2026-09-27 18:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I want to read a book tomorrow at 9pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I want to read a book | 2026-09-27 21:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent by the end of the month",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Pay the rent | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent by the end of the month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent by the end of next month",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent by the end of next month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Renew the passport at the beginning of next month",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "Renew the passport at the beginning of next month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I've got to finish the slides tomorrow at 10am",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I've got to finish the slides | 2026-09-27 10:00 |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "I've got to finish the slides | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Call mom tomorrow at 5pm and I have to pay the bill by the end of the month",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Call mom | 2026-09-27 17:00 |  | normal~",
+     "pay the bill | 2026-09-30 - |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "Call mom | 2026-09-27 17:00 |  | normal~",
+     "pay the bill by the end of the month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "אני חייב להתקשר לבנק מחר ב-5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "להתקשר לבנק | 2026-09-27 - | ask_am_pm | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "להתקשר לבנק | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   }
+  },
+  {
+   "text": "אני חייבת לשלם חשבון מחר בשעה 10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לשלם חשבון | 2026-09-27 10:00 |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "לשלם חשבון | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "אני צריך לקנות חלב מחר ב-8",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לקנות חלב | 2026-09-27 08:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "אני לא חייב ללכת לחדר כושר מחר ב-6",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "אני לא חייב ללכת לחדר כושר | 2026-09-27 - | ask_am_pm | low~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "אני לא חייב ללכת לחדר כושר | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   }
+  },
+  {
+   "text": "לשלם שכר דירה עד סוף החודש",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לשלם שכר דירה | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "לשלם שכר דירה עד סוף החודש | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "לשלם שכר דירה עד סוף החודש הבא",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לשלם שכר דירה עד סוף החודש הבא | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "להתקשר לאמא מחר ב-5 ולשלם חשבון חשמל עד סוף החודש",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "להתקשר לאמא ולשלם חשבון חשמל עד סוף החודש | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الفاتورة قبل آخر الشهر",
+   "referenceTime": "2026-02-10T06:00:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الفاتورة | 2026-02-28 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة قبل آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الفاتورة قبل آخر الشهر",
+   "referenceTime": "2028-02-10T06:00:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الفاتورة | 2028-02-29 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة قبل آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent by the end of the month",
+   "referenceTime": "2026-04-10T05:00:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Pay the rent | 2026-04-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent by the end of the month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الفاتورة قبل آخر الشهر",
+   "referenceTime": "2026-09-30T07:00:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الفاتورة | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة قبل آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "לשלם שכר דירה עד סוף החודש",
+   "referenceTime": "2026-09-30T20:30:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לשלם שכר דירה | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "לשלם שכר דירה עד סוף החודש | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الفاتورة قبل آخر الشهر",
+   "referenceTime": "2026-09-30T21:30:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الفاتورة | 2026-10-31 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة قبل آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent by the end of the month",
+   "referenceTime": "2026-09-30T21:30:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Pay the rent | 2026-10-31 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent by the end of the month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الفاتورة آخر الشهر",
+   "referenceTime": "2026-12-31T20:00:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الفاتورة | 2026-12-31 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أحضّر تقرير آخر الشهر بكرا الساعة 10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أحضّر تقرير آخر الشهر | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أحضّر تقرير آخر الشهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أحضّر تقرير آخر الشهر | 2026-09-30 - | ask_time | normal~"
+    ]
+   },
+   "atc4852958": {
+    "status": "needs_clarification",
+    "items": [
+     "أحضّر تقرير آخر الشهر | - - | ask_time | normal~"
+    ]
+   },
+   "fz1": "intended (FZ1 N6 controller ruling): the words name this month's end and nothing else in them says when, so the day is this month's last on the person's clock (marked a guess) and the hour is still asked - still not a deadline (FX3 I-1). At c4852958 it had no day at all."
+  },
+  {
+   "text": "بدي أحسب رواتب آخر الشهر بكرا الساعة 10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أحسب رواتب آخر الشهر | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "عندي جرد نهاية الشهر بكرا الساعة 9",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "عندي جرد نهاية الشهر | 2026-09-27 09:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بكرا بدي أحكي مع صاحب البيت عن إيجار آخر الشهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أحكي مع صاحب البيت عن إيجار آخر الشهر | 2026-09-27 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Prepare the end of the month report tomorrow at 10am",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Prepare the end of the month report | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Prepare the end of the month report",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "Prepare the end of the month report | 2026-09-30 - | ask_time | normal~"
+    ]
+   },
+   "atc4852958": {
+    "status": "needs_clarification",
+    "items": [
+     "Prepare the end of the month report | - - | ask_time | normal~"
+    ]
+   },
+   "fz1": "intended (FZ1 N6 controller ruling): the words name this month's end and nothing else in them says when, so the day is this month's last on the person's clock (marked a guess) and the hour is still asked - still not a deadline (FX3 I-1). At c4852958 it had no day at all."
+  },
+  {
+   "text": "Finish the month-end close tomorrow at 9am",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Finish the month-end close | 2026-09-27 09:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Tomorrow at 5pm call the landlord about the rent due by the end of the month",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "call the landlord about the rent due by the end of the month | 2026-09-27 17:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "להכין את דוח סוף החודש מחר ב-10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "להכין את דוח סוף החודש | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא מחר ב-5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "לשלם חשבון חשמל עד סוף החודש ולהתקשר לאמא | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أتصل بأمي بكرا الساعة 5 وأدفع الفاتورة قبل آخر الشهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أتصل بأمي وأدفع الفاتورة قبل آخر الشهر | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Call mom tomorrow at 5pm and pay the bill by the end of the month",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Call mom and pay the bill by the end of the month | 2026-09-27 17:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Watch the must-see movie tomorrow at 8pm",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Watch the must-see movie | 2026-09-27 20:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "أمي قالت لازم أزورها بكرا الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أمي قالت لازم أزورها | 2026-09-27 - | ask_am_pm | high"
+    ]
+   }
+  },
+  {
+   "text": "لازم ما أنسى أدفع الفاتورة بكرا الساعة 10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "ما أنسى أدفع الفاتورة | 2026-09-27 10:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "ما لازم أنسى أدفع الفاتورة بكرا الساعة 10",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "ما لازم أنسى أدفع الفاتورة | 2026-09-27 10:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "I mustn't forget to pay the bill tomorrow at 10am",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I mustn't forget to pay the bill | 2026-09-27 10:00 |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "I mustn't forget to pay the bill | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الفاتورة أول الشهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة أول الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الفاتورة نص الشهر",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الفاتورة نص الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الإيجار آخر الشهر الماضي",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الإيجار آخر الشهر الماضي | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الإيجار آخر هالشهر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الإيجار | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الإيجار آخر هالشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الإيجار نهاية الشهر",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "أدفع الإيجار | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الإيجار نهاية الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent at month end",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Pay the rent | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent at month end | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent by the end of this month",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Pay the rent | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent by the end of this month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent by the end of the month after next",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent by the end of the month after next | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "בסוף החודש לשלם שכר דירה",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לשלם שכר דירה | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "בסוף החודש לשלם שכר דירה | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "لازم أدفع الإيجار قبل آخر الشهر الساعة 5",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الإيجار | 2026-09-30 - | ask_am_pm | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "أدفع الإيجار قبل آخر الشهر | 2026-09-26 - | ask_am_pm | high"
+    ]
+   }
+  }
+ ],
+ "model": [
+  {
+   "text": "بكرا لازم أسلّم التقرير للمدير",
+   "model": {
+    "date": "2026-09-27",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بكرا لازم أسلّم التقرير للمدير | 2026-09-27 - | ask_time | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "بكرا لازم أسلّم التقرير للمدير | 2026-09-27 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بكرا الساعة 5 لازم أروح عالبنك",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بكرا الساعة 5 لازم أروح عالبنك | 2026-09-27 - | ask_am_pm | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "بكرا الساعة 5 لازم أروح عالبنك | 2026-09-27 17:00 |  | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "بكرا الساعة 5 لازم أروح عالبنك | 2026-09-27 17:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "لازم أروح عند الدكتور بكرا الساعة 5",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "high",
+    "source": "inferred"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "لازم أروح عند الدكتور بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "لازم أروح عند الدكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "لازم أروح عند الدكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "عندي دكتور بكرا الساعة 5",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "high",
+    "source": "inferred"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي دكتور بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | high~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "عندي دكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high~"
+    ]
+   }
+  },
+  {
+   "text": "عندي دكتور بكرا الساعة 5",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "عندي دكتور بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | high~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "عندي دكتور بكرا الساعة 5 | 2026-09-27 17:00 |  | high~"
+    ]
+   }
+  },
+  {
+   "text": "مش لازم أروح عالجيم بكرا الساعة 6",
+   "model": {
+    "date": "2026-09-27",
+    "time": "18:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 18:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "مش لازم أروح عالجيم بكرا الساعة 6",
+   "model": {
+    "date": "2026-09-27",
+    "time": "18:00",
+    "level": "high",
+    "source": "user_explicit"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 - | ask_am_pm | high"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "مش لازم أروح عالجيم بكرا الساعة 6 | 2026-09-27 18:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "يمكن لازم أمرّ على البنك بكرا الساعة 4",
+   "model": {
+    "date": "2026-09-27",
+    "time": "16:00",
+    "level": "low",
+    "source": "inferred"
+   },
+   "expected": {
+    "status": "unresolved_intent",
+    "items": []
+   }
+  },
+  {
+   "text": "بدي أتصل بأمي بكرا الساعة 5",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 17:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "ضروري أدفع الإيجار بكرا الساعة 10",
+   "model": {
+    "date": "2026-09-27",
+    "time": "10:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "ضروري أدفع الإيجار بكرا الساعة 10 | 2026-09-27 10:00 |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "ضروري أدفع الإيجار بكرا الساعة 10 | 2026-09-27 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I have to call Sam tomorrow at 5pm",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I have to call Sam tomorrow at 5pm | 2026-09-27 17:00 |  | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "I have to call Sam tomorrow at 5pm | 2026-09-27 17:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I need to call Sam tomorrow at 5pm",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I need to call Sam tomorrow at 5pm | 2026-09-27 17:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "I don't have to call Sam tomorrow at 5pm",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "I don't have to call Sam tomorrow at 5pm | 2026-09-27 17:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "אני חייב להתקשר לבנק מחר ב-5",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "אני חייב להתקשר לבנק מחר ב-5 | 2026-09-27 - | ask_am_pm | high"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "אני חייב להתקשר לבנק מחר ב-5 | 2026-09-27 17:00 |  | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "אני חייב להתקשר לבנק מחר ב-5 | 2026-09-27 17:00 |  | high"
+    ]
+   }
+  },
+  {
+   "text": "אני צריך להתקשר לבנק מחר ב-5",
+   "model": {
+    "date": "2026-09-27",
+    "time": "17:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "אני צריך להתקשר לבנק מחר ב-5 | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "אני צריך להתקשר לבנק מחר ב-5 | 2026-09-27 17:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": null,
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": "2026-09-30",
+    "time": "23:59",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-30 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": "2026-10-31",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "at460c097b": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-10-31 - | ask_time | normal~"
+    ]
+   },
+   "fy1": "intended (FY1 N6 controller ruling): the words say this month's end, so a model day other than this month's last day on the person's clock is discarded and FX3 settles the deadline; on the 1st at 00:30 local that is the new month's end"
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": "2026-09-29",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-29 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": "2026-09-25",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-25 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع القسط آخر الشهر الجاي",
+   "model": {
+    "date": "2026-10-31",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع القسط آخر الشهر الجاي | 2026-10-31 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع الإيجار آخر الشهر الساعة 10",
+   "model": {
+    "date": "2026-09-30",
+    "time": "10:00",
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "بدي أدفع الإيجار آخر الشهر الساعة 10 | 2026-09-30 10:00 |  | normal~"
+    ]
+   }
+  },
+  {
+   "text": "Pay the rent by the end of the month",
+   "model": {
+    "date": null,
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "Pay the rent by the end of the month | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "Pay the rent by the end of the month | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "לשלם שכר דירה עד סוף החודש",
+   "model": {
+    "date": "2026-09-30",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "לשלם שכר דירה עד סוף החודש | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "לשלם שכר דירה עד סוף החודש | 2026-09-30 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": null,
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "referenceTime": "2026-09-30T07:00:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-30 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": null,
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "referenceTime": "2026-09-30T21:30:00.000Z",
+   "expected": {
+    "status": "proposed",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-10-31 - |  | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | - - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بدي أدفع فاتورة الكهربا قبل آخر الشهر",
+   "model": {
+    "date": "2026-09-30",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "referenceTime": "2026-09-30T21:30:00.000Z",
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بدي أدفع فاتورة الكهربا قبل آخر الشهر | 2026-09-30 - | ask_time | normal~"
+    ]
+   }
+  },
+  {
+   "text": "بكرا لازم أسلّم التقرير، وبدي أتصل بأمي بكرا الساعة 5",
+   "model": {
+    "date": "2026-09-27",
+    "time": null,
+    "level": "normal",
+    "source": "default"
+   },
+   "expected": {
+    "status": "needs_clarification",
+    "items": [
+     "بكرا لازم أسلّم التقرير | 2026-09-27 - | ask_time | high",
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 - | ask_am_pm | normal~"
+    ]
+   },
+   "atCb9982b7": {
+    "status": "proposed",
+    "items": [
+     "بكرا لازم أسلّم التقرير | 2026-09-27 - | ask_time | normal~",
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 00:00 |  | normal~"
+    ]
+   },
+   "atB1b87a9b": {
+    "status": "proposed",
+    "items": [
+     "بكرا لازم أسلّم التقرير | 2026-09-27 - | ask_time | high",
+     "بدي أتصل بأمي بكرا الساعة 5 | 2026-09-27 00:00 |  | normal~"
+    ]
+   }
+  }
+ ]
+}

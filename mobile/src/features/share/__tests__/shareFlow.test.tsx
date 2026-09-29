@@ -675,7 +675,7 @@ describe('discard', () => {
     // not deleted here nothing would ever delete them.
     await openWithShare({ ...mockEmptyIntent, files: [sharedFile()], type: 'file' });
     expect(mockFiles.has('file:///tmp/share/chat.zip')).toBe(true);
-    await act(async () => { screen.unmount(); });
+    await screen.unmount();
     expect([...mockFiles]).toEqual([]);
   });
 });
@@ -804,7 +804,7 @@ describe('a picture is stripped before it is uploaded (UC-3.6, #190)', () => {
     });
     await fireEvent.press(screen.getByTestId('share-analyze'));
     // Signed out mid-encode.
-    await act(async () => { screen.unmount(); });
+    await screen.unmount();
     await act(async () => {
       open();
       for (let tick = 0; tick < 20; tick += 1) await Promise.resolve();

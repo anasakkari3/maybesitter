@@ -246,7 +246,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       }
                       gradientTransform={null}
                       gradientUnits={0}
-                      name="brandr1a"
+                      name="brandr1c"
                       x1="0"
                       x2="1"
                       y1="0"
@@ -257,7 +257,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     d="M5 12C10 0 23 13 32 22C43 11 55 6 59 19C64 35 59 60 49 60C40 60 29 43 23 38C14 48 5 55 3 43C1 34 1 22 5 12Z"
                     fill={
                       {
-                        "brushRef": "brandr1a",
+                        "brushRef": "brandr1c",
                         "type": 1,
                       }
                     }
@@ -362,39 +362,6 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               >
                 الأحد، 9 أغسطس
               </Text>
-              <View
-                style={
-                  {
-                    "alignSelf": "flex-start",
-                    "backgroundColor": "transparent",
-                    "borderColor": "rgba(138,106,46,0.60)",
-                    "borderRadius": 999,
-                    "borderStyle": "dashed",
-                    "borderWidth": 1,
-                    "paddingHorizontal": 10,
-                    "paddingVertical": 4,
-                  }
-                }
-              >
-                <Text
-                  style={
-                    [
-                      {
-                        "color": "#626268",
-                        "fontFamily": "NotoNaskhArabic_400Regular",
-                        "fontSize": 12,
-                        "lineHeight": 19,
-                        "textAlign": "left",
-                        "writingDirection": "rtl",
-                      },
-                      undefined,
-                    ]
-                  }
-                  testID="plan-status-proposal"
-                >
-                  اقتراح — ما انحفظت بعد
-                </Text>
-              </View>
             </View>
             <Text
               style={
@@ -592,7 +559,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                           ]
                         }
                       >
-                        11:00–12:00
+                        ⁦11:00–12:00⁩
                       </Text>
                       <Text
                         style={
@@ -1192,74 +1159,80 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               }
             >
               <View
-                accessibilityLabel="اقبل الخطة"
-                accessibilityRole="button"
-                accessibilityState={
-                  {
-                    "busy": undefined,
-                    "checked": undefined,
-                    "disabled": false,
-                    "expanded": undefined,
-                    "selected": undefined,
-                  }
-                }
-                accessibilityValue={
-                  {
-                    "max": undefined,
-                    "min": undefined,
-                    "now": undefined,
-                    "text": undefined,
-                  }
-                }
-                accessible={true}
-                collapsable={false}
-                focusable={true}
-                onBlur={[Function]}
-                onClick={[Function]}
-                onFocus={[Function]}
-                onResponderGrant={[Function]}
-                onResponderMove={[Function]}
-                onResponderRelease={[Function]}
-                onResponderTerminate={[Function]}
-                onResponderTerminationRequest={[Function]}
-                onStartShouldSetResponder={[Function]}
-                style={
-                  {
-                    "alignItems": "center",
-                    "backgroundColor": "#B82F49",
-                    "borderColor": undefined,
-                    "borderRadius": 999,
-                    "borderWidth": 0,
-                    "justifyContent": "center",
-                    "minHeight": 48,
-                    "paddingHorizontal": 18,
-                    "paddingVertical": 14,
-                    "transform": [
-                      {
-                        "scale": 1,
-                      },
-                    ],
-                  }
-                }
-                testID="plan-accept"
+                accessibilityLiveRegion="polite"
+                onLayout={[Function]}
+                testID="plan-accept-slot"
               >
-                <Text
-                  style={
-                    [
-                      {
-                        "color": "#FFFFFF",
-                        "fontFamily": "NotoNaskhArabic_600SemiBold",
-                        "fontSize": 17,
-                        "lineHeight": 27,
-                        "textAlign": "center",
-                        "writingDirection": "rtl",
-                      },
-                      undefined,
-                    ]
+                <View
+                  accessibilityLabel="اقبل الخطة"
+                  accessibilityRole="button"
+                  accessibilityState={
+                    {
+                      "busy": undefined,
+                      "checked": undefined,
+                      "disabled": false,
+                      "expanded": undefined,
+                      "selected": undefined,
+                    }
                   }
+                  accessibilityValue={
+                    {
+                      "max": undefined,
+                      "min": undefined,
+                      "now": undefined,
+                      "text": undefined,
+                    }
+                  }
+                  accessible={true}
+                  collapsable={false}
+                  focusable={true}
+                  onBlur={[Function]}
+                  onClick={[Function]}
+                  onFocus={[Function]}
+                  onResponderGrant={[Function]}
+                  onResponderMove={[Function]}
+                  onResponderRelease={[Function]}
+                  onResponderTerminate={[Function]}
+                  onResponderTerminationRequest={[Function]}
+                  onStartShouldSetResponder={[Function]}
+                  style={
+                    {
+                      "alignItems": "center",
+                      "backgroundColor": "#B82F49",
+                      "borderColor": undefined,
+                      "borderRadius": 999,
+                      "borderWidth": 0,
+                      "justifyContent": "center",
+                      "minHeight": 48,
+                      "paddingHorizontal": 18,
+                      "paddingVertical": 14,
+                      "transform": [
+                        {
+                          "scale": 1,
+                        },
+                      ],
+                    }
+                  }
+                  testID="plan-accept"
                 >
-                  اقبل الخطة
-                </Text>
+                  <Text
+                    style={
+                      [
+                        {
+                          "color": "#FFFFFF",
+                          "fontFamily": "NotoNaskhArabic_600SemiBold",
+                          "fontSize": 17,
+                          "lineHeight": 27,
+                          "textAlign": "center",
+                          "writingDirection": "rtl",
+                        },
+                        undefined,
+                      ]
+                    }
+                  >
+                    اقبل الخطة
+                  </Text>
+                </View>
               </View>
               <View
                 style={

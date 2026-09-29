@@ -22,7 +22,8 @@ import { Dialog } from '../../ui/dialog';
 import { SectionLabel, TextLink } from '../../ui/chrome';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { PilotIncidentInput } from '../../api/schemas/trust';
-import { deviceCalendar, type CalendarAccess } from '../calendar/deviceCalendar';
+import { deviceCalendar } from '../calendar/deviceCalendar';
+import { useCalendarConnection } from '../calendar/calendarConnection';
 import { exportPhaseCopy, useExportMyData } from '../account/useExportMyData';
 
 const INCIDENT_SURFACES: readonly PilotIncidentInput['surface'][] = ['capture', 'recommendation', 'calendar', 'analytics', 'account'];
@@ -78,8 +79,6 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const [reporting, setReporting] = useState(false);
   const [incidentSurface, setIncidentSurface] = useState<PilotIncidentInput['surface']>('capture');
   const [incidentCategory, setIncidentCategory] = useState<PilotIncidentInput['category']>('reliability');
-  // The phone's answer to the calendar question, once this screen has asked.
-  const [calendarAccess, setCalendarAccess] = useState<CalendarAccess | null>(null);
 
   const versions = consents.data?.currentVersions;
   const context = {
@@ -87,16 +86,20 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
     platform: Platform.OS === 'ios' ? 'ios' as const : 'android' as const,
   };
   const state = trust.data?.trust;
+  // The line under the calendar switch, from the answers Settings → Calendar
+  // renders from (UAT round 6, D-d): the phone's answer is read on arrival and
+  // on every return from phone settings, not only after this switch asked.
+  const calendar = useCalendarConnection(state?.calendarConsent === true);
+  const calendarLine = calendar.line === null || calendar.line === 'denied' ? undefined : t[calendar.line];
   const policy = privacyPolicyUrl(lang);
 
-  /** True when the write landed. `ServerToggle` shows the failure otherwise. */
+  /**
+   * True when the write landed. A failure is thrown on to `ServerToggle`, which
+   * says which one it was — a refusal is not "didn't reach the server" (N9).
+   */
   const record = async (run: Promise<unknown>): Promise<boolean> => {
-    try {
-      await run;
-      return true;
-    } catch {
-      return false;
-    }
+    await run;
+    return true;
   };
 
   return (
@@ -192,22 +195,26 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
           <ServerToggle
             testID="trust-calendar"
             title={t.trustCalendar}
-            // The connect/refresh/disconnect UI ships with the S3 calendar
-            // issue. Until then this records an answer and nothing reads it,
-            // which the body says rather than implying a connection exists.
-            body={t.trustCalendarNotConnected}
-            value={state?.calendarConsent === true}
-            disabled={state === undefined}
+            // What is actually connected, not a fixed «مش موصول من هون»
+            // (UAT round 6, D-d, shot 845). A refusal is the card below.
+            body={calendarLine}
+            // Off and still while the phone refuses, the same as Settings →
+            // Calendar: consent alone reads and adds nothing, and a switch on
+            // over the refusal card is a switch that lies (UAT round 6, shots
+            // 882/883). The consent is kept on the account, so allowing access
+            // in phone settings brings the switch straight back.
+            value={state?.calendarConsent === true && calendar.access !== 'denied'}
+            disabled={state === undefined || calendar.access === 'denied'}
             onChange={async next => {
               // On the way on, ask the phone first (first iPhone run, L7):
               // recording the consent alone left the busy read failing,
               // silently, as `denied`. `requestAccess` only prompts when the
               // phone has not answered; after that it reports the answer.
-              if (next) setCalendarAccess(await deviceCalendar.requestAccess());
+              if (next) calendar.setAccess(await deviceCalendar.requestAccess());
               return record(trustAction.mutateAsync({ type: 'set_calendar_consent', granted: next }));
             }}
           />
-          {calendarAccess === 'denied' ? (
+          {calendar.access === 'denied' ? (
             <View style={{ paddingHorizontal: 18, paddingTop: 12, gap: 10 }}>
               <Txt size={13} color={p.mu} lh={1.5} testID="trust-calendar-denied">{t.calendarPermissionDenied}</Txt>
               <Btn

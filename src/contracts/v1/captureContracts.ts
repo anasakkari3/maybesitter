@@ -68,6 +68,40 @@ export interface CaptureProposalItemContract {
    */
   dateEstimated?: boolean;
   /**
+   * True when the hour of `resolvedTime` is the product's guess: the person
+   * named only a part of the day — «المسا», "tonight", «בערב» — and no number
+   * (UAT round 6, D2). «لازم أتصل بأمي اليوم المسا» is 18:00, on both
+   * engines, and the review card marks it «حزرنا الساعة» the way it marks a
+   * guessed day. Which hour is picked does not change.
+   *
+   * False when the person stated the hour («5 المسا», «الساعة 7», "7pm"),
+   * when they chose it answering the question (a button or typed words), and
+   * when `resolvedTime` is null. A question about something else — the action,
+   * or which day for the hour already shown — leaves a guessed hour a guess.
+   * A content-free boolean: it is never persisted with the commitment, and a
+   * confirm-time edit of the time makes the hour theirs (the phone drops the
+   * mark as soon as the time is edited). Absent from an older server, which
+   * the phone reads as false.
+   */
+  timeEstimated?: boolean;
+  /**
+   * True when the item is an event *on* `resolvedDate` with no hour — an
+   * appointment answered "no specific time" (FY1 N4) — rather than a deadline
+   * *by* that day. Absent otherwise. A settled item with a day and no
+   * `resolvedTime` reads «لحد <day>» on the review card; this one reads
+   * «<day> · بدون وقت».
+   */
+  allDayEvent?: boolean;
+  /**
+   * True when the item happens *on* `resolvedDate` — an appointment, a
+   * meeting — so clearing its hour in the review edit sheet keeps it there as
+   * an all-day event (FY1 M1, `keepEventOnItsDay`); a task cleared of its hour
+   * loses the day. Added by the mobile capture wrapper from the same test the
+   * confirm uses, so the card can say «<day> · بدون وقت» only when the confirm
+   * will keep the day (UAT round 3, N11). Absent otherwise.
+   */
+  eventOnDay?: boolean;
+  /**
    * The one question worth asking about this item (UC-2.5, #165).
    *
    * Declared here rather than only produced: `captureBoundaryService` has been
@@ -186,10 +220,16 @@ export interface CaptureItemEditContract {
   /** An ISO instant, or null to say "no time". */
   resolvedTime?: string | null;
   priority?: 'low' | 'normal' | 'high';
+  /**
+   * "Remind me when I arrive / leave", chosen in review (closure CL4). Carried
+   * with the confirm so the commitment is written with it or not at all.
+   * Validated by `parseLocationTrigger`: no coordinates, ever.
+   */
+  locationTrigger?: unknown;
 }
 
 /** The fields an edit may carry. Anything else is refused (#164). */
-export const CAPTURE_EDITABLE_FIELDS = ['itemId', 'title', 'resolvedTime', 'priority'] as const;
+export const CAPTURE_EDITABLE_FIELDS = ['itemId', 'title', 'resolvedTime', 'priority', 'locationTrigger'] as const;
 
 /** Title bounds the confirm validates, before anything is persisted. */
 export const CAPTURE_EDIT_TITLE_MIN = 1;

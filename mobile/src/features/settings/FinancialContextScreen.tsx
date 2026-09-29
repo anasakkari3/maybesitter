@@ -17,7 +17,10 @@ import type {
   FinancialProvenance,
   FinancialState,
 } from '../../api/schemas/financial';
-import { ltr } from '../../i18n/strings';
+import { fill, ltr } from '../../i18n/strings';
+import { formatRelativeDay, formatTime } from '../../i18n/format';
+import { useTimeZone } from '../../i18n/timezone';
+import type { Locale } from '../../i18n/locale';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
@@ -62,6 +65,17 @@ function money(minorUnits: number, currency: string): string {
   return ltr(`${sign}${major.toLocaleString('en-US')}.${cents} ${currency}`);
 }
 
+/**
+ * When the picture was true: the phone's own day and clock, the way every
+ * other instant in the app reads («آخر تحديث: اليوم · 10:22»), never a UTC
+ * stamp — the first UAT read «بتاريخ 2026-09-28 07:22» at 10:22 local (N20).
+ */
+function asOfText(instant: string, locale: Locale, timeZone: string): string {
+  const at = new Date(instant);
+  return `${formatRelativeDay(at, { locale, timeZone })} · ${ltr(formatTime(at, { locale, timeZone }))}`;
+}
+
+/** A bill's or an income's day: a civil date the form sends at noon UTC, so read in UTC. */
 function day(instant: string): string {
   return ltr(new Date(instant).toISOString().slice(0, 10));
 }
@@ -105,7 +119,8 @@ function Line({ label, amount, testID }: {
 }
 
 export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
-  const { t, p, rtl } = useApp();
+  const { t, p, rtl, lang } = useApp();
+  const timeZone = useTimeZone();
   // A TextInput is not mirrored by the root's `direction` the way a Text is:
   // it takes the physical edge (first iPhone run, L7).
   const inputAlign = { textAlign: rtl ? 'right' as const : 'left' as const, writingDirection: rtl ? 'rtl' as const : 'ltr' as const };
@@ -254,7 +269,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
               </View>
               {/* When the picture was true. Never implied to be "now". */}
               <Txt size={12} color={p.mu} testID="financial-as-of">
-                {t.financialAsOf} {ltr(new Date(state.asOf).toISOString().slice(0, 16).replace('T', ' '))}
+                {fill(t.financialAsOf, { when: asOfText(state.asOf, lang, timeZone) })}
               </Txt>
             </View>
           )}

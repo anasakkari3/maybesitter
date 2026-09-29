@@ -54,9 +54,16 @@ export function mapExtractionToCommand(
     },
     category: resolveCategory(result.category, result.categoryConfidence, categoryPreferences),
     timeSpec: {
-      kind: result.dueAt ? 'due_by' as const : 'unscheduled' as const,
+      // «أشتري دوا … الساعة 5» is to be done at 17:00, not by it (CL1, D2).
+      // Written as a `due_by`, the planner floated it ahead as a deadline and
+      // placed it at 15:30; a `scheduled_event` is one it keeps where it is.
+      kind: !result.dueAt
+        ? 'unscheduled' as const
+        : result.timeAnchor === 'event' ? 'scheduled_event' as const : 'due_by' as const,
       dueAt: result.dueAt,
       remindAt: result.remindAt,
+      // A day with no hour anybody chose (FX3): `dueAt` is its local midnight.
+      ...(result.allDay && result.dueAt ? { allDay: true } : {}),
       // The zone the extractor resolved the instant in (#501). When there was
       // no time to resolve there is no zone to record either, and 'UTC' is the
       // only honest label for a commitment that names no instant.

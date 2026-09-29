@@ -7,10 +7,12 @@ import { useMemory, usePlanSettings, useTrust } from '../api/queries';
 import { LANGUAGE_ENDONYM } from '../i18n/language';
 import { fill, ltr } from '../i18n/strings';
 import { icsFeedsEnabled } from '../config/env';
+import { sourcesSubKey, useSourcesAvailability } from '../features/settings/sourcesAvailability';
 import { Card, Txt } from '../ui/primitives';
 import { ScreenHeader, SectionLabel } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsRow } from '../features/settings/SettingsChrome';
+import { useNotificationPermission } from '../notifications/useNotificationPermission';
 
 /**
  * Settings (Round 2, Phase I): four groups, each row saying what is behind
@@ -32,8 +34,12 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
   const { t, tr, p, langPref, themePref, actions } = useApp();
   const { user } = useAuth();
   const trust = useTrust();
+  const sources = useSourcesAvailability();
   const memory = useMemory();
   const planSettings = usePlanSettings();
+  // The morning plan arrives as a notification: while the phone blocks them,
+  // "Arrives at 07:30" is a promise the phone will not keep (CL2b round 2).
+  const notificationPermission = useNotificationPermission();
 
   const themeValue = themePref === 'system' ? t.vSystem : themePref === 'light' ? t.vLight : t.vDark;
   // A language is named in itself, never translated — so "English" stays
@@ -41,6 +47,7 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
   const languageValue = langPref === 'system' ? t.vSystem : LANGUAGE_ENDONYM[langPref];
   const calendarOn = trust.data?.trust.calendarConsent === true;
   const morning = planSettings.data;
+  const morningBlocked = morning?.enabled === true && notificationPermission === 'denied';
   const memoryCount = memory.data?.items.length;
 
   return (
@@ -65,18 +72,25 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
           <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} icon="watch" testID="settings-background" />
           <SettingsRow label={t.financialTitle} onPress={() => actions.go('financialContext')} icon="file" testID="settings-financial" />
           <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} icon="calendar" testID="settings-calendar" />
-          <SettingsRow label={t.settingsSources} sub={icsFeedsEnabled() ? t.settingsSourcesSub : t.settingsSourcesSubNoIcs} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" />
+          {sources.any ? <SettingsRow label={t.settingsSources} sub={t[sourcesSubKey(sources)]} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" /> : null}
         </Group>
 
         <Group title={t.settingsGroupReminders}>
           <SettingsRow first label={t.notifTitle} sub={t.settingsRemindersSub} onPress={() => actions.go('notificationsSettings')} icon="watch" testID="settings-notifications" />
           <SettingsRow
             label={t.settingsMorning}
-            sub={morning ? (morning.enabled ? fill(t.settingsMorningSub, { t: ltr(morning.deliveryLocalTime) }) : t.settingsMorningOff) : undefined}
+            sub={morning
+              ? morningBlocked
+                ? t.notifBlockedByPhone
+                : morning.enabled ? fill(t.settingsMorningSub, { t: ltr(morning.deliveryLocalTime) }) : t.settingsMorningOff
+              : undefined}
+            subTone={morningBlocked ? 'warn' : 'default'}
+            {...(morningBlocked ? { subTestID: 'settings-morning-blocked' } : {})}
             onPress={() => actions.go('notificationsSettings')}
             icon="calendar" testID="settings-morning"
           />
           <SettingsRow label={t.settingsWidget} sub={t.settingsWidgetSub} onPress={() => actions.go('widgetSettings')} icon="calendar" testID="settings-widget" />
+          <SettingsRow label={t.placesTitle} sub={t.placesRowSub} onPress={() => actions.go('places')} icon="goal" testID="settings-places" />
         </Group>
 
         <Group title={t.settingsGroupTrust}>

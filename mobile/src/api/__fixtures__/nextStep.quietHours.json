@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "participantId": "FixtureUserxxxxxxxxxxxxxxxxx",
+  "recommendation": {
+    "version": "v1",
+    "proposalId": "",
+    "state": "empty",
+    "locale": "ar",
+    "primaryStep": null,
+    "explanation": null,
+    "availableActions": [],
+    "persistence": {
+      "occurred": false,
+      "confirmationRequired": true
+    }
+  },
+  "assignment": {
+    "experimentId": "v03-next-step-proposal",
+    "arm": "generic",
+    "enabled": true
+  },
+  "exposure": {
+    "allowed": false,
+    "reason": "quiet_hours",
+    "until": "07:30"
+  }
+}

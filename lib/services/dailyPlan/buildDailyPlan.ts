@@ -43,7 +43,7 @@
  * view entirely — is **not** in this module and is not done. #383 is the one
  * place that rule is written down, and both halves answer to it.
  */
-import type { Commitment } from '../../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, isAllDayEventSpec, isTimedWindow, type Commitment } from '../../../src/domain/stateMachine';
 import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
 import type {
   FixedEvent,
@@ -138,6 +138,25 @@ export interface DailyPlanInputArgs {
    * Two builds with the same `builtAt` produce the same request.
    */
   readonly builtAt: Instant;
+  /**
+   * What the week view (CL5b) decided about this one day, on top of the
+   * daily rule. Absent everywhere else: a day planned on its own is exactly
+   * the daily planner's day.
+   *
+   * `exclude` takes floating work off the day that `belongsToDay` would have
+   * put on it — it is placed on another day of the week, or the person
+   * dropped it here. `include` puts floating work on the day that
+   * `belongsToDay` would not have — the person moved it here. Pinned
+   * commitments are never affected: their time is the commitment's, not the
+   * week's.
+   */
+  readonly assignment?: DayAssignment | null;
+}
+
+/** See `DailyPlanInputArgs.assignment`. */
+export interface DayAssignment {
+  readonly include: readonly string[];
+  readonly exclude: readonly string[];
 }
 
 export interface DailyPlanInput {
@@ -263,12 +282,27 @@ export function workingWindowsFor(
   }));
 }
 
-/** The instant a commitment is pinned to, or null when it floats. */
+/**
+ * The instant a commitment is pinned to, or null when it floats.
+ *
+ * A scheduled event is pinned at the event — `dueAt`, its start — never at
+ * its reminder (CL1 round 3). This read `remindAt ?? dueAt` while only
+ * football wrote scheduled events, and football sets no reminder; once capture
+ * made "the doctor at 09:00" a scheduled event, a kept reminder lead would have
+ * placed the doctor at 08:00. `remindAt` stands in only for an event stored
+ * with no `dueAt`.
+ */
 export function fixedStartOf(commitment: Commitment): Instant | null {
   if (commitment.postponedUntil) return commitment.postponedUntil;
   if (commitment.timeSpec.kind === 'scheduled_event') {
-    return commitment.timeSpec.remindAt ?? commitment.timeSpec.dueAt;
+    return commitment.timeSpec.dueAt ?? commitment.timeSpec.remindAt;
   }
+  // A window — «حضّرني»'s prep step, shown at 13:00 and done by the 15:00
+  // meeting (FX1) — is a time the person chose to do it at, and every screen
+  // shows it there. Floated as a deadline, the planner put it at 08:00, and the
+  // week proposed it on Wednesday, after the meeting (UAT round 2, N3). It
+  // stays where it was put: `fixedEndFor` reads its end, the meeting's start.
+  if (isTimedWindow(commitment.timeSpec)) return commitment.timeSpec.dueAt;
   return null;
 }
 
@@ -277,6 +311,18 @@ export function fixedStartOf(commitment: Commitment): Instant | null {
 // candidate's duration. Two copies of "how long is this commitment" in two
 // files is how the planner and the device calendar came to disagree in the
 // first place; see that module's doc comment for the full account.
+
+/**
+ * An event on a day with no hour anybody chose (FY1 N4): «موعد دكتور يوم
+ * الأحد» answered «بدون وقت محدد». It happens on its day, but the day plan has
+ * no hour to pin it to and it is not work to place: pinned at its midnight it
+ * would be a fixed row at 00:00 nobody said, and floated it would be given a
+ * half hour — which is how the Sunday doctor landed on today at 19:30. Like
+ * an all-day busy block (#186), it occupies no clock time in any plan.
+ */
+export function isAllDayEvent(commitment: Commitment): boolean {
+  return isAllDayEventSpec(commitment.timeSpec) && !commitment.postponedUntil;
+}
 
 /** Confirmed, still open, and not already done or abandoned. */
 export function isPlannable(commitment: Commitment): boolean {
@@ -330,9 +376,21 @@ export function deadlineFor(
   dayStartsAt: Instant,
   dayEndsAt: Instant,
 ): Instant | null {
-  const dueAt = commitment.timeSpec.dueAt;
+  // A window is due by its end (`deadlineOfTimeSpec`, FX1 R1): a prep step
+  // shown Sunday 21:30 for a Monday 07:30 meeting is due at 07:30, not at the
+  // day's end, or Monday's plan puts it at 08:00, after the meeting (FY2
+  // re-review).
+  const dueAt = deadlineOfTimeSpec(commitment.timeSpec);
   if (!dueAt) return null;
-  return rollsIntoDay(dueAt, dayStartsAt) ? dayEndsAt : dueAt;
+  // An all-day commitment stores its day as that day's local midnight (FX3) —
+  // the day's start — and read as a deadline there it left no minute of its
+  // own day to use: «أرتب الغرفة», due today, went to Tuesday, and the bill due
+  // Wednesday to Thursday (UAT round 2, N3). A day is due by its end. Only a
+  // day: a timed deadline at 00:00 is that instant (FY2 review, M1).
+  const behind = commitment.timeSpec.allDay
+    ? toEpochMs(dueAt) <= toEpochMs(dayStartsAt)
+    : rollsIntoDay(dueAt, dayStartsAt);
+  return behind ? dayEndsAt : dueAt;
 }
 
 /**
@@ -385,7 +443,7 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
   const { startsAt, endsAt } = dayHorizon(args.date, args.timezone);
   const weekday = weekdayAt(toEpochMs(startsAt), args.timezone) as Weekday;
 
-  const plannable = args.commitments.filter(isPlannable);
+  const plannable = args.commitments.filter((commitment) => isPlannable(commitment) && !isAllDayEvent(commitment));
   const earliestStartAt = earliestPlaceableStart(args.builtAt, startsAt, endsAt);
 
   const fromBusy: FixedEvent[] = args.busyBlocks.map((block) => ({
@@ -417,8 +475,13 @@ export function buildDailyPlanInput(args: DailyPlanInputArgs): DailyPlanInput {
     }];
   });
 
+  const include = new Set(args.assignment?.include ?? []);
+  const exclude = new Set(args.assignment?.exclude ?? []);
+  const onThisDay = (commitment: Commitment): boolean => include.has(commitment.id)
+    || (belongsToDay(commitment, endsAt) && !exclude.has(commitment.id));
+
   const items: PlanningItem[] = plannable
-    .filter((commitment) => pinnedStartOf(commitment) === null && belongsToDay(commitment, endsAt))
+    .filter((commitment) => pinnedStartOf(commitment) === null && onThisDay(commitment))
     .map((commitment) => ({
       itemId: commitment.id,
       title: commitment.title,

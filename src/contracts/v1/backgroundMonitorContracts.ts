@@ -49,6 +49,10 @@ export const BACKGROUND_MONITOR_SCHEMA_VERSION = 'background-monitor-v1' as cons
  *   narrowed. The action is to re-authorize.
  * - `error` — it cannot run for a reason the user cannot fix, such as no
  *   observer being registered for the signal it names.
+ * - `retrying` — the source it reads is public data we fetch ourselves (a
+ *   followed club's matches), and the last fetch failed: the provider was
+ *   down or out of quota. Nothing for the user to do; the next fetch is
+ *   already scheduled. Said out loud so a failing source is never silence.
  */
 export const BACKGROUND_MONITOR_STATUSES = Object.freeze([
   'active',
@@ -56,6 +60,7 @@ export const BACKGROUND_MONITOR_STATUSES = Object.freeze([
   'blocked_permission',
   'needs_reauth',
   'error',
+  'retrying',
 ] as const);
 
 export type BackgroundMonitorStatus = (typeof BACKGROUND_MONITOR_STATUSES)[number];

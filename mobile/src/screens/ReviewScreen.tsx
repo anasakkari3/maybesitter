@@ -1,11 +1,12 @@
 import { useLayoutMode } from '../theme/textScale';
-import React, { useMemo, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { ClarifySheet } from '../features/capture/ClarifySheet';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
+import { dayKeptWithoutTime } from '../features/capture/noTimeDay';
 import { questionText } from '../features/capture/clarificationCopy';
 import { useTimeZone } from '../i18n/timezone';
 import { formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
@@ -13,16 +14,21 @@ import { fill, ltr, type Lang } from '../i18n/strings';
 import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
+import { AvoidKeyboard } from '../ui/keyboard';
+import { useAnnounceOnIos } from '../ui/announce';
 import { Tag, TextLink } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
+import { prepRingAfterEdit } from '../features/meetings/prepRing';
+import { quietTimeZone, quietWindowOf, toEngineSettings } from '../features/reminders/reminderInputs';
+import { useProfile, useReminderSettings } from '../api/queries';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
-import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit } from '../features/capture/captureMachine';
+import { confirmableItems, wantsDiscardConfirmation, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
 import { postManualBusy } from '../api/endpoints/calendar';
 import { mailboxShortfall } from '../features/google/mailboxShortfall';
 import type { CaptureProposalItem } from '../api/schemas/capture';
@@ -266,16 +272,32 @@ export function ReviewScreen() {
           <Pill testID="capture-discard-confirm" label={t.captureDiscardConfirm} onPress={leave} kind="warm" />
         </View>
       ) : (
-        <KeyboardAvoidingView
-          testID="review-kav"
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
-        >
+        <AvoidKeyboard testID="review-kav" style={{ flex: 1 }}>
       <ScrollView
         testID="review-scroll"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 20, gap: 12 }}
       >
+        {state.source === 'meeting' ? (
+          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source-meeting">
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
+            <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
+              <Txt size={13} color={p.mu}>{state.meeting?.appointment ? t.reviewSourceAppointment : t.reviewSourceMeeting}</Txt>
+              {/* The prep step's reminder, always (UAT round 2, N7): when it
+                  rings, why it moved (quiet hours, short notice — CL5a M-8,
+                  I-3), or why nothing rings; after an edit, the phone's own
+                  answer for the step as it will be confirmed, and a line when
+                  the new time is not before the meeting (N5). */}
+              {state.meeting ? (
+                <PrepReminderLine
+                  meeting={state.meeting}
+                  proposed={state.proposal?.items.find((item) => item.itemId === state.meeting?.itemId) ?? null}
+                  edit={state.meeting.itemId ? state.edits[state.meeting.itemId] : undefined}
+                />
+              ) : null}
+            </View>
+          </View>
+        ) : null}
         {state.source === 'share' ? (
           <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source">
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
@@ -480,7 +502,7 @@ export function ReviewScreen() {
       </ScrollView>
 
       {!scrollActions ? confirmationActions : null}
-        </KeyboardAvoidingView>
+        </AvoidKeyboard>
       )}
     </ScreenIn>
   );
@@ -501,7 +523,7 @@ function ItemCard({
   busy: readonly DeviceBusyBlock[];
   docFacts?: ShareDocumentFacts | undefined;
 }) {
-  const { t, p } = useApp();
+  const { t, p, tr } = useApp();
   const timezone = useTimeZone();
   // What the card shows is what will be confirmed: the edit if there is one,
   // the proposal otherwise. Showing the original under a card the user has
@@ -516,14 +538,30 @@ function ItemCard({
   const pendingDay = !editedInstant && edit?.localDateTime === undefined && item.needsClarification
     ? item.resolvedDate
     : undefined;
+  // A deadline with a day and no hour — «قبل آخر الشهر» (FX3): settled, so
+  // nothing is asked, and it confirms as an all-day `due_by`. It used to read
+  // only «بدون وقت», and the day the person said was nowhere on the card.
+  const dueByDay = !editedInstant && edit?.localDateTime === undefined && !item.needsClarification
+    ? item.resolvedDate
+    : undefined;
+  // An appointment answered "no specific time" (FY1 N4) is *on* its day, not
+  // due by it: «الأحد · بدون وقت», never «لحد الأحد». So is one whose hour was
+  // cleared in the edit sheet: the confirm keeps it there (N11).
+  const onDay = pendingDay ?? (item.allDayEvent ? dueByDay : undefined) ?? dayKeptWithoutTime(item, edit);
   const when = editedInstant
     ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(editedInstant, { locale: lang, timeZone: timezone }))}`
-    : pendingDay
-      ? `${formatDayKey(pendingDay, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`
-      : t.noTimeYet;
+    : onDay
+      ? `${formatDayKey(onDay, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`
+      : dueByDay
+        ? tr('reviewDueByDay', { day: formatDayKey(dueByDay, { locale: lang, timeZone: timezone }) })
+        : t.noTimeYet;
   // The day is our guess from a weekday name, and it is on screen. Gone once
   // the user sets the time themselves: then the day is theirs (#164's rule).
-  const dateGuessed = Boolean(item.dateEstimated && item.resolvedDate && (editedInstant || pendingDay) && edit?.localDateTime === undefined);
+  const dateGuessed = Boolean(item.dateEstimated && item.resolvedDate && (editedInstant || pendingDay || dueByDay) && edit?.localDateTime === undefined);
+  // The hour is ours: the person named only a part of the day — «المسا» —
+  // and 18:00 is what we made of it (UAT round 6, D2). Marked while that hour
+  // is the one on screen; gone once they set the time themselves.
+  const timeGuessed = Boolean(item.timeEstimated && item.resolvedTime && editedInstant && edit?.localDateTime === undefined);
   const priority = edit?.priority ?? item.priority;
 
   const imp = priority ? PRIORITY_IMP[priority] : null;
@@ -535,7 +573,7 @@ function ItemCard({
       scaleTo={0.99}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
-      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}${dateGuessed ? `, ${t.reviewDateEstimated}` : ''}`}
+      label={`${title}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${when}${dateGuessed ? `, ${t.reviewDateEstimated}` : ''}${timeGuessed ? `, ${t.reviewTimeEstimated}` : ''}`}
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
         // Selection belongs to the explicit checkbox, not the proposal border.
@@ -580,6 +618,21 @@ function ItemCard({
             <Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt>
           </Btn>
         ) : null}
+        {/* The same mark for a guessed hour; a tap opens the edit sheet, where
+            the time they set is theirs (D2). Both marks can show at once. */}
+        {timeGuessed ? (
+          <Btn
+            testID={`review-time-estimated-${item.itemId}`}
+            label={t.reviewTimeEstimated}
+            hint={t.reviewEdit}
+            onPress={onEdit}
+            hitSlop={12}
+            scaleTo={0.97}
+            style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
+          >
+            <Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt>
+          </Btn>
+        ) : null}
         {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
         {/* A guess named as one — and no longer a guess once the user has set
             it themselves. A level presented as a fact they stated is how a
@@ -608,4 +661,163 @@ function ItemCard({
       </View>
     </Btn>
   );
+}
+
+/** setTimeout's ceiling (about 24.8 days); a later ring is rechecked when the screen is next opened. */
+const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * One line about the prep step's reminder: when it will ring, or why nothing
+ * will — always, the ordinary case too (UAT round 2, N7: a Review that said
+ * nothing for the initial 14:00 or an edit to 13:00 never told the person
+ * when). After the person changes the step's time or makes it a Must, the
+ * prepare response no longer describes it: the line is answered again for the
+ * step as it will be confirmed (`EditedPrepLine`, FX1).
+ */
+function PrepReminderLine({ meeting, proposed, edit }: {
+  meeting: MeetingReviewContext;
+  proposed: CaptureProposalItem | null;
+  edit: CaptureItemEdit | undefined;
+}) {
+  const timezone = useTimeZone();
+  const editedAt = edit?.localDateTime === undefined
+    ? undefined
+    : edit.localDateTime === '' ? null : (instantForLocalDateTime(edit.localDateTime, timezone)?.toISOString() ?? null);
+  const timeChanged = editedAt !== undefined
+    && (editedAt === null ? proposed?.resolvedTime != null : Date.parse(editedAt) !== Date.parse(proposed?.resolvedTime ?? ''));
+  const priorityChanged = edit?.priority !== undefined && edit.priority !== (proposed?.priority ?? 'normal');
+  const edited = Boolean(meeting.startAt && proposed && (timeChanged || priorityChanged));
+  // Once an edit has been shown, the proposed line coming back is news too
+  // (an edit taken back): it is announced when it returns (review m3).
+  const [everEdited, setEverEdited] = useState(false);
+  if (edited && !everEdited) setEverEdited(true);
+  // One live region around whichever line shows, so TalkBack hears the line
+  // change after an edit (FY3 review m4); VoiceOver is told by each line.
+  return (
+    <View testID="review-prep-live" accessibilityLiveRegion="polite" style={{ gap: 2, alignItems: 'flex-start' }}>
+      {edited && meeting.startAt && proposed ? (
+        <EditedPrepLine
+          at={editedAt === undefined ? proposed.resolvedTime ?? null : editedAt}
+          meetingStart={meeting.startAt}
+          priority={edit?.priority ?? proposed.priority ?? 'normal'}
+          appointment={meeting.appointment === true}
+        />
+      ) : <ProposedPrepLine meeting={meeting} announceOnMount={everEdited} />}
+    </View>
+  );
+}
+
+const REMINDER_PRIORITY = { high: 'must', normal: 'should', low: 'nice' } as const;
+
+/**
+ * The line for an edited prep step: what the phone will ring for it, from its
+ * own planning and the account's settings (`prepRingAfterEdit`). Nothing is
+ * said about the ring until the settings are read — a line about them before
+ * then would be a guess.
+ *
+ * A step moved to the meeting's start or later is no longer a window: it is
+ * reminded a lead before its own time, like any step, so the ring can read
+ * earlier than the card (17:00 on the card, 16:00 in the line). One more line
+ * says it is no longer before the meeting, so neither is a surprise (N5).
+ */
+function EditedPrepLine({ at, meetingStart, priority, appointment }: {
+  at: string | null;
+  meetingStart: string;
+  priority: 'high' | 'normal' | 'low';
+  appointment: boolean;
+}) {
+  const { t, p, lang } = useApp();
+  const timezone = useTimeZone();
+  const settings = useReminderSettings();
+  const profile = useProfile();
+  const dto = settings.data?.reminderSettings;
+  // The same rule the server's edit applies (`windowEndAfterMove`): strictly
+  // before the start stays the prep window; at or after it does not.
+  const notBeforeText = at !== null && Date.parse(at) >= Date.parse(meetingStart)
+    ? (appointment ? t.reviewPrepAfterAppointment : t.reviewPrepAfterMeeting)
+    : null;
+  const answer = !dto || profile.data === undefined ? null : prepRingAfterEdit({
+    at,
+    meetingStart,
+    priority: REMINDER_PRIORITY[priority],
+    settings: toEngineSettings(dto, profile.data.routine?.preferredReminderIntensity ?? 'softAwareness'),
+    quietHours: quietWindowOf(dto),
+    timeZone: quietTimeZone(dto),
+    now: new Date(),
+  });
+  const ringText = answer === null ? null
+    : answer.kind === 'rings' ? ringsAtText(answer.at, t.reviewPrepRingsAt, lang, timezone)
+      : answer.because === 'no_time' ? t.reviewPrepNoTime
+        : answer.because === 'reminders_off' ? t.reviewPrepRemindersOff
+          : answer.because === 'silent_choice' ? t.reviewPrepSilentChoice
+            : answer.because === 'quiet_hours' ? t.reviewPrepQuietHours
+              : t.reviewPrepTooClose;
+  // This line exists only because the person edited the step, so each new
+  // answer is news: said to VoiceOver as it lands (FY3 review m4) — once the
+  // settings have answered, so a cold cache does not say the first half and
+  // then all of it again (review m2). If they cannot be read, what is known.
+  const settled = answer !== null || settings.isError || profile.isError;
+  useAnnounceOnIos(settled ? [notBeforeText, ringText].filter(Boolean).join(' ') || null : null);
+  return (
+    <>
+      {notBeforeText ? <Txt size={13} color={p.mu} testID="review-prep-after-meeting">{notBeforeText}</Txt> : null}
+      {answer === null || ringText === null ? null : (
+        <Txt size={13} color={p.mu} testID={answer.kind === 'rings' ? 'review-prep-rings-at' : 'review-prep-no-reminder'}>{ringText}</Txt>
+      )}
+    </>
+  );
+}
+
+/** «التذكير رح يرن: بكرا · 14:00» — said even when that is the time the card shows (N7). */
+function ringsAtText(at: number | string, template: string, lang: Lang, timezone: string): string {
+  const ring = new Date(at);
+  const time = `${formatRelativeDay(ring, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(ring, { locale: lang, timeZone: timezone }))}`;
+  return fill(template, { time });
+}
+
+/**
+ * The line the prepare response gives, for the step as the server proposed it.
+ *
+ * Said to VoiceOver when it changes while Review is open — the ring passing,
+ * or an edit taken back (`announceOnMount`) — never as the line Review opens
+ * with (review m3; TalkBack hears the same from the live region around it).
+ */
+function ProposedPrepLine({ meeting, announceOnMount }: { meeting: MeetingReviewContext; announceOnMount: boolean }) {
+  const { t, p, lang } = useApp();
+  const timezone = useTimeZone();
+  // A ring whose moment passes while Review is open is one the phone skips
+  // (n-2): from then on it is said as too close, not as a time that will not
+  // come. A timer, so the line changes at that moment and render stays pure.
+  // One already past when the line mounts is too close from the start.
+  const ringMs = meeting.remindAt === null ? null : Date.parse(meeting.remindAt);
+  const [passedRing, setPassedRing] = useState<number | null>(() => (ringMs !== null && ringMs <= Date.now() ? ringMs : null));
+  useEffect(() => {
+    if (ringMs === null) return undefined;
+    const timer = setTimeout(() => setPassedRing(ringMs), Math.min(Math.max(0, ringMs - Date.now()), MAX_TIMER_MS));
+    return () => clearTimeout(timer);
+  }, [ringMs]);
+  const passed = ringMs !== null && passedRing === ringMs;
+  let text: string;
+  let testID: string;
+  if (meeting.remindAt === null || passed) {
+    const silence = passed ? 'too_close' : meeting.silentBecause;
+    testID = 'review-prep-no-reminder';
+    text = silence === 'reminders_off' ? t.reviewPrepRemindersOff
+      : silence === 'silent_choice' ? t.reviewPrepSilentChoice
+        : silence === 'quiet_hours' ? t.reviewPrepQuietHours
+          : t.reviewPrepTooClose;
+  } else if (meeting.adjustment === 'none') {
+    // Rings at the time the card shows: still said (N7).
+    testID = 'review-prep-rings-at';
+    text = ringsAtText(meeting.remindAt, t.reviewPrepRingsAt, lang, timezone);
+  } else {
+    const at = new Date(meeting.remindAt);
+    const time = `${formatRelativeDay(at, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
+    const quiet = meeting.adjustment === 'quiet_hours';
+    testID = quiet ? 'review-prep-quiet-moved' : 'review-prep-short-notice';
+    text = fill(quiet ? t.reviewPrepQuietMoved : t.reviewPrepShortNotice, { time });
+  }
+  const [openedWith] = useState(text);
+  useAnnounceOnIos(announceOnMount || text !== openedWith ? text : null);
+  return <Txt size={13} color={p.mu} testID={testID}>{text}</Txt>;
 }

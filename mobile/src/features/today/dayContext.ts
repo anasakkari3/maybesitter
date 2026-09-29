@@ -2,6 +2,7 @@ import type { Commitment } from '../../api/schemas/common';
 import type { DailyPlan } from '../../api/schemas/plan';
 import { dayKey } from '../../i18n/format';
 import { toViewModel } from '../commitments/model';
+import { planRows } from '../plan/lateDay';
 
 export interface PlanPreviewItem {
   id: string;
@@ -13,24 +14,30 @@ export interface PlanPreviewItem {
 
 /** A plan's slots are not evidence of completion or of work happening now.
  * Join only to current records; omit missing/dropped records, preserve proposal
- * status, and call the first open accepted slot “next in plan”, never “now”. */
-export function planPreview(plan: DailyPlan | null | undefined, records: readonly Commitment[]): PlanPreviewItem[] {
+ * status, and call the first open accepted slot “next in plan”, never “now”.
+ *
+ * The slots are the placed rows and the rows pinned to a time (`fixed`), in
+ * time order, as the plan screen draws them (UAT round 6, N-h). Given `now`, a
+ * slot that has already ended is still on the plan but is not "next": at 22:00
+ * a 20:00 dinner is behind the day, not ahead of it. */
+export function planPreview(plan: DailyPlan | null | undefined, records: readonly Commitment[], now?: Date): PlanPreviewItem[] {
   if (!plan || plan.status === 'dismissed') return [];
   const byId = new Map(records.map(item => [item.id, item]));
   const seen = new Set<string>();
   let hasNext = false;
-  return [...plan.scheduled]
-    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
+  return planRows(plan)
+    .map(row => row.item)
     .flatMap(slot => {
       const item = byId.get(slot.itemId);
       if (!item || seen.has(item.id)) return [];
       seen.add(item.id);
       const status = toViewModel(item, plan.generatedAt).status;
       if (status === 'dropped') return [];
+      const ended = now !== undefined && Date.parse(slot.endsAt) <= now.getTime();
       const state = status === 'done' ? 'done'
         : plan.status !== 'accepted' ? 'proposed'
-        : !hasNext ? 'next' : 'planned';
-      if (status === 'active') hasNext = true;
+        : !hasNext && !ended ? 'next' : 'planned';
+      if (status === 'active' && !ended) hasNext = true;
       return [{ id: item.id, title: item.title, startsAt: slot.startsAt, endsAt: slot.endsAt, state } as PlanPreviewItem];
     }).slice(0, 4);
 }

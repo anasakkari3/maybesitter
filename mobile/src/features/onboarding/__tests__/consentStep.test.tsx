@@ -54,12 +54,12 @@ async function show(props: Parameters<typeof Harness>[0] = {}) {
  * the press. Every event in this file goes through here.
  */
 async function press(label: string): Promise<void> {
-  fireEvent.press(screen.getByLabelText(label));
+  await fireEvent.press(screen.getByLabelText(label));
   await waitFor(() => expect(screen.queryByLabelText(label)).not.toBeNull());
 }
 
 async function toggle(label: string, value: boolean): Promise<void> {
-  fireEvent(screen.getByLabelText(label), 'valueChange', value);
+  await fireEvent(screen.getByLabelText(label), 'valueChange', value);
   await waitFor(() => expect(screen.getByLabelText(label).props.value).toBe(value));
 }
 

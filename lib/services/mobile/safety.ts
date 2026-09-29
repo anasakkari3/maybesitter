@@ -1,7 +1,7 @@
 import type { ExtractAndMapOptions, ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
 import { extractWithFallback } from '../../../src/extraction/extractionService';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
-import { isPastCommitmentTime, pastTimeMessage } from '../commitments/timeRules';
+import { isPastCommitmentDay, isPastCommitmentTime, pastTimeMessage } from '../commitments/timeRules';
 import { parseIsoInstant } from './time';
 
 /**
@@ -18,6 +18,36 @@ export class NegatedRequestError extends Error {
   constructor() {
     super('a negated reminder request cannot become a proposal');
     this.name = 'NegatedRequestError';
+  }
+}
+
+/**
+ * The extractor read a time that has already gone (CL1, round 1).
+ *
+ * Typed for the same reason as `NegatedRequestError`: the capture boundary has
+ * to tell it apart from an unsafe input. In a capture of several clauses, one
+ * clause whose hour has passed — «…وذكرني أتصل بأمي اليوم الساعة 9 الصبح» at
+ * 10:00 — used to reject the whole capture, the bread with it. The message is
+ * unchanged and carries nothing the user wrote.
+ */
+export class PastCommitmentTimeError extends Error {
+  /**
+   * What the guarded extractor read, so the boundary can offer that same
+   * reading without its hour (CL1 round 3, M5) rather than re-reading the
+   * clause with an unguarded extractor — which skipped the negation check,
+   * relabelled provenance, and could pick a *future* reading of an ambiguous
+   * hour and propose it unasked.
+   *
+   * Not enumerable: it holds the user's text, and an error is the kind of
+   * object that ends up in a log. `util.inspect` and `JSON.stringify` both
+   * skip it.
+   */
+  declare readonly extracted: ExtractWithFallbackResult | undefined;
+
+  constructor(message: string, extracted?: ExtractWithFallbackResult) {
+    super(message);
+    this.name = 'PastCommitmentTimeError';
+    Object.defineProperty(this, 'extracted', { value: extracted, enumerable: false });
   }
 }
 
@@ -43,10 +73,10 @@ type MobileExtractor = (
  * `must not be in the past` was first phrased and the PATCH boundary had to
  * match it by hand to stay consistent.
  */
-function assertSafeTime(value: string | null, now: Date, field: string): void {
+function assertSafeTime(value: string | null, now: Date, field: string, extracted?: ExtractWithFallbackResult): void {
   if (!value) return;
   const parsed = parseIsoInstant(value, field);
-  if (isPastCommitmentTime(parsed, now)) throw new Error(pastTimeMessage(field));
+  if (isPastCommitmentTime(parsed, now)) throw new PastCommitmentTimeError(pastTimeMessage(field), extracted);
 }
 
 export async function guardedMobileExtract(
@@ -64,8 +94,17 @@ export async function guardedMobileExtract(
     throw new NegatedRequestError();
   }
 
-  assertSafeTime(extracted.result.dueAt, context.now, 'dueAt');
-  assertSafeTime(extracted.result.remindAt, context.now, 'remindAt');
+  const { result } = extracted;
+  if (result.allDay && result.localTimeSpec?.date) {
+    // An all-day deadline is its day (FX3): «قبل آخر الشهر» said on the 30th
+    // is due today, although today's midnight — its `dueAt` — has gone by.
+    if (isPastCommitmentDay(result.localTimeSpec.date, context.now, context.timezone || result.localTimeSpec.timezone || 'UTC')) {
+      throw new PastCommitmentTimeError(pastTimeMessage('dueAt'), extracted);
+    }
+  } else {
+    assertSafeTime(result.dueAt, context.now, 'dueAt', extracted);
+  }
+  assertSafeTime(result.remindAt, context.now, 'remindAt', extracted);
 
   return extracted;
 }

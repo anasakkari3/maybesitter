@@ -77,7 +77,7 @@ import { getStorage, type StorageAdapter } from '../../storage';
 import { USERS, userDoc } from '../../storage/paths';
 import type { UserLocale } from '../../storage/userDocument';
 import { loadDomainState } from '../mobile/participantState';
-import { readRoutineProfile } from '../mobile/routineProfileService';
+import { readRoutineProfile, routineProfileOf } from '../mobile/routineProfileService';
 import { keptFocusWindow } from '../../memoryGrowth/suggestionService';
 import {
   projectBlockProtectionIntoPlanningConstraints,
@@ -94,6 +94,7 @@ import {
   dailyPlanScheduleSources,
   dayHorizon,
   type BusyBlockReader,
+  type DayAssignment,
 } from './buildDailyPlan';
 import { readBusyBlocksForPlanning } from '../../calendar/busyBlocks';
 import { explanationFactsFrom } from './explanationValidator';
@@ -102,8 +103,10 @@ import {
   NO_EDITS,
   appendPlanEvent,
   createIfAbsent,
+  mutateStoredPlan,
   readStoredPlan,
   type StoredDailyPlan,
+  type WeekPlanOrigin,
 } from './planStore';
 import {
   DEFAULT_CONTINUOUS_REPLAN_ENABLED,
@@ -127,6 +130,16 @@ import {
 } from './planPushRetry';
 import { composeCurrentUserState } from '../../userState/userStateService';
 import { refreshStalePlan } from './planRefresh';
+import {
+  PLAN_PROPOSAL_DAYS,
+  addCivilDays,
+  assignmentAroundHolds,
+  planDatesFrom,
+  readWeekHolds,
+} from './weekHolds';
+import type { UserRoutineProfile } from '../../../src/contracts/v1/routineContracts';
+
+export { PLAN_PROPOSAL_DAYS, addCivilDays, planDatesFrom };
 
 /** Accounts examined per tick. The issue's batch size. */
 export const DAILY_PLAN_BATCH = 50;
@@ -413,6 +426,34 @@ export interface DailyPlanRequestInput {
   readonly userDocument: unknown;
   /** The blocks of the generation being replaced; null on a day's first build. */
   readonly previousBlocks: readonly ScheduleBlock[] | null;
+  /** The week view's decision about this day (CL5b); absent for a day planned on its own. */
+  readonly assignment?: DayAssignment | null;
+}
+
+/**
+ * The reads a request makes that do not depend on the date (CL5b, I5): the
+ * account's commitments, its routine and its kept focus window. A caller that
+ * composes several dates at one instant — the week — reads them once and
+ * hands them in; every other caller leaves this out and the request reads
+ * them itself. Busy time is the date's own and is always read.
+ */
+export interface DailyPlanRequestPreload {
+  readonly commitments: readonly Commitment[];
+  readonly profile: UserRoutineProfile | null;
+  readonly focusHint: Awaited<ReturnType<typeof keptFocusWindow>>;
+}
+
+/** Reads what `DailyPlanRequestPreload` holds, once, as `composeDailyPlanRequest` would. */
+export async function preloadDailyPlanRequest(
+  uid: string,
+  now: string,
+  userDocument: unknown,
+  storage: StorageAdapter,
+): Promise<DailyPlanRequestPreload> {
+  const commitments = Object.values((await loadDomainState(storage, uid)).commitments);
+  const profile = routineProfileOf(userDocument);
+  const focusHint = (profile?.focusWindows ?? []).length > 0 ? null : await keptFocusWindow(uid, now, { storage });
+  return { commitments, profile, focusHint };
 }
 
 export interface DailyPlanRequest {
@@ -459,17 +500,29 @@ export interface DailyPlanRequest {
  */
 export async function composeDailyPlanRequest(
   input: DailyPlanRequestInput,
-  deps: { readonly storage: StorageAdapter; readonly busyBlocks?: BusyBlockReader },
+  deps: {
+    readonly storage: StorageAdapter;
+    readonly busyBlocks?: BusyBlockReader;
+    /** The date-free reads, already made at this `now` (see `DailyPlanRequestPreload`). */
+    readonly preloaded?: DailyPlanRequestPreload;
+  },
 ): Promise<DailyPlanRequest> {
   const { uid, date, timezone, now } = input;
   const storage = deps.storage;
 
-  const state = await loadDomainState(storage, uid);
-  const commitments = Object.values(state.commitments);
-  const profile = await readRoutineProfile(uid, { storage });
-  const focusHint = (profile?.focusWindows ?? []).length > 0
-    ? null
-    : await keptFocusWindow(uid, now, { storage });
+  let commitments: readonly Commitment[];
+  let profile: UserRoutineProfile | null;
+  let focusHint: DailyPlanRequestPreload['focusHint'];
+  if (deps.preloaded) {
+    ({ commitments, profile, focusHint } = deps.preloaded);
+  } else {
+    const state = await loadDomainState(storage, uid);
+    commitments = Object.values(state.commitments);
+    profile = await readRoutineProfile(uid, { storage });
+    focusHint = (profile?.focusWindows ?? []).length > 0
+      ? null
+      : await keptFocusWindow(uid, now, { storage });
+  }
   const busyBlocks = await (deps.busyBlocks ?? storedBusyBlocks(storage))(uid, dayHorizon(date, timezone));
 
   const { constraints: baseConstraints, config } = buildDailyPlanInput({
@@ -484,6 +537,7 @@ export async function composeDailyPlanRequest(
     // filled the working window from its start, so a plan built at 13:44
     // scheduled the whole day at 09:00 and was over before it was shown.
     builtAt: now,
+    ...(input.assignment ? { assignment: input.assignment } : {}),
   });
   const constraints = await projectPlanLayerIntoConstraints({
     uid,
@@ -525,6 +579,8 @@ export async function composeDailyPlan(
   generation: number,
   deps: DailyPlanDeps = {},
   ancestry?: PlanGenerationAncestryInput,
+  /** The week view's decision about this day (CL5b); absent for a day planned on its own. */
+  assignment?: DayAssignment | null,
 ): Promise<StoredDailyPlan> {
   const storage = storageOf(deps);
   const now = (deps.now ?? (() => new Date()))();
@@ -533,6 +589,12 @@ export async function composeDailyPlan(
   const user = await storage.get<PlanSettingsBearingUser>(userDoc(uid));
   const locale: UserLocale = user?.locale === 'ar' || user?.locale === 'he' ? user.locale : 'en';
 
+  // A day built on its own leaves out what a saved week day of this week
+  // holds, so no step lands on two days (CL5b, I3). A day the week itself is
+  // storing comes with its own assignment, which already accounts for them.
+  const heldByWeek = assignment ? [] : await readWeekHolds(uid, localDateOf(now.toISOString(), timezone), date, storage);
+  const effectiveAssignment = assignment ?? assignmentAroundHolds(heldByWeek);
+
   const { commitments, constraints, config } = await composeDailyPlanRequest({
     uid,
     date,
@@ -540,6 +602,7 @@ export async function composeDailyPlan(
     now: now.toISOString(),
     userDocument: user,
     previousBlocks: ancestry?.previousBlocks ?? null,
+    ...(effectiveAssignment ? { assignment: effectiveAssignment } : {}),
   }, { storage, ...(deps.busyBlocks ? { busyBlocks: deps.busyBlocks } : {}) });
   const plan = schedulePlan(constraints, config);
   // One block per occurrence the planner was asked about, placements applied
@@ -580,6 +643,7 @@ export async function composeDailyPlan(
     inputDigest: plan.inputDigest,
     acceptedAt: null,
     updatedAt: now.toISOString(),
+    ...(heldByWeek.length > 0 ? { heldByWeek } : {}),
   };
 }
 
@@ -602,21 +666,30 @@ async function storeFirstPlan(
   date: string,
   settings: Pick<PlanSettings, 'timezone'>,
   deps: DailyPlanDeps,
-  /**
-   * The push this plan will owe, for a caller that is about to send one
-   * (#431). Written in the same write as the plan, so a crash after it cannot
-   * leave a plan that nobody knows still needs its push. Asked for after the
-   * compose, so its lease starts when the plan is stored rather than when the
-   * compose began.
-   */
-  pushPending?: () => PlanPushPending,
+  options: {
+    /**
+     * The push this plan will owe, for a caller that is about to send one
+     * (#431). Written in the same write as the plan, so a crash after it cannot
+     * leave a plan that nobody knows still needs its push. Asked for after the
+     * compose, so its lease starts when the plan is stored rather than when the
+     * compose began.
+     */
+    readonly pushPending?: () => PlanPushPending;
+    /**
+     * A day accepted from the week view (CL5b): the week's decision about
+     * which floating work is on it, and the record of that decision the
+     * refresh and the morning read (`StoredDailyPlan.weekPlan`).
+     */
+    readonly week?: { readonly assignment: DayAssignment; readonly origin: WeekPlanOrigin };
+  } = {},
 ): Promise<{ created: boolean; stored: StoredDailyPlan }> {
   const storage = storageOf(deps);
   const existing = await readStoredPlan(uid, date, storage);
   if (existing) return { created: false, stored: existing };
 
-  const composed = await composeDailyPlan(uid, date, settings, 1, deps);
-  const document: StoredDailyPlan = pushPending ? { ...composed, pushPending: pushPending() } : composed;
+  const composed = await composeDailyPlan(uid, date, settings, 1, deps, undefined, options.week?.assignment ?? null);
+  const withWeek: StoredDailyPlan = options.week ? { ...composed, weekPlan: options.week.origin } : composed;
+  const document: StoredDailyPlan = options.pushPending ? { ...withWeek, pushPending: options.pushPending() } : withWeek;
   const { created, stored } = await createIfAbsent(uid, document, storage);
   if (!created) return { created: false, stored };
 
@@ -639,16 +712,24 @@ async function storeFirstPlan(
  */
 export class PlanDateOutOfRangeError extends Error {
   readonly reason = 'date_out_of_range' as const;
-  constructor(readonly date: string) {
-    super('a plan can only be built for today or tomorrow');
+  constructor(readonly date: string, readonly days: number = PLAN_BUILD_DAYS) {
+    super(days === PLAN_BUILD_DAYS
+      ? 'a plan can only be built for today or tomorrow'
+      : `a plan can only be proposed for the next ${days} days`);
     this.name = 'PlanDateOutOfRangeError';
   }
 }
 
-/** The calendar date after a `YYYY-MM-DD`. Civil arithmetic, no zone. */
-function nextCivilDate(date: string): string {
-  const [year, month, day] = date.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+/**
+ * A plan built on its own: today and tomorrow (#477). The week view's
+ * proposals are wider (`PLAN_PROPOSAL_DAYS`, in `weekHolds.ts`), only for days
+ * the person reviews and accepts one at a time.
+ */
+export const PLAN_BUILD_DAYS = 2;
+
+/** Refuses a date outside `today … today + days - 1`, before anything is composed. */
+export function assertPlanDateInRange(date: string, today: string, days: number): void {
+  if (!planDatesFrom(today, days).includes(date)) throw new PlanDateOutOfRangeError(date, days);
 }
 
 /**
@@ -692,10 +773,36 @@ export async function buildDailyPlanOnDemand(
   // the morning tick does not come through here and is dated by its claim.
   const settings = await readPlanSettings(uid, deps);
   const today = localDateOf((deps.now ?? (() => new Date()))().toISOString(), settings.timezone);
-  if (date !== today && date !== nextCivilDate(today)) throw new PlanDateOutOfRangeError(date);
+  assertPlanDateInRange(date, today, PLAN_BUILD_DAYS);
 
   const { created, stored } = await storeFirstPlan(uid, date, settings, deps);
   return { uid, date, created, pushed: false, stored, inputsChanged: false };
+}
+
+/**
+ * Stores a day the person accepted from the week view (CL5b), as the first
+ * plan of that date.
+ *
+ * The daily flow's own build — `storeFirstPlan`, so the same compose, the same
+ * `createIfAbsent`, the same `plan_proposed` entry and a generation that counts
+ * toward the date's cap — with the week's decision about which floating work
+ * is on the day. The window is the proposal window (`PLAN_PROPOSAL_DAYS`),
+ * refused before anything is composed, exactly as the on-demand build refuses
+ * outside its own two days.
+ *
+ * `created: false` when the date already has a plan: that plan is the day's
+ * and is returned untouched, never replaced by the week's.
+ */
+export async function storeWeekDayPlan(
+  uid: string,
+  date: string,
+  week: { readonly assignment: DayAssignment; readonly origin: WeekPlanOrigin },
+  deps: DailyPlanDeps = {},
+): Promise<{ created: boolean; stored: StoredDailyPlan }> {
+  const settings = await readPlanSettings(uid, deps);
+  const today = localDateOf((deps.now ?? (() => new Date()))().toISOString(), settings.timezone);
+  assertPlanDateInRange(date, today, PLAN_PROPOSAL_DAYS);
+  return storeFirstPlan(uid, date, settings, deps, { week });
 }
 
 /**
@@ -716,11 +823,14 @@ export async function buildAndStoreDailyPlan(
     claim.date,
     claim.settings,
     deps,
-    () => firstPushPending(clock()),
+    { pushPending: () => firstPushPending(clock()) },
   );
 
   if (!created) {
-    return { uid: claim.uid, date: claim.date, created: false, pushed: false, stored };
+    // A plan the person accepted from the week view (CL5b) is theirs: it is
+    // never rebuilt here, whatever the morning would have built. It is still
+    // this morning's plan, so the morning says so — once.
+    return announceWeekPlan(claim, stored, deps, clock);
   }
 
   // The plan exists from here on, whatever the push does. A push that throws —
@@ -744,6 +854,49 @@ export async function buildAndStoreDailyPlan(
   );
 
   return { uid: claim.uid, date: claim.date, created: true, pushed, stored };
+}
+
+/**
+ * The morning push for a plan the week view stored before its day came (CL5b).
+ *
+ * The plan is not touched: no rebuild, no new generation, the person's
+ * acceptance and edits exactly as they left them. What changes is one flag and
+ * the push bookkeeping (#431), in one transaction that only the first caller
+ * can win — `announced` goes false → true in the same write that arms
+ * `pushPending`. A second tick for the same morning, or a replay of this one,
+ * reads `announced: true` and sends nothing, which is the exactly-once rule
+ * `createIfAbsent` gives a new plan, applied to one that already exists.
+ */
+async function announceWeekPlan(
+  claim: DeliveryClaim,
+  stored: StoredDailyPlan,
+  deps: DailyPlanDeps,
+  clock: () => Date,
+): Promise<DailyPlanBuild> {
+  const quiet: DailyPlanBuild = { uid: claim.uid, date: claim.date, created: false, pushed: false, stored };
+  if (!stored.weekPlan || stored.weekPlan.announced) return quiet;
+  const storage = storageOf(deps);
+  const armed = await mutateStoredPlan<null>(claim.uid, claim.date, (current) => {
+    if (!current.weekPlan || current.weekPlan.announced) return null;
+    return {
+      next: { ...current, weekPlan: { ...current.weekPlan, announced: true }, pushPending: firstPushPending(clock()) },
+      result: null,
+    };
+  }, storage);
+  if (!armed) return quiet;
+  const { pushed } = await deliverPlanPush(
+    {
+      uid: claim.uid,
+      date: armed.stored.date,
+      attempt: 1,
+      dedupeKey: planPushDedupeKey(armed.stored.date, 0),
+      locale: armed.stored.locale,
+    },
+    planPushSenderOf(deps),
+    clock(),
+    storage,
+  );
+  return { uid: claim.uid, date: claim.date, created: false, pushed, stored: armed.stored };
 }
 
 /** The injected sender, or the production one bound to this build's storage. */

@@ -6,7 +6,8 @@
  */
 import { describe, expect, it } from '@jest/globals';
 import { composeToday, type NextStepInput, type PlanInput } from '../composeToday';
-import type { CommitmentView, TodayGroups } from '../../commitments/model';
+import { groupForToday, type CommitmentView, type TodayGroups } from '../../commitments/model';
+import type { Commitment } from '../../../api/schemas/common';
 import type { NextStepRecommendation } from '../../../api/schemas/nextStep';
 import type { DailyPlan } from '../../../api/schemas/plan';
 
@@ -26,6 +27,27 @@ const aPlan = (status: DailyPlan['status'], placed = 2): DailyPlan => ({
   acceptedAt: null, explanation: { text: '', locale: 'ar', source: 'template' },
   scheduled: Array.from({ length: placed }, (_, i) => ({ itemId: `i${i}`, title: null, startsAt: '2026-09-22T09:00:00.000Z', endsAt: '2026-09-22T10:00:00.000Z', blockId: null })),
   unscheduled: [], edited: false, protections: [],
+});
+
+describe('which quiet it is (UAT round 3, N12)', () => {
+  const quiet = (over: Partial<NextStepInput>) =>
+    composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ silenced: true, ...over }), plan: plan(), upcoming: [] }).primary;
+
+  it('quiet hours are not quiet mode, and say when they end', () => {
+    expect(quiet({ silencedReason: 'quiet_hours', quietUntil: '07:30' })).toEqual({ kind: 'quiet', why: 'hours', until: '07:30' });
+  });
+
+  it('quiet hours from a server that sends no end are still quiet hours', () => {
+    expect(quiet({ silencedReason: 'quiet_hours' })).toEqual({ kind: 'quiet', why: 'hours', until: null });
+  });
+
+  it('quiet mode is the person\'s switch, with no end', () => {
+    expect(quiet({ silencedReason: 'quiet_mode', quietUntil: '07:30' })).toEqual({ kind: 'quiet', why: 'mode', until: null });
+  });
+
+  it('a stop that is neither — the kill switch — is not called quiet mode', () => {
+    expect(quiet({ silencedReason: 'kill_switch_active' })).toEqual({ kind: 'quiet', why: 'paused', until: null });
+  });
 });
 
 describe('exactly one primary', () => {
@@ -65,8 +87,8 @@ describe('exactly one primary', () => {
   });
 
   it('is quiet when the user asked for quiet, even with open items and a recommendation', () => {
-    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('a'), silenced: true }), plan: plan(), upcoming: [] });
-    expect(m.primary).toEqual({ kind: 'quiet' });
+    const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ recommendation: rec('a'), silenced: true, silencedReason: 'quiet_mode' }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'quiet', why: 'mode', until: null });
     expect(m.groups.must).toHaveLength(1);
   });
 
@@ -87,6 +109,28 @@ describe('the plan row is honest', () => {
     expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('edited', 1) }), upcoming: [] }).plan).toEqual({ kind: 'proposed', placed: 1 });
     expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('accepted', 2) }), upcoming: [] }).plan).toEqual({ kind: 'accepted', placed: 2 });
     expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('dismissed') }), upcoming: [] }).plan).toEqual({ kind: 'dismissed' });
+  });
+
+  /**
+   * UAT round 6 N-h: «اليوم الساعة 8 المسا لازم أحضّر العشا» is pinned to
+   * 20:00, so the plan lists it under `fixed`, never under `scheduled`. The
+   * row counted `scheduled` alone and said «ما في إشي إله وقت اليوم» over an
+   * accepted plan whose one row was that dinner.
+   */
+  it('counts what is pinned to a time, not only what the planner placed', () => {
+    const dinner = { itemId: 'dinner', title: 'dinner', startsAt: '2026-09-22T17:00:00.000Z', endsAt: '2026-09-22T17:30:00.000Z', blockId: null };
+    for (const status of ['accepted', 'proposed'] as const) {
+      const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan(status, 0), fixed: [dinner] } }), upcoming: [] });
+      expect(m.plan).toEqual({ kind: status, placed: 1 });
+      expect(m.isEmpty).toBe(false);
+    }
+    const both = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 2), fixed: [dinner] } }), upcoming: [] });
+    expect(both.plan).toEqual({ kind: 'accepted', placed: 3 });
+  });
+
+  it('a plan from a server that sends no `fixed` still counts what it placed', () => {
+    const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: aPlan('accepted', 0) }), upcoming: [] });
+    expect(m.plan).toEqual({ kind: 'accepted', placed: 0 });
   });
 
   it('a refetch keeps the last plan rather than flashing a skeleton', () => {
@@ -132,8 +176,8 @@ describe('the day is empty only when every source has answered with nothing', ()
   });
 
   it('is not empty when the user asked for quiet: the quiet card is the content', () => {
-    const m = composeToday({ groups: empty, next: next({ silenced: true }), plan: plan(), upcoming: [] });
-    expect(m.primary).toEqual({ kind: 'quiet' });
+    const m = composeToday({ groups: empty, next: next({ silenced: true, silencedReason: 'quiet_mode' }), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'quiet', why: 'mode', until: null });
     expect(m.isEmpty).toBe(false);
   });
 
@@ -196,5 +240,54 @@ describe('a refusal is an answer, a failure is not', () => {
   it('a refusal does not change what is drawn: there is still no card to show', () => {
     const m = composeToday({ groups: groups({ must: [item('a', 'must')] }), next: next({ isError: true, unavailable: true }), plan: plan(), upcoming: [] });
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'a' } });
+  });
+});
+
+/*
+ * Final UAT, N18: «عندي موعد دكتور اليوم» answered «بدون وقت محدد» is an
+ * all-day appointment (`scheduled_event`, `allDay`, due at today's local
+ * midnight). At 10:05, with no recommendation to show, the list's own top item
+ * became «خطوتك التالية» — and the only open item was the appointment. An
+ * appointment on a day is not a step: it is on Today as context, in its group,
+ * and the card goes to the first thing that is one (the server leaves it out of
+ * the next-step candidates for the same reason, FINAL-BACKEND d2762718).
+ */
+describe('an all-day appointment is never the step (N18)', () => {
+  const NOW = '2026-09-28T07:05:00.000Z'; // 10:05 in Amman
+  const base = {
+    kind: 'task', description: null, person: null, status: 'active',
+    currentAckState: 'not_seen', postponedUntil: null,
+    createdAt: '2026-09-28T07:00:00.000Z', updatedAt: '2026-09-28T07:00:00.000Z', confirmedAt: '2026-09-28T07:00:00.000Z',
+    completedAt: null, droppedAt: null,
+  };
+  const doctor = {
+    ...base, id: 'doctor', title: 'عندي موعد دكتور',
+    priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
+    timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-27T21:00:00.000Z', endAt: null, remindAt: null, allDay: true, timezone: 'Asia/Amman' },
+  } as unknown as Commitment;
+  const lunch = {
+    ...base, id: 'lunch', title: 'أحضّر الغداء',
+    priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureLevel: 'none' },
+    timeSpec: { kind: 'scheduled_event', dueAt: '2026-09-28T11:00:00.000Z', endAt: '2026-09-28T11:30:00.000Z', remindAt: null, allDay: false, timezone: 'Asia/Amman' },
+  } as unknown as Commitment;
+
+  it('the literal case: the appointment alone is context, not the card, and the day is not empty', () => {
+    const m = composeToday({ groups: groupForToday([doctor], NOW), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toEqual({ kind: 'none' });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['doctor']);
+    expect(m.openTotal).toBe(1);
+    expect(m.isEmpty).toBe(false);
+  });
+
+  it('with lunch at 14:00 on the day, lunch is the step and the appointment stays in its group', () => {
+    const m = composeToday({ groups: groupForToday([doctor, lunch], NOW), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'lunch' } });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['doctor']);
+  });
+
+  it('an all-day *task* — a thing to do by the end of the day — is still a step', () => {
+    const bill = { ...doctor, id: 'bill', timeSpec: { ...doctor.timeSpec, kind: 'due_by' } } as Commitment;
+    const m = composeToday({ groups: groupForToday([bill], NOW), next: next(), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'bill' } });
   });
 });

@@ -2,8 +2,9 @@ import { callOllama } from './localLLMProvider';
 import { validateExtractionResult } from './schemaValidator';
 import type { ExtractionContext, ExtractionResult } from './extractionTypes';
 import { COMMITMENT_CATEGORIES } from '../contracts/v1/categoryContracts';
+import type { LLMCallOptions } from './llm/llmProvider';
 
-export type LLMProviderFunction = (prompt: string) => Promise<string>;
+export type LLMProviderFunction = (prompt: string, options?: LLMCallOptions) => Promise<string>;
 
 export interface ExtractionAttemptTelemetry {
   schemaValid: boolean;
@@ -485,6 +486,10 @@ export function detectPromptInjection(rawText: string): string | null {
 /**
  * The prompt's own version, so a report can say which wording produced it.
  *
+ * v5 (FX3) names the person's own obligation words («لازم», "have to",
+ * «חייב») as an explicit high, and fixes the few-shot that showed «لازم» as
+ * normal. Also enforced after the model answers (`schemaValidator.ts`).
+ *
  * v4 (L4) adds the appointment-priority rule and the weekday rule. Both are
  * also enforced after the model answers (`schemaValidator.ts`); the prompt is
  * there so the model's own answer usually already agrees.
@@ -498,7 +503,7 @@ export function detectPromptInjection(rawText: string): string | null {
  * rule, and title constraints. It is a version string, not a feature flag:
  * there is one prompt, and this names it.
  */
-export const PROMPT_VERSION = 'capture-v4';
+export const PROMPT_VERSION = 'capture-v5';
 
 /**
  * Titles the review screen can show without editing.
@@ -549,14 +554,14 @@ const TIME_RULES: readonly string[] = [
  * shows it as a guess.
  */
 const PRIORITY_RULES: readonly string[] = [
-  'priority.level is high with source user_explicit only when the text says it is urgent or important. Hedges ("maybe", «يمكن», «אולי») are low.',
+  'priority.level is high with source user_explicit only when the text says it is urgent or important, or states an obligation in the person\'s own words: «لازم», «لازمني», «ضروري», "must", "have to", «חייב», «חייבת». Wanting or needing is not one: «بدي», "want to", "need to", «צריך» stay normal. «مش لازم», "don\'t have to", «לא חייב» are not obligations. Hedges ("maybe", «يمكن», «אולי») are low.',
   'An appointment with a fixed day or time — doctor, dentist, clinic, hospital, exam or test, interview, flight, court, or a meeting at a stated time — is high with source inferred. Calling, booking or cancelling one is an ordinary task: leave it normal.',
   'Otherwise priority is normal with source default.',
 ];
 
 const FEW_SHOTS: readonly string[] = [
   // ar — dialectal, Arabic-Indic digits, a bare day, a spoken hour
-  'INPUT: "بكرا بعد الشغل لازم أمرّ على الصيدلية" -> {"type":"task","title":"أمرّ على الصيدلية","localTimeSpec":null,"ambiguityFlags":["vague_time"]} (a day, no hour)',
+  'INPUT: "بكرا بعد الشغل لازم أمرّ على الصيدلية" -> {"type":"task","title":"أمرّ على الصيدلية","localTimeSpec":null,"priority":{"level":"high","source":"user_explicit"},"ambiguityFlags":["vague_time"]} (a day, no hour; «لازم» is their Must)',
   'INPUT: "ذكرني بكرة الساعة ٧ مساءً أحكي مع أحمد" -> {"type":"task","title":"أحكي مع أحمد","localTimeSpec":{"time":"19:00"},"explicitReminderRequest":true}',
   'INPUT: "الأربعاء الجاي عندي دكتور الساعة تلاتة العصر" -> {"type":"task","title":"عندي دكتور","localTimeSpec":{"time":"15:00"},"priority":{"level":"high","source":"inferred"}} (a fixed appointment)',
   'INPUT: "مبارح شفت أحمد" -> {"type":"informational_context","title":null,"ambiguityFlags":["informational_without_action"]} (past, nothing requested)',
@@ -605,7 +610,8 @@ function categoryRules(context: ExtractionContext): readonly string[] {
   ];
 }
 
-export function buildPrompt(rawText: string, context: ExtractionContext): string {
+/** Everything the model is told before the untrusted data, single or batch. */
+function instructionLines(context: ExtractionContext): string[] {
   return [
     'SYSTEM ROLE: You are the deterministic MaybeSitter structured extraction engine.',
     `PROMPT VERSION: ${PROMPT_VERSION}`,
@@ -632,9 +638,73 @@ export function buildPrompt(rawText: string, context: ExtractionContext): string
     ...FEW_SHOTS,
     `Reference datetime: ${context.now.toISOString()}`,
     `Timezone: ${context.timezone || 'UTC'}`,
+  ];
+}
+
+export function buildPrompt(rawText: string, context: ExtractionContext): string {
+  return [
+    ...instructionLines(context),
+    // The same calendar the batch prompt carries (CL1 round 5): asked alone,
+    // the model dated "Interview on Tuesday" a Wednesday.
+    ...calendarLines(context),
     `Required JSON shape: ${JSON.stringify(requestedShape(context))}`,
     'BEGIN_UNTRUSTED_USER_MESSAGE',
     JSON.stringify(rawText),
+    'END_UNTRUSTED_USER_MESSAGE',
+  ].join('\n');
+}
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+
+/**
+ * Today on the user's clock, and the next seven dates by weekday (CL1 review,
+ * I4). Read six clauses at once, the model resolved «يوم الأحد» to a Monday
+ * and invented a day for a clause that named none. Asked one clause at a time
+ * it dated "Interview on Tuesday" a Wednesday (live, CL1 round 4), so the
+ * single prompt carries it too (round 5). The dates are computed here, not by
+ * the model.
+ */
+function calendarLines(context: ExtractionContext): string[] {
+  const zone = context.timezone || 'UTC';
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(context.now);
+  const [year, month, day] = today.split('-').map(Number) as [number, number, number];
+  const at = (offset: number) => new Date(Date.UTC(year, month - 1, day + offset));
+  const upcoming = [1, 2, 3, 4, 5, 6, 7]
+    .map((offset) => `${WEEKDAY_NAMES[at(offset).getUTCDay()]} ${at(offset).toISOString().slice(0, 10)}`)
+    .join(', ');
+  return [
+    `Today on the user's clock is ${WEEKDAY_NAMES[at(0).getUTCDay()]} ${today}. The next seven days are: ${upcoming}.`,
+  ];
+}
+
+/**
+ * Every clause of one capture, read in one call (CL1 review, I4).
+ *
+ * One call per clause spent the per-user minute budget on a single spoken list
+ * — six clauses, six calls, against a cap of eight — and was sequential, so a
+ * long capture ran past the phone's 15 s timeout. The rules are the same ones,
+ * word for word; the only additions say that the untrusted data is a list of
+ * separate clauses, each to be read as though it were the whole message, and
+ * that the answer is one object per clause, in order.
+ *
+ * Each clause's object is then validated exactly as a single answer is, against
+ * that clause's own text, so the reconciler and the no-invented-time rule see
+ * the same input they always did.
+ */
+export function buildBatchPrompt(clauses: readonly string[], context: ExtractionContext): string {
+  return [
+    ...instructionLines(context),
+    'BATCH MODE: the untrusted data is a JSON array of separate clauses from one message.',
+    'Read each clause on its own, as though it were the whole message: never carry a time, a day, a person or an action from one clause into another.',
+    ...calendarLines(context),
+    'A clause that names no day and no time gets localTimeSpec, dueAt and remindAt all null. Never give a clause a date it does not state.',
+    'Arabic «المسا», «مساءً», «بالمسا» with no hour is 18:00; «الصبح» is 09:00; «العصر» is 15:00.',
+    'Return one JSON object whose only key is items: an array with exactly one extraction object per clause, in the same order. Every rule and allowed key above applies to each extraction object.',
+    'Each extraction object also carries clauseIndex: the 0-based position, in the array, of the clause it reads. It is an echo of the clause, not a count of your objects: an object that reads clause k carries k, even if it is not the k-th object. clauseIndex is the one key allowed beyond those listed above.',
+    'Never answer one clause with two objects and never skip a clause: a clause naming two things still gets exactly one object, flagged multiple_commitments.',
+    `Required JSON shape: ${JSON.stringify({ items: [{ clauseIndex: 'integer, 0-based position of the clause', ...requestedShape(context) }] })}`,
+    'BEGIN_UNTRUSTED_USER_MESSAGE',
+    JSON.stringify(clauses),
     'END_UNTRUSTED_USER_MESSAGE',
   ].join('\n');
 }

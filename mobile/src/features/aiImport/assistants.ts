@@ -1,11 +1,21 @@
 /**
  * The assistants a user can bring context from, and where to send them.
  *
- * ── https, opened with the OS, and no scheme detection ───────────
+ * ── Two URLs: the app's, and the web chat ────────────────────────
  *
- * `Linking.openURL` with an https URL lets the operating system decide: a
- * universal link or Android app link hands it to the installed assistant, and
- * anything else opens the browser. That is the whole handoff. The alternative —
+ * `appUrl` is a path the vendor's app claims, so a universal link hands it to
+ * the installed app. `webUrl` is where the chat itself lives on the web. They
+ * differ because an app path is not a chat page: without the ChatGPT app,
+ * `https://chatgpt.com/app` answers 302 → apps.apple.com (checked with curl,
+ * 2026-09-26), and somebody who wanted to paste a question lands in the App
+ * Store (closure CL2b, #21). `openAssistant.ts` therefore tries `appUrl` only
+ * through iOS's `universalLinksOnly` check — which opens nothing when no app
+ * claims it — and opens `webUrl` otherwise. Android App Links already choose
+ * between app and browser, so Android opens `webUrl` directly.
+ *
+ * ── https, and no scheme detection ───────────────────────────────
+ *
+ * The alternative to universal links —
  * `canOpenURL` against `chatgpt://` and friends — needs three competitors'
  * schemes declared in `LSApplicationQueriesSchemes` and an Android `<queries>`
  * block, which is a store-review change that buys nothing the OS is not already
@@ -34,14 +44,16 @@ export type ImportAssistant = 'chatgpt' | 'gemini' | 'claude' | 'other';
 export const IMPORT_ASSISTANTS: readonly ImportAssistant[] = ['chatgpt', 'gemini', 'claude', 'other'];
 
 export interface AssistantDescriptor {
-  /** Opened with the OS. `null` means there is nothing to open. */
-  readonly url: string | null;
+  /** The universal link the vendor's app claims; tried only where the OS can say "no app". */
+  readonly appUrl: string | null;
+  /** The web chat. `null` means there is nothing to open. */
+  readonly webUrl: string | null;
   readonly labelKey: keyof Strings;
 }
 
 export const ASSISTANTS: Record<ImportAssistant, AssistantDescriptor> = {
-  chatgpt: { url: 'https://chatgpt.com/app', labelKey: 'aiImportAssistantChatgpt' },
-  gemini: { url: 'https://gemini.google.com/app', labelKey: 'aiImportAssistantGemini' },
-  claude: { url: 'https://claude.ai/new', labelKey: 'aiImportAssistantClaude' },
-  other: { url: null, labelKey: 'aiImportAssistantOther' },
+  chatgpt: { appUrl: 'https://chatgpt.com/app', webUrl: 'https://chatgpt.com/', labelKey: 'aiImportAssistantChatgpt' },
+  gemini: { appUrl: 'https://gemini.google.com/app', webUrl: 'https://gemini.google.com/app', labelKey: 'aiImportAssistantGemini' },
+  claude: { appUrl: 'https://claude.ai/new', webUrl: 'https://claude.ai/new', labelKey: 'aiImportAssistantClaude' },
+  other: { appUrl: null, webUrl: null, labelKey: 'aiImportAssistantOther' },
 };

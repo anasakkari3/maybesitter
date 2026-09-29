@@ -21,6 +21,8 @@ import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { NotificationsSettingsScreen } from '../NotificationsSettingsScreen';
 import en from '../../../i18n/locales/en.json';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import * as reminderEndpoints from '../../../api/endpoints/reminders';
 import * as permission from '../../../notifications/permission';
 import * as deviceEndpoints from '../../../api/endpoints/devices';
@@ -88,7 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  cleanup();
+  await cleanup();
   // A real macrotask: a save still settling when the tree comes down leaves
   // React work in flight, and in RNTL v14 the next `render` then mounts
   // nothing at all.
@@ -154,7 +156,7 @@ describe('the OS prompt', () => {
     // install, and spending it on a screen visit is spending it on nothing.
     expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
 
-    fireEvent(control, 'valueChange', true);
+    await fireEvent(control, 'valueChange', true);
     await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(reminderEndpoints.putReminderSettings)
       .toHaveBeenCalledWith({ softEnabled: true }));
@@ -162,7 +164,7 @@ describe('the OS prompt', () => {
 
   it('is not asked on the way off', async () => {
     await show();
-    fireEvent(await readySwitch(), 'valueChange', false);
+    await fireEvent(await readySwitch(), 'valueChange', false);
     await waitFor(() => expect(reminderEndpoints.putReminderSettings)
       .toHaveBeenCalledWith({ softEnabled: false }));
     expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
@@ -174,7 +176,7 @@ describe('the OS prompt', () => {
       .mockResolvedValue(settings({ softEnabled: false }) as never);
     await show();
 
-    fireEvent(await readySwitch(), 'valueChange', true);
+    await fireEvent(await readySwitch(), 'valueChange', true);
     await waitFor(() => expect(screen.queryByTestId('notifications-denied')).not.toBeNull());
     // The setting is what the user wants; the permission is what the phone
     // currently allows. Rolling the setting back would lose the first when
@@ -256,11 +258,30 @@ describe('the way to phone settings (first iPhone run, L7)', () => {
   });
 });
 
+describe('quiet-hours chips', () => {
+  // UAT 2026-09-26 (D6, shot 84): the Arabic chips read «٢٢:٣٠ – ٠٧:٣٠» while
+  // every other time in the app is Latin («09:00»). One rule: Latin digits,
+  // the range as one left-to-right unit, built from the window it saves.
+  afterEach(async () => { await AsyncStorage.removeItem(LANGUAGE_STORAGE_KEY); });
+
+  for (const lang of ['ar', 'en', 'he'] as const) {
+    it(`${lang}: Latin digits, start before end, one left-to-right unit`, async () => {
+      await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+      await show();
+      await waitFor(() => expect(screen.queryByTestId('reminder-quiet-standard')).not.toBeNull());
+      const label = (id: string) => screen.getByTestId(`reminder-quiet-${id}`).props.accessibilityLabel as string;
+      await waitFor(() => expect(label('standard')).toBe('\u206622:30–07:30\u2069'));
+      expect(label('early')).toBe('\u206621:30–06:30\u2069');
+      expect(label('late')).toBe('\u206623:30–08:30\u2069');
+    });
+  }
+});
+
 describe('the controls', () => {
   it('sends the lead time the user picked', async () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId('reminder-lead-15')).not.toBeNull());
-    fireEvent.press(screen.getByTestId('reminder-lead-15'));
+    await fireEvent.press(screen.getByTestId('reminder-lead-15'));
     await waitFor(() => expect(reminderEndpoints.putReminderSettings)
       .toHaveBeenCalledWith({ softLeadMinutes: 15 }));
   });
@@ -268,7 +289,7 @@ describe('the controls', () => {
   it('sends a quiet window the routine survey could re-open on a chip', async () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId('reminder-quiet-early')).not.toBeNull());
-    fireEvent.press(screen.getByTestId('reminder-quiet-early'));
+    await fireEvent.press(screen.getByTestId('reminder-quiet-early'));
     await waitFor(() => expect(reminderEndpoints.putReminderSettings).toHaveBeenCalled());
     const [patch] = (reminderEndpoints.putReminderSettings as jest.Mock).mock.calls.at(-1) as [
       { quietHours: { start: string; end: string; timezone: string } },
@@ -300,7 +321,7 @@ describe('the controls', () => {
     // would pass on the loading fallback rather than on the fix.
     await waitFor(() => expect(profileEndpoints.getProfile).toHaveBeenCalled());
 
-    fireEvent.press(screen.getByTestId('reminder-quiet-standard'));
+    await fireEvent.press(screen.getByTestId('reminder-quiet-standard'));
     await waitFor(() => expect(reminderEndpoints.putReminderSettings).toHaveBeenCalled());
     const [patch] = (reminderEndpoints.putReminderSettings as jest.Mock).mock.calls.at(-1) as [
       { quietHours: { timezone: string } },
@@ -316,7 +337,7 @@ describe('the controls', () => {
     await waitFor(() => expect(screen.queryByTestId('reminder-quiet-late')).not.toBeNull());
     await waitFor(() => expect(profileEndpoints.getProfile).toHaveBeenCalled());
 
-    fireEvent.press(screen.getByTestId('reminder-quiet-late'));
+    await fireEvent.press(screen.getByTestId('reminder-quiet-late'));
     await waitFor(() => expect(reminderEndpoints.putReminderSettings).toHaveBeenCalled());
     const [patch] = (reminderEndpoints.putReminderSettings as jest.Mock).mock.calls.at(-1) as [
       { quietHours: { timezone: string } },
@@ -327,7 +348,7 @@ describe('the controls', () => {
   it('clears the window when the user picks none', async () => {
     await show();
     await waitFor(() => expect(screen.queryByTestId('reminder-quiet-none')).not.toBeNull());
-    fireEvent.press(screen.getByTestId('reminder-quiet-none'));
+    await fireEvent.press(screen.getByTestId('reminder-quiet-none'));
     await waitFor(() => expect(reminderEndpoints.putReminderSettings)
       .toHaveBeenCalledWith({ quietHours: null }));
   });
@@ -345,7 +366,7 @@ describe('the controls', () => {
     jest.spyOn(reminderEndpoints, 'putReminderSettings').mockRejectedValue(new Error('offline'));
     await show();
     await waitFor(() => expect(screen.queryByTestId('reminder-lead-30')).not.toBeNull());
-    fireEvent.press(screen.getByTestId('reminder-lead-30'));
+    await fireEvent.press(screen.getByTestId('reminder-lead-30'));
     await waitFor(() => expect(screen.queryByTestId('notifications-save-failed')).not.toBeNull());
   });
 });
@@ -366,23 +387,23 @@ describe('Must reminders', () => {
 
   it('never rings on one tap: "Ring for Must items" explains first and writes nothing', async () => {
     await show();
-    fireEvent.press(await readyCeiling('hard'));
+    await fireEvent.press(await readyCeiling('hard'));
 
     await waitFor(() => expect(screen.queryByTestId('must-hard-explainer')).not.toBeNull());
     expect(screen.queryByText(en.notifHardExplainBody)).not.toBeNull();
     expect(reminderEndpoints.putReminderSettings).not.toHaveBeenCalled();
     expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
 
-    fireEvent.press(screen.getByTestId('must-hard-cancel'));
+    await fireEvent.press(screen.getByTestId('must-hard-cancel'));
     await waitFor(() => expect(screen.queryByTestId('must-hard-explainer')).toBeNull());
     expect(reminderEndpoints.putReminderSettings).not.toHaveBeenCalled();
   });
 
   it('turns ringing on from the explainer s confirm, opt-in and ceiling together', async () => {
     await show();
-    fireEvent.press(await readyCeiling('hard'));
+    await fireEvent.press(await readyCeiling('hard'));
     await waitFor(() => expect(screen.queryByTestId('must-hard-confirm')).not.toBeNull());
-    fireEvent.press(screen.getByTestId('must-hard-confirm'));
+    await fireEvent.press(screen.getByTestId('must-hard-confirm'));
 
     await waitFor(() => expect(reminderEndpoints.putReminderSettings)
       .toHaveBeenCalledWith({ escalationCeiling: 'hard', hardEnabled: true }));
@@ -394,7 +415,7 @@ describe('Must reminders', () => {
     jest.spyOn(reminderEndpoints, 'getReminderSettings')
       .mockResolvedValue(settings({ hardEnabled: true, escalationCeiling: 'hard' }) as never);
     await show();
-    fireEvent.press(await readyCeiling('soft'));
+    await fireEvent.press(await readyCeiling('soft'));
     await waitFor(() => expect(reminderEndpoints.putReminderSettings)
       .toHaveBeenCalledWith({ escalationCeiling: 'soft', hardEnabled: false }));
     expect(permission.requestNotificationPermission).not.toHaveBeenCalled();
@@ -416,7 +437,7 @@ describe('Must reminders', () => {
       const control = screen.getByTestId('must-through-quiet-switch');
       expect(control.props.value).toBe(false);
     });
-    fireEvent(screen.getByTestId('must-through-quiet-switch'), 'valueChange', true);
+    await fireEvent(screen.getByTestId('must-through-quiet-switch'), 'valueChange', true);
     await waitFor(() => expect(reminderEndpoints.putReminderSettings)
       .toHaveBeenCalledWith({ mustThroughQuietHours: true }));
   });
@@ -431,7 +452,7 @@ describe('Must reminders', () => {
 
     await waitFor(() => expect(screen.queryByTestId('must-exact-denied')).not.toBeNull());
     expect(screen.queryByText(en.notifExactDenied)).not.toBeNull();
-    fireEvent.press(screen.getByTestId('must-exact-open'));
+    await fireEvent.press(screen.getByTestId('must-exact-open'));
     expect(open).toHaveBeenCalledTimes(1);
   });
 
@@ -493,9 +514,9 @@ describe('Must ringing when the phone will not ring (#475)', () => {
     await show();
 
     await waitFor(() => expect(screen.queryByTestId('must-ceiling-hard')).not.toBeNull());
-    fireEvent.press(screen.getByTestId('must-ceiling-hard'));
+    await fireEvent.press(screen.getByTestId('must-ceiling-hard'));
     await waitFor(() => expect(screen.queryByTestId('must-hard-confirm')).not.toBeNull());
-    fireEvent.press(screen.getByTestId('must-hard-confirm'));
+    await fireEvent.press(screen.getByTestId('must-hard-confirm'));
 
     await waitFor(() => expect(screen.queryByTestId('must-ring-denied')).not.toBeNull());
     expect(screen.queryByText(en.notifMustRingDenied)).not.toBeNull();
@@ -504,10 +525,12 @@ describe('Must ringing when the phone will not ring (#475)', () => {
     // (f) The choice is not rolled back.
     expect(put).toHaveBeenCalledWith({ escalationCeiling: 'hard', hardEnabled: true });
     expect(put).not.toHaveBeenCalledWith(expect.objectContaining({ hardEnabled: false }));
-    // One warning for one condition.
-    expect(screen.queryByTestId('notifications-denied')).toBeNull();
+    // The phone's no is also the screen's first line now (closure CL2b #18:
+    // "whenever status is denied"); the Must warning adds what it means for
+    // ringing, at the control.
+    expect(within(screen.getByTestId('notifications-status')).queryByTestId('notifications-denied')).not.toBeNull();
 
-    fireEvent.press(within(screen.getByTestId('must-reminders')).getByTestId('must-ring-open-settings'));
+    await fireEvent.press(within(screen.getByTestId('must-reminders')).getByTestId('must-ring-open-settings'));
     expect(open).toHaveBeenCalledTimes(1);
   });
 

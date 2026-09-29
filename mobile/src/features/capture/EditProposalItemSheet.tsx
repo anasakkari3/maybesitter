@@ -10,6 +10,8 @@ import { Btn, Pill, Txt } from '../../ui/primitives';
 import { MAX_TITLE_LENGTH, type CaptureItemEdit } from './captureMachine';
 import { instantForLocalDateTime, localDateTimeFor } from './localInstant';
 import type { CaptureProposalItem } from '../../api/schemas/capture';
+import type { LocationTrigger } from '../../api/schemas/common';
+import { ProposalPlaceReminder } from '../places/ProposalPlaceReminder';
 
 /**
  * Editing one proposed item before anything is saved (UC-2.4, #164).
@@ -53,6 +55,8 @@ export function EditProposalItemSheet({
   const [priority, setPriority] = useState<'high' | 'normal' | 'low'>(edit?.priority ?? item.priority ?? 'normal');
   const [local, setLocal] = useState(currentLocal);
   const [picking, setPicking] = useState<'date' | 'time' | null>(null);
+  // "Remind me when I arrive / leave" (closure CL4); travels with the confirm.
+  const [place, setPlace] = useState<LocationTrigger | null | undefined>(edit?.locationTrigger);
 
   const trimmed = title.trim();
   const hasTime = local !== '';
@@ -94,9 +98,10 @@ export function EditProposalItemSheet({
     // is not sent at all. For a flagged item with no time, the explicit "No time"
     // is sent so review knows the user confirmed the absence of a time (#505).
     if (local !== originalLocal || (item.needsClarification && local === '')) next.localDateTime = local;
+    if (place !== undefined) next.locationTrigger = place;
     onChange(next);
     onClose();
-  }, [instant, item, local, onChange, onClose, originalLocal, priority, trimmed]);
+  }, [instant, item, local, onChange, onClose, originalLocal, place, priority, trimmed]);
 
   const pickerValue = instant ?? new Date();
 
@@ -227,6 +232,8 @@ export function EditProposalItemSheet({
           }}
         />
       ) : null}
+
+      <ProposalPlaceReminder value={place} onChange={setPlace} />
 
       {problem ? <Txt size={13} color={p.wm} testID="edit-item-problem">{problem}</Txt> : null}
 

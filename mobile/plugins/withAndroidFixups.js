@@ -15,6 +15,13 @@ const { AndroidConfig, withAndroidManifest } = require('@expo/config-plugins');
  * 2. Receiver deduplication:
  *    Ensures receiver entries (such as widget receivers) in `<application>` are deduplicated by `android:name`.
  *
+ * 3. expo-location's `LocationTaskService` (closure CL4):
+ *    The library manifest declares a `foregroundServiceType="location"` service
+ *    for continuous background location updates. Place reminders use geofences
+ *    only — delivered by Play services, no foreground service — so the service
+ *    is removed at merge time (`tools:node="remove"`) rather than shipped as a
+ *    location foreground service the app never starts and Play would ask about.
+ *
  * NOTE ON PLUGIN ORDERING:
  * Expo config plugin mods execute in reverse registration order.
  * This plugin must be listed BEFORE `expo-notifications` in `app.config.ts` so its `withAndroidManifest`
@@ -57,6 +64,13 @@ function withAndroidFixups(config) {
         return true;
       });
     }
+
+    // 3. Remove expo-location's location foreground service (geofencing does not use it)
+    const locationService = 'expo.modules.location.services.LocationTaskService';
+    application.service = (application.service ?? []).filter(
+      (service) => !(service.$ && service.$['android:name'] === locationService),
+    );
+    application.service.push({ $: { 'android:name': locationService, 'tools:node': 'remove' } });
 
     return modConfig;
   });

@@ -1,6 +1,7 @@
 import type { CommitmentView, TodayGroups } from '../commitments/model';
 import type { NextStepRecommendation } from '../../api/schemas/nextStep';
 import type { DailyPlan } from '../../api/schemas/plan';
+import { planRows } from '../plan/lateDay';
 
 /**
  * One answer to "what matters now" (Round 2, Phase C).
@@ -26,8 +27,16 @@ import type { DailyPlan } from '../../api/schemas/plan';
  *   LATER     a glimpse of the coming days, so Today ends with what is next
  *             rather than with a wall.
  */
+/**
+ * Why there is no card (UAT round 3, N12). `mode`: the person's own quiet-mode
+ * switch, on until they turn it off. `hours`: inside their quiet hours, which
+ * end by themselves at `until`. `paused`: anything else the route went quiet
+ * for — the kill switch — which nobody on this phone can turn off.
+ */
+export type QuietWhy = 'mode' | 'hours' | 'paused';
+
 export type Primary =
-  | { kind: 'quiet' }
+  | { kind: 'quiet'; why: QuietWhy; until: string | null }
   | { kind: 'allDone' }
   | { kind: 'next'; recommendation: NextStepRecommendation; item: CommitmentView | null }
   | { kind: 'fallback'; item: CommitmentView }
@@ -66,6 +75,10 @@ export interface NextStepInput {
   recommendation: NextStepRecommendation | null | undefined;
   /** `exposure.allowed === false`: the user asked for quiet. */
   silenced: boolean;
+  /** `exposure.reason` when silenced: `quiet_mode`, `quiet_hours` or `kill_switch_active`. */
+  silencedReason?: string | undefined;
+  /** `exposure.until`: the `HH:mm` quiet hours end, when that is the reason. */
+  quietUntil?: string | undefined;
   isPending: boolean;
   isError: boolean;
   /**
@@ -123,7 +136,13 @@ export function composeToday(input: {
     // recommendation route thinks — it may still name a thing from tomorrow.
     primary = { kind: 'allDone' };
   } else if (next.silenced) {
-    primary = { kind: 'quiet' };
+    // Quiet hours used to be drawn as quiet mode — «ما رح نقترح إشي لحد ما
+    // تطفّيه» at 04:00 with quiet mode off (UAT round 3, N12). They are told
+    // apart here, once, for whatever draws the card. A missing reason is read
+    // as quiet mode, which is what every silence was drawn as before.
+    const why: QuietWhy = next.silencedReason === 'quiet_hours' ? 'hours'
+      : next.silencedReason === undefined || next.silencedReason === 'quiet_mode' ? 'mode' : 'paused';
+    primary = { kind: 'quiet', why, until: why === 'hours' ? next.quietUntil ?? null : null };
   } else if (ready && rec.primaryStep) {
     primary = { kind: 'next', recommendation: rec, item: byId.get(rec.primaryStep.commitmentId) ?? null };
   } else {
@@ -132,7 +151,9 @@ export function composeToday(input: {
     // open item of the first non-empty group, Must before Should before Nice
     // (#169). Whether it has a reason to give is a separate question the
     // screen asks with `whyFirstLine`; `topItemFor` answers that one, not this.
-    const top = open[0] ?? null;
+    // An appointment on a day is not a step: it stays in its group as the
+    // day's context, and the card goes to the first thing to do (N18).
+    const top = open.find((c) => !c.allDayEvent) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 
@@ -149,8 +170,12 @@ export function composeToday(input: {
   else if (plan.isError) planRow = { kind: 'error' };
   else if (!plan.plan) planRow = { kind: 'none' };
   else if (plan.plan.status === 'dismissed') planRow = { kind: 'dismissed' };
-  else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: plan.plan.scheduled.length };
-  else planRow = { kind: 'proposed', placed: plan.plan.scheduled.length };
+  // What has a time on the day: what the planner placed *and* what is pinned
+  // to a time (`fixed`), as the plan screen draws them. Counting `scheduled`
+  // alone said «ما في إشي إله وقت اليوم» over an accepted plan whose one row
+  // was dinner at 20:00 (UAT round 6, N-h).
+  else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: planRows(plan.plan).length };
+  else planRow = { kind: 'proposed', placed: planRows(plan.plan).length };
 
   // ── later ──
   const todayIds = new Set([...open, ...groups.finished].map((c) => c.id));
@@ -162,11 +187,11 @@ export function composeToday(input: {
   // One rule: the day is empty only when every source has answered and none
   // of them has anything to show.
   //
-  // `primary.kind === 'none'` is already the list's whole answer — it is the
-  // one kind that draws nothing, and it is reached only when the day has no
-  // open item, nothing finished (that is `allDone`), no recommendation to
-  // show and no request for quiet. So the list is not re-tested here; a
-  // second, redundant clause would be a line no mutation could kill.
+  // `primary.kind === 'none'` is the one kind that draws nothing. It is
+  // reached with no open item, nothing finished (that is `allDone`), no
+  // recommendation to show and no request for quiet — or when every open
+  // item is an appointment on the day (N18), which is still a day with
+  // something on it. So the open count is part of the answer.
   const planShowsWork = (planRow.kind === 'proposed' || planRow.kind === 'accepted') && planRow.placed > 0;
   // Pending or failed is *not* an answer. Saying «empty» while a source is
   // still talking is the false empty state itself, and on failure the empty
@@ -183,6 +208,6 @@ export function composeToday(input: {
     openTotal: open.length,
     plan: planRow,
     later,
-    isEmpty: primary.kind === 'none' && !planShowsWork && later.length === 0 && !stillAsking,
+    isEmpty: primary.kind === 'none' && open.length === 0 && !planShowsWork && later.length === 0 && !stillAsking,
   };
 }

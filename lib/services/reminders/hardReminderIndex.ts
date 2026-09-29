@@ -36,7 +36,7 @@
  * a phone uploads receipts, which is every sync of every phone that has the
  * feature.
  */
-import type { Commitment, DomainState } from '../../../src/domain/stateMachine';
+import { deadlineOfTimeSpec, isTimedWindow, type Commitment, type DomainState } from '../../../src/domain/stateMachine';
 import {
   COMMITMENTS,
   docIdForKey,
@@ -139,11 +139,18 @@ export function hardFireAtFor(commitment: Commitment, settings: HardReminderSett
   if (commitment.status !== 'active') return null;
   if (commitment.priority?.level !== 'high') return null;
   if (commitment.timeSpec?.allDay) return null;
-  const dueAt = commitment.timeSpec?.dueAt;
+  // Counted back from the deadline, as the phone counts it (`startOf`): a
+  // prep step shown at 14:00 is done by the meeting's 15:00 start, so its Must
+  // ring is 14:50. A window shorter than that rings hard at its opening
+  // instead — max(opening, deadline − 10), as the phone's `planFor` places it —
+  // so a Must is never left with no ring (FX1, R1; re-review Minor 1).
+  const dueAt = commitment.timeSpec ? deadlineOfTimeSpec(commitment.timeSpec) : null;
   if (!dueAt) return null;
   const start = Date.parse(dueAt);
   if (Number.isNaN(start)) return null;
-  const fireAt = start - HARD_LEAD_MS;
+  const fireAt = isTimedWindow(commitment.timeSpec)
+    ? Math.max(Date.parse(commitment.timeSpec.dueAt as string), start - HARD_LEAD_MS)
+    : start - HARD_LEAD_MS;
   if (!mustRingsDespitePostpone(fireAt, commitment.postponedUntil ?? null)) return null;
   return new Date(fireAt).toISOString();
 }
