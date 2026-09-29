@@ -1557,5 +1557,8 @@
   "captureConfirmBadEdit": "في تعديل ما انحفظ. شوف العنوان والوقت.",
   "clarifyNotUnderstood": "ما فهمتها. اختار من الخيارات أو جرّب كمان مرّة.",
   "clarifySkip": "تخطّاها",
-  "readinessNoCheckIn": "لسّا ما سجّلت طاقتك. اختار رقم من فوق."
+  "readinessNoCheckIn": "لسّا ما سجّلت طاقتك. اختار رقم من فوق.",
+  "referenceCalendarFilterEmpty": "ما في عناصر بهالعرض.",
+  "referenceWeekSubtitle": "التزاماتك، يوم بيوم.",
+  "referenceTodaySubtitle": "خطوة صغيرة بتكفّي لنبلّش."
 }

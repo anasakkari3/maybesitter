@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { Text } from 'react-native';
@@ -26,6 +26,9 @@ import en from '../../i18n/locales/en.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as planEndpoints from '../../api/endpoints/plans';
+import * as trustEndpoints from '../../api/endpoints/trust';
+import * as busyCalendar from '../../features/calendar/useBusyCalendar';
+import { queryKeys } from '../../api/queries';
 import { savedWeekResponseSchema, type SavedWeek } from '../../api/schemas/plan';
 import savedWeekFixture from '../../api/__fixtures__/plan.weekSaved.json';
 
@@ -221,6 +224,59 @@ describe('the open day', () => {
     // on. They must not disappear from the calendar entirely.
     await show([item('someday', null)], []);
     expect(screen.getByTestId('calendar-time-someday').props.children).toBe(en.noTimeYet);
+  });
+});
+
+describe('calendar timeline filters', () => {
+  const busyBlock = { nativeId: 'calendar-event', startAt: onDay(0, 12), endAt: onDay(0, 13), allDay: false };
+  const trustBody = (calendarConsent: boolean) => ({
+    success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent },
+  });
+
+  function connectedCalendar() {
+    jest.spyOn(busyCalendar, 'useBusyBlocks').mockReturnValue([busyBlock]);
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustBody(true) as never);
+  }
+
+  it('filters actual commitments and consented busy blocks without changing the selected day', async () => {
+    connectedCalendar();
+    await show([item('mine', onDay(0, 10))], []);
+    await waitFor(() => expect(screen.queryByTestId('calendar-busy-row')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-filter-commitment'));
+    expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull();
+    expect(screen.queryByTestId('calendar-busy-row')).toBeNull();
+    expect(screen.getByTestId('calendar-filter-commitment').props.accessibilityState.selected).toBe(true);
+
+    await fireEvent.press(screen.getByTestId('calendar-filter-busy'));
+    expect(screen.queryByTestId('calendar-item-mine')).toBeNull();
+    expect(screen.queryByTestId('calendar-busy-row')).not.toBeNull();
+    expect(screen.getByTestId(`calendar-day-${TODAY_KEY}`).props.accessibilityState.selected).toBe(true);
+
+    await fireEvent.press(screen.getByTestId('calendar-filter-all'));
+    expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull();
+    expect(screen.queryByTestId('calendar-busy-row')).not.toBeNull();
+  });
+
+  it('labels a filtered empty list without claiming that the day has nothing on it', async () => {
+    connectedCalendar();
+    await show([], []);
+    await waitFor(() => expect(screen.queryByTestId('calendar-busy-row')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-filter-commitment'));
+    expect(screen.queryByTestId('calendar-day-free')).toBeNull();
+    expect(screen.queryByTestId('calendar-filter-empty')).not.toBeNull();
+    expect(screen.getByText(en.referenceCalendarFilterEmpty)).toBeTruthy();
+  });
+
+  it('returns to all commitments immediately if consent is revoked while busy is selected', async () => {
+    connectedCalendar();
+    await show([item('mine', onDay(0))], []);
+    await waitFor(() => expect(screen.queryByTestId('calendar-filter-busy')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-filter-busy'));
+    await act(async () => { client.setQueryData(queryKeys.trust(USER.uid), trustBody(false)); });
+    await waitFor(() => expect(screen.queryByTestId('calendar-filter-busy')).toBeNull());
+    expect(screen.queryByTestId('calendar-busy-row')).toBeNull();
+    expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull();
+    expect(screen.getByTestId('calendar-filter-all').props.accessibilityState.selected).toBe(true);
   });
 });
 

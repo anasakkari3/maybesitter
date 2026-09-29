@@ -144,10 +144,17 @@ describe('it never implies it has acted', () => {
 
 describe('the why', () => {
   it('is folded away until asked for', async () => {
+    const decide = mockDecision();
     await show();
     expect(screen.queryByTestId('next-step-why')).toBeNull();
+    expect(screen.getByTestId('next-step-why-toggle').props.accessibilityState.expanded).toBe(false);
     await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
     await waitFor(() => expect(screen.queryByTestId('next-step-why')).not.toBeNull());
+    expect(screen.getByTestId('next-step-why-toggle').props.accessibilityState.expanded).toBe(true);
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    expect(screen.queryByTestId('next-step-why')).toBeNull();
+    expect(screen.getByTestId('next-step-why-toggle').props.accessibilityState.expanded).toBe(false);
+    expect(decide).not.toHaveBeenCalled();
   });
 
   it('is in the user’s language, not the server’s', async () => {

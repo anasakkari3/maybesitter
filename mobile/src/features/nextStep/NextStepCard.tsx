@@ -17,6 +17,7 @@ import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
 import { drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
+import { ReferenceCard, ReferenceIcon, ReferenceLaptop, useReferencePalette } from '../../ui/referenceDesign';
 
 /**
  * The one suggestion, and the answers to it (UC-2.R3 #173, UC-2.9 #170;
@@ -67,7 +68,8 @@ export function NextStepCard({ lookup }: {
   /** Today's items by id, so the card can show the time and importance of the thing it names. */
   lookup?: ReadonlyMap<string, CommitmentView> | undefined;
 }) {
-  const { t, tr, p } = useApp();
+  const { t, tr } = useApp();
+  const p = useReferencePalette();
   const query = useNextStep();
   const decide = useNextStepDecision();
   const [showWhy, setShowWhy] = useState(false);
@@ -103,15 +105,20 @@ export function NextStepCard({ lookup }: {
   return (
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {recommendation && !silenced ? (
-        <View
+        <ReferenceCard
+          tone="hero"
+          pad={18}
           testID="next-step-card"
           style={{
-            backgroundColor: p.sf, borderRadius: 24, padding: 22, gap: 14,
+            gap: 14,
             borderWidth: 1.5, borderColor: started ? p.acs : p.prop, borderStyle: started ? 'solid' : 'dashed',
           }}
         >
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-            <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: p.acs, alignItems: 'center', justifyContent: 'center' }}>
+              <ReferenceIcon name="bolt" size={20} color={p.acd} />
+            </View>
+            <Txt size={15} weight={600} color={p.tx} style={{ flexGrow: 1 }}>{t.nextStepLabel}</Txt>
             {/* Started only. A proposal already says so in `suggestionNote`
                 and the dashed edge; a tag saying it again was #17's
                 duplicate (UAT 2026-09-27). */}
@@ -150,7 +157,7 @@ export function NextStepCard({ lookup }: {
               </Txt>
             </View>
           )}
-        </View>
+        </ReferenceCard>
       ) : null}
     </QueryBoundary>
   );
@@ -194,7 +201,8 @@ function Ready({
   busy: boolean;
 }) {
   const stacked = useLayoutMode() !== 'normal';
-  const { t, p, rtl, script, lang, actions } = useApp();
+  const { t, rtl, script, lang, actions } = useApp();
+  const p = useReferencePalette();
   const timezone = useTimeZone();
   const step = recommendation.primaryStep!;
   const [draft, setDraft] = useState(step.title);
@@ -225,52 +233,26 @@ function Ready({
 
   return (
     <>
-      <Btn label={dueAside ? `${step.title}, ${dueAside}` : step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
-        <Txt role="section" testID="next-step-title">{step.title}</Txt>
-        {item ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Txt size={14} color={p.mu} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt>
-            {impLabel ? <Txt size={14} color={p.mu}>·</Txt> : null}
-            {impLabel ? <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
+      <Btn label={dueAside ? `${step.title}, ${dueAside}` : step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 12 }}>
+        <Txt role="section" size={27} color={p.tx} testID="next-step-title">{step.title}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' }}>
+          <View style={{ flex: 1, gap: 8 }}>
+            {item ? <>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <ReferenceIcon name="calendar" size={18} color={p.mu} />
+                <Txt size={14} color={p.mu} style={{ flex: 1 }} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt>
+              </View>
+              {impLabel ? <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
+            </> : null}
+            {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
           </View>
-        ) : null}
-        {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
+          {!stacked ? <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 98 }}><ReferenceLaptop /></View> : null}
+        </View>
       </Btn>
 
       {/* Unconditional. See the header: the contract says nothing has been
           written, and this is that fact in words. */}
       <Txt size={12} color={p.mu} testID="next-step-note">{t.suggestionNote}</Txt>
-
-      {phrases.length > 0 || (item && !item.importanceIsStated) ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
-          {phrases.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
-          {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
-        </View>
-      ) : null}
-
-      {phrases.length > 0 ? (
-        <View style={{ gap: 6 }}>
-          <TextLink testID="next-step-why-toggle" label={t.nextStepWhy} onPress={onToggleWhy} size={13} />
-          {showWhy ? (
-            <View style={{ gap: 6, backgroundColor: p.bg, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }} testID="next-step-why">
-              {phrases.map((phrase) => (
-                <Txt key={phrase} size={13} color={p.mu}>{`· ${phrase}`}</Txt>
-              ))}
-              {/* The contract pins `sensitiveInferenceUsed` to false, so this
-                  is a promise the app can keep rather than a status. */}
-              <Txt size={12} color={p.mu} testID="next-step-no-sensitive">{t.nextStepNoSensitive}</Txt>
-              <TextLink label={t.nextStepKnows} onPress={() => actions.go('knows')} testID="next-step-knows" size={13} />
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-
-      {/* Saying the suggestion was wrong (#173 step 4). Below the reasons,
-          because it is a response to them. */}
-      <FeedbackFlagButton
-        proposalId={recommendation.proposalId}
-        commitmentId={step.commitmentId}
-      />
 
       {editing ? (
         <View style={{ gap: 10 }}>
@@ -322,20 +304,31 @@ function Ready({
           </View>
         </View>
       ) : started ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: 10 }}>
           {offers('done') ? (
-            <Pill testID="next-step-done" label={ACTION_LABEL(strings).done} size={14} pad={12} disabled={busy} onPress={() => run('done')} style={stacked ? undefined : { flex: 1 }} />
+            <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')}
+              style={{ ...(stacked ? {} : { flex: 1 }), minHeight: 48, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 999, backgroundColor: busy ? p.dis : p.ac, alignItems: 'center', justifyContent: 'center' }}>
+              <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center">{ACTION_LABEL(strings).done}</Txt>
+            </Btn>
           ) : null}
-          <Txt size={12} color={p.mu} lh={1.4} style={{ flex: 1 }} testID="next-step-started-note">{t.nextStepStartedNote}</Txt>
+          <Txt size={12} color={p.mu} lh={1.4} style={stacked ? undefined : { flex: 1 }} testID="next-step-started-note">{t.nextStepStartedNote}</Txt>
         </View>
       ) : (
         <View style={{ gap: 8 }}>
           <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: 'stretch' }}>
             {offers('accept') ? (
-              <Pill testID="next-step-accept" label={ACTION_LABEL(strings).accept} kind="accent" size={14} pad={12} disabled={busy} onPress={() => run('accept')} style={stacked ? undefined : { flex: 1 }} />
+              <Btn testID="next-step-accept" label={ACTION_LABEL(strings).accept} disabled={busy} onPress={() => run('accept')}
+                style={{ ...(stacked ? {} : { flex: 1.15 }), minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 999, backgroundColor: busy ? p.dis : p.ac, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <ReferenceIcon name="play" size={17} color={busy ? p.disTx : p.onAccent} />
+                <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).accept}</Txt>
+              </Btn>
             ) : null}
             {offers('defer') ? (
-              <Pill testID="next-step-defer" label={ACTION_LABEL(strings).defer} kind="soft" size={14} pad={12} disabled={busy} onPress={() => run('defer')} style={stacked ? undefined : { flex: 1 }} />
+              <Btn testID="next-step-defer" label={ACTION_LABEL(strings).defer} disabled={busy} onPress={() => run('defer')}
+                style={{ ...(stacked ? {} : { flex: 1 }), minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, backgroundColor: busy ? p.dis : p.sf2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <ReferenceIcon name="clock" size={19} color={busy ? p.disTx : p.tx} />
+                <Txt size={15} weight={500} color={busy ? p.disTx : p.tx} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).defer}</Txt>
+              </Btn>
             ) : null}
             {folded.length > 0 ? (
               <Btn testID="next-step-more" accessibilityState={{ expanded: more }} label={t.nextStepMore} onPress={onMore}
@@ -353,6 +346,43 @@ function Ready({
           ) : null}
         </View>
       )}
+
+      {phrases.length > 0 || (item && !item.importanceIsStated) ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
+          {phrases.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
+          {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
+        </View>
+      ) : null}
+
+      {phrases.length > 0 ? (
+        <View style={{ gap: 6, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 5 }}>
+          <Btn testID="next-step-why-toggle" label={t.nextStepWhy} onPress={onToggleWhy} accessibilityState={{ expanded: showWhy }}
+            style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 7 }}>
+            <ReferenceIcon name="bulb" size={20} color={p.mu} />
+            <Txt size={14} color={p.tx} style={{ flex: 1 }}>{t.nextStepWhy}</Txt>
+            <View style={{ transform: [{ rotate: showWhy ? '180deg' : '0deg' }] }}><ReferenceIcon name="chevron-down" size={18} color={p.mu} /></View>
+          </Btn>
+          {showWhy ? (
+            <View style={{ gap: 6, backgroundColor: p.bg, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }} testID="next-step-why">
+              {phrases.map((phrase) => (
+                <Txt key={phrase} size={13} color={p.mu}>{`· ${phrase}`}</Txt>
+              ))}
+              {/* The contract pins `sensitiveInferenceUsed` to false, so this
+                  is a promise the app can keep rather than a status. */}
+              <Txt size={12} color={p.mu} testID="next-step-no-sensitive">{t.nextStepNoSensitive}</Txt>
+              <TextLink label={t.nextStepKnows} onPress={() => actions.go('knows')} testID="next-step-knows" size={13} />
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Saying the suggestion was wrong (#173 step 4). Below the reasons,
+          because it is a response to them. */}
+      <FeedbackFlagButton
+        proposalId={recommendation.proposalId}
+        commitmentId={step.commitmentId}
+      />
+
     </>
   );
 }

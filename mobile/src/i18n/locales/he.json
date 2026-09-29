@@ -1560,5 +1560,8 @@
   "captureConfirmBadEdit": "שינוי אחד לא נשמר. בדוק את הכותרת והשעה.",
   "clarifyNotUnderstood": "לא הבנתי. בחר אפשרות או נסה שוב.",
   "clarifySkip": "לדלג",
-  "readinessNoCheckIn": "עוד לא דיווחת על אנרגיה. בחר מספר למעלה."
+  "readinessNoCheckIn": "עוד לא דיווחת על אנרגיה. בחר מספר למעלה.",
+  "referenceCalendarFilterEmpty": "אין פריטים בתצוגה הזו.",
+  "referenceWeekSubtitle": "ההתחייבויות שלך, יום אחד בכל פעם.",
+  "referenceTodaySubtitle": "צעד קטן כדי להתחיל."
 }

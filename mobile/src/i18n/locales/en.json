@@ -1557,5 +1557,8 @@
   "captureConfirmBadEdit": "One change couldn't be saved. Check the title and time.",
   "clarifyNotUnderstood": "Didn't catch that. Pick an option or try again.",
   "clarifySkip": "Skip",
-  "readinessNoCheckIn": "No check-in yet. Pick a number above."
+  "readinessNoCheckIn": "No check-in yet. Pick a number above.",
+  "referenceCalendarFilterEmpty": "No items in this view.",
+  "referenceWeekSubtitle": "Your commitments, one day at a time.",
+  "referenceTodaySubtitle": "One small step to get started."
 }
