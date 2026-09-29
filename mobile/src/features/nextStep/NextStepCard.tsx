@@ -15,7 +15,7 @@ import type { CommitmentView } from '../commitments/model';
 import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
-import { drawnWhen, dueAsideText } from '../plan/savedPlacement';
+import { drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
 
 /**
@@ -211,7 +211,9 @@ function Ready({
   const folded = actionsOffered.filter((d) => d !== 'accept' && d !== 'defer');
   // Where a saved week day puts it, as Today's rows, the Calendar and Details
   // say it, with its own due beside it when that differs (FX1, review I1).
-  const when = item ? drawnWhen(item, lang, timezone) : null;
+  // Its day as well, when that is not today — a due two weeks back read as
+  // this morning beside «الوقت راح» (owner's Redmi, 2026-09-29).
+  const when = item ? drawnWhenLine(item, lang, timezone) : null;
   const dueAside = item ? dueAsideText(item, t.plannedDueAside, lang, timezone) : null;
   const impLabel = item ? (item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice) : null;
 
@@ -227,7 +229,7 @@ function Ready({
         <Txt role="section" testID="next-step-title">{step.title}</Txt>
         {item ? (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <Txt size={14} color={p.mu} latin testID="next-step-when">{when ?? t.noTimeYet}</Txt>
+            <Txt size={14} color={p.mu} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt>
             {impLabel ? <Txt size={14} color={p.mu}>·</Txt> : null}
             {impLabel ? <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
           </View>

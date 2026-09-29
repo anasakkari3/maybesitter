@@ -25,7 +25,7 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { TodayPlanRow } from '../features/plan/TodayPlanRow';
-import { drawnAt, drawnClockAt, drawnWhen, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
+import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
@@ -345,7 +345,8 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
   const act = useCommitmentAction();
   const why = whyFirstLine(item.reasonCodes, strings);
   const drawn = drawnClockAt(item);
-  const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
+  const line = drawnWhenLine(item, lang, timezone);
+  const when = line?.text ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
   const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   return (
@@ -353,14 +354,14 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
       <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
       <Btn
         testID={`today-item-${item.id}`}
-        label={`${rowAccessibilityLabel(item, t, drawn ? when : null)}${aside ? `, ${aside}` : ''}`}
+        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.99}
         style={{ alignItems: 'flex-start', gap: 4 }}
       >
         <Txt role="section">{item.title}</Txt>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <Txt size={14} color={p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
+          <Txt size={14} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
           <Txt size={14} color={p.mu}>·</Txt>
           <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} />
           {!item.importanceIsStated && item.importance === 'must' ? (
@@ -425,7 +426,8 @@ function Row({ item, first, timezone, lang, busy }: {
     postpone: () => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) }),
   });
   const drawn = drawnClockAt(item);
-  const when = drawnWhen(item, lang, timezone) ?? t.noTimeYet;
+  const line = drawnWhenLine(item, lang, timezone);
+  const when = line?.text ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
 
   return (
@@ -436,7 +438,7 @@ function Row({ item, first, timezone, lang, busy }: {
         onAccessibilityAction={(event) => {
           rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
         }}
-        label={`${rowAccessibilityLabel(item, t, drawn ? when : null)}${aside ? `, ${aside}` : ''}`}
+        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.98}
         style={{
@@ -457,7 +459,7 @@ function Row({ item, first, timezone, lang, busy }: {
             {/* A deadline is a point in time, so it reads as one. There is no
                 "overdue": a time that has passed is shown in the accent, not in
                 a warning colour, because a missed thing is not a failure state. */}
-            <Txt size={12} color={p.mu} latin testID={`today-time-${item.id}`}>{when}</Txt>
+            <Txt size={12} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
             {/* The importance was read off their words, not stated by them (#169). */}
             {!item.importanceIsStated && item.importance === 'must' ? (
               <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{`· ${t.todayEstimatedMark}`}</Txt>
