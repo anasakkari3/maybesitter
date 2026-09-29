@@ -28,6 +28,7 @@
  *
  * Nothing here changes backend behaviour. It only reads it.
  */
+import { compareByCodePoint } from '../../lib/planning/shared/compare.ts';
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -933,7 +934,18 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const weeklyBlockId = (weeklyCreated.block as { id: string }).id;
     const weeklyList = await record('weeklyBlocks.list', 200, await weeklyBlocksGet(request('/api/mobile/weekly-blocks', { uid: WEEKLY_BLOCK_USER })), pinWeekly);
     assert.equal((weeklyList.items as unknown[]).length, 2);
-    const occurrences = await record('weeklyBlocks.occurrences', 200, await weeklyOccurrencesGet(request('/api/mobile/weekly-blocks/occurrences', { uid: WEEKLY_BLOCK_USER })));
+    // How many rows the next seven days hold, and which of two blocks starting
+    // at the same minute sorts first, depend on the real clock and on random
+    // ids. The first row of each block is recorded, ordered by title, so the
+    // file changes only when the row's shape does.
+    const onePerBlock = (body: Record<string, unknown>) => {
+      const seen = new Set<string>();
+      const items = (body.items as Array<{ weeklyBlockId: string; title: string }>)
+        .filter((item) => !seen.has(item.weeklyBlockId) && Boolean(seen.add(item.weeklyBlockId)))
+        .sort((left, right) => compareByCodePoint(left.title, right.title));
+      return { ...body, items };
+    };
+    const occurrences = await record('weeklyBlocks.occurrences', 200, await weeklyOccurrencesGet(request('/api/mobile/weekly-blocks/occurrences', { uid: WEEKLY_BLOCK_USER })), onePerBlock);
     assert.ok((occurrences.items as Array<{ title: string }>).some((item) => item.title === 'دوام'), 'the occurrences fixture has no titled row');
     const weeklyPaused = await record('weeklyBlocks.paused', 200, await weeklyBlockPatch(request(`/api/mobile/weekly-blocks/${weeklyBlockId}`, {
       uid: WEEKLY_BLOCK_USER, method: 'PATCH', body: { status: 'paused' },
