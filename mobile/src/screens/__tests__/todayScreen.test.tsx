@@ -436,6 +436,56 @@ describe('Round 3 progressive density', () => {
   });
 });
 
+/**
+ * UAT round 6 N-h (app 73b3e4dc): «اليوم الساعة 8 المسا لازم أحضّر العشا»,
+ * confirmed at 20:00, planned as «أحضّر العشا 20:00–20:30 ثابت», plan
+ * accepted — and Today's plan card still said «ما في إشي إله وقت اليوم».
+ * A commitment pinned to a time is in the plan's `fixed`, not `scheduled`.
+ *
+ * The slots are built from the real clock, one ahead of it and one behind,
+ * so each case reads the same whenever it runs.
+ */
+describe('the plan card counts what is pinned to a time (UAT round 6, N-h)', () => {
+  const HOUR = 3_600_000;
+  const slot = (itemId: string, fromNowMs: number) => ({
+    itemId, title: itemId, blockId: null,
+    startsAt: new Date(Date.now() + fromNowMs).toISOString(),
+    endsAt: new Date(Date.now() + fromNowMs + HOUR / 2).toISOString(),
+  });
+  const acceptedPlan = (fixed: ReturnType<typeof slot>[]) => ({
+    date: '2026-09-27', timezone: 'UTC', status: 'accepted' as const, generation: 1, inputDigest: '',
+    generatedAt: new Date(Date.now() - 3 * HOUR).toISOString(), acceptedAt: new Date(Date.now() - 3 * HOUR).toISOString(),
+    explanation: { text: '', locale: 'en' as const, source: 'template' as const }, edited: false, unscheduled: [],
+    scheduled: [], fixed, protections: [],
+  });
+
+  it('an accepted plan whose one row is fixed says it has one thing, and previews it as next', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(acceptedPlan([slot('dinner', 2 * HOUR)]));
+    await show([item({ id: 'dinner', timeSpec: { kind: 'scheduled_event', dueAt: new Date(Date.now() + 2 * HOUR).toISOString(), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } })]);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    expect(screen.getByTestId('today-plan-summary')).toHaveTextContent('One thing has a time today');
+    const row = screen.getByTestId('today-plan-preview-dinner');
+    expect(within(row).getByText(en.planPreviewNext)).toBeTruthy();
+  });
+
+  it('after the fixed row has ended it still counts, but is no longer called next', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(acceptedPlan([slot('dinner', -2 * HOUR)]));
+    await show([item({ id: 'dinner', timeSpec: { kind: 'scheduled_event', dueAt: new Date(Date.now() - 2 * HOUR).toISOString(), endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } })]);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    expect(screen.getByTestId('today-plan-summary')).toHaveTextContent('One thing has a time today');
+    const row = screen.getByTestId('today-plan-preview-dinner');
+    expect(within(row).queryByText(en.planPreviewNext)).toBeNull();
+    expect(within(row).getByText(en.planPreviewPlanned)).toBeTruthy();
+  });
+
+  it('a truly empty accepted plan keeps the honest empty line', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(acceptedPlan([]));
+    await show([withPriority('open', 'normal')]);
+    await waitFor(() => expect(screen.queryByTestId('today-plan-summary')).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('today-plan-summary')).toHaveTextContent('Nothing needed a time today'));
+  });
+});
+
 /** Where the app would go next, rendered where a test can read it. */
 function ScreenProbe() {
   const { s } = useApp();

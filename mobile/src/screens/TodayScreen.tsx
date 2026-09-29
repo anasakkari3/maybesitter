@@ -135,7 +135,7 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   }, [groups]);
 
   const visibleRecords = showBar ? filterByCategory(today.data?.items ?? [], chip) : today.data?.items ?? [];
-  const preview = planPreview(plan.data, visibleRecords);
+  const preview = planPreview(plan.data, visibleRecords, new Date());
   const previewIds = new Set(preview.map(item => item.id));
   const progress = dayProgress(visibleRecords, dayKey(new Date(), timezone), timezone);
   const futureRecords = showBar ? filterByCategory(upcoming.data?.items ?? [], chip) : upcoming.data?.items ?? [];

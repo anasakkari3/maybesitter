@@ -813,7 +813,7 @@
   "planReplanTitle": "Keep today's plan up to date",
   "planReplanBody": "When something in your day changes, we can rearrange your plan to fit. Small time shifts happen on their own; anything bigger waits for your OK. Turning this off doesn't disconnect your calendars.",
   "planReplanNoBackfill": "Turning it back on won't catch up on changes made while it was off.",
-  "planCardPlaced": "{n, plural, =0{Nothing needed a time today} one{One thing placed today} other{# things placed today}}",
+  "planCardPlaced": "{n, plural, =0{Nothing needed a time today} one{One thing has a time today} other{# things have a time today}}",
   "calendarWriteTitle": "Calendar",
   "calendarWriteToggle": "Add my commitments to my calendar",
   "calendarWriteBody": "Only the title and time are written, and edits here reach the calendar.",

@@ -111,6 +111,28 @@ describe('the plan row is honest', () => {
     expect(composeToday({ groups: g, next: next(), plan: plan({ plan: aPlan('dismissed') }), upcoming: [] }).plan).toEqual({ kind: 'dismissed' });
   });
 
+  /**
+   * UAT round 6 N-h: «اليوم الساعة 8 المسا لازم أحضّر العشا» is pinned to
+   * 20:00, so the plan lists it under `fixed`, never under `scheduled`. The
+   * row counted `scheduled` alone and said «ما في إشي إله وقت اليوم» over an
+   * accepted plan whose one row was that dinner.
+   */
+  it('counts what is pinned to a time, not only what the planner placed', () => {
+    const dinner = { itemId: 'dinner', title: 'dinner', startsAt: '2026-09-22T17:00:00.000Z', endsAt: '2026-09-22T17:30:00.000Z', blockId: null };
+    for (const status of ['accepted', 'proposed'] as const) {
+      const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan(status, 0), fixed: [dinner] } }), upcoming: [] });
+      expect(m.plan).toEqual({ kind: status, placed: 1 });
+      expect(m.isEmpty).toBe(false);
+    }
+    const both = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 2), fixed: [dinner] } }), upcoming: [] });
+    expect(both.plan).toEqual({ kind: 'accepted', placed: 3 });
+  });
+
+  it('a plan from a server that sends no `fixed` still counts what it placed', () => {
+    const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: aPlan('accepted', 0) }), upcoming: [] });
+    expect(m.plan).toEqual({ kind: 'accepted', placed: 0 });
+  });
+
   it('a refetch keeps the last plan rather than flashing a skeleton', () => {
     const m = composeToday({ groups: groups({}), next: next(), plan: plan({ isPending: true, plan: aPlan('accepted') }), upcoming: [] });
     expect(m.plan).toEqual({ kind: 'accepted', placed: 2 });

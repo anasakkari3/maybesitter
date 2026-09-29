@@ -40,6 +40,44 @@ describe('grounded plan preview', () => {
   });
 });
 
+/**
+ * UAT round 6 N-h: a commitment pinned to a time (`fixed`) is on the plan as
+ * much as a placed one — the plan screen draws it between the placed rows —
+ * so the Today card previews it too, in time order.
+ */
+describe('the preview includes what is pinned to a time', () => {
+  const dinnerSlot = { itemId: 'dinner', title: 'dinner', startsAt: '2026-09-23T17:00:00Z', endsAt: '2026-09-23T17:30:00Z', blockId: null };
+  const withDinner = (status: DailyPlan['status'] = 'accepted'): DailyPlan => ({ ...plan(status), scheduled: [], fixed: [dinnerSlot] });
+
+  it('a plan whose only row is a fixed one previews that row', () => {
+    expect(planPreview(withDinner(), [item('dinner')]).map(row => [row.id, row.startsAt, row.state]))
+      .toEqual([['dinner', '2026-09-23T17:00:00Z', 'next']]);
+    expect(planPreview(withDinner('proposed'), [item('dinner')]).map(row => row.state)).toEqual(['proposed']);
+  });
+
+  it('interleaves fixed rows with placed ones by time', () => {
+    const p: DailyPlan = { ...plan(), fixed: [{ ...dinnerSlot, startsAt: '2026-09-23T05:10:00Z', endsAt: '2026-09-23T05:20:00Z' }] };
+    expect(planPreview(p, [...records, item('dinner')]).map(row => row.id)).toEqual(['done', 'next', 'dinner', 'later']);
+  });
+
+  /**
+   * The card at two times of the same day. «Next in plan» on a slot that has
+   * already ended is a claim about the past; it stays on the plan, it is just
+   * not what comes next.
+   */
+  it('names as next the first open row that has not ended, and none once they all have', () => {
+    const p: DailyPlan = { ...plan(), fixed: [dinnerSlot] };
+    const all = [...records, item('dinner')];
+    const states = (now: string) => planPreview(p, all, new Date(now)).map(row => [row.id, row.state]);
+    // Morning, before anything: the first open row is next.
+    expect(states('2026-09-23T03:00:00Z')).toEqual([['done', 'done'], ['next', 'next'], ['later', 'planned'], ['fourth', 'planned']]);
+    // Mid-morning, two slots over: the next one that has not ended is next.
+    expect(states('2026-09-23T06:45:00Z')).toEqual([['done', 'done'], ['next', 'planned'], ['later', 'planned'], ['fourth', 'next']]);
+    // Late evening, every slot (dinner at 17:00Z included) over: nothing is next.
+    expect(states('2026-09-23T20:00:00Z').map(([, state]) => state)).not.toContain('next');
+  });
+});
+
 describe('honest daily progress', () => {
   it('counts local-day completions, excluding drops and completions on another day', () => {
     const completed = item('completed', { status: 'completed', completedAt: '2026-09-22T22:00:00Z' });
