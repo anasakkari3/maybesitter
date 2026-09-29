@@ -246,7 +246,7 @@ account spent today" and no way to tell which was right.
 | calls per user per day | 60 | `MAYBESITTER_LLM_DAILY_CALL_CAP` | a slow leak, or very heavy use |
 | tokens per user per day | 150 000 | `MAYBESITTER_LLM_DAILY_TOKEN_CAP` | sixty *large* calls, which a call cap cannot see |
 | calls per user per minute | 8 | `MAYBESITTER_LLM_MINUTE_CALL_CAP` | a client in a retry loop |
-| calls across everyone per day | 3 000 | `MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP` | everybody at once |
+| calls across everyone per day | 3 000 (production: 500) | `MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP` | everybody at once |
 | characters in one call | 20 000 | — | a paste that costs a day of ordinary use |
 
 Calls are **reserved before** the model is asked; tokens are **committed after**
@@ -267,8 +267,9 @@ capture falls back to the rule-based extractor, which is a working product. Set
 it in Cloud Run → Edit & deploy new revision → Variables. It is read per call, so
 it takes effect on the next request rather than after a restart.
 
-Production ships with it **on** and `MAYBESITTER_LLM_PROVIDER=none`. Turning a
-paid model on for real users is not something a deploy should do by itself.
+Production ships with it present and `false`, and `MAYBESITTER_LLM_PROVIDER=gemini`,
+by the owner's spend decision (branch `closure/prod-ai-on`). Setting it to `true`
+is still the one-value way to take the model out.
 
 **We do not disable billing programmatically.** That takes the whole app down for
 everyone rather than just the model. The caps and this switch are the brakes.

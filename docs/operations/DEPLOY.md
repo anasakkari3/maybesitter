@@ -83,15 +83,20 @@ cannot drift:
   keeps the bill near zero; max doubles as a cost circuit-breaker.
 - `--startup-probe=httpGet.path=/api/health/ready,periodSeconds=5,failureThreshold=6`
 - Secrets only through `--set-secrets`, never plain env.
-- `MAYBESITTER_FEATURE_MEMORY=true` on staging only (owner decision,
-  2026-09-25): it gates `/api/mobile/memory` and `/api/mobile/profile/*`
-  (goals, personalization, routine sync, setup-chat describe, AI context
-  import), and those paths call the hosted model, which is a spending
-  decision the same way `MAYBESITTER_LLM_PROVIDER` is. Production sets it to
-  `false` explicitly (matching the module default) and additionally sets
-  `MAYBESITTER_KILL_SWITCH_MEMORY=true` as a second, independent block —
-  the same belt-and-braces shape as `MAYBESITTER_AI_DISABLED` next to
-  `MAYBESITTER_LLM_PROVIDER=none`.
+- The hosted model (`MAYBESITTER_LLM_PROVIDER=gemini`) and the memory module
+  (`MAYBESITTER_FEATURE_MEMORY=true`) are on in both environments (production:
+  owner spend decision, branch `closure/prod-ai-on`). Both kill switches,
+  `MAYBESITTER_AI_DISABLED` and `MAYBESITTER_KILL_SWITCH_MEMORY`, are set to
+  `false` rather than left unset, so turning either off in an incident is a
+  one-value change on the service. Production's global cap,
+  `MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP`, is 500 calls/day (staging 3000).
+  Worst case at that cap is about $4–8/day (~$120–240/month): 20,000-character
+  inputs, 2,048-token outputs and one billed retry per call. Owner prerequisites
+  before production: a production-scoped AI alert (the existing "Vertex AI
+  requests above 1500/day" alert counts the whole project, which staging alone can
+  exceed) and a `MAYBESITTER_LLM_UID_SALT` secret (unset, model logs carry an
+  unsalted hash of each uid). About 8 heavy users exhaust 500/day, after which
+  everyone falls back to the rule-based path until UTC midnight.
 - `MAYBESITTER_KMS_KEY_NAME` (the `user-secrets` key) on both services. It
   seals Google refresh tokens and ICS feed URLs; without it Google connect
   answers `not_configured`. It used to be set on staging by hand only.

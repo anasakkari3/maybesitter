@@ -90,16 +90,19 @@ test('the deploy target is resolved once, and an unknown one is refused rather t
   assert.doesNotMatch(steps, /inputs\.target/, 'a step still reads inputs.target instead of TARGET');
 });
 
-test('the hosted model is configured for staging and switched off for production', () => {
-  // Enabling a paid model for real users is an owner decision, not something a
-  // deploy does because a branch landed (UC-2.0 #160, UC-2.1 #161). Staging is
-  // where it is exercised; production stays `none` until someone changes this
-  // line deliberately and a reviewer sees it.
+test('the hosted model is on in both environments, pinned to the EU, with a tighter global cap in production', () => {
+  // Owner spend decision (closure/prod-ai-on): production calls the paid model
+  // too. What keeps it bounded is the global cap, set lower than staging's so
+  // the ceiling is a known, small daily amount, and the kill switch being
+  // present and false rather than absent.
   const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
   const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
 
   assert.match(staging, /MAYBESITTER_LLM_PROVIDER=gemini/);
-  assert.match(production, /MAYBESITTER_LLM_PROVIDER=none/, 'production is configured to call a paid model');
+  assert.match(production, /MAYBESITTER_LLM_PROVIDER=gemini/);
+  assert.match(production, /MAYBESITTER_AI_DISABLED=false/, 'the kill switch must be present, and off');
+  assert.match(production, /MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=500(?:;|\s)/, 'production global cap is not 500/day');
+  assert.match(staging, /MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000(?:;|\s)/);
 
   // A region, never `global`: capture text is processed where the consent
   // screen says it is.
@@ -118,20 +121,17 @@ test('the deployer may pass firebase-tools\' API-enabled check before deploying 
   }
 });
 
-test('the memory module is on for staging and explicitly off for production', () => {
-  // UC-2.7a (#167). The owner approved memory for staging only; production
-  // stays off until that changes deliberately. `MAYBESITTER_KILL_SWITCH_MEMORY`
-  // is belt and braces the same way `MAYBESITTER_AI_DISABLED` is above the
-  // model provider: the feature flag already keeps memory off in production,
-  // and the kill switch is a second, independent block.
+test('the memory module is on in both environments, with its kill switch present and off', () => {
+  // UC-2.7a (#167). Staging since 2026-09-25; production with the model
+  // (closure/prod-ai-on). The switch is set to `false` rather than left
+  // unset, so turning memory off in an incident is a one-value change.
   const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
   const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
 
-  assert.match(staging, /MAYBESITTER_FEATURE_MEMORY=true/, 'staging does not enable memory');
-  assert.match(staging, /MAYBESITTER_KILL_SWITCH_MEMORY=false/, 'staging leaves no explicit kill switch for an incident');
-
-  assert.match(production, /MAYBESITTER_FEATURE_MEMORY=false/, 'production enables memory without an explicit owner decision');
-  assert.match(production, /MAYBESITTER_KILL_SWITCH_MEMORY=true/, 'production has no independent block on memory');
+  for (const [name, flags] of [['staging', staging], ['production', production]] as const) {
+    assert.match(flags, /MAYBESITTER_FEATURE_MEMORY=true/, `${name} does not enable memory`);
+    assert.match(flags, /MAYBESITTER_KILL_SWITCH_MEMORY=false/, `${name} leaves no explicit kill switch for an incident`);
+  }
 });
 
 test('the football-data.org credential is mounted on staging only', () => {
@@ -248,17 +248,21 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_STORAGE_BACKEND', 'firestore'],
     ['MAYBESITTER_FIRESTORE_DATABASE_ID', '(default)'],
     ['GOOGLE_CLOUD_PROJECT', 'maybesitter-app'],
-    ['MAYBESITTER_LLM_PROVIDER', 'none'],
-    ['MAYBESITTER_AI_DISABLED', 'true'],
-    ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '3000'],
-    ['MAYBESITTER_FEATURE_MEMORY', 'false'],
-    ['MAYBESITTER_KILL_SWITCH_MEMORY', 'true'],
+    ['MAYBESITTER_LLM_PROVIDER', 'gemini'],
+    ['MAYBESITTER_AI_DISABLED', 'false'],
+    ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '500'],
+    ['MAYBESITTER_FEATURE_MEMORY', 'true'],
+    ['MAYBESITTER_KILL_SWITCH_MEMORY', 'false'],
+    ['MAYBESITTER_LLM_DAILY_CALL_CAP', '60'],
+    ['MAYBESITTER_LLM_DAILY_TOKEN_CAP', '150000'],
+    ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
     ['ICS_FEEDS_ENABLED', 'false'],
   ] as const) {
     assert.equal(production.get(key), value, `production ${key}`);
   }
   assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
   assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
+  assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(production.size, 23);
   assert.equal(staging.size, 22);
 });
