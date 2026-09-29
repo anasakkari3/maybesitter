@@ -45,6 +45,11 @@ describe('which quiet it is (UAT round 3, N12)', () => {
     expect(quiet({ silencedReason: 'quiet_mode', quietUntil: '07:30' })).toEqual({ kind: 'quiet', why: 'mode', until: null });
   });
 
+  it('inside a weekly fixed block, says it is the block and when it ends (weekly blocks)', () => {
+    expect(quiet({ silencedReason: 'weekly_block', quietUntil: '16:00' })).toEqual({ kind: 'quiet', why: 'block', until: '16:00' });
+    expect(quiet({ silencedReason: 'weekly_block' })).toEqual({ kind: 'quiet', why: 'block', until: null });
+  });
+
   it('a stop that is neither — the kill switch — is not called quiet mode', () => {
     expect(quiet({ silencedReason: 'kill_switch_active' })).toEqual({ kind: 'quiet', why: 'paused', until: null });
   });

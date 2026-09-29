@@ -24,6 +24,10 @@ import { Btn, Card, Pill, Txt } from '../ui/primitives';
 import { DirectionalScrollRow } from '../ui/directionalScroll';
 import { cardShadow } from '../theme/tokens';
 import { busyBlockPrepTarget } from '../features/meetings/prepTargets';
+import { occurrencesByDay, useWeeklyOccurrences } from '../features/weeklyBlocks/occurrences';
+import { hideWeeklyDuplicates } from '../features/weeklyBlocks/weeklyDeviceEvents';
+import { useWeeklyEventIds } from '../features/weeklyBlocks/useWeeklyBlockDeviceSync';
+import { WeeklyOccurrenceRow } from '../features/weeklyBlocks/WeeklyOccurrenceRow';
 
 /**
  * The week ahead, from the account (UC-2.R3, #173).
@@ -72,13 +76,22 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const savedWeek = useSavedWeek();
   const trust = useTrust();
   // Google Calendar's busy time (CL6a) beside the phone's; see `useConflictBusyBlocks`.
-  const busy = useConflictBusyBlocks(useBusyBlocks());
+  const readBusy = useConflictBusyBlocks(useBusyBlocks());
   const calendarConnected = trust.data?.trust.calendarConsent === true;
   const [refreshing, setRefreshing] = useState(false);
 
   const now = new Date();
   const todayKey = dayKey(now, timezone);
   const keys = useMemo(() => weekStripKeys(now, timezone), [todayKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Weekly fixed blocks («ثابت أسبوعي») on the strip's days, with their titles.
+  // The device event this app wrote for one — and the same interval come back
+  // through another phone or Google — is the block drawn twice, so it leaves
+  // the busy rows (`hideWeeklyDuplicates`).
+  const weekly = useWeeklyOccurrences(keys, timezone);
+  const weeklyEventIds = useWeeklyEventIds();
+  const busy = useMemo(() => hideWeeklyDuplicates(readBusy, weeklyEventIds, weekly), [readBusy, weeklyEventIds, weekly]);
+  const weeklyByDay = useMemo(() => occurrencesByDay(weekly, timezone), [weekly, timezone]);
 
   const byDay = useMemo(() => {
     const map = new Map<string, CommitmentView[]>();
@@ -134,6 +147,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const dayRows = [
     ...selected.map((item) => ({ kind: 'commitment' as const, at: drawnAt(item) ? Date.parse(drawnAt(item)!) : Number.POSITIVE_INFINITY, item })),
     ...selectedBusy.map((block) => ({ kind: 'busy' as const, at: Date.parse(block.startAt), block })),
+    ...(weeklyByDay.get(selectedKey) ?? []).map((occurrence) => ({ kind: 'weekly' as const, at: Date.parse(occurrence.startAt), occurrence })),
   ].sort((a, b) => a.at - b.at);
   const load = selected.length === 0 ? t.loadLight : selected.length < 3 ? t.loadNormal : t.loadFull;
 
@@ -191,7 +205,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
                   isToday={key === todayKey}
                   selected={key === selectedKey}
                   items={byDay.get(key) ?? []}
-                  busy={calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0}
+                  busy={(calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0) + (weeklyByDay.get(key)?.length ?? 0)}
                   onPress={() => actions.setSelDay(offset)}
                 />
               ))}
@@ -201,7 +215,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
                 <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.mu }} />
                 <Txt size={11} color={p.mu}>{t.legendCommit}</Txt>
               </View>
-              {calendarConnected ? (
+              {calendarConnected || weekly.length > 0 ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
                   <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.hatch }} />
                   <Txt size={11} color={p.mu}>{t.calendarBusyLegend}</Txt>
@@ -220,7 +234,13 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           </View>
 
           <View style={{ gap: 8 }}>
-            {dayRows.map((row) => row.kind === 'busy' ? ((block, prep) => (
+            {dayRows.map((row) => row.kind === 'weekly' ? (
+              <WeeklyOccurrenceRow
+                key={`weekly-${row.occurrence.weeklyBlockId}-${row.occurrence.startAt}`}
+                occurrence={row.occurrence}
+                testID={`calendar-weekly-${row.occurrence.weeklyBlockId}`}
+              />
+            ) : row.kind === 'busy' ? ((block, prep) => (
               <View key={`busy-${block.nativeId}-${block.startAt}`} testID="calendar-busy-row" style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
                 <Txt size={14} color={p.mu} style={stacked ? undefined : { flex: 1 }}>{t.calendarBusyLegend}</Txt>
                 <Txt size={12} color={p.mu} latin>
