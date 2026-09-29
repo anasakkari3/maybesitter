@@ -1,6 +1,7 @@
 import type { CommitmentView, TodayGroups } from '../commitments/model';
 import type { NextStepRecommendation } from '../../api/schemas/nextStep';
 import type { DailyPlan } from '../../api/schemas/plan';
+import { planRows } from '../plan/lateDay';
 
 /**
  * One answer to "what matters now" (Round 2, Phase C).
@@ -169,8 +170,12 @@ export function composeToday(input: {
   else if (plan.isError) planRow = { kind: 'error' };
   else if (!plan.plan) planRow = { kind: 'none' };
   else if (plan.plan.status === 'dismissed') planRow = { kind: 'dismissed' };
-  else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: plan.plan.scheduled.length };
-  else planRow = { kind: 'proposed', placed: plan.plan.scheduled.length };
+  // What has a time on the day: what the planner placed *and* what is pinned
+  // to a time (`fixed`), as the plan screen draws them. Counting `scheduled`
+  // alone said «ما في إشي إله وقت اليوم» over an accepted plan whose one row
+  // was dinner at 20:00 (UAT round 6, N-h).
+  else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: planRows(plan.plan).length };
+  else planRow = { kind: 'proposed', placed: planRows(plan.plan).length };
 
   // ── later ──
   const todayIds = new Set([...open, ...groups.finished].map((c) => c.id));
