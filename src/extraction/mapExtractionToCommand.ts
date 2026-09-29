@@ -16,6 +16,13 @@ function reminderTypeFromExtraction(result: ExtractionResult): ReminderType {
   return result.priority.level === 'high' ? 'due_soon' : 'check_in';
 }
 
+/** `dueAt` plus the range the words gave, for a timed event; otherwise null. */
+function endOfRange(result: ExtractionResult): string | null {
+  if (!result.rangeMinutes || !result.dueAt || result.allDay || result.timeAnchor !== 'event') return null;
+  const start = Date.parse(result.dueAt);
+  return Number.isFinite(start) ? new Date(start + result.rangeMinutes * 60_000).toISOString() : null;
+}
+
 /**
  * Turns what was read into commands, against what this user uses (#415).
  *
@@ -61,6 +68,11 @@ export function mapExtractionToCommand(
         ? 'unscheduled' as const
         : result.timeAnchor === 'event' ? 'scheduled_event' as const : 'due_by' as const,
       dueAt: result.dueAt,
+      // The end the words gave — «من 10 لـ 4», "10 to 4", «מ-10 עד 4» —
+      // counted from the start actually resolved (FIX-R8-CAPTURE), so a
+      // صبح/مسا answer moves it too. Only on an event: an end on a `due_by`
+      // would make it a prep window (`isTimedWindow`), which it is not.
+      ...(endOfRange(result) ? { endAt: endOfRange(result) } : {}),
       remindAt: result.remindAt,
       // A day with no hour anybody chose (FX3): `dueAt` is its local midnight.
       ...(result.allDay && result.dueAt ? { allDay: true } : {}),

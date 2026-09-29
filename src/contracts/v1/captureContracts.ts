@@ -111,6 +111,25 @@ export interface CaptureProposalItemContract {
    * open #164's edit sheet instead.
    */
   clarification?: ClarificationContract | null;
+  /**
+   * The words said this repeats weekly — «كل سبت», "every Saturday", «כל
+   * שבת» (FIX-R8-CAPTURE). Until weekly blocks exist the item itself is a
+   * one-off on the next occurrence (`resolvedDate`, marked estimated) with
+   * the phrase kept in its title; this hint is what the recurring-block lane
+   * turns into a weekly proposal. Content-free: `weekdays` are 0 = Sunday …
+   * 6 = Saturday (empty when only "every week" was said and the day is
+   * asked), and `start`/`end` are `HH:MM` on the person's clock, present only
+   * once the hour is settled. Absent when no recurrence was said; optional on
+   * the phone, so an older app ignores it.
+   */
+  recurrenceHint?: RecurrenceHintContract | null;
+}
+
+/** See `CaptureProposalItemContract.recurrenceHint`. */
+export interface RecurrenceHintContract {
+  weekdays: number[];
+  start?: string;
+  end?: string;
 }
 
 /**

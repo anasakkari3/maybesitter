@@ -395,7 +395,7 @@ export function normalizeClockText(value: string): string {
  * المسا» would lose «المسا» first and leave «5 لازم أتصل بأمي» (closure UAT
  * round 6).
  */
-const AR_CLOCK_WORD = '(?:(?:(?:على|عند|ع)\\s*)?(?:الساعة|الساعه)|عند|على)';
+const AR_CLOCK_WORD = '(?:(?:(?:على|عند|ع)\\s*)?(?:الساعة|الساعه)|عند|على|(?<![\\u0600-\\u06FF])عال)';
 const AR_CLOCK_WITH_PERIOD = `(?:${AR_CLOCK_WORD}|(?<![\\u0600-\\u06FF])(?:ع|حوالي|حوالى))?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${AR_DAY_PART_AFTER_HOUR}(?=$|[\\s,.،])`;
 const HE_CLOCK_WITH_PERIOD = /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|בצהרים|צהריים|אחרי הצהריים|אחר הצהריים|אחרי הצהרים|אחר הצהרים|אחה["״]צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source;
 const EN_CLOCK_WITH_PERIOD = /\b(?:(?:at|by|around|about)\s+)?\d{1,2}(?::\d{2})?\s+(?:in\s+the\s+(?:morning|afternoon|evening)|at\s+night|tonight)\b/.source;
@@ -434,11 +434,28 @@ const CLOCK_PATTERNS_ANY_CASE = CLOCK_PATTERN_SOURCES.map((source) => new RegExp
  * A start-to-end range is one appointment, not two times. English
  * "from 14:00 to 15:00" / "from 2pm to 3pm", and Arabic «من الساعة 2 للساعة 4»,
  * where «ل» fuses with «الساعة» into «للساعة».
+ *
+ * FIX-R8-CAPTURE (owner's phone, 2026-09-29) widened the three spellings the
+ * owner actually typed, each of which fell apart into a start that was lost
+ * and an end read as the time:
+ *
+ *   «من 10 للـ 4»      the tatweel after «لل»: «ل» + «ل» + «ـ».
+ *   «מ-10 עד 4»        the hyphen after «מ»: «עד 4» alone was read, a
+ *                      Saturday 04:00 *deadline* («עד» is "until").
+ *   "10 to 4"          English with no "from" — only right before the end
+ *                      of the clause, a day word or a time word, so "buy 2
+ *                      to 4 apples" and "5 to 10 minutes" are not a range.
+ *
+ * Each source reads its start as the first number in the match and its end as
+ * the last (`readClockRange`).
  */
+const AR_RANGE_TO = '(?:إلى|الى|حتى|لحد|لحدّ|لغاية|لغايه|للغاية|ل)ـ*';
+const EN_RANGE_END_CONTEXT = '(?=\\s*(?:$|[,.;!?،]|(?:on|every|each|at|in|this|next|today|tomorrow|tonight|weekly|daily|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sundays|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays)\\b))';
 export const RANGE_PATTERN_SOURCES: readonly string[] = [
   /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|till|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
-  /(?<![؀-ۿ])من\s*(?:الساعة|الساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\s*(?:إلى|الى|حتى|لـ?)\s*(?:ال|ل)?(?:ساعة|ساعه)?\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?/.source,
-  /(?:מ|משעה|בין)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:עד|עד שעה|ל|ל-|עד ל-)\s*(?:שעה\s*)?[0-9]{1,2}(?::[0-9]{2})?/.source,
+  `(?<![؀-ۿ])من\\s*(?:(?:ال|ل)?(?:ساعة|ساعه)\\s*)?[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${AR_RANGE_TO}|-)\\s*(?:(?:ال|ل)ـ*)?(?:ساعة|ساعه)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?`,
+  /(?:מ[-־]?|משעה|מהשעה|בין)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:עד\s+ל[-־]?|עד|ל[-־]?|ו[-־]?)\s*(?:ה?שעה\s*)?[0-9]{1,2}(?::[0-9]{2})?/.source,
+  `(?<![\\d:/.\\-])\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\s+(?:to|until|till)\\s+\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\b(?![:/.\\-]\\d)${EN_RANGE_END_CONTEXT}`,
 ];
 
 const RANGE_PATTERNS = RANGE_PATTERN_SOURCES.map((source) => new RegExp(source, 'i'));
@@ -448,6 +465,110 @@ export function namesTimeRange(rawText: string): boolean {
   if (typeof rawText !== 'string' || !rawText.trim()) return false;
   const text = normalizeClockText(rawText);
   return RANGE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/** One end of a range as written: the number, and the half of the day said right after it. */
+export interface RangeEnd {
+  hour: number;
+  minute: number;
+  /** The absolute hour its own half-of-day word gives it, or null when it has none (or an unreadable one). */
+  statedHour: number | null;
+}
+
+export interface ClockRange {
+  start: RangeEnd;
+  end: RangeEnd;
+}
+
+const RANGE_CLOCK = /(\d{1,2})(?::(\d{2}))?/g;
+
+function rangeEndAt(text: string, digits: RegExpExecArray): RangeEnd {
+  const hour = Number(digits[1]);
+  const minute = digits[2] ? Number(digits[2]) : 0;
+  const after = text.slice(digits.index + digits[0].length);
+  const half = new RegExp(`^\\s*(${HALF_OF_DAY_WORD})(?![\\p{L}\\p{M}])`, 'iu').exec(after);
+  const inHalf = half ? hourInHalf(hour, half[1]!) : null;
+  return { hour, minute, statedHour: typeof inHalf === 'number' ? inHalf : null };
+}
+
+/**
+ * The first range the words name, its start and end as written (FIX-R8-
+ * CAPTURE), or null. Read on the same normalised text as the patterns above.
+ */
+export function readClockRange(rawText: string): ClockRange | null {
+  if (typeof rawText !== 'string' || !rawText.trim()) return null;
+  const text = normalizeClockText(rawText);
+  if (!ANY_CLOCK_DIGIT.test(text)) return null;
+  let best: RegExpExecArray | null = null;
+  for (const pattern of RANGE_PATTERNS) {
+    const match = pattern.exec(text);
+    if (match && (best === null || match.index < best.index)) best = match;
+  }
+  if (!best) return null;
+  const clocks = Array.from(best[0].matchAll(RANGE_CLOCK));
+  if (clocks.length < 2) return null;
+  const at = (clock: RegExpMatchArray): RegExpExecArray => Object.assign(clock, { index: best!.index + clock.index! }) as unknown as RegExpExecArray;
+  const start = rangeEndAt(text, at(clocks[0]!));
+  const end = rangeEndAt(text, at(clocks[clocks.length - 1]!));
+  if (start.hour > 23 || end.hour > 23 || start.minute > 59 || end.minute > 59) return null;
+  return { start, end };
+}
+
+/**
+ * The start a range means when the start has no half of the day of its own
+ * but the end does (FIX-R8-CAPTURE): «من 10 لـ 4 المسا» starts at 10:00, not
+ * 22:00, and «من 2 لـ 4 المسا» at 14:00 — the latest reading of the start's
+ * number that is still before the end. `HH:MM`, or null when the words give
+ * no such start (then the start is read as any clock is).
+ */
+export function rangeStartTime(range: ClockRange): string | null {
+  const pad = (hour: number, minute: number) => `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  if (range.start.statedHour !== null) return pad(range.start.statedHour, range.start.minute);
+  if (range.end.statedHour === null || range.start.hour > 12) return null;
+  const end = range.end.statedHour * 60 + range.end.minute;
+  const candidates = [range.start.hour % 12, (range.start.hour % 12) + 12]
+    .map((hour) => hour * 60 + range.start.minute)
+    .filter((minutes) => minutes < end);
+  const latest = candidates.length > 0 ? Math.max(...candidates) : null;
+  return latest === null ? null : pad(Math.floor(latest / 60), latest % 60);
+}
+
+/** No range is read as lasting longer than this: past it, the end is left unsaid. */
+const LONGEST_RANGE_MINUTES = 16 * 60;
+
+/**
+ * How long a range lasts from the start actually read, in minutes, or null
+ * (FIX-R8-CAPTURE). The end is never an hour of its own to ask about: it
+ * follows the start. A range cannot end before it starts, so an end with no
+ * half of the day is the first reading of its number after the start — «10
+ * لـ 4» from 10:00 is 16:00 (04:00 would end six hours before it began), «2
+ * لـ 4» is two hours whichever half the start is asked into, and "9 to 5" is
+ * 09:00–17:00. The start keeps every existing ruling: a bare 1–6 is asked
+ * صبح or مسا (CL1 round 6) and a bare 7–11 is the morning, as «الساعة 10» has
+ * always been. An end with its own half («لـ 4 المسا», "to 4pm") is that
+ * hour; past midnight only when it said so. Counted from `startTime`, so an
+ * answered صبح/مسا moves the end with it.
+ *
+ * Null when the words name no range, when the start read is not the range's
+ * own start (a model that answered another hour), or when the reading would
+ * last more than 16 hours — then the item simply names no end.
+ */
+export function rangeMinutesFrom(rawText: string, startTime: string | null | undefined): number | null {
+  if (!startTime || !/^\d{2}:\d{2}$/.test(startTime)) return null;
+  const range = readClockRange(rawText);
+  if (!range) return null;
+  const startHour = Number(startTime.slice(0, 2));
+  const start = startHour * 60 + Number(startTime.slice(3, 5));
+  if (startHour % 12 !== range.start.hour % 12 || Number(startTime.slice(3, 5)) !== range.start.minute) return null;
+  let minutes: number;
+  if (range.end.statedHour !== null) {
+    minutes = range.end.statedHour * 60 + range.end.minute - start;
+    if (minutes <= 0) minutes += 24 * 60;
+  } else {
+    minutes = range.end.hour * 60 + range.end.minute - start;
+    while (minutes <= 0) minutes += 12 * 60;
+  }
+  return minutes > 0 && minutes <= LONGEST_RANGE_MINUTES ? minutes : null;
 }
 
 /** A 24-hour clock: `14:00`. Unambiguous by construction. */
@@ -640,7 +761,7 @@ const HALF_OF_DAY_WORD = [
   'בבוקר', 'בערב', 'בלילה', 'בצהריים', 'בצהרים', 'אחרי\\s+הצהריים', 'אחר\\s+הצהריים', 'אחרי\\s+הצהרים', 'אחר\\s+הצהרים', 'אחה["״]צ',
 ].join('|');
 const HOUR_BEFORE_HALF = new RegExp(
-  `(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around|בשעה|בסביבות)\\s+|ב-?)?(${HOUR_DIGIT}{1,2})(?::(${HOUR_DIGIT}{2}))?\\s*(${HALF_OF_DAY_WORD})(?![\\p{L}\\p{M}])`,
+  `(?:^|[\\s,،])(?:(?:ع|على|حوالي|حوالى|الساعة|الساعه|at|about|around|בשעה|בסביבות)\\s+|عال\\s*|ב-?)?(${HOUR_DIGIT}{1,2})(?::(${HOUR_DIGIT}{2}))?\\s*(${HALF_OF_DAY_WORD})(?![\\p{L}\\p{M}])`,
   'giu',
 );
 /**
@@ -762,7 +883,7 @@ const CLOCK_MARKER = new RegExp(
   [
     /\b(?:at|by|around)\s*\d{1,2}(?::\d{2})?(?=$|[\s,.،])/.source,
     /\b\d{1,2}\s*o'?clock\b/.source,
-    /(?:الساعة|الساعه|عند|على)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
+    /(?:الساعة|الساعه|عند|على|(?<![\u0600-\u06FF])عال)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
     /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-)\s*[0-9]{1,2}(?::[0-9]{2})?(?=$|[\s,.،])/.source,
   ].join('|'),
   'i',
@@ -1011,6 +1132,10 @@ const DAY_TOKEN = new RegExp(
     ...RELATIVE_DAY_MENTION_SOURCES,
     /\b(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|next week|this week)\b/.source,
     `${NOT_LETTER_BEFORE}${AR_PROCLITIC}(?:الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)${NOT_LETTER_AFTER}`,
+    // Without the article in its frames (FIX-R8-CAPTURE; `weekdayLexicon`'s
+    // `AR_BARE_DAY`): «يوم سبت», «كل سبت».
+    `${NOT_LETTER_BEFORE}و?يوم\\s+(?:أحد|احد|اثنين|إثنين|ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|جمعة|جمعه|سبت)${NOT_LETTER_AFTER}`,
+    `${NOT_LETTER_BEFORE}كل\\s+(?:ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|سبت)${NOT_LETTER_AFTER}`,
     `${NOT_LETTER_BEFORE}${HE_DAY_PREFIX}(?:יום ראשון|יום שני|יום שלישי|יום רביעי|יום חמישי|יום שישי|שבת)${NOT_LETTER_AFTER}`,
   ].join('|'),
   'iu',
@@ -1033,6 +1158,9 @@ export function timeOfDayEvidence(rawText: string): TimeEvidence {
   if (AMPM.test(text)) return 'ampm';
   if (namesDayPart(text)) return 'daypart';
   if (CLOCK_MARKER.test(text)) return 'clock_marker';
+  // A range with no half of the day on it — "10 to 4", «מ-10 עד 4» — is a
+  // clock number like «الساعة 10» (FIX-R8-CAPTURE).
+  if (RANGE_PATTERNS.some((pattern) => pattern.test(text))) return 'clock_marker';
   if (DAY_TOKEN.test(text)) return 'day_only';
   return 'none';
 }
@@ -1069,7 +1197,7 @@ export function statesClock(rawText: string): boolean {
   // Not `timeOfDayEvidence`: that reports the strongest evidence, and a part
   // of the day outranks the clock beside it — «الساعة 5 المسا» is `daypart`.
   const text = normalizeClockText(rawText);
-  return HHMM.test(text) || AMPM.test(text) || CLOCK_MARKER.test(text);
+  return HHMM.test(text) || AMPM.test(text) || CLOCK_MARKER.test(text) || RANGE_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 /**
@@ -1094,6 +1222,10 @@ export function statedClockHours(rawText: string): Set<number> {
       if (digits) hours.add(Number(digits[0]) % 12);
     }
   }
+  // A range states its start too: «מ-10 עד 4» names 10, not only the «עד 4»
+  // the clock patterns see (FIX-R8-CAPTURE).
+  const range = readClockRange(rawText);
+  if (range) hours.add(range.start.hour % 12);
   return hours;
 }
 
@@ -1489,7 +1621,7 @@ export function monthEndDay(rawText: string, now: Date, timeZone: string): { dat
 }
 
 /** The number a clock word names, or an early h:mm with no marker. */
-const CLOCK_NUMBER = /(?:\b(?:at|by|around)|الساعة|الساعه|عند|على|בשעה|שעה|[בס]-)\s*(\d{1,2})(?::\d{2})?(?=$|[\s,.،])|\b(\d{1,2})\s*o'?clock\b|(?<![\d:])([1-6]):\d{2}(?=$|[\s,.،])/gi;
+const CLOCK_NUMBER = /(?:\b(?:at|by|around)|الساعة|الساعه|عند|على|(?<![\u0600-\u06FF])عال|בשעה|שעה|[בס]-)\s*(\d{1,2})(?::\d{2})?(?=$|[\s,.،])|\b(\d{1,2})\s*o'?clock\b|(?<![\d:])([1-6]):\d{2}(?=$|[\s,.،])/gi;
 
 /**
  * A typed bare hour from one to six with no part of the day — «الساعة 4»,
@@ -1500,6 +1632,9 @@ const CLOCK_NUMBER = /(?:\b(?:at|by|around)|الساعة|الساعه|عند|ع�
 export function isBareEarlyHourAnswer(rawText: string): boolean {
   if (typeof rawText !== 'string' || timeOfDayEvidence(rawText) !== 'clock_marker') return false;
   const hours = Array.from(normalizeClockText(rawText).matchAll(CLOCK_NUMBER), (match) => Number(match[1] ?? match[2] ?? match[3]));
+  // A range's start is its clock (FIX-R8-CAPTURE): «من 2 لـ 4» is a bare 2.
+  const range = readClockRange(rawText);
+  if (range && range.start.statedHour === null && range.end.statedHour === null) hours.push(range.start.hour);
   return hours.length > 0 && hours.every((hour) => hour >= 1 && hour <= 6);
 }
 

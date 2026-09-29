@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from 'crypto';
-import { extractWithFallback, type ExtractAndMapOptions, type ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
+import { extractWithFallback, recurrenceHintOf, type ExtractAndMapOptions, type ExtractWithFallbackResult } from '../../../src/extraction/extractionService';
 import { buildBatchPrompt } from '../../../src/extraction/ollamaExtractor';
 import { CAPTURE_BATCH_TIMEOUT_MS, CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, RETRY_BACKOFF_MAX_MS } from '../../../src/extraction/llm/llmProvider';
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
-import { hasActionEvidence, hasRequestEvidence, splitCaptureClauses } from '../../../src/extraction/clauseSplitter';
-import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, normalizeClockText, statedClockHours } from '../../../src/extraction/timeLexicon';
+import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, type CaptureClause } from '../../../src/extraction/clauseSplitter';
+import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours } from '../../../src/extraction/timeLexicon';
+import { namesExplicitDate, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import {
@@ -359,8 +360,42 @@ export class CaptureInputTooLargeError extends Error {
   }
 }
 
-/** The clauses of one capture: `src/extraction/clauseSplitter.ts`. */
-const splitInput = splitCaptureClauses;
+/** The clauses of one capture, with how each was cut: `src/extraction/clauseSplitter.ts`. */
+const splitInput = splitCaptureClauseDetails;
+
+/**
+ * The second of «…الأول يوم الجمعة عال ٤ والثاني الحنعة عال٦» (FIX-R8-
+ * CAPTURE): a day this conjunct does not state itself is not its day. The
+ * rules put its clock on today, a model may take the first conjunct's Friday
+ * or read the mistyped word as one; either is a day nobody said. The hour is
+ * kept (`undatedTime`) and the day is asked. The word that stood where the
+ * first conjunct had its day leaves the title: the question asks for it.
+ */
+function withConjunctOwnDay(result: ExtractionResult, clause: CaptureClause, timezone: string): ExtractionResult {
+  if (!clause.elliptical) return result;
+  let next = result;
+  if (clause.unreadDayWord && next.title) {
+    const word = clause.unreadDayWord.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const title = next.title.replace(new RegExp(`(^|\\s)${word}(?=\\s|$)`, 'u'), ' ').replace(/\s+/g, ' ').trim();
+    if (title.length >= 3) next = { ...next, title, ...(next.action === next.title ? { action: title } : {}) };
+  }
+  if (namesDay(clause.text) || readWeekdayReference(clause.text) || namesExplicitDate(clause.text)) return next;
+  const instant = next.remindAt ?? next.dueAt;
+  const time = next.allDay
+    ? null
+    : next.localTimeSpec?.time ?? (instant ? localTimeSpecFor(new Date(Date.parse(instant)), timezone)?.time ?? null : null) ?? next.undatedTime ?? null;
+  if (!next.localTimeSpec && !instant) return next;
+  return {
+    ...next,
+    dueAt: null,
+    remindAt: null,
+    localTimeSpec: null,
+    dateInferred: false,
+    allDay: false,
+    ...(time ? { undatedTime: time } : {}),
+    missingFields: next.missingFields.includes('time') ? next.missingFields : [...next.missingFields, 'time'],
+  };
+}
 
 /**
  * Why this segment produced nothing, or why it is being refused (UC-2.6, #166).
@@ -479,6 +514,10 @@ function statedBareEarlyClock(text: string): string | null {
       if (digits) clocks.add(`${digits[1]!.padStart(2, '0')}:${digits[2] ?? '00'}`);
     }
   }
+  // A range is one clock, its start (FIX-R8-CAPTURE): «من 2 لـ 4» is a bare 2
+  // whose end follows it, whatever the patterns above found inside it.
+  const range = readClockRange(text);
+  if (range) return `${String(range.start.hour).padStart(2, '0')}:${String(range.start.minute).padStart(2, '0')}`;
   // Two hours («الساعة 5 أو 6») are not one to put a question on.
   return clocks.size === 1 ? Array.from(clocks)[0]! : null;
 }
@@ -584,7 +623,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // Clock times said in clauses that produced nothing (FY1 N1); see the valve.
   let timesReadAsNothing = 0;
 
-  const segments = raw ? splitInput(raw) : [];
+  const clauses = raw ? splitInput(raw) : [];
+  const segments = clauses.map((clause) => clause.text);
   const several = segments.length > 1;
   /*
    * Unresolved intent is read before the extractor, not after it (#519).
@@ -712,6 +752,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       if (statedEarlyClock) {
         extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
       }
+      extracted = { ...extracted, result: withConjunctOwnDay(extracted.result, clauses[index]!, options.timezone) };
       /*
        * The model read the capture but not this clause — its chunk timed out,
        * the budget ran out before its re-ask, or its answer could not be used
@@ -871,6 +912,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // sheet rather than asking something unanswerable.
         ...(needsClarification
           ? { clarification: buildClarification(extracted.result, { now: options.now, timezone: options.timezone }) }
+          : {}),
+        // «كل سبت» (FIX-R8-CAPTURE): the item is a one-off on the next
+        // Saturday until weekly blocks exist; this is what that lane reads.
+        ...(extracted.result.recurrenceHint
+          ? { recurrenceHint: recurrenceHintOf(extracted.result, options.timezone, resolvedTime !== null) }
           : {}),
       });
       commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString(), categoryPreferences));
