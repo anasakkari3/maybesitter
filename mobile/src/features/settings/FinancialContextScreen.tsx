@@ -11,6 +11,7 @@ import {
   useSaveFinancialObligation,
   useSaveFinancialField,
 } from '../../api/queries';
+import { CurrencyRequiredError } from '../../api/errors';
 import type {
   FinancialConflict,
   FinancialObligation,
@@ -22,6 +23,7 @@ import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import type { Locale } from '../../i18n/locale';
 import { Btn, Card, Txt } from '../../ui/primitives';
+import { LiveRegion } from '../../ui/liveRegion';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
 
@@ -47,6 +49,47 @@ const CATEGORY_COPY = {
   tuition: 'financialCategoryTuition',
   other: 'financialCategoryOther',
 } as const;
+
+/**
+ * The currencies offered when the account has none (live P2, 2026-09-29).
+ *
+ * The ones this cohort is paid in, in that order. None is preselected: a
+ * currency picked for the person is a number filed in the wrong money, and no
+ * later sync would say so. Anything else can still arrive with a bill, whose
+ * form takes any three-letter code.
+ */
+const CURRENCY_COPY = {
+  ILS: 'financialCurrencyILS',
+  JOD: 'financialCurrencyJOD',
+  USD: 'financialCurrencyUSD',
+  EUR: 'financialCurrencyEUR',
+} as const;
+type OfferedCurrency = keyof typeof CURRENCY_COPY;
+const OFFERED_CURRENCIES = Object.keys(CURRENCY_COPY) as OfferedCurrency[];
+
+/** One currency in the single-choice row: said by name, with its code beside it. */
+function CurrencyChoice({ code, selected, onPress }: { code: OfferedCurrency; selected: boolean; onPress: () => void }) {
+  const { t, p } = useApp();
+  const name = t[CURRENCY_COPY[code]];
+  return (
+    <Btn
+      testID={`financial-currency-${code}`}
+      label={`${name} (${code})`}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
+      onPress={onPress}
+      scaleTo={0.97}
+      style={{
+        minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6,
+        paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999,
+        borderWidth: 1, borderColor: selected ? p.ink : p.ln, backgroundColor: selected ? p.ink : p.sf,
+      }}
+    >
+      <Txt size={14} weight={selected ? 600 : 400} color={selected ? p.onInk : p.tx}>{name}</Txt>
+      <Txt size={12} latin color={selected ? p.onInk : p.mu}>{code}</Txt>
+    </Btn>
+  );
+}
 
 /**
  * Minor units into something a person recognises.
@@ -134,16 +177,31 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
   const clearField = useClearFinancialField();
   const [draft, setDraft] = useState('');
   const [failed, setFailed] = useState(false);
+  /**
+   * A figure was refused for want of a currency — by the server, or here
+   * before sending. Sticky until a figure saves: picking a currency must not
+   * take the picker away while the account still has none on record.
+   */
+  const [currencyAsked, setCurrencyAsked] = useState(false);
+  const [pickedCurrency, setPickedCurrency] = useState<OfferedCurrency | null>(null);
   const [billLabel, setBillLabel] = useState('');
   const [billAmount, setBillAmount] = useState('');
-  const [billCurrency, setBillCurrency] = useState('USD');
+  /** `null` until the person types one: the field then shows the account's own currency, or nothing. */
+  const [billCurrencyTyped, setBillCurrencyTyped] = useState<string | null>(null);
   const [billDate, setBillDate] = useState('');
 
   const state: FinancialState | null = context.data?.state ?? null;
   const connected = connection.data?.connected === true;
+  // A bill used to start in USD, and a bill's currency becomes the account's
+  // when it has none — so saving one quietly decided the person's money.
+  const billCurrency = billCurrencyTyped ?? state?.currency ?? '';
+  // Asked before the figure, not after a refusal (live P2, 2026-09-29): an
+  // amount with no currency behind it is refused 409 `currency_required`.
+  const needsCurrency = (state !== null && state.currency === null) || currencyAsked;
 
   const saveCorrection = async () => {
     setFailed(false);
+    if (needsCurrency && pickedCurrency === null) { setCurrencyAsked(true); return; }
     const typed = draft.trim();
     /*
      * The empty string is the case worth spelling out: `Number('')` is 0, not
@@ -156,6 +214,11 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
     const major = Number(typed);
     if (!Number.isFinite(major)) { setFailed(true); return; }
     try {
+      // The currency first, as its own statement: the figure is refused
+      // without one, and the person picked it here for exactly this.
+      if (needsCurrency && pickedCurrency !== null) {
+        await saveField.mutateAsync({ field: 'currency', kind: 'statement', value: pickedCurrency });
+      }
       // A correction, not a statement: the user is overruling a reading the
       // source produced, and that is the thing no later sync undoes.
       await saveField.mutateAsync({
@@ -164,8 +227,10 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
         value: Math.round(major * 100),
       });
       setDraft('');
-    } catch {
-      setFailed(true);
+      setCurrencyAsked(false);
+    } catch (error) {
+      if (error instanceof CurrencyRequiredError) setCurrencyAsked(true);
+      else setFailed(true);
     }
   };
 
@@ -194,6 +259,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
       });
       setBillLabel('');
       setBillAmount('');
+      setBillCurrencyTyped(null);
       setBillDate('');
     } catch {
       setFailed(true);
@@ -234,13 +300,13 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TextInput testID="financial-bill-amount" value={billAmount} onChangeText={setBillAmount} keyboardType="decimal-pad" placeholder={t.financialAddBillAmount} placeholderTextColor={p.mu}
               style={{ flex: 1, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
-            <TextInput testID="financial-bill-currency" value={billCurrency} onChangeText={setBillCurrency} autoCapitalize="characters" maxLength={3} placeholder="USD" placeholderTextColor={p.mu}
+            <TextInput testID="financial-bill-currency" value={billCurrency} onChangeText={setBillCurrencyTyped} autoCapitalize="characters" maxLength={3} placeholder="USD" placeholderTextColor={p.mu}
               style={{ width: 82, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           </View>
           <TextInput testID="financial-bill-date" value={billDate} onChangeText={setBillDate} keyboardType="numbers-and-punctuation" placeholder={t.financialAddBillDate} placeholderTextColor={p.mu}
             style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           <Btn label={t.financialAddBillSave} testID="financial-bill-save" onPress={() => void saveBill()}
-            disabled={saveObligation.isPending || !billLabel.trim() || !billAmount.trim() || !billDate.trim()}
+            disabled={saveObligation.isPending || !billLabel.trim() || !billAmount.trim() || !billCurrency.trim() || !billDate.trim()}
             style={{ minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}>
             <Txt size={15} weight={600} color="#FFFFFF">{t.financialAddBillSave}</Txt>
           </Btn>
@@ -300,6 +366,22 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
         <Card pad={18} style={{ gap: 10 }}>
           <Txt size={15} weight={600}>{t.financialCorrectTitle}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.financialCorrectBody}</Txt>
+          {needsCurrency ? (
+            <View style={{ gap: 8 }} testID="financial-currency-picker">
+              <Txt size={14} weight={600}>{t.financialCurrencyTitle}</Txt>
+              <Txt size={13} color={p.mu} lh={1.5}>{t.financialCurrencyBody}</Txt>
+              <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {OFFERED_CURRENCIES.map(code => (
+                  <CurrencyChoice
+                    key={code}
+                    code={code}
+                    selected={pickedCurrency === code}
+                    onPress={() => setPickedCurrency(code)}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
           <TextInput
             testID="financial-correction-input"
             value={draft}
@@ -316,7 +398,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
             label={t.financialCorrectSave}
             testID="financial-correction-save"
             onPress={() => void saveCorrection()}
-            disabled={saveField.isPending || draft.trim().length === 0}
+            disabled={saveField.isPending || draft.trim().length === 0 || (needsCurrency && pickedCurrency === null)}
             style={{
               minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
               backgroundColor: p.ac,
@@ -335,6 +417,11 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
               <Txt size={14} color={p.ac}>{t.financialCorrectUndo}</Txt>
             </Btn>
           ) : null}
+          <LiveRegion>
+            {currencyAsked && pickedCurrency === null
+              ? <Txt size={13} color={p.wm} weight={600} lh={1.5} testID="financial-currency-required">{t.financialCurrencyRequired}</Txt>
+              : null}
+          </LiveRegion>
           {failed ? <Txt size={13} color={p.wm} testID="financial-save-failed">{t.financialSaveFailed}</Txt> : null}
         </Card>
 

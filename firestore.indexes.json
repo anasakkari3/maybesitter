@@ -83,6 +83,34 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "fixtures",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "homeTeamId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kickoffUtc",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "fixtures",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "awayTeamId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "kickoffUtc",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

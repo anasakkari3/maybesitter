@@ -366,3 +366,91 @@ test('a follow saved from an Arabic app keeps Arabic titles through the nightly 
     teardown();
   }
 });
+
+// ── Live P1 (2026-09-29): a follow answered a bare 500 ─────────────────────
+// On production the fixtures-by-team query had no composite index, so
+// `projectFixturesForUser` threw *after* the follow was written. The route let
+// that escape as a 500 and the app said "check your connection" — about a
+// follow that had in fact been saved. The projection is best-effort (the
+// nightly job runs it again), so a failure there reports the saved follow and
+// says the matches are deferred instead of pretending nothing happened.
+
+/** Storage whose method `method` throws for any path containing `pathPart`. */
+function failingStorage(method: 'list' | 'set' | 'get', pathPart: string, message: string): void {
+  const real = getStorage();
+  setStorageForTests(new Proxy(real, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (prop === method) {
+        return async (path: string, ...rest: unknown[]) => {
+          if (String(path).includes(pathPart)) throw new Error(message);
+          return (value as (...args: unknown[]) => unknown).call(target, path, ...rest);
+        };
+      }
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  }));
+}
+
+const INDEX_ERROR = '9 FAILED_PRECONDITION: The query requires an index. You can create it here: https://console.firebase.google.com/…';
+
+test('a follow whose projection fails is still reported saved, with the matches deferred', async () => {
+  const teardown = setup();
+  try {
+    await upsertFixtures([fixture('1', '2026-10-25T19:00:00.000Z')]);
+    failingStorage('list', 'fixtures', INDEX_ERROR);
+    const res = await PUT(authedRequest('PUT', { clubIds: ['barcelona'] }));
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.equal(body.success, true);
+    assert.deepEqual(body.followedClubIds, ['barcelona']);
+    assert.equal(body.fixturesDeferred, true);
+    assert.ok(Array.isArray(body.fixtures));
+    assert.doesNotMatch(JSON.stringify(body), /FAILED_PRECONDITION|console\.firebase/);
+    const after = await json(await GET(authedRequest('GET')));
+    assert.deepEqual(after.followedClubIds, ['barcelona']);
+  } finally {
+    teardown();
+  }
+});
+
+test('a follow whose fixture listing fails is still reported saved, with the matches deferred', async () => {
+  const teardown = setup();
+  try {
+    failingStorage('list', 'externalTaskRefs', 'storage unavailable');
+    const res = await PUT(authedRequest('PUT', { clubIds: ['barcelona'] }));
+    assert.equal(res.status, 200);
+    const body = await json(res);
+    assert.deepEqual(body.followedClubIds, ['barcelona']);
+    assert.deepEqual(body.fixtures, []);
+    assert.equal(body.fixturesDeferred, true);
+  } finally {
+    teardown();
+  }
+});
+
+test('a follow that projects cleanly carries no deferred flag', async () => {
+  const teardown = setup();
+  try {
+    const body = await json(await PUT(authedRequest('PUT', { clubIds: ['barcelona'] })));
+    assert.equal(body.success, true);
+    assert.equal('fixturesDeferred' in body, false);
+  } finally {
+    teardown();
+  }
+});
+
+test('a follow that cannot be written is a 503 with a reason, not a 400 blaming the club list', async () => {
+  const teardown = setup();
+  try {
+    failingStorage('set', 'footballFollows', 'storage unavailable');
+    const res = await PUT(authedRequest('PUT', { clubIds: ['barcelona'] }));
+    assert.equal(res.status, 503);
+    const body = await json(res);
+    assert.equal(body.success, false);
+    assert.equal(body.reason, 'follow_not_saved');
+    assert.doesNotMatch(String(body.error), /storage unavailable/);
+  } finally {
+    teardown();
+  }
+});

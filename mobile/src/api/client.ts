@@ -7,6 +7,7 @@ import {
   GoogleRefusedError,
   ConfirmationRequiredError,
   ConflictError,
+  CurrencyRequiredError,
   DeviceCalendarLinkConflictError,
   WeekConflictError,
   ContractError,
@@ -205,7 +206,8 @@ function refusal(body: unknown): { message: string; reason: string | undefined }
  */
 function conflictFor(body: unknown): Error {
   if (body && typeof body === 'object') {
-    const record = body as { reason?: unknown; current?: unknown };
+    const record = body as { reason?: unknown; code?: unknown; current?: unknown };
+    if (record.reason === 'currency_required' || record.code === 'currency_required') return new CurrencyRequiredError();
     if (record.reason === 'stale_commitment') {
       const current = commitmentSchema.safeParse(record.current);
       // A stale response whose `current` will not parse is a contract

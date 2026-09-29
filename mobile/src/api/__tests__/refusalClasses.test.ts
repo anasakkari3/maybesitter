@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, expect, it, jest } from '@jest/globals';
 import { apiRequest } from '../client';
 import { confirmCapture } from '../endpoints/capture';
-import { CaptureConfirmRefusedError, FeatureUnavailableError, ForbiddenError, GoogleRefusedError, NotFoundError } from '../errors';
+import { CaptureConfirmRefusedError, ConflictError, CurrencyRequiredError, FeatureUnavailableError, ForbiddenError, GoogleRefusedError, NotFoundError } from '../errors';
 import { forbiddenReason, userFacingMessageKey } from '../ui/userFacingMessage';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../auth';
@@ -98,4 +98,31 @@ it('leaves the calendar feed\'s consent refusal to its own route, not the Google
   const error = await apiRequest('POST', '/api/mobile/calendar/feeds', { schema: anyBody }).catch(caught => caught);
   expect(error).not.toBeInstanceOf(GoogleRefusedError);
   expect(error).toBeInstanceOf(ForbiddenError);
+});
+
+/*
+ * Live P2 (2026-09-29): an amount with no currency behind it is refused 409
+ * `currency_required`, and the finance screen said only «ما انحفظ» — nothing
+ * about what to do. The body as production sends it carries `code` only; the
+ * route now sends `reason` too. Both must read as the same refusal.
+ */
+it('reads a currency refusal as its own class, from either body the route has sent', async () => {
+  const bodies = [
+    { success: false, error: 'set your currency before entering an amount', code: 'currency_required' },
+    { success: false, error: 'set your currency before entering an amount', reason: 'currency_required', code: 'currency_required' },
+  ];
+  for (const body of bodies) {
+    serve(body, 409);
+    const error = await apiRequest('PUT', '/api/mobile/financial/manual', { schema: anyBody }).catch(caught => caught);
+    expect(error).toBeInstanceOf(CurrencyRequiredError);
+    expect(error).toBeInstanceOf(ConflictError);
+    expect(userFacingMessageKey(error)).toBe('financialCurrencyRequired');
+  }
+});
+
+it('leaves an ordinary 409 a plain conflict', async () => {
+  serve({ success: false, error: 'conflict' }, 409);
+  const error = await apiRequest('PUT', '/api/mobile/financial/manual', { schema: anyBody }).catch(caught => caught);
+  expect(error).not.toBeInstanceOf(CurrencyRequiredError);
+  expect(error).toBeInstanceOf(ConflictError);
 });

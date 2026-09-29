@@ -43,7 +43,10 @@ async function hasCurrency(uid: string, now: string): Promise<boolean> {
  */
 function currencyFirst(): Response {
   return Response.json(
-    { success: false, error: 'set your currency before entering an amount', code: 'currency_required' },
+    // `reason` is what the app's client reads on every refusal; `code` is kept
+    // for builds already installed, which read nothing and showed a generic
+    // failure (live P2, 2026-09-29).
+    { success: false, error: 'set your currency before entering an amount', reason: 'currency_required', code: 'currency_required' },
     { status: 409 },
   );
 }
