@@ -90,16 +90,19 @@ test('the deploy target is resolved once, and an unknown one is refused rather t
   assert.doesNotMatch(steps, /inputs\.target/, 'a step still reads inputs.target instead of TARGET');
 });
 
-test('the hosted model is configured for staging and switched off for production', () => {
-  // Enabling a paid model for real users is an owner decision, not something a
-  // deploy does because a branch landed (UC-2.0 #160, UC-2.1 #161). Staging is
-  // where it is exercised; production stays `none` until someone changes this
-  // line deliberately and a reviewer sees it.
+test('the hosted model is on in both environments, pinned to the EU, with a tighter global cap in production', () => {
+  // Owner spend decision (closure/prod-ai-on): production calls the paid model
+  // too. What keeps it bounded is the global cap, set lower than staging's so
+  // the ceiling is a known, small daily amount, and the kill switch being
+  // present and false rather than absent.
   const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
   const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
 
   assert.match(staging, /MAYBESITTER_LLM_PROVIDER=gemini/);
-  assert.match(production, /MAYBESITTER_LLM_PROVIDER=none/, 'production is configured to call a paid model');
+  assert.match(production, /MAYBESITTER_LLM_PROVIDER=gemini/);
+  assert.match(production, /MAYBESITTER_AI_DISABLED=false/, 'the kill switch must be present, and off');
+  assert.match(production, /MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=500(?:;|\s)/, 'production global cap is not 500/day');
+  assert.match(staging, /MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP=3000(?:;|\s)/);
 
   // A region, never `global`: capture text is processed where the consent
   // screen says it is.
@@ -118,36 +121,53 @@ test('the deployer may pass firebase-tools\' API-enabled check before deploying 
   }
 });
 
-test('the memory module is on for staging and explicitly off for production', () => {
-  // UC-2.7a (#167). The owner approved memory for staging only; production
-  // stays off until that changes deliberately. `MAYBESITTER_KILL_SWITCH_MEMORY`
-  // is belt and braces the same way `MAYBESITTER_AI_DISABLED` is above the
-  // model provider: the feature flag already keeps memory off in production,
-  // and the kill switch is a second, independent block.
+test('the memory module is on in both environments, with its kill switch present and off', () => {
+  // UC-2.7a (#167). Staging since 2026-09-25; production with the model
+  // (closure/prod-ai-on). The switch is set to `false` rather than left
+  // unset, so turning memory off in an incident is a one-value change.
   const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
   const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
 
-  assert.match(staging, /MAYBESITTER_FEATURE_MEMORY=true/, 'staging does not enable memory');
-  assert.match(staging, /MAYBESITTER_KILL_SWITCH_MEMORY=false/, 'staging leaves no explicit kill switch for an incident');
-
-  assert.match(production, /MAYBESITTER_FEATURE_MEMORY=false/, 'production enables memory without an explicit owner decision');
-  assert.match(production, /MAYBESITTER_KILL_SWITCH_MEMORY=true/, 'production has no independent block on memory');
+  for (const [name, flags] of [['staging', staging], ['production', production]] as const) {
+    assert.match(flags, /MAYBESITTER_FEATURE_MEMORY=true/, `${name} does not enable memory`);
+    assert.match(flags, /MAYBESITTER_KILL_SWITCH_MEMORY=false/, `${name} leaves no explicit kill switch for an incident`);
+  }
 });
 
-test('the football-data.org credential is mounted on staging only', () => {
-  const staging = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'staging'], { encoding: 'utf8' });
-  const production = execFileSync('bash', [join(repoRoot, 'infra/cloudrun/flags.sh'), 'production'], { encoding: 'utf8' });
+/** `--set-secrets` as KEY → secret:version; gcloud splits it on `,`. */
+function secretsOf(printed: string): Map<string, string> {
+  const flag = printed.trim().split(/\s+/).filter((word) => word.startsWith('--set-secrets='));
+  assert.equal(flag.length, 1, 'exactly one --set-secrets word (a second one would replace the first)');
+  const secrets = new Map<string, string>();
+  for (const pair of flag[0]!.slice('--set-secrets='.length).split(',')) {
+    const at = pair.indexOf('=');
+    assert.ok(at > 0, `"${pair}" is not a KEY=secret:version pair`);
+    const key = pair.slice(0, at);
+    assert.ok(!secrets.has(key), `${key} is mounted twice`);
+    secrets.set(key, pair.slice(at + 1));
+  }
+  return secrets;
+}
 
-  assert.match(
-    staging,
-    /FOOTBALL_DATA_API_KEY=maybesitter-football-data-api-key:latest/,
-    'staging does not receive the managed football-data.org credential',
-  );
-  assert.doesNotMatch(
-    production,
-    /FOOTBALL_DATA_API_KEY/,
-    'production football sync was activated without an explicit production decision',
-  );
+test('both services mount the same secrets: deletion pepper, model-log uid salt and the football credential', () => {
+  // Owner decision 2026-09-29: production gets the same features as staging,
+  // football fixtures included; and the uid salt the production model spend
+  // decision required, so model log lines never carry an unsalted uid hash.
+  const mounts: Array<[string, string]> = [
+    ['MAYBESITTER_DELETION_RECEIPT_PEPPER', 'maybesitter-deletion-receipt-pepper:latest'],
+    ['MAYBESITTER_LLM_UID_SALT', 'maybesitter-llm-uid-salt:latest'],
+    ['FOOTBALL_DATA_API_KEY', 'maybesitter-football-data-api-key:latest'],
+  ];
+  const expected = new Map(mounts);
+  for (const target of ['staging', 'production'] as const) {
+    const printed = flagsFor(target);
+    assert.deepEqual(secretsOf(printed), expected, target);
+    // A secret is never passed as a plain env value.
+    const env = envVarsOf(printed);
+    for (const [key] of mounts) assert.equal(env.has(key), false, `${target} passes ${key} as a plain env value`);
+  }
+  // The consumer reads exactly the name flags.sh mounts.
+  assert.match(read('lib/llm/llmLog.ts'), /process\.env\.MAYBESITTER_LLM_UID_SALT/);
 });
 
 // ── The env list gcloud actually receives ───────────────────────────────
@@ -215,21 +235,20 @@ test('each production site origin passes the sign-up\'s own origin check with th
   assert.equal((await ping('https://www.maybesitter.com')).status, 403, 'www redirects at Hosting and is not listed');
 });
 
-test('calendar links (ICS feeds) are on for staging and explicitly off for production', () => {
+test('calendar links (ICS feeds) are on for staging and production', () => {
   // Owner's Redmi, 2026-09-29: Settings → calendar links led to «Calendar
   // links are not available in this version.» because ICS_FEEDS_ENABLED was
   // set on neither service, so every route answered 404 `feature_disabled`.
-  // Staging gets it on; production is written out as `false`, the switch the
-  // owner flips after staging has evidence — the football pattern.
-  const staging = envVarsOf(flagsFor('staging'));
-  const production = envVarsOf(flagsFor('production'));
-  assert.equal(staging.get('ICS_FEEDS_ENABLED'), 'true', 'staging leaves calendar links off');
-  assert.equal(production.get('ICS_FEEDS_ENABLED'), 'false', 'production turns calendar links on without an owner decision, or hides the switch');
-  // Where it is on, the key that seals each feed URL is there too.
-  assert.equal(staging.get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY);
-  // And the server reads it exactly the way flags.sh writes it.
-  assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: staging.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), true);
-  assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: production.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), false);
+  // The same day the owner decided production gets the same features as
+  // staging, so both are on, each written out so an operator can turn it off.
+  for (const target of ['staging', 'production'] as const) {
+    const env = envVarsOf(flagsFor(target));
+    assert.equal(env.get('ICS_FEEDS_ENABLED'), 'true', `${target} leaves calendar links off`);
+    // Where it is on, the key that seals each feed URL is there too.
+    assert.equal(env.get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY, target);
+    // And the server reads it exactly the way flags.sh writes it.
+    assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: env.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), true, target);
+  }
 });
 
 test('both services are deployed with the KMS key that seals per-user secrets', () => {
@@ -248,17 +267,21 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_STORAGE_BACKEND', 'firestore'],
     ['MAYBESITTER_FIRESTORE_DATABASE_ID', '(default)'],
     ['GOOGLE_CLOUD_PROJECT', 'maybesitter-app'],
-    ['MAYBESITTER_LLM_PROVIDER', 'none'],
-    ['MAYBESITTER_AI_DISABLED', 'true'],
-    ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '3000'],
-    ['MAYBESITTER_FEATURE_MEMORY', 'false'],
-    ['MAYBESITTER_KILL_SWITCH_MEMORY', 'true'],
-    ['ICS_FEEDS_ENABLED', 'false'],
+    ['MAYBESITTER_LLM_PROVIDER', 'gemini'],
+    ['MAYBESITTER_AI_DISABLED', 'false'],
+    ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '500'],
+    ['MAYBESITTER_FEATURE_MEMORY', 'true'],
+    ['MAYBESITTER_KILL_SWITCH_MEMORY', 'false'],
+    ['MAYBESITTER_LLM_DAILY_CALL_CAP', '60'],
+    ['MAYBESITTER_LLM_DAILY_TOKEN_CAP', '150000'],
+    ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
+    ['ICS_FEEDS_ENABLED', 'true'],
   ] as const) {
     assert.equal(production.get(key), value, `production ${key}`);
   }
   assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
   assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
+  assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
   assert.equal(production.size, 23);
   assert.equal(staging.size, 22);
 });
