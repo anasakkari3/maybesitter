@@ -380,6 +380,8 @@ export async function weeklyBlockCovering(
   deps: WeeklyBlockDeps = {},
 ): Promise<{ block: WeeklyBlockDocument; occurrence: WeeklyBlockOccurrenceContract } | null> {
   const storage = storageOf(deps);
+  // Most accounts have no block: one small list, and no read of busy time.
+  if (!(await listWeeklyBlocks(uid, { storage })).some((block) => block.status === 'active')) return null;
   const instant = { startsAt: at.toISOString(), endsAt: new Date(at.getTime() + 1).toISOString() };
   const [occurrence] = await listWeeklyBlockOccurrences(uid, instant, { storage });
   if (!occurrence) return null;
