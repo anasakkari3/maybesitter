@@ -36,6 +36,8 @@ import { FootballSettingsScreen } from './features/settings/FootballSettingsScre
 import { CategorySettingsScreen } from './features/settings/CategorySettingsScreen';
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
+import { WeeklyBlockCalendarHost } from './features/weeklyBlocks/useWeeklyBlockDeviceSync';
+import { WeeklyBlocksScreen } from './features/weeklyBlocks/WeeklyBlocksScreen';
 import { GoogleBusyHost } from './features/google/useGoogle';
 import { CalendarFeedsScreen } from './features/calendarFeeds/CalendarFeedsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
@@ -126,6 +128,10 @@ export function Root() {
               session rather than only while the calendar settings screen is
               open — a confirm on Today has to reach the calendar too. */}
           <DeviceCalendarSyncHost />
+          {/* Its twin for weekly fixed blocks («ثابت أسبوعي»): one recurring
+              event per active block in the same calendar, under the same
+              switch, taken back out when the block is paused or deleted. */}
+          <WeeklyBlockCalendarHost />
           {/* Notifications, for the whole signed-in session (UC-3.11 #196,
               UC-3.0b #184): the channels, the push registration, the reminder
               engine and the tap router. It renders nothing, and it is here
@@ -196,6 +202,9 @@ export function Root() {
           )}
           {s.screen === 'routineSettings' && (
             <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.back()} />
+          )}
+          {s.screen === 'weeklyBlocks' && (
+            <WeeklyBlocksScreen key="weeklyBlocks" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'financialContext' && (
             <FinancialContextScreen key="financialContext" onBack={() => latest.current.back()} />

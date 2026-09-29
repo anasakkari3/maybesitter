@@ -99,8 +99,11 @@ import {
 
 export { BUSY_BLOCKS, CALENDAR_SOURCES };
 
-/** Where a busy block came from. #187 adds `google`, #188 adds `ics`, #191 adds `manual`. */
-export const BUSY_SOURCE_KINDS = ['device', 'google', 'ics', 'manual'] as const;
+/**
+ * Where a busy block came from. #187 adds `google`, #188 adds `ics`, #191 adds
+ * `manual`, and the weekly fixed blocks («ثابت أسبوعي») add `weekly`.
+ */
+export const BUSY_SOURCE_KINDS = ['device', 'google', 'ics', 'manual', 'weekly'] as const;
 export type BusySourceKind = (typeof BUSY_SOURCE_KINDS)[number];
 
 /**
@@ -228,6 +231,12 @@ function instantOrThrow(value: unknown, field: string): Instant {
  * cannot invent a fourth kind, and #187's rows are recognisable as Google's the
  * day they arrive without a migration.
  */
+/** Kinds whose ids may also be written `<kind>-<id>` (`manual-<proposalId>`, `weekly-<blockId>`). */
+const DASHED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['manual', 'weekly']);
+
+/** Kinds no client upload may write or restate. */
+const SERVER_OWNED_SOURCE_KINDS: ReadonlySet<BusySourceKind> = new Set<BusySourceKind>(['weekly']);
+
 export function sourceKindOf(sourceId: unknown): BusySourceKind {
   if (typeof sourceId !== 'string' || sourceId.length > 200) {
     throw new BusyUploadError('sourceId must be a string of at most 200 characters');
@@ -244,12 +253,12 @@ export function sourceKindOf(sourceId: unknown): BusySourceKind {
     throw new BusyUploadError('sourceId must not contain ".."');
   }
   const kind = BUSY_SOURCE_KINDS.find((candidate) =>
-    sourceId.startsWith(`${candidate}:`) || (candidate === 'manual' && sourceId.startsWith('manual-'))
+    sourceId.startsWith(`${candidate}:`) || (DASHED_SOURCE_KINDS.has(candidate) && sourceId.startsWith(`${candidate}-`))
   );
   if (!kind) {
     throw new BusyUploadError(`sourceId must start with one of ${BUSY_SOURCE_KINDS.map((k) => `${k}:`).join(', ')}`);
   }
-  const prefixLength = (kind === 'manual' && sourceId.startsWith('manual-')) ? 7 : kind.length + 1;
+  const prefixLength = kind.length + 1;
   if (sourceId.length === prefixLength) throw new BusyUploadError('sourceId must name a source after its kind');
   return kind;
 }
@@ -259,6 +268,12 @@ export function parseBusyUpload(body: unknown): ParsedBusyUpload {
   refuseUnknownKeys(body, UPLOAD_ENVELOPE_KEYS, 'a busy upload');
 
   const sourceKind = sourceKindOf(body.sourceId);
+  // A weekly block's occurrences are the server's to write, from the block the
+  // person confirmed (lib/weeklyBlocks). An upload that could restate them
+  // could erase a standing Saturday with one empty list.
+  if (SERVER_OWNED_SOURCE_KINDS.has(sourceKind)) {
+    throw new BusyUploadError(`a ${sourceKind} source is written by the server only`);
+  }
   const sourceId = body.sourceId as string;
 
   const platform = body.platform === undefined || body.platform === null ? null : body.platform;
@@ -421,6 +436,15 @@ export async function listBusyBlocks(
 ): Promise<BusyBlock[]> {
   const rows = await allBlocks(uid, deps);
   return rows.filter((block) => overlaps(block, window)).sort(byStart);
+}
+
+/** Every block one source holds, whatever its dates, in start order. */
+export async function listBusyBlocksOfSource(
+  uid: string,
+  sourceId: string,
+  deps: BusyBlockDeps = {},
+): Promise<BusyBlock[]> {
+  return (await allBlocks(uid, deps)).filter((block) => block.sourceId === sourceId).sort(byStart);
 }
 
 export async function readCalendarSource(

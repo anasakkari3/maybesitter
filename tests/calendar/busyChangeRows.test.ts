@@ -45,6 +45,7 @@ import {
   type BusyBlock,
 } from '../../lib/calendar/busyBlocks.ts';
 import { acceptLectureSessionsAsBusyBlocks, manualBusySourceId } from '../../lib/calendar/manualBusy.ts';
+import { createWeeklyBlock, deleteWeeklyBlock, materializeWeeklyBlock, patchWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
 import { resolveChangedEntityFacts } from '../../lib/services/dailyPlan/changedEntityFacts.ts';
 import { DELETE as busyDelete, POST as busyPost } from '../../src/app/api/mobile/calendar/busy/route.ts';
 import {
@@ -474,6 +475,30 @@ test('writer: accepted lecture sessions (#191) announce their blocks once, a cha
   assert.equal(Array.from(facts.values()).filter((fact) => fact?.blocking === true).length, 16);
 });
 
+test('writer: weekly blocks announce their occurrences, a re-materialize as nothing, a pause and a delete as removals', async () => {
+  const storage = createMemoryStorage();
+  await liveAccount(storage);
+  const now = new Date('2026-09-01T09:00:00.000Z');
+  const input = { title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem', confirmedAt: now.toISOString() };
+  const { block: weekly } = await createWeeklyBlock(UID, input, { storage, now });
+  const announced = await drain(storage);
+  assert.equal(announced.length, 8);
+  assert.ok(announced.every((row) => row.source === 'calendar'));
+
+  await materializeWeeklyBlock(UID, weekly, { storage, now });
+  assert.deepEqual(await drain(storage), [], 'restating an unchanged block announces nothing');
+
+  await patchWeeklyBlock(UID, weekly.id, { status: 'paused' }, { storage, now });
+  const paused = await drain(storage);
+  assert.deepEqual(paused.map((row) => row.entityId).sort(), announced.map((row) => row.entityId).sort());
+  assert.ok(Array.from((await resolved(storage, paused)).values()).every((fact) => fact?.interval === null), 'every occurrence is freed');
+
+  await patchWeeklyBlock(UID, weekly.id, { status: 'active' }, { storage, now });
+  assert.equal((await drain(storage)).length, 8);
+  await deleteWeeklyBlock(UID, weekly.id, { storage, now });
+  assert.equal((await drain(storage)).length, 8, 'deleting frees every occurrence it held');
+});
+
 test('writer: the manual busy route announces what it stores and what its delete removes', async () => {
   await withRoutes(async (storage) => {
     await storage.set(userDoc(USER), { timezone: 'Asia/Jerusalem' });
@@ -521,6 +546,8 @@ const WRITERS: ReadonlyArray<readonly [file: string, inside: string, callee: str
   ['src/app/api/mobile/calendar/busy/route.ts', 'DELETE', 'deleteBusySource', 'writer: the device disconnect route'],
   ['src/app/api/mobile/calendar/busy/route.ts', 'POST', 'replaceBusyBlocks', 'writer: the device busy route'],
   ['src/app/api/mobile/calendar/manual/route.ts', 'DELETE', 'deleteBusySource', 'writer: the manual busy route'],
+  ['lib/weeklyBlocks/weeklyBlockService.ts', 'materializeWeeklyBlock', 'replaceBusyBlocks', 'writer: weekly blocks'],
+  ['lib/weeklyBlocks/weeklyBlockService.ts', 'deleteWeeklyBlock', 'deleteBusySource', 'writer: weekly blocks'],
 ];
 
 interface Source { readonly file: string; readonly tree: ts.SourceFile }

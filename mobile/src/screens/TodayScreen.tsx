@@ -30,6 +30,12 @@ import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Card, Txt } from '../ui/primitives';
 import { ActionRow, EmptyState, ScreenHeader, SectionLabel, Tag, TextLink } from '../ui/chrome';
 import { CheckIcon, Glow } from '../ui/icons';
+import { isolateAuto } from '../i18n/bidi';
+import { occurrenceCovering, occurrencesAsBusy, useWeeklyOccurrences } from '../features/weeklyBlocks/occurrences';
+import { hideWeeklyDuplicates } from '../features/weeklyBlocks/weeklyDeviceEvents';
+import { useWeeklyEventIds } from '../features/weeklyBlocks/useWeeklyBlockDeviceSync';
+import { WeeklyOccurrenceRow } from '../features/weeklyBlocks/WeeklyOccurrenceRow';
+import type { WeeklyBlockOccurrence } from '../api/schemas/weeklyBlocks';
 import { Screen, ScreenScroll } from '../ui/screen';
 
 /**
@@ -77,7 +83,16 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   // From the local cache (UC-3.2, #186). Today renders before any request has
   // finished, and a chip that arrived after the list would move rows about.
   // The phone's busy time and Google's (CL6a review I1).
-  const busy = useConflictBusyBlocks(useBusyBlocks());
+  const readBusy = useConflictBusyBlocks(useBusyBlocks());
+  // Today's weekly fixed blocks («ثابت أسبوعي»), drawn as fixed time. For the
+  // conflict chips they are busy intervals in their own right, and the device
+  // event this app wrote for one is dropped so it is not counted twice.
+  const weeklyToday = useWeeklyOccurrences([dayKey(new Date(), timezone)], timezone);
+  const weeklyEventIds = useWeeklyEventIds();
+  const busy = useMemo(
+    () => [...hideWeeklyDuplicates(readBusy, weeklyEventIds, weeklyToday), ...occurrencesAsBusy(weeklyToday)],
+    [readBusy, weeklyEventIds, weeklyToday],
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   // Off unless the account says otherwise, and off when the preference will not
@@ -156,13 +171,20 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
   // "back at 07:30" does not outlive 07:30 on an open screen. With no
   // profile yet the card says no hour rather than a wrong one.
   const profileZone = useProfile().data?.routine?.timezone;
-  const quietUntil = next.data?.exposure?.reason === 'quiet_hours' ? next.data.exposure.until : undefined;
+  // A weekly block's `until` is on the same kind of clock (weekly blocks), and
+  // is read the same way when the block itself is not in hand.
+  const holdReason = next.data?.exposure?.reason;
+  const quietUntil = holdReason === 'quiet_hours' || holdReason === 'weekly_block' ? next.data?.exposure?.until : undefined;
+  // The block under way, when the route says one is: its own end is exact.
+  const holding = holdReason === 'weekly_block' ? occurrenceCovering(weeklyToday, new Date()) : null;
+  const holdingEnd = holding?.endAt;
   const quietEndsAt = useMemo(
-    () => (quietUntil && isValidTimeZone(profileZone) ? quietHoursEndAt(quietUntil, profileZone, new Date()) : null),
+    () => (holdingEnd ? new Date(holdingEnd)
+      : quietUntil && isValidTimeZone(profileZone) ? quietHoursEndAt(quietUntil, profileZone, new Date()) : null),
     // Recomputed per answer, not per render: `new Date()` is read when the
     // route answered, which is what `until` was true of.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [quietUntil, profileZone, next.dataUpdatedAt],
+    [holdingEnd, quietUntil, profileZone, next.dataUpdatedAt],
   );
   const refetchNext = next.refetch;
   useEffect(() => {
@@ -212,7 +234,11 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
           {model.isEmpty ? (
             // No capture button here: the bar's own «احكيها» is the one way in,
             // and a second one competing with it was the audit's finding.
-            <EmptyState title={t.emptyTitle} body={t.emptyBody} testID="today-empty" />
+            <>
+              {/* A day with only a fixed block still has the block on it. */}
+              <WeeklyToday items={weeklyToday} />
+              <EmptyState title={t.emptyTitle} body={t.emptyBody} testID="today-empty" />
+            </>
           ) : (
             <>
               <Txt size={13} color={p.mu} testID="today-count">
@@ -220,7 +246,10 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
               </Txt>
 
               {/* PRIMARY · what matters now */}
-              <PrimaryCard primary={model.primary} quietEndsAt={quietEndsAt} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
+              <PrimaryCard primary={model.primary} quietEndsAt={quietEndsAt} holding={holding} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
+
+              {/* Fixed today: taken time, not things to do. */}
+              <WeeklyToday items={weeklyToday} />
 
               {/* SECONDARY · the plan, always present, always honest */}
               <TodayPlanRow row={model.plan} preview={preview} />
@@ -277,10 +306,30 @@ const QUIET_END_RETRY_MS = 30_000;
 const MAX_TIMER_MS = 2_147_483_647;
 
 /** Exactly one of these renders. See `composeToday`. */
-function PrimaryCard({ primary, quietEndsAt, lookup, strings, timezone, lang, busy }: {
+/** Today's weekly fixed blocks, under their own heading, in time order. */
+function WeeklyToday({ items }: { items: readonly WeeklyBlockOccurrence[] }) {
+  const { t } = useApp();
+  if (items.length === 0) return null;
+  return (
+    <View style={{ gap: 6 }} testID="today-weekly">
+      <SectionLabel testID="today-weekly-title">{t.wbTodayTitle}</SectionLabel>
+      {[...items].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).map((occurrence) => (
+        <WeeklyOccurrenceRow
+          key={`${occurrence.weeklyBlockId}-${occurrence.startAt}`}
+          occurrence={occurrence}
+          testID={`today-weekly-${occurrence.weeklyBlockId}`}
+        />
+      ))}
+    </View>
+  );
+}
+
+function PrimaryCard({ primary, quietEndsAt, holding, lookup, strings, timezone, lang, busy }: {
   primary: Primary;
-  /** When quiet hours end, as an instant; null until it is known on which clock. */
+  /** When quiet hours (or a weekly block) end, as an instant; null until it is known on which clock. */
   quietEndsAt: Date | null;
+  /** The weekly block under way, when the route went quiet for one and it is in hand. */
+  holding: WeeklyBlockOccurrence | null;
   lookup: ReadonlyMap<string, CommitmentView>;
   strings: Record<string, string>;
   timezone: string;
@@ -300,13 +349,17 @@ function PrimaryCard({ primary, quietEndsAt, lookup, strings, timezone, lang, bu
           <Txt size={15} lh={1.5}>
             {primary.why === 'mode' ? t.todayQuietModeOn
               : primary.why === 'paused' ? t.todayNextPaused
-                : quietEndsAt ? fill(t.todayQuietHoursUntil, { time: ltr(formatTime(quietEndsAt, { locale: lang, timeZone: timezone })) }) : t.todayQuietHours}
+                : primary.why === 'block' ? weeklyHoldLine(t, holding, quietEndsAt, lang, timezone)
+                  : quietEndsAt ? fill(t.todayQuietHoursUntil, { time: ltr(formatTime(quietEndsAt, { locale: lang, timeZone: timezone })) }) : t.todayQuietHours}
           </Txt>
           {primary.why === 'mode' ? (
             <TextLink label={t.sTrust} onPress={() => actions.go('trust')} testID="today-quiet-trust" />
           ) : null}
           {primary.why === 'hours' ? (
             <TextLink label={t.notifQuietTitle} onPress={() => actions.go('notificationsSettings')} testID="today-quiet-hours" />
+          ) : null}
+          {primary.why === 'block' ? (
+            <TextLink label={t.wbTitle} onPress={() => actions.go('weeklyBlocks')} testID="today-quiet-weekly" />
           ) : null}
         </Card>
       );
@@ -327,6 +380,23 @@ function PrimaryCard({ primary, quietEndsAt, lookup, strings, timezone, lang, bu
     case 'none':
       return null;
   }
+}
+
+/**
+ * «هلّق وقت تدريب. بنرجع نقترح الساعة 16:00.» — the block's own title and end
+ * when it is in hand; the generic line, with the route's `until`, when it is
+ * not; and no hour at all rather than a wrong one.
+ */
+function weeklyHoldLine(
+  t: ReturnType<typeof useApp>['t'],
+  holding: WeeklyBlockOccurrence | null,
+  endsAt: Date | null,
+  lang: Lang,
+  timezone: string,
+): string {
+  if (!endsAt) return t.wbNextNowNoTime;
+  const time = ltr(formatTime(endsAt, { locale: lang, timeZone: timezone }));
+  return holding ? fill(t.wbNextNow, { title: isolateAuto(holding.title), time }) : fill(t.wbNextNowGeneric, { time });
 }
 
 /**

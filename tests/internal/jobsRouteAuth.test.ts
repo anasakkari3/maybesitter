@@ -9,6 +9,8 @@
  * scheduler store, default handler) over memory storage: a reminder due in a
  * participant's durable state is completed exactly once.
  */
+import { createWeeklyBlock, weeklyBusySourceId } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
+import { listBusyBlocksOfSource } from '../../lib/calendar/busyBlocks.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
@@ -278,9 +280,28 @@ test('maintenance: every sweep runs, and it reports each one', async () => {
     'alpha_feedback_pruned',
     'alpha_traces_pruned',
     'clarifications_pruned',
+    // «ثابت أسبوعي»: every active weekly block keeps eight weeks ahead.
+    'weekly_blocks_renewed',
     // UC-1.5 (#149): a deletion whose instance went away is finished here.
     'deletions_resumed',
   ]);
+});
+
+test('maintenance: a weekly block due for renewal is materialized again, and one that is not is left alone', async () => {
+  const storage = createMemoryStorage();
+  const created = new Date('2026-09-29T09:00:00.000Z');
+  const input = { title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem', confirmedAt: created.toISOString() };
+  const { block } = await createWeeklyBlock('user_weekly_renewal', input, { storage, now: created });
+  const lastStart = async () => (await listBusyBlocksOfSource('user_weekly_renewal', weeklyBusySourceId(block.id), { storage })).at(-1)!.startAt;
+  const before = await lastStart();
+
+  const notYet = await runMaintenance({ storage, now: new Date(created.getTime() + 3 * 86_400_000) });
+  assert.deepEqual(notYet.steps.find((step) => step.name === 'weekly_blocks_renewed'), { name: 'weekly_blocks_renewed', ok: true, count: 0 });
+  assert.equal(await lastStart(), before);
+
+  const due = await runMaintenance({ storage, now: new Date(created.getTime() + 8 * 86_400_000) });
+  assert.deepEqual(due.steps.find((step) => step.name === 'weekly_blocks_renewed'), { name: 'weekly_blocks_renewed', ok: true, count: 1 });
+  assert.equal(Date.parse(await lastStart()) - Date.parse(before), 7 * 86_400_000, 'the horizon moved a week further out');
 });
 
 test('maintenance: one unreachable store does not stop the other sweeps, and the call fails', async () => {
@@ -309,6 +330,7 @@ test('maintenance: one unreachable store does not stop the other sweeps, and the
       alpha_feedback_pruned: true,
       alpha_traces_pruned: false,
       clarifications_pruned: true,
+      weekly_blocks_renewed: true,
       deletions_resumed: true,
     });
   } finally {

@@ -64,7 +64,21 @@ export function expandLectureSessionsToBusyBlocks(
   sessions: readonly ShareRecurringSession[],
   options: ExpandLectureSessionsOptions,
 ): ExpandedLectureBlocksResult {
-  const sourceId = manualBusySourceId(proposalId);
+  return expandWeeklySessionsToBusyBlocks(manualBusySourceId(proposalId), 'manual', sessions, options);
+}
+
+/**
+ * The expansion itself, for any source that states `{weekday, start, end}`
+ * sessions: accepted lecture sessions (`manual-*`) and weekly fixed blocks
+ * (`weekly-*`, lib/weeklyBlocks). One implementation, so a lecture and a
+ * Saturday shift land on the local clock by the same DST rule.
+ */
+export function expandWeeklySessionsToBusyBlocks(
+  sourceId: string,
+  sourceKind: 'manual' | 'weekly',
+  sessions: readonly Pick<ShareRecurringSession, 'weekday' | 'start' | 'end'>[],
+  options: ExpandLectureSessionsOptions,
+): ExpandedLectureBlocksResult {
   const zone = normalizeTimezone(options.timezone);
   const weeks = Math.max(1, Math.min(options.weeks ?? DEFAULT_LECTURE_EXPANSION_WEEKS, 52));
 
@@ -119,7 +133,7 @@ export function expandLectureSessionsToBusyBlocks(
       blocks.push({
         blockId,
         sourceId,
-        sourceKind: 'manual',
+        sourceKind,
         startAt,
         endAt,
         allDay: false,

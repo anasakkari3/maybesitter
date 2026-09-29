@@ -5,6 +5,7 @@ import { getIdToken, refreshIdToken, signOutExpired, signOutForbidden } from './
 import {
   IcsFeedRefusedError,
   GoogleRefusedError,
+  WeeklyBlockRefusedError,
   ConfirmationRequiredError,
   ConflictError,
   CurrencyRequiredError,
@@ -268,6 +269,9 @@ function captureConfirmRefusal(status: number, body: unknown): CaptureConfirmRef
 /** Every Google route (CL6a) sits under this path, and only they answer with `GoogleRefusedError`. */
 const GOOGLE_ROUTES = '/api/mobile/integrations/google';
 
+/** The weekly fixed-block routes («ثابت أسبوعي»), which refuse with a `code`. */
+const WEEKLY_BLOCK_ROUTES = '/api/mobile/weekly-blocks';
+
 function errorForStatus(status: number, body: unknown, path?: string): Error {
   const { message, reason } = refusal(body);
   // The calendar feed routes (UC-3.4, #188) answer with their own reason at
@@ -282,6 +286,15 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
   if (path !== undefined && (path === GOOGLE_ROUTES || path.startsWith(`${GOOGLE_ROUTES}/`))) {
     const googleRefusal = googleRefusalSchema.safeParse(body);
     if (googleRefusal.success) return new GoogleRefusedError(googleRefusal.data.reason);
+  }
+  // The weekly-block routes answer `{ success: false, error, code }` at 400;
+  // the code is what the screen needs (`overnight_not_supported` is said in
+  // the person's language), so it is kept rather than flattened. Scoped by
+  // path, like Google's: `confirmation_required` is also the deletion route's
+  // reason, and that one is a ConfirmationRequiredError.
+  if (status === 400 && path !== undefined && (path === WEEKLY_BLOCK_ROUTES || path.startsWith(`${WEEKLY_BLOCK_ROUTES}/`))) {
+    const code = (body as { code?: unknown } | null)?.code;
+    if (typeof code === 'string' && /^[a-z_]{1,64}$/.test(code)) return new WeeklyBlockRefusedError(code);
   }
   // A refused capture confirm keeps its `failureCode` (#252): the reason is
   // the sentence the person needs, and the 404/400 classes below drop it.

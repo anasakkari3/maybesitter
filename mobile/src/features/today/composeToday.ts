@@ -30,10 +30,12 @@ import { planRows } from '../plan/lateDay';
 /**
  * Why there is no card (UAT round 3, N12). `mode`: the person's own quiet-mode
  * switch, on until they turn it off. `hours`: inside their quiet hours, which
- * end by themselves at `until`. `paused`: anything else the route went quiet
+ * end by themselves at `until`. `block`: inside a weekly fixed block
+ * («ثابت أسبوعي» — the Saturday shift), which ends by itself at `until` on
+ * the block's clock. `paused`: anything else the route went quiet
  * for — the kill switch — which nobody on this phone can turn off.
  */
-export type QuietWhy = 'mode' | 'hours' | 'paused';
+export type QuietWhy = 'mode' | 'hours' | 'block' | 'paused';
 
 export type Primary =
   | { kind: 'quiet'; why: QuietWhy; until: string | null }
@@ -141,8 +143,9 @@ export function composeToday(input: {
     // apart here, once, for whatever draws the card. A missing reason is read
     // as quiet mode, which is what every silence was drawn as before.
     const why: QuietWhy = next.silencedReason === 'quiet_hours' ? 'hours'
-      : next.silencedReason === undefined || next.silencedReason === 'quiet_mode' ? 'mode' : 'paused';
-    primary = { kind: 'quiet', why, until: why === 'hours' ? next.quietUntil ?? null : null };
+      : next.silencedReason === 'weekly_block' ? 'block'
+        : next.silencedReason === undefined || next.silencedReason === 'quiet_mode' ? 'mode' : 'paused';
+    primary = { kind: 'quiet', why, until: why === 'hours' || why === 'block' ? next.quietUntil ?? null : null };
   } else if (ready && rec.primaryStep) {
     primary = { kind: 'next', recommendation: rec, item: byId.get(rec.primaryStep.commitmentId) ?? null };
   } else {

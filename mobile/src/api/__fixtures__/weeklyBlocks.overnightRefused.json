@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "end must be after start on the same day; overnight blocks are not supported yet",
+  "code": "overnight_not_supported"
+}

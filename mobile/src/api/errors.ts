@@ -379,3 +379,19 @@ export class GoogleRefusedError extends ApiError {
     super(`the Google request was refused: ${reason}`);
   }
 }
+
+/**
+ * A `/weekly-blocks` route refused, with the contract's own `code` (weekly
+ * fixed blocks, «ثابت أسبوعي»).
+ *
+ * `code`, not `reason`: the server's refusal body is `{ success: false, error,
+ * code }` (`lib/weeklyBlocks/weeklyBlockApi.ts`). The phone has to say
+ * `overnight_not_supported` in the person's own language — an end before the
+ * start is not something to flatten into "check it and try again" — so the
+ * code is kept rather than dropped by the generic 400.
+ */
+export class WeeklyBlockRefusedError extends ApiError {
+  constructor(readonly code: string) {
+    super(`the weekly block request was refused: ${code}`);
+  }
+}

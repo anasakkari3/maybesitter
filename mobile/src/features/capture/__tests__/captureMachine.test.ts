@@ -294,7 +294,7 @@ describe('an answered question (#474)', () => {
     const state = [...before, { type: 'clarified', proposal: settled() } as CaptureEvent]
       .reduce(captureReducer, analyzed(asking()));
     expect([...state.selected].sort()).toEqual(['a', 'b']);
-    expect(confirmPayload(state)).toEqual({ proposalId: 'p1', itemIds: ['a', 'b'], edits: { a: { title: 'Ring the clinic' } } });
+    expect(confirmPayload(state)).toEqual({ proposalId: 'p1', itemIds: ['a', 'b'], edits: { a: { title: 'Ring the clinic' } }, weeklyBlockItemIds: [] });
   });
 
   it('ignores an answer for a different proposal', () => {

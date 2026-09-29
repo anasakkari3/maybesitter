@@ -6,6 +6,7 @@ import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr } from '../i18n/strings';
+import { weeklyA11yLabel, weeklyLine } from '../features/weeklyBlocks/weeklyText';
 import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { ActionRow, Tag } from '../ui/chrome';
@@ -142,6 +143,30 @@ export function SavedScreen() {
             </View>
           ))}
         </View>
+
+        {/* Weekly blocks the confirm made («كل أسبوع»), from the server's own
+            answer. Not in the Undo: that takes back commitments, and a block
+            is paused, changed or deleted where it lives — said here, once. */}
+        {state.weeklySaved.length > 0 ? (
+          <View style={{ alignSelf: 'stretch', gap: 8 }} testID="saved-weekly">
+            {state.weeklySaved.map(({ block }) => (
+              <View
+                key={block.id}
+                testID={`saved-weekly-${block.id}`}
+                accessible
+                accessibilityLabel={`${weeklyA11yLabel(block, lang)}${t.wbListSep}${t.wbReviewWeekly}`}
+                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
+              >
+                <Txt role="card">{block.title}</Txt>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                  <Tag kind="fixed" label={t.wbReviewWeekly} />
+                  <Txt size={12} color={p.mu} testID={`saved-weekly-when-${block.id}`}>{weeklyLine(block, lang, { withTitle: false })}</Txt>
+                </View>
+              </View>
+            ))}
+            <Txt size={12} color={p.mu} align="center">{t.wbSavedNote}</Txt>
+          </View>
+        ) : null}
 
         {/* The server saved it and says what it lands on. It warns, it does not
             refuse, so this sits under the saved list rather than replacing it,

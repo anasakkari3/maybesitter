@@ -45,6 +45,15 @@ import {
 } from './participantState';
 import { guardedMobileExtract } from './safety';
 import { dateFromOptionalIso, normalizeTimezone } from './time';
+import type { WeeklyBlockContract } from '../../../src/contracts/v1/weeklyBlockContracts';
+import {
+  captureWeeklyBlockId,
+  materializeWeeklyBlock,
+  presentWeeklyBlock,
+  readWeeklyBlock,
+  weeklyBlockDocumentFrom,
+  weeklyBlockPath,
+} from '../../weeklyBlocks/weeklyBlockService';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -61,6 +70,8 @@ export interface MobileConfirmInput {
   idempotencyKey?: unknown;
   /** What the user changed in review, applied with the confirm (#164). */
   edits?: unknown;
+  /** Selected items confirmed as weekly blocks rather than one-offs («ثابت أسبوعي»). */
+  weeklyBlockItemIds?: unknown;
 }
 
 export interface PersistedProposalItem {
@@ -168,6 +179,7 @@ export function idempotencyKeyFor(
   selectedItemIds: string[],
   explicit: unknown,
   edits: CaptureItemEditContract[] = [],
+  weeklyBlockItemIds: readonly string[] = [],
 ): string {
   if (typeof explicit === 'string' && explicit.trim()) return explicit.trim();
   const stableEdits = [...edits]
@@ -181,7 +193,13 @@ export function idempotencyKeyFor(
       ...(edit.priority !== undefined ? { priority: edit.priority } : {}),
     }));
   return createHash('sha256')
-    .update(JSON.stringify({ proposalId, scopeId, selectedItemIds, edits: stableEdits }))
+    // Weekly choices only when made, so every key minted before weekly blocks
+    // existed is unchanged; a weekly confirm is a different intent from a
+    // one-off confirm of the same items and must not replay it.
+    .update(JSON.stringify({
+      proposalId, scopeId, selectedItemIds, edits: stableEdits,
+      ...(weeklyBlockItemIds.length > 0 ? { weeklyBlockItemIds: [...weeklyBlockItemIds].sort(compareByCodePoint) } : {}),
+    }))
     .digest('hex');
 }
 
@@ -243,15 +261,58 @@ function engineLabel(): { llmEngine?: 'gemini' | 'ollama' } {
 function committerFor(context: MobileBackendContext = {}): CaptureConfirmationCommitter | undefined {
   const participantId = context.participantId;
   if (!participantId) return undefined;
-  return async ({ scopeId, proposalId, idempotencyKey, commands, commandsByItemId, result }) =>
-    commitCaptureConfirmation(
+  return async ({ scopeId, proposalId, idempotencyKey, commands, commandsByItemId, result, weeklyBlocks }) => {
+    // The confirm is the person's "yes": that instant is the block's
+    // `confirmedAt`, and the id is derived from the proposal and the item so a
+    // retried confirm addresses the same document.
+    const now = new Date();
+    const blocks = weeklyBlocks.map(({ itemId, offer }) => {
+      const doc = weeklyBlockDocumentFrom(
+        { ...offer, confirmedAt: now.toISOString() },
+        { id: captureWeeklyBlockId(proposalId, itemId), source: 'capture', now },
+      );
+      return { path: weeklyBlockPath(participantId, doc.id), data: doc };
+    });
+    return commitCaptureConfirmation(
       participantId,
       captureProposalPath(scopeId, proposalId),
       commands,
       idempotencyKey,
       result,
       commandsByItemId,
+      blocks,
     );
+  };
+}
+
+/**
+ * Materializes the weekly blocks a confirm created, and presents them.
+ *
+ * After the transaction, like the activation above it: busy blocks are written
+ * through `replaceBusyBlocks`, which is its own set of commits. A failure here
+ * leaves the block stored with `renewAt` already due, so the nightly sweep
+ * materializes it; the confirm itself has succeeded and says so. Idempotent,
+ * so a replay re-running it announces nothing new.
+ */
+async function materializeConfirmedWeeklyBlocks(
+  proposalId: string,
+  itemIds: readonly string[],
+  context: MobileBackendContext,
+): Promise<Array<{ itemId: string; block: WeeklyBlockContract }>> {
+  const participantId = context.participantId;
+  if (!participantId || itemIds.length === 0) return [];
+  const out: Array<{ itemId: string; block: WeeklyBlockContract }> = [];
+  for (const itemId of itemIds) {
+    const block = await readWeeklyBlock(participantId, captureWeeklyBlockId(proposalId, itemId));
+    if (!block) continue;
+    try {
+      await materializeWeeklyBlock(participantId, block);
+    } catch (error) {
+      console.error('[capture/confirm] weekly block materialization failed; the nightly sweep will retry', error instanceof Error ? error.name : 'unknown');
+    }
+    out.push({ itemId, block: presentWeeklyBlock((await readWeeklyBlock(participantId, block.id)) ?? block) });
+  }
+  return out;
 }
 
 async function persistedItem(
@@ -503,6 +564,12 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
    * older client already can't see.
    */
   collisions: CollisionWarning[];
+  /**
+   * The weekly blocks this confirm created («ثابت أسبوعي»), each with the
+   * item it came from and everything the phone needs to write its recurring
+   * device event (`block.deviceEvent`). Always present; empty otherwise.
+   */
+  weeklyBlocks: Array<{ itemId: string; block: WeeklyBlockContract }>;
 }> {
   const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
   if (!proposalId) throw new Error('proposalId is required');
@@ -512,12 +579,16 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   if (selectedItemIds.length === 0) throw new Error('itemIds is required');
 
   const edits = editsFrom(input.edits);
+  const weeklyBlockItemIds = Array.isArray(input.weeklyBlockItemIds)
+    ? input.weeklyBlockItemIds.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
   const result = await confirmCapture({
     proposalId,
     scopeId,
     selectedItemIds,
     edits,
-    idempotencyKey: idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey, edits),
+    ...(weeklyBlockItemIds.length > 0 ? { weeklyBlockItemIds } : {}),
+    idempotencyKey: idempotencyKeyFor(proposalId, scopeId, selectedItemIds, input.idempotencyKey, edits, weeklyBlockItemIds),
   }, {
     store,
     persistence: persistenceFor(context),
@@ -539,10 +610,16 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
         reason: result.failureCode ?? 'confirmation_failed',
       })),
       collisions: [],
+      weeklyBlocks: [],
     };
   }
 
   await activateConfirmedItems(proposalId, result.persistedItemIds, context);
+  const weeklyBlocks = await materializeConfirmedWeeklyBlocks(
+    proposalId,
+    weeklyBlockItemIds.filter((itemId) => result.persistedItemIds.includes(itemId)),
+    context,
+  );
   const persisted = (await Promise.all(
     result.persistedItemIds.map((itemId) => persistedItem(store, proposalId, itemId, context)),
   )).filter((item): item is PersistedProposalItem => item !== null);
@@ -610,6 +687,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
       .filter((itemId) => !result.persistedItemIds.includes(itemId))
       .map((itemId) => ({ itemId, reason: 'not_selected' })),
     collisions: await collisionsForPersisted(persisted, context),
+    weeklyBlocks,
   };
 }
 

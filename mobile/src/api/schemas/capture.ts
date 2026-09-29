@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { weeklyBlockOfferSchema, weeklyBlockSchema } from './weeklyBlocks';
 import { isoDateTime } from './common';
 
 /** Mirrors `capture.proposal.json`. A proposal never implies persistence. */
@@ -84,6 +85,13 @@ export const captureProposalSchema = z.object({
         })
         .nullable()
         .optional(),
+      /**
+       * The offer to keep this item as a weekly fixed block («ثابت أسبوعي»),
+       * rendered «كل سبت · 10:00–16:00». Present only for a complete weekly
+       * range. Confirming it means naming the item in `weeklyBlockItemIds`;
+       * without that the confirm keeps the one-off.
+       */
+      weeklyBlock: weeklyBlockOfferSchema.optional(),
       /**
        * The one question to ask about this item (UC-2.5, #165).
        *
@@ -203,6 +211,12 @@ export const captureConfirmationSchema = z.object({
   // did), and an older backend that has not shipped this field at all must
   // still parse under this schema.
   collisions: z.array(collisionWarningSchema).optional(),
+  /**
+   * The weekly blocks this confirm created (items named in
+   * `weeklyBlockItemIds`), each with what the phone needs for its recurring
+   * device event. Optional: an older server sends nothing.
+   */
+  weeklyBlocks: z.array(z.object({ itemId: z.string(), block: weeklyBlockSchema })).optional(),
 });
 
 export type CaptureConfirmation = z.infer<typeof captureConfirmationSchema>;

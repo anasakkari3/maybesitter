@@ -198,6 +198,16 @@ export interface CaptureState {
   messageKey: UserFacingKey | null;
   /** True while the undo window is open. */
   undoable: boolean;
+  /**
+   * Items carrying a weekly-block offer that the person set to «مرة وحدة بس».
+   *
+   * Stored as the exceptions, not the choices: an offered item is weekly until
+   * somebody says otherwise, and nothing about it is saved before the confirm.
+   * Cleared by every new analysis.
+   */
+  onceOnly: string[];
+  /** The weekly blocks the confirm made, straight from the server's answer. */
+  weeklySaved: NonNullable<CaptureConfirmation['weeklyBlocks']>;
 }
 
 export type CaptureEvent =
@@ -213,6 +223,8 @@ export type CaptureEvent =
   | { type: 'deselectAll' }
   | { type: 'editItem'; itemId: string; edit: CaptureItemEdit }
   | { type: 'clearEdit'; itemId: string }
+  /** «كل أسبوع» (`weekly: true`) or «مرة وحدة بس» on an item with a weekly offer. */
+  | { type: 'setWeekly'; itemId: string; weekly: boolean }
   | { type: 'confirmStarted' }
   | { type: 'confirmSucceeded'; confirmation: CaptureConfirmation }
   | { type: 'confirmFailed'; reason?: string; messageKey?: UserFacingKey }
@@ -259,6 +271,8 @@ export function initialCaptureState(
     errorReason: null,
     messageKey: null,
     undoable: false,
+    onceOnly: [],
+    weeklySaved: [],
   };
 }
 
@@ -355,11 +369,43 @@ export function defaultSelectedItems(
   });
 }
 
+/**
+ * Whether an edit takes the weekly block off the table.
+ *
+ * The server's own rule (`captureBoundaryService`): a weekly item may carry a
+ * new title, and nothing that moves it — no new time, no place reminder,
+ * because a block's days and hours are the offer's and change on the block.
+ * Sending one would fail the whole confirm with `invalid_edit`, so the card
+ * says "once" instead and the confirm asks for the one-off.
+ */
+function editMovesItem(edit: CaptureItemEdit | undefined): boolean {
+  return edit !== undefined && (edit.localDateTime !== undefined || !!edit.locationTrigger);
+}
+
+/**
+ * «كل أسبوع» (`weekly`), «مرة وحدة بس» (`once`), or `null` for an item the
+ * server offered no weekly block for.
+ */
+export function weeklyChoice(state: CaptureState, itemId: string): 'weekly' | 'once' | null {
+  const item = state.proposal?.items.find((candidate) => candidate.itemId === itemId);
+  if (!item?.weeklyBlock) return null;
+  if (state.onceOnly.includes(itemId) || editMovesItem(state.edits[itemId])) return 'once';
+  return 'weekly';
+}
+
+/** True when an edit has made «كل أسبوع» impossible for this item. */
+export function weeklyLockedByEdit(state: CaptureState, itemId: string): boolean {
+  const item = state.proposal?.items.find((candidate) => candidate.itemId === itemId);
+  return !!item?.weeklyBlock && editMovesItem(state.edits[itemId]);
+}
+
 /** What the confirm request carries. Only the selection, and only its edits. */
 export function confirmPayload(state: CaptureState): {
   proposalId: string;
   itemIds: string[];
   edits: Record<string, CaptureItemEdit>;
+  /** The selected items kept as weekly blocks; everything else confirms once. */
+  weeklyBlockItemIds: string[];
 } {
   const itemIds = state.selected.filter((id) => confirmableItems(state.proposal, state.edits).includes(id));
   // Edits for items that are not being confirmed are dropped rather than sent.
@@ -369,7 +415,8 @@ export function confirmPayload(state: CaptureState): {
   for (const id of itemIds) {
     if (state.edits[id]) edits[id] = state.edits[id];
   }
-  return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits };
+  const weeklyBlockItemIds = itemIds.filter((id) => weeklyChoice(state, id) === 'weekly');
+  return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits, weeklyBlockItemIds };
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -394,6 +441,7 @@ export function wantsDiscardConfirmation(state: CaptureState): boolean {
   if (state.status === 'saved') return false;
   if (state.proposal) {
     if (Object.keys(state.edits).length > 0) return true;
+    if (state.onceOnly.length > 0) return true;
     const base = state.original ?? state.proposal;
     const defaultSelected = defaultSelectedItems(base);
     return !sameIds(state.selected, defaultSelected);
@@ -448,6 +496,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         original: event.proposal,
         selected: defaultSelectedItems(event.proposal),
         edits: {},
+        onceOnly: [],
         errorReason: null,
         messageKey: null,
       };
@@ -550,6 +599,17 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       };
     }
 
+    case 'setWeekly': {
+      const item = state.proposal?.items.find((candidate) => candidate.itemId === event.itemId);
+      if (!item?.weeklyBlock) return state;
+      const once = state.onceOnly.includes(event.itemId);
+      if (event.weekly === !once) return state;
+      return {
+        ...state,
+        onceOnly: event.weekly ? state.onceOnly.filter((id) => id !== event.itemId) : [...state.onceOnly, event.itemId],
+      };
+    }
+
     case 'confirmStarted':
       if (confirmPayload(state).itemIds.length === 0) return state;
       return { ...state, status: 'confirming', errorReason: null, messageKey: null };
@@ -564,6 +624,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         failed: event.confirmation.failed,
         // Absent from an older server: no warning, rather than a parse failure.
         collisions: event.confirmation.collisions ?? [],
+        // Absent from an older server, and from a confirm that named none.
+        weeklySaved: event.confirmation.weeklyBlocks ?? [],
         undoable: event.confirmation.persisted.length > 0,
       };
 
@@ -579,7 +641,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // The text is kept on purpose: this is the Edit button on a
       // no-commitment or error state, and losing what they wrote would be the
       // worst possible response to "I could not read that".
-      return { ...state, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, errorReason: null, messageKey: null };
+      return { ...state, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], errorReason: null, messageKey: null };
 
     case 'reset':
       return initialCaptureState(state.source, state.inputMode);

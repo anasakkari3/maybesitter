@@ -28,6 +28,7 @@
  *
  * Nothing here changes backend behaviour. It only reads it.
  */
+import { compareByCodePoint } from '../../lib/planning/shared/compare.ts';
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -182,6 +183,9 @@ import { GET as watchersGet, POST as watchersPost } from '../../src/app/api/mobi
 import { GET as footballGet } from '../../src/app/api/mobile/football/route.ts';
 import { GET as backgroundActivityGet } from '../../src/app/api/mobile/trust/background-activity/route.ts';
 import { POST as watcherPausePost } from '../../src/app/api/mobile/watchers/[id]/pause/route.ts';
+import { GET as weeklyBlocksGet, POST as weeklyBlocksPost } from '../../src/app/api/mobile/weekly-blocks/route.ts';
+import { DELETE as weeklyBlockDelete, PATCH as weeklyBlockPatch } from '../../src/app/api/mobile/weekly-blocks/[id]/route.ts';
+import { GET as weeklyOccurrencesGet } from '../../src/app/api/mobile/weekly-blocks/occurrences/route.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const REFERENCE_TIME = '2026-08-09T08:00:00.000Z';
@@ -207,6 +211,25 @@ const MEETING_USER = uidFor('MeetingFixtureUser');
 /** The all-day deadline (FX3) records under its own account, so no list or count fixture moves. */
 const DEADLINE_USER = uidFor('DeadlineFixtureUser');
 const WEEKLY_USER = uidFor('WeeklyFixtureUser');
+/** Weekly fixed blocks («ثابت أسبوعي») record under their own account, so no list, count or export fixture moves. */
+const WEEKLY_BLOCK_USER = uidFor('WeeklyBlockFixtureUser');
+
+/**
+ * A block's `startsOn` is a local date derived from the real clock (the first
+ * of its weekdays on or after today), so it is pinned to the reference day —
+ * by key, and only there.
+ */
+function pinStartsOn(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(pinStartsOn);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+      key,
+      key === 'startsOn' && typeof item === 'string' ? STABLE_DAY : pinStartsOn(item),
+    ]));
+  }
+  return value;
+}
+const pinWeekly = (body: Record<string, unknown>) => pinStartsOn(body) as Record<string, unknown>;
 const APPOINTMENT_DAY_USER = uidFor('AppointmentDayFixtureUser');
 /** A block three hours from the real clock: the route refuses one that has started. */
 function meetingBlock(): { startAt: string; endAt: string } {
@@ -873,6 +896,71 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       body: { proposalId: weekly.proposalId, itemIds: [weeklyItems[0]!.itemId] },
     })));
     assert.equal(weeklyConfirmed.success, true);
+    // The same item offers itself as a weekly block («كل سبت · 10:00–16:00»);
+    // the confirm above did not name it, so it stayed the one-off it showed.
+    assert.deepEqual((weekly.items as Array<{ weeklyBlock?: unknown }>)[0]!.weeklyBlock, {
+      title: 'عندي تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem',
+    });
+    assert.deepEqual(weeklyConfirmed.weeklyBlocks, []);
+
+    // ── weekly fixed blocks («ثابت أسبوعي») ─────────────────────────
+    // Confirmed from a capture: the item is named in `weeklyBlockItemIds`,
+    // and the block (with its device-event fields) comes back instead of a
+    // commitment.
+    const weeklyOffer = await capturePost(request('/api/mobile/capture', {
+      uid: WEEKLY_BLOCK_USER,
+      body: { text: 'عندي تدريب كل سبت من الساعة 10 لـ 4', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
+    })).then((response) => response.json()) as { proposalId: string; items: Array<{ itemId: string }> };
+    const weeklyItemId = weeklyOffer.items[0]!.itemId;
+    const weeklyBlockConfirmed = await record('capture.weeklyBlockConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+      uid: WEEKLY_BLOCK_USER,
+      body: { proposalId: weeklyOffer.proposalId, itemIds: [weeklyItemId], weeklyBlockItemIds: [weeklyItemId] },
+    })), pinWeekly);
+    assert.deepEqual(weeklyBlockConfirmed.persisted, []);
+    const confirmedBlocks = weeklyBlockConfirmed.weeklyBlocks as Array<{ itemId: string; block: { id: string; source: string; deviceEvent: { weekdays: number[] } } }>;
+    assert.equal(confirmedBlocks.length, 1);
+    assert.equal(confirmedBlocks[0]!.block.source, 'capture');
+    assert.deepEqual(confirmedBlocks[0]!.block.deviceEvent.weekdays, [6]);
+
+    // Created on the weekly-blocks screen: every day, so the occurrences
+    // fixture has rows whatever day this runs.
+    const weeklyCreated = await record('weeklyBlocks.created', 201, await weeklyBlocksPost(request('/api/mobile/weekly-blocks', {
+      uid: WEEKLY_BLOCK_USER,
+      body: {
+        title: 'دوام', weekdays: [0, 1, 2, 3, 4, 5, 6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem',
+        confirmation: { confirmedByUserAt: REFERENCE_TIME },
+      },
+    })), pinWeekly);
+    const weeklyBlockId = (weeklyCreated.block as { id: string }).id;
+    const weeklyList = await record('weeklyBlocks.list', 200, await weeklyBlocksGet(request('/api/mobile/weekly-blocks', { uid: WEEKLY_BLOCK_USER })), pinWeekly);
+    assert.equal((weeklyList.items as unknown[]).length, 2);
+    // How many rows the next seven days hold, and which of two blocks starting
+    // at the same minute sorts first, depend on the real clock and on random
+    // ids. The first row of each block is recorded, ordered by title, so the
+    // file changes only when the row's shape does.
+    const onePerBlock = (body: Record<string, unknown>) => {
+      const seen = new Set<string>();
+      const items = (body.items as Array<{ weeklyBlockId: string; title: string }>)
+        .filter((item) => !seen.has(item.weeklyBlockId) && Boolean(seen.add(item.weeklyBlockId)))
+        .sort((left, right) => compareByCodePoint(left.title, right.title));
+      return { ...body, items };
+    };
+    const occurrences = await record('weeklyBlocks.occurrences', 200, await weeklyOccurrencesGet(request('/api/mobile/weekly-blocks/occurrences', { uid: WEEKLY_BLOCK_USER })), onePerBlock);
+    assert.ok((occurrences.items as Array<{ title: string }>).some((item) => item.title === 'دوام'), 'the occurrences fixture has no titled row');
+    const weeklyPaused = await record('weeklyBlocks.paused', 200, await weeklyBlockPatch(request(`/api/mobile/weekly-blocks/${weeklyBlockId}`, {
+      uid: WEEKLY_BLOCK_USER, method: 'PATCH', body: { status: 'paused' },
+    }), { params: Promise.resolve({ id: weeklyBlockId }) }), pinWeekly);
+    assert.equal((weeklyPaused.block as { deviceEvent: unknown }).deviceEvent, null);
+    await record('weeklyBlocks.overnightRefused', 400, await weeklyBlocksPost(request('/api/mobile/weekly-blocks', {
+      uid: WEEKLY_BLOCK_USER,
+      body: {
+        title: 'مناوبة', weekdays: [5], start: '22:00', end: '02:00', timezone: 'Asia/Jerusalem',
+        confirmation: { confirmedByUserAt: REFERENCE_TIME },
+      },
+    })));
+    await record('weeklyBlocks.deleted', 200, await weeklyBlockDelete(request(`/api/mobile/weekly-blocks/${weeklyBlockId}`, {
+      uid: WEEKLY_BLOCK_USER, method: 'DELETE',
+    }), { params: Promise.resolve({ id: weeklyBlockId }) }));
 
     // ── share intake (UC-3.0, #183) ────────────────────────────────
     // The same proposal shape as `capture.proposal`, plus the `share`

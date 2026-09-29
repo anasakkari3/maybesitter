@@ -90,6 +90,16 @@ export interface CalendarEventDraft {
   timeZone: string;
   /** `maybesitter://commitments/{id}`, so the event points back. iOS only. */
   url?: string;
+  /**
+   * Weekly, on these days (0 = Sunday … 6 = Saturday), from `startDate` on —
+   * a weekly fixed block («ثابت أسبوعي»). Absent for a one-off.
+   *
+   * The days reach the platform only where it can hold them: iOS writes
+   * `BYDAY`; `expo-calendar` on Android writes `FREQ=WEEKLY` alone, so there a
+   * series recurs on `startDate`'s weekday and a caller wanting several days
+   * writes one series per day (`weeklyRuleCarriesDays`).
+   */
+  recurrence?: { weekdays: number[] };
 }
 
 export type DeviceCalendarFailure =
@@ -216,6 +226,18 @@ function failureFrom(error: unknown, fallback: DeviceCalendarFailure): DeviceCal
   return new DeviceCalendarError(fallback, message);
 }
 
+/**
+ * Whether one recurring event can carry several weekdays on this platform.
+ *
+ * iOS: yes — `daysOfTheWeek` becomes `BYDAY`. Android: no — expo-calendar 57's
+ * `RecurrenceRule.toRuleString()` writes `FREQ`, `INTERVAL`, `UNTIL`/`COUNT`
+ * and nothing else, so `daysOfTheWeek` is silently dropped and the series
+ * repeats only on its first day's weekday.
+ */
+export function weeklyRuleCarriesDays(): boolean {
+  return Platform.OS === 'ios';
+}
+
 /** The event fields this app sets, and the complete list of them. */
 function eventFrom(draft: CalendarEventDraft): Record<string, unknown> {
   return {
@@ -226,7 +248,30 @@ function eventFrom(draft: CalendarEventDraft): Record<string, unknown> {
     allDay: draft.allDay,
     timeZone: draft.timeZone,
     ...(draft.url === undefined ? {} : { url: draft.url }),
+    ...(draft.recurrence === undefined ? {} : {
+      recurrenceRule: {
+        frequency: 'weekly',
+        interval: 1,
+        // `DayOfTheWeek` is 1 = Sunday … 7 = Saturday. Ignored on Android.
+        ...(weeklyRuleCarriesDays() ? { daysOfTheWeek: draft.recurrence.weekdays.map((day) => ({ dayOfTheWeek: day + 1 })) } : {}),
+      },
+    }),
   };
+}
+
+/**
+ * The event a change or a removal should act on.
+ *
+ * `ExpoCalendarEvent.get(id)` answers a recurring event's *first occurrence*
+ * with the span `thisEvent`, and on iOS saving or removing it with that span
+ * detaches or deletes that one Saturday and leaves the rest of the series. For
+ * a series the whole of it is wanted, so it is re-fetched with `futureEvents`
+ * from its first occurrence — which is every occurrence. Android acts on the
+ * event row either way.
+ */
+function wholeSeries<T extends { recurrenceRule?: unknown; getOccurrenceSync?: unknown }>(event: T): T {
+  if (!event.recurrenceRule || typeof event.getOccurrenceSync !== 'function') return event;
+  return (event.getOccurrenceSync as (options: { futureEvents: boolean }) => T)({ futureEvents: true });
 }
 
 /**
@@ -327,7 +372,7 @@ export const deviceCalendar: DeviceCalendar = {
 
   async updateEvent(eventId, draft) {
     try {
-      const event = await Calendar.ExpoCalendarEvent.get(eventId);
+      const event = wholeSeries(await Calendar.ExpoCalendarEvent.get(eventId));
       await event.update(eventFrom(draft));
     } catch (error) {
       throw failureFrom(error, 'not_found');
@@ -336,7 +381,7 @@ export const deviceCalendar: DeviceCalendar = {
 
   async deleteEvent(eventId) {
     try {
-      const event = await Calendar.ExpoCalendarEvent.get(eventId);
+      const event = wholeSeries(await Calendar.ExpoCalendarEvent.get(eventId));
       await event.delete();
     } catch (error) {
       const failure = failureFrom(error, 'not_found');

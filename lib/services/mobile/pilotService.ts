@@ -1,3 +1,4 @@
+import { weeklyBlockCovering } from '../../weeklyBlocks/weeklyBlockService';
 import { randomUUID } from 'node:crypto';
 import { analyticsContextFrom } from '../../analytics/analyticsContext';
 import { appendAnalyticsEvent } from '../../analytics/eventStore';
@@ -244,6 +245,21 @@ export async function getMobileNextStep(participantId: string, input: MobilePilo
       // When quiet hours end, so the card can say suggestions come back then
       // rather than calling it quiet mode (UAT round 3, N12).
       exposure: { allowed: false, reason: access.reason, ...(access.quietUntil ? { until: access.quietUntil } : {}) },
+    };
+  }
+
+  // Inside a weekly fixed block («ثابت أسبوعي» — Saturday's 10:00–16:00
+  // shift) the person is at the shift, and "start this now" is advice they
+  // cannot take. Answered like quiet hours: no card, no error, and when it
+  // ends so Today can say so. No proposal is computed, for the same reason.
+  const hold = await weeklyBlockCovering(participantId, now);
+  if (hold) {
+    return {
+      success: true,
+      participantId,
+      recommendation: silentRecommendation(localeFrom(input.locale)),
+      assignment: resolveNextStepArm(participantId),
+      exposure: { allowed: false, reason: 'weekly_block', until: hold.block.end },
     };
   }
 

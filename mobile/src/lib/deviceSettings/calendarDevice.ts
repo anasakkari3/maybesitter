@@ -176,3 +176,70 @@ export async function saveExcludedCalendarIds(ids: readonly string[]): Promise<v
     // The switch still shows the choice for this session.
   }
 }
+
+/**
+ * Which device events this phone wrote for which weekly block («ثابت أسبوعي»):
+ * `{ blockId, calendarId, eventIds, contentHash, detached? }` per block. Ids
+ * and a digest — never a title or an hour.
+ *
+ * Kept per account. A block's event is removed when the account no longer has
+ * the block; without the uid in the key, a second account signing in on this
+ * phone would read the first one's links, find none of those blocks, and
+ * delete the first person's events out of the phone's calendar.
+ */
+export const WEEKLY_EVENT_LINKS_KEY = 'calendar.weeklyBlockEvents.v1';
+
+export interface StoredWeeklyEventLink {
+  blockId: string;
+  calendarId: string;
+  eventIds: string[];
+  contentHash: string;
+  detached?: boolean;
+}
+
+function weeklyLinksKey(uid: string): string {
+  return `${WEEKLY_EVENT_LINKS_KEY}:${uid}`;
+}
+
+function isStoredWeeklyLink(value: unknown): value is StoredWeeklyEventLink {
+  if (!value || typeof value !== 'object') return false;
+  const link = value as Record<string, unknown>;
+  return typeof link.blockId === 'string' && link.blockId !== ''
+    && typeof link.calendarId === 'string'
+    && Array.isArray(link.eventIds) && link.eventIds.every((id) => typeof id === 'string' && id !== '')
+    && typeof link.contentHash === 'string'
+    && (link.detached === undefined || typeof link.detached === 'boolean');
+}
+
+/**
+ * The links, or `null` when storage could not be read. Null is not "none":
+ * a pass that read "none" would create a second event for every block.
+ */
+export async function loadWeeklyEventLinks(uid: string): Promise<StoredWeeklyEventLink[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(weeklyLinksKey(uid));
+    if (raw === null) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    // Rebuilt field by field: a stored value is never trusted to have the shape we wrote.
+    return parsed.filter(isStoredWeeklyLink).map((link) => ({
+      blockId: link.blockId,
+      calendarId: link.calendarId,
+      eventIds: [...link.eventIds],
+      contentHash: link.contentHash,
+      ...(link.detached ? { detached: true } : {}),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** True when it was written. A false answer stops the pass: see `weeklyEventSync.ts`. */
+export async function saveWeeklyEventLinks(uid: string, links: readonly StoredWeeklyEventLink[]): Promise<boolean> {
+  try {
+    await AsyncStorage.setItem(weeklyLinksKey(uid), JSON.stringify(links));
+    return true;
+  } catch {
+    return false;
+  }
+}

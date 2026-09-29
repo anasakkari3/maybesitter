@@ -21,6 +21,12 @@ import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schem
 import { pilotIncidentResponseSchema, trustResponseSchema } from '../schemas/trust';
 import { habitChangedSchema } from '../schemas/habits';
 import {
+  weeklyBlockChangedSchema,
+  weeklyBlockDeletedSchema,
+  weeklyBlockListSchema,
+  weeklyBlockOccurrencesSchema,
+} from '../schemas/weeklyBlocks';
+import {
   goalConfirmResponseSchema,
   goalExecutionResponseSchema,
   goalGraphResponseSchema,
@@ -139,6 +145,15 @@ const CASES: Array<[string, z.ZodType]> = [
   // «كل سبت من 10 لـ 4» (FIX-R8-CAPTURE): the optional weekly hint.
   ['capture.weeklyRange', captureProposalSchema],
   ['capture.weeklyRangeConfirmation', captureConfirmationSchema],
+  // Weekly fixed blocks («ثابت أسبوعي»): the capture confirm that creates one,
+  // and the /weekly-blocks routes.
+  ['capture.weeklyBlockConfirmation', captureConfirmationSchema],
+  ['weeklyBlocks.created', weeklyBlockChangedSchema],
+  ['weeklyBlocks.list', weeklyBlockListSchema],
+  ['weeklyBlocks.occurrences', weeklyBlockOccurrencesSchema],
+  ['weeklyBlocks.paused', weeklyBlockChangedSchema],
+  ['weeklyBlocks.overnightRefused', errorBodySchema],
+  ['weeklyBlocks.deleted', weeklyBlockDeletedSchema],
   // The same schema again, over a proposal the model answered (#338). Without
   // it every recorded proposal says `rule-based` and the engine enum has
   // nothing to be wrong about.

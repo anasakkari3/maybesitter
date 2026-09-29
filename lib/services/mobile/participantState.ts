@@ -544,6 +544,12 @@ export async function commitCaptureConfirmation<T>(
    * afterwards can resolve the commitment this confirm just created.
    */
   commandsByItemId?: ReadonlyMap<string, readonly Command[]>,
+  /**
+   * Other documents this confirm creates, written in the same transaction as
+   * the claim — the weekly blocks an item was confirmed as («ثابت أسبوعي»).
+   * A replay writes none of them, exactly as it writes no commitment.
+   */
+  createdDocuments: ReadonlyArray<{ path: string; data: object }> = [],
 ): Promise<{ replayed: boolean; result: T }> {
   requireUserId(participantId);
   const at = nowIso();
@@ -571,6 +577,7 @@ export async function commitCaptureConfirmation<T>(
     }
     writeDomainDiff(tx, participantId, before, candidate, events, user, at);
     recordActivityEvents(tx, participantId, stats, events);
+    for (const document of createdDocuments) tx.set(document.path, document.data);
     tx.merge<{ confirmedResult: T; idempotencyKey: string; commands?: Record<string, Command[]> }>(proposalPath, {
       confirmedResult: result,
       idempotencyKey,

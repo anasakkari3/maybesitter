@@ -1,5 +1,6 @@
 import { MODULE_CONTRACT_VERSION } from './moduleContracts';
 import type { CaptureSeedProposalContract } from './intentContracts';
+import type { WeeklyBlockOfferContract } from './weeklyBlockContracts';
 
 export const CAPTURE_CONTRACT_VERSION = MODULE_CONTRACT_VERSION;
 
@@ -123,6 +124,16 @@ export interface CaptureProposalItemContract {
    * the phone, so an older app ignores it.
    */
   recurrenceHint?: RecurrenceHintContract | null;
+  /**
+   * The offer to keep this as a weekly fixed block («ثابت أسبوعي»): present
+   * only when `recurrenceHint` is complete — weekdays, and a settled start and
+   * end on the same day — and the item needs no question. The Review card
+   * renders it «كل سبت · 10:00–16:00». Offered, never saved: the confirm
+   * creates the block only for an item named in `weeklyBlockItemIds`, and
+   * without that the item confirms as the one-off it also is. Optional, so an
+   * older app ignores it and keeps its one-off.
+   */
+  weeklyBlock?: WeeklyBlockOfferContract;
 }
 
 /** See `CaptureProposalItemContract.recurrenceHint`. */
@@ -331,6 +342,14 @@ export interface CaptureConfirmationRequestContract {
    * user saw when they pressed confirm is what gets written, or nothing does.
    */
   edits?: CaptureItemEditContract[];
+  /**
+   * The selected items the person confirmed as weekly blocks rather than
+   * one-offs («ثابت أسبوعي»). Each must be selected and carry a `weeklyBlock`
+   * offer, or the whole confirm is `invalid_selection`. Only a `title` edit
+   * may accompany one; a time edit is `invalid_edit` (the block's days and
+   * hours are changed on the block itself, after it exists).
+   */
+  weeklyBlockItemIds?: string[];
 }
 
 export interface CaptureConfirmationResultContract {
