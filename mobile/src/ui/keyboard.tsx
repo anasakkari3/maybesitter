@@ -164,3 +164,27 @@ export function AvoidKeyboard({
     </View>
   );
 }
+
+/**
+ * Whether the software keyboard is on screen, live.
+ *
+ * For chrome that is not worth its room while the reader types — the
+ * verify-email banner (UAT round 6, D-g), whose only control is not one you
+ * reach mid-sentence. iOS posts `Will` events, as the keyboard starts to move,
+ * so the chrome is gone before the keyboard lands and `AvoidKeyboard` measures
+ * once; Android posts only `Did` events. A hardware keyboard posts neither,
+ * and then nothing is covered.
+ */
+export function useSoftKeyboardShown(): boolean {
+  const [shown, setShown] = useState(() => Keyboard.isVisible());
+  useEffect(() => {
+    const ios = Platform.OS === 'ios';
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', () => setShown(true));
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => setShown(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return shown;
+}
