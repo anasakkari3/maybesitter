@@ -502,6 +502,18 @@ export const HABITS = 'habits';
  */
 export const HABIT_OCCURRENCES = 'habitOccurrences';
 
+/**
+ * Weekly fixed blocks — «ثابت أسبوعي» (owner request, 2026-09-29).
+ *
+ * `users/{uid}/weeklyBlocks/{id}`: "work from 10 until 4 every Saturday", as a
+ * rule the person confirmed. Its occurrences are not stored here: they are busy
+ * blocks under the source `weekly-{id}` (`BUSY_BLOCKS`), materialized over a
+ * rolling eight-week horizon by `lib/weeklyBlocks` and renewed by the nightly
+ * maintenance sweep. The title is the person's own words, so the collection
+ * goes with the account on deletion and comes with it on export.
+ */
+export const WEEKLY_BLOCKS = 'weeklyBlocks';
+
 export const USER_SCOPED_COLLECTIONS = [
   PROVIDER_CONNECTIONS,
   PROVIDER_CREDENTIALS,
@@ -513,6 +525,7 @@ export const USER_SCOPED_COLLECTIONS = [
   GOAL_GRAPH_PROPOSALS,
   HABITS,
   HABIT_OCCURRENCES,
+  WEEKLY_BLOCKS,
   REMINDERS,
   ESCALATION_STATES,
   EVENTS,

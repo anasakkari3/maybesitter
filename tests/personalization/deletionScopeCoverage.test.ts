@@ -174,6 +174,11 @@ const KEPT_BECAUSE: Record<string, string> = {
     + 'window the last sync covered and when it ran. Not a belief about the person, and the way '
     + 'to remove it is the Disconnect button UC-3.2 (#186) puts beside it, which deletes the '
     + 'source and every block under it in one action the user can see the result of.',
+  weeklyBlocks:
+    'standing weekly blocks the user confirmed themselves («ثابت أسبوعي») — a title in their own '
+    + 'words, weekdays, a start and an end. A rule they set, not a belief about them: purging it '
+    + 'here would silently stop reserving their Saturday shift. The block screen\'s delete removes '
+    + 'it with every occurrence, and account deletion takes it with everything else.',
   busyBlocks:
     'intervals mirrored from the user’s own calendar — a start, an end and an all-day flag, with '
     + 'no title, notes, location or attendee, because `toBusyBlocks` on the phone never let one '
