@@ -49,6 +49,7 @@ export function ServerToggle({
   onChange,
   testID,
   blockedNote,
+  accessibilityLabel,
 }: {
   title: string;
   body?: string | undefined;
@@ -58,6 +59,8 @@ export function ServerToggle({
   blockedNote?: string | undefined;
   onChange: (next: boolean) => Promise<boolean>;
   testID?: string;
+  /** When several switches share a title, what tells them apart to a screen reader. */
+  accessibilityLabel?: string | undefined;
 }) {
   const { t, p } = useApp();
   const stacked = useLayoutMode() === 'xl';
@@ -76,7 +79,7 @@ export function ServerToggle({
         <Switch
           testID={testID}
           accessibilityRole="switch"
-          accessibilityLabel={title}
+          accessibilityLabel={accessibilityLabel ?? title}
           {...(blocked ? { accessibilityHint: blocked } : {})}
           accessibilityState={{ checked: value, disabled: disabled || busy }}
           value={value}

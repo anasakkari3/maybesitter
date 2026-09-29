@@ -37,6 +37,7 @@ import { CategorySettingsScreen } from './features/settings/CategorySettingsScre
 import { DeviceCalendarSyncHost } from './features/calendar/useDeviceCalendarSync';
 import { BusyCalendarHost } from './features/calendar/useBusyCalendar';
 import { WeeklyBlockCalendarHost } from './features/weeklyBlocks/useWeeklyBlockDeviceSync';
+import { WeeklyBlocksScreen } from './features/weeklyBlocks/WeeklyBlocksScreen';
 import { GoogleBusyHost } from './features/google/useGoogle';
 import { CalendarFeedsScreen } from './features/calendarFeeds/CalendarFeedsScreen';
 import { AboutScreen } from './features/settings/AboutScreen';
@@ -201,6 +202,9 @@ export function Root() {
           )}
           {s.screen === 'routineSettings' && (
             <RoutineSettingsScreen key="routineSettings" onBack={() => latest.current.back()} />
+          )}
+          {s.screen === 'weeklyBlocks' && (
+            <WeeklyBlocksScreen key="weeklyBlocks" onBack={() => latest.current.back()} />
           )}
           {s.screen === 'financialContext' && (
             <FinancialContextScreen key="financialContext" onBack={() => latest.current.back()} />

@@ -10,7 +10,7 @@ export const SCREEN_FLOWS = {
   calendar: 'calendar', settings: 'settings', details: 'commitments', capture: 'capture',
   share: 'import', calendarDemo: 'excluded', deleteAccount: 'excluded', trust: 'settings',
   knows: 'memory', memory: 'memory', aiImport: 'ai_import', feedbackHistory: 'settings',
-  activity: 'activity', routineSettings: 'settings', readinessSettings: 'excluded',
+  activity: 'activity', routineSettings: 'settings', weeklyBlocks: 'settings', readinessSettings: 'excluded',
   financialContext: 'excluded', notificationsSettings: 'permissions',
   calendarSettings: 'integrations', widgetSettings: 'settings', places: 'excluded', footballSettings: 'settings',
   calendarFeeds: 'integrations', categorySettings: 'settings', langAppearance: 'settings',

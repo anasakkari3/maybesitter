@@ -62,6 +62,8 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
 
         <Group title={t.settingsGroupYou}>
           <SettingsRow first label={t.settingsRoutine} sub={t.settingsRoutineSub} onPress={() => actions.go('routineSettings')} icon="calendar" testID="settings-routine" />
+          {/* Beside the routine: the other thing that is the same every week. */}
+          <SettingsRow label={t.wbTitle} sub={t.wbSettingsSub} onPress={() => actions.go('weeklyBlocks')} icon="calendar" testID="settings-weekly-blocks" />
           <SettingsRow label={t.settingsEnergy} sub={t.settingsEnergySub} onPress={() => actions.go('readinessSettings')} icon="habit" testID="settings-readiness" />
           <SettingsRow label={t.settingsParts} sub={t.settingsPartsSub} onPress={() => actions.go('categorySettings')} icon="goal" testID="settings-categories" />
           <SettingsRow label={t.settingsLangAppearance} value={`${languageValue} · ${themeValue}`} onPress={() => actions.go('langAppearance')} icon="spark" testID="settings-language" />

@@ -65,6 +65,9 @@ export type WeeklyPlan =
   | { kind: 'delete'; blockId: string; link: WeeklyEventLink }
   | { kind: 'forget'; blockId: string };
 
+/** A screen link (`links.ts`), not a per-block one: it opens the list of blocks. */
+export const WEEKLY_EVENT_URL = 'maybesitter://weeklyBlocks';
+
 const DAY_MS = 86_400_000;
 
 function weekdayOf(dayKey: string): number {
@@ -100,7 +103,7 @@ function sortedDays(weekdays: readonly number[]): number[] {
  * on or after `startsOn`, at `start`–`end` on the block's own clock — so a
  * clock change moves the instant and never the hour.
  */
-export function weeklyDrafts(blockId: string, event: WeeklyBlockDeviceEvent, multiDayRule: boolean): WeeklyEventDraft[] {
+export function weeklyDrafts(_blockId: string, event: WeeklyBlockDeviceEvent, multiDayRule: boolean): WeeklyEventDraft[] {
   const days = sortedDays(event.weekdays);
   const groups = multiDayRule ? [days] : days.map((day) => [day]);
   return groups.map((group) => {
@@ -112,7 +115,8 @@ export function weeklyDrafts(blockId: string, event: WeeklyBlockDeviceEvent, mul
       endDate: at(first, event.end, event.timezone),
       allDay: false,
       timeZone: event.timezone,
-      url: `maybesitter://weekly-blocks/${encodeURIComponent(blockId)}`,
+      // Opens «الثابت الأسبوعي» from the event (iOS shows the link).
+      url: WEEKLY_EVENT_URL,
       recurrence: { weekdays: group },
     };
   });

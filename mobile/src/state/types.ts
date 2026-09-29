@@ -88,6 +88,9 @@ export type Screen =
   // in it is a design decision, not an implementation detail of this feature.
   | 'activity'
   | 'routineSettings'
+  // Settings → Weekly fixed time («الثابت الأسبوعي»): the blocks that are the
+  // same hours every week — list, pause, change, delete, add.
+  | 'weeklyBlocks'
   | 'readinessSettings'
   // Settings → Your context → Financial context (#financial-v1). What is
   // available, what is due before the next income, and what is left — read
