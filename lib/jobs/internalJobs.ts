@@ -17,6 +17,7 @@
  * `runDueJobs`, and never hands a store to `configureCommandService`, which
  * would make `applyCommand` create jobs fire-and-forget.
  */
+import { runWeeklyBlockRenewal } from '../weeklyBlocks/weeklyBlockService';
 import { resumeStalledDeletions } from '../account/accountDeletion';
 // A deletion resumed here runs the same hooks the account route registers:
 // without this import a resumed deletion would skip the Google revocation and
@@ -160,6 +161,14 @@ export async function runMaintenance(options: MaintenanceOptions = {}): Promise<
     ['alpha_feedback_pruned', () => createStorageAlphaFeedbackStore(withStorage).prune()],
     ['alpha_traces_pruned', () => createStorageAlphaTraceStore(withStorage).prune()],
     ['clarifications_pruned', () => new StorageClarificationStore(storage).pruneExpired(now)],
+    // Weekly fixed blocks («ثابت أسبوعي») keep eight weeks of busy time ahead;
+    // every block whose `renewAt` has arrived is materialized again. A block
+    // that failed makes the step fail, so Scheduler retries the night's run.
+    ['weekly_blocks_renewed', async () => {
+      const totals = await runWeeklyBlockRenewal({ now, ...withStorage });
+      if (totals.failed > 0) throw new Error(`${totals.failed} weekly block renewal(s) failed`);
+      return totals.renewed;
+    }],
     // A deletion whose instance went away must still finish. It is last because
     // it is the only step that can fail for a reason outside this service
     // (#149).
