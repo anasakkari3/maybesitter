@@ -3,6 +3,7 @@ import { dayPartHour, forbidsResolvedTime, hourWithDayPart, instantFromLocal, is
 import { PastCommitmentTimeError } from '../mobile/safety';
 import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { recurrenceHintOf } from '../../../src/extraction/extractionService';
+import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
 import { extractWithFallback, type ExtractAndMapOptions } from '../../../src/extraction/extractionService';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
@@ -807,6 +808,8 @@ export async function answerClarification(
   if (answered.recurrenceHint) {
     items[index] = { ...items[index]!, recurrenceHint: recurrenceHintOf(answered, options.timezone, resolvedTime !== null) };
   }
+  // With the hour settled, a complete weekly range is offered as a weekly block.
+  items[index] = withWeeklyBlockOffers([items[index]!], options.timezone)[0]!;
 
   const contract: CaptureProposalContract = {
     ...stored.contract,
@@ -921,6 +924,8 @@ async function askHalfAfterDay(args: {
     clarification,
     ...(placed.recurrenceHint ? { recurrenceHint: recurrenceHintOf(placed, options.timezone, false) } : {}),
   };
+  // Still asking صبح/مسا: whatever was offered before is not offered now.
+  items[index] = withWeeklyBlockOffers([items[index]!], options.timezone)[0]!;
   const contract: CaptureProposalContract = {
     ...stored.contract,
     items,

@@ -32,6 +32,8 @@ import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
+import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
+import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 
 /**
  * Persists a confirmation's commands and records its result on the proposal in
@@ -58,6 +60,12 @@ export type CaptureConfirmationCommitter = (input: {
    */
   commandsByItemId: ReadonlyMap<string, readonly Command[]>;
   result: CaptureConfirmationResultContract;
+  /**
+   * The items confirmed as weekly blocks («ثابت أسبوعي»), each with the offer
+   * as confirmed (a title edit applied). Written in the same transaction as
+   * the claim, so a replayed or racing confirm creates no second block.
+   */
+  weeklyBlocks: ReadonlyArray<{ itemId: string; offer: WeeklyBlockOfferContract }>;
 }) => Promise<{ replayed: boolean; result: CaptureConfirmationResultContract }>;
 
 export interface CaptureBoundaryDependencies {
@@ -957,6 +965,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     }
   }
 
+  // «كل سبت من 10 لـ 4»: a complete weekly range is also offered as a weekly
+  // block. After the guard above, so an item it sent back to be asked is not
+  // offered on hours the proposal no longer vouches for.
+  items.splice(0, items.length, ...withWeeklyBlockOffers(items, options.timezone));
+
   const status: CaptureProposalContract['status'] = rejected
     ? 'rejected'
     : items.length === 0
@@ -1054,6 +1067,8 @@ export async function confirmCapture(
     idempotencyKey: string;
     /** Applied atomically with the confirm, never afterwards (#164). */
     edits?: CaptureItemEditContract[];
+    /** Selected items the person confirmed as weekly blocks, not one-offs. */
+    weeklyBlockItemIds?: string[];
     /** For the TTL check. Injected so the rule is testable without waiting. */
     now?: Date;
   },
@@ -1155,6 +1170,26 @@ export async function confirmCapture(
   };
 
   if (Array.from(selected).some((id) => !knownItemIds.has(id))) return failure('invalid_selection');
+
+  // Weekly blocks («ثابت أسبوعي»): only an item the person named, that was
+  // selected and that carries the offer. Anything else fails the whole
+  // confirm — a block half-created from a guess is a standing claim on their
+  // week that they never saw offered.
+  const weeklyItemIds = new Set(input.weeklyBlockItemIds ?? []);
+  const weeklyBlocks: Array<{ itemId: string; offer: WeeklyBlockOfferContract }> = [];
+  for (const itemId of Array.from(weeklyItemIds)) {
+    const item = stored.contract.items.find((candidate) => candidate.itemId === itemId);
+    if (!selected.has(itemId) || !item?.weeklyBlock) return failure('invalid_selection');
+    const edit = editsByItem.get(itemId);
+    // The block's days and hours are the offer's; they change on the block.
+    if (edit && (edit.resolvedTime !== undefined || edit.locationTrigger !== undefined)) return failure('invalid_edit');
+    if (edit?.title && edit.title.length > WEEKLY_BLOCK_TITLE_MAX) return failure('invalid_edit');
+    weeklyBlocks.push({ itemId, offer: edit?.title ? { ...item.weeklyBlock, title: edit.title } : item.weeklyBlock });
+  }
+  if (weeklyBlocks.length > 0 && !dependencies.commitConfirmation) {
+    // The in-process development path has no account tree to hold a block.
+    return failure('invalid_selection');
+  }
   /**
    * What this confirm is about to commit, kept per item and recorded with it.
    *
@@ -1168,12 +1203,14 @@ export async function confirmCapture(
    */
   const committedByItemId = new Map(stored.commandsByItemId);
   for (const item of stored.contract.items) {
-    if (selected.has(item.itemId)) committedByItemId.set(item.itemId, commandsFor(item.itemId));
+    if (!selected.has(item.itemId)) continue;
+    // A weekly block is not also a one-off: it commits no commands.
+    committedByItemId.set(item.itemId, weeklyItemIds.has(item.itemId) ? [] : commandsFor(item.itemId));
   }
   const commands = stored.contract.items
     .filter((item) => selected.has(item.itemId))
     .flatMap((item) => committedByItemId.get(item.itemId) ?? []);
-  if (commands.length === 0) return failure('invalid_selection');
+  if (commands.length === 0 && weeklyBlocks.length === 0) return failure('invalid_selection');
   const result: CaptureConfirmationResultContract = {
     version: CAPTURE_CONTRACT_VERSION,
     success: true,
@@ -1193,6 +1230,7 @@ export async function confirmCapture(
         commands,
         commandsByItemId: committedByItemId,
         result,
+        weeklyBlocks,
       });
       return committed.replayed ? { ...committed.result, replayed: true } : committed.result;
     } catch (error) {
