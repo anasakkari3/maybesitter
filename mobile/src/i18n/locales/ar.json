@@ -1608,5 +1608,8 @@
   "wbTodayTitle": "ثابت اليوم",
   "wbNextNow": "هلّق وقت {title}. بنرجع نقترح الساعة {time}.",
   "wbNextNowGeneric": "هلّق وقت ثابتك الأسبوعي. بنرجع نقترح الساعة {time}.",
-  "wbNextNowNoTime": "هلّق وقت ثابتك الأسبوعي. بنرجع نقترح لما يخلص."
+  "wbNextNowNoTime": "هلّق وقت ثابتك الأسبوعي. بنرجع نقترح لما يخلص.",
+  "referenceCalendarFilterEmpty": "ما في عناصر بهالعرض.",
+  "referenceWeekSubtitle": "التزاماتك، يوم بيوم.",
+  "referenceTodaySubtitle": "خطوة صغيرة بتكفّي لنبلّش."
 }

@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-29",
+  "authority": "User requested replacing the existing Today and Calendar screens with the supplied reference and its approved React Native prototype. Scoped override of the coral continuation for these two tab roots only.",
+  "reference": {
+    "path": "mobile/assets/reference/today-calendar.png",
+    "sha256": "264f10534fcfaa06a97ba46a8e45012054e97645fda9af8e8840c53445e4214f"
+  },
+  "surfaces": [
+    "mobile/src/screens/TodayScreen.tsx",
+    "mobile/src/screens/CalendarScreen.tsx"
+  ],
+  "prototype": "outputs/react-native-prototype-20260929",
+  "preserved": [
+    "Live account queries and mutations",
+    "Arabic-first RTL and English/Hebrew localization",
+    "Light mode, Dynamic Type, reduce motion and reduce transparency",
+    "Existing navigation and consent/privacy boundaries"
+  ]
+}

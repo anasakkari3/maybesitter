@@ -8,6 +8,7 @@ import { accentGlow, barShadow } from '../theme/tokens';
 import { useLayoutMode, useTextScale, type LayoutMode } from '../theme/textScale';
 import { Btn, Txt } from '../ui/primitives';
 import { CalendarIcon, MicIcon, SettingsIcon, TodayIcon } from '../ui/icons';
+import { ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
 
 /**
  * Floating pill tab bar: Today · Calendar · Say it · Settings.
@@ -32,7 +33,10 @@ import { CalendarIcon, MicIcon, SettingsIcon, TodayIcon } from '../ui/icons';
  * painted under the icon.
  */
 export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: number) => void } = {}) {
-  const { s, t, p, scheme, reduceTransparency, actions } = useApp();
+  const { s, t, p: basePalette, scheme, reduceTransparency, actions } = useApp();
+  const referencePalette = useReferencePalette();
+  const reference = s.screen === 'today' || s.screen === 'calendar';
+  const p = reference ? referencePalette : basePalette;
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const scale = useTextScale();
@@ -82,18 +86,18 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
       }}
       style={[
         {
-          position: 'absolute', left: 14, right: 14, bottom: Math.max(insets.bottom, 12) + 4, zIndex: 20,
+          position: 'absolute', start: 14, end: 14, bottom: Math.max(insets.bottom, 12) + 4, zIndex: 20,
           borderRadius: 999, borderWidth: 1, borderColor: p.ln, overflow: 'hidden',
         },
         barShadow(p),
       ]}
     >
       {Platform.OS === 'ios' && !reduceTransparency ? (
-        <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} />
+        <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, start: 0, end: 0, bottom: 0 }} />
       ) : null}
       <View style={{ backgroundColor: p.sfBar, padding: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Tab screen="today" label={t.tabToday} testID="tab-today" icon={c => <TodayIcon color={c} />} />
-        <Tab screen="calendar" label={t.tabCalendar} testID="tab-calendar" icon={c => <CalendarIcon color={c} />} />
+        <Tab screen="today" label={t.tabToday} testID="tab-today" icon={c => reference ? <ReferenceIcon name="target" color={c} /> : <TodayIcon color={c} />} />
+        <Tab screen="calendar" label={t.tabCalendar} testID="tab-calendar" icon={c => reference ? <ReferenceIcon name="grid" color={c} /> : <CalendarIcon color={c} />} />
         <Btn
           testID="tab-capture"
           onPress={() => actions.goCapture('tab', 'text')}
@@ -108,14 +112,14 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             accentGlow(p, 0.3),
           ]}
         >
-          <MicIcon size={20} color={p.onAccent} />
+          {reference ? <ReferenceIcon name="mic" size={20} color={p.onAccent} /> : <MicIcon size={20} color={p.onAccent} />}
           {iconsOnly ? null : (
             <Txt size={15} weight={600} color={p.onAccent} onTextLayout={reportLabel(barWidth * 0.4)}>{t.tabCapture}</Txt>
           )}
         </Btn>
         {/* The knob punched out of the settings icon is the bar's own solid
             colour, not the card surface: the bar is what sits behind it. */}
-        <Tab screen="settings" label={t.tabSettings} testID="tab-settings" icon={c => <SettingsIcon color={c} knob={p.sfBarSolid} />} />
+        <Tab screen="settings" label={t.tabSettings} testID="tab-settings" icon={c => reference ? <ReferenceIcon name="sliders" color={c} /> : <SettingsIcon color={c} knob={p.sfBarSolid} />} />
       </View>
     </View>
   );

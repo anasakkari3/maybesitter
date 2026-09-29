@@ -1611,5 +1611,8 @@
   "wbTodayTitle": "קבוע היום",
   "wbNextNow": "עכשיו זמן {title}. ההצעות חוזרות ב-{time}.",
   "wbNextNowGeneric": "עכשיו הזמן הקבוע השבועי שלך. ההצעות חוזרות ב-{time}.",
-  "wbNextNowNoTime": "עכשיו הזמן הקבוע השבועי שלך. ההצעות חוזרות כשהוא נגמר."
+  "wbNextNowNoTime": "עכשיו הזמן הקבוע השבועי שלך. ההצעות חוזרות כשהוא נגמר.",
+  "referenceCalendarFilterEmpty": "אין פריטים בתצוגה הזו.",
+  "referenceWeekSubtitle": "ההתחייבויות שלך, יום אחד בכל פעם.",
+  "referenceTodaySubtitle": "צעד קטן כדי להתחיל."
 }

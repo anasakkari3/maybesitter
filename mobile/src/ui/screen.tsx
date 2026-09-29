@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 import { ScrollView, View, type RefreshControlProps, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { ScreenIn } from './motion';
+
+/** A banner above the screen may have already cleared the status bar. This
+ * only changes the screen frame; full-window overlays keep the device inset. */
+export const ScreenTopInsetConsumedContext = createContext(false);
 
 /**
  * The screen shell — one owner of the top of the display (F1/F2, found on
@@ -61,13 +65,14 @@ export function Screen({ pinned, children, footer, decoration, overlay, style, t
 }) {
   const { p } = useApp();
   const insets = useSafeAreaInsets();
+  const topInsetConsumed = useContext(ScreenTopInsetConsumedContext);
   return (
     <ScreenIn style={[{ backgroundColor: p.bg }, style]}>
       {decoration ?? null}
       {/* The inset lives here, on the frame, so the scroller below it is
           already clear of the island and every child inherits the clearance
           rather than re-deriving it. */}
-      <View testID={testID} style={{ flex: 1, paddingTop: insets.top }}>
+      <View testID={testID} style={{ flex: 1, paddingTop: topInsetConsumed ? 0 : insets.top }}>
         {pinned ? <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>{pinned}</View> : null}
         {children}
         {footer ?? null}
