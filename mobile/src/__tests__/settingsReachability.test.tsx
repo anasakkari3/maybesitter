@@ -213,6 +213,13 @@ describe('from Settings, on the merged Root', () => {
     expect(screen.queryByText(en.settingsEnergy)).not.toBeNull();
   });
 
+  it('reaches the AI context import in one tap from Settings', async () => {
+    await openApp();
+    await openSettings();
+    await fireEvent.press(screen.getByTestId('settings-ai-import'));
+    await waitFor(() => expect(screen.queryByTestId('ai-import-pick-chatgpt')).not.toBeNull());
+  });
+
   it('reaches the financial context screen', async () => {
     await openApp();
     await openSettings();

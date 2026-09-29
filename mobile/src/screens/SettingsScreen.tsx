@@ -71,6 +71,11 @@ export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number }
 
         <Group title={t.settingsGroupConnections}>
           <SettingsRow first label={t.xIntegrations} onPress={() => actions.go('integrations')} icon="link" testID="settings-integrations" />
+          {/* Also reachable from «what it knows», three taps down under the
+              memory card — where the owner could not find it on the phone
+              (2026-09-29). It brings things in, so it sits with the other
+              ways in, one tap from Settings. */}
+          <SettingsRow label={t.aiImportTitle} sub={t.aiImportEntrySub} onPress={() => actions.go('aiImport')} icon="spark" testID="settings-ai-import" />
           <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} icon="watch" testID="settings-background" />
           <SettingsRow label={t.financialTitle} onPress={() => actions.go('financialContext')} icon="file" testID="settings-financial" />
           <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} icon="calendar" testID="settings-calendar" />
