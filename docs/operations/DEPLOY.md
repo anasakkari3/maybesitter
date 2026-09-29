@@ -95,6 +95,14 @@ cannot drift:
 - `MAYBESITTER_KMS_KEY_NAME` (the `user-secrets` key) on both services. It
   seals Google refresh tokens and ICS feed URLs; without it Google connect
   answers `not_configured`. It used to be set on staging by hand only.
+- `ICS_FEEDS_ENABLED` (calendar links, UC-3.4 #188): `true` on staging,
+  `false` written explicitly on production. It gates
+  `/api/mobile/calendar/ics/**` and the `ics-feed-refresh` job; unset, every
+  call answers 404 `feature_disabled` and the app has nothing to offer
+  (owner's phone, 2026-09-29). Feed URLs are sealed with
+  `MAYBESITTER_KMS_KEY_NAME`, so no other variable is needed. Production is
+  switched on by changing that one value in `flags.sh` after staging has
+  evidence — an owner decision, like the football credential below.
 - `MAYBESITTER_SITE_ORIGINS` on production only: `https://maybesitter.com`,
   `https://maybesitter-app.web.app`, `https://maybesitter-app.firebaseapp.com`,
   the exact origins the early-access form may post from. `www` redirects to

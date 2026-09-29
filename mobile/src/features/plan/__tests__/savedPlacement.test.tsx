@@ -35,6 +35,8 @@ import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
 import * as planEndpoints from '../../../api/endpoints/plans';
 import nextStepFixture from '../../../api/__fixtures__/nextStep.recommendation.json';
 import { instantAt } from '../../../testing/wallClock';
+import { toViewModel } from '../../commitments/model';
+import { drawnWhen } from '../savedPlacement';
 
 jest.mock('../../../i18n/timezone', () => ({
   ...(jest.requireActual('../../../i18n/timezone') as object),
@@ -261,5 +263,86 @@ describe('an all-day deadline, through the same helpers (FX1 × FX3)', () => {
     await show(<TodayScreen />);
     await waitFor(() => expect(screen.getByTestId('today-later-when-market').props.children).toBe(when(PLANNED)));
     expect(screen.getByTestId('today-later-due-market').props.children).toBe(fill(en.plannedDueAside, { when: dayOf(5) }));
+  });
+});
+
+/**
+ * A due on another day, with no saved plan (owner's Redmi, 2026-09-29).
+ *
+ * The only open commitment was a task due Tue 15 Sep 09:00, two weeks late.
+ * The next-step card read «Doctor · 09:00 · Must» beside «the time has
+ * passed» — the hour with no day, so it read as today at 09:00 and the chip
+ * as a lie about the last few minutes. Today's rows did the same. Wherever a
+ * commitment's time is drawn on Today, a due that is not today says its day,
+ * the way «بعدين», Details and the review card already say it; today's items
+ * keep the hour alone.
+ */
+describe('a due on another day says its day (owner\'s Redmi, 2026-09-29)', () => {
+  const LATE = at(-14, 9);
+  const late = (over: Partial<Commitment['timeSpec']> = {}): Commitment => ({
+    ...market(),
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureLevel: 'none' },
+    timeSpec: { kind: 'due_by', dueAt: LATE, endAt: null, remindAt: null, allDay: false, timezone: 'UTC', ...over },
+  } as Commitment);
+  const lateCard = {
+    ...nextStepFixture,
+    recommendation: { ...nextStepFixture.recommendation, primaryStep: { commitmentId: 'market', title: 'Go to the market' } },
+  };
+
+  beforeEach(() => {
+    savedWeek = { today: TODAY_KEY, saved: [] };
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+  });
+
+  it('the next-step card: the day and the hour, beside «the time has passed»', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [late()] } as never);
+    jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue(lateCard as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('next-step-when')).not.toBeNull());
+    expect(screen.getByTestId('next-step-when').props.children).toBe(when(LATE));
+    expect(screen.getByText(en.evidenceOverdue)).toBeTruthy();
+  });
+
+  it('a Today row: the day and the hour, on the row and in its spoken name', async () => {
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [late()] } as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('today-time-market')).not.toBeNull());
+    expect(screen.getByTestId('today-time-market').props.children).toBe(when(LATE));
+    expect(screen.getByTestId('today-item-market').props.accessibilityLabel).toContain(when(LATE));
+  });
+
+  it('an all-day item whose day is over: its day, not «no time»', async () => {
+    const dayStart = instantAt(`${shiftDayKey(TODAY_KEY, -3)}T00:00:00`, ZONE);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [late({ dueAt: dayStart, allDay: true, timezone: ZONE })] } as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('today-time-market')).not.toBeNull());
+    const day = formatRelativeDay(new Date(dayStart), { locale: 'en', timeZone: ZONE });
+    expect(screen.getByTestId('today-time-market').props.children).toBe(day);
+    expect(screen.getByTestId('today-item-market').props.accessibilityLabel).toContain(day);
+  });
+
+  it('today\'s item keeps the hour alone', async () => {
+    const TODAY_9 = at(0, 9);
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [late({ dueAt: TODAY_9 })] } as never);
+    await show(<TodayScreen />);
+    await waitFor(() => expect(screen.queryByTestId('today-time-market')).not.toBeNull());
+    expect(screen.getByTestId('today-time-market').props.children).toBe(ltr(formatTime(new Date(TODAY_9), { locale: 'en', timeZone: ZONE })));
+  });
+
+  it('Details already says its day, apart from the hour', async () => {
+    jest.spyOn(commitmentEndpoints, 'getCommitment').mockResolvedValue({ data: late(), etag: 'W/"v1"' } as never);
+    await show(<><OpenDetails /><DetailsScreen /></>);
+    await waitFor(() => expect(screen.queryByTestId('details-day')).not.toBeNull());
+    expect(String(screen.getByTestId('details-day').props.children)).toContain(formatRelativeDay(new Date(LATE), { locale: 'en', timeZone: ZONE }));
+  });
+
+  it('in all three languages, as the review card writes a day and an hour', () => {
+    for (const lang of ['ar', 'en', 'he'] as const) {
+      const view = toViewModel(late(), new Date().toISOString());
+      const expected = `${formatRelativeDay(new Date(LATE), { locale: lang, timeZone: ZONE })} · ${ltr(formatTime(new Date(LATE), { locale: lang, timeZone: ZONE }))}`;
+      expect(drawnWhen(view, lang, ZONE)).toBe(expected);
+      // A weekday with its date, not «today»: the lateness is in the words.
+      expect(expected.startsWith((lang === 'ar' ? ar : lang === 'he' ? he : en).today)).toBe(false);
+    }
   });
 });

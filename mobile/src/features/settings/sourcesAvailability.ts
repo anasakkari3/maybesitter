@@ -1,12 +1,13 @@
 import { useFootballSettings } from '../../api/queries';
-import { icsFeedsEnabled } from '../../config/env';
+import { useIcsFeedsAvailable } from '../calendarFeeds/availability';
 
 /**
  * Which of the Sources screen's two entries exist in this build and on this
  * server (closure CL7).
  *
- * Calendar links stay behind their build flag; football shows only when the
- * server holds the match data key (`providerConfigured`). With neither, the
+ * Calendar links show only when the build has them and the server answers
+ * for them (`useIcsFeedsAvailable`); football only when the server holds the
+ * match data key (`providerConfigured`). With neither, the
  * Sources row itself is hidden everywhere: a row that leads to an empty page
  * or to a follow that never fills is worse than no row.
  */
@@ -18,7 +19,7 @@ export interface SourcesAvailability {
 
 export function useSourcesAvailability(): SourcesAvailability {
   const football = useFootballSettings().data?.providerConfigured === true;
-  const ics = icsFeedsEnabled();
+  const ics = useIcsFeedsAvailable();
   return { ics, football, any: ics || football };
 }
 

@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { handleEarlyAccessEvent } from '../../lib/earlyAccess/service.ts';
+import { icsFeedsEnabled } from '../../lib/calendar/icsFeeds.ts';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (file: string) => readFileSync(join(repoRoot, file), 'utf8');
@@ -214,6 +215,23 @@ test('each production site origin passes the sign-up\'s own origin check with th
   assert.equal((await ping('https://www.maybesitter.com')).status, 403, 'www redirects at Hosting and is not listed');
 });
 
+test('calendar links (ICS feeds) are on for staging and explicitly off for production', () => {
+  // Owner's Redmi, 2026-09-29: Settings → calendar links led to «Calendar
+  // links are not available in this version.» because ICS_FEEDS_ENABLED was
+  // set on neither service, so every route answered 404 `feature_disabled`.
+  // Staging gets it on; production is written out as `false`, the switch the
+  // owner flips after staging has evidence — the football pattern.
+  const staging = envVarsOf(flagsFor('staging'));
+  const production = envVarsOf(flagsFor('production'));
+  assert.equal(staging.get('ICS_FEEDS_ENABLED'), 'true', 'staging leaves calendar links off');
+  assert.equal(production.get('ICS_FEEDS_ENABLED'), 'false', 'production turns calendar links on without an owner decision, or hides the switch');
+  // Where it is on, the key that seals each feed URL is there too.
+  assert.equal(staging.get('MAYBESITTER_KMS_KEY_NAME'), KMS_KEY);
+  // And the server reads it exactly the way flags.sh writes it.
+  assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: staging.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), true);
+  assert.equal(icsFeedsEnabled({ ICS_FEEDS_ENABLED: production.get('ICS_FEEDS_ENABLED') } as unknown as NodeJS.ProcessEnv), false);
+});
+
 test('both services are deployed with the KMS key that seals per-user secrets', () => {
   // Staging had it by hand and production not at all, so Google connect on
   // production answered `not_configured`. A deploy must carry it.
@@ -235,13 +253,14 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP', '3000'],
     ['MAYBESITTER_FEATURE_MEMORY', 'false'],
     ['MAYBESITTER_KILL_SWITCH_MEMORY', 'true'],
+    ['ICS_FEEDS_ENABLED', 'false'],
   ] as const) {
     assert.equal(production.get(key), value, `production ${key}`);
   }
   assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
   assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
-  assert.equal(production.size, 22);
-  assert.equal(staging.size, 21);
+  assert.equal(production.size, 23);
+  assert.equal(staging.size, 22);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

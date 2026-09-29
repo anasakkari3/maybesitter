@@ -7,6 +7,7 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react-native';
 import { useIcsFeeds } from '../../../api/queries';
+import { IcsFeedRefusedError, NetworkError } from '../../../api/errors';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -112,10 +113,33 @@ describe('the entry in Settings → Calendar', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-disconnect')).not.toBeNull());
   }
 
-  it('is there when the build has the feature', async () => {
+  it('is there when the build has the feature and the server answers', async () => {
     process.env[FLAG] = 'true';
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockResolvedValue({ success: true, feeds: [], deadlines: [] } as never);
     await show();
-    expect(screen.queryByTestId('calendar-feeds-entry')).not.toBeNull();
+    expect(await screen.findByTestId('calendar-feeds-entry')).toBeTruthy();
+  });
+
+  /**
+   * Owner's Redmi, 2026-09-29: the build had the feature, the server did not
+   * (ICS_FEEDS_ENABLED unset), and the entry led to a screen that only said
+   * «Calendar links are not available in this version.». An entry to "not
+   * available" is a dead end: the server's own `feature_disabled` hides it.
+   */
+  it('is absent when the server has calendar links switched off', async () => {
+    process.env[FLAG] = 'true';
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockRejectedValue(new IcsFeedRefusedError('feature_disabled', null));
+    await show();
+    await waitFor(() => expect(feedEndpoints.listIcsFeeds).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(screen.queryByTestId('calendar-feeds-entry')).toBeNull();
+  });
+
+  it('stays when the list fails for another reason: the screen can retry that', async () => {
+    process.env[FLAG] = 'true';
+    jest.spyOn(feedEndpoints, 'listIcsFeeds').mockRejectedValue(new NetworkError('offline'));
+    await show();
+    expect(await screen.findByTestId('calendar-feeds-entry')).toBeTruthy();
   });
 
   it('is absent, not disabled, when it does not — and nothing asks for feeds', async () => {

@@ -74,15 +74,39 @@ export function drawnClockAt(view: CommitmentView): string | null {
 }
 
 /**
- * The time a today row or card draws: the hour alone, as before — unless a
- * saved week day holds it on another day, which the hour alone would hide.
- * Null when there is no hour to say, all-day included.
+ * The time a today row or card draws, and whether it names a day.
+ *
+ * Today's hour alone, as before. Any other day says which: a saved week day
+ * that holds it elsewhere (FX1), and — the owner's Redmi, 2026-09-29 — its own
+ * due on a day that is not today. A task two weeks late drew «09:00» beside
+ * «الوقت راح», which reads as this morning; it now draws «الثلاثاء، 15 سبتمبر ·
+ * 09:00», as «بعدين», Details and the review card do. An all-day item whose
+ * day is over says that day (it has no hour); on its own day there is still
+ * nothing to say. Null when there is nothing to say.
+ *
+ * `dated` is for the text's face: a bare clock is set in the Latin face, a
+ * weekday in the language's own script.
  */
+export function drawnWhenLine(view: CommitmentView, lang: Lang, timeZone: string): { text: string; dated: boolean } | null {
+  const options = { locale: lang, timeZone };
+  const today = dayKey(new Date(), timeZone);
+  if (view.plannedAt) {
+    return dayKey(new Date(view.plannedAt), timeZone) !== today
+      ? { text: dayAndTime(view.plannedAt, lang, timeZone), dated: true }
+      : { text: ltr(formatTime(new Date(view.plannedAt), options)), dated: false };
+  }
+  if (!view.shownAt) return null;
+  // All-day: "is its day over" is the model's own rule (`isPast`, judged in
+  // the zone the day was named in), not this zone's midnight arithmetic.
+  if (view.allDay) return view.isPast ? { text: formatRelativeDay(new Date(view.shownAt), options), dated: true } : null;
+  if (dayKey(new Date(view.shownAt), timeZone) !== today) return { text: dayAndTime(view.shownAt, lang, timeZone), dated: true };
+  const clock = clockOf(view, options);
+  return clock ? { text: clock, dated: false } : null;
+}
+
+/** `drawnWhenLine`'s text alone. */
 export function drawnWhen(view: CommitmentView, lang: Lang, timeZone: string): string | null {
-  if (!view.plannedAt) return clockOf(view, { locale: lang, timeZone });
-  return dayKey(new Date(view.plannedAt), timeZone) !== dayKey(new Date(), timeZone)
-    ? dayAndTime(view.plannedAt, lang, timeZone)
-    : ltr(formatTime(new Date(view.plannedAt), { locale: lang, timeZone }));
+  return drawnWhenLine(view, lang, timeZone)?.text ?? null;
 }
 
 /** A «بعدين» row's day and time: the saved slot, else its own day with its hour or `noTime`. */
