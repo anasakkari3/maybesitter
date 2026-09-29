@@ -1,7 +1,7 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { acceptLectureSessionsAsBusyBlocks, manualBusySourceId } from '../../../../../../lib/calendar/manualBusy';
-import { deleteBusySource, BusyUploadError } from '../../../../../../lib/calendar/busyBlocks';
+import { deleteBusySource, BusyUploadError, sourceKindOf } from '../../../../../../lib/calendar/busyBlocks';
 import type { ShareRecurringSession } from '../../../../../../lib/services/share/shareTypes';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
@@ -102,6 +102,17 @@ export async function DELETE(request: Request) {
   const sourceId = sourceIdParam ?? (proposalId ? manualBusySourceId(proposalId) : null);
   if (!sourceId || !sourceId.trim()) {
     return mobileError('sourceId or proposalId is required');
+  }
+  // A weekly block's occurrences go with the block (DELETE /weekly-blocks/{id}
+  // or a pause). Removed here, the block would restate them at its next
+  // renewal while the person believed them gone.
+  try {
+    if (sourceKindOf(sourceId.trim()) === 'weekly') {
+      return mobileError('a weekly block is removed by deleting or pausing the block', 400);
+    }
+  } catch (error) {
+    if (error instanceof BusyUploadError) return mobileError(error.message, 400);
+    throw error;
   }
 
   try {

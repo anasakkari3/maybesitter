@@ -44,7 +44,11 @@ const GUARDED_VIA_SCOPE = new Set([
 ]);
 
 test('every mobile route file exists and is enumerated', () => {
-  // Ninety-one today: CL6a added the eight Google routes under
+  // Ninety-four today: the weekly fixed blocks («ثابت أسبوعي») added
+  // `GET|POST /api/mobile/weekly-blocks`, `PATCH|DELETE /api/mobile/weekly-blocks/{id}`
+  // and `GET /api/mobile/weekly-blocks/occurrences`. The DELETE is the one whose
+  // guard is load-bearing: it removes a standing claim on somebody's week.
+  // Ninety-one before that: CL6a added the eight Google routes under
   // `/api/mobile/integrations/google` — status, connect, callback,
   // disconnect, calendar, gmail/scan, drive/picker and drive/import. The
   // callback is the one whose guard is load-bearing: the uid it binds a
@@ -207,7 +211,7 @@ test('every mobile route file exists and is enumerated', () => {
   // The week file also answers `GET` (the saved week days for the Calendar
   // strip, CL5b I4): one more handler, no more files, guarded the same way.
   // Ninety-one with the eight Google routes (CL6a), described at the top.
-  assert.equal(files.length, 91, `found:\n${files.join('\n')}`);
+  assert.equal(files.length, 94, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {
