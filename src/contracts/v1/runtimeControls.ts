@@ -9,6 +9,7 @@ export type ModuleKillSwitches = Readonly<Record<IntelligenceModuleName, boolean
 
 export const MODULE_FEATURE_FLAG_DEFAULTS: ModuleFeatureFlags = Object.freeze({
   capture: true,
+  contextEnrichment: false,
   lifeState: false,
   memory: false,
   priority: false,
@@ -23,6 +24,7 @@ export const MODULE_FEATURE_FLAG_DEFAULTS: ModuleFeatureFlags = Object.freeze({
 
 export const MODULE_KILL_SWITCH_DEFAULTS: ModuleKillSwitches = Object.freeze({
   capture: false,
+  contextEnrichment: false,
   lifeState: false,
   memory: false,
   priority: false,
@@ -198,4 +200,3 @@ export function createAuditEvent(input: CreateAuditEventInput): AuditEventEnvelo
     fields,
   };
 }
-
