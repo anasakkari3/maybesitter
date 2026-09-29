@@ -28,9 +28,9 @@ import { ReferenceCard, ReferenceIcon, ReferenceLaptop, useReferencePalette } fr
  * `suggestionNote` — «هذا اقتراح. لم يتغيّر أي شيء بعد.» — is not decoration
  * and is not conditional. The contract says `persistence.occurred: false` and
  * `confirmationRequired: true` on every proposal; the line is that fact in
- * words. Round 2 adds the same fact as a *shape*: the card's edge is dashed in
- * the proposal colour until a decision is made. There is no «اقتراح» tag as
- * well: that said the note's words a second time on the same card (#17).
+ * words. The reference card has no outline; the note communicates that it is
+ * a proposal. There is no «اقتراح» tag as well: that said the note's words a
+ * second time on the same card (#17).
  *
  * ── Only the actions the server offered ──────────────────────────
  *
@@ -42,7 +42,7 @@ import { ReferenceCard, ReferenceIcon, ReferenceLaptop, useReferencePalette } fr
  * ── Started ──────────────────────────────────────────────────────
  *
  * Accepting records the decision on the server and, for this proposal, the
- * card changes shape: solid edge, a «بلّشت فيها» tag, and one button — done —
+ * card shows a «بلّشت فيها» tag and one button — done —
  * if the server offers it. The memory of "started" is this card's, keyed to
  * the proposal id; a new proposal starts fresh. The decision itself is in
  * the account's history either way.
@@ -111,7 +111,7 @@ export function NextStepCard({ lookup }: {
           testID="next-step-card"
           style={{
             gap: 14,
-            borderWidth: 1.5, borderColor: started ? p.acs : p.prop, borderStyle: started ? 'solid' : 'dashed',
+            borderWidth: 0,
           }}
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -119,8 +119,8 @@ export function NextStepCard({ lookup }: {
               <ReferenceIcon name="bolt" size={20} color={p.acd} />
             </View>
             <Txt size={15} weight={600} color={p.tx} style={{ flexGrow: 1 }}>{t.nextStepLabel}</Txt>
-            {/* Started only. A proposal already says so in `suggestionNote`
-                and the dashed edge; a tag saying it again was #17's
+            {/* Started only. A proposal already says so in `suggestionNote`;
+                a tag saying it again was #17's
                 duplicate (UAT 2026-09-27). */}
             {recommendation.state === 'ready' && started ? (
               <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" />

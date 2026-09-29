@@ -112,8 +112,8 @@ describe('it never implies it has acted', () => {
 
   // UAT 2026-09-27 (#17, shot 38): the tag «اقتراح · ما تغيّر شي بعد» sat
   // above the note «هذا اقتراح. لم يتغيّر أي شيء بعد.» — the same fact twice on
-  // one card. The note is the rule (mobile/AGENTS.md); the dashed edge is the
-  // shape. The tag is only for the state the note does not name: started.
+  // one card. The note is the rule (mobile/AGENTS.md). The tag is only for the
+  // state the note does not name: started.
   it('says so once: no proposal tag beside the note, in any language', async () => {
     await show();
     expect(screen.queryByTestId('next-step-tag')).toBeNull();
