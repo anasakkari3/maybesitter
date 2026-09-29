@@ -60,6 +60,60 @@ motion and reduced transparency remain supported.
   native component tests; this run does not claim a completed device walkthrough
   for those cases or an Android device test.
 
-Native preview uses the existing development-only fixture mode and its guarded
-local auth override. Fixtures validate rendering and navigation, not persistence
-against a live account. No backend or release configuration was changed.
+The initial native preview used development-only fixtures. The follow-up below
+replaced that test setup with real authenticated HTTP requests and durable local
+storage; the production configuration was not changed.
+
+## Backend-connected follow-up — September 29
+
+The integrated Debug app was run with `EXPO_PUBLIC_API_MODE=api`, an empty dev
+bearer override, and normal email/password sign-in through the Firebase Auth
+emulator. The matching backend ran from this worktree on port 3001, using the
+Firestore emulator's isolated `reference-ui` database and synthetic accounts.
+The cloud model remained disabled; capture used the rules engine.
+
+Verified through the running app and API:
+
+- Capture and confirm saved three synthetic commitments through `/api/mobile`.
+- Today loaded its real next-step recommendation and Today/upcoming records.
+  Pressing “Do this one” showed Started; pressing “Already done” changed the
+  stored commitment to completed and refreshed Today to “1 of 2 done today”.
+- Calendar removed that completed commitment, selected the next day, displayed
+  its saved task, applied the Commitments filter, and opened the task details.
+- Editing a task title in the native sheet persisted through the real PATCH
+  endpoint. A subsequent conditional API time change appeared in both Today
+  and Calendar after a cold app launch.
+- Restarting the backend preserved the completion, edited title and new time.
+- An unauthenticated request returned 401. A second synthetic account had empty
+  lists and received 404 for the first account's commitment.
+- On-demand daily-plan construction returned a proposal and the Today plan row
+  displayed it as a suggestion, not as an accepted plan.
+
+Two issues found during verification were fixed:
+
+1. Separate Next.js route modules could call Firestore settings twice on the
+   same cached SDK client, causing 503 responses. A shared weak registry now
+   tracks that client across route module reloads. The regression reproduces
+   independent module copies; actual emulator reads also pass after the fix.
+2. The unverified-email banner and screen each added the top device inset.
+   The banner now communicates when it owns that clearance; screens retain
+   their state when the banner or keyboard changes. The final cold-launch
+   screenshot confirms the extra band and clipped header are gone.
+
+Follow-up checks passed: 13 focused storage tests, 15 auth tests, one emulator
+storage isolation test, 70 mobile banner/screen/Today tests, and both backend
+and mobile TypeScript checks. Focused lint had no errors; two existing
+`Root.tsx` ref-assignment warnings remain.
+
+Evidence is in the workspace's `outputs/today-calendar-integration-20260929/`:
+`auth-isolation.json`, `live-api-mutations.json`,
+`persistence-after-restart.json`, `today-live-backend-after-restart.png`, and
+`calendar-live-backend-after-restart.png`.
+
+Limits: this verifies the local backend with Firebase emulators, not staging
+or production. No Android or external calendar-provider connection was tested.
+Simulator automation could not perform scroll gestures reliably; scrolling
+retains component-test coverage, not a completed gesture walkthrough. The
+pre-existing dev bearer shortcut opens the gate but does not feed the API
+repository; it was not used for the successful verification and remains
+unchanged. Normal Firebase sign-in is the validated path.

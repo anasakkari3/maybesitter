@@ -1,8 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Keyboard, StyleSheet, type KeyboardEvent } from 'react-native';
-import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../state/AppContext';
 import { AuthProvider } from '../AuthProvider';
 import {
@@ -16,6 +16,8 @@ import { createFakeAuthRepository, type FakeAuthRepository } from '../fakeAuthRe
 import type { AuthUser } from '../types';
 import en from '../../i18n/locales/en.json';
 import { tFor } from '../../i18n';
+import { Screen, ScreenScroll } from '../../ui/screen';
+import { Btn, Txt } from '../../ui/primitives';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
   __esModule: true,
@@ -43,18 +45,35 @@ const UNVERIFIED: AuthUser = {
   providerIds: ['password'],
 };
 
-async function renderBanner(repository: FakeAuthRepository, fontScale = 1) {
+async function renderBanner(repository: FakeAuthRepository, fontScale = 1, children?: React.ReactNode) {
   useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale });
   return render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>
         <AuthProvider repository={repository} isDevBundle={false}>
-          <VerifyEmailBanner />
+          <VerifyEmailBanner>{children}</VerifyEmailBanner>
         </AuthProvider>
       </AppProvider>
     </SafeAreaProvider>,
   );
 }
+
+function ScreenUnderBanner() {
+  const [count, setCount] = useState(0);
+  const insets = useSafeAreaInsets();
+  return (
+    <Screen testID="screen-under-banner">
+      <ScreenScroll testID="screen-under-banner-scroll">
+        <Btn testID="screen-local-action" onPress={() => setCount(value => value + 1)}>
+          <Txt testID="screen-local-state">{String(count)}</Txt>
+        </Btn>
+        <Txt testID="screen-device-insets">{`${insets.top}:${insets.bottom}`}</Txt>
+      </ScreenScroll>
+    </Screen>
+  );
+}
+
+const screenTop = () => StyleSheet.flatten(screen.getByTestId('screen-under-banner').props.style).paddingTop;
 
 /** Captures the keyboard listeners the banner adds, so a test can raise and drop it. */
 function fakeKeyboard(visible = false) {
@@ -101,6 +120,26 @@ describe('email verification banner', () => {
   it('stays out of the way once the address is verified', async () => {
     await renderBanner(createFakeAuthRepository({ initialUser: { ...UNVERIFIED, emailVerified: true } }));
     expect(screen.queryByText(en.authVerifyBanner)).toBeNull();
+  });
+
+  it('clears the status bar once for the banner and the screen beneath it', async () => {
+    await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), 1, <ScreenUnderBanner />);
+    expect(StyleSheet.flatten(screen.getByTestId('verify-email-banner').props.style).paddingTop)
+      .toBe(METRICS.insets.top + 12);
+    expect(screenTop()).toBe(0);
+    // Only the frame consumes this ownership signal; native modals still
+    // receive the real top and bottom insets from SafeAreaProvider.
+    expect(screen.getByTestId('screen-device-insets').props.children).toBe('47:34');
+  });
+
+  it('hands status-bar clearance back to the same screen after verification', async () => {
+    const repository = createFakeAuthRepository({ initialUser: UNVERIFIED });
+    await renderBanner(repository, 1, <ScreenUnderBanner />);
+    await fireEvent.press(screen.getByTestId('screen-local-action'));
+    await act(async () => repository.emit({ ...UNVERIFIED, emailVerified: true }));
+    expect(screen.queryByTestId('verify-email-banner')).toBeNull();
+    expect(screenTop()).toBe(METRICS.insets.top);
+    expect(screen.getByTestId('screen-local-state').props.children).toBe('1');
   });
 
   it('never appears for a provider account with no address', async () => {
@@ -249,6 +288,19 @@ describe('the banner steps aside while the reader types', () => {
     fakeKeyboard(true);
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), 3.12);
     expect(screen.queryByTestId('verify-email-banner')).toBeNull();
+  });
+
+  it('hands clearance back while typing without remounting the screen', async () => {
+    const keyboard = fakeKeyboard();
+    await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), 1, <ScreenUnderBanner />);
+    await fireEvent.press(screen.getByTestId('screen-local-action'));
+    expect(screenTop()).toBe(0);
+    await keyboard.show();
+    expect(screenTop()).toBe(METRICS.insets.top);
+    expect(screen.getByTestId('screen-local-state').props.children).toBe('1');
+    await keyboard.hide();
+    expect(screenTop()).toBe(0);
+    expect(screen.getByTestId('screen-local-state').props.children).toBe('1');
   });
 
   it('keeps the resend cooldown across the keyboard coming and going', async () => {
