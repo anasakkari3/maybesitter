@@ -142,7 +142,7 @@ type Item = {
   clarification?: { questionId: string; options: Array<{ optionId: string }> } | null;
   weeklyBlock?: unknown;
 };
-type Proposal = { proposalId: string; status: string; items: Item[]; provenance: { requestedEngine: string; executedEngine: string } };
+type Proposal = { proposalId: string; status: string; items: Item[]; seeds: unknown[]; provenance: { requestedEngine: string; executedEngine: string } };
 type ChatBody = {
   conversationId: string;
   reply: string;
