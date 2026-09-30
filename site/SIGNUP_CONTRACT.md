@@ -105,7 +105,8 @@ shape**:
   `pageLanguage: "en"` (that page is English-only), `knowsFounder: null` (never asked),
   `whatsappOptIn: false`, `phone: null`, `v: "legacy"`. A strict subset of the list the
   privacy policy promises.
-- **Dropped.** `name`, because the policy says we do not ask for one. `phone`, because
+- **Dropped.** The stranded page's `name` is not migrated into the new named shape;
+  only the new `landing_interest` modal stores a name. Its `phone` is dropped because
   the policy keeps a number only with the WhatsApp opt-in, the legacy page never asked
   for it, and treating a typed number as that consent would invent it.
 - **Honeypot.** `website` is the same hidden field on both pages and is handled
@@ -123,7 +124,8 @@ shape**:
 
 - **Old stranded rows.** `earlyAccessRegistrations` already holds rows the stranded
   service wrote, with `name` and `phone` (same document id, so first-wins keeps them).
-  The current privacy text says no name is collected and a number only with the opt-in.
+  The current privacy text distinguishes the new name/email modal from the legacy form
+  and keeps a number only with the opt-in.
   Either strip `name`/`phone` where `whatsappOptIn !== true` once, or keep them under the
   stranded notice that disclosed both; they are deletable on request like every other
   row. `earlyAccessMetrics` (day/source/event counts, no personal data) stops growing.

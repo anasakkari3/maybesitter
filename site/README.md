@@ -64,7 +64,7 @@ Two positioning lines are being tested, and neither has won:
 - `?v=a`: "No overdue pile."
 - `?v=b`: "Say it once. It lands in your day."
 
-With no `v`, the page shows the interim line, "Your commitments, without the pressure."
+With no `v`, the page shows the approved interim line, "A calm planner and reminders app."
 Assignment happens **through the link a person is sent**. Each post or
 message carries one arm's link and a `?source=` code. The page never assigns, stores or
 counts visitors. `landing.js` swaps the headline, carries `v` and `source` onto the
