@@ -1,6 +1,9 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import {
+  AI_ALWAYS_ON_CODE,
+  AiProcessingAlwaysOnError,
   UnsupportedConsentVersionError,
+  aiConsentView,
   setAiConsent,
 } from '../../../../../../lib/consents/aiConsentService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
@@ -11,6 +14,37 @@ export const dynamic = 'force-dynamic';
 
 const LOCALES: readonly string[] = ['ar', 'he', 'en'];
 const PLATFORMS: readonly string[] = ['ios', 'android'];
+
+/**
+ * AI processing is always on (owner decision 2026-09-30,
+ * `lib/consents/aiProcessingPolicy`): a `declined` (or `denied`) write is
+ * refused with 409 `{ code: 'ai_always_on' }` and changes nothing; a
+ * `granted` write is still recorded and answers 200.
+ */
+function alwaysOnRefusal(): Response {
+  return Response.json(
+    { success: false, error: 'AI processing is always on', code: AI_ALWAYS_ON_CODE, reason: AI_ALWAYS_ON_CODE },
+    { status: 409 },
+  );
+}
+
+/**
+ * What this account's AI processing reads as: always granted, `asked: true`.
+ * The same record `GET /api/mobile/consents` carries under `aiProcessing`.
+ */
+export async function GET(request: Request) {
+  let user;
+  try {
+    user = await requireMobileUser(request);
+  } catch (error) {
+    return mobileAuthErrorResponse(error);
+  }
+  try {
+    return Response.json(await aiConsentView(user.uid));
+  } catch (error) {
+    return mobileError(error instanceof Error ? error.message : 'could not read consent', 500);
+  }
+}
 
 /**
  * Records an answer to the AI-processing question (UC-2.1, #161).
@@ -39,7 +73,8 @@ export async function PUT(request: Request) {
     return mobileError('Invalid JSON request body');
   }
 
-  if (body?.state !== 'granted' && body?.state !== 'declined') {
+  if (body?.state === 'declined' || body?.state === 'denied') return alwaysOnRefusal();
+  if (body?.state !== 'granted') {
     return Response.json(
       { success: false, error: 'state must be granted or declined', reason: 'invalid_state' },
       { status: 400 },
@@ -48,7 +83,7 @@ export async function PUT(request: Request) {
 
   try {
     const record = await setAiConsent(user.uid, {
-      state: body.state,
+      state: 'granted',
       version: String(body.version ?? ''),
       ...(typeof body.locale === 'string' && LOCALES.includes(body.locale)
         ? { locale: body.locale as ConsentLocale }
@@ -59,6 +94,7 @@ export async function PUT(request: Request) {
     });
     return Response.json({ success: true, aiProcessing: record });
   } catch (error) {
+    if (error instanceof AiProcessingAlwaysOnError) return alwaysOnRefusal();
     if (error instanceof UnsupportedConsentVersionError) {
       return Response.json(
         { success: false, error: 'unsupported consent version', reason: 'unsupported_version' },

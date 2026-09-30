@@ -40,6 +40,11 @@ import {
 } from './consentService';
 
 export { UnsupportedConsentVersionError };
+export {
+  AI_ALWAYS_ON_CODE,
+  AI_PROCESSING_ALWAYS_ON,
+  AiProcessingAlwaysOnError,
+} from './aiProcessingPolicy';
 export type AiConsentOptions = ConsentOptions;
 export type SetAiConsentInput = SetConsentInput;
 
@@ -51,12 +56,19 @@ export async function readAiConsent(
   return readConsent(AI_PROCESSING_CONSENT, uid, options);
 }
 
-/** Granted, or declined. There is no third answer and no default-on. */
+/**
+ * Granted — always, since the owner's decision of 2026-09-30
+ * (`./aiProcessingPolicy`, applied inside `readConsent`). Kept as the one
+ * seam every AI gate reads, so the policy needed no caller edited.
+ */
 export async function getAiConsent(uid: string, options: AiConsentOptions = {}): Promise<AiConsentState> {
   return getConsent(AI_PROCESSING_CONSENT, uid, options);
 }
 
-/** Records an answer, and the fact that it was given. */
+/**
+ * Records an answer, and the fact that it was given. A `declined` answer is
+ * refused with `AiProcessingAlwaysOnError` and writes nothing.
+ */
 export async function setAiConsent(
   uid: string,
   input: SetAiConsentInput,
