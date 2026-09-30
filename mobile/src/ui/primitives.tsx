@@ -10,12 +10,18 @@ import { useReducedMotion } from './motion';
 
 type Align = 'start' | 'center' | 'end';
 
-// Fabric on iOS swaps left/right with the inherited Yoga direction in
-// RCTAttributedTextUtils.mm. Supplying a physical RTL alignment swaps twice.
-// Android expects the physical edge. Keep this platform detail in one place.
+// Fabric swaps a Text's left/right with the inherited Yoga direction on BOTH
+// platforms: iOS in RCTAttributedTextUtils.mm, Android in
+// TextLayoutManager.getTextAlignment, which picks ALIGN_NORMAL/OPPOSITE
+// against the paragraph's layout direction and then the script's. Supplying a
+// physical RTL alignment swaps twice. On Android that put every Arabic date,
+// title and section label — and a Latin title like "Dentist" — flush left
+// under the RTL layout (UAT 2026-09-30, u11/u32/u51). So 'left' is the
+// logical start on both. (A TextInput is not swapped: inputs keep taking the
+// physical edge, see rtlInputs.test.) Keep this platform detail in one place.
 export function textAlignment(align: Align, rtl: boolean, platform: string) {
   if (align === 'center') return 'center';
-  const physicalRTL = platform === 'ios' ? false : rtl;
+  const physicalRTL = platform === 'ios' || platform === 'android' ? false : rtl;
   return (align === 'start') === physicalRTL ? 'right' : 'left';
 }
 

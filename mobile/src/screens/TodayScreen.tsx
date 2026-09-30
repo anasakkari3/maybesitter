@@ -588,7 +588,9 @@ function LaterRow({ item, first, timezone, lang }: { item: CommitmentView; first
       style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 18, minHeight: 56, borderTopWidth: first ? 0 : 1, borderTopColor: p.ln }}
     >
       <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
-      <View style={{ flex: 1, gap: 2 }}>
+      {/* Start-aligned by the column, not by textAlign alone: a Latin title
+          ("Dentist") in the Arabic layout starts beside the dot (u32). */}
+      <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
         <Txt size={15}>{item.title}</Txt>
         <Txt size={12} color={p.mu} testID={`today-later-when-${item.id}`}>{when}</Txt>
         {aside ? <Txt size={12} color={p.mu} testID={`today-later-due-${item.id}`}>{aside}</Txt> : null}

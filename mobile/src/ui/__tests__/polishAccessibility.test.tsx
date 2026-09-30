@@ -21,11 +21,16 @@ describe('logical text edges at the native boundary', () => {
     expect(nativeEdge(textAlignment('end', rtl, 'ios'))).toBe(rtl ? 'left' : 'right');
     expect(textAlignment('center', rtl, 'ios')).toBe('center');
   });
-  it('keeps Android physical alignment and centered numbers intact', () => {
-    expect(textAlignment('start', true, 'android')).toBe('right');
-    expect(textAlignment('start', false, 'android')).toBe('left');
-    expect(textAlignment('end', true, 'android')).toBe('left');
-    expect(textAlignment('center', true, 'android')).toBe('center');
+  // UAT 2026-09-30 (u11, u32, u51): the Arabic date, «يومك», the section
+  // labels and Latin titles sat flush LEFT on Android. RN 0.86's
+  // TextLayoutManager.getTextAlignment swaps against the paragraph's Yoga
+  // direction exactly as iOS does, so the physical 'right' this used to hand
+  // Android came out on the left.
+  it.each([false, true])('Android lets Fabric apply RTL exactly once too (rtl=%s)', rtl => {
+    const nativeEdge = (value: string) => rtl ? (value === 'left' ? 'right' : 'left') : value;
+    expect(nativeEdge(textAlignment('start', rtl, 'android'))).toBe(rtl ? 'right' : 'left');
+    expect(nativeEdge(textAlignment('end', rtl, 'android'))).toBe(rtl ? 'left' : 'right');
+    expect(textAlignment('center', rtl, 'android')).toBe('center');
   });
 });
 

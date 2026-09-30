@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type TextStyle,
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
@@ -86,7 +86,9 @@ export function SayItChatPage({
     fontFamily: fonts[weight], fontSize: size,
     lineHeight: Math.round(size * (fonts.lineRatio > 1.5 ? fonts.lineRatio : 1.3)),
     color: muted ? p.mu : p.tx,
-    textAlign: Platform.OS === 'ios' || !rtl ? 'left' : 'right',
+    // 'left' is the logical start: Fabric mirrors a Text's alignment under the
+    // RTL layout on iOS and Android alike (see `textAlignment`).
+    textAlign: 'left',
     writingDirection: rtl ? 'rtl' : 'ltr',
   });
   const timestampStyle: TextStyle = {
