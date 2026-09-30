@@ -130,14 +130,36 @@ async function openApp() {
 
 async function openSettings() {
   await fireEvent.press(screen.getByLabelText(en.tabSettings));
-  await waitFor(() => expect(screen.queryByTestId('settings-widget')).not.toBeNull());
+  await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
+}
+
+async function openCategory(category: 'day' | 'connections' | 'alerts' | 'privacy' | 'app') {
+  await fireEvent.press(screen.getByTestId(`settings-category-${category}`));
+  await waitFor(() => expect(screen.queryByTestId(`settings-group-${category}`)).not.toBeNull());
 }
 
 describe('from Settings, on the merged Root', () => {
+  it('opens with five short categories and keeps detailed options one level down', async () => {
+    await openApp();
+    await openSettings();
+    for (const category of ['day', 'connections', 'alerts', 'privacy', 'app']) {
+      expect(screen.queryByTestId(`settings-category-${category}`)).not.toBeNull();
+    }
+    for (const detail of ['settings-routine', 'settings-calendar', 'settings-widget', 'settings-knows', 'settings-account']) {
+      expect(screen.queryByTestId(detail)).toBeNull();
+    }
+    expect(screen.queryByText(en.settingsRoutineSub)).toBeNull();
+    await openCategory('day');
+    expect(screen.queryByTestId('settings-routine')).not.toBeNull();
+    expect(screen.queryByTestId('settings-financial')).not.toBeNull();
+    await fireEvent.press(screen.getByLabelText(en.settingsBack));
+    await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
+  });
+
   it('clips Settings above the measured floating tabs, including after their height changes', async () => {
     await openApp();
     await openSettings();
-    let initialViewport = screen.getByTestId('settings-activity').parent;
+    let initialViewport = screen.getByTestId('settings-category-privacy').parent;
     while (initialViewport && !initialViewport.props.contentContainerStyle) initialViewport = initialViewport.parent;
     expect(initialViewport).not.toBeNull();
     expect(StyleSheet.flatten(initialViewport?.props.style)?.marginBottom ?? 0).toBeGreaterThan(0);
@@ -149,6 +171,7 @@ describe('from Settings, on the merged Root', () => {
       // painted/hit behind a tab. Content padding only clears the final row.
       expect(StyleSheet.flatten(viewport.props.style).marginBottom).toBeGreaterThanOrEqual(height + METRICS.insets.bottom + 4);
     }
+    await openCategory('privacy');
     await fireEvent.press(screen.getByTestId('settings-activity'));
     await waitFor(() => expect(screen.queryByTestId('settings-scroll')).toBeNull());
   });
@@ -156,6 +179,7 @@ describe('from Settings, on the merged Root', () => {
   it('reaches the widget settings screen', async () => {
     await openApp();
     await openSettings();
+    await openCategory('alerts');
     await fireEvent.press(screen.getByTestId('settings-widget'));
     await waitFor(() => expect(screen.queryByTestId('widget-titles-toggle')).not.toBeNull());
   });
@@ -163,6 +187,7 @@ describe('from Settings, on the merged Root', () => {
   it('reaches the calendar links screen through Settings → Calendar', async () => {
     await openApp();
     await openSettings();
+    await openCategory('connections');
     await fireEvent.press(screen.getByTestId('settings-calendar'));
     await waitFor(() => expect(screen.queryByTestId('calendar-feeds-entry')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('calendar-feeds-entry'));
@@ -170,29 +195,31 @@ describe('from Settings, on the merged Root', () => {
     expect(screen.queryByText(en.icsFeedsTitle)).not.toBeNull();
   });
 
-  it('Sources does not advertise calendar links in a build without them (L7)', async () => {
+  it('keeps Sources available for matches when calendar links are off', async () => {
     process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS = 'false';
     await openApp();
     await openSettings();
-    await waitFor(() => expect(screen.queryByText(en.settingsSourcesSubNoIcs)).not.toBeNull());
+    await openCategory('connections');
+    await waitFor(() => expect(screen.queryByTestId('settings-sources')).not.toBeNull());
     expect(screen.queryByText(en.settingsSourcesSub)).toBeNull();
   });
 
-  it('Sources names calendar links when the build has them', async () => {
+  it('keeps Sources available when calendar links are on', async () => {
     await openApp();
     await openSettings();
-    await waitFor(() => expect(screen.queryByText(en.settingsSourcesSub)).not.toBeNull());
+    await openCategory('connections');
+    await waitFor(() => expect(screen.queryByTestId('settings-sources')).not.toBeNull());
   });
 
   // Closure CL7: without the match data key (staging and production today)
   // matches are not a source at all, so they are not named — and with no
   // calendar links either, there is no Sources row to open.
-  it('Sources does not name matches when the server has no match data key', async () => {
+  it('keeps Sources available for calendar links without match data', async () => {
     jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(footballOff as never);
     await openApp();
     await openSettings();
-    await waitFor(() => expect(screen.queryByText(en.settingsSourcesSubIcsOnly)).not.toBeNull());
-    expect(screen.queryByText(en.settingsSourcesSub)).toBeNull();
+    await openCategory('connections');
+    await waitFor(() => expect(screen.queryByTestId('settings-sources')).not.toBeNull());
   });
 
   it('there is no Sources row with neither calendar links nor match data', async () => {
@@ -200,6 +227,7 @@ describe('from Settings, on the merged Root', () => {
     jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue(footballOff as never);
     await openApp();
     await openSettings();
+    await openCategory('connections');
     await waitFor(() => expect(footballEndpoints.getFootballSettings).toHaveBeenCalled());
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(screen.queryByTestId('settings-sources')).toBeNull();
@@ -208,14 +236,16 @@ describe('from Settings, on the merged Root', () => {
   it('reaches the readiness settings screen', async () => {
     await openApp();
     await openSettings();
+    await openCategory('day');
     await fireEvent.press(screen.getByTestId('settings-readiness'));
     await waitFor(() => expect(screen.queryByTestId('readiness-band')).not.toBeNull());
     expect(screen.queryByText(en.settingsEnergy)).not.toBeNull();
   });
 
-  it('reaches the AI context import in one tap from Settings', async () => {
+  it('reaches the AI context import through Sources', async () => {
     await openApp();
     await openSettings();
+    await openCategory('connections');
     await fireEvent.press(screen.getByTestId('settings-ai-import'));
     await waitFor(() => expect(screen.queryByTestId('ai-import-pick-chatgpt')).not.toBeNull());
   });
@@ -223,6 +253,7 @@ describe('from Settings, on the merged Root', () => {
   it('reaches the financial context screen', async () => {
     await openApp();
     await openSettings();
+    await openCategory('day');
     await fireEvent.press(screen.getByTestId('settings-financial'));
     await waitFor(() => expect(screen.queryByTestId('financial-band')).not.toBeNull());
     expect(screen.queryByText(en.financialTitle)).not.toBeNull();
@@ -232,6 +263,7 @@ describe('from Settings, on the merged Root', () => {
     delete process.env.EXPO_PUBLIC_FEATURE_ICS_FEEDS;
     await openApp();
     await openSettings();
+    await openCategory('connections');
     await fireEvent.press(screen.getByTestId('settings-calendar'));
     await waitFor(() => expect(screen.queryByTestId('calendar-disconnect')).not.toBeNull());
     expect(screen.queryByTestId('calendar-feeds-entry')).toBeNull();

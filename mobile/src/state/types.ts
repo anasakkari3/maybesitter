@@ -55,6 +55,7 @@ export type Screen =
   | 'today'
   | 'calendar'
   | 'settings'
+  | 'settingsDay' | 'settingsConnections' | 'settingsAlerts' | 'settingsPrivacy' | 'settingsApp'
   | 'details'
   // One entry for the whole capture flow (UC-2.R2, #172). Review and success
   // are not screens any more: which one shows is derived from the flow's own

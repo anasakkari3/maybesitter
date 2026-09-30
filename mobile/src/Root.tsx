@@ -9,6 +9,7 @@ import { useLinks } from './links';
 import { TodayScreen } from './screens/TodayScreen';
 import { CalendarScreen } from './screens/CalendarScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
+import { SettingsCategoryScreen } from './features/settings/SettingsCategoryScreen';
 import { DetailsScreen } from './screens/DetailsScreen';
 import { PlanScreen } from './screens/PlanScreen';
 import { CaptureFlow } from './features/capture/CaptureFlow';
@@ -172,6 +173,11 @@ export function Root() {
           {s.screen === 'today' && <TodayScreen key="today" tabClearance={tabClearance} />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" tabClearance={tabClearance} />}
           {s.screen === 'settings' && <SettingsScreen key="settings" tabClearance={tabClearance} />}
+          {s.screen === 'settingsDay' && <SettingsCategoryScreen key="settingsDay" category="day" onBack={() => latest.current.back()} />}
+          {s.screen === 'settingsConnections' && <SettingsCategoryScreen key="settingsConnections" category="connections" onBack={() => latest.current.back()} />}
+          {s.screen === 'settingsAlerts' && <SettingsCategoryScreen key="settingsAlerts" category="alerts" onBack={() => latest.current.back()} />}
+          {s.screen === 'settingsPrivacy' && <SettingsCategoryScreen key="settingsPrivacy" category="privacy" onBack={() => latest.current.back()} />}
+          {s.screen === 'settingsApp' && <SettingsCategoryScreen key="settingsApp" category="app" onBack={() => latest.current.back()} />}
           {s.screen === 'deleteAccount' && (
             <DeleteAccountScreen key="deleteAccount" onBack={() => latest.current.back()} />
           )}

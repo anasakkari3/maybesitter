@@ -1,130 +1,38 @@
 import React from 'react';
-import { ProductRow } from '../ui/product';
 import { View } from 'react-native';
 import { useApp } from '../state/AppContext';
-import { useAuth } from '../auth/AuthProvider';
-import { useMemory, usePlanSettings, useTrust } from '../api/queries';
-import { LANGUAGE_ENDONYM } from '../i18n/language';
-import { fill, ltr } from '../i18n/strings';
-import { icsFeedsEnabled } from '../config/env';
-import { sourcesSubKey, useSourcesAvailability } from '../features/settings/sourcesAvailability';
-import { Card, Txt } from '../ui/primitives';
-import { ScreenHeader, SectionLabel } from '../ui/chrome';
+import { Card } from '../ui/primitives';
+import { ScreenHeader } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { SettingsRow } from '../features/settings/SettingsChrome';
 import { useNotificationPermission } from '../notifications/useNotificationPermission';
 
-/**
- * Settings (Round 2, Phase I): four groups, each row saying what is behind
- * it before it is opened.
- *
- * Round 1 was a flat list of thirteen rows in the order the features were
- * built, two of which cycled a value on tap. Round 2 groups them by what the
- * person is thinking about — themselves, what the app is connected to, how
- * it speaks to them, and what it holds about them — and every row goes to a
- * screen. Language and appearance are pickers now; the account is a screen;
- * the two "sources" that add commitments on their own (calendar links,
- * matches) share a hub.
- *
- * The row names are the user-facing ones from the concept map in
- * docs/design/round-2-feature-matrix.md; the screen names underneath did not
- * change.
- */
+/** Five clear destinations; the detailed controls live one level down. */
 export function SettingsScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
-  const { t, tr, p, langPref, themePref, actions } = useApp();
-  const { user } = useAuth();
-  const trust = useTrust();
-  const sources = useSourcesAvailability();
-  const memory = useMemory();
-  const planSettings = usePlanSettings();
-  // The morning plan arrives as a notification: while the phone blocks them,
-  // "Arrives at 07:30" is a promise the phone will not keep (CL2b round 2).
+  const { t, actions } = useApp();
   const notificationPermission = useNotificationPermission();
+  const categories = [
+    { screen: 'settingsDay', label: t.settingsCategoryDay, icon: 'calendar', id: 'settings-category-day' },
+    { screen: 'settingsConnections', label: t.settingsCategoryConnections, icon: 'link', id: 'settings-category-connections' },
+    { screen: 'settingsAlerts', label: t.settingsCategoryAlerts, icon: 'watch', id: 'settings-category-alerts' },
+    { screen: 'settingsPrivacy', label: t.settingsCategoryPrivacy, icon: 'shield', id: 'settings-category-privacy' },
+    { screen: 'settingsApp', label: t.settingsCategoryApp, icon: 'person', id: 'settings-category-app' },
+  ] as const;
 
-  const themeValue = themePref === 'system' ? t.vSystem : themePref === 'light' ? t.vLight : t.vDark;
-  // A language is named in itself, never translated — so "English" stays
-  // "English" on an Arabic screen. "System" is the one word that is copy.
-  const languageValue = langPref === 'system' ? t.vSystem : LANGUAGE_ENDONYM[langPref];
-  const calendarOn = trust.data?.trust.calendarConsent === true;
-  const morning = planSettings.data;
-  const morningBlocked = morning?.enabled === true && notificationPermission === 'denied';
-  const memoryCount = memory.data?.items.length;
-
-  return (
-    <Screen>
-      {/* Clip the scrolling viewport above the tabs, not just its last row.
-          Otherwise any intermediate row can look tappable through the pill
-          while its touch goes to a tab (#506). Root measures the actual bar. */}
-      <ScreenScroll testID="settings-scroll" style={{ marginBottom: tabClearance }} bottom={24} gap={24} topGap={8}>
-        <ScreenHeader title={t.settingsTitle} />
-
-        <ProductRow id="settings-my" title={t.xMy} body={t.xMyBody} icon="person" onPress={() => actions.go('myMaybeSitter')} />
-
-        <Group title={t.settingsGroupYou}>
-          <SettingsRow first label={t.settingsRoutine} sub={t.settingsRoutineSub} onPress={() => actions.go('routineSettings')} icon="calendar" testID="settings-routine" />
-          {/* Beside the routine: the other thing that is the same every week. */}
-          <SettingsRow label={t.wbTitle} sub={t.wbSettingsSub} onPress={() => actions.go('weeklyBlocks')} icon="calendar" testID="settings-weekly-blocks" />
-          <SettingsRow label={t.settingsEnergy} sub={t.settingsEnergySub} onPress={() => actions.go('readinessSettings')} icon="habit" testID="settings-readiness" />
-          <SettingsRow label={t.settingsParts} sub={t.settingsPartsSub} onPress={() => actions.go('categorySettings')} icon="goal" testID="settings-categories" />
-          <SettingsRow label={t.settingsLangAppearance} value={`${languageValue} · ${themeValue}`} onPress={() => actions.go('langAppearance')} icon="spark" testID="settings-language" />
-        </Group>
-
-        <Group title={t.settingsGroupConnections}>
-          <SettingsRow first label={t.xIntegrations} onPress={() => actions.go('integrations')} icon="link" testID="settings-integrations" />
-          {/* Also reachable from «what it knows», three taps down under the
-              memory card — where the owner could not find it on the phone
-              (2026-09-29). It brings things in, so it sits with the other
-              ways in, one tap from Settings. */}
-          <SettingsRow label={t.aiImportTitle} sub={t.aiImportEntrySub} onPress={() => actions.go('aiImport')} icon="spark" testID="settings-ai-import" />
-          <SettingsRow label={t.xBackground} onPress={() => actions.go('backgroundActivity')} icon="watch" testID="settings-background" />
-          <SettingsRow label={t.financialTitle} onPress={() => actions.go('financialContext')} icon="file" testID="settings-financial" />
-          <SettingsRow first label={t.calendarWriteTitle} sub={calendarOn ? t.settingsCalendarSubOn : t.settingsCalendarSubOff} onPress={() => actions.go('calendarSettings')} icon="calendar" testID="settings-calendar" />
-          {sources.any ? <SettingsRow label={t.settingsSources} sub={t[sourcesSubKey(sources)]} onPress={() => actions.go('sources')} icon="link" testID="settings-sources" /> : null}
-        </Group>
-
-        <Group title={t.settingsGroupReminders}>
-          <SettingsRow first label={t.notifTitle} sub={t.settingsRemindersSub} onPress={() => actions.go('notificationsSettings')} icon="watch" testID="settings-notifications" />
-          <SettingsRow
-            label={t.settingsMorning}
-            sub={morning
-              ? morningBlocked
-                ? t.notifBlockedByPhone
-                : morning.enabled ? fill(t.settingsMorningSub, { t: ltr(morning.deliveryLocalTime) }) : t.settingsMorningOff
-              : undefined}
-            subTone={morningBlocked ? 'warn' : 'default'}
-            {...(morningBlocked ? { subTestID: 'settings-morning-blocked' } : {})}
-            onPress={() => actions.go('notificationsSettings')}
-            icon="calendar" testID="settings-morning"
-          />
-          <SettingsRow label={t.settingsWidget} sub={t.settingsWidgetSub} onPress={() => actions.go('widgetSettings')} icon="calendar" testID="settings-widget" />
-          <SettingsRow label={t.placesTitle} sub={t.placesRowSub} onPress={() => actions.go('places')} icon="goal" testID="settings-places" />
-        </Group>
-
-        <Group title={t.settingsGroupTrust}>
-          <SettingsRow first label={t.xPersonalization} onPress={() => actions.go('personalization')} icon="person" testID="settings-personalization" />
-          <SettingsRow first label={t.settingsKnows} sub={memoryCount === undefined ? undefined : tr('settingsKnowsSub', { n: memoryCount })} onPress={() => actions.go('knows')} icon="habit" testID="settings-knows" />
-          <SettingsRow label={t.sTrust} onPress={() => actions.go('trust')} icon="shield" testID="settings-trust" />
-          <SettingsRow label={t.activityTitle} onPress={() => actions.go('activity')} icon="file" testID="settings-activity" />
-          {user ? <SettingsRow label={t.accountTitle} sub={user.email ? fill(t.settingsAccountSub, { email: ltr(user.email) }) : t.authSignedInPrivateApple} onPress={() => actions.go('account')} icon="person" testID="settings-account" /> : null}
-          <SettingsRow label={t.settingsAbout} onPress={() => actions.go('about')} icon="spark" testID="settings-about" />
-        </Group>
-
-        {/* Only when the feature is compiled in and a feed hub exists: a row
-            that leads nowhere is worse than none. */}
-        {icsFeedsEnabled() ? null : null}
-        <View style={{ paddingHorizontal: 12 }}>
-          {user?.email ? <Txt size={12} color={p.mu} align="center">{fill(t.authSignedInAs, { email: ltr(user.email) })}</Txt> : null}
-        </View>
-      </ScreenScroll>
-    </Screen>
-  );
-}
-
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <View style={{ gap: 8 }}>
-      <SectionLabel>{title}</SectionLabel>
-      <Card pad={0} style={{ paddingHorizontal: 16 }}>{children}</Card>
-    </View>
-  );
+  return <Screen>
+    {/* The viewport itself ends above the floating tab bar; rows never sit
+        visibly behind a bar that would intercept their taps. */}
+    <ScreenScroll testID="settings-scroll" style={{ marginBottom: tabClearance }} bottom={24} gap={12} topGap={8}>
+      <ScreenHeader title={t.settingsTitle} />
+      <View style={{ gap: 10 }}>
+        {categories.map(category => <Card key={category.screen} pad={0} style={{ paddingHorizontal: 16 }}>
+          <SettingsRow first label={category.label} icon={category.icon}
+            {...(category.screen === 'settingsAlerts' && notificationPermission === 'denied'
+              ? { sub: t.notifBlockedByPhone, subTone: 'warn' as const, subTestID: 'settings-alerts-blocked' }
+              : {})}
+            testID={category.id} onPress={() => actions.go(category.screen)} />
+        </Card>)}
+      </View>
+    </ScreenScroll>
+  </Screen>;
 }
