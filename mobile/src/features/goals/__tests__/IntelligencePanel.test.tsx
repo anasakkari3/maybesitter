@@ -74,14 +74,16 @@ it('takes a wish through analysis, multi-step review surface, and explicit confi
   await waitFor(() => expect(screen.queryByText('Find a Pilates class')).not.toBeNull());
   expect(mockDecide).not.toHaveBeenCalled();
   await act(async () => { fireEvent.press(screen.getByText('Add to my plan')); });
-  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', undefined));
+  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', undefined, undefined));
 });
 
 it('lets the person correct a suggestion before accepting it', async () => {
-  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  const slot = { startsAt: '2026-09-30T11:00:00.000Z', endsAt: '2026-09-30T11:30:00.000Z' };
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion],
+    schedule: [{ suggestionId: suggestion.id, slot, reason: null }] };
   await render(wrap());
   await waitFor(() => expect(screen.queryByTestId('intelligence-edit-proposal-1')).not.toBeNull());
   await fireEvent.changeText(screen.getByTestId('intelligence-edit-proposal-1'), 'Book a Pilates class');
   await act(async () => { fireEvent.press(screen.getByText('Add to my plan')); });
-  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', 'Book a Pilates class'));
+  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', 'Book a Pilates class', slot));
 });
