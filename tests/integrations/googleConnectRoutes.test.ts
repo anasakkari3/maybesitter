@@ -930,7 +930,7 @@ test('AI is always on: a Gmail scan from an account that never answered is not r
     google.gmail.push({ id: 'm1', subject: 'Trip form', body: 'Return the form by Friday.', receivedAt: new Date().toISOString() });
     const response = await gmailScanPost(request('/api/mobile/integrations/google/gmail/scan', { body: {} }));
     assert.notEqual((await body(response)).reason, 'ai_consent_required');
-    assert.ok(google.calls.some((call) => call.url.startsWith('https://gmail.googleapis.com')), 'the scan never read the mailbox');
+    assert.ok(google.calls.some((call) => new URL(call.url).host === 'gmail.googleapis.com'), 'the scan never read the mailbox');
   } finally {
     done();
   }
