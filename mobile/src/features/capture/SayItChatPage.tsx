@@ -145,9 +145,8 @@ export function SayItChatPage({
     </View>
   );
 
-  const message = (value: ChatMessage, testID: string, first = false, live = false) => (
-    <View testID={testID} style={[styles.assistantBlock, !first && styles.followup]}
-      {...(live ? { accessibilityLiveRegion: 'polite' as const } : {})}>
+  const message = (value: ChatMessage, testID: string, first = false) => (
+    <View testID={testID} style={[styles.assistantBlock, !first && styles.followup]}>
       <View style={styles.assistantRow}>
         <View style={[styles.avatar, { borderColor: p.lnStrong }]}><ChatRibbon colors={p} size={20} /></View>
         <View style={[styles.assistantBubble, first && styles.firstAssistantBubble, { backgroundColor: p.sf }, expanded && styles.expandedBubble]}>
@@ -159,6 +158,9 @@ export function SayItChatPage({
       {value.time ? <Text style={[timestampStyle, styles.incomingTime]}>{value.time}</Text> : null}
     </View>
   );
+
+  /** The newest turn, when it is the assistant's reply: it is the one announced. */
+  const newestReply = !typing && history.length > 0 && history[history.length - 1]!.role === 'assistant' ? history.length - 1 : -1;
 
   /** The person's own message: a bubble on the end side, with its time and ✓✓. */
   const mine = (value: ChatMessage, testID: string, textTestID: string) => (
@@ -184,17 +186,21 @@ export function SayItChatPage({
           {outgoing ? mine(outgoing, 'chat-outgoing', 'chat-outgoing-text') : null}
           {assistant && message(assistant, 'chat-assistant', true)}
           {notice ? <View testID="chat-notice" style={styles.notice}>{notice}</View> : null}
-          {history.map((entry, index) => entry.role === 'user'
+          {history.map((entry, index) => index === newestReply ? null : entry.role === 'user'
             ? <View key={index} style={styles.laterTurn}>{mine(entry, `chat-turn-user-${index}`, `chat-turn-text-${index}`)}</View>
-            : <React.Fragment key={index}>{message(entry, `chat-turn-assistant-${index}`, false,
-              index === history.length - 1)}</React.Fragment>)}
-          {typing ? <View testID="chat-typing" style={[styles.assistantBlock, styles.followup]}
-            accessible accessibilityLabel={typingLabel} accessibilityLiveRegion="polite">
-            <View style={styles.assistantRow}>
-              <View style={[styles.avatar, { borderColor: p.lnStrong }]}><ChatRibbon colors={p} size={20} /></View>
-              <View style={[styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf }]}>{typing}</View>
-            </View>
-          </View> : null}
+            : <React.Fragment key={index}>{message(entry, `chat-turn-assistant-${index}`)}</React.Fragment>)}
+          {/* Always mounted, so TalkBack hears what changes inside it: the
+              typing bubble while a message is on its way, then the reply that
+              replaces it (review I1; the census in liveRegion.test). */}
+          <View testID="chat-live" accessibilityLiveRegion="polite">
+            {typing ? <View testID="chat-typing" style={[styles.assistantBlock, styles.followup]}
+              accessible accessibilityLabel={typingLabel}>
+              <View style={styles.assistantRow}>
+                <View style={[styles.avatar, { borderColor: p.lnStrong }]}><ChatRibbon colors={p} size={20} /></View>
+                <View style={[styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf }]}>{typing}</View>
+              </View>
+            </View> : newestReply >= 0 ? message(history[newestReply]!, `chat-turn-assistant-${newestReply}`) : null}
+          </View>
           {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}>
             <View style={[styles.scheduleCard, { backgroundColor: p.bg, borderColor: p.lnStrong }]}>
               {scheduleGroups.map((group, groupIndex) => <View key={group.id} style={groupIndex > 0 && styles.nextGroup}>

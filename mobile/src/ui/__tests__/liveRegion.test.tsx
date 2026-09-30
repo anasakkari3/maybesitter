@@ -38,6 +38,7 @@ const RAW_ALLOWED: Record<string, string> = {
   'features/onboarding/SetupChatStep.tsx': 'the row cell is always mounted',
   'features/google/GoogleIntegrationScreen.tsx': 'the status view is always mounted',
   'features/capture/voice/VoiceButton.tsx': 'announced explicitly on every platform',
+  'features/capture/SayItChatPage.tsx': 'chat-live is always mounted under the conversation; the typing bubble or the newest reply inside it changes',
 };
 
 function sourceFiles(dir: string): string[] {
