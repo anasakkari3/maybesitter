@@ -35,7 +35,7 @@ import { safeChatReply } from '../../lib/services/captureChat/chatReply.ts';
 import { chatItemEvidence } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import { resolveWeekdayDate } from '../../src/extraction/weekdayLexicon.ts';
-import type { LLMProviderFunction } from '../../src/extraction/llm/index.ts';
+import { LLMUnavailableError, type LLMProviderFunction } from '../../src/extraction/llm/index.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -1149,4 +1149,74 @@ test('"make it 5pm" in a list of two is the one item the model changed, not both
   assert.equal(dentist!.touchedNow, true);
   assert.equal(sara!.touchedNow, false, 'an edit of the dentist was read as Sara’s too');
   assert.ok(!sara!.turns.includes('make it 5pm'));
+});
+
+/* ── 5. a question the person has not answered stays asked ─────── */
+
+test('the model never answers «الصبح ولا المسا؟» for the person: a pending question survives an edit of the other item', async () => {
+  // Staging, 2026-10-01 07:26Z: the first call failed (a cold provider), the
+  // rules asked «الصبح ولا المسا؟» for both engagements; on the edit the model
+  // put the FIRST at 04:00 — the morning — settled, with nothing asked.
+  const [, edit] = REAL.engagements;
+  const pickedMorning = {
+    ...edit,
+    items: edit.items.map((entry, index) => index === 0
+      ? { ...entry, dueAt: '2026-10-02T01:00:00.000Z', remindAt: '2026-10-02T01:00:00.000Z', localTimeSpec: { date: '2026-10-02', time: '04:00', timezone: TZ } }
+      : entry),
+  };
+  let calls = 0;
+  const provider: LLMProviderFunction = async () => {
+    calls += 1;
+    if (calls === 1) throw new LLMUnavailableError('timeout');
+    return rebased(pickedMorning);
+  };
+  begin(provider);
+  try {
+    const uid = uidFor('ChatRealPendingAmPm');
+    const first = await chatPost(post('/api/mobile/capture/chat', uid, { message: ENGAGEMENTS[0], timezone: TZ, referenceTime: new Date().toISOString() }));
+    const one = await first.json() as Body;
+    assert.equal(one.engine, 'rules');
+    assert.deepEqual(one.proposal!.items.map((entry) => entry.clarification?.questionKey), ['ask_am_pm', 'ask_am_pm']);
+    const second = await chatPost(post('/api/mobile/capture/chat', uid, {
+      conversationId: one.conversationId, message: ENGAGEMENTS[1], timezone: TZ, referenceTime: new Date().toISOString(),
+    }));
+    const two = await second.json() as Body;
+    assert.equal(two.engine, 'model');
+    const [firstItem, secondItem] = two.proposal!.items;
+    assert.equal(firstItem!.resolvedTime, null, `04:00 was picked for the person: ${JSON.stringify(firstItem)}`);
+    assert.equal(firstItem!.needsClarification, true);
+    assert.equal(firstItem!.clarification?.questionKey, 'ask_am_pm', JSON.stringify(firstItem));
+    settled(secondItem, FRIDAY, '19:00', 'the second');
+  } finally {
+    end();
+  }
+});
+
+test('a pending question is the model\u2019s to settle once the person answers it in the chat', async () => {
+  // «الأولى 4 المسا»: the person answers the first engagement's question.
+  const [, edit] = REAL.engagements;
+  const answered = {
+    ...edit,
+    items: edit.items.map((entry, index) => index === 0 ? entry : {
+      ...entry, dueAt: '2026-10-02T15:00:00.000Z', remindAt: '2026-10-02T15:00:00.000Z', localTimeSpec: { date: '2026-10-02', time: '18:00', timezone: TZ },
+    }),
+  };
+  let calls = 0;
+  const provider: LLMProviderFunction = async () => {
+    calls += 1;
+    if (calls === 1) throw new LLMUnavailableError('timeout');
+    return rebased(answered);
+  };
+  begin(provider);
+  try {
+    const uid = uidFor('ChatRealPendingAnswered');
+    const first = await (await chatPost(post('/api/mobile/capture/chat', uid, { message: ENGAGEMENTS[0], timezone: TZ, referenceTime: new Date().toISOString() }))).json() as Body;
+    const two = await (await chatPost(post('/api/mobile/capture/chat', uid, {
+      conversationId: first.conversationId, message: 'الأولى الساعة 4 المسا والتانية 6 المسا', timezone: TZ, referenceTime: new Date().toISOString(),
+    }))).json() as Body;
+    settled(two.proposal!.items[0], FRIDAY, '16:00', 'the first, answered');
+    settled(two.proposal!.items[1], FRIDAY, '18:00', 'the second, answered');
+  } finally {
+    end();
+  }
 });
