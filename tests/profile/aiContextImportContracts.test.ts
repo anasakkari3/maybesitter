@@ -3,7 +3,7 @@
  *
  * ── The arithmetic is a test, not a comment ──────────────────────
  *
- * `MAX_INPUT_CHARACTERS` is 20,000 and is checked against the whole built
+ * `IMPORT_MAX_INPUT_CHARACTERS` is 40,000 and is checked against the whole built
  * prompt, so this feature's input cap is not a product choice — it is what is
  * left after the rules, forty numbered memories and the framing. A comment
  * claiming the sum works is a comment that goes stale the first time somebody
@@ -16,12 +16,13 @@ import {
   MAX_EXISTING_MEMORY_RECORDS,
   MAX_IMPORT_CANDIDATES,
   MAX_IMPORT_LENGTH,
+  IMPORT_MAX_INPUT_CHARACTERS,
   MAX_IMPORTS_PER_DAY,
   MIN_CANDIDATE_CONFIDENCE,
   IMPORT_ASSISTANTS,
 } from '../../src/profile/aiContextImportContracts.ts';
 import { buildAiContextImportPrompt, AI_CONTEXT_IMPORT_SCHEMA } from '../../src/profile/aiContextImportPrompt.ts';
-import { MAX_INPUT_CHARACTERS } from '../../lib/llm/usageGuard.ts';
+import { MAX_SHARE_CHARACTERS } from '../../lib/llm/shareProvider.ts';
 import { MAX_MEMORY_CONTENT_LENGTH } from '../../lib/services/mobile/memoryService.ts';
 import { toVertexSchema } from '../../src/extraction/llm/vertexSchema.ts';
 
@@ -37,8 +38,8 @@ function worstCasePrompt(): string {
 test('the worst case a user can send fits under the model input ceiling', () => {
   const built = worstCasePrompt();
   assert.ok(
-    built.length <= MAX_INPUT_CHARACTERS,
-    `worst case is ${built.length}, over the ${MAX_INPUT_CHARACTERS} ceiling`,
+    built.length <= IMPORT_MAX_INPUT_CHARACTERS,
+    `worst case is ${built.length}, over the ${IMPORT_MAX_INPUT_CHARACTERS} ceiling`,
   );
 });
 
@@ -47,7 +48,7 @@ test('the worst case leaves room for the rules to grow', () => {
   // at the usage guard, which surfaces as "nothing to suggest" rather than as
   // an error. 1,000 characters is the margin this feature is allowed to spend
   // before the caps have to move.
-  const headroom = MAX_INPUT_CHARACTERS - worstCasePrompt().length;
+  const headroom = IMPORT_MAX_INPUT_CHARACTERS - worstCasePrompt().length;
   assert.ok(headroom >= 1_000, `only ${headroom} characters of headroom left`);
 });
 
@@ -67,7 +68,10 @@ test('a candidate can never be too long for the memory store', () => {
 });
 
 test('the caps are the ones the plan derived', () => {
-  assert.equal(MAX_IMPORT_LENGTH, 4_000);
+  assert.equal(MAX_IMPORT_LENGTH, 20_000);
+  // The import's ceiling stays the import's: under the provider's own, so a
+  // refusal is always `import_too_long`, never an opaque provider error.
+  assert.ok(IMPORT_MAX_INPUT_CHARACTERS < MAX_SHARE_CHARACTERS);
   assert.equal(MAX_EXISTING_MEMORY_RECORDS, 40);
   assert.equal(MAX_IMPORT_CANDIDATES, 18);
   assert.equal(MAX_CANDIDATE_LENGTH, 120);

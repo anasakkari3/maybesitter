@@ -1,6 +1,6 @@
 {
   "success": false,
-  "error": "an imported profile may be at most 4000 characters",
+  "error": "an imported profile may be at most 20000 characters",
   "reason": "import_too_long",
-  "maxCharacters": 4000
+  "maxCharacters": 20000
 }

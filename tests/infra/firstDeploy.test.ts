@@ -13,6 +13,7 @@
  * These are static checks, the only kind possible without a project. They pin
  * the fixes so a later edit cannot quietly reintroduce any of the three.
  */
+import { shareIntakeEnabled } from '../../lib/services/share/shareFlags.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -251,6 +252,17 @@ test('calendar links (ICS feeds) are on for staging and production', () => {
   }
 });
 
+test('share intake is on for staging and production', () => {
+  // Owner's Redmi, 2026-09-30: text shared from another app reached the phone,
+  // and POST /api/mobile/capture/share answered 404 `feature_unavailable` in
+  // 4 ms three times, because SHARE_INTAKE_ENABLED was set on neither service.
+  for (const target of ['staging', 'production'] as const) {
+    const env = envVarsOf(flagsFor(target));
+    assert.equal(env.get('SHARE_INTAKE_ENABLED'), 'true', `${target} leaves share intake off`);
+    assert.equal(shareIntakeEnabled({ SHARE_INTAKE_ENABLED: env.get('SHARE_INTAKE_ENABLED') } as unknown as NodeJS.ProcessEnv), true, target);
+  }
+});
+
 test('both services are deployed with the KMS key that seals per-user secrets', () => {
   // Staging had it by hand and production not at all, so Google connect on
   // production answered `not_configured`. A deploy must carry it.
@@ -276,14 +288,15 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_LLM_DAILY_TOKEN_CAP', '150000'],
     ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
     ['ICS_FEEDS_ENABLED', 'true'],
+    ['SHARE_INTAKE_ENABLED', 'true'],
   ] as const) {
     assert.equal(production.get(key), value, `production ${key}`);
   }
   assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
   assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
-  assert.equal(production.size, 23);
-  assert.equal(staging.size, 22);
+  assert.equal(production.size, 24);
+  assert.equal(staging.size, 23);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

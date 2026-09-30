@@ -80,8 +80,14 @@ describe('resolveSpeechLocale', () => {
     expect((resolveSpeechLocale('he', ['he-IL', 'iw-IL']) as { localeId: string }).localeId).toBe('he-IL');
   });
 
-  it('handles an empty list without throwing', () => {
-    expect(resolveSpeechLocale('en', [])).toEqual({ kind: 'unsupported', language: 'en' });
+  it('an empty list means the platform will not say (Android < 13): ask the recogniser for the first choice, online', () => {
+    expect(resolveSpeechLocale('ar', [])).toEqual({ kind: 'supported', localeId: 'ar-PS', onDevice: false });
+    expect(resolveSpeechLocale('he', [], [])).toEqual({ kind: 'supported', localeId: 'he-IL', onDevice: false });
+    expect(resolveSpeechLocale('en', [])).toEqual({ kind: 'supported', localeId: 'en-US', onDevice: false });
+  });
+
+  it('a list that names other languages only is still unsupported', () => {
+    expect(resolveSpeechLocale('ar', ['en-US'])).toEqual({ kind: 'unsupported', language: 'ar' });
   });
 
   it('never returns a locale of a different language', () => {
