@@ -8,10 +8,9 @@
  * shows and tells what it wraps, so nothing below adds it again.
  */
 import React, { useContext } from 'react';
-import { Text } from 'react-native';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { cleanup, render, screen, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../state/AppContext';

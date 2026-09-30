@@ -275,7 +275,7 @@ export function CaptureScreen() {
    * goes through `headerBack`.
    */
   const hardwareBack = useRef(headerBack);
-  hardwareBack.current = toolsOpen && reviewing ? () => setToolsOpen(false) : headerBack;
+  useEffect(() => { hardwareBack.current = toolsOpen && reviewing ? () => setToolsOpen(false) : headerBack; });
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => { hardwareBack.current(); return true; });
     return () => sub.remove();

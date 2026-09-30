@@ -21,12 +21,10 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
 import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
-import en from '../../../i18n/locales/en.json';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
-import * as queries from '../../../api/queries';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },

@@ -1,9 +1,10 @@
 import React from 'react';
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type TextStyle,
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
+import { textAlignment } from '../../ui/primitives';
 
 /** An independent native presentation. The host owns all messages, proposals,
  * permissions, keyboard avoidance, localization, and every state change. */
@@ -94,9 +95,9 @@ export function SayItChatPage({
     fontFamily: fonts[weight], fontSize: size,
     lineHeight: Math.round(size * (fonts.lineRatio > 1.5 ? fonts.lineRatio : 1.3)),
     color: muted ? p.mu : p.tx,
-    // 'left' is the logical start: Fabric mirrors a Text's alignment under the
-    // RTL layout on iOS and Android alike (see `textAlignment`).
-    textAlign: 'left',
+    // The logical start: Fabric mirrors a Text's alignment under the RTL
+    // layout on iOS and Android alike (see `textAlignment`).
+    textAlign: textAlignment('start', rtl, Platform.OS),
     writingDirection: rtl ? 'rtl' : 'ltr',
   });
   /** `textStyle`, set in the face the words' own alphabet needs. */
