@@ -72,6 +72,17 @@ Market Evidence Gate #61 remains mandatory before:
 
 Engineering completion is not product evidence and does not satisfy #61.
 
+**Owner exception (2026-10-01): the proactive loop is released.** The owner
+decided to release the proactive decision loop (`lib/intelligence/**`:
+proactive suggestions, outcome learning, opt-in Gmail monitoring; flag
+`MAYBESITTER_FEATURE_PROACTIVE_LOOP`) to production for everyone, ahead of
+#61. It keeps its kill switch (`MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP`), the
+proposal-only principle, opt-in for Gmail monitoring, and the global and
+per-user model caps. This exception covers that loop only; every other Stage B
+module stays `RELEASE_LOCKED` under the rules above, and the loop's release is
+not product evidence either. Record in
+`docs/architecture/adr-stage-b-engineering-unlock.md`.
+
 The sprint dates on those milestones are historical planning assumptions, not
 approved execution commitments.
 

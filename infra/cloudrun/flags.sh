@@ -43,7 +43,11 @@ case "${TARGET}" in
     max_instances=3
     database_id="(default)"
     env_name="production"
-    proactive_loop="false"
+    # OWNER DECISION (2026-10-01): the proactive loop (MaybeSitter's "brain":
+    # proactive suggestions, outcome learning, opt-in Gmail monitoring) is
+    # released to production for everyone. MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP
+    # takes it out in one value change; model calls stay under the caps below.
+    proactive_loop="true"
     # OWNER DECISION (2026-09-29): one product. Production gets the same
     # features as staging — the hosted model and memory, football fixtures and
     # calendar links — and the owner approved the model spend below. The

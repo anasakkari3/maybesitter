@@ -13,7 +13,11 @@ import { intelligenceEnabled } from '../../lib/intelligence/gate.ts';
 const NOW = '2026-09-30T10:00:00.000Z';
 
 test('staging gate stays closed in production, even if the feature flag is on', () => {
-  assert.equal(intelligenceEnabled({ MAYBESITTER_ENV: 'production', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true' }), false);
+  // Released to production by the owner on 2026-10-01; the kill switch still
+  // wins, and any other environment stays off.
+  assert.equal(intelligenceEnabled({ MAYBESITTER_ENV: 'production', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true' }), true);
+  assert.equal(intelligenceEnabled({ MAYBESITTER_ENV: 'production', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true', MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP: 'true' }), false);
+  assert.equal(intelligenceEnabled({ MAYBESITTER_ENV: 'development', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true' }), false);
   assert.equal(intelligenceEnabled({ MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true', MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP: 'true' }), false);
   assert.equal(intelligenceEnabled({ MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true' }), true);
 });
