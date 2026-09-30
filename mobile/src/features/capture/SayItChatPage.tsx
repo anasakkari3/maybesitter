@@ -31,6 +31,10 @@ export interface SayItChatPageProps {
   copy: {
     title: string; subtitle: string; placeholder: string; closeLabel: string;
     moreLabel: string; pasteLabel: string; sendLabel: string; confirmLabel: string;
+    /** Names a row's "…" control: it opens that row's edit sheet. */
+    editLabel: string;
+    /** The text tag on a row the person has taken out of the proposal. */
+    notIncludedLabel: string;
   };
   text: string;
   onChangeText(text: string): void;
@@ -99,9 +103,9 @@ export function SayItChatPage({
             <ChatRibbon colors={p} size={24} />
             <Text accessibilityRole="header" style={[textStyle(16, 'semibold', true), styles.flexShrink]}>{copy.title}</Text>
           </View>
+          {/* No "online" dot: nothing here is live presence, and the AI may be off. */}
           <View style={styles.subtitleRow}>
-            <View accessible={false} style={[styles.online, { backgroundColor: p.success }]} />
-            <Text style={[textStyle(10.5, 'regular', true), styles.flexShrink]}>{copy.subtitle}</Text>
+            <Text testID="chat-subtitle" style={[textStyle(10.5, 'regular', true), styles.flexShrink]}>{copy.subtitle}</Text>
           </View>
         </View>
         <IconButton label={copy.moreLabel} onPress={onMore} colors={p} icon="more" testID="chat-more" disabled={inputDisabled} />
@@ -156,10 +160,19 @@ export function SayItChatPage({
                     const rowContent = <>
                       <View style={[styles.rowIcon, { backgroundColor: row.selected === false ? p.sf2 : (p.iconBg ?? p.acs) }]}>
                         <ChatIcon name={row.icon ?? 'calendar'} size={20} color={row.selected === false ? p.mu : p.ac} />
+                        {/* Selection is never colour alone: a check when in, an
+                            empty ring plus a text tag when out. */}
+                        {typeof row.selected === 'boolean' ? <View testID={`review-check-${row.id}`} style={[styles.checkMark, row.selected
+                          ? { backgroundColor: p.ac, borderColor: p.bg }
+                          : { backgroundColor: p.bg, borderColor: p.mu }]}>
+                          {row.selected ? <ChatIcon name="check" size={9} color={p.onAccent} /> : null}
+                        </View> : null}
                       </View>
                       <View style={styles.rowWords}>
                         <Text style={textStyle(13, 'regular', row.selected === false)}>{row.title}</Text>
                         {row.subtitle ? <Text testID={`review-when-${row.id}`} style={textStyle(11, 'regular', true)}>{row.subtitle}</Text> : null}
+                        {row.selected === false ? <Text testID={`review-not-included-${row.id}`}
+                          style={[textStyle(10.5, 'semibold', true), styles.notIncluded, { borderColor: p.lnStrong }]}>{copy.notIncludedLabel}</Text> : null}
                       </View>
                     </>;
                     return <View key={row.id} testID={`review-card-${row.id}`}>
@@ -172,7 +185,7 @@ export function SayItChatPage({
                         {rowContent}
                       </Pressable> : <View style={styles.rowMain}>{rowContent}</View>}
                       {onRowPress ? <Pressable testID={`review-edit-${row.id}`} accessibilityRole="button"
-                        accessibilityLabel={`${copy.moreLabel}: ${row.title}`}
+                        accessibilityLabel={`${copy.editLabel}: ${row.title}`}
                         accessibilityState={{ disabled: !!row.disabled }} disabled={row.disabled}
                         onPress={() => onRowPress(row.id)} hitSlop={10} style={styles.rowMore}>
                         <ChatIcon name="more" size={14} color={p.mu} />
@@ -318,7 +331,6 @@ const styles = StyleSheet.create({
   identity: { alignItems: 'center', gap: 5, flexShrink: 1 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  online: { width: 6, height: 6, borderRadius: 3 },
   scroller: { flex: 1 },
   conversation: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 12 },
   scrollHeader: { marginHorizontal: -12, marginTop: -10, marginBottom: 10 },
@@ -342,6 +354,8 @@ const styles = StyleSheet.create({
   scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 48, paddingVertical: 7 },
   rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 34 },
   rowIcon: { width: 33, height: 33, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  checkMark: { position: 'absolute', bottom: -4, end: -4, width: 15, height: 15, borderRadius: 8, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  notIncluded: { borderWidth: 0.7, borderRadius: 6, paddingHorizontal: 5, overflow: 'hidden' },
   rowWords: { flex: 1, alignItems: 'flex-start', gap: 2 },
   rowMore: { width: 24, minHeight: 32, alignItems: 'center', justifyContent: 'center' },
   rowDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 3 },

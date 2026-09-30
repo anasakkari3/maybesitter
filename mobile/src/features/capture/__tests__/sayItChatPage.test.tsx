@@ -15,10 +15,13 @@ const baseProps: SayItChatPageProps = {
     title: 'Say it', subtitle: 'Here to help you make it happen', placeholder: 'Just say it…',
     closeLabel: 'Back', moreLabel: 'More options', pasteLabel: 'Paste',
     sendLabel: 'Understand it', confirmLabel: 'Add to my schedule',
+    editLabel: 'Change', notIncludedLabel: 'Not included',
   },
   text: '', canSend: false,
   onChangeText: () => {}, onSend: () => {}, onClose: () => {}, onMore: () => {}, onPaste: () => {},
 };
+
+const CHECK_PATH = 'M5 12l4 4L19 6';
 
 describe('SayItChatPage', () => {
   it('keeps the microphone controller mounted as speech fills the draft and the send control appears', async () => {
@@ -91,11 +94,42 @@ describe('SayItChatPage', () => {
     await fireEvent.press(within(card).getByRole('button', { name: 'Repeat weekly' }));
     expect(onWeekly).toHaveBeenCalledTimes(1);
     expect(onToggle).not.toHaveBeenCalled();
-    await fireEvent.press(within(card).getByRole('button', { name: 'More options: Doctor' }));
+    // The row's "…" opens the edit sheet, so it is named for that, not "More options".
+    expect(within(card).queryByRole('button', { name: 'More options: Doctor' })).toBeNull();
+    await fireEvent.press(within(card).getByRole('button', { name: 'Change: Doctor' }));
     expect(onEdit).toHaveBeenCalledWith('doctor');
     expect(onToggle).not.toHaveBeenCalled();
     await fireEvent.press(selection);
     expect(onToggle).toHaveBeenCalledWith('doctor');
+  });
+
+  it('marks selection with a glyph and a text tag, never colour alone', async () => {
+    const row = (selected: boolean) => <SayItChatPage {...baseProps} onRowToggle={() => {}}
+      scheduleGroups={[{ id: 'g', title: 'Tomorrow', rows: [{ id: 'doctor', title: 'Doctor', selected }] }]} />;
+    const view = await render(row(true));
+    const checkbox = screen.getByTestId('review-item-doctor');
+    expect(checkbox.props.accessibilityState.checked).toBe(true);
+    expect(within(checkbox).getByTestId('review-check-doctor')).toBeTruthy();
+    expect(screen.getByTestId('review-check-doctor').queryAll(node => node.props.d === CHECK_PATH)).toHaveLength(1);
+    expect(screen.queryByTestId('review-not-included-doctor')).toBeNull();
+    expect(screen.queryByText('Not included')).toBeNull();
+
+    await view.rerender(row(false));
+    expect(screen.getByTestId('review-item-doctor').props.accessibilityState.checked).toBe(false);
+    expect(screen.getByTestId('review-check-doctor').queryAll(node => node.props.d === CHECK_PATH)).toHaveLength(0);
+    expect(within(screen.getByTestId('review-item-doctor')).getByText('Not included')).toBeTruthy();
+  });
+
+  it('claims no live presence in the header: the subtitle stands alone, with no status dot', async () => {
+    await render(<SayItChatPage {...baseProps} />);
+    const header = screen.getByTestId('chat-header');
+    expect(within(header).getByTestId('chat-subtitle').props.children).toBe(baseProps.copy.subtitle);
+    const successDots = header.queryAll(node => {
+      const style = node.props.style;
+      const flat = Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean)) : style;
+      return typeof node.type === 'string' && flat?.backgroundColor === baseProps.colors.success;
+    });
+    expect(successDots).toHaveLength(0);
   });
 
   it('prevents typing, pasting, and header actions while input is disabled', async () => {

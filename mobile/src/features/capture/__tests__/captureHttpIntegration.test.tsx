@@ -83,6 +83,15 @@ function receive<T>(type: string, id?: number): Promise<T> {
   });
 }
 
+/** Priority is changed per item, in its edit sheet, and nowhere else. */
+async function setPriorityHigh(itemId: string) {
+  await fireEvent.press(screen.getByTestId(`review-edit-${itemId}`));
+  await waitFor(() => expect(screen.queryByTestId('edit-item-save')).not.toBeNull());
+  await fireEvent.press(screen.getByTestId('edit-item-priority-high'));
+  await fireEvent.press(screen.getByTestId('edit-item-save'));
+  await waitFor(() => expect(screen.queryByTestId(`review-item-${itemId}`)).not.toBeNull());
+}
+
 async function snapshot(uid = host.uid): Promise<Snapshot> {
   const id = ++sequence;
   const response = receive<Snapshot>('snapshot', id);
@@ -236,14 +245,12 @@ it('routes a typed chat answer to clarification and saves only after the reviewe
   ]);
 }, 15_000);
 
-it('commute and a declined draft replacement preserve the reviewed priority until explicit save', async () => {
+it('a declined draft replacement preserves the reviewed priority until explicit save', async () => {
   const proposal = await openAndAnalyze('Water the plants tomorrow at 3pm');
   const item = proposal.items[0]!;
   expect(item.priority).not.toBe('high');
   await waitFor(() => expect(screen.queryByTestId(`review-item-${item.itemId}`)).not.toBeNull());
-  await fireEvent.press(screen.getByTestId('chat-quick-must'));
-  await fireEvent.press(screen.getByTestId('chat-quick-commute'));
-  expect(screen.getByTestId('capture-input').props.value.trim().length).toBeGreaterThan(0);
+  await setPriorityHigh(item.itemId);
   expect(exchanges.map(exchange => exchange.path)).toEqual(['/api/mobile/capture']);
 
   await fireEvent.changeText(screen.getByTestId('capture-input'), 'Call Dana tomorrow at 5pm');
@@ -266,7 +273,7 @@ it('commute and a declined draft replacement preserve the reviewed priority unti
   expect(exchanges.map(exchange => exchange.path)).toEqual(['/api/mobile/capture', '/api/mobile/capture/confirm']);
 }, 15_000);
 
-it('enforces the answer bound and keeps a new commute draft when a sheet option answers the old item', async () => {
+it('enforces the answer bound and keeps a new draft when a sheet option answers the old item', async () => {
   const proposal = await openAndAnalyze('Remind me to call Dana');
   const item = proposal.items.find(candidate => candidate.clarification)!;
   expect(item).toBeDefined();
@@ -276,14 +283,13 @@ it('enforces the answer bound and keeps a new commute draft when a sheet option 
   await fireEvent.press(screen.getByTestId('capture-analyze'));
   expect(exchanges.map(exchange => exchange.path)).toEqual(['/api/mobile/capture']);
 
-  await fireEvent.press(screen.getByTestId('chat-quick-commute'));
-  const commuteDraft = screen.getByTestId('capture-input').props.value as string;
-  expect(commuteDraft.trim().length).toBeGreaterThan(0);
+  const newDraft = 'Buy milk on the way home';
+  await fireEvent.changeText(screen.getByTestId('capture-input'), newDraft);
   const option = item.clarification!.options.find(candidate => !candidate.value.localTime && !candidate.value.localDate)!;
   expect(option).toBeDefined();
   await fireEvent.press(screen.getByTestId(`clarify-option-${option.optionId}`));
   await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).toBeNull(), { timeout: 5_000 });
-  expect(screen.getByTestId('capture-input').props.value).toBe(commuteDraft);
+  expect(screen.getByTestId('capture-input').props.value).toBe(newDraft);
   const clarified = exchanges.find(exchange => exchange.path === '/api/mobile/capture/clarify')!;
   expect(clarified.status).toBe(200);
   expect(clarified.body).toMatchObject({ proposalId: proposal.proposalId, itemId: item.itemId, optionId: option.optionId });
@@ -299,7 +305,7 @@ it('only an explicitly approved replacement sends the new draft and confirms its
   const original = await openAndAnalyze('Water the plants tomorrow at 3pm');
   const oldItem = original.items[0]!;
   await waitFor(() => expect(screen.queryByTestId(`review-item-${oldItem.itemId}`)).not.toBeNull());
-  await fireEvent.press(screen.getByTestId('chat-quick-must'));
+  await setPriorityHigh(oldItem.itemId);
   const replacement = 'Call Dana tomorrow at 5pm';
   await fireEvent.changeText(screen.getByTestId('capture-input'), replacement);
   await fireEvent.press(screen.getByTestId('capture-analyze'));

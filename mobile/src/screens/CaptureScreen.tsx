@@ -12,9 +12,8 @@ import { ClarifySheet } from '../features/capture/ClarifySheet';
 import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
-import { localDateTimeFor } from '../features/capture/localInstant';
 import { fill, ltr } from '../i18n/strings';
-import { dayKey, formatDayKey, formatTime, shiftDayKey } from '../i18n/format';
+import { formatDayKey, formatTime } from '../i18n/format';
 import { useTimeZone } from '../i18n/timezone';
 import { family, LINE_HEIGHT } from '../theme/fonts';
 import { captureChatPalette } from '../theme/tokens';
@@ -35,7 +34,8 @@ import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt } from '../features/calendar/conflicts';
 import { Btn, Pill, Txt } from '../ui/primitives';
-import { ProcessingDots, ScreenIn } from '../ui/motion';
+import { ProcessingDots } from '../ui/motion';
+import { Screen } from '../ui/screen';
 import { AvoidKeyboard } from '../ui/keyboard';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ReviewScreen } from './ReviewScreen';
@@ -44,7 +44,7 @@ const REVIEW_STATUSES = ['needsConfirmation', 'needsClarification', 'unresolvedI
 
 /** Connects the independently built chat page to the existing capture transaction. */
 export function CaptureScreen() {
-  const { t, p: appPalette, rtl, script, lang, scheme, actions } = useApp();
+  const { t, tr, p: appPalette, rtl, script, lang, scheme, actions } = useApp();
   const p = captureChatPalette(scheme, appPalette);
   const flow = useCaptureFlow();
   const { state } = flow;
@@ -57,11 +57,12 @@ export function CaptureScreen() {
   // A reply is separate from the active proposal: typing never resets its edits.
   const { replyDraft: reply, setReplyDraft: setReply, replyIntent: replyMode, setReplyIntent: setReplyMode } = flow;
   const [replacement, setReplacement] = useState<string | null>(null);
-  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  // What the discard question is about: closing capture, or going back from a
+  // touched proposal to the composer (which keeps the sentence).
+  const [discarding, setDiscarding] = useState<'close' | 'back' | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [sentAt, setSentAt] = useState<Date | null>(null);
   const [answering, setAnswering] = useState(false);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -97,11 +98,24 @@ export function CaptureScreen() {
   const inputLength = composerAnswersQuestion ? composerText.trim().length : composerText.length;
   const conflictBlocks = useConflictBusyBlocks(useBusyBlocks());
 
-  const leave = () => { flow.close(); actions.closeCapture(); };
+  const leave = () => { setDiscarding(null); flow.close(); actions.closeCapture(); };
+  const back = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); flow.backToComposer(); };
+  const discardsSomething = () => wantsDiscardConfirmation(state) || Boolean(reply.trim());
+  /** The explicit exit ("Cancel all" in review, the header in the composer). */
   const requestClose = () => {
     if (state.status === 'confirming') return;
-    if (wantsDiscardConfirmation(state) || reply.trim()) setConfirmingDiscard(true);
+    if (discardsSomething()) setDiscarding('close');
     else leave();
+  };
+  /**
+   * The header's Back while reviewing: back to the composer with the sentence
+   * still in it. Only hand edits, a changed selection or a typed reply are
+   * worth asking about; an untouched proposal is simply re-derivable.
+   */
+  const requestBack = () => {
+    if (state.status === 'confirming') return;
+    if (discardsSomething()) setDiscarding('back');
+    else back();
   };
   const answer = async (itemId: string, value: { optionId?: string; freeText?: string }, submittedReply?: string) => {
     if (answering) return;
@@ -119,7 +133,6 @@ export function CaptureScreen() {
     setReply('');
     setReplyMode('answer');
     setReplacement(null);
-    setNotice(null);
     setSkipped([]);
     setClarifyError(null);
     void flow.analyze(override);
@@ -150,27 +163,10 @@ export function CaptureScreen() {
   };
   const quickAction = (id: string) => {
     if (busy || answering) return;
-    if (id.startsWith('example-')) {
-      const key = COMPOSER_EXAMPLE_KEYS.find(key => `example-${key}` === id);
-      if (key) changeText(exampleText(key, t));
-      return;
-    }
-    if (id === 'commute') { setReplyMode('new'); setReply(t.chatCommuteDraft); setNotice(t.chatCommuteHint); return; }
-    const selected = items.filter(item => state.selected.includes(item.itemId));
-    if (id === 'must') {
-      selected.forEach(item => flow.editItem(item.itemId, { priority: 'high' }));
-      setNotice(t.chatMustUpdated);
-    }
-    if (id === 'tomorrow') {
-      const timed = selected.map(item => ({ item, shown: chatItemPresentation(item, state.edits[item.itemId], lang, timezone, t) }));
-      if (timed.some(({ shown }) => !shown.instant)) { setNotice(t.chatChooseTime); setToolsOpen(true); return; }
-      const tomorrow = shiftDayKey(dayKey(new Date(), timezone), 1);
-      timed.forEach(({ item, shown }) => {
-        flow.editItem(item.itemId, { localDateTime: `${tomorrow}T${localDateTimeFor(shown.instant!, timezone).slice(11)}` });
-        flow.setWeekly(item.itemId, false);
-      });
-      setNotice(t.chatTomorrowUpdated);
-    }
+    // Examples only fill an empty draft; they are never offered over typed text.
+    if (reviewing || state.text.trim()) return;
+    const key = COMPOSER_EXAMPLE_KEYS.find(key => `example-${key}` === id);
+    if (key) changeText(exampleText(key, t));
   };
 
   const groups = new Map<string, ChatScheduleGroup>();
@@ -185,8 +181,8 @@ export function CaptureScreen() {
     const extra = <View style={{ gap: 4, alignItems: 'flex-start' }}>
       {shown.priority === 'high' ? <Txt size={12} color={p.wm}>{t.todayGroupMust}</Txt> : null}
       {shown.priorityEstimated ? <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt> : null}
-      {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
-      {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
+      {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
+      {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
       {needsQuestion ? <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt> : null}
       {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyAt(shown.instant.toISOString(), conflictBlocks)} /> : null}
       {item.weeklyBlock && weekly ? <WeeklyChoice itemId={item.itemId} offer={item.weeklyBlock} title={state.edits[item.itemId]?.title ?? item.weeklyBlock.title} choice={weekly} locked={weeklyLockedByEdit(state, item.itemId)} onChoose={value => flow.setWeekly(item.itemId, value)} /> : null}
@@ -202,10 +198,11 @@ export function CaptureScreen() {
 
   const failed = isFailedStatus(state.status) ? state.status : null;
   let bodyOverride: React.ReactNode = null;
-  if (confirmingDiscard) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
-    <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt><Txt size={15}>{t.captureDiscardBody}</Txt>
-    <Pill testID="capture-discard-keep" label={t.captureKeepEditing} onPress={() => setConfirmingDiscard(false)} />
-    <Pill testID="capture-discard-confirm" label={t.captureDiscardConfirm} onPress={leave} kind="warm" />
+  if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
+    <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt>
+    <Txt size={15}>{discarding === 'back' ? t.chatBackDiscardBody : t.captureDiscardBody}</Txt>
+    <Pill testID="capture-discard-keep" label={t.captureKeepEditing} onPress={() => setDiscarding(null)} />
+    <Pill testID="capture-discard-confirm" label={t.captureDiscardConfirm} onPress={discarding === 'back' ? back : leave} kind="warm" />
   </View>;
   else if (replacement !== null) bodyOverride = <View style={{ gap: 16 }} testID="chat-replace-draft">
     <Txt size={22} weight={600}>{t.chatReplaceTitle}</Txt><Txt size={15}>{t.chatReplaceBody}</Txt>
@@ -220,7 +217,7 @@ export function CaptureScreen() {
     onChange={next => editItem(editingId, next)} onClose={() => setEditingId(null)} />;
   else if (menuOpen) bodyOverride = <View style={{ gap: 14 }}>
     <Pill label={t.capturePaste} onPress={() => { setMenuOpen(false); void readClipboardText().then(setClipboard); }} />
-    <Pill label={t.captureAiOffHint} onPress={() => actions.go('trust')} kind="soft" />
+    {!flow.aiGranted ? <Pill testID="chat-menu-ai-off" label={t.captureAiOffHint} onPress={() => actions.go('trust')} kind="soft" /> : null}
     <Pill label={t.close} onPress={() => setMenuOpen(false)} kind="ghost" />
   </View>;
   else if (state.status === 'analyzing') bodyOverride = <View style={{ alignItems: 'center', gap: 20 }} testID="capture-analyzing">
@@ -252,14 +249,16 @@ export function CaptureScreen() {
 
   const outgoing = reviewing && state.text ? { text: state.text, delivered: true,
     ...(sentAt ? { time: ltr(formatTime(sentAt, { locale: lang, timeZone: timezone })) } : {}) } : null;
-  const followup = notice ? { text: notice } : reviewing && items.length > 1 ? { text: t.chatCommuteQuestion } : null;
 
   if (toolsOpen && reviewing) return <ReviewScreen onBackToChat={() => setToolsOpen(false)} />;
-  return <ScreenIn style={{ backgroundColor: p.bg }}><SpeechEventBridge />
+  // The shell owns the safe-area top (screenShellCensus); the chat header sits
+  // below it on the chat palette's background.
+  return <Screen style={{ backgroundColor: p.bg }}><SpeechEventBridge />
     <AvoidKeyboard testID="capture-kav" style={{ flex: 1 }}>
       <SayItChatPage colors={p} fonts={{ regular: family(400, script), semibold: family(600, script), latin: family(400, 'latin'), lineRatio: LINE_HEIGHT[script] }}
-        copy={{ title: t.captureTitle, subtitle: t.chatAssistant, placeholder: replyMode === 'answer' && asking?.clarification?.allowFreeText ? t.chatAnswerPlaceholder : t.chatPlaceholder,
-          closeLabel: reviewing ? t.back : t.cancel, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.analyze, confirmLabel: t.chatAddSchedule }}
+        copy={{ title: t.captureTitle, subtitle: t.chatSubtitle, placeholder: replyMode === 'answer' && asking?.clarification?.allowFreeText ? t.chatAnswerPlaceholder : t.chatPlaceholder,
+          closeLabel: reviewing ? t.back : t.cancel, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.analyze,
+          confirmLabel: tr('confirmN', { n: state.selected.length }), editLabel: t.reviewEdit, notIncludedLabel: t.chatNotIncluded }}
         text={composerText} onChangeText={changeText} onSend={send}
         canSend={Boolean(composerText.trim()) && inputLength <= inputLimit && !busy && !answering}
         inputDisabled={state.status === 'confirming' || answering}
@@ -269,7 +268,8 @@ export function CaptureScreen() {
           else if (replacement !== null) setReplacement(null);
           else if (clipboard) setClipboard(null);
           else if (menuOpen) setMenuOpen(false);
-          else if (confirmingDiscard) setConfirmingDiscard(false);
+          else if (discarding) setDiscarding(null);
+          else if (reviewing) requestBack();
           else requestClose();
         }} onMore={() => { if (!busy && !answering) { if (reviewing) setToolsOpen(true); else setMenuOpen(true); } }}
         onPaste={() => { if (!busy && !answering) void readClipboardText().then(setClipboard); }}
@@ -277,13 +277,12 @@ export function CaptureScreen() {
         assistant={{ text: reviewing ? t.chatFound : t.chatWelcome }}
         scheduleGroups={[...groups.values()]} onRowPress={setEditingId} onRowToggle={flow.toggleItem}
         onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering} confirming={state.status === 'confirming'}
-        {...(followup ? { followup } : {})}
-        quickActions={reviewing ? [{ id: 'commute', label: t.chatAddCommute, icon: 'car', disabled: busy || answering },
-          { id: 'tomorrow', label: t.chatTomorrowOnly, disabled: busy || answering || !state.selected.length },
-          { id: 'must', label: t.chatMakeMust, icon: 'pin', disabled: busy || answering || !state.selected.length }]
+        quickActions={reviewing || state.text.trim() ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
-        onQuickAction={quickAction} rtl={rtl} safeTop={insets.top} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
-        headerAccessory={!flow.aiGranted ? <Btn testID="capture-ai-off" label={`${t.captureAiOff}. ${t.captureAiOffHint}`} onPress={() => actions.go('trust')}><Txt size={12} color={p.mu}>{t.captureAiOff}</Txt></Btn> : null}
+        onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
+        headerAccessory={!flow.aiGranted ? <Btn testID="capture-ai-off" label={`${t.captureAiOff}. ${t.captureAiOffHint}`} onPress={() => actions.go('trust')}
+          hitSlop={8} style={{ alignSelf: 'center', backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}>
+          <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt></Btn> : null}
         bodyOverride={bodyOverride} reviewExtras={reviewExtras} languageControl={language}
         voiceNotice={<>{counter}<VoiceNote status={voiceStatus} /></>}
         microphone={busy || answering || voiceStatus === 'unavailable' ? undefined : <VoiceButton key={voiceEpoch} service={speech} showNote={false} autoFocus={voiceEpoch === 0 && state.inputMode === 'voice'} onStart={onDictationStart}
@@ -292,7 +291,7 @@ export function CaptureScreen() {
             onPress={onPress} listening={listening} busy={busy} />} />}
       />
     </AvoidKeyboard>
-  </ScreenIn>;
+  </Screen>;
 }
 
 /** Whether the software keyboard is up, so the footer can drop the home-indicator inset. */
