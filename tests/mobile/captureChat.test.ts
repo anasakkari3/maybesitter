@@ -530,6 +530,29 @@ test('the reply check refuses links, other languages, a missing question, and le
   assert.equal(checkModelReply('Should I add the gym too?', { language: 'en', proposal: settled }).ok, true);
 });
 
+/* ── 3c. a stated hour is the person's, a part of the day's is ours ── */
+
+for (const [message, title, time, estimated] of [
+  ['Remind me to call mom tomorrow at 10am', 'Call mom', '10:00', false],
+  ['Dentist tomorrow at 16:00', 'Dentist', '16:00', false],
+  ['بكرا عندي دكتور الساعة ٤ المسا', 'دكتور', '16:00', false],
+  ['Remind me to call mom tomorrow morning', 'Call mom', '09:00', true],
+  ['بكرا المسا لازم أتصل بأمي', 'أتصل بأمي', '18:00', true],
+] as const) {
+  test(`timeEstimated on the model path is ${estimated} for "${message}"`, async () => {
+    const model = scripted(answer('Confirm below.', 'propose', [item(title, TOMORROW, time)]));
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const body = await chat(uidFor(`ChatTimeEstimated${message.length}`), message);
+      const only = body.proposal!.items[0]! as Item & { timeEstimated?: boolean };
+      assert.equal(only.resolvedTime, instant(TOMORROW, time), JSON.stringify(only));
+      assert.equal(only.timeEstimated, estimated);
+    } finally {
+      end();
+    }
+  });
+}
+
 /* ── 4b. the reply: the model's kept, the one missing question added ── */
 
 test('a good reply that does not ask is kept, and only the missing hour is asked after it', async () => {
