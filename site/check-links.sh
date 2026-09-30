@@ -7,8 +7,8 @@
 #   ./check-links.sh [BASE_URL]      HTTP mode (default BASE_URL http://localhost:8788)
 #   ./check-links.sh --local         filesystem mode, no server needed (for CI)
 #
-# HTTP mode checks the 12 public pages (three landing pages, and privacy, terms and
-# delete-account in three languages) and the 4 redirects (/privacy, /terms,
+# HTTP mode checks the eight approved public pages (two landing pages, and privacy,
+# terms and delete-account in English and Arabic) and the 4 redirects (/privacy, /terms,
 # /delete-account and /en). --local mode also scans every page for claims the
 # approved claims policy forbids (docs/marketing/CLAIMS_POLICY.md).
 #
@@ -44,21 +44,20 @@ ok()      { PASS=$((PASS + 1)); green "$1"; }
 bad()     { FAIL=$((FAIL + 1)); red "$1"; }
 skipped() { SKIP=$((SKIP + 1)); grey "$1"; }
 
-# The 12 public pages, as deployed (clean URLs, no extension).
+# Approved public pages, as deployed (clean URLs, no extension).
 PAGES=(
   "/:en:ltr"
   "/ar:ar:rtl"
-  "/he:he:rtl"
   "/en/privacy:en:ltr"
   "/en/terms:en:ltr"
   "/en/delete-account:en:ltr"
   "/ar/privacy:ar:rtl"
   "/ar/terms:ar:rtl"
   "/ar/delete-account:ar:rtl"
-  "/he/privacy:he:rtl"
-  "/he/terms:he:rtl"
-  "/he/delete-account:he:rtl"
 )
+
+# Kept in source for native review, but excluded from Hosting until approval.
+DRAFT_PAGES=("/he:he:rtl" "/he/privacy:he:rtl" "/he/terms:he:rtl" "/he/delete-account:he:rtl")
 
 # The 301 rules, as source:destination.
 REDIRECTS=(
@@ -204,7 +203,7 @@ run_local() {
   echo
 
   local entry path lang dir file
-  for entry in "${PAGES[@]}"; do
+  for entry in "${PAGES[@]}" "${DRAFT_PAGES[@]}"; do
     path="${entry%%:*}"
     lang="$(printf '%s' "$entry" | cut -d: -f2)"
     dir="$(printf '%s' "$entry" | cut -d: -f3)"
@@ -226,13 +225,40 @@ run_local() {
   fi
 
   local asset
-  for asset in styles.css legal.css landing.css landing.js robots.txt sitemap.xml; do
+  for asset in styles.css legal.css landing.css landing.js store-ios.svg store-android.svg robots.txt sitemap.xml; do
     if [ -f "${SCRIPT_DIR}/${asset}" ]; then
       ok "${asset} — file exists"
     else
       bad "${asset} — missing"
     fi
   done
+
+  local page platform
+  for page in "${SCRIPT_DIR}/index.html" "${SCRIPT_DIR}/ar/index.html"; do
+    for platform in iphone android; do
+      if grep -q "data-device=\"${platform}\"" "$page"; then
+        ok "${page} — ${platform} early-access card"
+      else
+        bad "${page} — missing ${platform} early-access card"
+      fi
+    done
+    if grep -q 'id="interest-dialog"' "$page" &&
+      grep -q 'name="name"' "$page" && grep -q 'name="email"' "$page"; then
+      ok "${page} — name/email dialog"
+    else
+      bad "${page} — missing name/email dialog"
+    fi
+  done
+  if grep -q '"he/\*\*"' "${SCRIPT_DIR}/../firebase.json"; then
+    ok "Hebrew drafts excluded from Hosting"
+  else
+    bad "Hebrew drafts would be published without native approval"
+  fi
+  if grep -q 'https://maybesitter.com/he' "${SCRIPT_DIR}/sitemap.xml"; then
+    bad "sitemap advertises unpublished Hebrew URLs"
+  else
+    ok "sitemap excludes unpublished Hebrew URLs"
+  fi
 
   echo
   echo "Claims (docs/marketing/CLAIMS_POLICY.md):"

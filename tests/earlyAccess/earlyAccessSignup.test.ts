@@ -6,8 +6,8 @@
  * - a phone number without the WhatsApp opt-in is never stored;
  * - a cross-site or unconfigured origin is refused;
  * - a honeypot hit writes nothing;
- * - the exact body the landing page sends is accepted, so reintroducing a
- *   required `name` breaks the site and this test says so.
+ * - the exact body the landing modal sends is accepted, including its name;
+ *   older current and legacy shapes remain compatible.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,7 +32,7 @@ const ORIGIN = 'https://site.example';
 const CLOUD_RUN_ENV = { MAYBESITTER_SITE_ORIGINS: ORIGIN, K_SERVICE: 'maybesitter-api' } as unknown as NodeJS.ProcessEnv;
 const NOW = Date.parse('2026-10-05T09:00:00.000Z');
 
-/** The body `site/landing.js` builds, field for field. */
+/** The previous landing form's body, kept compatible for cached pages. */
 function landingBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     email: '  Tester@Example.COM ',
@@ -100,6 +100,62 @@ test('a valid sign-up stores exactly the contract fields, normalised, and nothin
   // The document id is a hash, so the email never appears in a path or a log line.
   assert.ok(await storage.get(registrationPath('tester@example.com')));
   assert.match(registrationPath('tester@example.com'), /^earlyAccessRegistrations\/[0-9a-f]{64}$/);
+});
+
+const interestBody = (overrides: Record<string, unknown> = {}) => ({
+  kind: 'landing_interest',
+  name: '  Lina   Haddad  ',
+  email: '  Lina@Example.com ',
+  device: 'iphone',
+  pageLanguage: 'ar',
+  source: 'Site_Hero',
+  v: 'none',
+  website: '',
+  ...overrides,
+});
+
+test('landing modal saves only the two typed fields plus bounded page/device attribution', async () => {
+  const { storage, run } = harness();
+  const response = await run(post(interestBody(), { 'x-forwarded-for': '203.0.113.9' }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await stored(storage), [{
+    name: 'Lina Haddad',
+    email: 'lina@example.com',
+    device: 'iphone',
+    language: 'ar',
+    pageLanguage: 'ar',
+    knowsFounder: null,
+    whatsappOptIn: false,
+    phone: null,
+    source: 'site_hero',
+    v: 'none',
+    registeredAt: '2026-10-05T09:00:00.000Z',
+  }]);
+  assert.ok(!JSON.stringify(await stored(storage)).includes('203.0.113.9'));
+});
+
+for (const [field, value] of [
+  ['name', ''], ['name', 'a'.repeat(81)], ['name', 'Hello\u0000there'],
+  ['email', 'invalid'], ['device', 'tablet'], ['pageLanguage', 'fr'], ['v', 'c'],
+] as const) {
+  test(`landing modal rejects invalid ${field} without writing`, async () => {
+    const { storage, run } = harness();
+    const response = await run(post(interestBody({ [field]: value })));
+    assert.equal(response.status, 422);
+    assert.ok(((await json(response)).fields as string[]).includes(field));
+    assert.deepEqual(await stored(storage), []);
+  });
+}
+
+test('landing modal honeypot and duplicate email never reveal or overwrite a signup', async () => {
+  const { storage, run } = harness();
+  assert.equal((await run(post(interestBody({ website: 'bot' })))).status, 200);
+  assert.deepEqual(await stored(storage), []);
+  assert.equal((await run(post(interestBody()))).status, 200);
+  assert.equal((await run(post(interestBody({ name: 'Different Name' })))).status, 200);
+  const records = await stored(storage);
+  assert.equal(records.length, 1);
+  assert.equal(records[0]?.name, 'Lina Haddad');
 });
 
 test('the rate-limit window holds a count and a reset time, and nothing about a person', async () => {
@@ -282,16 +338,18 @@ test('storage trouble is a 503, never a false success', async () => {
   assert.equal(noStore.status, 503);
 });
 
-test('the exact body the landing page sends is accepted, and it carries no name', async () => {
+test('the exact body the landing modal sends is accepted, with name and no phone or extra questions', async () => {
   const script = readFileSync(join(repoRoot, 'site', 'landing.js'), 'utf8');
   const block = /var body = \{([\s\S]*?)\};/.exec(script);
   assert.ok(block, 'site/landing.js must build its request body as `var body = { … }`');
   const sent = Array.from(block[1]!.matchAll(/^\s*([A-Za-z]+):/gm), (match) => match[1]!).sort();
-  assert.deepEqual(sent, Object.keys(landingBody()).sort(), 'the landing page and this test disagree on the request shape');
-  assert.ok(!sent.includes('name'), 'the landing page does not collect a name');
+  assert.deepEqual(sent, Object.keys(interestBody()).sort(), 'the landing page and this test disagree on the request shape');
+  for (const forbidden of ['phone', 'knowsFounder', 'whatsappOptIn', 'language']) {
+    assert.ok(!sent.includes(forbidden), `the new modal must not ask for ${forbidden}`);
+  }
 
   const { run } = harness();
-  assert.equal((await run(post(landingBody()))).status, 200);
+  assert.equal((await run(post(interestBody()))).status, 200);
 });
 
 // The legacy launch page's shape and the no-op `/events` route: tests/earlyAccess/earlyAccessLegacy.test.ts.

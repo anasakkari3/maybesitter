@@ -9,7 +9,8 @@
  * identical answers for new and known emails. It differs from the contract,
  * and the contract wins:
  *
- * - no `name`. The pages don't ask for one;
+ * - the 2026-09-30 name/email dialog stores `name`; earlier current and
+ *   stranded legacy forms remain compatible and do not store the old name;
  * - `language`, `pageLanguage`, `knowsFounder`, `whatsappOptIn` and `v` are
  *   stored, because the message test is read from them;
  * - a phone number is stored **only** with `whatsappOptIn: true`, and that
@@ -76,6 +77,8 @@ export const LEGACY_DISCRIMINATOR_FIELDS = ['v', 'language', 'pageLanguage', 'kn
 /** Exactly what is stored, and nothing else. `site/SIGNUP_CONTRACT.md` and the privacy policy promise this list. */
 export interface EarlyAccessRegistration {
   email: string;
+  /** Supplied only by the simplified website interest form; older registrations have no name. */
+  name?: string;
   device: EarlyAccessDevice;
   language: EarlyAccessLanguage;
   pageLanguage: EarlyAccessLanguage;
@@ -90,7 +93,7 @@ export interface EarlyAccessRegistration {
 }
 
 export type EarlyAccessField =
-  | 'email' | 'device' | 'language' | 'pageLanguage' | 'knowsFounder' | 'whatsappOptIn' | 'phone' | 'v';
+  | 'name' | 'email' | 'device' | 'language' | 'pageLanguage' | 'knowsFounder' | 'whatsappOptIn' | 'phone' | 'v';
 
 export interface EarlyAccessStore {
   /** Counts one sign-up against the global window; false once the window is full. */
@@ -154,8 +157,8 @@ export type Validation =
   | { ok: false; fields: EarlyAccessField[] };
 
 /**
- * The contract's request shape, normalised. Unknown keys, a `name` among them,
- * are ignored and never stored.
+ * The previous form's request shape, normalised. Unknown keys, including a
+ * `name` on that shape, are ignored and never stored.
  */
 export function validateEarlyAccess(body: Record<string, unknown>): Validation {
   const fields: EarlyAccessField[] = [];
@@ -191,6 +194,35 @@ export function validateEarlyAccess(body: Record<string, unknown>): Validation {
       knowsFounder: body.knowsFounder as EarlyAccessKnowsFounder,
       whatsappOptIn,
       phone,
+      source: sourceOf(body.source),
+      v: body.v as EarlyAccessArm,
+    },
+  };
+}
+
+/** The public landing modal asks for only a name and email. The clicked card supplies device. */
+export function validateLandingInterest(body: Record<string, unknown>): Validation {
+  const fields: EarlyAccessField[] = [];
+  const name = typeof body.name === 'string' ? body.name.trim().replace(/\s+/g, ' ') : '';
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (!name || name.length > 80 || CONTROL.test(name)) fields.push('name');
+  if (!email || email.length > 254 || CONTROL.test(email) || !EMAIL.test(email)) fields.push('email');
+  if (!oneOf(DEVICES, body.device)) fields.push('device');
+  if (!oneOf(LANGUAGES, body.pageLanguage)) fields.push('pageLanguage');
+  if (!oneOf(ARMS, body.v)) fields.push('v');
+  if (fields.length) return { ok: false, fields };
+  return {
+    ok: true,
+    value: {
+      name,
+      email,
+      device: body.device as EarlyAccessDevice,
+      // This is the page language, not a language preference supplied by the person.
+      language: body.pageLanguage as EarlyAccessLanguage,
+      pageLanguage: body.pageLanguage as EarlyAccessLanguage,
+      knowsFounder: null,
+      whatsappOptIn: false,
+      phone: null,
       source: sourceOf(body.source),
       v: body.v as EarlyAccessArm,
     },
@@ -314,8 +346,9 @@ export async function handleEarlyAccess(request: Request, options: EarlyAccessOp
   // A bot filled the field people never see. Answer as if it worked, and touch nothing.
   if (fields.website !== undefined && fields.website !== '') return respond({ ok: true }, 200);
 
-  const legacy = isLegacyShape(fields);
-  const validation = legacy ? validateLegacyEarlyAccess(fields) : validateEarlyAccess(fields);
+  const interest = fields.kind === 'landing_interest';
+  const legacy = !interest && isLegacyShape(fields);
+  const validation = interest ? validateLandingInterest(fields) : legacy ? validateLegacyEarlyAccess(fields) : validateEarlyAccess(fields);
   if (!validation.ok) {
     // The current site gets the field names as a list; the legacy page indexes `fields` by name.
     if (!legacy) return fail('invalid_fields', 422, {}, { fields: validation.fields });

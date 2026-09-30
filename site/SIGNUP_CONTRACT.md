@@ -1,13 +1,32 @@
 # Tester sign-up: the endpoint the landing pages need
 
-The landing pages (`/`, `/ar`, `/he`) post the "Join the test" form to
+The published landing pages (`/`, `/ar`) post the "Coming soon" name/email dialog to
 `POST /api/early-access`. Firebase Hosting rewrites that path to the Cloud Run
 service `maybesitter-api` in `europe-west1` (`firebase.json`, `hosting.rewrites`).
 
-**There is no implementation of this endpoint on `main`.** Until one lands, the form
-shows its error message ("We couldn't save your details just now…") and saves nothing.
-Do not deploy the site while that is true. This file is the contract for the backend
-change; the marketing lane does not own backend code and did not write it.
+The endpoint is implemented in `lib/earlyAccess/service.ts`. Deploy its `landing_interest`
+shape before deploying the new Hosting page; otherwise the modal gets a 422 and saves nothing.
+The Hebrew landing and legal pages remain drafts excluded from Hosting until native review.
+
+## Current name/email dialog (2026-09-30)
+
+The only visible fields are name (1–80 characters) and email (≤254 characters). Clicking
+the iPhone or Android card supplies `device`; no store pre-order is claimed or created.
+The first-party page sends this JSON (≤4 KiB, same origin):
+
+```json
+{"kind":"landing_interest","name":"Lina Haddad","email":"lina@example.com","device":"iphone","pageLanguage":"ar","source":"direct","v":"none","website":""}
+```
+
+`name` is trimmed, whitespace-collapsed, rejected if empty, over 80 characters or
+containing controls, and stored only for this shape. `email` is normalized and keyed by
+its hash as before. `language` in the stored row is the page language, **not** an
+expressed preference; `knowsFounder` and `phone` are null, `whatsappOptIn` is false.
+The response is identical for a new or already-listed email; first registration wins.
+No email body, visit, cookie, IP address or device identifier is collected.
+
+The previous form shape below remains accepted for cached pages, and the stranded
+English-only launch page's legacy shape remains accepted until its cache ages out.
 
 ## What exists today, and why it is not enough
 
@@ -30,7 +49,7 @@ It does not fit these pages:
 | `language`, `knowsFounder`, `whatsappOptIn`, `v`, `pageLanguage` | silently dropped | sent. `v` and `knowsFounder` are what the message test is read from |
 | page-view metrics (`/events`) | counted | **not sent**. The site has no analytics |
 
-## Request
+## Previous form request (cached pages)
 
 `Content-Type: application/json`, body at most 4 KiB, same-origin (the rewrite makes the
 site and the endpoint one origin).
@@ -53,8 +72,8 @@ site and the endpoint one origin).
 ## Required behaviour
 
 1. **Store** one record per email in Firestore in `europe-west1`. Keep the date, `source`,
-   `v`, `language`, `pageLanguage`, `device`, `knowsFounder`, and `phone` only with
-   `whatsappOptIn: true`. The privacy policy's "Early-access sign-up" section
+   `v`, `language`, `pageLanguage`, `device`, `knowsFounder`, optional `name` on the new
+   shape, and `phone` only with `whatsappOptIn: true`. The privacy policy's "Early-access sign-up" section
    (`{en,ar,he}/privacy.html#early-access`) promises exactly this list and this region.
    If you change either, change the policy in all three languages in the same PR.
 2. **Never treat a phone number as marketing consent.** `whatsappOptIn` is consent to
@@ -86,7 +105,8 @@ shape**:
   `pageLanguage: "en"` (that page is English-only), `knowsFounder: null` (never asked),
   `whatsappOptIn: false`, `phone: null`, `v: "legacy"`. A strict subset of the list the
   privacy policy promises.
-- **Dropped.** `name`, because the policy says we do not ask for one. `phone`, because
+- **Dropped.** The stranded page's `name` is not migrated into the new named shape;
+  only the new `landing_interest` modal stores a name. Its `phone` is dropped because
   the policy keeps a number only with the WhatsApp opt-in, the legacy page never asked
   for it, and treating a typed number as that consent would invent it.
 - **Honeypot.** `website` is the same hidden field on both pages and is handled
@@ -104,7 +124,8 @@ shape**:
 
 - **Old stranded rows.** `earlyAccessRegistrations` already holds rows the stranded
   service wrote, with `name` and `phone` (same document id, so first-wins keeps them).
-  The current privacy text says no name is collected and a number only with the opt-in.
+  The current privacy text distinguishes the new name/email modal from the legacy form
+  and keeps a number only with the opt-in.
   Either strip `name`/`phone` where `whatsappOptIn !== true` once, or keep them under the
   stranded notice that disclosed both; they are deletable on request like every other
   row. `earlyAccessMetrics` (day/source/event counts, no personal data) stops growing.
