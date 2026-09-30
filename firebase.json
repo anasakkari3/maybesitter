@@ -21,6 +21,7 @@
       "**/node_modules/**",
       "**/*.sh",
       "**/*.md",
+      "he/**",
       "firebase-hosting.snippet.json"
     ],
     "rewrites": [

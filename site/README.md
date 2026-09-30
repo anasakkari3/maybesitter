@@ -1,12 +1,13 @@
 # `site/` — the MaybeSitter public website
 
-Plain HTML and CSS for the public site: three landing pages (`/` in English, `/ar`, `/he`)
-and a privacy policy, terms of use and account-deletion page in each language (issues
-#137, #179).
+Plain HTML and CSS for the public site: one English landing page (`/`) and its Arabic
+translation (`/ar`), plus the privacy, terms and account-deletion pages in both
+languages (issues #137, #179). Hebrew drafts remain in source but are excluded from
+Firebase Hosting by `firebase.json` until native review.
 
 No framework and no build step. No cookies, no localStorage, no trackers, no analytics, no
 third-party fonts and no CDN requests. The only script is the first-party `landing.js`, on
-the three landing pages. It picks the message-test headline and submits the sign-up form
+the two published landing pages. It picks the message-test headline and submits the name/email dialog
 (see "Message test" below). The legal pages have no script at all. The Arabic and Hebrew
 pages carry `lang` and `dir="rtl"` on `<html>`; the English pages carry `dir="ltr"`.
 
@@ -19,18 +20,19 @@ root).
 
 ```
 site/
-  index.html                     English landing page (also x-default)
-  ar/index.html  he/index.html   Arabic and Hebrew landing pages
-  {en,ar,he}/privacy.html        privacy policy
-  {en,ar,he}/terms.html          terms of use
-  {en,ar,he}/delete-account.html account and data deletion (#179)
+  index.html  ar/index.html      English and Arabic landing pages
+  he/index.html                  unpublished Hebrew draft
+  {en,ar,he}/privacy.html        privacy policy (Hebrew unpublished)
+  {en,ar,he}/terms.html          terms of use (Hebrew unpublished)
+  {en,ar,he}/delete-account.html account and data deletion (Hebrew unpublished)
   styles.css                     landing-page compatibility stylesheet
   legal.css                      published legal-page stylesheet
   landing.css  landing.js        landing pages only
+  store-ios.svg  store-android.svg  custom "coming to" cards; not official store badges
   robots.txt  sitemap.xml        crawl hygiene (no programmatic SEO)
   check-links.sh                 verification script (HTTP and --local modes, claims scan)
   firebase-hosting.snippet.json  mirror of the hosting block in firebase.json
-  SIGNUP_CONTRACT.md             the endpoint the sign-up form needs (not on main yet)
+  SIGNUP_CONTRACT.md             public sign-up endpoint and compatibility contract
   PLACEHOLDERS.md                the 5 tokens you must fill in before publishing
   README.md                      this file
 ```
@@ -38,9 +40,9 @@ site/
 `/en` redirects to `/`, so there is one English landing page. `/privacy`, `/terms` and
 `/delete-account` redirect to the English pages.
 
-## What is live today (2026-09-23), and why this is not it yet
+## What was live before the 2026-09-30 refresh
 
-`https://maybesitter-app.web.app` does **not** serve this folder. It serves an English-only
+`https://maybesitter-app.web.app` did **not** serve this folder. It served an English-only
 early-access page deployed around 2026-09-13 from a local commit that never reached
 `main`. That commit survives only as the tag `archive/2026-09/stranded/local-main-launch-site`
 (`ba7f74f0`). The live page:
@@ -49,7 +51,7 @@ early-access page deployed around 2026-09-13 from a local commit that never reac
   claims policy forbids;
 - shows the owner's **personal Gmail address** in its privacy notice;
 - counts page views and clicks through `/api/early-access/events`;
-- posts sign-ups to a Cloud Run endpoint that is not on `main` (see `SIGNUP_CONTRACT.md`).
+- posts sign-ups to an older Cloud Run request shape (see `SIGNUP_CONTRACT.md`).
 
 This folder is the canonical source. The owner authorized publication of the
 English and Arabic legal and account-deletion pages on 2026-09-25. The Hebrew
@@ -62,8 +64,8 @@ Two positioning lines are being tested, and neither has won:
 - `?v=a`: "No overdue pile."
 - `?v=b`: "Say it once. It lands in your day."
 
-With no `v`, the page shows the interim line, "A calm planner and reminders app, in Arabic,
-Hebrew and English." Assignment happens **through the link a person is sent**. Each post or
+With no `v`, the page shows the approved interim line, "A calm planner and reminders app."
+Assignment happens **through the link a person is sent**. Each post or
 message carries one arm's link and a `?source=` code. The page never assigns, stores or
 counts visitors. `landing.js` swaps the headline, carries `v` and `source` onto the
 language links, and sends them with the sign-up. Sign-ups by arm are the numerator; the
@@ -74,17 +76,17 @@ link taps each platform reports are the denominator.
 Before a full-site replacement, complete every item below. A scoped legal-page
 deployment may preserve the existing landing page and publish only approved files.
 
-1. **Sign-up endpoint** on `main` per `SIGNUP_CONTRACT.md` (backend). Without it the form
-   cannot save anything.
+1. **Sign-up endpoint:** deploy the `landing_interest` shape from `main` to production,
+   and verify it before replacing Hosting. Without it the new dialog gets 422.
 2. **Domain** bought and connected (#137); `{{DOMAIN}}` replaced.
 3. **Role aliases** `support@` and `privacy@` created; `{{SUPPORT_EMAIL}}` and
    `{{PRIVACY_EMAIL}}` replaced. No personal address, ever.
 4. `{{LEGAL_NAME}}` and the effective date decided for every published locale.
-5. **Hebrew native review** of `he/index.html` and the new Hebrew privacy paragraphs (#335).
-   The landing page carries a `NATIVE-REVIEW-REQUIRED` comment until then.
+5. **Hebrew native review:** `he/**` is excluded from Hosting. Do not remove that ignore
+   or publish the Hebrew sitemap entries until #335 is complete.
 6. `./check-links.sh --local` passes and no placeholder appears in a published file.
 
-Deploying replaces the live page, which also removes the personal address from it.
+Deploying replaces the old live page, which also removes its unapproved claims.
 
 ## Before you publish: fill in the placeholders
 
