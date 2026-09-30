@@ -207,7 +207,7 @@ test('a reply that leaves the clash out gets one short sentence naming it, in th
     await saveWedding(uid);
     const body = await chat(uid, DINNER_MESSAGE, { locale: 'ar' });
     assert.ok(body.reply.startsWith('تمام، عشا مع أهلك الجمعة الساعة 6 المسا لأنك قلت الجمعة الساعة 6 المسا.'), `the grounded reason was lost: ${body.reply}`);
-    assert.match(body.reply, /بيتعارض مع «⁨عرس ابن عمي⁩» الجمعة الساعة ⁦18:00⁩\./);
+    assert.match(body.reply, /بيتعارض مع «\u2068عرس ابن عمي\u2069» الجمعة الساعة \u206618:00\u2069\./);
     assert.equal(body.turns[body.turns.length - 1]!.text, body.reply, 'the stored turn is not what was shown');
 
     // The next message does not say it again: the person was already told.
@@ -397,11 +397,11 @@ test('a clash sentence is added before the reply’s closing question, and not w
   const items = [{ title: 'عشا مع أهلي', conflicts: [conflict] }];
   const context = { language: 'ar' as const, now: new Date(), timezone: TZ };
   const asked = withConflictsNamed('تمام. أي ساعة بدك «شي تاني»؟', items, context);
-  assert.match(asked, /^تمام\. «⁨عشا مع أهلي⁩» بيتعارض مع «⁨عرس ابن عمي⁩» .+\. أي ساعة بدك «شي تاني»؟$/u);
+  assert.match(asked, /^تمام\. «\u2068عشا مع أهلي\u2069» بيتعارض مع «\u2068عرس ابن عمي\u2069» .+\. أي ساعة بدك «شي تاني»؟$/);
   assert.equal(withConflictsNamed('بيتعارض مع عرس ابن عمك.', items, context), 'بيتعارض مع عرس ابن عمك.');
   // Hebrew and English read the same clash in their own words.
-  assert.match(withConflictsNamed('בסדר.', items, { ...context, language: 'he' }), /מתנגש עם "⁨عرس ابن عمي⁩"/u);
-  assert.match(withConflictsNamed('Okay.', items, { ...context, language: 'en' }), /^Okay\. "عشا مع أهلي" clashes with "عرس ابن عمي" .+ at 18:00\.$/u);
+  assert.match(withConflictsNamed('בסדר.', items, { ...context, language: 'he' }), /מתנגש עם "\u2068عرس ابن عمي\u2069"/);
+  assert.match(withConflictsNamed('Okay.', items, { ...context, language: 'en' }), /^Okay\. "عشا مع أهلي" clashes with "عرس ابن عمي" .+ at 18:00\.$/);
 });
 
 /* ── 6. another time: offered as a question, applied only on a yes ── */
