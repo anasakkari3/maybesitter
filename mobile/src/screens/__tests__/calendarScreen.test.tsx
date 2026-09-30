@@ -16,7 +16,7 @@ import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../api/auth';
 import type { AuthUser } from '../../auth/types';
-import { CalendarScreen } from '../CalendarScreen';
+import { CalendarScreen, stripFadeFor } from '../CalendarScreen';
 import type { Commitment } from '../../api/schemas/common';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, shiftDayKey } from '../../i18n/format';
@@ -410,5 +410,23 @@ describe('the legend names the must colour', () => {
     await show([], [item('Call mom', onDay(2, 18))]);
     await waitFor(() => expect(screen.queryByText(en.legendCommit)).not.toBeNull());
     expect(screen.queryByTestId('calendar-legend-must')).toBeNull();
+  });
+});
+
+/*
+ * u54: at text size 1.3 the strip scrolls with no sign that it does. React
+ * Native's Android fade is drawn at a constant strength on both edges, which
+ * dimmed today's cell at the end the strip opens on; the fade follows the
+ * scroll instead (LTR space: start = left, where the far days are).
+ */
+describe('the week strip fades only an edge with days behind it', () => {
+  it('opened at the end: the start edge fades, today\'s edge does not', () => {
+    expect(stripFadeFor(300, 700, 400)).toEqual({ start: 32, end: 0 });
+  });
+  it('scrolled to the far days: only the end fades', () => {
+    expect(stripFadeFor(0, 700, 400)).toEqual({ start: 0, end: 32 });
+  });
+  it('in between: both', () => {
+    expect(stripFadeFor(150, 700, 400)).toEqual({ start: 32, end: 32 });
   });
 });

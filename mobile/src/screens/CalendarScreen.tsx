@@ -80,6 +80,9 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const calendarConnected = trust.data?.trust.calendarConsent === true;
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'all' | 'commitment' | 'busy'>('all');
+  // Where the scrolling strip is: it opens at its end (today) until scrolled.
+  const [strip, setStrip] = useState<{ offset: number | null; content: number; viewport: number }>({ offset: null, content: 0, viewport: 0 });
+  const stripFade = stripFadeFor(strip.offset ?? strip.content - strip.viewport, strip.content, strip.viewport);
 
   const now = new Date();
   const todayKey = dayKey(now, timezone);
@@ -210,9 +213,21 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
         >
           <ReferenceCard pad={8} testID="calendar-week-card" style={{ gap: 0 }}>
             {/* The first queried day reads first in each language; never invent past days. */}
-            {/* Stacked, the strip scrolls: Android fades the edge that has
-                more days behind it, so the row says it moves (u54). */}
-            <DirectionalScrollRow testID="calendar-week-strip" showsHorizontalScrollIndicator={stacked} fadingEdgeLength={stacked ? 32 : 0}
+            {/* Stacked, the strip scrolls: Android fades only an edge that has
+                more days behind it, so the row says it moves (u54) without
+                dimming the day that sits at an edge. React Native's fade does
+                not follow the scroll by itself, so this does. */}
+            <DirectionalScrollRow testID="calendar-week-strip" showsHorizontalScrollIndicator={stacked}
+              fadingEdgeLength={stacked ? stripFade : 0} scrollEventThrottle={32}
+              onLayout={(event) => { const viewport = event.nativeEvent.layout.width; setStrip((was) => was.viewport === viewport ? was : { ...was, viewport }); }}
+              onContentSizeChange={(content) => setStrip((was) => was.content === content ? was : { offset: null, content, viewport: was.viewport })}
+              onScroll={stacked ? (event) => {
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                const next = stripFadeFor(contentOffset.x, contentSize.width, layoutMeasurement.width);
+                if (next.start !== stripFade.start || next.end !== stripFade.end) {
+                  setStrip({ offset: contentOffset.x, content: contentSize.width, viewport: layoutMeasurement.width });
+                }
+              } : undefined}
               contentContainerStyle={{ flexGrow: 1, gap: 2 }} itemStyle={stacked ? undefined : { flex: 1 }}>
               {keys.map((key, offset) => (
                 <DayCell key={key} dayKey={key} isToday={key === todayKey} selected={key === selectedKey}
@@ -346,6 +361,16 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
 
 function CalendarGlyph({ color, spark = false }: { color: string; spark?: boolean }) {
   return <ReferenceIcon name={spark ? 'sparkles' : 'calendar'} size={20} color={color} />;
+}
+
+/**
+ * Which edges of the scrolling week strip fade, in the ScrollView's own
+ * left-to-right space (`DirectionalScrollRow` lays it out LTR under RTL too):
+ * `start` is the left edge. An edge fades only while days hide behind it.
+ */
+export function stripFadeFor(offset: number, content: number, viewport: number): { start: number; end: number } {
+  const FADE = 32;
+  return { start: offset > 1 ? FADE : 0, end: offset < content - viewport - 1 ? FADE : 0 };
 }
 
 function CalendarLegend({ color, label, testID }: { color: string; label: string; testID?: string }) {
