@@ -43,7 +43,8 @@ export function apiBaseUrl(): string | null {
  * never be shown fixture data they believe is theirs.
  */
 export function apiMode(): 'api' | 'mock' {
-  const raw = (process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? 'api').trim();
+  const configured = process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode;
+  const raw = typeof configured === 'string' ? configured.trim() : 'api';
   return raw === 'mock' && isDevelopment() ? 'mock' : 'api';
 }
 
@@ -54,7 +55,9 @@ export function configProblems(): string[] {
     apiBaseUrl: apiBaseUrl() ?? undefined,
     devBearerToken: process.env.EXPO_PUBLIC_DEV_BEARER_TOKEN,
     firebaseAuthEmulatorHost: process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST,
-    apiMode: process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode ?? undefined,
+    apiMode: typeof (process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode) === 'string'
+      ? (process.env.EXPO_PUBLIC_API_MODE ?? extra().apiMode) as string
+      : undefined,
     googleCalendarDemo: process.env.EXPO_PUBLIC_ENABLE_GOOGLE_CALENDAR_DEMO,
     testCrash: process.env.EXPO_PUBLIC_ENABLE_TEST_CRASH,
     shareIntake: process.env.EXPO_PUBLIC_FEATURE_SHARE_INTAKE,
