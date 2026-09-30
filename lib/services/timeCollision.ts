@@ -123,12 +123,15 @@ export function fixedEndFor(commitment: Commitment, start: Instant): Instant {
  * collide with nothing.
  */
 export function collisionIntervalOf(
-  commitment: Commitment,
+  commitment: { readonly timeSpec: Partial<Pick<Commitment['timeSpec'], 'kind' | 'dueAt' | 'endAt' | 'allDay'>> },
 ): CollisionCandidate | null {
+  // A draft's time (`CreateDraft`, before the domain fills its defaults) is
+  // read by the same rule: the capture chat asks this of a proposal's draft
+  // before anything is confirmed (owner request 2026-09-30).
   const { kind, dueAt, endAt, allDay } = commitment.timeSpec;
   if (!dueAt || allDay) return null;
   if (kind !== 'scheduled_event' && kind !== 'due_by') return null;
-  return { dueAt, endAt, kind };
+  return { dueAt, endAt: endAt ?? null, kind };
 }
 
 /**
@@ -140,6 +143,18 @@ export interface CollisionCandidate {
   readonly dueAt: string;
   readonly endAt: string | null;
   readonly kind?: 'scheduled_event' | 'due_by';
+}
+
+/**
+ * The interval a candidate occupies -- its own end when it names one after
+ * its start, otherwise `DEFAULT_FIXED_EVENT_MINUTES` -- exactly as
+ * `findCollisions` measures it. For a caller comparing a candidate against
+ * intervals that are not commitments (a weekly block's occurrence, a
+ * calendar's busy time: fixed on their side, so any overlap is a clash), so
+ * that comparison cannot measure the candidate differently from this module.
+ */
+export function candidateIntervalOf(candidate: CollisionCandidate): TimeInterval {
+  return { startsAt: candidate.dueAt, endsAt: intervalEndFor(candidate.dueAt, candidate.endAt) };
 }
 
 /**
@@ -191,10 +206,7 @@ export function findCollisions(
   candidate: CollisionCandidate,
   against: readonly Commitment[],
 ): readonly CollisionWarning[] {
-  const candidateInterval: TimeInterval = {
-    startsAt: candidate.dueAt,
-    endsAt: intervalEndFor(candidate.dueAt, candidate.endAt),
-  };
+  const candidateInterval = candidateIntervalOf(candidate);
 
   return against
     .filter((commitment) => COLLIDABLE_STATUSES.has(commitment.status))

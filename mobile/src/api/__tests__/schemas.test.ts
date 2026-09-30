@@ -180,6 +180,7 @@ const CASES: Array<[string, z.ZodType]> = [
   // model is available, and the two refusals the flow acts on.
   ['capture.chatProposal', captureChatSchema],
   ['capture.chatUpdated', captureChatSchema],
+  ['capture.chatConflict', captureChatSchema],
   ['capture.chatRules', captureChatSchema],
   ['capture.chatNotFound', captureChatRefusalSchema],
   ['capture.chatTooLong', captureChatRefusalSchema],

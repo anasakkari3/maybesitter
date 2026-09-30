@@ -12,6 +12,7 @@ import { ClarifySheet } from '../features/capture/ClarifySheet';
 import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
+import { chatConflictA11y, chatConflictLines } from '../features/capture/chatConflicts';
 import { fill, ltr } from '../i18n/strings';
 import { isolateAuto, isolateLatinRuns } from '../i18n/bidi';
 import { formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
@@ -34,7 +35,7 @@ import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
-import { busyAt } from '../features/calendar/conflicts';
+import { busyAt, chipBlock } from '../features/calendar/conflicts';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { ProcessingDots } from '../ui/motion';
 import { Screen } from '../ui/screen';
@@ -236,6 +237,10 @@ export function CaptureScreen() {
     const needsQuestion = !confirmable.includes(item.itemId);
     const weekly = weeklyChoice(state, item.itemId);
     const groupKey = weekly === 'weekly' ? 'weekly' : shown.date ?? 'undated';
+    // What the item's time lands on (owner request 2026-09-30): the server's
+    // clashes, named; the device chip below keeps the phone's own calendar.
+    const busyHere = shown.instant && weekly !== 'weekly' ? busyAt(shown.instant.toISOString(), conflictBlocks) : [];
+    const clashLines = weekly === 'weekly' ? [] : chatConflictLines(item, state.edits[item.itemId], { lang, timezone, t, busyChipShown: chipBlock(busyHere) !== null });
     if (!groups.has(groupKey)) groups.set(groupKey, { id: groupKey,
       title: weekly === 'weekly' ? t.wbReviewWeekly : shown.date ? formatDayKey(shown.date, { locale: lang, timeZone: timezone }) : t.chatUnscheduled, rows: [] });
     const extra = <View style={{ gap: 4, alignItems: 'flex-start' }}>
@@ -250,7 +255,11 @@ export function CaptureScreen() {
       {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
       {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
       {needsQuestion ? <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt> : null}
-      {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyAt(shown.instant.toISOString(), conflictBlocks)} /> : null}
+      {clashLines.map((line, index) => <View key={`clash-${index}`} testID={`review-conflict-${item.itemId}-${index}`} accessible accessibilityLabel={chatConflictA11y(line)}
+        style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>
+        <Txt size={12} color={p.mu} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
+      </View>)}
+      {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}
       {item.weeklyBlock && weekly ? <WeeklyChoice itemId={item.itemId} offer={item.weeklyBlock} title={state.edits[item.itemId]?.title ?? item.weeklyBlock.title} choice={weekly} locked={weeklyLockedByEdit(state, item.itemId)} onChoose={value => flow.setWeekly(item.itemId, value)} /> : null}
     </View>;
     // Kept weekly, the card is the block: «تدريب», with «كل سبت · 10:00–16:00»
@@ -260,7 +269,7 @@ export function CaptureScreen() {
       id: item.itemId, title: cardTitle,
       ...(weekly === 'weekly' ? {} : { subtitle: shown.subtitle }),
       icon: /doctor|طبيب|دكتور|רופא/i.test(shown.title) ? 'doctor' : 'briefcase', selected, selectionDisabled: busy || answering || needsQuestion, disabled: busy || answering,
-      accessibilityLabel: `${cardTitle}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${weekly === 'weekly' && item.weeklyBlock ? weeklyA11yLabel({ ...item.weeklyBlock, title: state.edits[item.itemId]?.title ?? item.weeklyBlock.title }, lang, { withTitle: false }) : shown.subtitle}${shown.dateEstimated && weekly !== 'weekly' ? ', ' + t.reviewDateEstimated : ''}${shown.timeEstimated && weekly !== 'weekly' ? ', ' + t.reviewTimeEstimated : ''}`,
+      accessibilityLabel: `${cardTitle}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${weekly === 'weekly' && item.weeklyBlock ? weeklyA11yLabel({ ...item.weeklyBlock, title: state.edits[item.itemId]?.title ?? item.weeklyBlock.title }, lang, { withTitle: false }) : shown.subtitle}${shown.dateEstimated && weekly !== 'weekly' ? ', ' + t.reviewDateEstimated : ''}${shown.timeEstimated && weekly !== 'weekly' ? ', ' + t.reviewTimeEstimated : ''}${clashLines.map(line => ', ' + chatConflictA11y(line)).join('')}`,
       extra,
     }];
   }
