@@ -164,6 +164,22 @@ function itemTitle(item: unknown): string {
   return title.trim() ? title : typeof record.action === 'string' ? record.action : '';
 }
 
+/**
+ * Whether a sentence is about this item and no other: it says a word only
+ * this item's title has, and none only another's (folded as clauses are
+ * matched). "Dentist at 4 and Sara on Sunday" is about both.
+ */
+export function namesOnlyItem(text: string, title: string, otherTitles: readonly string[]): boolean {
+  const words = contentWords(text);
+  const says = (word: string) => words.some((candidate) => sameWord(word, candidate));
+  const mine = contentWords(title);
+  const others = otherTitles.map((other) => contentWords(other));
+  const distinct = (own: readonly string[], rest: readonly string[][]) =>
+    own.filter((word) => !rest.some((other) => other.some((candidate) => sameWord(word, candidate))));
+  if (!distinct(mine, others).some(says)) return false;
+  return others.every((other, index) => !distinct(other, [mine, ...others.filter((_, at) => at !== index)]).some(says));
+}
+
 export interface ChatItemEvidence {
   /**
    * What the item is validated against, as the capture validates a clause:
@@ -174,6 +190,17 @@ export interface ChatItemEvidence {
   clause: CaptureClause;
   /** The words whose days and hours the item may carry (`withoutUnsaidTime`). */
   turns: string[];
+  /** The newest message is about this item (it names it, points at it, or names no item at all). */
+  touchedNow: boolean;
+}
+
+/** An item of the list the person saw before this message, on their clock. */
+export interface ChatPreviousItem {
+  title: string;
+  /** `YYYY-MM-DD`, or null. */
+  date: string | null;
+  /** `HH:MM`, or null. */
+  time: string | null;
 }
 
 interface AttributedClause {
@@ -183,31 +210,160 @@ interface AttributedClause {
   owners: number[] | null;
 }
 
+/*
+ * «لا خلّي التانية الساعة 7», "make the second one 7pm", «תזיז את השני»: an
+ * ordinal in a later message points at that item of the list the person saw
+ * (chat UAT round 2, real Gemini: «التانية» shares no word with «الثاني», so
+ * the edit read as nobody's, and the model's own retitling to «خلّي التانية»
+ * made it the only words about the second item). «الساعة التانية» is two
+ * o'clock, not an item. Folded the way `contentWords` folds.
+ */
+const ORDINALS: ReadonlyArray<readonly [number, readonly string[]]> = [
+  [0, ['first', 'اول', 'اولي', 'ראשון', 'ראשונה']],
+  [1, ['second', 'ثاني', 'تاني', 'ثانيه', 'تانيه', 'שני', 'שנייה', 'שניה']],
+  [2, ['third', 'ثالث', 'تالت', 'ثالثه', 'تالته', 'שלישי', 'שלישית']],
+  [-1, ['last', 'اخير', 'اخيره', 'אחרון', 'אחרונה']],
+];
+const HOUR_WORD = new RegExp('(?:^|[^\\p{L}])(?:ال)?ساع[ةه]\\s+(?:ال)?(?:ثاني|تاني|ثانية|تانية|اولى|أولى|ثالثة|تالتة)', 'u');
+
+/** The index (from the start, or -1 for the last) an ordinal in the clause points at, or null. */
+function ordinalOf(clause: string): number | null {
+  if (HOUR_WORD.test(clause)) return null;
+  const words = normalizeForInjectionScan(clause.slice(0, CAPTURE_INPUT_MAX_CHARACTERS)).toLowerCase()
+    .split(NOT_WORD).map((word) => foldWord(word.replace(/^'+|'+$/g, '')));
+  for (const [index, forms] of ORDINALS) if (words.some((word) => forms.includes(word))) return index;
+  return null;
+}
+
+/** The item's day and hour as the model gave them, on the person's clock. */
+function modelWhen(item: unknown, timezone: string): string {
+  if (!item || typeof item !== 'object') return '';
+  const record = item as Record<string, unknown>;
+  const spec = record.localTimeSpec as { date?: unknown; time?: unknown } | null | undefined;
+  if (spec && typeof spec.date === 'string') return `${spec.date} ${typeof spec.time === 'string' ? spec.time : ''}`;
+  const instant = typeof record.dueAt === 'string' ? record.dueAt : typeof record.remindAt === 'string' ? record.remindAt : null;
+  const parsed = instant ? Date.parse(instant) : NaN;
+  const local = Number.isFinite(parsed) ? localTimeSpecFor(new Date(parsed), timezone) : null;
+  return local ? `${local.date} ${local.time}` : '';
+}
+
+/**
+ * Which item of the previous list each returned item is: the same place when
+ * the list kept its length (the model is told to keep the order), otherwise
+ * the one whose title shares the most words, when only one does.
+ */
+export function alignToPrevious(items: readonly unknown[], previous: readonly ChatPreviousItem[]): Array<number | null> {
+  if (previous.length === 0) return items.map(() => null);
+  if (previous.length === items.length) return items.map((_, index) => index);
+  const taken = new Set<number>();
+  return items.map((item) => {
+    const words = contentWords(itemTitle(item));
+    const scores = previous.map((entry) => titleScore(contentWords(entry.title), words));
+    const best = Math.max(0, ...scores);
+    const at = scores.indexOf(best);
+    if (best === 0 || scores.lastIndexOf(best) !== at || taken.has(at)) return null;
+    taken.add(at);
+    return at;
+  });
+}
+
+/** A request to rename, in which a new title is the person's own words. */
+const RENAME = /\b(?:rename|call\s+it|name\s+it|title)\b|(?:سمّي|سمي|اسمها|اسمه|عنوان|תקרא|שם\s+ל|תשנה\s+את\s+השם)/i;
+
+/**
+ * The model's items, each keeping the title it had when the model's new one
+ * is only the words of the edit (chat UAT round 2: the second engagement came
+ * back titled «خلّي التانية»). A rename the person asked for stands.
+ */
+export function withPreviousTitles(
+  items: readonly unknown[],
+  previous: readonly ChatPreviousItem[],
+  newestMessage: string,
+): unknown[] {
+  if (previous.length === 0 || RENAME.test(newestMessage)) return [...items];
+  const aligned = alignToPrevious(items, previous);
+  const said = contentWords(newestMessage);
+  return items.map((item, index) => {
+    const before = aligned[index] === null ? null : previous[aligned[index]!]!;
+    const title = itemTitle(item);
+    if (!before || !title || title.trim() === before.title.trim() || !item || typeof item !== 'object') return item;
+    const words = contentWords(title);
+    const onlyTheEdit = words.every((word) => said.some((candidate) => sameWord(word, candidate)))
+      && titleScore(contentWords(before.title), words) < contentWords(before.title).length;
+    return onlyTheEdit ? { ...(item as Record<string, unknown>), title: before.title, action: before.title } : item;
+  });
+}
+
 /**
  * Each chat item's evidence: the person's clauses about it and those about no
  * item in particular (see above). An item whose clauses are the whole
  * conversation is read exactly as before: against every turn, whole.
+ *
+ * With the list the person saw before this message (`previous`), a clause of
+ * a later message is also that item's when it points at it by its place
+ * («التانية», "the first one"), and a clause naming no item in the newest
+ * message is the one item the model changed, when it changed exactly one
+ * («خلّيها الساعة 7», "make it 5pm"): the edit is evidence for that item, not
+ * for every item on the list.
  */
-export function chatItemEvidence(userTurns: readonly string[], items: readonly unknown[]): ChatItemEvidence[] {
-  const turns = chatEvidenceTurns(userTurns);
+export function chatItemEvidence(
+  userTurns: readonly string[],
+  items: readonly unknown[],
+  previous: readonly ChatPreviousItem[] = [],
+  timezone = 'UTC',
+): ChatItemEvidence[] {
+  const perTurn = userTurns.map((turn) => chatEvidenceTurns([turn]));
+  const newest = perTurn.length - 1;
+  const turns = perTurn.flat();
   const whole = turns.join('\n');
-  const titles = items.map((item) => contentWords(itemTitle(item)));
-  const byTurn: AttributedClause[][] = turns.map((turn) => splitCaptureClauseDetails(turn)
-    .filter((clause) => clause.text.trim())
-    .map((clause) => {
-      const words = contentWords(clause.text);
-      const scores = titles.map((title) => titleScore(title, words));
-      const best = Math.max(0, ...scores);
-      const owners = best > 0 ? scores.flatMap((score, index) => (score === best ? [index] : [])) : null;
-      return { text: clause.text.trim(), detail: clause, owners };
-    }));
+  const aligned = alignToPrevious(items, previous);
+  const titles = items.map((item, index) => {
+    const before = aligned[index] === null ? '' : previous[aligned[index]!]!.title;
+    return contentWords(`${itemTitle(item)} ${before}`);
+  });
+  const changed = items.flatMap((item, index) => {
+    const at = aligned[index];
+    if (at === null || at === undefined) return [];
+    const before = previous[at]!;
+    return modelWhen(item, timezone).trim() !== `${before.date ?? ''} ${before.time ?? ''}`.trim() ? [index] : [];
+  });
+  const itemAt = (place: number): number | null => {
+    const target = place === -1 ? previous.length - 1 : place;
+    const found = aligned.indexOf(target);
+    return found === -1 ? null : found;
+  };
+
+  const turnOf: number[] = [];
+  const byTurn: AttributedClause[][] = [];
+  perTurn.forEach((texts, turnIndex) => {
+    for (const turn of texts) {
+      turnOf.push(turnIndex);
+      byTurn.push(splitCaptureClauseDetails(turn)
+        .filter((clause) => clause.text.trim())
+        .map((clause) => {
+          if (turnIndex > 0 && previous.length > 1) {
+            const place = ordinalOf(clause.text);
+            const pointed = place === null ? null : itemAt(place);
+            if (pointed !== null) return { text: clause.text.trim(), detail: clause, owners: [pointed] };
+          }
+          const words = contentWords(clause.text);
+          const scores = titles.map((title) => titleScore(title, words));
+          const best = Math.max(0, ...scores);
+          let owners = best > 0 ? scores.flatMap((score, index) => (score === best ? [index] : [])) : null;
+          if (!owners && turnIndex === newest && turnIndex > 0 && changed.length === 1) owners = [changed[0]!];
+          return { text: clause.text.trim(), detail: clause, owners };
+        }));
+    }
+  });
 
   return items.map((_, index) => {
+    const touchedNow = byTurn.some((clauses, at) => turnOf[at] === newest
+      && clauses.some((clause) => clause.owners === null || clause.owners.includes(index)));
     const named = byTurn.some((clauses) => clauses.some((clause) => clause.owners?.includes(index)));
     if (!named) {
       // Read as before; but a day or an hour only from words naming no other item.
       const shared = byTurn.flatMap((clauses) => clauses.filter((clause) => clause.owners === null).map((clause) => clause.text));
-      return { clause: { text: whole }, turns: shared };
+      return { clause: { text: whole }, turns: shared, touchedNow };
     }
     const kept: string[] = [];
     const own: AttributedClause[] = [];
@@ -228,8 +384,26 @@ export function chatItemEvidence(userTurns: readonly string[], items: readonly u
         ...(single?.unreadDayWord ? { unreadDayWord: single.unreadDayWord } : {}),
       },
       turns: kept,
+      touchedNow,
     };
   });
+}
+
+/**
+ * A model item that gives its wall clock (`localTimeSpec` with a day and an
+ * hour) and no instant: the instant is the wall clock's (chat UAT round 2,
+ * real Gemini: "every Saturday from 10 to 4" came back 10:00 with `dueAt`
+ * null, and was asked «الصبح ولا المسا؟» for an hour it had).
+ */
+export function withInstantFromWallClock(item: unknown, timezone: string): unknown {
+  if (!item || typeof item !== 'object') return item;
+  const record = item as Record<string, unknown>;
+  const spec = record.localTimeSpec as { date?: unknown; time?: unknown; timezone?: unknown } | null | undefined;
+  if (record.dueAt || record.remindAt || record.allDay === true) return item;
+  if (!spec || typeof spec.date !== 'string' || typeof spec.time !== 'string') return item;
+  const zone = typeof spec.timezone === 'string' && spec.timezone ? spec.timezone : timezone;
+  const instant = instantFromLocal(spec.date, spec.time, zone)?.toISOString();
+  return instant ? { ...record, dueAt: instant } : item;
 }
 
 /** `YYYY-MM-DD` plus `days`. */

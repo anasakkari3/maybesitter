@@ -245,7 +245,7 @@ export async function chatMobileCapture(
     if (changesList) {
       const evidence = chatEvidenceFrom(userTurns);
       const built = await proposeMobileChatTurn(
-        { text: message, userTurns, items: evidence ? answer.items : [], now, timezone },
+        { text: message, userTurns, items: evidence ? answer.items : [], now, timezone, previous: promptItems(current, timezone) },
         { participantId: uid, requestStartedAt },
       );
       proposal = shown(built);
@@ -256,6 +256,7 @@ export async function chatMobileCapture(
       cleared: Boolean(current) && !proposal,
       offTopic: answer.action === 'chat',
       updated: answer.action === 'update' && Boolean(current) && Boolean(proposal),
+      timezone,
     });
     return finish(reply, 'model', proposal, turns);
   }

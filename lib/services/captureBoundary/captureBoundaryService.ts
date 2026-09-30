@@ -33,7 +33,15 @@ import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
 import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
-import { chatEvidenceFrom, chatItemEvidence, withoutUnsaidTime } from './chatEvidence';
+import {
+  alignToPrevious,
+  chatEvidenceFrom,
+  chatItemEvidence,
+  withInstantFromWallClock,
+  withoutUnsaidTime,
+  withPreviousTitles,
+  type ChatPreviousItem,
+} from './chatEvidence';
 import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 
 /**
@@ -110,6 +118,8 @@ export interface ProposeCaptureOptions {
   chat?: {
     userTurns: readonly string[];
     items: readonly unknown[];
+    /** The list the person saw before this message, on their clock, in order (chat UAT round 2). */
+    previous?: readonly ChatPreviousItem[];
   };
 }
 
@@ -682,10 +692,16 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const chat = options.chat;
   const chatEvidence = chat ? chatEvidenceFrom(chat.userTurns) : '';
   if (chat && chatEvidence.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
-  const chatItems = chat && chatEvidence ? chat.items.slice(0, MAX_CHAT_ITEMS) : [];
+  const chatPrevious = chat?.previous ?? [];
+  // A title that is only the words of the edit keeps the one the item had; a
+  // wall clock with no instant gets its instant (`chatEvidence`).
+  const chatItems = chat && chatEvidence
+    ? withPreviousTitles(chat.items.slice(0, MAX_CHAT_ITEMS), chatPrevious, raw).map((item) => withInstantFromWallClock(item, options.timezone))
+    : [];
   // Each item against its own clauses and those naming no item
   // (`chatItemEvidence`): another item's day or hour is never its evidence.
-  const chatItemEvidences = chat ? chatItemEvidence(chat.userTurns, chatItems) : [];
+  const chatItemEvidences = chat ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone) : [];
+  const chatAligned = alignToPrevious(chatItems, chatPrevious);
   const clauses: CaptureClause[] = chat
     ? chatItemEvidences.map((evidence) => evidence.clause)
     : raw ? splitInput(raw) : [];
@@ -841,7 +857,64 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let unsaid = false;
       if (chat) {
         if (extracted.engine === 'rule-based' && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason ?? '')) continue;
-        const guarded = withoutUnsaidTime(extracted.result, chatItemEvidences[index]!.turns, options.now, options.timezone);
+        const evidence = chatItemEvidences[index]!;
+        /*
+         * An item the newest message is not about keeps the day and hour it
+         * had (chat UAT round 2, real Gemini: «لا خلّي التانية الساعة 7» came
+         * back with the FIRST engagement moved to 09:00, which the guard then
+         * took off and asked about). Only a settled one, and only when the
+         * model moved it: nothing the person said this turn is overridden.
+         */
+        const before = chatAligned[index] === null ? undefined : chatPrevious[chatAligned[index]!];
+        if (!evidence.touchedNow && before?.date && before.time && !extracted.result.allDay) {
+          const kept = instantFromLocal(before.date, before.time, options.timezone)?.toISOString();
+          const spec = extracted.result.localTimeSpec;
+          if (kept && (spec?.date !== before.date || spec?.time !== before.time)) {
+            const { undatedTime: _undated, ...rest } = extracted.result;
+            extracted = { ...extracted, result: {
+              ...rest,
+              dueAt: extracted.result.dueAt || !extracted.result.remindAt ? kept : null,
+              remindAt: extracted.result.remindAt ? kept : null,
+              localTimeSpec: { date: before.date, time: before.time, timezone: options.timezone },
+              missingFields: extracted.result.missingFields.filter((field) => field !== 'time'),
+            } };
+          }
+        }
+        /*
+         * The model gave no hour where the item's own words state one («من 10
+         * لـ 4», "from 10 to 4", «الساعة 10 الصبح»): the rules read those words
+         * as a capture does, and their hour — the person's — is put on the
+         * item (chat UAT round 2: the owner's «عندي تدريب كل سبت من 10 لـ 4»
+         * came back asking «أي ساعة؟»). Never a day the model did not give or
+         * the rules did not read from the same words; the guard below still
+         * checks what results.
+         */
+        if (!extracted.result.allDay && !extracted.result.localTimeSpec?.time && !extracted.result.dueAt && !extracted.result.remindAt) {
+          let read: ExtractWithFallbackResult | null = null;
+          try {
+            read = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+          } catch {
+            read = null;
+          }
+          const rules = read?.result;
+          const modelDate = extracted.result.localTimeSpec?.date ?? null;
+          if (rules && !rules.allDay && rules.localTimeSpec?.time && rules.localTimeSpec.date
+            && (rules.dueAt || rules.remindAt) && (modelDate === null || modelDate === rules.localTimeSpec.date)) {
+            const { undatedTime: _undated, ...rest } = extracted.result;
+            extracted = { ...extracted, result: {
+              ...rest,
+              dueAt: rules.dueAt,
+              remindAt: rules.remindAt,
+              localTimeSpec: rules.localTimeSpec,
+              timeEvidence: rules.timeEvidence,
+              ...(rules.rangeMinutes ? { rangeMinutes: rules.rangeMinutes } : {}),
+              missingFields: extracted.result.missingFields.filter((field) => field !== 'time'),
+              ambiguityFlags: extracted.result.ambiguityFlags.filter((flag) => flag !== 'vague_time'),
+              confidence: { ...extracted.result.confidence, time: Math.max(extracted.result.confidence.time, rules.confidence.time) },
+            } };
+          }
+        }
+        const guarded = withoutUnsaidTime(extracted.result, evidence.turns, options.now, options.timezone);
         extracted = { ...extracted, result: guarded.result };
         unsaid = guarded.fired;
       }
