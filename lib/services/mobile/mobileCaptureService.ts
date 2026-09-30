@@ -38,7 +38,7 @@ import {
 } from '../captureBoundary';
 import { createEmptyDomainState, type Command, type Commitment } from '../../../src/domain/stateMachine';
 import { applyCommand, configureCommandService, getCommandServiceState } from '../commandService';
-import { collisionsForCommitment, type CollisionWarning } from '../timeCollision';
+import { collisionIntervalOf, collisionsForCommitment, type CollisionCandidate, type CollisionWarning } from '../timeCollision';
 import { CommandServiceCapturePersistenceAdapter } from './canonicalPersistence';
 import {
   applyParticipantCommand,
@@ -581,6 +581,36 @@ export async function readMobileChatProposal(proposalId: string, participantId: 
     if (typeof source === 'string' && source.trim()) sourceTitles.set(item.itemId, source);
   }
   return { proposal: await withEventsOnTheirDay(stored.contract), sourceTitles };
+}
+
+/**
+ * What each timed item of a stored proposal would occupy, by item id — read
+ * off the draft commitment the confirm would write (`collisionIntervalOf`, the
+ * confirm's own rule), so a proposal-time clash (the capture chat's, owner
+ * request 2026-09-30) is measured exactly as the confirm will measure it. An
+ * item with no time, or still asking for its hour, has none. A failed read is
+ * no candidates: nothing to warn about is the safe answer to a lookup, never
+ * an error on the person's message.
+ */
+export async function proposalCollisionCandidates(
+  proposal: { proposalId: string; items: ReadonlyArray<{ itemId: string; resolvedTime: string | null; needsClarification?: boolean }> },
+): Promise<Map<string, CollisionCandidate>> {
+  const candidates = new Map<string, CollisionCandidate>();
+  if (!proposal.proposalId || !proposal.items.some((item) => item.resolvedTime)) return candidates;
+  let stored: StoredCaptureProposal | undefined;
+  try {
+    stored = await store.get(proposal.proposalId);
+  } catch {
+    return candidates;
+  }
+  for (const item of proposal.items) {
+    if (!item.resolvedTime || item.needsClarification) continue;
+    const draft = stored?.commandsByItemId.get(item.itemId)
+      ?.find((command): command is Extract<Command, { type: 'CreateDraft' }> => command.type === 'CreateDraft')?.commitment;
+    const interval = draft?.timeSpec ? collisionIntervalOf({ timeSpec: draft.timeSpec }) : null;
+    if (interval) candidates.set(item.itemId, interval);
+  }
+  return candidates;
 }
 
 /**

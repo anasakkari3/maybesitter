@@ -134,6 +134,33 @@ export interface CaptureProposalItemContract {
    * older app ignores it and keeps its one-off.
    */
   weeklyBlock?: WeeklyBlockOfferContract;
+  /**
+   * What this item's time lands on, among what the person already has — the
+   * capture chat's answer only (owner request 2026-09-30: "he cannot describe
+   * what the commitment is if there is a collision"). Proposal-time, so it
+   * says the clash before anything is kept; the confirm still returns its own
+   * `collisions`, unchanged. Absent when the item has no time or clashes with
+   * nothing; optional on the phone, so an older app ignores it.
+   */
+  conflicts?: CaptureItemConflictContract[];
+}
+
+/** What a proposed item clashes with: the chat card's line and the reply both name it. */
+export const CAPTURE_ITEM_CONFLICT_KINDS = ['commitment', 'weekly', 'fixture', 'calendar_busy'] as const;
+export type CaptureItemConflictKind = (typeof CAPTURE_ITEM_CONFLICT_KINDS)[number];
+
+/**
+ * One clash (see `CaptureProposalItemContract.conflicts`). `title` is the
+ * person's own: a saved commitment's, a weekly block's («ثابت أسبوعي»), a
+ * followed match's. Null for `calendar_busy` — a synced calendar's busy time
+ * carries no title by design, and none is ever invented for it. The interval
+ * is the one the clash was measured on, half-open, UTC instants.
+ */
+export interface CaptureItemConflictContract {
+  title: string | null;
+  startsAt: string;
+  endsAt: string;
+  kind: CaptureItemConflictKind;
 }
 
 /** See `CaptureProposalItemContract.recurrenceHint`. */
