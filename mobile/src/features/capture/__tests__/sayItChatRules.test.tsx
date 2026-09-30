@@ -26,7 +26,8 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
-import * as queries from '../../../api/queries';
+import * as consentEndpoints from '../../../api/endpoints/consents';
+import { chatServer } from '../../../testing/captureChat';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -64,7 +65,7 @@ beforeEach(async () => {
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(trustEndpoints, 'getTrust')
     .mockResolvedValue({ success: true, participantId: 'chat-user', trust: { analyticsConsent: false } } as never);
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
 });
 
 afterEach(async () => {
@@ -176,23 +177,25 @@ describe('composer example chips', () => {
 });
 
 describe('the header claims only what is true', () => {
-  it('with the AI off: a neutral subtitle, the AI-off chip, and the rules hint in the menu', async () => {
+  // AI processing can no longer be turned off (owner decision 2026-09-30):
+  // an account whose old record still says "declined" is read as granted by
+  // the server, and the page has no AI-off chip, no rules hint and no way to
+  // decline — it tells the person instead, before the first message.
+  it('AI is always on: the subtitle, the disclosure before any message, and no AI-off chip or menu hint', async () => {
+    jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue({
+      aiProcessing: { state: 'declined', asked: true },
+      recommendations: { state: 'declined', asked: true },
+      currentVersions: { aiProcessing: 'ai-consent-v1', recommendations: 'rec-consent-v1' },
+    } as never);
     await openCapture();
     expect(screen.getByTestId('chat-subtitle').props.children).toBe(en.chatSubtitle);
     expect(screen.queryByText('Your AI assistant')).toBeNull();
-    expect(screen.getByTestId('capture-ai-off')).toBeTruthy();
-    await fireEvent.press(screen.getByTestId('chat-more'));
-    expect(screen.getByTestId('chat-menu-ai-off')).toBeTruthy();
-  });
-
-  it('with the AI on: the same subtitle, and no AI-off hint anywhere', async () => {
-    jest.spyOn(queries, 'useAiConsentGranted').mockReturnValue({ granted: true, asked: true, loading: false } as never);
-    await openCapture();
-    expect(screen.getByTestId('chat-subtitle').props.children).toBe(en.chatSubtitle);
+    expect(screen.getByTestId('capture-ai-disclosure')).toBeTruthy();
+    expect(screen.queryByText(en.aiDisclosure)).not.toBeNull();
+    expect(screen.queryByText(en.aiDisclosureKept)).not.toBeNull();
     expect(screen.queryByTestId('capture-ai-off')).toBeNull();
     await fireEvent.press(screen.getByTestId('chat-more'));
-    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('chat-menu')).not.toBeNull());
     expect(screen.queryByTestId('chat-menu-ai-off')).toBeNull();
-    expect(screen.queryByText(en.captureAiOffHint)).toBeNull();
   });
 });

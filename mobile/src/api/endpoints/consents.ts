@@ -1,6 +1,5 @@
 import { apiRequest } from '../client';
 import {
-  aiConsentUpdatedSchema,
   consentsViewSchema,
   personalizationConsentUpdatedSchema,
   recommendationConsentUpdatedSchema,
@@ -28,19 +27,17 @@ export interface ConsentAnswer {
 }
 
 /**
- * Records an answer (UC-2.1 #161, UC-2.9 #170, asked by UC-2.R1 #171).
+ * Records an answer (UC-2.9 #170, asked by UC-2.R1 #171).
  *
  * The version is echoed from `getConsents` rather than hard-coded: an unknown
  * one is refused outright, and a hard-coded one would claim agreement to words
  * this build cannot prove were shown.
+ *
+ * There is no AI-processing writer: AI processing can no longer be declined
+ * (owner decision 2026-09-30; the route answers a decline with 409
+ * `ai_always_on`), and the app records no agreement to it either — it
+ * discloses it instead.
  */
-export function putAiConsent(answer: ConsentAnswer) {
-  return apiRequest('PUT', '/api/mobile/consents/ai-processing', {
-    body: answer,
-    schema: aiConsentUpdatedSchema,
-  });
-}
-
 export function putRecommendationConsent(answer: ConsentAnswer) {
   return apiRequest('PUT', '/api/mobile/consents/recommendations', {
     body: answer,

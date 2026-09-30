@@ -107,7 +107,7 @@ describe('the calls', () => {
 
   it('lists, patches, deletes and reads occurrences on their own paths', async () => {
     serve(list, 200);
-    expect((await listWeeklyBlocks()).map((block) => block.title)).toEqual(['عندي تدريب', 'دوام']);
+    expect((await listWeeklyBlocks()).map((block) => block.title)).toEqual(['تدريب', 'دوام']);
     expect(calls[0]!.url).toBe('http://localhost:3000/api/mobile/weekly-blocks');
 
     serve(paused, 200);
@@ -134,7 +134,7 @@ describe('the capture confirm', () => {
     serve(weeklyConfirmation, 200);
     const result = await confirmCapture({ proposalId: 'p1', itemIds: ['i1', 'i2'], weeklyBlockItemIds: ['i1'] });
     expect(sentBody().weeklyBlockItemIds).toEqual(['i1']);
-    expect(result.weeklyBlocks?.[0]?.block.title).toBe('عندي تدريب');
+    expect(result.weeklyBlocks?.[0]?.block.title).toBe('تدريب');
   });
 
   it('sends no weekly field at all for a one-off confirm', async () => {

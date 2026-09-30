@@ -97,6 +97,14 @@ export class NotFoundError extends ApiError {}
 export class FeatureUnavailableError extends NotFoundError {}
 
 /**
+ * 404 `conversation_not_found` from the capture chat: the conversation id is
+ * unknown here — expired (idle past the proposal's lifetime), never minted,
+ * or another account's. Still a `NotFoundError`, so anything reading it as one
+ * says what it always said; the chat reads it as "start a new one".
+ */
+export class ConversationNotFoundError extends NotFoundError {}
+
+/**
  * A capture confirm the server refused, with the reason it gave (#252).
  *
  * The route answers 404 or 400 with the confirmation body, whose `failureCode`

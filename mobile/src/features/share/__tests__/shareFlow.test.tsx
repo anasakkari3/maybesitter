@@ -578,68 +578,34 @@ describe('a chat archive is read before it is uploaded', () => {
   });
 });
 
-describe('AI consent, before the bytes leave', () => {
-  it('a screenshot is not uploaded by somebody who declined', async () => {
+/*
+ * AI processing can no longer be declined (owner decision 2026-09-30): the
+ * server reads the AI question as granted, so a picture or a file is read like
+ * text is — even for an account whose old record still says "declined". There
+ * is no "turn on AI" step between the share and Analyze any more.
+ */
+describe('AI is always on for a share', () => {
+  it('a screenshot from an account with an old decline is offered for Analyze, with no AI-off step', async () => {
     grantAi('declined');
-    const propose = jest.spyOn(shareEndpoints, 'proposeFromShare');
     await openWithShare({
       ...mockEmptyIntent,
       files: [sharedFile({ fileName: 'screenshot.png', mimeType: 'image/png', path: 'file:///tmp/share/s.png' })],
       type: 'media',
     });
-
-    // There is no rule-based way to read a picture, so from #190 on a share of
-    // one *is* a model call. Uploading it anyway would cross the network, spend
-    // one of the thirty daily shares, and come back a refusal the user could
-    // have been told about before anything left the phone.
-    await waitFor(() => expect(screen.queryByText(en.shareNeedsAi)).not.toBeNull());
-    expect(propose).not.toHaveBeenCalled();
-    // No Analyze to press, and a way to go and change the answer instead.
-    expect(screen.queryByTestId('share-analyze')).toBeNull();
-    expect(screen.queryByTestId('share-turn-on-ai')).not.toBeNull();
-  });
-
-  it('"turn on AI" opens Trust over the share, and back returns to it with the file still there (L6)', async () => {
-    grantAi('declined');
-    await openWithShare({
-      ...mockEmptyIntent,
-      files: [sharedFile({ fileName: 'invoice.pdf', mimeType: 'application/pdf', path: 'file:///tmp/share/i.pdf' })],
-      type: 'file',
-    });
-    await waitFor(() => expect(screen.queryByTestId('share-turn-on-ai')).not.toBeNull());
-    await fireEvent.press(screen.getByTestId('share-turn-on-ai'));
-    await waitFor(() => expect(screen.queryByTestId('trust-ai-processing')).not.toBeNull());
-    expect(screen.queryByTestId('share-screen')).toBeNull();
-
-    await fireEvent.press(screen.getByTestId('header-back'));
-    await waitFor(() => expect(screen.queryByTestId('share-screen')).not.toBeNull());
-    expect(screen.queryByText('invoice.pdf')).not.toBeNull();
-    expect([...mockFiles]).toEqual(['file:///tmp/share/i.pdf']);
-  });
-
-  it('a shared sentence is unaffected, because text needs no model', async () => {
-    grantAi('declined');
-    await openWithShare({ ...mockEmptyIntent, text: 'Pay the nursery on Thursday', type: 'text' });
-
-    // The server falls back to the rule-based extractor for text and makes no
-    // model call — the same reason `CaptureScreen`'s AI chip says what will
-    // happen rather than gating anything (#161). Gating text here would be a
-    // rule this product does not have.
     await waitFor(() => expect(screen.queryByTestId('share-analyze')).not.toBeNull());
-    expect(screen.queryByText(en.shareNeedsAi)).toBeNull();
+    expect(screen.queryByTestId('share-turn-on-ai')).toBeNull();
   });
 
-  it('a PDF is held back too, and the preview still shows what was shared', async () => {
+  it('a PDF too, and the preview still shows what was shared', async () => {
     grantAi('declined');
     await openWithShare({
       ...mockEmptyIntent,
       files: [sharedFile({ fileName: 'invoice.pdf', mimeType: 'application/pdf', path: 'file:///tmp/share/i.pdf' })],
       type: 'file',
     });
-
-    await waitFor(() => expect(screen.queryByText(en.shareNeedsAi)).not.toBeNull());
-    // Seeing what was shared is not the part that needs consent.
+    await waitFor(() => expect(screen.queryByTestId('share-analyze')).not.toBeNull());
     expect(screen.queryByText('invoice.pdf')).not.toBeNull();
+    expect(screen.queryByTestId('share-turn-on-ai')).toBeNull();
   });
 });
 

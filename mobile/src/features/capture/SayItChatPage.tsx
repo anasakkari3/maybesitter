@@ -17,6 +17,8 @@ export interface ChatColors {
 export type ChatIconName = 'calendar' | 'doctor' | 'briefcase' | 'car' | 'pin' | 'clock'
   | 'plus' | 'back' | 'more' | 'check' | 'checks' | 'microphone' | 'send' | 'globe' | 'copy' | 'paste' | 'edit';
 export interface ChatMessage { text: string; time?: string; delivered?: boolean }
+/** One line of the conversation, in order: the person's (`user`) or the assistant's. */
+export interface ChatHistoryEntry extends ChatMessage { role: 'user' | 'assistant' }
 export interface ChatScheduleRow {
   id: string; title: string; subtitle?: string; icon?: ChatIconName;
   accessibilityLabel?: string; disabled?: boolean;
@@ -49,12 +51,26 @@ export interface SayItChatPageProps {
   onChangeText(text: string): void;
   onSend(): void;
   canSend: boolean;
+  /** Everything that edits or leaves: the field, paste, ⋯ and back. */
   inputDisabled?: boolean;
+  /** Only the field and paste — while a message is on its way, back still works. */
+  composerDisabled?: boolean;
   onClose(): void;
   onMore(): void;
   onPaste(): void;
   outgoing?: ChatMessage;
   assistant?: ChatMessage;
+  /** A short line under the opening message (the AI disclosure). */
+  notice?: React.ReactNode;
+  /** The conversation after the opening message, oldest first. */
+  history?: readonly ChatHistoryEntry[];
+  /**
+   * The assistant is answering: shown as its bubble, with the host's own
+   * reduced-motion-aware indicator, after the history.
+   */
+  typing?: React.ReactNode;
+  /** What the typing bubble says to a screen reader. */
+  typingLabel?: string;
   scheduleGroups?: readonly ChatScheduleGroup[];
   scheduleTime?: string;
   onConfirm?(): void;
@@ -81,8 +97,8 @@ export interface SayItChatPageProps {
 }
 
 export function SayItChatPage({
-  colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, onClose, onMore, onPaste,
-  outgoing, assistant, scheduleGroups = [], scheduleTime, onConfirm, canConfirm = false,
+  colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, onClose, onMore, onPaste,
+  outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], scheduleTime, onConfirm, canConfirm = false,
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, languageControl, voiceNotice, headerAccessory, bodyOverride, reviewExtras,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal',
@@ -121,7 +137,7 @@ export function SayItChatPage({
             <ChatRibbon colors={p} size={24} />
             <Text accessibilityRole="header" style={[textStyle(16, 'semibold', true), styles.flexShrink]}>{copy.title}</Text>
           </View>
-          {/* No "online" dot: nothing here is live presence, and the AI may be off. */}
+          {/* No "online" dot: nothing here is live presence. */}
           <View style={styles.subtitleRow}>
             <Text testID="chat-subtitle" style={[textStyle(10.5, 'regular', true), styles.flexShrink]}>{copy.subtitle}</Text>
           </View>
@@ -146,6 +162,22 @@ export function SayItChatPage({
     </View>
   );
 
+  /** The newest turn, when it is the assistant's reply: it is the one announced. */
+  const newestReply = !typing && history.length > 0 && history[history.length - 1]!.role === 'assistant' ? history.length - 1 : -1;
+
+  /** The person's own message: a bubble on the end side, with its time and ✓✓. */
+  const mine = (value: ChatMessage, testID: string, textTestID: string) => (
+    <View testID={testID} style={styles.outgoingBlock}>
+      <View style={[styles.outgoingBubble, { backgroundColor: p.acs, borderColor: p.ac }, expanded && styles.expandedOutgoing]}>
+        <Text testID={textTestID} style={contentStyle(value.text, 13.3)}>{value.text}</Text>
+      </View>
+      {value.time || value.delivered ? <View style={styles.outgoingTime}>
+        {value.time ? <Text style={timestampStyle}>{value.time}</Text> : null}
+        {value.delivered ? <ChatIcon name="checks" size={13} color={p.ac} /> : null}
+      </View> : null}
+    </View>
+  );
+
   return (
     <View testID="say-it-chat-page" style={[styles.page, { backgroundColor: p.bg }]}>
       {!accessibilitySize && header}
@@ -154,16 +186,24 @@ export function SayItChatPage({
         contentContainerStyle={styles.conversation}>
         {accessibilitySize && <View style={styles.scrollHeader}>{header}</View>}
         {composing ? <>
-          {outgoing ? <View testID="chat-outgoing" style={styles.outgoingBlock}>
-            <View style={[styles.outgoingBubble, { backgroundColor: p.acs, borderColor: p.ac }, expanded && styles.expandedOutgoing]}>
-              <Text testID="chat-outgoing-text" style={contentStyle(outgoing.text, 13.3)}>{outgoing.text}</Text>
-            </View>
-            {outgoing.time || outgoing.delivered ? <View style={styles.outgoingTime}>
-              {outgoing.time ? <Text style={timestampStyle}>{outgoing.time}</Text> : null}
-              {outgoing.delivered ? <ChatIcon name="checks" size={13} color={p.ac} /> : null}
-            </View> : null}
-          </View> : null}
+          {outgoing ? mine(outgoing, 'chat-outgoing', 'chat-outgoing-text') : null}
           {assistant && message(assistant, 'chat-assistant', true)}
+          {notice ? <View testID="chat-notice" style={styles.notice}>{notice}</View> : null}
+          {history.map((entry, index) => index === newestReply ? null : entry.role === 'user'
+            ? <View key={index} style={styles.laterTurn}>{mine(entry, `chat-turn-user-${index}`, `chat-turn-text-${index}`)}</View>
+            : <React.Fragment key={index}>{message(entry, `chat-turn-assistant-${index}`)}</React.Fragment>)}
+          {/* Always mounted, so TalkBack hears what changes inside it: the
+              typing bubble while a message is on its way, then the reply that
+              replaces it (review I1; the census in liveRegion.test). */}
+          <View testID="chat-live" accessibilityLiveRegion="polite">
+            {typing ? <View testID="chat-typing" style={[styles.assistantBlock, styles.followup]}
+              accessible accessibilityLabel={typingLabel}>
+              <View style={styles.assistantRow}>
+                <View style={[styles.avatar, { borderColor: p.lnStrong }]}><ChatRibbon colors={p} size={20} /></View>
+                <View style={[styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf }]}>{typing}</View>
+              </View>
+            </View> : newestReply >= 0 ? message(history[newestReply]!, `chat-turn-assistant-${newestReply}`) : null}
+          </View>
           {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}>
             <View style={[styles.scheduleCard, { backgroundColor: p.bg, borderColor: p.lnStrong }]}>
               {scheduleGroups.map((group, groupIndex) => <View key={group.id} style={groupIndex > 0 && styles.nextGroup}>
@@ -250,9 +290,9 @@ export function SayItChatPage({
         {voiceNotice}
         <View testID="chat-composer-row" style={styles.composerRow}>
           {/* A clipboard, not "+": the control pastes, and «الصق» says so (u27). */}
-          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled} />
+          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled || composerDisabled} />
           <TextInput testID="capture-input" value={text} onChangeText={onChangeText} multiline scrollEnabled
-            editable={!inputDisabled} accessibilityState={{ disabled: inputDisabled }}
+            editable={!inputDisabled && !composerDisabled} accessibilityState={{ disabled: inputDisabled || composerDisabled }}
             accessibilityLabel={copy.placeholder} placeholder={copy.placeholder} placeholderTextColor={p.mu}
             style={[styles.input, contentStyle(text, 14, 'regular', true), {
               color: p.tx, backgroundColor: p.sf, borderColor: p.lnStrong, textAlign: rtl ? 'right' : 'left',
@@ -387,6 +427,9 @@ const styles = StyleSheet.create({
   confirmGlyph: { width: 15, height: 15, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   scheduleTime: { marginTop: 4, paddingStart: 2 },
   followup: { marginTop: 12 },
+  laterTurn: { marginTop: 12 },
+  notice: { marginTop: 8, marginStart: 41 },
+  typingBubble: { minHeight: 38, justifyContent: 'center' },
   quickScroller: { marginHorizontal: -12, marginTop: 12, flexGrow: 0, flexShrink: 0 },
   quickActions: { paddingHorizontal: 14, paddingVertical: 1, gap: 9, alignItems: 'center' },
   quickAction: { minHeight: 34, paddingVertical: 7, paddingHorizontal: 8, borderWidth: 0.7, borderRadius: 13, flexDirection: 'row', alignItems: 'center', gap: 7 },

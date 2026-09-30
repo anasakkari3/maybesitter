@@ -5,7 +5,7 @@
  * (`capture.weeklyRange.json`) and its own confirmation
  * (`capture.weeklyBlockConfirmation.json`):
  *
- *   - the card says the block — «عندي تدريب · كل سبت · 10:00–16:00» — and reads
+ *   - the card says the block — «تدريب · كل سبت · 10:00–16:00» — and reads
  *     it aloud as words;
  *   - «كل أسبوع» is the default, «مرة وحدة بس» is one tap, and nothing is sent
  *     before the confirm;
@@ -36,6 +36,7 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as weeklyEndpoints from '../../../api/endpoints/weeklyBlocks';
+import { chatServer } from '../../../testing/captureChat';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -71,7 +72,7 @@ beforeEach(async () => {
   jest.spyOn(weeklyEndpoints, 'listWeeklyBlocks').mockResolvedValue([] as never);
   jest.spyOn(weeklyEndpoints, 'listWeeklyBlockOccurrences').mockResolvedValue([] as never);
   create = jest.spyOn(weeklyEndpoints, 'createWeeklyBlock');
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(captureProposalSchema.parse(weeklyRange) as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (captureProposalSchema.parse(weeklyRange))) as never);
   confirm = jest.spyOn(captureEndpoints, 'confirmCapture')
     .mockResolvedValue(captureConfirmationSchema.parse(weeklyConfirmation) as never);
 });
@@ -110,9 +111,9 @@ describe('the card', () => {
     await reachReview();
     // The title on a line of its own, the days and hours under it (u37): one
     // line mixing a Latin title with «كل سبت» wrapped «كل» away from «سبت».
-    expect(textOf(`review-weekly-title-${ITEM}`)).toBe('عندي تدريب');
+    expect(textOf(`review-weekly-title-${ITEM}`)).toBe('تدريب');
     expect(textOf(`review-weekly-line-${ITEM}`)).toBe('كل سبت · 10:00–16:00');
-    expect(screen.getByTestId(`review-weekly-spoken-${ITEM}`).props.accessibilityLabel).toBe('عندي تدريب، كل سبت، من 10:00 لـ 16:00');
+    expect(screen.getByTestId(`review-weekly-spoken-${ITEM}`).props.accessibilityLabel).toBe('تدريب، كل سبت، من 10:00 لـ 16:00');
     expect(screen.getByTestId(`review-weekly-every-${ITEM}`).props.accessibilityState).toMatchObject({ selected: true });
     expect(screen.getByTestId(`review-weekly-once-${ITEM}`).props.accessibilityState).toMatchObject({ selected: false });
     expect(textOf(`review-weekly-note-${ITEM}`)).toBe(ar.wbReviewWeeklyNote);

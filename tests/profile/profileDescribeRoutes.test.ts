@@ -245,15 +245,15 @@ test('the language is read from the script, not from a locale', async () => {
 
 // ── Consent, and the guard ───────────────────────────────────────
 
-test('with AI consent declined the route refuses and calls no model', async () => {
+test('AI is always on: an account that never answered is not refused for consent, and nothing is saved', async () => {
+  // Before 2026-09-30 this was a 403 `consent_required`.
   begin();
   try {
     const response = await describePost(request('/api/mobile/profile/describe', { text: 'I am a nursing student' }));
-    assert.equal(response.status, 403);
-    assert.equal((await json(response)).reason, 'consent_required');
+    assert.notEqual(response.status, 403);
+    assert.notEqual((await json(response)).reason, 'consent_required');
+    // A description only ever proposes; nothing reaches memory unconfirmed.
     assert.deepEqual(await createStorageRuntimeMemoryStore().listAll(UID), []);
-    // Nothing was even proposed, so there is nothing to confirm later.
-    assert.deepEqual(await getStorage().list(`users/${UID}/profileProposals`), []);
   } finally {
     end();
   }

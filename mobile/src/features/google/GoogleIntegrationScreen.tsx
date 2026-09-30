@@ -26,7 +26,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
-import { useAiConsentGranted, useTrust } from '../../api/queries';
+import { useTrust } from '../../api/queries';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { GoogleFeature, GoogleStatus } from '../../api/schemas/google';
 import { fill } from '../../i18n/strings';
@@ -60,7 +60,6 @@ export function GoogleIntegrationScreen() {
   const scan = useGmailScan();
   const pick = useDrivePick();
   const { adoptProposal } = useCaptureFlow();
-  const { granted: aiGranted, loading: aiLoading } = useAiConsentGranted();
   const trust = useTrust();
   const [notice, setNotice] = React.useState<Notice>(null);
   const [confirming, setConfirming] = React.useState(false);
@@ -75,7 +74,6 @@ export function GoogleIntegrationScreen() {
   const google: GoogleStatus | undefined = status.data;
   const configured = google !== undefined && google.status !== 'not_configured';
   const live = google?.status === 'connected' || google?.status === 'needs_reauth';
-  const aiBlocked = !aiLoading && !aiGranted;
   const calendarConsent = trust.data?.trust.calendarConsent === true;
 
   const fail = (error: unknown) => setNotice({ key: userFacingMessageKey(error), tone: 'problem' });
@@ -157,11 +155,6 @@ export function GoogleIntegrationScreen() {
             <Txt role="supporting" color={p.wm} testID="google-calendar-needs-consent">{t.googleNeedsCalendarConsent}</Txt>
             <Pill testID="google-calendar-trust" label={t.sTrust} kind="outline" onPress={() => actions.go('trust')} />
           </View>;
-      } else if (aiBlocked) {
-        action = <View style={{ gap: 10, alignItems: 'flex-start' }}>
-          <Txt role="supporting" color={p.wm} testID={`google-${feature}-needs-ai`}>{t.googleNeedsAi}</Txt>
-          <Pill testID={`google-${feature}-turn-on-ai`} label={t.shareTurnOnAi} kind="outline" onPress={() => actions.go('trust')} />
-        </View>;
       } else if (feature === 'gmail') {
         action = <Pill testID="google-gmail-scan" label={t.googleGmailScan} kind="accent" disabled={busy} onPress={onScan} />;
       } else if (google!.pickerAvailable) {

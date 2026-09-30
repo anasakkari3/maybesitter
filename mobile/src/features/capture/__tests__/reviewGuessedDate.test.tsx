@@ -30,6 +30,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 const ZONE = 'Asia/Jerusalem';
 
@@ -124,7 +125,7 @@ beforeEach(async () => {
     .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: USER.uid, recorded: true, eventId: 'e-1' } as never);
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
 });
 
 afterEach(() => {

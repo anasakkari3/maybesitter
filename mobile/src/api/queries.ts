@@ -4,7 +4,7 @@ import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
-import { clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
+import { chatCapture, clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
 import { prepareMeeting } from './endpoints/meetings';
 import type { UploadFile } from './client';
@@ -53,7 +53,6 @@ import { dismissFixture, getFootballSettings, putFollowedClubs } from './endpoin
 import type { FootballSettingsResponse } from './schemas/football';
 import {
   getConsents,
-  putAiConsent,
   putPersonalizationConsent,
   putRecommendationConsent,
   type ConsentAnswer,
@@ -492,9 +491,11 @@ export function useWeeklySummary(weekStart?: string) {
 /**
  * What this account has agreed to.
  *
- * The composer reads this to decide whether to show the "AI: off" chip. It is a
- * query rather than context so that a revocation made elsewhere arrives on the
- * next refetch; `staleTime` is the layer's default, and the answer is cheap.
+ * The trust centre and onboarding read the recommendation and personalization
+ * answers from this. (AI processing is in it too, and always reads granted:
+ * it can no longer be declined, owner decision 2026-09-30.) It is a query
+ * rather than context so that a revocation made elsewhere arrives on the next
+ * refetch; `staleTime` is the layer's default, and the answer is cheap.
  */
 export function useConsents() {
   const uid = useUid();
@@ -510,28 +511,24 @@ export function useConsents() {
   });
 }
 
-/**
- * Whether a model may be asked about this account's captures.
- *
- * `false` while the answer is loading and while it is declined: the chip errs
- * towards telling the user the model is off, because claiming it is on when it
- * is not is the direction that misleads. The server decides regardless — it
- * computes `requestedEngine` from its own consent record and ignores anything
- * the client sends (#161) — so this only ever affects what is displayed.
- */
-export function useAiConsentGranted(): { granted: boolean; asked: boolean; loading: boolean } {
-  const { data, isLoading } = useConsents();
-  return {
-    granted: data?.aiProcessing.state === 'granted',
-    asked: data?.aiProcessing.asked ?? false,
-    loading: isLoading,
-  };
-}
-
 export function useCapture() {
   const timezone = useTimeZone();
   return useMutation({
     mutationFn: (text: string) => proposeCapture({ text, timezone }),
+  });
+}
+
+/**
+ * One message to the capture chat «احكيها» (owner decision 2026-09-30).
+ *
+ * `retry: false` explicitly, beside the client-wide default: a message is the
+ * person's words, and a replay would put them in the conversation twice.
+ */
+export function useCaptureChat() {
+  const timezone = useTimeZone();
+  return useMutation({
+    retry: false,
+    mutationFn: (input: { conversationId: string | null; message: string }) => chatCapture({ ...input, timezone }),
   });
 }
 
@@ -1214,26 +1211,6 @@ export function useAnalyticsConsent(): () => Promise<boolean> {
     const response = await client.fetchQuery({ queryKey: queryKeys.trust(uid), queryFn: getTrust });
     return response.trust.analyticsConsent === true;
   }, [client, uid]);
-}
-
-/**
- * Records one consent answer.
- *
- * There is no optimistic update, deliberately. The switch moves when the
- * server says it moved — the alternative shows somebody "AI: on" for the
- * moment before a failed write, which is the one place in this app where a
- * hopeful UI would be a lie about their privacy. `onSettled` refetches so a
- * failure snaps the control back to the truth.
- */
-export function useSetAiConsent() {
-  const client = useQueryClient();
-  const uid = useUid();
-  return useMutation({
-    mutationFn: (answer: ConsentAnswer) => putAiConsent(answer),
-    onSettled: () => {
-      void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
-    },
-  });
 }
 
 /**

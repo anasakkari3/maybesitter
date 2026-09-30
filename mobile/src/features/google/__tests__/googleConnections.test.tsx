@@ -47,10 +47,9 @@ jest.mock('../../../api/endpoints/google', () => ({
   importDriveFile: jest.fn(),
 }));
 jest.mock('../../../auth/AuthProvider', () => ({ useAuth: () => ({ user: { uid: 'u1' } }) }));
-const mockConsent = { ai: true, calendar: true };
+const mockConsent = { calendar: true };
 jest.mock('../../../api/queries', () => ({
   ...(jest.requireActual('../../../api/queries') as object),
-  useAiConsentGranted: () => ({ granted: mockConsent.ai, asked: true, loading: false }),
   useTrust: () => ({ data: { trust: { calendarConsent: mockConsent.calendar } } }),
 }));
 const mockAdoptProposal = jest.fn();
@@ -98,7 +97,6 @@ async function show(status: GoogleStatus, Page: () => React.JSX.Element = Google
 
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  mockConsent.ai = true;
   mockConsent.calendar = true;
   jest.clearAllMocks();
 });
@@ -273,14 +271,13 @@ describe('connected', () => {
     await waitFor(() => expect(mockAdoptProposal).toHaveBeenCalledWith(driveImport));
   });
 
-  it('without AI consent Gmail and Drive say why and point at the setting, with no button that can only be refused', async () => {
-    mockConsent.ai = false;
+  it('Gmail and Drive are never held back for AI: it cannot be turned off (2026-09-30)', async () => {
     await show(statusOf(allFeatures));
-    await waitFor(() => expect(screen.getByTestId('google-gmail-needs-ai')).toBeTruthy());
-    expect(screen.getByTestId('google-drive-needs-ai')).toBeTruthy();
-    expect(screen.queryByTestId('google-gmail-scan')).toBeNull();
-    expect(screen.queryByTestId('google-drive-pick')).toBeNull();
-    expect(screen.getByTestId('google-calendar-sync')).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('google-gmail-scan')).toBeTruthy());
+    expect(screen.getByTestId('google-drive-pick')).toBeTruthy();
+    expect(screen.queryByTestId('google-gmail-needs-ai')).toBeNull();
+    expect(screen.queryByTestId('google-drive-needs-ai')).toBeNull();
+    expect(screen.queryByTestId('google-gmail-turn-on-ai')).toBeNull();
   });
 
   it('without the Trust Center calendar switch the calendar row says so instead of syncing', async () => {

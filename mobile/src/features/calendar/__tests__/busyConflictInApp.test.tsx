@@ -44,6 +44,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -163,7 +164,7 @@ async function reachReview() {
 describe('on the review card', () => {
   it('shows the note when the proposed time falls inside a calendar event', async () => {
     await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(MEETING_FROM, MEETING_TO));
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await reachReview();
     await waitFor(() => expect(screen.queryByTestId('review-busy-i-1')).not.toBeNull());
@@ -173,14 +174,14 @@ describe('on the review card', () => {
 
   it('shows nothing when the calendar has something on a different day', async () => {
     await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(ELSEWHERE_FROM, ELSEWHERE_TO));
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await reachReview();
     expect(screen.queryByTestId('review-busy-i-1')).toBeNull();
   });
 
   it('shows nothing when no calendar has ever been read', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await reachReview();
     expect(screen.queryByTestId('review-busy-i-1')).toBeNull();
@@ -188,7 +189,7 @@ describe('on the review card', () => {
 
   it('still confirms, because the note is a note', async () => {
     await AsyncStorage.setItem(BUSY_BLOCKS_KEY, cached(MEETING_FROM, MEETING_TO));
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue({
       success: true,
       replayed: false,

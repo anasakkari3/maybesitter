@@ -7,7 +7,7 @@ import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import * as endpoints from '../../../api/endpoints/capture';
 import * as consents from '../../../api/endpoints/consents';
 import { NetworkError } from '../../../api/errors';
-import type { CaptureConfirmation, CaptureProposal } from '../../../api/schemas/capture';
+import type { CaptureChatAnswer, CaptureConfirmation, CaptureProposal } from '../../../api/schemas/capture';
 import { CaptureProvider, useCaptureFlow } from '../CaptureProvider';
 import { MAX_CAPTURE_LENGTH } from '../captureMachine';
 
@@ -19,6 +19,14 @@ function proposal(id = 'p1'): CaptureProposal {
   return {
     version: 'v1', proposalId: id, status: 'proposed', seeds: [],
     items: [{ itemId: 'i1', title: 'Call the clinic', resolvedTime: null, needsClarification: false }],
+  };
+}
+
+/** The chat's answer carrying `p`, for one message in a new conversation. */
+function answer(p: CaptureProposal, message = 'x'): CaptureChatAnswer {
+  return {
+    conversationId: '00000000-0000-4000-8000-000000000001', reply: 'Check it and confirm.', engine: 'rules', proposal: p,
+    turns: [{ role: 'user', text: message }, { role: 'assistant', text: 'Check it and confirm.' }],
   };
 }
 
@@ -52,7 +60,7 @@ afterEach(async () => {
 });
 
 it('sends the explicit approved draft even when setText has not rendered yet', async () => {
-  const propose = jest.spyOn(endpoints, 'proposeCapture').mockResolvedValue(proposal());
+  const propose = jest.spyOn(endpoints, 'chatCapture').mockImplementation(async ({ message }) => answer(proposal(), message));
   const confirm = jest.spyOn(endpoints, 'confirmCapture');
   const { result } = await renderHook(useCaptureFlow, { wrapper });
   await act(() => result.current.setText('the previous capture'));
@@ -62,17 +70,20 @@ it('sends the explicit approved draft even when setText has not rendered yet', a
     await result.current.analyze(approved);
   });
   expect(propose).toHaveBeenCalledTimes(1);
-  expect(propose).toHaveBeenCalledWith(expect.objectContaining({ text: approved }));
-  expect(result.current.state.text).toBe(approved);
+  // The first message starts a conversation: no id is sent.
+  expect(propose).toHaveBeenCalledWith(expect.objectContaining({ message: approved, conversationId: null }));
+  // The message moved into the conversation; the field is for the next one.
+  expect(result.current.state.turns[0]).toEqual({ role: 'user', text: approved });
+  expect(result.current.state.text).toBe('');
   expect(result.current.state.status).toBe('needsConfirmation');
   expect(result.current.state.persisted).toEqual([]);
   expect(confirm).not.toHaveBeenCalled();
 });
 
 it('keeps the original no-argument analyze and retries the submitted draft after failure', async () => {
-  const propose = jest.spyOn(endpoints, 'proposeCapture')
+  const propose = jest.spyOn(endpoints, 'chatCapture')
     .mockRejectedValueOnce(new NetworkError('offline'))
-    .mockResolvedValueOnce(proposal());
+    .mockResolvedValueOnce(answer(proposal()));
   const { result } = await renderHook(useCaptureFlow, { wrapper });
   await act(() => result.current.setText('an older draft'));
   const approved = 'Call Dana tomorrow at 3pm';
@@ -80,14 +91,14 @@ it('keeps the original no-argument analyze and retries the submitted draft after
   expect(result.current.state.status).toBe('networkError');
   expect(result.current.state.text).toBe(approved);
   await act(() => result.current.analyze());
-  expect(propose.mock.calls.map(([input]) => input.text)).toEqual([approved, approved]);
+  expect(propose.mock.calls.map(([input]) => input.message)).toEqual([approved, approved]);
   expect(result.current.state.status).toBe('needsConfirmation');
 });
 
 it('ignores repeated Send presses and a closed capture response cannot replace a new capture', async () => {
-  const first = pendingResult<CaptureProposal>();
-  const next = pendingResult<CaptureProposal>();
-  const propose = jest.spyOn(endpoints, 'proposeCapture')
+  const first = pendingResult<CaptureChatAnswer>();
+  const next = pendingResult<CaptureChatAnswer>();
+  const propose = jest.spyOn(endpoints, 'chatCapture')
     .mockReturnValueOnce(first.promise).mockReturnValueOnce(next.promise);
   const { result } = await renderHook(useCaptureFlow, { wrapper });
   let firstRun!: Promise<void>;
@@ -99,17 +110,17 @@ it('ignores repeated Send presses and a closed capture response cannot replace a
   expect(propose).toHaveBeenCalledTimes(1);
   await act(() => { result.current.close(); result.current.open(); });
   await act(() => { nextRun = result.current.analyze('Call Sami tomorrow'); });
-  await act(async () => { first.resolve(proposal('closed')); await firstRun; });
+  await act(async () => { first.resolve(answer(proposal('closed'))); await firstRun; });
   expect(result.current.state.text).toBe('Call Sami tomorrow');
   expect(result.current.state.status).toBe('analyzing');
   expect(result.current.state.proposal).toBeNull();
-  await act(async () => { next.resolve(proposal('current')); await nextRun; });
+  await act(async () => { next.resolve(answer(proposal('current'))); await nextRun; });
   expect(result.current.state.proposal?.proposalId).toBe('current');
-  expect(propose.mock.calls.map(([input]) => input.text)).toEqual(['Call Dana tomorrow', 'Call Sami tomorrow']);
+  expect(propose.mock.calls.map(([input]) => input.message)).toEqual(['Call Dana tomorrow', 'Call Sami tomorrow']);
 });
 
 it('empty and oversized replacement drafts leave the current proposal and edits intact', async () => {
-  const propose = jest.spyOn(endpoints, 'proposeCapture');
+  const propose = jest.spyOn(endpoints, 'chatCapture');
   const { result } = await renderHook(useCaptureFlow, { wrapper });
   await act(() => {
     result.current.adoptProposal(proposal());
@@ -123,8 +134,8 @@ it('empty and oversized replacement drafts leave the current proposal and edits 
   expect(result.current.state.edits.i1?.priority).toBe('high');
 });
 
-it('preserves the proposal, edits and unsent continuation across a temporary screen detour', async () => {
-  const propose = jest.spyOn(endpoints, 'proposeCapture');
+it('preserves the proposal, edits and unsent next message across a temporary screen detour', async () => {
+  const propose = jest.spyOn(endpoints, 'chatCapture');
   const confirm = jest.spyOn(endpoints, 'confirmCapture');
   let flow!: ReturnType<typeof useCaptureFlow>;
   function CaptureScreenProbe() {
@@ -136,8 +147,8 @@ it('preserves the proposal, edits and unsent continuation across a temporary scr
   await act(() => {
     flow.adoptProposal(proposal(), 'tab');
     flow.editItem('i1', { priority: 'high' });
-    flow.setReplyDraft('Add a 20 minute commute before the appointment');
-    flow.setReplyIntent('new');
+    // Typed under the proposal: the next message of the conversation.
+    flow.setText('Add a 20 minute commute before the appointment');
   });
   const review = flow.state;
   // Root temporarily replaces CaptureFlow with Trust, leaving CaptureProvider
@@ -145,29 +156,40 @@ it('preserves the proposal, edits and unsent continuation across a temporary scr
   await view.rerender(<></>);
   await view.rerender(<CaptureScreenProbe />);
   expect(flow.state).toEqual(review);
-  expect(flow.replyDraft).toBe('Add a 20 minute commute before the appointment');
-  expect(flow.replyIntent).toBe('new');
+  // Typing under a proposal changes nothing about it.
+  expect(flow.state.status).toBe('needsConfirmation');
+  expect(flow.state.text).toBe('Add a 20 minute commute before the appointment');
   expect(propose).not.toHaveBeenCalled();
   expect(confirm).not.toHaveBeenCalled();
   await act(() => flow.close());
   expect(flow.state.proposal).toBeNull();
-  expect(flow.replyDraft).toBe('');
-  expect(flow.replyIntent).toBe('answer');
+  expect(flow.state.text).toBe('');
 });
 
-it.each(['open', 'close', 'adoptProposal', 'backToComposer'] as const)('%s clears the former continuation', async transition => {
+it.each(['open', 'close', 'adoptProposal', 'startOver'] as const)('%s clears the former unsent message', async transition => {
   const { result } = await renderHook(useCaptureFlow, { wrapper });
   await act(() => {
-    result.current.adoptProposal(proposal());
-    result.current.setReplyDraft('An unsent private continuation');
-    result.current.setReplyIntent('new');
+    result.current.adoptProposal(proposal(), 'tab');
+    result.current.setText('An unsent private continuation');
   });
   await act(() => {
     if (transition === 'adoptProposal') result.current.adoptProposal(proposal('next'));
     else result.current[transition]();
   });
-  expect(result.current.replyDraft).toBe('');
-  expect(result.current.replyIntent).toBe('answer');
+  expect(result.current.state.text).toBe('');
+});
+
+it('back from a chat proposal puts what the person said in the field, not the unsent message, and ends the conversation', async () => {
+  jest.spyOn(endpoints, 'chatCapture').mockImplementation(async ({ message }) => answer(proposal(), message));
+  const { result } = await renderHook(useCaptureFlow, { wrapper });
+  await act(() => result.current.analyze('Call the clinic tomorrow'));
+  await act(() => result.current.setText('an unsent follow-up'));
+  await act(() => result.current.backToComposer());
+  expect(result.current.state.text).toBe('Call the clinic tomorrow');
+  expect(result.current.state.status).toBe('editing');
+  expect(result.current.state.proposal).toBeNull();
+  expect(result.current.state.conversationId).toBeNull();
+  expect(result.current.state.turns).toEqual([]);
 });
 
 it('a previous clarification cannot rewrite a reopened review of the same proposal', async () => {

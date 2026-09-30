@@ -32,7 +32,9 @@ export type LlmPurpose =
   /** Proposing first steps for a goal the user saved (CL3). */
   | 'goal_decomposition'
   /** Notes the person typed about one upcoming meeting, read once (CL5a). */
-  | 'meeting_prep';
+  | 'meeting_prep'
+  /** One turn of the capture chat «احكيها»: a reply and the current items (2026-09-30). */
+  | 'capture_chat';
 
 export type LlmProviderName = 'gemini' | 'ollama' | 'none';
 

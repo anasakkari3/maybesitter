@@ -89,6 +89,16 @@ export const ANALYTICS_EVENTS = 'analyticsEvents';
 /** Capture proposals between proposing and confirming (#252). */
 export const CAPTURE_PROPOSALS = 'captureProposals';
 /**
+ * The capture chat «احكيها» (owner decision 2026-09-30):
+ * `users/{uid}/captureConversations/{conversationId}` holds one conversation's
+ * turns — the person's own words and the assistant's replies — and the id of
+ * its current proposal. Idle past the proposal TTL it is gone for the API, and
+ * Firestore's TTL (`expiresAt`, infra/firestore-ttl.sh) removes it a day
+ * later. Under the uid, so it goes with the account on deletion and comes
+ * with it on export.
+ */
+export const CAPTURE_CONVERSATIONS = 'captureConversations';
+/**
  * Self-description suggestions between proposing and confirming (#168).
  *
  * Separate from `captureProposals` because the two hold different things and
@@ -547,6 +557,7 @@ export const USER_SCOPED_COLLECTIONS = [
   CLARIFICATION_EVENTS,
   ANALYTICS_EVENTS,
   CAPTURE_PROPOSALS,
+  CAPTURE_CONVERSATIONS,
   PROFILE_PROPOSALS,
   AI_CONTEXT_IMPORTS,
   MEMORY_DISMISSALS,

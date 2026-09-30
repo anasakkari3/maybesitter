@@ -63,7 +63,6 @@ const CONSENTS = {
 let client: QueryClient;
 let repository: ReturnType<typeof createFakeAuthRepository>;
 let getConsents: jest.SpiedFunction<typeof consentEndpoints.getConsents>;
-let putAiConsent: jest.SpiedFunction<typeof consentEndpoints.putAiConsent>;
 let putRecommendationConsent: jest.SpiedFunction<typeof consentEndpoints.putRecommendationConsent>;
 let updateTrust: jest.SpiedFunction<typeof trustEndpoints.updateTrust>;
 let recordAnalyticsEvent: jest.SpiedFunction<typeof analyticsEndpoints.recordAnalyticsEvent>;
@@ -78,8 +77,6 @@ beforeEach(async () => {
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
   getConsents = jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(CONSENTS);
-  putAiConsent = jest.spyOn(consentEndpoints, 'putAiConsent')
-    .mockResolvedValue({ success: true, aiProcessing: { state: 'granted', version: 'ai-consent-v1', changedAt: 'x' } } as never);
   putRecommendationConsent = jest.spyOn(consentEndpoints, 'putRecommendationConsent')
     .mockResolvedValue({ success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never);
   updateTrust = jest.spyOn(trustEndpoints, 'updateTrust').mockResolvedValue({} as never);
@@ -213,37 +210,29 @@ describe('the consent screen', () => {
     await waitFor(() => expect(getConsents).toHaveBeenCalled());
   }
 
-  it('pre-selects nothing and will not continue until the AI question is answered', async () => {
+  it('pre-selects nothing, discloses AI processing, and asks nothing about it', async () => {
     await reachConsent();
     // Both switches start off.
     for (const label of [en.obRecTitle, en.obAnalyticsTitle]) {
       expect(screen.getByLabelText(label).props.value).toBe(false);
     }
-    // And the screen says why it will not move.
-    expect(screen.queryByText(en.obConsentNeedAi)).not.toBeNull();
+    // AI processing is told, before the first capture — not asked.
+    expect(screen.queryByTestId('onboarding-ai-disclosure')).not.toBeNull();
+    expect(screen.queryByText(en.aiDisclosure)).not.toBeNull();
+    expect(screen.queryByRole('radiogroup')).toBeNull();
 
+    // Nothing has to be answered to go on.
     await press(en.obContinue);
-    await waitFor(() => expect(screen.queryByText(en.obConsentNeedAi)).not.toBeNull());
-    expect(putAiConsent).not.toHaveBeenCalled();
-    expect(screen.queryByText(en.obConsentTitle)).not.toBeNull();
-  });
-
-  it('says what still works when AI is declined', async () => {
-    await reachConsent();
-    expect(screen.queryByText(en.obAiDeclinedNote)).toBeNull();
-    await press(en.obAiDecline);
-    await waitFor(() => expect(screen.queryByText(en.obAiDeclinedNote)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
   });
 
   it('sends each answer with the version the server said it recognises', async () => {
     await reachConsent();
-    await press(en.obAiAllow);
     await fireEvent(screen.getByLabelText(en.obRecTitle), 'valueChange', true);
     await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(true));
     await press(en.obContinue);
 
-    await waitFor(() => expect(putAiConsent).toHaveBeenCalled());
-    expect(putAiConsent.mock.calls[0]![0]).toMatchObject({ state: 'granted', version: 'ai-consent-v1' });
+    await waitFor(() => expect(putRecommendationConsent).toHaveBeenCalled());
     expect(putRecommendationConsent.mock.calls[0]![0]).toMatchObject({
       state: 'granted', version: 'rec-consent-v1',
     });
@@ -264,10 +253,10 @@ describe('the consent screen', () => {
    *  2. Signing back in runs onboarding again, deliberately (#171), and the
    *     screen seeds the toggle from that record: on.
    *  3. The user turns it off. That is an explicit decline, not an absence.
-   *  4. A consents refetch lands. There is nothing exotic about it — the AI
-   *     write invalidates this very query, so it happens on the way through
-   *     the screen, and the payload really does differ because the AI record
-   *     the user just wrote now reads back as granted.
+   *  4. A consents refetch lands. There is nothing exotic about it — the
+   *     recommendation write invalidates this very query when it settles, so
+   *     it happens on the way through the screen, and the payload differs
+   *     (here: the AI record, which the server now always reads as granted).
    *
    * With `recommendations` as a plain boolean there was no value meaning
    * "untouched", so the seeding could not tell the decline from the default
@@ -281,11 +270,11 @@ describe('the consent screen', () => {
         changedAt: '2026-08-01T09:00:00.000Z', asked: true,
       },
     };
-    // The server as it behaves: once the AI answer is written, the next GET
-    // reports it. That is what makes the refetched payload a different value
-    // from the one the screen seeded from.
-    let aiRecorded = false;
-    getConsents.mockImplementation(async () => (aiRecorded
+    // The refetched payload is a different value from the one the screen
+    // seeded from: after the first write attempt, the AI record reads back as
+    // the always-on grant.
+    let attempted = false;
+    getConsents.mockImplementation(async () => (attempted
       ? {
         ...previouslyGranted,
         aiProcessing: {
@@ -294,14 +283,10 @@ describe('the consent screen', () => {
         },
       }
       : previouslyGranted));
-    putAiConsent.mockImplementation(async () => {
-      aiRecorded = true;
-      return { success: true, aiProcessing: { state: 'granted', version: 'ai-consent-v1', changedAt: 'x' } } as never;
-    });
     // One failed write, so the user is left on the screen with Retry — which
     // is the press that sends whatever the toggle says by then.
     putRecommendationConsent
-      .mockRejectedValueOnce(new NetworkError('no signal'))
+      .mockImplementationOnce(async () => { attempted = true; throw new NetworkError('no signal'); })
       .mockResolvedValue({ success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never);
 
     await reachConsent();
@@ -312,7 +297,6 @@ describe('the consent screen', () => {
     await fireEvent(screen.getByLabelText(en.obRecTitle), 'valueChange', false);
     await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(false));
 
-    await press(en.obAiAllow);
     await press(en.obContinue);
 
     await waitFor(() => expect(screen.queryByText(en.obConsentFailed)).not.toBeNull());
@@ -347,7 +331,6 @@ describe('the consent screen', () => {
   it('seeds nothing from a question the account was never asked', async () => {
     await reachConsent();
     expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(false);
-    await press(en.obAiAllow);
     await press(en.obContinue);
     await waitFor(() => expect(putRecommendationConsent).toHaveBeenCalled());
     expect(putRecommendationConsent.mock.calls[0]![0]).toMatchObject({ state: 'declined' });
@@ -362,9 +345,7 @@ describe('the consent screen', () => {
  * Waiting is right: a guessed version is refused by the server and a
  * hard-coded one would claim agreement to words this build cannot prove were
  * shown. Waiting *without saying so, forever, with no way to try again* is the
- * defect — once the AI question was answered even the "choose an answer"
- * footnote went away, and Continue stayed dead with nothing on screen to
- * explain it.
+ * defect — Continue stayed dead with nothing on screen to explain it.
  */
 describe('when the consent versions cannot be fetched', () => {
   it('says what went wrong and offers a retry that actually recovers', async () => {
@@ -378,9 +359,10 @@ describe('when the consent versions cannot be fetched', () => {
 
     // Answering does not make the explanation disappear, which is exactly what
     // it used to do.
-    await press(en.obAiAllow);
+    await fireEvent(screen.getByLabelText(en.obRecTitle), 'valueChange', true);
+    await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(true));
     expect(screen.queryByText(en.errorsNetwork)).not.toBeNull();
-    expect(putAiConsent).not.toHaveBeenCalled();
+    expect(putRecommendationConsent).not.toHaveBeenCalled();
 
     await pressTestId('onboarding-consent-refetch');
     await waitFor(() => expect(getConsents).toHaveBeenCalledTimes(2));
@@ -388,7 +370,7 @@ describe('when the consent versions cannot be fetched', () => {
 
     // And the screen is usable again: the same answer now records.
     await press(en.obContinue);
-    await waitFor(() => expect(putAiConsent).toHaveBeenCalled());
+    await waitFor(() => expect(putRecommendationConsent).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
   });
 
@@ -400,9 +382,8 @@ describe('when the consent versions cannot be fetched', () => {
     await renderApp();
     await press(en.obContinue);
     await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
-    await press(en.obAiAllow);
 
-    // Answered, and Continue still will not move: the screen has to say why.
+    // Continue will not move yet: the screen has to say why.
     await waitFor(() => expect(screen.queryByText(en.obConsentChecking)).not.toBeNull());
 
     release?.();
@@ -415,22 +396,22 @@ describe('when the consent versions cannot be fetched', () => {
  *
  * The screen's own contract is in `setupChatStep.test.tsx`. What is proved
  * here is what leaves the phone and when: the composed text reaches
- * `describeProfile` only after "Read my answers", never with AI declined; the
+ * `describeProfile` only after "Read my answers"; the
  * draft survives a remount through the per-account cache; and the count
  * event fires only with analytics consent — and carries a count, not words.
  */
 describe('the guided setup', () => {
   /**
-   * Sign-in to the "about" step, answering the two consent questions the way
-   * the caller says. Pressed, not stubbed, so the branch below is the one a
-   * person reaches.
+   * Sign-in to the "about" step, answering analytics the way the caller says.
+   * Pressed, not stubbed, so the branch below is the one a person reaches.
+   * (AI processing is not a question any more: the guided setup is always
+   * offered.)
    */
-  async function reachSetup(ai: 'allow' | 'decline', analytics: boolean) {
+  async function reachSetup(analytics: boolean) {
     const view = await renderApp();
     await press(en.obContinue);
     await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
     await waitFor(() => expect(getConsents).toHaveBeenCalled());
-    await press(ai === 'allow' ? en.obAiAllow : en.obAiDecline);
     if (analytics) {
       await fireEvent(screen.getByLabelText(en.obAnalyticsTitle), 'valueChange', true);
       await waitFor(() => expect(screen.getByLabelText(en.obAnalyticsTitle).props.value).toBe(true));
@@ -443,7 +424,7 @@ describe('the guided setup', () => {
   }
 
   it('asks about their life first, and sends the composed answers to describe', async () => {
-    await reachSetup('allow', false);
+    await reachSetup(false);
     expect(screen.queryByText(en.obSetupLifeTitle)).not.toBeNull();
     expect(screen.queryByTestId('onboarding-about-manual')).toBeNull();
 
@@ -464,24 +445,7 @@ describe('the guided setup', () => {
   });
 
   it('restores the draft and the question after a remount', async () => {
-    // The server as it behaves: once the AI answer is written, the next GET
-    // reports it, which is what a remount seeds the AI choice from.
-    let aiRecorded = false;
-    getConsents.mockImplementation(async () => (aiRecorded
-      ? {
-        ...CONSENTS,
-        aiProcessing: {
-          state: 'granted' as const, version: 'ai-consent-v1',
-          changedAt: '2026-09-17T09:00:00.000Z', asked: true,
-        },
-      }
-      : CONSENTS));
-    putAiConsent.mockImplementation(async () => {
-      aiRecorded = true;
-      return { success: true, aiProcessing: { state: 'granted', version: 'ai-consent-v1', changedAt: 'x' } } as never;
-    });
-
-    const view = await reachSetup('allow', false);
+    const view = await reachSetup(false);
     const story = 'Two kids, a night shift, and a thesis due in March.\nI keep forgetting the dentist.';
     await fireEvent.changeText(screen.getByTestId('setup-life-input'), story);
     await press(en.obSetupLifeCta);
@@ -497,19 +461,8 @@ describe('the guided setup', () => {
     await waitFor(() => expect(screen.getByTestId('setup-life-input').props.value).toBe(story));
   });
 
-  it('shows the manual card with AI declined, and never calls describe', async () => {
-    await reachSetup('decline', true);
-    expect(screen.queryByTestId('onboarding-about-manual')).not.toBeNull();
-    expect(screen.queryByTestId('setup-life-input')).toBeNull();
-    await press(en.obContinue);
-    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
-    expect(describeProfile).not.toHaveBeenCalled();
-    // The count is still reported — zero — because this run granted analytics.
-    expect(recordAnalyticsEvent).toHaveBeenCalledWith('onboarding_setup_answered', { answeredCount: 0 });
-  });
-
   it('reports how many were answered when analytics was granted', async () => {
-    await reachSetup('allow', true);
+    await reachSetup(true);
     await fireEvent.changeText(screen.getByTestId('setup-life-input'), 'I study and work nights');
     await pressTestId('setup-skip');
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
@@ -519,7 +472,7 @@ describe('the guided setup', () => {
   });
 
   it('does not count a tapped inspiration prompt as an answer', async () => {
-    await reachSetup('allow', true);
+    await reachSetup(true);
     await pressTestId('setup-life-prompt-1');
     await pressTestId('setup-life-prompt-3');
     await pressTestId('setup-skip');
@@ -529,7 +482,7 @@ describe('the guided setup', () => {
   });
 
   it('reports nothing without analytics consent', async () => {
-    await reachSetup('allow', false);
+    await reachSetup(false);
     await pressTestId('setup-skip');
     await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
     expect(recordAnalyticsEvent).not.toHaveBeenCalledWith('onboarding_setup_answered', expect.anything());
@@ -537,7 +490,7 @@ describe('the guided setup', () => {
   });
 
   it('saves nothing from the review without a tick', async () => {
-    await reachSetup('allow', false);
+    await reachSetup(false);
     await fireEvent.changeText(screen.getByTestId('setup-life-input'), 'Nursing student, night shifts, a thesis in March');
     await press(en.obSetupLifeCta);
     for (let i = 0; i < 3; i += 1) await press(en.obSetupNext);

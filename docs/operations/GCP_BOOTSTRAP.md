@@ -111,6 +111,7 @@ account, and Firestore enforces that with a TTL policy on `expiresAt`:
 | `clarifications` | 24 hours | a half-finished question |
 | `analyticsEvents` | 400 days | product metrics |
 | `captureProposals` | 24 hours | a capture awaiting confirmation |
+| `captureConversations` | 24 hours after the last turn | a capture-chat conversation: the person's messages and the assistant's replies |
 
 The stores stamp `expiresAt` on every write, but **a stamp does nothing until
 the policy exists**. Nothing in the bootstrap or the deploy workflow creates

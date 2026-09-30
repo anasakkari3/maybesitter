@@ -31,6 +31,7 @@ import activityList from './__fixtures__/activity.list.json';
 import activitySummary from './__fixtures__/activity.summary.json';
 import alphaFeedbackFlag from './__fixtures__/alphaFeedback.flag.json';
 import analyticsAck from './__fixtures__/analytics.ack.json';
+import captureChatProposal from './__fixtures__/capture.chatProposal.json';
 import captureConfirmation from './__fixtures__/capture.confirmation.json';
 import captureProposal from './__fixtures__/capture.proposal.json';
 import captureShareProposal from './__fixtures__/capture.shareProposal.json';
@@ -87,6 +88,8 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   ['POST', /^\/api\/mobile\/capture\/confirm$/, { status: 200, body: captureConfirmation }],
   // The share route (UC-3.0, #183). `apiUpload` consults this table too, so a
   // share screen can be driven on fixtures with no backend and no share sheet.
+  // The capture chat «احكيها»: every composer send goes here.
+  ['POST', /^\/api\/mobile\/capture\/chat$/, { status: 200, body: captureChatProposal }],
   ['POST', /^\/api\/mobile\/capture\/share$/, { status: 200, body: captureShareProposal }],
   ['POST', /^\/api\/mobile\/capture$/, { status: 200, body: captureProposal }],
 

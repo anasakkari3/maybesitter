@@ -24,7 +24,7 @@
  * criteria require this, and `captureMachine.test.ts` asserts the module graph
  * pulls in no storage.
  */
-import type { CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
+import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { LocationTrigger } from '../../api/schemas/common';
 
@@ -42,7 +42,7 @@ export type CaptureStatus =
   | 'idle'
   /** The user is typing or has a transcript in the field. */
   | 'editing'
-  /** `POST /api/mobile/capture` in flight. */
+  /** A message to the chat (`POST /api/mobile/capture/chat`) in flight. */
   | 'analyzing'
   /** A proposal came back with at least one item to confirm. */
   | 'needsConfirmation'
@@ -208,6 +208,19 @@ export interface CaptureState {
   onceOnly: string[];
   /** The weekly blocks the confirm made, straight from the server's answer. */
   weeklySaved: NonNullable<CaptureConfirmation['weeklyBlocks']>;
+  /**
+   * The capture chat's conversation, as the server named it (owner decision
+   * 2026-09-30). Null until the first answer; the next message carries it.
+   * Memory only, like the draft: a closed capture forgets it.
+   */
+  conversationId: string | null;
+  /**
+   * The conversation as the server kept it — the person's messages and the
+   * assistant's replies, oldest first. The server's copy, not the phone's
+   * memory of what was said: it is bounded there, and it is what the model
+   * was shown.
+   */
+  turns: CaptureChatTurn[];
 }
 
 export type CaptureEvent =
@@ -215,6 +228,16 @@ export type CaptureEvent =
   | { type: 'textChanged'; text: string }
   | { type: 'analyzeStarted' }
   | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
+  /**
+   * The draft sent to the chat. It carries no text of its own — `textChanged`
+   * stays the one way words enter the flow — and `text` holds the message
+   * until the answer lands.
+   */
+  | { type: 'chatStarted' }
+  /** The chat's answer: its reply, its turns, and the proposal it holds now. */
+  | { type: 'chatAnswered'; answer: CaptureChatAnswer }
+  /** Back from a failed send to the conversation, with the message still in the field. */
+  | { type: 'dismissFailure' }
   /** The server's proposal after one question was answered (#165, #474). */
   | { type: 'clarified'; proposal: CaptureProposal }
   | { type: 'analyzeFailed'; kind: CaptureFailureKind; messageKey?: UserFacingKey; reason?: string }
@@ -273,6 +296,8 @@ export function initialCaptureState(
     undoable: false,
     onceOnly: [],
     weeklySaved: [],
+    conversationId: null,
+    turns: [],
   };
 }
 
@@ -440,6 +465,10 @@ export function hasUnsavedText(state: CaptureState): boolean {
 export function wantsDiscardConfirmation(state: CaptureState): boolean {
   if (state.status === 'saved') return false;
   if (state.proposal) {
+    // In a conversation, a message typed under the proposal and not sent yet
+    // is the person's words too. (Without one, `text` is the sentence the
+    // proposal was read from, which Back keeps.)
+    if (state.turns.length > 0 && state.text.trim() && state.status !== 'analyzing') return true;
     if (Object.keys(state.edits).length > 0) return true;
     if (state.onceOnly.length > 0) return true;
     const base = state.original ?? state.proposal;
@@ -469,6 +498,67 @@ function statusForProposal(proposal: CaptureProposal): CaptureStatus {
   }
 }
 
+/**
+ * The review status a proposal is in once the person's own edits are counted:
+ * a flagged item they completed by hand is confirmable (#492, #503).
+ */
+function reviewStatus(proposal: CaptureProposal, edits: Record<string, CaptureItemEdit>): CaptureStatus {
+  const status = statusForProposal(proposal);
+  return status === 'needsClarification' && confirmableItems(proposal, edits).length > 0 ? 'needsConfirmation' : status;
+}
+
+/** The statuses in which the cards of a proposal are on screen. */
+const REVIEWING: ReadonlySet<CaptureStatus> = new Set([
+  'needsConfirmation', 'needsClarification', 'unresolvedIntent', 'confirmFailed',
+]);
+
+/**
+ * What the chat's proposal is on screen: one that is not a refusal and has
+ * something to offer — an item to confirm, or a maybe to keep (#519) — or none.
+ *
+ * Today's server sends `null` itself for a proposal with no items
+ * (`captureChatService.shown`), so a maybe named on its own does not reach the
+ * chat yet; when it does, it is shown, never dropped here.
+ */
+export function chatProposalShown(proposal: CaptureProposal | null): CaptureProposal | null {
+  if (!proposal || proposal.status === 'rejected') return null;
+  return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 ? proposal : null;
+}
+
+/** The facts of an item the server decides; a talk edit changes one of these. */
+function sameServerFacts(a: CaptureProposal['items'][number], b: CaptureProposal['items'][number]): boolean {
+  return a.title === b.title && a.resolvedTime === b.resolvedTime && (a.resolvedDate ?? null) === (b.resolvedDate ?? null)
+    && a.needsClarification === b.needsClarification;
+}
+
+/**
+ * A follow-up's proposal, with what the person already did to the last one.
+ *
+ * The rule is by item id, and only the server can keep one: an id that
+ * survives names the same item. Its selection survives with it — a card the
+ * person took out stays out — and so does its hand edit, but only while the
+ * server's facts for that item are unchanged: if they changed, the person just
+ * said something about that item, and their newest words win over an older
+ * edit made by hand. Everything else — a new id, or the whole proposal new
+ * (today's server mints fresh ids every turn) — starts as a new proposal does:
+ * every confirmable item selected, no edits, weekly by default.
+ */
+function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly'> {
+  const before = new Map((state.proposal?.items ?? []).map((item) => [item.itemId, item]));
+  const wasConfirmable = confirmableItems(state.proposal, state.edits);
+  const edits: Record<string, CaptureItemEdit> = {};
+  for (const item of next.items) {
+    const old = before.get(item.itemId);
+    const edit = state.edits[item.itemId];
+    if (old && edit && sameServerFacts(old, item)) edits[item.itemId] = edit;
+  }
+  const defaults = defaultSelectedItems(next, edits);
+  const selected = confirmableItems(next, edits).filter((id) =>
+    wasConfirmable.includes(id) ? state.selected.includes(id) : defaults.includes(id));
+  const onceOnly = state.onceOnly.filter((id) => next.items.some((item) => item.itemId === id && item.weeklyBlock));
+  return { selected, edits, onceOnly };
+}
+
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
   switch (event.type) {
     case 'open': {
@@ -477,9 +567,14 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     }
 
     case 'textChanged': {
+      // The message in flight is not a draft; nothing types over it.
+      if (state.status === 'analyzing' || state.status === 'confirming') return state;
       // Truncated here rather than refused, so a long paste keeps its beginning
       // instead of silently doing nothing.
       const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      // Under a proposal the composer is the next message of the conversation:
+      // typing it changes nothing about the proposal on screen (#chat).
+      if (REVIEWING.has(state.status)) return { ...state, text };
       return { ...state, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
     }
 
@@ -497,6 +592,41 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         selected: defaultSelectedItems(event.proposal),
         edits: {},
         onceOnly: [],
+        errorReason: null,
+        messageKey: null,
+      };
+
+    case 'chatStarted':
+      if (!state.text.trim() || state.status === 'confirming' || state.status === 'analyzing') return state;
+      // The proposal and the conversation stay: a failed send goes back to
+      // them, and the answer's own proposal replaces this one when it lands.
+      return { ...state, status: 'analyzing', errorReason: null, messageKey: null };
+
+    case 'chatAnswered': {
+      const { answer } = event;
+      const proposal = chatProposalShown(answer.proposal);
+      const conversation = {
+        ...state,
+        // The message is in `turns` now; the field is for the next one.
+        text: '',
+        conversationId: answer.conversationId,
+        turns: answer.turns,
+        errorReason: null,
+        messageKey: null,
+      };
+      if (!proposal) {
+        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [] };
+      }
+      const carried = carriedInto(state, proposal);
+      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal };
+    }
+
+    case 'dismissFailure':
+      // Back from "that didn't go" to where the person was: the conversation,
+      // its proposal with their edits, and the message still in the field.
+      return {
+        ...state,
+        status: state.proposal ? reviewStatus(state.proposal, state.edits) : state.text.trim() ? 'editing' : 'idle',
         errorReason: null,
         messageKey: null,
       };
@@ -530,8 +660,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
               : 'extractionFailed',
         errorReason: event.reason ?? null,
         messageKey: event.messageKey ?? null,
-        proposal: null,
-        original: null,
+        // The proposal and the conversation are kept under the failure, so
+        // Back returns to them (`dismissFailure`): a message that did not go
+        // changed nothing about what was on screen.
       };
 
     case 'toggleItem': {
@@ -637,11 +768,23 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'undoWindowClosed':
       return { ...state, undoable: false };
 
-    case 'backToComposer':
-      // The text is kept on purpose: this is the Edit button on a
-      // no-commitment or error state, and losing what they wrote would be the
-      // worst possible response to "I could not read that".
-      return { ...state, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], errorReason: null, messageKey: null };
+    case 'backToComposer': {
+      // Back from the proposal to a fresh composer holding what the person
+      // said — their messages of this conversation, in order — so the words
+      // are never what is lost. The conversation itself ends: the next send
+      // starts a new one. With no conversation (a share's review, the
+      // no-commitment "rephrase") the text is simply kept, as it always was.
+      const said = state.turns.filter((turn) => turn.role === 'user').map((turn) => turn.text).join('\n');
+      const text = (said || state.text).slice(0, MAX_CAPTURE_LENGTH);
+      return {
+        ...state,
+        text,
+        status: text.trim() ? 'editing' : 'idle',
+        proposal: null, original: null, selected: [], edits: {}, onceOnly: [], errorReason: null, messageKey: null,
+        conversationId: null,
+        turns: [],
+      };
+    }
 
     case 'reset':
       return initialCaptureState(state.source, state.inputMode);

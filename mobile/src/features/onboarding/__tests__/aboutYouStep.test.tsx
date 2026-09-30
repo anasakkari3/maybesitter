@@ -1,31 +1,16 @@
 /**
- * "What's your week like?", on both sides of the AI answer (UC-2.7b, #168).
+ * "What's your week like?" (UC-2.7b, #168), reached the way a person does.
  *
- * ── Why the consent is given by pressing the button ──────────────
- *
- * The flow picks the manual card or the guided setup from the AI answer, so
- * a test could render `AboutYouStep` on its own and read the manual card
- * back. That would prove the component renders, not that a person who
- * declined AI on the consent screen ends up there — and the card is only
- * worth anything because of what the user said three screens earlier. So
- * this drives the whole flow: Continue, Decline, Skip, and then look at what
- * is on screen.
+ * AI processing is no longer a question (owner decision 2026-09-30): the
+ * consent screen discloses it, and every account gets the guided setup. The
+ * manual card that a declined AI answer led to is gone with the answer.
  *
  * ── The claim is about the request, not about the field ──────────
  *
- * With AI declined the promise is that nothing is sent to the model, and the
- * only place that is observable is `POST /api/mobile/profile/describe`. The
- * server would refuse it anyway — 403 `consent_required`, in
- * `src/app/api/mobile/profile/describe/route.ts` — but a client that asks and
- * is turned away has still sent somebody's paragraph to a server that has
- * been told not to read it. So the assertion is on the endpoint spy: it is
- * never called, on a path that does reach the end of the step.
- *
- * ── And the other branch, so "never called" means something ──────
- *
- * A test that only asserts an absence passes just as well when the screen is
- * broken and nothing happens at all. The consented path is here too, pressed
- * the same way, and it does reach describe.
+ * What leaves the phone is observable only at `POST /api/mobile/profile/
+ * describe`, so the assertions are on that endpoint spy: called with exactly
+ * what was typed once "Read my answers" is pressed, and never for an empty
+ * description.
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
@@ -98,8 +83,6 @@ beforeEach(async () => {
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
   jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(CONSENTS);
-  jest.spyOn(consentEndpoints, 'putAiConsent')
-    .mockResolvedValue({ success: true, aiProcessing: { state: 'granted', version: 'ai-consent-v1', changedAt: 'x' } } as never);
   jest.spyOn(consentEndpoints, 'putRecommendationConsent')
     .mockResolvedValue({ success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never);
   jest.spyOn(trustEndpoints, 'updateTrust').mockResolvedValue({} as never);
@@ -144,15 +127,16 @@ async function press(label: string) {
 }
 
 /**
- * Sign-in to the self-description screen, answering the AI question the way
- * the caller says. Everything in between is pressed, not stubbed.
+ * Sign-in to the self-description screen. Everything in between is pressed,
+ * not stubbed.
  */
-async function reachAboutYou(answer: 'allow' | 'decline') {
+async function reachAboutYou() {
   await renderOnboarding();
   await press(en.obContinue);
   await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
+  // The AI disclosure is on the way in; there is nothing to answer about it.
+  expect(screen.queryByTestId('onboarding-ai-disclosure')).not.toBeNull();
 
-  await press(answer === 'allow' ? en.obAiAllow : en.obAiDecline);
   await press(en.obContinue);
   await waitFor(() => expect(screen.queryByTestId('onboarding-routine')).not.toBeNull());
 
@@ -160,39 +144,6 @@ async function reachAboutYou(answer: 'allow' | 'decline') {
   await press(en.obSkip);
   await waitFor(() => expect(screen.queryByTestId('onboarding-progress-about')).not.toBeNull());
 }
-
-describe('when the user declined AI', () => {
-  it('shows the manual screen, and never offers a box to describe themselves in', async () => {
-    await reachAboutYou('decline');
-
-    expect(screen.queryByTestId('onboarding-about-manual')).not.toBeNull();
-    expect(screen.queryByTestId('onboarding-setup')).toBeNull();
-    // Not "there but disabled": reading the answers needs a model, and with
-    // the model refused there is nothing this screen could do with them.
-    expect(screen.queryByTestId('setup-answer-input')).toBeNull();
-    expect(screen.queryByText(en.obAboutManualBody)).not.toBeNull();
-  });
-
-  it('finishes the step without asking the model anything', async () => {
-    await reachAboutYou('decline');
-    await press(en.obContinue);
-    // The step really did end — this is not "nothing happened".
-    await waitFor(() => expect(screen.queryByTestId('onboarding-notifications')).not.toBeNull());
-
-    // The whole point: the client never asked. The server would refuse it with
-    // 403 `consent_required`, but by then the text has already left the phone.
-    expect(describeProfile).not.toHaveBeenCalled();
-  });
-
-  it('can go back to the consent screen and change the answer', async () => {
-    // The branch has to be reversible, or declining is a trap: the only way
-    // back to the description is the answer that produced the manual screen.
-    await reachAboutYou('decline');
-    await press(en.obBack);
-    await waitFor(() => expect(screen.queryByTestId('onboarding-routine')).not.toBeNull());
-    expect(describeProfile).not.toHaveBeenCalled();
-  });
-});
 
 /** Through the five questions with one typed answer, to "Read my answers". */
 async function answerAndRead(text: string) {
@@ -203,9 +154,9 @@ async function answerAndRead(text: string) {
   await press(en.obSetupRead);
 }
 
-describe('when the user allowed AI', () => {
+describe('the guided setup, which every account now gets', () => {
   it('offers the guided setup, and sends what they wrote to describe', async () => {
-    await reachAboutYou('allow');
+    await reachAboutYou();
 
     expect(screen.queryByTestId('onboarding-setup')).not.toBeNull();
     expect(screen.queryByTestId('onboarding-about-manual')).toBeNull();
@@ -224,7 +175,7 @@ describe('when the user allowed AI', () => {
   });
 
   it('will not send an empty description', async () => {
-    await reachAboutYou('allow');
+    await reachAboutYou();
     // Whitespace is not an answer: the first screen's CTA stays shut, and
     // "Not now" ends the step without reading anything.
     await fireEvent.changeText(screen.getByTestId('setup-life-input'), '   ');
@@ -252,7 +203,7 @@ describe('when the user allowed AI', () => {
  */
 describe('when the checklist cannot be saved', () => {
   async function reachTheChecklist() {
-    await reachAboutYou('allow');
+    await reachAboutYou();
     await answerAndRead('I want to swim again');
     await waitFor(() => expect(screen.queryByTestId('onboarding-about-review')).not.toBeNull());
     // Tick the one suggestion, so there is something whose loss would matter.

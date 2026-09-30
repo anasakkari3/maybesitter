@@ -14,7 +14,12 @@ import {
   invalidTransitionSchema,
   staleCommitmentSchema,
 } from '../schemas/commitments';
-import { captureConfirmationSchema, captureProposalSchema } from '../schemas/capture';
+import {
+  captureChatRefusalSchema,
+  captureChatSchema,
+  captureConfirmationSchema,
+  captureProposalSchema,
+} from '../schemas/capture';
 import { shareProposalSchema } from '../schemas/share';
 import { meetingPrepResponseSchema } from '../schemas/meetings';
 import { nextStepDecisionResponseSchema, nextStepResponseSchema } from '../schemas/nextStep';
@@ -170,6 +175,14 @@ const CASES: Array<[string, z.ZodType]> = [
   ['capture.shareProposal', shareProposalSchema],
   ['capture.confirmation', captureConfirmationSchema],
   ['capture.confirmationFailed', captureConfirmationSchema],
+  // The capture chat «احكيها» (owner decision 2026-09-30): a first message
+  // on the model, a follow-up that changes the list, the rules' answer when no
+  // model is available, and the two refusals the flow acts on.
+  ['capture.chatProposal', captureChatSchema],
+  ['capture.chatUpdated', captureChatSchema],
+  ['capture.chatRules', captureChatSchema],
+  ['capture.chatNotFound', captureChatRefusalSchema],
+  ['capture.chatTooLong', captureChatRefusalSchema],
   ['commitments.today', commitmentListSchema],
   ['commitments.upcoming', commitmentListSchema],
   ['commitments.one', commitmentSchema],
@@ -362,7 +375,6 @@ const CASES: Array<[string, z.ZodType]> = [
   ['google.driveImport', shareProposalSchema],
   ['google.refusedNotConfigured', googleRefusalSchema],
   ['google.refusedDenied', googleRefusalSchema],
-  ['google.refusedAiConsent', googleRefusalSchema],
   ['google.refusedReauth', googleRefusalSchema],
 ];
 

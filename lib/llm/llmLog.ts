@@ -61,6 +61,8 @@ const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Objec
   goal_decomposition: 'planning',
   // «حضّرني» (CL5a): the feature the cost contract already names for it.
   meeting_prep: 'meeting_intelligence',
+  // The capture chat is capture: the same items, reached by talking.
+  capture_chat: 'capture',
 });
 
 function statusFor(outcome: LlmOutcome): CostOperationStatus {

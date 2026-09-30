@@ -39,6 +39,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -158,7 +159,7 @@ describe('the flow is reachable from the tab bar', () => {
   });
 
   it('typing and analyzing calls the real endpoint and shows the server’s proposal', async () => {
-    const propose = jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    const propose = jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
@@ -176,9 +177,10 @@ describe('the flow is reachable from the tab bar', () => {
   it('lets go of the keyboard before the text is sent', async () => {
     const order: string[] = [];
     jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => { order.push('dismiss'); });
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockImplementation((async () => {
+    const server = chatServer(() => proposal());
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation((async (input: { conversationId: string | null; message: string }) => {
       order.push('propose');
-      return proposal();
+      return server(input);
     }) as never);
     await openApp();
     await enterCapture();
@@ -187,21 +189,22 @@ describe('the flow is reachable from the tab bar', () => {
   });
 
   it('sends the text the user typed, with a timezone and a reference time', async () => {
-    const propose = jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    const propose = jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze('Call the clinic at 9');
 
     // The endpoint fills `referenceTime` itself, so what the flow must supply
     // is the text and the zone the server resolves "at 9" against.
-    const sent = propose.mock.calls[0]![0] as { text: string; timezone?: string };
-    expect(sent.text).toBe('Call the clinic at 9');
+    const sent = propose.mock.calls[0]![0] as { message: string; timezone?: string; conversationId: string | null };
+    expect(sent.message).toBe('Call the clinic at 9');
+    expect(sent.conversationId).toBeNull();
     expect(typeof sent.timezone).toBe('string');
     expect(sent.timezone).not.toBe('');
   });
 
   it('analyze is refused while the field is empty', async () => {
-    const propose = jest.spyOn(captureEndpoints, 'proposeCapture');
+    const propose = jest.spyOn(captureEndpoints, 'chatCapture');
     await openApp();
     await enterCapture();
     const send = screen.queryByTestId('capture-analyze');
@@ -214,7 +217,7 @@ describe('the flow is reachable from the tab bar', () => {
 
 describe('review sends only what was selected', () => {
   it('confirms both by default', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     await openApp();
     await enterCapture();
@@ -228,7 +231,7 @@ describe('review sends only what was selected', () => {
   });
 
   it('drops a deselected item from the confirm, and leaves it on screen', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     await openApp();
     await enterCapture();
@@ -246,7 +249,7 @@ describe('review sends only what was selected', () => {
   });
 
   it('cannot confirm nothing', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     const confirm = jest.spyOn(captureEndpoints, 'confirmCapture');
     await openApp();
     await enterCapture();
@@ -260,7 +263,7 @@ describe('review sends only what was selected', () => {
   });
 
   it('says nothing has been saved yet, on the screen where it matters most', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
@@ -268,7 +271,7 @@ describe('review sends only what was selected', () => {
   });
 
   it('marks an importance the extractor guessed', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
@@ -279,7 +282,7 @@ describe('review sends only what was selected', () => {
 
 describe('success shows what the server saved', () => {
   it('lists only persisted items', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     await openApp();
     await enterCapture();
@@ -292,7 +295,7 @@ describe('success shows what the server saved', () => {
   });
 
   it('shows refused items apart from saved ones', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(
       confirmation({ failed: [{ itemId: 'i-2', reason: 'invalid_time' }] }) as never,
     );
@@ -305,7 +308,7 @@ describe('success shows what the server saved', () => {
   });
 
   it('undo deletes what was saved, and says so only when nothing is left', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     const remove = jest.spyOn(commitmentEndpoints, 'deleteCommitment')
       .mockResolvedValue({ deleted: false, softDeleted: true, id: 'c-1' } as never);
@@ -322,7 +325,7 @@ describe('success shows what the server saved', () => {
   });
 
   it('never claims a full undo when a delete failed', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     jest.spyOn(commitmentEndpoints, 'deleteCommitment').mockRejectedValue(new Error('offline'));
     await openApp();
@@ -339,41 +342,51 @@ describe('success shows what the server saved', () => {
   });
 });
 
-describe('nothing to save (#166)', () => {
-  it('says only that, with the server’s reason and no echo of the message', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(
-      proposal({ status: 'no_commitment', noCommitmentReason: 'greeting_or_chat', items: [] }) as never,
-    );
+/*
+ * In the chat, a message that names nothing to save is answered by the
+ * assistant — the server's reply already speaks to the reason (#166's reason
+ * codes feed `templateReply`) — and the proposal is `null`: no cards, no
+ * confirm, nothing saved. The neutral full-screen line is for a proposal that
+ * arrives some other way.
+ */
+describe('nothing to save (#166), in the chat', () => {
+  it('shows the assistant’s reply, and no card, no confirm, nothing saved', async () => {
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture');
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(
+      () => proposal({ status: 'no_commitment', noCommitmentReason: 'greeting_or_chat', items: [] }),
+      { reply: () => 'Hi! What should I note down for you?' },
+    ) as never);
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'hey, how are you');
     await fireEvent.press(screen.getByTestId('capture-analyze'));
-    await waitFor(() => expect(screen.queryByTestId('capture-nothing')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText('Hi! What should I note down for you?')).not.toBeNull());
 
-    expect(screen.getByTestId('capture-nothing-reason').props.children)
-      .toBe(en.noCommitmentGreetingOrChat);
-    // The message is not quoted back. Repeating what somebody wrote under a
-    // heading is a response to the person rather than to their request.
-    expect(screen.queryByText(/hey, how are you/)).toBeNull();
+    expect(screen.queryByTestId('chat-schedule')).toBeNull();
+    expect(screen.queryByTestId('review-confirm')).toBeNull();
+    expect(screen.queryByTestId('capture-nothing')).toBeNull();
+    // The field is empty and ready for the next message.
+    expect(screen.getByTestId('capture-input').props.value).toBe('');
+    expect(confirm).not.toHaveBeenCalled();
   });
 
-  it('falls back to the neutral line for a reason this build does not know', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(
-      proposal({ status: 'no_commitment', noCommitmentReason: undefined, items: [] }) as never,
-    );
+  it('a refused request is no card either', async () => {
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(
+      () => proposal({ status: 'rejected' }),
+    ) as never);
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'mm');
     await fireEvent.press(screen.getByTestId('capture-analyze'));
-    await waitFor(() => expect(screen.queryByTestId('capture-nothing')).not.toBeNull());
-    expect(screen.getByTestId('capture-nothing-reason').props.children)
-      .toBe(en.noCommitmentInformational);
+    await waitFor(() => expect(screen.queryByTestId('chat-turn-assistant-1')).not.toBeNull());
+    expect(screen.queryByTestId('chat-schedule')).toBeNull();
+    expect(screen.queryByTestId('review-confirm')).toBeNull();
   });
 });
 
 describe('failures are told apart', () => {
   it('offers a retry for a network failure', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockRejectedValue(new NetworkError('offline'));
+    jest.spyOn(captureEndpoints, 'chatCapture').mockRejectedValue(new NetworkError('offline'));
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'something');
@@ -383,7 +396,7 @@ describe('failures are told apart', () => {
   });
 
   it('offers no retry for input the server refused', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockRejectedValue(new ValidationError('too long'));
+    jest.spyOn(captureEndpoints, 'chatCapture').mockRejectedValue(new ValidationError('too long'));
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'something');
@@ -415,7 +428,7 @@ describe('a spent AI quota says so', () => {
 
   async function refuse(error: unknown, lang: 'en' | 'ar' = 'en') {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockRejectedValue(error as Error);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockRejectedValue(error as Error);
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), TYPED);
@@ -535,7 +548,7 @@ describe('the one question (#165)', () => {
   });
 
   async function reachTheQuestion() {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(asking() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (asking())) as never);
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'remind me to call Dana');
@@ -686,7 +699,7 @@ describe('the one question (#165)', () => {
     question.params = { title: 'Call Dana', time: '19:00' };
     question.options = [{ optionId: 'tomorrow', labelKey: 'tomorrow', labelParams: {}, value: { localDate: '2099-01-01', localTime: '19:00' } }];
     const clarify = jest.spyOn(captureEndpoints, 'clarifyCapture');
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(day as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (day)) as never);
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'remind me to call Dana at 7');
@@ -704,7 +717,7 @@ describe('the one question (#165)', () => {
     const unknown = asking();
     (unknown.items[0] as unknown as { clarification: { questionKey: string } })
       .clarification.questionKey = 'ask_something_new';
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(unknown as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (unknown)) as never);
     await openApp();
     await enterCapture();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'remind me to call Dana');
@@ -745,7 +758,7 @@ describe('the one question (#165)', () => {
 
 describe('editing before anything is saved (#164)', () => {
   async function reachReview() {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
@@ -864,7 +877,7 @@ describe('editing before anything is saved (#164)', () => {
  */
 describe('the undo is counted, and nothing else about it is', () => {
   async function saveThenUndo() {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     jest.spyOn(commitmentEndpoints, 'deleteCommitment')
       .mockResolvedValue({ deleted: false, softDeleted: true, id: 'c-1' } as never);
@@ -895,7 +908,7 @@ describe('the undo is counted, and nothing else about it is', () => {
   it('splits a partial undo into what went and what stayed', async () => {
     jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trust(true) as never);
     const record = jest.mocked(analyticsEndpoints.recordAnalyticsEvent);
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     jest.spyOn(commitmentEndpoints, 'deleteCommitment').mockRejectedValue(new Error('offline'));
     await openApp();
@@ -944,7 +957,7 @@ describe('a saved item that lands on something already there (football fixtures,
     ['he', he.savedCollision],
   ])('warns that a saved item lands on something already there, naming it (%s)', async (lang, template) => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({
       collisions: [{ commitmentId: 'match-1', title: 'FC Barcelona – Real Madrid CF', startsAt: SOON, endsAt: LATER }],
     }) as never);
@@ -960,7 +973,7 @@ describe('a saved item that lands on something already there (football fixtures,
   });
 
   it('says nothing about collisions when there are none', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation({ collisions: [] }) as never);
     await openApp();
     await enterCapture();
@@ -973,7 +986,7 @@ describe('a saved item that lands on something already there (football fixtures,
 
 describe('review discard confirmation (#504)', () => {
   it('Cancel all closes immediately without confirmation when proposal is untouched', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
@@ -984,7 +997,7 @@ describe('review discard confirmation (#504)', () => {
   });
 
   it('Cancel all asks for confirmation when an item is deselected', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
@@ -1007,7 +1020,7 @@ describe('review discard confirmation (#504)', () => {
   });
 
   it('Cancel all asks for confirmation when an edit is made', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openApp();
     await enterCapture();
     await typeAndAnalyze();
@@ -1025,7 +1038,7 @@ describe('review discard confirmation (#504)', () => {
 describe('Review at accessibility text sizes', () => {
   it('keeps the chat header and confirmation reachable with the reviewable facts', async () => {
     jest.spyOn(textScale, 'useLayoutMode').mockReturnValue('xl');
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     await openApp();
     await enterCapture();

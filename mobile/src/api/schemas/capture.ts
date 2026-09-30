@@ -220,3 +220,51 @@ export const captureConfirmationSchema = z.object({
 });
 
 export type CaptureConfirmation = z.infer<typeof captureConfirmationSchema>;
+
+/**
+ * One line of the capture chat «احكيها» (owner decision 2026-09-30): the
+ * person's message or the assistant's reply, as the server kept it.
+ */
+export const captureChatTurnSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  text: z.string(),
+});
+
+export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
+
+/**
+ * Mirrors `capture.chatProposal.json`, `capture.chatUpdated.json` and
+ * `capture.chatRules.json` — `POST /api/mobile/capture/chat`.
+ *
+ * `proposal` is exactly what `POST /api/mobile/capture` returns, and its
+ * `proposalId` is what `/capture/clarify` and `/capture/confirm` take: the chat
+ * proposes, it never saves. `null` when the conversation holds nothing to
+ * confirm (a greeting, a question, everything removed by talk). `reply` has
+ * already passed the server's own check (`chatReply`), and is shown as it is —
+ * it is words, never a state: nothing reads "saved" off it. `turns` is the
+ * conversation as the server kept it, oldest first, bounded; it is the record
+ * the screen draws, not the phone's own memory of what was said.
+ */
+export const captureChatSchema = z.object({
+  conversationId: z.string(),
+  reply: z.string(),
+  engine: z.enum(['model', 'rules']),
+  proposal: captureProposalSchema.nullable(),
+  turns: z.array(captureChatTurnSchema),
+});
+
+export type CaptureChatAnswer = z.infer<typeof captureChatSchema>;
+
+/**
+ * What the chat route refuses with (`capture.chatNotFound.json`,
+ * `capture.chatTooLong.json`). The reason is what the client acts on:
+ * `conversation_not_found` starts a fresh conversation once, `text_too_long`
+ * is the capture's own too-long line.
+ */
+export const captureChatRefusalSchema = z.object({
+  success: z.literal(false),
+  error: z.string(),
+  reason: z.enum(['message_required', 'invalid_conversation_id', 'conversation_not_found', 'text_too_long', 'payload_too_large']),
+  maxCharacters: z.number().int().positive().optional(),
+  maxBytes: z.number().int().positive().optional(),
+});

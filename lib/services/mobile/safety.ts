@@ -59,6 +59,11 @@ const NEGATED_REQUEST = new RegExp([
   /אל תזכיר לי|אל תזכירי לי|לא צריך להזכיר|תפסיק להזכיר|תפסיקי להזכיר/.source,
 ].join('|'), 'i');
 
+/** The words refuse the request outright — the check `guardedMobileExtract` makes first. */
+export function isNegatedRequest(rawText: string): boolean {
+  return NEGATED_REQUEST.test(rawText);
+}
+
 type MobileExtractor = (
   rawText: string,
   context: ExtractionContext,

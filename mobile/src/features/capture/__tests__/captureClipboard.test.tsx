@@ -36,6 +36,7 @@ import { MAX_CAPTURE_LENGTH, captureReducer, initialCaptureState, type CaptureEv
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 // The pasteboard is native. Mocked at the module boundary so each case can say
 // what was copied — including "an image", which `getStringAsync` reports as an
@@ -203,7 +204,7 @@ describe('an empty clipboard is answered calmly', () => {
 describe('pasted text lands where typed text lands', () => {
   it('puts it in the composer, in the same state typing produces', async () => {
     clipboard.mockResolvedValue(COPIED);
-    const propose = jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    const propose = jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     await openComposer();
     await pressPaste();
     await fireEvent.press(screen.getByTestId('capture-clipboard-use'));
@@ -218,7 +219,7 @@ describe('pasted text lands where typed text lands', () => {
   });
 
   it('sends exactly what typing the same words sends', async () => {
-    const propose = jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    const propose = jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
 
     clipboard.mockResolvedValue(COPIED);
     await openComposer();
@@ -238,14 +239,15 @@ describe('pasted text lands where typed text lands', () => {
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
     const typed = propose.mock.calls[0]![0] as Record<string, unknown>;
 
-    expect(pasted.text).toBe(COPIED);
-    expect(pasted.text).toBe(typed.text);
+    expect(pasted.message).toBe(COPIED);
+    expect(pasted.message).toBe(typed.message);
+    expect(pasted.conversationId).toBe(typed.conversationId);
     expect(pasted.timezone).toBe(typed.timezone);
   });
 
   it('goes through the whole machine — review, confirm, undo', async () => {
     clipboard.mockResolvedValue(COPIED);
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
     await openComposer();
     await pressPaste();
@@ -333,6 +335,11 @@ describe('there is only one way in', () => {
       { type: 'analyzeStarted' },
       { type: 'analyzeSucceeded', proposal: proposal() as never },
       { type: 'analyzeFailed', kind: 'network' },
+      // The chat's own events: a send carries no words (it sends `text`), an
+      // answer's words land in `turns`, never in the draft.
+      { type: 'chatStarted' },
+      { type: 'chatAnswered', answer: { conversationId: 'c', reply: SMUGGLED, engine: 'rules', proposal: null, turns: [{ role: 'user', text: SMUGGLED }] } },
+      { type: 'dismissFailure' },
       { type: 'toggleItem', itemId: 'i-1' },
       { type: 'editItem', itemId: 'i-1', edit: { title: 'x' } },
       { type: 'clearEdit', itemId: 'i-1' },
@@ -358,7 +365,7 @@ describe('there is only one way in', () => {
     // The import sheet's only output is wired to `setText`. If a future edit
     // gave it an `analyze()` or an endpoint of its own, this is what notices.
     expect(source).toMatch(/onUse=\{text => \{ changeText\(text\); setClipboard\(null\); \}\}/);
-    expect(source).toContain('if (reviewing) setReply(text); else flow.setText(text);');
+    expect(source).toContain('const changeText = (text: string) => flow.setText(text);');
     const sheet = readFileSync(join(__dirname, '..', 'ClipboardImportSheet.tsx'), 'utf8');
     for (const forbidden of ['flow.analyze', 'useCaptureFlow', 'api/endpoints', 'apiRequest', 'proposeCapture', 'confirmCapture']) {
       expect(sheet).not.toContain(forbidden);

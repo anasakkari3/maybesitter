@@ -1,5 +1,12 @@
 import { apiRequest } from '../client';
-import { captureConfirmationSchema, captureProposalSchema, type CaptureConfirmation, type CaptureProposal } from '../schemas/capture';
+import {
+  captureChatSchema,
+  captureConfirmationSchema,
+  captureProposalSchema,
+  type CaptureChatAnswer,
+  type CaptureConfirmation,
+  type CaptureProposal,
+} from '../schemas/capture';
 
 /**
  * Capture is two calls on purpose. The first proposes and persists nothing;
@@ -54,6 +61,36 @@ export function proposeCapture(input: {
     },
     schema: captureProposalSchema,
     ...(input.signal ? { signal: input.signal } : {}),
+  });
+}
+
+/**
+ * One message to the capture chat «احكيها» (owner decision 2026-09-30).
+ *
+ * No `conversationId` starts a conversation; the answer names the one to send
+ * next. Nothing is saved by this call — the proposal in the answer is saved
+ * only by `confirmCapture`, when the person presses confirm.
+ *
+ * Not retried here, and never by the query layer (`retry: false` on every
+ * mutation): a message is somebody's words, and sending it twice would put
+ * the same sentence in the conversation twice. The one recovery the flow
+ * makes — a `ConversationNotFoundError` restarts with the same message, once —
+ * is the caller's, in `captureFlowActions.chatTurn`, where it can be read.
+ */
+export function chatCapture(input: {
+  conversationId: string | null;
+  message: string;
+  timezone: string;
+  referenceTime?: string;
+}): Promise<CaptureChatAnswer> {
+  return apiRequest('POST', '/api/mobile/capture/chat', {
+    body: {
+      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+      message: input.message,
+      timezone: input.timezone,
+      referenceTime: input.referenceTime ?? new Date().toISOString(),
+    },
+    schema: captureChatSchema,
   });
 }
 

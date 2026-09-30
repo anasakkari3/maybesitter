@@ -57,9 +57,12 @@ async function blocksOf(uid: string): Promise<WeeklyBlockDocument[]> {
 
 test('a stated weekly range is offered as a weekly block, in all three languages', async () => {
   for (const [text, title] of [
-    [TRAINING, 'عندي تدريب'],
-    ['יש לי התמחות כל שבת מ-10 עד 4', 'יש לי התמחות'],
+    // The possession lead-in goes too (runtime UAT 2026-09-30): a block is
+    // the thing itself, «تدريب», not «عندي تدريب».
+    [TRAINING, 'تدريب'],
+    ['יש לי התמחות כל שבת מ-10 עד 4', 'התמחות'],
     ['internship every Saturday 10 to 4', 'internship'],
+    ['I have an internship every Saturday from 10 to 4', 'internship'],
   ] as const) {
     const uid = fresh();
     const { items } = await propose(uid, text);
@@ -88,7 +91,7 @@ test('a bare 2 is asked صبح/مسا first; answered, the offer appears with th
     proposalId: proposal.proposalId, itemId: items[0]!.itemId, questionId: items[0]!.clarification!.questionId,
     optionId: pm.optionId, timezone: TZ, referenceTime: TUE.toISOString(),
   }, { participantId: uid });
-  assert.deepEqual((answered.items as Item[])[0]!.weeklyBlock, { title: 'عندي تدريب', weekdays: [6], start: '14:00', end: '16:00', timezone: TZ });
+  assert.deepEqual((answered.items as Item[])[0]!.weeklyBlock, { title: 'تدريب', weekdays: [6], start: '14:00', end: '16:00', timezone: TZ });
 });
 
 test('confirmed as weekly: one block, its busy time, and no one-off commitment', async () => {
@@ -106,7 +109,7 @@ test('confirmed as weekly: one block, its busy time, and no one-off commitment',
   assert.ok(block, 'no weekly block was stored');
   assert.deepEqual(
     [block.title, block.weekdays, block.start, block.end, block.timezone, block.status, block.source],
-    ['عندي تدريب', [6], '10:00', '16:00', TZ, 'active', 'capture'],
+    ['تدريب', [6], '10:00', '16:00', TZ, 'active', 'capture'],
   );
   assert.ok(Number.isFinite(Date.parse(block.confirmedAt)));
   assert.deepEqual(confirmed.weeklyBlocks.map((entry) => [entry.itemId, entry.block.id]), [[items[0]!.itemId, block.id]]);

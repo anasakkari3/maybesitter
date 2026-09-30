@@ -27,7 +27,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { fill, ltr } from '../../i18n/strings';
 import { family, LINE_HEIGHT } from '../../theme/fonts';
-import { useAiConsentGranted, usePrepareMeeting } from '../../api/queries';
+import { usePrepareMeeting } from '../../api/queries';
 import { ValidationError } from '../../api/errors';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import { useCaptureFlow } from '../capture/CaptureProvider';
@@ -41,7 +41,6 @@ export function MeetingPrepSheet() {
   const timezone = useTimeZone();
   const flow = useCaptureFlow();
   const prepare = usePrepareMeeting();
-  const { granted: aiGranted, loading: consentLoading } = useAiConsentGranted();
   const insets = useSafeAreaInsets();
   // Lifted onto the keyboard (the host is an AvoidKeyboard): the keyboard
   // covers the home indicator, so its clearance is room the notes need.
@@ -130,12 +129,6 @@ export function MeetingPrepSheet() {
           </Txt>
         ) : null}
       </View>
-
-      {/* Said before they press, not after: without AI the step is the first
-          one they wrote, and that is worth knowing while they are writing.
-          Not while the answer is still loading — a line that flashes and goes
-          is noise. */}
-      {!aiGranted && !consentLoading ? <Txt size={13} color={p.mu} testID="meeting-prep-ai-off">{t.xPrepareAiOff}</Txt> : null}
 
       {/* Announced when it appears: the field keeps focus, and a refusal
           nobody hears reads as a button that did nothing. The region is

@@ -80,27 +80,31 @@ async function withStorage<T>(fn: (storage: StorageAdapter) => Promise<T>): Prom
 
 const NO_METERING = { reserve: async () => 'ok' as const, commit: async () => {}, log: () => {} };
 
-test('with AI consent off, the provider is never called', async () => {
+test('AI is always on: with nothing recorded, the provider is asked', async () => {
   await withStorage(async (storage) => {
-    // Nothing recorded at all: "missing means declined" is the consent rule.
-    const provider = fakeProvider('{"text":"anything"}');
+    // Nothing recorded at all. Since the owner's always-on decision
+    // (2026-09-30, `lib/consents/aiProcessingPolicy`) that reads as granted.
+    const provider = fakeProvider('{"text":"You have 1 thing at 09:00, and 1 that did not fit."}');
     const outcome = await explainPlan(UID, PLAN, TITLES, FACTS, TZ, {
       storage, provider, ...NO_METERING,
     });
 
-    assert.equal(provider.calls.length, 0, 'a commitment title was sent to a model without consent');
-    assert.equal(outcome.explanation.source, 'template');
-    assert.equal(outcome.fallbackReason, 'consent_required');
-    assert.equal(outcome.explanation.text, templateExplanation(FACTS));
+    assert.equal(provider.calls.length, 1);
+    assert.equal(outcome.explanation.source, 'model');
   });
 });
 
-test('with consent explicitly declined, the provider is still never called', async () => {
+test('a consent reader that says declined still keeps the provider from being called', async () => {
+  // The gate is kept: whatever reads as declined is obeyed before the model.
   await withStorage(async (storage) => {
-    await setAiConsent(UID, { state: 'declined', version: AI_CONSENT_VERSION }, { storage });
     const provider = fakeProvider('{"text":"anything"}');
-    await explainPlan(UID, PLAN, TITLES, FACTS, TZ, { storage, provider, ...NO_METERING });
-    assert.equal(provider.calls.length, 0);
+    const outcome = await explainPlan(UID, PLAN, TITLES, FACTS, TZ, {
+      storage, provider, consent: async () => 'declined', ...NO_METERING,
+    });
+    assert.equal(provider.calls.length, 0, 'a commitment title was sent to a model past a declined gate');
+    assert.equal(outcome.explanation.source, 'template');
+    assert.equal(outcome.fallbackReason, 'consent_required');
+    assert.equal(outcome.explanation.text, templateExplanation(FACTS));
   });
 });
 

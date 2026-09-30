@@ -17,6 +17,7 @@ import {
   RecentLoginRequiredError,
   NetworkError,
   NotFoundError,
+  ConversationNotFoundError,
   FeatureUnavailableError,
   CaptureConfirmRefusedError,
   CAPTURE_CONFIRM_FAILURE_CODES,
@@ -314,6 +315,9 @@ function errorForStatus(status: number, body: unknown, path?: string): Error {
       // A module the server has switched off (`moduleGate.ts`). Not "gone":
       // it was never on, and it reads as a disabled feature does.
       if (reason === 'feature_unavailable') return new FeatureUnavailableError(message);
+      // The capture chat's conversation is gone (expired, or not this
+      // account's). The flow starts a new one with the same message, once.
+      if (reason === 'conversation_not_found') return new ConversationNotFoundError(message);
       return new NotFoundError(message);
     case 409:
       return conflictFor(body);

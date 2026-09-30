@@ -25,6 +25,7 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -63,7 +64,7 @@ beforeEach(async () => {
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(trustEndpoints, 'getTrust')
     .mockResolvedValue({ success: true, participantId: 'chat-user', trust: { analyticsConsent: false } } as never);
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
   backHandlers = [];
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation(((_name: string, handler: () => boolean) => {
     backHandlers.push(handler);

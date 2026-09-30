@@ -48,9 +48,15 @@ export type ConsentLocale = 'ar' | 'he' | 'en';
 export type ConsentPlatform = 'ios' | 'android';
 
 /**
- * The five things `ai-consent-v1` tells the user, in the order the card shows
+ * The five things `ai-consent-v1` told the user, in the order the card showed
  * them. These are the *claims*, not the translated copy: a translation may be
  * reworded without a new version, but what is promised may not.
+ *
+ * A historical record since 2026-09-30, kept unedited because it is what the
+ * people who answered v1 were shown. Its last claim — optional, changeable in
+ * settings — is no longer true (AI processing is always on,
+ * `lib/consents/aiProcessingPolicy`), and no screen shows this card any more:
+ * what the app tells people now is `AI_PROCESSING_DISCLOSURE_CLAIMS_V1`.
  */
 export const AI_CONSENT_CLAIMS_V1 = [
   'what_is_sent:typed_or_dictated_text,date_time,timezone,optional_self_description',
@@ -58,6 +64,33 @@ export const AI_CONSENT_CLAIMS_V1 = [
   'why:turn_words_into_reminders_and_plans',
   'what_is_not_sent:name,email,contacts,calendar,location',
   'optional:changeable_in_settings',
+] as const;
+
+/**
+ * AI processing is disclosed, not asked (owner decision 2026-09-30).
+ *
+ * The capture page is a chat on the model and AI processing can no longer be
+ * declined, so the consent card became a disclosure: shown on the onboarding
+ * consent step, on the capture page before the first message, and at the top
+ * of the trust centre, with nothing to answer. Nothing is recorded for it.
+ * These are its claims, in the order the copy states them (`aiDisclosure`,
+ * `aiDisclosureKept` in the app's locales); the same rule as the consents':
+ * a translation may be reworded, what is claimed may not — a change here is a
+ * new version, and `aiConsent.test` pins the digest.
+ *
+ * `what_is_kept` is what the server does: a chat conversation is kept a day
+ * after its last message (`captureChat/conversationStore`, the Firestore TTL
+ * in `infra/firestore-ttl.sh`) and read for thirty minutes of idleness, and
+ * nothing becomes a commitment until the person confirms it.
+ */
+export const AI_PROCESSING_DISCLOSURE_VERSION = 'ai-disclosure-v1';
+
+export const AI_PROCESSING_DISCLOSURE_CLAIMS_V1 = [
+  'what_is_sent:what_you_write_or_say',
+  'to_whom:google_cloud_vertex_ai_gemini,via_our_server,eu_region',
+  'why:to_be_understood',
+  'what_is_kept:the_conversation_only_briefly,only_what_you_confirm_is_saved',
+  'optional:no,always_on',
 ] as const;
 
 /**

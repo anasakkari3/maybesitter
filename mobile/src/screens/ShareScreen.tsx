@@ -61,7 +61,6 @@ export function ShareScreen() {
   const { t, p, actions } = useApp();
   const { state, analyze, discard } = useShareIntake();
   const busy = state.status === 'analyzing';
-  const blocked = state.status === 'needsConsent';
   const problem = state.messageKey ? t[state.messageKey] : null;
 
   if (state.status === 'unavailable') {
@@ -116,20 +115,7 @@ export function ShareScreen() {
             handler itself while it is set, so there is no second place for the
             two to disagree about whether an upload is in flight. */}
         <View style={{ gap: 10 }}>
-          {/* Reading a picture or a file is a model call, and the user has not
-              agreed to those. The way forward is the Trust screen, the same
-              place `CaptureScreen`'s AI chip goes. Trust opens over this task,
-              so back from it returns here, and the payload is still there
-              because this provider is mounted above the screens. */}
-          {blocked ? (
-            <Pill
-              label={t.shareTurnOnAi}
-              kind="soft"
-              onPress={() => actions.go('trust')}
-              testID="share-turn-on-ai"
-            />
-          ) : null}
-          {payload && !blocked ? (
+          {payload ? (
             <Pill
               label={t.analyze}
               kind="accent"

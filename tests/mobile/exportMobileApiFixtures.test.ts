@@ -63,6 +63,7 @@ import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/route.ts';
 import { POST as sharePost } from '../../src/app/api/mobile/capture/share/route.ts';
+import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as upcomingGet } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
 import {
@@ -213,6 +214,8 @@ const DEADLINE_USER = uidFor('DeadlineFixtureUser');
 const WEEKLY_USER = uidFor('WeeklyFixtureUser');
 /** Weekly fixed blocks («ثابت أسبوعي») record under their own account, so no list, count or export fixture moves. */
 const WEEKLY_BLOCK_USER = uidFor('WeeklyBlockFixtureUser');
+/** The capture chat «احكيها» (2026-09-30) records under its own account, so no list, count or export fixture moves. */
+const CHAT_USER = uidFor('ChatFixtureUser');
 
 /**
  * A block's `startsOn` is a local date derived from the real clock (the first
@@ -795,7 +798,8 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     assert.equal(doctorItem.title, 'موعد دكتور');
     assert.equal(doctorItem.resolvedTime, null);
     assert.equal(doctorItem.resolvedDate, '2026-08-16');
-    assert.equal(doctorItem.dateEstimated, true);
+    // The Sunday they named is theirs, not a guess (runtime UAT 2026-09-30).
+    assert.equal(doctorItem.dateEstimated, false);
     assert.equal(doctorItem.priority, 'high');
     assert.equal(doctorItem.clarification?.questionKey, 'ask_time');
     assert.equal(doctorItem.clarification?.params.date, '2026-08-16');
@@ -889,7 +893,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
     const weeklyItems = weekly.items as Array<{ itemId: string; title: string; resolvedDate?: string; dateEstimated?: boolean; recurrenceHint?: unknown }>;
     assert.deepEqual(weeklyItems.map((item) => [item.title, item.resolvedDate, item.dateEstimated, item.recurrenceHint]), [
-      ['عندي تدريب كل سبت', '2026-08-15', true, { weekdays: [6], start: '10:00', end: '16:00' }],
+      ['عندي تدريب كل سبت', '2026-08-15', false, { weekdays: [6], start: '10:00', end: '16:00' }],
     ]);
     const weeklyConfirmed = await record('capture.weeklyRangeConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
       uid: WEEKLY_USER,
@@ -899,7 +903,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // The same item offers itself as a weekly block («كل سبت · 10:00–16:00»);
     // the confirm above did not name it, so it stayed the one-off it showed.
     assert.deepEqual((weekly.items as Array<{ weeklyBlock?: unknown }>)[0]!.weeklyBlock, {
-      title: 'عندي تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem',
+      title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem',
     });
     assert.deepEqual(weeklyConfirmed.weeklyBlocks, []);
 
@@ -996,6 +1000,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // persisted nothing answers 404, not 200, and names the items it refused.
     await record('capture.confirmationFailed', 404, await confirmPost(request('/api/mobile/capture/confirm', {
       body: { proposalId: 'proposal-that-does-not-exist', itemIds: ['item-1'] },
+    })));
+
+    // ── the capture chat «احكيها» (2026-09-30) ──────────────────────
+    // No model is configured here, so this is the rules fallback the chat
+    // answers with whenever the model cannot: `engine: 'rules'`, the rules'
+    // proposal of the person's turns, and a template reply in their language.
+    const chatRules = await record('capture.chatRules', 200, await chatPost(request('/api/mobile/capture/chat', {
+      body: { message: 'ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+      uid: CHAT_USER,
+    })));
+    assert.equal(chatRules.engine, 'rules');
+    assert.equal((chatRules.proposal as { items: unknown[] }).items.length, 1);
+    // Another account's id, an expired one and one that never existed are one answer.
+    await record('capture.chatNotFound', 404, await chatPost(request('/api/mobile/capture/chat', {
+      body: { conversationId: '00000000-0000-4000-8000-000000000999', message: 'make it 6', timezone: 'Asia/Jerusalem' },
+      uid: CHAT_USER,
+    })));
+    // The capture's own 413, which the phone already maps to `aiInputTooLong`.
+    await record('capture.chatTooLong', 413, await chatPost(request('/api/mobile/capture/chat', {
+      body: { message: 'x'.repeat(2_001), timezone: 'Asia/Jerusalem' },
+      uid: CHAT_USER,
     })));
 
     // ── commitments ────────────────────────────────────────────────
@@ -2383,6 +2408,29 @@ test('exports a fixture for every /api/mobile call the React Native client makes
           usageMetadata: { promptTokenCount: 388, candidatesTokenCount: 132 },
         };
       }
+      // The capture chat asks for `{ reply, action, items }` (2026-09-30): a
+      // first message proposes the dentist at 17:00, and "make it 6pm" moves it.
+      if (schema?.properties && 'reply' in schema.properties) {
+        const localDay = new Date(Date.parse(REFERENCE_TIME) + 86_400_000).toISOString().slice(0, 10);
+        const edited = JSON.stringify(input.contents).includes('make it 6pm');
+        const time = edited ? '18:00' : '17:00';
+        // Asia/Jerusalem is UTC+3 in August.
+        const at = `${localDay}T${edited ? '15' : '14'}:00:00.000Z`;
+        return {
+          text: JSON.stringify({
+            reply: edited ? 'Okay, 6pm instead. Check it and confirm if it looks right.' : 'Call the dentist tomorrow at 5pm. Check it and confirm if it looks right.',
+            action: edited ? 'update' : 'propose',
+            items: [{
+              ...(JSON.parse(geminiExtraction()) as Record<string, unknown>),
+              dueAt: at,
+              remindAt: at,
+              localTimeSpec: { date: localDay, time, timezone: 'Asia/Jerusalem' },
+            }],
+          }),
+          modelVersion: 'gemini-2.5-flash',
+          usageMetadata: { promptTokenCount: 2210, candidatesTokenCount: 180 },
+        };
+      }
       // The meeting prep prompt asks for its own shape (CL5a).
       if (String((input.config as { systemInstruction?: unknown }).systemInstruction).includes('get ready for one meeting')) {
         meetingCalls += 1;
@@ -2476,6 +2524,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
           .format(new Date(followUp.resolvedTime!)),
         `${meetingFollowUpDay}, 09:00`,
       );
+
+      // ── the capture chat on the model (2026-09-30) ─────────────────
+      // A first message, then an edit by talk. Each proposal is the capture
+      // route's own shape, and its proposalId is what clarify and confirm take.
+      const chatFirst = await record('capture.chatProposal', 200, await chatPost(request('/api/mobile/capture/chat', {
+        body: { message: 'Remind me to call the dentist tomorrow at 5pm', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+        uid: CHAT_USER,
+      })));
+      assert.equal(chatFirst.engine, 'model');
+      assert.equal(vertexCalls, 4, 'the chat message never reached the provider');
+      const chatFirstProposal = chatFirst.proposal as { items: Array<{ resolvedTime: string | null; needsClarification: boolean }>; provenance: { executedEngine: string } };
+      assert.equal(chatFirstProposal.provenance.executedEngine, 'gemini');
+      assert.equal(chatFirstProposal.items[0]!.needsClarification, false);
+      const chatEdited = await record('capture.chatUpdated', 200, await chatPost(request('/api/mobile/capture/chat', {
+        body: { conversationId: chatFirst.conversationId, message: 'make it 6pm', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME },
+        uid: CHAT_USER,
+      })));
+      assert.equal(chatEdited.engine, 'model');
+      assert.equal((chatEdited.turns as unknown[]).length, 4);
+      const editedTime = (chatEdited.proposal as { items: Array<{ resolvedTime: string }> }).items[0]!.resolvedTime;
+      assert.equal(new Date(editedTime).toISOString().slice(11, 16), '15:00', 'the edit did not move the dentist to 18:00 Jerusalem');
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
@@ -2634,7 +2703,10 @@ test('exports the Google connection fixtures', async () => {
     const all = await record('google.status', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
     assert.deepEqual((all.google as { features: unknown }).features, { calendar: true, gmail: true, drive: true });
 
-    await record('google.refusedAiConsent', 409, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', { body: {} })));
+    // `google.refusedAiConsent` is no longer recorded: AI processing is always
+    // on since 2026-09-30 (`lib/consents/aiProcessingPolicy`), so no route can
+    // answer `ai_consent_required` any more. The file stays as it was for the
+    // mobile schema test until the mobile lane retires it.
     await aiConsentPut(request('/api/mobile/consents/ai-processing', {
       method: 'PUT',
       body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
