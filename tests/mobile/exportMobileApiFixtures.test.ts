@@ -2634,7 +2634,10 @@ test('exports the Google connection fixtures', async () => {
     const all = await record('google.status', 200, await googleStatusGet(as('/api/mobile/integrations/google')));
     assert.deepEqual((all.google as { features: unknown }).features, { calendar: true, gmail: true, drive: true });
 
-    await record('google.refusedAiConsent', 409, await googleGmailScanPost(as('/api/mobile/integrations/google/gmail/scan', { body: {} })));
+    // `google.refusedAiConsent` is no longer recorded: AI processing is always
+    // on since 2026-09-30 (`lib/consents/aiProcessingPolicy`), so no route can
+    // answer `ai_consent_required` any more. The file stays as it was for the
+    // mobile schema test until the mobile lane retires it.
     await aiConsentPut(request('/api/mobile/consents/ai-processing', {
       method: 'PUT',
       body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },

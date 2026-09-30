@@ -20,7 +20,7 @@
   ],
   "seeds": [],
   "provenance": {
-    "requestedEngine": "rules",
+    "requestedEngine": "model",
     "executedEngine": "rule-based",
     "fallbackUsed": true
   }

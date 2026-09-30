@@ -7,7 +7,8 @@ import { geminiComplete } from '../../scripts/run-profile-eval.ts';
 import { geminiOptions } from '../../scripts/run-capture-eval.ts';
 import { captureLlmProvider } from '../../lib/llm/captureProvider.ts';
 import { consentGatedProvider } from '../../lib/llm/consentGatedProvider.ts';
-import { createMemoryStorage, setStorageForTests, resetStorageForTests } from '../../lib/storage/index.ts';
+import { createMemoryStorage, getStorage, setStorageForTests, resetStorageForTests } from '../../lib/storage/index.ts';
+import { userDoc } from '../../lib/storage/paths.ts';
 import { getAiConsent, setAiConsent } from '../../lib/consents/aiConsentService.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { PROFILE_EXTRACTION_SCHEMA, buildProfilePrompt } from '../../src/profile/profilePrompt.ts';
@@ -58,8 +59,11 @@ test('both actual CLI adapters reach the model through two gates without persist
     assert.equal(h.reservations[0].uid, uid);
     assert.deepEqual(h.reservations[0].options, { userCap: Number.MAX_SAFE_INTEGER, globalCap: Number.MAX_SAFE_INTEGER });
     assert.deepEqual(h.commits, [uid]);
-    assert.equal(await getAiConsent(uid), 'declined');
-    assert.equal(await getAiConsent('real-user-must-not-be-used'), 'declined');
+    // Nothing was persisted for either account. Read raw: since AI became
+    // always on (2026-09-30) `getAiConsent` answers granted for everyone, so
+    // only the stored document can show that no synthetic record was written.
+    assert.equal(await getStorage().get(userDoc(uid)), null);
+    assert.equal(await getStorage().get(userDoc('real-user-must-not-be-used')), null);
   }
 });
 
@@ -84,15 +88,19 @@ test('synthetic adapters retain kill switch and reservation refusal', async () =
   assert.equal(h.calls.length, 0);
 });
 
-test('production profile composition uses profile schema; revocation still stops before reservation', async () => {
+test('production profile composition uses profile schema; a declined gate still stops before reservation', async () => {
   const h = harness();
   const uid = 'profile-production-test';
   await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION });
-  const complete = captureLlmProvider(uid, { ...h.dependencies, provider: consentGatedProvider(uid, { provider: h.dependencies.provider }), purpose: 'profile_extraction' });
+  let consent: 'granted' | 'declined' = 'granted';
+  const reader = async () => consent;
+  const complete = captureLlmProvider(uid, { ...h.dependencies, consent: reader, provider: consentGatedProvider(uid, { provider: h.dependencies.provider, consent: reader }), purpose: 'profile_extraction' });
   const proposal = await describeProfile(uid, 'Finish thesis', new Date(), { complete });
   assert.equal(proposal.suggestions.length, 1);
   assert.deepEqual(h.calls[0].responseSchema, PROFILE_EXTRACTION_SCHEMA);
-  await setAiConsent(uid, { state: 'declined', version: AI_CONSENT_VERSION });
+  // A person can no longer decline (always on since 2026-09-30); the gate's
+  // own refusal is kept, and exercised here through an injected reader.
+  consent = 'declined';
   await describeProfile(uid, 'Finish thesis', new Date(), { complete });
   assert.equal(h.calls.length, 1);
   assert.equal(h.reservations.length, 1);

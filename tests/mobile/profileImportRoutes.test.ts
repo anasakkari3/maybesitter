@@ -107,12 +107,13 @@ test('the module kill switch closes both routes', async () => {
   } finally { end(); }
 });
 
-test('without AI consent the client is told why, not handed an empty list', async () => {
+test('AI is always on: an account that never answered is not refused for consent', async () => {
+  // Before 2026-09-30 this was a 403 `consent_required`.
   begin();
   try {
     const response = await importPost(request('/api/mobile/profile/import', { text: 'a profile', assistant: 'chatgpt' }));
-    assert.equal(response.status, 403);
-    assert.equal((await json(response)).reason, 'consent_required');
+    assert.notEqual(response.status, 403);
+    assert.notEqual((await json(response)).reason, 'consent_required');
   } finally { end(); }
 });
 

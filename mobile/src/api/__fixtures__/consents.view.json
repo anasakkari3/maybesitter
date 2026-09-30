@@ -1,9 +1,9 @@
 {
   "aiProcessing": {
-    "state": "declined",
+    "state": "granted",
     "version": "ai-consent-v1",
     "changedAt": "",
-    "asked": false
+    "asked": true
   },
   "recommendations": {
     "state": "declined",
