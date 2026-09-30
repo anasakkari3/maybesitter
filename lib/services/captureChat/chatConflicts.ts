@@ -142,8 +142,12 @@ export function conflictsFor(
     .slice(0, limit);
 }
 
-/** Proposal items with their clashes, by item id; an item with none is left as it is. */
-export function withItemConflicts<T extends { items: ReadonlyArray<{ itemId: string }> }>(
+/**
+ * Proposal items with their clashes, by item id. An item with none carries no
+ * `conflicts` field at all — and loses one it came with, so a clash measured
+ * on an earlier read never outlives the time it was measured on.
+ */
+export function withItemConflicts<T extends { items: ReadonlyArray<{ itemId: string; conflicts?: unknown }> }>(
   proposal: T,
   candidates: ReadonlyMap<string, CollisionCandidate>,
   schedule: PersonSchedule,
@@ -152,7 +156,12 @@ export function withItemConflicts<T extends { items: ReadonlyArray<{ itemId: str
   const items = proposal.items.map((item) => {
     const candidate = candidates.get(item.itemId);
     const conflicts = candidate ? conflictsFor(candidate, schedule) : [];
-    if (conflicts.length === 0) return item;
+    if (conflicts.length === 0) {
+      if (item.conflicts === undefined) return item;
+      changed = true;
+      const { conflicts: _stale, ...rest } = item;
+      return rest;
+    }
     changed = true;
     return { ...item, conflicts };
   });

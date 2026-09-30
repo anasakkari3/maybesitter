@@ -260,9 +260,9 @@ export async function chatMobileCapture(
     engine: 'model' | 'rules',
     answered: CaptureChatProposal | null,
     turns: CaptureChatTurn[],
-    options: { refused?: boolean } = {},
+    options: { refused?: boolean; conflictsKnown?: boolean } = {},
   ) => {
-    const proposal = answered === current ? current : await withConflicts(answered, schedule);
+    const proposal = answered === current || options.conflictsKnown ? answered : await withConflicts(answered, schedule);
     const reply = options.refused || !proposal
       ? replyText
       : withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown });
@@ -357,7 +357,7 @@ export async function chatMobileCapture(
       // A reason only from the person's words or the list; a clash only when there is one (`chatWhy`).
       grounds: { userTurns: evidenceTurns, items: proposal?.items ?? [], now, timezone },
     });
-    return finish(reply, 'model', proposal, turns);
+    return finish(reply, 'model', proposal, turns, { conflictsKnown: true });
   }
 
   // ── the rules, on the person's turns joined ─────────────────────

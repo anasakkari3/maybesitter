@@ -34,6 +34,7 @@ import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/ro
 import { setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
 import { safeChatReply } from '../../lib/services/captureChat/chatReply.ts';
 import { groundedReply, withConflictsNamed } from '../../lib/services/captureChat/chatWhy.ts';
+import { EMPTY_SCHEDULE, withItemConflicts } from '../../lib/services/captureChat/chatConflicts.ts';
 import { chatUserTurnsWithAcceptedOffers, isPlainYes, offerSentences } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { splitPrompt } from '../../lib/llm/captureProvider.ts';
 import { createWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
@@ -505,4 +506,12 @@ test('what counts as a plain yes, and as an offer', () => {
   assert.deepEqual(chatUserTurnsWithAcceptedOffers([
     { role: 'user', text: 'dinner Friday 6pm' }, { role: 'assistant', text: 'It clashes. Want me to make it 7pm?' }, { role: 'user', text: 'yes' },
   ]), ['dinner Friday 6pm', 'yes\nWant me to make it 7pm?']);
+});
+
+test('a clash measured on an earlier read never outlives it: an item that clashes with nothing now carries no conflicts', () => {
+  const stale = { title: 'X', startsAt: at(FRIDAY, '18:00'), endsAt: at(FRIDAY, '18:30'), kind: 'commitment' as const };
+  const proposal = { items: [{ itemId: 'i-1', conflicts: [stale] }, { itemId: 'i-2' }] };
+  const fresh = withItemConflicts(proposal, new Map([['i-1', { dueAt: at(FRIDAY, '18:00'), endAt: null, kind: 'scheduled_event' as const }]]), EMPTY_SCHEDULE);
+  assert.deepEqual(fresh.items, [{ itemId: 'i-1' }, { itemId: 'i-2' }]);
+  assert.equal(withItemConflicts({ items: [proposal.items[1]!] }, new Map(), EMPTY_SCHEDULE).items[0], proposal.items[1], 'an untouched item is the same object');
 });
