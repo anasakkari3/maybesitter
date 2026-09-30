@@ -539,6 +539,19 @@ test('the rules fallback asks in the person’s language when a time is missing'
   }
 });
 
+test('a «maybe» on its own reaches the chat as a seed card, not as nothing (#519)', async () => {
+  begin({ llmProviderFor: () => null });
+  try {
+    const body = await chat(uidFor('ChatSeedOnly'), 'بفكر أسافر بكانون الأول');
+    assert.ok(body.proposal, 'a seed-only capture came back as no proposal');
+    assert.equal(body.proposal!.status, 'unresolved_intent');
+    assert.deepEqual(body.proposal!.items, []);
+    assert.equal(body.proposal!.seeds.length, 1);
+  } finally {
+    end();
+  }
+});
+
 /* ── 8. isolation, expiry, deletion ─────────────────────────────── */
 
 test('another account cannot read or continue a conversation: 404, and the owner’s is untouched', async () => {

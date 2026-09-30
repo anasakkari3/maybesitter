@@ -149,9 +149,13 @@ function promptItems(proposal: CaptureChatProposal | null, timezone: string): Ch
   });
 }
 
-/** A proposal worth showing as cards: one with items, that is not a refusal. */
+/**
+ * A proposal worth showing as cards: one with items or «maybe» seeds (#519),
+ * that is not a refusal. A seed-only capture is `unresolved_intent`, not
+ * nothing: only the person can say whether it is worth keeping.
+ */
 function shown(proposal: CaptureChatProposal): CaptureChatProposal | null {
-  return proposal.status !== 'rejected' && proposal.items.length > 0 ? proposal : null;
+  return proposal.status !== 'rejected' && (proposal.items.length > 0 || proposal.seeds.length > 0) ? proposal : null;
 }
 
 export async function chatMobileCapture(
