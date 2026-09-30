@@ -25,7 +25,7 @@ import { createSpeechCaptureService, SpeechEventBridge } from '../features/captu
 import { VoiceLanguageChip } from '../features/capture/voice/VoiceLanguageChip';
 import { speechLanguageForTag } from '../features/capture/voice/speechLocale';
 import { loadSpeechLanguage, saveSpeechLanguage, type SpeechLanguagePref } from '../lib/deviceSettings/speechLanguage';
-import { SayItChatPage, ChatMicrophone, ChatLanguage, type ChatScheduleGroup } from '../features/capture/SayItChatPage';
+import { SayItChatPage, ChatMicrophone, ChatLanguage, type ChatHistoryEntry, type ChatScheduleGroup } from '../features/capture/SayItChatPage';
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
 import { weeklyA11yLabel } from '../features/weeklyBlocks/weeklyText';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
@@ -37,12 +37,26 @@ import { Btn, Pill, Txt } from '../ui/primitives';
 import { ProcessingDots } from '../ui/motion';
 import { Screen } from '../ui/screen';
 import { AvoidKeyboard } from '../ui/keyboard';
+import { useAnnounceOnIos } from '../ui/announce';
 import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ReviewScreen } from './ReviewScreen';
 
 const REVIEW_STATUSES = ['needsConfirmation', 'needsClarification', 'unresolvedIntent', 'confirming', 'confirmFailed'];
 
-/** Connects the independently built chat page to the existing capture transaction. */
+/**
+ * The capture chat «احكيها» (owner decision 2026-09-30): the independently
+ * built chat page, driven by the conversation the server keeps.
+ *
+ * Every send goes to `POST /api/mobile/capture/chat` in the current
+ * conversation. The page shows the opening line, then the conversation turn by
+ * turn — the person's messages and the assistant's replies, as the server kept
+ * them — and under the newest reply the proposal's cards, which are the same
+ * review rows as before: check, «…» edit sheet, weekly choice, the one
+ * question's options (answered through `/capture/clarify`), «هذا اقتراح. لم
+ * يتغيّر أي شيء بعد.», and the counted confirm (`/capture/confirm`). A reply is
+ * words: whatever it says, nothing is saved and nothing reads "saved" until
+ * the confirm succeeds.
+ */
 export function CaptureScreen() {
   const { t, tr, p: appPalette, rtl, script, lang, scheme, actions } = useApp();
   const p = captureChatPalette(scheme, appPalette);
@@ -54,12 +68,12 @@ export function CaptureScreen() {
   const keyboardShown = useKeyboardShown();
   const reviewing = REVIEW_STATUSES.includes(state.status);
   const busy = state.status === 'confirming' || state.status === 'analyzing';
-  // A reply is separate from the active proposal: typing never resets its edits.
-  const { replyDraft: reply, setReplyDraft: setReply, replyIntent: replyMode, setReplyIntent: setReplyMode } = flow;
-  const [replacement, setReplacement] = useState<string | null>(null);
-  // What the discard question is about: closing capture, or going back from a
-  // touched proposal to the composer (which keeps the sentence).
-  const [discarding, setDiscarding] = useState<'close' | 'back' | null>(null);
+  // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
+  const hasConversation = state.turns.length > 0 || state.proposal !== null || state.text.trim().length > 0;
+  // What the discard question is about: closing capture, going back from a
+  // touched proposal to the composer (which keeps what was said), or starting
+  // the conversation over.
+  const [discarding, setDiscarding] = useState<'close' | 'back' | 'restart' | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -77,8 +91,10 @@ export function CaptureScreen() {
     return () => { active = false; };
   }, []);
   const speech = useMemo(() => createSpeechCaptureService(() => speechLang), [speechLang]);
-  const composerText = reviewing ? reply : state.text;
-  const changeText = (text: string) => { if (reviewing) setReply(text); else flow.setText(text); };
+  // The field is always the next message. While one is on its way it sits in
+  // the conversation as a bubble, and the field is empty.
+  const composerText = state.status === 'analyzing' ? '' : state.text;
+  const changeText = (text: string) => flow.setText(text);
   const latestText = useRef(composerText);
   useEffect(() => { latestText.current = composerText; }, [composerText]);
   const dictationBase = useRef('');
@@ -93,14 +109,17 @@ export function CaptureScreen() {
   const waiting = unclarified.filter(item => item.clarification && !skipped.includes(item.itemId)
     && questionText(item.clarification.questionKey, item.clarification.params, strings) !== null);
   const asking = waiting[0];
-  const composerAnswersQuestion = reviewing && replyMode === 'answer' && Boolean(asking?.clarification?.allowFreeText);
-  const inputLimit = composerAnswersQuestion ? 200 : MAX_CAPTURE_LENGTH;
-  const inputLength = composerAnswersQuestion ? composerText.trim().length : composerText.length;
+  const inputLength = composerText.length;
   const conflictBlocks = useConflictBusyBlocks(useBusyBlocks());
+  // The newest reply, told to VoiceOver when it lands (TalkBack hears the
+  // bubble's live region).
+  const newest = state.turns[state.turns.length - 1];
+  useAnnounceOnIos(newest?.role === 'assistant' ? newest.text : null);
 
   const leave = () => { setDiscarding(null); flow.close(); actions.closeCapture(); };
   const back = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); flow.backToComposer(); };
-  const discardsSomething = () => wantsDiscardConfirmation(state) || Boolean(reply.trim());
+  const restart = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); setMenuOpen(false); stopDictation(); flow.startOver(); };
+  const discardsSomething = () => wantsDiscardConfirmation(state);
   /** The explicit exit ("Cancel all" in review, the header in the composer). */
   const requestClose = () => {
     if (state.status === 'confirming') return;
@@ -117,36 +136,28 @@ export function CaptureScreen() {
     if (discardsSomething()) setDiscarding('back');
     else back();
   };
-  const answer = async (itemId: string, value: { optionId?: string; freeText?: string }, submittedReply?: string) => {
+  const answer = async (itemId: string, value: { optionId?: string; freeText?: string }) => {
     if (answering) return;
     setAnswering(true);
     setClarifyError(null);
     const outcome = await flow.clarify(itemId, value);
     setAnswering(false);
     if (!outcome.ok) setClarifyError({ itemId, key: outcome.messageKey });
-    else if (submittedReply !== undefined) { setReply(''); setReplyMode('answer'); }
   };
-  const submit = (override?: string) => {
+  /**
+   * Every send is the next message of the conversation — a first request, a
+   * correction ("make it 6pm"), an answer to what the assistant asked. The
+   * answer's proposal replaces the one on screen (`chatAnswered`).
+   */
+  const send = () => {
+    if (!composerText.trim() || inputLength > MAX_CAPTURE_LENGTH || busy || answering) return;
     stopDictation();
     Keyboard.dismiss();
     setSentAt(new Date());
-    setReply('');
-    setReplyMode('answer');
-    setReplacement(null);
     setSkipped([]);
     setClarifyError(null);
-    void flow.analyze(override);
-  };
-  const send = () => {
-    if (!composerText.trim() || inputLength > inputLimit || busy || answering) return;
-    if (!reviewing) { submit(); return; }
-    if (replyMode === 'answer' && asking?.clarification?.allowFreeText) {
-      void answer(asking.itemId, { freeText: reply }, reply);
-    } else {
-      // The existing endpoint creates a new proposal, not a conversation patch.
-      // Explicit replacement keeps the old selection and edits intact until agreed.
-      setReplacement(reply);
-    }
+    setEditingId(null);
+    void flow.analyze();
   };
   const editItem = (itemId: string, edit: CaptureItemEdit) => {
     const item = items.find(candidate => candidate.itemId === itemId);
@@ -200,31 +211,28 @@ export function CaptureScreen() {
   let bodyOverride: React.ReactNode = null;
   if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
     <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt>
-    <Txt size={15}>{discarding === 'back' ? t.chatBackDiscardBody : t.captureDiscardBody}</Txt>
+    <Txt size={15}>{discarding === 'back' ? t.chatBackDiscardBody : discarding === 'restart' ? t.chatStartOverBody : t.captureDiscardBody}</Txt>
     <Pill testID="capture-discard-keep" label={t.captureKeepEditing} onPress={() => setDiscarding(null)} />
-    <Pill testID="capture-discard-confirm" label={t.captureDiscardConfirm} onPress={discarding === 'back' ? back : leave} kind="warm" />
-  </View>;
-  else if (replacement !== null) bodyOverride = <View style={{ gap: 16 }} testID="chat-replace-draft">
-    <Txt size={22} weight={600}>{t.chatReplaceTitle}</Txt><Txt size={15}>{t.chatReplaceBody}</Txt>
-    <Txt size={15} color={p.mu}>{replacement}</Txt>
-    <Pill testID="chat-replace-keep" label={t.chatKeepProposal} onPress={() => setReplacement(null)} />
-    <Pill testID="chat-replace-confirm" label={t.chatStartNew} onPress={() => submit(replacement)} kind="warm" />
+    <Pill testID="capture-discard-confirm" label={discarding === 'restart' ? t.chatStartOver : t.captureDiscardConfirm}
+      onPress={discarding === 'back' ? back : discarding === 'restart' ? restart : leave} kind="warm" />
   </View>;
   else if (clipboard) bodyOverride = <ClipboardImportSheet result={clipboard} replacing={composerText.trim().length > 0}
     onUse={text => { changeText(text); setClipboard(null); }} onCancel={() => setClipboard(null)} />;
   else if (editingId && items.some(item => item.itemId === editingId)) bodyOverride = <EditProposalItemSheet
     key={editingId} item={items.find(item => item.itemId === editingId)!} edit={state.edits[editingId]}
     onChange={next => editItem(editingId, next)} onClose={() => setEditingId(null)} />;
-  else if (menuOpen) bodyOverride = <View style={{ gap: 14 }}>
-    <Pill label={t.capturePaste} onPress={() => { setMenuOpen(false); void readClipboardText().then(setClipboard); }} />
-    {!flow.aiGranted ? <Pill testID="chat-menu-ai-off" label={t.captureAiOffHint} onPress={() => actions.go('trust')} kind="soft" /> : null}
-    <Pill label={t.close} onPress={() => setMenuOpen(false)} kind="ghost" />
-  </View>;
-  else if (state.status === 'analyzing') bodyOverride = <View style={{ alignItems: 'center', gap: 20 }} testID="capture-analyzing">
-    <ProcessingDots color={p.ac} /><Txt size={18}>{t.understanding}</Txt><Txt size={14} color={p.mu}>{state.text}</Txt>
+  else if (menuOpen) bodyOverride = <View style={{ gap: 14 }} testID="chat-menu">
+    <Pill testID="chat-menu-paste" label={t.capturePaste} onPress={() => { setMenuOpen(false); void readClipboardText().then(setClipboard); }} />
+    {reviewing ? <Pill testID="chat-menu-review-tools" label={t.chatReviewTools} kind="soft"
+      onPress={() => { setMenuOpen(false); setToolsOpen(true); }} /> : null}
+    {/* A new conversation, on purpose: the assistant forgets this one. */}
+    {hasConversation ? <Pill testID="chat-menu-start-over" label={t.chatStartOver} kind="soft"
+      onPress={() => { setMenuOpen(false); if (wantsDiscardConfirmation(state)) setDiscarding('restart'); else restart(); }} /> : null}
+    <Pill testID="chat-menu-close" label={t.close} onPress={() => setMenuOpen(false)} kind="ghost" />
   </View>;
   else if (state.status === 'noCommitment') bodyOverride = <NothingFound line={noCommitmentLine(state.proposal?.noCommitmentReason, strings)} onClose={leave} />;
-  else if (failed) bodyOverride = <Failed status={failed} messageKey={state.messageKey} onRetry={() => submit()} onBack={flow.backToComposer} />;
+  else if (failed) bodyOverride = <Failed status={failed} messageKey={state.messageKey}
+    onRetry={() => { setSentAt(new Date()); void flow.analyze(); }} onBack={flow.dismissFailure} />;
 
   const reviewExtras = reviewing ? <View style={{ gap: 12 }}>
     <Txt size={12} color={p.mu} testID="review-note">{t.suggestionNote}</Txt>
@@ -239,16 +247,23 @@ export function CaptureScreen() {
     {state.selected.length === 0 && items.length ? <Txt testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
     {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} /> : null}
     <Pill testID="review-cancel" label={t.cancelAll} onPress={requestClose} disabled={state.status === 'confirming'} kind="ghost" size={13} />
-  </View> : <Txt size={12} color={p.mu} align="center">{t.privacyText}</Txt>;
-  const counter = inputLength > inputLimit - (composerAnswersQuestion ? 50 : 200)
-    ? <Txt size={12} latin color={inputLength > inputLimit ? p.wm : p.mu} testID="capture-counter">{fill(composerAnswersQuestion ? t.chatAnswerCounter : t.captureCounter, { n: inputLength })}</Txt> : null;
+  </View> : null;
+  const counter = inputLength > MAX_CAPTURE_LENGTH - 200
+    ? <Txt size={12} latin color={inputLength > MAX_CAPTURE_LENGTH ? p.wm : p.mu} testID="capture-counter">{fill(t.captureCounter, { n: inputLength })}</Txt> : null;
   const language = voiceStatus !== 'unavailable' ? <VoiceLanguageChip value={speechLang}
     onChange={next => { setSpeechLang(next); void saveSpeechLanguage(next); }}
     renderControl={({ label, accessibilityLabel, onPress }) => <ChatLanguage colors={p} label={label} accessibilityLabel={accessibilityLabel}
       fontFamily={family(600, speechLang === 'ar' ? 'arabic' : speechLang === 'he' ? 'hebrew' : 'latin')} onPress={onPress} />} /> : null;
 
-  const outgoing = reviewing && state.text ? { text: state.text, delivered: true,
-    ...(sentAt ? { time: ltr(formatTime(sentAt, { locale: lang, timeZone: timezone })) } : {}) } : null;
+  const sentTime = sentAt ? ltr(formatTime(sentAt, { locale: lang, timeZone: timezone })) : undefined;
+  const lastMine = state.turns.map(turn => turn.role).lastIndexOf('user');
+  const history: ChatHistoryEntry[] = state.turns.map((turn, index) => turn.role === 'user'
+    ? { role: 'user', text: turn.text, delivered: true, ...(index === lastMine && sentTime && state.status !== 'analyzing' ? { time: sentTime } : {}) }
+    : { role: 'assistant', text: turn.text });
+  // The message on its way: in the conversation already, not yet delivered.
+  if (state.status === 'analyzing' && state.text.trim()) {
+    history.push({ role: 'user', text: state.text, ...(sentTime ? { time: sentTime } : {}) });
+  }
 
   /**
    * The header's back/✕, one function for both ways back. Each layer shut in
@@ -259,7 +274,6 @@ export function CaptureScreen() {
   const headerBack = () => {
     if (state.status === 'confirming') return;
     if (editingId) setEditingId(null);
-    else if (replacement !== null) setReplacement(null);
     else if (clipboard) setClipboard(null);
     else if (menuOpen) setMenuOpen(false);
     else if (discarding) setDiscarding(null);
@@ -288,24 +302,28 @@ export function CaptureScreen() {
     <AvoidKeyboard testID="capture-kav" style={{ flex: 1 }}>
       <SayItChatPage colors={p} fonts={{ regular: family(400, script), semibold: family(600, script), latin: family(400, 'latin'), lineRatio: LINE_HEIGHT[script],
         forText: (value, weight) => { const run = scriptOfText(value, script); return { fontFamily: family(weight === 'semibold' ? 600 : 400, run), lineRatio: LINE_HEIGHT[run] }; } }}
-        copy={{ title: t.captureTitle, subtitle: t.chatSubtitle, placeholder: replyMode === 'answer' && asking?.clarification?.allowFreeText ? t.chatAnswerPlaceholder : t.chatPlaceholder,
-          closeLabel: reviewing ? t.back : t.cancel, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.analyze,
+        copy={{ title: t.captureTitle, subtitle: t.chatSubtitle, placeholder: t.chatPlaceholder,
+          closeLabel: reviewing ? t.back : t.cancel, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.chatSend,
           confirmLabel: tr('confirmN', { n: state.selected.length }), editLabel: t.reviewEdit, notIncludedLabel: t.chatNotIncluded }}
         text={composerText} onChangeText={changeText} onSend={send}
-        canSend={Boolean(composerText.trim()) && inputLength <= inputLimit && !busy && !answering}
+        canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering}
         inputDisabled={state.status === 'confirming' || answering}
-        onClose={headerBack} onMore={() => { if (!busy && !answering) { if (reviewing) setToolsOpen(true); else setMenuOpen(true); } }}
+        onClose={headerBack} onMore={() => { if (!busy && !answering) setMenuOpen(true); }}
         onPaste={() => { if (!busy && !answering) void readClipboardText().then(setClipboard); }}
-        {...(outgoing ? { outgoing } : {})}
-        assistant={{ text: reviewing ? t.chatFound : t.chatWelcome }}
+        assistant={{ text: t.chatWelcome }}
+        // The disclosure that replaced the AI consent (owner decision
+        // 2026-09-30): on the page, before the first message is sent.
+        notice={<View testID="capture-ai-disclosure" style={{ gap: 2, alignItems: 'flex-start' }}>
+          <Txt size={12} color={p.mu}>{t.aiDisclosure}</Txt>
+          <Txt size={12} color={p.mu}>{t.aiDisclosureKept}</Txt>
+        </View>}
+        history={history}
+        {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}
         scheduleGroups={[...groups.values()]} onRowPress={setEditingId} onRowToggle={flow.toggleItem}
         onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering} confirming={state.status === 'confirming'}
         quickActions={reviewing || state.text.trim() ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
-        headerAccessory={!flow.aiGranted ? <Btn testID="capture-ai-off" label={`${t.captureAiOff}. ${t.captureAiOffHint}`} onPress={() => actions.go('trust')}
-          hitSlop={8} style={{ alignSelf: 'center', backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 10, minHeight: 32, justifyContent: 'center' }}>
-          <Txt size={12} color={p.mu}>{t.captureAiOff}</Txt></Btn> : null}
         bodyOverride={bodyOverride} reviewExtras={reviewExtras} languageControl={language}
         voiceNotice={<>{counter}<VoiceNote status={voiceStatus} /></>}
         microphone={busy || answering || voiceStatus === 'unavailable' ? undefined : <VoiceButton key={voiceEpoch} service={speech} showNote={false} autoFocus={voiceEpoch === 0 && state.inputMode === 'voice'} onStart={onDictationStart}

@@ -33,6 +33,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 const ZONE = 'Asia/Jerusalem';
 
@@ -136,7 +137,7 @@ beforeEach(async () => {
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: USER.uid, recorded: true, eventId: 'e-1' } as never);
   // Through the schema the app ships, so a flag it dropped would never reach the card.
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(captureProposalSchema.parse(proposal()) as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (captureProposalSchema.parse(proposal()))) as never);
 });
 
 afterEach(() => {

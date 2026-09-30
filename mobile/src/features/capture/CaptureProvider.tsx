@@ -17,14 +17,13 @@
  * away cannot leave it armed, and so the "5 seconds" in the acceptance criteria
  * is one number in one place.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useAnalyticsConsent,
-  useCapture,
+  useCaptureChat,
   useClarifyCapture,
   useConfirmCapture,
-  useAiConsentGranted,
   useRecordAnalytics,
 } from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
@@ -47,7 +46,7 @@ import {
 } from './captureMachine';
 import { toServerEdits } from './editPayload';
 import {
-  analyzeCapture,
+  chatTurn,
   confirmCapture as runConfirm,
   reportCaptureUndone,
   undoCapture,
@@ -59,19 +58,18 @@ export type { UndoOutcome };
 
 interface CaptureContextValue {
   state: CaptureState;
-  /** An unsent continuation survives temporary screens, only in this flow's memory. */
-  replyDraft: string;
-  setReplyDraft: React.Dispatch<React.SetStateAction<string>>;
-  replyIntent: 'answer' | 'new';
-  setReplyIntent: React.Dispatch<React.SetStateAction<'answer' | 'new'>>;
-  /** True when the account has agreed to AI processing. Display only. */
-  aiGranted: boolean;
-  /** True when the question has never been put to them. */
-  aiAsked: boolean;
   open(source?: CaptureSource, inputMode?: CaptureInputMode): void;
   setText(text: string): void;
-  /** An explicit chat draft is sent directly, without waiting for setText to render. */
+  /**
+   * Sends the draft (or `textOverride`) to the capture chat «احكيها», in the
+   * current conversation — the first send starts one. The answer's proposal
+   * replaces the one on screen; nothing is saved until `confirm`.
+   */
   analyze(textOverride?: string): Promise<void>;
+  /** Back from a failed send to the conversation, the message still in the field. */
+  dismissFailure(): void;
+  /** «ابدأ من جديد»: the conversation, its proposal and the draft go; a new one starts. */
+  startOver(): void;
   /**
    * Enters review with a proposal this flow did not ask for (UC-3.0, #183).
    *
@@ -165,12 +163,9 @@ async function invalidateCommitmentViews(client: ReturnType<typeof useQueryClien
 
 export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(captureReducer, initialCaptureState());
-  const [replyDraft, setReplyDraft] = useState('');
-  const [replyIntent, setReplyIntent] = useState<'answer' | 'new'>('answer');
-  const capture = useCapture();
+  const chat = useCaptureChat();
   const confirmCapture = useConfirmCapture();
   const clarifyCapture = useClarifyCapture();
-  const { granted: aiGranted, asked: aiAsked } = useAiConsentGranted();
   const analyticsConsent = useAnalyticsConsent();
   const recordAnalytics = useRecordAnalytics();
   const client = useQueryClient();
@@ -184,11 +179,6 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     analysisPending.current = false;
   }, []);
 
-  const clearReply = useCallback(() => {
-    setReplyDraft('');
-    setReplyIntent('answer');
-  }, []);
-
   // The timer is cleared on unmount, so leaving the flow cannot leave Undo
   // armed against a screen that is gone.
   useEffect(() => () => {
@@ -198,9 +188,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
 
   const open = useCallback((source?: CaptureSource, inputMode?: CaptureInputMode) => {
     abandonAnalysis();
-    clearReply();
     dispatch({ type: 'open', ...(source ? { source } : {}), ...(inputMode ? { inputMode } : {}) });
-  }, [abandonAnalysis, clearReply]);
+  }, [abandonAnalysis]);
 
   const setText = useCallback((text: string) => dispatch({ type: 'textChanged', text }), []);
 
@@ -212,33 +201,39 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     if (!text.trim() || text.length > MAX_CAPTURE_LENGTH || analysisPending.current || state.status === 'confirming') return;
     analysisPending.current = true;
     const generation = ++analysisGeneration.current;
+    // The exact approved draft goes to both state and the request. Calling
+    // setText then analyze in one press would send the old render's text.
     if (textOverride !== undefined) dispatch({ type: 'textChanged', text });
-    dispatch({ type: 'analyzeStarted' });
+    dispatch({ type: 'chatStarted' });
     try {
-      // The exact approved draft goes to both state and the request. Calling
-      // setText then analyze in one press would send the old render's text.
-      const outcome = await analyzeCapture(
-        { propose: (draft) => capture.mutateAsync(draft) },
+      const outcome = await chatTurn(
+        { chat: (input) => chat.mutateAsync(input) },
+        state.conversationId,
         text,
         classifyFailure,
       );
       if (generation !== analysisGeneration.current) return;
       dispatch(outcome.ok
-        ? { type: 'analyzeSucceeded', proposal: outcome.proposal }
+        ? { type: 'chatAnswered', answer: outcome.answer }
         : { type: 'analyzeFailed', kind: outcome.kind, messageKey: outcome.messageKey });
     } finally {
       if (generation === analysisGeneration.current) analysisPending.current = false;
     }
-  }, [capture, state.text, state.status]);
+  }, [chat, state.text, state.status, state.conversationId]);
+
+  const dismissFailure = useCallback(() => dispatch({ type: 'dismissFailure' }), []);
+  const startOver = useCallback(() => {
+    abandonAnalysis();
+    dispatch({ type: 'reset' });
+  }, [abandonAnalysis]);
 
   const adoptProposal = useCallback((proposal: CaptureProposal, source: CaptureSource = 'share', meeting?: MeetingReviewContext) => {
     // `open` first, so nothing of a previous capture — a draft, a selection, an
     // armed undo — is still in the state the shared proposal lands in.
     abandonAnalysis();
-    clearReply();
     dispatch({ type: 'open', source, ...(meeting ? { meeting } : {}) });
     dispatch({ type: 'analyzeSucceeded', proposal });
-  }, [abandonAnalysis, clearReply]);
+  }, [abandonAnalysis]);
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
   const selectAll = useCallback(() => dispatch({ type: 'selectAll' }), []);
@@ -343,19 +338,17 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
 
   const backToComposer = useCallback(() => {
     abandonAnalysis();
-    clearReply();
     dispatch({ type: 'backToComposer' });
-  }, [abandonAnalysis, clearReply]);
+  }, [abandonAnalysis]);
   const close = useCallback(() => {
     if (undoTimer.current) clearTimeout(undoTimer.current);
     abandonAnalysis();
-    clearReply();
     dispatch({ type: 'reset' });
-  }, [abandonAnalysis, clearReply]);
+  }, [abandonAnalysis]);
 
   const value = useMemo<CaptureContextValue>(() => ({
-    state, replyDraft, setReplyDraft, replyIntent, setReplyIntent, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close,
-  }), [state, replyDraft, replyIntent, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close]);
+    state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close,
+  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

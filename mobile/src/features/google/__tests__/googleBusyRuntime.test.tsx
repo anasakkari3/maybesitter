@@ -43,6 +43,7 @@ import * as calendarEndpoints from '../../../api/endpoints/calendar';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -248,7 +249,7 @@ describe('the conflict chips', () => {
         allDay: false,
       }],
     } as never);
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue({
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => ({
       version: 'v1',
       proposalId: 'p-1',
       status: 'proposed',
@@ -257,7 +258,7 @@ describe('the conflict chips', () => {
         needsClarification: false, priority: 'high', priorityEstimated: false,
       }],
       provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
-    } as never);
+    })) as never);
 
     await openApp();
     await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));

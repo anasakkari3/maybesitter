@@ -36,6 +36,7 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as weeklyEndpoints from '../../../api/endpoints/weeklyBlocks';
+import { chatServer } from '../../../testing/captureChat';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -71,7 +72,7 @@ beforeEach(async () => {
   jest.spyOn(weeklyEndpoints, 'listWeeklyBlocks').mockResolvedValue([] as never);
   jest.spyOn(weeklyEndpoints, 'listWeeklyBlockOccurrences').mockResolvedValue([] as never);
   create = jest.spyOn(weeklyEndpoints, 'createWeeklyBlock');
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(captureProposalSchema.parse(weeklyRange) as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (captureProposalSchema.parse(weeklyRange))) as never);
   confirm = jest.spyOn(captureEndpoints, 'confirmCapture')
     .mockResolvedValue(captureConfirmationSchema.parse(weeklyConfirmation) as never);
 });

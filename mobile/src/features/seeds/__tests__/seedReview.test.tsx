@@ -34,6 +34,7 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as seedEndpoints from '../../../api/endpoints/seeds';
+import { chatServer } from '../../../testing/captureChat';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Pacific/Marquesas' }]),
@@ -100,7 +101,11 @@ afterEach(() => {
 
 /** Open the app, type the maybe, analyse, and land on Review. */
 async function captureInto(items: unknown[] = []) {
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposalWithSeed(items) as never);
+  // `keepSeedsOnly`: the chat route answers a maybe-only message with
+  // `proposal: null` today (`captureChatService.shown` drops a proposal with
+  // no items), so these cases are the screen's handling of the maybe card for
+  // when it does send one — the card, "Keep" by id, "Not now" writing nothing.
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => proposalWithSeed(items), { keepSeedsOnly: true }) as never);
   await render(
     <SafeAreaProvider initialMetrics={METRICS}>
       <AppProvider>

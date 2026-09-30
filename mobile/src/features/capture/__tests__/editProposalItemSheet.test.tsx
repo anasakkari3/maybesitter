@@ -46,6 +46,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 // Hoisted above the imports, so `src/i18n/timezone` sees it when it reaches
 // for `getCalendars`. A test that ran in whatever zone the machine is in would
@@ -131,7 +132,7 @@ beforeEach(() => {
     .mockResolvedValue({ success: true, participantId: 'edit-user', trust: { analyticsConsent: false } } as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: 'edit-user', recorded: true, eventId: 'e-1' } as never);
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
   confirmSpy = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
 });
 

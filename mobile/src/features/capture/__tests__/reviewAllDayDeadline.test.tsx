@@ -27,6 +27,7 @@ import * as captureEndpoints from '../../../api/endpoints/capture';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
+import { chatServer } from '../../../testing/captureChat';
 
 const ZONE = 'Asia/Jerusalem';
 
@@ -98,7 +99,7 @@ beforeEach(async () => {
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: USER.uid, recorded: true, eventId: 'e-1' } as never);
   // Built when the capture is sent, so a test can set `allDayEvent` first.
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockImplementation(async () => proposal() as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
 });
 
 afterEach(() => {

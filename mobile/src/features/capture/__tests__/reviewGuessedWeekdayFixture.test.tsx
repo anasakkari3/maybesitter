@@ -32,6 +32,7 @@ import * as trustEndpoints from '../../../api/endpoints/trust';
 import { captureProposalSchema } from '../../../api/schemas/capture';
 import guessed from '../../../api/__fixtures__/capture.guessedWeekday.json';
 import clarified from '../../../api/__fixtures__/capture.guessedWeekdayClarified.json';
+import { chatServer } from '../../../testing/captureChat';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -76,7 +77,7 @@ beforeEach(async () => {
     .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
   jest.spyOn(analyticsEndpoints, 'recordAnalyticsEvent')
     .mockResolvedValue({ success: true, participantId: USER.uid, recorded: true, eventId: 'e-1' } as never);
-  jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
+  jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
 });
 
 afterEach(() => {

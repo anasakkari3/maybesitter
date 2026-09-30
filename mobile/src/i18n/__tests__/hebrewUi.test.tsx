@@ -53,6 +53,7 @@ import * as analyticsEndpoints from '../../api/endpoints/analytics';
 import * as trustEndpoints from '../../api/endpoints/trust';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 import * as planEndpoints from '../../api/endpoints/plans';
+import { chatServer } from '../../testing/captureChat';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -203,35 +204,35 @@ describe('the language picker offers it', () => {
 
 describe('the two surfaces the S2 issues name', () => {
   /**
-   * UC-2.6 (#166): when the app created nothing, it says only that.
-   *
-   * `noCommitmentCopy.test.ts` already holds the Hebrew line to every rule the
-   * issue sets — length, no advice, no question back. What it cannot do is
-   * prove the line is the one a Hebrew user is shown, which is the half that
-   * was actually broken: the copy existed and was unreachable.
+   * UC-2.6 (#166), in the chat: a message that names nothing gets the
+   * assistant's own reply — the server writes it in the person's language —
+   * and no card. What the phone owns around it is the chrome: the opening line
+   * and the AI disclosure, which must be the Hebrew ones, with no English
+   * beside them.
    */
-  it('#166: shows the Hebrew no-commitment line, and no English anywhere near it', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue({
+  it('#166: a greeting gets the reply and no card, in Hebrew chrome with no English near it', async () => {
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => ({
       version: 'v1',
       proposalId: 'p-1',
       status: 'no_commitment',
       noCommitmentReason: 'greeting_or_chat',
       items: [],
       provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
-    } as never);
+    }), { reply: () => 'היי! מה לרשום לך?' }) as never);
 
     await openAppIn('he');
     await fireEvent.press(screen.getByTestId('tab-capture'));
     await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'מה נשמע');
     await fireEvent.press(screen.getByTestId('capture-analyze'));
-    await waitFor(() => expect(screen.queryByTestId('capture-nothing')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText('היי! מה לרשום לך?')).not.toBeNull());
 
-    expect(screen.getByTestId('capture-nothing-reason').props.children).toBe(he.noCommitmentGreetingOrChat);
-    expect(screen.queryByText(en.noCommitmentGreetingOrChat)).toBeNull();
-    // The issue's other rule, in the language it is being read in: nothing the
-    // person wrote is quoted back at them.
-    expect(screen.queryByText(/מה נשמע/)).toBeNull();
+    expect(screen.queryByTestId('chat-schedule')).toBeNull();
+    expect(screen.queryByTestId('review-confirm')).toBeNull();
+    expect(screen.queryByText(he.chatWelcome)).not.toBeNull();
+    expect(screen.queryByText(he.aiDisclosure)).not.toBeNull();
+    expect(screen.queryByText(en.chatWelcome)).toBeNull();
+    expect(screen.queryByText(en.aiDisclosure)).toBeNull();
   });
 
   /**
@@ -242,7 +243,7 @@ describe('the two surfaces the S2 issues name', () => {
    * `parseLngForICU` fails here even though the JSON is untouched.
    */
   it('renders the Hebrew dual through the real button, and the singular next to it', async () => {
-    jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue({
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => ({
       version: 'v1',
       proposalId: 'p-1',
       status: 'proposed',
@@ -251,7 +252,7 @@ describe('the two surfaces the S2 issues name', () => {
         { itemId: 'i-2', title: 'להתקשר לסמי', resolvedTime: null, needsClarification: false },
       ],
       provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
-    } as never);
+    })) as never);
 
     await openAppIn('he');
     await fireEvent.press(screen.getByTestId('tab-capture'));

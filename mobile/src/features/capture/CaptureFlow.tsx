@@ -53,9 +53,9 @@ export function CaptureFlow() {
     // again here would discard the proposal between the hand-over and the first
     // paint — and the user would land on an empty composer.
     if (flow.state.proposal) return;
-    // Back from a screen opened over the flow (the AI chip → Trust → back) is
-    // the same capture showing again, not a new one: `open` would wipe the
-    // draft the person left to go and read about.
+    // Back from a screen opened over the flow is the same capture showing
+    // again, not a new one: `open` would wipe the draft — and the
+    // conversation — the person left for a moment.
     if (s.taskResumed) return;
     flow.open(s.captureSource, s.captureInput);
   }, [flow, s.captureSource, s.captureInput, s.taskResumed]);
