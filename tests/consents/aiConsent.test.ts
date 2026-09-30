@@ -29,7 +29,13 @@ import assert from 'node:assert/strict';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { AUDIT_EVENTS, userDoc } from '../../lib/storage/paths.ts';
-import { AI_CONSENT_VERSION, aiConsentClaimsDigest } from '../../src/contracts/v1/consentContracts.ts';
+import {
+  AI_CONSENT_CLAIMS_V1,
+  AI_CONSENT_VERSION,
+  AI_PROCESSING_DISCLOSURE_CLAIMS_V1,
+  AI_PROCESSING_DISCLOSURE_VERSION,
+  aiConsentClaimsDigest,
+} from '../../src/contracts/v1/consentContracts.ts';
 import {
   AiProcessingAlwaysOnError,
   UnsupportedConsentVersionError,
@@ -210,6 +216,24 @@ test('the consent version is pinned to the claims it makes', () => {
   assert.equal(AI_CONSENT_VERSION, 'ai-consent-v1');
   assert.equal(aiConsentClaimsDigest().length, 16);
   assert.notEqual(aiConsentClaimsDigest(['something else']), aiConsentClaimsDigest());
+  // And the v1 claims are what v1 said, unedited: the record of what the
+  // people who answered it were shown.
+  assert.equal(aiConsentClaimsDigest(AI_CONSENT_CLAIMS_V1), '9a6b9ca899dd277e');
+});
+
+test('what the app discloses in place of the consent claims no choice, and is pinned', () => {
+  // AI processing is always on (2026-09-30): the disclosure must not carry the
+  // old card's "optional, changeable in settings", and a change to what it
+  // claims is a new version, not an edit.
+  assert.equal(AI_PROCESSING_DISCLOSURE_VERSION, 'ai-disclosure-v1');
+  assert.equal(aiConsentClaimsDigest(AI_PROCESSING_DISCLOSURE_CLAIMS_V1), 'b363911d4e0ee2af');
+  assert.ok(AI_PROCESSING_DISCLOSURE_CLAIMS_V1.includes('optional:no,always_on'));
+  assert.ok(!AI_PROCESSING_DISCLOSURE_CLAIMS_V1.some((claim) => claim.includes('changeable_in_settings')));
+  // Still names who reads it, as v1 did.
+  const toWhom = AI_PROCESSING_DISCLOSURE_CLAIMS_V1.find((claim) => claim.startsWith('to_whom:'));
+  assert.ok(toWhom?.includes('google_cloud_vertex_ai_gemini') && toWhom.includes('eu_region'));
+  // v1's own "optional" claim is exactly what is no longer true.
+  assert.ok(AI_CONSENT_CLAIMS_V1.includes('optional:changeable_in_settings'));
 });
 
 /* ── The API ──────────────────────────────────────────────────────── */
