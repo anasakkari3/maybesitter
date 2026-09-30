@@ -73,9 +73,29 @@ try {
   });
   assert.equal(repeat.status, 200);
   assert.equal(repeat.body.suggestion.linkedEntityId, accept.body.suggestion.linkedEntityId);
+  const consents = await call('GET', '/api/mobile/consents');
+  assert.equal(consents.status, 200);
+  const personalization = await call('PUT', '/api/mobile/consents/personalization', {
+    state: 'granted', version: consents.body.currentVersions.personalization,
+    locale: 'ar', platform: 'android',
+  });
+  assert.equal(personalization.status, 200);
+  const completed = await call('POST', `/api/mobile/commitments/${accept.body.suggestion.linkedEntityId}/actions`, {
+    action: 'complete',
+  });
+  assert.equal(completed.status, 200);
+  assert.equal(completed.body.commitment.status, 'completed');
+  const learned = await call('POST', '/api/mobile/intelligence/generate', {});
+  assert.equal(learned.status, 200);
+  const learnedInbox = await call('GET', '/api/mobile/intelligence');
+  assert.equal(learnedInbox.status, 200);
+  const outcomes = learnedInbox.body.observations.filter(item => item.kind === 'outcome');
+  assert.ok(outcomes.some(item => item.source === 'behavior'
+    && item.evidence === 'Completed: مراجعة سريعة للامتحان'),
+  'completed action was not available to the next decision');
   process.stdout.write(`${JSON.stringify({ observations: observations.length, ideas: ideas.length,
     hasPreparation, schedulePreviews: generation.body.schedule.length, scheduledAtAccept: true,
-    acceptedOnce: true, retryIdempotent: true })}\n`);
+    acceptedOnce: true, retryIdempotent: true, completedOutcomeLearned: true })}\n`);
 } finally {
   if (token) {
     const deleted = await jsonResponse(`${base}/api/mobile/account`, {
