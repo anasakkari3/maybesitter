@@ -296,7 +296,7 @@ test('validator: does not raise a plain task', () => {
 
 // ── End to end: the owner's sentence, as the review card receives it ───
 
-test('proposal: «سجّل موعد دكتور يوم الأحد» arrives as high, estimated, on an estimated Sunday', async () => {
+test('proposal: «سجّل موعد دكتور يوم الأحد» arrives as high, estimated, on the Sunday they named (not a guess since 2026-09-30)', async () => {
   const contract = await proposeCapture(
     'سجّل موعد دكتور يوم الأحد',
     { now: context.now, timezone: TZ, scopeId: 'l4', requestedEngine: 'rules' },
@@ -307,7 +307,9 @@ test('proposal: «سجّل موعد دكتور يوم الأحد» arrives as hi
   assert.equal(item.priority, 'high');
   assert.equal(item.priorityEstimated, true);
   assert.equal(item.resolvedDate, '2026-09-27');
-  assert.equal(item.dateEstimated, true);
+  // A weekday the person named is their day, not our guess (runtime UAT,
+  // 2026-09-30): the date is still the weekday rule's, but it is not marked.
+  assert.equal(item.dateEstimated, false);
   // No hour was said: the one question is about the hour, and names the day.
   assert.equal(item.clarification?.questionKey, 'ask_time');
   assert.equal(item.clarification?.params.date, '2026-09-27');
@@ -335,7 +337,8 @@ test('share allowlist: an item carrying the day and its guess flag survives, bot
   const { proposal, drops } = applyShareActionAllowlist<typeof contract>(contract);
   assert.deepEqual(drops, []);
   assert.equal(proposal.items[0]?.resolvedDate, '2026-09-27');
-  assert.equal(proposal.items[0]?.dateEstimated, true);
+  // Carried as it was proposed: a named Sunday is not a guess (2026-09-30).
+  assert.equal(proposal.items[0]?.dateEstimated, false);
 });
 
 test('share allowlist: a malformed day is stripped and reported, not passed to the phone', async () => {
@@ -367,7 +370,7 @@ async function proposeOwnerSentence() {
 
 const clarifyOptions = { now: context.now, timezone: TZ, scopeId: 'l4' };
 
-test('clarify: picking an hour on the guessed Sunday keeps the day, still a guess', async () => {
+test('clarify: picking an hour on the named Sunday keeps the day, and it is still theirs', async () => {
   const { store, contract, item, question } = await proposeOwnerSentence();
   const option = question.options.find((candidate) => candidate.optionId === 'morning')!;
   const next = await answerClarification(
@@ -377,7 +380,7 @@ test('clarify: picking an hour on the guessed Sunday keeps the day, still a gues
   );
   const answered = next.items[0]!;
   assert.equal(answered.resolvedDate, '2026-09-27');
-  assert.equal(answered.dateEstimated, true);
+  assert.equal(answered.dateEstimated, false, 'a weekday the person named is their day, not a guess (runtime UAT 2026-09-30)');
   assert.equal(answered.priorityEstimated, true);
 });
 
@@ -437,7 +440,7 @@ function instantOnlyReread(iso: string, fields: Record<string, unknown> = {}) {
 const THURSDAY_10 = '2026-09-24T07:00:00.000Z';
 const SUNDAY_10 = '2026-09-27T07:00:00.000Z';
 
-test('clarify: an hour typed alone whose reading carries no local day lands on the asked Sunday, still a guess — and is persisted there', async () => {
+test('clarify: an hour typed alone whose reading carries no local day lands on the asked Sunday — and is persisted there', async () => {
   const { store, persistence, contract, item, question } = await proposeOwnerSentence();
   assert.equal(question.params.date, '2026-09-27');
   const next = await answerClarification(
@@ -446,7 +449,7 @@ test('clarify: an hour typed alone whose reading carries no local day lands on t
     { store, recordEvent: () => {}, extractor: instantOnlyReread(THURSDAY_10) },
   );
   const answered = next.items[0]!;
-  assert.deepEqual([answered.resolvedDate, answered.resolvedTime, answered.dateEstimated, answered.needsClarification], ['2026-09-27', SUNDAY_10, true, false]);
+  assert.deepEqual([answered.resolvedDate, answered.resolvedTime, answered.dateEstimated, answered.needsClarification], ['2026-09-27', SUNDAY_10, false, false]);
   const confirmed = await confirmCapture(
     { proposalId: contract.proposalId, scopeId: 'l4', selectedItemIds: [item.itemId], idempotencyKey: 'k-typedday', now: context.now },
     { store, persistence },

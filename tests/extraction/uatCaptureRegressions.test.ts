@@ -334,14 +334,15 @@ test('R1: a day the model did return is never replaced, and a text with no weekd
   assert.equal(validateExtractionResult(DOCTOR_WITHOUT_DAY, 'دكتور بكرا يوم الأحد', context).localTimeSpec, null);
 });
 
-test('R1: the literal UAT capture, doctor answered with no day, shows Sunday as a guess and asks the time on it', async () => {
+test('R1: the literal UAT capture, doctor answered with no day, shows the Sunday they named and asks the time on it', async () => {
   const noDay = recordedModel({ 'سجّل موعد دكتور يوم الأحد.': DOCTOR_WITHOUT_DAY });
   const { contract } = await propose(UAT_SIX, noDay.provider);
   const doctor = contract.items[0]!;
   assert.equal(doctor.title, 'موعد دكتور');
   assert.equal(doctor.priority, 'high');
   assert.equal(doctor.resolvedDate, '2026-09-27');
-  assert.equal(doctor.dateEstimated, true);
+  // Named by the person, so not a guess (runtime UAT 2026-09-30).
+  assert.equal(doctor.dateEstimated, false);
   assert.equal(doctor.needsClarification, true);
   assert.equal(doctor.clarification?.questionKey, 'ask_time');
   assert.equal(doctor.clarification?.params.date, '2026-09-27');
@@ -1450,13 +1451,13 @@ test('R5 1: Gemini’s recorded answers for the three D1-shape captures give two
   }
 });
 
-test('R5 2: with the calendar lines Gemini dates "Interview on Tuesday" the Tuesday, flagged a guess; a model date is never moved', async () => {
+test('R5 2: with the calendar lines Gemini dates "Interview on Tuesday" the Tuesday, which they named; a model date is never moved', async () => {
   const { clause, round4, round5 } = ROUND5.singleInterview;
   const answering = (answer: unknown) => scriptedModel(() => new LLMUnavailableError('provider_error'), () => answer);
   const after = await proposeScripted(clause, answering(round5));
   assert.equal(after.contract.items.length, 1);
   assert.equal(after.contract.items[0]!.resolvedDate, '2026-09-29');
-  assert.equal(after.contract.items[0]!.dateEstimated, true, 'a date named only by its weekday is a guess');
+  assert.equal(after.contract.items[0]!.dateEstimated, false, 'a weekday the person named is their day, not a guess (runtime UAT 2026-09-30)');
   assert.equal(after.contract.items[0]!.resolvedTime, '2026-09-29T12:00:00.000Z');
   // The round-4 answer (no calendar lines) put it on Wednesday; the validator
   // keeps the model's date as it is — it flags, it never moves (L4).

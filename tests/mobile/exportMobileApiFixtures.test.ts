@@ -798,7 +798,8 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     assert.equal(doctorItem.title, 'موعد دكتور');
     assert.equal(doctorItem.resolvedTime, null);
     assert.equal(doctorItem.resolvedDate, '2026-08-16');
-    assert.equal(doctorItem.dateEstimated, true);
+    // The Sunday they named is theirs, not a guess (runtime UAT 2026-09-30).
+    assert.equal(doctorItem.dateEstimated, false);
     assert.equal(doctorItem.priority, 'high');
     assert.equal(doctorItem.clarification?.questionKey, 'ask_time');
     assert.equal(doctorItem.clarification?.params.date, '2026-08-16');
@@ -892,7 +893,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     })));
     const weeklyItems = weekly.items as Array<{ itemId: string; title: string; resolvedDate?: string; dateEstimated?: boolean; recurrenceHint?: unknown }>;
     assert.deepEqual(weeklyItems.map((item) => [item.title, item.resolvedDate, item.dateEstimated, item.recurrenceHint]), [
-      ['عندي تدريب كل سبت', '2026-08-15', true, { weekdays: [6], start: '10:00', end: '16:00' }],
+      ['عندي تدريب كل سبت', '2026-08-15', false, { weekdays: [6], start: '10:00', end: '16:00' }],
     ]);
     const weeklyConfirmed = await record('capture.weeklyRangeConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
       uid: WEEKLY_USER,
@@ -902,7 +903,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // The same item offers itself as a weekly block («كل سبت · 10:00–16:00»);
     // the confirm above did not name it, so it stayed the one-off it showed.
     assert.deepEqual((weekly.items as Array<{ weeklyBlock?: unknown }>)[0]!.weeklyBlock, {
-      title: 'عندي تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem',
+      title: 'تدريب', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem',
     });
     assert.deepEqual(weeklyConfirmed.weeklyBlocks, []);
 
