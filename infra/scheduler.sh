@@ -36,9 +36,7 @@ case "${TARGET}" in
 esac
 
 command -v gcloud >/dev/null 2>&1 || { echo "missing required tool: gcloud" >&2; exit 1; }
-if [ "${MODE}" = "check" ]; then
-  command -v jq >/dev/null 2>&1 || { echo "missing required tool: jq" >&2; exit 1; }
-fi
+command -v jq >/dev/null 2>&1 || { echo "missing required tool: jq" >&2; exit 1; }
 
 BASE_URL="$(gcloud run services describe "${SERVICE}" \
   --region "${REGION}" --project "${PROJECT_ID}" --format='value(status.url)')"
@@ -80,11 +78,18 @@ if [ "${MODE}" = "check" ]; then
   check_equal "${SERVICE} scheduler caller" "${LIVE_SCHEDULER_SA}" "${SCHEDULER_SA}"
   check_equal "${SERVICE} scheduler audience" "${LIVE_AUDIENCE}" "${BASE_URL}"
 else
-  echo "setting the scheduler identity on ${SERVICE}"
-  gcloud run services update "${SERVICE}" \
-    --region "${REGION}" --project "${PROJECT_ID}" \
-    --update-env-vars="MAYBESITTER_SCHEDULER_SA_EMAIL=${SCHEDULER_SA},MAYBESITTER_INTERNAL_AUDIENCE=${BASE_URL}" \
-    >/dev/null
+  LIVE_SCHEDULER_SETTINGS="$(gcloud run services describe "${SERVICE}" \
+    --region "${REGION}" --project "${PROJECT_ID}" --format=json \
+    | jq -r '[.spec.template.spec.containers[0].env[]? | select(.name == "MAYBESITTER_SCHEDULER_SA_EMAIL" or .name == "MAYBESITTER_INTERNAL_AUDIENCE") | [.name,.value] | @tsv] | sort | .[]')"
+  if [ "${LIVE_SCHEDULER_SETTINGS}" != "$(printf 'MAYBESITTER_INTERNAL_AUDIENCE\t%s\nMAYBESITTER_SCHEDULER_SA_EMAIL\t%s' "${BASE_URL}" "${SCHEDULER_SA}")" ]; then
+    echo "setting the scheduler identity on ${SERVICE}"
+    gcloud run services update "${SERVICE}" \
+      --region "${REGION}" --project "${PROJECT_ID}" \
+      --update-env-vars="MAYBESITTER_SCHEDULER_SA_EMAIL=${SCHEDULER_SA},MAYBESITTER_INTERNAL_AUDIENCE=${BASE_URL}" \
+      >/dev/null
+  else
+    echo "scheduler identity already set on ${SERVICE}"
+  fi
 fi
 
 # The audience is the service URL: a token minted for staging cannot be

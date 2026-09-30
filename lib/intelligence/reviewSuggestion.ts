@@ -3,7 +3,7 @@ import { getStorage, type StorageAdapter } from '../storage';
 import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
 import { commitCommandsWithClaim } from '../services/mobile/participantState';
 import { suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
-import { previewSuggestionSchedule } from './schedulePreview';
+import { slotStillFitsSchedule } from './schedulePreview';
 
 export type SuggestionDecision = 'accept' | 'dismiss';
 
@@ -62,8 +62,7 @@ export async function reviewSuggestion(
         || Date.parse(slot.startsAt) < Date.parse(now) || Date.parse(slot.endsAt) <= Date.parse(slot.startsAt)) {
         throw new SuggestionScheduleChangedError();
       }
-      const [fresh] = await previewSuggestionSchedule(uid, [current], now, storage);
-      if (fresh?.slot?.startsAt !== slot.startsAt || fresh.slot.endsAt !== slot.endsAt) {
+      if (!(await slotStillFitsSchedule(uid, current, slot, now, storage))) {
         throw new SuggestionScheduleChangedError();
       }
       acceptedSlot = slot;
