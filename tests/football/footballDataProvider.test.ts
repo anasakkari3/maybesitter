@@ -114,6 +114,24 @@ test('the request carries the key and the window', async () => {
   assert.equal(calls[0].headers['X-Auth-Token'], 'k');
 });
 
+test('the window the nightly sync actually passes (full ISO instants) is sent as yyyy-MM-dd', async () => {
+  // Production, 2026-09-30: syncWindow() passes `now` and now+N days as full
+  // ISO instants; football-data answered 400 "Date argument not in expected
+  // format: yyyy-MM-dd" to every club, every night, and nothing was stored.
+  const calls: string[] = [];
+  const provider = createFootballDataProvider({
+    apiKey: 'k',
+    fetchImpl: (async (url) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify(PAYLOAD), { status: 200 });
+    }) as typeof fetch,
+  });
+  await provider.listFixtures('81', { fromIso: '2026-09-30T15:00:45.994Z', toIso: '2026-11-29T15:00:45.994Z' });
+  const sent = new URL(calls[0]!);
+  assert.equal(sent.searchParams.get('dateFrom'), '2026-09-30');
+  assert.equal(sent.searchParams.get('dateTo'), '2026-11-29');
+});
+
 test('a 5xx rejects and does not return an empty list', async () => {
   // An empty list is indistinguishable from "this club has no matches", which
   // the sync would treat as a reason to cancel somebody's evening.
