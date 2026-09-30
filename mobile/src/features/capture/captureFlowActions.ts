@@ -21,8 +21,8 @@ import {
   type CaptureState,
 } from './captureMachine';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
-import { CaptureConfirmRefusedError } from '../../api/errors';
-import type { CaptureConfirmation, CaptureProposal } from '../../api/schemas/capture';
+import { CaptureConfirmRefusedError, ConversationNotFoundError } from '../../api/errors';
+import type { CaptureChatAnswer, CaptureConfirmation, CaptureProposal } from '../../api/schemas/capture';
 
 /** The calls the flow is allowed to make. Nothing else reaches the network. */
 export interface CaptureGateway {
@@ -79,6 +79,45 @@ export function analyzeCapture(
     .propose(text)
     .then((proposal): AnalyzeOutcome => ({ ok: true, proposal }))
     .catch((error): AnalyzeOutcome => ({ ok: false, ...classify(error) }));
+}
+
+/** The chat call the flow makes (`POST /api/mobile/capture/chat`). */
+export interface ChatGateway {
+  chat(input: { conversationId: string | null; message: string }): Promise<CaptureChatAnswer>;
+}
+
+export type ChatOutcome =
+  /** `restarted`: the conversation was gone, and this answer is a new one's. */
+  | { ok: true; answer: CaptureChatAnswer; restarted: boolean }
+  | ({ ok: false } & AnalyzeFailure);
+
+/**
+ * One message to the chat, and the one recovery it makes on its own.
+ *
+ * A conversation the server no longer has (idle past its lifetime, or never
+ * this account's) is answered 404 `conversation_not_found`. The person did
+ * nothing wrong, so the message is sent again **once**, as the start of a new
+ * conversation — `conversationId: null`, which cannot be not-found, so there
+ * is no second retry to make and no loop. Nothing else is retried: a network
+ * failure, a 5xx, a quota or a too-long message is reported, and the person's
+ * message stays in the field for them to send again.
+ */
+export async function chatTurn(
+  gateway: ChatGateway,
+  conversationId: string | null,
+  message: string,
+  classify: (error: unknown) => AnalyzeFailure,
+): Promise<ChatOutcome> {
+  try {
+    return { ok: true, answer: await gateway.chat({ conversationId, message }), restarted: false };
+  } catch (error) {
+    if (conversationId === null || !(error instanceof ConversationNotFoundError)) return { ok: false, ...classify(error) };
+    try {
+      return { ok: true, answer: await gateway.chat({ conversationId: null, message }), restarted: true };
+    } catch (retryError) {
+      return { ok: false, ...classify(retryError) };
+    }
+  }
 }
 
 /**

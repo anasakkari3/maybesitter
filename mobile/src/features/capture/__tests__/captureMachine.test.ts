@@ -27,7 +27,7 @@ import {
   type CaptureItemEdit,
   type CaptureState,
 } from '../captureMachine';
-import type { CaptureProposal, CaptureConfirmation } from '../../../api/schemas/capture';
+import type { CaptureChatAnswer, CaptureProposal, CaptureConfirmation } from '../../../api/schemas/capture';
 
 function proposal(over: Partial<CaptureProposal> = {}): CaptureProposal {
   return {
@@ -51,6 +51,14 @@ function confirmation(over: Partial<CaptureConfirmation> = {}): CaptureConfirmat
     persisted: [{ itemId: 'a', commitmentId: 'c1', title: 'Call the clinic', resolvedTime: '2026-09-15T07:00:00.000Z' }],
     failed: [],
     ...over,
+  };
+}
+
+/** The chat's answer carrying `p` (or nothing), after `said`. */
+function chat(p: CaptureProposal | null, reply = 'Check it and confirm.', said: string[] = ['call the clinic tomorrow at 9']): CaptureChatAnswer {
+  return {
+    conversationId: '00000000-0000-4000-8000-000000000001', reply, engine: 'model', proposal: p,
+    turns: said.flatMap((text, index) => [{ role: 'user' as const, text }, { role: 'assistant' as const, text: index === said.length - 1 ? reply : 'ok' }]),
   };
 }
 
@@ -78,6 +86,14 @@ describe('nothing is committed before confirm', () => {
       { type: 'confirmFailed', reason: 'persistence_failed' },
       { type: 'backToComposer' },
       { type: 'undoWindowClosed' },
+      // The chat: a message, an answer whose reply *says* it saved, a failure.
+      { type: 'textChanged', text: 'remind me to call the clinic' },
+      { type: 'chatStarted' },
+      { type: 'chatAnswered', answer: chat(proposal(), 'Done — I saved it for you.') },
+      { type: 'textChanged', text: 'make it 6pm' },
+      { type: 'chatStarted' },
+      { type: 'analyzeFailed', kind: 'network' },
+      { type: 'dismissFailure' },
     ];
 
     let state = initialCaptureState();
@@ -684,3 +700,118 @@ describe('document share selection and selectAll/deselectAll (UC-3.7, #191)', ()
   });
 });
 
+
+describe('the capture chat (owner decision 2026-09-30)', () => {
+  const sent = (text = 'call the clinic tomorrow at 9') => run({ type: 'textChanged', text }, { type: 'chatStarted' });
+  const answered = (p: CaptureProposal | null = proposal()) => captureReducer(sent(), { type: 'chatAnswered', answer: chat(p) });
+
+  it('a send keeps the message in `text` while it is on its way, and nothing types over it', () => {
+    const state = sent();
+    expect(state.status).toBe('analyzing');
+    expect(state.text).toBe('call the clinic tomorrow at 9');
+    expect(captureReducer(state, { type: 'textChanged', text: 'something else' })).toBe(state);
+    // A second send while one is on its way changes nothing.
+    expect(captureReducer(state, { type: 'chatStarted' })).toBe(state);
+  });
+
+  it('an answer moves the message into the conversation, empties the field, and shows the proposal', () => {
+    const state = answered();
+    expect(state.text).toBe('');
+    expect(state.conversationId).toBe('00000000-0000-4000-8000-000000000001');
+    expect(state.turns.map(turn => turn.role)).toEqual(['user', 'assistant']);
+    expect(state.status).toBe('needsConfirmation');
+    expect(state.selected).toEqual(['a', 'b']);
+    expect(state.persisted).toEqual([]);
+  });
+
+  it('an answer with nothing to confirm is the conversation alone: no proposal, the composer', () => {
+    for (const p of [null, proposal({ status: 'no_commitment', items: [] }), proposal({ status: 'rejected' })]) {
+      const state = answered(p);
+      expect(state.status).toBe('idle');
+      expect(state.proposal).toBeNull();
+      expect(state.turns).toHaveLength(2);
+    }
+  });
+
+  it('typing under a proposal is the next message, and changes nothing about the proposal', () => {
+    const state = captureReducer(answered(), { type: 'textChanged', text: 'make it 6pm' });
+    expect(state.status).toBe('needsConfirmation');
+    expect(state.text).toBe('make it 6pm');
+    expect(state.proposal?.proposalId).toBe('p1');
+    // …and it is worth a question before it is thrown away.
+    expect(wantsDiscardConfirmation(state)).toBe(true);
+  });
+
+  it('a follow-up with new item ids replaces the proposal and starts it fresh', () => {
+    let state = captureReducer(answered(), { type: 'toggleItem', itemId: 'b' });
+    state = captureReducer(state, { type: 'editItem', itemId: 'a', edit: { priority: 'high' } });
+    state = captureReducer(state, { type: 'textChanged', text: 'make it 6pm' });
+    state = captureReducer(state, { type: 'chatStarted' });
+    const next = proposal({ proposalId: 'p2', items: [
+      { itemId: 'x', title: 'Call the clinic', resolvedTime: '2026-09-15T15:00:00.000Z', needsClarification: false },
+    ] });
+    state = captureReducer(state, { type: 'chatAnswered', answer: chat(next, 'Okay, 6pm.', ['call the clinic tomorrow at 9', 'make it 6pm']) });
+    expect(state.proposal?.proposalId).toBe('p2');
+    expect(state.original?.proposalId).toBe('p2');
+    expect(state.selected).toEqual(['x']);
+    expect(state.edits).toEqual({});
+    expect(confirmPayload(state)).toMatchObject({ proposalId: 'p2', itemIds: ['x'] });
+  });
+
+  it('a surviving item id keeps its selection, and its hand edit only while the server left it unchanged', () => {
+    let state = captureReducer(answered(), { type: 'toggleItem', itemId: 'b' });
+    state = captureReducer(state, { type: 'editItem', itemId: 'a', edit: { priority: 'high' } });
+    // Same ids; 'a' moved by talk, 'b' untouched, 'c' new.
+    const next = proposal({ proposalId: 'p2', items: [
+      { itemId: 'a', title: 'Call the clinic', resolvedTime: '2026-09-15T15:00:00.000Z', needsClarification: false },
+      { itemId: 'b', title: 'Pay the bill', resolvedTime: '2026-09-15T16:00:00.000Z', needsClarification: false },
+      { itemId: 'c', title: 'Buy stamps', resolvedTime: null, needsClarification: false },
+    ] });
+    state = captureReducer(captureReducer(captureReducer(state, { type: 'textChanged', text: 'the clinic at 6, and buy stamps' }),
+      { type: 'chatStarted' }), { type: 'chatAnswered', answer: chat(next) });
+    // 'a' was changed by what they said: the newer words win over the older hand edit.
+    expect(state.edits.a).toBeUndefined();
+    // 'b' stays out, as the person left it; 'c' is new and starts in.
+    expect(state.selected.sort()).toEqual(['a', 'c']);
+
+    // An untouched item keeps its hand edit.
+    let kept = captureReducer(answered(), { type: 'editItem', itemId: 'b', edit: { title: 'Pay the electricity bill' } });
+    kept = captureReducer(captureReducer(captureReducer(kept, { type: 'textChanged', text: 'and the clinic at 6' }),
+      { type: 'chatStarted' }), { type: 'chatAnswered', answer: chat(next) });
+    expect(kept.edits.b).toEqual({ title: 'Pay the electricity bill' });
+  });
+
+  it('a failed send keeps the conversation, the proposal and the message; Back returns to them', () => {
+    let state = captureReducer(answered(), { type: 'toggleItem', itemId: 'b' });
+    state = captureReducer(captureReducer(state, { type: 'textChanged', text: 'make it 6pm' }), { type: 'chatStarted' });
+    state = captureReducer(state, { type: 'analyzeFailed', kind: 'network' });
+    expect(state.status).toBe('networkError');
+    expect(state.text).toBe('make it 6pm');
+    expect(state.proposal?.proposalId).toBe('p1');
+    state = captureReducer(state, { type: 'dismissFailure' });
+    expect(state.status).toBe('needsConfirmation');
+    expect(state.text).toBe('make it 6pm');
+    expect(state.selected).toEqual(['a']);
+    expect(state.turns).toHaveLength(2);
+  });
+
+  it('a failed first send goes back to the composer with the message', () => {
+    const state = captureReducer(captureReducer(sent('buy milk'), { type: 'analyzeFailed', kind: 'network' }), { type: 'dismissFailure' });
+    expect(state.status).toBe('editing');
+    expect(state.text).toBe('buy milk');
+  });
+
+  it('whatever the reply says, only the confirm answer is "saved"', () => {
+    const state = captureReducer(sent(), { type: 'chatAnswered', answer: chat(proposal(), 'Saved! It is on your list.') });
+    expect(state.status).not.toBe('saved');
+    expect(state.persisted).toEqual([]);
+    expect(state.undoable).toBe(false);
+  });
+
+  it('reset ends the conversation', () => {
+    const state = captureReducer(answered(), { type: 'reset' });
+    expect(state.conversationId).toBeNull();
+    expect(state.turns).toEqual([]);
+    expect(state.proposal).toBeNull();
+  });
+});
