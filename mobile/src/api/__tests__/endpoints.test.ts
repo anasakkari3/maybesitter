@@ -3,7 +3,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
-import { confirmCapture, proposeCapture } from '../endpoints/capture';
+import { chatCapture, confirmCapture, proposeCapture } from '../endpoints/capture';
+import { ConversationNotFoundError, InputTooLargeError, NotFoundError } from '../errors';
 import { actOnCommitment, deleteCommitment, getCommitment, listToday, listUpcoming, patchCommitment } from '../endpoints/commitments';
 import { getNextStep, recordNextStepDecision } from '../endpoints/nextStep';
 import { getTrust, reportPilotIncident, updateTrust } from '../endpoints/trust';
@@ -85,6 +86,44 @@ describe('capture', () => {
     // of reporting it.
     await expect(confirmCapture({ proposalId: 'gone', itemIds: ['i1'] })).rejects.toThrow();
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe('the capture chat', () => {
+  it('starts a conversation without an id, and reads the reply, the proposal and the turns', async () => {
+    serve(fixture('capture.chatProposal'));
+    const answer = await chatCapture({ conversationId: null, message: 'Remind me to call the dentist tomorrow at 5pm', timezone: 'Asia/Jerusalem' });
+    expect(requests[0]!.url).toBe('http://localhost:3000/api/mobile/capture/chat');
+    expect(requests[0]!.method).toBe('POST');
+    const body = requests[0]!.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty('conversationId');
+    expect(body).toMatchObject({ message: 'Remind me to call the dentist tomorrow at 5pm', timezone: 'Asia/Jerusalem' });
+    expect(typeof body.referenceTime).toBe('string');
+    expect(answer.reply).toBe((fixture('capture.chatProposal') as { reply: string }).reply);
+    expect(answer.proposal?.items).toHaveLength(1);
+    expect(answer.turns.map(turn => turn.role)).toEqual(['user', 'assistant']);
+  });
+
+  it('sends the conversation id on a follow-up', async () => {
+    serve(fixture('capture.chatUpdated'));
+    const answer = await chatCapture({ conversationId: '00000000-0000-4000-8000-000000000001', message: 'make it 6pm', timezone: 'UTC' });
+    expect(requests[0]!.body).toMatchObject({ conversationId: '00000000-0000-4000-8000-000000000001', message: 'make it 6pm' });
+    expect(answer.turns).toHaveLength(4);
+  });
+
+  it('reads a gone conversation as ConversationNotFoundError — still a NotFoundError — after one attempt', async () => {
+    serve(fixture('capture.chatNotFound'), 404);
+    const call = chatCapture({ conversationId: '00000000-0000-4000-8000-000000000009', message: 'x', timezone: 'UTC' });
+    await expect(call).rejects.toBeInstanceOf(ConversationNotFoundError);
+    await expect(call).rejects.toBeInstanceOf(NotFoundError);
+    expect(requests).toHaveLength(1);
+  });
+
+  it('reads a too-long message as the capture’s own too-long error', async () => {
+    serve(fixture('capture.chatTooLong'), 413);
+    const call = chatCapture({ conversationId: null, message: 'x', timezone: 'UTC' });
+    await expect(call).rejects.toBeInstanceOf(InputTooLargeError);
+    await expect(call).rejects.toMatchObject({ maxCharacters: 2000 });
   });
 });
 

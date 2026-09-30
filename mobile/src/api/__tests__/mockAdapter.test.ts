@@ -4,7 +4,7 @@ import { apiRequest } from '../client';
 import { resetAuthForTests, setAuthRepository } from '../auth';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { listToday, listUpcoming } from '../endpoints/commitments';
-import { proposeCapture } from '../endpoints/capture';
+import { chatCapture, proposeCapture } from '../endpoints/capture';
 import { getTrust } from '../endpoints/trust';
 import { commitmentListSchema } from '../schemas/common';
 import { ServerError } from '../errors';
@@ -111,6 +111,13 @@ describe('serving the real routes own output', () => {
     // fixture, and `/capture/confirm` must not be served the proposal.
     expect(mockResponseFor('POST', '/api/mobile/commitments/abc/actions')?.body).toHaveProperty('commitment');
     expect(mockResponseFor('POST', '/api/mobile/capture/confirm')?.body).toHaveProperty('persisted');
+    expect(mockResponseFor('POST', '/api/mobile/capture/chat')?.body).toHaveProperty('reply');
+  });
+
+  it('serves the capture chat, so the composer works on fixtures', async () => {
+    const answer = await chatCapture({ conversationId: null, message: 'anything', timezone: 'UTC' });
+    expect(answer.proposal?.status).toBe('proposed');
+    expect(fetchCalls).toBe(0);
   });
 
   it('answers 501 for an unmapped route rather than falling through', async () => {

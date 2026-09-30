@@ -4,7 +4,7 @@ import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
-import { clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
+import { chatCapture, clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
 import { prepareMeeting } from './endpoints/meetings';
 import type { UploadFile } from './client';
@@ -532,6 +532,20 @@ export function useCapture() {
   const timezone = useTimeZone();
   return useMutation({
     mutationFn: (text: string) => proposeCapture({ text, timezone }),
+  });
+}
+
+/**
+ * One message to the capture chat «احكيها» (owner decision 2026-09-30).
+ *
+ * `retry: false` explicitly, beside the client-wide default: a message is the
+ * person's words, and a replay would put them in the conversation twice.
+ */
+export function useCaptureChat() {
+  const timezone = useTimeZone();
+  return useMutation({
+    retry: false,
+    mutationFn: (input: { conversationId: string | null; message: string }) => chatCapture({ ...input, timezone }),
   });
 }
 
