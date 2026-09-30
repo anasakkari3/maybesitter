@@ -1,5 +1,6 @@
 /** Synthetic account probe against a tagged staging revision. Never prints credentials. */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -20,7 +21,10 @@ let token;
 let cleanup = 'not_needed';
 try {
   const signup = await jsonResponse(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(key)}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ returnSecureToken: true }),
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      email: `staging-probe-${randomUUID()}@example.invalid`, password: `Ax9!${randomUUID()}`,
+      returnSecureToken: true,
+    }),
   });
   assert.equal(signup.status, 200, `synthetic Firebase account could not be created (${signup.status})`);
   token = signup.body.idToken;
@@ -38,6 +42,8 @@ try {
   const generation = await call('POST', '/api/mobile/intelligence/generate', {});
   assert.equal(generation.status, 200, `generation route failed (${generation.status})`);
   const ideas = generation.body.suggestions ?? [];
+  process.stdout.write(`${JSON.stringify({ proposalKinds: ideas.map(item => item.kind),
+    scheduleReasons: (generation.body.schedule ?? []).map(item => item.reason ?? 'placed') })}\n`);
   const observations = statement.body.observations;
   const eventIds = new Set(observations.filter(item => item.kind === 'event').map(item => item.id));
   const hasPreparation = ideas.some(item => item.kind === 'action' && item.observationIds.some(id => eventIds.has(id)));
@@ -47,7 +53,9 @@ try {
   const inbox = await call('GET', '/api/mobile/intelligence');
   assert.equal(inbox.status, 200);
   assert.ok(inbox.body.suggestions.length >= ideas.length);
-  const firstAction = ideas.find(item => item.kind === 'action');
+  const firstAction = ideas.find(item => item.kind === 'action'
+    && generation.body.schedule.some(entry => entry.suggestionId === item.id && entry.slot));
+  assert.ok(firstAction, 'the plan needs an action with a feasible proposed time');
   const acceptedSlot = generation.body.schedule.find(item => item.suggestionId === firstAction.id)?.slot;
   assert.ok(acceptedSlot, 'an action needs a feasible proposed time');
   const accept = await call('POST', `/api/mobile/intelligence/suggestions/${firstAction.id}`, {
