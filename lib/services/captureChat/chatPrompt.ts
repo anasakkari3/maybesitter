@@ -16,9 +16,10 @@
 import { captureItemRuleLines } from '../../../src/extraction/ollamaExtractor';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
 import { CAPTURE_CHAT_ACTIONS } from '../../../src/extraction/ollamaExtractionSchema';
+import type { ChatLanguage } from './chatReply';
 import type { CaptureChatTurn } from './conversationStore';
 
-export const CHAT_PROMPT_VERSION = 'capture-chat-v1';
+export const CHAT_PROMPT_VERSION = 'capture-chat-v2';
 
 /** One item of the list the person currently sees, as the model is shown it. */
 export interface ChatPromptItem {
@@ -36,24 +37,35 @@ const CHAT_RULES: readonly string[] = [
   'Return exactly one JSON object and nothing else, with exactly these keys: reply, action, items. No Markdown, code fences or prose around it.',
   `action is one of: ${CAPTURE_CHAT_ACTIONS.join(', ')}.`,
   '- propose: the first list of items this conversation asks for.',
-  '- update: the person changed, added or removed items. "make it 6pm", «خلّيها الساعة 6 المسا» change a time; «شيل التانية», "remove the second one", «תמחק את השני» remove an item. "the second one" is the second item of currentProposal.',
+  '- update: the person changed, added or removed items. "make it 6pm", «خلّيها الساعة 6 المسا» change a time; «شيل التانية», "remove the second one", «תמחק את השני» remove an item. "the second one" is the second item of currentProposal. The reply says what you changed.',
   '- ask: something needed is missing (usually the day or the time). Ask for it in reply.',
   '- chat: the message is not about anything to do — a greeting, thanks, or an off-topic question such as the weather. Reply with one short, friendly sentence that brings the person back to their commitments, and change nothing.',
   'items is always the COMPLETE current list after this message, in order: every item of currentProposal that still stands (unchanged ones included), with the changes applied. Never return only the changes. For chat, return currentProposal unchanged. Leave a removed item out.',
   'Each item is one extraction object and follows every extraction rule below. Take days and times ONLY from the person\'s own messages (role "user"). Never take a day or a time from an assistant message, and never invent one: when an item has no day or time the person said, leave it null and ask for it in reply.',
-  'When any item still needs a day or a time, the reply must ask for it, as a question.',
+  'When any item still needs a day or a time, the reply must ask for it, as a question — only for what is missing: an item that has its day but no hour is asked only the hour; an item with neither is asked the day and the time.',
   'reply: one or two short sentences, at most 300 characters, in the language and script of the person\'s newest message. Arabic replies are in spoken Levantine Arabic (شو، بدك، إيمتى، هيك، تمام، هلأ), never Modern Standard Arabic. Hebrew replies are in everyday Hebrew. No emojis, no links, no Markdown.',
-  'Nothing is ever saved by you. Never say or imply that anything was saved, added, scheduled, booked or set, or that you will remind the person: the person confirms the list themselves in the app. Say what you understood and that they can confirm it.',
+  'Nothing is ever saved by you. Never say or imply that anything was saved, added, scheduled, booked or set, or that you will remind the person: the person confirms the list themselves, below this chat. Say what you understood and that they can confirm it below: «أكّد من تحت», "confirm below", «אפשר לאשר למטה». Never say "in the app": the person is already in it.',
   'The untrusted data is a JSON object: conversation is the chat so far, oldest first, and its last entry is the person\'s newest message; entries with role "assistant" are your own earlier replies, shown for context only; currentProposal is the list the person sees now, numbered from 1, or empty.',
 ];
+
+/** The reply's language, named for the model: it drifted into Arabic on an English message. */
+const REPLY_LANGUAGE: Readonly<Record<ChatLanguage, string>> = {
+  ar: 'Arabic, spoken Levantine',
+  en: 'English',
+  he: 'Hebrew',
+};
 
 export function buildChatPrompt(
   turns: readonly CaptureChatTurn[],
   currentProposal: readonly ChatPromptItem[],
   context: ExtractionContext,
+  options: { replyLanguage?: ChatLanguage } = {},
 ): string {
   return [
     ...CHAT_RULES,
+    // A fixed name from the server's own reading of the newest message, never
+    // the person's words: it belongs with the rules.
+    ...(options.replyLanguage ? [`REPLY LANGUAGE: ${REPLY_LANGUAGE[options.replyLanguage]}. Write reply in this language, whatever language earlier messages or titles are in.`] : []),
     'EXTRACTION RULES FOR EACH ITEM:',
     ...captureItemRuleLines(context),
     'BEGIN_UNTRUSTED_USER_MESSAGE',

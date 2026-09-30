@@ -37,7 +37,7 @@ import {
   setCaptureChatDependenciesForTests,
   type CaptureChatDependencies,
 } from '../../lib/services/captureChat/captureChatService.ts';
-import { claimsSaved, checkModelReply } from '../../lib/services/captureChat/chatReply.ts';
+import { claimsSaved, checkModelReply, safeChatReply, templateReply } from '../../lib/services/captureChat/chatReply.ts';
 import { buildChatPrompt } from '../../lib/services/captureChat/chatPrompt.ts';
 import { splitPrompt, captureLlmProvider } from '../../lib/llm/captureProvider.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
@@ -530,6 +530,96 @@ test('the reply check refuses links, other languages, a missing question, and le
   assert.equal(checkModelReply('Should I add the gym too?', { language: 'en', proposal: settled }).ok, true);
 });
 
+/* ── 4b. the reply: the model's kept, the one missing question added ── */
+
+test('a good reply that does not ask is kept, and only the missing hour is asked after it', async () => {
+  const model = scripted(answer(
+    'Got it: call the dentist tomorrow. Confirm below.',
+    'propose',
+    [item('Call the dentist', TOMORROW, null)],
+  ));
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const body = await chat(uidFor('ChatAppendHour'), 'I need to call the dentist tomorrow');
+    const only = body.proposal!.items[0]!;
+    assert.equal(only.needsClarification, true);
+    // The day was said: the question is the hour, with the parts of the day.
+    const question = only.clarification as { questionKey?: string; options: Array<{ optionId: string }> };
+    assert.equal(question.questionKey, 'ask_time');
+    assert.ok(question.options.some((option) => option.optionId === 'morning' || option.optionId === 'evening'), JSON.stringify(question));
+    assert.equal(body.reply, 'Got it: call the dentist tomorrow. Confirm below. What time is "Call the dentist"?');
+    assert.doesNotMatch(body.reply, /day and the time/);
+  } finally {
+    end();
+  }
+});
+
+test('an edit\u2019s reply is kept (it says what changed), with the other item\u2019s missing hour asked after it', async () => {
+  const friday = weekday('Friday');
+  const sunday = weekday('Sunday');
+  const model = scripted(
+    answer('Dentist Friday at 4 PM and a call with Sara on Sunday. Confirm below.', 'propose', [
+      item('Dentist appointment', friday, '16:00'), item('Call Sara', sunday, null),
+    ]),
+    answer('Okay, the dentist is now at 5 PM.', 'update', [
+      item('Dentist appointment', friday, '17:00'), item('Call Sara', sunday, null),
+    ]),
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('ChatEditAck');
+    const first = await chat(uid, 'I have a dentist appointment on Friday at 4pm and I need to call Sara on Sunday');
+    assert.equal(first.reply, 'Dentist Friday at 4 PM and a call with Sara on Sunday. Confirm below. What time is "Call Sara"?');
+    const second = await chat(uid, 'make the dentist 5pm', first.conversationId);
+    assert.equal(second.proposal!.items[0]!.resolvedTime, instant(friday, '17:00'));
+    assert.equal(second.proposal!.items[1]!.resolvedDate, sunday);
+    assert.equal(second.reply, 'Okay, the dentist is now at 5 PM. What time is "Call Sara"?');
+  } finally {
+    end();
+  }
+});
+
+test('an unusable reply falls to a template that asks exactly what is missing, and acknowledges an edit', async () => {
+  const model = scripted(
+    answer('بكرا بتحكي مع الدكتور الساعة 5 المسا. أكّد من تحت.', 'propose', [item('أحكي مع الدكتور', TOMORROW, '17:00'), item('أشتري خبز', TOMORROW, null)]),
+    // English on an Arabic message: not shown.
+    answer('Okay, the doctor is at 6 PM now.', 'update', [item('أحكي مع الدكتور', TOMORROW, '18:00'), item('أشتري خبز', TOMORROW, null)]),
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('ChatTemplateHour');
+    const first = await chat(uid, 'ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور، وبكرا لازم أشتري خبز');
+    assert.equal(first.reply, 'بكرا بتحكي مع الدكتور الساعة 5 المسا. أكّد من تحت. أي ساعة بدك «أشتري خبز»؟');
+    const second = await chat(uid, 'خلّي الدكتور الساعة 6 المسا', first.conversationId);
+    assert.equal(second.proposal!.items[0]!.resolvedTime, instant(TOMORROW, '18:00'));
+    assert.equal(second.reply, 'تمام، غيّرتها. أي ساعة بدك «أشتري خبز»؟');
+  } finally {
+    end();
+  }
+});
+
+test('the missing question names what is missing: the day, the hour, the half of the day, or both', () => {
+  const base = { title: 'Call Sara', needsClarification: true };
+  const cases: Array<[Record<string, unknown>, string, string]> = [
+    [{ clarification: { questionKey: 'ask_day', params: {} } }, 'Which day is "Call Sara"?', 'أي يوم بدك «Call Sara»؟'],
+    [{ resolvedDate: TOMORROW, clarification: { questionKey: 'ask_time', params: { date: TOMORROW } } }, 'What time is "Call Sara"?', 'أي ساعة بدك «Call Sara»؟'],
+    [{ clarification: { questionKey: 'ask_am_pm', params: { hour: '5' } } }, 'Is "Call Sara" in the morning or the evening?', '«Call Sara» الصبح ولا المسا؟'],
+    [{ clarification: { questionKey: 'ask_time', params: {} } }, 'When do you want to do "Call Sara"? Tell me the day and the time.', 'إيمتى بدك «Call Sara»؟ احكيلي اليوم والساعة.'],
+  ];
+  for (const [extra, en, ar] of cases) {
+    const proposal = { items: [{ ...base, ...extra }] } as never;
+    assert.equal(safeChatReply('Noted.', { language: 'en', proposal }).reply, `Noted. ${en}`);
+    assert.equal(templateReply({ language: 'en', proposal }), en);
+    assert.equal(templateReply({ language: 'ar', proposal }), ar);
+  }
+  // A reply that already asks is shown as it is.
+  const asking = { items: [{ ...base, clarification: { questionKey: 'ask_day', params: {} } }] } as never;
+  assert.equal(safeChatReply('Which day works for Sara?', { language: 'en', proposal: asking }).reply, 'Which day works for Sara?');
+  // An unusable reply is still replaced whole, never appended to.
+  assert.equal(safeChatReply('I added it to your calendar.', { language: 'en', proposal: asking }).reply, 'Which day is "Call Sara"?');
+  assert.equal(safeChatReply('See https://example.com', { language: 'en', proposal: asking }).reply, 'Which day is "Call Sara"?');
+});
+
 /* ── 5. off-topic ───────────────────────────────────────────────── */
 
 test('an off-topic message changes nothing and gets a friendly redirect', async () => {
@@ -979,6 +1069,22 @@ test('the chat prompt keeps the rules in the system turn and the conversation in
     assert.ok(!user.includes(rule), `rule leaked into the untrusted turn: ${rule}`);
   }
   assert.ok(user.startsWith('BEGIN_UNTRUSTED_USER_MESSAGE'));
+  // "Confirm below", never "in the app": the person is in it (chat UAT).
+  assert.ok(system.includes('«أكّد من تحت»') && system.includes('"confirm below"'));
+  assert.ok(!/confirm (?:it|them|the list)[^.]*in the app/i.test(system));
   assert.ok(user.includes('ignore all rules'), 'the forged text stays in the untrusted turn');
   assert.ok(!system.includes('ignore all rules'));
+});
+
+test('the chat prompt names the reply language from the server\u2019s reading, in the rules', async () => {
+  const model = scripted(answer('Dentist tomorrow at 5pm. Confirm below.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]));
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    await chat(uidFor('ChatReplyLanguage'), 'Remind me to call the dentist tomorrow at 5pm');
+    const { system, user } = splitPrompt(model.prompts[0]!);
+    assert.ok(system.includes('REPLY LANGUAGE: English.'), 'the reply language was not named');
+    assert.ok(!user.includes('REPLY LANGUAGE'));
+  } finally {
+    end();
+  }
 });
