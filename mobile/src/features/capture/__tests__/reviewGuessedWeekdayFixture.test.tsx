@@ -5,8 +5,8 @@
  * `reviewGuessedDate.test.tsx` drives a hand-built proposal. This one drives
  * the two fixtures `tests/mobile/exportMobileApiFixtures.test.ts` records from
  * the real handlers for «سجّل موعد دكتور يوم الأحد»: a single
- * `needs_clarification` item with `resolvedTime: null`, a guessed
- * `resolvedDate`, and an `ask_time` question carrying that date — then the
+ * `needs_clarification` item with `resolvedTime: null`, the named day as
+ * `resolvedDate` (no longer a guess: the person said «الأحد»), and an `ask_time` question carrying that date — then the
  * same item answered. Each is parsed with the schema the app ships before the
  * screen sees it, so a shape the schema refuses fails here, not on a phone.
  * This is the #493 lesson: test the status the server actually emits.
@@ -109,19 +109,22 @@ function textOf(testID: string): string {
 }
 
 describe('«سجّل موعد دكتور يوم الأحد», as the route answers it', () => {
-  it('parses, asks for the hour on the guessed Sunday, and marks both guesses', async () => {
+  // «يوم الأحد» is the person's own word for the day, so the route no longer
+  // calls that day a guess (`dateEstimated: false`); only the priority is.
+  it('parses, asks for the hour on the named Sunday, and marks only the priority as a guess', async () => {
     expect(guessed.status).toBe('needs_clarification');
+    expect(guessed.items[0]!.dateEstimated).toBe(false);
     await reachReview();
     const itemId = guessed.items[0]!.itemId;
     const question = textOf('clarify-question');
     expect(question).toContain(arWeekday(DAY));
     expect(question).toContain(dayOfMonth(DAY));
     expect(textOf(`review-when-${itemId}`)).toContain(dayOfMonth(DAY));
-    expect(screen.queryByTestId(`review-date-estimated-${itemId}`)).not.toBeNull();
+    expect(screen.queryByTestId(`review-date-estimated-${itemId}`)).toBeNull();
     expect(screen.queryByTestId(`review-estimated-${itemId}`)).not.toBeNull();
   });
 
-  it('after the hour is picked, the day is still shown as a guess', async () => {
+  it('after the hour is picked, the named day is still not called a guess', async () => {
     const clarifySpy = jest.spyOn(captureEndpoints, 'clarifyCapture')
       .mockImplementation(async () => captureProposalSchema.parse(clarified));
     await reachReview();
@@ -129,6 +132,7 @@ describe('«سجّل موعد دكتور يوم الأحد», as the route answe
     await fireEvent.press(screen.getByTestId('clarify-option-morning'));
     await waitFor(() => expect(clarifySpy).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByTestId('clarify-sheet')).toBeNull());
-    expect(screen.queryByTestId(`review-date-estimated-${itemId}`)).not.toBeNull();
+    expect(clarified.items[0]!.dateEstimated).toBe(false);
+    expect(screen.queryByTestId(`review-date-estimated-${itemId}`)).toBeNull();
   });
 });

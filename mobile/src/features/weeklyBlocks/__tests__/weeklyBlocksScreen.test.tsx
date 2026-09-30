@@ -73,8 +73,8 @@ describe('the list', () => {
     await waitFor(() => expect(screen.queryByTestId(`weekly-block-${TRAINING.id}`)).not.toBeNull());
     expect(textOf(`weekly-block-when-${TRAINING.id}`)).toBe('كل سبت · 10:00–16:00');
     expect(textOf(`weekly-block-when-${WORK.id}`)).toBe('كل يوم · 10:00–16:00');
-    expect(screen.getByTestId(`weekly-block-open-${TRAINING.id}`).props.accessibilityLabel).toBe('عندي تدريب، كل سبت، من 10:00 لـ 16:00');
-    expect(screen.getByTestId(`weekly-block-active-${TRAINING.id}`).props.accessibilityLabel).toBe(`${ar.wbActiveToggle}، عندي تدريب`);
+    expect(screen.getByTestId(`weekly-block-open-${TRAINING.id}`).props.accessibilityLabel).toBe('تدريب، كل سبت، من 10:00 لـ 16:00');
+    expect(screen.getByTestId(`weekly-block-active-${TRAINING.id}`).props.accessibilityLabel).toBe(`${ar.wbActiveToggle}، تدريب`);
   });
 
   it('says so honestly when there are none', async () => {
