@@ -51,8 +51,9 @@ import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
-import { chatEvidenceFrom } from '../captureBoundary/chatEvidence';
-import { proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
+import { chatEvidenceFrom, looksLikeListEdit } from '../captureBoundary/chatEvidence';
+import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
+import { clarifyMobileCapture, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
 import { buildChatPrompt, parseChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { detectChatLanguage, safeChatReply, templateReply, type ChatLanguage } from './chatReply';
@@ -280,6 +281,40 @@ export async function chatMobileCapture(
   }
 
   // ── the rules, on the person's turns joined ─────────────────────
+  /*
+   * A follow-up that answers or edits the list is not a new commitment (chat
+   * UAT round 4: with the cap spent, "make the dentist 5pm" came back as a
+   * third item, "make the dentist", today at 17:00, settled — one confirm
+   * from a commitment nobody asked for). Without the model:
+   *
+   *   a bare day or hour, with one item asking   it is that item's answer,
+   *                                              through the clarify path the
+   *                                              card's own box uses;
+   *   any other edit, or a bare time otherwise   the list stays as it is, and
+   *                                              the person is told to change
+   *                                              it on the card.
+   */
+  if (current && current.items.length > 0) {
+    const timeOnly = isTimeOnlyText(message);
+    const asking = current.items.filter((item) => item.needsClarification && item.clarification);
+    if (timeOnly && asking.length === 1) {
+      const item = asking[0]!;
+      try {
+        const answered = shown(await clarifyMobileCapture(
+          { proposalId: current.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText: message, timezone, referenceTime: now.toISOString() },
+          { participantId: uid },
+        ));
+        if (answered) return finish(templateReply({ language, proposal: answered }), 'rules', answered, turns);
+      } catch {
+        // Not an answer the question takes (a «الصبح ولا المسا؟» takes only
+        // its buttons), or not understood: the list stays, below.
+      }
+      return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
+    }
+    if (timeOnly || looksLikeListEdit(message, current.items.map((item) => item.title))) {
+      return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
+    }
+  }
   const built = await proposeMobileChatTurn(
     { text: userTurns.join('\n'), userTurns, items: null, now, timezone },
     { participantId: uid, requestStartedAt },

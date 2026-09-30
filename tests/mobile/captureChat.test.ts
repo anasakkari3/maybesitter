@@ -39,6 +39,7 @@ import {
 } from '../../lib/services/captureChat/captureChatService.ts';
 import { claimsSaved, checkModelReply, safeChatReply, templateReply } from '../../lib/services/captureChat/chatReply.ts';
 import { buildChatPrompt } from '../../lib/services/captureChat/chatPrompt.ts';
+import { looksLikeListEdit } from '../../lib/services/captureBoundary/chatEvidence.ts';
 import { splitPrompt, captureLlmProvider } from '../../lib/llm/captureProvider.ts';
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { deleteAccount } from '../../lib/account/accountDeletion.ts';
@@ -700,7 +701,8 @@ for (const [label, first, removal] of [
       const one = await chat(uid, first);
       assert.equal(one.proposal!.items.length, 2);
       const two = await chat(uid, removal, one.conversationId);
-      assert.deepEqual(two.proposal!.items.map((entry) => entry.title), [dentist]);
+      // «عندي» is the possession lead-in, not part of the title (chat UAT round 4).
+      assert.deepEqual(two.proposal!.items.map((entry) => entry.title), [label === 'ar' ? 'دكتور' : dentist]);
       assert.equal(two.proposal!.items[0]!.resolvedTime, instant(TOMORROW, '17:00'));
       // The model was told which one is second.
       assert.ok(splitPrompt(model.prompts[1]!).user.includes(`"number":2,"title":"${gym}"`));
@@ -835,6 +837,110 @@ test('the retry is one call, and only while the budget still has room for it', a
     assert.equal(body.engine, 'rules');
   } finally {
     end();
+  }
+});
+
+/* ── 7b. an edit of the list with the model unavailable (chat UAT round 4) ── */
+
+function capped(): CaptureChatDependencies {
+  const inner = fakeGemini(answer('should never be read', 'propose', []));
+  return {
+    llmProviderFor: (uid) => captureLlmProvider(uid, {
+      purpose: 'capture_chat', provider: inner, reserve: async () => 'user_cap', log: () => {}, commit: async () => {},
+    }),
+  };
+}
+
+async function quietly<T>(run: () => Promise<T>): Promise<T> {
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    return await run();
+  } finally {
+    console.warn = warn;
+  }
+}
+
+test('with the cap spent, "make the dentist 5pm" is not a new item: the list stays and the reply says to edit the card', async () => {
+  begin(capped());
+  try {
+    await quietly(async () => {
+      const uid = uidFor('ChatRulesEdit');
+      const first = await chat(uid, 'I have a dentist appointment on Friday at 4pm and a meeting with Sara on Sunday morning');
+      assert.equal(first.engine, 'rules');
+      assert.equal(first.proposal!.items.length, 2, JSON.stringify(first.proposal));
+      // The possession lead-in is not part of the title.
+      for (const entry of first.proposal!.items) assert.doesNotMatch(entry.title, /^I have/i, entry.title);
+      const second = await chat(uid, 'make the dentist 5pm', first.conversationId);
+      assert.equal(second.engine, 'rules');
+      assert.equal(second.proposal!.proposalId, first.proposal!.proposalId, 'the list changed');
+      assert.deepEqual(second.proposal!.items.map((entry) => entry.title), first.proposal!.items.map((entry) => entry.title));
+      assert.ok(!second.proposal!.items.some((entry) => /make/i.test(entry.title)), 'the edit became an item');
+      assert.equal(second.reply, "I couldn't apply that change right now — edit it on the card below.");
+    });
+  } finally {
+    end();
+  }
+});
+
+for (const edit of ['خليها الساعة 7', 'شيل التانية', 'لا خلّي التانية الساعة 7', 'غيّر الدكتور للساعة 5']) {
+  test(`with the cap spent, «${edit}» leaves the list as it is, and says so in Arabic`, async () => {
+    begin(capped());
+    try {
+      await quietly(async () => {
+        const uid = uidFor(`ChatRulesEditAr${edit.length}`);
+        const first = await chat(uid, 'بكرا الساعة 5 المسا عندي دكتور والساعة 7 المسا جيم');
+        assert.ok(first.proposal && first.proposal.items.length > 0, JSON.stringify(first));
+        const second = await chat(uid, edit, first.conversationId);
+        assert.equal(second.proposal!.proposalId, first.proposal!.proposalId);
+        assert.equal(second.proposal!.items.length, first.proposal!.items.length);
+        assert.equal(second.reply, 'ما قدرت أطبّق التعديل هلّق — عدّله من الكرت تحت.');
+      });
+    } finally {
+      end();
+    }
+  });
+}
+
+test('with the cap spent, a bare day and hour answers the one item that is asking', async () => {
+  begin(capped());
+  try {
+    await quietly(async () => {
+      const uid = uidFor('ChatRulesAnswer');
+      const first = await chat(uid, 'لازم أتصل بالبنك');
+      assert.equal(first.proposal!.items.length, 1);
+      assert.equal(first.proposal!.items[0]!.needsClarification, true);
+      const second = await chat(uid, 'بكرا الساعة 10 الصبح', first.conversationId);
+      assert.equal(second.proposal!.items.length, 1, JSON.stringify(second.proposal));
+      assert.equal(second.proposal!.items[0]!.needsClarification, false, JSON.stringify(second.proposal));
+      assert.equal(second.proposal!.items[0]!.resolvedTime, instant(TOMORROW, '10:00'));
+    });
+  } finally {
+    end();
+  }
+});
+
+test('with the cap spent, a new request is still a new item', async () => {
+  begin(capped());
+  try {
+    await quietly(async () => {
+      const uid = uidFor('ChatRulesNew');
+      const first = await chat(uid, 'Remind me to call the dentist tomorrow at 5pm');
+      const second = await chat(uid, 'and set a reminder to go to the gym tomorrow at 7pm', first.conversationId);
+      assert.equal(second.proposal!.items.length, 2, JSON.stringify(second.proposal));
+    });
+  } finally {
+    end();
+  }
+});
+
+test('what reads as an edit of the list, and what does not', () => {
+  const titles = ['dentist appointment', 'meeting with Sara'];
+  for (const edit of ['make the dentist 5pm', 'move it to Monday', 'remove the second one', 'cancel the meeting with Sara', 'خليها الساعة 7', 'شيل التانية', 'תמחק את השני', 'תעביר אותה למחר']) {
+    assert.equal(looksLikeListEdit(edit, titles), true, edit);
+  }
+  for (const request of ['set a reminder to call mom at 6', 'and the gym tomorrow at 7pm', 'حطلي تذكير أتصل بأمي بكرا', 'I also need to buy bread']) {
+    assert.equal(looksLikeListEdit(request, titles), false, request);
   }
 });
 

@@ -390,6 +390,11 @@ const RELATIVE_DAY_WORDS = RELATIVE_DAY_MENTION_SOURCES.map((source) => new RegE
  * "tomorrow at 5". It names nothing to do, so it is not a commitment of its
  * own; it belongs to the clause beside it.
  */
+/** A message that is only a time («بكرا الساعة 10 الصبح», "5pm"): an answer, not a commitment of its own. */
+export function isTimeOnlyText(text: string): boolean {
+  return typeof text === 'string' && text.trim().length > 0 && isTimeOnlyClause(text.trim());
+}
+
 function isTimeOnlyClause(clause: string): boolean {
   if (!namesDay(clause) && !statesClock(clause) && timeOfDayEvidence(clause) === 'none') return false;
   // The day words go whatever the words did with them: `stripTimeExpressions`
