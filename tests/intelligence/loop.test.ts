@@ -66,8 +66,10 @@ test('a time-sensitive event receives a preparation pass when the first pass onl
     { kind: 'event', evidence: 'Party tonight', confidence: 0.9 },
   ], storage);
   let calls = 0;
-  const suggestions = await proposeFromObservations('alice', NOW, { storage, generate: async () => {
+  const systems: string[] = [];
+  const suggestions = await proposeFromObservations('alice', NOW, { storage, generate: async (request: { system?: string }) => {
     calls++;
+    systems.push(String(request?.system ?? ''));
     return { text: JSON.stringify({ suggestions: calls === 1 ? [{
       kind: 'warning', title: 'Consider the party timing', reason: 'Exam tomorrow and party tonight',
       observationIds: [exam.id, party.id], confidence: 0.7, durationMinutes: 0,
@@ -78,6 +80,13 @@ test('a time-sensitive event receives a preparation pass when the first pass onl
   } });
   assert.equal(calls, 2);
   assert.deepEqual(suggestions.map(item => item.kind), ['warning', 'action']);
+  // Both passes carry the spoken-Arabic rule: real Gemini wrote formal MSA
+  // («لديك… غداً… قد يؤثر») under a bare "Levantine" (staging, 2026-10-01).
+  assert.equal(systems.length, 2);
+  for (const system of systems) {
+    assert.ok(system.includes('عندك not لديك'), 'a pass lost the Levantine register rule');
+    assert.ok(system.includes('بكرا not غداً'), 'a pass lost the Levantine register rule');
+  }
 });
 
 test('multi-step proposal is reviewed before work exists; retries create one action and one goal', async () => {
