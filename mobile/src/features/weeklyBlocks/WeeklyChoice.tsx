@@ -5,6 +5,7 @@ import { useLayoutMode } from '../../theme/textScale';
 import { Btn, Txt } from '../../ui/primitives';
 import type { WeeklyBlockOffer } from '../../api/schemas/weeklyBlocks';
 import { weeklyA11yLabel, weeklyLine } from './weeklyText';
+import { isolateAuto } from '../../i18n/bidi';
 
 /**
  * «كل أسبوع» or «مرة وحدة بس», on a Review card whose words said "every
@@ -67,9 +68,13 @@ export function WeeklyChoice({ itemId, offer, title, choice, locked, onChoose }:
       testID={`review-weekly-${itemId}`}
       style={{ alignSelf: 'stretch', gap: 8, backgroundColor: p.sf2, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 12, alignItems: 'flex-start' }}
     >
-      {/* Read aloud as words — «كل سبت، من 10:00 لـ 16:00» — not as a dash. */}
-      <View accessible accessibilityLabel={weeklyA11yLabel(shape, lang)} testID={`review-weekly-spoken-${itemId}`}>
-        <Txt size={14} weight={600} testID={`review-weekly-line-${itemId}`}>{weeklyLine(shape, lang)}</Txt>
+      {/* Read aloud as words — «كل سبت، من 10:00 لـ 16:00» — not as a dash.
+          The person's title is a line of its own: in one line with the days,
+          a Latin title wrapped «كل» away from «سبت» and read as
+          «كل · I have an internship / 10:00–16:00 · سبت» (UAT 2026-09-30, u37). */}
+      <View accessible accessibilityLabel={weeklyA11yLabel(shape, lang)} testID={`review-weekly-spoken-${itemId}`} style={{ gap: 2 }}>
+        <Txt size={14} weight={600} testID={`review-weekly-title-${itemId}`}>{isolateAuto(shape.title)}</Txt>
+        <Txt size={13} testID={`review-weekly-line-${itemId}`}>{weeklyLine(shape, lang, { withTitle: false })}</Txt>
       </View>
       <Txt size={13} color={p.mu}>{t.wbReviewQuestion}</Txt>
       <View accessibilityRole="radiogroup" accessibilityLabel={t.wbReviewQuestion} style={{ flexDirection: stacked ? 'column' : 'row', flexWrap: 'wrap', gap: 8, alignSelf: 'stretch' }}>
