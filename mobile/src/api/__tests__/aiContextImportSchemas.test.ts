@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
+import { MAX_IMPORT_LENGTH } from '../../features/aiImport/importLimits';
 import {
   memoryItemSchema,
   memoryOriginSchema,
@@ -55,7 +56,9 @@ describe('the real responses these routes return', () => {
   it('records a real refusal carrying the number the screen may show', () => {
     const refused = fixture('profile.importTooLong') as { reason: string; maxCharacters: number };
     expect(refused.reason).toBe('import_too_long');
-    expect(refused.maxCharacters).toBe(4_000);
+    // The phone's clipboard cap is the server's: pasting what the screen
+    // accepts must never end in this refusal.
+    expect(refused.maxCharacters).toBe(MAX_IMPORT_LENGTH);
   });
 
   it('records a real expired proposal', () => {
