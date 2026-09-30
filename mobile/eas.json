@@ -16,6 +16,7 @@
       "environment": "preview",
       "env": {
         "APP_ENV": "staging",
+        "EXPO_PUBLIC_API_BASE_URL": "https://maybesitter-api-staging-xw5vhndxxq-ew.a.run.app",
         "EXPO_PUBLIC_CLARITY_ENABLED": "true"
       },
       "buildArtifactPaths": [

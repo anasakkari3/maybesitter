@@ -43,6 +43,12 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "9d29f85d-0179-4d79-a67e-be9afbbc9f68"
+      }
+    },
+    "owner": "anasakkari"
   }
 }
