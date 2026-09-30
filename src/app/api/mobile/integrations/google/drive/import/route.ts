@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * Read the one file the person picked into a capture proposal (CL6a). Body:
- * `{ fileId, timezone?, referenceTime? }`.
+ * `{ fileId, timezone?, referenceTime?, locale? }`.
  *
  * The same answer `/api/mobile/capture/share` gives for a PDF from Files, so
  * the app reviews it on the same screen. The trace records a byte count and a
@@ -33,13 +33,13 @@ export async function POST(request: Request) {
     return invalidGoogleRequest();
   }
   const fields = typeof body === 'object' && body !== null
-    ? body as { fileId?: unknown; timezone?: unknown; referenceTime?: unknown }
+    ? body as { fileId?: unknown; timezone?: unknown; referenceTime?: unknown; locale?: unknown }
     : {};
 
   try {
     const result = await importDriveFile(
       user.uid,
-      { fileId: fields.fileId, timezone: fields.timezone, referenceTime: fields.referenceTime },
+      { fileId: fields.fileId, timezone: fields.timezone, referenceTime: fields.referenceTime, locale: fields.locale },
       googleRuntime(),
       { signal: request.signal },
     );

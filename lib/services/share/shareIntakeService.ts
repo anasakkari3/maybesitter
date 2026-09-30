@@ -42,7 +42,7 @@ import { uidHash } from '../../llm/llmLog';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/shareProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { proposeMobileCapture } from '../mobile/mobileCaptureService';
-import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureContracts';
+import { CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom, type CaptureAppLocale } from '../../../src/contracts/v1/captureContracts';
 import { CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { normalizeTimezone, dateFromOptionalIso } from '../mobile/time';
 import { declarationConflicts, sniffMediaType } from './mediaType';
@@ -163,6 +163,11 @@ export interface ShareIntakeInput {
   readonly referenceTime?: unknown;
   /** The client's guess at where the share came from. A hint, ranked below the bytes. */
   readonly sourceHint?: unknown;
+  /**
+   * The phone's UI language (owner request 2026-09-30): the capture pipeline's
+   * model titles each item in it. `'ar' | 'en' | 'he'`; anything else is ignored.
+   */
+  readonly locale?: unknown;
 }
 
 export interface ShareIntakeContext {
@@ -455,6 +460,7 @@ export async function proposeFromShare(
 
     const prepared = await channel.preprocess(preprocessorInput, shareChannelContext(context));
 
+    const locale = captureAppLocaleFrom(input.locale);
     return await proposeFromPrepared(prepared, {
       channel: channel.id,
       kind,
@@ -462,6 +468,7 @@ export async function proposeFromShare(
       totalBytes: files.reduce((sum, file) => sum + file.byteLength, 0),
       referenceTime: preprocessorInput.referenceTime,
       timezone: preprocessorInput.timezone,
+      ...(locale ? { locale } : {}),
     }, context);
   } finally {
     /*
@@ -513,6 +520,8 @@ export interface MailboxScanInput {
    * What it had not read by then is `not_read`, never "nothing here".
    */
   readonly deadline?: MailboxDeadline;
+  /** The phone's UI language, as a share's (`ShareIntakeInput.locale`). */
+  readonly locale?: unknown;
 }
 
 /** The header block the email cleaner reads: Subject and Date, then the body. */
@@ -629,6 +638,7 @@ export async function proposeFromMailbox(
       itemCount: segments.length,
     },
   });
+  const locale = captureAppLocaleFrom(input.locale);
   return proposeFromPrepared(combined, {
     channel: emailPreprocessor.id,
     kind: 'text',
@@ -636,6 +646,7 @@ export async function proposeFromMailbox(
     totalBytes: 0,
     referenceTime,
     timezone,
+    ...(locale ? { locale } : {}),
   }, context);
 }
 
@@ -660,6 +671,12 @@ interface PreparedOrigin {
   readonly totalBytes: number;
   readonly referenceTime: Date;
   readonly timezone: string;
+  /**
+   * The phone's UI language. The channel's own read stays in the source's
+   * words — its evidence is matched against them — and the capture pipeline
+   * writes the titles the person sees in this one.
+   */
+  readonly locale?: CaptureAppLocale;
 }
 
 /**
@@ -707,6 +724,7 @@ async function proposeFromPrepared(
         text,
         referenceTime: origin.referenceTime.toISOString(),
         timezone: origin.timezone,
+        ...(origin.locale ? { locale: origin.locale } : {}),
       },
       { participantId: context.uid },
     );
