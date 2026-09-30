@@ -512,6 +512,8 @@ export async function proposeMobileChatTurn(
     items: readonly unknown[] | null;
     now: Date;
     timezone: string;
+    /** The list the person saw before this message (chat UAT round 2). */
+    previous?: readonly { title: string; date: string | null; time: string | null }[];
   },
   context: MobileBackendContext & { participantId: string },
 ) {
@@ -522,7 +524,7 @@ export async function proposeMobileChatTurn(
     scopeId: context.participantId,
     requestedEngine: input.items ? 'model' : 'rules',
     ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
-    ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items } } : {}),
+    ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items, previous: input.previous ?? [] } } : {}),
   }, {
     store,
     persistence: persistenceFor(context),
