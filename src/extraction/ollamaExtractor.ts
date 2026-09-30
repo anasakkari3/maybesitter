@@ -58,6 +58,9 @@ function requestedShape(context: ExtractionContext): Record<string, unknown> {
     type: 'task|follow_up|informational_context|unknown',
     action: 'string|null',
     title: 'string|null',
+    // Only when the app's language is known (owner request 2026-09-30): a
+    // prompt without it is the prompt before this field existed.
+    ...(context.titleLanguage ? { appTitle: 'string|null' } : {}),
     person: 'string|null',
     dueAt: 'ISO-8601-with-timezone|null',
     remindAt: 'ISO-8601-with-timezone|null',
@@ -486,6 +489,10 @@ export function detectPromptInjection(rawText: string): string | null {
 /**
  * The prompt's own version, so a report can say which wording produced it.
  *
+ * v6 (owner request 2026-09-30) asks, when the app's language is known, for
+ * `appTitle` — the title in that language — beside `title`, which stays in the
+ * person's own words. Without a language the wording is v5's.
+ *
  * v5 (FX3) names the person's own obligation words («لازم», "have to",
  * «חייב») as an explicit high, and fixes the few-shot that showed «لازم» as
  * normal. Also enforced after the model answers (`schemaValidator.ts`).
@@ -503,7 +510,7 @@ export function detectPromptInjection(rawText: string): string | null {
  * rule, and title constraints. It is a version string, not a feature flag:
  * there is one prompt, and this names it.
  */
-export const PROMPT_VERSION = 'capture-v5';
+export const PROMPT_VERSION = 'capture-v6';
 
 /**
  * Titles the review screen can show without editing.
@@ -518,6 +525,61 @@ const TITLE_RULES: readonly string[] = [
   'Never translate the title. Never add emojis, quotes, or trailing punctuation.',
   'Do not put a date or a time in the title.',
 ];
+
+/**
+ * The app's language, named for the model. A closed map: the request's
+ * `locale` only ever selects one of these three strings, so nothing the
+ * phone sends reaches the rules as text.
+ */
+const APP_LANGUAGE_NAME: Readonly<Record<NonNullable<ExtractionContext['titleLanguage']>, string>> = {
+  ar: 'Arabic',
+  en: 'English',
+  he: 'Hebrew',
+};
+
+/** One worked example per app language: the title in the person's words, and the same title in the app's. */
+const APP_TITLE_EXAMPLES: Readonly<Record<NonNullable<ExtractionContext['titleLanguage']>, readonly string[]>> = {
+  ar: [
+    'INPUT: "meeting with Sara on Sunday at 10" -> {"title":"Meeting with Sara","appTitle":"اجتماع مع سارة"}',
+    'INPUT: "remind me tmrw at 4pm to email the landlord" -> {"title":"Email the landlord","appTitle":"أبعت إيميل لصاحب البيت"}',
+    'INPUT: "I have training every Saturday from 10 to 4" -> {"title":"Training every Saturday","appTitle":"تدريب كل سبت"}',
+    'INPUT: "بكرا لازم أتصل بسامي" -> {"title":"أتصل بسامي","appTitle":"أتصل بسامي"} (already Arabic: the same text)',
+  ],
+  en: [
+    'INPUT: "بكرا لازم أتصل بسامي" -> {"title":"أتصل بسامي","appTitle":"Call Sami"}',
+    'INPUT: "מחר בערב צריך לשלם את החשבון" -> {"title":"לשלם את החשבון","appTitle":"Pay the bill"}',
+    'INPUT: "remind me to email the landlord" -> {"title":"Email the landlord","appTitle":"Email the landlord"} (already English: the same text)',
+  ],
+  he: [
+    'INPUT: "meeting with Sara on Sunday at 10" -> {"title":"Meeting with Sara","appTitle":"פגישה עם שרה"}',
+    'INPUT: "بكرا لازم أتصل بسامي" -> {"title":"أتصل بسامي","appTitle":"להתקשר לסאמי"}',
+    'INPUT: "תזכיר לי מחר להתקשר לדוד" -> {"title":"להתקשר לדוד","appTitle":"להתקשר לדוד"} (already Hebrew: the same text)',
+  ],
+};
+
+/**
+ * The title in the app's language (owner request 2026-09-30).
+ *
+ * `title` keeps its rules above — the person's own words, never translated —
+ * because everything that checks a title against what the person said reads
+ * that one. `appTitle` is what the card shows and what is saved, so an Arabic
+ * app never shows an English title for an English email or an English
+ * sentence.
+ */
+function appTitleRules(context: ExtractionContext): readonly string[] {
+  const language = context.titleLanguage;
+  if (!language) return [];
+  const name = APP_LANGUAGE_NAME[language];
+  return [
+    `APP LANGUAGE: ${name}. The person reads every title in ${name}, whatever language they wrote in.`,
+    `appTitle: the same title as title, written in ${name}: 2-6 words, the same meaning, nothing added and nothing left out. When title is already in ${name}, appTitle is exactly title. appTitle is null exactly when title is null.`,
+    `In appTitle, a person's name is written in ${name} script so it still reads as that name (Sara -> «سارة» in Arabic, «שרה» in Hebrew); a place, brand, school or team keeps the name it is known by. Keep who it is with, and any words saying how often it repeats ("every Saturday" -> «كل سبت»).`,
+    ...(language === 'ar' ? ['An Arabic appTitle is spoken Levantine Arabic, the way the person would say it (أتصل، أبعت، موعد عند الدكتور), never Modern Standard Arabic.'] : []),
+    'appTitle never changes title: title is still in the person\'s own words, exactly as the title rules above say.',
+    'Do not put a date or a time in appTitle.',
+    ...APP_TITLE_EXAMPLES[language],
+  ];
+}
 
 /**
  * What the three languages actually look like when typed by a person.
@@ -616,7 +678,7 @@ function instructionLines(context: ExtractionContext): string[] {
     'SYSTEM ROLE: You are the deterministic MaybeSitter structured extraction engine.',
     `PROMPT VERSION: ${PROMPT_VERSION}`,
     'Return exactly one JSON object and nothing else: no Markdown, code fences, prose, comments, or extra keys.',
-    `The only allowed top-level keys are: ${ALLOWED_FIELDS.join(', ')}.`,
+    `The only allowed top-level keys are: ${[...ALLOWED_FIELDS, ...(context.titleLanguage ? ['appTitle'] : [])].join(', ')}.`,
     ...extractionRuleLines(context),
   ];
 }
@@ -645,6 +707,7 @@ function extractionRuleLines(context: ExtractionContext): string[] {
     ...TIME_RULES,
     ...PRIORITY_RULES,
     ...TITLE_RULES,
+    ...appTitleRules(context),
     ...DIALECT_RULES,
     ...categoryRules(context),
     'EXAMPLES (abbreviated; always return every required key):',

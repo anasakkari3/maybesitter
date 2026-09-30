@@ -1,5 +1,6 @@
 import { apiRequest } from '../client';
 import { meetingPrepResponseSchema, type MeetingPrepResponse } from '../schemas/meetings';
+import type { Locale } from '../../i18n/locale';
 
 /**
  * «حضّرني» (CL5a): a busy block's times and the notes about it, in; a capture
@@ -14,6 +15,8 @@ export function prepareMeeting(input: {
   startAt: string;
   endAt: string | null;
   timezone: string;
+  /** The app's UI language: the steps are titled in it (owner request 2026-09-30). */
+  locale?: Locale;
 }): Promise<MeetingPrepResponse> {
   return apiRequest('POST', '/api/mobile/meetings/prepare', {
     body: {
@@ -21,6 +24,7 @@ export function prepareMeeting(input: {
       startAt: input.startAt,
       ...(input.endAt ? { endAt: input.endAt } : {}),
       timezone: input.timezone,
+      ...(input.locale ? { locale: input.locale } : {}),
     },
     schema: meetingPrepResponseSchema,
   });

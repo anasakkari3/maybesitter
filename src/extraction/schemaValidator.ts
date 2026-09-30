@@ -104,6 +104,52 @@ function commandFree(value: string | null): string | null {
   return value === null ? null : stripCaptureCommand(value);
 }
 
+/** The longest app-language title kept: the edit sheet's own bound (`CAPTURE_EDIT_TITLE_MAX`). */
+const APP_TITLE_MAX = 120;
+
+const ARABIC_LETTERS = new RegExp('[\\u0600-\\u06FF\\u0750-\\u077F\\u08A0-\\u08FF\\uFB50-\\uFDFF\\uFE70-\\uFEFC]', 'g');
+const HEBREW_LETTERS = new RegExp('[\\u0590-\\u05FF\\uFB1D-\\uFB4F]', 'g');
+const LATIN_LETTERS = /[A-Za-z]/g;
+
+/**
+ * The language a title is written in, by the script most of its letters are
+ * in — Arabic first on a tie, as the chat reads a message (`detectChatLanguage`).
+ * Null for a title with no letters at all.
+ */
+export function titleScript(text: string): 'ar' | 'en' | 'he' | null {
+  const arabic = text.match(ARABIC_LETTERS)?.length ?? 0;
+  const hebrew = text.match(HEBREW_LETTERS)?.length ?? 0;
+  const latin = text.match(LATIN_LETTERS)?.length ?? 0;
+  if (arabic === 0 && hebrew === 0 && latin === 0) return null;
+  if (arabic >= hebrew && arabic >= latin) return 'ar';
+  if (hebrew >= latin) return 'he';
+  return 'en';
+}
+
+/**
+ * The model's title in the app's language (owner request 2026-09-30), or null.
+ *
+ * Only when the context asked for one — a model cannot hand in a "translation"
+ * nobody requested — and only beside a title in the person's words: with no
+ * `title` there is nothing it translates. One line, the capture command taken
+ * off it as off `title`, within the edit sheet's bound.
+ *
+ * And only across languages. A title the person already wrote in the app's
+ * language is theirs, as it is: kept, with every repair the lines above made
+ * to it — the company («مع أهلي»), the unsettled day, the month's end — which
+ * a model's rewording in the same language would silently drop again.
+ */
+function appTitleFrom(value: unknown, title: string | null, context?: ExtractionContext): string | null {
+  const language = context?.titleLanguage;
+  if (!language || !title || typeof value !== 'string') return null;
+  if (titleScript(title) === language) return null;
+  const appTitle = commandFree(stringOrNull(value.replace(/\s+/g, ' ')));
+  if (!appTitle || Array.from(appTitle).length > APP_TITLE_MAX || appTitle === title) return null;
+  // A "translation" that is not in the app's language is not one.
+  if (titleScript(appTitle) !== language) return null;
+  return appTitle;
+}
+
 function boolOrDefault(value: unknown, fallback: boolean): boolean {
   if (typeof value === 'boolean') return value;
   if (value === 'true') return true;
@@ -842,6 +888,9 @@ export function validateExtractionResult(
     priority: clamp(rawConf['priority']),
   };
 
+  const title = withUnsettledDay(withCompanion(allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords), rawText), rawText);
+  const appTitle = appTitleFrom(raw['appTitle'], title, context);
+
   // ── assemble ──────────────────────────────────────────────────────────
   return {
     type,
@@ -855,7 +904,10 @@ export function validateExtractionResult(
     // string.
     action: commandFree(stringOrNull(raw['action']))
       ?? (type === 'task' || type === 'follow_up' ? commandFree(stringOrNull(raw['title'])) : null),
-    title: withUnsettledDay(withCompanion(allDay ? commandFree(stringOrNull(raw['title'])) : withMonthEndWords(commandFree(stringOrNull(raw['title'])), rawText, monthEndWords), rawText), rawText),
+    title,
+    // Beside `title`, never in its place: every check above read the person's
+    // words, and the capture boundary decides whether this one is shown.
+    ...(appTitle ? { appTitle } : {}),
     person: stringOrNull(raw['person']),
     dueAt: time.dueAt,
     remindAt: time.remindAt,

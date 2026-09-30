@@ -15,6 +15,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
   captureReducer,
+  chatSaves,
   confirmPayload,
   confirmableItems,
   defaultSelectedItems,
@@ -94,6 +95,7 @@ describe('nothing is committed before confirm', () => {
       { type: 'chatStarted' },
       { type: 'analyzeFailed', kind: 'network' },
       { type: 'dismissFailure' },
+      { type: 'undoRecorded', stillSaved: [] },
     ];
 
     let state = initialCaptureState();
@@ -107,8 +109,13 @@ describe('nothing is committed before confirm', () => {
     // Only the server's answer produces it.
     state = captureReducer(captureReducer(state, { type: 'analyzeSucceeded', proposal: proposal() }), { type: 'confirmStarted' });
     state = captureReducer(state, { type: 'confirmSucceeded', confirmation: confirmation() });
-    expect(state.status).toBe('saved');
+    // In the chat the person stays in it (owner request 2026-09-30): the save
+    // is a line of the conversation, and it is still only the server's answer.
+    // The message typed under the proposal and not sent stays in the field.
+    expect(state.status).toBe('editing');
+    expect(state.text).toBe('make it 6pm');
     expect(state.persisted).toHaveLength(1);
+    expect(state.earlier[state.earlier.length - 1]).toMatchObject({ kind: 'saved', persisted: confirmation().persisted });
   });
 
   it('shows exactly what the server saved, not what the client selected', () => {
@@ -813,5 +820,62 @@ describe('the capture chat (owner decision 2026-09-30)', () => {
     expect(state.conversationId).toBeNull();
     expect(state.turns).toEqual([]);
     expect(state.proposal).toBeNull();
+  });
+});
+
+describe('a save in the chat keeps the chat (owner request 2026-09-30)', () => {
+  const answered = () => run(
+    { type: 'textChanged', text: 'call the clinic tomorrow at 9' },
+    { type: 'chatStarted' },
+    { type: 'chatAnswered', answer: chat(proposal()) },
+  );
+
+  it('moves the conversation above, with a saved line, and ends it', () => {
+    const before = answered();
+    const saved = captureReducer(captureReducer(before, { type: 'confirmStarted' }), {
+      type: 'confirmSucceeded',
+      confirmation: confirmation({ failed: [{ itemId: 'b', reason: 'invalid_time' }] }),
+    });
+    expect(saved.status).toBe('idle');
+    // The next message starts a new conversation.
+    expect(saved.conversationId).toBeNull();
+    expect(saved.turns).toEqual([]);
+    expect(saved.proposal).toBeNull();
+    expect(saved.selected).toEqual([]);
+    expect(saved.earlier).toEqual([
+      ...before.turns.map((turn) => ({ kind: 'turn', role: turn.role, text: turn.text })),
+      {
+        kind: 'saved', persisted: confirmation().persisted, failed: [{ itemId: 'b', reason: 'invalid_time' }],
+        collisions: [], weeklySaved: [], failedTitles: ['Pay the bill'],
+      },
+    ]);
+    expect(chatSaves(saved)).toBe(1);
+    // Undo still has what the server saved.
+    expect(saved.persisted).toEqual(confirmation().persisted);
+    expect(saved.undoable).toBe(true);
+    // Nothing unsaved: leaving asks nothing.
+    expect(wantsDiscardConfirmation(saved)).toBe(false);
+  });
+
+  it('a review with no conversation — a share — still ends on the saved screen', () => {
+    const shared = run({ type: 'analyzeSucceeded', proposal: proposal() }, { type: 'confirmStarted' });
+    const saved = captureReducer(shared, { type: 'confirmSucceeded', confirmation: confirmation() });
+    expect(saved.status).toBe('saved');
+    expect(saved.earlier).toEqual([]);
+  });
+
+  it('records what Undo could not take back on the last saved line, and only there', () => {
+    const saved = captureReducer(captureReducer(answered(), { type: 'confirmStarted' }), { type: 'confirmSucceeded', confirmation: confirmation() });
+    const undone = captureReducer(saved, { type: 'undoRecorded', stillSaved: ['c1'] });
+    expect(undone.earlier[undone.earlier.length - 1]).toMatchObject({ kind: 'saved', undone: { stillSaved: ['c1'] } });
+    // With no saved line (the saved screen's flow), nothing changes.
+    const shared = run({ type: 'analyzeSucceeded', proposal: proposal() });
+    expect(captureReducer(shared, { type: 'undoRecorded', stillSaved: [] })).toBe(shared);
+  });
+
+  it('closing forgets it all', () => {
+    const saved = captureReducer(captureReducer(answered(), { type: 'confirmStarted' }), { type: 'confirmSucceeded', confirmation: confirmation() });
+    expect(captureReducer(saved, { type: 'reset' }).earlier).toEqual([]);
+    expect(captureReducer(saved, { type: 'open' }).earlier).toEqual([]);
   });
 });

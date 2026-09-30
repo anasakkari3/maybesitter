@@ -514,7 +514,9 @@ export function useConsents() {
 export function useCapture() {
   const timezone = useTimeZone();
   return useMutation({
-    mutationFn: (text: string) => proposeCapture({ text, timezone }),
+    // The app's language at the moment of sending (owner request 2026-09-30):
+    // the model titles what it proposes in it.
+    mutationFn: (text: string) => proposeCapture({ text, timezone, locale: apiLocale() }),
   });
 }
 
@@ -528,7 +530,7 @@ export function useCaptureChat() {
   const timezone = useTimeZone();
   return useMutation({
     retry: false,
-    mutationFn: (input: { conversationId: string | null; message: string }) => chatCapture({ ...input, timezone }),
+    mutationFn: (input: { conversationId: string | null; message: string }) => chatCapture({ ...input, timezone, locale: apiLocale() }),
   });
 }
 
@@ -542,7 +544,7 @@ export function usePrepareMeeting() {
   const timezone = useTimeZone();
   return useMutation({
     retry: false,
-    mutationFn: (input: { notes: string; startAt: string; endAt: string | null }) => prepareMeeting({ ...input, timezone }),
+    mutationFn: (input: { notes: string; startAt: string; endAt: string | null }) => prepareMeeting({ ...input, timezone, locale: apiLocale() }),
   });
 }
 
@@ -569,7 +571,7 @@ export function useProposeFromShare() {
       files?: readonly UploadFile[];
       sourceHint?: 'whatsapp' | 'email' | 'unknown';
       signal?: AbortSignal;
-    }) => proposeFromShare({ ...input, timezone }),
+    }) => proposeFromShare({ ...input, timezone, locale: apiLocale() }),
   });
 }
 
@@ -1468,7 +1470,7 @@ export function useDescribeProfile() {
 export function useImportAiContext() {
   return useMutation({
     mutationFn: (input: { text: string; assistant: ImportAssistant }) =>
-      importAiContext(input.text, input.assistant),
+      importAiContext(input.text, input.assistant, apiLocale()),
     retry: false,
   });
 }

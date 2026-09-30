@@ -149,19 +149,29 @@ describe('the card', () => {
 });
 
 describe('the confirm', () => {
-  it('names the item as weekly, and Saved shows the block the server made', async () => {
+  it('names the item as weekly, and the chat says which block the server made', async () => {
     await reachReview();
+    const listed = jest.mocked(weeklyEndpoints.listWeeklyBlocks);
+    const before = listed.mock.calls.length;
     await fireEvent.press(screen.getByTestId('review-confirm'));
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     const sent = confirm.mock.calls[0]![0] as { itemIds: string[]; weeklyBlockItemIds?: string[] };
     expect(sent.itemIds).toEqual([ITEM]);
     expect(sent.weeklyBlockItemIds).toEqual([ITEM]);
-    const block = weeklyConfirmation.weeklyBlocks[0]!.block;
-    await waitFor(() => expect(screen.queryByTestId(`saved-weekly-${block.id}`)).not.toBeNull());
-    expect(textOf(`saved-weekly-when-${block.id}`)).toBe('كل سبت · 10:00–16:00');
+    // The chat stays open after a save (owner request 2026-09-30); its saved
+    // line names the block, its days and hours, and where it is changed.
+    await waitFor(() => expect(screen.queryByTestId('chat-done')).not.toBeNull());
+    const said = screen.queryAllByTestId(/^chat-saved-\d+-text-\d+$/)
+      .map((node) => stripIsolates(String(node.props.children))).join('\n');
+    expect(said).toContain('تدريب · كل سبت · 10:00–16:00');
+    expect(said).toContain(ar.wbSavedNote);
     // A block is not a commitment Undo could take back.
-    expect(screen.queryByTestId('saved-undo')).toBeNull();
+    expect(screen.queryByTestId('chat-saved-undo')).toBeNull();
     expect(create).not.toHaveBeenCalled();
+    // The blocks are read again, which is what writes the block's recurring
+    // event to the phone's calendar (`WeeklyBlockCalendarHost`, mounted in
+    // Root) — staying in the chat does not skip it.
+    await waitFor(() => expect(listed.mock.calls.length).toBeGreaterThan(before));
   });
 
   it('keeps it a one-off when the person said so', async () => {

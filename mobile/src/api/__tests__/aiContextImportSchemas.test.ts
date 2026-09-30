@@ -40,7 +40,7 @@ describe('the real responses these routes return', () => {
   // on somebody's screen.
   it('parses a real import proposal', () => {
     expect(aiContextImportProposalSchema.parse(fixture('profile.imported')).promptVersion)
-      .toBe('ai-context-import-v1');
+      .toBe('ai-context-import-v2');
   });
 
   it('parses a real confirm', () => {

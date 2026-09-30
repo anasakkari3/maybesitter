@@ -65,6 +65,7 @@ import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/ro
 import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/route.ts';
 import { POST as sharePost } from '../../src/app/api/mobile/capture/share/route.ts';
 import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
+import { createWeeklyBlock } from '../../lib/weeklyBlocks/weeklyBlockService.ts';
 import { GET as todayGet } from '../../src/app/api/mobile/commitments/today/route.ts';
 import { GET as upcomingGet } from '../../src/app/api/mobile/commitments/upcoming/route.ts';
 import {
@@ -217,6 +218,8 @@ const WEEKLY_USER = uidFor('WeeklyFixtureUser');
 const WEEKLY_BLOCK_USER = uidFor('WeeklyBlockFixtureUser');
 /** The capture chat «احكيها» (2026-09-30) records under its own account, so no list, count or export fixture moves. */
 const CHAT_USER = uidFor('ChatFixtureUser');
+/** A chat proposal that lands on a weekly block (owner request 2026-09-30), under its own account for the same reason. */
+const CHAT_CONFLICT_USER = uidFor('ChatConflictFixtureUser');
 
 /**
  * A block's `startsOn` is a local date derived from the real clock (the first
@@ -2546,6 +2549,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       assert.equal((chatEdited.turns as unknown[]).length, 4);
       const editedTime = (chatEdited.proposal as { items: Array<{ resolvedTime: string }> }).items[0]!.resolvedTime;
       assert.equal(new Date(editedTime).toISOString().slice(11, 16), '15:00', 'the edit did not move the dentist to 18:00 Jerusalem');
+
+      // A clash at proposal time (owner request 2026-09-30): the same dentist
+      // at 17:00 tomorrow, for a person whose weekly block «Gym» holds that
+      // day 16:30–18:00. The item carries what it lands on (`conflicts`), and
+      // the reply — the model's does not name it — says it in one sentence.
+      const chatDay = new Date(Date.parse(REFERENCE_TIME) + 86_400_000).toISOString().slice(0, 10);
+      await createWeeklyBlock(CHAT_CONFLICT_USER, {
+        title: 'Gym',
+        weekdays: [new Date(`${chatDay}T12:00:00.000Z`).getUTCDay()],
+        start: '16:30',
+        end: '18:00',
+        timezone: 'Asia/Jerusalem',
+        confirmedAt: REFERENCE_TIME,
+      }, { now: new Date(REFERENCE_TIME) });
+      const chatClash = await record('capture.chatConflict', 200, await chatPost(request('/api/mobile/capture/chat', {
+        body: { message: 'Remind me to call the dentist tomorrow at 5pm', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en' },
+        uid: CHAT_CONFLICT_USER,
+      })));
+      const clashItem = (chatClash.proposal as { items: Array<{ conflicts?: Array<{ kind: string; title: string | null }> }> }).items[0]!;
+      assert.deepEqual(clashItem.conflicts?.map((conflict) => [conflict.kind, conflict.title]), [['weekly', 'Gym']]);
+      assert.match(chatClash.reply as string, /clashes with "Gym"/);
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;

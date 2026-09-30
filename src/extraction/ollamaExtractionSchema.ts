@@ -15,6 +15,16 @@ export const OLLAMA_EXTRACTION_SCHEMA = {
     },
     action: { type: ['string', 'null'] },
     title: { type: ['string', 'null'] },
+    /*
+     * The title in the app's language (owner request 2026-09-30). Optional:
+     * asked for only when the request named the app's language, and a model
+     * that leaves it out loses nothing but the translation — `title`, in the
+     * person's own words, is what every check reads.
+     */
+    appTitle: {
+      type: ['string', 'null'],
+      description: 'The same title in the app language named by the rules; null when title is null or no app language is named.',
+    },
     person: { type: ['string', 'null'] },
     dueAt: {
       type: ['string', 'null'],
@@ -158,7 +168,7 @@ export type CaptureChatAction = (typeof CAPTURE_CHAT_ACTIONS)[number];
 export const GEMINI_CHAT_SCHEMA = toVertexSchema({
   type: 'object',
   properties: {
-    reply: { type: 'string', description: 'One short message to the person, in their language. Never says anything was saved.' },
+    reply: { type: 'string', description: 'One short message to the person, in the reply language the rules name. Never says anything was saved.' },
     action: { type: 'string', enum: CAPTURE_CHAT_ACTIONS },
     items: {
       type: 'array',

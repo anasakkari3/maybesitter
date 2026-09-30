@@ -29,7 +29,7 @@
 import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureContracts';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { splitCaptureClauseDetails, type CaptureClause } from '../../../src/extraction/clauseSplitter';
-import { normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
+import { foldInjectionPattern, normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
 import { statesNegatedReminder } from '../../../src/extraction/schemaValidator';
 import {
   dayPartHour,
@@ -127,7 +127,7 @@ function foldWord(word: string): string {
 }
 
 /** The words of a text, folded, without the ones too short or too common to tell items apart. */
-function contentWords(text: string): string[] {
+export function contentWords(text: string): string[] {
   const words = normalizeForInjectionScan(text.slice(0, CAPTURE_INPUT_MAX_CHARACTERS)).toLowerCase()
     .split(NOT_WORD)
     .map((word) => word.replace(/^'+|'+$/g, ''))
@@ -143,7 +143,7 @@ function contentWords(text: string): string[] {
 }
 
 /** Two folded words are the same word, or one is the other with an ending («صاحب»/«صاحبي», "meet"/"meeting"). */
-function sameWord(a: string, b: string): boolean {
+export function sameWord(a: string, b: string): boolean {
   if (a === b) return true;
   const [short, long] = a.length <= b.length ? [a, b] : [b, a];
   return short.length >= 4 && long.startsWith(short) && long.length - short.length <= 3;
@@ -229,7 +229,10 @@ export interface ChatItemEvidence {
 
 /** An item of the list the person saw before this message, on their clock. */
 export interface ChatPreviousItem {
+  /** In the person's own words (`sourceTitle`), which is what their messages are matched against. */
   title: string;
+  /** The title the card showed, in the app's language, when it differed (owner request 2026-09-30). */
+  appTitle?: string;
   /** `YYYY-MM-DD`, or null. */
   date: string | null;
   /** `HH:MM`, or null. */
@@ -311,6 +314,10 @@ const RENAME = /\b(?:rename|call\s+it|name\s+it|title)\b|(?:سمّي|سمي|اس
  * The model's items, each keeping the title it had when the model's new one
  * is only the words of the edit (chat UAT round 2: the second engagement came
  * back titled «خلّي التانية»). A rename the person asked for stands.
+ *
+ * The app-language title goes with it (owner request 2026-09-30): an item
+ * whose own-words title is the one it had keeps the card title it had, so the
+ * card does not change its words because the model translated them again.
  */
 export function withPreviousTitles(
   items: readonly unknown[],
@@ -323,11 +330,13 @@ export function withPreviousTitles(
   return items.map((item, index) => {
     const before = aligned[index] === null ? null : previous[aligned[index]!]!;
     const title = itemTitle(item);
-    if (!before || !title || title.trim() === before.title.trim() || !item || typeof item !== 'object') return item;
+    if (!before || !title || !item || typeof item !== 'object') return item;
+    const keptAppTitle = { appTitle: before.appTitle ?? null };
+    if (title.trim() === before.title.trim()) return before.appTitle ? { ...(item as Record<string, unknown>), ...keptAppTitle } : item;
     const words = contentWords(title);
     const onlyTheEdit = words.every((word) => said.some((candidate) => sameWord(word, candidate)))
       && titleScore(contentWords(before.title), words) < contentWords(before.title).length;
-    return onlyTheEdit ? { ...(item as Record<string, unknown>), title: before.title, action: before.title } : item;
+    return onlyTheEdit ? { ...(item as Record<string, unknown>), title: before.title, action: before.title, ...keptAppTitle } : item;
   });
 }
 
@@ -597,4 +606,87 @@ export function withoutUnsaidTime(
       confidence: { ...result.confidence, time: Math.min(result.confidence.time, 0.1) },
     },
   };
+}
+
+/*
+ * ══ AN HOUR THE PERSON ACCEPTED (owner request 2026-09-30) ══
+ *
+ * When the proposed time clashes with something the person already has, the
+ * assistant may offer another time — only as a question, «بدك نخليها الساعة 7
+ * المسا؟», "Want me to make it 7pm?" — and never moves the item itself: the
+ * hour it offers is the assistant's, and `withoutUnsaidTime` takes an
+ * assistant's hour off like any other hour nobody said.
+ *
+ * The person's plain "yes" to that one question is the one way the offered
+ * hour becomes theirs: the question is read as part of their "yes" turn, so
+ * the ordinary edit path — the model moves the item, the guard finds the hour
+ * in the person's words — applies it. Only a turn that is nothing but a yes
+ * («اه», "yes please", «כן»), right after a reply with exactly one offer; a
+ * "yes, but at 8" is an edit of its own, and "yes" to anything else is no
+ * evidence of an hour.
+ */
+
+/** The most of an offer that is read into the person's "yes". */
+const OFFER_MAX_CHARACTERS = 200;
+
+const foldToken = (word: string): string => normalizeForInjectionScan(word).toLowerCase();
+
+/** A yes, in the three languages; folded as the turn is. */
+const YES_WORDS: ReadonlySet<string> = new Set([
+  'اه', 'آه', 'اها', 'ايوه', 'أيوه', 'ايوا', 'أيوا', 'ايه', 'إيه', 'اي', 'أي', 'نعم', 'اكيد', 'أكيد', 'ماشي', 'تمام', 'طيب',
+  'يلا', 'يالله', 'اوكي', 'أوكي', 'اوك', 'موافق', 'موافقة', 'زابط', 'مزبوط', 'بزبط', 'منيح', 'ممتاز', 'صح', 'ياريت',
+  'yes', 'yeah', 'yep', 'yup', 'sure', 'ok', 'okay', 'alright', 'fine', 'perfect', 'great',
+  'כן', 'בטח', 'סבבה', 'אוקיי', 'אוקי', 'בסדר', 'יאללה', 'מעולה', 'ברור', 'נכון',
+].map(foldToken));
+
+/** Words a yes may carry and still be nothing but a yes: "yes please", «اه خليها», "sounds good", «כן תודה». */
+const YES_FILLER: ReadonlySet<string> = new Set([
+  'please', 'do', 'it', 'that', 'go', 'ahead', 'sounds', 'good', 'thanks', 'thank', 'you', 'works', 'for', 'me', 'lets', "let's",
+  'خليها', 'خليه', 'هيك', 'بليز', 'لو', 'سمحت', 'شكرا', 'يعطيك', 'العافية', 'العافيه', 'هاد', 'هاي', 'احسن', 'أحسن', 'منها', 'والله',
+  'תודה', 'בבקשה', 'ככה', 'עדיף', 'זה',
+].map(foldToken));
+
+/** Whether a turn is a plain yes, and nothing else. */
+export function isPlainYes(text: string): boolean {
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed || trimmed.length > 60) return false;
+  const tokens = foldToken(trimmed).split(NOT_WORD).map((word) => word.replace(/^'+|'+$/g, '')).filter(Boolean);
+  return tokens.length > 0
+    && tokens.every((token) => YES_WORDS.has(token) || YES_FILLER.has(token))
+    && tokens.some((token) => YES_WORDS.has(token));
+}
+
+/** The words that make a question an offer of a time: "want me to…", «بدك نخليها…», «רוצה ש…». */
+const OFFER_MARKERS: readonly RegExp[] = [
+  /\b(?:want|like)\s+(?:me\s+to|us\s+to|to|it)\b|\b(?:should|shall)\s+(?:i|we)\b|\b(?:how|what)\s+about\b|\bwould\s+you\b|\bdo\s+you\s+want\b/i,
+  foldInjectionPattern(new RegExp('(?:^|\\s)(?:بدك|بتحب|بتحبي|منخلي|نخلي|نخليها|نحط|نحطها|ننقل|ننقلها|نغير|نغيرها|نأجل|نأجلها|شو\\s+رأيك|شو\\s+رايك)(?=\\s|$|[؟?])', 'u')),
+  new RegExp('(?:^|\\s)(?:רוצה|רוצים|מה\\s+דעתך|שאעביר|שנעביר|שנזיז|להעביר|להזיז)(?=\\s|$|[?])', 'u'),
+];
+
+/**
+ * The questions in an assistant's reply that offer a time: a question that
+ * states a clock and asks whether the person wants it.
+ */
+export function offerSentences(reply: string): string[] {
+  const text = typeof reply === 'string' ? reply.slice(0, CAPTURE_INPUT_MAX_CHARACTERS) : '';
+  return text.split(/(?<=[.!?؟…])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => /[?؟]/.test(sentence) && statesClock(sentence) && OFFER_MARKERS.some((marker) => marker.test(foldToken(sentence))));
+}
+
+/**
+ * The person's turns as the evidence their items are checked against, each
+ * plain "yes" to the reply before it carrying that reply's one offer
+ * (see above). The person's words together stay within what a capture may
+ * read: when the offers would take them past it, no offer is read.
+ */
+export function chatUserTurnsWithAcceptedOffers(turns: ReadonlyArray<{ role: 'user' | 'assistant'; text: string }>): string[] {
+  const plain = turns.filter((turn) => turn.role === 'user').map((turn) => turn.text);
+  const withOffers = turns.flatMap((turn, index) => {
+    if (turn.role !== 'user') return [];
+    const before = index > 0 ? turns[index - 1] : undefined;
+    const offers = before?.role === 'assistant' && isPlainYes(turn.text) ? offerSentences(before.text) : [];
+    return [offers.length === 1 ? `${turn.text}\n${offers[0]!.slice(0, OFFER_MAX_CHARACTERS)}` : turn.text];
+  });
+  return withOffers.join('\n').length > CAPTURE_INPUT_MAX_CHARACTERS ? plain : withOffers;
 }

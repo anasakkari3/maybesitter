@@ -184,6 +184,14 @@ export const FOOTBALL_DATA_REQUEST_TIMEOUT_MS = 8_000;
  * to anything, so building a provider is always safe, including with a
  * missing key.
  */
+/** `yyyy-MM-dd` (UTC) for a window end given as a date or a full ISO instant. */
+export function providerDate(iso: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) throw new Error(`football-data window end is not a date: ${iso}`);
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 export function createFootballDataProvider(deps: FootballDataProviderDeps = {}): FixtureProvider {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const env = deps.env ?? process.env;
@@ -203,8 +211,13 @@ export function createFootballDataProvider(deps: FootballDataProviderDeps = {}):
       }
 
       const url = new URL(`${API_BASE_URL}/teams/${encodeURIComponent(providerTeamId)}/matches`);
-      url.searchParams.set('dateFrom', window.fromIso);
-      url.searchParams.set('dateTo', window.toIso);
+      // football-data.org takes calendar dates only (yyyy-MM-dd) and answers
+      // 400 "Date argument not in expected format" to a full ISO instant --
+      // which is what the nightly sync passes. Every production sync failed
+      // on it from launch until 2026-09-30, classified as `unavailable`, and
+      // no fixture was ever stored. The UTC date of each end of the window.
+      url.searchParams.set('dateFrom', providerDate(window.fromIso));
+      url.searchParams.set('dateTo', providerDate(window.toIso));
 
       const timeoutMs = deps.timeoutMs ?? FOOTBALL_DATA_REQUEST_TIMEOUT_MS;
       let response: Response;

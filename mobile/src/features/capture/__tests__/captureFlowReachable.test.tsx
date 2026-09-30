@@ -40,6 +40,7 @@ import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import { chatServer } from '../../../testing/captureChat';
+import { stripIsolates } from '../../../i18n/bidi';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -143,6 +144,15 @@ async function enterCapture() {
   // By testID, not label: `tabCapture` and `captureTitle` are both «احكيها».
   await fireEvent.press(screen.getByTestId('tab-capture'));
   await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
+}
+
+/**
+ * What the chat's n-th saved line says (owner request 2026-09-30: a save
+ * keeps the person in the chat), its paragraphs joined, isolates removed.
+ */
+function savedLine(n = 1): string {
+  return screen.queryAllByTestId(new RegExp(`^chat-saved-${n}-text-\\d+$`))
+    .map((node) => stripIsolates([node.props.children].flat().join(''))).join('\n\n');
 }
 
 async function typeAndAnalyze(text = 'Hand in the report tomorrow at 6, and call Sami') {
@@ -280,7 +290,7 @@ describe('review sends only what was selected', () => {
   });
 });
 
-describe('success shows what the server saved', () => {
+describe('success shows what the server saved, in the chat', () => {
   it('lists only persisted items', async () => {
     jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation(chatServer(() => (proposal())) as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
@@ -288,10 +298,11 @@ describe('success shows what the server saved', () => {
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-item-i-1')).not.toBeNull());
+    await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
+    expect(savedLine().startsWith('Saved ✓')).toBe(true);
     // `i-2` was selected and the server did not report it saved, so it is not
     // shown as saved.
-    expect(screen.queryByTestId('saved-item-i-2')).toBeNull();
+    expect(savedLine()).not.toContain('Call Sami');
   });
 
   it('shows refused items apart from saved ones', async () => {
@@ -303,8 +314,10 @@ describe('success shows what the server saved', () => {
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-failed')).not.toBeNull());
-    expect(screen.queryByTestId('saved-failed-i-2')).not.toBeNull();
+    await waitFor(() => expect(savedLine()).toContain(en.savedFailedTitle));
+    // Named apart from what saved: never «Saved ✓ "Call Sami"».
+    expect(savedLine()).toContain(`${en.savedFailedTitle}: "Call Sami"`);
+    expect(savedLine().split('\n\n')[0]).not.toContain('Call Sami');
   });
 
   it('undo deletes what was saved, and says so only when nothing is left', async () => {
@@ -316,12 +329,13 @@ describe('success shows what the server saved', () => {
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-undo')).not.toBeNull());
 
-    await fireEvent.press(screen.getByTestId('saved-undo'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo-outcome')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('chat-saved-undo'));
+    await waitFor(() => expect(savedLine()).toContain(en.undoneTitle));
     expect(remove).toHaveBeenCalledWith('c-1');
-    expect(screen.queryByText(en.undoneTitle)).not.toBeNull();
+    // One undo per save: the window is closed once it has been used.
+    expect(screen.queryByTestId('chat-saved-undo')).toBeNull();
   });
 
   it('never claims a full undo when a delete failed', async () => {
@@ -332,13 +346,13 @@ describe('success shows what the server saved', () => {
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-undo')).not.toBeNull());
 
-    await fireEvent.press(screen.getByTestId('saved-undo'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo-partial')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('chat-saved-undo'));
+    await waitFor(() => expect(savedLine()).toContain(en.undonePartialTitle));
     // A user told it was undone stops checking.
-    expect(screen.queryByText(en.undoneTitle)).toBeNull();
-    expect(screen.queryByText(/Hand in the report/)).not.toBeNull();
+    expect(savedLine()).not.toContain(en.undoneTitle);
+    expect(savedLine()).toContain('These are still saved: "Hand in the report"');
   });
 });
 
@@ -885,9 +899,9 @@ describe('the undo is counted, and nothing else about it is', () => {
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo')).not.toBeNull());
-    await fireEvent.press(screen.getByTestId('saved-undo'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo-outcome')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-undo')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('chat-saved-undo'));
+    await waitFor(() => expect(savedLine()).toContain(en.undoneTitle));
   }
 
   it('reports counts, and never a title or an id', async () => {
@@ -915,9 +929,9 @@ describe('the undo is counted, and nothing else about it is', () => {
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo')).not.toBeNull());
-    await fireEvent.press(screen.getByTestId('saved-undo'));
-    await waitFor(() => expect(screen.queryByTestId('saved-undo-partial')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-undo')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('chat-saved-undo'));
+    await waitFor(() => expect(savedLine()).toContain(en.undonePartialTitle));
 
     await waitFor(() => expect(record).toHaveBeenCalled());
     expect(record.mock.calls[0]![1]).toEqual({ undoneCount: 0, stillSavedCount: 1 });
@@ -928,7 +942,7 @@ describe('the undo is counted, and nothing else about it is', () => {
     await saveThenUndo();
 
     // The undo itself happened; only the count did not leave the phone.
-    expect(screen.queryByText(en.undoneTitle)).not.toBeNull();
+    expect(savedLine()).toContain(en.undoneTitle);
     expect(record).not.toHaveBeenCalled();
   });
 
@@ -938,7 +952,7 @@ describe('the undo is counted, and nothing else about it is', () => {
     await saveThenUndo();
 
     // Unknown is not granted.
-    expect(screen.queryByText(en.undoneTitle)).not.toBeNull();
+    expect(savedLine()).toContain(en.undoneTitle);
     expect(record).not.toHaveBeenCalled();
   });
 });
@@ -965,11 +979,10 @@ describe('a saved item that lands on something already there (football fixtures,
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-collision-match-1')).not.toBeNull());
-    const line = screen.getByTestId('saved-collision-match-1');
-    const text = [line.props.children].flat().join('');
-    expect(text).toContain('FC Barcelona – Real Madrid CF');
-    expect(text.startsWith(template.split('{title}')[0]!)).toBe(true);
+    // Inline, in the chat's saved line, in the app's language.
+    await waitFor(() => expect(savedLine()).toContain('FC Barcelona – Real Madrid CF'));
+    const line = savedLine().split('\n\n').find((paragraph) => paragraph.includes('FC Barcelona'))!;
+    expect(line.startsWith(template.split('{title}')[0]!)).toBe(true);
   });
 
   it('says nothing about collisions when there are none', async () => {
@@ -979,8 +992,9 @@ describe('a saved item that lands on something already there (football fixtures,
     await enterCapture();
     await typeAndAnalyze();
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-item-i-1')).not.toBeNull());
-    expect(screen.queryByTestId('saved-collisions')).toBeNull();
+    await waitFor(() => expect(savedLine()).toContain('Hand in the report'));
+    expect(savedLine().split('\n\n')).toHaveLength(2);
+    expect(savedLine()).not.toContain(en.savedCollision.split('{title}')[0]!);
   });
 });
 
@@ -1049,6 +1063,7 @@ describe('Review at accessibility text sizes', () => {
     expect(contents.getByTestId('review-back')).toBeTruthy();
     expect(screen.getByTestId('review-back')).toBeTruthy();
     await fireEvent.press(contents.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.getByTestId('saved-title')).toBeTruthy());
+    // The chat stays, and its way out is reachable at this size too.
+    await waitFor(() => expect(within(screen.getByTestId('capture-scroll')).getByTestId('chat-done')).toBeTruthy());
   });
 });

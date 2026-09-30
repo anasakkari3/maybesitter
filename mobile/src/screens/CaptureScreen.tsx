@@ -3,7 +3,7 @@ import { BackHandler, Keyboard, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
@@ -12,9 +12,11 @@ import { ClarifySheet } from '../features/capture/ClarifySheet';
 import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
+import { chatConflictA11y, chatConflictLines } from '../features/capture/chatConflicts';
 import { fill, ltr } from '../i18n/strings';
-import { isolateLatinRuns } from '../i18n/bidi';
-import { formatDayKey, formatTime } from '../i18n/format';
+import { isolateAuto, isolateLatinRuns } from '../i18n/bidi';
+import { formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
+import type { Lang, Strings } from '../i18n/strings';
 import { useTimeZone } from '../i18n/timezone';
 import { family, LINE_HEIGHT, scriptOfText } from '../theme/fonts';
 import { captureChatPalette } from '../theme/tokens';
@@ -28,12 +30,12 @@ import { speechLanguageForTag } from '../features/capture/voice/speechLocale';
 import { loadSpeechLanguage, saveSpeechLanguage, type SpeechLanguagePref } from '../lib/deviceSettings/speechLanguage';
 import { SayItChatPage, ChatMicrophone, ChatLanguage, type ChatHistoryEntry, type ChatScheduleGroup } from '../features/capture/SayItChatPage';
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
-import { weeklyA11yLabel } from '../features/weeklyBlocks/weeklyText';
+import { weeklyA11yLabel, weeklyLine } from '../features/weeklyBlocks/weeklyText';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
-import { busyAt } from '../features/calendar/conflicts';
+import { busyAt, chipBlock } from '../features/calendar/conflicts';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { ProcessingDots } from '../ui/motion';
 import { Screen } from '../ui/screen';
@@ -43,6 +45,37 @@ import type { UserFacingKey } from '../api/ui/userFacingMessage';
 import { ReviewScreen } from './ReviewScreen';
 
 const REVIEW_STATUSES = ['needsConfirmation', 'needsClarification', 'unresolvedIntent', 'confirming', 'confirmFailed'];
+
+/**
+ * What a save in the chat says, as the assistant's line (owner request
+ * 2026-09-30): what was saved, by title; the weekly blocks and where they are
+ * changed; what it lands on; what did not save; Undo's answer when pressed;
+ * then the invitation to say the next thing. Built here, from the confirm's
+ * own answer — the server never wrote it, and it claims nothing the server
+ * did not report saved.
+ */
+function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: string): string {
+  const list = (titles: string[]) => titles.map((title) => (lang === 'ar' ? `«${isolateAuto(title)}»` : `"${isolateAuto(title)}"`))
+    .join(lang === 'ar' ? '، ' : ', ');
+  const whenOf = (startsAt: string | null) => (startsAt
+    ? `${formatRelativeDay(new Date(startsAt), { locale: lang, timeZone })} · ${ltr(formatTime(new Date(startsAt), { locale: lang, timeZone }))}`
+    : t.noTimeYet);
+  const paragraphs: string[] = [];
+  if (note.persisted.length > 0) paragraphs.push(fill(t.chatSaved, { titles: list(note.persisted.map((item) => item.title)) }));
+  if (note.weeklySaved.length > 0) {
+    paragraphs.push([...note.weeklySaved.map(({ block }) => weeklyLine(block, lang)), t.wbSavedNote].join('\n'));
+  }
+  for (const collision of note.collisions) paragraphs.push(fill(t.savedCollision, { title: collision.title, when: whenOf(collision.startsAt) }));
+  if (note.failed.length > 0) {
+    paragraphs.push(`${t.savedFailedTitle}${note.failedTitles.length > 0 ? `: ${list(note.failedTitles)}` : ''}. ${t.savedFailedBody}`);
+  }
+  if (note.undone) {
+    const still = note.undone.stillSaved.map((id) => note.persisted.find((item) => item.commitmentId === id)?.title ?? id);
+    paragraphs.push(still.length === 0 ? t.undoneTitle : `${t.undonePartialTitle}. ${fill(t.undonePartialBody, { titles: list(still) })}`);
+  }
+  paragraphs.push(t.chatSavedNext);
+  return paragraphs.join('\n\n');
+}
 
 /**
  * The capture chat «احكيها» (owner decision 2026-09-30): the independently
@@ -70,7 +103,7 @@ export function CaptureScreen() {
   const reviewing = REVIEW_STATUSES.includes(state.status);
   const busy = state.status === 'confirming' || state.status === 'analyzing';
   // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
-  const hasConversation = state.turns.length > 0 || state.proposal !== null || state.text.trim().length > 0;
+  const hasConversation = state.turns.length > 0 || state.earlier.length > 0 || state.proposal !== null || state.text.trim().length > 0;
   // What the discard question is about: closing capture, going back from a
   // touched proposal to the composer (which keeps what was said), or starting
   // the conversation over.
@@ -114,10 +147,25 @@ export function CaptureScreen() {
   const conflictBlocks = useConflictBusyBlocks(useBusyBlocks());
   // The newest reply, told to VoiceOver when it lands (TalkBack hears the
   // bubble's live region).
-  const newest = state.turns[state.turns.length - 1];
+  // What the chat said and saved before this conversation (a save keeps the
+  // person here, owner request 2026-09-30), then this conversation.
+  const saves = chatSaves(state);
+  let savedLines = 0;
+  const earlier: ChatHistoryEntry[] = state.earlier.map(entry => entry.kind === 'turn'
+    ? { role: entry.role, text: entry.text, ...(entry.role === 'user' ? { delivered: true } : {}) }
+    : { role: 'assistant', id: `chat-saved-${++savedLines}`, text: savedNoteText(entry, t, lang, timezone) });
+  const newest = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
   useAnnounceOnIos(newest?.role === 'assistant' ? newest.text : null);
+  const [undoing, setUndoing] = useState(false);
+  const undoLast = () => {
+    if (undoing) return;
+    setUndoing(true);
+    void flow.undo().finally(() => setUndoing(false));
+  };
 
   const leave = () => { setDiscarding(null); flow.close(); actions.closeCapture(); };
+  /** «خلصت» after a save: where the saved screen's OK went, to the day the things are on. */
+  const done = () => { stopDictation(); flow.close(); actions.go('today'); };
   const back = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); flow.backToComposer(); };
   const restart = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); setMenuOpen(false); stopDictation(); flow.startOver(); };
   const discardsSomething = () => wantsDiscardConfirmation(state);
@@ -177,7 +225,7 @@ export function CaptureScreen() {
     if (busy || answering) return;
     // Examples only fill an empty draft of a new conversation; they are never
     // offered over typed text, or once the assistant has answered.
-    if (reviewing || state.text.trim() || state.turns.length > 0) return;
+    if (reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0) return;
     const key = COMPOSER_EXAMPLE_KEYS.find(key => `example-${key}` === id);
     if (key) changeText(exampleText(key, t));
   };
@@ -189,6 +237,10 @@ export function CaptureScreen() {
     const needsQuestion = !confirmable.includes(item.itemId);
     const weekly = weeklyChoice(state, item.itemId);
     const groupKey = weekly === 'weekly' ? 'weekly' : shown.date ?? 'undated';
+    // What the item's time lands on (owner request 2026-09-30): the server's
+    // clashes, named; the device chip below keeps the phone's own calendar.
+    const busyHere = shown.instant && weekly !== 'weekly' ? busyAt(shown.instant.toISOString(), conflictBlocks) : [];
+    const clashLines = weekly === 'weekly' ? [] : chatConflictLines(item, state.edits[item.itemId], { lang, timezone, t, busyChipShown: chipBlock(busyHere) !== null });
     if (!groups.has(groupKey)) groups.set(groupKey, { id: groupKey,
       title: weekly === 'weekly' ? t.wbReviewWeekly : shown.date ? formatDayKey(shown.date, { locale: lang, timeZone: timezone }) : t.chatUnscheduled, rows: [] });
     const extra = <View style={{ gap: 4, alignItems: 'flex-start' }}>
@@ -203,7 +255,11 @@ export function CaptureScreen() {
       {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
       {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
       {needsQuestion ? <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt> : null}
-      {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyAt(shown.instant.toISOString(), conflictBlocks)} /> : null}
+      {clashLines.map((line, index) => <View key={`clash-${index}`} testID={`review-conflict-${item.itemId}-${index}`} accessible accessibilityLabel={chatConflictA11y(line)}
+        style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>
+        <Txt size={12} color={p.mu} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
+      </View>)}
+      {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}
       {item.weeklyBlock && weekly ? <WeeklyChoice itemId={item.itemId} offer={item.weeklyBlock} title={state.edits[item.itemId]?.title ?? item.weeklyBlock.title} choice={weekly} locked={weeklyLockedByEdit(state, item.itemId)} onChoose={value => flow.setWeekly(item.itemId, value)} /> : null}
     </View>;
     // Kept weekly, the card is the block: «تدريب», with «كل سبت · 10:00–16:00»
@@ -213,7 +269,7 @@ export function CaptureScreen() {
       id: item.itemId, title: cardTitle,
       ...(weekly === 'weekly' ? {} : { subtitle: shown.subtitle }),
       icon: /doctor|طبيب|دكتور|רופא/i.test(shown.title) ? 'doctor' : 'briefcase', selected, selectionDisabled: busy || answering || needsQuestion, disabled: busy || answering,
-      accessibilityLabel: `${cardTitle}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${weekly === 'weekly' && item.weeklyBlock ? weeklyA11yLabel({ ...item.weeklyBlock, title: state.edits[item.itemId]?.title ?? item.weeklyBlock.title }, lang, { withTitle: false }) : shown.subtitle}${shown.dateEstimated && weekly !== 'weekly' ? ', ' + t.reviewDateEstimated : ''}${shown.timeEstimated && weekly !== 'weekly' ? ', ' + t.reviewTimeEstimated : ''}`,
+      accessibilityLabel: `${cardTitle}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${weekly === 'weekly' && item.weeklyBlock ? weeklyA11yLabel({ ...item.weeklyBlock, title: state.edits[item.itemId]?.title ?? item.weeklyBlock.title }, lang, { withTitle: false }) : shown.subtitle}${shown.dateEstimated && weekly !== 'weekly' ? ', ' + t.reviewDateEstimated : ''}${shown.timeEstimated && weekly !== 'weekly' ? ', ' + t.reviewTimeEstimated : ''}${clashLines.map(line => ', ' + chatConflictA11y(line)).join('')}`,
       extra,
     }];
   }
@@ -260,6 +316,11 @@ export function CaptureScreen() {
     {state.selected.length === 0 && items.length ? <Txt testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
     {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} /> : null}
     <Pill testID="review-cancel" label={t.cancelAll} onPress={requestClose} disabled={state.status === 'confirming'} kind="ghost" size={13} />
+  </View> : saves > 0 && state.status !== 'analyzing' ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }} testID="chat-saved-actions">
+    {/* Undo for the last save, while its window is open — what the saved
+        screen offered, here where the person stayed. */}
+    {state.undoable && state.persisted.length > 0 ? <Pill testID="chat-saved-undo" label={t.undo} onPress={undoLast} disabled={undoing} kind="outline" size={14} weight={500} /> : null}
+    <Pill testID="chat-done" label={t.chatDone} onPress={done} size={14} />
   </View> : null;
   const counter = inputLength > MAX_CAPTURE_LENGTH - 200
     ? <Txt size={12} latin color={inputLength > MAX_CAPTURE_LENGTH ? p.wm : p.mu} testID="capture-counter">{fill(t.captureCounter, { n: inputLength })}</Txt> : null;
@@ -270,9 +331,9 @@ export function CaptureScreen() {
 
   const sentTime = sentAt ? ltr(formatTime(sentAt, { locale: lang, timeZone: timezone })) : undefined;
   const lastMine = state.turns.map(turn => turn.role).lastIndexOf('user');
-  const history: ChatHistoryEntry[] = state.turns.map((turn, index) => turn.role === 'user'
+  const history: ChatHistoryEntry[] = [...earlier, ...state.turns.map((turn, index): ChatHistoryEntry => turn.role === 'user'
     ? { role: 'user', text: turn.text, delivered: true, ...(index === lastMine && sentTime && state.status !== 'analyzing' ? { time: sentTime } : {}) }
-    : { role: 'assistant', text: turn.text });
+    : { role: 'assistant', text: turn.text })];
   // The message on its way: in the conversation already, not yet delivered.
   if (state.status === 'analyzing' && state.text.trim()) {
     history.push({ role: 'user', text: state.text, ...(sentTime ? { time: sentTime } : {}) });
@@ -338,10 +399,12 @@ export function CaptureScreen() {
         {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}
         scheduleGroups={[...groups.values()]} onRowPress={setEditingId} onRowToggle={flow.toggleItem}
         onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering} confirming={state.status === 'confirming'}
-        quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.status === 'analyzing' ? []
+        quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
         bodyOverride={bodyOverride} reviewExtras={reviewExtras} languageControl={language}
+        // After each save the field is ready for the next commitment.
+        composerFocusKey={saves}
         voiceNotice={<>{counter}<VoiceNote status={voiceStatus} /></>}
         microphone={busy || answering || voiceStatus === 'unavailable' ? undefined : <VoiceButton key={voiceEpoch} service={speech} showNote={false} autoFocus={voiceEpoch === 0 && state.inputMode === 'voice'} onStart={onDictationStart}
           onStatusChange={setVoiceStatus} onPartial={onDictated} onFinal={onDictated}
