@@ -7,7 +7,6 @@ import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import {
   useConsents,
-  useSetAiConsent,
   useSetPersonalizationConsent,
   useSetRecommendationConsent,
   useReportPilotIncident,
@@ -40,13 +39,16 @@ const INCIDENT_CATEGORIES: readonly PilotIncidentInput['category'][] = ['reliabi
  * calendar — and each toggle's position is the last thing the server said.
  * `ServerToggle` explains why there is no optimistic update.
  *
- * ── The AI consent is never the recommendation one ───────────────
+ * ── AI processing is told, not asked ─────────────────────────────
  *
- * They are separate questions with separate versions and separate storage
- * (#161, #170). The mistake worth naming is reading `recommendationConsent`
- * for the AI row: it would let somebody who agreed to *suggestions* have their
- * sentences sent to a model. The two hooks below are deliberately not
- * interchangeable, and a test asserts each writes to its own endpoint.
+ * AI processing can no longer be turned off (owner decision 2026-09-30): the
+ * capture page is a chat on the model, and the server reads the AI question
+ * as granted and refuses a decline (409 `ai_always_on`). So there is no switch
+ * here to move — a switch that could only say "on" would be a control that
+ * lies about being one. In its place is the disclosure: who reads what the
+ * person writes or says, and what is kept. The recommendation and
+ * personalization questions are still separate questions with their own
+ * switches (#170, #202).
  *
  * ── The personalization question is a third question ────────────
  *
@@ -69,7 +71,6 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
   const { t, p, lang, actions } = useApp();
   const consents = useConsents();
   const trust = useTrust();
-  const setAi = useSetAiConsent();
   const setRecommendations = useSetRecommendationConsent();
   const setPersonalization = useSetPersonalizationConsent();
   const trustAction = useTrustAction();
@@ -128,22 +129,17 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
       )}
     >
       <ScreenScroll>
+        {/* The disclosure that replaced the AI consent: read, not answered. */}
+        <Card pad={18} style={{ gap: 8 }} testID="trust-ai-disclosure">
+          <Txt role="section" size={15} weight={600}>{t.aiDisclosureTitle}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5}>{t.aiDisclosure}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5}>{t.aiDisclosureKept}</Txt>
+        </Card>
+
         <Txt size={14} color={p.mu} lh={1.5}>{t.trustLede}</Txt>
 
         <SectionLabel>{t.settingsGroupYou}</SectionLabel>
         <Card pad={0} style={{ overflow: 'hidden' }}>
-          <ServerToggle
-            testID="trust-ai-processing"
-            title={t.obAiTitle}
-            body={t.obAiWhy}
-            value={consents.data?.aiProcessing.state === 'granted'}
-            // Nothing to write against until the server has named the version
-            // it recognises; a guessed one is refused.
-            disabled={versions === undefined}
-            onChange={next => record(setAi.mutateAsync({
-              state: next ? 'granted' : 'declined', version: versions!.aiProcessing, ...context,
-            }))}
-          />
           <ServerToggle
             testID="trust-recommendations"
             title={t.obRecTitle}

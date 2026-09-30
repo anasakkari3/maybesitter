@@ -62,7 +62,6 @@ jest.mock('../../../api/queries', () => ({
   useRegenerateGoalExecution: mutation(),
   useUnlinkGoalNode: mutation(),
   useCommitment: query(null),
-  useAiConsentGranted: () => ({ granted: false, asked: false, loading: false }),
   useTrust: query({ trust: { calendarConsent: false } }),
   // A server with calendar links on; the build flag still decides alone here.
   useIcsFeeds: query({ success: true, feeds: [], deadlines: [] }),

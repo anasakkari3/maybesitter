@@ -11,7 +11,6 @@ import {
   useDescribeProfile,
   usePutRoutine,
   useRecordAnalytics,
-  useSetAiConsent,
   useSetRecommendationConsent,
   useTrustAction,
 } from '../../api/queries';
@@ -27,7 +26,6 @@ import { WelcomeStep } from './WelcomeStep';
 import { ConsentStep, type ConsentChoices } from './ConsentStep';
 import { RoutineStep } from './RoutineStep';
 import { NotificationsStep } from './NotificationsStep';
-import { AboutYouStep } from './AboutYouStep';
 import { AboutYouReviewStep } from './AboutYouReviewStep';
 import { SetupChatStep } from './SetupChatStep';
 import { AiImportFlowStep } from './AiImportFlowStep';
@@ -82,7 +80,6 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   const timezone = useTimeZone();
   const replayEvent = useReplayEvent();
   const consents = useConsents();
-  const setAi = useSetAiConsent();
   const setRecommendations = useSetRecommendationConsent();
   const trustAction = useTrustAction();
   const putRoutine = usePutRoutine();
@@ -93,7 +90,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   // `recommendations` starts at `null`, not `false`, so "nobody has answered"
   // and "answered no" stay distinguishable through a refetch. See the seeding
   // block below, and `ConsentChoices`.
-  const [choices, setChoices] = useState<ConsentChoices>({ ai: null, recommendations: null, analytics: false });
+  const [choices, setChoices] = useState<ConsentChoices>({ recommendations: null, analytics: false });
   const [answers, setAnswers] = useState<RoutineAnswers>(EMPTY_ANSWERS);
   const [consentFailed, setConsentFailed] = useState(false);
   const [routineSaveFailed, setRoutineSaveFailed] = useState(false);
@@ -177,7 +174,6 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       // grant back and `submitConsents` then recorded a consent the user had
       // just withdrawn. A question the account has never been asked seeds
       // nothing: the server's default `declined` is not an answer either.
-      ai: current.ai ?? (server.aiProcessing.asked ? server.aiProcessing.state : null),
       recommendations: current.recommendations
         ?? (server.recommendations.asked ? server.recommendations.state === 'granted' : null),
       analytics: current.analytics,
@@ -201,19 +197,17 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
   }, []);
 
   const submitConsents = useCallback(async () => {
-    if (choices.ai === null) return;
     setConsentFailed(false);
     const result = await recordConsents(
       // `recommendations` may still be `null` — untouched — and `recordConsents`
       // is where that becomes the declined it has always meant, once.
-      { ai: choices.ai, recommendations: choices.recommendations, analytics: choices.analytics },
+      { recommendations: choices.recommendations, analytics: choices.analytics },
       consents.data?.currentVersions,
       {
         locale: apiLocale() as ConsentLocale,
         platform: Platform.OS === 'ios' ? 'ios' as ConsentPlatformName : 'android' as ConsentPlatformName,
       },
       {
-        setAiConsent: input => setAi.mutateAsync(input),
         setRecommendationConsent: input => setRecommendations.mutateAsync(input),
         setAnalyticsConsent: granted => trustAction.mutateAsync({ type: 'set_analytics_consent', granted }),
         reportCompleted: () => recordAnalytics.mutate({ eventName: 'onboarding_completed' }),
@@ -224,7 +218,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
       return;
     }
     await advance('consent');
-  }, [advance, choices, consents.data, recordAnalytics, setAi, setRecommendations, trustAction]);
+  }, [advance, choices, consents.data, recordAnalytics, setRecommendations, trustAction]);
 
   const saveRoutine = useCallback(async (skipped: boolean) => {
     const payload = toRoutinePayload(answers, timezone, { skipped });
@@ -335,7 +329,7 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
         onRetry={() => void consents.refetch()}
         ready={consents.data !== undefined}
         unreachable={consents.data === undefined ? consents.error : undefined}
-        saving={setAi.isPending || setRecommendations.isPending || trustAction.isPending}
+        saving={setRecommendations.isPending || trustAction.isPending}
         failed={consentFailed}
       />
     );
@@ -375,17 +369,6 @@ export function OnboardingFlow({ onFinished }: { onFinished: () => void }) {
           failure={confirmFailure}
           onBack={() => { setProposal(null); setDescribeFailed(false); setConfirmFailure(undefined); }}
           onSave={(accepted) => void saveSuggestions(proposal.id, accepted)}
-        />
-      );
-    }
-    if (choices.ai !== 'granted') {
-      // With AI off there is nothing to read, so the step just ends. Anything
-      // the user wants remembered goes in by hand from the memory screen,
-      // which stores it without a model.
-      return (
-        <AboutYouStep
-          onManual={() => void finishSetup('manual')}
-          onBack={() => goBack('about')}
         />
       );
     }

@@ -87,7 +87,9 @@ describe('notice patterns in when you finish things', () => {
     await show();
     await toggleReady();
     expect(screen.getByTestId('trust-recommendations').props.value).toBe(true);
-    expect(screen.getByTestId('trust-ai-processing').props.value).toBe(true);
+    // AI processing is no switch any more: it is disclosed (2026-09-30).
+    expect(screen.queryByTestId('trust-ai-processing')).toBeNull();
+    expect(screen.getByTestId('trust-ai-disclosure')).toBeTruthy();
     expect(screen.getByTestId('trust-personalization').props.value).toBe(false);
   });
 

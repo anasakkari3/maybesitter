@@ -1,19 +1,25 @@
 /**
- * Recording the three onboarding answers (UC-2.R1 #171).
+ * Recording the onboarding answers (UC-2.R1 #171).
+ *
+ * Two now: the recommendation question and analytics. AI processing is no
+ * longer a question (owner decision 2026-09-30) — the screen discloses it and
+ * nothing is recorded for it, because the server reads it as granted anyway
+ * and recording agreement to the old words ("changeable in settings") would
+ * be recording something nobody was shown.
  *
  * Pulled out of the screen deliberately. What matters here is a *sequence* with
- * an all-or-nothing report — three writes, and the caller may only advance when
+ * an all-or-nothing report — every write, and the caller may only advance when
  * every one of them landed — and that rule deserves to be readable, and
  * testable, without a React tree in the way.
  *
  * ── Why a partial success is reported as a failure ───────────────
  *
- * Consider somebody who allows AI and declines analytics, and whose analytics
- * write fails. Two of their three answers are on the server and one is not.
+ * Consider somebody who allows suggestions and declines analytics, and whose
+ * analytics write fails. One of their answers is on the server and one is not.
  * Telling them "saved" would be a lie about their privacy settings; telling
  * them "nothing was changed" is not literally true either, but it is the one
  * that leads to the right action — press Retry — and it is safe, because every
- * write here is a whole-value `PUT` and re-sending all three is idempotent.
+ * write here is a whole-value `PUT` and re-sending them all is idempotent.
  *
  * ── The analytics event obeys the answer it is reporting ─────────
  *
@@ -25,7 +31,6 @@
 import type { ConsentLocale, ConsentPlatformName } from './consentTypes';
 
 export interface ConsentAnswers {
-  ai: 'granted' | 'declined';
   /**
    * `null` means the switch was never touched on this run.
    *
@@ -39,12 +44,10 @@ export interface ConsentAnswers {
 }
 
 export interface ConsentVersions {
-  aiProcessing: string;
   recommendations: string;
 }
 
 export interface RecordConsentsDeps {
-  setAiConsent: (input: { state: 'granted' | 'declined'; version: string; locale: ConsentLocale; platform: ConsentPlatformName }) => Promise<unknown>;
   setRecommendationConsent: (input: { state: 'granted' | 'declined'; version: string; locale: ConsentLocale; platform: ConsentPlatformName }) => Promise<unknown>;
   setAnalyticsConsent: (granted: boolean) => Promise<unknown>;
   /** Fire-and-forget. Never awaited into the failure path. */
@@ -54,7 +57,7 @@ export interface RecordConsentsDeps {
 export type RecordConsentsResult =
   | { ok: true }
   /** `at` names which write did not land, for a log — never for the user. */
-  | { ok: false; at: 'versions' | 'ai' | 'recommendations' | 'analytics' };
+  | { ok: false; at: 'versions' | 'recommendations' | 'analytics' };
 
 export async function recordConsents(
   answers: ConsentAnswers,
@@ -66,14 +69,6 @@ export async function recordConsents(
   // record: a guessed one is refused, and a hard-coded one would claim
   // agreement to words this build cannot prove were shown.
   if (!versions) return { ok: false, at: 'versions' };
-
-  try {
-    await deps.setAiConsent({
-      state: answers.ai, version: versions.aiProcessing, ...context,
-    });
-  } catch {
-    return { ok: false, at: 'ai' };
-  }
 
   try {
     await deps.setRecommendationConsent({

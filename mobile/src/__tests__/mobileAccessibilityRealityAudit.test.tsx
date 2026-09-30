@@ -56,8 +56,8 @@ describe('Mobile Accessibility Reality Audit Regressions', () => {
     jest.restoreAllMocks();
   });
 
-  it('ConsentStep ChoiceButton renders accessibilityState.selected', async () => {
-    const initialChoices: ConsentChoices = { ai: null, recommendations: false, analytics: false };
+  it('ConsentStep has no AI choice buttons: AI processing is disclosed, with a header', async () => {
+    const initialChoices: ConsentChoices = { recommendations: false, analytics: false };
     function Harness() {
       const [choices, setChoices] = useState<ConsentChoices>(initialChoices);
       return (
@@ -74,10 +74,10 @@ describe('Mobile Accessibility Reality Audit Regressions', () => {
       );
     }
     await render(<Harness />);
-    const allowBtn = screen.queryByLabelText(en.obAiAllow) ?? screen.getByLabelText(ar.obAiAllow);
-    const declineBtn = screen.queryByLabelText(en.obAiDecline) ?? screen.getByLabelText(ar.obAiDecline);
-    expect(allowBtn.props.accessibilityState?.selected).toBe(false);
-    expect(declineBtn.props.accessibilityState?.selected).toBe(false);
+    const title = screen.queryByText(en.aiDisclosureTitle) ?? screen.getByText(ar.aiDisclosureTitle);
+    expect(title.props.accessibilityRole).toBe('header');
+    expect(screen.queryByRole('radio')).toBeNull();
+    expect(screen.queryByRole('radiogroup')).toBeNull();
   });
 
   it('AboutYouReviewStep suggestion toggle has accessibilityRole="checkbox" and has hitSlop 12', async () => {
@@ -171,7 +171,7 @@ describe('Mobile Accessibility Reality Audit Regressions', () => {
     expect(/\d+/.test(label)).toBe(true);
   });
 
-  it('CaptureScreen AI button has hitSlop 8 for touch target compliance', async () => {
+  it('CaptureScreen header controls reach 44pt (32 + hitSlop 6), and there is no AI-off button', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const repository = createFakeAuthRepository({ initialUser: USER });
     setAuthRepository(repository);
@@ -190,8 +190,11 @@ describe('Mobile Accessibility Reality Audit Regressions', () => {
       </SafeAreaProvider>
     );
 
-    const aiBtn = screen.getByTestId('capture-ai-off');
-    expect(aiBtn.props.hitSlop).toBe(8);
+    // AI processing cannot be turned off (owner decision 2026-09-30).
+    expect(screen.queryByTestId('capture-ai-off')).toBeNull();
+    for (const id of ['capture-cancel', 'chat-more', 'capture-paste']) {
+      expect(screen.getByTestId(id).props.hitSlop).toBe(6);
+    }
   });
 
   it('SignInScreen legal links declare accessibilityRole="link" and touch targets >= 44pt', async () => {

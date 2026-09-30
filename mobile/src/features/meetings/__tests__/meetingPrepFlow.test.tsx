@@ -226,13 +226,13 @@ describe('the entry points', () => {
 });
 
 describe('the sheet', () => {
-  it('cannot be sent empty, and says when AI is off that the first step written is used', async () => {
+  it('cannot be sent empty, and never says the AI is off — it cannot be (2026-09-30)', async () => {
+    // Even an account whose old record still says "declined".
     await show({ aiGranted: false });
     await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
     await waitFor(() => expect(screen.getByTestId('meeting-prep-sheet')).toBeTruthy());
     expect(screen.getByTestId('meeting-prep-submit').props.accessibilityState?.disabled).toBe(true);
-    await waitFor(() => expect(screen.getByTestId('meeting-prep-ai-off')).toBeTruthy());
-    expect(screen.getByText(en.xPrepareAiOff)).toBeTruthy();
+    expect(screen.queryByTestId('meeting-prep-ai-off')).toBeNull();
   });
 
   it('sends the notes with the block times and nothing else', async () => {

@@ -5,7 +5,7 @@ import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { fill } from '../../i18n/strings';
 import { Notice } from '../../ui/chrome';
-import { ForbiddenError, InputTooLargeError, QuotaExceededError } from '../../api/errors';
+import { InputTooLargeError, QuotaExceededError } from '../../api/errors';
 import { useConfirmAiContextImport, useImportAiContext } from '../../api/queries';
 import { readClipboardText } from '../capture/clipboardImport';
 import type { SuggestionCategory } from '../../api/schemas/profile';
@@ -120,17 +120,17 @@ export function AiImportFlow({
     );
   }, [confirming, onDone, state, replayEvent]);
 
-  // Three refusals the user can do something about, so they are named rather
+  // Two refusals the user can do something about, so they are named rather
   // than collapsed into "something went wrong". Everything else goes through
   // the reducer's `readFailed` and `userFacingMessage`, which is the only path
-  // by which an error becomes words in this app.
-  const refusal = importing.error instanceof ForbiddenError && importing.error.reason === 'consent_required'
-    ? t.aiImportConsentNeeded
-    : importing.error instanceof QuotaExceededError
-      ? t.aiImportRateLimited
-      : importing.error instanceof InputTooLargeError
-        ? fill(t.aiImportPasteTooLong, { n: String(importing.error.maxCharacters) })
-        : null;
+  // by which an error becomes words in this app. (There is no "turn on AI
+  // help first" any more: AI processing cannot be declined, owner decision
+  // 2026-09-30.)
+  const refusal = importing.error instanceof QuotaExceededError
+    ? t.aiImportRateLimited
+    : importing.error instanceof InputTooLargeError
+      ? fill(t.aiImportPasteTooLong, { n: String(importing.error.maxCharacters) })
+      : null;
 
   return (
     <View style={{ gap: 16 }} testID="ai-import-flow">

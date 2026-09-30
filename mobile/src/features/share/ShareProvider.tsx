@@ -55,7 +55,7 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext';
-import { useAiConsentGranted, useProposeFromShare } from '../../api/queries';
+import { useProposeFromShare } from '../../api/queries';
 import { userFacingMessageKey, type UserFacingKey } from '../../api/ui/userFacingMessage';
 import { shareIntakeEnabled } from '../../config/env';
 import { deleteSharedFiles } from '../../lib/shareFiles';
@@ -83,10 +83,12 @@ import { readWhatsAppExport, type ExportProblem } from './whatsappExportReader';
  *  - `analyzing` — the one upload is in flight.
  *  - `failed` — a refusal, on device or from the server. `messageKey` says why.
  *  - `unavailable` — this build does not offer share. Nothing was sent.
- *  - `needsConsent` — reading this needs the model, and the user has not agreed
- *    to that. Nothing was sent.
+ *
+ * There is no "needs the AI" state any more: AI processing can no longer be
+ * declined (owner decision 2026-09-30), so a picture, a PDF or a chat archive
+ * is read like text is.
  */
-export type ShareStatus = 'idle' | 'ready' | 'analyzing' | 'failed' | 'unavailable' | 'needsConsent';
+export type ShareStatus = 'idle' | 'ready' | 'analyzing' | 'failed' | 'unavailable';
 
 export interface ShareIntakeState {
   status: ShareStatus;
@@ -110,21 +112,6 @@ type Phase =
  * A closed record rather than a `switch` with a default, so adding a reason to
  * `SharePayloadProblem` without giving the user words for it fails `tsc`.
  */
-/**
- * The kinds that cannot be read without a model (UC-2.1 #161, UC-3.0 #183).
- *
- * A typed sentence analyses either way — the server falls back to the rule-based
- * extractor and makes no model call, which is why `CaptureScreen`'s AI chip
- * says what will happen rather than gating anything. An image, a PDF or a chat
- * archive is not like that: there is no rule-based way to read a screenshot, so
- * from #190 on a share of one *is* a model call.
- *
- * Uploading it anyway would be the worst of both: the bytes cross the network,
- * one of the user's thirty daily shares is spent, and the answer is a refusal
- * they could have been told about before anything left the phone. So this is
- * checked here, and text still behaves exactly like typed capture.
- */
-const NEEDS_MODEL: ReadonlySet<SharedPayload['kind']> = new Set(['images', 'pdf', 'chatArchive']);
 
 const PROBLEM_KEY: Readonly<Record<SharePayloadProblem, UserFacingKey>> = {
   empty: 'shareEmpty',
@@ -213,10 +200,6 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
   const { hasShareIntent, shareIntent, reset } = useNativeShareIntent();
   const { adoptProposal } = useCaptureFlow();
   const propose = useProposeFromShare();
-  // `asked` matters as much as `granted`: while the answer is still loading,
-  // `granted` is false and refusing then would show the notice to somebody who
-  // has in fact agreed.
-  const { granted: aiGranted, asked: aiAsked } = useAiConsentGranted();
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
 
   const enabled = shareIntakeEnabled();
@@ -227,20 +210,14 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
   /** What the user could still send. Null when there is nothing sendable. */
   const payload = enabled && normalized?.ok ? normalized.payload : null;
 
-  /** Whether sending this would need a model the user has not agreed to. */
-  const blockedOnConsent = Boolean(payload) && NEEDS_MODEL.has(payload!.kind) && aiAsked && !aiGranted;
-
   const state = useMemo<ShareIntakeState>(() => {
     if (phase.kind === 'analyzing') return { status: 'analyzing', payload, messageKey: null };
     if (phase.kind === 'failed') return { status: 'failed', payload, messageKey: phase.messageKey };
     if (!normalized) return IDLE;
     if (!enabled) return { status: 'unavailable', payload: null, messageKey: 'shareUnavailable' };
     if (!normalized.ok) return { status: 'failed', payload: null, messageKey: PROBLEM_KEY[normalized.problem] };
-    // After the refusals and before `ready`: the preview still shows, because
-    // seeing what was shared is not the part that needs consent.
-    if (blockedOnConsent) return { status: 'needsConsent', payload, messageKey: 'shareNeedsAi' };
     return { status: 'ready', payload, messageKey: null };
-  }, [blockedOnConsent, enabled, normalized, payload, phase]);
+  }, [enabled, normalized, payload, phase]);
 
   /**
    * The live payload and the callbacks the effects need, out of the render.
@@ -308,10 +285,6 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
   const analyze = useCallback(async () => {
     const sending = held.current;
     if (!sending) return;
-    // The same check the state derives, re-read here rather than trusted from a
-    // render: this is the line the bytes would cross on, and a stale closure
-    // must not be what decides.
-    if (NEEDS_MODEL.has(sending.kind) && aiAsked && !aiGranted) return;
     // A chat archive is the one thing shared into this app that is a program
     // rather than data: a few hundred bytes of it can instruct a decompressor
     // to produce gigabytes. It is read and refused here, before `mutateAsync`
@@ -390,7 +363,7 @@ function ShareIntake({ children }: { children: React.ReactNode }) {
       // this route could quote what was shared.
       setPhase({ kind: 'failed', messageKey: userFacingMessageKey(error) });
     }
-  }, [aiAsked, aiGranted, clear, propose]);
+  }, [clear, propose]);
 
   const discard = useCallback(() => {
     clear();

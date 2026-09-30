@@ -105,7 +105,9 @@ const GOOGLE_KEYS: Record<GoogleRefusedError['reason'], UserFacingKey> = {
   google_picker_unavailable: 'googleErrPickerUnavailable',
   google_file_unsupported: 'googleErrFileUnsupported',
   google_file_too_large: 'googleErrFileTooLarge',
-  ai_consent_required: 'googleNeedsAi',
+  // No longer sent: AI processing cannot be declined (2026-09-30). An older
+  // server's refusal reads as the generic line, never as "turn the AI on".
+  ai_consent_required: 'errorsGeneric',
   calendar_consent_required: 'googleNeedsCalendarConsent',
 };
 

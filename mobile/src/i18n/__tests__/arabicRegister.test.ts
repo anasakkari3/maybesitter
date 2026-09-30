@@ -78,7 +78,7 @@ describe('explanatory bodies are one short line', () => {
 
     // UAT 2026-09-27 (#17): the second sentence of each of these restated the
     // title, the button under it, or a line elsewhere on the same screen.
-    for (const key of ['obConsentLede', 'obAiDeclinedNote', 'xModesBody', 'xNoContext', 'xNoLearning', 'planEmptyBodyReady']) {
+    for (const key of ['obConsentLede', 'aiDisclosure', 'aiDisclosureKept', 'xModesBody', 'xNoContext', 'xNoLearning', 'planEmptyBodyReady']) {
       it(`${locale}: ${key} is one sentence`, () => {
         expect({ key, sentences: sentences(String(bundle[key])) }).toEqual({ key, sentences: 1 });
       });
