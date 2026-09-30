@@ -20,9 +20,13 @@ export function reviewIntelligenceObservation(id: string, review: 'confirmed' | 
     body: { review }, schema: intelligenceObservationReviewSchema,
   });
 }
-export function decideIntelligenceSuggestion(id: string, decision: 'accept' | 'dismiss', title?: string) {
+export function decideIntelligenceSuggestion(
+  id: string, decision: 'accept' | 'dismiss', title?: string,
+  slot?: { startsAt: string; endsAt: string },
+) {
   return apiRequest('POST', `/api/mobile/intelligence/suggestions/${encodeURIComponent(id)}`, {
-    body: { decision, ...(title === undefined ? {} : { title }) }, schema: intelligenceSuggestionDecisionSchema,
+    body: { decision, ...(title === undefined ? {} : { title }), ...(slot === undefined ? {} : { slot }) },
+    schema: intelligenceSuggestionDecisionSchema,
   });
 }
 export function scanGmailForIntelligence() {

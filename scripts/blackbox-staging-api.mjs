@@ -48,18 +48,25 @@ try {
   assert.equal(inbox.status, 200);
   assert.ok(inbox.body.suggestions.length >= ideas.length);
   const firstAction = ideas.find(item => item.kind === 'action');
+  const acceptedSlot = generation.body.schedule.find(item => item.suggestionId === firstAction.id)?.slot;
+  assert.ok(acceptedSlot, 'an action needs a feasible proposed time');
   const accept = await call('POST', `/api/mobile/intelligence/suggestions/${firstAction.id}`, {
-    decision: 'accept', title: 'مراجعة سريعة للامتحان',
+    decision: 'accept', title: 'مراجعة سريعة للامتحان', slot: acceptedSlot,
   });
   assert.equal(accept.status, 200, `explicit acceptance failed (${accept.status})`);
   assert.equal(accept.body.suggestion.status, 'accepted');
+  const detail = await call('GET', `/api/mobile/commitments/${accept.body.suggestion.linkedEntityId}`);
+  assert.equal(detail.status, 200, `accepted task unavailable (${detail.status})`);
+  assert.equal(detail.body.title, 'مراجعة سريعة للامتحان');
+  assert.equal(detail.body.timeSpec.dueAt, acceptedSlot.startsAt);
+  assert.equal(detail.body.timeSpec.endAt, acceptedSlot.endsAt);
   const repeat = await call('POST', `/api/mobile/intelligence/suggestions/${firstAction.id}`, {
     decision: 'accept', title: 'مراجعة سريعة للامتحان',
   });
   assert.equal(repeat.status, 200);
   assert.equal(repeat.body.suggestion.linkedEntityId, accept.body.suggestion.linkedEntityId);
   process.stdout.write(`${JSON.stringify({ observations: observations.length, ideas: ideas.length,
-    hasPreparation, schedulePreviews: generation.body.schedule.length,
+    hasPreparation, schedulePreviews: generation.body.schedule.length, scheduledAtAccept: true,
     acceptedOnce: true, retryIdempotent: true })}\n`);
 } finally {
   if (token) {

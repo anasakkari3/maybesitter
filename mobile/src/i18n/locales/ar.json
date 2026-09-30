@@ -1215,7 +1215,7 @@
   "xIntelligenceDismiss": "مش مناسب إلي",
   "xIntelligenceConfirm": "آه، هذا صحيح",
   "xIntelligenceNoIdeas": "لسّا ما في اقتراحات. احكيلي شو عندك أو شو حابب تحقق.",
-  "xIntelligenceSlot": "وقت ممكن: {date} الساعة {time}. راجع الخطة اليومية بعد الإضافة.",
+  "xIntelligenceSlot": "وقت مقترح: {date} الساعة {time}. إذا وافقت، بنثبّت المهمة بهالوقت.",
   "xIntelligenceNoSlot": "ما لقيت وقت فاضي خلال اليومين الجايين. لساتك بتقدر تراجع الفكرة.",
   "xGoalBody": "أهدافك، من الاقتراح لخطوات بتأكدها بنفسك.",
   "xNoGoals": "لسّا ما حفظت أهداف",

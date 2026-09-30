@@ -3,6 +3,7 @@ import { getStorage, type StorageAdapter } from '../storage';
 import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
 import { commitCommandsWithClaim } from '../services/mobile/participantState';
 import { suggestionPath, type IntelligenceSuggestion } from './proposalEngine';
+import { previewSuggestionSchedule } from './schedulePreview';
 
 export type SuggestionDecision = 'accept' | 'dismiss';
 
@@ -12,6 +13,10 @@ export class QuestionAnswerRequiredError extends Error {
 
 export class InvalidSuggestionEditError extends Error {
   constructor() { super('invalid_suggestion_edit'); }
+}
+
+export class SuggestionScheduleChangedError extends Error {
+  constructor() { super('suggestion_schedule_changed'); }
 }
 
 function languageOf(text: string): 'ar' | 'he' | 'en' {
@@ -26,7 +31,7 @@ export async function reviewSuggestion(
   decision: SuggestionDecision,
   now: string,
   storage: StorageAdapter = getStorage(),
-  edits: { title?: string } = {},
+  edits: { title?: string; slot?: { startsAt: string; endsAt: string } } = {},
 ): Promise<IntelligenceSuggestion | null> {
   const path = suggestionPath(uid, id);
   const current = await storage.get<IntelligenceSuggestion>(path);
@@ -48,6 +53,21 @@ export async function reviewSuggestion(
   if (current.kind === 'question') throw new QuestionAnswerRequiredError();
 
   if (current.kind === 'action') {
+    // The client accepts the slot it showed, not a silently changed schedule.
+    // Re-solve against live commitments and busy time before writing a pinned task.
+    let acceptedSlot: { startsAt: string; endsAt: string } | null = null;
+    if (edits.slot) {
+      const slot = edits.slot;
+      if (!Number.isFinite(Date.parse(slot.startsAt)) || !Number.isFinite(Date.parse(slot.endsAt))
+        || Date.parse(slot.startsAt) < Date.parse(now) || Date.parse(slot.endsAt) <= Date.parse(slot.startsAt)) {
+        throw new SuggestionScheduleChangedError();
+      }
+      const [fresh] = await previewSuggestionSchedule(uid, [current], now, storage);
+      if (fresh?.slot?.startsAt !== slot.startsAt || fresh.slot.endsAt !== slot.endsAt) {
+        throw new SuggestionScheduleChangedError();
+      }
+      acceptedSlot = slot;
+    }
     const commitmentId = `int_${id}`;
     await commitCommandsWithClaim<IntelligenceSuggestion>(uid, path, claim => {
       if (!claim || claim.status !== 'pending' || claim.kind !== 'action') return null;
@@ -55,6 +75,8 @@ export async function reviewSuggestion(
         { type: 'CreateDraft', now, commitment: {
           id: commitmentId, kind: 'task', title: editedTitle ?? claim.title,
           priority: { level: 'normal', source: 'user_explicit', pressureAllowed: false },
+          ...(acceptedSlot ? { timeSpec: { kind: 'due_by' as const,
+            dueAt: acceptedSlot.startsAt, endAt: acceptedSlot.endsAt } } : {}),
         }, draftStatus: 'pending_confirmation' },
         { type: 'ConfirmCommitment', commitmentId, now },
       ];

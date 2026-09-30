@@ -1218,7 +1218,7 @@
   "xIntelligenceDismiss": "לא מתאים לי",
   "xIntelligenceConfirm": "כן, זה נכון",
   "xIntelligenceNoIdeas": "אין הצעות עדיין. ספרו מה ידוע לכם או מה תרצו להשיג.",
-  "xIntelligenceSlot": "זמן אפשרי: {date} בשעה {time}. בדקו את התוכנית היומית לאחר ההוספה.",
+  "xIntelligenceSlot": "זמן מוצע: {date} בשעה {time}. אישור יקבע את המשימה לזמן הזה.",
   "xIntelligenceNoSlot": "לא נמצא זמן פנוי ביומיים הקרובים. עדיין אפשר לבדוק את הרעיון.",
   "xGoalBody": "היעדים שלך, מהצעה לצעדים הבאים באישורך.",
   "xNoGoals": "עדיין אין יעדים שמורים",

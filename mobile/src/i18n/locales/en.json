@@ -1215,7 +1215,7 @@
   "xIntelligenceDismiss": "Not for me",
   "xIntelligenceConfirm": "Yes, that's right",
   "xIntelligenceNoIdeas": "No suggestions yet. Add what you know or want to work toward.",
-  "xIntelligenceSlot": "Possible time: {date} at {time}. Review the daily plan after adding it.",
+  "xIntelligenceSlot": "Suggested time: {date} at {time}. Accept to schedule the task then.",
   "xIntelligenceNoSlot": "No free time found in the next two days. You can still review the idea.",
   "xGoalBody": "Your goals, with a clear path from proposal to confirmed next steps.",
   "xNoGoals": "No saved goals yet",

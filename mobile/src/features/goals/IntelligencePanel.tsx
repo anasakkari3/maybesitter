@@ -52,7 +52,10 @@ export function IntelligencePanel({ onChanged }: { onChanged: () => void }) {
       await action();
       await refresh();
       onChanged();
-    } catch (cause) { setError(cause); }
+    } catch (cause) {
+      setError(cause);
+      try { await refresh(); } catch { /* Keep the original action error visible. */ }
+    }
     finally { setBusy(false); }
   };
   if (!visible || !inbox) return null;
@@ -126,7 +129,8 @@ export function IntelligencePanel({ onChanged }: { onChanged: () => void }) {
           disabled={busy || (item.kind === 'question' && !(answers[item.id] ?? '').trim())}
           onPress={() => void run(() => item.kind === 'question'
             ? answerIntelligenceQuestion(item.id, (answers[item.id] ?? '').trim())
-            : decideIntelligenceSuggestion(item.id, 'accept', (editedTitles[item.id] ?? '').trim() || undefined))} />
+            : decideIntelligenceSuggestion(item.id, 'accept', (editedTitles[item.id] ?? '').trim() || undefined,
+              item.kind === 'action' ? schedule.get(item.id)?.slot ?? undefined : undefined))} />
         <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => decideIntelligenceSuggestion(item.id, 'dismiss'))} />
       </View>
     </View>)}
