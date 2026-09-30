@@ -46,7 +46,7 @@ import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureC
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
-import { CAPTURE_MIN_CALL_TIMEOUT_MS, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
+import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
 import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
@@ -73,6 +73,12 @@ export const MAX_CHAT_TURNS = 12;
  * capture budget (`CAPTURE_SERVER_BUDGET_MS`), at most `CHAT_TIMEOUT_MS`.
  */
 const CHAT_AFTER_MODEL_RESERVE_MS = 1_500;
+
+/**
+ * The failures worth one more call (see the model call below): the provider
+ * failed without answering, and not for a reason another call would repeat.
+ */
+const CHAT_RETRY_REASONS: ReadonlySet<string> = new Set(['server_error', 'unavailable', 'provider_error']);
 
 export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found';
 
@@ -224,18 +230,30 @@ export async function chatMobileCapture(
     : dependencies.llmProviderFor !== undefined
       ? dependencies.llmProviderFor(uid)
       : captureLlmProvider(uid, { purpose: 'capture_chat' });
-  const timeoutMs = Math.min(CHAT_TIMEOUT_MS, CAPTURE_SERVER_BUDGET_MS - (clock() - requestStartedAt) - CHAT_AFTER_MODEL_RESERVE_MS);
+  /** What the model call may take now: the rest of the capture budget, at most `CHAT_TIMEOUT_MS`. */
+  const callBudget = () => Math.min(CHAT_TIMEOUT_MS, CAPTURE_SERVER_BUDGET_MS - (clock() - requestStartedAt) - CHAT_AFTER_MODEL_RESERVE_MS);
 
   let answer: ReturnType<typeof parseChatModelAnswer> = null;
-  if (provider && timeoutMs >= CAPTURE_MIN_CALL_TIMEOUT_MS) {
-    try {
-      const text = await provider(buildChatPrompt(turns, promptItems(current, timezone), { now, timezone }, { replyLanguage: language }), { timeoutMs });
-      answer = parseChatModelAnswer(text);
-    } catch {
-      // The cap, the kill switch, a timeout, a provider error: the reason is
-      // on the call's own log line (`captureLlmProvider`), and the rules
-      // answer below.
-      answer = null;
+  if (provider) {
+    const prompt = buildChatPrompt(turns, promptItems(current, timezone), { now, timezone }, { replyLanguage: language });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const timeoutMs = callBudget();
+      if (timeoutMs < CAPTURE_MIN_CALL_TIMEOUT_MS) break;
+      try {
+        answer = parseChatModelAnswer(await provider(prompt, { timeoutMs }));
+        break;
+      } catch (error) {
+        // The cap, the kill switch, a timeout, a provider error: the reason is
+        // on the call's own log line (`captureLlmProvider`), and the rules
+        // answer below. One failure is asked once more, within what is left
+        // of the budget (`callBudget`): a provider that failed without an
+        // answer — the cold instance after a deploy (chat UAT round 3) —
+        // and not a timeout (it would spend the budget twice), a rate
+        // limit, a cap, or a request the provider refused. A failed call
+        // produced nothing, so nothing is paid for twice.
+        answer = null;
+        if (attempt > 0 || !(error instanceof LLMUnavailableError) || !CHAT_RETRY_REASONS.has(error.reason)) break;
+      }
     }
   }
 
