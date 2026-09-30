@@ -323,6 +323,8 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const outcome = await undoCapture({ remove: (id) => deleteCommitment(id) }, state.persisted);
     if (undoTimer.current) clearTimeout(undoTimer.current);
     dispatch({ type: 'undoWindowClosed' });
+    // In the chat, the saved line says it was taken back (and what was not).
+    dispatch({ type: 'undoRecorded', stillSaved: outcome.stillSaved });
     // Not awaited, on purpose. `capture_undone` (UC-2.R2, #172) reads the
     // consent record and then posts a count; putting either on the path
     // between pressing Undo and being told what happened would make a metrics

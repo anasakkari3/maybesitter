@@ -1608,5 +1608,8 @@
   "aiDisclosureTitle": "مين بيفهم كلامك",
   "aiDisclosure": "اللي بتكتبه أو بتحكيه بيبعته سيرفرنا لـGemini من Google (Vertex AI) بالاتحاد الأوروبي، عشان يفهمه.",
   "aiDisclosureKept": "ما بنخلّي المحادثة عنا إلا لوقت قصير، وما بينحفظ بقائمتك إلا اللي بتأكّده.",
-  "chatUnscheduled": "بدون يوم محدّد"
+  "chatUnscheduled": "بدون يوم محدّد",
+  "chatSaved": "انحفظت ✓ {titles}",
+  "chatSavedNext": "في إشي تاني؟ احكيلي.",
+  "chatDone": "خلصت"
 }

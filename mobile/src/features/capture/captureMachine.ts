@@ -120,6 +120,30 @@ export interface MeetingReviewContext {
 export type CaptureInputMode = 'text' | 'voice';
 
 /**
+ * What a confirm in the chat saved, kept as a line of the conversation (owner
+ * request 2026-09-30: «ما تطلع من صفحة الالتزام… يمكن بدي أضيف التزام تاني»).
+ * The server's own answer, as the saved screen showed it; `undone` once Undo
+ * was pressed on it — the commitment ids Undo could not take back.
+ */
+export interface ChatSavedNote {
+  kind: 'saved';
+  persisted: CaptureConfirmation['persisted'];
+  failed: CaptureConfirmation['failed'];
+  collisions: NonNullable<CaptureConfirmation['collisions']>;
+  weeklySaved: NonNullable<CaptureConfirmation['weeklyBlocks']>;
+  /** The titles of what did not save, from the proposal the person confirmed. */
+  failedTitles: string[];
+  undone?: { stillSaved: string[] };
+}
+
+/**
+ * The chat before its last save: the conversations that ended in a confirm,
+ * their turns and what each saved. Memory only, like everything here, and
+ * shown above the conversation that is going on now.
+ */
+export type ChatEarlierEntry = { kind: 'turn'; role: CaptureChatTurn['role']; text: string } | ChatSavedNote;
+
+/**
  * An edit the user made in review, before anything was saved.
  *
  * Held here and applied at confirm — never afterwards. #172's original plan was
@@ -221,6 +245,13 @@ export interface CaptureState {
    * was shown.
    */
   turns: CaptureChatTurn[];
+  /**
+   * What the chat said and saved before the conversation going on now (owner
+   * request 2026-09-30). A confirm in the chat keeps the person there: its
+   * conversation moves here, with a line saying what was saved, and the next
+   * message starts a new one.
+   */
+  earlier: ChatEarlierEntry[];
 }
 
 export type CaptureEvent =
@@ -252,6 +283,8 @@ export type CaptureEvent =
   | { type: 'confirmSucceeded'; confirmation: CaptureConfirmation }
   | { type: 'confirmFailed'; reason?: string; messageKey?: UserFacingKey }
   | { type: 'undoWindowClosed' }
+  /** What Undo could not take back, recorded on the chat's last saved line. */
+  | { type: 'undoRecorded'; stillSaved: string[] }
   | { type: 'backToComposer' }
   | { type: 'reset' };
 
@@ -298,7 +331,13 @@ export function initialCaptureState(
     weeklySaved: [],
     conversationId: null,
     turns: [],
+    earlier: [],
   };
+}
+
+/** How many times the chat has saved in this capture. */
+export function chatSaves(state: CaptureState): number {
+  return state.earlier.filter((entry) => entry.kind === 'saved').length;
 }
 
 /**
@@ -745,10 +784,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (confirmPayload(state).itemIds.length === 0) return state;
       return { ...state, status: 'confirming', errorReason: null, messageKey: null };
 
-    case 'confirmSucceeded':
-      return {
-        ...state,
-        status: 'saved',
+    case 'confirmSucceeded': {
+      const saved = {
         // Straight from the server. The success screen shows exactly this, and
         // nothing the client believed it was saving.
         persisted: event.confirmation.persisted,
@@ -759,6 +796,40 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         weeklySaved: event.confirmation.weeklyBlocks ?? [],
         undoable: event.confirmation.persisted.length > 0,
       };
+      // A review with no conversation — a share, a meeting prep, a Gmail
+      // scan — ends on the saved screen, as it always did.
+      if (state.conversationId === null) return { ...state, ...saved, status: 'saved' };
+      // The chat keeps the person in it (owner request 2026-09-30): the
+      // conversation moves above, with a line saying what was saved, the
+      // proposal goes, and the next message starts a new conversation. A
+      // message typed under the proposal and not sent stays in the field.
+      return {
+        ...state,
+        ...saved,
+        status: state.text.trim() ? 'editing' : 'idle',
+        earlier: [
+          ...state.earlier,
+          ...state.turns.map((turn): ChatEarlierEntry => ({ kind: 'turn', role: turn.role, text: turn.text })),
+          {
+            kind: 'saved', persisted: saved.persisted, failed: saved.failed, collisions: saved.collisions, weeklySaved: saved.weeklySaved,
+            failedTitles: saved.failed.map((item) => state.proposal?.items.find((candidate) => candidate.itemId === item.itemId)?.title ?? '')
+              .filter((title) => title.trim().length > 0),
+          },
+        ],
+        turns: [],
+        conversationId: null,
+        proposal: null, original: null, selected: [], edits: {}, onceOnly: [], errorReason: null, messageKey: null,
+      };
+    }
+
+    case 'undoRecorded': {
+      // Only the chat's last saved line: the saved screen shows its own.
+      const at = state.earlier.map((entry) => entry.kind).lastIndexOf('saved');
+      if (at < 0) return state;
+      const earlier = [...state.earlier];
+      earlier[at] = { ...(earlier[at] as ChatSavedNote), undone: { stillSaved: event.stillSaved } };
+      return { ...state, earlier };
+    }
 
     case 'confirmFailed':
       // The proposal survives, so Retry has something to retry. The line shown
