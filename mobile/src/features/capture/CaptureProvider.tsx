@@ -17,7 +17,7 @@
  * away cannot leave it armed, and so the "5 seconds" in the acceptance criteria
  * is one number in one place.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useAnalyticsConsent,
@@ -36,6 +36,7 @@ import {
   captureReducer,
   confirmPayload,
   initialCaptureState,
+  MAX_CAPTURE_LENGTH,
   UNDO_WINDOW_MS,
   type CaptureFailureKind,
   type CaptureInputMode,
@@ -58,13 +59,19 @@ export type { UndoOutcome };
 
 interface CaptureContextValue {
   state: CaptureState;
+  /** An unsent continuation survives temporary screens, only in this flow's memory. */
+  replyDraft: string;
+  setReplyDraft: React.Dispatch<React.SetStateAction<string>>;
+  replyIntent: 'answer' | 'new';
+  setReplyIntent: React.Dispatch<React.SetStateAction<'answer' | 'new'>>;
   /** True when the account has agreed to AI processing. Display only. */
   aiGranted: boolean;
   /** True when the question has never been put to them. */
   aiAsked: boolean;
   open(source?: CaptureSource, inputMode?: CaptureInputMode): void;
   setText(text: string): void;
-  analyze(): Promise<void>;
+  /** An explicit chat draft is sent directly, without waiting for setText to render. */
+  analyze(textOverride?: string): Promise<void>;
   /**
    * Enters review with a proposal this flow did not ask for (UC-3.0, #183).
    *
@@ -158,6 +165,8 @@ async function invalidateCommitmentViews(client: ReturnType<typeof useQueryClien
 
 export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(captureReducer, initialCaptureState());
+  const [replyDraft, setReplyDraft] = useState('');
+  const [replyIntent, setReplyIntent] = useState<'answer' | 'new'>('answer');
   const capture = useCapture();
   const confirmCapture = useConfirmCapture();
   const clarifyCapture = useClarifyCapture();
@@ -167,39 +176,69 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const client = useQueryClient();
   const timezone = useTimeZone();
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisGeneration = useRef(0);
+  const analysisPending = useRef(false);
+
+  const abandonAnalysis = useCallback(() => {
+    analysisGeneration.current += 1;
+    analysisPending.current = false;
+  }, []);
+
+  const clearReply = useCallback(() => {
+    setReplyDraft('');
+    setReplyIntent('answer');
+  }, []);
 
   // The timer is cleared on unmount, so leaving the flow cannot leave Undo
   // armed against a screen that is gone.
   useEffect(() => () => {
     if (undoTimer.current) clearTimeout(undoTimer.current);
-  }, []);
+    abandonAnalysis();
+  }, [abandonAnalysis]);
 
   const open = useCallback((source?: CaptureSource, inputMode?: CaptureInputMode) => {
+    abandonAnalysis();
+    clearReply();
     dispatch({ type: 'open', ...(source ? { source } : {}), ...(inputMode ? { inputMode } : {}) });
-  }, []);
+  }, [abandonAnalysis, clearReply]);
 
   const setText = useCallback((text: string) => dispatch({ type: 'textChanged', text }), []);
 
-  const analyze = useCallback(async () => {
+  const analyze = useCallback(async (textOverride?: string) => {
+    const text = textOverride ?? state.text;
+    // Refuse invalid replacement drafts without losing the current proposal.
+    // In particular, never show the reducer's truncated text while sending a
+    // longer string. The caller disables Send at this same boundary.
+    if (!text.trim() || text.length > MAX_CAPTURE_LENGTH || analysisPending.current || state.status === 'confirming') return;
+    analysisPending.current = true;
+    const generation = ++analysisGeneration.current;
+    if (textOverride !== undefined) dispatch({ type: 'textChanged', text });
     dispatch({ type: 'analyzeStarted' });
-    // The zone and the reference time come from the hook (#162 step 4): the
-    // server resolves every relative phrase against them.
-    const outcome = await analyzeCapture(
-      { propose: (text) => capture.mutateAsync(text) },
-      state.text,
-      classifyFailure,
-    );
-    dispatch(outcome.ok
-      ? { type: 'analyzeSucceeded', proposal: outcome.proposal }
-      : { type: 'analyzeFailed', kind: outcome.kind, messageKey: outcome.messageKey });
-  }, [capture, state.text]);
+    try {
+      // The exact approved draft goes to both state and the request. Calling
+      // setText then analyze in one press would send the old render's text.
+      const outcome = await analyzeCapture(
+        { propose: (draft) => capture.mutateAsync(draft) },
+        text,
+        classifyFailure,
+      );
+      if (generation !== analysisGeneration.current) return;
+      dispatch(outcome.ok
+        ? { type: 'analyzeSucceeded', proposal: outcome.proposal }
+        : { type: 'analyzeFailed', kind: outcome.kind, messageKey: outcome.messageKey });
+    } finally {
+      if (generation === analysisGeneration.current) analysisPending.current = false;
+    }
+  }, [capture, state.text, state.status]);
 
   const adoptProposal = useCallback((proposal: CaptureProposal, source: CaptureSource = 'share', meeting?: MeetingReviewContext) => {
     // `open` first, so nothing of a previous capture — a draft, a selection, an
     // armed undo — is still in the state the shared proposal lands in.
+    abandonAnalysis();
+    clearReply();
     dispatch({ type: 'open', source, ...(meeting ? { meeting } : {}) });
     dispatch({ type: 'analyzeSucceeded', proposal });
-  }, []);
+  }, [abandonAnalysis, clearReply]);
 
   const toggleItem = useCallback((itemId: string) => dispatch({ type: 'toggleItem', itemId }), []);
   const selectAll = useCallback(() => dispatch({ type: 'selectAll' }), []);
@@ -209,14 +248,21 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const proposal = state.proposal;
     const question = proposal?.items.find((item) => item.itemId === itemId)?.clarification;
     if (!proposal || !question) return { ok: false, messageKey: 'errorsGeneric' } as const;
+    const generation = analysisGeneration.current;
+    const proposalId = proposal.proposalId;
     try {
       const updated = await clarifyCapture.mutateAsync({
-        proposalId: proposal.proposalId,
+        proposalId,
         itemId,
         questionId: question.questionId,
         ...(answer.optionId ? { optionId: answer.optionId } : {}),
         ...(answer.freeText ? { freeText: answer.freeText } : {}),
       });
+      // Closing/reopening or starting another capture makes this answer belong
+      // to a former review, even if that same proposal is adopted again.
+      if (generation !== analysisGeneration.current || updated.proposalId !== proposalId) {
+        return { ok: false, messageKey: 'errorsGeneric' } as const;
+      }
       // The whole proposal, so `needsClarification`, the title and the time all
       // move together. Patching one field here is how the three drift apart.
       // `clarified`, not `analyzeSucceeded`: the other items keep their
@@ -235,6 +281,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
 
   const confirm = useCallback(async () => {
     if (confirmPayload(state).itemIds.length === 0) return;
+    const generation = analysisGeneration.current;
     dispatch({ type: 'confirmStarted' });
     const outcome = await runConfirm(
       // The edits travel with the confirm (UC-2.4, #164), never as a PATCH
@@ -253,12 +300,18 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     );
     if (!outcome) return;
     if (!outcome.ok) {
-      dispatch({ type: 'confirmFailed', reason: outcome.reason, messageKey: outcome.messageKey });
+      if (generation === analysisGeneration.current) {
+        dispatch({ type: 'confirmFailed', reason: outcome.reason, messageKey: outcome.messageKey });
+      }
       return;
     }
-    dispatch({ type: 'confirmSucceeded', confirmation: outcome.confirmation });
-    // The lists have a new row in them now.
+    if (generation === analysisGeneration.current) {
+      dispatch({ type: 'confirmSucceeded', confirmation: outcome.confirmation });
+    }
+    // The explicit confirmation may have committed even after the user left.
+    // Refresh the lists, but never replace a newer draft or arm its Undo timer.
     await invalidateCommitmentViews(client);
+    if (generation !== analysisGeneration.current) return;
     if (undoTimer.current) clearTimeout(undoTimer.current);
     undoTimer.current = setTimeout(() => dispatch({ type: 'undoWindowClosed' }), UNDO_WINDOW_MS);
   }, [client, confirmCapture, state, timezone]);
@@ -288,15 +341,21 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     return outcome;
   }, [analyticsConsent, client, recordAnalytics, state.persisted]);
 
-  const backToComposer = useCallback(() => dispatch({ type: 'backToComposer' }), []);
+  const backToComposer = useCallback(() => {
+    abandonAnalysis();
+    clearReply();
+    dispatch({ type: 'backToComposer' });
+  }, [abandonAnalysis, clearReply]);
   const close = useCallback(() => {
     if (undoTimer.current) clearTimeout(undoTimer.current);
+    abandonAnalysis();
+    clearReply();
     dispatch({ type: 'reset' });
-  }, []);
+  }, [abandonAnalysis, clearReply]);
 
   const value = useMemo<CaptureContextValue>(() => ({
-    state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close,
-  }), [state, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close]);
+    state, replyDraft, setReplyDraft, replyIntent, setReplyIntent, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close,
+  }), [state, replyDraft, replyIntent, aiGranted, aiAsked, open, setText, analyze, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, clarify, confirm, undo, backToComposer, close]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

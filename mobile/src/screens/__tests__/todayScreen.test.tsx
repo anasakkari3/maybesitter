@@ -433,6 +433,11 @@ describe('Round 3 progressive density', () => {
     expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
     expect(screen.getAllByTestId(/^today-item-/).map(node => node.props.testID)).toEqual(['today-item-primary', 'today-item-overflow']);
     expect(screen.queryByTestId('today-plan-preview-overflow')).toBeNull();
+    // The plan sits above the rest of today (merge of the reference redesign):
+    // its previewed items are taken out of those groups, so under them the
+    // plan would land at the bottom, below the finished ones.
+    expect(screen.getAllByTestId(/^(today-plan-card|today-rest-title|today-item-overflow)$/).map(node => node.props.testID))
+      .toEqual(['today-plan-card', 'today-rest-title', 'today-item-overflow']);
   });
 });
 

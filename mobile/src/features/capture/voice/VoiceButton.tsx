@@ -51,6 +51,7 @@ export function VoiceButton({
   onStatusChange,
   onPartial,
   onFinal,
+  renderControl,
 }: {
   service?: SpeechCaptureService;
   /**
@@ -75,6 +76,8 @@ export function VoiceButton({
   onStatusChange?(status: SpeechStatus): void;
   onPartial(transcript: string): void;
   onFinal(transcript: string): void;
+  /** New capture presentation; recognition and cleanup remain in this controller. */
+  renderControl?(control: { onPress(): void; listening: boolean; busy: boolean }): React.ReactNode;
 }) {
   const { t, p } = useApp();
   // The status belongs to the recogniser it came from. A new one (the language
@@ -139,6 +142,10 @@ export function VoiceButton({
   if (status === 'unavailable' || status === 'localeUnavailable') return note;
 
   const a11yState = { busy: status === 'requestingPermission' };
+
+  if (renderControl) {
+    return <>{renderControl({ onPress: press, listening, busy: a11yState.busy })}{note}</>;
+  }
 
   if (variant === 'pill') {
     const words = listening ? t.stopReview : (label ?? t.tapToTalk);

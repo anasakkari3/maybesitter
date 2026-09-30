@@ -1,4 +1,3 @@
-import { ProductRow } from '../ui/product';
 import { importantDeadline } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import React, { useMemo, useState } from 'react';
@@ -13,16 +12,16 @@ import { useSavedWeek, useToday, useTrust, useUpcoming } from '../api/queries';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
-import { ScreenHeader, Notice } from '../ui/chrome';
+import { Notice } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
-import { SettingsIcon } from '../ui/icons';
+import { ChevronIcon, SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
 import { rowAccessibilityLabel } from '../features/commitments/accessibility';
 import { STRIP_DAYS, weekStripKeys } from '../features/commitments/weekStrip';
-import { Btn, Card, Pill, Txt } from '../ui/primitives';
+import { Btn, Txt } from '../ui/primitives';
 import { DirectionalScrollRow } from '../ui/directionalScroll';
-import { cardShadow } from '../theme/tokens';
+import { ReferenceCard, ReferenceHeader, ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
 import { busyBlockPrepTarget } from '../features/meetings/prepTargets';
 import { occurrencesByDay, useWeeklyOccurrences } from '../features/weeklyBlocks/occurrences';
 import { hideWeeklyDuplicates } from '../features/weeklyBlocks/weeklyDeviceEvents';
@@ -68,7 +67,8 @@ import { WeeklyOccurrenceRow } from '../features/weeklyBlocks/WeeklyOccurrenceRo
  * draws commitments where they are due, as it did before.
  */
 export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
-  const { s, t, p, lang, actions } = useApp();
+  const { s, t, lang, rtl, actions } = useApp();
+  const p = useReferencePalette();
   const timezone = useTimeZone();
   const stacked = useLayoutMode() !== 'normal';
   const today = useToday();
@@ -79,6 +79,10 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const readBusy = useConflictBusyBlocks(useBusyBlocks());
   const calendarConnected = trust.data?.trust.calendarConsent === true;
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'commitment' | 'busy'>('all');
+  // Where the scrolling strip is: it opens at its end (today) until scrolled.
+  const [strip, setStrip] = useState<{ offset: number | null; content: number; viewport: number }>({ offset: null, content: 0, viewport: 0 });
+  const stripFade = stripFadeFor(strip.offset ?? strip.content - strip.viewport, strip.content, strip.viewport);
 
   const now = new Date();
   const todayKey = dayKey(now, timezone);
@@ -127,6 +131,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
     // the user's finger as the clock ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today.data, upcoming.data, savedWeek.data, timezone, todayKey]);
+  const weekHasMust = keys.some((key) => (byDay.get(key) ?? []).some((item) => item.importance === 'must'));
 
   const busyByDay = useMemo(() => {
     const map = new Map<string, DeviceBusyBlock[]>();
@@ -149,6 +154,12 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
     ...selectedBusy.map((block) => ({ kind: 'busy' as const, at: Date.parse(block.startAt), block })),
     ...(weeklyByDay.get(selectedKey) ?? []).map((occurrence) => ({ kind: 'weekly' as const, at: Date.parse(occurrence.startAt), occurrence })),
   ].sort((a, b) => a.at - b.at);
+  // A disconnected calendar must not leave the screen on a now-hidden filter.
+  // Weekly fixed blocks («ثابت أسبوعي») are taken time too, so they sit under «busy».
+  const busyFilterShown = calendarConnected || weekly.length > 0;
+  const shownFilter = filter === 'busy' && !busyFilterShown ? 'all' : filter;
+  const visibleRows = dayRows.filter(row => shownFilter === 'all'
+    || (shownFilter === 'busy' ? row.kind === 'busy' || row.kind === 'weekly' : row.kind === shownFilter));
   const load = selected.length === 0 ? t.loadLight : selected.length < 3 ? t.loadNormal : t.loadFull;
 
   const refresh = () => {
@@ -161,25 +172,31 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
   const dueAsideFor = (item: CommitmentView): string | null => dueAsideText(item, t.plannedDueAside, lang, timezone);
 
   return (
-    <Screen>
+    <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="calendar-scroll"
         bottom={tabClearance}
         topGap={8}
+        gap={14}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
-        <ScreenHeader
+        <ReferenceHeader
           eyebrow={range}
           eyebrowTestID="calendar-range"
           title={t.calendarTitle}
+          subtitle={t.referenceWeekSubtitle}
           end={(
-            <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-end' : 'center', gap: 8, flexShrink: 1 }}>
-              {/* Weekly planning mode (CL5b): the week ahead is where somebody
-                  goes to plan it. A labelled pill, not an icon: the words are
-                  the affordance. At the large text sizes the two stack, so
-                  the label keeps its room and the title keeps its own. */}
-              <Pill label={t.weekTitle} kind="soft" size={14} pad={8} onPress={() => actions.go('weekPlan')} testID="calendar-plan-week" />
-              <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" hitSlop={8} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
+            // One row that wraps only when it must: at text size 1.3 a column
+            // put the plan pill and its settings button on separate lines
+            // with room to spare beside them (UAT 2026-09-30, u52).
+            <View testID="calendar-header-actions" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, flexShrink: 1 }}>
+              <Btn label={t.weekTitle} onPress={() => actions.go('weekPlan')} testID="calendar-plan-week"
+                style={{ minHeight: 44, flexShrink: 1, paddingVertical: 9, paddingHorizontal: 13, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, backgroundColor: p.sf2, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <CalendarGlyph color={p.ac} />
+                <Txt size={13} weight={600} color={p.tx} style={{ flexShrink: 1 }}>{t.weekTitle}</Txt>
+              </Btn>
+              <Btn label={t.calendarSettingsBtn} onPress={() => actions.go('calendarSettings')} testID="calendar-settings" hitSlop={8}
+                style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
                 <SettingsIcon color={p.mu} knob={p.sf} />
               </Btn>
             </View>
@@ -194,110 +211,189 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           error={today.error ?? upcoming.error}
           onRetry={() => { void today.refetch(); void upcoming.refetch(); }}
         >
-          <Card pad={0} style={{ paddingVertical: 14, paddingHorizontal: 10 }}>
-            {/* Today reads first: at the right in Arabic and Hebrew. A horizontal
-                ScrollView ignores the root's `direction`, so the row mirrors itself. */}
-            <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 4 }} itemStyle={stacked ? undefined : { flex: 1 }}>
+          <ReferenceCard pad={8} testID="calendar-week-card" style={{ gap: 0 }}>
+            {/* The first queried day reads first in each language; never invent past days. */}
+            {/* Stacked, the strip scrolls: Android fades only an edge that has
+                more days behind it, so the row says it moves (u54) without
+                dimming the day that sits at an edge. React Native's fade does
+                not follow the scroll by itself, so this does. */}
+            <DirectionalScrollRow testID="calendar-week-strip" showsHorizontalScrollIndicator={stacked}
+              fadingEdgeLength={stacked ? stripFade : 0} scrollEventThrottle={32}
+              onLayout={(event) => { const viewport = event.nativeEvent.layout.width; setStrip((was) => was.viewport === viewport ? was : { ...was, viewport }); }}
+              onContentSizeChange={(content) => setStrip((was) => was.content === content ? was : { offset: null, content, viewport: was.viewport })}
+              onScroll={stacked ? (event) => {
+                const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+                const next = stripFadeFor(contentOffset.x, contentSize.width, layoutMeasurement.width);
+                if (next.start !== stripFade.start || next.end !== stripFade.end) {
+                  setStrip({ offset: contentOffset.x, content: contentSize.width, viewport: layoutMeasurement.width });
+                }
+              } : undefined}
+              contentContainerStyle={{ flexGrow: 1, gap: 2 }} itemStyle={stacked ? undefined : { flex: 1 }}>
               {keys.map((key, offset) => (
-                <DayCell
-                  key={key}
-                  dayKey={key}
-                  isToday={key === todayKey}
-                  selected={key === selectedKey}
+                <DayCell key={key} dayKey={key} isToday={key === todayKey} selected={key === selectedKey}
                   items={byDay.get(key) ?? []}
                   busy={(calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0) + (weeklyByDay.get(key)?.length ?? 0)}
-                  onPress={() => actions.setSelDay(offset)}
-                />
+                  onPress={() => actions.setSelDay(offset)} />
               ))}
             </DirectionalScrollRow>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingTop: 12, paddingHorizontal: 8 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.mu }} />
-                <Txt size={11} color={p.mu}>{t.legendCommit}</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16, paddingTop: 13, paddingBottom: 7, paddingHorizontal: 8 }}>
+              <CalendarLegend color={p.ac} label={t.legendCommit} />
+              {/* A must draws in warm sand (bar, dot, time); the legend says so
+                  whenever the week has one (UAT 2026-09-30, u35/u39). */}
+              {weekHasMust ? <CalendarLegend color={p.wm} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}
+              {calendarConnected || weekly.length > 0 ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
+            </View>
+          </ReferenceCard>
+
+          <ReferenceCard pad={12} testID="calendar-agenda" style={{ gap: 0 }}>
+            <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', alignItems: stacked ? 'flex-start' : 'center', gap: 8, paddingBottom: 14 }}>
+              <Txt size={17} weight={600} color={p.tx} testID="calendar-selected-day" style={{ flexShrink: 1 }}>
+                {formatRelativeDay(civilDate(selectedKey), { locale: lang, timeZone: CIVIL_ZONE, now: civilDate(todayKey) })}
+              </Txt>
+              <View style={{ paddingVertical: 5, paddingHorizontal: 12, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, borderRadius: 999 }}>
+                <Txt size={12} color={p.mu}>{load}</Txt>
               </View>
-              {calendarConnected || weekly.length > 0 ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                  <View style={{ width: 14, height: 4, borderRadius: 2, backgroundColor: p.hatch }} />
-                  <Txt size={11} color={p.mu}>{t.calendarBusyLegend}</Txt>
+            </View>
+            <View style={{ gap: 6 }}>
+              {visibleRows.map((row) => row.kind === 'weekly' ? (
+                <WeeklyOccurrenceRow
+                  key={`weekly-${row.occurrence.weeklyBlockId}-${row.occurrence.startAt}`}
+                  occurrence={row.occurrence}
+                  testID={`calendar-weekly-${row.occurrence.weeklyBlockId}`}
+                />
+              ) : row.kind === 'busy' ? ((block, prep) => (
+                <View key={`busy-${block.nativeId}-${block.startAt}`} testID="calendar-busy-row"
+                  style={{ flexDirection: stacked ? 'column' : 'row', alignItems: 'stretch', gap: 8 }}>
+                  {!block.allDay ? (
+                    <View style={stacked ? { alignItems: 'flex-start' } : { width: 48, paddingTop: 14 }}>
+                      <Txt size={12} color={p.mu} latin>{ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone: timezone }))}</Txt>
+                    </View>
+                  ) : !stacked ? <View style={{ width: 48 }} /> : null}
+                  <View accessible={false} style={stacked ? { height: 3, borderRadius: 2, backgroundColor: p.mu } : { width: 3, borderRadius: 2, backgroundColor: p.mu }} />
+                  <View style={{ flex: stacked ? undefined : 1, gap: 7, borderRadius: 14, paddingVertical: 11, paddingHorizontal: 12, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, alignItems: 'flex-start' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <CalendarGlyph color={p.mu} />
+                      <Txt size={14} color={p.mu} style={{ flexShrink: 1 }}>{t.calendarBusyLegend}</Txt>
+                    </View>
+                    {!block.allDay ? <Txt size={12} color={p.mu} latin>{formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone: timezone })}</Txt> : null}
+                    {/* A busy block contains no title. This opens the existing preparation sheet. */}
+                    {prep ? (
+                      <Btn testID="calendar-busy-prepare"
+                        label={fill(t.xPrepareFor, { time: ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone: timezone })) })}
+                        onPress={() => actions.openMeetingPrep(prep)} scaleTo={0.97}
+                        style={{ minHeight: 44, justifyContent: 'center', backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 }}>
+                        <Txt size={13} weight={600} color={p.tx}>{t.xPrepare}</Txt>
+                      </Btn>
+                    ) : null}
+                  </View>
+                </View>
+              ))(row.block, busyBlockPrepTarget(row.block, now)) : ((item, drawn, due) => (
+                <Btn key={item.id} testID={`calendar-item-${item.id}`}
+                  label={`${rowAccessibilityLabel(item, t, drawn ? ltr(formatTime(new Date(drawn), { locale: lang, timeZone: timezone })) : null)}${due ? `, ${due}` : ''}`}
+                  onPress={() => actions.openDetail(item.id)} scaleTo={0.98}
+                  style={{ flexDirection: stacked ? 'column' : 'row', alignItems: 'stretch', gap: 8, minHeight: 52 }}>
+                  <View style={stacked ? { alignItems: 'flex-start' } : { width: 48, paddingTop: 14 }}>
+                    <Txt size={12} color={item.importance === 'must' ? p.wm : p.mu} latin testID={`calendar-time-${item.id}`}>
+                      {drawn ? ltr(formatTime(new Date(drawn), { locale: lang, timeZone: timezone })) : t.noTimeYet}
+                    </Txt>
+                  </View>
+                  <View accessible={false} style={stacked
+                    ? { height: 3, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.ac }
+                    : { width: 3, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.ac }} />
+                  <View style={{ flex: stacked ? undefined : 1, backgroundColor: item.importance === 'must' ? p.wms : p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                    <CalendarGlyph color={item.importance === 'must' ? p.wm : p.ac} />
+                    <View style={{ flex: 1, gap: 3, alignItems: 'flex-start' }}>
+                      <Txt size={15} weight={500} color={p.tx}>{item.title}</Txt>
+                      {due ? <Txt size={12} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+                    </View>
+                  </View>
+                </Btn>
+              ))(row.item, drawnClockAt(row.item), dueAsideFor(row.item)))}
+              {visibleRows.length === 0 ? (
+                <View style={{ paddingVertical: 24, paddingHorizontal: 12 }} testID={dayRows.length === 0 ? 'calendar-day-free' : 'calendar-filter-empty'}>
+                  <Txt size={14} color={p.mu} align="center">{dayRows.length === 0 ? t.dayFree : t.referenceCalendarFilterEmpty}</Txt>
                 </View>
               ) : null}
             </View>
-          </Card>
+          </ReferenceCard>
 
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingTop: 4, paddingHorizontal: 4 }}>
-            <Txt size={16} weight={600} testID="calendar-selected-day">
-              {formatRelativeDay(civilDate(selectedKey), {
-                locale: lang, timeZone: CIVIL_ZONE, now: civilDate(todayKey),
-              })}
-            </Txt>
-            <Txt size={12} color={p.mu}>{load}</Txt>
-          </View>
-
-          <View style={{ gap: 8 }}>
-            {dayRows.map((row) => row.kind === 'weekly' ? (
-              <WeeklyOccurrenceRow
-                key={`weekly-${row.occurrence.weeklyBlockId}-${row.occurrence.startAt}`}
-                occurrence={row.occurrence}
-                testID={`calendar-weekly-${row.occurrence.weeklyBlockId}`}
-              />
-            ) : row.kind === 'busy' ? ((block, prep) => (
-              <View key={`busy-${block.nativeId}-${block.startAt}`} testID="calendar-busy-row" style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, backgroundColor: p.hatch, borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong }}>
-                <Txt size={14} color={p.mu} style={stacked ? undefined : { flex: 1 }}>{t.calendarBusyLegend}</Txt>
-                <Txt size={12} color={p.mu} latin>
-                  {block.allDay ? '' : formatTimeRange(new Date(block.startAt), new Date(block.endAt), { locale: lang, timeZone: timezone })}
-                </Txt>
-                {/* «حضّرني» (CL5a): only on a timed block that has not started.
-                    The block has no title, so the sheet asks what it is. */}
-                {prep ? (
-                  <Btn
-                    testID="calendar-busy-prepare"
-                    // Which meeting, out loud: every busy row reads «مشغول».
-                    label={fill(t.xPrepareFor, { time: ltr(formatTime(new Date(block.startAt), { locale: lang, timeZone: timezone })) })}
-                    onPress={() => actions.openMeetingPrep(prep)}
-                    scaleTo={0.97}
-                    style={{ minHeight: 44, justifyContent: 'center', backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14 }}
-                  >
-                    <Txt size={13} weight={600}>{t.xPrepare}</Txt>
-                  </Btn>
-                ) : null}
-              </View>
-            ))(row.block, busyBlockPrepTarget(row.block, now)) : ((item, drawn, due) => (
-              <Btn
-                key={item.id}
-                testID={`calendar-item-${item.id}`}
-                label={`${rowAccessibilityLabel(item, t, drawn
-                  ? ltr(formatTime(new Date(drawn), { locale: lang, timeZone: timezone }))
-                  : null)}${due ? `, ${due}` : ''}`}
-                onPress={() => actions.openDetail(item.id)}
-                scaleTo={0.98}
-                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 16, paddingHorizontal: 18, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }, cardShadow(p)]}
-              >
-                <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong }} />
-                <View style={stacked ? { gap: 2 } : { flex: 1, gap: 2 }}>
-                  <Txt role="body">{item.title}</Txt>
-                  {due ? <Txt size={12} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
-                </View>
-                <Txt size={12} color={p.mu} latin testID={`calendar-time-${item.id}`}>
-                  {drawn
-                    ? ltr(formatTime(new Date(drawn), { locale: lang, timeZone: timezone }))
-                    : t.noTimeYet}
-                </Txt>
-              </Btn>
-            ))(row.item, drawnClockAt(row.item), dueAsideFor(row.item)))}
-            {dayRows.length === 0 ? (
-              <View style={{ padding: 18, backgroundColor: p.sf, borderRadius: 18 }} testID="calendar-day-free">
-                <Txt size={14} color={p.mu} align="center">{t.dayFree}</Txt>
-              </View>
-            ) : null}
-          </View>
+          <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}>
+            {([
+              { id: 'all', label: t.catAll, dot: null },
+              { id: 'commitment', label: t.xCommitments, dot: p.ac },
+              ...(busyFilterShown ? [{ id: 'busy', label: t.calendarBusyLegend, dot: p.mu }] : []),
+            ] as const).map(option => {
+              const selected = shownFilter === option.id;
+              return <Btn key={option.id} testID={`calendar-filter-${option.id}`} label={option.label}
+                accessibilityState={{ selected }} onPress={() => setFilter(option.id as 'all' | 'commitment' | 'busy')}
+                style={{ minHeight: 44, borderRadius: 999, borderWidth: 1, borderColor: selected ? p.ink : p.lnStrong, backgroundColor: selected ? p.ink : p.sf, paddingVertical: 9, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                {option.dot ? <View accessible={false} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: option.dot }} /> : null}
+                <Txt size={13} weight={500} color={selected ? p.onInk : p.tx}>{option.label}</Txt>
+              </Btn>;
+            })}
+          </DirectionalScrollRow>
           {weekInsight ? <DeadlineContext item={weekInsight} weekly /> : null}
         </QueryBoundary>
-        <ProductRow id="calendar-commitments" title={t.xCommitments} body={t.xCurrentHorizon} icon="check" onPress={() => actions.go('commitments')} />
-        <ProductRow id="calendar-seeds" title={t.seedsOpen} body={t.seedsNotCommitment} icon="spark" onPress={() => actions.go('seeds')} />
-        <ProductRow id="calendar-patch" title={t.xPatch} icon="calendar" status="LIVE" onPress={() => actions.go('patchReview')} />
+
+        <ReferenceCard tone="waiting" pad={0}>
+          <Btn testID="calendar-patch" label={`${t.xPatch}. ${t.xPatchBody}`} onPress={() => actions.go('patchReview')}
+            style={{ minHeight: 80, padding: 16, gap: 13, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center' }}>
+            <CalendarGlyph color={p.ac} spark />
+            <View style={{ flex: stacked ? undefined : 1, gap: 3, alignItems: 'flex-start' }}>
+              <Txt size={15} weight={600} color={p.tx}>{t.xPatch}</Txt>
+              <Txt size={12} color={p.mu}>{t.xPatchBody}</Txt>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 12 }}>
+              <Txt size={13} weight={600} color={p.tx}>{t.reviewTitle}</Txt>
+              <ChevronIcon color={p.mu} rtl={rtl} />
+            </View>
+          </Btn>
+        </ReferenceCard>
+        <ReferenceCard pad={0} style={{ gap: 0 }}>
+          <CalendarShortcut id="calendar-commitments" title={t.xCommitments} body={t.xCurrentHorizon} onPress={() => actions.go('commitments')} />
+          <View style={{ height: 1, marginHorizontal: 16, backgroundColor: p.ln }} />
+          <CalendarShortcut id="calendar-seeds" title={t.seedsOpen} body={t.seedsNotCommitment} onPress={() => actions.go('seeds')} spark />
+        </ReferenceCard>
       </ScreenScroll>
     </Screen>
   );
+}
+
+function CalendarGlyph({ color, spark = false }: { color: string; spark?: boolean }) {
+  return <ReferenceIcon name={spark ? 'sparkles' : 'calendar'} size={20} color={color} />;
+}
+
+/**
+ * Which edges of the scrolling week strip fade, in the ScrollView's own
+ * left-to-right space (`DirectionalScrollRow` lays it out LTR under RTL too):
+ * `start` is the left edge. An edge fades only while days hide behind it.
+ */
+export function stripFadeFor(offset: number, content: number, viewport: number): { start: number; end: number } {
+  const FADE = 32;
+  return { start: offset > 1 ? FADE : 0, end: offset < content - viewport - 1 ? FADE : 0 };
+}
+
+function CalendarLegend({ color, label, testID }: { color: string; label: string; testID?: string }) {
+  const p = useReferencePalette();
+  return <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <View accessible={false} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+    <Txt size={11} color={p.mu}>{label}</Txt>
+  </View>;
+}
+
+function CalendarShortcut({ id, title, body, onPress, spark = false }: { id: string; title: string; body: string; onPress: () => void; spark?: boolean }) {
+  const { rtl } = useApp();
+  const p = useReferencePalette();
+  const stacked = useLayoutMode() !== 'normal';
+  return <Btn testID={id} label={`${title}. ${body}`} onPress={onPress}
+    style={{ minHeight: 64, padding: 16, gap: 12, flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center' }}>
+    <CalendarGlyph color={p.ac} spark={spark} />
+    <View style={{ flex: stacked ? undefined : 1, gap: 3, alignItems: 'flex-start' }}>
+      <Txt size={14} weight={600} color={p.tx}>{title}</Txt>
+      <Txt size={12} color={p.mu}>{body}</Txt>
+    </View>
+    {!stacked ? <ChevronIcon color={p.mu} rtl={rtl} /> : null}
+  </Btn>;
 }
 
 function DayCell({
@@ -311,7 +407,8 @@ function DayCell({
   busy: number;
   onPress: () => void;
 }) {
-  const { p, lang } = useApp();
+  const { lang } = useApp();
+  const p = useReferencePalette();
   const scale = useTextScale();
   const stacked = useLayoutMode() !== 'normal';
   const date = civilDate(key);
@@ -324,26 +421,29 @@ function DayCell({
       label={`${formatDate(date, 'weekday', options)} ${formatDate(date, 'dayNumber', options)}`}
       accessibilityState={{ selected }}
       scaleTo={0.94}
-      style={{ ...(stacked ? { width: 62 * scale } : { flex: 1 }), alignItems: 'center', gap: 2, paddingTop: 8, paddingBottom: 10, paddingHorizontal: 4, borderRadius: 16, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 88 }}
+      style={{ ...(stacked ? { width: 62 * scale } : { flex: 1 }), minWidth: 44, alignItems: 'center', gap: 2, paddingTop: 7, paddingBottom: 8, paddingHorizontal: 3, borderRadius: 15, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 100 }}
     >
-      <Txt size={11} color={p.mu} align="center" lines={1}>{formatDate(date, 'weekdayShort', options)}</Txt>
-      <View style={{ minWidth: 36 * scale, minHeight: 36 * scale, borderRadius: 18 * scale, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? p.ink : 'transparent', borderWidth: isToday ? 1 : 0, borderColor: p.lnStrong }}>
+      <Txt size={11} color={selected ? p.tx : p.mu} align="center" lines={1}>{formatDate(date, 'weekdayShort', options)}</Txt>
+      <View style={{ minWidth: 36 * scale, minHeight: 36 * scale, borderRadius: 18 * scale, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? p.ac : 'transparent', borderWidth: isToday && !selected ? 1 : 0, borderColor: p.lnStrong }}>
         {/* `latin`: Noto Naskh's line box clips digits in a box this tight. */}
-        <Txt size={16} weight={600} align="center" color={selected ? p.onInk : p.tx} lh={1.25} latin>
+        <Txt size={16} weight={600} align="center" color={selected ? p.onAccent : p.tx} lh={1.25} latin>
           {formatDate(date, 'dayNumber', options)}
         </Txt>
       </View>
-      <View style={{ alignSelf: 'stretch', gap: 3, marginTop: 6 }}>
+      <View accessible={false} style={{ alignSelf: 'stretch', gap: 3, marginTop: 6, paddingHorizontal: 4, minHeight: 18 }}>
         {/* Three bars at most: a fourth would make a busy day unreadable, and
             the count is not the point — the shape of the week is. */}
         {items.slice(0, 3).map((item) => (
           <View
             key={item.id}
             testID={`calendar-bar-${key}`}
-            style={{ height: 4, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.lnStrong, opacity: 0.9 }}
+            style={{ height: 3, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.ac }}
           />
         ))}
-        {busy > 0 ? <View testID={`calendar-busy-bar-${key}`} style={{ height: 4, borderRadius: 2, backgroundColor: p.hatch }} /> : null}
+        {busy > 0 ? <View testID={`calendar-busy-bar-${key}`} style={{ height: 3, borderRadius: 2, backgroundColor: p.mu }} /> : null}
+        <View style={{ flexDirection: 'row', gap: 3 }}>
+          {items.slice(0, 3).map(item => <View key={item.id} style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: item.importance === 'must' ? p.wm : p.ac }} />)}
+        </View>
       </View>
     </Btn>
   );

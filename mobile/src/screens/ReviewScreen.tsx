@@ -58,7 +58,7 @@ import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
  * Times are formatted in the device zone, which is the same zone the request
  * carried, so the hour shown here is the hour the server resolved.
  */
-export function ReviewScreen() {
+export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {}) {
   const { t, tr, p, lang, actions } = useApp();
   const insets = useSafeAreaInsets();
   const scrollActions = useLayoutMode() === 'xl';
@@ -262,7 +262,7 @@ export function ReviewScreen() {
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <TaskHeader
         pill={t.back}
-        onPill={confirmingDiscard ? () => setConfirmingDiscard(false) : () => flow.backToComposer()}
+        onPill={confirmingDiscard ? () => setConfirmingDiscard(false) : onBackToChat ?? (() => flow.backToComposer())}
         title={!asking && scrollActions ? t.reviewConfirmationHeading : t.reviewTitle}
         pillTestID="review-back"
       />

@@ -132,10 +132,14 @@ let cached: Firestore | null = null;
 /**
  * `getFirestore(app, id)` hands back the same instance for a given database,
  * and Firestore throws if `settings()` is called on it twice. Remember which
- * instances are configured, so rebinding after `resetFirestoreForTests` —
- * switching databases and back — does not configure one a second time.
+ * instances are configured, so rebinding after `resetFirestoreForTests` or
+ * loading another Next.js route bundle does not configure one a second time.
+ * Firebase Admin retains its clients across route reloads; the registry must
+ * have the same lifetime, rather than belong to one copy of this module.
  */
-const configured = new WeakSet<Firestore>();
+const configuredKey = Symbol.for('maybesitter.firestore.configured');
+const shared = globalThis as typeof globalThis & { [configuredKey]?: WeakSet<Firestore> };
+const configured = shared[configuredKey] ??= new WeakSet<Firestore>();
 
 function firestore(): Firestore {
   if (cached) return cached;

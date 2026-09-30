@@ -161,7 +161,8 @@ describe('adding one by hand', () => {
     await fireEvent.press(await screen.findByTestId('weekly-blocks-add'));
     await fireEvent.changeText(screen.getByTestId('weekly-edit-title'), 'دوام');
     for (const day of [0, 1, 2, 3, 4]) await fireEvent.press(screen.getByTestId(`weekly-edit-day-${day}`));
-    expect(textOf('weekly-edit-preview')).toBe('دوام · من الأحد للخميس · 09:00–17:00');
+    expect(textOf('weekly-edit-preview-title')).toBe('دوام');
+    expect(textOf('weekly-edit-preview')).toBe('من الأحد للخميس · 09:00–17:00');
     expect(create).not.toHaveBeenCalled();
     const before = Date.now();
     await fireEvent.press(screen.getByTestId('weekly-edit-save'));

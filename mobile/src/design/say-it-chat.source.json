@@ -1,0 +1,11 @@
+{
+  "approvedOn": "2026-09-29",
+  "source": "User-supplied replacement reference in this task",
+  "referenceFilename": "codex-clipboard-a93fa753-33a3-45f0-b5d8-58a96bc4ca16.png",
+  "sha256": "055a45a5580edef336b241a5115ccc74c1754e238235e2794c54107c3a46a42e",
+  "standaloneBuild": "outputs/say-it-chat-20260929",
+  "presentation": "mobile/src/features/capture/SayItChatPage.tsx",
+  "controller": "mobile/src/screens/CaptureScreen.tsx",
+  "scope": "Typed and dictated capture and schedule review. Imported shares, meeting review and saved confirmation retain their existing flows.",
+  "runtimeData": "Schedule rows use server proposals and explicit edits. Reference-only sample end times and message timestamps are not seeded into the live app."
+}

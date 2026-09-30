@@ -145,6 +145,46 @@ export const palettes: Record<Scheme, Palette> = {
   dark: paletteFor('dark', false),
 };
 
+/** The user's September 29 reference, scoped to Today, Calendar and their tab bar.
+ * Other screens retain the coral continuation. Light mode keeps the same hierarchy
+ * with darker action text; status meanings remain success / attention / action. */
+export const referencePalettes: Record<Scheme, Palette & {
+  focus: string; focusSoft: string; heroEdge: string;
+}> = {
+  dark: {
+    ...palettes.dark,
+    bg: '#151619', sf: '#212328', sf2: '#2C2D34',
+    sfBar: 'rgba(28,29,34,0.96)', sfBarSolid: '#1C1D22',
+    tx: '#F7F7FC', mu: '#B9B9C5', ln: 'rgba(225,224,243,0.12)',
+    lnStrong: '#858593', ac: '#FF709C', acd: '#FF9CBA',
+    acs: '#3C2833', onAccent: '#21131B', ul: 'rgba(255,112,156,0.5)',
+    focus: '#79CFFF', focusSoft: '#202E3E', heroEdge: '#936778',
+  },
+  light: {
+    ...palettes.light,
+    bg: '#FAF7F9', sf: '#FFFFFF', sf2: '#F0E8EE',
+    sfBar: 'rgba(255,255,255,0.96)', sfBarSolid: '#FFFFFF',
+    tx: '#25202A', mu: '#655C69', ln: '#DFD4DF', lnStrong: '#827482',
+    ac: '#AA2452', acd: '#942046', acs: '#F9E3ED', onAccent: '#FFFFFF',
+    ul: 'rgba(170,36,82,0.5)', wm: '#755425', focus: '#17658C', focusSoft: '#E4F2FA', heroEdge: '#BC7490',
+  },
+};
+
+export const referenceGradients: Record<Scheme, Record<'hero' | 'plan' | 'waiting' | 'surface', readonly [string, string, string]>> = {
+  dark: {
+    hero: ['#603A4A', '#342732', '#1C1E23'],
+    plan: ['#462B37', '#262633', '#202B38'],
+    waiting: ['#603543', '#332837', '#222735'],
+    surface: ['#292A30', '#212328', '#1D1F24'],
+  },
+  light: {
+    hero: ['#F5DCE7', '#FBEFF4', '#FFFFFF'],
+    plan: ['#F5E0E9', '#F9F3F8', '#EAF2FA'],
+    waiting: ['#F5DDE7', '#F5EDF5', '#EFF3FA'],
+    surface: ['#FFFFFF', '#FFFFFF', '#F6F1F5'],
+  },
+};
+
 /** 2-pt grid as the export uses it. */
 export const space = {
   xxs: 2, xs: 4, sm: 6, md: 8, lg: 10, xl: 12, xxl: 14,
@@ -224,4 +264,11 @@ export function barShadow(p: Palette) {
 
 export function accentGlow(p: Palette, strength = 0.28) {
   return { shadowColor: p.ac, shadowOpacity: strength, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 6 };
+}
+
+/** Chat reference supplied 2026-09-29; the other product surfaces keep their palette. */
+export function captureChatPalette(scheme: Scheme, base: Palette): Palette & { iconBg: string } {
+  if (scheme === 'light') return { ...base, iconBg: base.acs };
+  return { ...base, bg: '#17191B', sf: '#222426', sf2: '#282A2D',
+    acs: '#6D3745', ac: '#FD7B94', acd: '#FF93A8', success: '#2ED889', iconBg: '#352930' };
 }

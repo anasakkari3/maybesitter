@@ -3,13 +3,14 @@ import { ltr } from '../../i18n/strings';
 import React from 'react';
 import { View } from 'react-native';
 import { useLayoutMode } from '../../theme/textScale';
-import { CalendarIcon, CheckIcon } from '../../ui/icons';
+import { CheckIcon, ChevronIcon } from '../../ui/icons';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { dayKey, formatTime } from '../../i18n/format';
 import { usePlan } from '../../api/queries';
 import { Btn, Txt } from '../../ui/primitives';
 import type { PlanRow as PlanRowModel } from '../today/composeToday';
+import { ReferenceBackdrop, ReferenceIcon, useReferencePalette } from '../../ui/referenceDesign';
 
 /**
  * The way into today's plan from Today (UC-3.10b #195; Round 2, Phase C).
@@ -40,7 +41,8 @@ import type { PlanRow as PlanRowModel } from '../today/composeToday';
  * zone. Once opened, `PlanScreen` reads every time in the plan's own zone.
  */
 export function TodayPlanRow({ row, preview = [] }: { row: PlanRowModel; preview?: readonly PlanPreviewItem[] }) {
-  const { t, tr, p, lang, actions } = useApp();
+  const { t, tr, lang, rtl, actions } = useApp();
+  const p = useReferencePalette();
   const timezone = useTimeZone();
   const stacked = useLayoutMode() !== 'normal';
   const date = dayKey(new Date(), timezone);
@@ -78,19 +80,23 @@ export function TodayPlanRow({ row, preview = [] }: { row: PlanRowModel; preview
       scaleTo={0.98}
       style={{
         flexDirection: 'column', alignItems: 'stretch', gap: 12, minHeight: 56,
-        backgroundColor: p.sf, borderRadius: 20, paddingVertical: 12, paddingHorizontal: 14,
-        borderWidth: 1, borderColor: proposed ? p.prop : p.ln, borderStyle: proposed ? 'dashed' : 'solid',
+        backgroundColor: p.sf, borderRadius: 22, paddingVertical: 14, paddingHorizontal: 14, overflow: 'hidden',
+        borderWidth: 1, borderColor: proposed ? p.prop : p.heroEdge, borderStyle: proposed ? 'dashed' : 'solid',
       }}
     >
+      <ReferenceBackdrop tone="plan" />
       <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12 }}>
-        <View style={{ width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.successSoft : p.sf2 }}>
-          <CalendarIcon color={accepted ? p.success : p.mu} />
+        <View style={{ width: 38, height: 42, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: accepted ? p.successSoft : p.acs }}>
+          <ReferenceIcon name="calendar" size={23} color={accepted ? p.success : p.acd} />
         </View>
         <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
-          <Txt size={15} weight={600} testID="today-plan-title">{title}</Txt>
-          <Txt role="supporting" color={p.mu} testID="today-plan-summary">{sub}</Txt>
+          <Txt size={15} weight={600} color={p.tx} testID="today-plan-title">{title}</Txt>
+          <Txt size={12} color={p.mu} testID="today-plan-summary">{sub}</Txt>
         </View>
-        {cta ? <Txt size={13} weight={600} color={p.acd} testID="today-plan-open">{cta}</Txt> : null}
+        {cta ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, paddingVertical: 9, paddingHorizontal: 11 }}>
+          <Txt size={13} weight={600} color={p.tx} testID="today-plan-open">{cta}</Txt>
+          <ChevronIcon color={p.mu} rtl={rtl} />
+        </View> : null}
       </View>
       {preview.length > 0 ? (
         <View testID="today-plan-preview">

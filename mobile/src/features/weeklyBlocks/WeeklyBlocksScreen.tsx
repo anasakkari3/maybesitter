@@ -19,6 +19,7 @@ import { SettingsHeader } from '../settings/SettingsChrome';
 import { ServerToggle } from '../settings/ServerToggle';
 import { timeShowing, timeShown } from '../plan/pickerClock';
 import { weeklyA11yLabel, weeklyLine } from './weeklyText';
+import { isolateAuto } from '../../i18n/bidi';
 import { patchFor, validateWeeklyDraft, weeklyErrorKey, type WeeklyDraft } from './weeklyForm';
 
 /**
@@ -268,8 +269,10 @@ function WeeklyBlockEditor({ block, onDone }: { block: WeeklyBlock | null; onDon
 
         {/* The block as it will be kept, read back before it is saved. */}
         {draft.weekdays.length > 0 && draft.title.trim() !== '' ? (
-          <View accessible accessibilityLabel={weeklyA11yLabel({ ...draft, title: draft.title.trim() }, lang)} style={{ backgroundColor: p.sf2, borderRadius: 16, padding: 14 }}>
-            <Txt size={14} weight={600} testID="weekly-edit-preview">{weeklyLine({ ...draft, title: draft.title.trim() }, lang)}</Txt>
+          <View accessible accessibilityLabel={weeklyA11yLabel({ ...draft, title: draft.title.trim() }, lang)} style={{ backgroundColor: p.sf2, borderRadius: 16, padding: 14, gap: 2 }}>
+            {/* The title on its own line, as on the review card (u37). */}
+            <Txt size={14} weight={600} testID="weekly-edit-preview-title">{isolateAuto(draft.title.trim())}</Txt>
+            <Txt size={13} testID="weekly-edit-preview">{weeklyLine(draft, lang, { withTitle: false })}</Txt>
           </View>
         ) : null}
 

@@ -112,8 +112,8 @@ describe('it never implies it has acted', () => {
 
   // UAT 2026-09-27 (#17, shot 38): the tag «اقتراح · ما تغيّر شي بعد» sat
   // above the note «هذا اقتراح. لم يتغيّر أي شيء بعد.» — the same fact twice on
-  // one card. The note is the rule (mobile/AGENTS.md); the dashed edge is the
-  // shape. The tag is only for the state the note does not name: started.
+  // one card. The note is the rule (mobile/AGENTS.md). The tag is only for the
+  // state the note does not name: started.
   it('says so once: no proposal tag beside the note, in any language', async () => {
     await show();
     expect(screen.queryByTestId('next-step-tag')).toBeNull();
@@ -144,10 +144,17 @@ describe('it never implies it has acted', () => {
 
 describe('the why', () => {
   it('is folded away until asked for', async () => {
+    const decide = mockDecision();
     await show();
     expect(screen.queryByTestId('next-step-why')).toBeNull();
+    expect(screen.getByTestId('next-step-why-toggle').props.accessibilityState.expanded).toBe(false);
     await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
     await waitFor(() => expect(screen.queryByTestId('next-step-why')).not.toBeNull());
+    expect(screen.getByTestId('next-step-why-toggle').props.accessibilityState.expanded).toBe(true);
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    expect(screen.queryByTestId('next-step-why')).toBeNull();
+    expect(screen.getByTestId('next-step-why-toggle').props.accessibilityState.expanded).toBe(false);
+    expect(decide).not.toHaveBeenCalled();
   });
 
   it('is in the user’s language, not the server’s', async () => {

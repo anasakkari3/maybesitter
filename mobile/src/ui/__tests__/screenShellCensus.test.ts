@@ -51,6 +51,7 @@ const MAY_READ_TOP_INSET: Record<string, string> = {
   'ui/screen.tsx': 'the shell — this is where the inset lives',
   'ui/taskHeader.tsx': 'a task header is already pinned above its own scroller; it is the frame for capture/review/share',
   'auth/VerifyEmailBanner.tsx': 'draws above the shell, over the status bar, and clears it itself',
+  'api/ui/OfflineBanner.tsx': 'the first banner under Root: over the status bar while offline, and clears it itself (u45)',
   'features/language/LanguageStep.tsx': 'pre-sign-in, full bleed, no scroller to escape under the island',
   'features/onboarding/OnboardingChrome.tsx': 'pre-sign-in chrome, its own frame',
   'screens/SignInScreen.tsx': 'pre-sign-in, full bleed',

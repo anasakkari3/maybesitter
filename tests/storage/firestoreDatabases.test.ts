@@ -13,7 +13,10 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import ts from 'typescript';
+import { getFirestore } from 'firebase-admin/firestore';
+import { getAdminApp } from '../../lib/firebase/admin.ts';
 import {
   DATABASE_ENV_VAR,
   DEFAULT_DATABASE,
@@ -103,5 +106,42 @@ test('the database id is resolved from the environment, defaulting only outside 
   assert.equal(resolveFirestoreDatabaseId({ MAYBESITTER_ENV: 'production' }), DEFAULT_DATABASE);
   for (const bad of ['Staging', 'abc', 'has space', '../x', 'ends-', '(DEFAULT)']) {
     assert.throws(() => resolveFirestoreDatabaseId({ [DATABASE_ENV_VAR]: bad }), /must be/, JSON.stringify(bad));
+  }
+});
+
+test('independent route modules configure the shared Firestore client only once', async (t) => {
+  const previousDatabase = process.env[DATABASE_ENV_VAR];
+  const previousEnvironment = process.env.MAYBESITTER_ENV;
+  process.env[DATABASE_ENV_VAR] = 'route-reload-test';
+  process.env.MAYBESITTER_ENV = 'development';
+  const db = getFirestore(getAdminApp(), 'route-reload-test');
+  // Exercise the SDK's real settings() guard without making a network call.
+  const documents = t.mock.method(db, 'doc', () => {
+    throw new Error('document read reached');
+  });
+  const modulePath = pathToFileURL(join(repoRoot, 'lib/storage/firestoreAdapter.ts'));
+  // Separate evaluated copies reproduce independently compiled Next.js routes,
+  // while their imports still share Firebase Admin's actual client singleton.
+  const source = readFileSync(modulePath, 'utf8').replace(/from '([^']+)'/g, (_, specifier: string) => {
+    const resolved = specifier.startsWith('.')
+      ? new URL(`${specifier}.ts`, modulePath).href
+      : import.meta.resolve(specifier);
+    return `from '${resolved}'`;
+  });
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  try {
+    for (let copy = 0; copy < 2; copy += 1) {
+      const encoded = Buffer.from(`${compiled}\n// route copy ${copy}`).toString('base64');
+      const adapter = await import(`data:text/javascript;base64,${encoded}`) as typeof import('../../lib/storage/firestoreAdapter.ts');
+      await assert.rejects(adapter.createFirestoreStorage().get('_health/probe'), /document read reached/);
+    }
+    assert.equal(documents.mock.callCount(), 2, 'both routes must reach storage without configuring the client twice');
+  } finally {
+    if (previousDatabase === undefined) delete process.env[DATABASE_ENV_VAR];
+    else process.env[DATABASE_ENV_VAR] = previousDatabase;
+    if (previousEnvironment === undefined) delete process.env.MAYBESITTER_ENV;
+    else process.env.MAYBESITTER_ENV = previousEnvironment;
   }
 });

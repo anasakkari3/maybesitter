@@ -1608,5 +1608,22 @@
   "wbTodayTitle": "ثابت اليوم",
   "wbNextNow": "هلّق وقت {title}. بنرجع نقترح الساعة {time}.",
   "wbNextNowGeneric": "هلّق وقت ثابتك الأسبوعي. بنرجع نقترح الساعة {time}.",
-  "wbNextNowNoTime": "هلّق وقت ثابتك الأسبوعي. بنرجع نقترح لما يخلص."
+  "wbNextNowNoTime": "هلّق وقت ثابتك الأسبوعي. بنرجع نقترح لما يخلص.",
+  "referenceCalendarFilterEmpty": "ما في عناصر بهالعرض.",
+  "referenceWeekSubtitle": "التزاماتك، يوم بيوم.",
+  "referenceTodaySubtitle": "خطوة صغيرة بتكفّي لنبلّش.",
+  "chatPlaceholder": "اكتب أو احكي اللي ببالك...",
+  "chatAnswerPlaceholder": "جاوب على السؤال اللي فوق...",
+  "chatOptions": "خيارات المحادثة",
+  "chatSubtitle": "احكيلي شو عندك",
+  "chatNotIncluded": "مش داخلة",
+  "chatBackDiscardBody": "إذا رجعت بيروح هالاقتراح وتعديلاتك عليه. رسالتك الأصلية بتضل.",
+  "chatWelcome": "احكيها زي ما ببالك. بساعدك تحوّلها لخطة.",
+  "chatFound": "تمام! بقدر أساعدك ترتّبها.\n\nهاد اللي فهمته:",
+  "chatUnscheduled": "بدون يوم محدّد",
+  "chatReplaceTitle": "تبدأ رسالة جديدة؟",
+  "chatReplaceBody": "هالرسالة رح تعمل اقتراح جديد، وتحذف الاقتراح الحالي واختياراتك وتعديلاتك اللي ما انحفظت. احفظه أول إذا بدك تحتفظ فيه.",
+  "chatKeepProposal": "كمّل مراجعة هالجدول",
+  "chatStartNew": "احذف الاقتراح وابعث",
+  "chatAnswerCounter": "{n}/200"
 }

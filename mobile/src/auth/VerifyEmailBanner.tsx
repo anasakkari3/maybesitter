@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import { AppState, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
@@ -7,6 +7,7 @@ import { Btn, Pill, Txt } from '../ui/primitives';
 import { useSoftKeyboardShown } from '../ui/keyboard';
 import { LINE_HEIGHT } from '../theme/fonts';
 import { layoutModeFor, textScaleOf } from '../theme/textScale';
+import { ScreenTopInsetConsumedContext } from '../ui/screen';
 
 /** Firebase rate-limits verification mail; the UI says so rather than failing. */
 export const RESEND_COOLDOWN_SECONDS = 60;
@@ -50,13 +51,15 @@ export function bannerTextLines({ windowHeight, fontScale }: { windowHeight: num
  * user's next move after tapping the link in their mail is to switch back to
  * MaybeSitter, and the banner should already be gone when they do.
  */
-export function VerifyEmailBanner() {
+export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
   const { t, tr, p } = useApp();
   const { user, reloadUser, repository } = useAuth();
-  // Rendered once at the root, above every screen (#495): the screens add
-  // `insets.top` to their own content, so clearing the status bar is the
-  // banner's own job — without it the banner is drawn under the clock.
+  // Rendered once at the root, above every screen (#495). While visible it
+  // owns the status-bar clearance; the screen below must not add it again.
   const insets = useSafeAreaInsets();
+  // The offline banner above may already have cleared the status bar.
+  const consumedAbove = useContext(ScreenTopInsetConsumedContext);
+  const topInset = consumedAbove ? 0 : insets.top;
   const { height: windowHeight, fontScale } = useWindowDimensions();
   const keyboardShown = useSoftKeyboardShown();
   const [cooldown, setCooldown] = useState(0);
@@ -92,78 +95,91 @@ export function VerifyEmailBanner() {
     }
   }, [cooldown, repository]);
 
-  // Hidden, not unmounted, while the software keyboard is up: nothing here
-  // is reachable mid-sentence, and the room is the field's and «فهمها»'s
-  // (UAT round 6, batch 9). The cooldown survives it.
-  if (!needsVerification || keyboardShown) return null;
+  const renderBanner = () => {
+    // Hidden, not unmounted, while the software keyboard is up: nothing here
+    // is reachable mid-sentence, and the room is the field's and «فهمها»'s
+    // (UAT round 6, batch 9). The cooldown survives it.
+    if (!needsVerification || keyboardShown) return null;
 
-  const message = sent && cooldown > 0 ? t.authVerifyResent : t.authVerifyBanner;
-  const lines = bannerTextLines({ windowHeight, fontScale });
-  const resendButton = (
-    <Pill
-      label={cooldown > 0 ? tr('authVerifyCooldown', { s: cooldown }) : t.authVerifyResend}
-      kind="soft"
-      size={13}
-      pad={8}
-      disabled={cooldown > 0}
-      onPress={() => void resend()}
-    />
-  );
+    const message = sent && cooldown > 0 ? t.authVerifyResent : t.authVerifyBanner;
+    const lines = bannerTextLines({ windowHeight, fontScale });
+    const resendButton = (
+      <Pill
+        label={cooldown > 0 ? tr('authVerifyCooldown', { s: cooldown }) : t.authVerifyResend}
+        kind="soft"
+        size={13}
+        pad={8}
+        disabled={cooldown > 0}
+        onPress={() => void resend()}
+      />
+    );
 
-  if (lines === undefined) {
+    if (lines === undefined) {
+      return (
+        <View
+          testID="verify-email-banner"
+          style={{
+            backgroundColor: p.wms,
+            paddingTop: topInset + 12,
+            paddingBottom: 12,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <Txt size={TEXT_SIZE} color={p.wm} style={{ flex: 1 }}>
+            {message}
+          </Txt>
+          {resendButton}
+        </View>
+      );
+    }
+
+    // The accessibility sizes: the sentence on its own full-width lines, capped,
+    // with the button under it. The sentence is a toggle that unfolds it for a
+    // reader who wants all of it; a screen reader hears all of it either way.
+    const sentence = (
+      <Btn
+        label={message}
+        accessibilityState={{ expanded }}
+        scaleTo={0.99}
+        onPress={() => setExpanded(open => !open)}
+      >
+        <Txt size={TEXT_SIZE} color={p.wm} lines={expanded ? undefined : lines}>
+          {message}
+        </Txt>
+      </Btn>
+    );
     return (
       <View
         testID="verify-email-banner"
         style={{
           backgroundColor: p.wms,
-          paddingTop: insets.top + 12,
+          paddingTop: topInset + 12,
           paddingBottom: 12,
           paddingHorizontal: 16,
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 12,
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          gap: 8,
         }}
       >
-        <Txt size={TEXT_SIZE} color={p.wm} style={{ flex: 1 }}>
-          {message}
-        </Txt>
-        {resendButton}
+        {expanded
+          ? <ScrollView testID="verify-email-banner-full" style={{ maxHeight: Math.round(windowHeight * EXPANDED_SHARE), flexGrow: 0 }}>{sentence}</ScrollView>
+          : sentence}
+        <View style={{ alignItems: 'flex-start' }}>{resendButton}</View>
       </View>
     );
-  }
+  };
 
-  // The accessibility sizes: the sentence on its own full-width lines, capped,
-  // with the button under it. The sentence is a toggle that unfolds it for a
-  // reader who wants all of it; a screen reader hears all of it either way.
-  const sentence = (
-    <Btn
-      label={message}
-      accessibilityState={{ expanded }}
-      scaleTo={0.99}
-      onPress={() => setExpanded(open => !open)}
-    >
-      <Txt size={TEXT_SIZE} color={p.wm} lines={expanded ? undefined : lines}>
-        {message}
-      </Txt>
-    </Btn>
-  );
   return (
-    <View
-      testID="verify-email-banner"
-      style={{
-        backgroundColor: p.wms,
-        paddingTop: insets.top + 12,
-        paddingBottom: 12,
-        paddingHorizontal: 16,
-        flexDirection: 'column',
-        alignItems: 'stretch',
-        gap: 8,
-      }}
-    >
-      {expanded
-        ? <ScrollView testID="verify-email-banner-full" style={{ maxHeight: Math.round(windowHeight * EXPANDED_SHARE), flexGrow: 0 }}>{sentence}</ScrollView>
-        : sentence}
-      <View style={{ alignItems: 'flex-start' }}>{resendButton}</View>
-    </View>
+    <>
+      {renderBanner()}
+      {/* Keep the provider mounted while verification or keyboard state changes:
+          the screen, its scroll position and any draft belong to the user. */}
+      <ScreenTopInsetConsumedContext.Provider value={consumedAbove || (needsVerification && !keyboardShown)}>
+        {children}
+      </ScreenTopInsetConsumedContext.Provider>
+    </>
   );
 }

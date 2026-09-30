@@ -12,7 +12,7 @@
  *   KeyboardAvoidingView), and the input has a maxHeight and scrolls itself.
  */
 import React from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
@@ -151,203 +151,116 @@ describe('dictation adds to the field', () => {
   });
 });
 
-describe('the keyboard cannot hide Analyze or the text', () => {
-  it('Analyze and the mic are outside the ScrollView, inside the keyboard-avoiding view', async () => {
+describe('the chat composer remains above the keyboard', () => {
+  it('keeps the native field, send action, and microphone outside the conversation in AvoidKeyboard', async () => {
     await showComposer();
-    const scroll = within(screen.getByTestId('capture-scroll'));
-    expect(scroll.queryByTestId('capture-analyze')).toBeNull();
-    expect(scroll.queryByTestId('voice-button')).toBeNull();
-
-    const footer = within(screen.getByTestId('capture-footer'));
-    expect(footer.queryByTestId('capture-analyze')).not.toBeNull();
-    expect(footer.queryByTestId('voice-button')).not.toBeNull();
-    expect(within(screen.getByTestId('capture-kav')).queryByTestId('capture-footer')).not.toBeNull();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
+    const conversation = within(screen.getByTestId('capture-scroll'));
+    const footer = within(screen.getByTestId('chat-composer'));
+    for (const id of ['capture-input', 'capture-analyze', 'voice-button']) {
+      expect(conversation.queryByTestId(id)).toBeNull();
+      expect(footer.getByTestId(id)).toBeTruthy();
+    }
+    expect(within(screen.getByTestId('capture-kav')).getByTestId('chat-composer')).toBeTruthy();
+    expect(flat(screen.getByTestId('chat-composer-row').props.style).flexDirection).toBe('row');
   });
 
-  it('the input is capped in height and scrolls inside itself', async () => {
+  it.each([1, 1.35, 1.64, 3.12])('at fontScale %s a long draft scrolls inside a bounded native field', async (fontScale) => {
+    useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale });
     await showComposer();
+    const before = flat(screen.getByTestId('capture-input').props.style);
+    expect(typeof before.minHeight).toBe('number');
+    expect(typeof before.maxHeight).toBe('number');
+    expect(before.maxHeight as number).toBeGreaterThanOrEqual(before.minHeight as number);
+    // This footer does not borrow its height from conversation layout events.
+    // Native input scrolling contains a long draft without expanding the footer.
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'A long line\n'.repeat(30));
+    await fireEvent(screen.getByTestId('capture-input'), 'contentSizeChange', {
+      nativeEvent: { contentSize: { width: 200, height: 1600 } },
+    });
     const input = screen.getByTestId('capture-input');
-    const style = flat(input.props.style);
-    expect(typeof style.maxHeight).toBe('number');
-    expect(style.maxHeight as number).toBeGreaterThanOrEqual(style.minHeight as number);
+    expect(flat(input.props.style).maxHeight).toBe(before.maxHeight);
+    expect(input.props.multiline).toBe(true);
     expect(input.props.scrollEnabled).toBe(true);
-  });
-});
-
-/**
- * UAT round 6, #5 (eef25054, shots 1034–1040): with the software keyboard up
- * the field was 313–531pt, the ScrollView's viewport ended at 462 and the
- * footer covered 462–538 — the line being typed and the caret were under
- * «فهمها», and `capture-scroll` never scrolled. Jest has no keyboard, so the
- * geometry arrives as the layout events the device sends: the ScrollView
- * shrinks to ~207pt when AvoidKeyboard lifts the footer, and the field starts
- * 58pt into the scroll content (16pt padding + the label and its gap).
- */
-describe('the line being typed stays above the footer and keyboard (#5)', () => {
-  const layout = (height: number, y = 0) => ({ nativeEvent: { layout: { x: 0, y, width: 358, height } } });
-
-  async function keyboardUp(viewport: number) {
-    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(viewport));
-    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(400, 16));
-    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(140, 42));
-  }
-
-  it('the field shrinks to end above the footer instead of keeping its 220pt cap', async () => {
-    await showComposer();
-    await keyboardUp(207);
-    const style = flat(screen.getByTestId('capture-input').props.style);
-    // 58pt down + the field + an 8pt gap ≤ the 207pt viewport.
-    expect(58 + (style.maxHeight as number) + 8).toBeLessThanOrEqual(207);
-    expect(style.minHeight as number).toBeLessThanOrEqual(style.maxHeight as number);
-    expect(screen.getByTestId('capture-input').props.scrollEnabled).toBe(true);
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('capture-input')).toBeNull();
+    expect(within(screen.getByTestId('chat-composer')).getByTestId('capture-input')).toBeTruthy();
   });
 
-  it('with the keyboard down the field keeps its resting cap', async () => {
+  it('the discard question removes the field and footer while retaining the conversation region', async () => {
     await showComposer();
-    await keyboardUp(600);
-    expect(flat(screen.getByTestId('capture-input').props.style).maxHeight).toBe(220);
-  });
-
-  it('a field that cannot fit under the label scrolls the ScrollView so its bottom shows', async () => {
-    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
-    await showComposer();
-    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(150));
-    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(400, 16));
-    const maxHeight = flat(screen.getByTestId('capture-input').props.style).maxHeight as number;
-    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(maxHeight, 42));
-    // The field's bottom (58 + maxHeight) plus the gap, at the viewport's bottom edge.
-    expect(scrollTo).toHaveBeenLastCalledWith({ y: 58 + maxHeight + 8 - 150, animated: false });
-  });
-
-  it('scrolled down to the privacy line, typing a line brings the field back', async () => {
-    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
-    await showComposer();
-    await keyboardUp(207);
-    await fireEvent.scroll(screen.getByTestId('capture-scroll'), { nativeEvent: { contentOffset: { x: 0, y: 300 } } });
-    scrollTo.mockClear();
-    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(141, 42));
-    expect(scrollTo).toHaveBeenLastCalledWith({ y: 58, animated: false });
-  });
-
-  it('at the largest text size the field keeps two whole lines and the ScrollView scrolls to show it', async () => {
-    // English at 20pt × 1.4 = 28pt a line; at fontScale 3.1 (AX5) ≈ 87pt.
-    useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale: 3.1 });
-    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
-    await showComposer();
-    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(260));
-    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(600, 16));
-    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(140, 150));
-    const maxHeight = flat(screen.getByTestId('capture-input').props.style).maxHeight as number;
-    expect(maxHeight).toBe(52 + 2 * Math.round(28 * 3.1));
-    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(maxHeight, 150));
-    expect(scrollTo).toHaveBeenLastCalledWith({ y: 166 + maxHeight + 8 - 260, animated: false });
-  });
-
-  it('with the field gone (the discard question), a layout change does not scroll to where it was', async () => {
-    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
-    await showComposer();
-    await keyboardUp(207);
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
     await fireEvent.press(screen.getByLabelText('Cancel'));
-    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
-    scrollTo.mockClear();
-    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(100));
-    expect(scrollTo).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByTestId('capture-discard')).toBeTruthy());
+    expect(screen.queryByTestId('capture-input')).toBeNull();
+    expect(screen.queryByTestId('chat-composer')).toBeNull();
+    expect(within(screen.getByTestId('capture-scroll')).getByTestId('capture-discard')).toBeTruthy();
   });
 });
 
-/**
- * UAT round 6, D-g (shots 1049a–d, 1050a–e on 73b3e4dc). With the software
- * keyboard up, the header and the stacked footer were fixed blocks: at
- * accessibility-medium the field's viewport was 69pt, at accessibility-large
- * 38pt, and from accessibility-extra-large on it was 0 — the field left the
- * screen and the AX tree, and at AX4/AX5 «فهمها» went behind the keyboard.
- *
- * From the first accessibility size (the same boundary where the task header
- * stacks) the header is part of the scroll content, so the ScrollView owns
- * everything between the banner and the footer and scrolls the header away
- * to show the field; and the footer is one row — the mic and «فهمها» — with
- * the language chip moved into the scroll content beside Paste.
- */
-describe('at the accessibility text sizes the field and «فهمها» both fit above the keyboard (D-g)', () => {
-  const layout = (height: number, y = 0) => ({ nativeEvent: { layout: { x: 0, y, width: 358, height } } });
+// At accessibility sizes, the header and speech-language chip can scroll away;
+// only the bounded input row remains fixed above AvoidKeyboard's window overlap.
+describe('accessible text sizes in the chat layout', () => {
   const atScale = (fontScale: number) =>
     useWindowDimensions.mockReturnValue({ width: 402, height: 874, scale: 3, fontScale });
 
-  it.each([1, 1.12, 1.35])('at fontScale %s the header and footer are where they were', async (fontScale) => {
+  it.each([1, 1.12, 1.35])('at fontScale %s the header is fixed and the language chip stays in the composer', async (fontScale) => {
     atScale(fontScale);
     await showComposer();
-    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('task-header')).toBeNull();
-    expect(screen.getByTestId('task-header')).toBeTruthy();
-    const footer = within(screen.getByTestId('capture-footer'));
-    expect(footer.queryByTestId('voice-language')).not.toBeNull();
-    expect(footer.queryByTestId('voice-button')).not.toBeNull();
-    expect(footer.queryByTestId('capture-analyze')).not.toBeNull();
+    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('chat-header')).toBeNull();
+    expect(screen.getAllByTestId('chat-header')).toHaveLength(1);
+    expect(within(screen.getByTestId('chat-composer')).getByTestId('voice-language')).toBeTruthy();
+    expect(within(screen.getByTestId('chat-composer')).getByTestId('voice-button')).toBeTruthy();
   });
 
-  it.each([1.64, 1.94, 2.35, 2.76, 3.12])('at fontScale %s the header scrolls with the content', async (fontScale) => {
+  it.each([1.64, 1.94, 2.35, 2.76, 3.12])('at fontScale %s the header and language chip scroll while the field stays pinned', async (fontScale) => {
     atScale(fontScale);
     await showComposer();
-    const scroll = within(screen.getByTestId('capture-scroll'));
-    expect(scroll.queryByTestId('task-header')).not.toBeNull();
-    // Cancel is still there, and still first in reading order.
-    expect(scroll.getByLabelText('Cancel')).toBeTruthy();
-    expect(screen.getAllByTestId('task-header')).toHaveLength(1);
-  });
-
-  it.each([1.64, 3.12])('at fontScale %s the footer is one row: the mic and «فهمها», the language chip scrolls', async (fontScale) => {
-    atScale(fontScale);
-    await showComposer();
-    const footer = within(screen.getByTestId('capture-footer'));
-    expect(footer.queryByTestId('voice-button')).not.toBeNull();
-    expect(footer.queryByTestId('capture-analyze')).not.toBeNull();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
+    const conversation = within(screen.getByTestId('capture-scroll'));
+    expect(conversation.getByTestId('chat-header')).toBeTruthy();
+    expect(conversation.getByLabelText('Cancel')).toBeTruthy();
+    expect(screen.getAllByTestId('chat-header')).toHaveLength(1);
+    expect(conversation.getByTestId('voice-language')).toBeTruthy();
+    const footer = within(screen.getByTestId('chat-composer'));
     expect(footer.queryByTestId('voice-language')).toBeNull();
-    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('voice-language')).not.toBeNull();
-    const row = screen.getByTestId('capture-footer-row');
-    expect(flat(row.props.style).flexDirection).toBe('row');
-    expect(flat(screen.getByTestId('capture-analyze').props.style).flex).toBe(1);
+    for (const id of ['capture-input', 'capture-analyze', 'voice-button']) {
+      expect(footer.getByTestId(id)).toBeTruthy();
+      expect(conversation.queryByTestId(id)).toBeNull();
+    }
+    expect(flat(screen.getByTestId('chat-composer-row').props.style).flexDirection).toBe('row');
   });
 
-  it('the language chip still switches the language from the scroll content', async () => {
+  it('the language chip still switches the dictation language from the conversation', async () => {
     atScale(3.12);
     await showComposer();
-    const chip = screen.getByTestId('voice-language');
+    const chip = within(screen.getByTestId('capture-scroll')).getByTestId('voice-language');
     const before = chip.props.accessibilityLabel as string;
     await fireEvent.press(chip);
     await waitFor(() => expect(screen.getByTestId('voice-language').props.accessibilityLabel).not.toBe(before));
   });
 
-  it('with the header above it in the content, the ScrollView scrolls it away to show the whole field', async () => {
-    // AX5 on the UAT phone with the banner: 405pt above the keyboard, a
-    // one-row footer of ~133, so a 272pt viewport. The header, the label and
-    // the paddings put the field ~340pt down the content.
-    atScale(3.12);
-    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
-    await showComposer();
-    await fireEvent(screen.getByTestId('capture-scroll'), 'layout', layout(272));
-    await fireEvent(screen.getByTestId('capture-editor'), 'layout', layout(900, 230));
-    const maxHeight = flat(screen.getByTestId('capture-input').props.style).maxHeight as number;
-    // Two lines of English at AX5 (28pt × 3.12) plus the padding.
-    expect(maxHeight).toBe(Math.round(52 + 2 * 28 * 3.12));
-    await fireEvent(screen.getByTestId('capture-field'), 'layout', layout(maxHeight, 110));
-    expect(scrollTo).toHaveBeenLastCalledWith({ y: 340 + maxHeight + 8 - 272, animated: false });
-  });
-
-  it('the discard question keeps the header (and Cancel) in the scroll content', async () => {
+  it('the discard question keeps the header and Cancel in the conversation at XL size', async () => {
     atScale(2.35);
     await showComposer();
     await fireEvent.changeText(screen.getByTestId('capture-input'), 'call Dana');
     await fireEvent.press(screen.getByLabelText('Cancel'));
-    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
-    expect(within(screen.getByTestId('capture-scroll')).queryByTestId('task-header')).not.toBeNull();
+    await waitFor(() => expect(screen.getByTestId('capture-discard')).toBeTruthy());
+    const conversation = within(screen.getByTestId('capture-scroll'));
+    expect(conversation.getByTestId('chat-header')).toBeTruthy();
+    expect(conversation.getByLabelText('Cancel')).toBeTruthy();
   });
 });
 
-describe('less copy above the fold', () => {
-  it('shows three examples, not five, and no share hint', async () => {
+describe('chat examples', () => {
+  it('offers three examples that fill the draft without submitting', async () => {
     await showComposer();
-    const examples = screen.queryAllByTestId(/^capture-example-/);
+    const examples = screen.getAllByTestId(/^chat-quick-example-/);
     expect(examples).toHaveLength(3);
+    const firstExample = examples[0]!;
+    await fireEvent.press(firstExample);
+    expect(field()).toBe(firstExample.props.accessibilityLabel);
+    expect(screen.getByTestId('capture-analyze')).toBeTruthy();
+    expect(screen.queryByTestId('chat-schedule')).toBeNull();
     expect(screen.queryByText('Or share text, a link or a file from any app')).toBeNull();
   });
 });

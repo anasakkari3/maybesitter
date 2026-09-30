@@ -1608,5 +1608,22 @@
   "wbTodayTitle": "Fixed today",
   "wbNextNow": "It's {title} time now. Suggestions are back at {time}.",
   "wbNextNowGeneric": "It's your weekly fixed time now. Suggestions are back at {time}.",
-  "wbNextNowNoTime": "It's your weekly fixed time now. Suggestions come back when it ends."
+  "wbNextNowNoTime": "It's your weekly fixed time now. Suggestions come back when it ends.",
+  "referenceCalendarFilterEmpty": "No items in this view.",
+  "referenceWeekSubtitle": "Your commitments, one day at a time.",
+  "referenceTodaySubtitle": "One small step to get started.",
+  "chatPlaceholder": "Type or say anything...",
+  "chatAnswerPlaceholder": "Answer the question above...",
+  "chatOptions": "Conversation options",
+  "chatSubtitle": "Tell me what’s on your plate",
+  "chatNotIncluded": "Not included",
+  "chatBackDiscardBody": "Going back drops this proposal and your changes to it. Your original message stays.",
+  "chatWelcome": "Just say it the way you think it. I’ll help you turn it into a plan.",
+  "chatFound": "Got it! I can help you plan that.\n\nHere’s what I found:",
+  "chatUnscheduled": "Without a set day",
+  "chatReplaceTitle": "Start a new message?",
+  "chatReplaceBody": "This message will create a separate proposal. The current unsaved proposal, selections, and edits will be discarded. Save it first if you want to keep it.",
+  "chatKeepProposal": "Keep reviewing this schedule",
+  "chatStartNew": "Discard proposal and send",
+  "chatAnswerCounter": "{n}/200"
 }

@@ -1611,5 +1611,22 @@
   "wbTodayTitle": "קבוע היום",
   "wbNextNow": "עכשיו זמן {title}. ההצעות חוזרות ב-{time}.",
   "wbNextNowGeneric": "עכשיו הזמן הקבוע השבועי שלך. ההצעות חוזרות ב-{time}.",
-  "wbNextNowNoTime": "עכשיו הזמן הקבוע השבועי שלך. ההצעות חוזרות כשהוא נגמר."
+  "wbNextNowNoTime": "עכשיו הזמן הקבוע השבועי שלך. ההצעות חוזרות כשהוא נגמר.",
+  "referenceCalendarFilterEmpty": "אין פריטים בתצוגה הזו.",
+  "referenceWeekSubtitle": "ההתחייבויות שלך, יום אחד בכל פעם.",
+  "referenceTodaySubtitle": "צעד קטן כדי להתחיל.",
+  "chatPlaceholder": "אפשר לכתוב או להגיד כל דבר...",
+  "chatAnswerPlaceholder": "ענה על השאלה שלמעלה...",
+  "chatOptions": "אפשרויות שיחה",
+  "chatSubtitle": "ספר לי מה יש לך",
+  "chatNotIncluded": "לא נכלל",
+  "chatBackDiscardBody": "חזרה תמחק את ההצעה הזו ואת השינויים שעשית בה. ההודעה המקורית שלך נשארת.",
+  "chatWelcome": "אפשר להגיד את זה כמו שזה בראש. אעזור להפוך את זה לתוכנית.",
+  "chatFound": "הבנתי! אפשר לתכנן את זה יחד.\n\nזה מה שמצאתי:",
+  "chatUnscheduled": "בלי יום קבוע",
+  "chatReplaceTitle": "להתחיל הודעה חדשה?",
+  "chatReplaceBody": "ההודעה תיצור הצעה נפרדת. ההצעה הנוכחית, הבחירות והשינויים שלא נשמרו יימחקו. שמור אותה קודם אם אתה רוצה לשמור עליה.",
+  "chatKeepProposal": "להמשיך לבדוק את התוכנית",
+  "chatStartNew": "למחוק את ההצעה ולשלוח",
+  "chatAnswerCounter": "{n}/200"
 }

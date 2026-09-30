@@ -121,8 +121,10 @@ export function Root() {
       <ShareProvider>
         <View style={{ flex: 1, backgroundColor: p.bg, direction: rtl ? 'rtl' : 'ltr' }}>
           <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
-          <OfflineBanner />
-          <VerifyEmailBanner />
+          {/* The offline banner, then the verify-email banner: whichever shows
+              first takes the status-bar inset, and each tells what it wraps. */}
+          <OfflineBanner>
+          <VerifyEmailBanner>
           {/* Draws nothing (UC-3.1, #185). It keeps the phone's calendar in step
               with the commitments the screens are already showing, for the whole
               session rather than only while the calendar settings screen is
@@ -260,6 +262,8 @@ export function Root() {
           {googleCalendarDemoEnabled() && s.screen === 'calendarDemo' && (
             <CalendarDemoScreen key="calendarDemo" onBack={() => latest.current.back()} />
           )}
+          </VerifyEmailBanner>
+          </OfflineBanner>
           {s.showTabs && <TabBar onClearanceChange={setTabClearance} />}
           <ToastHost />
           <SheetHost key={s.sheet ?? 'none'} />

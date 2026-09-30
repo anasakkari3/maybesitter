@@ -88,7 +88,7 @@ it('a fresh capture, after the resumed one is discarded, starts empty', async ()
   await typeThenOpenTrust();
   await fireEvent.press(screen.getByTestId('header-back'));
   await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
-  await fireEvent.press(within(screen.getByTestId('task-header')).getByLabelText(en.cancel));
+  await fireEvent.press(within(screen.getByTestId('chat-header')).getByLabelText(en.cancel));
   await waitFor(() => expect(screen.queryByTestId('capture-discard-confirm')).not.toBeNull());
   await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
   await waitFor(() => expect(screen.queryByTestId('tab-capture')).not.toBeNull());

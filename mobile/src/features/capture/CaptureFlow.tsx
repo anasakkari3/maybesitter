@@ -70,7 +70,8 @@ export function CaptureFlow() {
     case 'unresolvedIntent':
     case 'confirming':
     case 'confirmFailed':
-      return <ReviewScreen />;
+      return state.source === 'share' || state.source === 'meeting'
+        ? <ReviewScreen /> : <CaptureScreen />;
     case 'saved':
       return <SavedScreen />;
     default:

@@ -115,4 +115,21 @@ describe('weekly blocks on the Calendar tab', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-weekly-train')).not.toBeNull());
     await waitFor(() => expect(screen.getAllByTestId('calendar-busy-row')).toHaveLength(1));
   });
+
+  it('counts as busy time for the filter and legend, even with no calendar connected', async () => {
+    // Merge of the reference redesign: the agenda has «كل / التزامات / مشغول» chips.
+    // A weekly block is taken time, so it sits under «مشغول», and that chip
+    // exists when the block does, not only when a calendar is connected.
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent: false } } as never);
+    jest.spyOn(weeklyEndpoints, 'listWeeklyBlockOccurrences').mockResolvedValue([
+      { occurrenceId: 'o1', weeklyBlockId: 'train', title: 'تدريب', startAt: at(TODAY, '10:00'), endAt: at(TODAY, '16:00') },
+    ]);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('calendar-weekly-train')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByTestId('calendar-filter-busy')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('calendar-filter-busy'));
+    expect(screen.queryByTestId('calendar-weekly-train')).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('calendar-filter-commitment'));
+    expect(screen.queryByTestId('calendar-weekly-train')).toBeNull();
+  });
 });

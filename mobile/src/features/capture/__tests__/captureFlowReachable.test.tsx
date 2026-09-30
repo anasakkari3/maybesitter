@@ -201,9 +201,14 @@ describe('the flow is reachable from the tab bar', () => {
   });
 
   it('analyze is refused while the field is empty', async () => {
+    const propose = jest.spyOn(captureEndpoints, 'proposeCapture');
     await openApp();
     await enterCapture();
-    expect(screen.getByTestId('capture-analyze').props.accessibilityState.disabled).toBe(true);
+    const send = screen.queryByTestId('capture-analyze');
+    // The chat composer shows the mic in place of Send while it is empty.
+    if (send) expect(send.props.accessibilityState.disabled).toBe(true);
+    else expect(screen.getByTestId('voice-button')).toBeTruthy();
+    expect(propose).not.toHaveBeenCalled();
   });
 });
 
@@ -1018,7 +1023,7 @@ describe('review discard confirmation (#504)', () => {
 });
 
 describe('Review at accessibility text sizes', () => {
-  it('keeps Back outside the scroller and confirmation after the reviewable facts', async () => {
+  it('keeps the chat header and confirmation reachable with the reviewable facts', async () => {
     jest.spyOn(textScale, 'useLayoutMode').mockReturnValue('xl');
     jest.spyOn(captureEndpoints, 'proposeCapture').mockResolvedValue(proposal() as never);
     jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation() as never);
@@ -1028,7 +1033,7 @@ describe('Review at accessibility text sizes', () => {
     const contents = within(screen.getByTestId('review-scroll'));
     expect(contents.getByTestId('review-item-i-1')).toBeTruthy();
     expect(contents.getByTestId('review-confirm')).toBeTruthy();
-    expect(contents.queryByTestId('review-back')).toBeNull();
+    expect(contents.getByTestId('review-back')).toBeTruthy();
     expect(screen.getByTestId('review-back')).toBeTruthy();
     await fireEvent.press(contents.getByTestId('review-confirm'));
     await waitFor(() => expect(screen.getByTestId('saved-title')).toBeTruthy());
