@@ -1,5 +1,7 @@
 import {
   CAPTURE_PROPOSAL_TTL_MS,
+  captureAppLocaleFrom,
+  type CaptureAppLocale,
   type CaptureConfirmationResultContract,
   type CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
@@ -61,6 +63,11 @@ export interface MobileCaptureInput {
   referenceTime?: unknown;
   timezone?: unknown;
   scopeId?: unknown;
+  /**
+   * The phone's UI language, `'ar' | 'en' | 'he'` (owner request 2026-09-30):
+   * a model reading titles each item in it. Anything else is ignored.
+   */
+  locale?: unknown;
 }
 
 export interface MobileConfirmInput {
@@ -450,12 +457,14 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   // the request.
   const consent = context.participantId ? await getAiConsent(context.participantId) : 'declined';
 
+  const locale = captureAppLocaleFrom(input.locale);
   const proposal = await proposeCapture(text, {
     now: dateFromOptionalIso(input.referenceTime, new Date(), 'referenceTime'),
     timezone: normalizeTimezone(input.timezone),
     scopeId: scopeIdFrom(input.scopeId, context),
     requestedEngine: consent === 'granted' ? 'model' : 'rules',
     requestStartedAt,
+    ...(locale ? { locale } : {}),
   }, {
     store,
     persistence: persistenceFor(context),
@@ -512,8 +521,10 @@ export async function proposeMobileChatTurn(
     items: readonly unknown[] | null;
     now: Date;
     timezone: string;
-    /** The list the person saw before this message (chat UAT round 2). */
-    previous?: readonly { title: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
+    /** The list the person saw before this message (chat UAT round 2), each title in the person's own words. */
+    previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
+    /** The phone's UI language: the items' titles are shown in it (owner request 2026-09-30). */
+    locale?: CaptureAppLocale;
   },
   context: MobileBackendContext & { participantId: string },
 ) {
@@ -526,6 +537,7 @@ export async function proposeMobileChatTurn(
     ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
     ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items, previous: input.previous ?? [] } } : {}),
     titleWithoutLeadIn: true,
+    ...(input.locale ? { locale: input.locale } : {}),
   }, {
     store,
     persistence: persistenceFor(context),
@@ -547,6 +559,11 @@ export async function proposeMobileChatTurn(
  * A chat conversation's current proposal, as the review cards show it — or
  * null when it is gone, is somebody else's, was already confirmed, or is older
  * than a proposal stays confirmable.
+ *
+ * With it, each item's title in the person's own words, where the card shows
+ * an app-language one (owner request 2026-09-30): the chat matches the next
+ * message to an item by those words (`chatEvidence`), and they are kept only
+ * on the stored proposal, never in the answer.
  */
 export async function readMobileChatProposal(proposalId: string, participantId: string) {
   let stored: StoredCaptureProposal | undefined;
@@ -558,7 +575,12 @@ export async function readMobileChatProposal(proposalId: string, participantId: 
   if (!stored || stored.scopeId !== participantId || stored.confirmedResult) return null;
   const age = stored.proposedAt ? Date.now() - Date.parse(stored.proposedAt) : 0;
   if (!Number.isFinite(age) || age > CAPTURE_PROPOSAL_TTL_MS) return null;
-  return withEventsOnTheirDay(stored.contract);
+  const sourceTitles = new Map<string, string>();
+  for (const item of stored.contract.items) {
+    const source = stored.resultsByItemId?.get(item.itemId)?.sourceTitle;
+    if (typeof source === 'string' && source.trim()) sourceTitles.set(item.itemId, source);
+  }
+  return { proposal: await withEventsOnTheirDay(stored.contract), sourceTitles };
 }
 
 /**
