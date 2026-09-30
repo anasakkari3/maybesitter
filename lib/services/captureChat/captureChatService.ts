@@ -51,11 +51,13 @@ import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
-import { chatEvidenceFrom, looksLikeListEdit } from '../captureBoundary/chatEvidence';
+import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit } from '../captureBoundary/chatEvidence';
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
-import { clarifyMobileCapture, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
+import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
 import { buildChatPrompt, parseChatModelAnswer, type ChatPromptItem } from './chatPrompt';
+import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, type PersonSchedule } from './chatConflicts';
+import { clashKey, withConflictsNamed } from './chatWhy';
 import { detectChatLanguage, safeChatReply, templateReply, type ChatLanguage } from './chatReply';
 import {
   CaptureConversationStore,
@@ -164,14 +166,28 @@ function promptItems(
   return proposal.items.map((item) => {
     const local = item.resolvedTime ? localTimeSpecFor(new Date(item.resolvedTime), timezone) : null;
     const source = sourceTitles.get(item.itemId);
+    const clashes = (item.conflicts ?? []).flatMap((conflict) => {
+      const entry = conflictForPrompt(conflict, timezone);
+      return entry ? [entry] : [];
+    });
     return {
       title: source ?? item.title,
       ...(source && source !== item.title ? { appTitle: item.title } : {}),
       date: local?.date ?? item.resolvedDate ?? null,
       time: local?.time ?? null,
       needsDayOrTime: Boolean(item.needsClarification),
+      ...(clashes.length > 0 ? { clashesWith: clashes } : {}),
     };
   });
+}
+
+/**
+ * The proposal with each timed item's clashes (`chatConflicts`), against the
+ * person's schedule as read for this message. Owner request 2026-09-30.
+ */
+async function withConflicts(proposal: CaptureChatProposal | null, schedule: PersonSchedule): Promise<CaptureChatProposal | null> {
+  if (!proposal) return null;
+  return withItemConflicts(proposal, await proposalCollisionCandidates(proposal), schedule);
 }
 
 /**
@@ -223,13 +239,33 @@ export async function chatMobileCapture(
     message,
     previousUserTurns.length > 0 ? detectChatLanguage(previousUserTurns[previousUserTurns.length - 1]!.text) : 'ar',
   );
+  // What the person already has (owner request 2026-09-30): read once, for the
+  // days the model is shown and for the clashes of every proposal answered.
+  const schedule = await readPersonSchedule(uid, now);
   const read = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid) : null;
-  const current = read?.proposal ?? null;
+  const current = await withConflicts(read?.proposal ?? null, schedule);
   // Each item's title in the person's own words, where the card shows the
   // app's: what their next message is matched against (`chatEvidence`).
   const listed = promptItems(current, timezone, read?.sourceTitles);
+  // The clashes the person was already shown, named by the reply that showed them.
+  const alreadyShown = new Set((current?.items ?? []).flatMap((item) => (item.conflicts ?? []).map((conflict) => clashKey(item.title, conflict))));
 
-  const finish = async (reply: string, engine: 'model' | 'rules', proposal: CaptureChatProposal | null, turns: CaptureChatTurn[]) => {
+  /**
+   * The answer: the proposal with its clashes on each item, and the reply
+   * naming any clash it did not name yet (`withConflictsNamed`) — except for
+   * a refused message, which answers nothing about the list.
+   */
+  const finish = async (
+    replyText: string,
+    engine: 'model' | 'rules',
+    answered: CaptureChatProposal | null,
+    turns: CaptureChatTurn[],
+    options: { refused?: boolean } = {},
+  ) => {
+    const proposal = answered === current ? current : await withConflicts(answered, schedule);
+    const reply = options.refused || !proposal
+      ? replyText
+      : withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown });
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
     const updatedAt = new Date(clock()).toISOString();
     await conversations.put(uid, { ...conversation, turns: kept, proposalId: proposal?.proposalId ?? null, updatedAt }, new Date(clock()));
@@ -239,7 +275,7 @@ export async function chatMobileCapture(
   // An injection is refused before any model sees it, and is not kept: left
   // in the conversation it would be evidence for every later turn.
   if (screenForInjection(message)) {
-    return finish(templateReply({ language, proposal: current, refused: true }), 'rules', current, conversation.turns);
+    return finish(templateReply({ language, proposal: current, refused: true }), 'rules', current, conversation.turns, { refused: true });
   }
 
   // The newest message is always kept whole: `boundedTurns` drops the oldest
@@ -247,6 +283,10 @@ export async function chatMobileCapture(
   // short of the limit so the reply still fits after it.
   const turns = boundedTurns([...conversation.turns, { role: 'user', text: message }], MAX_CHAT_TURNS - 1);
   const userTurns = turns.filter((turn) => turn.role === 'user').map((turn) => turn.text);
+  // The person's turns as their items' evidence: a plain "yes" to the one
+  // time the assistant offered carries that offer (`chatEvidence`), so the
+  // hour they accepted is theirs — and no other hour of the assistant's is.
+  const evidenceTurns = chatUserTurnsWithAcceptedOffers(turns);
 
   // ── the model ───────────────────────────────────────────────────
   const runtime = resolveModuleRuntime('capture', dependencies.controls);
@@ -261,11 +301,19 @@ export async function chatMobileCapture(
 
   let answer: ReturnType<typeof parseChatModelAnswer> = null;
   if (provider) {
+    // The person's own days this conversation is about: today, every day
+    // their words name, and the days of the list they see.
+    const today = localTimeSpecFor(now, timezone)?.date;
+    const days = [
+      ...(today ? [today] : []),
+      ...Array.from(chatTimeAllowance(evidenceTurns, now, timezone).namedDates),
+      ...listed.flatMap((item) => (item.date ? [item.date] : [])),
+    ];
     const prompt = buildChatPrompt(
       turns,
       listed,
       { now, timezone, ...(appLanguage ? { titleLanguage: appLanguage } : {}) },
-      { replyLanguage: language, ...(appLanguage ? { appLanguage } : {}) },
+      { replyLanguage: language, ...(appLanguage ? { appLanguage } : {}), savedSchedule: scheduleForPrompt(schedule, days, timezone) },
     );
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const timeoutMs = callBudget();
@@ -292,12 +340,12 @@ export async function chatMobileCapture(
     const changesList = answer.action === 'propose' || answer.action === 'update' || (answer.action === 'ask' && answer.items.length > 0);
     let proposal = current;
     if (changesList) {
-      const evidence = chatEvidenceFrom(userTurns);
+      const evidence = chatEvidenceFrom(evidenceTurns);
       const built = await proposeMobileChatTurn(
-        { text: message, userTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, ...(appLanguage ? { locale: appLanguage } : {}) },
+        { text: message, userTurns: evidenceTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, ...(appLanguage ? { locale: appLanguage } : {}) },
         { participantId: uid, requestStartedAt },
       );
-      proposal = shown(built);
+      proposal = await withConflicts(shown(built), schedule);
     }
     const { reply } = safeChatReply(answer.reply, {
       language,
@@ -306,6 +354,8 @@ export async function chatMobileCapture(
       offTopic: answer.action === 'chat',
       updated: answer.action === 'update' && Boolean(current) && Boolean(proposal),
       timezone,
+      // A reason only from the person's words or the list; a clash only when there is one (`chatWhy`).
+      grounds: { userTurns: evidenceTurns, items: proposal?.items ?? [], now, timezone },
     });
     return finish(reply, 'model', proposal, turns);
   }
