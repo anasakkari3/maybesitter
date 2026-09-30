@@ -128,6 +128,7 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
     // the user's finger as the clock ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today.data, upcoming.data, savedWeek.data, timezone, todayKey]);
+  const weekHasMust = keys.some((key) => (byDay.get(key) ?? []).some((item) => item.importance === 'must'));
 
   const busyByDay = useMemo(() => {
     const map = new Map<string, DeviceBusyBlock[]>();
@@ -182,7 +183,10 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
           title={t.calendarTitle}
           subtitle={t.referenceWeekSubtitle}
           end={(
-            <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 8, flexShrink: 1 }}>
+            // One row that wraps only when it must: at text size 1.3 a column
+            // put the plan pill and its settings button on separate lines
+            // with room to spare beside them (UAT 2026-09-30, u52).
+            <View testID="calendar-header-actions" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, flexShrink: 1 }}>
               <Btn label={t.weekTitle} onPress={() => actions.go('weekPlan')} testID="calendar-plan-week"
                 style={{ minHeight: 44, flexShrink: 1, paddingVertical: 9, paddingHorizontal: 13, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, backgroundColor: p.sf2, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                 <CalendarGlyph color={p.ac} />
@@ -206,7 +210,10 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
         >
           <ReferenceCard pad={8} testID="calendar-week-card" style={{ gap: 0 }}>
             {/* The first queried day reads first in each language; never invent past days. */}
-            <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ flexGrow: 1, gap: 2 }} itemStyle={stacked ? undefined : { flex: 1 }}>
+            {/* Stacked, the strip scrolls: Android fades the edge that has
+                more days behind it, so the row says it moves (u54). */}
+            <DirectionalScrollRow testID="calendar-week-strip" showsHorizontalScrollIndicator={stacked} fadingEdgeLength={stacked ? 32 : 0}
+              contentContainerStyle={{ flexGrow: 1, gap: 2 }} itemStyle={stacked ? undefined : { flex: 1 }}>
               {keys.map((key, offset) => (
                 <DayCell key={key} dayKey={key} isToday={key === todayKey} selected={key === selectedKey}
                   items={byDay.get(key) ?? []}
@@ -216,6 +223,9 @@ export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number }
             </DirectionalScrollRow>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16, paddingTop: 13, paddingBottom: 7, paddingHorizontal: 8 }}>
               <CalendarLegend color={p.ac} label={t.legendCommit} />
+              {/* A must draws in warm sand (bar, dot, time); the legend says so
+                  whenever the week has one (UAT 2026-09-30, u35/u39). */}
+              {weekHasMust ? <CalendarLegend color={p.wm} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}
               {calendarConnected || weekly.length > 0 ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
             </View>
           </ReferenceCard>
@@ -338,9 +348,9 @@ function CalendarGlyph({ color, spark = false }: { color: string; spark?: boolea
   return <ReferenceIcon name={spark ? 'sparkles' : 'calendar'} size={20} color={color} />;
 }
 
-function CalendarLegend({ color, label }: { color: string; label: string }) {
+function CalendarLegend({ color, label, testID }: { color: string; label: string; testID?: string }) {
   const p = useReferencePalette();
-  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+  return <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
     <View accessible={false} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
     <Txt size={11} color={p.mu}>{label}</Txt>
   </View>;

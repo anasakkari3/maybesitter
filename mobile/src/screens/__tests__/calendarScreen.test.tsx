@@ -393,3 +393,22 @@ describe('weekly planning mode (CL5b)', () => {
     expect(screen.getByTestId('probe-screen').props.children).toBe('weekPlan');
   });
 });
+
+/*
+ * UAT 2026-09-30 (u35, u39): Dentist, a must, drew a warm-sand bar and dot in
+ * the strip, and the legend named only «التزام» and «مشغول» — a colour no
+ * label explained. The legend names it, with the existing «لازم» copy.
+ */
+describe('the legend names the must colour', () => {
+  it('a week with a must shows the must entry', async () => {
+    await show([], [item('Dentist', onDay(1, 17), { priority: { level: 'high', source: 'user', pressureAllowed: false, pressureLevel: 'none' } } as Partial<Commitment>)]);
+    await waitFor(() => expect(screen.queryByTestId('calendar-legend-must')).not.toBeNull());
+    expect(screen.getByText(en.todayGroupMust)).toBeTruthy();
+  });
+
+  it('a week without one does not', async () => {
+    await show([], [item('Call mom', onDay(2, 18))]);
+    await waitFor(() => expect(screen.queryByText(en.legendCommit)).not.toBeNull());
+    expect(screen.queryByTestId('calendar-legend-must')).toBeNull();
+  });
+});
