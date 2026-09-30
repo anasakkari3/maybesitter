@@ -44,6 +44,7 @@ import { Root } from '../../Root';
 import ar from '../locales/ar.json';
 import en from '../locales/en.json';
 import he from '../locales/he.json';
+import { isolateLatinRuns } from '../bidi';
 import { LANGUAGE_STORAGE_KEY } from '../language';
 import * as language from '../language';
 
@@ -230,7 +231,8 @@ describe('the two surfaces the S2 issues name', () => {
     expect(screen.queryByTestId('chat-schedule')).toBeNull();
     expect(screen.queryByTestId('review-confirm')).toBeNull();
     expect(screen.queryByText(he.chatWelcome)).not.toBeNull();
-    expect(screen.queryByText(he.aiDisclosure)).not.toBeNull();
+    // Shown with its Latin brand runs isolated (chat UAT 2026-09-30).
+    expect(screen.queryByText(isolateLatinRuns(he.aiDisclosure))).not.toBeNull();
     expect(screen.queryByText(en.chatWelcome)).toBeNull();
     expect(screen.queryByText(en.aiDisclosure)).toBeNull();
   });
