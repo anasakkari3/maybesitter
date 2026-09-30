@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Platform, View } from 'react-native';
+import { BackHandler, Keyboard, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
@@ -250,6 +250,37 @@ export function CaptureScreen() {
   const outgoing = reviewing && state.text ? { text: state.text, delivered: true,
     ...(sentAt ? { time: ltr(formatTime(sentAt, { locale: lang, timeZone: timezone })) } : {}) } : null;
 
+  /**
+   * The header's back/✕, one function for both ways back. Each layer shut in
+   * turn — an open sheet, the replace question, the discard question — then
+   * review → composer (`requestBack`) and composer → closed (`requestClose`),
+   * both of which ask before throwing away a typed draft.
+   */
+  const headerBack = () => {
+    if (state.status === 'confirming') return;
+    if (editingId) setEditingId(null);
+    else if (replacement !== null) setReplacement(null);
+    else if (clipboard) setClipboard(null);
+    else if (menuOpen) setMenuOpen(false);
+    else if (discarding) setDiscarding(null);
+    else if (reviewing) requestBack();
+    else requestClose();
+  };
+  /*
+   * Android's hardware/gesture back is the header's back (UAT 2026-09-30,
+   * u57–u60). Root's handler walks the navigation history, which closed the
+   * capture task outright and dropped a typed draft without the question the
+   * header asks. This screen registers after Root, so BackHandler calls it
+   * first; it always consumes the press, because every way out of capture
+   * goes through `headerBack`.
+   */
+  const hardwareBack = useRef(headerBack);
+  hardwareBack.current = toolsOpen && reviewing ? () => setToolsOpen(false) : headerBack;
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => { hardwareBack.current(); return true; });
+    return () => sub.remove();
+  }, []);
+
   if (toolsOpen && reviewing) return <ReviewScreen onBackToChat={() => setToolsOpen(false)} />;
   // The shell owns the safe-area top (screenShellCensus); the chat header sits
   // below it on the chat palette's background.
@@ -262,16 +293,7 @@ export function CaptureScreen() {
         text={composerText} onChangeText={changeText} onSend={send}
         canSend={Boolean(composerText.trim()) && inputLength <= inputLimit && !busy && !answering}
         inputDisabled={state.status === 'confirming' || answering}
-        onClose={() => {
-          if (state.status === 'confirming') return;
-          if (editingId) setEditingId(null);
-          else if (replacement !== null) setReplacement(null);
-          else if (clipboard) setClipboard(null);
-          else if (menuOpen) setMenuOpen(false);
-          else if (discarding) setDiscarding(null);
-          else if (reviewing) requestBack();
-          else requestClose();
-        }} onMore={() => { if (!busy && !answering) { if (reviewing) setToolsOpen(true); else setMenuOpen(true); } }}
+        onClose={headerBack} onMore={() => { if (!busy && !answering) { if (reviewing) setToolsOpen(true); else setMenuOpen(true); } }}
         onPaste={() => { if (!busy && !answering) void readClipboardText().then(setClipboard); }}
         {...(outgoing ? { outgoing } : {})}
         assistant={{ text: reviewing ? t.chatFound : t.chatWelcome }}
