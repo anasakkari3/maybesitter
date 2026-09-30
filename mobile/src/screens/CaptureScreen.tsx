@@ -15,7 +15,7 @@ import { chatItemPresentation } from '../features/capture/chatPresentation';
 import { fill, ltr } from '../i18n/strings';
 import { formatDayKey, formatTime } from '../i18n/format';
 import { useTimeZone } from '../i18n/timezone';
-import { family, LINE_HEIGHT } from '../theme/fonts';
+import { family, LINE_HEIGHT, scriptOfText } from '../theme/fonts';
 import { captureChatPalette } from '../theme/tokens';
 import { useLayoutMode } from '../theme/textScale';
 import { VoiceButton, VoiceNote } from '../features/capture/voice/VoiceButton';
@@ -286,7 +286,8 @@ export function CaptureScreen() {
   // below it on the chat palette's background.
   return <Screen style={{ backgroundColor: p.bg }}><SpeechEventBridge />
     <AvoidKeyboard testID="capture-kav" style={{ flex: 1 }}>
-      <SayItChatPage colors={p} fonts={{ regular: family(400, script), semibold: family(600, script), latin: family(400, 'latin'), lineRatio: LINE_HEIGHT[script] }}
+      <SayItChatPage colors={p} fonts={{ regular: family(400, script), semibold: family(600, script), latin: family(400, 'latin'), lineRatio: LINE_HEIGHT[script],
+        forText: (value, weight) => { const run = scriptOfText(value, script); return { fontFamily: family(weight === 'semibold' ? 600 : 400, run), lineRatio: LINE_HEIGHT[run] }; } }}
         copy={{ title: t.captureTitle, subtitle: t.chatSubtitle, placeholder: replyMode === 'answer' && asking?.clarification?.allowFreeText ? t.chatAnswerPlaceholder : t.chatPlaceholder,
           closeLabel: reviewing ? t.back : t.cancel, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.analyze,
           confirmLabel: tr('confirmN', { n: state.selected.length }), editLabel: t.reviewEdit, notIncludedLabel: t.chatNotIncluded }}

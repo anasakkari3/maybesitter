@@ -101,3 +101,24 @@ export const LINE_HEIGHT: Record<Script, number> = {
 export function family(weight: Weight, script: Script | false): string {
   return prefix[script === false ? 'latin' : script] + suffix[weight];
 }
+
+const ARABIC_CHARS = /[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]/;
+const HEBREW_CHARS = /[֐-׿יִ-ﭏ]/;
+const LATIN_LETTERS = /[A-Za-zÀ-ɏ]/;
+
+/**
+ * Which face a run of the person's own words needs (UAT 2026-09-30, u27/u28).
+ *
+ * The UI's script picks the face for copy. Text the person typed can be in any
+ * alphabet: an English sentence in the Arabic composer was set in Noto Naskh's
+ * serif Latin, unlike every Latin word the app draws in Outfit. Any Arabic
+ * letter keeps Naskh (it covers Latin too); any Hebrew letter keeps Noto Sans
+ * Hebrew; Latin letters alone take Outfit. Digits, punctuation and an empty
+ * field say nothing, so they keep the UI's own face (and the placeholder's).
+ */
+export function scriptOfText(text: string, fallback: Script): Script {
+  if (ARABIC_CHARS.test(text)) return fallback === 'hebrew' && HEBREW_CHARS.test(text) ? 'hebrew' : 'arabic';
+  if (HEBREW_CHARS.test(text)) return 'hebrew';
+  if (LATIN_LETTERS.test(text)) return 'latin';
+  return fallback;
+}

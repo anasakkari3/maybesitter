@@ -14,7 +14,7 @@ export interface ChatColors {
   iconBg?: string;
 }
 export type ChatIconName = 'calendar' | 'doctor' | 'briefcase' | 'car' | 'pin' | 'clock'
-  | 'plus' | 'back' | 'more' | 'check' | 'checks' | 'microphone' | 'send' | 'globe' | 'copy' | 'edit';
+  | 'plus' | 'back' | 'more' | 'check' | 'checks' | 'microphone' | 'send' | 'globe' | 'copy' | 'paste' | 'edit';
 export interface ChatMessage { text: string; time?: string; delivered?: boolean }
 export interface ChatScheduleRow {
   id: string; title: string; subtitle?: string; icon?: ChatIconName;
@@ -27,7 +27,15 @@ export interface ChatScheduleGroup {
 export interface ChatQuickAction { id: string; label: string; icon?: ChatIconName; disabled?: boolean }
 export interface SayItChatPageProps {
   colors: ChatColors;
-  fonts: { regular: string; semibold: string; latin?: string; lineRatio: number };
+  fonts: {
+    regular: string; semibold: string; latin?: string; lineRatio: number;
+    /**
+     * The face for the person's own words — the draft, their message, a
+     * proposal's titles — which may be in another alphabet than the UI's
+     * (an English sentence in the Arabic composer). Absent, the UI's face.
+     */
+    forText?(text: string, weight: 'regular' | 'semibold'): { fontFamily: string; lineRatio: number };
+  };
   copy: {
     title: string; subtitle: string; placeholder: string; closeLabel: string;
     moreLabel: string; pasteLabel: string; sendLabel: string; confirmLabel: string;
@@ -91,6 +99,13 @@ export function SayItChatPage({
     textAlign: 'left',
     writingDirection: rtl ? 'rtl' : 'ltr',
   });
+  /** `textStyle`, set in the face the words' own alphabet needs. */
+  const contentStyle = (value: string, size: number, weight: 'regular' | 'semibold' = 'regular', muted = false): TextStyle => {
+    const face = fonts.forText?.(value, weight);
+    if (!face) return textStyle(size, weight, muted);
+    return { ...textStyle(size, weight, muted), fontFamily: face.fontFamily,
+      lineHeight: Math.round(size * (face.lineRatio > 1.5 ? face.lineRatio : 1.3)) };
+  };
   const timestampStyle: TextStyle = {
     ...textStyle(9.5, 'regular', true), fontFamily: fonts.latin ?? fonts.regular,
     lineHeight: 14, writingDirection: 'ltr',
@@ -140,7 +155,7 @@ export function SayItChatPage({
         {composing ? <>
           {outgoing ? <View testID="chat-outgoing" style={styles.outgoingBlock}>
             <View style={[styles.outgoingBubble, { backgroundColor: p.acs, borderColor: p.ac }, expanded && styles.expandedOutgoing]}>
-              <Text style={textStyle(13.3)}>{outgoing.text}</Text>
+              <Text testID="chat-outgoing-text" style={contentStyle(outgoing.text, 13.3)}>{outgoing.text}</Text>
             </View>
             {outgoing.time || outgoing.delivered ? <View style={styles.outgoingTime}>
               {outgoing.time ? <Text style={timestampStyle}>{outgoing.time}</Text> : null}
@@ -171,7 +186,7 @@ export function SayItChatPage({
                         </View> : null}
                       </View>
                       <View style={styles.rowWords}>
-                        <Text style={textStyle(13, 'regular', row.selected === false)}>{row.title}</Text>
+                        <Text testID={`review-title-${row.id}`} style={contentStyle(row.title, 13, 'regular', row.selected === false)}>{row.title}</Text>
                         {row.subtitle ? <Text testID={`review-when-${row.id}`} style={textStyle(11, 'regular', true)}>{row.subtitle}</Text> : null}
                         {row.selected === false ? <Text testID={`review-not-included-${row.id}`}
                           style={[textStyle(10.5, 'semibold', true), styles.notIncluded, { borderColor: p.lnStrong }]}>{copy.notIncludedLabel}</Text> : null}
@@ -233,11 +248,12 @@ export function SayItChatPage({
       }]}>
         {voiceNotice}
         <View testID="chat-composer-row" style={styles.composerRow}>
-          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="plus" testID="capture-paste" disabled={inputDisabled} />
+          {/* A clipboard, not "+": the control pastes, and «الصق» says so (u27). */}
+          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled} />
           <TextInput testID="capture-input" value={text} onChangeText={onChangeText} multiline scrollEnabled
             editable={!inputDisabled} accessibilityState={{ disabled: inputDisabled }}
             accessibilityLabel={copy.placeholder} placeholder={copy.placeholder} placeholderTextColor={p.mu}
-            style={[styles.input, textStyle(14, 'regular', true), {
+            style={[styles.input, contentStyle(text, 14, 'regular', true), {
               color: p.tx, backgroundColor: p.sf, borderColor: p.lnStrong, textAlign: rtl ? 'right' : 'left',
               maxHeight: accessibilitySize ? 160 : 116,
             }]} />
@@ -320,6 +336,7 @@ export function ChatIcon({ name, color, size = 20, rtl = false }: {
     case 'clock': glyph = <><Circle cx={12} cy={12} r={9} {...stroke} /><Path d="M12 6v6l4 2" {...stroke} /></>; break;
     case 'globe': glyph = <><Circle cx={12} cy={12} r={10} {...stroke} /><Path d="M2 12h20M4 6h16M4 18h16M12 2c-6 5-6 15 0 20 6-5 6-15 0-20Z" {...stroke} /></>; break;
     case 'copy': glyph = <><Rect x={8} y={8} width={13} height={13} rx={2} {...stroke} /><Path d="M16 8V3H3v13h5" {...stroke} /></>; break;
+    case 'paste': glyph = <><Rect x={5} y={4} width={14} height={18} rx={2} {...stroke} /><Rect x={9} y={2} width={6} height={4} rx={1} {...stroke} /><Path d="M9 11h6M9 15h4" {...stroke} /></>; break;
     case 'edit': glyph = <Path d="M4 16l-1 5 5-1L21 7l-4-4L4 16ZM14 6l4 4" {...stroke} />; break;
   }
   return <Svg width={size} height={size} viewBox="0 0 24 24" accessible={false}>{glyph}</Svg>;
@@ -354,12 +371,14 @@ const styles = StyleSheet.create({
   nextGroup: { marginTop: 8 },
   scheduleRows: { borderWidth: 0.7, borderRadius: 10, paddingHorizontal: 8 },
   scheduleRow: { flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 48, paddingVertical: 7 },
-  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 34 },
+  // The whole row is the checkbox (the small check on the icon only marks
+  // it), at least 44 tall without leaning on hitSlop (u28).
+  rowMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 11, minHeight: 44 },
   rowIcon: { width: 33, height: 33, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   checkMark: { position: 'absolute', bottom: -4, end: -4, width: 15, height: 15, borderRadius: 8, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
   notIncluded: { borderWidth: 0.7, borderRadius: 6, paddingHorizontal: 5, overflow: 'hidden' },
   rowWords: { flex: 1, alignItems: 'flex-start', gap: 2 },
-  rowMore: { width: 24, minHeight: 32, alignItems: 'center', justifyContent: 'center' },
+  rowMore: { width: 32, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   rowDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 3 },
   rowExtra: { paddingStart: 44, paddingBottom: 8, gap: 4 },
   reviewExtras: { gap: 8, marginVertical: 5 },

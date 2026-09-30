@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, jest } from '@jest/globals';
-import { Pressable, Text } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { ChatMicrophone, SayItChatPage, type SayItChatPageProps } from '../SayItChatPage';
 
@@ -169,5 +169,54 @@ describe('SayItChatPage', () => {
     await view.rerender(<SayItChatPage {...baseProps} text="Doctor at nine" canSend onSend={onSend} />);
     await fireEvent.press(screen.getByTestId('capture-analyze'));
     expect(onSend).toHaveBeenCalledTimes(1);
+  });
+});
+
+/*
+ * UAT 2026-09-30, round of small ones on the chat page:
+ *  u28  the selection check read as a ~15dp target; the row it marks and the
+ *       row's «…» must each be at least 44 tall on their own;
+ *  u27  an English sentence in the Arabic composer (and in the bubble it
+ *       became) was set in Noto Naskh's serif Latin, not the app's Outfit;
+ *  u27  the paste control said «الصق» and drew "+".
+ */
+describe('chat page details (UAT 2026-09-30)', () => {
+  const flat = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style) as Record<string, unknown>;
+  const PLUS_PATH = 'M12 5v14M5 12h14';
+  const faces = {
+    ...baseProps.fonts,
+    regular: 'NotoNaskhArabic_400Regular', semibold: 'NotoNaskhArabic_600SemiBold', lineRatio: 1.6,
+    forText: (value: string, weight: 'regular' | 'semibold') => /[\u0600-\u06FF]/.test(value) || !/[A-Za-z]/.test(value)
+      ? { fontFamily: weight === 'semibold' ? 'NotoNaskhArabic_600SemiBold' : 'NotoNaskhArabic_400Regular', lineRatio: 1.6 }
+      : { fontFamily: weight === 'semibold' ? 'Outfit_600SemiBold' : 'Outfit_400Regular', lineRatio: 1.4 },
+  };
+
+  it('the row checkbox and its «…» are each at least 44 tall', async () => {
+    await render(<SayItChatPage {...baseProps} onRowToggle={() => {}} onRowPress={() => {}}
+      scheduleGroups={[{ id: 'g', title: 'Tomorrow', rows: [{ id: 'doctor', title: 'Doctor', selected: true }] }]} />);
+    expect(flat('review-item-doctor').minHeight as number).toBeGreaterThanOrEqual(44);
+    expect(flat('review-edit-doctor').minHeight as number).toBeGreaterThanOrEqual(44);
+  });
+
+  it('a Latin draft, message and title are set in the Latin face inside the Arabic page', async () => {
+    const view = await render(<SayItChatPage {...baseProps} rtl fonts={faces} text="Dentist tomorrow at 5pm"
+      outgoing={{ text: 'Dentist tomorrow at 5pm' }} onRowToggle={() => {}}
+      scheduleGroups={[{ id: 'g', title: 'بكرا', rows: [{ id: 'd', title: 'Dentist', selected: true }] }]} />);
+    expect(flat('capture-input').fontFamily).toBe('Outfit_400Regular');
+    expect(flat('chat-outgoing-text').fontFamily).toBe('Outfit_400Regular');
+    expect(flat('review-title-d').fontFamily).toBe('Outfit_400Regular');
+    // Arabic words, and the empty field under its Arabic placeholder, keep Naskh.
+    await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} text="" />);
+    expect(flat('capture-input').fontFamily).toBe('NotoNaskhArabic_400Regular');
+    await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} text="موعد مع Sami" />);
+    expect(flat('capture-input').fontFamily).toBe('NotoNaskhArabic_400Regular');
+  });
+
+  it('the paste control draws a clipboard, not a plus', async () => {
+    await render(<SayItChatPage {...baseProps} />);
+    const paste = screen.getByTestId('capture-paste');
+    expect(paste.props.accessibilityLabel).toBe('Paste');
+    expect(paste.queryAll(node => node.props.d === PLUS_PATH)).toHaveLength(0);
+    expect(paste.queryAll(node => node.props.d === 'M9 11h6M9 15h4')).toHaveLength(1);
   });
 });
