@@ -24,6 +24,7 @@ chrome for now · `gap` a real feature with no client or no route.
 | Category filter bar | `GET/PUT /settings/categories` | `CategoryBar` | — (not in R2) | **kept** on Today; R2 has no equivalent |
 | Swipe / assistive row actions | `POST /commitments/{id}/actions` | `RowActions` | row circle + chevron | **R2 done** — circle added, swipe kept |
 | Capture (text, voice, paste, examples) | `POST /capture` | `CaptureScreen` | capture task | **R2 pending** (Phase D) |
+| Capture chat «احكيها» (owner decision 2026-09-30): talk, edit by talk, off-topic redirect; nothing saved without confirm | `POST /capture/chat` `{ conversationId?, message, timezone, referenceTime }` → `{ conversationId, reply, engine: 'model'\|'rules', proposal \| null, turns }`; `proposal` is `POST /capture`'s shape and its `proposalId` goes to `/capture/clarify` and `/capture/confirm`. 400 `message_required`/`invalid_conversation_id`, 404 `conversation_not_found`, 413 `text_too_long`. Fixtures `capture.chat*.json` | `CaptureScreen` (mobile lane next) | capture task | **server done** — mobile pending |
 | Clarification question | `POST /capture/clarify` | `ClarifySheet` | `clarify` sheet | **R2 pending** (D) — server's own question, kept |
 | Review (select, edit item, readings, confirm) | confirm payload | `ReviewScreen`, `EditProposalItemSheet` | review step | **R2 pending** (D) — protected experience |
 | Saved + undo window | `POST /capture/confirm`, `DELETE /commitments/{id}` | `SavedScreen` | saved step | **R2 pending** (D) — protected |

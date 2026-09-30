@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "conversation not found",
+  "reason": "conversation_not_found"
+}

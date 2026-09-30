@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "error": "a capture may be at most 2000 characters",
+  "reason": "text_too_long",
+  "maxCharacters": 2000
+}
