@@ -284,3 +284,56 @@ test('D: the same bound holds when storage is real, so nothing here depends on t
     resetStorageForTests();
   }
 });
+
+// ── E. The capture chat reads no more than a capture ─────────────
+
+test('E: a long chat never hands a regex more than the cap — the person’s turns are bounded together', async () => {
+  /*
+   * The capture chat (2026-09-30) validates every model item against the
+   * person's turns joined, and its rules fallback reads them joined. Ten
+   * turns of 1,500 characters would be 15,000 characters of evidence; the
+   * conversation keeps the newest turns within `CAPTURE_INPUT_MAX_CHARACTERS`
+   * together, so no parser behind it ever sees more than a capture's text.
+   * Both paths run: the scripted model answers the even turns, and the odd
+   * ones fail over to the rules.
+   */
+  const { chatMobileCapture } = await import('../../lib/services/captureChat/captureChatService.ts');
+  setStorageForTests(createMemoryStorage());
+  try {
+    const item = {
+      type: 'task', action: 'Call mom', title: 'Call mom', person: null, dueAt: null, remindAt: null, localTimeSpec: null,
+      priority: { level: 'normal', source: 'default', pressureAllowed: false, pressureImplied: false }, flexibility: 'movable',
+      category: null, categoryConfidence: 0, confidence: { overall: 0.9, type: 0.9, action: 0.9, time: 0.1, priority: 0.7 },
+      missingFields: ['time'], ambiguityFlags: [], explicitReminderRequest: true, explicitPressureRequest: false,
+    };
+    let calls = 0;
+    const provider = async () => {
+      calls += 1;
+      if (calls % 2 === 0) throw new Error('fall over to the rules');
+      return JSON.stringify({ reply: 'When should I note it?', action: 'propose', items: [item] });
+    };
+    let conversationId: string | undefined;
+    let longest = 0;
+    let operations = 0;
+    for (let turn = 0; turn < 10; turn += 1) {
+      const message = `Call mom tomorrow at 5pm ${'w'.repeat(1_450)} ${turn}`;
+      assert.ok(message.length <= CAPTURE_INPUT_MAX_CHARACTERS);
+      const { result, seen } = await withRecorder(() => chatMobileCapture(
+        { ...(conversationId ? { conversationId } : {}), message, timezone: 'UTC', referenceTime: now.toISOString() },
+        { participantId: 'scope-chat-514' },
+        { llmProviderFor: () => provider },
+      ));
+      conversationId = result.conversationId;
+      longest = Math.max(longest, seen.longestSubject);
+      operations += seen.operations;
+    }
+    assert.ok(operations > 0, 'the recorder saw nothing, so the bound below proves nothing');
+    assert.ok(longest >= 1_450, 'the recorder never saw a message, so it is not watching the parsers');
+    assert.ok(
+      longest <= CAPTURE_INPUT_MAX_CHARACTERS,
+      `a regex in the chat path ran against ${longest} characters — the conversation's turns were not bounded together`,
+    );
+  } finally {
+    resetStorageForTests();
+  }
+});

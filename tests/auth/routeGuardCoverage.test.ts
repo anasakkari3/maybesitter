@@ -211,7 +211,11 @@ test('every mobile route file exists and is enumerated', () => {
   // The week file also answers `GET` (the saved week days for the Calendar
   // strip, CL5b I4): one more handler, no more files, guarded the same way.
   // Ninety-one with the eight Google routes (CL6a), described at the top.
-  assert.equal(files.length, 94, `found:\n${files.join('\n')}`);
+  // Ninety-five with the capture chat (2026-09-30): `POST /api/mobile/capture/
+  // chat` sends the caller's words to the model and stores a proposal and a
+  // conversation under the caller's uid, so an unguarded one would do both
+  // for any account.
+  assert.equal(files.length, 95, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

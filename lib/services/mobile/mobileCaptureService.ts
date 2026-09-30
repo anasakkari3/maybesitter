@@ -1,6 +1,7 @@
-import type {
-  CaptureConfirmationResultContract,
-  CaptureItemEditContract,
+import {
+  CAPTURE_PROPOSAL_TTL_MS,
+  type CaptureConfirmationResultContract,
+  type CaptureItemEditContract,
 } from '../../../src/contracts/v1/captureContracts';
 import { createHash } from 'crypto';
 import { compareByCodePoint } from '../../planning/shared/compare';
@@ -489,6 +490,72 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
   }
 
   return withEventsOnTheirDay(proposal);
+}
+
+/**
+ * One capture-chat turn's proposal (owner decision 2026-09-30).
+ *
+ * The same boundary, store, persistence, committer and guarded extractor as
+ * `proposeMobileCapture`, so the proposal it stores is one the existing
+ * clarify and confirm routes accept unchanged — weekly-block opt-in included.
+ *
+ *   items    the model's objects: each is validated against the person's
+ *            turns together (`ProposeCaptureOptions.chat`); `text` is the
+ *            newest message.
+ *   null     the rules path, on `text` — the person's turns joined — exactly
+ *            as a capture without a model is read.
+ */
+export async function proposeMobileChatTurn(
+  input: {
+    text: string;
+    userTurns: readonly string[];
+    items: readonly unknown[] | null;
+    now: Date;
+    timezone: string;
+  },
+  context: MobileBackendContext & { participantId: string },
+) {
+  const configured = configuredProviderName();
+  const proposal = await proposeCapture(input.text, {
+    now: input.now,
+    timezone: input.timezone,
+    scopeId: context.participantId,
+    requestedEngine: input.items ? 'model' : 'rules',
+    ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
+    ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items } } : {}),
+  }, {
+    store,
+    persistence: persistenceFor(context),
+    commitConfirmation: committerFor(context),
+    extractor: guardedMobileExtract,
+    // The chat's items came from the configured hosted model; name it.
+    ...(input.items ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
+  });
+  // A proposal the chat produced is a capture submitted, counted as the
+  // capture route counts one: its length, never its words.
+  if (proposal.items.length > 0) {
+    await recordCaptureFunnelEvent(context.participantId, (analytics) =>
+      recordCaptureSubmitted(analytics, { inputLength: input.text.length }));
+  }
+  return withEventsOnTheirDay(proposal);
+}
+
+/**
+ * A chat conversation's current proposal, as the review cards show it — or
+ * null when it is gone, is somebody else's, was already confirmed, or is older
+ * than a proposal stays confirmable.
+ */
+export async function readMobileChatProposal(proposalId: string, participantId: string) {
+  let stored: StoredCaptureProposal | undefined;
+  try {
+    stored = await store.get(proposalId);
+  } catch {
+    return null;
+  }
+  if (!stored || stored.scopeId !== participantId || stored.confirmedResult) return null;
+  const age = stored.proposedAt ? Date.now() - Date.parse(stored.proposedAt) : 0;
+  if (!Number.isFinite(age) || age > CAPTURE_PROPOSAL_TTL_MS) return null;
+  return withEventsOnTheirDay(stored.contract);
 }
 
 /**
