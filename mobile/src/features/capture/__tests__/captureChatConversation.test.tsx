@@ -237,6 +237,21 @@ describe('chat UAT details (2026-09-30)', () => {
     expect(screen.queryByTestId('review-estimated-i-2')).not.toBeNull();
   });
 
+  it('a routine kept weekly is titled as the block («Internship»), not with «every Saturday» in it', async () => {
+    conversation([{
+      version: 'v1', proposalId: 'p-1', status: 'proposed', seeds: [],
+      items: [{
+        itemId: 'i-1', title: 'Internship every Saturday', resolvedTime: FIVE, needsClarification: false,
+        recurrenceHint: { weekdays: [6], start: '10:00', end: '16:00' },
+        weeklyBlock: { title: 'Internship', weekdays: [6], start: '10:00', end: '16:00', timezone: 'Asia/Jerusalem' },
+      }],
+    } as CaptureProposal], ['An internship every Saturday from 10 to 4. Confirm below.']);
+    await openCapture();
+    await say('I have an internship every Saturday from 10 to 4');
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+    expect(textOf('review-title-i-1')).toBe('Internship');
+  });
+
   it('leaving a touched proposal offers «Back to the proposal», not «Keep writing»', async () => {
     conversation([{
       version: 'v1', proposalId: 'p-1', status: 'proposed', seeds: [],
