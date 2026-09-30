@@ -34,7 +34,7 @@
  *
  * `DEFAULT_BODY_LIMIT_BYTES` is 256 KiB. The largest legitimate JSON payload
  * any mobile route accepts is the profile import at `MAX_IMPORT_LENGTH`
- * (4,000 characters, at most 16 KB in UTF-8 before JSON escaping); a capture
+ * (20,000 characters, at most 80 KB in UTF-8 before JSON escaping); a capture
  * is 2,000 characters (#508), a memory fact 200, and everything else is a few
  * ids and enums. 256 KiB is over sixteen times the biggest of those, so no
  * real client can hit it, while forty of them at once cost 10 MiB, not a

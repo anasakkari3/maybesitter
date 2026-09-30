@@ -21,15 +21,24 @@
 import type { DropReason, SuggestionCategory, SuggestionKind } from './profileContracts';
 
 /**
+ * The whole built import prompt's ceiling: the rule block, the paste, forty
+ * numbered records and the framing. The import goes through `shareLlmProvider`,
+ * whose own ceiling is `MAX_SHARE_CHARACTERS` (60,000); the capture path's
+ * 20,000 was never this route's limit. Kept well under the provider's so the
+ * refusal is always ours, with its own reason.
+ */
+export const IMPORT_MAX_INPUT_CHARACTERS = 40_000;
+
+/**
  * The most pasted text the endpoint will read. Never stored.
  *
- * Four times `MAX_DESCRIPTION_LENGTH`, and not a round number chosen for
- * comfort: `MAX_INPUT_CHARACTERS` is 20,000 against the whole built prompt, so
+ * 20,000 code points (was 4,000 until 2026-09-30; the owner found an AI's
+ * summary of them did not fit). What is left of `IMPORT_MAX_INPUT_CHARACTERS`
  * after the rule block, forty numbered records at 200 code points each and the
- * framing, this is what is left with room to spare. `aiContextImportContracts`
- * test proves the sum rather than trusting this sentence.
+ * framing, with room to spare. `aiContextImportContracts` test proves the sum
+ * rather than trusting this sentence.
  */
-export const MAX_IMPORT_LENGTH = 4_000;
+export const MAX_IMPORT_LENGTH = 20_000;
 
 /**
  * The most existing records the model is shown, newest-observed first.
