@@ -28,6 +28,7 @@ import type { AuthUser } from '../../../auth/types';
 import { Root } from '../../../Root';
 import ar from '../../../i18n/locales/ar.json';
 import en from '../../../i18n/locales/en.json';
+import { isolateLatinRuns } from '../../../i18n/bidi';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 
 import * as captureEndpoints from '../../../api/endpoints/capture';
@@ -152,7 +153,8 @@ describe('nothing to save, said in Arabic, in the chat (#166)', () => {
     expect(screen.queryByTestId('review-confirm')).toBeNull();
     // The app's own chrome is Arabic, not English.
     expect(screen.queryByText(ar.chatWelcome)).not.toBeNull();
-    expect(screen.queryByText(ar.aiDisclosure)).not.toBeNull();
+    // Shown with its Latin brand runs isolated (chat UAT 2026-09-30).
+    expect(screen.queryByText(isolateLatinRuns(ar.aiDisclosure))).not.toBeNull();
     expect(screen.queryByText(en.chatWelcome)).toBeNull();
     expect(screen.queryByText(en.aiDisclosure)).toBeNull();
   });

@@ -17,7 +17,8 @@
  * past-time guard, the multi-time valve — checked against the person's turns
  * together, and the chat's own guard takes off any hour or day they never
  * said (`captureBoundary/chatEvidence`). The reply is shown only if it passes
- * `chatReply`; otherwise a template built from the proposal is.
+ * `chatReply` — with the one missing question added when that is all it
+ * lacks; otherwise a template built from the proposal is.
  *
  * ── Always a working answer ──────────────────────────────────────
  *
@@ -228,7 +229,7 @@ export async function chatMobileCapture(
   let answer: ReturnType<typeof parseChatModelAnswer> = null;
   if (provider && timeoutMs >= CAPTURE_MIN_CALL_TIMEOUT_MS) {
     try {
-      const text = await provider(buildChatPrompt(turns, promptItems(current, timezone), { now, timezone }), { timeoutMs });
+      const text = await provider(buildChatPrompt(turns, promptItems(current, timezone), { now, timezone }, { replyLanguage: language }), { timeoutMs });
       answer = parseChatModelAnswer(text);
     } catch {
       // The cap, the kill switch, a timeout, a provider error: the reason is
@@ -254,6 +255,7 @@ export async function chatMobileCapture(
       proposal,
       cleared: Boolean(current) && !proposal,
       offTopic: answer.action === 'chat',
+      updated: answer.action === 'update' && Boolean(current) && Boolean(proposal),
     });
     return finish(reply, 'model', proposal, turns);
   }

@@ -6,9 +6,14 @@
  * a suggestion's caption, and the proposal is only a suggestion: nothing is
  * saved until the person confirms. So a reply that says otherwise — "I added
  * it to your calendar", «ضفتها», «הוספתי» — is replaced, whole, by a template
- * built from the proposal. So is a reply that is too long, carries a link, is
- * in another language than the person wrote, or fails to ask for a day or a
- * time the proposal is still missing.
+ * built from the proposal. So is a reply that is too long, carries a link, or
+ * is in another language than the person wrote.
+ *
+ * A good reply that does not ask for what an item is still missing is kept,
+ * and the one question is added after it — the day, the hour, or both, as
+ * the item's clarification says (chat UAT, 2026-09-30): replacing it threw
+ * away the model's acknowledgement of an edit, and the template asked for
+ * "the day and the time" when only the hour was missing.
  *
  * Every check reads at most `CHAT_REPLY_SCAN_LIMIT` characters: a reply longer
  * than that is refused on its length before any pattern sees it.
@@ -89,12 +94,14 @@ export function claimsSaved(reply: string): boolean {
   return SAVED_CLAIMS.some((pattern) => pattern.test(folded));
 }
 
-type TemplateKind = 'proposed' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused';
+type TemplateKind = 'proposed' | 'updated' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused' | 'acknowledged';
 
 const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, string>>>> = {
   // Spoken Levantine, not MSA: the product's own voice.
   ar: {
     proposed: 'هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها.',
+    updated: 'تمام، غيّرتها. شوف القائمة وإذا كلها تمام أكّدها.',
+    acknowledged: 'تمام، غيّرتها.',
     ask: 'إيمتى بدك «{title}»؟ احكيلي اليوم والساعة.',
     nothing: 'شو بدك تعمل وإيمتى؟ احكيلي وأنا بجهزلك ياها لتأكدها.',
     off_topic: 'أنا هون لأساعدك بالمهام والمواعيد تبعك. شو في عندك تعمله؟',
@@ -103,6 +110,8 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
   },
   en: {
     proposed: "Here's what I understood. Check the list and confirm it if it looks right.",
+    updated: 'Okay, I changed that. Check the list and confirm it if it looks right.',
+    acknowledged: 'Okay, I changed that.',
     ask: 'When do you want to do "{title}"? Tell me the day and the time.',
     nothing: "What do you need to do, and when? Tell me and I'll set it up for you to confirm.",
     off_topic: "I'm here to help with your commitments and plans. What do you need to get done?",
@@ -111,6 +120,8 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
   },
   he: {
     proposed: 'זה מה שהבנתי. אפשר לבדוק את הרשימה ולאשר אם היא נכונה.',
+    updated: 'בסדר, שיניתי. אפשר לבדוק את הרשימה ולאשר אם היא נכונה.',
+    acknowledged: 'בסדר, שיניתי.',
     ask: 'מתי לעשות את "{title}"? מה היום ומה השעה?',
     nothing: 'מה צריך לעשות, ומתי? אכין את זה בשבילך לאישור.',
     off_topic: 'אני כאן כדי לעזור עם המשימות והפגישות שלך. מה צריך לעשות?',
@@ -119,11 +130,64 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
   },
 };
 
-type ProposalLike = Pick<CaptureProposalContract, 'items'> & { noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
+/** What an item still needs, as its clarification asks it. */
+type MissingKind = 'day' | 'hour' | 'am_pm' | 'when' | 'action';
+
+/**
+ * One question for exactly what is missing. `when` is the day and the hour
+ * together — the old `ask` template, kept word for word.
+ */
+const QUESTIONS: Readonly<Record<ChatLanguage, Readonly<Record<Exclude<MissingKind, 'when'>, string>>>> = {
+  ar: {
+    day: 'أي يوم بدك «{title}»؟',
+    hour: 'أي ساعة بدك «{title}»؟',
+    am_pm: '«{title}» الصبح ولا المسا؟',
+    action: 'شو بالزبط بدك تعمل بـ«{title}»؟',
+  },
+  en: {
+    day: 'Which day is "{title}"?',
+    hour: 'What time is "{title}"?',
+    am_pm: 'Is "{title}" in the morning or the evening?',
+    action: 'What exactly do you need to do for "{title}"?',
+  },
+  he: {
+    day: 'באיזה יום "{title}"?',
+    hour: 'באיזו שעה "{title}"?',
+    am_pm: '"{title}" בבוקר או בערב?',
+    action: 'מה בדיוק צריך לעשות ב"{title}"?',
+  },
+};
+
+type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'needsClarification' | 'resolvedDate' | 'clarification'>>;
+type ProposalLike = { items: readonly ProposalItemLike[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
 
 /** The first item still asking for its day or time, if any. */
-function itemAskingForTime(proposal: ProposalLike | null): { title: string } | null {
+function itemAskingForTime(proposal: ProposalLike | null): ProposalItemLike | null {
   return proposal?.items.find((item) => item.needsClarification) ?? null;
+}
+
+/**
+ * What the item is missing, by its own question: the day («أي يوم؟»), the
+ * hour on a day it has («أي ساعة؟» — never "the day and the time" when the
+ * day was said), which half of the day, or both.
+ */
+function missingKind(item: ProposalItemLike): MissingKind {
+  const question = item.clarification;
+  switch (question?.questionKey) {
+    case 'ask_day': return 'day';
+    case 'ask_am_pm': return 'am_pm';
+    case 'ask_action': return 'action';
+    case 'ask_time': return question.params?.date || item.resolvedDate ? 'hour' : 'when';
+    default: return item.resolvedDate ? 'hour' : 'when';
+  }
+}
+
+/** The one question for what the item is missing, in the person's language. */
+export function missingQuestion(language: ChatLanguage, item: ProposalItemLike): string {
+  const title = item.title.length > TEMPLATE_TITLE_MAX ? `${item.title.slice(0, TEMPLATE_TITLE_MAX - 1)}…` : item.title;
+  const kind = missingKind(item);
+  const template = kind === 'when' ? TEMPLATES[language].ask : QUESTIONS[language][kind];
+  return template.replace('{title}', title);
 }
 
 export interface TemplateContext {
@@ -135,6 +199,8 @@ export interface TemplateContext {
   offTopic?: boolean;
   /** The message was refused before the model (an injection). */
   refused?: boolean;
+  /** The person changed the list («خلّيها الساعة 6», "make the dentist 5pm"): the reply says so. */
+  updated?: boolean;
 }
 
 /** One safe reply, built from the proposal and nothing the model wrote. */
@@ -143,10 +209,10 @@ export function templateReply(context: TemplateContext): string {
   if (context.refused) return table.refused;
   const asking = itemAskingForTime(context.proposal);
   if (asking) {
-    const title = asking.title.length > TEMPLATE_TITLE_MAX ? `${asking.title.slice(0, TEMPLATE_TITLE_MAX - 1)}…` : asking.title;
-    return table.ask.replace('{title}', title);
+    const question = missingQuestion(context.language, asking);
+    return context.updated ? `${table.acknowledged} ${question}` : question;
   }
-  if (context.proposal && context.proposal.items.length > 0) return table.proposed;
+  if (context.proposal && context.proposal.items.length > 0) return context.updated ? table.updated : table.proposed;
   if (context.cleared) return table.cleared;
   const reason = context.proposal?.noCommitmentReason;
   if (context.offTopic || reason === 'question' || reason === 'greeting_or_chat') return table.off_topic;
@@ -171,8 +237,18 @@ export function checkModelReply(reply: unknown, context: TemplateContext): { ok:
   return { ok: true, reply: text };
 }
 
-/** The reply the person sees: the model's when it passes, the template otherwise. */
+/**
+ * The reply the person sees: the model's when it passes; the model's with the
+ * missing question after it when that is all it lacks; the template otherwise.
+ */
 export function safeChatReply(reply: unknown, context: TemplateContext): { reply: string; replaced: boolean } {
   const checked = checkModelReply(reply, context);
-  return checked.ok ? { reply: checked.reply, replaced: false } : { reply: templateReply(context), replaced: true };
+  if (checked.ok) return { reply: checked.reply, replaced: false };
+  const asking = itemAskingForTime(context.proposal);
+  if (checked.rejection === 'does_not_ask' && asking && typeof reply === 'string') {
+    const text = reply.trim();
+    const ended = /[.!?؟。…]$/.test(text) ? text : `${text}.`;
+    return { reply: `${ended} ${missingQuestion(context.language, asking)}`, replaced: false };
+  }
+  return { reply: templateReply(context), replaced: true };
 }

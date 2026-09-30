@@ -212,6 +212,41 @@ describe('chat page details (UAT 2026-09-30)', () => {
     expect(flat('capture-input').fontFamily).toBe('NotoNaskhArabic_400Regular');
   });
 
+  it('a finished reply is read out as its words, never as the typing bubble\u2019s «بنفهمها…»', async () => {
+    const typingLabel = 'بنفهمها…';
+    const user = { role: 'user' as const, text: 'Dentist on Friday at 4pm' };
+    const view = await render(<SayItChatPage {...baseProps} rtl fonts={faces} history={[user]}
+      typing={<Text>…</Text>} typingLabel={typingLabel} />);
+    expect(screen.getByTestId('chat-typing').props.accessibilityLabel).toBe(typingLabel);
+
+    const reply = 'Dentist on Friday at 4 PM. Confirm below.';
+    await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} history={[user, { role: 'assistant', text: reply }]} />);
+    expect(screen.queryByTestId('chat-typing')).toBeNull();
+    expect(screen.getByTestId('chat-turn-assistant-1').props.accessibilityLabel).toBe(reply);
+    expect(screen.queryAllByLabelText(typingLabel)).toHaveLength(0);
+
+    // The next message: the older reply moves up and keeps its own words; the new one has its own.
+    const next = 'تمام، غيّرتها. أي ساعة بدك «Call Sara»؟';
+    await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces}
+      history={[user, { role: 'assistant', text: reply }, { role: 'user', text: 'make it 5' }]} typing={<Text>…</Text>} typingLabel={typingLabel} />);
+    await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces}
+      history={[user, { role: 'assistant', text: reply }, { role: 'user', text: 'make it 5' }, { role: 'assistant', text: next }]} />);
+    expect(screen.getByTestId('chat-turn-assistant-1').props.accessibilityLabel).toBe(reply);
+    expect(screen.getByTestId('chat-turn-assistant-3').props.accessibilityLabel).toBe(next);
+    expect(screen.queryAllByLabelText(typingLabel)).toHaveLength(0);
+  });
+
+  it('an assistant reply is set in the face of its own alphabet, as the person\u2019s message is', async () => {
+    await render(<SayItChatPage {...baseProps} rtl fonts={faces} history={[
+      { role: 'user', text: 'Dentist on Friday at 4pm' },
+      { role: 'assistant', text: 'Dentist on Friday at 4 PM. Confirm below.' },
+      { role: 'user', text: 'بكرا الساعة 5' },
+      { role: 'assistant', text: 'تمام، بكرا الساعة 5 المسا. أكّد من تحت.' },
+    ]} />);
+    expect(flat('chat-turn-assistant-1-text-0').fontFamily).toBe('Outfit_400Regular');
+    expect(flat('chat-turn-assistant-3-text-0').fontFamily).toBe('NotoNaskhArabic_400Regular');
+  });
+
   it('the paste control draws a clipboard, not a plus', async () => {
     await render(<SayItChatPage {...baseProps} />);
     const paste = screen.getByTestId('capture-paste');

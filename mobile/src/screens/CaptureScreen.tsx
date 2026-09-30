@@ -13,6 +13,7 @@ import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
 import { fill, ltr } from '../i18n/strings';
+import { isolateLatinRuns } from '../i18n/bidi';
 import { formatDayKey, formatTime } from '../i18n/format';
 import { useTimeZone } from '../i18n/timezone';
 import { family, LINE_HEIGHT, scriptOfText } from '../theme/fonts';
@@ -191,8 +192,14 @@ export function CaptureScreen() {
     if (!groups.has(groupKey)) groups.set(groupKey, { id: groupKey,
       title: weekly === 'weekly' ? t.wbReviewWeekly : shown.date ? formatDayKey(shown.date, { locale: lang, timeZone: timezone }) : t.chatUnscheduled, rows: [] });
     const extra = <View style={{ gap: 4, alignItems: 'flex-start' }}>
-      {shown.priority === 'high' ? <Txt size={12} color={p.wm}>{t.todayGroupMust}</Txt> : null}
-      {shown.priorityEstimated ? <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt> : null}
+      {/* «حزرناها» qualifies the importance, so it sits beside the importance
+          it qualifies — never alone under a time the person said, where it
+          read as "we guessed the time" (chat UAT 2026-09-30). The card shows
+          the importance only when it is «لازم». */}
+      {shown.priority === 'high' ? <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+        <Txt size={12} color={p.wm} testID={`review-priority-${item.itemId}`}>{t.todayGroupMust}</Txt>
+        {shown.priorityEstimated ? <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt> : null}
+      </View> : null}
       {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
       {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
       {needsQuestion ? <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt> : null}
@@ -213,7 +220,9 @@ export function CaptureScreen() {
   if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
     <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt>
     <Txt size={15}>{discarding === 'back' ? t.chatBackDiscardBody : discarding === 'restart' ? t.chatStartOverBody : t.captureDiscardBody}</Txt>
-    <Pill testID="capture-discard-keep" label={t.captureKeepEditing} onPress={() => setDiscarding(null)} />
+    {/* Staying, said as what staying is: with a proposal on screen it is back
+        to that proposal, not «كمّل كتابة» (chat UAT 2026-09-30). */}
+    <Pill testID="capture-discard-keep" label={reviewing ? t.chatBackToProposal : t.captureKeepEditing} onPress={() => setDiscarding(null)} />
     <Pill testID="capture-discard-confirm" label={discarding === 'restart' ? t.chatStartOver : t.captureDiscardConfirm}
       onPress={discarding === 'back' ? back : discarding === 'restart' ? restart : leave} kind="warm" />
   </View>;
@@ -315,8 +324,11 @@ export function CaptureScreen() {
         assistant={{ text: t.chatWelcome }}
         // The disclosure that replaced the AI consent (owner decision
         // 2026-09-30): on the page, before the first message is sent.
+        // Its heading as on Trust («مين بيفهم كلامك»), so it reads as what it
+        // is rather than a stray line (chat UAT 2026-09-30).
         notice={<View testID="capture-ai-disclosure" style={{ gap: 2, alignItems: 'flex-start' }}>
-          <Txt size={12} color={p.mu}>{t.aiDisclosure}</Txt>
+          <Txt role="section" size={12.5} weight={600} color={p.tx} testID="capture-ai-disclosure-title">{t.aiDisclosureTitle}</Txt>
+          <Txt size={12} color={p.mu} testID="capture-ai-disclosure-body">{isolateLatinRuns(t.aiDisclosure)}</Txt>
           <Txt size={12} color={p.mu}>{t.aiDisclosureKept}</Txt>
         </View>}
         history={history}

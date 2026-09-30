@@ -26,12 +26,15 @@
  *
  * Pure: no clock of its own, no storage.
  */
+import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureContracts';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
-import { splitCaptureClauseDetails } from '../../../src/extraction/clauseSplitter';
+import { splitCaptureClauseDetails, type CaptureClause } from '../../../src/extraction/clauseSplitter';
+import { normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
 import { statesNegatedReminder } from '../../../src/extraction/schemaValidator';
 import {
   dayPartHour,
   hourWithDayPart,
+  instantFromLocal,
   localTimeSpecFor,
   namesDayOfMonth,
   normalizeClockText,
@@ -73,6 +76,162 @@ export function chatEvidenceFrom(userTurns: readonly string[]): string {
   return chatEvidenceTurns(userTurns).join('\n');
 }
 
+/*
+ * ══ EACH ITEM ITS OWN WORDS (chat UAT, 2026-09-30) ══
+ *
+ * "I have a dentist appointment on Friday at 4pm and a meeting with Sara on
+ * Sunday morning": the model answered the dentist on Friday at 16:00 and Sara
+ * on Sunday at 09:00, both right. Read against the whole conversation, Sara's
+ * item lost its day — the validator took the one clock the words state, 4pm,
+ * for her too, and the guard knew only the first weekday of the turn, Friday,
+ * so Sunday was "a day nobody said" — and one turn later, with the model
+ * leaving her empty, the validator gave her the dentist's Friday.
+ *
+ * So each item is checked against the clauses that are about it: a clause
+ * that names another item (by the words of its title) is that item's, not
+ * this one's. A clause naming no item — "make it 6pm", «لا خلّي التانية
+ * الساعة 7» — is everybody's, as the whole conversation was before. An item
+ * no clause names (a title in other words than the person's) is read against
+ * the whole conversation as before, but may carry only a day or an hour from
+ * a clause that names no other item: in doubt, it is asked.
+ */
+
+/** Words too common in titles to say which item a clause is about. */
+const TITLE_STOPWORDS = new Set([
+  // en
+  'the', 'and', 'with', 'for', 'have', 'has', 'had', 'need', 'needs', 'want', 'remind', 'reminder', 'about', 'from',
+  'this', 'that', 'then', 'also', 'make', 'move', 'change', 'please', 'into', 'onto', 'some', 'get', 'got', 'can',
+  'you', 'your', 'our', 'their', 'his', 'her', 'its', 'one', 'two', 'thing', 'things', 'something', 'today', 'tomorrow',
+  // ar (folded: ة→ه, ى→ي, hamza forms → ا)
+  'مع', 'عند', 'عندي', 'بدي', 'لازم', 'ذكرني', 'ذكرني', 'يوم', 'ساعه', 'الساعه', 'في', 'على', 'علي', 'عال', 'من', 'الي',
+  'هاي', 'هاد', 'هدا', 'هذا', 'هذه', 'خلي', 'خليها', 'اليوم', 'بكرا', 'بكره', 'شي', 'اشي', 'كمان', 'انا', 'اني',
+  // he
+  'עם', 'של', 'את', 'צריך', 'צריכה', 'תזכיר', 'תזכירי', 'לי', 'יום', 'שעה', 'היום', 'מחר', 'גם', 'אני',
+]);
+
+/** Arabic clitics a word carries in front: «والثاني», «بخطبة», «للدكتور». */
+const ARABIC_PREFIX = new RegExp('^(?:وال|بال|فال|كال|لل|ال)(?=\\p{L}{2})|^[وفبلك](?=\\p{L}{3})', 'u');
+/** Hebrew prefixes: «ולרופא», «בפגישה». One letter, a word of three after it. */
+const HEBREW_PREFIX = new RegExp('^[והבלמשכ](?=[\\u05D0-\\u05EA]{3})', 'u');
+
+const TA_MARBUTA_END = new RegExp('ة$', 'u');
+const ALIF_MAQSURA = new RegExp('ى', 'gu');
+const NOT_WORD = new RegExp("[^\\p{L}\\p{N}']+", 'u');
+
+/** A word folded so the person's spelling and the model's title meet. */
+function foldWord(word: string): string {
+  let folded = word.replace(/'s$/, '').replace(TA_MARBUTA_END, 'ه').replace(ALIF_MAQSURA, 'ي');
+  folded = folded.replace(ARABIC_PREFIX, '');
+  folded = folded.replace(HEBREW_PREFIX, '');
+  return folded;
+}
+
+/** The words of a text, folded, without the ones too short or too common to tell items apart. */
+function contentWords(text: string): string[] {
+  const words = normalizeForInjectionScan(text.slice(0, CAPTURE_INPUT_MAX_CHARACTERS)).toLowerCase()
+    .split(NOT_WORD)
+    .map((word) => word.replace(/^'+|'+$/g, ''))
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const word of words) {
+    if (TITLE_STOPWORDS.has(word)) continue;
+    const folded = foldWord(word);
+    if (folded.length < 3 || TITLE_STOPWORDS.has(folded) || /^\d+$/.test(folded)) continue;
+    out.push(folded);
+  }
+  return out;
+}
+
+/** Two folded words are the same word, or one is the other with an ending («صاحب»/«صاحبي», "meet"/"meeting"). */
+function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= 4 && long.startsWith(short) && long.length - short.length <= 3;
+}
+
+/** How many words of a title the clause says. */
+function titleScore(title: readonly string[], clause: readonly string[]): number {
+  let score = 0;
+  for (const word of Array.from(new Set(title))) if (clause.some((candidate) => sameWord(word, candidate))) score += 1;
+  return score;
+}
+
+/** The title a model item carries, whatever shape it came in. */
+function itemTitle(item: unknown): string {
+  if (!item || typeof item !== 'object') return '';
+  const record = item as Record<string, unknown>;
+  const title = typeof record.title === 'string' ? record.title : '';
+  return title.trim() ? title : typeof record.action === 'string' ? record.action : '';
+}
+
+export interface ChatItemEvidence {
+  /**
+   * What the item is validated against, as the capture validates a clause:
+   * `text` is its own clauses and those naming no item; `elliptical` and
+   * `unreadDayWord` are its clause's, when that clause is the second of «…
+   * الأول … والثاني …» (`clauseSplitter`).
+   */
+  clause: CaptureClause;
+  /** The words whose days and hours the item may carry (`withoutUnsaidTime`). */
+  turns: string[];
+}
+
+interface AttributedClause {
+  text: string;
+  detail: CaptureClause;
+  /** The items this clause names, or null when it names none (it is everybody's). */
+  owners: number[] | null;
+}
+
+/**
+ * Each chat item's evidence: the person's clauses about it and those about no
+ * item in particular (see above). An item whose clauses are the whole
+ * conversation is read exactly as before: against every turn, whole.
+ */
+export function chatItemEvidence(userTurns: readonly string[], items: readonly unknown[]): ChatItemEvidence[] {
+  const turns = chatEvidenceTurns(userTurns);
+  const whole = turns.join('\n');
+  const titles = items.map((item) => contentWords(itemTitle(item)));
+  const byTurn: AttributedClause[][] = turns.map((turn) => splitCaptureClauseDetails(turn)
+    .filter((clause) => clause.text.trim())
+    .map((clause) => {
+      const words = contentWords(clause.text);
+      const scores = titles.map((title) => titleScore(title, words));
+      const best = Math.max(0, ...scores);
+      const owners = best > 0 ? scores.flatMap((score, index) => (score === best ? [index] : [])) : null;
+      return { text: clause.text.trim(), detail: clause, owners };
+    }));
+
+  return items.map((_, index) => {
+    const named = byTurn.some((clauses) => clauses.some((clause) => clause.owners?.includes(index)));
+    if (!named) {
+      // Read as before; but a day or an hour only from words naming no other item.
+      const shared = byTurn.flatMap((clauses) => clauses.filter((clause) => clause.owners === null).map((clause) => clause.text));
+      return { clause: { text: whole }, turns: shared };
+    }
+    const kept: string[] = [];
+    const own: AttributedClause[] = [];
+    turns.forEach((turn, turnIndex) => {
+      const clauses = byTurn[turnIndex]!;
+      const mine = clauses.filter((clause) => clause.owners === null || clause.owners.includes(index));
+      own.push(...mine.filter((clause) => clause.owners !== null));
+      // A turn all of whose clauses are this item's stays whole, as it was read.
+      if (mine.length === clauses.length) kept.push(turn);
+      else kept.push(...mine.map((clause) => clause.text));
+    });
+    const text = kept.join('\n');
+    const single = own.length === 1 ? own[0]!.detail : null;
+    return {
+      clause: {
+        text,
+        ...(single?.elliptical ? { elliptical: true as const } : {}),
+        ...(single?.unreadDayWord ? { unreadDayWord: single.unreadDayWord } : {}),
+      },
+      turns: kept,
+    };
+  });
+}
+
 /** `YYYY-MM-DD` plus `days`. */
 function shiftDate(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
@@ -91,8 +250,10 @@ export interface ChatTimeAllowance {
   /** Clock hours, modulo twelve, some turn states or names by its part of the day. */
   hours: Set<number>;
   minutes: Set<number>;
-  /** The days the turns name, on the person's clock. */
+  /** The days the turns name, on the person's clock — and today, for a clock said with no day. */
   dates: Set<string>;
+  /** The days the turns actually name, by a day word or a weekday: never the implied today. */
+  namedDates: Set<string>;
   /** A turn states a date this guard cannot compute (a calendar date, a month's end, a recurrence): the validator's day stands. */
   anyDate: boolean;
 }
@@ -100,7 +261,7 @@ export interface ChatTimeAllowance {
 /** What the person's turns allow an item to carry. */
 export function chatTimeAllowance(turns: readonly string[], now: Date, timezone: string): ChatTimeAllowance {
   const today = localTimeSpecFor(now, timezone)?.date ?? null;
-  const allowance: ChatTimeAllowance = { hours: new Set(), minutes: new Set([0]), dates: new Set(), anyDate: false };
+  const allowance: ChatTimeAllowance = { hours: new Set(), minutes: new Set([0]), dates: new Set(), namedDates: new Set(), anyDate: false };
   for (const turn of turns) {
     for (const hour of Array.from(statedClockHours(turn))) allowance.hours.add(hour);
     const part = dayPartHour(turn);
@@ -113,9 +274,10 @@ export function chatTimeAllowance(turns: readonly string[], now: Date, timezone:
       allowance.anyDate = true;
     }
     const offset = relativeDayOffset(turn);
-    if (today && offset !== null) allowance.dates.add(shiftDate(today, offset));
+    if (today && offset !== null) allowance.namedDates.add(shiftDate(today, offset));
     const weekday = resolveWeekdayDate(turn, now, timezone);
-    if (weekday) allowance.dates.add(weekday.date);
+    if (weekday) allowance.namedDates.add(weekday.date);
+    for (const named of Array.from(allowance.namedDates)) allowance.dates.add(named);
     // A clock or a part of the day with no day of its own is today's, as the
     // capture path reads it — never a later day picked for the person.
     if (today && (statesClock(turn) || part !== null)) allowance.dates.add(today);
@@ -150,12 +312,14 @@ export interface UnsaidTimeOutcome {
 
 /**
  * The same reading with any hour, minute or day the person never said taken
- * off (capture chat). What remains is asked, never filled:
+ * off (capture chat). What remains is asked, never filled by a guess:
  *
  *   an hour they did not say     the time goes; the day, if theirs, stays;
  *   a day they did not name      the day goes; an hour they did say is kept
  *                                as `undatedTime`, so the question is "which
- *                                day?" and not "when?".
+ *                                day?" and not "when?" — unless the item's own
+ *                                words name exactly one day: that is the day
+ *                                they said for it, and it is put back.
  *
  * Hours compare modulo twelve («الساعة 6» is 06:00 or 18:00), so the half of
  * the day stays the validator's and the bare-early-hour question's to settle.
@@ -180,6 +344,29 @@ export function withoutUnsaidTime(
   const keepDate = !date || allowance.anyDate || allowance.dates.has(date);
   if (keepTime && keepDate) return { result, fired: false };
 
+  // A day nobody said for this item, when its own words name exactly one day
+  // (the model gave Sara the dentist's Friday; she was "on Sunday morning"):
+  // that day is what the person said for it, and asking "which day?" would
+  // ask for it again. Its hour stays only if the person said that too.
+  const named = allowance.namedDates.size === 1 && !allowance.anyDate ? Array.from(allowance.namedDates)[0]! : null;
+  if (!keepDate && named && !result.allDay) {
+    const at = keepTime && time ? instantFromLocal(named, time, timezone)?.toISOString() ?? null : null;
+    if (at) {
+      const { undatedTime: _undated, ...rest } = result;
+      return {
+        fired: false,
+        result: {
+          ...rest,
+          dueAt: result.dueAt || !result.remindAt ? at : null,
+          remindAt: result.remindAt ? at : null,
+          localTimeSpec: { date: named, time, timezone },
+          dateInferred: false,
+        },
+      };
+    }
+  }
+  const dayOfItsOwn = !keepDate && named && !result.allDay ? named : null;
+
   const missingFields = result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time' as const];
   const ambiguityFlags = result.ambiguityFlags.includes('vague_time') ? result.ambiguityFlags : [...result.ambiguityFlags, 'vague_time' as const];
   const { undatedTime: _undated, ...rest } = result;
@@ -190,10 +377,11 @@ export function withoutUnsaidTime(
       dueAt: null,
       remindAt: null,
       allDay: false,
-      localTimeSpec: keepDate && date ? { date, time: null, timezone } : null,
+      // The item's own day when its words name one; only the hour is then asked.
+      localTimeSpec: keepDate && date ? { date, time: null, timezone } : dayOfItsOwn ? { date: dayOfItsOwn, time: null, timezone } : null,
       dateInferred: keepDate ? result.dateInferred ?? false : false,
       // A said hour on an unsaid day: kept, so only the day is asked.
-      ...(!keepDate && keepTime && time ? { undatedTime: time } : {}),
+      ...(!keepDate && !dayOfItsOwn && keepTime && time ? { undatedTime: time } : {}),
       missingFields,
       ambiguityFlags,
       confidence: { ...result.confidence, time: Math.min(result.confidence.time, 0.1) },

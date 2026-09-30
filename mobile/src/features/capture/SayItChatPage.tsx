@@ -148,13 +148,17 @@ export function SayItChatPage({
     </View>
   );
 
+  // A reply is read out as its own words (UAT 2026-09-30: a finished bubble
+  // kept the typing bubble's «بنفهمها…»), and set in the face its alphabet
+  // needs, as the person's own message is — an English reply in the Arabic
+  // page is not Naskh's Latin.
   const message = (value: ChatMessage, testID: string, first = false) => (
-    <View testID={testID} style={[styles.assistantBlock, !first && styles.followup]}>
+    <View testID={testID} accessible accessibilityLabel={value.text} style={[styles.assistantBlock, !first && styles.followup]}>
       <View style={styles.assistantRow}>
         <View style={[styles.avatar, { borderColor: p.lnStrong }]}><ChatRibbon colors={p} size={20} /></View>
         <View style={[styles.assistantBubble, first && styles.firstAssistantBubble, { backgroundColor: p.sf }, expanded && styles.expandedBubble]}>
           {value.text.split(/\n\n+/).map((paragraph, index) => (
-            <Text key={index} style={textStyle(13.5)}>{paragraph}</Text>
+            <Text key={index} testID={`${testID}-text-${index}`} style={contentStyle(paragraph, 13.5)}>{paragraph}</Text>
           ))}
         </View>
       </View>
@@ -196,13 +200,17 @@ export function SayItChatPage({
               typing bubble while a message is on its way, then the reply that
               replaces it (review I1; the census in liveRegion.test). */}
           <View testID="chat-live" accessibilityLiveRegion="polite">
-            {typing ? <View testID="chat-typing" style={[styles.assistantBlock, styles.followup]}
+            {/* Keyed apart, so the reply is a view of its own and never the
+                typing bubble's native view with its label left on it. */}
+            {typing ? <View key="typing" testID="chat-typing" style={[styles.assistantBlock, styles.followup]}
               accessible accessibilityLabel={typingLabel}>
               <View style={styles.assistantRow}>
                 <View style={[styles.avatar, { borderColor: p.lnStrong }]}><ChatRibbon colors={p} size={20} /></View>
                 <View style={[styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf }]}>{typing}</View>
               </View>
-            </View> : newestReply >= 0 ? message(history[newestReply]!, `chat-turn-assistant-${newestReply}`) : null}
+            </View> : newestReply >= 0
+              ? <React.Fragment key={`reply-${newestReply}`}>{message(history[newestReply]!, `chat-turn-assistant-${newestReply}`)}</React.Fragment>
+              : null}
           </View>
           {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}>
             <View style={[styles.scheduleCard, { backgroundColor: p.bg, borderColor: p.lnStrong }]}>

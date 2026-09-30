@@ -56,6 +56,8 @@ export function ClarifySheet({
   if (!heading) return null;
 
   const typed = freeText.trim();
+  // The box asks for what the question asks for: «أي يوم؟» is answered with a
+  // day, not «أو اكتب وقت» (chat UAT 2026-09-30).
   // Only a question that offers "no specific time" can be skipped *into* an
   // answer (#474); anywhere else skipping just sets the question aside, and a
   // pill promising "without a time" there would be a promise the tap breaks.
@@ -101,7 +103,7 @@ export function ClarifySheet({
               value={freeText}
               onChangeText={setFreeText}
               maxLength={CLARIFICATION_FREE_TEXT_MAX}
-              placeholder={t.orTypeTime}
+              placeholder={question.questionKey === 'ask_day' ? t.orTypeDay : t.orTypeTime}
               placeholderTextColor={p.mu}
               style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, fontSize: 14, minHeight: 48, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
             />

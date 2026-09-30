@@ -211,6 +211,53 @@ describe('a conversation, turn by turn', () => {
   });
 });
 
+describe('chat UAT details (2026-09-30)', () => {
+  it('the disclosure on the chat page has its heading, as on Trust', async () => {
+    conversation([], ['unused']);
+    await openCapture();
+    const disclosure = screen.getByTestId('capture-ai-disclosure');
+    expect(disclosure).toBeTruthy();
+    expect(textOf('capture-ai-disclosure-title')).toBe(en.aiDisclosureTitle);
+  });
+
+  it('«حزرناها» sits beside a «لازم» it qualifies, never alone under a time the person said', async () => {
+    conversation([{
+      version: 'v1', proposalId: 'p-1', status: 'proposed', seeds: [],
+      items: [
+        { itemId: 'i-1', title: 'Dentist appointment', resolvedTime: FIVE, needsClarification: false, priority: 'normal', priorityEstimated: true },
+        { itemId: 'i-2', title: 'Hand in the report', resolvedTime: SIX, needsClarification: false, priority: 'high', priorityEstimated: true },
+      ],
+    } as CaptureProposal], ['Dentist and the report. Confirm below.']);
+    await openCapture();
+    await say('Dentist tomorrow at 4pm, and the report is a must at 5pm');
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+    expect(screen.queryByTestId('review-estimated-i-1')).toBeNull();
+    expect(screen.queryByTestId('review-priority-i-1')).toBeNull();
+    expect(screen.queryByTestId('review-priority-i-2')).not.toBeNull();
+    expect(screen.queryByTestId('review-estimated-i-2')).not.toBeNull();
+  });
+
+  it('leaving a touched proposal offers «Back to the proposal», not «Keep writing»', async () => {
+    conversation([{
+      version: 'v1', proposalId: 'p-1', status: 'proposed', seeds: [],
+      items: [
+        { itemId: 'i-1', title: 'Call the dentist', resolvedTime: FIVE, needsClarification: false },
+        { itemId: 'i-2', title: 'Buy bread', resolvedTime: SIX, needsClarification: false },
+      ],
+    } as CaptureProposal], ['Two things. Confirm below.']);
+    await openCapture();
+    await say('Dentist at 5 and bread at 6');
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('review-item-i-2'));
+    await fireEvent.press(screen.getByTestId('review-back'));
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    expect(screen.queryByText(en.chatBackToProposal)).not.toBeNull();
+    expect(screen.queryByText(en.captureKeepEditing)).toBeNull();
+    await fireEvent.press(screen.getByTestId('capture-discard-keep'));
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+  });
+});
+
 describe('while a message is on its way', () => {
   it('shows it as a bubble with the typing reply, locks the field, and the examples do not come back', async () => {
     // The answer waits for the test to let it through.
