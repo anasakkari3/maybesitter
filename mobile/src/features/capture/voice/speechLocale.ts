@@ -81,6 +81,16 @@ export function resolveSpeechLocale(
   available: readonly string[],
   onDevice: readonly string[] = [],
 ): SpeechLocaleResolution {
+  // An empty list is "the platform won't say", not "nothing is supported".
+  // expo-speech-recognition returns no locales at all below Android 13 (and on
+  // newer Android without on-device recognition), because the OS has no API to
+  // ask. Refusing there left the mic dead on every such phone (the owner's
+  // Redmi, Android 10, 2026-09-30). Ask the system recogniser for our first
+  // choice instead; if it really can't, it answers `language-not-supported`,
+  // which is still «this language isn't available» to the person.
+  if (available.length === 0) {
+    return { kind: 'supported', localeId: PREFERRED[language][0]!, onDevice: false };
+  }
   const installed = new Set(onDevice.map(normalizeLocaleId));
   // The platform's original string, keyed by its normalized form. First wins, so
   // a platform listing both `he-IL` and `iw-IL` keeps whichever it named first.

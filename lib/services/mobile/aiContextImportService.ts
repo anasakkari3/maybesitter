@@ -38,7 +38,6 @@ import { compareByCodePoint } from '../../planning/shared/compare';
 import { createPilotAuditEvent } from '../../pilot/closedPilotControls';
 import { appendAudit } from '../../pilot/pilotTrustStore';
 import { shareLlmProvider, type ShareStructuredGenerator } from '../../llm/shareProvider';
-import { MAX_INPUT_CHARACTERS } from '../../llm/usageGuard';
 import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
 import {
   AI_CONTEXT_IMPORTS,
@@ -55,6 +54,7 @@ import {
   AI_CONTEXT_IMPORT_TTL_MS,
   MAX_EXISTING_MEMORY_RECORDS,
   MAX_IMPORT_LENGTH,
+  IMPORT_MAX_INPUT_CHARACTERS,
   AI_CONTEXT_IMPORT_PROMPT_VERSION,
   type AiContextImportProposal,
   type ImportAssistant,
@@ -235,10 +235,10 @@ export async function importAiContext(
     paste,
     shown.map((record, i) => ({ index: i + 1, content: record.content })),
   );
-  // `shareLlmProvider`'s own ceiling is 60,000, so the 20,000 the capture path
-  // enforces is not inherited. The contracts test makes this unreachable; it is
-  // here because "unreachable" is a property of today's rule block.
-  if (built.length > MAX_INPUT_CHARACTERS) {
+  // The import's own ceiling (under `shareLlmProvider`'s 60,000). The contracts
+  // test makes this unreachable; it is here because "unreachable" is a
+  // property of today's rule block.
+  if (built.length > IMPORT_MAX_INPUT_CHARACTERS) {
     await save(uid, proposal, options);
     return freeze(proposal);
   }
