@@ -104,13 +104,14 @@ type Item = {
 };
 type Body = { conversationId: string; reply: string; engine: string; proposal: { proposalId: string; items: Item[] } | null };
 
-async function conversation(uidLabel: string, messages: readonly string[]): Promise<Body[]> {
+async function conversation(uidLabel: string, messages: readonly string[], locale?: 'ar' | 'en' | 'he'): Promise<Body[]> {
   const uid = uidFor(uidLabel);
   const bodies: Body[] = [];
   for (const message of messages) {
     const response = await chatPost(post('/api/mobile/capture/chat', uid, {
       ...(bodies.length ? { conversationId: bodies[bodies.length - 1]!.conversationId } : {}),
       message, timezone: TZ, referenceTime: new Date().toISOString(),
+      ...(locale ? { locale } : {}),
     }));
     assert.equal(response.status, 200);
     const body = await response.json() as Body;
@@ -1001,10 +1002,11 @@ for (const [label, answers] of [
   ['the model retitled the second «خلّي التانية»', REAL.engagementsRetitled],
   ['the model moved the first to 09:00', REAL.engagementsFirstMoved],
 ] as const) {
-  test(`«لا خلّي التانية الساعة 7» moves only the second, to Friday 19:00 (${label})`, async () => {
+  for (const locale of [undefined, 'ar'] as const) test(`«لا خلّي التانية الساعة 7» moves only the second, to Friday 19:00 (${label}${locale ? ', app in Arabic' : ''})`, async () => {
     begin(replay(answers).provider);
     try {
-      const [first, second] = await conversation(`ChatReal${label.length}`, ENGAGEMENTS);
+      // An Arabic app (owner request 2026-09-30) changes nothing for an Arabic conversation.
+      const [first, second] = await conversation(`ChatReal${label.length}${locale ?? ''}`, ENGAGEMENTS, locale);
       settled(first!.proposal!.items[0], FRIDAY, '16:00', 'the first, turn 1');
       settled(first!.proposal!.items[1], FRIDAY, '18:00', 'the second, turn 1');
       settled(second!.proposal!.items[0], FRIDAY, '16:00', 'the first, turn 2');
