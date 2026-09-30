@@ -88,6 +88,8 @@ describe('Activity is reachable', () => {
     expect(screen.queryByLabelText(en.activityTitle)).toBeNull();
 
     await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await waitFor(() => expect(screen.queryByTestId('settings-category-privacy')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('settings-category-privacy'));
     await waitFor(() => expect(screen.queryByTestId('settings-activity')).not.toBeNull());
 
     await fireEvent.press(screen.getByLabelText(en.activityTitle));
@@ -114,6 +116,8 @@ describe('Activity is reachable', () => {
   it('goes back to Settings rather than stranding the user', async () => {
     await openApp();
     await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await waitFor(() => expect(screen.queryByTestId('settings-category-privacy')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('settings-category-privacy'));
     await waitFor(() => expect(screen.queryByTestId('settings-activity')).not.toBeNull());
     await fireEvent.press(screen.getByLabelText(en.activityTitle));
     await waitFor(() => expect(screen.queryByTestId('activity-list')).not.toBeNull());

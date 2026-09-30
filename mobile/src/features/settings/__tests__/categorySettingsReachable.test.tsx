@@ -83,6 +83,8 @@ describe('Categories is reachable', () => {
     await openApp();
 
     await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('settings-category-day'));
     await waitFor(() => expect(screen.queryByTestId('settings-categories')).not.toBeNull());
 
     await fireEvent.press(screen.getByLabelText(en.settingsParts));
@@ -112,6 +114,8 @@ describe('Categories is reachable', () => {
   it('goes back to Settings rather than stranding the user', async () => {
     await openApp();
     await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('settings-category-day'));
     await waitFor(() => expect(screen.queryByTestId('settings-categories')).not.toBeNull());
     await fireEvent.press(screen.getByLabelText(en.settingsParts));
     await waitFor(() => expect(screen.queryByTestId('category-split-toggle')).not.toBeNull());

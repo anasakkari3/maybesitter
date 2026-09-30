@@ -8,7 +8,7 @@ import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
-import { SettingsScreen } from '../../../screens/SettingsScreen';
+import { SettingsCategoryScreen } from '../../settings/SettingsCategoryScreen';
 import { AccountScreen } from '../../settings/AccountScreen';
 import ar from '../../../i18n/locales/ar.json';
 import en from '../../../i18n/locales/en.json';
@@ -147,8 +147,8 @@ describe('the Settings entry', () => {
     </SafeAreaProvider>
   );
 
-  it('the root shows an Account row for a signed-in device', async () => {
-    await render(wrap(signedIn(), <SettingsScreen />));
+  it('the app category shows an Account row for a signed-in device', async () => {
+    await render(wrap(signedIn(), <SettingsCategoryScreen category="app" onBack={() => undefined} />));
     expect(screen.getByTestId('settings-account')).toBeTruthy();
   });
 
@@ -161,7 +161,7 @@ describe('the Settings entry', () => {
 
   it('shows neither to a signed-out device', async () => {
     const repository = createFakeAuthRepository({ initialUser: null });
-    await render(wrap(repository, <SettingsScreen />));
+    await render(wrap(repository, <SettingsCategoryScreen category="app" onBack={() => undefined} />));
     expect(screen.queryByTestId('settings-account')).toBeNull();
     await screen.unmount();
     await render(wrap(repository, <AccountScreen onBack={() => undefined} />));

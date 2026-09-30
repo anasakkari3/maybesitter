@@ -186,6 +186,8 @@ describe('the language picker offers it', () => {
   it('Arabic → עברית through the picker, and the app turns Hebrew as it goes', async () => {
     await openAppIn('ar');
     await fireEvent.press(screen.getByRole('button', { name: ar.tabSettings }));
+    await waitFor(() => expect(screen.queryByTestId('settings-category-app')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('settings-category-app'));
     // Round 2: language and appearance are a picker screen, not a row that
     // cycles. The row's label names both.
     await waitFor(() => expect(screen.queryByTestId('settings-language')).not.toBeNull());
