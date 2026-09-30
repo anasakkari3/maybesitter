@@ -19,6 +19,7 @@ import {
   type ProfileResponse,
 } from '../schemas/profile';
 import type { RoutineProfilePayload } from '../../features/routine/routineProfile';
+import type { Locale } from '../../i18n/locale';
 
 /**
  * The routine profile and the memory it becomes (UC-2.7a, #167).
@@ -135,9 +136,10 @@ export function confirmProfileSuggestions(
  * The paste is not stored and is not echoed back. What returns is the
  * candidates, plus how many existing records they were compared against.
  */
-export function importAiContext(text: string, assistant: ImportAssistant) {
+export function importAiContext(text: string, assistant: ImportAssistant, locale?: Locale) {
   return apiRequest('POST', '/api/mobile/profile/import', {
-    body: { text, assistant },
+    // The app's UI language: the candidates are written in it (owner request 2026-09-30).
+    body: { text, assistant, ...(locale ? { locale } : {}) },
     schema: aiContextImportProposalSchema,
   });
 }

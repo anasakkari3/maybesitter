@@ -1,4 +1,5 @@
 import { apiRequest } from '../client';
+import type { Locale } from '../../i18n/locale';
 import {
   captureChatSchema,
   captureConfirmationSchema,
@@ -51,6 +52,11 @@ export function proposeCapture(input: {
   text: string;
   timezone: string;
   referenceTime?: string;
+  /**
+   * The app's UI language (owner request 2026-09-30): the server's model
+   * titles what it proposes in it, whatever language the text is in.
+   */
+  locale?: Locale;
   signal?: AbortSignal;
 }): Promise<CaptureProposal> {
   return apiRequest('POST', '/api/mobile/capture', {
@@ -58,6 +64,7 @@ export function proposeCapture(input: {
       text: input.text,
       timezone: input.timezone,
       referenceTime: input.referenceTime ?? new Date().toISOString(),
+      ...(input.locale ? { locale: input.locale } : {}),
     },
     schema: captureProposalSchema,
     ...(input.signal ? { signal: input.signal } : {}),
@@ -82,6 +89,8 @@ export function chatCapture(input: {
   message: string;
   timezone: string;
   referenceTime?: string;
+  /** The app's UI language: the reply and the titles are in it (owner request 2026-09-30). */
+  locale?: Locale;
 }): Promise<CaptureChatAnswer> {
   return apiRequest('POST', '/api/mobile/capture/chat', {
     body: {
@@ -89,6 +98,7 @@ export function chatCapture(input: {
       message: input.message,
       timezone: input.timezone,
       referenceTime: input.referenceTime ?? new Date().toISOString(),
+      ...(input.locale ? { locale: input.locale } : {}),
     },
     schema: captureChatSchema,
   });

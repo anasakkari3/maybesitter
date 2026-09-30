@@ -17,8 +17,12 @@ export interface ChatColors {
 export type ChatIconName = 'calendar' | 'doctor' | 'briefcase' | 'car' | 'pin' | 'clock'
   | 'plus' | 'back' | 'more' | 'check' | 'checks' | 'microphone' | 'send' | 'globe' | 'copy' | 'paste' | 'edit';
 export interface ChatMessage { text: string; time?: string; delivered?: boolean }
-/** One line of the conversation, in order: the person's (`user`) or the assistant's. */
-export interface ChatHistoryEntry extends ChatMessage { role: 'user' | 'assistant' }
+/**
+ * One line of the conversation, in order: the person's (`user`) or the
+ * assistant's. `id` names an assistant line the host wrote itself (a save in
+ * the chat): its bubble's test id, in place of the position.
+ */
+export interface ChatHistoryEntry extends ChatMessage { role: 'user' | 'assistant'; id?: string }
 export interface ChatScheduleRow {
   id: string; title: string; subtitle?: string; icon?: ChatIconName;
   accessibilityLabel?: string; disabled?: boolean;
@@ -89,6 +93,11 @@ export interface SayItChatPageProps {
   bodyOverride?: React.ReactNode;
   /** Real proposal disclosure, corrections, and clarification controls. */
   reviewExtras?: React.ReactNode;
+  /**
+   * The field takes focus each time this changes to a new non-zero value —
+   * after a save in the chat, so the next commitment can be typed at once.
+   */
+  composerFocusKey?: number;
   rtl?: boolean;
   safeTop?: number;
   safeBottom?: number;
@@ -101,8 +110,12 @@ export function SayItChatPage({
   outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], scheduleTime, onConfirm, canConfirm = false,
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, languageControl, voiceNotice, headerAccessory, bodyOverride, reviewExtras,
-  rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal',
+  rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
 }: SayItChatPageProps) {
+  const input = React.useRef<TextInput>(null);
+  React.useEffect(() => {
+    if (composerFocusKey > 0) input.current?.focus();
+  }, [composerFocusKey]);
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
@@ -195,7 +208,7 @@ export function SayItChatPage({
           {notice ? <View testID="chat-notice" style={styles.notice}>{notice}</View> : null}
           {history.map((entry, index) => index === newestReply ? null : entry.role === 'user'
             ? <View key={index} style={styles.laterTurn}>{mine(entry, `chat-turn-user-${index}`, `chat-turn-text-${index}`)}</View>
-            : <React.Fragment key={index}>{message(entry, `chat-turn-assistant-${index}`)}</React.Fragment>)}
+            : <React.Fragment key={index}>{message(entry, entry.id ?? `chat-turn-assistant-${index}`)}</React.Fragment>)}
           {/* Always mounted, so TalkBack hears what changes inside it: the
               typing bubble while a message is on its way, then the reply that
               replaces it (review I1; the census in liveRegion.test). */}
@@ -209,7 +222,7 @@ export function SayItChatPage({
                 <View style={[styles.assistantBubble, styles.typingBubble, { backgroundColor: p.sf }]}>{typing}</View>
               </View>
             </View> : newestReply >= 0
-              ? <React.Fragment key={`reply-${newestReply}`}>{message(history[newestReply]!, `chat-turn-assistant-${newestReply}`)}</React.Fragment>
+              ? <React.Fragment key={`reply-${newestReply}`}>{message(history[newestReply]!, history[newestReply]!.id ?? `chat-turn-assistant-${newestReply}`)}</React.Fragment>
               : null}
           </View>
           {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}>
@@ -299,7 +312,7 @@ export function SayItChatPage({
         <View testID="chat-composer-row" style={styles.composerRow}>
           {/* A clipboard, not "+": the control pastes, and «الصق» says so (u27). */}
           <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled || composerDisabled} />
-          <TextInput testID="capture-input" value={text} onChangeText={onChangeText} multiline scrollEnabled
+          <TextInput ref={input} testID="capture-input" value={text} onChangeText={onChangeText} multiline scrollEnabled
             editable={!inputDisabled && !composerDisabled} accessibilityState={{ disabled: inputDisabled || composerDisabled }}
             accessibilityLabel={copy.placeholder} placeholder={copy.placeholder} placeholderTextColor={p.mu}
             style={[styles.input, contentStyle(text, 14, 'regular', true), {

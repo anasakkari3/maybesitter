@@ -632,11 +632,13 @@ async function readFreeTextAnswer(
     throw new ClarifyError('answer_not_understood');
   }
 
-  // The action question.
+  // The action question. Its answer is a new title in the person's own words,
+  // so an app-language title and the words it stood for go with the old one.
+  const { sourceTitle: _sourceTitle, appTitle: _appTitle, ...unnamed } = result;
   const action = reread.action?.trim() ?? '';
   if (readable && action.length >= 3) {
     return {
-      ...result,
+      ...unnamed,
       action,
       title: (reread.title || action).trim(),
       type: reread.type,
@@ -651,7 +653,7 @@ async function readFreeTextAnswer(
   }
   if (freeText.length >= 3 && freeText.length <= CAPTURE_EDIT_TITLE_MAX && !CONTROL_CHARACTERS.test(freeText)) {
     return {
-      ...result,
+      ...unnamed,
       type: result.type === 'follow_up' ? 'follow_up' : 'task',
       action: freeText,
       title: freeText,

@@ -142,4 +142,18 @@ describe('hardware back on the capture page', () => {
     expect(field()).toBe(SENTENCE);
     expect(screen.getByTestId('capture-cancel')).toBeTruthy();
   });
+
+  it('after a save in the chat, closes capture: nothing is left unsaved to ask about (owner request 2026-09-30)', async () => {
+    jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue({
+      success: true, replayed: false, failed: [],
+      persisted: [{ itemId: 'i-1', commitmentId: 'c-1', title: 'Hand in the report', resolvedTime: SOON }],
+    } as never);
+    await openCapture();
+    await analyze();
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-1')).not.toBeNull());
+    expect(await pressHardwareBack()).toBe(true);
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+  });
 });

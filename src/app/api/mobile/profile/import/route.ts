@@ -12,6 +12,7 @@ import {
   isImportAssistant,
 } from '../../../../../../src/profile/aiContextImportContracts';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
+import { captureAppLocaleFrom } from '../../../../../../src/contracts/v1/captureContracts';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
   const disabled = moduleDisabledResponse('memory');
   if (disabled) return disabled;
 
-  let body: { text?: unknown; assistant?: unknown };
+  let body: { text?: unknown; assistant?: unknown; locale?: unknown };
   try {
     body = await readJsonBody(request) as typeof body;
   } catch (error) {
@@ -92,7 +93,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    const proposal = await importAiContext(user.uid, text, body.assistant, new Date());
+    // The phone's UI language (owner request 2026-09-30): the candidates are written in it.
+    const locale = captureAppLocaleFrom(body.locale);
+    const proposal = await importAiContext(user.uid, text, body.assistant, new Date(), locale ? { locale } : {});
     return Response.json({ success: true, ...proposal });
   } catch (error) {
     if (error instanceof ImportTextTooLongError) return tooLongResponse();

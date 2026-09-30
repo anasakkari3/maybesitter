@@ -289,7 +289,7 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
     ['ICS_FEEDS_ENABLED', 'true'],
     ['SHARE_INTAKE_ENABLED', 'true'],
-    ['MAYBESITTER_FEATURE_PROACTIVE_LOOP', 'false'],
+    ['MAYBESITTER_FEATURE_PROACTIVE_LOOP', 'true'],
     ['MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP', 'false'],
   ] as const) {
     assert.equal(production.get(key), value, `production ${key}`);

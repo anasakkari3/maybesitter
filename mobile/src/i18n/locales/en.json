@@ -1637,5 +1637,9 @@
   "aiDisclosureTitle": "Who understands what you say",
   "aiDisclosure": "What you write or say is sent by our server to Google’s Gemini (Vertex AI), in the EU, to be understood.",
   "aiDisclosureKept": "We keep the conversation only for a short while, and only what you confirm is saved to your list.",
-  "chatUnscheduled": "Without a set day"
+  "chatUnscheduled": "Without a set day",
+  "chatConflictWith": "Clashes with \"{title}\" {when}",
+  "chatSaved": "Saved ✓ {titles}",
+  "chatSavedNext": "Anything else? Tell me.",
+  "chatDone": "Done"
 }

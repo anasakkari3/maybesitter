@@ -244,7 +244,8 @@ describe('the sheet', () => {
     await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), `  ${NOTES}  `);
     await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
     await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
-    expect(prepare.mock.calls[0]![0]).toEqual({ notes: NOTES, startAt: START, endAt: END, timezone: 'Asia/Jerusalem' });
+    // …and the app's language (owner request 2026-09-30), the one the person chose: the steps are titled in it.
+    expect(prepare.mock.calls[0]![0]).toEqual({ notes: NOTES, startAt: START, endAt: END, timezone: 'Asia/Jerusalem', locale: 'en' });
   });
 
   it('a failure keeps the notes and says why, announced', async () => {

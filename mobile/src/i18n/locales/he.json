@@ -1640,5 +1640,9 @@
   "aiDisclosureTitle": "מי מבין את מה שאתה אומר",
   "aiDisclosure": "מה שאתה כותב או אומר נשלח מהשרת שלנו ל־Gemini של Google‏ (Vertex AI) באיחוד האירופי, כדי להבין אותו.",
   "aiDisclosureKept": "אנחנו שומרים את השיחה רק לזמן קצר, ורק מה שאתה מאשר נשמר ברשימה שלך.",
-  "chatUnscheduled": "בלי יום קבוע"
+  "chatUnscheduled": "בלי יום קבוע",
+  "chatConflictWith": "מתנגש עם \"{title}\" {when}",
+  "chatSaved": "נשמר ✓ {titles}",
+  "chatSavedNext": "עוד משהו? ספר לי.",
+  "chatDone": "סיימתי"
 }

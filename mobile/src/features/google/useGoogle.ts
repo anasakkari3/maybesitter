@@ -11,6 +11,7 @@ import { AppState } from 'react-native';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useTrust, useUid } from '../../api/queries';
 import { useTimeZone } from '../../i18n/timezone';
+import { apiLocale } from '../../i18n/locale';
 import {
   beginDrivePick,
   completeGoogleConnect,
@@ -307,7 +308,8 @@ export function useGmailScan() {
   const timezone = useTimeZone();
   return useMutation({
     retry: false,
-    mutationFn: (): Promise<ShareProposal> => scanGmail({ timezone }),
+    // The app's language: the proposed titles are in it (owner request 2026-09-30).
+    mutationFn: (): Promise<ShareProposal> => scanGmail({ timezone, locale: apiLocale() }),
     onError: (error) => refreshStatusOn(error, client, uid),
   });
 }
@@ -329,7 +331,7 @@ export function useDrivePick() {
       const ticket = await beginDrivePick();
       const picked = readPickReturn(await openGoogleSession(ticket.pickerUrl, ticket.returnUrl));
       if (picked.kind !== 'file') return picked;
-      return { kind: 'proposal', proposal: await importDriveFile({ fileId: picked.fileId, timezone }) };
+      return { kind: 'proposal', proposal: await importDriveFile({ fileId: picked.fileId, timezone, locale: apiLocale() }) };
     },
     onError: (error) => refreshStatusOn(error, client, uid),
   });

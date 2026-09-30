@@ -22,6 +22,7 @@ import { foldInjectionPattern, normalizeForInjectionScan } from '../../../src/ex
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { localTimeSpecFor, statesClock } from '../../../src/extraction/timeLexicon';
 import { namesOnlyItem } from '../captureBoundary/chatEvidence';
+import { groundedReply, type ReplyGrounds } from './chatWhy';
 
 export type ChatLanguage = 'ar' | 'en' | 'he';
 
@@ -210,6 +211,12 @@ export interface TemplateContext {
   timezone?: string;
   /** An edit of the list the rules could not apply: the list is unchanged. */
   editFailed?: boolean;
+  /**
+   * What the model's reply may be grounded in (owner request 2026-09-30):
+   * with it, a sentence giving a reason the person never gave, or claiming
+   * or offering around a clash that is not there, is taken out (`chatWhy`).
+   */
+  grounds?: ReplyGrounds;
 }
 
 /** One safe reply, built from the proposal and nothing the model wrote. */
@@ -309,7 +316,8 @@ export function safeChatReply(reply: unknown, context: TemplateContext): { reply
   const checked = checkModelReply(reply, context);
   const usable = checked.ok || checked.rejection === 'does_not_ask';
   if (!usable || typeof reply !== 'string') return { reply: templateReply(context), replaced: true };
-  const text = alignedWithProposal(reply.trim(), context).trim();
+  const aligned = alignedWithProposal(reply.trim(), context).trim();
+  const text = context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned;
   if (!text) return { reply: templateReply(context), replaced: true };
   const asking = itemAskingForTime(context.proposal);
   if (asking && !isQuestion(text)) {

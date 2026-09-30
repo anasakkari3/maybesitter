@@ -981,11 +981,12 @@ const LIVE_APPOINTMENTS = [
 ];
 
 /** One shared email through the whole share path, with its recorded answer. */
-async function shareLive(number: number, propose?: ShareIntakeContext['propose']): Promise<ShareResult> {
+async function shareLive(number: number, propose?: ShareIntakeContext['propose'], locale?: string): Promise<ShareResult> {
   return await reviewOf(() => proposeFromShare(
     {
       text: LIVE_MAILBOX_EMAILS[number - 1]!, files: [], sourceHint: 'email',
       timezone: LIVE_MAILBOX_TIMEZONE, referenceTime: LIVE_MAILBOX_REFERENCE_TIME.toISOString(),
+      ...(locale === undefined ? {} : { locale }),
     },
     {
       uid: READER, reserve: async () => 'ok', now: LIVE_MAILBOX_REFERENCE_TIME,
@@ -1042,15 +1043,21 @@ const MODEL_READS: ReadonlyArray<{ line: RegExp; title: string; date: string; ti
   { line: /^اجتماع (?:خطة|بخصوص) المشروع يوم الأربعاء الساعة 11 الصبح$/, title: 'اجتماع المشروع', date: '2026-09-30', time: '11:00', dueAt: '2026-09-30T08:00:00.000Z' },
 ];
 
+/** What the capture model titles each read in an Arabic app (owner request 2026-09-30). */
+const ARABIC_APP_TITLES: Readonly<Record<string, string>> = { 'Dentist appointment': 'موعد عند دكتور الأسنان' };
+
 function captureModel(): { provider: (prompt: string) => Promise<string>; asked: string[] } {
   const asked: string[] = [];
+  let arabicApp = false;
   const read = (line: string) => {
     asked.push(line);
     const known = MODEL_READS.find((entry) => entry.line.test(line));
+    const appTitle = arabicApp && known ? ARABIC_APP_TITLES[known.title] : undefined;
     return {
       type: 'task',
       action: known?.title ?? line,
       title: known?.title ?? line,
+      ...(appTitle ? { appTitle } : {}),
       person: null,
       dueAt: known?.dueAt ?? null,
       remindAt: null,
@@ -1065,6 +1072,8 @@ function captureModel(): { provider: (prompt: string) => Promise<string>; asked:
     };
   };
   const provider = async (prompt: string) => {
+    // Asked for the app's language only when the share named it.
+    arabicApp = /\nAPP LANGUAGE: Arabic\./.test(prompt);
     const begin = prompt.indexOf('BEGIN_UNTRUSTED_USER_MESSAGE\n') + 'BEGIN_UNTRUSTED_USER_MESSAGE\n'.length;
     const payload = JSON.parse(prompt.slice(begin, prompt.indexOf('\nEND_UNTRUSTED_USER_MESSAGE'))) as string | string[];
     // Since CL1 the clauses of one capture are read in one call: an array in,
@@ -1078,9 +1087,13 @@ function captureModel(): { provider: (prompt: string) => Promise<string>; asked:
 
 /** The share service's capture step, on the model path, with `model` as the capture model. */
 function viaCaptureModel(model: ReturnType<typeof captureModel>): ShareIntakeContext['propose'] {
-  return (async (input: { text: string; referenceTime: string; timezone: string }) => await proposeCapture(
+  return (async (input: { text: string; referenceTime: string; timezone: string; locale?: 'ar' | 'en' | 'he' }) => await proposeCapture(
     input.text,
-    { now: new Date(input.referenceTime), timezone: input.timezone, scopeId: READER, requestedEngine: 'model' },
+    {
+      now: new Date(input.referenceTime), timezone: input.timezone, scopeId: READER, requestedEngine: 'model',
+      // What `proposeMobileCapture` does with the share's `locale`.
+      ...(input.locale ? { locale: input.locale } : {}),
+    },
     {
       store: new MemoryCaptureProposalStore(),
       persistence: new TransactionalCapturePersistenceAdapter(createEmptyDomainState()),
@@ -1106,6 +1119,38 @@ test('on the capture model path too, an email\'s appointment reaches review as a
     { title: 'Dentist appointment', resolvedTime: '2026-09-29T13:00:00.000Z', priority: 'high', priorityEstimated: true },
     { title: 'اجتماع المشروع', resolvedTime: '2026-09-30T08:00:00.000Z', priority: 'high', priorityEstimated: true },
   ]);
+});
+
+test('an English email shared into an Arabic app: the dentist reaches review with its Arabic title (owner request 2026-09-30)', async () => {
+  const model = captureModel();
+  const arabic = await shareLive(1, viaCaptureModel(model), 'ar');
+  const dentist = arabic.items.find((item) => item.resolvedTime === '2026-09-29T13:00:00.000Z');
+  assert.equal(dentist?.title, 'موعد عند دكتور الأسنان', 'the share did not carry the app language to the capture model');
+  assert.equal(dentist?.priority, 'high');
+  // The channel's evidence is untouched by the title's language.
+  assert.equal(arabic.share.evidenceDropped, false);
+  // An unknown locale is ignored: the person's words, as before.
+  const unknown = await shareLive(1, viaCaptureModel(captureModel()), 'fr');
+  assert.ok(unknown.items.some((item) => item.title === 'Dentist appointment'));
+});
+
+test('a Gmail scan with locale ar titles the English dentist in Arabic', async () => {
+  const proposal = await reviewOf(() => proposeFromMailbox(
+    {
+      readMessages: async () => LIVE_MAILBOX_MESSAGES,
+      timezone: LIVE_MAILBOX_TIMEZONE,
+      referenceTime: LIVE_MAILBOX_REFERENCE_TIME.toISOString(),
+      locale: 'ar',
+    },
+    {
+      uid: READER, reserve: async () => 'ok', now: LIVE_MAILBOX_REFERENCE_TIME,
+      generateStructured: recorded(LIVE_MAILBOX_BATCH_ANSWER),
+      readAiConsent: async () => ({ granted: true } as never),
+      propose: viaCaptureModel(captureModel()),
+    },
+  ));
+  const dentist = proposal.items.find((item) => item.resolvedTime === '2026-09-29T13:00:00.000Z');
+  assert.equal(dentist?.title, 'موعد عند دكتور الأسنان');
 });
 
 test('on the capture model path, a Gmail scan\'s appointments reach review the same way', async () => {

@@ -134,6 +134,33 @@ export interface CaptureProposalItemContract {
    * older app ignores it and keeps its one-off.
    */
   weeklyBlock?: WeeklyBlockOfferContract;
+  /**
+   * What this item's time lands on, among what the person already has — the
+   * capture chat's answer only (owner request 2026-09-30: "he cannot describe
+   * what the commitment is if there is a collision"). Proposal-time, so it
+   * says the clash before anything is kept; the confirm still returns its own
+   * `collisions`, unchanged. Absent when the item has no time or clashes with
+   * nothing; optional on the phone, so an older app ignores it.
+   */
+  conflicts?: CaptureItemConflictContract[];
+}
+
+/** What a proposed item clashes with: the chat card's line and the reply both name it. */
+export const CAPTURE_ITEM_CONFLICT_KINDS = ['commitment', 'weekly', 'fixture', 'calendar_busy'] as const;
+export type CaptureItemConflictKind = (typeof CAPTURE_ITEM_CONFLICT_KINDS)[number];
+
+/**
+ * One clash (see `CaptureProposalItemContract.conflicts`). `title` is the
+ * person's own: a saved commitment's, a weekly block's («ثابت أسبوعي»), a
+ * followed match's. Null for `calendar_busy` — a synced calendar's busy time
+ * carries no title by design, and none is ever invented for it. The interval
+ * is the one the clash was measured on, half-open, UTC instants.
+ */
+export interface CaptureItemConflictContract {
+  title: string | null;
+  startsAt: string;
+  endsAt: string;
+  kind: CaptureItemConflictKind;
 }
 
 /** See `CaptureProposalItemContract.recurrenceHint`. */
@@ -234,6 +261,27 @@ export const CLARIFICATION_FREE_TEXT_MAX = 200;
  * digit milliseconds, and is what the product already contracts for a capture.
  */
 export const CAPTURE_INPUT_MAX_CHARACTERS = 2_000;
+
+/**
+ * The phone's UI language, sent as `locale` on every request whose answer
+ * carries a title a model wrote (owner request 2026-09-30: «لما لغة التطبيق
+ * عربي … ينحفظ بالعربي»). The model then writes each proposed title in this
+ * language as well as in the person's own words; the card shows the first,
+ * and the evidence checks read the second.
+ *
+ * A closed set, never free text: the value is only ever turned into one of the
+ * fixed language names the prompts carry. Anything else — absent, misspelt, a
+ * locale this app does not speak — is `undefined`, which is the behaviour
+ * before this field existed.
+ */
+export const CAPTURE_APP_LOCALES = ['ar', 'en', 'he'] as const;
+export type CaptureAppLocale = (typeof CAPTURE_APP_LOCALES)[number];
+
+export function captureAppLocaleFrom(value: unknown): CaptureAppLocale | undefined {
+  return typeof value === 'string' && (CAPTURE_APP_LOCALES as readonly string[]).includes(value)
+    ? value as CaptureAppLocale
+    : undefined;
+}
 
 /**
  * One change a user made in review, before anything was saved (UC-2.4, #164).

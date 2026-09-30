@@ -48,7 +48,14 @@ test('staging route keeps each observation under the authenticated account and r
     assert.equal(((await (await monitorGet(request(ALICE, '/api/mobile/intelligence/sources/gmail/monitor'))).json()) as any).enabled, true);
     assert.equal(((await (await monitorGet(request(BOB, '/api/mobile/intelligence/sources/gmail/monitor'))).json()) as any).enabled, false);
     assert.equal(((await (await monitorPost(request(ALICE, '/api/mobile/intelligence/sources/gmail/monitor', { enabled: false }))).json()) as any).enabled, false);
+    // Released to production on 2026-10-01 (owner decision); the kill switch
+    // still takes the whole route out, and an unknown environment stays off.
     process.env.MAYBESITTER_ENV = 'production';
+    assert.equal((await inboxGet(request(ALICE, '/api/mobile/intelligence'))).status, 200);
+    process.env.MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP = 'true';
+    assert.equal((await inboxGet(request(ALICE, '/api/mobile/intelligence'))).status, 404);
+    delete process.env.MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP;
+    process.env.MAYBESITTER_ENV = 'development';
     assert.equal((await inboxGet(request(ALICE, '/api/mobile/intelligence'))).status, 404);
   } finally {
     for (const [key, value] of Object.entries({
