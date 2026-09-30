@@ -96,7 +96,7 @@ export function claimsSaved(reply: string): boolean {
   return SAVED_CLAIMS.some((pattern) => pattern.test(folded));
 }
 
-type TemplateKind = 'proposed' | 'updated' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused' | 'acknowledged';
+type TemplateKind = 'proposed' | 'updated' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused' | 'acknowledged' | 'edit_failed';
 
 const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, string>>>> = {
   // Spoken Levantine, not MSA: the product's own voice.
@@ -104,6 +104,7 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
     proposed: 'هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها.',
     updated: 'تمام، غيّرتها. شوف القائمة وإذا كلها تمام أكّدها.',
     acknowledged: 'تمام، غيّرتها.',
+    edit_failed: 'ما قدرت أطبّق التعديل هلّق — عدّله من الكرت تحت.',
     ask: 'إيمتى بدك «{title}»؟ احكيلي اليوم والساعة.',
     nothing: 'شو بدك تعمل وإيمتى؟ احكيلي وأنا بجهزلك ياها لتأكدها.',
     off_topic: 'أنا هون لأساعدك بالمهام والمواعيد تبعك. شو في عندك تعمله؟',
@@ -114,6 +115,7 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
     proposed: "Here's what I understood. Check the list and confirm it if it looks right.",
     updated: 'Okay, I changed that. Check the list and confirm it if it looks right.',
     acknowledged: 'Okay, I changed that.',
+    edit_failed: "I couldn't apply that change right now — edit it on the card below.",
     ask: 'When do you want to do "{title}"? Tell me the day and the time.',
     nothing: "What do you need to do, and when? Tell me and I'll set it up for you to confirm.",
     off_topic: "I'm here to help with your commitments and plans. What do you need to get done?",
@@ -124,6 +126,7 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
     proposed: 'זה מה שהבנתי. אפשר לבדוק את הרשימה ולאשר אם היא נכונה.',
     updated: 'בסדר, שיניתי. אפשר לבדוק את הרשימה ולאשר אם היא נכונה.',
     acknowledged: 'בסדר, שיניתי.',
+    edit_failed: 'לא הצלחתי להחיל את השינוי כרגע — אפשר לערוך אותו בכרטיס למטה.',
     ask: 'מתי לעשות את "{title}"? מה היום ומה השעה?',
     nothing: 'מה צריך לעשות, ומתי? אכין את זה בשבילך לאישור.',
     off_topic: 'אני כאן כדי לעזור עם המשימות והפגישות שלך. מה צריך לעשות?',
@@ -205,12 +208,15 @@ export interface TemplateContext {
   updated?: boolean;
   /** The person's zone, to say an hour the proposal settled on. */
   timezone?: string;
+  /** An edit of the list the rules could not apply: the list is unchanged. */
+  editFailed?: boolean;
 }
 
 /** One safe reply, built from the proposal and nothing the model wrote. */
 export function templateReply(context: TemplateContext): string {
   const table = TEMPLATES[context.language];
   if (context.refused) return table.refused;
+  if (context.editFailed) return table.edit_failed;
   const asking = itemAskingForTime(context.proposal);
   if (asking) {
     const question = missingQuestion(context.language, asking);

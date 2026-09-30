@@ -180,6 +180,39 @@ export function namesOnlyItem(text: string, title: string, otherTitles: readonly
   return others.every((other, index) => !distinct(other, [mine, ...others.filter((_, at) => at !== index)]).some(says));
 }
 
+/*
+ * ══ AN EDIT OF THE LIST, WITHOUT THE MODEL (chat UAT round 4) ══
+ *
+ * With the model unavailable (a spent cap), "make the dentist 5pm" was read
+ * by the rules as one more commitment — "make the dentist", today at 17:00,
+ * settled — beside the two it was meant to change. An edit is recognised by
+ * an edit verb pointing at the list: at a listed item's words, at a place
+ * («التانية», "the second"), or at "it"/«ها». "Set a reminder to call mom"
+ * points at nothing listed and stays a new request.
+ */
+const EN_EDIT_VERB = /\b(?:make|change|move|set|remove|delete|cancel|drop|reschedule|push|shift|put|switch)\b/i;
+const EN_POINTER = /\b(?:it|them|that|this|both|all)\b/i;
+const AR_EDIT_STEMS = ['خلي', 'غير', 'حط', 'نقل', 'شيل', 'الغي', 'امحي', 'امسح', 'بدل', 'اجل'];
+const AR_POINTER_SUFFIX = new RegExp('(?:ها|ه|هم|هن)$', 'u');
+const HE_EDIT_VERB = new RegExp('(?:^|\\s)ו?(?:תעביר|תעבירי|תשנה|תשני|תמחק|תמחקי|תבטל|תבטלי|תזיז|תזיזי|תשים|תשימי|תוריד|תורידי|להעביר|לשנות|למחוק|לבטל|להזיז)(?=\\s|$)', 'u');
+const HE_POINTER = new RegExp('(?:^|\\s)(?:אותה|אותו|אותם|אותן|זה|זאת)(?=\\s|$|[.,!?])', 'u');
+
+/** Whether a message changes or removes something on the list, rather than asking for something new. */
+export function looksLikeListEdit(message: string, titles: readonly string[]): boolean {
+  const text = normalizeForInjectionScan(message.slice(0, CAPTURE_INPUT_MAX_CHARACTERS)).toLowerCase();
+  const tokens = text.split(NOT_WORD).filter(Boolean);
+  const arabicVerb = tokens.find((token) => {
+    const bare = /^[وف]/.test(token) && token.length > 3 ? token.slice(1) : token;
+    return AR_EDIT_STEMS.some((stem) => token.startsWith(stem) || bare.startsWith(stem));
+  });
+  if (!EN_EDIT_VERB.test(text) && !arabicVerb && !HE_EDIT_VERB.test(text)) return false;
+  if (ordinalsOf(message).length > 0) return true;
+  if (arabicVerb && AR_POINTER_SUFFIX.test(arabicVerb) && !AR_EDIT_STEMS.includes(arabicVerb)) return true;
+  if (EN_POINTER.test(text) || HE_POINTER.test(text)) return true;
+  const words = contentWords(message);
+  return titles.some((title) => contentWords(title).some((word) => words.some((candidate) => sameWord(word, candidate))));
+}
+
 export interface ChatItemEvidence {
   /**
    * What the item is validated against, as the capture validates a clause:
