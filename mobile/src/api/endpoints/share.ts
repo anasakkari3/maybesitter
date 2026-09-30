@@ -1,5 +1,6 @@
 import { apiUpload, type UploadFile } from '../client';
 import { shareProposalSchema, type ShareProposal } from '../schemas/share';
+import type { Locale } from '../../i18n/locale';
 
 /**
  * Analyze what the user shared (UC-3.0, #183).
@@ -32,6 +33,11 @@ export function proposeFromShare(input: {
   timezone: string;
   referenceTime?: string;
   sourceHint?: 'whatsapp' | 'email' | 'unknown';
+  /**
+   * The app's UI language (owner request 2026-09-30): the server's model
+   * titles what it proposes in it, whatever language the text is in.
+   */
+  locale?: Locale;
   signal?: AbortSignal;
 }): Promise<ShareProposal> {
   return apiUpload('/api/mobile/capture/share', {
@@ -40,6 +46,7 @@ export function proposeFromShare(input: {
       timezone: input.timezone,
       referenceTime: input.referenceTime ?? new Date().toISOString(),
       sourceHint: input.sourceHint ?? 'unknown',
+      ...(input.locale ? { locale: input.locale } : {}),
     },
     files: input.files ?? [],
     fileField: 'files',

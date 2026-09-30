@@ -210,6 +210,8 @@ describe('connected', () => {
     api.scanGmail.mockResolvedValue(gmailScan as never);
     await fireEvent.press(screen.getByTestId('google-gmail-scan'));
     await waitFor(() => expect(mockAdoptProposal).toHaveBeenCalledWith(gmailScan));
+    // In the app's language (owner request 2026-09-30).
+    expect(api.scanGmail).toHaveBeenCalledWith({ timezone: expect.any(String), locale: screen.getByTestId('lang').props.children });
     expect(screen.getByTestId('where').props.children).toBe('capture');
   });
 
@@ -266,7 +268,9 @@ describe('connected', () => {
     browser.openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'maybesitter://oauth/google/drive?fileId=doc_fixture_12345' } as never);
     api.importDriveFile.mockResolvedValue(driveImport as never);
     await fireEvent.press(screen.getByTestId('google-drive-pick'));
-    await waitFor(() => expect(api.importDriveFile).toHaveBeenCalledWith({ fileId: 'doc_fixture_12345', timezone: expect.any(String) }));
+    // The app's language goes with it (owner request 2026-09-30): the proposed titles are in it.
+    const lang = screen.getByTestId('lang').props.children as string;
+    await waitFor(() => expect(api.importDriveFile).toHaveBeenCalledWith({ fileId: 'doc_fixture_12345', timezone: expect.any(String), locale: lang }));
     expect(browser.openAuthSessionAsync).toHaveBeenCalledWith(drivePicker.pickerUrl, 'maybesitter://oauth/google/drive');
     await waitFor(() => expect(mockAdoptProposal).toHaveBeenCalledWith(driveImport));
   });
