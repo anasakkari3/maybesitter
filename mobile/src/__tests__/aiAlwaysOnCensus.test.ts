@@ -69,8 +69,14 @@ describe('the disclosure that replaced the consent', () => {
   it.each(where)('%s shows it (%s), both lines', (rel, testID) => {
     const text = files.find((file) => file.rel === rel)!.text;
     expect(text).toContain(`testID="${testID}"`);
-    expect(text).toContain('t.aiDisclosure}');
+    // Whole, or with its Latin brand runs isolated (chat UAT 2026-09-30).
+    expect(text).toMatch(/t\.aiDisclosure\)?\}/);
     expect(text).toContain('t.aiDisclosureKept}');
+  });
+
+  it.each(where.filter(([rel]) => rel !== 'features/onboarding/ConsentStep.tsx'))('%s gives it its heading, «مين بيفهم كلامك»', (rel) => {
+    const text = files.find((file) => file.rel === rel)!.text;
+    expect(text).toContain('{t.aiDisclosureTitle}');
   });
 
   it('says who reads it, in every language, and claims no switch', () => {

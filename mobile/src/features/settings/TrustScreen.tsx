@@ -14,6 +14,7 @@ import {
   useTrustAction,
 } from '../../api/queries';
 import { apiLocale } from '../../i18n/locale';
+import { isolateLatinRuns } from '../../i18n/bidi';
 import { openLegal, privacyPolicyUrl } from '../../config/legalLinks';
 import { ServerToggle } from './ServerToggle';
 import { SettingsHeader, SettingsRow } from './SettingsChrome';
@@ -132,7 +133,7 @@ export function TrustScreen({ onBack, onKnows }: { onBack: () => void; onKnows: 
         {/* The disclosure that replaced the AI consent: read, not answered. */}
         <Card pad={18} style={{ gap: 8 }} testID="trust-ai-disclosure">
           <Txt role="section" size={15} weight={600}>{t.aiDisclosureTitle}</Txt>
-          <Txt size={13} color={p.mu} lh={1.5}>{t.aiDisclosure}</Txt>
+          <Txt size={13} color={p.mu} lh={1.5} testID="trust-ai-disclosure-body">{isolateLatinRuns(t.aiDisclosure)}</Txt>
           <Txt size={13} color={p.mu} lh={1.5}>{t.aiDisclosureKept}</Txt>
         </Card>
 

@@ -37,3 +37,23 @@ export function stripIsolates(text: string): string {
  * helper the screens have always called; it is `isolate(text, 'ltr')`.
  */
 export const ltr = (text: string): string => isolate(text, 'ltr');
+
+/** Arabic or Hebrew letters: text whose Latin runs need isolating. */
+const RTL_LETTER = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\uFB1D-\uFDFF\uFE70-\uFEFF]/;
+/**
+ * A Latin run: a word, or words joined by spaces, dots, hyphens, apostrophes
+ * and parentheses — "Gemini", "Google (Vertex AI)", "(Vertex AI)" — opening
+ * on a letter or "(" and ending on a letter, a digit or ")".
+ */
+const LATIN_RUN = /\(?[A-Za-z][A-Za-z0-9 .()'&-]*[A-Za-z0-9)]|[A-Za-z]/g;
+
+/**
+ * Each Latin run inside an Arabic or Hebrew sentence, isolated
+ * (`isolateAuto`), so "(Vertex AI)" is not split and reordered by the
+ * sentence around it and «لـGemini» keeps the brand whole after its
+ * preposition. Text with no Arabic or Hebrew letter is returned unchanged.
+ */
+export function isolateLatinRuns(text: string): string {
+  if (!RTL_LETTER.test(text)) return text;
+  return text.replace(LATIN_RUN, (run) => isolateAuto(run));
+}
