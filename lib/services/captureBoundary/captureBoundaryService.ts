@@ -32,7 +32,7 @@ import type { Command } from '../../../src/domain/stateMachine';
 import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
-import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
+import { withWeeklyBlockOffers, withoutPossessionLeadIn } from '../../weeklyBlocks/offer';
 import {
   alignToPrevious,
   chatEvidenceFrom,
@@ -121,6 +121,12 @@ export interface ProposeCaptureOptions {
     /** The list the person saw before this message, on their clock, in order (chat UAT round 2). */
     previous?: readonly ChatPreviousItem[];
   };
+  /**
+   * Titles without the possession lead-in ("I have a", «عندي»), as a weekly
+   * block's are — the capture chat's items, on either engine (chat UAT
+   * round 4: the rules' "I have a dentist appointment").
+   */
+  titleWithoutLeadIn?: boolean;
 }
 
 /**
@@ -1071,6 +1077,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       if (failure) {
         rejected = true;
         continue;
+      }
+      if (options.titleWithoutLeadIn && extracted.result.title) {
+        // The card and the command both carry the shorter title.
+        const title = withoutPossessionLeadIn(extracted.result.title);
+        if (title !== extracted.result.title) {
+          extracted = { ...extracted, result: { ...extracted.result, title, ...(extracted.result.action === extracted.result.title ? { action: title } : {}) } };
+        }
       }
       const disposition = decideExtractionDisposition(extracted.result);
       /*

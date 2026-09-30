@@ -41,6 +41,12 @@ const POSSESSION_LEAD_IN = new RegExp(
   'iu',
 );
 
+/** A title without its possession lead-in, when something is left after it ("I have a dentist appointment" → "dentist appointment"). */
+export function withoutPossessionLeadIn(title: string): string {
+  const stripped = title.trim().replace(POSSESSION_LEAD_IN, '').trim();
+  return stripped || title.trim();
+}
+
 function titleWithoutRecurrence(title: string): string {
   const recurrence = readRecurrence(title);
   let stripped = title;

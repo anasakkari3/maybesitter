@@ -525,6 +525,7 @@ export async function proposeMobileChatTurn(
     requestedEngine: input.items ? 'model' : 'rules',
     ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
     ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items, previous: input.previous ?? [] } } : {}),
+    titleWithoutLeadIn: true,
   }, {
     store,
     persistence: persistenceFor(context),
