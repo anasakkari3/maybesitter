@@ -201,6 +201,8 @@ export interface ChatPreviousItem {
   date: string | null;
   /** `HH:MM`, or null. */
   time: string | null;
+  /** It was still asking its question (a day, an hour, «الصبح ولا المسا؟»). */
+  needsDayOrTime?: boolean;
 }
 
 interface AttributedClause {
@@ -226,13 +228,15 @@ const ORDINALS: ReadonlyArray<readonly [number, readonly string[]]> = [
 ];
 const HOUR_WORD = new RegExp('(?:^|[^\\p{L}])(?:ال)?ساع[ةه]\\s+(?:ال)?(?:ثاني|تاني|ثانية|تانية|اولى|أولى|ثالثة|تالتة)', 'u');
 
-/** The index (from the start, or -1 for the last) an ordinal in the clause points at, or null. */
-function ordinalOf(clause: string): number | null {
-  if (HOUR_WORD.test(clause)) return null;
+/**
+ * The places (from the start, or -1 for the last) the ordinals in the clause
+ * point at — every one: «الأولى 4 المسا والتانية 6» is about both.
+ */
+function ordinalsOf(clause: string): number[] {
+  if (HOUR_WORD.test(clause)) return [];
   const words = normalizeForInjectionScan(clause.slice(0, CAPTURE_INPUT_MAX_CHARACTERS)).toLowerCase()
     .split(NOT_WORD).map((word) => foldWord(word.replace(/^'+|'+$/g, '')));
-  for (const [index, forms] of ORDINALS) if (words.some((word) => forms.includes(word))) return index;
-  return null;
+  return ORDINALS.flatMap(([index, forms]) => (words.some((word) => forms.includes(word)) ? [index] : []));
 }
 
 /** The item's day and hour as the model gave them, on the person's clock. */
@@ -342,9 +346,8 @@ export function chatItemEvidence(
         .filter((clause) => clause.text.trim())
         .map((clause) => {
           if (turnIndex > 0 && previous.length > 1) {
-            const place = ordinalOf(clause.text);
-            const pointed = place === null ? null : itemAt(place);
-            if (pointed !== null) return { text: clause.text.trim(), detail: clause, owners: [pointed] };
+            const pointed = ordinalsOf(clause.text).map(itemAt).filter((at): at is number => at !== null);
+            if (pointed.length > 0) return { text: clause.text.trim(), detail: clause, owners: Array.from(new Set(pointed)) };
           }
           const words = contentWords(clause.text);
           const scores = titles.map((title) => titleScore(title, words));

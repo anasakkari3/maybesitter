@@ -855,6 +855,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * nobody said is taken off and asked about (`withoutUnsaidTime`).
        */
       let unsaid = false;
+      // A chat item whose question the person has not answered yet (below).
+      let stillAsked = false;
       if (chat) {
         if (extracted.engine === 'rule-based' && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason ?? '')) continue;
         const evidence = chatItemEvidences[index]!;
@@ -889,7 +891,38 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
          * the rules did not read from the same words; the guard below still
          * checks what results.
          */
-        if (!extracted.result.allDay && !extracted.result.localTimeSpec?.time && !extracted.result.dueAt && !extracted.result.remindAt) {
+        /*
+         * An item that was still being asked about keeps its question until a
+         * message of the person's is about it (chat UAT round 3, staging: the
+         * first message fell to the rules, which asked «الصبح ولا المسا؟» for
+         * both engagements; «لا خلّي التانية الساعة 7» then went to the
+         * model, which put the FIRST at 04:00 — the morning, picked for the
+         * person). Its day and hour are read again from its own words by the
+         * rules, as the question was built, and the question is asked again.
+         */
+        if (!evidence.touchedNow && before?.needsDayOrTime) {
+          stillAsked = true;
+          let read: ExtractWithFallbackResult | null = null;
+          try {
+            read = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
+          } catch (error) {
+            read = error instanceof PastCommitmentTimeError && error.extracted ? error.extracted : null;
+          }
+          const rules = read?.result;
+          const date = rules?.localTimeSpec?.date ?? extracted.result.localTimeSpec?.date ?? null;
+          const { undatedTime: _undated, rangeMinutes: _range, ...rest } = extracted.result;
+          extracted = { ...extracted, result: {
+            ...rest,
+            dueAt: rules?.dueAt ?? null,
+            remindAt: rules?.remindAt ?? null,
+            allDay: false,
+            localTimeSpec: rules?.localTimeSpec ?? (date ? { date, time: null, timezone: options.timezone } : null),
+            timeEvidence: rules?.timeEvidence ?? extracted.result.timeEvidence,
+            ...(rules?.undatedTime ? { undatedTime: rules.undatedTime } : {}),
+            ...(rules?.rangeMinutes ? { rangeMinutes: rules.rangeMinutes } : {}),
+          } };
+        }
+        if (!stillAsked && !extracted.result.allDay && !extracted.result.localTimeSpec?.time && !extracted.result.dueAt && !extracted.result.remindAt) {
           let read: ExtractWithFallbackResult | null = null;
           try {
             read = await extractor(segment, context, { llmProvider: RULES_ONLY_PROVIDER, llmEngine: dependencies.llmEngine });
@@ -1049,7 +1082,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * the question the review screen already renders); «الساعة 5 المسا»
        * and «الساعة 10» resolve as before.
        */
-      const needsClarification = clearedPastTime || gated || unsaid || bareEarlyHour || disposition === 'needs_clarification';
+      const needsClarification = clearedPastTime || gated || unsaid || stillAsked || bareEarlyHour || disposition === 'needs_clarification';
       const itemId = randomUUID();
       // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
       // says which day, and no instant is shown as if somebody chose it.

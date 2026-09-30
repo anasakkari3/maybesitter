@@ -513,7 +513,7 @@ export async function proposeMobileChatTurn(
     now: Date;
     timezone: string;
     /** The list the person saw before this message (chat UAT round 2). */
-    previous?: readonly { title: string; date: string | null; time: string | null }[];
+    previous?: readonly { title: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
   },
   context: MobileBackendContext & { participantId: string },
 ) {

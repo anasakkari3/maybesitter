@@ -47,7 +47,7 @@ import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLex
 import { resolveWeekdayDate } from '../../src/extraction/weekdayLexicon.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { CAPTURE_INPUT_MAX_CHARACTERS, CAPTURE_PROPOSAL_TTL_MS } from '../../src/contracts/v1/captureContracts.ts';
-import type { LLMProviderFunction, LlmProvider } from '../../src/extraction/llm/index.ts';
+import { LLMUnavailableError, type LLMProviderFunction, type LlmProvider } from '../../src/extraction/llm/index.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -792,6 +792,51 @@ for (const [label, failure] of [
     }
   });
 }
+
+for (const [reason, retried] of [
+  ['server_error', true], ['unavailable', true], ['provider_error', true],
+  ['timeout', false], ['rate_limited', false], ['provider_error:400', false], ['cost_cap:user_daily', false],
+] as const) {
+  test(`a first call that fails with ${reason} is ${retried ? 'asked once more' : 'not asked again'}`, async () => {
+    const model = scripted(
+      new LLMUnavailableError(reason),
+      answer('Dentist tomorrow at 5pm. Confirm below.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
+    );
+    begin({ llmProviderFor: () => model.provider });
+    try {
+      const body = await chat(uidFor(`ChatRetry${reason.length}${retried}`), 'Remind me to call the dentist tomorrow at 5pm');
+      assert.equal(model.prompts.length, retried ? 2 : 1);
+      assert.equal(body.engine, retried ? 'model' : 'rules');
+      if (retried) assert.equal(model.prompts[1], model.prompts[0], 'the retry asked something else');
+    } finally {
+      end();
+    }
+  });
+}
+
+test('the retry is one call, and only while the budget still has room for it', async () => {
+  const twice = scripted(new LLMUnavailableError('server_error'), new LLMUnavailableError('server_error'), answer('unused', 'propose', []));
+  begin({ llmProviderFor: () => twice.provider });
+  try {
+    const body = await chat(uidFor('ChatRetryOnce'), 'Remind me to call the dentist tomorrow at 5pm');
+    assert.equal(twice.prompts.length, 2, 'a failure was retried more than once');
+    assert.equal(body.engine, 'rules');
+  } finally {
+    end();
+  }
+  // The first call took 10 s of the 12 s budget: no room for a second.
+  let now = Date.now();
+  const slow: LLMProviderFunction = async () => { now += 10_000; throw new LLMUnavailableError('server_error'); };
+  let calls = 0;
+  begin({ llmProviderFor: () => async (prompt, options) => { calls += 1; return slow(prompt, options); }, clock: () => now });
+  try {
+    const body = await chat(uidFor('ChatRetryNoRoom'), 'Remind me to call the dentist tomorrow at 5pm');
+    assert.equal(calls, 1, 'a retry was made past the budget');
+    assert.equal(body.engine, 'rules');
+  } finally {
+    end();
+  }
+});
 
 test('the rules fallback asks in the person’s language when a time is missing', async () => {
   begin({ llmProviderFor: () => null });
