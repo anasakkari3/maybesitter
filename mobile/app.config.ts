@@ -467,6 +467,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     ...(config.plugins ?? []),
+    './plugins/withNativeLocaleDefaultStrings',
     // Fix default channel meta-data collision and receiver duplicates (#458)
     './plugins/withAndroidFixups',
     // `disableSPM` is required, not optional. React Native Firebase 26 resolves
