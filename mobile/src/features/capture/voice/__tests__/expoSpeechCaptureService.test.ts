@@ -130,6 +130,18 @@ describe('the language', () => {
     expect(module_.started).toHaveLength(0);
   });
 
+  it('starts on a phone that lists no locales at all (Android 10 Redmi), and a refusal from the recogniser is still «unavailable»', async () => {
+    module_.locales = [];
+    module_.installed = [];
+    await service('ar').start(callbacks());
+    expect(module_.started).toHaveLength(1);
+    expect(module_.started[0]!.lang).toBe('ar-PS');
+    expect(module_.started[0]!.requiresOnDeviceRecognition).toBe(false);
+    expect(statuses.at(-1)).toBe('listening');
+    emit('error', { error: 'language-not-supported' } as never);
+    expect(statuses.at(-1)).toBe('localeUnavailable');
+  });
+
   it('reads the device locale list once per session', async () => {
     const spy = jest.spyOn(module_, 'getSupportedLocales');
     const instance = service('en');
