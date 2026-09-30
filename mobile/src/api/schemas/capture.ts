@@ -93,6 +93,21 @@ export const captureProposalSchema = z.object({
        */
       weeklyBlock: weeklyBlockOfferSchema.optional(),
       /**
+       * What this item's time lands on among the person's own things — the
+       * capture chat's answer only (owner request 2026-09-30): a saved
+       * commitment, a weekly block, a followed match, or the synced calendar's
+       * busy time, whose `title` is null (it has none, and none is made up).
+       * The chat card names each; the confirm still returns its own
+       * `collisions`. Optional: absent when nothing clashes, and from an
+       * older server.
+       */
+      conflicts: z.array(z.object({
+        title: z.string().nullable(),
+        startsAt: isoDateTime,
+        endsAt: isoDateTime,
+        kind: z.enum(['commitment', 'weekly', 'fixture', 'calendar_busy']),
+      })).optional(),
+      /**
        * The one question to ask about this item (UC-2.5, #165).
        *
        * Keys and parameters, never a sentence: the phone renders the question
@@ -233,8 +248,9 @@ export const captureChatTurnSchema = z.object({
 export type CaptureChatTurn = z.infer<typeof captureChatTurnSchema>;
 
 /**
- * Mirrors `capture.chatProposal.json`, `capture.chatUpdated.json` and
- * `capture.chatRules.json` — `POST /api/mobile/capture/chat`.
+ * Mirrors `capture.chatProposal.json`, `capture.chatUpdated.json`,
+ * `capture.chatConflict.json` and `capture.chatRules.json` —
+ * `POST /api/mobile/capture/chat`.
  *
  * `proposal` is exactly what `POST /api/mobile/capture` returns, and its
  * `proposalId` is what `/capture/clarify` and `/capture/confirm` take: the chat
