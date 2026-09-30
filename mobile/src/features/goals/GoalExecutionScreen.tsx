@@ -25,6 +25,7 @@ import { Card, Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { ProductActions, ProductPage, ProductRow, ProductSection } from '../../ui/product';
 import { currentGoalProgressPeriod } from './progressPeriod';
+import { IntelligencePanel } from './IntelligencePanel';
 
 type ProposalNode = Extract<GoalGraph['nodes'][number], { kind: 'milestone_proposal' | 'decomposition_step_proposal' }>;
 type LinkedNode = Extract<GoalGraph['nodes'][number], { kind: 'linked_commitment' | 'linked_habit' }>;
@@ -49,6 +50,7 @@ export function GoalExecutionScreen() {
       // an input whose save can only fail.
       <ProductSection title={t.xAddGoal} body={t.errorsFeatureDisabled} icon="goal" />
     ) : <>
+      <IntelligencePanel onChanged={() => { void memory.refetch(); }} />
       <ProductSection title={t.xAddGoal} body={t.xAddGoalBody} icon="goal">
         <TextInput
           testID="goal-add-input"

@@ -61,7 +61,7 @@ export const routineSavedSchema = z.object({
  * (UC-3.16, #202).
  */
 export const memoryOriginSchema = z.enum([
-  'routine_survey', 'self_description', 'manual', 'capture', 'behaviour_rule',
+  'routine_survey', 'self_description', 'manual', 'proactive_suggestion', 'capture', 'behaviour_rule',
   /** A profile another AI assistant wrote, which the user brought over. */
   'ai_context_import',
 ]);

@@ -202,6 +202,8 @@ export interface GmailTransportDeps {
   readonly timeoutMs?: number;
   readonly runDeadlineMs?: number;
   readonly maxMessagesPerPage?: number;
+  /** Opt in for consumers whose cursor must never advance past an omitted message. */
+  readonly rejectHistoryTruncation?: boolean;
   readonly maxTextBytes?: number;
   readonly maxRunBytes?: number;
   readonly maxConcurrentGets?: number;
@@ -616,7 +618,11 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
           const id = entry.message.id;
           if (!nonEmptyString(id) || seen.has(id)) continue;
           seen.add(id);
-          if (ids.length < maxMessagesPerPage) ids.push(id);
+          // A history page can contain more message ids than the fetch cap.
+          // Never advance the caller's cursor after silently omitting one.
+          if (ids.length >= maxMessagesPerPage) {
+            if (deps.rejectHistoryTruncation) throw new GmailWireError('history.list', 'message cap exceeded');
+          } else ids.push(id);
         }
       }
 

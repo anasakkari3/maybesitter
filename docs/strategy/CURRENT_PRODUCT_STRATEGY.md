@@ -9,6 +9,25 @@
 
 ## 1. Long-term North Star
 
+**Owner direction (2026-09-30):** MaybeSitter is a personal decision engine,
+not merely a place to collect commitments. With permission for each source, it
+understands goals, intentions, requests, events, preferences, constraints,
+opportunities and outcome signals. It proposes an action or a connected plan
+even when the person has not named a task, schedules feasible steps, observes
+what happened, and adapts the next proposal. A model inference is a revisable
+hypothesis with source, freshness and confidence; it never silently becomes a
+confirmed commitment. The person can inspect, correct, reject and revoke it.
+
+The full loop is:
+
+`Incremental source updates → semantic observations → personal state → forecast → action/plan proposals → scheduling → user decision → outcome inference → learning → revised state`
+
+The first staging evaluation covers exam preparation, a recurring Pilates goal,
+a multi-step React-learning goal, and an application follow-up from consented
+email. These are tests of general mechanisms, not hard-coded product rules.
+Stage B implementation remains default-off, staging-only and subject to the
+release gate in the repository rules.
+
 The possible long-term architecture is:
 
 `Capture → Life-State & Memory → Priority → Planning → Recommendation → Coaching → Confirmation → Feedback`
@@ -99,7 +118,7 @@ A global GO does not unlock all modules. Gate #61 names each allowed module and 
 
 **Supporting statement**
 
-> MaybeSitter captures what you committed to, proposes one realistic next action, explains why, and keeps you in control.
+> MaybeSitter understands what matters to you, proposes feasible next actions or plans, learns from what happens, and keeps you in control.
 
 ## 13. Claims that must not be used
 

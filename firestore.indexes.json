@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "intelligenceMonitors",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "enabled", "order": "ASCENDING" },
+        { "fieldPath": "nextPollAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "jobs",
       "queryScope": "COLLECTION",
       "fields": [
@@ -114,6 +122,16 @@
     }
   ],
   "fieldOverrides": [
+    {
+      "collectionGroup": "intelligenceMonitors",
+      "fieldPath": "enabled",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
+    {
+      "collectionGroup": "intelligenceMonitors",
+      "fieldPath": "nextPollAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }]
+    },
     {
       "collectionGroup": "memory",
       "fieldPath": "id",

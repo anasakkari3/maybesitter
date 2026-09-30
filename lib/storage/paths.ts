@@ -60,6 +60,16 @@ export const ACTION_GATEWAY_AUDIT_EVENTS = 'actionGatewayAuditEvents';
 
 /** Added by UC-1.0c (#142) as the remaining stores moved off local disk. */
 export const MEMORY = 'memory';
+/** Source-grounded, revisable observations used only by the staging intelligence loop. */
+export const INTELLIGENCE_OBSERVATIONS = 'intelligenceObservations';
+/** Reviewed plans generated from source-grounded observations. */
+export const INTELLIGENCE_PROPOSALS = 'intelligenceProposals';
+/** One content-free input digest and cooldown for proactive generation. */
+export const INTELLIGENCE_RUNS = 'intelligenceRuns';
+/** Explicit per-source permission and bounded sync cursor for staging intelligence. */
+export const INTELLIGENCE_MONITORS = 'intelligenceMonitors';
+/** Content-free receipts so a retry does not re-analyze empty messages. */
+export const INTELLIGENCE_SOURCE_MARKERS = 'intelligenceSourceMarkers';
 export const FEEDBACK_EVENTS = 'feedbackEvents';
 export const FEEDBACK_BASELINES = 'feedbackBaselines';
 export const CONSENTS = 'consents';
@@ -545,6 +555,11 @@ export const USER_SCOPED_COLLECTIONS = [
   AUDIT_EVENTS,
   ACTION_GATEWAY_AUDIT_EVENTS,
   MEMORY,
+  INTELLIGENCE_OBSERVATIONS,
+  INTELLIGENCE_PROPOSALS,
+  INTELLIGENCE_RUNS,
+  INTELLIGENCE_MONITORS,
+  INTELLIGENCE_SOURCE_MARKERS,
   FEEDBACK_EVENTS,
   FEEDBACK_BASELINES,
   CONSENTS,

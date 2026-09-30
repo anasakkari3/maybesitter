@@ -289,14 +289,18 @@ test('switching the env list to a custom delimiter dropped none of the existing 
     ['MAYBESITTER_LLM_MINUTE_CALL_CAP', '8'],
     ['ICS_FEEDS_ENABLED', 'true'],
     ['SHARE_INTAKE_ENABLED', 'true'],
+    ['MAYBESITTER_FEATURE_PROACTIVE_LOOP', 'false'],
+    ['MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP', 'false'],
   ] as const) {
     assert.equal(production.get(key), value, `production ${key}`);
   }
   assert.equal(staging.get('MAYBESITTER_FIRESTORE_DATABASE_ID'), 'staging');
   assert.equal(staging.get('MAYBESITTER_LLM_PROVIDER'), 'gemini');
   assert.equal(staging.get('MAYBESITTER_LLM_GLOBAL_DAILY_CALL_CAP'), '3000');
-  assert.equal(production.size, 24);
-  assert.equal(staging.size, 23);
+  assert.equal(staging.get('MAYBESITTER_FEATURE_PROACTIVE_LOOP'), 'true');
+  assert.equal(staging.get('MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'), 'false');
+  assert.equal(production.size, 26);
+  assert.equal(staging.size, 25);
 });
 
 // ── Same-digest production promotion ────────────────────────────────────

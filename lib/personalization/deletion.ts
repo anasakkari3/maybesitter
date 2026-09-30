@@ -150,6 +150,11 @@ import {
   BEHAVIOR_FEEDBACK,
   FOOTBALL_FOLLOWS,
   GOAL_GRAPH_PROPOSALS,
+  INTELLIGENCE_OBSERVATIONS,
+  INTELLIGENCE_PROPOSALS,
+  INTELLIGENCE_RUNS,
+  INTELLIGENCE_MONITORS,
+  INTELLIGENCE_SOURCE_MARKERS,
   MEMORY_DISMISSALS,
   PROFILE_PROPOSALS,
   userCol,
@@ -240,6 +245,11 @@ export async function deletePersonalizationScope(
   // Commitments and Habits the user already confirmed out of them, and the
   // `goalGraphLinks` naming those, are the user's own work and stay.
   await clearUserCollection(storage, input.scopeId, GOAL_GRAPH_PROPOSALS);
+  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_OBSERVATIONS);
+  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_PROPOSALS);
+  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_RUNS);
+  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_MONITORS);
+  await clearUserCollection(storage, input.scopeId, INTELLIGENCE_SOURCE_MARKERS);
   // With the follows gone, the matches they projected stop holding time: an
   // unfollow drop, never a dismissal, so following again brings them back.
   // The commitments themselves are kept as dropped history, like any other

@@ -248,6 +248,11 @@ upsert_job "football-sync-daily-${SUFFIX}" "0 1 * * *" "/api/internal/jobs/footb
 upsert_job "maintenance-daily-${SUFFIX}" "17 3 * * *" "/api/internal/jobs/maintenance" "Asia/Jerusalem" \
   "Daily MaybeSitter maintenance (${TARGET})" 3 900s 30s 300s
 
+if [ "${TARGET}" = "staging" ]; then
+  upsert_job "intelligence-gmail-staging" "* * * * *" "/api/internal/jobs/intelligence-gmail" "Etc/UTC" \
+    "Poll explicitly enabled Gmail intelligence monitors (staging)"
+fi
+
 if [ "${MODE}" = "check" ]; then
   if [ "${CHECK_FAILURES}" -eq 0 ]; then
     printf '\nscheduler check: all checks passed for %s\n' "${TARGET}"
