@@ -1213,7 +1213,7 @@
   "xIntelligenceAcknowledge": "فهمت عليك",
   "xIntelligenceAnswerPlaceholder": "شو وضعك معها؟",
   "xIntelligenceDismiss": "مش مناسب إلي",
-  "xIntelligenceConfirm": "آه، هذا صحيح",
+  "xIntelligenceConfirm": "آه، هيك صح",
   "xIntelligenceNoIdeas": "لسّا ما في اقتراحات. احكيلي شو عندك أو شو حابب تحقق.",
   "xIntelligenceSlot": "وقت مقترح: {date} الساعة {time}. إذا وافقت، بنثبّت المهمة بهالوقت.",
   "xIntelligenceNoSlot": "ما لقيت وقت فاضي خلال اليومين الجايين. لساتك بتقدر تراجع الفكرة.",

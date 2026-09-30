@@ -60,6 +60,13 @@ const TZ = 'Asia/Jerusalem';
 
 const FRIDAY = resolveWeekdayDate('Friday', new Date(), TZ)!.date;
 const SATURDAY = resolveWeekdayDate('Saturday', new Date(), TZ)!.date;
+// The appended clash sentence says «اليوم/بكرا» / "today/tomorrow" when the
+// clash is that close (chatWhy dayLabel); Friday is "tomorrow" on a Thursday.
+// Computed, not pinned, so these tests read the same on every day of the week.
+const TODAY_LOCAL = localTimeSpecFor(new Date(), TZ)!.date;
+const TOMORROW_LOCAL = (() => { const [y, m, d] = TODAY_LOCAL.split('-').map(Number) as [number, number, number]; return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10); })();
+const FRI_AR = FRIDAY === TODAY_LOCAL ? 'اليوم' : FRIDAY === TOMORROW_LOCAL ? 'بكرا' : 'الجمعة';
+const FRI_EN = FRIDAY === TODAY_LOCAL ? 'today' : FRIDAY === TOMORROW_LOCAL ? 'tomorrow' : 'on Friday';
 const at = (date: string, time: string): string => instantFromLocal(date, time, TZ)!.toISOString();
 const localClock = (iso: string | null): string | null => (iso ? localTimeSpecFor(new Date(iso), TZ)!.time : null);
 
@@ -208,7 +215,7 @@ test('a reply that leaves the clash out gets one short sentence naming it, in th
     await saveWedding(uid);
     const body = await chat(uid, DINNER_MESSAGE, { locale: 'ar' });
     assert.ok(body.reply.startsWith('تمام، عشا مع أهلك الجمعة الساعة 6 المسا لأنك قلت الجمعة الساعة 6 المسا.'), `the grounded reason was lost: ${body.reply}`);
-    assert.match(body.reply, /بيتعارض مع «\u2068عرس ابن عمي\u2069» الجمعة الساعة \u206618:00\u2069\./);
+    assert.match(body.reply, new RegExp(`بيتعارض مع «\u2068عرس ابن عمي\u2069» ${FRI_AR} الساعة \u206618:00\u2069\\.`));
     assert.equal(body.turns[body.turns.length - 1]!.text, body.reply, 'the stored turn is not what was shown');
 
     // The next message does not say it again: the person was already told.
@@ -268,7 +275,7 @@ test('a proposal on top of a followed club’s match names the match', async () 
     assert.equal(call!.conflicts![0]!.startsAt, at(FRIDAY, '20:00'));
     const title = call!.conflicts![0]!.title!;
     assert.ok(title.length > 0);
-    assert.ok(body.reply.endsWith(`"Call mom" clashes with "${title}" on Friday at 20:00.`), body.reply);
+    assert.ok(body.reply.endsWith(`"Call mom" clashes with "${title}" ${FRI_EN} at 20:00.`), body.reply);
   } finally {
     end();
   }
@@ -298,7 +305,7 @@ test('busy time from the calendar is said as busy, with no title — and a model
     const [dentist] = body.proposal!.items;
     assert.deepEqual(dentist!.conflicts, [{ title: null, startsAt: at(FRIDAY, '17:30'), endsAt: at(FRIDAY, '19:00'), kind: 'calendar_busy' }]);
     assert.doesNotMatch(body.reply, /Gym/, 'a title the calendar never gave reached the person');
-    assert.equal(body.reply, 'Dentist on Friday at 6pm. Confirm below. Your calendar shows you busy on Friday 17:30–19:00, the same time as "Dentist".');
+    assert.equal(body.reply, `Dentist on Friday at 6pm. Confirm below. Your calendar shows you busy ${FRI_EN} 17:30–19:00, the same time as "Dentist".`);
 
     // The model was shown the busy time without a title.
     const { user } = splitPrompt(model.prompts[0]!);
