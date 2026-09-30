@@ -26,6 +26,7 @@ const expectedTtlGroups = [
   'clarifications',
   'analyticsEvents',
   'captureProposals',
+  'captureConversations',
   'deletionReceipts',
   'accountDeletions',
   'hardReminders',
@@ -76,9 +77,9 @@ JSON
 fi
 
 if [ "$1 $2 $3 $4" = "firestore fields ttls list" ]; then
-  groups='["alphaTraces","clarifications","analyticsEvents","captureProposals","deletionReceipts","accountDeletions","hardReminders","commitmentActionReceipts","providerOAuthStates","googlePickerTickets"]'
+  groups='["alphaTraces","clarifications","analyticsEvents","captureProposals","captureConversations","deletionReceipts","accountDeletions","hardReminders","commitmentActionReceipts","providerOAuthStates","googlePickerTickets"]'
   if [ "\${RELEASE_CLOSURE_OMIT_TTL:-}" = "hardReminders" ]; then
-    groups='["alphaTraces","clarifications","analyticsEvents","captureProposals","deletionReceipts","accountDeletions","commitmentActionReceipts","providerOAuthStates","googlePickerTickets"]'
+    groups='["alphaTraces","clarifications","analyticsEvents","captureProposals","captureConversations","deletionReceipts","accountDeletions","commitmentActionReceipts","providerOAuthStates","googlePickerTickets"]'
   fi
   node -e 'const groups=JSON.parse(process.argv[1]); console.log(JSON.stringify(groups.map(group => ({name: "/projects/p/databases/(default)/collectionGroups/"+group+"/fields/expiresAt", ttlConfig:{state:"ACTIVE"}}))))' "$groups"
   exit 0

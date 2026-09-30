@@ -60,6 +60,7 @@
     "clarificationEvents": [],
     "analyticsEvents": [],
     "captureProposals": [],
+    "captureConversations": [],
     "profileProposals": [],
     "aiContextImports": [],
     "memoryDismissals": [],

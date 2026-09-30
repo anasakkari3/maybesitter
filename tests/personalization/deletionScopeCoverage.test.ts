@@ -158,6 +158,7 @@ const KEPT_BECAUSE: Record<string, string> = {
   clarificationEvents: 'which field was asked about; no free text and no claim about the person',
   analyticsEvents: 'product telemetry with its own retention, not a profile the screen shows',
   captureProposals: 'the user’s own words awaiting confirmation',
+  captureConversations: 'the user’s own capture-chat messages and the assistant’s replies, kept only while the conversation can still be continued',
   usage: 'what the account spent, needed for billing and abuse limits',
   plans: 'the user’s own day, built from their own commitments and rebuilt each morning; erasing it loses today, not a belief about them',
   planEvents: 'what the user did to their own plan — a type, a date, a generation and a digest, with no titles and no explanation text',

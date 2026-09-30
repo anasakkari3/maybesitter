@@ -8,6 +8,9 @@
 #   clarifications    24 hours - a half-finished question, worthless once stale
 #   analyticsEvents   400 days - product metrics
 #   captureProposals  24 hours - a proposal awaiting confirmation (#252)
+#   captureConversations
+#                     24 hours - a capture-chat conversation, a day after its
+#                                last turn (2026-09-30)
 #   deletionReceipts  400 days - proof a deletion happened, naming nobody (#149)
 #   accountDeletions  30 days  - the deletion job, kept only so a repeat request
 #                                is idempotent; it holds no uid once done (#149)
@@ -59,6 +62,10 @@ COLLECTION_GROUPS=(
   "clarifications"
   "analyticsEvents"
   "captureProposals"
+  # The capture chat «احكيها» (2026-09-30): the person's turns and the
+  # assistant's replies. Idle past the proposal TTL it is over for the API;
+  # this removes it a day after its last turn.
+  "captureConversations"
   # UC-1.5 (#149): the proof a deletion happened, and the job that ran it.
   # Both are top-level and outlive the account, so nothing else would ever
   # remove them.
