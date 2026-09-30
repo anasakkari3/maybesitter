@@ -24,8 +24,17 @@ import { useApp } from '../state/AppContext';
  *  - gives each item its right-to-left direction back, so what is inside a
  *    chip lays out as it does everywhere else.
  *
- * The premise — that Fabric's horizontal ScrollView ignores the style-only
- * root direction — is what jest cannot see; it is a device check.
+ *  - lays the ScrollView itself out left to right (`direction: 'ltr'` on its
+ *    own style). Android's horizontal ScrollView does NOT ignore the
+ *    inherited RTL: Yoga placed the wider-than-viewport content box at a
+ *    negative left, the RTL way, while the scroll range stayed [0, overflow].
+ *    At text size 1.3 the week strip opened on Wednesday and Thursday beside
+ *    an empty half-row, Saturday on was out of reach, and swiping back
+ *    returned to the empty space (UAT 2026-09-30, u52/u54). With the box at
+ *    left 0 the range covers exactly the content and the end is today.
+ *
+ * What the native scroll view does with direction is what jest cannot see;
+ * it is a device check (both platforms).
  *
  * `SetupLifeStep`'s prompts, the category chips and the week strip all use
  * it. A child's own handlers are untouched, so a tap still means the item it
@@ -36,6 +45,7 @@ export function DirectionalScrollRow({
   onContentSizeChange,
   contentContainerStyle,
   itemStyle,
+  style,
   ...rest
 }: Omit<ScrollViewProps, 'horizontal' | 'children'> & {
   children: React.ReactNode;
@@ -54,6 +64,7 @@ export function DirectionalScrollRow({
       ref={row}
       horizontal
       {...rest}
+      style={rtl ? [style, { direction: 'ltr' }] : style}
       contentContainerStyle={rtl
         ? [contentContainerStyle, { direction: 'ltr', flexGrow: 1, justifyContent: 'flex-end' }]
         : contentContainerStyle}

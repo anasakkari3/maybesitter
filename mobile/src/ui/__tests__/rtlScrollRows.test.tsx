@@ -185,3 +185,37 @@ describe('a row that fits on screen, and one that does not (review I2)', () => {
     expect(contentOf()).toEqual({ gap: 8 });
   });
 });
+
+/*
+ * UAT 2026-09-30 (u52, u54, u54b), Android at text size 1.3: the stacked week
+ * strip opened on Wednesday and Thursday beside an empty half-row; Saturday on
+ * was reachable only by swiping, and swiping back returned to the empty space.
+ * Android's horizontal ScrollView takes the inherited RTL: Yoga laid the
+ * overflowing content box out at a negative left while the scroll range stayed
+ * [0, overflow], so the range covered empty space and missed the far days.
+ * The ScrollView itself is laid out left to right under RTL, which puts the
+ * box at left 0. Jest has no layout; this pins the style, the device shows it.
+ */
+describe('the scroll view itself is left to right under RTL (u52)', () => {
+  const viewStyle = () => StyleSheet.flatten(screen.getByTestId('row').props.style) as Record<string, unknown> | undefined;
+
+  it('ar: direction ltr on the ScrollView, the caller\'s style kept', async () => {
+    await inLanguage('ar', (
+      <DirectionalScrollRow testID="row" style={{ marginTop: 3 }}>
+        {['a', 'b', 'c'].map(id => <Txt key={id} testID={`item-${id}`}>{id}</Txt>)}
+      </DirectionalScrollRow>
+    ));
+    await waitFor(() => expect(screen.queryAllByTestId(/^item-/).length).toBe(3));
+    expect(viewStyle()).toMatchObject({ direction: 'ltr', marginTop: 3 });
+  });
+
+  it('en: untouched', async () => {
+    await inLanguage('en', (
+      <DirectionalScrollRow testID="row">
+        {['a', 'b', 'c'].map(id => <Txt key={id} testID={`item-${id}`}>{id}</Txt>)}
+      </DirectionalScrollRow>
+    ));
+    await waitFor(() => expect(screen.queryAllByTestId(/^item-/).length).toBe(3));
+    expect(viewStyle()?.direction).toBeUndefined();
+  });
+});
