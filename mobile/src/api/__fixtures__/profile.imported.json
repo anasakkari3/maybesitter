@@ -12,6 +12,6 @@
   "existingTotal": 4,
   "existingTruncated": false,
   "createdAt": "2026-08-09T09:00:00.000Z",
-  "promptVersion": "ai-context-import-v1",
+  "promptVersion": "ai-context-import-v2",
   "model": null
 }

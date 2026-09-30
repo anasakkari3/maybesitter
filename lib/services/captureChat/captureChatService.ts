@@ -42,7 +42,7 @@
  * here logs a message, a reply or the model's output.
  */
 import { randomUUID } from 'crypto';
-import { CAPTURE_INPUT_MAX_CHARACTERS } from '../../../src/contracts/v1/captureContracts';
+import { CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom } from '../../../src/contracts/v1/captureContracts';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
@@ -98,6 +98,12 @@ export interface CaptureChatInput {
   message?: unknown;
   timezone?: unknown;
   referenceTime?: unknown;
+  /**
+   * The phone's UI language, `'ar' | 'en' | 'he'` (owner request 2026-09-30):
+   * the reply and every item's title are in it, whatever language the person
+   * writes in. Anything else is ignored, and the reply follows their message.
+   */
+  locale?: unknown;
 }
 
 export type CaptureChatProposal = Awaited<ReturnType<typeof proposeMobileChatTurn>>;
@@ -143,13 +149,24 @@ export function boundedTurns(turns: readonly CaptureChatTurn[], limit: number = 
   return kept;
 }
 
-/** The list as the model is shown it: titles and the person's own clock. */
-function promptItems(proposal: CaptureChatProposal | null, timezone: string): ChatPromptItem[] {
+/**
+ * The list as the model is shown it, and as the next message is matched
+ * against it: titles in the person's own words — with the app-language title
+ * the card shows beside them, when it differs (owner request 2026-09-30) —
+ * and the person's own clock.
+ */
+function promptItems(
+  proposal: CaptureChatProposal | null,
+  timezone: string,
+  sourceTitles: ReadonlyMap<string, string> = new Map(),
+): ChatPromptItem[] {
   if (!proposal) return [];
   return proposal.items.map((item) => {
     const local = item.resolvedTime ? localTimeSpecFor(new Date(item.resolvedTime), timezone) : null;
+    const source = sourceTitles.get(item.itemId);
     return {
-      title: item.title,
+      title: source ?? item.title,
+      ...(source && source !== item.title ? { appTitle: item.title } : {}),
       date: local?.date ?? item.resolvedDate ?? null,
       time: local?.time ?? null,
       needsDayOrTime: Boolean(item.needsClarification),
@@ -198,11 +215,19 @@ export async function chatMobileCapture(
   }
 
   const previousUserTurns = conversation.turns.filter((turn) => turn.role === 'user');
-  const language: ChatLanguage = detectChatLanguage(
+  // The app's language, when the phone named it (owner request 2026-09-30):
+  // the reply — the model's, checked against it, or a template — is in it
+  // whatever the person typed. Without it, the language of their message.
+  const appLanguage = captureAppLocaleFrom(input.locale);
+  const language: ChatLanguage = appLanguage ?? detectChatLanguage(
     message,
     previousUserTurns.length > 0 ? detectChatLanguage(previousUserTurns[previousUserTurns.length - 1]!.text) : 'ar',
   );
-  const current = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid) : null;
+  const read = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid) : null;
+  const current = read?.proposal ?? null;
+  // Each item's title in the person's own words, where the card shows the
+  // app's: what their next message is matched against (`chatEvidence`).
+  const listed = promptItems(current, timezone, read?.sourceTitles);
 
   const finish = async (reply: string, engine: 'model' | 'rules', proposal: CaptureChatProposal | null, turns: CaptureChatTurn[]) => {
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
@@ -236,7 +261,12 @@ export async function chatMobileCapture(
 
   let answer: ReturnType<typeof parseChatModelAnswer> = null;
   if (provider) {
-    const prompt = buildChatPrompt(turns, promptItems(current, timezone), { now, timezone }, { replyLanguage: language });
+    const prompt = buildChatPrompt(
+      turns,
+      listed,
+      { now, timezone, ...(appLanguage ? { titleLanguage: appLanguage } : {}) },
+      { replyLanguage: language, ...(appLanguage ? { appLanguage } : {}) },
+    );
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const timeoutMs = callBudget();
       if (timeoutMs < CAPTURE_MIN_CALL_TIMEOUT_MS) break;
@@ -264,7 +294,7 @@ export async function chatMobileCapture(
     if (changesList) {
       const evidence = chatEvidenceFrom(userTurns);
       const built = await proposeMobileChatTurn(
-        { text: message, userTurns, items: evidence ? answer.items : [], now, timezone, previous: promptItems(current, timezone) },
+        { text: message, userTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, ...(appLanguage ? { locale: appLanguage } : {}) },
         { participantId: uid, requestStartedAt },
       );
       proposal = shown(built);
@@ -311,12 +341,13 @@ export async function chatMobileCapture(
       }
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
-    if (timeOnly || looksLikeListEdit(message, current.items.map((item) => item.title))) {
+    // By the words of either title: the person's own, and the card's.
+    if (timeOnly || looksLikeListEdit(message, [...listed.map((item) => item.title), ...current.items.map((item) => item.title)])) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
   }
   const built = await proposeMobileChatTurn(
-    { text: userTurns.join('\n'), userTurns, items: null, now, timezone },
+    { text: userTurns.join('\n'), userTurns, items: null, now, timezone, ...(appLanguage ? { locale: appLanguage } : {}) },
     { participantId: uid, requestStartedAt },
   );
   const proposal = shown(built);

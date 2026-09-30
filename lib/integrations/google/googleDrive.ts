@@ -223,6 +223,8 @@ export interface DriveImportInput {
   readonly fileId: unknown;
   readonly timezone?: unknown;
   readonly referenceTime?: unknown;
+  /** The phone's UI language: the proposed titles are in it (owner request 2026-09-30). */
+  readonly locale?: unknown;
 }
 
 export class DriveImportInputError extends Error {
@@ -284,6 +286,7 @@ export async function importDriveFile(
       files: [{ bytes, declaredType, fileName: null }],
       timezone: input.timezone,
       referenceTime: input.referenceTime,
+      locale: input.locale,
     },
     {
       uid,

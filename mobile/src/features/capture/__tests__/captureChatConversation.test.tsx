@@ -42,6 +42,7 @@ import { ConversationNotFoundError, InputTooLargeError, NetworkError } from '../
 import { captureChatSchema, type CaptureChatAnswer, type CaptureProposal } from '../../../api/schemas/capture';
 import chatRules from '../../../api/__fixtures__/capture.chatRules.json';
 import { chatServer } from '../../../testing/captureChat';
+import { stripIsolates } from '../../../i18n/bidi';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -168,7 +169,9 @@ describe('a conversation, turn by turn', () => {
     await fireEvent.press(screen.getByTestId('review-confirm'));
     await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
     expect(confirm.mock.calls[0]![0]).toMatchObject({ proposalId: 'p-2', itemIds: ['i-2'] });
-    await waitFor(() => expect(screen.queryByTestId('saved-title')).not.toBeNull());
+    // Saved, and still in the chat (owner request 2026-09-30).
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-1')).not.toBeNull());
+    expect(screen.queryByTestId('saved-title')).toBeNull();
   });
 
   it('a reply that says "saved" saves nothing: no saved screen, no confirm, until the person presses it', async () => {
@@ -401,5 +404,122 @@ describe('starting over, and failures', () => {
     await waitFor(() => expect(screen.queryByTestId('capture-error-message')).not.toBeNull());
     expect(textOf('capture-error-message')).toBe(en.aiInputTooLong);
     expect(screen.queryByTestId('capture-retry')).toBeNull();
+  });
+});
+
+/*
+ * «بعد ما أسجل ما تطلع من صفحة الالتزام — يمكن بدي أضيف التزام تاني بعد ما
+ * أقبل» (owner request 2026-09-30). A confirm in the chat keeps the person in
+ * the chat: a line of its own says what was saved, the proposal goes, the
+ * next message starts a new conversation, and «Done» leaves.
+ */
+describe('after a save, the chat stays open for the next one', () => {
+  /** The saved line's words, its paragraphs joined, isolates removed. */
+  const savedLine = (n = 1): string => screen.queryAllByTestId(new RegExp(`^chat-saved-${n}-text-\\d+$`))
+    .map((node) => stripIsolates([node.props.children].flat().join(''))).join('\n\n');
+
+  async function saveOne() {
+    const chat = conversation(
+      [dentist('p-1', 'i-1', FIVE), dentist('p-2', 'i-2', SIX, { items: [{ itemId: 'i-2', title: 'Buy milk', resolvedTime: SIX, needsClarification: false }] })],
+      ['Call the dentist tomorrow at 5pm.', 'Buy milk tomorrow at 6pm.'],
+    );
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue(confirmation('i-1', FIVE) as never);
+    await openCapture();
+    await say('Remind me to call the dentist tomorrow at 5pm');
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-1')).not.toBeNull());
+    return { chat, confirm };
+  }
+
+  it('stays on the chat with a saved line naming what was saved, the conversation above it, the field ready', async () => {
+    await saveOne();
+    // Not the saved screen: the composer is still here, empty and editable.
+    expect(screen.queryByTestId('saved-title')).toBeNull();
+    expect(screen.queryByTestId('capture-input')).not.toBeNull();
+    expect(field()).toBe('');
+    expect(screen.getByTestId('capture-input').props.editable).toBe(true);
+    // The saved line, from the server's own answer.
+    expect(savedLine()).toBe(`Saved ✓ "Call the dentist"\n\n${en.chatSavedNext}`);
+    // The proposal is gone; what was said is still on screen.
+    expect(screen.queryByTestId('review-item-i-1')).toBeNull();
+    expect(screen.queryByTestId('review-confirm')).toBeNull();
+    expect(textOf('chat-turn-text-0')).toBe('Remind me to call the dentist tomorrow at 5pm');
+    expect(screen.queryByText('Call the dentist tomorrow at 5pm.')).not.toBeNull();
+    expect(screen.queryByTestId('chat-done')).not.toBeNull();
+  });
+
+  it('the next message starts a new conversation, under what was saved', async () => {
+    const { chat } = await saveOne();
+    const first = await chat.mock.results[0]!.value as CaptureChatAnswer;
+    await say('Buy milk tomorrow at 6pm');
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-2')).not.toBeNull());
+    expect(chat).toHaveBeenCalledTimes(2);
+    // No conversation id: a new conversation, not a follow-up to the saved one.
+    expect(chat.mock.calls[1]![0]).toMatchObject({ conversationId: null, message: 'Buy milk tomorrow at 6pm' });
+    const second = await chat.mock.results[1]!.value as CaptureChatAnswer;
+    expect(second.conversationId).not.toBe(first.conversationId);
+    // The earlier conversation and its saved line are still on screen above it.
+    expect(savedLine()).toContain('"Call the dentist"');
+    expect(screen.queryByText('Buy milk tomorrow at 6pm.')).not.toBeNull();
+    expect(screen.queryByText('Remind me to call the dentist tomorrow at 5pm')).not.toBeNull();
+  });
+
+  it('a second save adds a second line, and the first one stays', async () => {
+    const { confirm } = await saveOne();
+    confirm.mockResolvedValue({
+      success: true, replayed: false, failed: [],
+      persisted: [{ itemId: 'i-2', commitmentId: 'c-2', title: 'Buy milk', resolvedTime: SIX }],
+    } as never);
+    await say('Buy milk tomorrow at 6pm');
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-2')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('review-confirm'));
+    await waitFor(() => expect(screen.queryByTestId('chat-saved-2')).not.toBeNull());
+    expect(savedLine(1)).toContain('"Call the dentist"');
+    expect(savedLine(2)).toContain('"Buy milk"');
+  });
+
+  it('refreshes the lists behind it, so Today shows what was saved', async () => {
+    const today = jest.mocked(commitmentEndpoints.listToday);
+    const before = today.mock.calls.length;
+    const invalidate = jest.spyOn(client, 'invalidateQueries');
+    await saveOne();
+    await waitFor(() => expect(invalidate).toHaveBeenCalled());
+    const keys = client.getQueryCache().getAll().map((query) => query.queryKey);
+    const commitmentKeys = keys.filter((key) => key.includes('commitments'));
+    expect(commitmentKeys.length).toBeGreaterThan(0);
+    await waitFor(() => expect(today.mock.calls.length).toBeGreaterThan(before + 1));
+  });
+
+  it('«Done» leaves the chat for Today, and nothing is asked', async () => {
+    await saveOne();
+    await fireEvent.press(screen.getByTestId('chat-done'));
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('today-scroll')).not.toBeNull());
+    // Reopening starts clean: the saved conversation was in memory only.
+    await fireEvent.press(screen.getByTestId('tab-capture'));
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
+    expect(screen.queryByTestId('chat-saved-1')).toBeNull();
+  });
+
+  it('the header close still leaves, without a discard question', async () => {
+    await saveOne();
+    await fireEvent.press(screen.getByTestId('capture-cancel'));
+    await waitFor(() => expect(screen.queryByTestId('capture-input')).toBeNull());
+    expect(screen.queryByTestId('capture-discard')).toBeNull();
+  });
+
+  it('shows Undo while its window is open, and the saved line says what Undo did', async () => {
+    const remove = jest.spyOn(commitmentEndpoints, 'deleteCommitment')
+      .mockResolvedValue({ deleted: false, softDeleted: true, id: 'c-1' } as never);
+    await saveOne();
+    await fireEvent.press(screen.getByTestId('chat-saved-undo'));
+    await waitFor(() => expect(savedLine()).toContain(en.undoneTitle));
+    expect(remove).toHaveBeenCalledWith('c-1');
+    expect(screen.queryByTestId('chat-saved-undo')).toBeNull();
+    // Still in the chat, ready for the next one.
+    expect(screen.queryByTestId('capture-input')).not.toBeNull();
   });
 });

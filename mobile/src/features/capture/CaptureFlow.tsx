@@ -5,6 +5,7 @@ import { CaptureScreen } from '../../screens/CaptureScreen';
 import { ReviewScreen } from '../../screens/ReviewScreen';
 import { SavedScreen } from '../../screens/SavedScreen';
 import { useCaptureFlow } from './CaptureProvider';
+import { chatSaves } from './captureMachine';
 
 /**
  * Which capture screen is showing (UC-2.R2, #172).
@@ -36,6 +37,12 @@ export function CaptureFlow() {
   useEffect(() => {
     if (state.status === 'saved') replayEvent('capture_saved');
   }, [state.status, replayEvent]);
+  // A save in the chat, which stays open (owner request 2026-09-30), is a
+  // capture saved all the same.
+  const saves = chatSaves(state);
+  useEffect(() => {
+    if (saves > 0) replayEvent('capture_saved');
+  }, [saves, replayEvent]);
   useClarityStage(state.status === 'saved' ? 'capture_saved'
     : ['needsConfirmation', 'needsClarification', 'unresolvedIntent', 'confirming', 'confirmFailed'].includes(state.status)
       ? 'capture_review' : 'capture_input');

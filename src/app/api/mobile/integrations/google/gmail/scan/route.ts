@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 /**
  * «جيب التزامات من إيميلي»: the last seven days of Primary, at most twenty
  * messages, read once into one capture proposal (CL6a). Body: `{ timezone,
- * referenceTime }`, both optional.
+ * referenceTime, locale }`, all optional.
  *
  * The answer has exactly the shape `/api/mobile/capture/share` returns, so the
  * app reviews it on the same screen. The trace records counts — messages read,
@@ -33,12 +33,12 @@ export async function POST(request: Request) {
     if (error instanceof RequestBodyTooLargeError) return requestBodyTooLargeResponse(error);
     return invalidGoogleRequest();
   }
-  const fields = typeof body === 'object' && body !== null ? body as { timezone?: unknown; referenceTime?: unknown } : {};
+  const fields = typeof body === 'object' && body !== null ? body as { timezone?: unknown; referenceTime?: unknown; locale?: unknown } : {};
 
   try {
     const result = await scanRecentGmail(
       user.uid,
-      { timezone: fields.timezone, referenceTime: fields.referenceTime },
+      { timezone: fields.timezone, referenceTime: fields.referenceTime, locale: fields.locale },
       googleRuntime(),
       { signal: request.signal },
     );

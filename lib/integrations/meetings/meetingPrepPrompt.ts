@@ -12,7 +12,11 @@
  */
 import { MAX_MEETING_ACTION_LENGTH, MAX_MEETING_FOLLOW_UPS } from './meetingIntelligence';
 
-export const MEETING_PREP_PROMPT_VERSION = 'meeting-prep-v2';
+/**
+ * v3 (owner request 2026-09-30): with the app's language known, each action
+ * also comes as `appAction`, in that language; `action` stays in the notes'.
+ */
+export const MEETING_PREP_PROMPT_VERSION = 'meeting-prep-v3';
 
 const BEGIN = 'BEGIN_UNTRUSTED_USER_MESSAGE';
 const END = 'END_UNTRUSTED_USER_MESSAGE';
@@ -23,7 +27,11 @@ export const MEETING_PREP_SCHEMA = {
   properties: {
     prepStep: {
       type: 'object',
-      properties: { action: { type: 'string' } },
+      properties: {
+        action: { type: 'string' },
+        // The same step in the app's language, when the rules name one.
+        appAction: { type: ['string', 'null'] },
+      },
       required: ['action'],
     },
     followUps: {
@@ -32,6 +40,7 @@ export const MEETING_PREP_SCHEMA = {
         type: 'object',
         properties: {
           action: { type: 'string' },
+          appAction: { type: ['string', 'null'] },
           // A day, and an hour only when one is written: a date alone is an
           // all-day follow-up, never a guessed 07:00 (CL5a M-3).
           deadlineDate: { type: ['string', 'null'] },
@@ -58,7 +67,11 @@ export interface MeetingPrepPromptInput {
   readonly endsAtLocal: string | null;
   readonly nowLocal: string;
   readonly timezone: string;
+  /** The phone's UI language (owner request 2026-09-30): a closed enum, turned into a fixed name here. */
+  readonly appLanguage?: 'ar' | 'en' | 'he';
 }
+
+const APP_LANGUAGE_NAME = { ar: 'Arabic (spoken Levantine, never Modern Standard)', en: 'English', he: 'Hebrew' } as const;
 
 /**
  * The rules and the fenced notes, split at the marker by `splitPrompt`, so the
@@ -75,6 +88,9 @@ export function buildMeetingPrepPrompt(input: MeetingPrepPromptInput): string {
     `- followUps: at most ${MAX_MEETING_FOLLOW_UPS} things the notes say must happen AFTER the meeting. An empty list when the notes name none. Never invent one.`,
     '- deadlineDate: "YYYY-MM-DD" on the local calendar, ONLY when the notes name a day for that follow-up (a date, a weekday, "tomorrow"). Otherwise null.',
     '  A follow-up happens after the meeting, so a weekday name ("Sunday", «الأحد», «יום ראשון») means the first such day AFTER the meeting\'s own day.',
+    ...(input.appLanguage ? [
+      `- appAction, on the prep step and on each follow-up: the same action written in ${APP_LANGUAGE_NAME[input.appLanguage]}, the language the person reads the app in — the same meaning, nothing added or left out, a person's name written in that language's script. When action is already in that language, appAction is exactly action. action itself stays in the language of the notes.`,
+    ] : []),
     '- deadlineTime: "HH:mm" (24-hour, local), ONLY when the notes write a clock time for it, as a number or a spoken hour ("at 4", «الساعة ٤», «بثلاث»). A part of the day is NOT a clock time: "morning", «الصبح», «العصر», «בבוקר» all give null. Never guess an hour.',
     '',
     'Only what the notes say or clearly ask for. No advice, no encouragement, no therapy language.',

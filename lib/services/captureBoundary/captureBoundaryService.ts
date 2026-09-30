@@ -43,6 +43,8 @@ import {
   type ChatPreviousItem,
 } from './chatEvidence';
 import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
+import type { CaptureAppLocale } from '../../../src/contracts/v1/captureContracts';
+import { titleDropReason } from '../share/shareAllowlist';
 
 /**
  * Persists a confirmation's commands and records its result on the proposal in
@@ -127,6 +129,35 @@ export interface ProposeCaptureOptions {
    * round 4: the rules' "I have a dentist appointment").
    */
   titleWithoutLeadIn?: boolean;
+  /**
+   * The phone's UI language (owner request 2026-09-30). Present, a model
+   * reading also writes each title in it (`appTitle`), and the proposal shows
+   * and saves that one. The rules cannot translate: without a model the
+   * person's own words stand.
+   */
+  locale?: CaptureAppLocale;
+}
+
+/**
+ * The title the card shows and the commitment is saved with (owner request
+ * 2026-09-30): the model's app-language one when it wrote one, with the
+ * person's own words kept beside it as `sourceTitle` — stored with the
+ * proposal, never shown, and what the chat matches a later message to an
+ * item by (`chatEvidence`).
+ *
+ * Swapped here, after everything that reads a title against the person's
+ * words has read the one in their words: the validator's repairs, the
+ * recurrence phrase, the conjunct's day word, the semantic checks. And a
+ * translation never launders one: when either title is a link, a contact
+ * instruction or a sentence to the assistant (`titleDropReason`, the share
+ * allowlist's own check), the person's words stay, so every later check —
+ * the share allowlist included — sees exactly what it saw before.
+ */
+function inAppLanguage(result: ExtractionResult): ExtractionResult {
+  const { appTitle, ...rest } = result;
+  const source = (result.title || result.action || '').trim();
+  if (!appTitle || !source || titleDropReason(source) !== null || titleDropReason(appTitle) !== null) return rest;
+  return { ...rest, title: appTitle, sourceTitle: source };
 }
 
 /**
@@ -662,6 +693,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     now: options.now,
     timezone: options.timezone,
     categories: categoryPreferences.enabled,
+    ...(options.locale ? { titleLanguage: options.locale } : {}),
   };
   const proposalId = randomUUID();
   const commandsByItemId = new Map<string, readonly ReturnType<typeof mapExtractionToCommand>[number][]>();
@@ -1084,7 +1116,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         if (title !== extracted.result.title) {
           extracted = { ...extracted, result: { ...extracted.result, title, ...(extracted.result.action === extracted.result.title ? { action: title } : {}) } };
         }
+        // …in the app's language as well: «عندي موعد عند الدكتور» for "I have a doctor's appointment".
+        const appTitle = extracted.result.appTitle ? withoutPossessionLeadIn(extracted.result.appTitle) : undefined;
+        if (appTitle && appTitle !== extracted.result.appTitle) {
+          extracted = { ...extracted, result: { ...extracted.result, appTitle } };
+        }
       }
+      // Last, once nothing after it reads the title against the person's words.
+      extracted = { ...extracted, result: inAppLanguage(extracted.result) };
       const disposition = decideExtractionDisposition(extracted.result);
       /*
        * A bare early hour is asked about, not guessed (CL1 round 6, D2

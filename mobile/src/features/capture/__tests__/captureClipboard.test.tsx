@@ -262,11 +262,13 @@ describe('pasted text lands where typed text lands', () => {
     expect(confirm).not.toHaveBeenCalled();
 
     await fireEvent.press(screen.getByTestId('review-confirm'));
-    await waitFor(() => expect(screen.queryByTestId('saved-item-i-1')).not.toBeNull());
+    // Saved, in the chat, which stays open for the next one (owner request 2026-09-30).
+    await waitFor(() => expect(screen.queryByTestId('chat-done')).not.toBeNull());
+    expect(screen.queryAllByText(/Hand in the report/).length).toBeGreaterThan(0);
     expect(confirm).toHaveBeenCalledTimes(1);
     expect((confirm.mock.calls[0]![0] as { proposalId: string }).proposalId).toBe('p-1');
     // The undo window a typed capture gets, on a pasted one.
-    expect(screen.queryByTestId('saved-undo')).not.toBeNull();
+    expect(screen.queryByTestId('chat-saved-undo')).not.toBeNull();
   });
 
   it('truncates an over-long paste to what the field holds, and says so', async () => {

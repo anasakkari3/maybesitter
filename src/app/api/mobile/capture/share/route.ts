@@ -59,8 +59,8 @@ const FILE_FIELD = 'files';
 
 /**
  * What a multipart body may carry beyond the files themselves: the boundary
- * lines and part headers, plus the `text`, `timezone`, `referenceTime` and
- * `sourceHint` fields. Raw text is bounded at `MAX_SHARE_RAW_TEXT_CHARACTERS`
+ * lines and part headers, plus the `text`, `timezone`, `referenceTime`,
+ * `sourceHint` and `locale` fields. Raw text is bounded at `MAX_SHARE_RAW_TEXT_CHARACTERS`
  * (20,000 characters, at most 80 KB) by the service; 1 MiB covers that and
  * the framing many times over without changing which shares the service
  * accepts — a share that fits this stream bound but not `MAX_TOTAL_BYTES` is
@@ -170,6 +170,8 @@ export async function POST(request: Request) {
         ...(field(form, 'timezone') === undefined ? {} : { timezone: field(form, 'timezone') }),
         ...(field(form, 'referenceTime') === undefined ? {} : { referenceTime: field(form, 'referenceTime') }),
         ...(field(form, 'sourceHint') === undefined ? {} : { sourceHint: field(form, 'sourceHint') }),
+        // The phone's UI language (owner request 2026-09-30); validated by the service.
+        ...(field(form, 'locale') === undefined ? {} : { locale: field(form, 'locale') }),
       },
       { uid: user.uid, signal: request.signal },
     );

@@ -35,8 +35,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   CAPTURE_CONTRACT_VERSION,
   CAPTURE_INPUT_MAX_CHARACTERS,
+  captureAppLocaleFrom,
+  type CaptureAppLocale,
   type CaptureProposalContract,
 } from '../../../src/contracts/v1/captureContracts';
+import { titleScript } from '../../../src/extraction/schemaValidator';
+import { titleDropReason } from '../share/shareAllowlist';
 import type { AiConsentState } from '../../../src/contracts/v1/consentContracts';
 import type { Command } from '../../../src/domain/stateMachine';
 import { toVertexSchema } from '../../../src/extraction/llm/vertexSchema';
@@ -96,6 +100,8 @@ export interface MeetingPrepInput {
   startAt?: unknown;
   endAt?: unknown;
   timezone?: unknown;
+  /** The phone's UI language, `'ar' | 'en' | 'he'`: the steps are titled in it (owner request 2026-09-30). */
+  locale?: unknown;
 }
 
 export interface ValidMeetingPrepInput {
@@ -103,6 +109,7 @@ export interface ValidMeetingPrepInput {
   readonly start: Date;
   readonly end: Date | null;
   readonly timezone: string;
+  readonly locale?: CaptureAppLocale;
 }
 
 /**
@@ -129,7 +136,8 @@ export function validateMeetingPrepInput(input: MeetingPrepInput, now: Date): Va
   if (start.getTime() > now.getTime() + MEETING_PREP_MAX_DAYS_AHEAD * 24 * 60 * MINUTE) {
     throw new MeetingPrepInputError('meeting_too_far');
   }
-  return { notes, start, end, timezone: normalizeTimezone(input.timezone) };
+  const locale = captureAppLocaleFrom(input.locale);
+  return { notes, start, end, timezone: normalizeTimezone(input.timezone), ...(locale ? { locale } : {}) };
 }
 
 function instant(value: unknown): Date | null {
@@ -246,13 +254,31 @@ function actionFrom(value: unknown): string | null {
 /** One follow-up as the model gave it, before it is checked. */
 interface ModelFollowUp {
   readonly action: string;
+  /** The same action in the app's language, when the model gave one (owner request 2026-09-30). */
+  readonly appAction: string | null;
   readonly date: string | null;
   readonly time: string | null;
 }
 
 interface ModelCandidates {
   readonly prep: string;
+  readonly prepAppAction: string | null;
   readonly followUps: readonly ModelFollowUp[];
+}
+
+/**
+ * The title a step is shown and saved with (owner request 2026-09-30): the
+ * model's app-language one, across languages only, and never one that — or
+ * whose own-words original — is a link, a contact instruction or a sentence to
+ * the assistant. Every check on the notes (the clause a follow-up's hour is
+ * read from, the transcript's own validation) reads `action`, in the notes'
+ * words; this is applied after them.
+ */
+function shownTitle(action: string, appAction: string | null | undefined, locale: CaptureAppLocale | undefined): string {
+  if (!locale || !appAction || appAction === action) return action;
+  if (titleScript(action) === locale || titleScript(appAction) !== locale) return action;
+  if (titleDropReason(action) !== null || titleDropReason(appAction) !== null) return action;
+  return appAction;
 }
 
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -267,18 +293,18 @@ function parseModelAnswer(text: string): ModelCandidates | null {
     return null;
   }
   if (!raw || typeof raw !== 'object') return null;
-  const record = raw as { prepStep?: { action?: unknown }; followUps?: unknown };
+  const record = raw as { prepStep?: { action?: unknown; appAction?: unknown }; followUps?: unknown };
   const prep = actionFrom(record.prepStep?.action);
   if (!prep) return null;
   const followUps = (Array.isArray(record.followUps) ? record.followUps : []).flatMap((entry): ModelFollowUp[] => {
-    const item = entry as { action?: unknown; deadlineDate?: unknown; deadlineTime?: unknown };
+    const item = entry as { action?: unknown; appAction?: unknown; deadlineDate?: unknown; deadlineTime?: unknown };
     const action = actionFrom(item?.action);
     if (!action) return [];
     const date = typeof item.deadlineDate === 'string' && LOCAL_DATE.test(item.deadlineDate.trim()) ? item.deadlineDate.trim() : null;
     const time = typeof item.deadlineTime === 'string' && LOCAL_TIME.test(item.deadlineTime.trim()) ? item.deadlineTime.trim() : null;
-    return [{ action, date, time }];
+    return [{ action, appAction: actionFrom(item.appAction), date, time }];
   });
-  return { prep, followUps };
+  return { prep, prepAppAction: actionFrom(record.prepStep?.appAction), followUps };
 }
 
 /** When a follow-up is due: an instant, a whole day, or nothing. */
@@ -445,6 +471,7 @@ async function askModel(
     endsAtLocal: valid.end ? localText(valid.end, valid.timezone) : null,
     nowLocal: localText(now, valid.timezone),
     timezone: valid.timezone,
+    ...(valid.locale ? { appLanguage: valid.locale } : {}),
   }));
   try {
     const response = await generate({
@@ -650,7 +677,7 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
     return { followUp, when: followUpWhen(followUp, valid, now, clock?.time ?? null), hourGuessed: clock?.guessed === true };
   });
   const whenByKey = new Map(followUps.map(({ followUp, when, hourGuessed }) => [
-    `${followUp.action.toLowerCase()}\0${when.kind === 'none' ? '' : when.dueAt}`, { when, hourGuessed },
+    `${followUp.action.toLowerCase()}\0${when.kind === 'none' ? '' : when.dueAt}`, { when, hourGuessed, appAction: followUp.appAction },
   ]));
 
   const allSegments = segmentsOf(valid.notes).map((_, index) => index);
@@ -682,20 +709,25 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   const shownAt = due.at.toISOString();
   // The prep instant is the product's plan for the step, not a reading of an
   // hour in the notes, so it is not marked as a guessed hour (D2).
-  push(plan.prep.candidate.action, { resolvedTime: shownAt, timeEstimated: false }, {
+  // The prep step's title in the app's language only when it is the model's own step, as it wrote it.
+  const prepTitle = answered && plan.prep.candidate.action === answered.prep
+    ? shownTitle(answered.prep, answered.prepAppAction, valid.locale)
+    : plan.prep.candidate.action;
+  push(prepTitle, { resolvedTime: shownAt, timeEstimated: false }, {
     kind: 'due_by', dueAt: shownAt, endAt: timing.dueAt.toISOString(), remindAt: ringAt, allDay: false,
   });
   for (const proposal of plan.followUps) {
     const found = whenByKey.get(`${proposal.candidate.action.toLowerCase()}\0${proposal.candidate.deadlineAt ?? ''}`);
     const when = found?.when ?? { kind: 'none' as const };
+    const title = shownTitle(proposal.candidate.action, found?.appAction, valid.locale);
     if (when.kind === 'instant') {
-      push(proposal.candidate.action, { resolvedTime: when.dueAt, timeEstimated: found?.hourGuessed === true }, { kind: 'due_by', dueAt: when.dueAt, remindAt: when.dueAt, allDay: false });
+      push(title, { resolvedTime: when.dueAt, timeEstimated: found?.hourGuessed === true }, { kind: 'due_by', dueAt: when.dueAt, remindAt: when.dueAt, allDay: false });
     } else if (when.kind === 'day') {
-      push(proposal.candidate.action, { resolvedTime: null, timeEstimated: false, resolvedDate: when.date, dateEstimated: false }, {
+      push(title, { resolvedTime: null, timeEstimated: false, resolvedDate: when.date, dateEstimated: false }, {
         kind: 'due_by', dueAt: when.dueAt, remindAt: null, allDay: true,
       });
     } else {
-      push(proposal.candidate.action, { resolvedTime: null, timeEstimated: false }, { kind: 'unscheduled' });
+      push(title, { resolvedTime: null, timeEstimated: false }, { kind: 'unscheduled' });
     }
   }
 

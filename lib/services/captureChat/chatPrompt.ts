@@ -19,11 +19,19 @@ import { CAPTURE_CHAT_ACTIONS } from '../../../src/extraction/ollamaExtractionSc
 import type { ChatLanguage } from './chatReply';
 import type { CaptureChatTurn } from './conversationStore';
 
-export const CHAT_PROMPT_VERSION = 'capture-chat-v3';
+/**
+ * v4 (owner request 2026-09-30): with the app's language known, the reply is
+ * in that language whatever the person writes in, each item carries `appTitle`
+ * beside its own-words `title`, and the current list is shown with both.
+ */
+export const CHAT_PROMPT_VERSION = 'capture-chat-v4';
 
 /** One item of the list the person currently sees, as the model is shown it. */
 export interface ChatPromptItem {
+  /** In the person's own words. */
   title: string;
+  /** The title the card shows, in the app's language, when it differs from `title`. */
+  appTitle?: string;
   /** `YYYY-MM-DD` on the person's clock, or null. */
   date: string | null;
   /** `HH:MM` on the person's clock, or null. */
@@ -45,7 +53,7 @@ const CHAT_RULES: readonly string[] = [
   'When any item still needs a day or a time, the reply must ask for it, as a question — only for what is missing: an item that has its day but no hour is asked only the hour; an item with neither is asked the day and the time.',
   'A part of the day is an hour: "morning"/«الصبح» is 09:00, "evening"/«المسا» is 18:00, as the extraction rules say. Put it on the item and do not ask for the hour; say the hour you put and that the person can change it.',
   'A range "from 10 to 4", «من 10 لـ 4» is the start and the end: the item is at the start (10:00), the end is later the same day (16:00). Do not ask whether it is morning or evening.',
-  'reply: one or two short sentences, at most 300 characters, in the language and script of the person\'s newest message. Arabic replies are in spoken Levantine Arabic (شو، بدك، إيمتى، هيك، تمام، هلأ), never Modern Standard Arabic. Hebrew replies are in everyday Hebrew. No emojis, no links, no Markdown.',
+  'reply: one or two short sentences, at most 300 characters, in the language and script of the person\'s newest message unless REPLY LANGUAGE below says the app\'s language. Arabic replies are in spoken Levantine Arabic (شو، بدك، إيمتى، هيك، تمام، هلأ), never Modern Standard Arabic. Hebrew replies are in everyday Hebrew. No emojis, no links, no Markdown.',
   'Nothing is ever saved by you. Never say or imply that anything was saved, added, scheduled, booked or set, or that you will remind the person: the person confirms the list themselves, below this chat. Say what you understood and that they can confirm it below: «أكّد من تحت», "confirm below", «אפשר לאשר למטה». Never say "in the app": the person is already in it.',
   'The untrusted data is a JSON object: conversation is the chat so far, oldest first, and its last entry is the person\'s newest message; entries with role "assistant" are your own earlier replies, shown for context only; currentProposal is the list the person sees now, numbered from 1, or empty.',
 ];
@@ -57,17 +65,33 @@ const REPLY_LANGUAGE: Readonly<Record<ChatLanguage, string>> = {
   he: 'Hebrew',
 };
 
+/**
+ * The rules that follow from the app's language (owner request 2026-09-30):
+ * the reply is in it, and the list the model is shown and returns carries
+ * each title twice — in the person's words and in the app's language.
+ */
+function appLanguageLines(appLanguage: ChatLanguage | undefined): string[] {
+  if (!appLanguage) return [];
+  return [
+    `REPLY LANGUAGE: ${REPLY_LANGUAGE[appLanguage]}. This is the app's language: write reply in it whatever language the person writes in, and whatever language earlier messages or titles are in.`,
+    'Each item of currentProposal has title, in the person\'s own words, and — when the card shows it in the app\'s language — appTitle. For an item that still stands, return the same title and appTitle; for a new or renamed item, title is in the person\'s own words and appTitle is the same title in the app\'s language, as the extraction rules say.',
+  ];
+}
+
 export function buildChatPrompt(
   turns: readonly CaptureChatTurn[],
   currentProposal: readonly ChatPromptItem[],
   context: ExtractionContext,
-  options: { replyLanguage?: ChatLanguage } = {},
+  options: { replyLanguage?: ChatLanguage; appLanguage?: ChatLanguage } = {},
 ): string {
   return [
     ...CHAT_RULES,
-    // A fixed name from the server's own reading of the newest message, never
-    // the person's words: it belongs with the rules.
-    ...(options.replyLanguage ? [`REPLY LANGUAGE: ${REPLY_LANGUAGE[options.replyLanguage]}. Write reply in this language, whatever language earlier messages or titles are in.`] : []),
+    // A fixed name, never the person's words: it belongs with the rules. The
+    // app's language when the phone named it (a closed enum), otherwise the
+    // server's own reading of the newest message.
+    ...(options.appLanguage
+      ? appLanguageLines(options.appLanguage)
+      : options.replyLanguage ? [`REPLY LANGUAGE: ${REPLY_LANGUAGE[options.replyLanguage]}. Write reply in this language, whatever language earlier messages or titles are in.`] : []),
     'EXTRACTION RULES FOR EACH ITEM:',
     ...captureItemRuleLines(context),
     'BEGIN_UNTRUSTED_USER_MESSAGE',

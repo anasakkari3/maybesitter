@@ -252,3 +252,18 @@ test('a model that fails leaves a consumable empty proposal', async () => {
   const result = await confirmAiContextImport(UID, proposal.proposalId, [], AT, { memory });
   assert.equal(result.created, 0);
 });
+
+test('with the app language, candidates are asked for in it; without, in the profile’s own (owner request 2026-09-30)', async () => {
+  const systems: string[] = [];
+  const generate = async (request: { system: string }) => {
+    systems.push(request.system);
+    return { text: JSON.stringify({ candidates: [candidate({ content: 'بتشتغل من 9 لـ 5' })] }), model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+  };
+  const arabic = await importAiContext(UID, PASTE, 'chatgpt', AT, { memory, generate: generate as never, locale: 'ar' });
+  assert.match(systems[0]!, /written in Arabic \(spoken Levantine, never Modern Standard\) — the language the person reads the app in — whatever language the profile is in/);
+  assert.doesNotMatch(systems[0]!, /written in the same language the person's profile used/);
+  assert.equal(arabic.candidates[0]!.content, 'بتشتغل من 9 لـ 5');
+  await importAiContext(UID, PASTE, 'chatgpt', AT, { memory, generate: generate as never });
+  assert.match(systems[1]!, /written in the same language the person's profile used/);
+  assert.doesNotMatch(systems[1]!, /reads the app in/);
+});

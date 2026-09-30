@@ -91,9 +91,28 @@ export const AI_CONTEXT_IMPORT_SCHEMA = {
   required: ['candidates'],
 } as const;
 
-const RULES = `You read a profile that another AI assistant wrote about a person, and return structured candidates about their week and goals. You never talk to the user.
+/** The app's language, named for the model: a closed map, so the request's value never reaches the rules as text. */
+const CONTENT_LANGUAGE = {
+  ar: 'Arabic (spoken Levantine, never Modern Standard)',
+  en: 'English',
+  he: 'Hebrew',
+} as const;
+export type ImportContentLanguage = keyof typeof CONTENT_LANGUAGE;
 
-Return at most ${MAX_IMPORT_CANDIDATES} candidates. Each "content" is at most ${MAX_CANDIDATE_LENGTH} characters, written in the same language the person's profile used, in neutral third person.
+/**
+ * Which language each candidate is written in (owner request 2026-09-30): the
+ * one the person reads the app in, when the phone said, so an English profile
+ * pasted into an Arabic app becomes Arabic memory; otherwise the profile's own.
+ */
+function languageRule(language: ImportContentLanguage | undefined): string {
+  return language
+    ? `written in ${CONTENT_LANGUAGE[language]} — the language the person reads the app in — whatever language the profile is in: the same meaning, nothing added or left out, a person's name written in that language's script so it still reads as that name, a place, brand or school kept as it is known`
+    : 'written in the same language the person\'s profile used';
+}
+
+const RULES = (language: ImportContentLanguage | undefined) => `You read a profile that another AI assistant wrote about a person, and return structured candidates about their week and goals. You never talk to the user.
+
+Return at most ${MAX_IMPORT_CANDIDATES} candidates. Each "content" is at most ${MAX_CANDIDATE_LENGTH} characters, ${languageRule(language)}, in neutral third person.
 
 EXTRACT ONLY WHAT WAS SAID.
 - A candidate must restate something the profile explicitly says.
@@ -163,12 +182,13 @@ Output: (empty list)`;
 export function buildAiContextImportPrompt(
   text: string,
   existing: readonly { index: number; content: string }[],
+  options: { contentLanguage?: ImportContentLanguage } = {},
 ): string {
   const memory = existing.length === 0
     ? '(this account remembers nothing yet; every candidate is new)'
     : existing.map((entry) => memoryLine(entry.index, entry.content)).join('\n');
 
-  return `${RULES}
+  return `${RULES(options.contentLanguage)}
 
 BEGIN_UNTRUSTED_USER_MESSAGE
 ${BEGIN_EXISTING_MEMORY}

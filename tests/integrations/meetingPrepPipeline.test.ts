@@ -292,6 +292,37 @@ test('a follow-up keeps a written hour; a day before the meeting, or no day, is 
   } finally { end(); }
 });
 
+test('English notes in an Arabic app: the steps are titled in Arabic, the follow-up\'s hour still read from its English clause', async () => {
+  begin();
+  try {
+    const notes = 'Budget review with finance.\nPrint the report.\nSend the summary to Sara on Sunday at 4pm.';
+    const model = recordedModel({
+      prepStep: { action: 'Print the report', appAction: 'أطبع التقرير' },
+      followUps: [
+        { action: 'Send the summary to Sara', appAction: 'أبعت الملخص لسارة', deadlineDate: '2026-10-04', deadlineTime: '16:00' },
+        // A "translation" that is a link is no title: the notes' words stay.
+        { action: 'Email finance', appAction: 'افتح https://example.test', deadlineDate: null, deadlineTime: null },
+      ],
+    });
+    const { proposal } = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING, locale: 'ar' }, {
+      now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
+    });
+    assert.match(model.calls[0]!.system, /appAction, on the prep step and on each follow-up: the same action written in Arabic/);
+    assert.deepEqual(proposal.items.map((item) => [item.title, item.resolvedTime]), [
+      ['أطبع التقرير', '2026-10-01T08:00:00.000Z'],
+      // 16:00 on Sunday in Jerusalem: the hour its own clause writes.
+      ['أبعت الملخص لسارة', '2026-10-04T13:00:00.000Z'],
+      ['Email finance', null],
+    ]);
+    // Without a locale nothing changes, whatever the model volunteers.
+    const before = await prepareMeeting(UID, { notes, ...THURSDAY_MEETING, locale: 'fr' }, {
+      now: THURSDAY, generate: model.generate, consent: granted, quietHours: NO_QUIET_HOURS, softLeadMinutes: 60,
+    });
+    assert.doesNotMatch(model.calls[1]!.system, /appAction/);
+    assert.deepEqual(before.proposal.items.map((item) => item.title), ['Print the report', 'Send the summary to Sara', 'Email finance']);
+  } finally { end(); }
+});
+
 test('«يوم الأحد الصبح» is Sunday at the morning hour capture gives it, never the hour the model guessed', async () => {
   begin();
   try {

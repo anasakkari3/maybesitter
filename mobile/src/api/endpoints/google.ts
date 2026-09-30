@@ -9,6 +9,7 @@ import {
   type GoogleFeature,
 } from '../schemas/google';
 import { shareProposalSchema, type ShareProposal } from '../schemas/share';
+import type { Locale } from '../../i18n/locale';
 
 /**
  * The Google calls (CL6a). One connection per account; every route derives
@@ -56,9 +57,14 @@ export function listGoogleBusy() {
 }
 
 /** «جيب التزامات من إيميلي»: the last seven days of Primary, twenty messages at most. */
-export function scanGmail(input: { timezone: string; referenceTime?: string }): Promise<ShareProposal> {
+export function scanGmail(input: { timezone: string; referenceTime?: string; locale?: Locale }): Promise<ShareProposal> {
   return apiRequest('POST', '/api/mobile/integrations/google/gmail/scan', {
-    body: { timezone: input.timezone, referenceTime: input.referenceTime ?? new Date().toISOString() },
+    body: {
+      timezone: input.timezone,
+      referenceTime: input.referenceTime ?? new Date().toISOString(),
+      // The app's UI language: the proposed titles are in it (owner request 2026-09-30).
+      ...(input.locale ? { locale: input.locale } : {}),
+    },
     schema: shareProposalSchema,
     // Twenty messages fetched and read by the model: a share's time, not a lookup's.
     timeoutMs: UPLOAD_TIMEOUT_MS,
@@ -70,9 +76,14 @@ export function beginDrivePick() {
 }
 
 /** The one file the person picked, read into a proposal. */
-export function importDriveFile(input: { fileId: string; timezone: string; referenceTime?: string }): Promise<ShareProposal> {
+export function importDriveFile(input: { fileId: string; timezone: string; referenceTime?: string; locale?: Locale }): Promise<ShareProposal> {
   return apiRequest('POST', '/api/mobile/integrations/google/drive/import', {
-    body: { fileId: input.fileId, timezone: input.timezone, referenceTime: input.referenceTime ?? new Date().toISOString() },
+    body: {
+      fileId: input.fileId,
+      timezone: input.timezone,
+      referenceTime: input.referenceTime ?? new Date().toISOString(),
+      ...(input.locale ? { locale: input.locale } : {}),
+    },
     schema: shareProposalSchema,
     // A file downloaded from Drive and read by the model, like a shared PDF.
     timeoutMs: UPLOAD_TIMEOUT_MS,

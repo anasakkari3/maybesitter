@@ -229,7 +229,10 @@ export interface ChatItemEvidence {
 
 /** An item of the list the person saw before this message, on their clock. */
 export interface ChatPreviousItem {
+  /** In the person's own words (`sourceTitle`), which is what their messages are matched against. */
   title: string;
+  /** The title the card showed, in the app's language, when it differed (owner request 2026-09-30). */
+  appTitle?: string;
   /** `YYYY-MM-DD`, or null. */
   date: string | null;
   /** `HH:MM`, or null. */
@@ -311,6 +314,10 @@ const RENAME = /\b(?:rename|call\s+it|name\s+it|title)\b|(?:سمّي|سمي|اس
  * The model's items, each keeping the title it had when the model's new one
  * is only the words of the edit (chat UAT round 2: the second engagement came
  * back titled «خلّي التانية»). A rename the person asked for stands.
+ *
+ * The app-language title goes with it (owner request 2026-09-30): an item
+ * whose own-words title is the one it had keeps the card title it had, so the
+ * card does not change its words because the model translated them again.
  */
 export function withPreviousTitles(
   items: readonly unknown[],
@@ -323,11 +330,13 @@ export function withPreviousTitles(
   return items.map((item, index) => {
     const before = aligned[index] === null ? null : previous[aligned[index]!]!;
     const title = itemTitle(item);
-    if (!before || !title || title.trim() === before.title.trim() || !item || typeof item !== 'object') return item;
+    if (!before || !title || !item || typeof item !== 'object') return item;
+    const keptAppTitle = { appTitle: before.appTitle ?? null };
+    if (title.trim() === before.title.trim()) return before.appTitle ? { ...(item as Record<string, unknown>), ...keptAppTitle } : item;
     const words = contentWords(title);
     const onlyTheEdit = words.every((word) => said.some((candidate) => sameWord(word, candidate)))
       && titleScore(contentWords(before.title), words) < contentWords(before.title).length;
-    return onlyTheEdit ? { ...(item as Record<string, unknown>), title: before.title, action: before.title } : item;
+    return onlyTheEdit ? { ...(item as Record<string, unknown>), title: before.title, action: before.title, ...keptAppTitle } : item;
   });
 }
 

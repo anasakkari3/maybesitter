@@ -55,6 +55,8 @@ export const GMAIL_SCAN_CAPTURE_RESERVE_MS = 10_000;
 export interface GmailScanInput {
   readonly timezone?: unknown;
   readonly referenceTime?: unknown;
+  /** The phone's UI language: the proposed titles are in it (owner request 2026-09-30). */
+  readonly locale?: unknown;
 }
 
 export async function scanRecentGmail(
@@ -104,6 +106,7 @@ export async function scanRecentGmail(
     timezone: input.timezone,
     referenceTime: input.referenceTime,
     deadline,
+    locale: input.locale,
   }, {
     uid,
     ...(options.signal ? { signal: options.signal } : {}),

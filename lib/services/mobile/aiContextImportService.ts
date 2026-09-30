@@ -118,6 +118,8 @@ export interface ImportOptions {
   memory?: RuntimeMemoryStore;
   /** Injected so a test can drive the model without one. */
   generate?: ShareStructuredGenerator;
+  /** The phone's UI language (owner request 2026-09-30): the candidates are written in it. */
+  locale?: 'ar' | 'en' | 'he';
 }
 
 interface StoredImportProposal {
@@ -234,6 +236,7 @@ export async function importAiContext(
   const built = buildAiContextImportPrompt(
     paste,
     shown.map((record, i) => ({ index: i + 1, content: record.content })),
+    options.locale ? { contentLanguage: options.locale } : {},
   );
   // The import's own ceiling (under `shareLlmProvider`'s 60,000). The contracts
   // test makes this unreachable; it is here because "unreachable" is a
