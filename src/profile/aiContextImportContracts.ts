@@ -42,7 +42,8 @@ export const MAX_IMPORT_LENGTH = 4_000;
  */
 export const MAX_EXISTING_MEMORY_RECORDS = 40;
 
-export const AI_CONTEXT_IMPORT_PROMPT_VERSION = 'ai-context-import-v1';
+/** v2 (owner request 2026-09-30): with the app's language known, each candidate is written in it. */
+export const AI_CONTEXT_IMPORT_PROMPT_VERSION = 'ai-context-import-v2';
 
 /**
  * Same thirty minutes as a describe proposal, and additionally because the

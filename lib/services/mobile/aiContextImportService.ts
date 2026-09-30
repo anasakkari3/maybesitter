@@ -118,6 +118,8 @@ export interface ImportOptions {
   memory?: RuntimeMemoryStore;
   /** Injected so a test can drive the model without one. */
   generate?: ShareStructuredGenerator;
+  /** The phone's UI language (owner request 2026-09-30): the candidates are written in it. */
+  locale?: 'ar' | 'en' | 'he';
 }
 
 interface StoredImportProposal {
@@ -234,6 +236,7 @@ export async function importAiContext(
   const built = buildAiContextImportPrompt(
     paste,
     shown.map((record, i) => ({ index: i + 1, content: record.content })),
+    options.locale ? { contentLanguage: options.locale } : {},
   );
   // `shareLlmProvider`'s own ceiling is 60,000, so the 20,000 the capture path
   // enforces is not inherited. The contracts test makes this unreachable; it is
