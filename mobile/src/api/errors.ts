@@ -136,6 +136,11 @@ export class CaptureConfirmRefusedError extends ApiError {
 /** 409 — someone else moved first. A next-step proposal went stale. */
 export class ConflictError extends ApiError {}
 
+/** A proposed time moved before the user accepted it; refresh the suggestion. */
+export class SuggestionScheduleChangedError extends ConflictError {
+  constructor() { super('suggestion_schedule_changed'); }
+}
+
 /**
  * 409 `currency_required` — an amount sent before the account has a currency
  * (`/api/mobile/financial/manual`). Nothing was saved, and the way forward is

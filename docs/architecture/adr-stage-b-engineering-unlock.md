@@ -64,3 +64,23 @@ The product owner has explicitly established the following operational boundarie
 - Production safety is guaranteed through default-off feature flags, kill switches, and strict environment isolation.
 - Auditability, account deletion, cost attribution, and data provenance requirements must be validated in staging before any release consideration.
 - Module status transitions across all roadmap documentation from `LOCKED` to `ENGINEERING_ALLOWED / RELEASE_LOCKED`.
+
+## Owner decision 2026-10-01 — proactive loop released to production
+
+The owner decided to release the proactive decision loop (`lib/intelligence/**`
+— proactive, source-linked suggestions; outcome inference and learning; opt-in
+Gmail monitoring; flag `MAYBESITTER_FEATURE_PROACTIVE_LOOP`) to production for
+all users, before Market Evidence Gate #61, after reviewing that the gate
+would otherwise keep it on staging.
+
+What still holds for the loop in production:
+
+- the kill switch `MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP` (one value change);
+- proposal-only: nothing canonical changes without the person's acceptance;
+- Gmail monitoring only for accounts that switch it on;
+- the global (500/day) and per-user (60/day) model caps and cost attribution;
+- account export and deletion coverage.
+
+This is an exception for this loop only. Every other Stage B module remains
+`ENGINEERING_ALLOWED / RELEASE_LOCKED`, and releasing the loop is not product
+evidence for #61.

@@ -215,7 +215,9 @@ test('every mobile route file exists and is enumerated', () => {
   // chat` sends the caller's words to the model and stores a proposal and a
   // conversation under the caller's uid, so an unguarded one would do both
   // for any account.
-  assert.equal(files.length, 95, `found:\n${files.join('\n')}`);
+  // One hundred two with the seven staging intelligence routes. All resolve
+  // the account from the verified mobile token before reading personal context.
+  assert.equal(files.length, 102, `found:\n${files.join('\n')}`);
 });
 
 test('every mobile route handler runs an authentication guard before anything else', () => {

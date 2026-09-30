@@ -30,6 +30,7 @@ import {
   InputTooLargeError,
   type QuotaScope,
   StaleCommitmentError,
+  SuggestionScheduleChangedError,
   TimeoutError,
   UnauthorizedError,
   UnsupportedShareError,
@@ -220,6 +221,7 @@ function conflictFor(body: unknown): Error {
       return new StaleCommitmentError(current.data);
     }
     if (record.reason === 'invalid_transition') return new InvalidTransitionError();
+    if (record.reason === 'suggestion_schedule_changed') return new SuggestionScheduleChangedError();
     // The device-calendar link route (UC-3.1, #185). Both reasons are answers
     // the sync service acts on rather than failures it reports.
     if (record.reason === 'calendar_link_owned_elsewhere' || record.reason === 'calendar_link_detached') {

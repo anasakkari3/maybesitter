@@ -19,6 +19,7 @@ import { SwipeableRow, useRowActions } from '../features/commitments/RowActions'
 import { postponeTo } from '../features/commitments/postpone';
 import { whyFirstLine } from '../features/commitments/whyFirst';
 import { NextStepCard } from '../features/nextStep/NextStepCard';
+import { ProactiveInboxBanner } from '../features/goals/ProactiveInboxBanner';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
@@ -224,6 +225,8 @@ export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = 
           subtitle={t.referenceTodaySubtitle}
           end={<TextLink label={t.xAssistant} onPress={() => actions.go('contextualAssistant')} testID="today-assistant" />}
         />
+
+        <ProactiveInboxBanner />
 
         {showBar ? <CategoryBar chips={chips} selected={chip} onSelect={setChip} /> : null}
 

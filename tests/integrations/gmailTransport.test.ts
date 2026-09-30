@@ -727,6 +727,24 @@ test('the per-page message fan-out is capped', async () => {
   assert.equal(calls.filter((call) => call.endpoint === 'messagesGet').length, 5);
 });
 
+test('a cursor-sensitive consumer can refuse a truncated history page', async () => {
+  const ids = Array.from({ length: 6 }, (_, index) => `msg-${index}`);
+  const { fetchImpl, calls } = scriptedFetch({
+    history: ok({
+      history: ids.map(id => ({ id: `h-${id}`, messagesAdded: [{ message: { id, threadId: 't' } }] })),
+      historyId: '2418890',
+    }),
+    messagesGet: id => ok({ ...MESSAGE_FULL.body, id, historyId: '2418871' }),
+  });
+  const transport = createGmailTransport(transportDeps(fetchImpl, {
+    maxMessagesPerPage: 5, rejectHistoryTruncation: true,
+  }));
+  await assert.rejects(() => transport.listHistory({
+    connectionId: 'int-1', startHistoryId: HISTORY_CURSOR_FRESH, pageToken: null, maxResults: 100,
+  }));
+  assert.equal(calls.filter(call => call.endpoint === 'messagesGet').length, 0);
+});
+
 test('a single message cannot be pulled wholesale', async () => {
   const huge = 'x'.repeat(5_000);
   const { fetchImpl } = scriptedFetch({

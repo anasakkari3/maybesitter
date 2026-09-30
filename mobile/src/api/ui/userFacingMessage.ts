@@ -17,6 +17,7 @@ import {
   ServerError,
   ServiceUnavailableError,
   StaleCommitmentError,
+  SuggestionScheduleChangedError,
   TimeoutError,
   UnauthorizedError,
   UnsupportedShareError,
@@ -150,6 +151,7 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.
   if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';
+  if (error instanceof SuggestionScheduleChangedError) return 'errorsPlanProposalStale';
   // A plan-change offer that moved on (#611). Neither reason is the user's
   // doing, so neither may fall through to "check it and try again".
   // A declined offer that a newer one replaced gets its own sentence: the

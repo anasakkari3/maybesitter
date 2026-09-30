@@ -90,6 +90,7 @@ export type MemoryOrigin =
   | 'routine_survey'
   | 'self_description'
   | 'manual'
+  | 'proactive_suggestion'
   | 'capture'
   /**
    * A deterministic rule noticed it in what the user did, and the user pressed
@@ -110,6 +111,7 @@ export const MEMORY_ORIGINS: readonly MemoryOrigin[] = [
   'routine_survey',
   'self_description',
   'manual',
+  'proactive_suggestion',
   'capture',
   'behaviour_rule',
   'ai_context_import',

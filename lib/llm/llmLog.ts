@@ -59,6 +59,7 @@ const FEATURE_FOR_PURPOSE: Readonly<Record<LlmPurpose, CostFeatureKind>> = Objec
   ai_context_import: 'other',
   // Steps towards a goal become commitments and habits the planner places.
   goal_decomposition: 'planning',
+  semantic_observation: 'other',
   // «حضّرني» (CL5a): the feature the cost contract already names for it.
   meeting_prep: 'meeting_intelligence',
   // The capture chat is capture: the same items, reached by talking.

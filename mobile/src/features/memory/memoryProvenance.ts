@@ -115,6 +115,7 @@ export const ORIGIN_STRING: Record<NonNullable<MemoryItem['evidence']['origin']>
   routine_survey: 'memoryOriginSurvey',
   self_description: 'memoryOriginDescription',
   manual: 'memoryOriginManual',
+  proactive_suggestion: 'memoryOriginProactive',
   capture: 'memoryOriginCapture',
   behaviour_rule: 'memoryOriginRule',
   ai_context_import: 'memoryOriginAiImport',

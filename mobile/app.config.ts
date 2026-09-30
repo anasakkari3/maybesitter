@@ -467,6 +467,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     ...(config.plugins ?? []),
+    './plugins/withNativeLocaleDefaultStrings',
     // Fix default channel meta-data collision and receiver duplicates (#458)
     './plugins/withAndroidFixups',
     // `disableSPM` is required, not optional. React Native Firebase 26 resolves
@@ -833,7 +834,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     appEnv: APP_ENV,
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? null,
     googleWebClientId: googleWebClientId(),
-    apiMode: process.env.EXPO_PUBLIC_API_MODE ?? null,
+    // Android's embedded Expo config serializes null extras as {}, which made
+    // apiMode().trim() fail before the first API request in a release build.
+    apiMode: process.env.EXPO_PUBLIC_API_MODE ?? 'api',
     firebaseAuthEmulatorHost: process.env.EXPO_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST ?? null,
   },
 });

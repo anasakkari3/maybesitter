@@ -98,6 +98,14 @@ const configs = {
 
 const PROFILES = ['development', 'staging', 'production'] as const;
 
+it('embeds a string API mode in each native build', () => {
+  // Expo's Android asset turns null in `extra` into {}, and the first request
+  // then failed before it reached the server while reading that mode.
+  for (const profile of PROFILES) {
+    expect(configs[profile].extra?.apiMode).toBe('api');
+  }
+});
+
 describe('identity', () => {
   it('uses one bundle id and package on every profile', () => {
     for (const profile of PROFILES) {

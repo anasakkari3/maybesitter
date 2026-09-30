@@ -22,6 +22,8 @@
 export type LlmPurpose =
   | 'capture_extraction'
   | 'profile_extraction'
+  /** Multi-kind, source-grounded observations for the staged personal loop. */
+  | 'semantic_observation'
   | 'importance_estimate'
   /** Narrating a plan the deterministic scheduler already produced (#194). */
   | 'plan_explanation'

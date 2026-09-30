@@ -44,7 +44,7 @@
  * No function here reads the system clock. Every timestamp is supplied by the
  * caller (`now`/`at`), so store behaviour is reproducible in tests and replays.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   DEFAULT_MEMORY_TTL_MS,
   MEMORY_ORIGINS,
@@ -351,6 +351,21 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
     return record;
   }
 
+  /** A reviewed suggestion has one stable memory id across retries and devices. */
+  async putIdempotent(input: CreateMemoryInput, now: string, key: string): Promise<RuntimeMemoryRecord> {
+    assertTimestamp(now, 'now');
+    assertValidInput(input);
+    if (!key || key.length > 200) fail('idempotency key is invalid');
+    const id = `${RECORD_ID_PREFIX}${createHash('sha256').update(`${input.scopeId}\0${key}`).digest('hex')}`;
+    const record = freezeRecord({ ...buildRecord(input, now, this.defaultTtlMs), id });
+    return this.storage.runTransaction(async tx => {
+      const existing = await tx.get<RuntimeMemoryRecord>(recordPath(input.scopeId, id));
+      if (existing) return freezeRecord(existing);
+      tx.create(recordPath(input.scopeId, id), record);
+      return record;
+    });
+  }
+
   async get(id: string): Promise<RuntimeMemoryRecord | null> {
     return (await this.findById(id))?.record ?? null;
   }
@@ -476,7 +491,7 @@ export class StorageRuntimeMemoryStore implements RuntimeMemoryStore {
 export function createStorageRuntimeMemoryStore(
   options?: RuntimeMemoryStoreOptions,
   storage?: StorageAdapter,
-): RuntimeMemoryStore {
+): StorageRuntimeMemoryStore {
   return new StorageRuntimeMemoryStore(storage, options);
 }
 
