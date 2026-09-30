@@ -28,6 +28,7 @@
  *
  * Nothing here changes backend behaviour. It only reads it.
  */
+import { MAX_IMPORT_LENGTH } from '../../src/profile/aiContextImportContracts.ts';
 import { compareByCodePoint } from '../../lib/planning/shared/compare.ts';
 import { saveReminderSettings } from '../../lib/services/mobile/reminderSettingsService.ts';
 import test, { mock } from 'node:test';
@@ -1620,7 +1621,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     // The refusals the screen tells apart: a paste past the cap, which carries
     // the number it may show, and a proposal that expired while it was read.
     await record('profile.importTooLong', 413, await importPost(request('/api/mobile/profile/import', {
-      body: { text: 'x'.repeat(4_001), assistant: 'chatgpt' },
+      body: { text: 'x'.repeat(MAX_IMPORT_LENGTH + 1), assistant: 'chatgpt' },
     })));
 
     await record('profile.importExpired', 404, await importConfirmPost(
