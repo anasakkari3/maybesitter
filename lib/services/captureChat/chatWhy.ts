@@ -193,16 +193,39 @@ const CLASH_WORDS: readonly RegExp[] = [
 
 const claimsClash = (sentence: string): boolean => CLASH_WORDS.some((pattern) => pattern.test(fold(sentence)));
 
+/** Words quoted in a sentence: «…», "…", “…”. */
+const QUOTED = /«([^»]{1,120})»|"([^"]{1,120})"|“([^”]{1,120})”/g;
+
+/**
+ * Whether every title a clash sentence quotes is one the list holds — an
+ * item's, or a clash's own. The calendar's busy time has none, so a clash
+ * sentence that quotes one for it («بيتعارض مع "الجيم"») names a thing the
+ * person never had.
+ */
+function quotesOnlyKnownTitles(sentence: string, grounds: ReplyGrounds): boolean {
+  const known = grounds.items.flatMap((item) => [item.title, ...(item.conflicts ?? []).map((conflict) => conflict.title ?? '')])
+    .filter(Boolean)
+    .map((title) => contentWords(title));
+  for (const match of Array.from(sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).matchAll(QUOTED))) {
+    const words = contentWords(match[1] ?? match[2] ?? match[3] ?? '');
+    if (words.length === 0) continue;
+    if (!known.some((title) => words.some((word) => title.some((candidate) => sameWord(word, candidate))))) return false;
+  }
+  return true;
+}
+
 /**
  * The model's reply without a sentence that gives a reason the person never
  * gave, claims a clash when nothing clashes, or offers another time when
- * nothing clashes. What is left may be empty: the caller then answers with
- * its template.
+ * nothing clashes, or names a clash by a title nothing on the list has. What
+ * is left may be empty: the caller then answers with its template.
  */
 export function groundedReply(reply: string, grounds: ReplyGrounds): string {
   const clashing = hasConflicts(grounds);
   return sentencesOf(reply).filter((sentence) => {
-    if (!clashing && (claimsClash(sentence) || offerSentences(sentence).length > 0)) return false;
+    const clash = claimsClash(sentence);
+    if (!clashing && (clash || offerSentences(sentence).length > 0)) return false;
+    if (clash && !quotesOnlyKnownTitles(sentence, grounds)) return false;
     const reason = reasonOf(sentence);
     return reason === null || reasonGrounded(reason, grounds);
   }).join(' ');
