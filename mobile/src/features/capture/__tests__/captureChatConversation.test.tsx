@@ -211,6 +211,37 @@ describe('a conversation, turn by turn', () => {
   });
 });
 
+describe('while a message is on its way', () => {
+  it('shows it as a bubble with the typing reply, locks the field, and the examples do not come back', async () => {
+    // The answer waits for the test to let it through.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const server = chatServer(() => dentist('p-1', 'i-1', FIVE));
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation((async (input: { conversationId: string | null; message: string }) => {
+      await gate;
+      return server(input);
+    }) as never);
+    await openCapture();
+    expect(screen.queryByTestId('chat-quick-actions')).not.toBeNull();
+    await say('Remind me to call the dentist tomorrow at 5pm');
+
+    await waitFor(() => expect(screen.queryByTestId('chat-typing')).not.toBeNull());
+    expect(textOf('chat-turn-text-0')).toBe('Remind me to call the dentist tomorrow at 5pm');
+    expect(screen.getByTestId('chat-typing').props.accessibilityLabel).toBe(en.understanding);
+    expect(screen.getByTestId('capture-input').props.editable).toBe(false);
+    expect(field()).toBe('');
+    // Back still works while it is on its way.
+    expect(screen.getByTestId('capture-cancel').props.accessibilityState.disabled).toBe(false);
+
+    await React.act(async () => { release(); });
+    await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
+    expect(screen.queryByTestId('chat-typing')).toBeNull();
+    expect(screen.getByTestId('capture-input').props.editable).toBe(true);
+    // Examples are for an empty, new conversation only.
+    expect(screen.queryByTestId('chat-quick-actions')).toBeNull();
+  });
+});
+
 describe('a conversation the server no longer has', () => {
   it('is restarted with the same message, exactly once', async () => {
     const server = chatServer((_message, call) => dentist(`p-${call}`, `i-${call}`, FIVE));

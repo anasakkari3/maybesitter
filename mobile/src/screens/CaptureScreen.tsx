@@ -174,8 +174,9 @@ export function CaptureScreen() {
   };
   const quickAction = (id: string) => {
     if (busy || answering) return;
-    // Examples only fill an empty draft; they are never offered over typed text.
-    if (reviewing || state.text.trim()) return;
+    // Examples only fill an empty draft of a new conversation; they are never
+    // offered over typed text, or once the assistant has answered.
+    if (reviewing || state.text.trim() || state.turns.length > 0) return;
     const key = COMPOSER_EXAMPLE_KEYS.find(key => `example-${key}` === id);
     if (key) changeText(exampleText(key, t));
   };
@@ -308,6 +309,7 @@ export function CaptureScreen() {
         text={composerText} onChangeText={changeText} onSend={send}
         canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering}
         inputDisabled={state.status === 'confirming' || answering}
+        composerDisabled={state.status === 'analyzing'}
         onClose={headerBack} onMore={() => { if (!busy && !answering) setMenuOpen(true); }}
         onPaste={() => { if (!busy && !answering) void readClipboardText().then(setClipboard); }}
         assistant={{ text: t.chatWelcome }}
@@ -321,7 +323,7 @@ export function CaptureScreen() {
         {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}
         scheduleGroups={[...groups.values()]} onRowPress={setEditingId} onRowToggle={flow.toggleItem}
         onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering} confirming={state.status === 'confirming'}
-        quickActions={reviewing || state.text.trim() ? []
+        quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
         bodyOverride={bodyOverride} reviewExtras={reviewExtras} languageControl={language}

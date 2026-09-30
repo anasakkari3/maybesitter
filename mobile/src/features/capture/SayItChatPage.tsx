@@ -51,7 +51,10 @@ export interface SayItChatPageProps {
   onChangeText(text: string): void;
   onSend(): void;
   canSend: boolean;
+  /** Everything that edits or leaves: the field, paste, ⋯ and back. */
   inputDisabled?: boolean;
+  /** Only the field and paste — while a message is on its way, back still works. */
+  composerDisabled?: boolean;
   onClose(): void;
   onMore(): void;
   onPaste(): void;
@@ -94,7 +97,7 @@ export interface SayItChatPageProps {
 }
 
 export function SayItChatPage({
-  colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, onClose, onMore, onPaste,
+  colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, onClose, onMore, onPaste,
   outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], scheduleTime, onConfirm, canConfirm = false,
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, languageControl, voiceNotice, headerAccessory, bodyOverride, reviewExtras,
@@ -287,9 +290,9 @@ export function SayItChatPage({
         {voiceNotice}
         <View testID="chat-composer-row" style={styles.composerRow}>
           {/* A clipboard, not "+": the control pastes, and «الصق» says so (u27). */}
-          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled} />
+          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled || composerDisabled} />
           <TextInput testID="capture-input" value={text} onChangeText={onChangeText} multiline scrollEnabled
-            editable={!inputDisabled} accessibilityState={{ disabled: inputDisabled }}
+            editable={!inputDisabled && !composerDisabled} accessibilityState={{ disabled: inputDisabled || composerDisabled }}
             accessibilityLabel={copy.placeholder} placeholder={copy.placeholder} placeholderTextColor={p.mu}
             style={[styles.input, contentStyle(text, 14, 'regular', true), {
               color: p.tx, backgroundColor: p.sf, borderColor: p.lnStrong, textAlign: rtl ? 'right' : 'left',
