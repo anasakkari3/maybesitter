@@ -33,7 +33,7 @@ jest.mock('expo-localization', () => ({
   getLocales: jest.fn(() => [{ languageCode: 'en', languageTag: 'en-US', textDirection: 'ltr' }]),
 }));
 
-let sent: Array<{ path: string; body: Record<string, unknown> }>;
+let sent: { path: string; body: Record<string, unknown> }[];
 let client: ReturnType<typeof createAppQueryClient>;
 
 /** What each path answers: the real route's fixture, so the schemas accept it. */
