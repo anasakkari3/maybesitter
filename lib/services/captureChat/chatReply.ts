@@ -20,6 +20,8 @@
  */
 import { foldInjectionPattern, normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
+import { localTimeSpecFor, statesClock } from '../../../src/extraction/timeLexicon';
+import { namesOnlyItem } from '../captureBoundary/chatEvidence';
 
 export type ChatLanguage = 'ar' | 'en' | 'he';
 
@@ -158,7 +160,7 @@ const QUESTIONS: Readonly<Record<ChatLanguage, Readonly<Record<Exclude<MissingKi
   },
 };
 
-type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'needsClarification' | 'resolvedDate' | 'clarification'>>;
+type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
 type ProposalLike = { items: readonly ProposalItemLike[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
 
 /** The first item still asking for its day or time, if any. */
@@ -201,6 +203,8 @@ export interface TemplateContext {
   refused?: boolean;
   /** The person changed the list («خلّيها الساعة 6», "make the dentist 5pm"): the reply says so. */
   updated?: boolean;
+  /** The person's zone, to say an hour the proposal settled on. */
+  timezone?: string;
 }
 
 /** One safe reply, built from the proposal and nothing the model wrote. */
@@ -237,18 +241,74 @@ export function checkModelReply(reply: unknown, context: TemplateContext): { ok:
   return { ok: true, reply: text };
 }
 
+/** A question for a day or an hour: "what time", «أي ساعة», «إيمتى», «באיזו שעה». */
+const TIME_QUESTION = new RegExp([
+  '\\b(?:what\\s+time|which\\s+day|what\\s+day|when)\\b',
+  '(?:أي|اي|بأي|باي)\\s+(?:ساعة|ساعه|يوم|وقت)',
+  '(?:إيمتى|ايمتى|امتى|إمتى|قديش\\s+الساعة|الساعة\\s+كم|كم\\s+الساعة)',
+  '(?:באיזו|איזו)\\s+שעה|(?:באיזה|איזה)\\s+יום|מתי',
+].join('|'), 'iu');
+
+/** A reply's sentences, each with its own end mark. */
+function sentencesOf(text: string): string[] {
+  return text.split(/(?<=[.!?؟…])\s+/).map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+const isQuestion = (sentence: string): boolean => /[?؟]/.test(sentence);
+
+/** "It is at 09:00 for now", for an item the proposal settled on the hour of a part of the day. */
+const SETTLED_NOTE: Readonly<Record<ChatLanguage, string>> = {
+  ar: '«{title}» عالساعة {time}، وإذا بدك ساعة تانية احكيلي.',
+  en: '"{title}" is at {time} for now. Tell me if you want another time.',
+  he: '"{title}" בשעה {time} בינתיים. אפשר להגיד לי שעה אחרת.',
+};
+
 /**
- * The reply the person sees: the model's when it passes; the model's with the
- * missing question after it when that is all it lacks; the template otherwise.
+ * The model's words brought into line with the proposal (chat UAT round 2):
+ *
+ *   an item still asked about   a sentence that names it with an hour — "I
+ *                               changed the second to 7" — is not true of
+ *                               it, and goes: the reply never claims a change
+ *                               and asks for it at once;
+ *   nothing asked about         a question for a day or an hour («أي ساعة؟»,
+ *                               "What time on Sunday morning?") asks for what
+ *                               the card already has, and goes; for an item
+ *                               settled on a part of the day's hour, the reply
+ *                               says the hour instead, and that it can change.
+ */
+function alignedWithProposal(text: string, context: TemplateContext): string {
+  const asking = itemAskingForTime(context.proposal);
+  const sentences = sentencesOf(text);
+  if (asking) {
+    const others = (context.proposal?.items ?? []).filter((item) => item !== asking).map((item) => item.title);
+    return sentences.filter((sentence) => isQuestion(sentence) || !(statesClock(sentence) && namesOnlyItem(sentence, asking.title, others))).join(' ');
+  }
+  const kept = sentences.filter((sentence) => !(isQuestion(sentence) && TIME_QUESTION.test(sentence)));
+  if (kept.length === sentences.length) return text;
+  const settled = context.proposal?.items.find((item) => item.timeEstimated && item.resolvedTime);
+  const time = settled?.resolvedTime && context.timezone ? localTimeSpecFor(new Date(settled.resolvedTime), context.timezone)?.time : null;
+  if (settled && time) {
+    const title = settled.title.length > TEMPLATE_TITLE_MAX ? `${settled.title.slice(0, TEMPLATE_TITLE_MAX - 1)}…` : settled.title;
+    kept.push(SETTLED_NOTE[context.language].replace('{title}', title).replace('{time}', time));
+  }
+  return kept.join(' ');
+}
+
+/**
+ * The reply the person sees: the model's when it passes, brought into line
+ * with the proposal (`alignedWithProposal`); with the missing question added
+ * when that is all it lacks; the template otherwise.
  */
 export function safeChatReply(reply: unknown, context: TemplateContext): { reply: string; replaced: boolean } {
   const checked = checkModelReply(reply, context);
-  if (checked.ok) return { reply: checked.reply, replaced: false };
+  const usable = checked.ok || checked.rejection === 'does_not_ask';
+  if (!usable || typeof reply !== 'string') return { reply: templateReply(context), replaced: true };
+  const text = alignedWithProposal(reply.trim(), context).trim();
+  if (!text) return { reply: templateReply(context), replaced: true };
   const asking = itemAskingForTime(context.proposal);
-  if (checked.rejection === 'does_not_ask' && asking && typeof reply === 'string') {
-    const text = reply.trim();
+  if (asking && !isQuestion(text)) {
     const ended = /[.!?؟。…]$/.test(text) ? text : `${text}.`;
     return { reply: `${ended} ${missingQuestion(context.language, asking)}`, replaced: false };
   }
-  return { reply: templateReply(context), replaced: true };
+  return { reply: text, replaced: false };
 }
