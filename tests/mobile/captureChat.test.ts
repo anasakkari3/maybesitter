@@ -44,6 +44,7 @@ import { getParticipantStateSnapshot } from '../../lib/services/mobile/participa
 import { deleteAccount } from '../../lib/account/accountDeletion.ts';
 import { resetDeletionHooksForTests } from '../../lib/account/deletionHooks.ts';
 import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
+import { resolveWeekdayDate } from '../../src/extraction/weekdayLexicon.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { CAPTURE_INPUT_MAX_CHARACTERS, CAPTURE_PROPOSAL_TTL_MS } from '../../src/contracts/v1/captureContracts.ts';
 import type { LLMProviderFunction, LlmProvider } from '../../src/extraction/llm/index.ts';
@@ -265,32 +266,185 @@ test('«خلّيها الساعة 6 المسا» moves the time, and the reply s
 /* ── 3. an hour or a day nobody said ────────────────────────────── */
 
 test('an hour the person never said is dropped to a question, never a silent pick', async () => {
-  // The person said 5pm and 6pm; the model put the dentist at 7pm. The
-  // conversation states times, so the validator's "no time at all" rule does
-  // not fire, and with two hours said its "the words' hour wins" does not
-  // either — the chat's own guard is the only thing between the model and a
-  // 19:00 nobody said.
+  // The person said 5pm and then 6pm for the dentist; the model put it at
+  // 7pm. The conversation states times, so the validator's "no time at all"
+  // rule does not fire, and with two hours said its "the words' hour wins"
+  // does not either — the chat's own guard is the only thing between the
+  // model and a 19:00 nobody said.
   const model = scripted(
     answer('Dentist tomorrow at 5pm. Confirm if right.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
-    answer('Dentist at 7pm and gym at 6pm. Confirm if right.', 'update', [
+    answer('Dentist at 7pm then. Confirm if right.', 'update', [item('Call the dentist', TOMORROW, '19:00')]),
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('ChatInventHour');
+    const first = await chat(uid, 'Remind me to call the dentist tomorrow at 5pm');
+    const body = await chat(uid, 'hmm, or maybe 6pm', first.conversationId);
+    const [dentist] = body.proposal!.items;
+    assert.equal(dentist!.resolvedTime, null, 'a 19:00 nobody said was proposed');
+    assert.equal(dentist!.needsClarification, true);
+    assert.equal(dentist!.resolvedDate, TOMORROW, 'the day the person did say was lost with the hour');
+  } finally {
+    end();
+  }
+});
+
+test('beside another item, a model hour for one item is replaced by the hour the person said for it', async () => {
+  // The person said 5pm for the dentist and 6pm for the gym; the model put
+  // the dentist at 7pm. Each item is read against its own words, so the
+  // dentist's are the one hour its words state — never the model's 19:00,
+  // and never the gym's 18:00.
+  const model = scripted(
+    answer('Dentist tomorrow at 5pm. Confirm if right.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
+    answer('Dentist and gym tomorrow. Confirm if right.', 'update', [
       item('Call the dentist', TOMORROW, '19:00'),
       item('Go to the gym', TOMORROW, '18:00'),
     ]),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
-    const uid = uidFor('ChatInventHour');
+    const uid = uidFor('ChatOwnHour');
     const first = await chat(uid, 'Remind me to call the dentist tomorrow at 5pm');
     const body = await chat(uid, 'and the gym tomorrow at 6pm', first.conversationId);
     const [dentist, gym] = body.proposal!.items;
-    assert.equal(dentist!.resolvedTime, null, 'a 19:00 nobody said was proposed');
-    assert.equal(dentist!.needsClarification, true);
-    assert.equal(dentist!.resolvedDate, TOMORROW, 'the day the person did say was lost with the hour');
-    // The hour that was said is kept.
+    assert.notEqual(localClock(dentist!.resolvedTime), '19:00', 'a 19:00 nobody said was proposed');
+    assert.equal(dentist!.resolvedTime, instant(TOMORROW, '17:00'));
     assert.equal(gym!.resolvedTime, instant(TOMORROW, '18:00'));
     assert.equal(gym!.needsClarification, false);
-    // And the reply has to ask about it: the model's did not, so it is the template.
-    assert.match(body.reply, /^When do you want to do "Call the dentist"\?/);
+  } finally {
+    end();
+  }
+});
+
+/* ── 3b. several items: each keeps what the person said for it ──── */
+
+function weekday(name: string): string {
+  return resolveWeekdayDate(name, new Date(), TZ)!.date;
+}
+
+test('two items in one message: each keeps its own day and hour (the second item’s day is not lost)', async () => {
+  // Staging, real Gemini (chat UAT 2026-09-30): the model answered both
+  // right, and the second item came back with no day, asking "which day?".
+  const friday = weekday('Friday');
+  const sunday = weekday('Sunday');
+  const model = scripted(answer(
+    'Dentist on Friday at 4 PM and a meeting with Sara on Sunday morning. Confirm below.',
+    'propose',
+    [item('Dentist appointment', friday, '16:00'), item('Meeting with Sara', sunday, '09:00', { person: 'Sara' })],
+  ));
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const body = await chat(uidFor('ChatTwoDays'), 'I have a dentist appointment on Friday at 4pm and a meeting with Sara on Sunday morning');
+    const [dentist, sara] = body.proposal!.items;
+    assert.equal(dentist!.resolvedTime, instant(friday, '16:00'));
+    assert.equal(dentist!.needsClarification, false);
+    assert.equal(sara!.needsClarification, false, `Sara was asked: ${JSON.stringify(sara)}`);
+    assert.equal(sara!.resolvedTime, instant(sunday, '09:00'));
+    // «الصبح»/"morning" is a part of the day: its hour is ours, and says so.
+    assert.equal((sara as Item & { timeEstimated?: boolean }).timeEstimated, true);
+    // "4pm" is the person's own hour: not a guess.
+    assert.equal((dentist as Item & { timeEstimated?: boolean }).timeEstimated, false);
+    assert.equal(body.proposal!.status, 'proposed');
+  } finally {
+    end();
+  }
+});
+
+test('the same in Arabic: «موعد دكتور يوم الجمعة الساعة 4 المسا واجتماع مع سارة يوم الأحد الصبح»', async () => {
+  const friday = weekday('Friday');
+  const sunday = weekday('Sunday');
+  const model = scripted(answer(
+    'تمام، الدكتور الجمعة الساعة 4 المسا واجتماع سارة الأحد الصبح. أكّد من تحت.',
+    'propose',
+    [item('موعد دكتور', friday, '16:00'), item('اجتماع مع سارة', sunday, '09:00')],
+  ));
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const body = await chat(uidFor('ChatTwoDaysAr'), 'عندي موعد دكتور يوم الجمعة الساعة 4 المسا واجتماع مع سارة يوم الأحد الصبح');
+    const [doctor, sara] = body.proposal!.items;
+    assert.equal(doctor!.resolvedTime, instant(friday, '16:00'));
+    assert.equal(sara!.resolvedTime, instant(sunday, '09:00'), JSON.stringify(sara));
+  } finally {
+    end();
+  }
+});
+
+test('an edit to one item never gives the other item its day', async () => {
+  // Staging: after "make the dentist 5pm" the model left Sara empty, and she
+  // came back on the dentist's Friday, asking only the hour.
+  const friday = weekday('Friday');
+  const sunday = weekday('Sunday');
+  const model = scripted(
+    answer('Dentist Friday at 4 PM, Sara on Sunday morning. Confirm below.', 'propose', [
+      item('Dentist appointment', friday, '16:00'), item('Meeting with Sara', sunday, '09:00', { person: 'Sara' }),
+    ]),
+    // The model moves the dentist and leaves Sara with nothing.
+    answer('Dentist moved to 5 PM. What day and time is the meeting with Sara?', 'update', [
+      item('Dentist appointment', friday, '17:00'), item('Meeting with Sara', null, null, { person: 'Sara', ambiguityFlags: ['vague_time'] }),
+    ]),
+    // Or it gives Sara the dentist's Friday outright.
+    answer('Dentist at 5 PM. Confirm below.', 'update', [
+      item('Dentist appointment', friday, '17:00'), item('Meeting with Sara', friday, '09:00', { person: 'Sara' }),
+    ]),
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('ChatNoBorrowedDay');
+    const first = await chat(uid, 'I have a dentist appointment on Friday at 4pm and a meeting with Sara on Sunday morning');
+    for (const edit of ['make the dentist 5pm', 'make the dentist 5pm please']) {
+      const body = await chat(uid, edit, first.conversationId);
+      const [dentist, sara] = body.proposal!.items;
+      assert.equal(dentist!.resolvedTime, instant(friday, '17:00'));
+      assert.notEqual(sara!.resolvedDate, friday, `Sara took the dentist's Friday: ${JSON.stringify(sara)}`);
+      if (sara!.resolvedTime) assert.notEqual(localTimeSpecFor(new Date(sara!.resolvedTime), TZ)!.date, friday);
+      // Her own words name Sunday morning: that is not asked again.
+      assert.equal(sara!.resolvedTime, instant(sunday, '09:00'), JSON.stringify(sara));
+    }
+  } finally {
+    end();
+  }
+});
+
+test('an item no clause names cannot carry another item’s day or hour: it is asked', async () => {
+  const friday = weekday('Friday');
+  const model = scripted(answer('Two things on Friday. Confirm below.', 'propose', [
+    item('Dentist appointment', friday, '16:00'),
+    // A title in other words than the person's, on the dentist's day and hour.
+    item('Catch-up call', friday, '16:00'),
+  ]));
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const body = await chat(uidFor('ChatUnnamedItem'), 'I have a dentist appointment on Friday at 4pm and a meeting with Sara on Sunday morning');
+    const [dentist, other] = body.proposal!.items;
+    assert.equal(dentist!.resolvedTime, instant(friday, '16:00'));
+    assert.equal(other!.resolvedTime, null, 'an item took the dentist’s hour');
+    assert.notEqual(other!.resolvedDate, friday, 'an item took the dentist’s day');
+    assert.equal(other!.needsClarification, true);
+  } finally {
+    end();
+  }
+});
+
+test('«الاول … عال ٤ والثاني … عال٦» then «لا خلّي التانية الساعة 7»: Friday 16:00 and 18:00, then the second at 19:00', async () => {
+  // The owner's case, which worked on staging: it must stay working.
+  const friday = weekday('Friday');
+  const model = scripted(
+    answer('تمام، خطبة صاحبك الأول الجمعة الساعة ٤ والثاني الجمعة الساعة ٦. شوف القائمة وأكّدها.', 'propose', [
+      item('خطبة صاحبي الاول', friday, '16:00'), item('خطبة صاحبي الثاني', friday, '18:00'),
+    ]),
+    answer('تمام، خطبة صاحبك الثاني صارت الساعة ٧. شوف القائمة وأكّدها.', 'update', [
+      item('خطبة صاحبي الاول', friday, '16:00'), item('خطبة صاحبي الثاني', friday, '19:00'),
+    ]),
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('ChatOwnerEngagements');
+    const first = await chat(uid, 'ذكرني بخطبة صاحبي الاول يوم الجمعة عال ٤ والثاني الجمعة عال٦');
+    assert.deepEqual(first.proposal!.items.map((entry) => entry.resolvedTime), [instant(friday, '16:00'), instant(friday, '18:00')]);
+    assert.equal(first.proposal!.status, 'proposed');
+    const second = await chat(uid, 'لا خلّي التانية الساعة 7', first.conversationId);
+    assert.deepEqual(second.proposal!.items.map((entry) => entry.resolvedTime), [instant(friday, '16:00'), instant(friday, '19:00')]);
+    assert.equal(second.reply, 'تمام، خطبة صاحبك الثاني صارت الساعة ٧. شوف القائمة وأكّدها.');
   } finally {
     end();
   }

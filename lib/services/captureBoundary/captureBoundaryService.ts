@@ -33,7 +33,7 @@ import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
 import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
-import { chatEvidenceFrom, chatEvidenceTurns, withoutUnsaidTime } from './chatEvidence';
+import { chatEvidenceFrom, chatItemEvidence, withoutUnsaidTime } from './chatEvidence';
 import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 
 /**
@@ -674,17 +674,20 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
 
   /*
    * The capture chat (owner decision 2026-09-30): one clause per model item,
-   * each read against the person's turns together. The evidence is bounded
+   * each read against the person's words about it (`chatItemEvidence`): its
+   * own clauses, and those naming no item in particular. The evidence is bounded
    * like a capture: the caller keeps the turns within the cap, and this
    * refuses anything longer, so no parser here reads more than a capture's.
    */
   const chat = options.chat;
-  const chatTurns = chat ? chatEvidenceTurns(chat.userTurns) : [];
   const chatEvidence = chat ? chatEvidenceFrom(chat.userTurns) : '';
   if (chat && chatEvidence.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const chatItems = chat && chatEvidence ? chat.items.slice(0, MAX_CHAT_ITEMS) : [];
+  // Each item against its own clauses and those naming no item
+  // (`chatItemEvidence`): another item's day or hour is never its evidence.
+  const chatItemEvidences = chat ? chatItemEvidence(chat.userTurns, chatItems) : [];
   const clauses: CaptureClause[] = chat
-    ? chatItems.map(() => ({ text: chatEvidence }))
+    ? chatItemEvidences.map((evidence) => evidence.clause)
     : raw ? splitInput(raw) : [];
   const segments = clauses.map((clause) => clause.text);
   const several = segments.length > 1;
@@ -717,7 +720,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * could steer their titles, times and priority. The same pattern, the same
    * `rejected` answer, now asked of the clause itself.
    */
-  const injected = (several || Boolean(chat)) && segments.some((segment) => INJECTION.test(segment));
+  // A chat item reads only part of the conversation; the whole of it is screened.
+  const injected = (several || Boolean(chat)) && (
+    segments.some((segment) => INJECTION.test(segment)) || (chatItems.length > 0 && INJECTION.test(chatEvidence))
+  );
   if (injected) rejected = true;
 
   /*
@@ -817,7 +823,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       }
       // A model reading of a bare early hour takes the number the person said
       // (UAT round 6, D1), so it is asked as the rules reading is below.
-      const statedEarlyClock = extracted.engine !== 'rule-based' ? statedBareEarlyClock(segment) : null;
+      // In the chat, asked of the whole conversation, as it always was: one
+      // bare early hour said anywhere is asked صبح or مسا; «الاول … عال ٤
+      // والثاني … عال٦» — two hours, one per item — is not one to ask about.
+      const statedEarlyClock = extracted.engine !== 'rule-based' ? statedBareEarlyClock(chat ? chatEvidence : segment) : null;
       if (statedEarlyClock) {
         extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
       }
@@ -832,7 +841,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let unsaid = false;
       if (chat) {
         if (extracted.engine === 'rule-based' && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason ?? '')) continue;
-        const guarded = withoutUnsaidTime(extracted.result, chatTurns, options.now, options.timezone);
+        const guarded = withoutUnsaidTime(extracted.result, chatItemEvidences[index]!.turns, options.now, options.timezone);
         extracted = { ...extracted, result: guarded.result };
         unsaid = guarded.fired;
       }
@@ -948,7 +957,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // Its clock times were read and found to be nothing to keep — «كان
         // عندي اجتماع الساعة 3» (FY1 N1) — so the valve below does not count
         // them as times a proposed item lost.
-        // A chat item's segment is the whole conversation; the valve reads the
+        // A chat item's segment is read from every turn; the valve reads the
         // newest message only, so nothing is subtracted for it.
         if (!chat) timesReadAsNothing += countTimeExpressions(segment);
         continue;
