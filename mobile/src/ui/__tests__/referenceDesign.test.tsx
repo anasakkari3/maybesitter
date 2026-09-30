@@ -93,11 +93,12 @@ describe('reference decoration leaves native content usable', () => {
     return { view, onPress };
   }
 
-  it('keeps illustration and gradient outside touch handling and assistive navigation', async () => {
+  it('keeps the gradient outside touch handling and assistive navigation', async () => {
     const { view, onPress } = await decoration();
     const decorativeViews = view.container.queryAll(node => node.props.accessibilityElementsHidden === true);
-    // Both the card gradient and the laptop artwork need the same behavior.
-    expect(decorativeViews.length).toBeGreaterThanOrEqual(2);
+    // The card gradient is the one decoration left (the mockup's laptop crop
+    // was removed: it drew the design screenshot onto every card).
+    expect(decorativeViews.length).toBeGreaterThanOrEqual(1);
     for (const node of decorativeViews) {
       expect(node.props.accessible).toBe(false);
       expect(node.props.importantForAccessibility).toBe('no-hide-descendants');
