@@ -46,11 +46,15 @@ export function useKeyboardInset(): number {
  * window, the space the keyboard reports in, so the padding is the real
  * overlap with or without chrome above it.
  *
- * iOS only, like the `behavior="padding"` it replaces. On Android the old
- * component did nothing either, and whether the window still resizes for the
- * keyboard under SDK 57's edge-to-edge is **unverified on a device** — this is
- * where an Android fix goes. (Because the padding is the real overlap in
- * window space, turning it on there would not double-pad a resized window.)
+ * Android too (UAT 2026-09-30, u13): under SDK 57's edge-to-edge the window
+ * does **not** resize for the keyboard, whatever `windowSoftInputMode` says —
+ * the app draws under the IME and gets its inset instead — so the Say-it
+ * composer sat behind the docked keyboard. Android posts only `Did` events,
+ * and React Native reports the keyboard's top as the bottom of the window's
+ * visible frame, the same window space `measureInWindow` uses. Because the
+ * padding is the real overlap, a window that *does* resize (an older
+ * device, a non-edge-to-edge build) measures no overlap and is not
+ * double-padded.
  *
  * The container fills its parent (`flex: 1` first, the caller's style over
  * it): padding a content-sized view grows it, which grows the overlap it
@@ -105,7 +109,8 @@ export function AvoidKeyboard({
 
   useEffect(() => {
     live.current = true;
-    if (Platform.OS !== 'ios') return () => { live.current = false; };
+    const ios = Platform.OS === 'ios';
+    if (!ios && Platform.OS !== 'android') return () => { live.current = false; };
     // Opened with the keyboard already up — a screen swapped in under a
     // focused field — so there is no show event to wait for. Only when a field
     // *is* focused: a keyboard iOS still reports after its field went away
@@ -131,12 +136,13 @@ export function AvoidKeyboard({
     };
     // `WillChangeFrame` too: the keyboard changes height while it stays up
     // (emoji, QuickType, the hardware keyboard's bar), and iOS does not
-    // always post another `WillShow` for it.
-    const show = Keyboard.addListener('keyboardWillShow', moved);
-    const change = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
+    // always post another `WillShow` for it. Android re-posts `DidShow` for a
+    // height change and has no frame event.
+    const show = Keyboard.addListener(ios ? 'keyboardWillShow' : 'keyboardDidShow', moved);
+    const change = ios ? Keyboard.addListener('keyboardWillChangeFrame', (event) => {
       if (keyboardTop.current !== null) moved(event);
-    });
-    const hide = Keyboard.addListener('keyboardWillHide', () => {
+    }) : null;
+    const hide = Keyboard.addListener(ios ? 'keyboardWillHide' : 'keyboardDidHide', () => {
       keyboardTop.current = null;
       if (settle) { clearTimeout(settle); settle = null; }
       void update();
@@ -146,7 +152,7 @@ export function AvoidKeyboard({
       live.current = false;
       if (settle) clearTimeout(settle);
       show.remove();
-      change.remove();
+      change?.remove();
       hide.remove();
     };
   }, [update]);
