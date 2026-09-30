@@ -1,4 +1,6 @@
 import { partOfDayOnlyHour } from '../../../src/extraction/timeLexicon';
+import { readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
+import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 
 /**
  * The words give a part of the day and no hour (UAT round 6, D2).
@@ -24,4 +26,19 @@ import { partOfDayOnlyHour } from '../../../src/extraction/timeLexicon';
  */
 export function hourIsPartOfDayGuess(text: string): boolean {
   return partOfDayOnlyHour(text) !== null;
+}
+
+/**
+ * Whether the day shown is our guess (`dateEstimated`, «حزرنا التاريخ»).
+ *
+ * A day the person named by its weekday is theirs, not ours (runtime UAT,
+ * 2026-09-30): "on Sunday", «يوم الأحد», «ביום ראשון», "every Saturday" came
+ * back marked as guessed because the reading resolves a weekday to a date
+ * (`dateInferred`). The date is still the weekday rule's (L4: the nearest
+ * one that is not today), but the person said the day, so it is not shown as
+ * a guess. What stays a guess is a day the words did not name — the month's
+ * end read as its last day, a model day under no day word.
+ */
+export function dateIsGuess(result: Pick<ExtractionResult, 'dateInferred'>, text: string): boolean {
+  return result.dateInferred === true && readWeekdayReference(text) === null;
 }

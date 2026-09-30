@@ -505,6 +505,62 @@ function ellipticalConjuncts(segment: string): CaptureClause[] {
   return [{ text: first.trim() }, clause];
 }
 
+/*
+ * ══ TWO TIMED COMMITMENTS JOINED BY "AND" (runtime UAT, 2026-09-30) ══
+ *
+ * "Dentist tomorrow at 5pm and call mom on Sunday at 6pm" was one clause: no
+ * sentence end, no opener after the "and", so the rules read one commitment
+ * with two times and found nothing to propose — while the same words with a
+ * full stop gave two. A bare «و» / "and" / «ו» still never splits («أحمد
+ * وسامي», "coffee with Sam and Dana tomorrow at 5pm"): it splits only where
+ * BOTH sides are whole commitments of their own —
+ *
+ *   before  states a day or a clock, is more than a time, and asks for or
+ *           names something to do (`hasActionEvidence`);
+ *   after   states a day or a clock and opens a commitment of its own, the
+ *           same test a new sentence has to pass (`opensCommitment`: an errand
+ *           verb onto an object, a request or reminder marker, a possession
+ *           opener onto a new appointment) — or opens with an appointment
+ *           noun («تور», "dentist", «موعد»).
+ *
+ * The same for an English comma, which is otherwise never a separator. At
+ * most `MAX_CONJUNCTION_SPLITS` joins are tried per segment, so a list
+ * pasted as one line costs a bounded number of lexicon reads.
+ */
+const CONJUNCTION = new RegExp(`\\s+and\\s+|\\s*,\\s+|\\s+[وו](?=[\\p{L}])`, 'giu');
+const OPENS_WITH_APPOINTMENT_NOUN = new RegExp(`^(?:the\\s+|my\\s+|a\\s+|an\\s+)?(?:${COMMITMENT_NOUN.source})`, 'iu');
+const MAX_CONJUNCTION_SPLITS = 8;
+
+function isWholeTimedCommitment(clause: string): boolean {
+  return statesATime(clause) && !isTimeOnlyClause(clause) && hasActionEvidence(clause);
+}
+
+function splitTimedConjuncts(segment: string): string[] {
+  const out: string[] = [];
+  let rest = segment;
+  let tried = 0;
+  let searchFrom = 0;
+  while (tried < MAX_CONJUNCTION_SPLITS) {
+    CONJUNCTION.lastIndex = searchFrom;
+    const join = CONJUNCTION.exec(rest);
+    if (!join) break;
+    tried += 1;
+    const before = rest.slice(0, join.index).trim();
+    const after = rest.slice(join.index + join[0].length).trim();
+    const opens = statesATime(after)
+      && (opensCommitment(after, before) || OPENS_WITH_APPOINTMENT_NOUN.test(after));
+    if (before && after && opens && isWholeTimedCommitment(before)) {
+      out.push(before);
+      rest = after;
+      searchFrom = 0;
+    } else {
+      searchFrom = join.index + Math.max(1, join[0].length);
+    }
+  }
+  out.push(rest.trim());
+  return out.filter(Boolean);
+}
+
 /** The clauses of one capture, with how each was cut (`CaptureClause`). */
 export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
   return segmentsOf(raw).flatMap((segment) => ellipticalConjuncts(segment));
@@ -528,6 +584,7 @@ function segmentsOf(raw: string): string[] {
     .split('|')
     .map((part) => part.trim())
     .map((part) => part.replace(/^[\s,;،]+|[\s,;،]+$/g, '').replace(/^(?:and\b|ثم(?![؀-ۿ])|ו)\s*/i, '').trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .flatMap(splitTimedConjuncts);
   return segments.length > 0 ? withTimeOnlyClausesMerged(segments) : [raw];
 }

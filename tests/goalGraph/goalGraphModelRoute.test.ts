@@ -57,11 +57,15 @@ interface Harness {
   readonly teardown: () => void;
 }
 
-async function setup(consent: 'granted' | 'declined' | null, answers: readonly string[] = []): Promise<Harness> {
+/**
+ * `unanswered`: the model is configured and nothing is recorded — which reads
+ * as granted since AI processing became always on (2026-09-30).
+ */
+async function setup(consent: 'granted' | 'unanswered' | null, answers: readonly string[] = []): Promise<Harness> {
   setStorageForTests(createMemoryStorage());
   const auth: FakeAuthControls = installFakeAuth();
   const { goal } = await seedGoal(UAT_GOAL, { scopeId: USER, language: 'ar', storage: getStorage() });
-  if (consent) await setAiConsent(USER, { state: consent, version: AI_CONSENT_VERSION });
+  if (consent === 'granted') await setAiConsent(USER, { state: consent, version: AI_CONSENT_VERSION });
 
   const calls: VertexInput[] = [];
   (globalThis as Globals).__goalStepsVertexGenerate = async (input) => {
@@ -217,14 +221,15 @@ test('with AI consent: generate → confirm (commitment + habit) → progress �
   );
 });
 
-test('without AI consent the goal never reaches the model, and the steps are the template', async (t) => {
-  const { goalId, calls, teardown } = await setup('declined', [RECORDED_GOAL_STEPS_V4_G1]);
+test('AI is always on: a goal from an account that never answered reaches the model', async (t) => {
+  // Before 2026-09-30 this account's goal stayed on the template with
+  // `consent_required`; the owner's always-on decision makes it a model goal.
+  const { goalId, calls, teardown } = await setup('unanswered', [RECORDED_GOAL_STEPS_V4_G1]);
   t.after(teardown);
 
   const { graph } = await body(await generatePost(req(`/api/mobile/goals/${goalId}/execution/generate`, {}), context(goalId)));
-  assert.equal(calls.length, 0, 'a declined account had its goal sent to a model');
-  assert.equal(graph.provenance.stepSource, 'template');
-  assert.equal(graph.provenance.stepSourceReason, 'consent_required');
+  assert.equal(calls.length, 1, 'an always-on account never reached the model');
+  assert.equal(graph.provenance.stepSource, 'model');
   assert.ok(proposals(graph).length >= 2);
 });
 

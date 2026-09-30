@@ -377,6 +377,20 @@ function nextLocalDate(date: string): string {
 }
 
 /**
+ * The words refuse a reminder themselves: "don't remind me", «لا تذكرني»,
+ * «אל תזכיר לי». Exported for the capture chat, which leaves such a clause
+ * out of the evidence a later turn's items are checked against.
+ */
+export function statesNegatedReminder(rawText: string): boolean {
+  const lowerRawText = rawText.toLowerCase();
+  return /\b(don't|dont|do not|not|never|no need to|stop)\s+(remind|remember|bug|schedule|add|create|notify)\b/.test(lowerRawText) ||
+    /\b(remind me|remember to|bug me)\s+not\b/.test(lowerRawText) ||
+    /(?:תזכיר לי|תזכירי לי|ذكرني|ذكريني|remind me)\s+not\b/.test(lowerRawText) ||
+    /(لا تذكرني|لا تذكريني|ما تذكرني|ما تذكريني|بلا تذكير|مش بدي تذكير|ما بدي تذكير|ما بديش تذكير|بطل تذكرني|بطلي تذكريني)/.test(lowerRawText) ||
+    /(אל תזכיר לי|אל תזכירי לי|לא צריך להזכיר|תפסיק להזכיר|תפסיקי להזכיר)/.test(lowerRawText);
+}
+
+/**
  * Validate and normalise raw JSON (already parsed) from the LLM into a well-typed ExtractionResult.
  *
  * @param raw     - The parsed JSON object from the LLM response
@@ -392,13 +406,7 @@ export function validateExtractionResult(
   if (!isRecord(raw)) {
     throw new ValidationError('LLM output is not a JSON object');
   }
-  const lowerRawText = rawText.toLowerCase();
-  const rawTextHasNegatedReminder =
-    /\b(don't|dont|do not|not|never|no need to|stop)\s+(remind|remember|bug|schedule|add|create|notify)\b/.test(lowerRawText) ||
-    /\b(remind me|remember to|bug me)\s+not\b/.test(lowerRawText) ||
-    /(?:תזכיר לי|תזכירי לי|ذكرني|ذكريني|remind me)\s+not\b/.test(lowerRawText) ||
-    /(لا تذكرني|لا تذكريني|ما تذكرني|ما تذكريني|بلا تذكير|مش بدي تذكير|ما بدي تذكير|ما بديش تذكير|بطل تذكرني|بطلي تذكريني)/.test(lowerRawText) ||
-    /(אל תזכיר לי|אל תזכירי לי|לא צריך להזכיר|תפסיק להזכיר|תפסיקי להזכיר)/.test(lowerRawText);
+  const rawTextHasNegatedReminder = statesNegatedReminder(rawText);
 
   // ── type ─────────────────────────────────────────────────────────────────
   const type = stringOrNull(raw['type']) as ExtractionType | null;

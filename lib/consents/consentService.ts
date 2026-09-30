@@ -16,6 +16,12 @@
  * write `granted` except through `setConsent` with a version this server
  * recognises.
  *
+ * One exception, and it is a product rule rather than a default: AI
+ * processing is always on since the owner's decision of 2026-09-30. It is
+ * applied here, at `readConsent` and `setConsent`, from
+ * `./aiProcessingPolicy` — read that file. Every other question still reads
+ * missing as declined.
+ *
  * ── Never cached ─────────────────────────────────────────────────
  *
  * Consent is read per request, from storage, every time. A cache — even a
@@ -37,6 +43,7 @@ import {
   type ConsentState,
 } from '../../src/contracts/v1/consentContracts';
 import { createPilotAuditEvent } from '../pilot/closedPilotControls';
+import { AiProcessingAlwaysOnError, alwaysOnAiRecord, isAlwaysOnConsent } from './aiProcessingPolicy';
 import { appendAudit } from '../pilot/pilotTrustStore';
 import { getStorage, requireUserId, userDoc, type StorageAdapter } from '../storage';
 
@@ -72,6 +79,13 @@ export async function readConsent(
   const storage = options.storage ?? getStorage();
   const user = await storage.get<ConsentBearingUser>(userDoc(uid));
   const record = user?.consents?.[kind.key];
+  // AI processing is always on (owner decision 2026-09-30,
+  // `aiProcessingPolicy`): the one read every AI gate goes through answers
+  // granted at the current version, whatever is stored.
+  if (isAlwaysOnConsent(kind)) {
+    const stored = record && typeof record.state === 'string' ? record : null;
+    return alwaysOnAiRecord(stored, stored ? kind.isSupportedVersion(stored.version) : false);
+  }
   if (!record || typeof record.state !== 'string') return null;
   // A record written against a version this server no longer recognises is not
   // consent to what it asks today. It reads as declined until re-asked.
@@ -113,6 +127,9 @@ export async function setConsent(
   if (input.state !== 'granted' && input.state !== 'declined') {
     throw new Error('consent state must be granted or declined');
   }
+  // Declining AI processing is no longer a choice (`aiProcessingPolicy`).
+  // Refused before the version check and before any write or audit line.
+  if (isAlwaysOnConsent(kind) && input.state === 'declined') throw new AiProcessingAlwaysOnError();
   // Unknown versions are refused rather than silently upgraded: accepting one
   // would record agreement to words this server cannot show anyone.
   if (!kind.isSupportedVersion(input.version)) throw new UnsupportedConsentVersionError(input.version);

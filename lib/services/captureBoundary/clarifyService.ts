@@ -16,7 +16,7 @@ import {
 import type { Command } from '../../../src/domain/stateMachine';
 import { applyEditToCommands } from './applyEdits';
 import { answeredDayPartTime, buildClarification, dayForAnswer, resolvedLocalTime } from './clarificationBuilder';
-import { hourIsPartOfDayGuess } from './timeGuess';
+import { dateIsGuess, hourIsPartOfDayGuess } from './timeGuess';
 import { namesCalendarDate, namesExplicitDate, readWeekdayReference, resolveWeekdayDate, WEEKDAY_MENTION_SOURCES } from '../../../src/extraction/weekdayLexicon';
 import { isEventOnDay } from '../../../src/extraction/priorityLexicon';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
@@ -881,7 +881,8 @@ function withDateGuess(
   // A free-text answer is re-extracted, so its own flag is the truth. An option
   // answer carries the original flag, which holds only for the original day.
   const reextracted = answered.rawText !== before.rawText;
-  const stillGuessed = answered.dateInferred === true && (reextracted || date === before.localTimeSpec?.date);
+  // A weekday the person named is their day, not our guess (`dateIsGuess`).
+  const stillGuessed = dateIsGuess(answered, answered.rawText) && (reextracted || date === before.localTimeSpec?.date);
   return { ...rest, resolvedDate: date, dateEstimated: stillGuessed };
 }
 

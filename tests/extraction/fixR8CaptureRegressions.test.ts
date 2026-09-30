@@ -141,7 +141,9 @@ for (const [label, text, title] of [
 ] as const) {
   test(`FIX-R8 ${label}: the next Saturday, 10:00–16:00, marked ours, never today`, async () => {
     const { proposal, items, uid } = await rules(text, TUE);
-    assert.deepEqual(items.map(line), [`${title} | 2026-10-03~ 10:00 | settled`]);
+    // «كل سبت» names the Saturday: its next occurrence is theirs, not a
+    // guess (runtime UAT 2026-09-30), so no «~».
+    assert.deepEqual(items.map(line), [`${title} | 2026-10-03 10:00 | settled`]);
     assert.deepEqual(items[0]!.recurrenceHint, { weekdays: [6], start: '10:00', end: '16:00' });
     // Nothing is saved until the person confirms; confirmed, it is an event
     // with the end the words gave — not a deadline at 04:00.
@@ -160,7 +162,7 @@ test('FIX-R8 1: on a Saturday morning, «كل سبت» is next Saturday — neve
     const { items } = await rules(text, SAT);
     assert.equal(items.length, 1, text);
     assert.equal(items[0]!.resolvedDate, '2026-10-10', text);
-    assert.equal(items[0]!.dateEstimated, true, text);
+    assert.equal(items[0]!.dateEstimated, false, text);
     assert.equal(local(items[0]!.resolvedTime), '10:00', text);
   }
 });
@@ -222,7 +224,7 @@ test('FIX-R8 4: «…الاول يوم الجمعة عال ٤ والثاني ا�
   ]);
   const { items } = await rules(ENGAGEMENTS, TUE);
   assert.deepEqual(items.map(line), [
-    'خطبة صاحبي الاول | 2026-10-02~ - | ask_am_pm',
+    'خطبة صاحبي الاول | 2026-10-02 - | ask_am_pm',
     // No day: not Friday by any likeness to «الجمعة», and not today.
     'خطبة صاحبي الثاني | - - | ask_day',
   ]);
@@ -276,12 +278,12 @@ test('FIX-R8 4: «الأول والثاني» with nothing between is one item',
 
 // ── The model path: the same words, the same shape ───────────────────────
 
-test('FIX-R8 model: «كل سبت» answered as today or tomorrow is put on the next Saturday, marked ours', async () => {
+test('FIX-R8 model: «كل سبت» answered as today or tomorrow is put on the next Saturday (their day, not marked a guess since 2026-09-30)', async () => {
   for (const [date, time] of [['2026-09-29', '10:00'], ['2026-09-30', '10:00']] as const) {
     const { items } = await model(TRAINING, TUE, { [TRAINING]: modelItem({ title: 'تدريب', date, time }) });
     assert.equal(items.length, 1, date);
     assert.equal(items[0]!.resolvedDate, '2026-10-03', date);
-    assert.equal(items[0]!.dateEstimated, true, date);
+    assert.equal(items[0]!.dateEstimated, false, date);
     assert.equal(local(items[0]!.resolvedTime), '10:00', date);
     // The recurrence stays visible in the title the model shortened.
     assert.equal(items[0]!.title, 'تدريب كل سبت', date);
@@ -311,7 +313,7 @@ test('FIX-R8 model: the typo is never Friday, whatever the model says', async ()
   });
   assert.deepEqual(items.map(line), [
     // The bare 4 is asked, as on the rules path (UAT round 6, D1).
-    'خطبة صاحبي الأول | 2026-10-02~ - | ask_am_pm',
+    'خطبة صاحبي الأول | 2026-10-02 - | ask_am_pm',
     'خطبة صاحبي الثاني | - - | ask_day',
   ]);
   assert.deepEqual(offered(items[1]!), []);

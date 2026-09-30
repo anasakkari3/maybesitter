@@ -31,7 +31,7 @@ import {
 import { getAiConsent } from '../consents/aiConsentService';
 import { AiConsentRequiredError, consentGatedProvider } from './consentGatedProvider';
 import { PROFILE_EXTRACTION_SCHEMA } from '../../src/profile/profilePrompt';
-import { GEMINI_BATCH_EXTRACTION_SCHEMA, GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
+import { GEMINI_BATCH_EXTRACTION_SCHEMA, GEMINI_CHAT_SCHEMA, GEMINI_EXTRACTION_SCHEMA } from '../../src/extraction/ollamaExtractionSchema';
 import { logLlmCall, uidHash } from './llmLog';
 import {
   aiDisabled,
@@ -91,6 +91,16 @@ export const BATCH_MAX_OUTPUT_TOKENS = 2048;
 export const BATCH_TIMEOUT_MS = CAPTURE_BATCH_TIMEOUT_MS;
 /** The ceiling on one clause's answer — the text path's own (1024). */
 const SINGLE_MAX_OUTPUT_TOKENS = 1024;
+/**
+ * The ceiling on one capture-chat turn: a reply of at most a few hundred
+ * characters and up to eight extraction objects of about 250 tokens each.
+ */
+export const CHAT_MAX_OUTPUT_TOKENS = 3072;
+/**
+ * How long one capture-chat call may take when the caller does not say. The
+ * chat service always says, from the phone's 15 s budget.
+ */
+export const CHAT_TIMEOUT_MS = 9_000;
 
 export interface CaptureProviderOptions {
   provider?: LlmProvider;
@@ -224,7 +234,22 @@ export function captureLlmProvider(uid: string, options: CaptureProviderOptions 
       // deadline: its 8 s, retried once, would outrun the phone's 15 s.
       const batch = callOptions.shape === 'batch' && purpose === 'capture_extraction';
       const timed = timeoutMs !== undefined && purpose === 'capture_extraction';
-      const response = batch || timed
+      // One capture-chat turn (2026-09-30): the structured call, its own
+      // schema and ceiling, one attempt — the service budgets the phone's
+      // 15 s and falls back to the rules rather than retrying.
+      const chat = purpose === 'capture_chat';
+      const response = chat
+        ? await provider.generateStructured({
+          system,
+          parts: [{ kind: 'text', text: user }],
+          responseSchema: GEMINI_CHAT_SCHEMA,
+          purpose,
+          uid,
+          maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+          timeoutMs: timeoutMs ?? CHAT_TIMEOUT_MS,
+          retry: false,
+        })
+        : batch || timed
         ? await provider.generateStructured({
           system,
           parts: [{ kind: 'text', text: user }],

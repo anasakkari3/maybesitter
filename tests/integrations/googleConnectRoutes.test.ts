@@ -920,29 +920,30 @@ test('Gmail scan over the daily share quota is refused before a single message i
   }
 });
 
-test('Gmail scan without AI consent is refused before a single message is read', async () => {
+test('AI is always on: a Gmail scan from an account that never answered is not refused for consent', async () => {
+  // Before 2026-09-30 this was a 409 `ai_consent_required` before any mail was
+  // read. The owner's always-on decision (`lib/consents/aiProcessingPolicy`)
+  // means the consent gate now lets it through to the scan itself.
   const done = setup();
   try {
     await connect('gmail');
     google.gmail.push({ id: 'm1', subject: 'Trip form', body: 'Return the form by Friday.', receivedAt: new Date().toISOString() });
     const response = await gmailScanPost(request('/api/mobile/integrations/google/gmail/scan', { body: {} }));
-    assert.equal(response.status, 409);
-    assert.equal((await body(response)).reason, 'ai_consent_required');
-    assert.ok(!google.calls.some((call) => call.url.startsWith('https://gmail.googleapis.com')), 'no mail was read');
+    assert.notEqual((await body(response)).reason, 'ai_consent_required');
+    assert.ok(google.calls.some((call) => call.url.startsWith('https://gmail.googleapis.com')), 'the scan never read the mailbox');
   } finally {
     done();
   }
 });
 
-test('Drive import without AI consent is refused before the file is fetched', async () => {
+test('AI is always on: a Drive import from an account that never answered is not refused for consent', async () => {
   const done = setup();
   try {
     await connect('drive');
     google.drive.set('doc_abcdefghij', { id: 'doc_abcdefghij', mimeType: 'application/vnd.google-apps.document', content: 'x' });
     const response = await driveImportPost(request('/api/mobile/integrations/google/drive/import', { body: { fileId: 'doc_abcdefghij' } }));
-    assert.equal(response.status, 409);
-    assert.equal((await body(response)).reason, 'ai_consent_required');
-    assert.ok(!google.calls.some((call) => call.url.includes('/drive/v3/')), 'nothing was fetched from Drive');
+    assert.notEqual((await body(response)).reason, 'ai_consent_required');
+    assert.ok(google.calls.some((call) => call.url.includes('/drive/v3/')), 'the import never fetched the file');
   } finally {
     done();
   }

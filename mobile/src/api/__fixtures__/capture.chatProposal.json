@@ -1,0 +1,39 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "reply": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right.",
+  "engine": "model",
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000002",
+    "status": "proposed",
+    "items": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "title": "Call the dentist",
+        "resolvedTime": "2026-08-09T09:00:00.000Z",
+        "needsClarification": false,
+        "timeEstimated": false,
+        "priority": "normal",
+        "priorityEstimated": true,
+        "resolvedDate": "2026-08-10",
+        "dateEstimated": false
+      }
+    ],
+    "seeds": [],
+    "provenance": {
+      "requestedEngine": "model",
+      "executedEngine": "gemini",
+      "fallbackUsed": false
+    }
+  },
+  "turns": [
+    {
+      "role": "user",
+      "text": "Remind me to call the dentist tomorrow at 5pm"
+    },
+    {
+      "role": "assistant",
+      "text": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right."
+    }
+  ]
+}

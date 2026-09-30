@@ -24,7 +24,7 @@ import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent
 import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
 import { applyEditToCommands, InvalidEditError, keepEventOnItsDay, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
-import { hourIsPartOfDayGuess } from './timeGuess';
+import { dateIsGuess, hourIsPartOfDayGuess } from './timeGuess';
 import { isPastReading } from '../commitments/timeRules';
 import { NegatedRequestError, PastCommitmentTimeError } from '../mobile/safety';
 import { readCategoryPreferences } from '../categories/categoryPreferences';
@@ -33,6 +33,7 @@ import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
 import { withWeeklyBlockOffers } from '../../weeklyBlocks/offer';
+import { chatEvidenceFrom, chatEvidenceTurns, withoutUnsaidTime } from './chatEvidence';
 import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 
 /**
@@ -98,6 +99,46 @@ export interface ProposeCaptureOptions {
    * it; absent, the budget starts when this function does.
    */
   requestStartedAt?: number;
+  /**
+   * The capture chat's turn (owner decision 2026-09-30). Present, the model has
+   * already answered — once, for the whole conversation — and `items` are its
+   * extraction objects: each is read through the same extractor, validator and
+   * guards a capture's clause is, against the person's turns together
+   * (`chatEvidenceFrom`) rather than against one clause. `rawInput` is then
+   * the newest message: the length cap and the multi-time valve read it.
+   */
+  chat?: {
+    userTurns: readonly string[];
+    items: readonly unknown[];
+  };
+}
+
+/**
+ * The most items one chat turn may propose: the most clauses one capture may
+ * send to the model (`MAX_MODEL_SEGMENTS`). Past it, the rest are dropped.
+ */
+export const MAX_CHAT_ITEMS = 8;
+
+/** Why one chat item carries nothing: the model's object failed validation. */
+class ChatItemInvalidError extends LLMUnavailableError {
+  constructor() {
+    super('chat_item_invalid');
+    this.name = 'ChatItemInvalidError';
+  }
+}
+
+/**
+ * A provider that answers with one of the model's chat items, once. The
+ * extractor's repair call — the object failed validation — is refused, so an
+ * invalid item is dropped rather than asked again or re-read by the rules.
+ */
+function chatItemProvider(item: unknown): ProviderFunction {
+  let served = false;
+  return async () => {
+    if (served) throw new ChatItemInvalidError();
+    served = true;
+    return JSON.stringify(item ?? null);
+  };
 }
 
 const INJECTION = /(?:ignore|disregard|override).{0,40}(?:instruction|system|policy)|(?:system|developer)\s*:/i;
@@ -631,7 +672,20 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // Clock times said in clauses that produced nothing (FY1 N1); see the valve.
   let timesReadAsNothing = 0;
 
-  const clauses = raw ? splitInput(raw) : [];
+  /*
+   * The capture chat (owner decision 2026-09-30): one clause per model item,
+   * each read against the person's turns together. The evidence is bounded
+   * like a capture: the caller keeps the turns within the cap, and this
+   * refuses anything longer, so no parser here reads more than a capture's.
+   */
+  const chat = options.chat;
+  const chatTurns = chat ? chatEvidenceTurns(chat.userTurns) : [];
+  const chatEvidence = chat ? chatEvidenceFrom(chat.userTurns) : '';
+  if (chat && chatEvidence.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
+  const chatItems = chat && chatEvidence ? chat.items.slice(0, MAX_CHAT_ITEMS) : [];
+  const clauses: CaptureClause[] = chat
+    ? chatItems.map(() => ({ text: chatEvidence }))
+    : raw ? splitInput(raw) : [];
   const segments = clauses.map((clause) => clause.text);
   const several = segments.length > 1;
   /*
@@ -651,7 +705,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * and the detector declines, so «ممكن تذكرني بكرة الساعة ٩؟» stays the
    * reminder it obviously is.
    */
-  const intents = segments.map((segment) => detectUnresolvedIntent(segment));
+  // A chat item is the model's answer to the whole conversation, not a
+  // clause: what the person may merely be considering is the capture's
+  // question, asked of what they typed there.
+  const intents = segments.map((segment) => (chat ? null : detectUnresolvedIntent(segment)));
   /*
    * An injection in any clause rejects the capture before a single clause is
    * read (CL1 round 4, N5). Checked only on the model's answer, a `system:`
@@ -660,7 +717,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * could steer their titles, times and priority. The same pattern, the same
    * `rejected` answer, now asked of the clause itself.
    */
-  const injected = several && segments.some((segment) => INJECTION.test(segment));
+  const injected = (several || Boolean(chat)) && segments.some((segment) => INJECTION.test(segment));
   if (injected) rejected = true;
 
   /*
@@ -681,7 +738,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     .filter((index) => !intents[index] && !forceRules && index < MAX_MODEL_SEGMENTS);
   // A capture of one clause is read exactly as it always was: one prompt, the
   // provider's own deadline. Batching, and its budget, start at two.
-  const batch = dependencies.llmProvider && !forceRules && several
+  const batch = dependencies.llmProvider && !forceRules && several && !chat
     ? createClauseBatch(dependencies.llmProvider, segments, modelIndices, context, { startedAt, clock })
     : null;
   const outcomes = injected ? [] : await Promise.all(segments.map(async (segment, index): Promise<ClauseOutcome> => {
@@ -689,7 +746,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     const rulesOnly = forceRules || index >= MAX_MODEL_SEGMENTS;
     try {
       const extracted = await extractor(segment, context, {
-        llmProvider: rulesOnly ? RULES_ONLY_PROVIDER : batch ? batch.providerFor(index) : dependencies.llmProvider,
+        // A rules-only runtime (the capture kill switch) never takes a model
+        // item: each falls to the rules and is dropped below.
+        llmProvider: chat
+          ? forceRules ? RULES_ONLY_PROVIDER : chatItemProvider(chatItems[index])
+          : rulesOnly ? RULES_ONLY_PROVIDER : batch ? batch.providerFor(index) : dependencies.llmProvider,
         llmEngine: dependencies.llmEngine,
       });
       return { kind: 'extracted', extracted };
@@ -762,6 +823,20 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       }
       extracted = { ...extracted, result: withConjunctOwnDay(extracted.result, clauses[index]!, options.timezone) };
       /*
+       * The capture chat. An item whose object failed validation fell back to
+       * the rules on the whole conversation — a reading of every turn at
+       * once, not of this item — so it is dropped. And whatever survives is
+       * checked against what the person said: an hour, a minute or a day
+       * nobody said is taken off and asked about (`withoutUnsaidTime`).
+       */
+      let unsaid = false;
+      if (chat) {
+        if (extracted.engine === 'rule-based' && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason ?? '')) continue;
+        const guarded = withoutUnsaidTime(extracted.result, chatTurns, options.now, options.timezone);
+        extracted = { ...extracted, result: guarded.result };
+        unsaid = guarded.fired;
+      }
+      /*
        * The model read the capture but not this clause — its chunk timed out,
        * the budget ran out before its re-ask, or its answer could not be used
        * — so the rules read the clause instead (CL1 round 4, N2 and N4). In a
@@ -803,6 +878,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       if (
         failure === 'no_commitment'
         && several
+        && !chat
         && extracted.engine !== 'rule-based'
         && hasRequestEvidence(segment)
       ) {
@@ -860,7 +936,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         failure = semanticFailure(extracted.result, options.now);
         clearedPastTime = failure === null;
       }
-      if (several && failure === 'missing_title') continue;
+      if ((several || chat) && failure === 'missing_title') continue;
       if (!standIn) {
         // Whatever actually answered, named — and a model answer is never
         // relabelled by a later clause the rules had to read.
@@ -872,7 +948,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // Its clock times were read and found to be nothing to keep — «كان
         // عندي اجتماع الساعة 3» (FY1 N1) — so the valve below does not count
         // them as times a proposed item lost.
-        timesReadAsNothing += countTimeExpressions(segment);
+        // A chat item's segment is the whole conversation; the valve reads the
+        // newest message only, so nothing is subtracted for it.
+        if (!chat) timesReadAsNothing += countTimeExpressions(segment);
         continue;
       }
       if (failure) {
@@ -889,7 +967,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * the question the review screen already renders); «الساعة 5 المسا»
        * and «الساعة 10» resolve as before.
        */
-      const needsClarification = clearedPastTime || gated || bareEarlyHour || disposition === 'needs_clarification';
+      const needsClarification = clearedPastTime || gated || unsaid || bareEarlyHour || disposition === 'needs_clarification';
       const itemId = randomUUID();
       // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
       // says which day, and no instant is shown as if somebody chose it.
@@ -912,7 +990,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         // The day, even while the hour is still being asked for, and whether we
         // picked it — the same "said vs guessed" split as the priority (L4).
         ...(/^\d{4}-\d{2}-\d{2}$/.test(extracted.result.localTimeSpec?.date ?? '')
-          ? { resolvedDate: extracted.result.localTimeSpec!.date, dateEstimated: extracted.result.dateInferred === true }
+          ? { resolvedDate: extracted.result.localTimeSpec!.date, dateEstimated: dateIsGuess(extracted.result, segment) }
           : {}),
         // The one question worth asking, chosen deterministically (#165). Null
         // when there is nothing worth asking, or when every sensible option has

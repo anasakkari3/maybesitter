@@ -99,16 +99,17 @@ test('granting AI processing does not grant recommendations', async () => {
   }
 });
 
-test('granting recommendations does not grant AI processing', async () => {
+test('the recommendation answer and AI processing are separate questions', async () => {
   begin();
   try {
     const uid = uidFor('RecOnly');
-    await setRecommendationConsent(uid, { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION });
+    await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION });
 
-    assert.equal(await getRecommendationConsent(uid), 'granted');
-    // The one that matters most: this must never be the thing that lets
-    // somebody's sentences reach Google.
-    assert.equal(await getAiConsent(uid), 'declined', 'recommendation consent bought a model call');
+    assert.equal(await getRecommendationConsent(uid), 'declined');
+    // AI processing is always on (2026-09-30), and a declined recommendation
+    // answer neither turns it off nor is turned on by it.
+    assert.equal(await getAiConsent(uid), 'granted');
+    assert.equal(await getRecommendationConsent(uid), 'declined', 'AI always-on leaked into the recommendation answer');
   } finally {
     end();
   }

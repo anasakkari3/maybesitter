@@ -277,19 +277,34 @@ test('with consent, the recorded Gemini answer becomes a prep step and a follow-
   }
 });
 
-test('with consent off, zero model calls and still exactly one prep step from the notes', async () => {
+test('AI is always on: an account that never answered gets the model prep', async () => {
+  // Before 2026-09-30 this account stayed on the rules with zero model calls.
   begin();
   const gemini = withGemini();
   try {
     const response = await preparePost(request({ notes: NOTE, ...block(), timezone: 'Asia/Jerusalem' }));
     assert.equal(response.status, 200);
     const body = await json(response);
-    assert.equal(gemini.calls.length, 0);
-    assert.deepEqual(body.proposal.provenance, { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false });
+    assert.equal(gemini.calls.length, 1, 'an always-on account\u2019s notes never reached the model');
+    assert.deepEqual(body.proposal.provenance, { requestedEngine: 'model', executedEngine: 'gemini', fallbackUsed: false });
+  } finally {
+    gemini.restore();
+    end();
+  }
+});
+
+test('with no model reachable, still exactly one prep step from the notes', async () => {
+  // No provider configured: the model path falls back to the rules, which is
+  // what every cap and outage does too.
+  begin();
+  try {
+    const response = await preparePost(request({ notes: NOTE, ...block(), timezone: 'Asia/Jerusalem' }));
+    assert.equal(response.status, 200);
+    const body = await json(response);
+    assert.deepEqual(body.proposal.provenance, { requestedEngine: 'model', executedEngine: 'rule-based', fallbackUsed: true });
     assert.equal(body.proposal.items.length, 1);
     assert.equal(body.proposal.items[0].title, 'أراجع أرقام المصاريف وأطبع التقرير');
   } finally {
-    gemini.restore();
     end();
   }
 });

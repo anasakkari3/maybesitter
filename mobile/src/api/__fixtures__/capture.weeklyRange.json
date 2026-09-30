@@ -12,7 +12,7 @@
       "priority": "normal",
       "priorityEstimated": true,
       "resolvedDate": "2026-08-15",
-      "dateEstimated": true,
+      "dateEstimated": false,
       "recurrenceHint": {
         "weekdays": [
           6
@@ -21,7 +21,7 @@
         "end": "16:00"
       },
       "weeklyBlock": {
-        "title": "عندي تدريب",
+        "title": "تدريب",
         "weekdays": [
           6
         ],
@@ -33,7 +33,7 @@
   ],
   "seeds": [],
   "provenance": {
-    "requestedEngine": "rules",
+    "requestedEngine": "model",
     "executedEngine": "rule-based",
     "fallbackUsed": true
   }

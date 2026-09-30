@@ -145,3 +145,25 @@ export const GEMINI_BATCH_EXTRACTION_SCHEMA = toVertexSchema({
   },
   required: ['items'],
 });
+
+/** What one capture-chat turn asks the model to do (owner decision 2026-09-30). */
+export const CAPTURE_CHAT_ACTIONS = ['propose', 'update', 'ask', 'chat'] as const;
+export type CaptureChatAction = (typeof CAPTURE_CHAT_ACTIONS)[number];
+
+/**
+ * `{ reply, action, items }`: one capture-chat turn. `items` is the complete
+ * current list, each object in the extraction schema above — the capture
+ * boundary validates every one of them exactly as it validates a capture's.
+ */
+export const GEMINI_CHAT_SCHEMA = toVertexSchema({
+  type: 'object',
+  properties: {
+    reply: { type: 'string', description: 'One short message to the person, in their language. Never says anything was saved.' },
+    action: { type: 'string', enum: CAPTURE_CHAT_ACTIONS },
+    items: {
+      type: 'array',
+      items: OLLAMA_EXTRACTION_SCHEMA,
+    },
+  },
+  required: ['reply', 'action', 'items'],
+});

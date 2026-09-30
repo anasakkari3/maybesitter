@@ -12,12 +12,12 @@ import assert from 'node:assert/strict';
 import { createFirestoreStorage, resetFirestoreForTests } from '../../lib/storage/firestoreAdapter.ts';
 import { userDoc } from '../../lib/storage/paths.ts';
 import { AI_CONSENT_VERSION, RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
-import { getAiConsent, readAiConsent, setAiConsent } from '../../lib/consents/aiConsentService.ts';
+import { AiProcessingAlwaysOnError, getAiConsent, readAiConsent, setAiConsent } from '../../lib/consents/aiConsentService.ts';
 import {
   getRecommendationConsent,
   setRecommendationConsent,
 } from '../../lib/consents/recommendationConsentService.ts';
-import { AiConsentRequiredError, consentGatedProvider } from '../../lib/llm/consentGatedProvider.ts';
+import { consentGatedProvider } from '../../lib/llm/consentGatedProvider.ts';
 import type { LlmProvider } from '../../src/extraction/llm/index.ts';
 
 function uniqueUid(): string {
@@ -42,45 +42,48 @@ function spyProvider(): LlmProvider & { calls: number } {
   } as LlmProvider & { calls: number };
 }
 
-test('firestore: a grant written by one instance is seen by another, and so is the revocation', async () => {
+test('firestore: AI is always on — never asked reads granted elsewhere, a grant is seen, a decline writes nothing', async () => {
+  // Since 2026-09-30 (`lib/consents/aiProcessingPolicy`) AI processing cannot
+  // be declined. What still has to hold across instances: a recorded grant is
+  // visible with its locale, and a refused decline leaves the record alone.
   const uid = uniqueUid();
   const writer = createFirestoreStorage();
   const reader = createFirestoreStorage();
   try {
     // Never asked.
-    assert.equal(await getAiConsent(uid, { storage: reader }), 'declined');
+    assert.equal(await getAiConsent(uid, { storage: reader }), 'granted');
 
     await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar' }, { storage: writer });
-    assert.equal(await getAiConsent(uid, { storage: reader }), 'granted', 'the second instance did not see the grant');
-    assert.equal((await readAiConsent(uid, { storage: reader }))?.locale, 'ar');
+    assert.equal((await readAiConsent(uid, { storage: reader }))?.locale, 'ar', 'the second instance did not see the grant');
 
-    await setAiConsent(uid, { state: 'declined', version: AI_CONSENT_VERSION }, { storage: writer });
-    assert.equal(await getAiConsent(uid, { storage: reader }), 'declined', 'the revocation was not visible');
+    await assert.rejects(
+      () => setAiConsent(uid, { state: 'declined', version: AI_CONSENT_VERSION }, { storage: writer }),
+      AiProcessingAlwaysOnError,
+    );
+    const stored = await createFirestoreStorage().get<{ consents?: { aiProcessing?: { state?: string } } }>(userDoc(uid));
+    assert.equal(stored?.consents?.aiProcessing?.state, 'granted', 'a refused decline was written');
   } finally {
     await createFirestoreStorage().deleteTree(userDoc(uid)).catch(() => {});
     resetFirestoreForTests();
   }
 });
 
-test('firestore: the gate refuses immediately after a revocation written elsewhere', async () => {
+test('firestore: the gate keeps serving after a decline was refused elsewhere', async () => {
   const uid = uniqueUid();
   const writer = createFirestoreStorage();
   const serving = createFirestoreStorage();
   try {
-    await setAiConsent(uid, { state: 'granted', version: AI_CONSENT_VERSION }, { storage: writer });
-
     const inner = spyProvider();
     const gated = consentGatedProvider(uid, { provider: inner, storage: serving });
     const body = { system: '', user: 'x', responseSchema: {}, purpose: 'capture_extraction' as const, uid };
 
     await gated.generateJson(body);
-    assert.equal(inner.calls, 1);
-
-    // Another instance revokes. No request in between, no cache to expire.
-    await setAiConsent(uid, { state: 'declined', version: AI_CONSENT_VERSION }, { storage: writer });
-
-    await assert.rejects(() => gated.generateJson(body), AiConsentRequiredError);
-    assert.equal(inner.calls, 1, 'the serving instance reached the model after consent was revoked elsewhere');
+    await assert.rejects(
+      () => setAiConsent(uid, { state: 'declined', version: AI_CONSENT_VERSION }, { storage: writer }),
+      AiProcessingAlwaysOnError,
+    );
+    await gated.generateJson(body);
+    assert.equal(inner.calls, 2);
   } finally {
     await createFirestoreStorage().deleteTree(userDoc(uid)).catch(() => {});
     resetFirestoreForTests();
@@ -120,13 +123,16 @@ test('firestore: two consents on one document do not overwrite each other', asyn
 
     // Read through a fresh instance, so this is Firestore's copy and not a
     // local object that happened to keep both fields.
+    // The AI answer is read raw: `getAiConsent` is granted for everyone since
+    // AI became always on, so only the stored map can show it survived.
     const fresh = createFirestoreStorage();
-    assert.equal(await getAiConsent(uid, { storage: fresh }), 'granted', 'the recommendation answer erased the AI one');
+    type Stored = { consents?: { aiProcessing?: { state?: string } } };
+    assert.equal((await fresh.get<Stored>(userDoc(uid)))?.consents?.aiProcessing?.state, 'granted', 'the recommendation answer erased the AI one');
     assert.equal(await getRecommendationConsent(uid, { storage: fresh }), 'granted');
 
     // And revoking one leaves the other exactly where it was.
     await setRecommendationConsent(uid, { state: 'declined', version: RECOMMENDATION_CONSENT_VERSION }, { storage });
-    assert.equal(await getAiConsent(uid, { storage: createFirestoreStorage() }), 'granted');
+    assert.equal((await createFirestoreStorage().get<Stored>(userDoc(uid)))?.consents?.aiProcessing?.state, 'granted');
   } finally {
     await createFirestoreStorage().deleteTree(userDoc(uid)).catch(() => {});
     resetFirestoreForTests();

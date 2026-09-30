@@ -196,7 +196,8 @@ function eveningExtraction(): string {
   });
 }
 
-async function clarifyWithStubbedModel(consent: 'granted' | 'declined'): Promise<{ calls: number; saved: boolean }> {
+/** `unanswered`: nothing recorded, which reads as granted since AI became always on (2026-09-30). */
+async function clarifyWithStubbedModel(consent: 'granted' | 'unanswered'): Promise<{ calls: number; saved: boolean }> {
   setStorageForTests(createMemoryStorage());
   let calls = 0;
   (globalThis as Globals).__clarifyVertexGenerate = async () => {
@@ -221,7 +222,7 @@ async function clarifyWithStubbedModel(consent: 'granted' | 'declined'): Promise
     const proposal = await proposeMobileCapture({ text: 'Remind me to call Dana', timezone: ZONE, referenceTime: NOW.toISOString() }, { participantId: uid });
     const item = proposal.items.find((candidate) => candidate.clarification)!;
     assert.ok(item, 'expected a question');
-    await setAiConsent(uid, { state: consent, version: AI_CONSENT_VERSION });
+    if (consent === 'granted') await setAiConsent(uid, { state: consent, version: AI_CONSENT_VERSION });
     process.env.MAYBESITTER_LLM_PROVIDER = 'gemini';
     process.env.MAYBESITTER_VERTEX_LOCATION = 'europe-west1';
     resetProviderForTests();
@@ -253,8 +254,8 @@ test('with AI consent, the typed answer reaches the model the capture is allowed
   assert.equal(saved, true);
 });
 
-test('without AI consent, the typed answer never reaches a model', async () => {
-  const { calls, saved } = await clarifyWithStubbedModel('declined');
-  assert.equal(calls, 0, 'a declined account had its answer sent to a model');
+test('AI is always on: an account that never answered has its typed answer read by the model', async () => {
+  const { calls, saved } = await clarifyWithStubbedModel('unanswered');
+  assert.ok(calls >= 1, 'an always-on account\u2019s answer never reached the model');
   assert.equal(saved, true);
 });
