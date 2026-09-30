@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import { AppState, ScrollView, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
@@ -57,6 +57,9 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
   // Rendered once at the root, above every screen (#495). While visible it
   // owns the status-bar clearance; the screen below must not add it again.
   const insets = useSafeAreaInsets();
+  // The offline banner above may already have cleared the status bar.
+  const consumedAbove = useContext(ScreenTopInsetConsumedContext);
+  const topInset = consumedAbove ? 0 : insets.top;
   const { height: windowHeight, fontScale } = useWindowDimensions();
   const keyboardShown = useSoftKeyboardShown();
   const [cooldown, setCooldown] = useState(0);
@@ -117,7 +120,7 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
           testID="verify-email-banner"
           style={{
             backgroundColor: p.wms,
-            paddingTop: insets.top + 12,
+            paddingTop: topInset + 12,
             paddingBottom: 12,
             paddingHorizontal: 16,
             flexDirection: 'row',
@@ -153,7 +156,7 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
         testID="verify-email-banner"
         style={{
           backgroundColor: p.wms,
-          paddingTop: insets.top + 12,
+          paddingTop: topInset + 12,
           paddingBottom: 12,
           paddingHorizontal: 16,
           flexDirection: 'column',
@@ -174,7 +177,7 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
       {renderBanner()}
       {/* Keep the provider mounted while verification or keyboard state changes:
           the screen, its scroll position and any draft belong to the user. */}
-      <ScreenTopInsetConsumedContext.Provider value={needsVerification && !keyboardShown}>
+      <ScreenTopInsetConsumedContext.Provider value={consumedAbove || (needsVerification && !keyboardShown)}>
         {children}
       </ScreenTopInsetConsumedContext.Provider>
     </>
