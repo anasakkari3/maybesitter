@@ -156,6 +156,20 @@ export interface ExtractionResult {
   explicitPressureRequest: boolean;
   rawText: string;
   parserVersion: string;
+  /**
+   * The title in the app's language, as the model wrote it (owner request
+   * 2026-09-30). Only when the context asked for one (`titleLanguage`), and
+   * never read by anything that checks a title against the person's words:
+   * `title` stays in their words through every validator, and the capture
+   * boundary puts this in its place only when the proposal item is built.
+   */
+  appTitle?: string;
+  /**
+   * The person's own-words title, kept once `title` holds the app-language one
+   * (set by the capture boundary, stored with the proposal). What the chat
+   * matches a clause to an item by; never shown.
+   */
+  sourceTitle?: string;
 }
 
 export interface ExtractionContext {
@@ -171,6 +185,12 @@ export interface ExtractionContext {
    * to categorise at all.
    */
   categories?: readonly CommitmentCategory[];
+  /**
+   * The app's UI language (owner request 2026-09-30). Present, the model is
+   * asked for `appTitle` — the title in this language — beside `title` in the
+   * person's own words. Absent, the prompt is the one before the field existed.
+   */
+  titleLanguage?: 'ar' | 'en' | 'he';
 }
 
 export type ExtractionDisposition = 'auto_confirm' | 'pending_confirmation' | 'needs_clarification' | 'store_note';
