@@ -20,6 +20,13 @@ type Effect = keyof typeof effectKeys;
 const footballEffects: readonly Effect[] = ['replan_if_impacted', 'notify'];
 /** `provider:signalKind` of a followed-club watcher, as the monitor projection labels it. */
 const FOOTBALL_LABEL = 'football_data:football_team';
+/** What a monitor is called on screen: Readiness, a followed club, or its provider label. */
+export function monitorTitleFor(t: { xReadiness: string; xFootball: string }, label: string, title: string | null = null): string {
+  return label === 'maybesitter:readiness' ? t.xReadiness
+    : label === FOOTBALL_LABEL ? (title ? `${t.xFootball} · ${isolateAuto(title)}` : t.xFootball)
+    : isolateAuto(label.replace(':', ' · '));
+}
+
 export function BackgroundActivityScreen() {
   const { t, p, lang, actions } = useApp();
   const zone = useTimeZone();
@@ -29,9 +36,7 @@ export function BackgroundActivityScreen() {
   const setMonitoring = useSetBackgroundActivityPaused();
   const [deleting, setDeleting] = useState<{ id: string; team: string | null } | null>(null);
   const items = query.data?.monitors ?? [];
-  const monitorTitle = (label: string, title: string | null = null) => label === 'maybesitter:readiness' ? t.xReadiness
-    : label === FOOTBALL_LABEL ? (title ? `${t.xFootball} · ${isolateAuto(title)}` : t.xFootball)
-    : isolateAuto(label.replace(':', ' · '));
+  const monitorTitle = (label: string, title: string | null = null) => monitorTitleFor(t, label, title);
   const statusOf = (status: (typeof items)[number]['status']) => status === 'needs_reauth' ? 'NEEDS_REAUTH' as const
     : status === 'blocked_permission' || status === 'error' ? 'BLOCKED' as const
     : status === 'active' ? 'LIVE' as const : null;
