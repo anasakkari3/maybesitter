@@ -13,6 +13,7 @@ import { HubHeading, HubRow } from '../../ui/hub';
 import { Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll, TAB_CLEARANCE } from '../../ui/screen';
 import { ServerToggle } from '../settings/ServerToggle';
+import { AvailabilityBadge } from '../../ui/product';
 import { monitorTitleFor } from '../product/WatcherScreens';
 import { useBackgroundActivity, useSetBackgroundActivityPaused } from '../product/useWatchers';
 import { useIntelligenceInbox } from './useIntelligenceInbox';
@@ -71,7 +72,7 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
             {suggestions.length > 0 ? <>
               <HubHeading title={t.watchingSuggestions} icon="sparkles" count={suggestions.length} testID="watching-suggestions" />
               {suggestions.map(item => (
-                <InboxCard key={item.id} item={item} action={t.watchingReview} note={t.suggestionNote} onOpen={() => actions.go('goalExecution')} />
+                <InboxCard key={item.id} item={item} kind={t.weekProposal} action={t.watchingReview} note={t.suggestionNote} onOpen={() => actions.go('goalExecution')} />
               ))}
             </> : null}
           </QueryBoundary>
@@ -90,6 +91,7 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                 tone={monitor.status === 'active' ? 'success' : monitor.status === 'paused' ? 'neutral' : 'attention'}
                 title={monitorTitleFor(t, monitor.label, monitor.title)}
                 sub={`${t.xLastChecked}: ${instant(monitor.lastCheckedAt)}`}
+                badge={<WatchState status={monitor.status} id={monitor.watcherId ?? monitor.monitorId} />}
                 onPress={() => actions.go('backgroundActivity')}
               />
             ))}
@@ -112,18 +114,37 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   );
 }
 
-/** One pending question or suggestion: its words, why, and the way to it. */
-function InboxCard({ item, action, note, onOpen }: { item: IntelligenceSuggestion; action: string; note?: string; onOpen: () => void }) {
+/**
+ * A watch's state in words, as Background activity says it: running,
+ * retrying (the next try is already scheduled), paused, or in the way.
+ */
+function WatchState({ status, id }: { status: string; id: string }) {
+  const { t, p } = useApp();
+  if (status === 'retrying') return <Txt size={13} weight={600} color={p.wm} testID={`watching-state-${id}`}>{t.xFootballRetrying}</Txt>;
+  const badge = status === 'needs_reauth' ? 'NEEDS_REAUTH' as const
+    : status === 'blocked_permission' || status === 'error' ? 'BLOCKED' as const
+    : status === 'active' ? 'LIVE' as const : null;
+  return badge
+    ? <AvailabilityBadge status={badge} testID={`watching-state-${id}`} />
+    : <Txt size={13} weight={600} color={p.wm} testID={`watching-state-${id}`}>{t.xPaused}</Txt>;
+}
+
+/**
+ * One pending question or suggestion (Stitch `05`): what kind it is, its
+ * words, why, the way to it, and — under a rule — that nothing has changed.
+ */
+function InboxCard({ item, kind, action, note, onOpen }: { item: IntelligenceSuggestion; kind?: string; action: string; note?: string; onOpen: () => void }) {
   const { p } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   return (
-    <Card testID={`watching-item-${item.id}`} style={{ gap: 10 }}>
-      <Txt size={16} weight={600}>{isolateAuto(item.title)}</Txt>
+    <Card testID={`watching-item-${item.id}`} style={{ gap: 10, backgroundColor: p.sf }}>
+      {kind ? <Txt size={13} weight={700} color={p.wm}>{kind}</Txt> : null}
+      <Txt size={17} weight={700}>{isolateAuto(item.title)}</Txt>
       {item.reason ? <Txt role="supporting" color={p.mu}>{isolateAuto(item.reason)}</Txt> : null}
       <View style={{ flexDirection: stacked ? 'column' : 'row' }}>
-        <Pill label={action} onPress={onOpen} testID={`watching-open-${item.id}`} size={15} pad={10} />
+        <Pill label={action} onPress={onOpen} testID={`watching-open-${item.id}`} size={15} weight={700} pad={10} style={{ minHeight: 48 }} />
       </View>
-      {note ? <Txt size={13} color={p.mu}>{note}</Txt> : null}
+      {note ? <Txt size={13} color={p.mu} style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 10 }}>{note}</Txt> : null}
     </Card>
   );
 }

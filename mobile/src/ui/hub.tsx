@@ -36,7 +36,7 @@ export function CountChip({ count, testID }: { count: number; testID?: string | 
   );
 }
 
-export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, onPress }: {
+export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, badge, onPress }: {
   testID: string;
   icon: string;
   tone?: HubTone;
@@ -44,6 +44,8 @@ export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, onPr
   sub?: string | undefined;
   /** Shown only once it is known; a row whose data is loading has none. */
   count?: number | undefined;
+  /** A state chip under the line (a watch's «شغّال» / «موقّف»), in words. */
+  badge?: React.ReactNode;
   onPress: () => void;
 }) {
   const { p, rtl } = useApp();
@@ -56,17 +58,18 @@ export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, onPr
       onPress={onPress}
       scaleTo={0.985}
       style={{
-        minHeight: 64, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf,
-        paddingVertical: 12, paddingHorizontal: 14, gap: 12,
+        minHeight: 72, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf,
+        paddingVertical: 14, paddingHorizontal: 16, gap: 14,
         flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center',
       }}
     >
-      <View accessible={false} style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
+      <View accessible={false} style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ReferenceIcon name={icon} size={22} color={c.fg} />
       </View>
       <View style={{ flex: stacked ? undefined : 1, gap: 2, alignItems: 'flex-start' }}>
-        <Txt size={16} weight={600}>{title}</Txt>
+        <Txt size={17} weight={700}>{title}</Txt>
         {sub ? <Txt size={13} color={p.mu}>{sub}</Txt> : null}
+        {badge ?? null}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         {count === undefined ? null : <CountChip count={count} testID={`${testID}-count`} />}

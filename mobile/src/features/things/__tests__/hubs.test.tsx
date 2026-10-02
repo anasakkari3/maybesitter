@@ -193,6 +193,8 @@ describe('«يتابع لك»', () => {
     await waitFor(() => expect(screen.queryByTestId(id)).not.toBeNull());
     expect(screen.getByTestId('watching-nothing')).toHaveTextContent(en.watchingNothing);
     expect(screen.getByLabelText(new RegExp(`${en.xLastChecked}: ${en.xNotObserved}`))).toBeTruthy();
+    // Its state in words, as Background activity says it (Stitch 05's chip).
+    expect(screen.getByTestId(`watching-state-${retrying.monitors[0]!.watcherId}`)).toHaveTextContent(en.xFootballRetrying);
     expect(screen.queryByTestId('watching-pause')).not.toBeNull();
     await fireEvent.press(screen.getByTestId(id));
     expect(screen.getByTestId('probe-screen')).toHaveTextContent('backgroundActivity');
