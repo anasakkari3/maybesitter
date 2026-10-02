@@ -127,7 +127,7 @@ describe('the Considering / Waiting screen', () => {
     // Must / Should / Nice is the classification the issue forbids on a seed,
     // and a rendered time would be the product scheduling a maybe.
     const rendered = JSON.stringify(screen.toJSON());
-    for (const forbidden of [en.mustL, en.shouldL, en.niceL]) {
+    for (const forbidden of [en.todayGroupMust, en.todayGroupShould, en.todayGroupNice]) {
       expect(rendered).not.toContain(forbidden);
     }
     expect(screen.queryByTestId('seed-revisit-seed-1')).toBeNull();
