@@ -315,6 +315,12 @@ function onRecurrenceDay(result: ExtractionResult, recurrence: StatedRecurrence,
   const target = nextOccurrence(recurrence.weekdays, now, timeZone);
   if (!target) return result;
   if (date === target) return { ...result, dateInferred: true };
+  // "every Tuesday and Thursday": an item already on the coming Thursday is
+  // on one of its days (audit 2026-10-03 #1) — moving it to the nearest of
+  // them put the Thursday session on Tuesday, beside the Tuesday one.
+  if (date && recurrence.weekdays.some((weekday) => nextOccurrence([weekday], now, timeZone) === date)) {
+    return { ...result, dateInferred: true };
+  }
   const { undatedTime: _undated, ...rest } = result;
   if (result.allDay) {
     const midnight = instantFromLocal(target, '00:00', timeZone)?.toISOString() ?? null;

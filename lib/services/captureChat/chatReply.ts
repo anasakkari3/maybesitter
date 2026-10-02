@@ -21,7 +21,7 @@
 import { foldInjectionPattern, normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { localTimeSpecFor, statesClock } from '../../../src/extraction/timeLexicon';
-import { namesOnlyItem } from '../captureBoundary/chatEvidence';
+import { contentWords, namesOnlyItem, sameWord } from '../captureBoundary/chatEvidence';
 import { groundedReply, type ReplyGrounds } from './chatWhy';
 
 export type ChatLanguage = 'ar' | 'en' | 'he';
@@ -325,4 +325,98 @@ export function safeChatReply(reply: unknown, context: TemplateContext): { reply
     return { reply: `${ended} ${missingQuestion(context.language, asking)}`, replaced: false };
   }
   return { reply: text, replaced: false };
+}
+
+/* ── the reply after the proposal's shape (audit 2026-10-03 #1, #6) ── */
+
+const SHAPE_NOTES: Readonly<Record<ChatLanguage, { goalSeed: string; goalLinkOne: string; goalLinkMany: string }>> = {
+  ar: {
+    goalSeed: '«{title}» هدف أكتر منه موعد، فهو تحت لحال: إذا بدك خلّيه.',
+    goalLinkOne: 'اقترحت تنحسب على هدفك «{goal}»، وفيك تشيل الربط من الكرت.',
+    goalLinkMany: 'اقترحت ينحسبوا على هدفك «{goal}»، وفيك تشيل الربط من الكروت.',
+  },
+  en: {
+    goalSeed: '"{title}" sounds like a goal rather than an appointment, so it is below on its own: keep it if you want.',
+    goalLinkOne: 'I suggested counting it toward your goal "{goal}" — you can remove that on the card.',
+    goalLinkMany: 'I suggested counting them toward your goal "{goal}" — you can remove that on the cards.',
+  },
+  he: {
+    goalSeed: '"{title}" נשמע כמו מטרה ולא כמו פגישה, אז הוא מופיע למטה בנפרד: אפשר לשמור אותו.',
+    goalLinkOne: 'הצעתי לספור את זה למטרה "{goal}" — אפשר להסיר את זה בכרטיס.',
+    goalLinkMany: 'הצעתי לספור אותם למטרה "{goal}" — אפשר להסיר את זה בכרטיסים.',
+  },
+};
+
+const QUOTED_TITLE = /«([^»]{1,120})»|"([^"]{1,120})"|“([^”]{1,120})”/g;
+
+function clippedTitle(title: string): string {
+  return title.length > TEMPLATE_TITLE_MAX ? `${title.slice(0, TEMPLATE_TITLE_MAX - 1)}…` : title;
+}
+
+type ShapeProposal = {
+  items: ReadonlyArray<ProposalItemLike & { goalLink?: { title: string } }>;
+  seeds?: ReadonlyArray<{ kind: string; summary: string }>;
+  noCommitmentReason?: CaptureProposalContract['noCommitmentReason'];
+};
+
+export interface ShapeContext {
+  language: ChatLanguage;
+  /** What the model returned, before the boundary read it: its titles only are read. */
+  modelItems: readonly unknown[];
+  proposal: ShapeProposal | null;
+  /** The list the person saw before this message, so a note already given is not given again. */
+  previous: ShapeProposal | null;
+  updated?: boolean;
+}
+
+/**
+ * The reply brought into line with the list the boundary actually proposes
+ * (`proposalShape`): a sentence naming, in quotes, something of the model's
+ * that is no longer a card — "learn React" taken off the timed list — goes;
+ * and what was done instead is said once, from the proposal, never from the
+ * model: the goal offered below on its own, the goal the items may count
+ * toward. A reply left with nothing is the template.
+ */
+export function withShapeNoted(reply: string, context: ShapeContext): string {
+  const cards = (context.proposal?.items ?? []).map((item) => contentWords(item.title));
+  const offTheList = context.modelItems.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const titles = [record.title, record.appTitle].filter((title): title is string => typeof title === 'string' && title.trim().length > 0);
+    const kept = titles.some((title) => contentWords(title).some((word) => cards.some((card) => card.some((candidate) => sameWord(word, candidate)))));
+    return kept ? [] : titles.map((title) => contentWords(title));
+  });
+  const namesOffTheList = (sentence: string) => Array.from(sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).matchAll(QUOTED_TITLE)).some((match) => {
+    const words = contentWords(match[1] ?? match[2] ?? match[3] ?? '');
+    return words.length > 0 && offTheList.some((title) => words.some((word) => title.some((candidate) => sameWord(word, candidate))))
+      && !cards.some((card) => words.some((word) => card.some((candidate) => sameWord(word, candidate))));
+  });
+  const sentences = sentencesOf(reply);
+  const remaining = offTheList.length > 0 ? sentences.filter((sentence) => !namesOffTheList(sentence)) : sentences;
+  // What is left after a sentence went names no card («أكّد من تحت.» alone):
+  // the template says the list instead.
+  const kept = remaining.length === sentences.length || new RegExp(QUOTED_TITLE.source).test(remaining.join(' '))
+    ? remaining.join(' ')
+    : '';
+
+  const notes: string[] = [];
+  const table = SHAPE_NOTES[context.language];
+  const before = new Set((context.previous?.seeds ?? []).filter((seed) => seed.kind === 'possible_goal').map((seed) => seed.summary));
+  for (const seed of context.proposal?.seeds ?? []) {
+    if (seed.kind === 'possible_goal' && !before.has(seed.summary)) notes.push(table.goalSeed.replace('{title}', clippedTitle(seed.summary)));
+  }
+  const linkedBefore = new Set((context.previous?.items ?? []).flatMap((item) => (item.goalLink ? [item.goalLink.title] : [])));
+  const linkedNow = Array.from(new Set((context.proposal?.items ?? []).flatMap((item) => (item.goalLink ? [item.goalLink.title] : []))));
+  for (const goal of linkedNow) {
+    if (linkedBefore.has(goal)) continue;
+    const count = (context.proposal?.items ?? []).filter((item) => item.goalLink?.title === goal).length;
+    notes.push((count > 1 ? table.goalLinkMany : table.goalLinkOne).replace('{goal}', clippedTitle(goal)));
+  }
+
+  const text = kept.trim() || (notes.length > 0 || remaining.length !== sentences.length
+    ? templateReply({ language: context.language, proposal: context.proposal, ...(context.updated ? { updated: true } : {}) })
+    : '');
+  if (notes.length === 0) return text;
+  const ended = /[.!?؟。…]$/.test(text) ? text : `${text}.`;
+  return `${ended} ${notes.join(' ')}`.trim();
 }

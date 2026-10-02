@@ -33,6 +33,7 @@ import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
 import { withWeeklyBlockOffers, withoutPossessionLeadIn } from '../../weeklyBlocks/offer';
+import { duplicateItemIds, goalLinkFor, isGoalTitle, matchingGoal, occurrenceDatesFor, onDate, titleKey, type ActiveGoal } from './proposalShape';
 import {
   alignToPrevious,
   chatEvidenceFrom,
@@ -136,6 +137,12 @@ export interface ProposeCaptureOptions {
    * person's own words stand.
    */
   locale?: CaptureAppLocale;
+  /**
+   * The person's active goals, their ids and their own words (audit
+   * 2026-10-03 #6): an item about one of them offers to count toward it
+   * (`goalLink`). Read by the caller, under the same uid as `scopeId`.
+   */
+  activeGoals?: readonly ActiveGoal[];
 }
 
 /**
@@ -719,6 +726,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   let noCommitmentReason: NoCommitmentReason | null = null;
   // Clock times said in clauses that produced nothing (FY1 N1); see the valve.
   let timesReadAsNothing = 0;
+  // Each item's own words — its clause, or in the chat its evidence — for the
+  // proposal's shape below (`proposalShape`). Never stored, never logged.
+  const itemWords = new Map<string, string>();
 
   /*
    * The capture chat (owner decision 2026-09-30): one clause per model item,
@@ -1135,45 +1145,62 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * and «الساعة 10» resolve as before.
        */
       const needsClarification = clearedPastTime || gated || unsaid || stillAsked || bareEarlyHour || disposition === 'needs_clarification';
-      const itemId = randomUUID();
-      // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
-      // says which day, and no instant is shown as if somebody chose it.
-      const resolvedTime = needsClarification || extracted.result.allDay ? null : extracted.result.remindAt || extracted.result.dueAt;
-      items.push({
-        itemId,
-        title: (extracted.result.title || extracted.result.action || '').trim(),
-        resolvedTime,
-        needsClarification,
-        // The hour shown is ours when the clause gave only a part of the day
-        // (UAT round 6, D2): «اليوم المسا» is 18:00 on both engines, and the
-        // card says we guessed it. The words decide, not the engine.
-        timeEstimated: resolvedTime !== null && hourIsPartOfDayGuess(segment),
-        // Sent so the review screen can show Must/Should/Nice without a second
-        // call — and so the user can see which of the two it is (#164).
-        priority: extracted.result.priority.level,
-        // `user_explicit` means the person said so; anything else is ours. A
-        // guess presented as a fact is how a product loses the right to guess.
-        priorityEstimated: extracted.result.priority.source !== 'user_explicit',
-        // The day, even while the hour is still being asked for, and whether we
-        // picked it — the same "said vs guessed" split as the priority (L4).
-        ...(/^\d{4}-\d{2}-\d{2}$/.test(extracted.result.localTimeSpec?.date ?? '')
-          ? { resolvedDate: extracted.result.localTimeSpec!.date, dateEstimated: dateIsGuess(extracted.result, segment) }
-          : {}),
-        // The one question worth asking, chosen deterministically (#165). Null
-        // when there is nothing worth asking, or when every sensible option has
-        // fallen into the past — in which case the app falls back to #164's edit
-        // sheet rather than asking something unanswerable.
-        ...(needsClarification
-          ? { clarification: buildClarification(extracted.result, { now: options.now, timezone: options.timezone }) }
-          : {}),
-        // «كل سبت» (FIX-R8-CAPTURE): the item is a one-off on the next
-        // Saturday until weekly blocks exist; this is what that lane reads.
-        ...(extracted.result.recurrenceHint
-          ? { recurrenceHint: recurrenceHintOf(extracted.result, options.timezone, resolvedTime !== null) }
-          : {}),
-      });
-      commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(extracted.result, options.now.toISOString(), categoryPreferences));
-      resultsByItemId.set(itemId, extracted.result);
+      /*
+       * One item per day its words list, at its one hour (audit 2026-10-03
+       * #1): "study on Tuesday and Thursday at 7 PM" is the coming Tuesday
+       * and the coming Thursday — never both on Tuesday. Only from the words
+       * of this message (the newest one, in the chat), so an older message's
+       * list never undoes a later edit of one of its days.
+       */
+      const occurrenceWords = chat
+        ? chatItemEvidences[index]!.turns.filter((line) => raw.includes(line.trim())).join('\n')
+        : segment;
+      const occurrences = needsClarification || (chat && !chatItemEvidences[index]!.touchedNow)
+        ? null
+        : occurrenceDatesFor(extracted.result, occurrenceWords, options.now, options.timezone);
+      const readings = occurrences ? occurrences.map((date) => onDate(extracted.result, date, options.timezone)) : [extracted.result];
+      for (const reading of readings) {
+        const itemId = randomUUID();
+        // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
+        // says which day, and no instant is shown as if somebody chose it.
+        const resolvedTime = needsClarification || reading.allDay ? null : reading.remindAt || reading.dueAt;
+        items.push({
+          itemId,
+          title: (reading.title || reading.action || '').trim(),
+          resolvedTime,
+          needsClarification,
+          // The hour shown is ours when the clause gave only a part of the day
+          // (UAT round 6, D2): «اليوم المسا» is 18:00 on both engines, and the
+          // card says we guessed it. The words decide, not the engine.
+          timeEstimated: resolvedTime !== null && hourIsPartOfDayGuess(segment),
+          // Sent so the review screen can show Must/Should/Nice without a second
+          // call — and so the user can see which of the two it is (#164).
+          priority: reading.priority.level,
+          // `user_explicit` means the person said so; anything else is ours. A
+          // guess presented as a fact is how a product loses the right to guess.
+          priorityEstimated: reading.priority.source !== 'user_explicit',
+          // The day, even while the hour is still being asked for, and whether we
+          // picked it — the same "said vs guessed" split as the priority (L4).
+          ...(/^\d{4}-\d{2}-\d{2}$/.test(reading.localTimeSpec?.date ?? '')
+            ? { resolvedDate: reading.localTimeSpec!.date, dateEstimated: dateIsGuess(reading, segment) }
+            : {}),
+          // The one question worth asking, chosen deterministically (#165). Null
+          // when there is nothing worth asking, or when every sensible option has
+          // fallen into the past — in which case the app falls back to #164's edit
+          // sheet rather than asking something unanswerable.
+          ...(needsClarification
+            ? { clarification: buildClarification(reading, { now: options.now, timezone: options.timezone }) }
+            : {}),
+          // «كل سبت» (FIX-R8-CAPTURE): the item is a one-off on the next
+          // Saturday until weekly blocks exist; this is what that lane reads.
+          ...(reading.recurrenceHint
+            ? { recurrenceHint: recurrenceHintOf(reading, options.timezone, resolvedTime !== null) }
+            : {}),
+        });
+        commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences));
+        resultsByItemId.set(itemId, reading);
+        itemWords.set(itemId, chat ? chatItemEvidences[index]!.turns.join('\n') || segment : segment);
+      }
     } catch (error) {
       // Gap B: a negated request is understood, not malformed. It produces no
       // commitment and says so, rather than an error the user has to interpret.
@@ -1207,6 +1234,60 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         items[i] = { ...items[i], resolvedTime: null, needsClarification: true, timeEstimated: false };
         commandsByItemId.set(items[i].itemId, []);
       }
+    }
+  }
+
+  /*
+   * The proposal's shape (audit 2026-10-03 #1 and #6; `proposalShape`), on
+   * whatever the reading above produced — the model's list varies, this does
+   * not:
+   *
+   *   a repeat           the same title at the same time, said twice (or
+   *                      returned twice by the model), is one item;
+   *   the goal           "learn React" beside the sessions that carry it out
+   *                      leaves the timed list — when it sits at a session's
+   *                      own hour, or has no hour while a session is about the
+   *                      same thing. A goal the person already has is not
+   *                      offered again; one they do not have is offered as a
+   *                      «possible goal» seed, never lost;
+   *   a goal link        an item about one of the person's active goals offers
+   *                      to count toward it. Only offered: the confirm links
+   *                      what the person kept (`goalLinkItemIds`).
+   */
+  const sourceTitleOf = new Map(items.map((item) => [item.itemId, resultsByItemId.get(item.itemId)?.sourceTitle ?? '']));
+  const dropItem = (itemId: string) => {
+    const at = items.findIndex((item) => item.itemId === itemId);
+    if (at !== -1) items.splice(at, 1);
+    commandsByItemId.delete(itemId);
+    resultsByItemId.delete(itemId);
+  };
+  for (const itemId of Array.from(duplicateItemIds(items, sourceTitleOf))) dropItem(itemId);
+  const activeGoals = options.activeGoals ?? [];
+  const goalItems = items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId)));
+  const sessions = items.filter((item) => !goalItems.includes(item));
+  const instantOf = (item: CaptureProposalContract['items'][number]) => (item.resolvedTime ? Date.parse(item.resolvedTime) : null);
+  const goalSeedKeys = new Set(seeds.map((seed) => titleKey(seed.summary)));
+  for (const goalItem of goalItems) {
+    if (sessions.length === 0) break;
+    const goalWords = `${goalItem.title}\n${sourceTitleOf.get(goalItem.itemId) ?? ''}`;
+    const at = instantOf(goalItem);
+    const sharesASlot = at !== null && sessions.some((session) => instantOf(session) === at);
+    const aboutTheSameThing = at === null && sessions.some((session) =>
+      matchingGoal(`${session.title}\n${sourceTitleOf.get(session.itemId) ?? ''}\n${itemWords.get(session.itemId) ?? ''}`, [{ goalId: '', title: goalWords }]) !== null);
+    if (!sharesASlot && !aboutTheSameThing) continue;
+    dropItem(goalItem.itemId);
+    if (matchingGoal(goalWords, activeGoals)) continue;
+    const summary = (sourceTitleOf.get(goalItem.itemId) || goalItem.title).trim();
+    const key = titleKey(summary);
+    if (!summary || goalSeedKeys.has(key)) continue;
+    goalSeedKeys.add(key);
+    seeds.push({ seedItemId: randomUUID(), kind: 'possible_goal', summary });
+  }
+  if (activeGoals.length > 0) {
+    for (let at = 0; at < items.length; at += 1) {
+      const item = items[at]!;
+      const goal = matchingGoal(`${item.title}\n${sourceTitleOf.get(item.itemId) ?? ''}\n${itemWords.get(item.itemId) ?? ''}`, activeGoals);
+      if (goal) items[at] = { ...item, goalLink: goalLinkFor(goal) };
     }
   }
 

@@ -1,6 +1,6 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
-  "reply": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right. \"Call the dentist\" clashes with \"Gym\" tomorrow 16:30–18:00.",
+  "reply": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right. I suggested counting it toward your goal \"Look after my teeth: see the dentist\" — you can remove that on the card. \"Call the dentist\" clashes with \"Gym\" tomorrow 16:30–18:00.",
   "engine": "model",
   "proposal": {
     "version": "v1",
@@ -17,6 +17,10 @@
         "priorityEstimated": true,
         "resolvedDate": "2026-08-10",
         "dateEstimated": false,
+        "goalLink": {
+          "goalId": "mem_00000000-0000-4000-8000-000000000004",
+          "title": "Look after my teeth: see the dentist"
+        },
         "conflicts": [
           {
             "title": "Gym",
@@ -41,7 +45,7 @@
     },
     {
       "role": "assistant",
-      "text": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right. \"Call the dentist\" clashes with \"Gym\" tomorrow 16:30–18:00."
+      "text": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right. I suggested counting it toward your goal \"Look after my teeth: see the dentist\" — you can remove that on the card. \"Call the dentist\" clashes with \"Gym\" tomorrow 16:30–18:00."
     }
   ]
 }
