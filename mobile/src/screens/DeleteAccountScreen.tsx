@@ -90,7 +90,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
       <View style={{ flex: 1, backgroundColor: p.bg }}>
         <TaskHeader pill={t.back} onPill={cancelReauth} title={t.accountDeleteTitle} />
         <ScrollView contentContainerStyle={{ padding: 24, gap: 16 }} keyboardShouldPersistTaps="handled">
-          <Txt size={22} weight={600}>{t.accountReauthTitle}</Txt>
+          <Txt role="page" size={24} weight={700}>{t.accountReauthTitle}</Txt>
           <Txt size={15} color={p.mu}>{t.accountReauthBody}</Txt>
 
           {phase.provider === 'password' ? (
@@ -110,8 +110,8 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
                 style={{
                   backgroundColor: p.sf,
                   borderWidth: 1,
-                  borderColor: p.ln,
-                  borderRadius: 16,
+                  borderColor: p.lnStrong,
+                  borderRadius: 12,
                   paddingVertical: 14,
                   paddingHorizontal: 16,
                   fontSize: 16,
@@ -148,7 +148,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
             />
           ) : null}
 
-          {reauthFailed ? <Txt size={13} color={p.wm}>{t.accountReauthFailed}</Txt> : null}
+          {reauthFailed ? <Txt size={14} weight={600} color={p.acd}>{t.accountReauthFailed}</Txt> : null}
         </ScrollView>
       </View>
     );
@@ -156,8 +156,8 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
 
   const bullet = (text: string) => (
     <View key={text} style={{ flexDirection: 'row', gap: 8 }}>
-      <Txt size={14} color={p.mu}>•</Txt>
-      <Txt size={14} color={p.mu} style={{ flex: 1 }}>{text}</Txt>
+      <Txt size={15} color={p.mu}>•</Txt>
+      <Txt size={15} color={p.mu} lh={1.5} style={{ flex: 1 }}>{text}</Txt>
     </View>
   );
 
@@ -165,11 +165,13 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
     <View style={{ flex: 1, backgroundColor: p.bg }}>
       <TaskHeader pill={t.back} onPill={onBack} title={t.settingsAccount} />
       <ScrollView contentContainerStyle={{ padding: 24, gap: 18, paddingBottom: 48 }}>
-        <Txt size={24} weight={600}>{t.accountDeleteTitle}</Txt>
-        <Txt size={15}>{t.accountDeleteLede}</Txt>
+        <Txt role="page" size={26} weight={700}>{t.accountDeleteTitle}</Txt>
+        <View style={{ borderRadius: 16, backgroundColor: p.acs, paddingVertical: 12, paddingHorizontal: 14 }}>
+          <Txt size={15} weight={600} color={p.acd}>{t.accountDeleteLede}</Txt>
+        </View>
 
         <Card pad={18} style={{ gap: 10 }}>
-          <Txt size={13} weight={600}>{t.accountDeleteWhatGoesHeading}</Txt>
+          <Txt role="section" size={16} weight={700}>{t.accountDeleteWhatGoesHeading}</Txt>
           {[
             t.accountDeleteWhatGoesSignIn,
             t.accountDeleteWhatGoesData,
@@ -178,7 +180,7 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
         </Card>
 
         <Card pad={18} style={{ gap: 10 }}>
-          <Txt size={13} weight={600}>{t.accountDeleteWhatStaysHeading}</Txt>
+          <Txt role="section" size={16} weight={700}>{t.accountDeleteWhatStaysHeading}</Txt>
           {[
             t.accountDeleteWhatStaysCrash,
             t.accountDeleteWhatStaysBackups,
@@ -198,17 +200,19 @@ export function DeleteAccountScreen({ onBack }: { onBack: () => void }) {
           />
         ) : null}
 
-        {!online ? <Txt size={13} color={p.mu}>{t.accountDeleteOfflineNote}</Txt> : null}
+        {!online ? <Txt size={14} color={p.mu}>{t.accountDeleteOfflineNote}</Txt> : null}
 
         <Pill
           label={busy || phase.kind === 'deleting' ? t.accountDeleteBusy : t.accountDeleteAction}
           kind="warm"
+          radius={16}
+          style={{ minHeight: 52 }}
           disabled={busy || phase.kind === 'deleting' || !online}
           onPress={confirmThenDelete}
         />
 
         {phase.kind === 'failed' ? (
-          <Txt size={13} color={p.wm}>{t[phase.message]}</Txt>
+          <Txt size={14} weight={600} color={p.acd}>{t[phase.message]}</Txt>
         ) : null}
       </ScrollView>
     </View>

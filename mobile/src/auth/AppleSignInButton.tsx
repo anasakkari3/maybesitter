@@ -5,7 +5,8 @@ import { useAuth } from './AuthProvider';
 import { appleSignInAvailable, AppleSignInCancelled, AppleSignInUnavailable } from './appleSignIn';
 import { authErrorKey } from './authErrors';
 import { useSingleFlight } from './useSingleFlight';
-import { Btn, Txt } from '../ui/primitives';
+import { Txt } from '../ui/primitives';
+import { ProviderButton } from './ProviderButton';
 import { AppleMark } from '../ui/icons';
 
 /**
@@ -16,10 +17,10 @@ import { AppleMark } from '../ui/icons';
  * and Firebase console steps — so the button renders nothing until it knows,
  * rather than appearing and then disappearing.
  *
- * Apple's Human Interface Guidelines fix the look: black fill, white mark and
- * label, the same height as the other provider buttons. The colours are
- * literals rather than theme tokens for the same reason as Google's — the
- * button is Apple's, not the app's.
+ * Apple's Human Interface Guidelines fix the look: black on a light page,
+ * white on a dark one, the same height as the other provider buttons. The
+ * colours are literals rather than theme tokens for the same reason as
+ * Google's — the button is Apple's, not the app's.
  */
 export function AppleSignInButton() {
   const { t, p } = useApp();
@@ -62,27 +63,10 @@ export function AppleSignInButton() {
 
   return (
     <View style={{ gap: 8 }}>
-      <Btn
-        label={t.authContinueApple}
-        disabled={busy}
-        onPress={() => void press()}
-        style={{
-          backgroundColor: '#000000',
-          borderRadius: 999,
-          minHeight: 48,
-          paddingVertical: 14,
-          paddingHorizontal: 18,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 10,
-          opacity: busy ? 0.5 : 1,
-        }}
-      >
-        <AppleMark size={18} color="#FFFFFF" />
-        <Txt size={16} weight={600} color="#FFFFFF">{t.authContinueApple}</Txt>
-      </Btn>
-      {errorKey ? <Txt size={13} color={p.wm}>{t[errorKey]}</Txt> : null}
+      {/* Apple's white button on the dark scheme, black on the light one
+          (ProviderButton): the HIG never puts the black one on a dark page. */}
+      <ProviderButton look="apple" label={t.authContinueApple} busy={busy} onPress={() => void press()} mark={fg => <AppleMark size={18} color={fg} />} />
+      {errorKey ? <Txt size={13} color={p.acd}>{t[errorKey]}</Txt> : null}
     </View>
   );
 }

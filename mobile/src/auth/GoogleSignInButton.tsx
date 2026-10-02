@@ -5,7 +5,8 @@ import { useAuth } from './AuthProvider';
 import { GoogleSignInCancelled, GoogleSignInUnavailable, googleSignInAvailable } from './googleSignIn';
 import { authErrorKey } from './authErrors';
 import { useSingleFlight } from './useSingleFlight';
-import { Btn, Txt } from '../ui/primitives';
+import { Txt } from '../ui/primitives';
+import { ProviderButton } from './ProviderButton';
 import { GoogleG } from '../ui/icons';
 
 /**
@@ -15,10 +16,10 @@ import { GoogleG } from '../ui/icons';
  * only fail with `DEVELOPER_ERROR` is worse than no button, and the user has
  * email sign-in either way.
  *
- * The styling follows Google's guidelines — the unmodified "G" mark, on a
- * white surface, at the same height as the other provider buttons — rather
- * than the app's teal pill, which would recolour a mark Google does not allow
- * recolouring.
+ * The styling follows Google's guidelines — the unmodified "G" mark on
+ * Google's own light or dark surface, at the same height as the other
+ * provider buttons — rather than the app's coral, which would recolour a mark
+ * Google does not allow recolouring.
  */
 export function GoogleSignInButton() {
   const { t, p } = useApp();
@@ -50,32 +51,10 @@ export function GoogleSignInButton() {
 
   return (
     <View style={{ gap: 8 }}>
-      <Btn
-        label={t.authContinueGoogle}
-        disabled={busy}
-        onPress={() => void press()}
-        style={{
-          backgroundColor: '#FFFFFF',
-          borderWidth: 1,
-          borderColor: p.ln,
-          borderRadius: 999,
-          minHeight: 48,
-          paddingVertical: 14,
-          paddingHorizontal: 18,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 10,
-          opacity: busy ? 0.5 : 1,
-        }}
-      >
-        <GoogleG size={18} />
-        {/* Fixed dark grey, not a theme token: the mark may only appear on
-            Google's own approved surface, so the label matches that surface
-            rather than the app's dark mode. */}
-        <Txt size={16} weight={600} color="#3C4043">{t.authContinueGoogle}</Txt>
-      </Btn>
-      {errorKey ? <Txt size={13} color={p.wm}>{t[errorKey]}</Txt> : null}
+      {/* Google's own dark or light button, by the scheme the screen is in:
+          the unmodified "G" on a surface Google publishes (ProviderButton). */}
+      <ProviderButton look="google" label={t.authContinueGoogle} busy={busy} onPress={() => void press()} mark={() => <GoogleG size={18} />} />
+      {errorKey ? <Txt size={13} color={p.acd}>{t[errorKey]}</Txt> : null}
     </View>
   );
 }
