@@ -35,6 +35,7 @@ const ALLOWED: readonly RegExp[] = [
   /^new Date\([^)]*\)\.toISOString\(\)/, // an ISO date or timestamp
   /^String\(conflict\.(providerValue|manualValue)\)$/, // a number from the ledger
   /^`\$\{length\} \/ \$\{cap\}`$/, // SetupChatStep's answer counter: two numbers, "50 / 150"
+  /^`\+\$\{items\.length - 1\}`$/, // Today's folded group: how many more, "+2" (a sign and a number)
 ];
 
 function sourceFiles(dir: string): string[] {

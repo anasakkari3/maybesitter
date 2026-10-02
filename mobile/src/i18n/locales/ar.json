@@ -1667,7 +1667,7 @@
   "todayConflictTitle": "تعارض بالمواعيد",
   "todayConflictBody": "عندك {title} الساعة {time}، وبنفس الوقت في وقت مشغول بتقويمك {range}.",
   "todayConflictBodyAllDay": "عندك {title} الساعة {time}، وبتقويمك موعد بياخد اليوم كله.",
-  "todayConflictHint": "بتقدر تغيّر موعدها أو تخلّيها متل ما هي. إنت بتقرر.",
+  "todayConflictHint": "بتقدر تغيّر موعدها أو تخلّيها زي ما هي. إنت بتقرر.",
   "todayConflictOpenItem": "افتحها",
   "todayConflictKeep": "خلّيها هيك",
   "todayFootballMark": "مباراة",

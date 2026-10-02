@@ -74,6 +74,14 @@ import { PostponeSheetFor } from './Sheets';
  * ── One card explains itself ─────────────────────────────────────
  *
  * The primary card, and only when it has a reason worth giving.
+ *
+ * ── The first screen (Stitch, 2026-10-02) ────────────────────────
+ *
+ * The conflict line when something clashes, the one next step, and «لازم»,
+ * open. «مهم» and «حلو» fold to a line each that names their first item; the
+ * plan, the weekly fixed time and what is finished come after. «مش هلّق»
+ * asks when (the postpone sheet); the conflict line explains, it never
+ * postpones. A football match is drawn with a ball, not a circle to tick.
  */
 export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: number } = {}) {
   const { t, tr, lang, actions } = useApp();
@@ -595,7 +603,7 @@ function Group({ kind, items, timezone, lang, busy, football }: {
 
   const first = items[0]!;
   const firstWhen = drawnWhenLine(first, lang, timezone)?.text;
-  const preview = `· ${first.title}${firstWhen ? ` ${firstWhen}` : ''}${items.length > 1 ? ` ${ltr(`+${items.length - 1}`)}` : ''}`;
+  const preview = `· ${first.title}${firstWhen ? ` ${firstWhen}` : ''}${items.length > 1 ? ` ${isolateAuto(`+${items.length - 1}`)}` : ''}`;
   return (
     <View style={{ gap: 10 }} testID={`today-group-${kind}`}>
       <Btn
@@ -750,7 +758,7 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
         style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 4 }}
       >
         <ReferenceIcon name="check" size={18} color={p.success} />
-        <Txt size={14} weight={600} color={p.tx} style={{ flex: 1 }}>{`${t.todayGroupFinished} (${ltr(String(items.length))})`}</Txt>
+        <Txt size={14} weight={600} color={p.tx} style={{ flex: 1 }}>{`${t.todayGroupFinished} (${items.length})`}</Txt>
         <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}><ReferenceIcon name="chevron-down" size={18} color={p.mu} /></View>
       </Btn>
       {open ? items.map((item) => (
