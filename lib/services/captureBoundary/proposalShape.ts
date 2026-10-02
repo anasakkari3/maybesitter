@@ -109,9 +109,14 @@ export function onDate(result: ExtractionResult, date: string, timezone: string)
   };
 }
 
-/** A title as two near-identical ones meet: folded words, in order, without the recurrence or the possession lead-in. */
+/**
+ * A title as two near-identical ones meet: case, spacing and punctuation
+ * folded, the common words dropped («Study», "study ", «تدرس»). Numbers stay:
+ * "trip form 3" and "trip form 4" are two things.
+ */
 export function titleKey(title: string): string {
-  return contentWords(title).join(' ');
+  const numbers = title.match(/\d+/g) ?? [];
+  return [...contentWords(title), ...numbers].join(' ');
 }
 
 /**

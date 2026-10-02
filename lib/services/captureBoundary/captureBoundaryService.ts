@@ -1261,9 +1261,12 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     commandsByItemId.delete(itemId);
     resultsByItemId.delete(itemId);
   };
-  for (const itemId of Array.from(duplicateItemIds(items, sourceTitleOf))) dropItem(itemId);
+  // The chat's list only: one model answer for the whole conversation is
+  // where a repeat or a goal-at-the-session's-hour comes from. A share's
+  // items are one per source message, each with its own provenance.
+  if (chat) for (const itemId of Array.from(duplicateItemIds(items, sourceTitleOf))) dropItem(itemId);
   const activeGoals = options.activeGoals ?? [];
-  const goalItems = items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId)));
+  const goalItems = chat ? items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId))) : [];
   const sessions = items.filter((item) => !goalItems.includes(item));
   const instantOf = (item: CaptureProposalContract['items'][number]) => (item.resolvedTime ? Date.parse(item.resolvedTime) : null);
   const goalSeedKeys = new Set(seeds.map((seed) => titleKey(seed.summary)));
