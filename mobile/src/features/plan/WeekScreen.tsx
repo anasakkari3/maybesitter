@@ -203,7 +203,7 @@ function DayCard({
   const proposed = day.state === 'proposed';
 
   return (
-    <Card testID={`week-day-${day.date}`} style={{ gap: 12 }}>
+    <Card testID={`week-day-${day.date}`} style={{ gap: 12, ...(proposed ? { borderColor: p.prop, borderStyle: 'dashed' as const } : {}) }}>
       <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', alignItems: stacked ? 'flex-start' : 'center', gap: 8 }}>
         <Txt role="section">{heading}</Txt>
         {proposed ? <Tag kind="proposal" label={t.weekProposal} testID={`week-state-${day.date}`} /> : null}
@@ -289,8 +289,8 @@ function StepRow({ item, zone, targets, today, open, busy, onToggleMove, onMove,
   return (
     <View testID={`week-step-${item.itemId}`} style={{ gap: 10, borderStartWidth: 3, borderColor: p.prop, paddingStart: 12 }}>
       <View accessible accessibilityRole="text" accessibilityLabel={[title, time, reason].filter(Boolean).join(lang === 'ar' ? '، ' : ', ')} style={{ gap: 4, alignItems: 'flex-start' }}>
-        <Txt size={13} weight={600} latin color={p.mu}>{time}</Txt>
-        <Txt size={16}>{title}</Txt>
+        <Txt size={13} weight={700} latin color={p.mu}>{time}</Txt>
+        <Txt size={16} weight={600}>{title}</Txt>
         {reason ? <Txt role="supporting" color={p.mu}>{reason}</Txt> : null}
       </View>
       <View style={{ flexDirection: stacked ? 'column' : 'row', flexWrap: 'wrap', gap: 8 }}>

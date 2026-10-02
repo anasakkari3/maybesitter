@@ -7,10 +7,10 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react-native';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { AppProvider, useApp } from '../../state/AppContext';
 import { AuthProvider } from '../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
@@ -31,6 +31,8 @@ import * as busyCalendar from '../../features/calendar/useBusyCalendar';
 import { queryKeys } from '../../api/queries';
 import { savedWeekResponseSchema, type SavedWeek } from '../../api/schemas/plan';
 import savedWeekFixture from '../../api/__fixtures__/plan.weekSaved.json';
+import planWithProposal from '../../api/__fixtures__/plan.withProposal.json';
+import { HOUR_HEIGHT } from '../../features/calendar/dayTimeline';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -85,6 +87,8 @@ beforeEach(() => {
   setAuthRepository(repository);
   savedWeek = { today: TODAY_KEY, saved: [] };
   jest.spyOn(planEndpoints, 'getSavedWeek').mockImplementation(async () => savedWeek);
+  // No plan for today unless a case says so: no proposal card.
+  jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null);
 });
 
 /** What `GET /api/mobile/plans/week` answers in each case; nothing saved unless a case says so. */
@@ -294,7 +298,8 @@ describe('the week header', () => {
   it('in Arabic, reads first day – last day, each date whole', async () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
     await show([], []);
-    await waitFor(() => expect(screen.queryByText(ar.calendarTitle)).not.toBeNull());
+    // Stitch: the tab's own name is the page title («الخطة»).
+    await waitFor(() => expect(screen.queryByText(ar.tabPlan)).not.toBeNull());
     const first = formatDate(civilDate(TODAY_KEY), 'short', { locale: 'ar', timeZone: CIVIL_ZONE });
     const last = formatDate(civilDate(shiftDayKey(TODAY_KEY, 6)), 'short', { locale: 'ar', timeZone: CIVIL_ZONE });
     const header = screen.getByTestId('calendar-range').props.children as string;
@@ -428,5 +433,110 @@ describe('the week strip fades only an edge with days behind it', () => {
   });
   it('in between: both', () => {
     expect(stripFadeFor(150, 700, 400)).toEqual({ start: 32, end: 32 });
+  });
+});
+
+/*
+ * The Stitch Plan tab (02-plan): a load word per day, a proportional day, and
+ * «التزامات بلا وقت» under it; busy time says it is busy and nothing else.
+ */
+describe('the day on equal hours (Stitch)', () => {
+  const trustBody = { success: true, participantId: USER.uid, trust: { analyticsConsent: false, calendarConsent: true } };
+  function connected(blocks: { nativeId: string; startAt: string; endAt: string; allDay: boolean }[]) {
+    jest.spyOn(busyCalendar, 'useBusyBlocks').mockReturnValue(blocks);
+    jest.spyOn(trustEndpoints, 'getTrust').mockResolvedValue(trustBody as never);
+  }
+
+  it('says how full each day is, from what is on it', async () => {
+    await show([], [item('a', onDay(1, 9)), item('b', onDay(1, 10)), item('c', onDay(1, 11)), item('d', onDay(2, 9))]);
+    await waitFor(() => expect(screen.getByTestId(`calendar-load-${shiftDayKey(TODAY_KEY, 1)}`).props.children).toBe(en.loadFull));
+    expect(screen.getByTestId(`calendar-load-${shiftDayKey(TODAY_KEY, 2)}`).props.children).toBe(en.loadNormal);
+    expect(screen.getByTestId(`calendar-load-${TODAY_KEY}`).props.children).toBe(en.loadLight);
+    expect(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 1)}`).props.accessibilityLabel).toContain(en.loadFull);
+  });
+
+  it('draws busy time exactly as tall as it lasts, as busy and nothing more', async () => {
+    connected([{ nativeId: 'evt-1', startAt: onDay(0, 14), endAt: onDay(0, 16), allDay: false }]);
+    await show([], []);
+    const block = await screen.findByTestId('calendar-busy-row');
+    expect(StyleSheet.flatten(block.props.style).height).toBe(2 * HOUR_HEIGHT);
+    expect(screen.getByText(en.legendBusy)).toBeTruthy();
+    expect(screen.queryByTestId('calendar-timeline')).not.toBeNull();
+  });
+
+  it('draws a commitment as a marker at its time, never with a length', async () => {
+    await show([item('mine', onDay(0, 17))], []);
+    const card = await screen.findByTestId('calendar-item-mine');
+    expect(StyleSheet.flatten(card.props.style).height).toBeUndefined();
+    expect(screen.queryByTestId('calendar-untimed')).toBeNull();
+  });
+
+  it('lists what has no hour under the timeline, not on it', async () => {
+    await show([item('someday', null), item('mine', onDay(0, 17))], []);
+    const untimed = await screen.findByTestId('calendar-untimed');
+    expect(screen.getByText(en.calendarUntimedTitle)).toBeTruthy();
+    expect(screen.getByTestId('calendar-untimed-count').props.children).toBe('1');
+    expect(within(untimed).queryByTestId('calendar-item-someday')).not.toBeNull();
+    expect(within(untimed).queryByTestId('calendar-item-mine')).toBeNull();
+    expect(within(screen.getByTestId('calendar-timeline')).queryByTestId('calendar-item-someday')).toBeNull();
+  });
+
+  it('says when a commitment falls inside busy time, in the existing words', async () => {
+    connected([{ nativeId: 'evt-1', startAt: onDay(0, 16), endAt: onDay(0, 18), allDay: false }]);
+    await show([item('mine', onDay(0, 17))], []);
+    await waitFor(() => expect(screen.queryByTestId('calendar-conflict-mine')).not.toBeNull());
+    expect(screen.getByTestId('calendar-item-mine').props.accessibilityLabel).toContain('Overlaps a calendar event');
+  });
+});
+
+describe('a pending change to today\'s plan (Stitch proposal)', () => {
+  function Probe() {
+    const { s } = useApp();
+    return <Text testID="probe-screen">{s.screen}</Text>;
+  }
+
+  async function showWithProposal() {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue({ ...planWithProposal.plan, proposal: planWithProposal.proposal } as never);
+    const act = jest.spyOn(planEndpoints, 'actOnPlan');
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}><CalendarScreen /><Probe /></QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(screen.queryByTestId('calendar-proposal')).not.toBeNull());
+    return act;
+  }
+
+  it('shows what would move and says nothing has changed', async () => {
+    const act = await showWithProposal();
+    expect(screen.getByText(/Write the summary/)).toBeTruthy();
+    expect(screen.getByTestId('calendar-proposal-note').props.children).toBe(en.suggestionNote);
+    expect(act).not.toHaveBeenCalled();
+  });
+
+  it('opens the review, where it is accepted or declined, and accepts nothing itself', async () => {
+    const act = await showWithProposal();
+    await fireEvent.press(screen.getByTestId('calendar-patch'));
+    expect(screen.getByTestId('probe-screen').props.children).toBe('patchReview');
+    expect(act).not.toHaveBeenCalled();
+  });
+
+  it('«not now» puts it away and answers nothing', async () => {
+    const act = await showWithProposal();
+    await fireEvent.press(screen.getByTestId('calendar-proposal-later'));
+    expect(screen.queryByTestId('calendar-proposal')).toBeNull();
+    expect(act).not.toHaveBeenCalled();
+  });
+
+  it('is not drawn when nothing is pending', async () => {
+    await show([], []);
+    expect(screen.queryByTestId('calendar-proposal')).toBeNull();
+    expect(screen.queryByTestId('calendar-patch')).toBeNull();
   });
 });
