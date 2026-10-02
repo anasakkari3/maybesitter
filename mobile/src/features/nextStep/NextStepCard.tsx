@@ -307,21 +307,28 @@ function Ready({
         </View>
       ) : (
         <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
-          <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: 'stretch' }}>
-            {offers('accept') ? (
-              <Btn testID="next-step-accept" label={ACTION_LABEL(strings).accept} disabled={busy} onPress={() => run('accept')} style={button('primary')}>
-                <ReferenceIcon name="play" size={16} color={busy ? p.disTx : p.onAccent} />
-                <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).accept}</Txt>
-              </Btn>
-            ) : null}
+          {/* Two rows, never four buttons in one: at the owner's Redmi text
+              size (1.17×) a single row squeezed «خلصتها» and «مش هلّق» until
+              their labels broke letter by letter. The start action gets the
+              full width; the answers share the row under it. */}
+          {offers('accept') ? (
+            <Btn testID="next-step-accept" label={ACTION_LABEL(strings).accept} disabled={busy} onPress={() => run('accept')}
+              style={{ ...button('primary'), flex: undefined, alignSelf: 'stretch' }}>
+              <ReferenceIcon name="play" size={16} color={busy ? p.disTx : p.onAccent} />
+              <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).accept}</Txt>
+            </Btn>
+          ) : null}
+          <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: stacked ? 'stretch' : 'center' }}>
             {offers('done') ? (
-              <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')} style={button('secondary')}>
-                <Txt size={15} weight={600} color={busy ? p.disTx : p.tx} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).done}</Txt>
+              <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')}
+                style={{ ...button('secondary'), ...(stacked ? {} : { flex: 1 }) }}>
+                <Txt size={15} weight={600} color={busy ? p.disTx : p.tx} align="center">{ACTION_LABEL(strings).done}</Txt>
               </Btn>
             ) : null}
             {offers('defer') ? (
-              <Btn testID="next-step-defer" label={ACTION_LABEL(strings).defer} disabled={busy} onPress={() => run('defer')} style={button('tertiary')}>
-                <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).defer}</Txt>
+              <Btn testID="next-step-defer" label={ACTION_LABEL(strings).defer} disabled={busy} onPress={() => run('defer')}
+                style={{ ...button('tertiary'), ...(stacked ? {} : { flex: 1 }) }}>
+                <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center">{ACTION_LABEL(strings).defer}</Txt>
               </Btn>
             ) : null}
             {folded.length > 0 ? (
