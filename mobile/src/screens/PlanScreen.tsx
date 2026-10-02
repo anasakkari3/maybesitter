@@ -9,6 +9,7 @@ import { ActionRow, BackHeader, EmptyState, SectionLabel, Skeleton, Tag, TextLin
 import { Screen, ScreenScroll } from '../ui/screen';
 import { useAnnounceOnIos } from '../ui/announce';
 import { ProcessingDots } from '../ui/motion';
+import { ReferenceIcon } from '../ui/referenceIcons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { useIsOnline } from '../api/ui/OfflineBanner';
 import {
@@ -334,7 +335,14 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
       {plan.status === 'dismissed' ? (
         <Txt size={14} color={p.mu} testID="plan-dismissed">{t.planDismissedStatus}</Txt>
       ) : null}
-      {proposal ? <Txt size={13} color={p.mu} style={{ paddingHorizontal: 4 }} testID="plan-proposal-note">{t.suggestionNote}</Txt> : null}
+      {/* A proposal says so in the proposal's own look — the amber edge, the
+          spark — and in the sentence that nothing has changed yet. */}
+      {proposal ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 16, borderWidth: 1, borderColor: p.prop, backgroundColor: p.wms, paddingVertical: 12, paddingHorizontal: 14 }}>
+          <ReferenceIcon name="sparkles" size={18} color={p.wm} />
+          <Txt size={14} color={p.tx} style={{ flex: 1 }} testID="plan-proposal-note">{t.suggestionNote}</Txt>
+        </View>
+      ) : null}
 
       {/* The day changed after the person made this plan theirs (L5). The
           server kept their plan rather than overwrite it; this says so and
@@ -499,8 +507,10 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
           ) : (
             <Pill
               label={t.planAccept}
-              size={17}
+              size={16}
+              weight={700}
               pad={14}
+              style={{ minHeight: 52 }}
               testID="plan-accept"
               // Disabled while the one request is in flight. "Looks good"
               // sends exactly one accept: the criterion is about the request
@@ -623,9 +633,9 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
           <Txt size={13} weight={600} latin color={p.mu} testID={`plan-fixed-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
           {!stacked ? <View style={{ width: 2, alignSelf: 'stretch', borderRadius: 2, backgroundColor: p.ln, minHeight: 28 }} /> : null}
           <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4, alignItems: 'flex-start' }}>
-            <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
+            <Txt size={15} weight={600}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <Txt size={12} color={p.mu} latin>{when}</Txt>
+              <Txt size={13} color={p.mu} latin>{when}</Txt>
               <Tag kind="fixed" label={t.planItemFixed} />
             </View>
           </View>
@@ -700,14 +710,14 @@ function PlannedRow({
       >
         {/* Round 2's row: the start time in its own column, a bar in the
             item's colour, then the title with its range and whether it moves. */}
-        <Txt size={13} weight={600} latin testID={`plan-item-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
-        {!stacked ? <View style={{ width: 2, alignSelf: 'stretch', borderRadius: 2, backgroundColor: p.lnStrong, minHeight: 28 }} /> : null}
+        <Txt size={13} weight={700} latin testID={`plan-item-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
+        {!stacked ? <View style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: readOnly ? p.lnStrong : p.ac, minHeight: 28 }} /> : null}
         <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4 }}>
-          <Txt size={15}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
+          <Txt size={15} weight={600}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <Txt size={12} color={p.mu} latin>{when}</Txt>
-            <Txt size={12} color={p.mu}>·</Txt>
-            <Txt size={12} color={p.mu}>{readOnly ? t.planItemFixed : t.planItemMovable}</Txt>
+            <Txt size={13} color={p.mu} latin>{when}</Txt>
+            <Txt size={13} color={p.mu}>·</Txt>
+            <Txt size={13} color={p.mu}>{readOnly ? t.planItemFixed : t.planItemMovable}</Txt>
           </View>
         </View>
       </Btn>

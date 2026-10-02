@@ -1076,6 +1076,7 @@
   "calendarNotConnected": "Calendar not connected. Showing only your commitments.",
   "calendarSettingsBtn": "Calendar settings",
   "calendarBusyLegend": "Busy",
+  "calendarUntimedTitle": "Commitments without a time",
   "langAppearanceTitle": "Language & appearance",
   "langAppearanceLanguage": "Language",
   "langAppearanceTheme": "Appearance",

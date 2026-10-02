@@ -4,6 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useApp } from '../state/AppContext';
 import { useAccountDeletion } from '../features/account/AccountDeletionProvider';
 import { Card, Pill, Txt } from '../ui/primitives';
+import { CheckIcon } from '../ui/icons';
 
 /**
  * The last screen of the account's life (UC-1.5 #149).
@@ -37,11 +38,14 @@ export function AccountDeletedScreen() {
   return (
     <View testID="account-deleted" style={{ flex: 1, backgroundColor: p.bg }}>
       <ScrollView contentContainerStyle={{ padding: 24, gap: 20, flexGrow: 1, justifyContent: 'center' }}>
-        <Txt size={26} weight={600}>{t.accountDeletedTitle}</Txt>
-        <Txt size={15} color={p.mu}>{t.accountDeletedBody}</Txt>
+        <View accessible={false} style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: p.successSoft, alignItems: 'center', justifyContent: 'center' }}>
+          <CheckIcon size={24} color={p.success} weight={2.4} />
+        </View>
+        <Txt role="page" size={26} weight={700}>{t.accountDeletedTitle}</Txt>
+        <Txt size={15} color={p.mu} lh={1.5}>{t.accountDeletedBody}</Txt>
 
         <Card pad={18} style={{ gap: 10 }}>
-          <Txt size={12} color={p.mu}>{t.accountDeletedReceiptLabel}</Txt>
+          <Txt size={13} color={p.mu}>{t.accountDeletedReceiptLabel}</Txt>
           {/* `latin` and selectable: it is an opaque id the user may need to
               read out or paste into a support conversation. */}
           <Txt size={15} weight={600} latin selectable testID="receipt-id">
@@ -50,13 +54,14 @@ export function AccountDeletedScreen() {
           <Pill
             label={copied ? t.accountDeletedCopied : t.accountDeletedCopy}
             kind="soft"
-            size={14}
+            size={15}
             pad={10}
+            style={{ minHeight: 48 }}
             onPress={() => void copy()}
           />
         </Card>
 
-        <Pill label={t.accountDeletedContinue} kind="accent" onPress={acknowledgeReceipt} />
+        <Pill label={t.accountDeletedContinue} kind="accent" radius={16} style={{ minHeight: 52 }} onPress={acknowledgeReceipt} />
       </ScrollView>
     </View>
   );

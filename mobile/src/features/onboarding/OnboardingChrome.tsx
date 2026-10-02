@@ -2,11 +2,30 @@ import React from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../state/AppContext';
-import { BrandLockup } from '../../ui/brand';
 import { Btn, Txt } from '../../ui/primitives';
 import { ScreenIn } from '../../ui/motion';
 import { AvoidKeyboard } from '../../ui/keyboard';
 import { ONBOARDING_STEPS, type OnboardingStep } from '../../lib/deviceSettings/onboardingProgress';
+import { accentGlow } from '../../theme/tokens';
+import { LanguageSwitch } from '../language/LanguageSwitch';
+
+/**
+ * The quiet brand line the welcome, sign-in and onboarding screens open with
+ * (Stitch `07`/`08`): a coral dot and the name, in a pill. Decorative to a
+ * screen reader — every screen it sits on says what it is in its title.
+ */
+/** The product's name is the same in every language, so it is not copy. */
+const PRODUCT_NAME = 'MaybeSitter';
+
+export function BrandChip() {
+  const { p } = useApp();
+  return (
+    <View accessible={false} importantForAccessibility="no-hide-descendants" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, alignSelf: 'flex-start' }}>
+      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: p.ac }} />
+      <Txt latin size={14} weight={700} color={p.tx}>{PRODUCT_NAME}</Txt>
+    </View>
+  );
+}
 
 /**
  * The frame every onboarding step renders inside (UC-2.R1, #171).
@@ -26,6 +45,7 @@ export function OnboardingChrome({
   secondary,
   footNote,
   headerAction,
+  languageSwitch = false,
   testID,
 }: {
   step: OnboardingStep;
@@ -40,6 +60,8 @@ export function OnboardingChrome({
    * equally weighted button would read as a form.
    */
   headerAction?: { label: string; onPress: () => void; testID?: string } | undefined;
+  /** The compact language switch beside the brand (the welcome step, Stitch `07`). */
+  languageSwitch?: boolean;
   testID?: string;
 }) {
   const { p, tr, script } = useApp();
@@ -80,7 +102,7 @@ export function OnboardingChrome({
               testID={headerAction.testID}
               scaleTo={0.97}
               hitSlop={8}
-              style={{ minHeight: 36, paddingHorizontal: 8, justifyContent: 'center' }}
+              style={{ minHeight: 44, paddingHorizontal: 8, justifyContent: 'center' }}
             >
               <Txt size={14} color={p.mu}>{headerAction.label}</Txt>
             </Btn>
@@ -91,15 +113,18 @@ export function OnboardingChrome({
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24, gap: 16 }}
           keyboardShouldPersistTaps="handled"
         >
-          <BrandLockup compact />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <BrandChip />
+            {languageSwitch ? <LanguageSwitch testID="onboarding-language" /> : null}
+          </View>
           {/* Tight only for Latin. Arabic and Hebrew keep their script's own line
               height: a 1.3 box clipped the shadda and the hamza off Arabic
               headings on device. */}
-          <Txt size={28} weight={600} {...(script === 'latin' ? { lh: 1.3 } : {})}>{title}</Txt>
+          <Txt role="page" size={28} weight={700} {...(script === 'latin' ? { lh: 1.3 } : {})}>{title}</Txt>
           {children}
         </ScrollView>
 
-        <View style={{ paddingHorizontal: 20, paddingTop: 12, gap: 10, borderTopWidth: 1, borderTopColor: p.ln }}>
+        <View style={{ paddingHorizontal: 20, paddingTop: 12, gap: 8 }}>
           {footNote ? <Txt size={13} color={p.mu} align="center">{footNote}</Txt> : null}
           <Btn
             label={primary.label}
@@ -109,11 +134,13 @@ export function OnboardingChrome({
               backgroundColor: primary.disabled ? p.dis : p.ac,
               borderRadius: 999,
               minHeight: 52,
+              paddingHorizontal: 20,
               alignItems: 'center',
               justifyContent: 'center',
+              ...(primary.disabled ? {} : accentGlow(p, 0.3)),
             }}
           >
-            <Txt size={16} weight={600} color={primary.disabled ? p.disTx : p.onAccent}>{primary.label}</Txt>
+            <Txt size={16} weight={700} color={primary.disabled ? p.disTx : p.onAccent} align="center">{primary.label}</Txt>
           </Btn>
           {secondary ? (
             <Btn
@@ -122,7 +149,7 @@ export function OnboardingChrome({
               scaleTo={0.98}
               style={{ minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
             >
-              <Txt size={15} color={p.mu}>{secondary.label}</Txt>
+              <Txt size={15} weight={600} color={p.mu} align="center">{secondary.label}</Txt>
             </Btn>
           ) : null}
         </View>
