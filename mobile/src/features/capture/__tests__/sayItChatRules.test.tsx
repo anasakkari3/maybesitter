@@ -109,16 +109,21 @@ describe('review offers only what the product does', () => {
     for (const label of ['Add commute time', 'Tomorrow only', 'Make it a must']) expect(screen.queryByText(label)).toBeNull();
   });
 
-  it('the confirm button counts what it will save, in its text and its label', async () => {
+  // The save's words follow the selection (Stitch 03): «احفظ الاتنين», then
+  // «احفظ وحدة», and nothing to press when nothing is ticked.
+  it('the save button counts what it will save, in its text and its label', async () => {
     await openCapture();
     await analyze();
     const confirm = screen.getByTestId('review-confirm');
-    expect(confirm.props.accessibilityLabel).toBe('Confirm 2 commitments');
-    expect(screen.getByText('Confirm 2 commitments')).toBeTruthy();
+    expect(confirm.props.accessibilityLabel).toBe('Save both');
+    expect(screen.getByText('Save both')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('review-item-i-2'));
-    await waitFor(() => expect(screen.getByTestId('review-confirm').props.accessibilityLabel).toBe('Confirm 1 commitment'));
-    expect(screen.getByTestId('review-not-included-i-2')).toBeTruthy();
-    expect(screen.getByText(en.chatNotIncluded)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('review-confirm').props.accessibilityLabel).toBe('Save it'));
+    expect(screen.getByTestId('review-item-i-2').props.accessibilityState.checked).toBe(false);
+    expect(screen.queryByText(en.chatNotIncluded)).toBeNull();
+    await fireEvent.press(screen.getByTestId('review-item-i-1'));
+    await waitFor(() => expect(screen.getByTestId('review-confirm').props.accessibilityLabel).toBe('Nothing to save'));
+    expect(screen.getByTestId('review-confirm').props.accessibilityState.disabled).toBe(true);
   });
 });
 

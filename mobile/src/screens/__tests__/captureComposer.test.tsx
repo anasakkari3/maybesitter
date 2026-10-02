@@ -22,6 +22,7 @@ import { AppProvider } from '../../state/AppContext';
 import { AuthProvider } from '../../auth/AuthProvider';
 import { CaptureProvider } from '../../features/capture/CaptureProvider';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
+import en from '../../i18n/locales/en.json';
 import type {
   SpeechCaptureCallbacks,
   SpeechCaptureService,
@@ -45,7 +46,11 @@ class FakeSpeech implements SpeechCaptureService {
     this.status = 'reviewingTranscript';
     this.callbacks.onStatus?.('reviewingTranscript');
   }
-  async cancel(): Promise<void> {}
+  // As the real recogniser does (expoSpeechCaptureService): a cancelled
+  // dictation is idle again at once.
+  async cancel(): Promise<void> {
+    if (this.status === 'listening') this.status = 'idle';
+  }
   partial(text: string) { this.callbacks.onPartial?.(text); }
   final(text: string) { this.callbacks.onFinal?.(text); }
 }
@@ -148,6 +153,34 @@ describe('dictation adds to the field', () => {
     await showComposer();
     await dictate(['call'], 'call Dana');
     expect(field()).toBe('call Dana');
+  });
+});
+
+describe('the listening panel (Stitch 03b)', () => {
+  it('says it is listening, keeps the field, and «إلغاء» ends the dictation with the field as it was before it', async () => {
+    await showComposer();
+    await fireEvent.changeText(screen.getByTestId('capture-input'), 'A');
+    expect(screen.queryByTestId('voice-listening-panel')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('voice-button'));
+    await waitFor(() => expect(screen.queryByTestId('voice-listening-panel')).not.toBeNull());
+    expect(screen.getByTestId('voice-listening-title').props.children).toBe(en.chatListening);
+    expect(screen.getByTestId('voice-listening-note').props.children).toBe(en.voiceListening);
+    // The partial transcript is still visible in the field while listening.
+    await React.act(async () => { mockSpeech.partial('B c'); });
+    expect(field()).toBe('A B c');
+    // The mic is the stop control, and Cancel is its own 44-point button.
+    expect(screen.getByTestId('voice-stop-glyph')).toBeTruthy();
+    const cancel = screen.getByTestId('voice-cancel');
+    expect(cancel.props.accessibilityLabel).toBe(en.cancel);
+    expect(flat(cancel.props.style).minHeight as number).toBeGreaterThanOrEqual(44);
+
+    await fireEvent.press(cancel);
+    await waitFor(() => expect(screen.queryByTestId('voice-listening-panel')).toBeNull());
+    expect(field()).toBe('A');
+    // A late word from the cancelled dictation writes nothing.
+    await React.act(async () => { mockSpeech.final('B c d'); });
+    expect(field()).toBe('A');
   });
 });
 

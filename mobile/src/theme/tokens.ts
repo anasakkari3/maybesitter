@@ -1,6 +1,7 @@
-// Coral continuation, explicitly requested 2026-09-23 from the 15 supplied
-// reference screens. Layout/type/motion retain the verified R2 foundation.
-// See src/design/coral.source.json for the approved palette and provenance.
+// Stitch redesign, owner decision 2026-10-02 (docs/design/stitch-2026-10-02/).
+// Navy dark is the hero; warm paper light remains selectable. One palette for
+// every screen: the "reference" and capture-chat palettes below are aliases of
+// this one, not separate looks. Provenance: src/design/stitch.source.json.
 // Coral means action; green means confirmed; amber means attention/proposal.
 
 export type Scheme = 'light' | 'dark';
@@ -46,66 +47,65 @@ export interface ColorRoles {
 
 export const color: Record<Scheme, ColorRoles> = {
   light: {
-    background: '#F8F6F6',
+    background: '#F7F5F1',
     glass: '#FFFFFF',
-    success: '#176B4D',
-    successContainer: '#E1F3E9',
+    success: '#1E6B45',
+    successContainer: '#E2F5EA',
     onSuccess: '#FFFFFF',
     surface: '#FFFFFF',
-    surfaceAlt: '#F0EAEC',
-    surfaceBar: 'rgba(255,255,255,0.88)',
+    surfaceAlt: '#F0EDE7',
+    surfaceBar: 'rgba(255,255,255,0.96)',
     surfaceBarSolid: '#FFFFFF',
-    textPrimary: '#202122',
-    textMuted: '#626268',
-    border: 'rgba(20,24,27,0.08)',
-    borderStrong: 'rgba(20,24,27,0.22)',
-    brand: '#B82F49',
-    brandContainer: '#FCE4E9',
-    brandPressed: '#9F233E',
+    textPrimary: '#1A1F2B',
+    textMuted: '#5B6375',
+    border: '#E6E1D8',
+    borderStrong: 'rgba(26,31,43,0.30)',
+    brand: '#C2394A',
+    brandContainer: '#FBE3E6',
+    // The coral chip text: solid on its own tint (Stitch light, `#A8323F`).
+    brandPressed: '#A8323F',
     onBrand: '#FFFFFF',
-    brandOnInk: '#FF8093',
-    underline: 'rgba(184,47,73,0.45)',
-    must: '#8A6A2E',
-    mustContainer: '#F3ECDD',
-    disabled: '#E4E8EA',
-    onDisabled: '#4F5A5F',
-    proposal: 'rgba(138,106,46,0.60)',
-    ink: '#14181B',
-    onInk: '#F5F7F8',
-    hatch: 'rgba(20,24,27,0.10)',
-    overlay: 'rgba(10,14,16,0.45)',
+    brandOnInk: '#FF8A8A',
+    underline: 'rgba(194,57,74,0.45)',
+    must: '#7A5200',
+    mustContainer: '#FDF1DA',
+    disabled: '#E6E1D8',
+    onDisabled: '#4C5466',
+    proposal: 'rgba(122,82,0,0.55)',
+    ink: '#1A1F2B',
+    onInk: '#F7F5F1',
+    hatch: 'rgba(26,31,43,0.08)',
+    overlay: 'rgba(14,21,38,0.45)',
   },
   dark: {
-    background: '#1C1D1E',
-    glass: 'rgba(255,255,255,0.055)',
-    success: '#70DEB0',
-    successContainer: '#253D34',
-    onSuccess: '#17251F',
-    surface: '#292A2C',
-    surfaceAlt: '#343538',
-    surfaceBar: 'rgba(30,31,33,0.90)',
-    surfaceBarSolid: '#252628',
-    textPrimary: '#F7F5F5',
-    textMuted: '#B5B3BA',
-    border: 'rgba(236,239,241,0.10)',
-    borderStrong: 'rgba(236,239,241,0.28)',
-    brand: '#FF667D',
-    brandContainer: '#442D34',
-    brandPressed: '#FF8FA0',
-    // Ink on bright coral keeps normal-size button labels above 4.5:1.
-    onBrand: '#23181C',
-    brandOnInk: '#B82F49',
-    underline: 'rgba(255,143,160,0.50)',
-    must: '#D9B06B',
-    mustContainer: 'rgba(217,176,107,0.16)',
-    disabled: '#36373A',
-    onDisabled: '#BEBCC3',
-    proposal: 'rgba(217,176,107,0.65)',
-    ink: '#F7F5F5',
-    onInk: '#1C1D1E',
-    hatch: 'rgba(255,255,255,0.08)',
-    // Round 2 deepens the dark scrim and takes the blue out of it:
-    // rgba(10,14,16,.45) became rgba(0,0,0,.55).
+    background: '#0E1526',
+    glass: '#172036',
+    success: '#4CC38A',
+    successContainer: 'rgba(76,195,138,0.15)',
+    onSuccess: '#0E1526',
+    surface: '#172036',
+    surfaceAlt: '#1F2A44',
+    surfaceBar: 'rgba(23,32,54,0.96)',
+    surfaceBarSolid: '#172036',
+    textPrimary: '#F3F5FA',
+    textMuted: '#A9B2C7',
+    border: 'rgba(169,178,199,0.16)',
+    borderStrong: 'rgba(169,178,199,0.40)',
+    brand: '#FF6B6B',
+    brandContainer: 'rgba(255,107,107,0.15)',
+    brandPressed: '#FF8A8A',
+    // Navy on coral: white on #FF6B6B is 2.6:1, navy is above 6:1.
+    onBrand: '#0E1526',
+    brandOnInk: '#C2394A',
+    underline: 'rgba(255,138,138,0.50)',
+    must: '#F5B547',
+    mustContainer: 'rgba(245,181,71,0.15)',
+    disabled: '#1F2A44',
+    onDisabled: '#A9B2C7',
+    proposal: 'rgba(245,181,71,0.60)',
+    ink: '#F3F5FA',
+    onInk: '#0E1526',
+    hatch: 'rgba(255,255,255,0.07)',
     overlay: 'rgba(0,0,0,0.55)',
   },
 };
@@ -145,43 +145,33 @@ export const palettes: Record<Scheme, Palette> = {
   dark: paletteFor('dark', false),
 };
 
-/** The user's September 29 reference, scoped to Today, Calendar and their tab bar.
- * Other screens retain the coral continuation. Light mode keeps the same hierarchy
- * with darker action text; status meanings remain success / attention / action. */
+/**
+ * The names Today, Calendar and the capture chat were written against when
+ * they carried their own look (September 29). Since the Stitch redesign every
+ * screen shares one palette, so these are the same values plus the three
+ * extra roles those screens read: `focus` / `focusSoft` (a selected filter),
+ * and `heroEdge` (the edge of the one card that is the next step).
+ */
 export const referencePalettes: Record<Scheme, Palette & {
   focus: string; focusSoft: string; heroEdge: string;
 }> = {
-  dark: {
-    ...palettes.dark,
-    bg: '#151619', sf: '#212328', sf2: '#2C2D34',
-    sfBar: 'rgba(28,29,34,0.96)', sfBarSolid: '#1C1D22',
-    tx: '#F7F7FC', mu: '#B9B9C5', ln: 'rgba(225,224,243,0.12)',
-    lnStrong: '#858593', ac: '#FF709C', acd: '#FF9CBA',
-    acs: '#3C2833', onAccent: '#21131B', ul: 'rgba(255,112,156,0.5)',
-    focus: '#79CFFF', focusSoft: '#202E3E', heroEdge: '#936778',
-  },
-  light: {
-    ...palettes.light,
-    bg: '#FAF7F9', sf: '#FFFFFF', sf2: '#F0E8EE',
-    sfBar: 'rgba(255,255,255,0.96)', sfBarSolid: '#FFFFFF',
-    tx: '#25202A', mu: '#655C69', ln: '#DFD4DF', lnStrong: '#827482',
-    ac: '#AA2452', acd: '#942046', acs: '#F9E3ED', onAccent: '#FFFFFF',
-    ul: 'rgba(170,36,82,0.5)', wm: '#755425', focus: '#17658C', focusSoft: '#E4F2FA', heroEdge: '#BC7490',
-  },
+  dark: { ...palettes.dark, focus: palettes.dark.tx, focusSoft: palettes.dark.sf2, heroEdge: 'rgba(255,107,107,0.45)' },
+  light: { ...palettes.light, focus: palettes.light.tx, focusSoft: palettes.light.sf2, heroEdge: 'rgba(194,57,74,0.35)' },
 };
 
+/** Subtle navy (dark) and warm-paper (light) washes; no pink, no colour that competes with the accent. */
 export const referenceGradients: Record<Scheme, Record<'hero' | 'plan' | 'waiting' | 'surface', readonly [string, string, string]>> = {
   dark: {
-    hero: ['#603A4A', '#342732', '#1C1E23'],
-    plan: ['#462B37', '#262633', '#202B38'],
-    waiting: ['#603543', '#332837', '#222735'],
-    surface: ['#292A30', '#212328', '#1D1F24'],
+    hero: ['#1C2743', '#192339', '#172036'],
+    plan: ['#1B2541', '#182238', '#172036'],
+    waiting: ['#1B2541', '#182238', '#172036'],
+    surface: ['#172036', '#172036', '#162035'],
   },
   light: {
-    hero: ['#F5DCE7', '#FBEFF4', '#FFFFFF'],
-    plan: ['#F5E0E9', '#F9F3F8', '#EAF2FA'],
-    waiting: ['#F5DDE7', '#F5EDF5', '#EFF3FA'],
-    surface: ['#FFFFFF', '#FFFFFF', '#F6F1F5'],
+    hero: ['#FFFFFF', '#FDFCFA', '#FAF8F4'],
+    plan: ['#FFFFFF', '#FDFCFA', '#FAF8F4'],
+    waiting: ['#FFFFFF', '#FDFCFA', '#FAF8F4'],
+    surface: ['#FFFFFF', '#FFFFFF', '#FDFCFA'],
   },
 };
 
@@ -192,7 +182,7 @@ export const space = {
 } as const;
 
 export const radius = {
-  chip: 999, circle: 50, card: 24, tile: 20, sheet: 36,
+  chip: 999, circle: 50, card: 20, tile: 20, sheet: 36,
   sheetHandle: 18, pill: 16, row: 14, small: 12, tiny: 9, hairline: 2,
 } as const;
 
@@ -202,17 +192,18 @@ export const radius = {
  */
 export const typeScale = {
   display: 34, title1: 28, title2: 26, section: 22, cardTitle: 19,
-  bodyLarge: 16, body: 15, bodySmall: 14, label: 13, caption: 12, micro: 11,
+  bodyLarge: 16, body: 15, bodySmall: 14, label: 13, caption: 12, micro: 12,
 } as const;
 
 /**
  * Round 2's ramp: eleven steps narrowed to nine. It drops 26 / 22 / 19 / 16
  * and adds 20 / 17. Every size is multiplied by the reader's text scale — see
- * src/theme/textScale.ts.
+ * src/theme/textScale.ts. Nothing is below 12 (Stitch, 2026-10-02): `meta`
+ * and `micro` were 11 and are 12 now; tab labels and chips use 13.
  */
 export const typeScaleR2 = {
   display: 34, title: 28, h2: 20, card: 17, body: 15,
-  body2: 14, label: 13, caption: 12, meta: 11,
+  body2: 14, label: 13, caption: 12, meta: 12,
 } as const;
 
 /** Product roles use the Round-2 ramp; screens choose meaning, not a new size. */
@@ -228,7 +219,7 @@ export const typography = {
 } as const;
 export type TextRole = keyof typeof typography;
 
-export const lineHeight = { arabic: 1.6, latin: 1.4, tight: 1.15, heading: 1.3 } as const;
+export const lineHeight = { arabic: 1.7, latin: 1.4, tight: 1.15, heading: 1.3 } as const;
 
 /** Durations in ms, with the export's single easing curve. */
 export const motion = {
@@ -266,9 +257,11 @@ export function accentGlow(p: Palette, strength = 0.28) {
   return { shadowColor: p.ac, shadowOpacity: strength, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 6 };
 }
 
-/** Chat reference supplied 2026-09-29; the other product surfaces keep their palette. */
-export function captureChatPalette(scheme: Scheme, base: Palette): Palette & { iconBg: string } {
-  if (scheme === 'light') return { ...base, iconBg: base.acs };
-  return { ...base, bg: '#17191B', sf: '#222426', sf2: '#282A2D',
-    acs: '#6D3745', ac: '#FD7B94', acd: '#FF93A8', success: '#2ED889', iconBg: '#352930' };
+/**
+ * The capture chat's palette. It had its own darker coral look (September 29);
+ * since the Stitch redesign it is the app palette, plus the one extra role the
+ * chat reads (`iconBg`, the tint behind a review row's icon).
+ */
+export function captureChatPalette(_scheme: Scheme, base: Palette): Palette & { iconBg: string } {
+  return { ...base, iconBg: base.acs };
 }

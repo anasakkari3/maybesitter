@@ -7,7 +7,7 @@ import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { ConflictError } from '../../api/errors';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
-import { Tag, TextLink } from '../../ui/chrome';
+import { Tag, TextLink, priorityTagKind } from '../../ui/chrome';
 import { evidencePhrases } from './evidence';
 import { FeedbackFlagButton } from './FeedbackFlagButton';
 import { DEFER_PRESETS, postponeTo, type PostponePreset } from '../commitments/postpone';
@@ -17,7 +17,8 @@ import { formatRelativeDay, formatTime } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
 import { drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
-import { ReferenceCard, ReferenceIcon, useReferencePalette } from '../../ui/referenceDesign';
+import { ReferenceIcon, useReferencePalette } from '../../ui/referenceDesign';
+import { BottomSheet, SheetChoice, SheetFootnote, SheetHeader } from '../../ui/bottomSheet';
 
 /**
  * The one suggestion, and the answers to it (UC-2.R3 #173, UC-2.9 #170;
@@ -34,10 +35,11 @@ import { ReferenceCard, ReferenceIcon, useReferencePalette } from '../../ui/refe
  *
  * ── Only the actions the server offered ──────────────────────────
  *
- * `availableActions` is the list, not a hint. Round 2 arranges them — the
- * accept as the one accent button, defer beside it, and the rest folded
- * behind «المزيد» — but never adds one the server did not offer, and never
- * greys one out. A disclosed action is still only shown if offered.
+ * `availableActions` is the list, not a hint. The Stitch card arranges them —
+ * «بلّش فيها» (accept: started, never done) as the one accent button, then
+ * «خلصتها» (done) and «مش هلّق» (defer, which asks when in a sheet), and the
+ * rest folded behind «المزيد» — but never adds one the server did not offer,
+ * and never greys one out. A disclosed action is still only shown if offered.
  *
  * ── Started ──────────────────────────────────────────────────────
  *
@@ -105,30 +107,14 @@ export function NextStepCard({ lookup }: {
   return (
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {recommendation && !silenced ? (
-        <ReferenceCard
-          tone="hero"
-          pad={18}
+        <View
           testID="next-step-card"
           style={{
-            gap: 14,
-            borderWidth: 0,
+            gap: 12, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: p.heroEdge, backgroundColor: p.sf,
+            // The one card with a halo (Stitch): coral, soft, below it.
+            shadowColor: p.ac, shadowOpacity: p.shadow ? 0.12 : 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 4,
           }}
         >
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: p.acs, alignItems: 'center', justifyContent: 'center' }}>
-              <ReferenceIcon name="bolt" size={20} color={p.acd} />
-            </View>
-            <Txt size={15} weight={600} color={p.tx} style={{ flexGrow: 1 }}>{t.nextStepLabel}</Txt>
-            {/* Started only. A proposal already says so in `suggestionNote`;
-                a tag saying it again was #17's
-                duplicate (UAT 2026-09-27). */}
-            {recommendation.state === 'ready' && started ? (
-              <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" />
-            ) : null}
-          </View>
-
-          {stale ? <Txt size={13} color={p.wm} testID="next-step-stale">{t.nextStepStale}</Txt> : null}
-
           {recommendation.state === 'ready' && recommendation.primaryStep ? (
             <Ready
               recommendation={recommendation}
@@ -141,23 +127,29 @@ export function NextStepCard({ lookup }: {
               onEdit={() => setEditing(true)}
               deferring={deferring}
               onDefer={() => setDeferring(true)}
+              onCloseDefer={() => setDeferring(false)}
               more={more}
               onMore={() => setMore(!more)}
               started={started}
+              stale={stale}
               onSend={send}
               busy={decide.isPending}
             />
           ) : (
-            <View style={{ gap: 6 }} testID={`next-step-${recommendation.state}`}>
-              <Txt size={17} weight={600}>
-                {recommendation.state === 'empty' ? t.nextStepEmptyTitle : t.nextStepThinTitle}
-              </Txt>
-              <Txt size={14} color={p.mu} lh={1.5}>
-                {recommendation.state === 'empty' ? t.nextStepEmptyBody : t.nextStepThinBody}
-              </Txt>
-            </View>
+            <>
+              <NextStepBadge />
+              {stale ? <Txt size={13} color={p.wm} testID="next-step-stale">{t.nextStepStale}</Txt> : null}
+              <View style={{ gap: 6 }} testID={`next-step-${recommendation.state}`}>
+                <Txt size={17} weight={600}>
+                  {recommendation.state === 'empty' ? t.nextStepEmptyTitle : t.nextStepThinTitle}
+                </Txt>
+                <Txt size={14} color={p.mu} lh={1.5}>
+                  {recommendation.state === 'empty' ? t.nextStepEmptyBody : t.nextStepThinBody}
+                </Txt>
+              </View>
+            </>
           )}
-        </ReferenceCard>
+        </View>
       ) : null}
     </QueryBoundary>
   );
@@ -166,7 +158,8 @@ export function NextStepCard({ lookup }: {
 const ACTION_LABEL = (t: Record<string, string>): Record<NextStepDecisionKind, string> => ({
   accept: t.nextStepAccept!,
   edit: t.nextStepEdit!,
-  defer: t.nextStepDefer!,
+  // «مش هلّق» (Stitch), the same words a row's swipe uses; not «بعدين».
+  defer: t.notNow!,
   dismiss: t.nextStepDismiss!,
   done: t.nextStepDone!,
 });
@@ -181,8 +174,20 @@ const DEFER_LABEL = (t: Record<string, string>): Record<PostponePreset, string> 
   nextWeek: t.postponeNextWeek!,
 });
 
+/** «خطوتك التالية», as the card's own chip: coral tint, a dot, the words. */
+function NextStepBadge() {
+  const { t } = useApp();
+  const p = useReferencePalette();
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12 }}>
+      <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.ac }} />
+      <Txt size={13} weight={600} color={p.acd}>{t.nextStepLabel}</Txt>
+    </View>
+  );
+}
+
 function Ready({
-  recommendation, item, strings, translateCount, showWhy, onToggleWhy, editing, onEdit, deferring, onDefer, more, onMore, started, onSend, busy,
+  recommendation, item, strings, translateCount, showWhy, onToggleWhy, editing, onEdit, deferring, onDefer, onCloseDefer, more, onMore, started, stale, onSend, busy,
 }: {
   recommendation: NextStepRecommendation;
   item: CommitmentView | null;
@@ -194,9 +199,11 @@ function Ready({
   onEdit: () => void;
   deferring: boolean;
   onDefer: () => void;
+  onCloseDefer: () => void;
   more: boolean;
   onMore: () => void;
   started: boolean;
+  stale: boolean;
   onSend: (decision: NextStepDecisionKind, extra?: { editedTitle?: string; deferUntil?: string }) => void;
   busy: boolean;
 }) {
@@ -216,7 +223,8 @@ function Ready({
   // render — never a fixed row with the rest greyed out.
   const actionsOffered = DECISIONS.filter((decision) => recommendation.availableActions?.includes(decision));
   const offers = (d: NextStepDecisionKind) => actionsOffered.includes(d);
-  const folded = actionsOffered.filter((d) => d !== 'accept' && d !== 'defer');
+  // Up front (Stitch): «بلّش فيها», «خلصتها», «مش هلّق». The rest behind «المزيد».
+  const folded = actionsOffered.filter((d) => d !== 'accept' && d !== 'defer' && d !== 'done');
   // Where a saved week day puts it, as Today's rows, the Calendar and Details
   // say it, with its own due beside it when that differs (FX1, review I1).
   // Its day as well, when that is not today — a due two weeks back read as
@@ -231,27 +239,40 @@ function Ready({
     return onSend(decision);
   };
 
+  const button = (kind: 'primary' | 'secondary' | 'tertiary') => ({
+    ...(stacked ? {} : kind === 'primary' ? { flex: 1 } : {}),
+    minHeight: 48, paddingVertical: 10, paddingHorizontal: kind === 'primary' ? 14 : 16, borderRadius: 999,
+    flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'center' as const, gap: 6,
+    backgroundColor: busy ? p.dis : kind === 'primary' ? p.ac : p.sf2,
+    borderWidth: kind === 'primary' ? 0 : 1, borderColor: p.ln,
+  });
+
   return (
     <>
-      <Btn label={dueAside ? `${step.title}, ${dueAside}` : step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 12 }}>
-        <Txt role="section" size={27} color={p.tx} testID="next-step-title">{step.title}</Txt>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' }}>
-          <View style={{ flex: 1, gap: 8 }}>
-            {item ? <>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <ReferenceIcon name="calendar" size={18} color={p.mu} />
-                <Txt size={14} color={p.mu} style={{ flex: 1 }} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt>
-              </View>
-              {impLabel ? <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
-            </> : null}
-            {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
-          </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <NextStepBadge />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 1 }}>
+          {/* Started only. A proposal already says so in `suggestionNote`;
+              a tag saying it again was #17's duplicate (UAT 2026-09-27). */}
+          {started ? <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" /> : null}
+          {impLabel && item ? <Tag kind={priorityTagKind(item.importance)} label={impLabel} /> : null}
+          {item ? <Txt size={13} weight={500} color={p.mu} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt> : null}
         </View>
+      </View>
+
+      {stale ? <Txt size={13} color={p.wm} testID="next-step-stale">{t.nextStepStale}</Txt> : null}
+
+      <Btn label={dueAside ? `${step.title}, ${dueAside}` : step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
+        <Txt role="section" size={20} weight={700} color={p.tx} testID="next-step-title">{step.title}</Txt>
+        {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
       </Btn>
 
-      {/* Unconditional. See the header: the contract says nothing has been
-          written, and this is that fact in words. */}
-      <Txt size={12} color={p.mu} testID="next-step-note">{t.suggestionNote}</Txt>
+      {phrases.length > 0 || (item && !item.importanceIsStated) ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
+          {phrases.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
+          {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
+        </View>
+      ) : null}
 
       {editing ? (
         <View style={{ gap: 10 }}>
@@ -262,7 +283,7 @@ function Ready({
             value={draft}
             onChangeText={setDraft}
             multiline
-            style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
+            style={{ backgroundColor: p.sf2, borderRadius: 16, borderWidth: 1, borderColor: p.ln, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
           />
           <Pill
             testID="next-step-edit-save"
@@ -271,67 +292,48 @@ function Ready({
             onPress={() => onSend('edit', { editedTitle: draft.trim() })}
           />
         </View>
-      ) : deferring ? (
-        /**
-         * Three choices, each showing the time it means (UC-2.9, #170).
-         *
-         * Fewer than the details sheet's four: deferring a *suggestion* is a
-         * small "not right now", and offering to push it a week would turn one
-         * tap into a decision about the rest of the month.
-         */
-        <View style={{ gap: 10 }}>
-          <Txt size={13} color={p.mu}>{t.nextStepDeferTitle}</Txt>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {DEFER_PRESETS.map((preset) => {
-              const until = new Date(postponeTo(preset, new Date(), timezone));
-              return (
-                <Btn
-                  key={preset}
-                  testID={`next-step-defer-${preset}`}
-                  label={DEFER_LABEL(strings)[preset]}
-                  disabled={busy}
-                  onPress={() => onSend('defer', { deferUntil: until.toISOString() })}
-                  style={{ flexGrow: 1, backgroundColor: busy ? p.dis : p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, gap: 2, alignItems: 'flex-start' }}
-                >
-                  <Txt size={14} weight={600} color={busy ? p.disTx : p.tx}>{DEFER_LABEL(strings)[preset]}</Txt>
-                  <Txt size={12} color={busy ? p.disTx : p.mu} testID={`next-step-defer-when-${preset}`}>
-                    {`${formatRelativeDay(until, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(until, { locale: lang, timeZone: timezone }))}`}
-                  </Txt>
-                </Btn>
-              );
-            })}
-          </View>
-        </View>
       ) : started ? (
-        <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: 10 }}>
+        <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.acs, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
+            <ReferenceIcon name="play" size={16} color={p.acd} />
+            <Txt size={14} weight={500} color={p.acd} lh={1.4} style={{ flex: 1 }} testID="next-step-started-note">{t.nextStepStartedNote}</Txt>
+          </View>
           {offers('done') ? (
-            <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')}
-              style={{ ...(stacked ? {} : { flex: 1 }), minHeight: 48, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 999, backgroundColor: busy ? p.dis : p.ac, alignItems: 'center', justifyContent: 'center' }}>
+            <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')} style={button('primary')}>
+              <ReferenceIcon name="check" size={17} color={busy ? p.disTx : p.onAccent} />
               <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center">{ACTION_LABEL(strings).done}</Txt>
             </Btn>
           ) : null}
-          <Txt size={12} color={p.mu} lh={1.4} style={stacked ? undefined : { flex: 1 }} testID="next-step-started-note">{t.nextStepStartedNote}</Txt>
         </View>
       ) : (
-        <View style={{ gap: 8 }}>
-          <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: 'stretch' }}>
-            {offers('accept') ? (
-              <Btn testID="next-step-accept" label={ACTION_LABEL(strings).accept} disabled={busy} onPress={() => run('accept')}
-                style={{ ...(stacked ? {} : { flex: 1.15 }), minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 999, backgroundColor: busy ? p.dis : p.ac, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <ReferenceIcon name="play" size={17} color={busy ? p.disTx : p.onAccent} />
-                <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).accept}</Txt>
+        <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
+          {/* Two rows, never four buttons in one: at the owner's Redmi text
+              size (1.17×) a single row squeezed «خلصتها» and «مش هلّق» until
+              their labels broke letter by letter. The start action gets the
+              full width; the answers share the row under it. */}
+          {offers('accept') ? (
+            <Btn testID="next-step-accept" label={ACTION_LABEL(strings).accept} disabled={busy} onPress={() => run('accept')}
+              style={{ ...button('primary'), flex: undefined, alignSelf: 'stretch' }}>
+              <ReferenceIcon name="play" size={16} color={busy ? p.disTx : p.onAccent} />
+              <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).accept}</Txt>
+            </Btn>
+          ) : null}
+          <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: stacked ? 'stretch' : 'center' }}>
+            {offers('done') ? (
+              <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')}
+                style={{ ...button('secondary'), ...(stacked ? {} : { flex: 1 }) }}>
+                <Txt size={15} weight={600} color={busy ? p.disTx : p.tx} align="center">{ACTION_LABEL(strings).done}</Txt>
               </Btn>
             ) : null}
             {offers('defer') ? (
               <Btn testID="next-step-defer" label={ACTION_LABEL(strings).defer} disabled={busy} onPress={() => run('defer')}
-                style={{ ...(stacked ? {} : { flex: 1 }), minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, backgroundColor: busy ? p.dis : p.sf2, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <ReferenceIcon name="clock" size={19} color={busy ? p.disTx : p.tx} />
-                <Txt size={15} weight={500} color={busy ? p.disTx : p.tx} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).defer}</Txt>
+                style={{ ...button('tertiary'), ...(stacked ? {} : { flex: 1 }) }}>
+                <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center">{ACTION_LABEL(strings).defer}</Txt>
               </Btn>
             ) : null}
             {folded.length > 0 ? (
               <Btn testID="next-step-more" accessibilityState={{ expanded: more }} label={t.nextStepMore} onPress={onMore}
-                style={{ width: 48, minHeight: 48, borderRadius: 999, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
+                style={{ width: stacked ? undefined : 48, minHeight: 48, borderRadius: 999, backgroundColor: p.sf2, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
                 <Txt size={18} weight={600} color={p.tx} latin>{more ? '×' : '…'}</Txt>
               </Btn>
             ) : null}
@@ -346,12 +348,38 @@ function Ready({
         </View>
       )}
 
-      {phrases.length > 0 || (item && !item.importanceIsStated) ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
-          {phrases.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
-          {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
+      {/* Unconditional. See the header: the contract says nothing has been
+          written, and this is that fact in words. */}
+      <Txt size={13} color={p.mu} align="center" testID="next-step-note">{t.suggestionNote}</Txt>
+
+      {/*
+        «مش هلّق» asks when, in a sheet (Stitch: «إمتى نرجّعها؟»). Three
+        choices, each showing the time it means (UC-2.9, #170). Fewer than the
+        details sheet's four: deferring a *suggestion* is a small "not right
+        now", and offering to push it a week would turn one tap into a decision
+        about the rest of the month.
+      */}
+      <BottomSheet visible={deferring} onClose={onCloseDefer} testID="next-step-defer-sheet">
+        <SheetHeader title={t.nextStepDeferTitle} icon="clock" onClose={onCloseDefer} closeTestID="next-step-defer-close" />
+        <Txt size={14} color={p.mu} lh={1.5}>{t.postponeBody}</Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {DEFER_PRESETS.map((preset) => {
+            const until = new Date(postponeTo(preset, new Date(), timezone));
+            return (
+              <SheetChoice
+                key={preset}
+                testID={`next-step-defer-${preset}`}
+                subTestID={`next-step-defer-when-${preset}`}
+                label={DEFER_LABEL(strings)[preset]}
+                sub={`${formatRelativeDay(until, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(until, { locale: lang, timeZone: timezone }))}`}
+                disabled={busy}
+                onPress={() => onSend('defer', { deferUntil: until.toISOString() })}
+              />
+            );
+          })}
         </View>
-      ) : null}
+        <SheetFootnote text={t.suggestionNote} />
+      </BottomSheet>
 
       {phrases.length > 0 ? (
         <View style={{ gap: 6, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 5 }}>

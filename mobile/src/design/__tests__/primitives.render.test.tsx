@@ -15,6 +15,7 @@ jest.mock('react-native/Libraries/Utilities/useColorScheme', () => ({
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider, useApp } from '../../state/AppContext';
 import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
+import { THEME_STORAGE_KEY } from '../../lib/deviceSettings/theme';
 import { Card, Pill, Txt } from '../../ui/primitives';
 import { Tag } from '../../ui/chrome';
 import { color } from '../../theme/tokens';
@@ -23,9 +24,14 @@ function Harness({ children }: { children: React.ReactNode }) {
   return <AppProvider>{children}</AppProvider>;
 }
 
-/** Start the app as a user who already chose this language. */
+/**
+ * Start the app as a user who already chose this language — and chose to
+ * follow the phone's scheme, so the mocked scheme is the one rendered (with
+ * nothing chosen the app is dark, Stitch 2026-10-02).
+ */
 async function withStoredLanguage(lang: 'ar' | 'en') {
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+  await AsyncStorage.setItem(THEME_STORAGE_KEY, 'system');
 }
 
 /** Reads the live palette and language out of the provider. */
@@ -45,6 +51,8 @@ describe('primitives render in both schemes', () => {
           <Txt>مرحبا</Txt>
           <Pill label="تمّت" onPress={() => {}} />
           <Tag kind="must" label="ضروري" />
+          <Tag kind="important" label="مهم" />
+          <Tag kind="nice" label="حلو" />
           <Card>
             <Txt>بطاقة</Txt>
           </Card>
@@ -55,10 +63,15 @@ describe('primitives render in both schemes', () => {
       expect(view.getByText('بطاقة')).toBeTruthy();
       // The label is both the visible text and the accessibility name.
       expect(view.getAllByRole('button', { name: 'تمّت' }).length).toBeGreaterThan(0);
-      // Round 2's `Tag` replaced `ImpBadge`: a word in the scheme's own
-      // "must" colour, not a button.
+      // Round 2's `Tag` replaced `ImpBadge`: a word, not a button. Stitch
+      // colours the three importances: «لازم» coral, «مهم» amber, «حلو» green —
+      // each the solid text of its own tint.
+      await waitFor(() => expect(view.getByTestId('probe').props.children).toContain(`${scheme}|`));
       const badge = view.getByText('ضروري');
-      expect(StyleSheet.flatten(badge.props.style)).toMatchObject({ color: color[scheme].must });
+      expect(StyleSheet.flatten(badge.props.style)).toMatchObject({ color: color[scheme].brandPressed });
+      expect(StyleSheet.flatten(view.getByText('مهم').props.style)).toMatchObject({ color: color[scheme].must });
+      expect(StyleSheet.flatten(view.getByText('حلو').props.style)).toMatchObject({ color: color[scheme].success });
+      expect(StyleSheet.flatten(badge.props.style).fontSize).toBeGreaterThanOrEqual(13);
 
       const probe = view.getByTestId('probe').props.children as string;
       expect(probe).toBe(`${scheme}|rtl|${color[scheme].background}|${color[scheme].onBrand}`);

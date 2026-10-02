@@ -89,7 +89,7 @@ function SeedCard({ seed, strings, lang }: { seed: Seed; strings: Record<string,
   return (
     <Card testID={`seed-${seed.seedId}`}>
       <View style={{ gap: 10 }}>
-        <Txt size={11} color={p.mu} testID={`seed-kind-${seed.seedId}`}>{seedKindLabel(seed.kind, strings)}</Txt>
+        <Txt size={12} color={p.mu} testID={`seed-kind-${seed.seedId}`}>{seedKindLabel(seed.kind, strings)}</Txt>
         {/* The person's own sentence, as they wrote it. */}
         <Txt size={15} lh={1.45} testID={`seed-summary-${seed.seedId}`}>{seed.summary}</Txt>
         {statusLine ? <Txt size={12} color={p.mu}>{statusLine}</Txt> : null}

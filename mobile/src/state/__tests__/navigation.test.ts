@@ -6,7 +6,7 @@
  * back has to arrive on Today, not on Details.
  */
 import { describe, expect, it } from '@jest/globals';
-import { arrive, back, canGoBack, closeTask, derive, go, initialNav, openTask, push, switchTab, type Nav } from '../navigation';
+import { arrive, back, canGoBack, closeTask, derive, go, initialNav, isTab, openTask, push, switchTab, TABS, type Nav } from '../navigation';
 
 const screenOf = (n: Nav) => derive(n).screen;
 const trail = (n: Nav, steps: ((n: Nav) => Nav)[]) => steps.reduce((acc, step) => step(acc), n);
@@ -56,25 +56,58 @@ describe('no dead ends', () => {
     }
   });
 
-  it('Settings → Trust → Knows → Memory → back → back → back → Settings, with no duplicate Trust', () => {
+  it('Settings → Trust → Knows → Memory → back → back → back → Settings → back → Today, with no duplicate Trust', () => {
     let n = trail(initialNav, [(x) => go(x, 'settings'), (x) => go(x, 'trust'), (x) => go(x, 'knows'), (x) => go(x, 'memory')]);
-    expect(n.stacks.settings.map((e) => e.name)).toEqual(['trust', 'knows', 'memory']);
+    expect(n.stacks.today.map((e) => e.name)).toEqual(['settings', 'trust', 'knows', 'memory']);
     n = back(n); expect(screenOf(n)).toBe('knows');
     n = back(n); expect(screenOf(n)).toBe('trust');
     n = back(n); expect(screenOf(n)).toBe('settings');
-    expect(derive(n).showTabs).toBe(true);
+    // Settings renders without the bar and the pill (Stitch, 2026-10-02).
+    expect(derive(n).showTabs).toBe(false);
+    expect(canGoBack(n)).toBe(true);
+    n = back(n);
+    expect(derive(n)).toMatchObject({ screen: 'today', showTabs: true });
+  });
+});
+
+describe('settings opens from the avatar, not from the bar (Stitch, 2026-10-02)', () => {
+  it('is not a tab', () => {
+    expect(isTab('settings')).toBe(false);
+    expect(TABS).toEqual(['today', 'calendar', 'things', 'watching']);
+  });
+
+  for (const tab of ['today', 'calendar', 'things', 'watching'] as const) {
+    it(`opened on ${tab}: shows without the bar, and back (on screen or Android's) returns to ${tab}`, () => {
+      const from = switchTab(initialNav, tab);
+      const n = go(from, 'settings');
+      expect(n.tab).toBe(tab);
+      expect(derive(n)).toMatchObject({ screen: 'settings', showTabs: false });
+      expect(canGoBack(n)).toBe(true);
+      expect(derive(back(n))).toMatchObject({ screen: tab, showTabs: true });
+    });
+  }
+
+  it('a second tap on the avatar while Settings is open is not a second Settings', () => {
+    const n = go(go(initialNav, 'settings'), 'settings');
+    expect(n.stacks.today.map((e) => e.name)).toEqual(['settings']);
   });
 });
 
 describe('tabs', () => {
   it('switching tabs keeps each tab where it was left', () => {
     let n = push(initialNav, { name: 'details', detailId: 'a' });
-    n = switchTab(n, 'settings');
-    n = go(n, 'trust');
+    n = switchTab(n, 'things');
+    n = go(n, 'commitments');
     n = switchTab(n, 'today');
     expect(derive(n)).toMatchObject({ screen: 'details', detailId: 'a' });
-    n = switchTab(n, 'settings');
-    expect(screenOf(n)).toBe('trust');
+    n = switchTab(n, 'things');
+    expect(screenOf(n)).toBe('commitments');
+  });
+
+  it('the two new hubs are tab roots with the bar showing', () => {
+    expect(derive(switchTab(initialNav, 'things'))).toMatchObject({ screen: 'things', showTabs: true });
+    expect(derive(switchTab(initialNav, 'watching'))).toMatchObject({ screen: 'watching', showTabs: true });
+    expect(derive(go(initialNav, 'watching'))).toMatchObject({ screen: 'watching', showTabs: true });
   });
 
   it('tapping the current tab returns to its root', () => {
@@ -149,5 +182,25 @@ describe('arriving from a notification or a link', () => {
 
   it('a tab link is just that tab', () => {
     expect(derive(arrive(initialNav, { name: 'calendar' }))).toMatchObject({ screen: 'calendar', showTabs: true });
+    expect(derive(arrive(initialNav, { name: 'watching' }))).toMatchObject({ screen: 'watching', showTabs: true });
+  });
+
+  it('a settings link opens Settings over Today, and back is Today', () => {
+    const n = arrive(go(initialNav, 'calendar'), { name: 'settings' });
+    expect(n.tab).toBe('today');
+    expect(derive(n)).toMatchObject({ screen: 'settings', showTabs: false });
+    expect(derive(back(n))).toMatchObject({ screen: 'today', showTabs: true });
+  });
+
+  it('a notification for a settings leaf opens the leaf with Settings under it, then Today', () => {
+    for (const leaf of ['notificationsSettings', 'backgroundActivity', 'knows', 'calendarSettings'] as const) {
+      let n = arrive(push(initialNav, { name: 'details', detailId: 'x' }), { name: leaf });
+      expect(n.stacks.today.map((e) => e.name)).toEqual(['settings', leaf]);
+      expect(derive(n)).toMatchObject({ screen: leaf, showTabs: false });
+      n = back(n);
+      expect(derive(n)).toMatchObject({ screen: 'settings', showTabs: false });
+      n = back(n);
+      expect(derive(n)).toMatchObject({ screen: 'today', showTabs: true });
+    }
   });
 });

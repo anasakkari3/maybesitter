@@ -20,11 +20,13 @@ import { THEME_STORAGE_KEY } from '../../lib/deviceSettings/theme';
  * that writes to a binding outside itself is what the compiler lint forbids.
  */
 function Probe() {
-  const { themePref, actions } = useApp();
+  const { themePref, scheme, actions } = useApp();
   return (
     <>
       <Text testID="pref">{themePref}</Text>
+      <Text testID="scheme">{scheme}</Text>
       <Pressable testID="set-dark" onPress={() => actions.setThemePref('dark')} />
+      <Pressable testID="set-light" onPress={() => actions.setThemePref('light')} />
       <Pressable testID="set-system" onPress={() => actions.setThemePref('system')} />
       <Pressable testID="cycle" onPress={() => actions.cycleTheme()} />
     </>
@@ -55,7 +57,9 @@ describe('the theme preference across a restart', () => {
 
   it('remembers a choice made by cycling the Appearance row', async () => {
     const first = await mount();
-    // system → light → dark. The row is how most people set this.
+    // dark (the default) → system → light → dark. The row is how most people set this.
+    await press('cycle');
+    await waitFor(async () => expect(await storedTheme()).toBe('system'));
     await press('cycle');
     await waitFor(async () => expect(await storedTheme()).toBe('light'));
     await press('cycle');
@@ -66,10 +70,22 @@ describe('the theme preference across a restart', () => {
     await waitFor(() => expect(screen.getByTestId('pref')).toHaveTextContent('dark'));
   });
 
-  it('starts at system when nothing was ever chosen', async () => {
+  it('starts dark when nothing was ever chosen (Stitch, 2026-10-02)', async () => {
     await mount();
-    await waitFor(() => expect(screen.getByTestId('pref')).toHaveTextContent('system'));
+    await waitFor(() => expect(screen.getByTestId('pref')).toHaveTextContent('dark'));
+    expect(screen.getByTestId('scheme')).toHaveTextContent('dark');
+    // Defaulting is not choosing: nothing is written until the person picks.
     expect(await storedTheme()).toBeNull();
+  });
+
+  it('keeps an explicit light choice across a restart', async () => {
+    const first = await mount();
+    await press('set-light');
+    await waitFor(async () => expect(await storedTheme()).toBe('light'));
+    await first.unmount();
+
+    await mount();
+    await waitFor(() => expect(screen.getByTestId('scheme')).toHaveTextContent('light'));
   });
 
   it('follows the system again once the choice is set back to it', async () => {
@@ -85,10 +101,9 @@ describe('the theme preference across a restart', () => {
   });
 
   it('ignores a stored value the app does not recognise', async () => {
-    // Only a corrupted store or an older build writes this. Following the
-    // device beats rendering a scheme nobody chose.
+    // Only a corrupted store or an older build writes this; it gets the default.
     await AsyncStorage.setItem(THEME_STORAGE_KEY, 'midnight');
     await mount();
-    await waitFor(() => expect(screen.getByTestId('pref')).toHaveTextContent('system'));
+    await waitFor(() => expect(screen.getByTestId('pref')).toHaveTextContent('dark'));
   });
 });

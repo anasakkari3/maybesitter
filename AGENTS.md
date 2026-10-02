@@ -12,12 +12,14 @@ The previous Flutter client is retired. Nothing in this repository should
 reference it as current; its final state is preserved on the tag
 `archive/flutter-final`.
 
-## 2. The design source of truth is the approved coral continuation
+## 2. The design source of truth is the Stitch redesign
 
-The accepted coral/charcoal continuation is the visual baseline for `mobile/**`.
-Its reference hashes and palette are recorded in
-`mobile/src/design/coral.source.json`; implementation decisions and coverage are
-in `docs/design/coral-continuation.md`. The Round-2 Claude Design export in
+Since the owner decision of 2026-10-02 the Stitch design is the visual baseline
+for `mobile/**`: `docs/design/stitch-2026-10-02/IMPLEMENTATION_SPEC.md` is
+binding, and `mobile/src/design/stitch.source.json` pins its palette and
+reference hashes. The coral/charcoal continuation it replaced is archived at
+tag `archive/pre-stitch-design` (`mobile/src/design/coral.source.json`,
+`docs/design/coral-continuation.md` are history). The Round-2 Claude Design export in
 `design/R2App.dc.html` remains the structural reference for navigation,
 typography and motion. The earlier Round-1 export and teal Round-2 palette are
 historical material, not the current product appearance.

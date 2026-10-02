@@ -6,7 +6,7 @@ import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { formatRelativeDay, formatTime } from '../i18n/format';
 import { ltr } from '../i18n/strings';
-import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, usePatchCommitment, useSavedWeek } from '../api/queries';
+import { useActivity, useCategoryPreferences, useCommitment, useCommitmentAction, useNextStep, useNextStepDecision, usePatchCommitment, useSavedWeek } from '../api/queries';
 import { safeCommitmentPatchEnabled } from '../config/env';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { NotFoundError } from '../api/errors';
@@ -22,9 +22,10 @@ import { PlaceReminderSection } from '../features/places/PlaceReminderSection';
 import { dueApart, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { commitmentPrepTarget } from '../features/meetings/prepTargets';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
-import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
+import { ActionRow, BackButton, EmptyState, SectionLabel, Tag, priorityTagKind } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { useReducedMotion } from '../ui/motion';
+import { ReferenceIcon } from '../ui/referenceIcons';
 
 /**
  * One commitment, from the account (UC-2.R3 #173; Round 2, Phase E).
@@ -34,6 +35,12 @@ import { useReducedMotion } from '../ui/motion';
  * Done, not now, edit and drop-on-purpose, on the actions route the server
  * implements. Delete sits apart, because it is the one thing here that does
  * not keep the commitment in the user's history.
+ *
+ * Since the Stitch redesign (2026-10-02, `04b`): the two answers that keep it
+ * — «خلصتها», «مش هلّق» — stay pinned under the scroller (N8); the two that
+ * let it go are in the page under «ما عاد بدّك ياها؟», each saying what it
+ * does to the history, each asked again in its own sheet. «بلّش فيها» shows
+ * only when this commitment is the current next step (`StartIfProposed`).
  *
  * ── Reopen is missing on purpose ─────────────────────────────────
  *
@@ -121,21 +128,18 @@ export function DetailsScreen() {
 
   const strings = t as unknown as Record<string, string>;
   const category = query.data?.category ?? null;
+  const remindAt = query.data?.timeSpec.remindAt ?? null;
+  const reminderAt = remindAt && remindAt !== query.data?.timeSpec.dueAt ? remindAt : null;
 
-  const controls = (view && !gone ? (
+  // «خلصتها» and «مش هلّق», pinned below the scroller (N8): the two answers
+  // that keep the commitment. Letting it go (drop, delete) is in the page, under
+  // «ما عاد بدّك ياها؟», away from the thumb.
+  const controls = (view && !gone && open ? (
         <View testID="details-actions" style={{ paddingTop: 12, paddingHorizontal: 16, paddingBottom: insets.bottom + 8, gap: 8, borderTopWidth: 1, borderTopColor: p.ln, backgroundColor: p.bg }}>
-          {open ? (
-            <>
-              <ActionRow>
-                <Pill testID="details-done" label={t.done} onPress={complete} disabled={act.isPending} radius={20} pad={14} size={15} />
-                <Pill testID="details-postpone" label={t.notNow} onPress={actions.openPostpone} disabled={act.isPending} kind="outline" radius={20} pad={14} size={15} />
-              </ActionRow>
-              <Pill testID="details-drop" label={t.dropIt} onPress={actions.openConfirmDrop} disabled={act.isPending} kind="warm" radius={20} pad={12} size={15} />
-              <Pill testID="details-delete" label={t.detailsDelete} onPress={actions.openConfirmDelete} kind="ghost" size={14} radius={20} pad={10} />
-            </>
-          ) : (
-            <Pill testID="details-delete" label={t.detailsDelete} onPress={actions.openConfirmDelete} kind="outline" radius={20} pad={14} size={15} />
-          )}
+          <ActionRow>
+            <Pill testID="details-done" label={t.nextStepDone} onPress={complete} disabled={act.isPending} size={15} pad={12} />
+            <Pill testID="details-postpone" label={t.notNow} onPress={actions.openPostpone} disabled={act.isPending} kind="soft" size={15} pad={12} />
+          </ActionRow>
         </View>
       ) : null);
 
@@ -143,9 +147,14 @@ export function DetailsScreen() {
     <Screen
       pinned={(
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-          <BackButton label={t.back} onPress={actions.back} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1 }}>
+            <BackButton label={t.back} onPress={actions.back} />
+            {stacked ? null : <Txt role="section" size={18} weight={700} style={{ flexShrink: 1 }}>{t.detailsTitle}</Txt>}
+          </View>
           {view && open && safeCommitmentPatchEnabled() ? (
-            <Btn testID="details-edit" label={t.detailsEdit} onPress={actions.openEdit} style={{ minHeight: 44, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 16, justifyContent: 'center' }}>
+            <Btn testID="details-edit" label={t.detailsEdit} onPress={actions.openEdit} scaleTo={0.94}
+              style={{ minHeight: 44, minWidth: 44, borderRadius: 22, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <ReferenceIcon name="pencil" size={17} color={p.tx} />
               <Txt size={13} weight={600}>{t.detailsEdit}</Txt>
             </Btn>
           ) : null}
@@ -173,33 +182,44 @@ export function DetailsScreen() {
           <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
             {view ? (
               <>
-                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                  <Tag kind={view.importance === 'must' ? 'must' : view.importance === 'should' ? 'should' : 'muted'} label={impLabel(view.importance, t)} testID="details-importance" />
-                  <Tag kind="muted" label={statusLabel(view, t)} testID="details-status" />
-                  {category ? <Tag kind="should" label={strings[CATEGORY_LABEL[category]]!} /> : null}
+                {/* The commitment, as one card: its chips, its name, what it says. */}
+                <View style={{ backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 20, padding: 18, gap: 10 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    <Tag kind={priorityTagKind(view.importance)} label={impLabel(view.importance, t)} testID="details-importance" />
+                    <StatusChip view={view} label={statusLabel(view, t)} />
+                    {category ? <Tag kind="muted" label={strings[CATEGORY_LABEL[category]]!} /> : null}
+                  </View>
+                  <View style={{ alignItems: 'flex-start' }}><Txt role="page" size={24} weight={700} testID="details-title">{view.title}</Txt></View>
+                  {query.data?.description ? (
+                    <Txt size={15} color={p.mu} lh={1.5} testID="details-description">{query.data.description}</Txt>
+                  ) : null}
+                  {open ? <StartIfProposed commitmentId={view.id} /> : null}
                 </View>
 
-                <View style={{ alignItems: 'flex-start' }}><Txt role="page" testID="details-title">{view.title}</Txt></View>
-                {query.data?.description ? (
-                  <Txt size={15} color={p.mu} lh={1.5} testID="details-description">{query.data.description}</Txt>
-                ) : null}
-
-                <Card pad={0} style={{ paddingVertical: 4, paddingHorizontal: 18 }}>
+                <View style={{ backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 20, paddingVertical: 4, paddingHorizontal: 14 }}>
                   {/* Where the saved week put it, first; its own day and time,
                       which Edit changes, below it (FX1). */}
                   {planned ? (
-                    <Row label={t.plannedRowLabel} testID="details-planned">
+                    <Row icon="calendar" label={t.plannedRowLabel} testID="details-planned">
                       {`${formatRelativeDay(new Date(planned), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(planned), { locale: lang, timeZone: timezone }))}`}
                     </Row>
                   ) : null}
-                  <Row label={t.dayLabel} testID="details-day">
+                  <Row icon="today" label={t.dayLabel} testID="details-day">
                     {view.shownAt ? formatRelativeDay(new Date(view.shownAt), { locale: lang, timeZone: timezone }) : t.noTimeYet}
                   </Row>
-                  <Row label={t.timeLabel} testID="details-time" latin>
+                  <Row icon="clock" label={t.timeLabel} testID="details-time" latin>
                     {clockOf(view, { locale: lang, timeZone: timezone }) ?? t.noTimeYet}
                   </Row>
-                  {view.postponedUntil ? <Row label={t.postponeReturn} testID="details-postponed-until">
+                  {view.postponedUntil ? <Row icon="clock" label={t.postponeReturn} testID="details-postponed-until">
                     {`${formatRelativeDay(new Date(view.postponedUntil), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(view.postponedUntil), { locale: lang, timeZone: timezone }))}`}
+                  </Row> : null}
+                  <Row icon="flag" label={t.detailsImportanceLabel} testID="details-importance-row" ink={view.importance === 'must' ? p.acd : view.importance === 'should' ? p.wm : p.success}>
+                    {impLabel(view.importance, t)}
+                  </Row>
+                  {/* A reminder only when it is its own instant: one at the due
+                      time is the due time, already said above. */}
+                  {reminderAt ? <Row icon="bell" label={t.detailsReminderLabel} testID="details-reminder">
+                    {`${formatRelativeDay(new Date(reminderAt), { locale: lang, timeZone: timezone })} · ${ltr(formatTime(new Date(reminderAt), { locale: lang, timeZone: timezone }))}`}
                   </Row> : null}
                   {/* Shown whether or not there is one (#415): the ones the
                       model could not read are the ones worth correcting. */}
@@ -210,7 +230,7 @@ export function DetailsScreen() {
                     disabled={patch.isPending}
                     canEdit={safeCommitmentPatchEnabled() && open}
                   />
-                </Card>
+                </View>
 
                 {/* What else is happening then (UC-3.2, #186), as a note. */}
                 <BusyConflictChip blocks={view.shownAt && !view.allDay ? busyAt(view.shownAt, busy) : []} testID="details-busy" />
@@ -233,10 +253,21 @@ export function DetailsScreen() {
 
                 {!open ? <Txt size={13} color={p.mu} testID="details-closed-note">{t.detailsClosedNote}</Txt> : null}
 
+                {/* «ما عاد بدّك ياها؟»: two different answers, said differently.
+                    A drop keeps it in the history; a deletion does not. Each is
+                    asked again in its own sheet before anything happens. */}
+                <View style={{ backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 20, padding: 14, gap: 8 }} testID="details-let-go">
+                  {open ? <Txt size={15} weight={600} style={{ paddingHorizontal: 4 }}>{t.detailsLetGoTitle}</Txt> : null}
+                  {open ? (
+                    <LetGoRow testID="details-drop" icon="archive" label={t.dropIt} sub={t.detailsDropSub} onPress={actions.openConfirmDrop} disabled={act.isPending} />
+                  ) : null}
+                  <LetGoRow testID="details-delete" icon="trash" label={t.detailsDelete} sub={t.detailsDeleteSub} onPress={actions.openConfirmDelete} />
+                </View>
+
                 {history.length > 0 ? (
                   <View style={{ gap: 6 }}>
                     <SectionLabel>{t.detailsHistory}</SectionLabel>
-                    <Card pad={0} style={{ paddingVertical: 4, paddingHorizontal: 16 }} testID="details-history">
+                    <Card pad={0} style={{ paddingVertical: 4, paddingHorizontal: 16, backgroundColor: p.sf }} testID="details-history">
                       {history.map((item, index) => (
                         <View key={item.id} style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', gap: 8, paddingVertical: 14, borderTopWidth: index === 0 ? 0 : 1, borderTopColor: p.ln }}>
                           <Txt size={14}>{item.label}</Txt>
@@ -312,13 +343,94 @@ const CATEGORY_LABEL: Record<CommitmentCategory, string> = {
   work: 'catWork', family: 'catFamily', health: 'catHealth', finance: 'catFinance', social: 'catSocial', errands: 'catErrands',
 };
 
-function Row({ label, children, testID, latin }: { label: string; children: React.ReactNode; testID: string; latin?: boolean }) {
+function Row({ icon, label, children, testID, latin, ink }: { icon: string; label: string; children: React.ReactNode; testID: string; latin?: boolean; ink?: string }) {
   const { p } = useApp();
-  const stacked = useLayoutMode() !== 'normal';
   return (
-    <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', gap: 8, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: p.ln }}>
-      <Txt size={15} color={p.mu}>{label}</Txt>
-      <Txt size={15} testID={testID} latin={latin}>{children}</Txt>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, minHeight: 56, borderBottomWidth: 1, borderBottomColor: p.ln }}>
+      <View accessible={false} style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
+        <ReferenceIcon name={icon} size={19} color={ink ?? p.mu} />
+      </View>
+      <View style={{ flex: 1, gap: 1, alignItems: 'flex-start' }}>
+        <Txt size={13} color={p.mu}>{label}</Txt>
+        <Txt size={15} weight={ink ? 600 : 400} color={ink ?? p.tx} testID={testID} latin={latin}>{children}</Txt>
+      </View>
     </View>
+  );
+}
+
+/** Its state as a chip with a dot: open green, finished and dropped muted. */
+function StatusChip({ view, label }: { view: CommitmentView; label: string }) {
+  const { p } = useApp();
+  const live = view.status === 'active';
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10, backgroundColor: live ? p.successSoft : p.sf2 }}>
+      <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: live ? p.success : p.mu }} />
+      <Txt size={13} weight={600} color={live ? p.success : p.mu} testID="details-status">{label}</Txt>
+    </View>
+  );
+}
+
+/** One way to let it go: an icon, the verb, and what it means for the history. */
+function LetGoRow({ testID, icon, label, sub, onPress, disabled }: { testID: string; icon: string; label: string; sub: string; onPress: () => void; disabled?: boolean }) {
+  const { p } = useApp();
+  return (
+    <Btn testID={testID} label={`${label}. ${sub}`} onPress={onPress} disabled={disabled} scaleTo={0.99}
+      style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 12, minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2 }}>
+      <View accessible={false} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: p.sf, alignItems: 'center', justifyContent: 'center' }}>
+        <ReferenceIcon name={icon} size={18} color={disabled ? p.disTx : p.mu} />
+      </View>
+      <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
+        <Txt size={15} weight={600} color={disabled ? p.disTx : p.tx}>{label}</Txt>
+        <Txt size={13} color={disabled ? p.disTx : p.mu}>{sub}</Txt>
+      </View>
+    </Btn>
+  );
+}
+
+/**
+ * «بلّش فيها» here too, but only for the commitment that is the current next
+ * step and only when the server offers `accept` for it. Starting is an answer
+ * to a proposal (the next-step route), not a state a commitment has, so a
+ * commitment that is not proposed has no start button rather than an invented
+ * one. Started never means done: the note says we stay quiet until they say so.
+ */
+function StartIfProposed({ commitmentId }: { commitmentId: string }) {
+  const { t, p } = useApp();
+  const next = useNextStep();
+  const decide = useNextStepDecision();
+  const [startedFor, setStartedFor] = React.useState<string | null>(null);
+  const inFlight = React.useRef(false);
+  const recommendation = next.data?.recommendation;
+  const proposed = next.data?.exposure?.allowed !== false
+    && recommendation?.state === 'ready'
+    && recommendation.primaryStep?.commitmentId === commitmentId
+    && (recommendation.availableActions ?? []).includes('accept');
+  if (!recommendation || !proposed) return null;
+  if (startedFor === recommendation.proposalId) {
+    return (
+      <View testID="details-started" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.acs, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
+        <ReferenceIcon name="play" size={16} color={p.acd} />
+        <Txt size={14} weight={500} color={p.acd} style={{ flex: 1 }}>{t.nextStepStartedNote}</Txt>
+      </View>
+    );
+  }
+  return (
+    <Btn
+      testID="details-start"
+      label={t.nextStepAccept}
+      disabled={decide.isPending}
+      onPress={() => {
+        if (inFlight.current) return;
+        inFlight.current = true;
+        decide.mutate({ decision: 'accept', proposal: recommendation }, {
+          onSuccess: () => setStartedFor(recommendation.proposalId),
+          onSettled: () => { inFlight.current = false; },
+        });
+      }}
+      style={{ minHeight: 48, borderRadius: 999, backgroundColor: decide.isPending ? p.dis : p.ac, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 16 }}
+    >
+      <ReferenceIcon name="play" size={16} color={decide.isPending ? p.disTx : p.onAccent} />
+      <Txt size={15} weight={600} color={decide.isPending ? p.disTx : p.onAccent}>{t.nextStepAccept}</Txt>
+    </Btn>
   );
 }

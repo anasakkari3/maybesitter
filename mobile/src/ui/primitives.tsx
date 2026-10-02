@@ -37,7 +37,7 @@ export function Txt({
   style?: StyleProp<TextStyle> | undefined;
   lines?: number | undefined;
   lh?: number | undefined;
-  /** Set digits and Latin-only labels in Outfit even inside Arabic or Hebrew UI. */
+  /** Set digits and Latin-only labels in the Latin face (Plus Jakarta Sans) even inside Arabic or Hebrew UI. */
   latin?: boolean | undefined;
   /** For an opaque id the user may need to read out or paste (#149). */
   selectable?: boolean | undefined;
@@ -47,7 +47,7 @@ export function Txt({
 }) {
   const { rtl, script, p } = useApp();
   // `latin` is the AGENTS.md escape hatch: a digit or a Latin-only label in a
-  // tight box, set in Outfit whatever the UI language is. Everything else is
+  // tight box, set in the Latin face whatever the UI language is. Everything else is
   // set in the script of the language — which for Hebrew is a different face
   // from Arabic's, not a different direction.
   const runScript = latin ? 'latin' : script;
@@ -214,7 +214,7 @@ export function Pill({
 
 export function Card({ children, style, pad = 18, testID, focus = false }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; testID?: string | undefined; focus?: boolean }) {
   const { p } = useApp();
-  return <View testID={testID} style={[{ backgroundColor: p.glass, borderRadius: 24, padding: pad, borderWidth: 1, borderColor: p.ln }, focus ? cardShadow(p) : undefined, style]}>{children}</View>;
+  return <View testID={testID} style={[{ backgroundColor: p.glass, borderRadius: 20, padding: pad, borderWidth: 1, borderColor: p.ln }, focus ? cardShadow(p) : undefined, style]}>{children}</View>;
 }
 
 export function Divider({ p }: { p: Palette }) {

@@ -15,7 +15,7 @@ const baseProps: SayItChatPageProps = {
     title: 'Say it', subtitle: 'Here to help you make it happen', placeholder: 'Just say it…',
     closeLabel: 'Back', moreLabel: 'More options', pasteLabel: 'Paste',
     sendLabel: 'Understand it', confirmLabel: 'Add to my schedule',
-    editLabel: 'Change', notIncludedLabel: 'Not included',
+    editLabel: 'Change', includeLabel: 'Save this',
   },
   text: '', canSend: false,
   onChangeText: () => {}, onSend: () => {}, onClose: () => {}, onMore: () => {}, onPaste: () => {},
@@ -103,7 +103,10 @@ describe('SayItChatPage', () => {
     expect(onToggle).toHaveBeenCalledWith('doctor');
   });
 
-  it('marks selection with a glyph and a text tag, never colour alone', async () => {
+  // Stitch 03: a positive «ينحفظ» checkbox on each card, in place of the
+  // inverted «مش داخلة» tag. Its word is there in both states; the box's check
+  // is what changes, so the state is never colour alone.
+  it('marks selection with a labelled checkbox whose check glyph comes and goes, never colour alone', async () => {
     const row = (selected: boolean) => <SayItChatPage {...baseProps} onRowToggle={() => {}}
       scheduleGroups={[{ id: 'g', title: 'Tomorrow', rows: [{ id: 'doctor', title: 'Doctor', selected }] }]} />;
     const view = await render(row(true));
@@ -111,13 +114,13 @@ describe('SayItChatPage', () => {
     expect(checkbox.props.accessibilityState.checked).toBe(true);
     expect(within(checkbox).getByTestId('review-check-doctor')).toBeTruthy();
     expect(screen.getByTestId('review-check-doctor').queryAll(node => node.props.d === CHECK_PATH)).toHaveLength(1);
-    expect(screen.queryByTestId('review-not-included-doctor')).toBeNull();
-    expect(screen.queryByText('Not included')).toBeNull();
+    expect(within(checkbox).getByText('Save this')).toBeTruthy();
 
     await view.rerender(row(false));
     expect(screen.getByTestId('review-item-doctor').props.accessibilityState.checked).toBe(false);
     expect(screen.getByTestId('review-check-doctor').queryAll(node => node.props.d === CHECK_PATH)).toHaveLength(0);
-    expect(within(screen.getByTestId('review-item-doctor')).getByText('Not included')).toBeTruthy();
+    expect(within(screen.getByTestId('review-item-doctor')).getByText('Save this')).toBeTruthy();
+    expect(screen.queryByText('Not included')).toBeNull();
   });
 
   it('claims no live presence in the header: the subtitle stands alone, with no status dot', async () => {
@@ -185,10 +188,10 @@ describe('chat page details (UAT 2026-09-30)', () => {
   const PLUS_PATH = 'M12 5v14M5 12h14';
   const faces = {
     ...baseProps.fonts,
-    regular: 'NotoNaskhArabic_400Regular', semibold: 'NotoNaskhArabic_600SemiBold', lineRatio: 1.6,
+    regular: 'NotoKufiArabic_400Regular', semibold: 'NotoKufiArabic_600SemiBold', lineRatio: 1.7,
     forText: (value: string, weight: 'regular' | 'semibold') => /[\u0600-\u06FF]/.test(value) || !/[A-Za-z]/.test(value)
-      ? { fontFamily: weight === 'semibold' ? 'NotoNaskhArabic_600SemiBold' : 'NotoNaskhArabic_400Regular', lineRatio: 1.6 }
-      : { fontFamily: weight === 'semibold' ? 'Outfit_600SemiBold' : 'Outfit_400Regular', lineRatio: 1.4 },
+      ? { fontFamily: weight === 'semibold' ? 'NotoKufiArabic_600SemiBold' : 'NotoKufiArabic_400Regular', lineRatio: 1.7 }
+      : { fontFamily: weight === 'semibold' ? 'PlusJakartaSans_600SemiBold' : 'PlusJakartaSans_400Regular', lineRatio: 1.4 },
   };
 
   it('the row checkbox and its «…» are each at least 44 tall', async () => {
@@ -202,14 +205,15 @@ describe('chat page details (UAT 2026-09-30)', () => {
     const view = await render(<SayItChatPage {...baseProps} rtl fonts={faces} text="Dentist tomorrow at 5pm"
       outgoing={{ text: 'Dentist tomorrow at 5pm' }} onRowToggle={() => {}}
       scheduleGroups={[{ id: 'g', title: 'بكرا', rows: [{ id: 'd', title: 'Dentist', selected: true }] }]} />);
-    expect(flat('capture-input').fontFamily).toBe('Outfit_400Regular');
-    expect(flat('chat-outgoing-text').fontFamily).toBe('Outfit_400Regular');
-    expect(flat('review-title-d').fontFamily).toBe('Outfit_400Regular');
-    // Arabic words, and the empty field under its Arabic placeholder, keep Naskh.
+    expect(flat('capture-input').fontFamily).toBe('PlusJakartaSans_400Regular');
+    expect(flat('chat-outgoing-text').fontFamily).toBe('PlusJakartaSans_400Regular');
+    // The card title is set semibold (Stitch 03), in the Latin face all the same.
+    expect(flat('review-title-d').fontFamily).toBe('PlusJakartaSans_600SemiBold');
+    // Arabic words, and the empty field under its Arabic placeholder, keep Kufi.
     await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} text="" />);
-    expect(flat('capture-input').fontFamily).toBe('NotoNaskhArabic_400Regular');
+    expect(flat('capture-input').fontFamily).toBe('NotoKufiArabic_400Regular');
     await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} text="موعد مع Sami" />);
-    expect(flat('capture-input').fontFamily).toBe('NotoNaskhArabic_400Regular');
+    expect(flat('capture-input').fontFamily).toBe('NotoKufiArabic_400Regular');
   });
 
   it('a finished reply is read out as its words, never as the typing bubble\u2019s «بنفهمها…»', async () => {
@@ -243,8 +247,47 @@ describe('chat page details (UAT 2026-09-30)', () => {
       { role: 'user', text: 'بكرا الساعة 5' },
       { role: 'assistant', text: 'تمام، بكرا الساعة 5 المسا. أكّد من تحت.' },
     ]} />);
-    expect(flat('chat-turn-assistant-1-text-0').fontFamily).toBe('Outfit_400Regular');
-    expect(flat('chat-turn-assistant-3-text-0').fontFamily).toBe('NotoNaskhArabic_400Regular');
+    expect(flat('chat-turn-assistant-1-text-0').fontFamily).toBe('PlusJakartaSans_400Regular');
+    expect(flat('chat-turn-assistant-3-text-0').fontFamily).toBe('NotoKufiArabic_400Regular');
+  });
+
+  it('a save is its own green-edged line with its controls inside, and the next invitation in a bubble of its own', async () => {
+    const undo = jest.fn();
+    await render(<SayItChatPage {...baseProps} history={[
+      { role: 'user', text: 'Dentist at 5' },
+      { role: 'assistant', id: 'chat-saved-1', tone: 'saved', text: 'Saved ✓ "Dentist"', tail: 'Anything else? Tell me.',
+        actions: <Pressable testID="probe-undo" accessibilityRole="button" accessibilityLabel="Undo" onPress={undo}><Text>Undo</Text></Pressable> },
+    ]} />);
+    const saved = screen.getByTestId('chat-saved-1');
+    expect(within(saved).getByTestId('chat-saved-1-text-0').props.children).toBe('Saved ✓ "Dentist"');
+    // The invitation continues the line's paragraphs, so the line still reads whole.
+    expect(within(saved).getByTestId('chat-saved-1-text-1').props.children).toBe('Anything else? Tell me.');
+    expect(saved.props.accessibilityLabel).toBe('Saved ✓ "Dentist"\n\nAnything else? Tell me.');
+    // Controls inside: the line is not one opaque element, or they could not be reached.
+    expect(saved.props.accessible).toBe(false);
+    await fireEvent.press(within(saved).getByRole('button', { name: 'Undo' }));
+    expect(undo).toHaveBeenCalledTimes(1);
+  });
+
+  it('every composer control, example chip and listening control is at least 44 points', async () => {
+    const onCancel = jest.fn();
+    const copy = { ...baseProps.copy, listeningTitle: 'Listening…', listeningNote: 'Tap stop when you are done.', cancelListeningLabel: 'Cancel' };
+    const view = await render(<SayItChatPage {...baseProps} copy={copy} text="Doctor" canSend
+      quickActions={[{ id: 'example-a', label: 'Call mum at 5 today' }]} onQuickAction={() => {}} />);
+    for (const id of ['capture-paste', 'capture-analyze', 'chat-quick-example-a', 'chat-more', 'capture-cancel']) {
+      const box = flat(id);
+      expect(Math.max(box.minHeight as number ?? 0, box.height as number ?? 0)).toBeGreaterThanOrEqual(44);
+    }
+    expect(flat('capture-input').minHeight as number).toBeGreaterThanOrEqual(44);
+    expect(screen.queryByTestId('voice-listening-panel')).toBeNull();
+
+    await view.rerender(<SayItChatPage {...baseProps} copy={copy} text="Doctor" canSend listening onCancelListening={onCancel}
+      microphone={<ChatMicrophone colors={baseProps.colors} listening label="Stop and check" onPress={() => {}} />} />);
+    expect(screen.getByTestId('voice-listening-title').props.children).toBe('Listening…');
+    expect(flat('voice-button').width as number).toBeGreaterThanOrEqual(44);
+    expect(flat('voice-cancel').minHeight as number).toBeGreaterThanOrEqual(44);
+    await fireEvent.press(screen.getByTestId('voice-cancel'));
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('the paste control draws a clipboard, not a plus', async () => {

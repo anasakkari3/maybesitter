@@ -293,9 +293,9 @@ describe('right-to-left', () => {
     const time = String(screen.getByTestId('postpone-custom-time').props.children);
     expect(time).toMatch(/^⁦\d{2}:\d{2}⁩$/);
     // The digits are set in Outfit: Noto Naskh's line box clips them.
-    expect(styleOf(screen.getByTestId('postpone-custom-time')).fontFamily).toMatch(/^Outfit_/);
+    expect(styleOf(screen.getByTestId('postpone-custom-time')).fontFamily).toMatch(/^PlusJakartaSans_/);
     // The date beside them is Arabic copy in the Arabic face.
-    expect(styleOf(screen.getByTestId('postpone-custom-date')).fontFamily).toMatch(/^NotoNaskhArabic_/);
+    expect(styleOf(screen.getByTestId('postpone-custom-date')).fontFamily).toMatch(/^NotoKufiArabic_/);
   });
 
   it('hard-codes no physical side in the sheet', () => {

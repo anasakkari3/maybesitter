@@ -151,7 +151,7 @@ describe('it reads as a conversation, in every language', () => {
   });
 
   it.each([
-    ['ar', ar, 1.6],
+    ['ar', ar, 1.7],
     ['he', he, 1.5],
     ['en', en, 1.3],
   ] as ['en' | 'ar' | 'he', typeof en, number][])(
@@ -159,7 +159,8 @@ describe('it reads as a conversation, in every language', () => {
     async (lang, copy, multiple) => {
       // On the simulator the Arabic heading lost its shadda and the hamza on
       // «أتعرف»: a 1.3 line box clips Naskh's marks. Arabic and Hebrew keep
-      // their script's own line height; only Latin is set tighter.
+      // their script's own line height (Kufi's 1.7 since the Stitch redesign);
+      // only Latin is set tighter.
       await renderFirst({ lang });
       const style = StyleSheet.flatten(screen.getByText(copy.obSetupLifeTitle).props.style);
       expect(style?.lineHeight).toBe(Math.round(28 * multiple));

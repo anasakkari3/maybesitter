@@ -212,10 +212,11 @@ describe('what the user changed reaches the account', () => {
     // unchanged field can overwrite another device's change to it.
     expect(sentPatch(patch)).toEqual({ priority: 'low' });
 
-    // The sheet closes, so the only «Nice» left on screen is the badge the
-    // details screen draws from the refetched commitment.
+    // The sheet closes, and the details screen draws «Nice» from the
+    // refetched commitment — on its chip and on its importance row (Stitch).
     await waitFor(() => expect(screen.queryByTestId('edit-priority-low')).toBeNull());
-    await waitFor(() => expect(screen.queryByText(en.niceL)).not.toBeNull());
+    await waitFor(() => expect(screen.getByTestId('details-importance').props.children).toBe(en.niceL));
+    expect(screen.getByTestId('details-importance-row').props.children).toBe(en.niceL);
   });
 });
 

@@ -59,7 +59,7 @@ export function SeedProposalSection({
           testID={`review-seed-${seed.seedItemId}`}
           style={{ backgroundColor: p.sf, borderRadius: 18, padding: 14, gap: 8 }}
         >
-          <Txt size={11} color={p.mu}>{seedKindLabel(seed.kind, strings)}</Txt>
+          <Txt size={12} color={p.mu}>{seedKindLabel(seed.kind, strings)}</Txt>
           {/* Verbatim: the segment the person wrote, which is the only thing
               this card may show. */}
           <Txt size={15} lh={1.45} testID={`review-seed-summary-${seed.seedItemId}`}>{seed.summary}</Txt>

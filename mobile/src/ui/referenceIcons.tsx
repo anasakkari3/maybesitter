@@ -7,7 +7,11 @@ export type IconName =
   | 'search' | 'bell' | 'calendar' | 'pin' | 'note' | 'play' | 'clock'
   | 'bulb' | 'chevron-down' | 'chevron-right' | 'cart' | 'phone' | 'mic'
   | 'grid' | 'sliders' | 'target' | 'video' | 'laptop' | 'plus' | 'sparkles'
-  | 'bolt' | 'check' | 'close' | 'logo';
+  | 'bolt' | 'check' | 'close' | 'logo'
+  // The Stitch bar and hubs (2026-10-02).
+  | 'today' | 'shapes' | 'radar' | 'flag' | 'repeat' | 'clipboard' | 'eye' | 'person'
+  // Today, the details screen and the banners (Stitch lane A).
+  | 'football' | 'cloud-off' | 'refresh' | 'alert' | 'archive' | 'trash' | 'pencil' | 'chevron-up';
 
 export interface IconProps {
   name: string;
@@ -24,8 +28,54 @@ export function ReferenceIcon({ name, size = 24, color: requestedColor, strokeWi
   const solid = { fill: color, stroke: 'none' };
   let content: React.ReactNode;
   switch (name) {
+    case 'football':
+      // A ball: a pentagon at the centre and the seams out to the rim.
+      content = <><Circle cx={12} cy={12} r={9.5} /><Path d="m12 8.2 3.6 2.6-1.4 4.2H9.8l-1.4-4.2Z" /><Path d="M12 8.2V2.6M15.6 10.8l5.3-1.8M14.2 15l3.3 4.6M9.8 15l-3.3 4.6M8.4 10.8 3.1 9" /></>;
+      break;
+    case 'cloud-off':
+      content = <><Path d="M7.5 19h9.7a3.8 3.8 0 0 0 1.4-7.3A6 6 0 0 0 8.2 8.4M5.6 10.6A4.3 4.3 0 0 0 7.5 19" /><Path d="m3 3 18 18" /></>;
+      break;
+    case 'refresh':
+      content = <Path d="M20 11.5A8 8 0 1 0 17.7 17M20 4.5v7h-7" />;
+      break;
+    case 'alert':
+      content = <><Path d="M10.3 3.9 2.5 17.6A2 2 0 0 0 4.2 20.6h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><Path d="M12 9.5v4.2" /><Circle {...solid} cx={12} cy={17} r={1.1} /></>;
+      break;
+    case 'archive':
+      content = <><Rect x={3} y={4} width={18} height={5} rx={1.2} /><Path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4" /></>;
+      break;
+    case 'trash':
+      content = <Path d="M4 6.5h16M9.5 6.5V4.2h5v2.3M6.2 6.5l.9 12.6A1.5 1.5 0 0 0 8.6 20.5h6.8a1.5 1.5 0 0 0 1.5-1.4l.9-12.6M10 10.5v6M14 10.5v6" />;
+      break;
+    case 'pencil':
+      content = <Path d="M4 20h4L19.3 8.7a2.1 2.1 0 0 0 0-3L18.3 4.7a2.1 2.1 0 0 0-3 0L4 16Z M13.5 6.5l4 4" />;
+      break;
+    case 'chevron-up':
+      content = <Path d="m6 15 6-6 6 6" />;
+      break;
     case 'person':
       content = <><Circle cx={12} cy={7.5} r={3.5} /><Path d="M4.5 21v-2a7.5 7.5 0 0 1 15 0v2" /></>;
+      break;
+    case 'today':
+      content = <><Rect x={4} y={5} width={16} height={16} rx={2} /><Path d="M8 2.5v5M16 2.5v5M4 10h16" /><Circle {...solid} cx={12} cy={15.5} r={2} /></>;
+      break;
+    case 'shapes':
+      content = <><Path d="M12 3 16.5 10.5h-9Z" /><Circle cx={7.5} cy={17} r={3.5} /><Rect x={13.5} y={13.5} width={7} height={7} rx={1.2} /></>;
+      break;
+    case 'radar':
+      content = <><Circle cx={12} cy={12} r={9} /><Circle cx={12} cy={12} r={5} /><Circle {...solid} cx={12} cy={12} r={1.6} /><Path d="M12 12 18.4 5.6" /></>;
+      break;
+    case 'flag':
+      content = <Path d="M5 21V4M5 4h11l-2 4 2 4H5" />;
+      break;
+    case 'repeat':
+      content = <Path d="M17 2.5 20.5 6 17 9.5M3.5 11V9.5A3.5 3.5 0 0 1 7 6h13.5M7 21.5 3.5 18 7 14.5M20.5 13v1.5A3.5 3.5 0 0 1 17 18H3.5" />;
+      break;
+    case 'clipboard':
+      content = <><Rect x={5} y={4} width={14} height={17} rx={2} /><Rect x={9} y={2.5} width={6} height={3.5} rx={1} /><Path d="M8.5 11h7M8.5 15h5" /></>;
+      break;
+    case 'eye':
+      content = <><Path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" /><Circle cx={12} cy={12} r={3} /></>;
       break;
     case 'search':
       content = <><Circle cx={10.4} cy={10.4} r={7.3} /><Path d="m15.8 15.8 5 5" /></>;
@@ -97,13 +147,14 @@ export function ReferenceIcon({ name, size = 24, color: requestedColor, strokeWi
       content = <Path d="m6 6 12 12M18 6 6 18" />;
       break;
     case 'logo':
+      // The app's own coral, not the September pink (Stitch, 2026-10-02).
       content = <>
         <Defs>
           <LinearGradient id={`${gradientId}pink`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0" stopColor="#ff9bb9" /><Stop offset="0.48" stopColor="#ff739f" /><Stop offset="1" stopColor="#f26391" />
+            <Stop offset="0" stopColor={p.acd} /><Stop offset="1" stopColor={p.ac} />
           </LinearGradient>
           <LinearGradient id={`${gradientId}light`} x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0" stopColor="#ff86a9" /><Stop offset="1" stopColor="#ffa1bc" />
+            <Stop offset="0" stopColor={p.ac} /><Stop offset="1" stopColor={p.acd} />
           </LinearGradient>
         </Defs>
         <Path fill={`url(#${gradientId}pink)`} stroke="none" d="M2.8 1.7C.9 2.3-.1 9.1.2 14.7c.2 3.3.6 4.8 1.7 4.9 1.8.2 4.8-4.1 7.7-5.3 3.4 4 7.1 8.5 10.1 8.4 3-.2 4.2-7.1 4.2-11.6C23.9 5.5 22.7 2 21 2c-2.6-.1-5.6 3.7-8.9 6.1C8.1 3.9 5.1.9 2.8 1.7Z" />

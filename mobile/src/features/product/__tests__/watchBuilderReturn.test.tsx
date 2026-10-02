@@ -48,10 +48,10 @@ function Harness() {
   }, [actions]);
   return <>
     <WatchBuilderScreen />
-    <Text testID="probe-nav">{JSON.stringify({ tab: s.nav.tab, today: s.nav.stacks.today.map(e => e.name), settings: s.nav.stacks.settings.map(e => e.name) })}</Text>
+    <Text testID="probe-nav">{JSON.stringify({ tab: s.nav.tab, today: s.nav.stacks.today.map(e => e.name), things: s.nav.stacks.things.map(e => e.name) })}</Text>
   </>;
 }
-const probe = () => JSON.parse(screen.getByTestId('probe-nav').props.children as string) as { tab: string; today: string[]; settings: string[] };
+const probe = () => JSON.parse(screen.getByTestId('probe-nav').props.children as string) as { tab: string; today: string[]; things: string[] };
 
 it('Create replaces the builder with background activity on the same tab', async () => {
   jest.spyOn(watcherEndpoints, 'createReadinessWatcher').mockResolvedValue(response as never);
@@ -68,5 +68,5 @@ it('Create replaces the builder with background activity on the same tab', async
   );
   await waitFor(() => expect(probe().today).toEqual(['contextualAssistant', 'watchBuilder']));
   await fireEvent.press(screen.getByTestId('watch-create'));
-  await waitFor(() => expect(probe()).toEqual({ tab: 'today', today: ['contextualAssistant', 'backgroundActivity'], settings: [] }));
+  await waitFor(() => expect(probe()).toEqual({ tab: 'today', today: ['contextualAssistant', 'backgroundActivity'], things: [] }));
 });

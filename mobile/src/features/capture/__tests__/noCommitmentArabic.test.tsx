@@ -166,7 +166,7 @@ describe('nothing to save, said in Arabic, in the chat (#166)', () => {
     expect(renderedDirection(view.toJSON())).toBe('rtl');
     // Outfit has no Arabic glyphs at all, so the wrong face here is a screen
     // of tofu that no assertion on the string alone would notice.
-    expect(styleOf(reply, 'fontFamily')).toBe('NotoNaskhArabic_400Regular');
+    expect(styleOf(reply, 'fontFamily')).toBe('NotoKufiArabic_400Regular');
     expect(styleOf(reply, 'writingDirection')).toBe('rtl');
     // What they wrote is their own message, once, and nowhere else.
     expect(screen.getAllByText(new RegExp(TYPED))).toHaveLength(1);

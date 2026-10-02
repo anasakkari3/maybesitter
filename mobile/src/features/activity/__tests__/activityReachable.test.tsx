@@ -87,7 +87,7 @@ describe('Activity is reachable', () => {
     // No fifth tab: the row does not exist until Settings is open.
     expect(screen.queryByLabelText(en.activityTitle)).toBeNull();
 
-    await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await fireEvent.press(screen.getByTestId('open-settings'));
     await waitFor(() => expect(screen.queryByTestId('settings-category-privacy')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('settings-category-privacy'));
     await waitFor(() => expect(screen.queryByTestId('settings-activity')).not.toBeNull());
@@ -103,9 +103,9 @@ describe('Activity is reachable', () => {
     expect(screen.queryByTestId('activity-week-quiet')).not.toBeNull();
   });
 
-  it('is a Settings sub-screen, so the tab bar stays four tabs', async () => {
+  it('is a Settings sub-screen, so the bar stays the four Stitch tabs and the pill', async () => {
     await openApp();
-    for (const tab of [en.tabToday, en.tabCalendar, en.tabCapture, en.tabSettings]) {
+    for (const tab of [en.tabToday, en.tabPlan, en.tabThings, en.tabWatching, en.tabCapture]) {
       expect(screen.queryAllByLabelText(tab).length).toBeGreaterThan(0);
     }
     // #201 asks for a tab. The tab bar is a design decision this issue does not
@@ -115,7 +115,7 @@ describe('Activity is reachable', () => {
 
   it('goes back to Settings rather than stranding the user', async () => {
     await openApp();
-    await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await fireEvent.press(screen.getByTestId('open-settings'));
     await waitFor(() => expect(screen.queryByTestId('settings-category-privacy')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('settings-category-privacy'));
     await waitFor(() => expect(screen.queryByTestId('settings-activity')).not.toBeNull());

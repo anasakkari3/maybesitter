@@ -48,12 +48,12 @@ describe('the stored theme preference', () => {
     await expect(loadThemePref()).resolves.toBe('system');
   });
 
-  it('falls back to the system on a store that has never been written', async () => {
-    await expect(loadThemePref()).resolves.toBe('system');
+  it('falls back to dark — the Stitch default — on a store that has never been written', async () => {
+    await expect(loadThemePref()).resolves.toBe('dark');
   });
 
-  it('falls back to the system rather than honouring a corrupted value', async () => {
+  it('falls back to dark rather than honouring a corrupted value', async () => {
     await AsyncStorage.setItem(THEME_STORAGE_KEY, 'midnight');
-    await expect(loadThemePref()).resolves.toBe('system');
+    await expect(loadThemePref()).resolves.toBe('dark');
   });
 });

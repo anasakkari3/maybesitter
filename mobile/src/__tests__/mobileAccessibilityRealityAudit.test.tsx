@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { describe, expect, it, beforeEach, afterEach, jest } from '@jest/globals';
 import { render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
@@ -171,7 +172,7 @@ describe('Mobile Accessibility Reality Audit Regressions', () => {
     expect(/\d+/.test(label)).toBe(true);
   });
 
-  it('CaptureScreen header controls reach 44pt (32 + hitSlop 6), and there is no AI-off button', async () => {
+  it('CaptureScreen header controls reach 44pt, and there is no AI-off button', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const repository = createFakeAuthRepository({ initialUser: USER });
     setAuthRepository(repository);
@@ -192,8 +193,13 @@ describe('Mobile Accessibility Reality Audit Regressions', () => {
 
     // AI processing cannot be turned off (owner decision 2026-09-30).
     expect(screen.queryByTestId('capture-ai-off')).toBeNull();
+    // Stitch draws them 44 × 44 themselves; a hit slop, if any, only adds.
     for (const id of ['capture-cancel', 'chat-more', 'capture-paste']) {
-      expect(screen.getByTestId(id).props.hitSlop).toBe(6);
+      const control = screen.getByTestId(id);
+      const box = StyleSheet.flatten(control.props.style) as { width?: number; height?: number };
+      const slop = typeof control.props.hitSlop === 'number' ? control.props.hitSlop : 0;
+      expect((box.width ?? 0) + 2 * slop).toBeGreaterThanOrEqual(44);
+      expect((box.height ?? 0) + 2 * slop).toBeGreaterThanOrEqual(44);
     }
   });
 

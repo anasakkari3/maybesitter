@@ -17,10 +17,19 @@ import type { ThemePref } from '../../state/types';
  * A second device follows that device's system setting until told otherwise.
  *
  * A stored value that is not one of the three is discarded rather than
- * trusted: it can only come from a corrupted store or an older build, and
- * rendering a scheme nobody chose is worse than falling back to the system.
+ * trusted: it can only come from a corrupted store or an older build.
+ *
+ * ── Nothing chosen means dark ────────────────────────────────────
+ *
+ * The Stitch redesign (2026-10-02) makes the navy dark scheme the hero, so a
+ * person who never picked a scheme gets dark — not the device's setting. Light
+ * and "follow the system" stay one tap away in Settings → Language &
+ * appearance, and an explicit choice (including "system") is always kept.
  */
 export const THEME_STORAGE_KEY = 'settings.theme.v1';
+
+/** What a person who never chose a scheme sees. */
+export const DEFAULT_THEME_PREF: ThemePref = 'dark';
 
 const VALUES: readonly string[] = ['system', 'light', 'dark'];
 
@@ -29,14 +38,14 @@ export function parseThemePref(raw: string | null): ThemePref | null {
   return VALUES.includes(value) ? (value as ThemePref) : null;
 }
 
-/** The stored choice, or 'system' when there is none to read. */
+/** The stored choice, or the default (dark) when there is none to read. */
 export async function loadThemePref(): Promise<ThemePref> {
   try {
-    return parseThemePref(await AsyncStorage.getItem(THEME_STORAGE_KEY)) ?? 'system';
+    return parseThemePref(await AsyncStorage.getItem(THEME_STORAGE_KEY)) ?? DEFAULT_THEME_PREF;
   } catch {
-    // A store that cannot be read is the same as one never written: follow the
-    // device rather than failing the first render.
-    return 'system';
+    // A store that cannot be read is the same as one never written: the
+    // default, rather than failing the first render.
+    return DEFAULT_THEME_PREF;
   }
 }
 

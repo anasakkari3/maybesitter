@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View } from 'react-native';
 import { useApp } from '../state/AppContext';
 import { useAuth } from './AuthProvider';
-import { EmailAuthScreen } from '../screens/EmailAuthScreen';
+import { EmailAuthScreen, type EmailAuthMode } from '../screens/EmailAuthScreen';
 import { SignInScreen } from '../screens/SignInScreen';
 import { AppleSignInButton } from './AppleSignInButton';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -48,7 +48,9 @@ export function AuthGate({
 }) {
   const { status } = useAuth();
   const { p } = useApp();
-  const [showEmail, setShowEmail] = useState(false);
+  // Which email form is open, if any: the sign-in screen offers it as
+  // "continue with email" (sign in) and as "create an account" (sign up).
+  const [emailMode, setEmailMode] = useState<EmailAuthMode | null>(null);
 
   // A sign-out has to land on the provider list, not on whichever sub-screen
   // the session happened to start from: without this, signing out of a session
@@ -59,7 +61,7 @@ export function AuthGate({
   const [statusAtLastReset, setStatusAtLastReset] = useState(status);
   if (statusAtLastReset !== status) {
     setStatusAtLastReset(status);
-    if (status === 'signedIn') setShowEmail(false);
+    if (status === 'signedIn') setEmailMode(null);
   }
 
   // Held on the plain background, matching the splash, until Firebase has
@@ -70,10 +72,10 @@ export function AuthGate({
   }
 
   if (status === 'signedOut') {
-    return showEmail ? (
-      <EmailScreen onBack={() => setShowEmail(false)} />
+    return emailMode ? (
+      <EmailScreen onBack={() => setEmailMode(null)} initialMode={emailMode} />
     ) : (
-      <SignInScreen appleSlot={appleSlot} googleSlot={googleSlot} onEmail={() => setShowEmail(true)} />
+      <SignInScreen appleSlot={appleSlot} googleSlot={googleSlot} onEmail={() => setEmailMode('signIn')} onSignUp={() => setEmailMode('signUp')} />
     );
   }
 

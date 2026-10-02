@@ -16,9 +16,10 @@ import type { Strings } from '../i18n/strings';
 import { family } from '../theme/fonts';
 import { cardShadow } from '../theme/tokens';
 import { Btn, Pill, Txt } from '../ui/primitives';
-import { Dialog } from '../ui/dialog';
+import { ActionRow } from '../ui/chrome';
+import { ReferenceIcon } from '../ui/referenceIcons';
+import { BottomSheet, SheetChoice, SheetGrabber, SheetHeader } from '../ui/bottomSheet';
 import { useSheetMotion } from '../ui/motion';
-import { useLayoutMode } from '../theme/textScale';
 import { AvoidKeyboard, useKeyboardInset } from '../ui/keyboard';
 import type { Sheet } from '../state/types';
 import { MeetingPrepSheet } from '../features/meetings/MeetingPrepSheet';
@@ -85,10 +86,41 @@ import { MeetingPrepSheet } from '../features/meetings/MeetingPrepSheet';
  * failure is allowed to use.
  */
 function PostponeSheet() {
-  const { s, t, p, lang, scheme, actions } = useApp();
-  const stacked = useLayoutMode() !== 'normal';
+  const { s, t, actions } = useApp();
+  return (
+    <View style={{ gap: 14 }}>
+      <SheetHeader title={t.postponeTitle} icon="clock" onClose={actions.closeSheet} />
+      <PostponeChoices
+        commitmentId={s.detailId}
+        // The sheet closes, the details screen pops, and the line at the
+        // bottom of the list says it moved (Round 2).
+        onMoved={() => { actions.closeSheet(); actions.back(); actions.toast(t.toastPostponed); }}
+      />
+    </View>
+  );
+}
+
+/**
+ * «مش هلّق» from Today (Stitch): the same choices, about a row or the card on
+ * Today rather than the open details screen. Nothing to pop afterwards: the
+ * sheet closes and the line at the bottom says it moved.
+ */
+export function PostponeSheetFor({ commitmentId, onClose }: { commitmentId: string | null; onClose: () => void }) {
+  const { t, actions } = useApp();
+  return (
+    <BottomSheet visible={commitmentId !== null} onClose={onClose} testID="postpone-sheet">
+      <SheetHeader title={t.postponeTitle} icon="clock" onClose={onClose} closeTestID="postpone-sheet-close" />
+      <PostponeChoices commitmentId={commitmentId} onMoved={() => { onClose(); actions.toast(t.toastPostponed); }} />
+    </BottomSheet>
+  );
+}
+
+function PostponeChoices({ commitmentId, onMoved }: {
+  commitmentId: string | null;
+  onMoved: () => void;
+}) {
+  const { t, p, lang, scheme } = useApp();
   const timezone = useTimeZone();
-  const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
   const now = new Date();
 
@@ -117,13 +149,8 @@ function PostponeSheet() {
   const problem = pastTime ? t.editItemPast : act.error ? userFacingMessage(act.error, t) : null;
 
   const send = (until: string) => {
-    const id = query.data?.id;
-    if (!id) return;
-    act.mutate({ id, action: 'postpone', postponedUntil: until }, {
-      // The sheet closes, the details screen pops, and the line at the
-      // bottom of the list says it moved (Round 2).
-      onSuccess: () => { actions.closeSheet(); actions.back(); actions.toast(t.toastPostponed); },
-    });
+    if (!commitmentId) return;
+    act.mutate({ id: commitmentId, action: 'postpone', postponedUntil: until }, { onSuccess: onMoved });
   };
 
   const choose = (preset: PostponePreset) => {
@@ -146,25 +173,20 @@ function PostponeSheet() {
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={20} weight={600} lh={1.35}>{t.postponeTitle}</Txt>
       <Txt size={14} color={p.mu} lh={1.5}>{t.postponeBody}</Txt>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
         {POSTPONE_PRESETS.map(preset => {
           const until = new Date(postponeTo(preset, now, timezone));
           return (
-            <Btn
+            <SheetChoice
               key={preset}
               testID={`postpone-${preset}`}
+              subTestID={`postpone-when-${preset}`}
               label={PRESET_LABEL(t)[preset]}
+              sub={`${formatRelativeDay(until, { locale: lang, timeZone: timezone, now })} · ${ltr(formatTime(until, { locale: lang, timeZone: timezone }))}`}
               disabled={act.isPending}
               onPress={() => choose(preset)}
-              style={{ width: stacked ? '100%' : '48%', flexGrow: 1, backgroundColor: act.isPending ? p.dis : p.sf2, borderRadius: 18, padding: 14, gap: 3, minHeight: 72, alignItems: 'flex-start' }}
-            >
-              <Txt size={15} weight={600} color={act.isPending ? p.disTx : p.tx}>{PRESET_LABEL(t)[preset]}</Txt>
-              <Txt size={12} color={act.isPending ? p.disTx : p.mu} testID={`postpone-when-${preset}`}>
-                {`${formatRelativeDay(until, { locale: lang, timeZone: timezone, now })} · ${ltr(formatTime(until, { locale: lang, timeZone: timezone }))}`}
-              </Txt>
-            </Btn>
+            />
           );
         })}
       </View>
@@ -177,7 +199,7 @@ function PostponeSheet() {
               testID="postpone-pick-date"
               label={instant ? `${t.editItemDate}: ${formatDate(instant, 'short', { locale: lang, timeZone: timezone })}` : t.editItemDate}
               onPress={() => setPicking('date')}
-              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
+              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 16, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
             >
               <Txt size={14} testID="postpone-custom-date">{instant ? formatDate(instant, 'short', { locale: lang, timeZone: timezone }) : t.editItemDate}</Txt>
             </Btn>
@@ -185,7 +207,7 @@ function PostponeSheet() {
               testID="postpone-pick-time"
               label={instant ? `${t.editItemTime}: ${formatTime(instant, { locale: lang, timeZone: timezone })}` : t.editItemTime}
               onPress={() => setPicking('time')}
-              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}
+              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 16, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
             >
               {/* `latin` and `ltr()`: a time in a tight box, kept left-to-right
                   inside an Arabic or Hebrew line. Latin digits come from
@@ -249,9 +271,10 @@ function PostponeSheet() {
             setLocal(localDateTimeFor(new Date(Date.now() + 3600_000), timezone));
             setPastTime(false);
           }}
-          style={{ borderWidth: 1, borderColor: p.ln, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, alignItems: 'center', justifyContent: 'center' }}
+          style={{ borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
         >
-          <Txt size={14} color={act.isPending ? p.disTx : p.tx}>{t.postponeCustom}</Txt>
+          <Txt size={15} weight={600} color={act.isPending ? p.disTx : p.tx}>{t.postponeCustom}</Txt>
+          <ReferenceIcon name="calendar" size={18} color={act.isPending ? p.disTx : p.mu} />
         </Btn>
       )}
     </View>
@@ -371,7 +394,7 @@ function EditSheet() {
 
   return (
     <View style={{ gap: 14 }}>
-      <Txt size={20} weight={600} lh={1.35}>{t.editSheetTitle}</Txt>
+      <SheetHeader title={t.editSheetTitle} icon="pencil" tone="neutral" onClose={actions.closeSheet} />
 
       <Txt size={13} color={p.mu}>{t.editFieldTitle}</Txt>
       <TextInput
@@ -380,7 +403,7 @@ function EditSheet() {
         value={title}
         onChangeText={setTitle}
         multiline
-        style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 56, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}
+        style={{ backgroundColor: p.sf2, borderRadius: 16, borderWidth: 1, borderColor: p.ln, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 56, color: p.tx, fontFamily: family(400, ar), textAlign: ar ? 'right' : 'left' }}
       />
 
       <Txt size={13} color={p.mu}>{t.editFieldPriority}</Txt>
@@ -488,20 +511,23 @@ const LEVEL_LABEL = (t: Strings): Record<PriorityLevel, string> => ({
 });
 
 /**
- * The two destructive answers, each asked before it happens (Round 2: as a
- * centred dialog, the one shape for "are you sure").
+ * The two destructive answers, each asked before it happens.
  *
  * Dropping on purpose and deleting are deliberately not the same button and
  * not the same sentence: one keeps the commitment in the user's history and
  * the other does not, and that difference is the whole reason «أسقطه بوعي»
- * exists in this product. The drop is drawn warm; the deletion in ink.
+ * exists in this product. Round 2 asked both in a centred dialog; the Stitch
+ * redesign asks them in a sheet over the details screen, each with its own
+ * icon (an archive box for a drop, a bin for a deletion) and its own confirm:
+ * the drop drawn warm, the deletion in ink — never red, because this product
+ * has no failure state to paint.
  *
  * On success the details screen pops and the line at the bottom of the list
  * says what happened. Neither can be undone from here — the actions route has
  * no reopen and no undelete — so the line says only what happened.
  */
-function ConfirmDialog({ intent }: { intent: 'drop' | 'delete' }) {
-  const { s, t, actions } = useApp();
+function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
+  const { s, t, p, actions } = useApp();
   const query = useCommitment(s.detailId);
   const act = useCommitmentAction();
   const remove = useDeleteCommitment();
@@ -520,19 +546,19 @@ function ConfirmDialog({ intent }: { intent: 'drop' | 'delete' }) {
   const confirmId = intent === 'drop' ? { testID: 'confirm-drop' } : { testID: 'confirm-delete' };
   const keepId = { testID: 'confirm-keep' };
   return (
-    <Dialog
-      testID={`confirm-${intent}-dialog`}
-      title={intent === 'drop' ? t.confirmDropTitle : t.confirmDeleteTitle}
-      body={intent === 'drop' ? t.confirmDropBody : t.confirmDeleteBody}
-      confirmLabel={intent === 'drop' ? t.dropIt : t.detailsDelete}
-      cancelLabel={t.confirmKeep}
-      tone={intent === 'drop' ? 'warm' : 'ink'}
-      busy={pending}
-      onConfirm={confirm}
-      onCancel={actions.closeSheet}
-      confirmTestID={confirmId.testID}
-      cancelTestID={keepId.testID}
-    />
+    <View style={{ gap: 14 }} testID={`confirm-${intent}-dialog`}>
+      <SheetHeader
+        title={intent === 'drop' ? t.confirmDropTitle : t.confirmDeleteTitle}
+        icon={intent === 'drop' ? 'archive' : 'trash'}
+        tone={intent === 'drop' ? 'attention' : 'neutral'}
+        onClose={actions.closeSheet}
+      />
+      <Txt role="supporting" color={p.mu} lh={1.5}>{intent === 'drop' ? t.confirmDropBody : t.confirmDeleteBody}</Txt>
+      <ActionRow>
+        <Pill testID={keepId.testID} label={t.confirmKeep} onPress={actions.closeSheet} kind="outline" size={15} pad={12} />
+        <Pill testID={confirmId.testID} label={intent === 'drop' ? t.dropIt : t.detailsDelete} onPress={confirm} disabled={pending} kind={intent === 'drop' ? 'warmSolid' : 'ink'} size={15} pad={12} />
+      </ActionRow>
+    </View>
   );
 }
 
@@ -557,10 +583,6 @@ export function SheetHost() {
   const { s, t, p, actions } = useApp();
   const m = useSheetMotion();
   if (!s.sheet) return null;
-  // The two confirmations are dialogs, not sheets: a question in the middle
-  // of the screen, over the thing it is about.
-  if (s.sheet === 'confirmDrop') return <ConfirmDialog intent="drop" />;
-  if (s.sheet === 'confirmDelete') return <ConfirmDialog intent="delete" />;
   return (
     <AvoidKeyboard testID="sheet-host" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 30, justifyContent: 'flex-end' }}>
       <Animated.View style={[{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: p.scrim }, m.scrim]}>
@@ -589,14 +611,18 @@ function SheetPanel({ sheet, panelMotion }: { sheet: Exclude<Sheet, null>; panel
       testID="sheet-panel"
       accessibilityViewIsModal
       style={[
-        { ...(keyboardUp ? {} : { maxHeight: '88%' as const }), flexShrink: 1, backgroundColor: p.sf, borderTopLeftRadius: 36, borderTopRightRadius: 36, paddingTop: 14, shadowColor: p.ink, shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: -10 }, elevation: 12 },
+        { ...(keyboardUp ? {} : { maxHeight: '88%' as const }), flexShrink: 1, backgroundColor: p.sf, borderTopLeftRadius: 28, borderTopRightRadius: 28, borderTopWidth: 1, borderColor: p.ln, paddingTop: 12, shadowColor: '#000000', shadowOpacity: 0.3, shadowRadius: 24, shadowOffset: { width: 0, height: -8 }, elevation: 16 },
         panelMotion,
       ]}
     >
-      <View style={{ width: 40, height: 5, borderRadius: 3, backgroundColor: p.ln, alignSelf: 'center', marginBottom: 4 }} />
-      <View style={{ paddingHorizontal: 20, alignItems: 'flex-end' }}>
-        <Btn label={t.close} onPress={actions.closeSheet} testID="sheet-close" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}><Txt role="action">{t.close}</Txt></Btn>
-      </View>
+      <SheetGrabber />
+      {/* Every other sheet carries its own header with the close in it; the
+          meeting-prep sheet is its own frame and keeps this one. */}
+      {sheet === 'meetingPrep' ? (
+        <View style={{ paddingHorizontal: 20, alignItems: 'flex-end' }}>
+          <Btn label={t.close} onPress={actions.closeSheet} testID="sheet-close" style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 8 }}><Txt role="action">{t.close}</Txt></Btn>
+        </View>
+      ) : null}
       {sheet === 'meetingPrep' ? (
         // Its own scroller and a pinned footer: the submit stays above the keyboard.
         <MeetingPrepSheet />
@@ -604,6 +630,8 @@ function SheetPanel({ sheet, panelMotion }: { sheet: Exclude<Sheet, null>; panel
         <ScrollView testID="sheet-scroll" keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 20, paddingTop: 8, paddingBottom: keyboardUp ? 12 : insets.bottom + 24 }}>
           {sheet === 'postpone' && <PostponeSheet />}
           {sheet === 'edit' && <EditSheet />}
+          {sheet === 'confirmDrop' && <ConfirmSheet intent="drop" />}
+          {sheet === 'confirmDelete' && <ConfirmSheet intent="delete" />}
         </ScrollView>
       )}
     </Animated.View>

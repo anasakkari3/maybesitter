@@ -46,8 +46,8 @@ it('opens from the Settings row and goes back to Settings', async () => {
       </AppProvider>
     </SafeAreaProvider>,
   );
-  await waitFor(() => expect(screen.queryByTestId('tab-settings')).not.toBeNull());
-  await fireEvent.press(screen.getByTestId('tab-settings'));
+  await waitFor(() => expect(screen.queryByTestId('open-settings')).not.toBeNull());
+  await fireEvent.press(screen.getByTestId('open-settings'));
   await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
   await fireEvent.press(screen.getByTestId('settings-category-day'));
   await waitFor(() => expect(screen.queryByTestId('settings-weekly-blocks')).not.toBeNull());

@@ -39,7 +39,7 @@ name: Today, and the actions on a commitment
 - assertVisible: 'رجوع'
 - tapOn:
     id: 'details-postpone'
-- assertVisible: 'لوين نأجّلها؟'
+- assertVisible: 'إمتى نرجّعها؟'
 # Each preset shows the instant it resolves to, not just its name.
 - assertVisible:
     id: 'postpone-when-oneHour'

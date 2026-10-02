@@ -133,7 +133,7 @@ export function SavedScreen() {
             <View
               key={item.commitmentId}
               testID={`saved-item-${item.itemId}`}
-              style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
+              style={[{ backgroundColor: p.sf, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
             >
               <Txt role="card">{item.title}</Txt>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
@@ -155,7 +155,7 @@ export function SavedScreen() {
                 testID={`saved-weekly-${block.id}`}
                 accessible
                 accessibilityLabel={`${weeklyA11yLabel(block, lang)}${t.wbListSep}${t.wbReviewWeekly}`}
-                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
+                style={[{ backgroundColor: p.sf, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
               >
                 <Txt role="card">{block.title}</Txt>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
@@ -207,7 +207,7 @@ export function SavedScreen() {
             <Txt size={14}>{t.undo}</Txt>
             <View style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
               <UndoRing left={secondsLeft} track={p.ln} color={p.ac} />
-              <Txt size={11} weight={600} align="center" lh={1.2}>{String(secondsLeft)}</Txt>
+              <Txt size={12} weight={600} align="center" lh={1.2} latin>{String(secondsLeft)}</Txt>
             </View>
           </Btn>
         ) : null}

@@ -8,7 +8,7 @@ import {
   loadLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
-import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
+import { DEFAULT_THEME_PREF, loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { useReducedTransparency } from '../theme/useReducedTransparency';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import type { MeetingPrepTarget, Screen, Sheet, ThemePref, Toast } from './types';
@@ -24,7 +24,7 @@ export type AppState = {
    */
   nav: nav.Nav;
   screen: Screen;
-  /** Whether the tab bar is showing: no task open and the current tab at its root. */
+  /** Whether the tab bar and the «احكيها» pill are showing: no task open and the current tab at its root. */
   showTabs: boolean;
   /**
    * Capture holds none of its state here any more (UC-2.R2, #172).
@@ -94,7 +94,9 @@ function useAppModel() {
   const rtl = isRtl(lang);
   const script = scriptFor(lang);
   const rtlScript: Script | false = rtl ? script : false;
-  const [themePref, setThemePref] = useState<ThemePref>('system');
+  // Dark until the store says otherwise (Stitch, 2026-10-02): the first frame
+  // is already right for anyone who never chose, so there is no light flash.
+  const [themePref, setThemePref] = useState<ThemePref>(DEFAULT_THEME_PREF);
   const system = useColorScheme();
   const scheme: Scheme = themePref === 'system' ? (system === 'dark' ? 'dark' : 'light') : themePref;
   const t: Strings = strings[lang];
@@ -111,10 +113,9 @@ function useAppModel() {
   useEffect(() => {
     let active = true;
     void loadLanguagePref().then(pref => { if (active) setLangPref(pref); });
-    // The same hydration for the scheme (#155). Both start at 'system', which
-    // resolves to what the device already says, so the frame before either
-    // read lands is the right answer for anyone who never overrode it — and a
-    // wrong scheme for one frame is a flash, not a wrong word on a screen.
+    // The same hydration for the scheme (#155). It starts at the default
+    // (dark), so the frame before the read lands is right for anyone who never
+    // chose — and a wrong scheme for one frame is a flash, not a wrong word.
     void loadThemePref().then(pref => { if (active) setThemePref(pref); });
     return () => { active = false; };
   }, []);
@@ -250,7 +251,7 @@ function useAppModel() {
         // Additionally behind an env flag the release guard refuses to let a
         // staging or production build set at all (UC-1.8 #152).
         case 'calendarDemo': if (googleCalendarDemoEnabled()) move(n => nav.arrive(n, { name: 'calendarDemo' })); return;
-        case 'today': case 'calendar': case 'settings':
+        case 'today': case 'calendar': case 'things': case 'watching': case 'settings':
           move(n => nav.arrive(n, { name }), onToday(name)); return;
         // Capture has one entry now. The gallery's old `typing`, `listening`,
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`

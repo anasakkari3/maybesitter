@@ -7,7 +7,7 @@ export const SCREEN_FLOWS = {
   personalization: 'settings', patchReview: 'planning', backgroundActivity: 'settings',
   habitDetail: 'habits', watchBuilder: 'settings',
   commitments: 'commitments', contextualAssistant: 'assistant', today: 'home',
-  calendar: 'calendar', settings: 'settings', settingsDay: 'settings',
+  calendar: 'calendar', things: 'commitments', watching: 'assistant', settings: 'settings', settingsDay: 'settings',
   settingsConnections: 'settings', settingsAlerts: 'settings', settingsPrivacy: 'settings',
   settingsApp: 'settings', details: 'commitments', capture: 'capture',
   share: 'import', calendarDemo: 'excluded', deleteAccount: 'excluded', trust: 'settings',

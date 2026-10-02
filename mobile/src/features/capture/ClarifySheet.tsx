@@ -72,7 +72,7 @@ export function ClarifySheet({
       <Txt role="supporting" color={p.mu} testID="clarify-position">
         {tr('clarifyRemaining', { n: Math.max(1, total - position + 1) })}
       </Txt>
-      <Txt role="section" testID="clarify-question">{heading}</Txt>
+      <Txt role="section" size={17} testID="clarify-question">{heading}</Txt>
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {question.options.map((option) => {
@@ -86,9 +86,10 @@ export function ClarifySheet({
               disabled={busy}
               accessibilityRole="radio"
               onPress={() => onAnswer({ optionId: option.optionId })}
-              style={{ backgroundColor: busy ? p.dis : p.sf2, borderRadius: 16, paddingVertical: 12, paddingHorizontal: 18, minHeight: 48, justifyContent: 'center' }}
+              // Quick replies, drawn as the Stitch chips (03b): 44 tall, round, outlined.
+              style={{ backgroundColor: busy ? p.dis : p.sf2, borderRadius: 999, borderWidth: 1, borderColor: busy ? p.dis : p.lnStrong, paddingVertical: 10, paddingHorizontal: 16, minHeight: 44, justifyContent: 'center' }}
             >
-              <Txt size={15} weight={600} color={busy ? p.disTx : p.tx}>{label}</Txt>
+              <Txt size={13} weight={600} color={busy ? p.disTx : p.tx}>{label}</Txt>
             </Btn>
           );
         })}
@@ -96,7 +97,7 @@ export function ClarifySheet({
 
       {question.allowFreeText ? (
         <View style={{ gap: 8 }}>
-          <Txt size={12} color={p.mu}>{t.clarifyOwnWords}</Txt>
+          <Txt size={13} color={p.mu}>{t.clarifyOwnWords}</Txt>
           <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
             <TextInput
               testID="clarify-free-text"
@@ -105,7 +106,7 @@ export function ClarifySheet({
               maxLength={CLARIFICATION_FREE_TEXT_MAX}
               placeholder={question.questionKey === 'ask_day' ? t.orTypeDay : t.orTypeTime}
               placeholderTextColor={p.mu}
-              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, fontSize: 14, minHeight: 48, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
+              style={{ flex: 1, backgroundColor: p.sf2, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, paddingVertical: 12, paddingHorizontal: 16, fontSize: 15, minHeight: 48, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }}
             />
             <Pill
               testID="clarify-send"
@@ -128,7 +129,7 @@ export function ClarifySheet({
           without one (#474); otherwise the item stays flagged and #164's edit
           sheet can still fix it — a question nobody wants to answer must not
           be a wall. */}
-      <Pill testID="clarify-skip" label={skipsToNoTime ? t.skipNoTime : t.clarifySkip} onPress={onSkip} kind="ghost" size={13} weight={400} pad={6} />
+      <Pill testID="clarify-skip" label={skipsToNoTime ? t.skipNoTime : t.clarifySkip} onPress={onSkip} kind="ghost" size={13} weight={500} pad={6} style={{ alignSelf: 'flex-start' }} />
     </View>
   );
 }

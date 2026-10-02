@@ -2,7 +2,7 @@
  * Can the app actually draw the languages it offers? (UC-2.R5)
  *
  * This is the test the Hebrew gap needed and nobody could write. The claim in
- * `src/i18n/README.md` was that "Noto Naskh Arabic and Outfit have no Hebrew
+ * `src/i18n/README.md` was that "the Arabic and Latin faces have no Hebrew
  * glyphs, so every Hebrew string would render as tofu" — true, load-bearing,
  * and asserted nowhere, so adding `he` to the picker would have been a green
  * suite and a screen of □□□.
@@ -28,9 +28,10 @@
  *     until it resolves; a simulator run is the only thing that proves it.
  *   - Whether the line box the design asks for clips anything *optically*. The
  *     assertions below prove a face cannot be clipped by its own declared box.
- *     Noto Naskh Arabic is deliberately set tighter than that and is fine on a
- *     device — which is exactly why the numbers are pinned here rather than
- *     recomputed from the font at runtime.
+ *     Noto Kufi Arabic is deliberately set tighter than that (as Noto Naskh,
+ *     its predecessor, was) — which is exactly why the numbers are pinned here
+ *     rather than recomputed from the font at runtime. Whether 1.7 clips a
+ *     Kufi glyph optically is a device question, not this file's.
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -147,6 +148,12 @@ const HEBREW_MARKS: [number, number] = [0x0591, 0x05c7];
 const ARABIC_LETTERS: [number, number] = [0x0621, 0x064a];
 
 describe('every script the picker offers has a face that can draw it', () => {
+  it('maps each script to the Stitch face: Kufi for Arabic, Plus Jakarta for Latin, Noto Sans for Hebrew', () => {
+    expect(family(400, 'arabic')).toBe('NotoKufiArabic_400Regular');
+    expect(family(700, 'latin')).toBe('PlusJakartaSans_700Bold');
+    expect(family(600, 'hebrew')).toBe('NotoSansHebrew_600SemiBold');
+  });
+
   it('resolves every weight of every script to a registered, real font file', () => {
     for (const script of SCRIPTS) {
       for (const weight of WEIGHTS) {
@@ -174,9 +181,10 @@ describe('every script the picker offers has a face that can draw it', () => {
     }
   });
 
-  it('is why a third face had to be added: neither old face has a single Hebrew letter', () => {
-    // The README's claim, now measured. If a future Outfit release adds Hebrew
-    // this goes red and somebody gets to delete a font from the bundle.
+  it('is why a third face had to be added: neither the Latin nor the Arabic face has a single Hebrew letter', () => {
+    // The README's claim, now measured against the Stitch faces (Plus Jakarta
+    // Sans, Noto Kufi Arabic). If a future release adds Hebrew this goes red
+    // and somebody gets to delete a font from the bundle.
     for (const script of ['latin', 'arabic'] as const) {
       const { covered } = loadFace(script);
       expect({ script, letters: countIn(covered, ...HEBREW_LETTERS) }).toEqual({ script, letters: 0 });
@@ -184,8 +192,17 @@ describe('every script the picker offers has a face that can draw it', () => {
   });
 
   it('keeps Arabic on the Arabic face and does not ask the Hebrew one for it', () => {
-    expect(countIn(loadFace('arabic').covered, ...ARABIC_LETTERS)).toBeGreaterThan(40);
+    for (const weight of WEIGHTS) {
+      expect({ weight, letters: countIn(loadFace('arabic', weight).covered, ...ARABIC_LETTERS) }).toEqual({ weight, letters: 42 });
+    }
     expect(countIn(loadFace('hebrew').covered, ...ARABIC_LETTERS)).toBe(0);
+  });
+
+  it('draws Latin on the Latin face and on the Arabic one, which sets a typed English word', () => {
+    for (const script of ['latin', 'arabic'] as const) {
+      const { covered } = loadFace(script);
+      expect({ script, letters: countIn(covered, 0x41, 0x5a) + countIn(covered, 0x61, 0x7a) }).toEqual({ script, letters: 52 });
+    }
   });
 
   it('keeps digits on every face, because `<Txt latin>` is an option and not a rule', () => {
@@ -210,12 +227,13 @@ describe('the line box each script is given', () => {
   }
 
   it('Arabic is set tighter than its own box, on purpose and on the record', () => {
-    // Noto Naskh's box is 1.70 em, which pushes the design's rhythm apart.
-    // Round 1 tightened it to 1.6 and pays for it with `<Txt latin>` where the
-    // clipping bites (AGENTS.md). Pinned so "1.6 < 1.70, must be a bug" is a
+    // Noto Kufi's box is 1.90 em, which pushes the design's rhythm apart.
+    // It is set at 1.7 and pays for it with `<Txt latin>` where the clipping
+    // bites (AGENTS.md). Pinned so "1.7 < 1.90, must be a bug" is a
     // conversation with a test rather than a silent change.
+    expect(naturalBox('arabic')).toBeCloseTo(1.897, 2);
     expect(LINE_HEIGHT.arabic).toBeLessThan(naturalBox('arabic'));
-    expect(LINE_HEIGHT.arabic).toBe(1.6);
+    expect(LINE_HEIGHT.arabic).toBe(1.7);
   });
 
   it('gives Hebrew more room than Latin and less than Arabic', () => {

@@ -5,6 +5,7 @@ import { useApp } from '../state/AppContext';
 import { Btn, Txt } from './primitives';
 import { UndoRing } from './icons';
 import { useReducedMotion } from './motion';
+import { useReferencePalette } from './referenceDesign';
 
 export const TOAST_SECONDS = 5;
 
@@ -19,8 +20,16 @@ export const TOAST_SECONDS = 5;
  * the same pill carries «تراجع»; when it cannot — the server has no way to
  * un-complete a commitment — it says only what happened.
  */
-export function ToastHost() {
-  const { s, t, tr, p, actions } = useApp();
+export function ToastHost({ clearance }: {
+  /**
+   * How much of the bottom the bar and the «احكيها» pill take, when they show
+   * (Root's measured `tabClearance`). The toast sits above it; without it, above
+   * the home indicator.
+   */
+  clearance?: number | undefined;
+} = {}) {
+  const { s, t, tr, actions } = useApp();
+  const p = useReferencePalette();
   const insets = useSafeAreaInsets();
   const reduced = useReducedMotion();
   // The countdown is keyed to the toast it counts for, so a new toast starts
@@ -47,7 +56,7 @@ export function ToastHost() {
       testID="toast-live"
       pointerEvents="box-none"
       accessibilityLiveRegion="polite"
-      style={{ position: 'absolute', left: 16, right: 16, bottom: Math.max(insets.bottom, 12) + 84, zIndex: 35, alignItems: 'center', opacity }}
+      style={{ position: 'absolute', start: 16, end: 16, bottom: clearance !== undefined ? clearance : Math.max(insets.bottom, 12) + 24, zIndex: 35, alignItems: 'center', opacity }}
     >
       {toast ? <Btn
         testID="toast"
@@ -57,13 +66,14 @@ export function ToastHost() {
         label={toast.undo ? `${toast.text}. ${tr('toastUndoWithin', { s: TOAST_SECONDS })}` : toast.text}
         onPress={() => { if (toast.undo) toast.undo(); actions.dismissToast(toast.id); }}
         scaleTo={0.98}
-        style={{ backgroundColor: p.ink, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 12, maxWidth: '100%', shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 }}
+        // Stitch: a raised pill with a coral hairline, the app's own text on it.
+        style={{ backgroundColor: p.sf2, borderWidth: 1, borderColor: p.heroEdge, borderRadius: 999, paddingVertical: 12, paddingHorizontal: 16, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 12, maxWidth: '100%', shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 }}
       >
-        <Txt size={14} weight={500} color={p.onInk} style={{ flexShrink: 1 }} testID="toast-text">{toast.text}</Txt>
-        {toast.undo ? <Txt size={13} weight={600} color={p.acOnInk} testID="toast-undo">{t.undo}</Txt> : null}
+        <Txt size={14} weight={500} color={p.tx} style={{ flexShrink: 1 }} testID="toast-text">{toast.text}</Txt>
+        {toast.undo ? <Txt size={14} weight={700} color={p.acd} testID="toast-undo">{t.undo}</Txt> : null}
         <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
-          <UndoRing left={left} track="rgba(255,255,255,0.25)" color={p.acOnInk} />
-          <Txt size={10} weight={600} color={p.onInk} align="center" lh={1.2} latin>{String(left)}</Txt>
+          <UndoRing left={left} track={p.ln} color={p.acd} />
+          <Txt size={12} weight={600} color={p.mu} align="center" lh={1.2} latin>{String(left)}</Txt>
         </View>
       </Btn> : null}
     </Animated.View>

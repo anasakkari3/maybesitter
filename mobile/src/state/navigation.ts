@@ -10,13 +10,18 @@ import type { Screen } from './types';
  * is a hard-coded destination pretending to be history, and which pushed a
  * second copy of Trust when Knows went back to it.
  *
- * Round 2's shell is three tabs, each with its own stack, and *tasks* —
- * full-screen flows such as capture — layered over whichever tab is current.
- * That is what this models, with the app's own flat `Screen` names kept as
- * the entries, so no screen has to be renamed to be reachable.
+ * The shell is four tabs, each with its own stack, and *tasks* — full-screen
+ * flows such as capture — layered over whichever tab is current. That is what
+ * this models, with the app's own flat `Screen` names kept as the entries, so
+ * no screen has to be renamed to be reachable.
  *
- *   tab      today · calendar · settings — the roots; the bar is visible only
- *            when the current tab's stack is empty and no task is open.
+ *   tab      today · calendar («الخطة») · things («أشيائي») · watching
+ *            («يتابع لك») — the roots (Stitch redesign, 2026-10-02); the bar
+ *            and the «احكيها» pill are visible only when the current tab's
+ *            stack is empty and no task is open.
+ *   settings is not a tab any more. The avatar in each tab root's header
+ *            pushes it onto the tab it was opened from, so it shows without
+ *            the bar, and back (on screen or Android's) returns to that tab.
  *   stack    what has been pushed on top of that tab's root, in order.
  *   task     a flow that owns the whole screen until it is closed. Back
  *            closes it and returns to exactly where the tab was.
@@ -34,8 +39,8 @@ import type { Screen } from './types';
  * file owns the rules, and a test can drive Today → Plan → Details → back →
  * back → Today without rendering anything.
  */
-export type Tab = 'today' | 'calendar' | 'settings';
-export const TABS: readonly Tab[] = ['today', 'calendar', 'settings'];
+export type Tab = 'today' | 'calendar' | 'things' | 'watching';
+export const TABS: readonly Tab[] = ['today', 'calendar', 'things', 'watching'];
 
 export type Entry = {
   name: Screen; detailId?: string; planDate?: string; goalId?: string;
@@ -65,7 +70,8 @@ const TASKS: ReadonlySet<Screen> = new Set<Screen>(['capture', 'share', 'deleteA
 
 /**
  * Where a settings leaf *arrives* from outside (a link or a notification):
- * the Settings tab, with the Settings root underneath.
+ * Today, with the Settings root and then the leaf pushed on it — so back
+ * walks leaf → Settings → Today.
  *
  * A leaf *pushed* from inside the app is not moved here. It used to be —
  * Goals → Knows, Plan → notification settings, capture's "why are you asking"
@@ -82,7 +88,7 @@ const SETTINGS_LEAVES: ReadonlySet<Screen> = new Set<Screen>([
   'widgetSettings', 'places', 'about', 'langAppearance', 'account', 'sources',
 ]);
 
-export const initialNav: Nav = { tab: 'today', stacks: { today: [], calendar: [], settings: [] }, task: null, over: [] };
+export const initialNav: Nav = { tab: 'today', stacks: { today: [], calendar: [], things: [], watching: [] }, task: null, over: [] };
 
 export function isTab(name: Screen): name is Tab {
   return (TABS as readonly string[]).includes(name);
@@ -208,7 +214,7 @@ export function goToRoot(nav: Nav, tab: Tab): Nav {
 /**
  * Go somewhere by name, the way Round 1's `go(screen)` was called from
  * everywhere. A tab root opens (see `goToRoot`); a task opens; anything else
- * is pushed onto the current tab.
+ * — Settings included — is pushed onto the current tab.
  */
 export function go(nav: Nav, name: Screen): Nav {
   if (isTab(name)) return goToRoot(nav, name);
@@ -228,6 +234,9 @@ export function go(nav: Nav, name: Screen): Nav {
 export function arrive(nav: Nav, entry: Entry): Nav {
   if (isTab(entry.name)) return switchTab(initialNav, entry.name);
   if (isTask(entry.name)) return { ...switchTab(initialNav, 'today'), task: entry };
-  const tab: Tab = SETTINGS_LEAVES.has(entry.name) ? 'settings' : 'today';
-  return { tab, stacks: { ...initialNav.stacks, [tab]: [entry] }, task: null, over: [] };
+  // Settings and its leaves arrive on Today with the Settings root under the
+  // leaf, which is where the avatar would have opened them from.
+  const stack: Entry[] = entry.name === 'settings' ? [entry]
+    : SETTINGS_LEAVES.has(entry.name) ? [{ name: 'settings' }, entry] : [entry];
+  return { tab: 'today', stacks: { ...initialNav.stacks, today: stack }, task: null, over: [] };
 }

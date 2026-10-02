@@ -16,27 +16,29 @@ describe('a. Settings → background activity → watch builder → Create', () 
 
   it('finishing the builder returns to background activity instead of stacking a second copy', () => {
     const n = replace(opened(), { name: 'backgroundActivity' });
-    expect(names(n)).toEqual(['backgroundActivity']);
+    expect(names(n)).toEqual(['settings', 'backgroundActivity']);
     expect(screenOf(n)).toBe('backgroundActivity');
-    expect(derive(back(n))).toMatchObject({ screen: 'settings', showTabs: true });
+    expect(derive(back(n))).toMatchObject({ screen: 'settings', showTabs: false });
+    expect(derive(back(back(n)))).toMatchObject({ screen: 'today', showTabs: true });
   });
 
   it('a plain go() to a screen lower in the stack pops back to it', () => {
     const n = go(opened(), 'backgroundActivity');
-    expect(names(n)).toEqual(['backgroundActivity']);
+    expect(names(n)).toEqual(['settings', 'backgroundActivity']);
     expect(screenOf(back(n))).toBe('settings');
   });
 });
 
 describe('b. Today → assistant → watch builder → Create', () => {
   it('stays on Today, the builder is gone, and back walks to the assistant then Today', () => {
-    let n = go(switchTab(go(go(initialNav, 'settings'), 'about'), 'today'), 'contextualAssistant');
+    // Settings → About was left open on the Things tab.
+    let n = go(switchTab(go(go(switchTab(initialNav, 'things'), 'settings'), 'about'), 'today'), 'contextualAssistant');
     n = go(n, 'watchBuilder');
     n = replace(n, { name: 'backgroundActivity' });
     expect(n.tab).toBe('today');
     expect(names(n)).toEqual(['contextualAssistant', 'backgroundActivity']);
-    // The Settings tab's own stack was not thrown away.
-    expect(names(n, 'settings')).toEqual(['about']);
+    // The Things tab's own stack was not thrown away.
+    expect(names(n, 'things')).toEqual(['settings', 'about']);
     n = back(n);
     expect(screenOf(n)).toBe('contextualAssistant');
     n = back(n);
@@ -59,12 +61,12 @@ describe('c. a settings leaf opened from Today or Calendar stays on that tab', (
   ];
   for (const { from, path, leaf } of cases) {
     it(`${from} → ${path.join(' → ')} → ${leaf}: back returns to ${path[path.length - 1]}`, () => {
-      let n = switchTab(go(go(initialNav, 'settings'), 'about'), from);
+      let n = switchTab(go(go(switchTab(initialNav, 'things'), 'settings'), 'about'), from);
       for (const step of path) n = go(n, step);
       n = go(n, leaf);
       expect(n.tab).toBe(from);
       expect(screenOf(n)).toBe(leaf);
-      expect(names(n, 'settings')).toEqual(['about']);
+      expect(names(n, 'things')).toEqual(['settings', 'about']);
       expect(screenOf(back(n))).toBe(path[path.length - 1]);
     });
   }

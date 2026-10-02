@@ -286,7 +286,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
               backgroundColor: connected ? p.bg : p.ac, borderWidth: 1, borderColor: connected ? p.ln : p.ac,
             }}
           >
-            <Txt size={15} weight={600} color={connected ? p.tx : '#FFFFFF'}>
+            <Txt size={15} weight={600} color={connected ? p.tx : p.onAccent}>
               {connected ? t.financialDisconnect : t.financialConnect}
             </Txt>
           </Btn>
@@ -308,7 +308,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
           <Btn label={t.financialAddBillSave} testID="financial-bill-save" onPress={() => void saveBill()}
             disabled={saveObligation.isPending || !billLabel.trim() || !billAmount.trim() || !billCurrency.trim() || !billDate.trim()}
             style={{ minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}>
-            <Txt size={15} weight={600} color="#FFFFFF">{t.financialAddBillSave}</Txt>
+            <Txt size={15} weight={600} color={p.onAccent}>{t.financialAddBillSave}</Txt>
           </Btn>
         </Card>
 
@@ -404,7 +404,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
               backgroundColor: p.ac,
             }}
           >
-            <Txt size={15} weight={600} color="#FFFFFF">{t.financialCorrectSave}</Txt>
+            <Txt size={15} weight={600} color={p.onAccent}>{t.financialCorrectSave}</Txt>
           </Btn>
           {state !== null && state.cashAvailable?.provenance.origin === 'manual' ? (
             <Btn

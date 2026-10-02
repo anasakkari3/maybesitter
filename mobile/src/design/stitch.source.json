@@ -1,0 +1,175 @@
+{
+  "name": "MaybeSitter Stitch redesign",
+  "approved": "2026-10-02",
+  "authority": "Owner decision 2026-10-02: the Stitch design replaces the coral continuation (archived at tag archive/pre-stitch-design). Dark navy is the default scheme; light remains selectable. Behaviour, data and backend calls are unchanged.",
+  "spec": "docs/design/stitch-2026-10-02/IMPLEMENTATION_SPEC.md",
+  "fonts": {
+    "arabic": "Noto Kufi Arabic",
+    "latin": "Plus Jakarta Sans",
+    "hebrew": "Noto Sans Hebrew"
+  },
+  "radius": {
+    "card": 20,
+    "chip": 999
+  },
+  "references": [
+    {
+      "file": "html/01-today-dark.html",
+      "sha256": "9fe38a7ab879c451dff92fa30938f85d5675d50c5489e4c2eed673837826e74d"
+    },
+    {
+      "file": "html/01b-today-light.html",
+      "sha256": "4b35dbc43822d16c6b5a294e14c7e45586a1de64546bd302f82b13200f0b01e5"
+    },
+    {
+      "file": "html/01c-today-empty-offline.html",
+      "sha256": "67d71cd885c4f18482d7262d38e6e599f62549e7936e415f0d0f124723e43d98"
+    },
+    {
+      "file": "html/02-plan.html",
+      "sha256": "e1ceb9e4dae1d8e198481591ff9918d723acabe7e555eb6665cb6860bdc90951"
+    },
+    {
+      "file": "html/03-capture-review-save.html",
+      "sha256": "9d212671d7e49c4c90a733421e406483801945e244746bf3722ff77d9c5696c4"
+    },
+    {
+      "file": "html/03b-capture-clarify-listen.html",
+      "sha256": "548bc8e4547d72cf1376a4a37a4c01ab18f7f0cca11b6541a90bb86b7406fc61"
+    },
+    {
+      "file": "html/04-things.html",
+      "sha256": "a26756527ca81fd95c94a11b5d8ef0deeec15676dfc162f6402a672cb96543db"
+    },
+    {
+      "file": "html/04b-commitment-detail.html",
+      "sha256": "f3e1aab9a9f5bcd55d08d2fedfddc1f8854d061bfdb16c611f1b274edc2d53b5"
+    },
+    {
+      "file": "html/05-watching.html",
+      "sha256": "d811e7790506c911726ecebdfa6cc8f67231c5f39c5d068bdbbaea0f52cdfb1f"
+    },
+    {
+      "file": "html/06-settings.html",
+      "sha256": "c43803043e4ad466210c28a5a5db7b15b09ececae5b2d659fbe7248896ce77e9"
+    },
+    {
+      "file": "html/07-onboarding.html",
+      "sha256": "e44268711315a7579484c07e5b77029b9aa71b926bfd62ff0e1c59814b6e1d98"
+    },
+    {
+      "file": "html/08-sign-in.html",
+      "sha256": "49af6073c01f2a72f733d93ab47c433a27261c64dd167a805044406c04e65f3d"
+    },
+    {
+      "file": "png/01-today-dark.png",
+      "sha256": "87d0d00d80978b65714c051cbefb56c435ae7e2bfb33154be274241224b72dd3"
+    },
+    {
+      "file": "png/01b-today-light.png",
+      "sha256": "b2ee4e179c410e4df83639b166eabedf211cdc5f119188949684f8858027178d"
+    },
+    {
+      "file": "png/01c-today-empty-offline.png",
+      "sha256": "e9e50127b3845bdb5c4db39a84f899f0759fe6e956769e674687a681dd3cd80a"
+    },
+    {
+      "file": "png/02-plan.png",
+      "sha256": "05c8d771e638029c3deb83d23262287b8ae756eaa32793ec42b80ee4cb70c77e"
+    },
+    {
+      "file": "png/03-capture-review-save.png",
+      "sha256": "3a7b6ee3cf854b95a287021cdb452623d2add3a8814c1c28f90b59e245cdba1e"
+    },
+    {
+      "file": "png/03b-capture-clarify-listen.png",
+      "sha256": "b99a4dd140d32366aa0302cd685555714407ce1bb7913fe9edb271544c58efed"
+    },
+    {
+      "file": "png/04-things.png",
+      "sha256": "d6dc4a722596c6deca8e00d3521a5db79eed3fe513d77f2c231fa91393a3e944"
+    },
+    {
+      "file": "png/04b-commitment-detail.png",
+      "sha256": "d5f8dbc223d93b54385dc9217276f2101cbbd266c4ddf9fc0df2bab8f05ed82b"
+    },
+    {
+      "file": "png/05-watching.png",
+      "sha256": "087b9a0db5fe6c4c02eacbda848570b29519ea546f128b8527f8f8386d3cf2d2"
+    },
+    {
+      "file": "png/06-settings.png",
+      "sha256": "f802cf71e4155490a1bb553d213e51c773b09418ba002897377e4db97117de40"
+    },
+    {
+      "file": "png/07-onboarding.png",
+      "sha256": "660b93835976d9601d27a54439d38dc762db6c94b41fc87e9bcfc935c778a80a"
+    },
+    {
+      "file": "png/08-sign-in.png",
+      "sha256": "bab219ce4397581ceff0627f7aa25a730e7672b067c3436e610e90bc8f2ca685"
+    }
+  ],
+  "colors": {
+    "light": {
+      "background": "#F7F5F1",
+      "glass": "#FFFFFF",
+      "success": "#1E6B45",
+      "successContainer": "#E2F5EA",
+      "onSuccess": "#FFFFFF",
+      "surface": "#FFFFFF",
+      "surfaceAlt": "#F0EDE7",
+      "surfaceBar": "rgba(255,255,255,0.96)",
+      "surfaceBarSolid": "#FFFFFF",
+      "textPrimary": "#1A1F2B",
+      "textMuted": "#5B6375",
+      "border": "#E6E1D8",
+      "borderStrong": "rgba(26,31,43,0.30)",
+      "brand": "#C2394A",
+      "brandContainer": "#FBE3E6",
+      "brandPressed": "#A8323F",
+      "onBrand": "#FFFFFF",
+      "brandOnInk": "#FF8A8A",
+      "underline": "rgba(194,57,74,0.45)",
+      "must": "#7A5200",
+      "mustContainer": "#FDF1DA",
+      "disabled": "#E6E1D8",
+      "onDisabled": "#4C5466",
+      "proposal": "rgba(122,82,0,0.55)",
+      "ink": "#1A1F2B",
+      "onInk": "#F7F5F1",
+      "hatch": "rgba(26,31,43,0.08)",
+      "overlay": "rgba(14,21,38,0.45)"
+    },
+    "dark": {
+      "background": "#0E1526",
+      "glass": "#172036",
+      "success": "#4CC38A",
+      "successContainer": "rgba(76,195,138,0.15)",
+      "onSuccess": "#0E1526",
+      "surface": "#172036",
+      "surfaceAlt": "#1F2A44",
+      "surfaceBar": "rgba(23,32,54,0.96)",
+      "surfaceBarSolid": "#172036",
+      "textPrimary": "#F3F5FA",
+      "textMuted": "#A9B2C7",
+      "border": "rgba(169,178,199,0.16)",
+      "borderStrong": "rgba(169,178,199,0.40)",
+      "brand": "#FF6B6B",
+      "brandContainer": "rgba(255,107,107,0.15)",
+      "brandPressed": "#FF8A8A",
+      "onBrand": "#0E1526",
+      "brandOnInk": "#C2394A",
+      "underline": "rgba(255,138,138,0.50)",
+      "must": "#F5B547",
+      "mustContainer": "rgba(245,181,71,0.15)",
+      "disabled": "#1F2A44",
+      "onDisabled": "#A9B2C7",
+      "proposal": "rgba(245,181,71,0.60)",
+      "ink": "#F3F5FA",
+      "onInk": "#0E1526",
+      "hatch": "rgba(255,255,255,0.07)",
+      "overlay": "rgba(0,0,0,0.55)"
+    }
+  }
+}

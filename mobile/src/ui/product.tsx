@@ -86,7 +86,7 @@ export function ProductRow({ title, body, icon = 'spark', onPress, status, id }:
     </View>
     {onPress && !stacked ? <ChevronIcon color={p.mu} rtl={rtl} /> : null}
   </>;
-  const style = { padding: grouped ? 4 : 16, paddingVertical: grouped ? 12 : 16, gap: 12, borderRadius: grouped ? 0 : 22, borderWidth: grouped ? 0 : 1, borderBottomWidth: 1, borderColor: p.ln, backgroundColor: grouped ? 'transparent' : p.glass, flexDirection: stacked ? 'column' as const : 'row' as const, alignItems: 'flex-start' as const, minHeight: 72 };
+  const style = { padding: grouped ? 4 : 16, paddingVertical: grouped ? 12 : 16, gap: 12, borderRadius: grouped ? 0 : 20, borderWidth: grouped ? 0 : 1, borderBottomWidth: 1, borderColor: p.ln, backgroundColor: grouped ? 'transparent' : p.glass, flexDirection: stacked ? 'column' as const : 'row' as const, alignItems: 'flex-start' as const, minHeight: 72 };
   return onPress ? <Btn testID={id} label={[title, body].filter(Boolean).join('. ')} onPress={onPress} style={style}>{content}</Btn> : <View testID={id} style={style}>{content}</View>;
 }
 export function ProductActions({ children }: { children: React.ReactNode }) {

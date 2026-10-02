@@ -127,6 +127,10 @@ describe('the day\'s blocks', () => {
       { occurrenceId: 'o1', weeklyBlockId: 'train', title: 'Training', startAt, endAt },
     ]);
     await show();
+    // Folded to one line that names it (Stitch); open, it is the row.
+    await waitFor(() => expect(screen.queryByTestId('today-weekly-toggle')).not.toBeNull());
+    expect(screen.getByTestId('today-weekly-toggle').props.accessibilityLabel).toContain('Training');
+    await fireEvent.press(screen.getByTestId('today-weekly-toggle'));
     await waitFor(() => expect(screen.queryByTestId('today-weekly-train')).not.toBeNull());
     expect(screen.getByTestId('today-weekly-train').props.accessibilityLabel).toContain(en.wbFixedTag);
     expect(screen.getByText(en.wbTodayTitle)).toBeTruthy();
