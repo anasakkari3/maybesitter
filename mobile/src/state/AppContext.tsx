@@ -8,7 +8,7 @@ import {
   loadLanguagePref, resolveLanguage, saveLanguagePref, systemLanguageTag, type LanguagePref,
 } from '../i18n/language';
 import { googleCalendarDemoEnabled } from '../config/env';
-import { loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
+import { DEFAULT_THEME_PREF, loadThemePref, saveThemePref } from '../lib/deviceSettings/theme';
 import { useReducedTransparency } from '../theme/useReducedTransparency';
 import { palettes, type Palette, type Scheme } from '../theme/tokens';
 import type { MeetingPrepTarget, Screen, Sheet, ThemePref, Toast } from './types';
@@ -94,7 +94,9 @@ function useAppModel() {
   const rtl = isRtl(lang);
   const script = scriptFor(lang);
   const rtlScript: Script | false = rtl ? script : false;
-  const [themePref, setThemePref] = useState<ThemePref>('system');
+  // Dark until the store says otherwise (Stitch, 2026-10-02): the first frame
+  // is already right for anyone who never chose, so there is no light flash.
+  const [themePref, setThemePref] = useState<ThemePref>(DEFAULT_THEME_PREF);
   const system = useColorScheme();
   const scheme: Scheme = themePref === 'system' ? (system === 'dark' ? 'dark' : 'light') : themePref;
   const t: Strings = strings[lang];
@@ -111,10 +113,9 @@ function useAppModel() {
   useEffect(() => {
     let active = true;
     void loadLanguagePref().then(pref => { if (active) setLangPref(pref); });
-    // The same hydration for the scheme (#155). Both start at 'system', which
-    // resolves to what the device already says, so the frame before either
-    // read lands is the right answer for anyone who never overrode it — and a
-    // wrong scheme for one frame is a flash, not a wrong word on a screen.
+    // The same hydration for the scheme (#155). It starts at the default
+    // (dark), so the frame before the read lands is right for anyone who never
+    // chose — and a wrong scheme for one frame is a flash, not a wrong word.
     void loadThemePref().then(pref => { if (active) setThemePref(pref); });
     return () => { active = false; };
   }, []);
