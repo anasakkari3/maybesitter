@@ -31,6 +31,7 @@ import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 import * as planEndpoints from '../../api/endpoints/plans';
 import * as profileEndpoints from '../../api/endpoints/profile';
+import * as footballEndpoints from '../../api/endpoints/football';
 import * as language from '../../i18n/language';
 import { fill, ltr } from '../../i18n/strings';
 import { Txt } from '../../ui/primitives';
@@ -130,6 +131,17 @@ async function show(items: Commitment[]) {
   return view;
 }
 
+/**
+ * «مهم» and «حلو» fold to one line on Today (Stitch). A case about the rows
+ * inside them opens them first, the way a person would.
+ */
+async function openGroups() {
+  for (const kind of ['should', 'nice']) {
+    const toggle = screen.queryByTestId(`today-group-${kind}-toggle`);
+    if (toggle) await fireEvent.press(toggle);
+  }
+}
+
 describe('the day comes from the account', () => {
   it('shows what the server sent, in the groups the user chose', async () => {
     await show([withPriority('m', 'high'), withPriority('m2', 'high'), withPriority('s', 'normal'), withPriority('n', 'low')]);
@@ -190,6 +202,7 @@ describe('ranking', () => {
       { ...withPriority('nice-urgent', 'low'), rank: 0, reasonCodes: ['overdue'] } as Commitment,
       { ...withPriority('must-later', 'high'), rank: 5, reasonCodes: ['due_today'] } as Commitment,
     ]);
+    await openGroups();
     // The Must is the primary card — not the rank-0 Nice — and the Nice sits
     // in its own group underneath, not in the Must's place.
     expect(within(screen.getByTestId('today-primary')).getByTestId('today-item-must-later')).toBeTruthy();
@@ -251,6 +264,7 @@ describe('a time that has passed', () => {
       item({ id: 'timed' }),
       item({ id: 'untimed', timeSpec: { kind: 'unscheduled', dueAt: null, endAt: null, remindAt: null, allDay: false, timezone: 'UTC' } }),
     ]);
+    await openGroups();
     expect(screen.getByTestId('today-time-untimed').props.children).toBe(en.noTimeYet);
   });
 });
@@ -430,14 +444,16 @@ describe('Round 3 progressive density', () => {
     });
     await show(records);
     await waitFor(() => expect(screen.queryByTestId('today-plan-preview')).not.toBeNull());
+    await openGroups();
     expect(screen.getAllByTestId(/^today-plan-preview-/)).toHaveLength(4);
     expect(screen.getAllByTestId(/^today-item-/).map(node => node.props.testID)).toEqual(['today-item-primary', 'today-item-overflow']);
     expect(screen.queryByTestId('today-plan-preview-overflow')).toBeNull();
     // The plan sits above the rest of today (merge of the reference redesign):
     // its previewed items are taken out of those groups, so under them the
-    // plan would land at the bottom, below the finished ones.
-    expect(screen.getAllByTestId(/^(today-plan-card|today-rest-title|today-item-overflow)$/).map(node => node.props.testID))
-      .toEqual(['today-plan-card', 'today-rest-title', 'today-item-overflow']);
+    // plan would land at the bottom, below the finished ones. Since Stitch it
+    // sits under the primary card and «لازم», which belong to the first screen.
+    expect(screen.getAllByTestId(/^(today-primary|today-plan-card|today-group-should|today-item-overflow|today-group-finished)$/).map(node => node.props.testID))
+      .toEqual(['today-primary', 'today-plan-card', 'today-group-should', 'today-item-overflow']);
   });
 });
 
@@ -681,5 +697,95 @@ describe('the top card during quiet hours is not quiet mode (UAT round 3, N12)',
     expect(card.queryByText(en.todayNextPaused)).not.toBeNull();
     expect(screen.queryByTestId('today-quiet-trust')).toBeNull();
     expect(screen.queryByTestId('today-quiet-hours')).toBeNull();
+  });
+});
+
+/**
+ * The Stitch Today (2026-10-02): what the first screen holds, how the folded
+ * groups open, a match drawn as a match, and «مش هلّق» asking when.
+ */
+describe('Stitch Today', () => {
+  function actOnStitch() {
+    return jest.spyOn(commitmentEndpoints, 'actOnCommitment').mockResolvedValue({
+      data: { success: true, id: 'top', commitment: withPriority('top', 'high') },
+      etag: 'W/"v2"',
+    } as never);
+  }
+
+  it('folds «مهم» and «حلو» to a line that names the first item and how many more, and really opens them', async () => {
+    await show([
+      withPriority('top', 'high'),
+      withPriority('s1', 'normal', { title: 'Call mum' }),
+      withPriority('s2', 'normal'),
+      withPriority('n1', 'low'),
+    ]);
+    // «لازم» is open (here it is only the primary card); the others are one line each.
+    expect(screen.queryByTestId('today-item-s1')).toBeNull();
+    const toggle = screen.getByTestId('today-group-should-toggle');
+    expect(toggle.props.accessibilityState.expanded).toBe(false);
+    expect(String(screen.getByTestId('today-group-should-preview').props.children)).toContain('Call mum');
+    expect(String(screen.getByTestId('today-group-should-preview').props.children)).toContain('+1');
+
+    await fireEvent.press(toggle);
+    expect(screen.getByTestId('today-group-should-toggle').props.accessibilityState.expanded).toBe(true);
+    expect(within(screen.getByTestId('today-group-should')).getByTestId('today-item-s1')).toBeTruthy();
+    expect(within(screen.getByTestId('today-group-should')).getByTestId('today-item-s2')).toBeTruthy();
+    // «حلو» stays folded until it is asked for.
+    expect(screen.queryByTestId('today-item-n1')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('today-group-should-toggle'));
+    expect(screen.queryByTestId('today-item-s1')).toBeNull();
+  });
+
+  it('keeps «لازم» open: its rows are on the first screen without a tap', async () => {
+    await show([withPriority('top', 'high', { rank: 0 }), withPriority('m', 'high', { rank: 1 })]);
+    expect(screen.queryByTestId('today-group-must-toggle')).toBeNull();
+    expect(within(screen.getByTestId('today-group-must')).getByTestId('today-item-m')).toBeTruthy();
+  });
+
+  it('draws a football match with a ball, not a completion circle', async () => {
+    jest.spyOn(footballEndpoints, 'getFootballSettings').mockResolvedValue({
+      success: true, providerConfigured: true, clubs: [], followedClubIds: [],
+      fixtures: [{ commitmentId: 'match', homeTeamName: 'A', awayTeamName: 'B', kickoffUtc: '2026-09-13T18:00:00.000Z' }],
+    } as never);
+    await show([withPriority('top', 'high', { rank: 0 }), withPriority('match', 'high', { rank: 1 }), withPriority('m', 'high', { rank: 2 })]);
+    await waitFor(() => expect(screen.queryByTestId('today-football-match')).not.toBeNull());
+    expect(screen.queryByTestId('today-row-done-match')).toBeNull();
+    expect(screen.getByTestId('today-item-match').props.accessibilityLabel).toContain(en.todayFootballMark);
+    // An ordinary row keeps its circle.
+    expect(screen.queryByTestId('today-row-done-m')).not.toBeNull();
+    expect(screen.queryByTestId('today-football-m')).toBeNull();
+  });
+
+  it('«مش هلّق» on the card asks when — it does not move anything by itself', async () => {
+    const act = actOnStitch();
+    await show([withPriority('top', 'high')]);
+    await fireEvent.press(screen.getByTestId('today-primary-postpone'));
+    await waitFor(() => expect(screen.queryByTestId('postpone-sheet')).not.toBeNull());
+    expect(screen.getByText(en.postponeTitle)).toBeTruthy();
+    expect(act).not.toHaveBeenCalled();
+
+    const before = Date.now();
+    await fireEvent.press(screen.getByTestId('postpone-oneHour'));
+    await waitFor(() => expect(act).toHaveBeenCalled());
+    expect(act.mock.calls[0]![0]).toBe('top');
+    expect(act.mock.calls[0]![1]).toBe('postpone');
+    const until = Date.parse((act.mock.calls[0]![2] as { postponedUntil: string }).postponedUntil);
+    expect(until).toBeGreaterThan(before + 59 * 60 * 1000);
+    expect(until).toBeLessThan(before + 61 * 60 * 1000);
+  });
+
+  it('«خلصتها» on the card completes it', async () => {
+    const act = actOnStitch();
+    await show([withPriority('top', 'high')]);
+    expect(screen.getByTestId('today-primary-complete').props.accessibilityLabel).toBe(en.nextStepDone);
+    await fireEvent.press(screen.getByTestId('today-primary-complete'));
+    await waitFor(() => expect(act).toHaveBeenCalled());
+    expect(act.mock.calls[0]![1]).toBe('complete');
+  });
+
+  it('says the conflict line only when something clashes', async () => {
+    await show([withPriority('top', 'high')]);
+    expect(screen.queryByTestId('today-conflict')).toBeNull();
   });
 });
