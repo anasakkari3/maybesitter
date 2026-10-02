@@ -13,6 +13,7 @@ import { LanguageGate } from './src/features/language/LanguageGate';
 import { AuthProvider } from './src/auth/AuthProvider';
 import { Root } from './src/Root';
 import { fontMap } from './src/theme/fonts';
+import { color } from './src/theme/tokens';
 import { initialiseCrashReporting } from './src/lib/crash';
 import { ErrorBoundary } from './src/ui/ErrorBoundary';
 import { ClarityProvider } from './src/clarity/ClarityProvider';
@@ -58,7 +59,9 @@ function AppTree() {
 
   // Hold on the plain background until the Arabic and Latin faces are ready,
   // so text never flashes in a fallback font. A font error still renders.
-  if (!loaded && !error) return <View style={{ flex: 1, backgroundColor: '#F5F7F8' }} />;
+  // Navy: the scheme is not read yet, and dark is what a person who never
+  // chose gets (Stitch, 2026-10-02).
+  if (!loaded && !error) return <View style={{ flex: 1, backgroundColor: color.dark.background }} />;
 
   return (
     <SafeAreaProvider>

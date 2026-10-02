@@ -124,7 +124,7 @@ export function MeetingPrepSheet() {
           }}
         />
         {notes.length > MAX_CAPTURE_LENGTH - 200 ? (
-          <Txt size={11} color={tooLong ? p.wm : p.mu} latin testID="meeting-prep-counter" style={{ position: 'absolute', bottom: 10, end: 16 }}>
+          <Txt size={12} color={tooLong ? p.wm : p.mu} latin testID="meeting-prep-counter" style={{ position: 'absolute', bottom: 10, end: 16 }}>
             {fill(t.captureCounter, { n: String(notes.length) })}
           </Txt>
         ) : null}

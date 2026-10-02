@@ -6,6 +6,50 @@ import { Btn, Txt } from './primitives';
 import { useLayoutMode } from '../theme/textScale';
 import { BrandLockup, BrandMark } from './brand';
 import { ChevronIcon, TodayIcon } from './icons';
+import { ReferenceIcon } from './referenceIcons';
+import { useOptionalAuth } from '../auth/AuthProvider';
+import { scriptOfText } from '../theme/fonts';
+
+/**
+ * The first letter of the person's name, or of their email when the account
+ * has no name. Null when there is neither (an Apple private relay with no
+ * name still has an email, so this is rare).
+ */
+export function avatarInitial(user: { displayName: string | null; email: string | null } | null | undefined): string | null {
+  const source = (user?.displayName ?? '').trim() || (user?.email ?? '').trim();
+  const first = Array.from(source)[0];
+  return first ? first.toUpperCase() : null;
+}
+
+/**
+ * The way into Settings (Stitch redesign, 2026-10-02): a round avatar with the
+ * first letter of the person's name, at the end of every tab root's header.
+ * Settings is not in the bar any more; this pushes it onto the tab it is
+ * pressed on, so back returns there. 44 × 44, announced as "Settings".
+ */
+export function AvatarButton() {
+  const { t, p, script, actions } = useApp();
+  const user = useOptionalAuth()?.user ?? null;
+  const letter = avatarInitial(user);
+  // A letter the UI's face cannot draw (an Arabic initial in the Hebrew UI)
+  // falls back to the person glyph rather than to tofu.
+  const run = letter ? scriptOfText(letter, script) : null;
+  const drawable = letter !== null && (run === script || run === 'latin');
+  return (
+    <Btn
+      testID="open-settings"
+      label={t.settingsTitle}
+      hint={t.openSettingsHint}
+      onPress={() => actions.go('settings')}
+      scaleTo={0.94}
+      style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: p.acs, borderWidth: 1, borderColor: p.ac }}
+    >
+      {drawable
+        ? <Txt size={17} weight={700} color={p.acd} align="center" lh={1.2} latin={run === 'latin'} testID="open-settings-initial">{letter}</Txt>
+        : <ReferenceIcon name="person" size={21} color={p.acd} />}
+    </Btn>
+  );
+}
 
 /** Equal actions at ordinary sizes; full-width answers when text needs room. */
 export function ActionRow({ children, testID }: { children: React.ReactNode; testID?: string }) {
@@ -41,17 +85,19 @@ export function BackButton({ label, onPress }: { label: string; onPress: () => v
  *   Notice        one line of context with, at most, one action
  */
 
-export function ScreenHeader({ eyebrow, title, end, eyebrowTestID }: {
+export function ScreenHeader({ eyebrow, title, end, eyebrowTestID, brand = true }: {
   eyebrow?: string | undefined;
   title: string;
   end?: React.ReactNode;
   eyebrowTestID?: string | undefined;
+  /** The wordmark above the title. The Stitch tab roots go without it. */
+  brand?: boolean;
 }) {
   const { p } = useApp();
   const compact = useLayoutMode() !== 'normal';
   return (
     <View style={{ gap: 16 }}>
-      {!compact ? <BrandLockup /> : null}
+      {!compact && brand ? <BrandLockup /> : null}
     {/* `flex-start` rather than `flex-end`: at the accessibility text sizes the
     title block stays start-aligned at accessibility sizes. */}
     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, paddingHorizontal: 4 }}>
@@ -62,7 +108,7 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID }: {
             below it wraps freely: it is the content, and it may take the room
             the reader asked for. Found on device at AX5, Round 2 Phase M. */}
         {eyebrow ? <Txt size={13} color={p.mu} lines={1} testID={eyebrowTestID}>{eyebrow}</Txt> : null}
-        <Txt role="page">{title}</Txt>
+        <Txt role="page" weight={700}>{title}</Txt>
       </View>
       {end ?? null}
     </View>
@@ -105,7 +151,15 @@ export function SectionLabel({ children, testID }: { children: string; testID?: 
   return <Txt role="label" color={p.mu} testID={testID} style={{ paddingHorizontal: 4, paddingTop: 6, paddingBottom: 2 }}>{children}</Txt>;
 }
 
-export type TagKind = 'proposal' | 'saved' | 'started' | 'fixed' | 'estimated' | 'must' | 'should' | 'muted';
+export type TagKind = 'proposal' | 'saved' | 'started' | 'fixed' | 'estimated' | 'must' | 'should' | 'muted' | 'important' | 'nice';
+
+/**
+ * The chip for an importance (Stitch): «لازم» coral, «مهم» amber, «حلو» green.
+ * Every chip is a tint with solid text on it, the contrast-tested pairs.
+ */
+export function priorityTagKind(importance: 'must' | 'should' | 'nice' | null | undefined): TagKind {
+  return importance === 'must' ? 'must' : importance === 'should' ? 'important' : importance === 'nice' ? 'nice' : 'muted';
+}
 
 /**
  * A state, in a word. A proposal's tag is dashed in the proposal colour: it
@@ -119,9 +173,11 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
     started: { bg: p.acs, fg: p.acd, weight: 600 },
     fixed: { bg: p.sf2, fg: p.mu, weight: 400 },
     estimated: { bg: p.sf2, fg: p.mu, weight: 400 },
-    must: { bg: p.wms, fg: p.wm, weight: 600 },
+    must: { bg: p.acs, fg: p.acd, weight: 600 },
     should: { fg: p.mu, border: p.ln, weight: 400 },
     muted: { bg: p.sf2, fg: p.mu, weight: 400 },
+    important: { bg: p.wms, fg: p.wm, weight: 600 },
+    nice: { bg: p.successSoft, fg: p.success, weight: 600 },
   };
   const l = look[kind];
   return (
@@ -133,7 +189,7 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
       }}
     >
       {/* The testID sits on the text, so a test reads the word, not a box. */}
-      <Txt size={12} weight={l.weight} color={l.fg} testID={testID}>{label}</Txt>
+      <Txt size={13} weight={l.weight} color={l.fg} testID={testID}>{label}</Txt>
     </View>
   );
 }

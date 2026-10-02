@@ -63,7 +63,7 @@ export function ToastHost() {
         {toast.undo ? <Txt size={13} weight={600} color={p.acOnInk} testID="toast-undo">{t.undo}</Txt> : null}
         <View importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ width: 26, height: 26, alignItems: 'center', justifyContent: 'center' }}>
           <UndoRing left={left} track="rgba(255,255,255,0.25)" color={p.acOnInk} />
-          <Txt size={10} weight={600} color={p.onInk} align="center" lh={1.2} latin>{String(left)}</Txt>
+          <Txt size={12} weight={600} color={p.onInk} align="center" lh={1.2} latin>{String(left)}</Txt>
         </View>
       </Btn> : null}
     </Animated.View>

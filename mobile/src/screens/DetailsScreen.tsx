@@ -22,7 +22,7 @@ import { PlaceReminderSection } from '../features/places/PlaceReminderSection';
 import { dueApart, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { commitmentPrepTarget } from '../features/meetings/prepTargets';
 import { Btn, Card, Pill, Txt } from '../ui/primitives';
-import { ActionRow, BackButton, EmptyState, SectionLabel, Tag } from '../ui/chrome';
+import { ActionRow, BackButton, EmptyState, SectionLabel, Tag, priorityTagKind } from '../ui/chrome';
 import { Screen, ScreenScroll } from '../ui/screen';
 import { useReducedMotion } from '../ui/motion';
 
@@ -174,7 +174,7 @@ export function DetailsScreen() {
             {view ? (
               <>
                 <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                  <Tag kind={view.importance === 'must' ? 'must' : view.importance === 'should' ? 'should' : 'muted'} label={impLabel(view.importance, t)} testID="details-importance" />
+                  <Tag kind={priorityTagKind(view.importance)} label={impLabel(view.importance, t)} testID="details-importance" />
                   <Tag kind="muted" label={statusLabel(view, t)} testID="details-status" />
                   {category ? <Tag kind="should" label={strings[CATEGORY_LABEL[category]]!} /> : null}
                 </View>

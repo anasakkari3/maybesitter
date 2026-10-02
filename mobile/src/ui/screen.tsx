@@ -9,6 +9,14 @@ import { ScreenIn } from './motion';
 export const ScreenTopInsetConsumedContext = createContext(false);
 
 /**
+ * What a tab root's last row has to clear before the bar has measured itself:
+ * the bar, the «احكيها» pill floating above it, and the home indicator
+ * (Stitch redesign, 2026-10-02). `Root` replaces it with the bar's measured
+ * height as soon as there is one.
+ */
+export const TAB_CLEARANCE = 170;
+
+/**
  * The screen shell — one owner of the top of the display (F1/F2, found on
  * device 2026-09-22).
  *
@@ -86,9 +94,9 @@ export function Screen({ pinned, children, footer, decoration, overlay, style, t
  * The ordinary scrolling body: the gutter, the gap and the bottom clearance
  * every screen was repeating, in one place.
  *
- * `bottom` defaults to a pushed screen's 60. A tab root passes 130, because
- * the floating tab bar is drawn over the screen and the last row has to clear
- * it.
+ * `bottom` defaults to a pushed screen's 60. A tab root passes the measured
+ * clearance (`TAB_CLEARANCE` until it is measured), because the bar and the
+ * pill are drawn over the screen and the last row has to clear them.
  */
 export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, automaticallyAdjustKeyboardInsets, style, scrollRef }: {
   children: React.ReactNode;

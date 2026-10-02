@@ -7,7 +7,7 @@ import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { ConflictError } from '../../api/errors';
 import { family } from '../../theme/fonts';
 import { Btn, Pill, Txt } from '../../ui/primitives';
-import { Tag, TextLink } from '../../ui/chrome';
+import { Tag, TextLink, priorityTagKind } from '../../ui/chrome';
 import { evidencePhrases } from './evidence';
 import { FeedbackFlagButton } from './FeedbackFlagButton';
 import { DEFER_PRESETS, postponeTo, type PostponePreset } from '../commitments/postpone';
@@ -242,7 +242,7 @@ function Ready({
                 <ReferenceIcon name="calendar" size={18} color={p.mu} />
                 <Txt size={14} color={p.mu} style={{ flex: 1 }} latin={!when?.dated} testID="next-step-when">{when?.text ?? t.noTimeYet}</Txt>
               </View>
-              {impLabel ? <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
+              {impLabel ? <Tag kind={priorityTagKind(item.importance)} label={impLabel} /> : null}
             </> : null}
             {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
           </View>

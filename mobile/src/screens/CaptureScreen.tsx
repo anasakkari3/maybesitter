@@ -250,10 +250,10 @@ export function CaptureScreen() {
           the importance only when it is «لازم». */}
       {shown.priority === 'high' ? <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
         <Txt size={12} color={p.wm} testID={`review-priority-${item.itemId}`}>{t.todayGroupMust}</Txt>
-        {shown.priorityEstimated ? <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt> : null}
+        {shown.priorityEstimated ? <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt> : null}
       </View> : null}
-      {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
-      {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
+      {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={12} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
+      {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={12} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
       {needsQuestion ? <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt> : null}
       {clashLines.map((line, index) => <View key={`clash-${index}`} testID={`review-conflict-${item.itemId}-${index}`} accessible accessibilityLabel={chatConflictA11y(line)}
         style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>

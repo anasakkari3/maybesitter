@@ -103,7 +103,7 @@ export function RoutineSettingsScreen({ onBack }: { onBack: () => void }) {
           onPress={() => void save()}
           style={{ backgroundColor: p.ac, borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
         >
-          <Txt size={16} weight={600} color="#FFFFFF">{t.memorySave}</Txt>
+          <Txt size={16} weight={600} color={p.onAccent}>{t.memorySave}</Txt>
         </Btn>
       </ScreenScroll>
     </Screen>

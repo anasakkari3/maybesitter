@@ -29,7 +29,7 @@ import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Txt } from '../ui/primitives';
-import { ActionRow, EmptyState, SectionLabel, Tag, TextLink } from '../ui/chrome';
+import { ActionRow, EmptyState, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
 import { CheckIcon, ChevronIcon } from '../ui/icons';
 import { isolateAuto } from '../i18n/bidi';
 import { occurrenceCovering, occurrencesAsBusy, useWeeklyOccurrences } from '../features/weeklyBlocks/occurrences';
@@ -37,7 +37,7 @@ import { hideWeeklyDuplicates } from '../features/weeklyBlocks/weeklyDeviceEvent
 import { useWeeklyEventIds } from '../features/weeklyBlocks/useWeeklyBlockDeviceSync';
 import { WeeklyOccurrenceRow } from '../features/weeklyBlocks/WeeklyOccurrenceRow';
 import type { WeeklyBlockOccurrence } from '../api/schemas/weeklyBlocks';
-import { Screen, ScreenScroll } from '../ui/screen';
+import { Screen, ScreenScroll, TAB_CLEARANCE } from '../ui/screen';
 import { ReferenceBackdrop, ReferenceCard, ReferenceHeader, ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
 
 /**
@@ -71,7 +71,7 @@ import { ReferenceBackdrop, ReferenceCard, ReferenceHeader, ReferenceIcon, useRe
  *
  * The primary card, and only when it has a reason worth giving.
  */
-export function TodayScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
+export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: number } = {}) {
   const { t, tr, lang, actions } = useApp();
   const p = useReferencePalette();
   const timezone = useTimeZone();
@@ -435,7 +435,7 @@ function FallbackCard({ item, strings, timezone, lang, busy }: {
           <ReferenceIcon name="bolt" size={20} color={p.acd} />
         </View>
         <Txt size={15} weight={600} color={p.tx} style={{ flexGrow: 1 }}>{t.nextStepLabel}</Txt>
-        <Tag kind={item.importance === 'must' ? 'must' : 'should'} label={impLabel} />
+        <Tag kind={priorityTagKind(item.importance)} label={impLabel} />
       </View>
       <Btn
         testID={`today-item-${item.id}`}

@@ -16,7 +16,7 @@ import { Btn, Pill, Txt } from '../ui/primitives';
 import { TaskHeader } from '../ui/taskHeader';
 import { AvoidKeyboard } from '../ui/keyboard';
 import { useAnnounceOnIos } from '../ui/announce';
-import { Tag, TextLink } from '../ui/chrome';
+import { Tag, TextLink, priorityTagKind } from '../ui/chrome';
 import { CheckIcon } from '../ui/icons';
 import { ScreenIn } from '../ui/motion';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
@@ -642,7 +642,7 @@ function ItemCard({
               scaleTo={0.97}
               style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
             >
-              <Txt size={11} color={p.mu}>{t.reviewDateEstimated}</Txt>
+              <Txt size={12} color={p.mu}>{t.reviewDateEstimated}</Txt>
             </Btn>
           ) : null}
           {/* The same mark for a guessed hour; a tap opens the edit sheet, where
@@ -657,21 +657,21 @@ function ItemCard({
               scaleTo={0.97}
               style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}
             >
-              <Txt size={11} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt>
+              <Txt size={12} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt>
             </Btn>
           ) : null}
-          {imp && impLabel && imp !== 'nice' ? <Tag kind={imp === 'must' ? 'must' : 'should'} label={impLabel} /> : null}
+          {imp && impLabel && imp !== 'nice' ? <Tag kind={priorityTagKind(imp)} label={impLabel} /> : null}
           {/* A guess named as one — and no longer a guess once the user has set
               it themselves. A level presented as a fact they stated is how a
               product loses the right to guess at all (#164). */}
           {item.priorityEstimated && edit?.priority === undefined ? (
             <View style={{ borderWidth: 1, borderStyle: 'dashed', borderColor: p.lnStrong, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 }}>
-              <Txt size={11} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
+              <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt>
             </View>
           ) : null}
           {docFacts?.page ? (
             <View style={{ backgroundColor: p.sf2, borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8 }} testID={`review-page-${item.itemId}`}>
-              <Txt size={11} color={p.mu}>{fill(t.syllabusPageChip, { page: docFacts.page })}</Txt>
+              <Txt size={12} color={p.mu}>{fill(t.syllabusPageChip, { page: docFacts.page })}</Txt>
             </View>
           ) : null}
           {needsQuestion ? (

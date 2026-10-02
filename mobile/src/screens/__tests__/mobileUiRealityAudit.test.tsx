@@ -14,6 +14,7 @@ import { ReviewScreen } from '../ReviewScreen';
 import { TodayScreen } from '../TodayScreen';
 import { CalendarScreen } from '../CalendarScreen';
 import { Txt } from '../../ui/primitives';
+import { TAB_CLEARANCE } from '../../ui/screen';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -85,10 +86,10 @@ describe('Mobile Pre-Launch UI Reality Audit Regressions', () => {
       expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(165);
     });
 
-    it('defaults TodayScreen scroll container padding to 130 when unprovided', async () => {
+    it('defaults TodayScreen scroll container padding to the bar-and-pill clearance when unprovided', async () => {
       await wrap(<TodayScreen />);
       const scroller = screen.getByTestId('today-scroll');
-      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(130);
+      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(TAB_CLEARANCE);
     });
 
     it('applies custom tabClearance to CalendarScreen scroll container padding', async () => {
@@ -97,10 +98,10 @@ describe('Mobile Pre-Launch UI Reality Audit Regressions', () => {
       expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(175);
     });
 
-    it('defaults CalendarScreen scroll container padding to 130 when unprovided', async () => {
+    it('defaults CalendarScreen scroll container padding to the bar-and-pill clearance when unprovided', async () => {
       await wrap(<CalendarScreen />);
       const scroller = screen.getByTestId('calendar-scroll');
-      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(130);
+      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(TAB_CLEARANCE);
     });
   });
 });

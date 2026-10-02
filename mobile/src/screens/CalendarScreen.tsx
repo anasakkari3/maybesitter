@@ -13,7 +13,7 @@ import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import type { DeviceBusyBlock } from '../features/calendar/busyBlocks';
 import { Notice } from '../ui/chrome';
-import { Screen, ScreenScroll } from '../ui/screen';
+import { Screen, ScreenScroll, TAB_CLEARANCE } from '../ui/screen';
 import { ChevronIcon, SettingsIcon } from '../ui/icons';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { groupUpcoming, toViewModel, type CommitmentView } from '../features/commitments/model';
@@ -66,7 +66,7 @@ import { WeeklyOccurrenceRow } from '../features/weeklyBlocks/WeeklyOccurrenceRo
  * stored plans (`GET /api/mobile/plans/week`); if that read fails, the strip
  * draws commitments where they are due, as it did before.
  */
-export function CalendarScreen({ tabClearance = 130 }: { tabClearance?: number } = {}) {
+export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: number } = {}) {
   const { s, t, lang, rtl, actions } = useApp();
   const p = useReferencePalette();
   const timezone = useTimeZone();
@@ -377,7 +377,7 @@ function CalendarLegend({ color, label, testID }: { color: string; label: string
   const p = useReferencePalette();
   return <View testID={testID} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
     <View accessible={false} style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
-    <Txt size={11} color={p.mu}>{label}</Txt>
+    <Txt size={12} color={p.mu}>{label}</Txt>
   </View>;
 }
 
@@ -423,7 +423,7 @@ function DayCell({
       scaleTo={0.94}
       style={{ ...(stacked ? { width: 62 * scale } : { flex: 1 }), minWidth: 44, alignItems: 'center', gap: 2, paddingTop: 7, paddingBottom: 8, paddingHorizontal: 3, borderRadius: 15, backgroundColor: selected ? p.sf2 : 'transparent', minHeight: 100 }}
     >
-      <Txt size={11} color={selected ? p.tx : p.mu} align="center" lines={1}>{formatDate(date, 'weekdayShort', options)}</Txt>
+      <Txt size={12} color={selected ? p.tx : p.mu} align="center" lines={1}>{formatDate(date, 'weekdayShort', options)}</Txt>
       <View style={{ minWidth: 36 * scale, minHeight: 36 * scale, borderRadius: 18 * scale, alignItems: 'center', justifyContent: 'center', backgroundColor: selected ? p.ac : 'transparent', borderWidth: isToday && !selected ? 1 : 0, borderColor: p.lnStrong }}>
         {/* `latin`: Noto Naskh's line box clips digits in a box this tight. */}
         <Txt size={16} weight={600} align="center" color={selected ? p.onAccent : p.tx} lh={1.25} latin>

@@ -362,7 +362,7 @@ export function ChatLanguage({ colors: p, label, accessibilityLabel, fontFamily,
   return <Pressable testID="voice-language" accessibilityRole="button" accessibilityLabel={accessibilityLabel}
     onPress={onPress} hitSlop={10} style={({ pressed }) => [styles.language, { backgroundColor: pressed ? p.sf2 : p.sf, borderColor: p.ln }]}>
     <ChatIcon name="globe" size={14} color={p.tx} />
-    <Text style={{ color: p.tx, fontFamily, fontSize: 11.5, lineHeight: 18, textAlign: 'center' }}>{label}</Text>
+    <Text style={{ color: p.tx, fontFamily, fontSize: 12, lineHeight: 18, textAlign: 'center' }}>{label}</Text>
   </Pressable>;
 }
 

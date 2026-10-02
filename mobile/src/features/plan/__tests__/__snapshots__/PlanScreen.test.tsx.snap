@@ -16,7 +16,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
     collapsable={false}
     style={
       {
-        "backgroundColor": "#F8F6F6",
+        "backgroundColor": "#0E1526",
         "flex": 1,
         "opacity": 0,
         "transform": [
@@ -99,8 +99,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 {
                   "alignItems": "center",
                   "alignSelf": "flex-start",
-                  "backgroundColor": "#FFFFFF",
-                  "borderColor": "rgba(20,24,27,0.08)",
+                  "backgroundColor": "#172036",
+                  "borderColor": "rgba(169,178,199,0.16)",
                   "borderRadius": 999,
                   "borderWidth": 1,
                   "flexDirection": "row",
@@ -165,7 +165,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     }
                     stroke={
                       {
-                        "payload": 4284637800,
+                        "payload": 4289311431,
                         "type": 0,
                       }
                     }
@@ -179,10 +179,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 style={
                   [
                     {
-                      "color": "#202122",
-                      "fontFamily": "NotoNaskhArabic_600SemiBold",
+                      "color": "#F3F5FA",
+                      "fontFamily": "NotoKufiArabic_600SemiBold",
                       "fontSize": 15,
-                      "lineHeight": 24,
+                      "lineHeight": 26,
                       "textAlign": "left",
                       "writingDirection": "rtl",
                     },
@@ -239,9 +239,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       gradient={
                         [
                           0,
-                          -6347970,
+                          -30070,
                           1,
-                          -4706487,
+                          -38037,
                         ]
                       }
                       gradientTransform={null}
@@ -271,7 +271,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     d="M24 38C35 27 46 24 60 29C61 45 56 60 49 60C40 60 30 44 24 38Z"
                     fill={
                       {
-                        "payload": 4279506971,
+                        "payload": 4294178298,
                         "type": 0,
                       }
                     }
@@ -298,10 +298,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               style={
                 [
                   {
-                    "color": "#202122",
-                    "fontFamily": "NotoNaskhArabic_600SemiBold",
+                    "color": "#F3F5FA",
+                    "fontFamily": "NotoKufiArabic_600SemiBold",
                     "fontSize": 28,
-                    "lineHeight": 45,
+                    "lineHeight": 48,
                     "textAlign": "left",
                     "writingDirection": "rtl",
                   },
@@ -348,10 +348,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 style={
                   [
                     {
-                      "color": "#626268",
-                      "fontFamily": "NotoNaskhArabic_400Regular",
+                      "color": "#A9B2C7",
+                      "fontFamily": "NotoKufiArabic_400Regular",
                       "fontSize": 15,
-                      "lineHeight": 24,
+                      "lineHeight": 26,
                       "textAlign": "left",
                       "writingDirection": "rtl",
                     },
@@ -367,10 +367,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               style={
                 [
                   {
-                    "color": "#626268",
-                    "fontFamily": "NotoNaskhArabic_400Regular",
+                    "color": "#A9B2C7",
+                    "fontFamily": "NotoKufiArabic_400Regular",
                     "fontSize": 13,
-                    "lineHeight": 21,
+                    "lineHeight": 22,
                     "textAlign": "left",
                     "writingDirection": "rtl",
                   },
@@ -387,10 +387,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               style={
                 [
                   {
-                    "color": "#626268",
-                    "fontFamily": "NotoNaskhArabic_600SemiBold",
+                    "color": "#A9B2C7",
+                    "fontFamily": "NotoKufiArabic_600SemiBold",
                     "fontSize": 13,
-                    "lineHeight": 21,
+                    "lineHeight": 22,
                     "textAlign": "left",
                     "writingDirection": "rtl",
                   },
@@ -415,9 +415,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 style={
                   [
                     {
-                      "backgroundColor": "#FFFFFF",
-                      "borderColor": "rgba(20,24,27,0.08)",
-                      "borderRadius": 24,
+                      "backgroundColor": "#172036",
+                      "borderColor": "rgba(169,178,199,0.16)",
+                      "borderRadius": 20,
                       "borderWidth": 1,
                       "padding": 0,
                     },
@@ -482,8 +482,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       [
                         {
-                          "color": "#202122",
-                          "fontFamily": "Outfit_600SemiBold",
+                          "color": "#F3F5FA",
+                          "fontFamily": "PlusJakartaSans_600SemiBold",
                           "fontSize": 13,
                           "lineHeight": 18,
                           "textAlign": "left",
@@ -502,7 +502,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "alignSelf": "stretch",
-                        "backgroundColor": "rgba(20,24,27,0.22)",
+                        "backgroundColor": "rgba(169,178,199,0.40)",
                         "borderRadius": 2,
                         "minHeight": 28,
                         "width": 2,
@@ -521,10 +521,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       style={
                         [
                           {
-                            "color": "#202122",
-                            "fontFamily": "NotoNaskhArabic_400Regular",
+                            "color": "#F3F5FA",
+                            "fontFamily": "NotoKufiArabic_400Regular",
                             "fontSize": 15,
-                            "lineHeight": 24,
+                            "lineHeight": 26,
                             "textAlign": "left",
                             "writingDirection": "rtl",
                           },
@@ -548,8 +548,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "Outfit_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "PlusJakartaSans_400Regular",
                               "fontSize": 12,
                               "lineHeight": 17,
                               "textAlign": "left",
@@ -565,10 +565,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "NotoNaskhArabic_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "NotoKufiArabic_400Regular",
                               "fontSize": 12,
-                              "lineHeight": 19,
+                              "lineHeight": 20,
                               "textAlign": "left",
                               "writingDirection": "rtl",
                             },
@@ -582,10 +582,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "NotoNaskhArabic_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "NotoKufiArabic_400Regular",
                               "fontSize": 12,
-                              "lineHeight": 19,
+                              "lineHeight": 20,
                               "textAlign": "left",
                               "writingDirection": "rtl",
                             },
@@ -603,9 +603,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 style={
                   [
                     {
-                      "backgroundColor": "#FFFFFF",
-                      "borderColor": "rgba(20,24,27,0.08)",
-                      "borderRadius": 24,
+                      "backgroundColor": "#172036",
+                      "borderColor": "rgba(169,178,199,0.16)",
+                      "borderRadius": 20,
                       "borderWidth": 1,
                       "padding": 0,
                     },
@@ -670,8 +670,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       [
                         {
-                          "color": "#202122",
-                          "fontFamily": "Outfit_600SemiBold",
+                          "color": "#F3F5FA",
+                          "fontFamily": "PlusJakartaSans_600SemiBold",
                           "fontSize": 13,
                           "lineHeight": 18,
                           "textAlign": "left",
@@ -690,7 +690,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "alignSelf": "stretch",
-                        "backgroundColor": "rgba(20,24,27,0.22)",
+                        "backgroundColor": "rgba(169,178,199,0.40)",
                         "borderRadius": 2,
                         "minHeight": 28,
                         "width": 2,
@@ -709,10 +709,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       style={
                         [
                           {
-                            "color": "#202122",
-                            "fontFamily": "NotoNaskhArabic_400Regular",
+                            "color": "#F3F5FA",
+                            "fontFamily": "NotoKufiArabic_400Regular",
                             "fontSize": 15,
-                            "lineHeight": 24,
+                            "lineHeight": 26,
                             "textAlign": "left",
                             "writingDirection": "rtl",
                           },
@@ -736,8 +736,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "Outfit_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "PlusJakartaSans_400Regular",
                               "fontSize": 12,
                               "lineHeight": 17,
                               "textAlign": "left",
@@ -753,10 +753,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "NotoNaskhArabic_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "NotoKufiArabic_400Regular",
                               "fontSize": 12,
-                              "lineHeight": 19,
+                              "lineHeight": 20,
                               "textAlign": "left",
                               "writingDirection": "rtl",
                             },
@@ -770,10 +770,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "NotoNaskhArabic_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "NotoKufiArabic_400Regular",
                               "fontSize": 12,
-                              "lineHeight": 19,
+                              "lineHeight": 20,
                               "textAlign": "left",
                               "writingDirection": "rtl",
                             },
@@ -791,9 +791,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 style={
                   [
                     {
-                      "backgroundColor": "#FFFFFF",
-                      "borderColor": "rgba(20,24,27,0.08)",
-                      "borderRadius": 24,
+                      "backgroundColor": "#172036",
+                      "borderColor": "rgba(169,178,199,0.16)",
+                      "borderRadius": 20,
                       "borderWidth": 1,
                       "padding": 0,
                     },
@@ -858,8 +858,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       [
                         {
-                          "color": "#202122",
-                          "fontFamily": "Outfit_600SemiBold",
+                          "color": "#F3F5FA",
+                          "fontFamily": "PlusJakartaSans_600SemiBold",
                           "fontSize": 13,
                           "lineHeight": 18,
                           "textAlign": "left",
@@ -878,7 +878,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "alignSelf": "stretch",
-                        "backgroundColor": "rgba(20,24,27,0.22)",
+                        "backgroundColor": "rgba(169,178,199,0.40)",
                         "borderRadius": 2,
                         "minHeight": 28,
                         "width": 2,
@@ -897,10 +897,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       style={
                         [
                           {
-                            "color": "#202122",
-                            "fontFamily": "NotoNaskhArabic_400Regular",
+                            "color": "#F3F5FA",
+                            "fontFamily": "NotoKufiArabic_400Regular",
                             "fontSize": 15,
-                            "lineHeight": 24,
+                            "lineHeight": 26,
                             "textAlign": "left",
                             "writingDirection": "rtl",
                           },
@@ -924,8 +924,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "Outfit_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "PlusJakartaSans_400Regular",
                               "fontSize": 12,
                               "lineHeight": 17,
                               "textAlign": "left",
@@ -941,10 +941,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "NotoNaskhArabic_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "NotoKufiArabic_400Regular",
                               "fontSize": 12,
-                              "lineHeight": 19,
+                              "lineHeight": 20,
                               "textAlign": "left",
                               "writingDirection": "rtl",
                             },
@@ -958,10 +958,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                         style={
                           [
                             {
-                              "color": "#626268",
-                              "fontFamily": "NotoNaskhArabic_400Regular",
+                              "color": "#A9B2C7",
+                              "fontFamily": "NotoKufiArabic_400Regular",
                               "fontSize": 12,
-                              "lineHeight": 19,
+                              "lineHeight": 20,
                               "textAlign": "left",
                               "writingDirection": "rtl",
                             },
@@ -980,9 +980,9 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
               style={
                 [
                   {
-                    "backgroundColor": "#FFFFFF",
-                    "borderColor": "rgba(20,24,27,0.08)",
-                    "borderRadius": 24,
+                    "backgroundColor": "#172036",
+                    "borderColor": "rgba(169,178,199,0.16)",
+                    "borderRadius": 20,
                     "borderWidth": 1,
                     "padding": 0,
                   },
@@ -1047,10 +1047,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   style={
                     [
                       {
-                        "color": "#202122",
-                        "fontFamily": "NotoNaskhArabic_600SemiBold",
+                        "color": "#F3F5FA",
+                        "fontFamily": "NotoKufiArabic_600SemiBold",
                         "fontSize": 15,
-                        "lineHeight": 24,
+                        "lineHeight": 26,
                         "textAlign": "left",
                         "writingDirection": "rtl",
                       },
@@ -1064,10 +1064,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   style={
                     [
                       {
-                        "color": "#626268",
-                        "fontFamily": "NotoNaskhArabic_400Regular",
+                        "color": "#A9B2C7",
+                        "fontFamily": "NotoKufiArabic_400Regular",
                         "fontSize": 13,
-                        "lineHeight": 21,
+                        "lineHeight": 22,
                         "textAlign": "left",
                         "writingDirection": "rtl",
                       },
@@ -1098,7 +1098,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   <View
                     style={
                       {
-                        "backgroundColor": "#B82F49",
+                        "backgroundColor": "#FF6B6B",
                         "borderRadius": 3,
                         "height": 6,
                         "marginTop": 8,
@@ -1110,10 +1110,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       [
                         {
-                          "color": "#626268",
-                          "fontFamily": "NotoNaskhArabic_400Regular",
+                          "color": "#A9B2C7",
+                          "fontFamily": "NotoKufiArabic_400Regular",
                           "fontSize": 14,
-                          "lineHeight": 22,
+                          "lineHeight": 24,
                           "textAlign": "left",
                           "writingDirection": "rtl",
                         },
@@ -1131,15 +1131,15 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   style={
                     [
                       {
-                        "color": "#626268",
-                        "fontFamily": "NotoNaskhArabic_400Regular",
+                        "color": "#A9B2C7",
+                        "fontFamily": "NotoKufiArabic_400Regular",
                         "fontSize": 12,
-                        "lineHeight": 19,
+                        "lineHeight": 20,
                         "textAlign": "left",
                         "writingDirection": "rtl",
                       },
                       {
-                        "borderTopColor": "rgba(20,24,27,0.08)",
+                        "borderTopColor": "rgba(169,178,199,0.16)",
                         "borderTopWidth": 1,
                         "paddingTop": 8,
                       },
@@ -1198,7 +1198,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                   style={
                     {
                       "alignItems": "center",
-                      "backgroundColor": "#B82F49",
+                      "backgroundColor": "#FF6B6B",
                       "borderColor": undefined,
                       "borderRadius": 999,
                       "borderWidth": 0,
@@ -1219,10 +1219,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       [
                         {
-                          "color": "#FFFFFF",
-                          "fontFamily": "NotoNaskhArabic_600SemiBold",
+                          "color": "#0E1526",
+                          "fontFamily": "NotoKufiArabic_600SemiBold",
                           "fontSize": 17,
-                          "lineHeight": 27,
+                          "lineHeight": 29,
                           "textAlign": "center",
                           "writingDirection": "rtl",
                         },
@@ -1284,8 +1284,8 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     style={
                       {
                         "alignItems": "center",
-                        "backgroundColor": "#FFFFFF",
-                        "borderColor": "rgba(20,24,27,0.08)",
+                        "backgroundColor": "#172036",
+                        "borderColor": "rgba(169,178,199,0.16)",
                         "borderRadius": 999,
                         "borderWidth": 1,
                         "justifyContent": "center",
@@ -1305,10 +1305,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       style={
                         [
                           {
-                            "color": "#202122",
-                            "fontFamily": "NotoNaskhArabic_600SemiBold",
+                            "color": "#F3F5FA",
+                            "fontFamily": "NotoKufiArabic_600SemiBold",
                             "fontSize": 14,
-                            "lineHeight": 22,
+                            "lineHeight": 24,
                             "textAlign": "center",
                             "writingDirection": "rtl",
                           },
@@ -1383,10 +1383,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       style={
                         [
                           {
-                            "color": "#626268",
-                            "fontFamily": "NotoNaskhArabic_600SemiBold",
+                            "color": "#A9B2C7",
+                            "fontFamily": "NotoKufiArabic_600SemiBold",
                             "fontSize": 14,
-                            "lineHeight": 22,
+                            "lineHeight": 24,
                             "textAlign": "center",
                             "writingDirection": "rtl",
                           },
@@ -1403,10 +1403,10 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                 style={
                   [
                     {
-                      "color": "#626268",
-                      "fontFamily": "NotoNaskhArabic_400Regular",
+                      "color": "#A9B2C7",
+                      "fontFamily": "NotoKufiArabic_400Regular",
                       "fontSize": 13,
-                      "lineHeight": 21,
+                      "lineHeight": 22,
                       "textAlign": "left",
                       "writingDirection": "rtl",
                     },
