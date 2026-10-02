@@ -1452,6 +1452,8 @@
   "seedsLede": "Things you have not decided on. Nothing here is on your day.",
   "seedsNotCommitment": "This is not a commitment yet.",
   "seedsEmpty": "Nothing here yet.",
+  "seedsEmptyHint": "Say an idea you have not decided on, like “maybe I’ll apply to…”. It only becomes a commitment if you confirm it.",
+  "seedsEmptyCta": "Say an idea",
   "seedsOpen": "Considering / Waiting",
   "seedReviewTitle": "Something you are turning over",
   "seedKeep": "Keep",

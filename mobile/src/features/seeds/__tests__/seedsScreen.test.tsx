@@ -16,7 +16,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppProvider } from '../../../state/AppContext';
+import { Text } from 'react-native';
+import { AppProvider, useApp } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
@@ -83,6 +84,12 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
+/** Where the app is, so a test can see a press open the capture flow. */
+function ScreenProbe() {
+  const { s } = useApp();
+  return <Text testID="probe-screen">{s.screen}</Text>;
+}
+
 async function show(lang: 'en' | 'ar' | 'he' = 'en') {
   if (lang !== 'en') await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
   await render(
@@ -91,6 +98,7 @@ async function show(lang: 'en' | 'ar' | 'he' = 'en') {
         <AuthProvider repository={repository} isDevBundle={false}>
           <QueryClientProvider client={client}>
             <SeedsScreen onBack={() => {}} />
+            <ScreenProbe />
           </QueryClientProvider>
         </AuthProvider>
       </AppProvider>
@@ -199,5 +207,32 @@ describe('the Considering / Waiting screen', () => {
     await waitFor(() => expect(screen.queryByTestId('seeds-empty')).not.toBeNull());
     expect(screen.queryByTestId('seed-p')).toBeNull();
     expect(screen.queryByTestId('seed-d')).toBeNull();
+  });
+});
+
+/**
+ * The empty list is a door, not a dead end (audit 2026-10-03, #13).
+ *
+ * «عم تفكّر فيه» with nothing in it said «ما في إشي هون لهلّق» and «هاد لسّا
+ * مش التزام» and offered no way to add anything. Ideas reach this list through
+ * «احكيها» (the seed detector runs on capture), so the empty state opens it.
+ */
+describe('the empty list', () => {
+  it.each(['ar', 'en', 'he'] as const)('%s: offers «احكي فكرة», which opens the capture flow', async (lang) => {
+    jest.spyOn(seedEndpoints, 'listSeeds').mockResolvedValue({ items: [] } as never);
+    await show(lang);
+    const bundle = { ar, en, he }[lang];
+    await waitFor(() => expect(screen.queryByTestId('seeds-empty')).not.toBeNull());
+    expect(screen.getByText(bundle.seedsEmptyHint)).not.toBeNull();
+    // Still says it is not a commitment: the door does not change what a seed is.
+    expect(screen.getByTestId('seeds-not-commitment').props.children).toBe(bundle.seedsNotCommitment);
+
+    expect(screen.getByTestId('probe-screen').props.children).not.toBe('capture');
+    await fireEvent.press(screen.getByLabelText(bundle.seedsEmptyCta));
+    await waitFor(() => expect(screen.getByTestId('probe-screen').props.children).toBe('capture'));
+  });
+
+  it('says «احكي فكرة» in Arabic', () => {
+    expect(ar.seedsEmptyCta).toBe('احكي فكرة');
   });
 });
