@@ -1662,5 +1662,9 @@
   "chatConflictWith": "Clashes with \"{title}\" {when}",
   "chatSaved": "Saved ✓ {titles}",
   "chatSavedNext": "Anything else? Tell me.",
-  "chatDone": "Done"
+  "chatDone": "Done",
+  "chatProposedN": "Suggested commitments ({n})",
+  "chatSaveN": "{n, plural, =0{Nothing to save} one{Save it} =2{Save both} other{Save all #}}",
+  "chatWillSave": "Save this",
+  "chatListening": "Listening…"
 }
