@@ -9,7 +9,9 @@ export type IconName =
   | 'grid' | 'sliders' | 'target' | 'video' | 'laptop' | 'plus' | 'sparkles'
   | 'bolt' | 'check' | 'close' | 'logo'
   // The Stitch bar and hubs (2026-10-02).
-  | 'today' | 'shapes' | 'radar' | 'flag' | 'repeat' | 'clipboard' | 'eye' | 'person';
+  | 'today' | 'shapes' | 'radar' | 'flag' | 'repeat' | 'clipboard' | 'eye' | 'person'
+  // Today, the details screen and the banners (Stitch lane A).
+  | 'football' | 'cloud-off' | 'refresh' | 'alert' | 'archive' | 'trash' | 'pencil' | 'chevron-up';
 
 export interface IconProps {
   name: string;
@@ -26,6 +28,31 @@ export function ReferenceIcon({ name, size = 24, color: requestedColor, strokeWi
   const solid = { fill: color, stroke: 'none' };
   let content: React.ReactNode;
   switch (name) {
+    case 'football':
+      // A ball: a pentagon at the centre and the seams out to the rim.
+      content = <><Circle cx={12} cy={12} r={9.5} /><Path d="m12 8.2 3.6 2.6-1.4 4.2H9.8l-1.4-4.2Z" /><Path d="M12 8.2V2.6M15.6 10.8l5.3-1.8M14.2 15l3.3 4.6M9.8 15l-3.3 4.6M8.4 10.8 3.1 9" /></>;
+      break;
+    case 'cloud-off':
+      content = <><Path d="M7.5 19h9.7a3.8 3.8 0 0 0 1.4-7.3A6 6 0 0 0 8.2 8.4M5.6 10.6A4.3 4.3 0 0 0 7.5 19" /><Path d="m3 3 18 18" /></>;
+      break;
+    case 'refresh':
+      content = <Path d="M20 11.5A8 8 0 1 0 17.7 17M20 4.5v7h-7" />;
+      break;
+    case 'alert':
+      content = <><Path d="M10.3 3.9 2.5 17.6A2 2 0 0 0 4.2 20.6h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><Path d="M12 9.5v4.2" /><Circle {...solid} cx={12} cy={17} r={1.1} /></>;
+      break;
+    case 'archive':
+      content = <><Rect x={3} y={4} width={18} height={5} rx={1.2} /><Path d="M5 9v9.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V9M10 13h4" /></>;
+      break;
+    case 'trash':
+      content = <Path d="M4 6.5h16M9.5 6.5V4.2h5v2.3M6.2 6.5l.9 12.6A1.5 1.5 0 0 0 8.6 20.5h6.8a1.5 1.5 0 0 0 1.5-1.4l.9-12.6M10 10.5v6M14 10.5v6" />;
+      break;
+    case 'pencil':
+      content = <Path d="M4 20h4L19.3 8.7a2.1 2.1 0 0 0 0-3L18.3 4.7a2.1 2.1 0 0 0-3 0L4 16Z M13.5 6.5l4 4" />;
+      break;
+    case 'chevron-up':
+      content = <Path d="m6 15 6-6 6 6" />;
+      break;
     case 'person':
       content = <><Circle cx={12} cy={7.5} r={3.5} /><Path d="M4.5 21v-2a7.5 7.5 0 0 1 15 0v2" /></>;
       break;
