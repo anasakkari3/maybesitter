@@ -124,23 +124,26 @@ export function isAppointmentNotMeeting(title: string): boolean {
   return isMeetingLike(title) && !namesMeeting(title);
 }
 
-function targetFor(title: string, startAt: string, endAt: string | null): MeetingPrepTarget {
+function targetFor(title: string, startAt: string, endAt: string | null, commitmentId?: string): MeetingPrepTarget {
   return {
     startAt,
     endAt: endAt && Date.parse(endAt) > Date.parse(startAt) ? endAt : null,
     ...(isAppointmentNotMeeting(title) ? { appointment: true } : {}),
+    // The person's own commitment, so the server can read what it is (audit
+    // 2026-10-03 #3: an exam gets a day of lead). Never a calendar block's.
+    ...(commitmentId ? { commitmentId } : {}),
   };
 }
 
 export function commitmentPrepTarget(
-  commitment: Pick<Commitment, 'title' | 'status' | 'timeSpec'>,
+  commitment: Pick<Commitment, 'title' | 'status' | 'timeSpec'> & { id?: string },
   now: Date,
 ): MeetingPrepTarget | null {
   if (commitment.status !== 'active') return null;
   const { kind, dueAt, endAt, allDay } = commitment.timeSpec;
   if (!dueAt || allDay || !canPrepareFor(dueAt, now)) return null;
   if (kind !== 'scheduled_event' && !isMeetingLike(commitment.title)) return null;
-  return targetFor(commitment.title, dueAt, endAt);
+  return targetFor(commitment.title, dueAt, endAt, commitment.id);
 }
 
 /**

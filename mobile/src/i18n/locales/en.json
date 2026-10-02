@@ -1038,6 +1038,8 @@
   "reviewPrepNoTime": "No time, so nothing will ring.",
   "reviewPrepAfterMeeting": "The new time isn't before the meeting.",
   "reviewPrepAfterAppointment": "The new time isn't before the appointment.",
+  "reviewPrepWhyDayBefore": "We picked your first free hour the day before, so there’s time to go over it.",
+  "reviewPrepWhyDayBeforeWithReview": "We picked your first free hour the day before, plus a quick review an hour before.",
   "reviewUntrusted": "Outside content",
   "detailsHistory": "Its history",
   "detailsClosedNote": "This one is finished. It stays in your history.",

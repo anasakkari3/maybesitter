@@ -544,7 +544,7 @@ export function usePrepareMeeting() {
   const timezone = useTimeZone();
   return useMutation({
     retry: false,
-    mutationFn: (input: { notes: string; startAt: string; endAt: string | null }) => prepareMeeting({ ...input, timezone, locale: apiLocale() }),
+    mutationFn: (input: { notes: string; startAt: string; endAt: string | null; commitmentId?: string }) => prepareMeeting({ ...input, timezone, locale: apiLocale() }),
   });
 }
 

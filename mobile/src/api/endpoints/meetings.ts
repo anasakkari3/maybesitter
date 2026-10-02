@@ -17,6 +17,12 @@ export function prepareMeeting(input: {
   timezone: string;
   /** The app's UI language: the steps are titled in it (owner request 2026-09-30). */
   locale?: Locale;
+  /**
+   * The person's own commitment it is for, when it is one (audit 2026-10-03
+   * #3): the server reads that commitment's title to give an exam a day of
+   * lead. Never sent for a calendar busy block.
+   */
+  commitmentId?: string;
 }): Promise<MeetingPrepResponse> {
   return apiRequest('POST', '/api/mobile/meetings/prepare', {
     body: {
@@ -25,6 +31,7 @@ export function prepareMeeting(input: {
       ...(input.endAt ? { endAt: input.endAt } : {}),
       timezone: input.timezone,
       ...(input.locale ? { locale: input.locale } : {}),
+      ...(input.commitmentId ? { commitmentId: input.commitmentId } : {}),
     },
     schema: meetingPrepResponseSchema,
   });

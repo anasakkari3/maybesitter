@@ -1041,6 +1041,8 @@
   "reviewPrepNoTime": "בלי שעה, אז שום דבר לא יצלצל.",
   "reviewPrepAfterMeeting": "השעה החדשה לא לפני הפגישה.",
   "reviewPrepAfterAppointment": "השעה החדשה לא לפני המועד.",
+  "reviewPrepWhyDayBefore": "בחרנו את השעה הפנויה הראשונה שלך יום לפני, כדי שיהיה זמן לעבור על החומר.",
+  "reviewPrepWhyDayBeforeWithReview": "בחרנו את השעה הפנויה הראשונה שלך יום לפני, ועוד חזרה קצרה שעה לפני.",
   "reviewUntrusted": "תוכן מבחוץ",
   "detailsHistory": "ההיסטוריה שלה",
   "detailsClosedNote": "זו הסתיימה. היא נשארת בהיסטוריה שלך.",

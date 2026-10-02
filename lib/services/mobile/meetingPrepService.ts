@@ -68,6 +68,9 @@ import { localDayKey, localMidnightOf, normalizeTimezone } from './time';
 import { hardSettingsOfUser, readReminderSettings } from './reminderSettingsService';
 import { dayPartHour, instantFromLocal } from '../../../src/extraction/timeLexicon';
 import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
+import { isTimedWindow, type DomainState } from '../../../src/domain/stateMachine';
+import { loadDomainState } from './participantState';
+import { namesPreparedEvent } from '../nextStepPreparation';
 
 /** How long before the meeting the prep step is due. */
 export const MEETING_PREP_LEAD_MINUTES = 60;
@@ -102,6 +105,14 @@ export interface MeetingPrepInput {
   timezone?: unknown;
   /** The phone's UI language, `'ar' | 'en' | 'he'`: the steps are titled in it (owner request 2026-09-30). */
   locale?: unknown;
+  /**
+   * The person's own commitment this prepares for, when it is one (audit
+   * 2026-10-03 #3). Its title — already theirs, already on the server — says
+   * whether it is an exam, which wants a day of lead, or a meeting, which
+   * wants an hour. Optional: a busy block has none, and an older phone sends
+   * none.
+   */
+  commitmentId?: unknown;
 }
 
 export interface ValidMeetingPrepInput {
@@ -110,6 +121,7 @@ export interface ValidMeetingPrepInput {
   readonly end: Date | null;
   readonly timezone: string;
   readonly locale?: CaptureAppLocale;
+  readonly commitmentId?: string;
 }
 
 /**
@@ -137,7 +149,12 @@ export function validateMeetingPrepInput(input: MeetingPrepInput, now: Date): Va
     throw new MeetingPrepInputError('meeting_too_far');
   }
   const locale = captureAppLocaleFrom(input.locale);
-  return { notes, start, end, timezone: normalizeTimezone(input.timezone), ...(locale ? { locale } : {}) };
+  const commitmentId = typeof input.commitmentId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(input.commitmentId)
+    ? input.commitmentId : undefined;
+  return {
+    notes, start, end, timezone: normalizeTimezone(input.timezone),
+    ...(locale ? { locale } : {}), ...(commitmentId ? { commitmentId } : {}),
+  };
 }
 
 function instant(value: unknown): Date | null {
@@ -185,6 +202,115 @@ export function schedulePrepAt(start: Date, now: Date, quietHours: QuietHours): 
   return { at: new Date(candidate), adjustment: 'quiet_hours_unavoidable' };
 }
 
+/**
+ * ── An exam is prepared for the day before, not an hour before ───
+ *
+ * Audit 2026-10-03 #3: «حضّرني» on tomorrow's 10:00 exam proposed one session
+ * at 09:00 on the day, with the whole afternoon before it free. An hour ahead
+ * is right for a meeting; for an exam, an interview or a presentation
+ * (`namesPreparedEvent`, on the person's own title or notes) that falls on a
+ * later day, the main session is the first free hour on the day before, and
+ * the hour-before step stays as a short review when there is room for both.
+ *
+ * "Free" is the person's own data only: not inside quiet hours, not over any
+ * of their timed commitments, between `DAY_WINDOW` hours, and never sooner
+ * than `SESSION_NOTICE` from now. Nothing found leaves the hour-before plan
+ * as it was.
+ */
+export const PREP_SESSION_MINUTES = 60;
+/** The day-before session starts no earlier than 08:00 and no later than 21:00, local. */
+const DAY_WINDOW = { firstHour: 8, lastStartHour: 21 } as const;
+/** A session is not proposed to start sooner than this from now. */
+const SESSION_NOTICE = 30 * MINUTE;
+const HALF_HOUR = 30 * MINUTE;
+
+export type PrepTimingKind = 'hour_before' | 'day_before';
+
+interface BusyInterval { readonly start: number; readonly end: number }
+
+/** The person's timed commitments as busy time, the event itself excepted. */
+export function busyIntervalsOf(state: DomainState, exceptId: string | undefined): BusyInterval[] {
+  return Object.values(state.commitments).flatMap((commitment): BusyInterval[] => {
+    if (commitment.id === exceptId || commitment.status !== 'active' || commitment.timeSpec.allDay || !commitment.timeSpec.dueAt) return [];
+    const start = Date.parse(commitment.timeSpec.dueAt);
+    if (!Number.isFinite(start)) return [];
+    // A window (a prep step done by its meeting) takes its session, not the
+    // whole run up to the meeting; anything else its own end, or an hour.
+    const ownEnd = !isTimedWindow(commitment.timeSpec) && commitment.timeSpec.endAt ? Date.parse(commitment.timeSpec.endAt) : Number.NaN;
+    return [{ start, end: Number.isFinite(ownEnd) && ownEnd > start ? ownEnd : start + PREP_SESSION_MINUTES * MINUTE }];
+  });
+}
+
+function localHourOf(at: number, timezone: string): number {
+  const hour = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', hourCycle: 'h23' }).format(new Date(at));
+  return Number(hour) % 24;
+}
+
+/** The first free `PREP_SESSION_MINUTES` on the local day `dayKey`, or null. */
+export function firstFreeSession(
+  dayKey: string,
+  timezone: string,
+  now: Date,
+  latestEnd: number,
+  quietHours: QuietHours,
+  busy: readonly BusyInterval[],
+): Date | null {
+  const midnight = Date.parse(localMidnightOf(dayKey, timezone));
+  const length = PREP_SESSION_MINUTES * MINUTE;
+  let at = Math.max(midnight, Math.ceil((now.getTime() + SESSION_NOTICE) / HALF_HOUR) * HALF_HOUR);
+  for (; at < midnight + 26 * 60 * MINUTE; at += HALF_HOUR) {
+    if (localDayKey(new Date(at), timezone) !== dayKey) {
+      if (at > midnight) break;
+      continue;
+    }
+    const hour = localHourOf(at, timezone);
+    if (hour < DAY_WINDOW.firstHour) continue;
+    if (hour > DAY_WINDOW.lastStartHour) break;
+    const end = at + length;
+    if (end > latestEnd) break;
+    if (isInQuietHours(quietHours, new Date(at)) || isInQuietHours(quietHours, new Date(end - MINUTE))) continue;
+    if (busy.some((interval) => interval.start < end && interval.end > at)) continue;
+    return new Date(at);
+  }
+  return null;
+}
+
+/**
+ * When to prepare: the main session, and the short review when there is one.
+ * `day_before` only for an event worth preparing for on a later day.
+ */
+export function planPrepSessions(input: {
+  start: Date;
+  now: Date;
+  timezone: string;
+  quietHours: QuietHours;
+  busy: readonly BusyInterval[];
+  preparedEvent: boolean;
+}): { kind: PrepTimingKind; main: { at: Date; adjustment: PrepAdjustment }; review: { at: Date; adjustment: PrepAdjustment } | null } {
+  const hourBefore = schedulePrepAt(input.start, input.now, input.quietHours);
+  const eventDay = localDayKey(input.start, input.timezone);
+  if (!input.preparedEvent || eventDay <= localDayKey(input.now, input.timezone)) {
+    return { kind: 'hour_before', main: hourBefore, review: null };
+  }
+  const dayBefore = localDayKey(new Date(Date.parse(localMidnightOf(eventDay, input.timezone)) - 12 * 60 * MINUTE), input.timezone);
+  const main = firstFreeSession(dayBefore, input.timezone, input.now, input.start.getTime() - PREP_SESSION_MINUTES * MINUTE, input.quietHours, input.busy);
+  if (!main) return { kind: 'hour_before', main: hourBefore, review: null };
+  // The review keeps the hour-before rule, when it is after the session and
+  // was not pushed out of shape by quiet hours it could not avoid.
+  const review = hourBefore.at.getTime() >= main.getTime() + PREP_SESSION_MINUTES * MINUTE
+    && hourBefore.adjustment !== 'quiet_hours_unavoidable' ? hourBefore : null;
+  return { kind: 'day_before', main: { at: main, adjustment: 'none' }, review };
+}
+
+/** The short review's title, in the app's language or the prep step's own script. */
+export function reviewTitle(prepTitle: string, locale: CaptureAppLocale | undefined): string {
+  const language = locale ?? (titleScript(prepTitle) as CaptureAppLocale | null) ?? 'en';
+  const title = language === 'ar' ? `مراجعة سريعة: ${prepTitle}`
+    : language === 'he' ? `חזרה קצרה: ${prepTitle}`
+      : `Quick review: ${prepTitle}`;
+  return Array.from(title).slice(0, MAX_MEETING_ACTION_LENGTH).join('');
+}
+
 export interface MeetingPrepSummary {
   /** Which item in `proposal.items` is the prep step. Always the first. */
   readonly itemId: string;
@@ -207,6 +333,15 @@ export interface MeetingPrepSummary {
   readonly adjustment: PrepAdjustment;
   readonly startAt: string;
   readonly endAt: string | null;
+  /**
+   * Why the prep step is when it is (audit 2026-10-03 #3): `hour_before`, the
+   * rule a meeting has always had; `day_before`, the first free hour the day
+   * before an exam-like event. Added for Review's "why this time" line; an
+   * older phone ignores it.
+   */
+  readonly timing: PrepTimingKind;
+  /** Every preparation session proposed, the prep step first. More than one only with `day_before`. */
+  readonly sessions: readonly { readonly itemId: string; readonly at: string }[];
 }
 
 export interface MeetingPrepResult {
@@ -667,7 +802,16 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   const quietHours = options.quietHours ?? await readQuietHours(uid, storageOption);
   const ringSettings = options.ringSettings ?? await readPrepRingSettings(uid, storageOption);
   const settings = options.softLeadMinutes === undefined ? ringSettings : { ...ringSettings, softLeadMinutes: options.softLeadMinutes };
-  const due = schedulePrepAt(valid.start, now, quietHours);
+  // The commitment's own title and the notes both say what it is; the
+  // person's other timed commitments are where a session cannot go.
+  const state = await loadDomainState(options.storage ?? getStorage(), uid);
+  const eventTitle = valid.commitmentId ? state.commitments[valid.commitmentId]?.title ?? '' : '';
+  const sessions = planPrepSessions({
+    start: valid.start, now, timezone: valid.timezone, quietHours,
+    busy: busyIntervalsOf(state, valid.commitmentId),
+    preparedEvent: namesPreparedEvent(eventTitle) || namesPreparedEvent(valid.notes),
+  });
+  const due = sessions.main;
   const timing = prepTiming(valid.start, due.at, now, settings, quietHours);
   const ringAt = timing.ringAt?.toISOString() ?? null;
 
@@ -716,6 +860,15 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   push(prepTitle, { resolvedTime: shownAt, timeEstimated: false }, {
     kind: 'due_by', dueAt: shownAt, endAt: timing.dueAt.toISOString(), remindAt: ringAt, allDay: false,
   });
+  // The short review an hour before (day-before plans only): the same kind
+  // of window, done by the start, ringing when the phone can.
+  if (sessions.review) {
+    const reviewAt = sessions.review.at.toISOString();
+    const reviewRing = prepTiming(valid.start, sessions.review.at, now, settings, quietHours).ringAt?.toISOString() ?? null;
+    push(reviewTitle(prepTitle, valid.locale), { resolvedTime: reviewAt, timeEstimated: false }, {
+      kind: 'due_by', dueAt: reviewAt, endAt: timing.dueAt.toISOString(), remindAt: reviewRing, allDay: false,
+    });
+  }
   for (const proposal of plan.followUps) {
     const found = whenByKey.get(`${proposal.candidate.action.toLowerCase()}\0${proposal.candidate.deadlineAt ?? ''}`);
     const when = found?.when ?? { kind: 'none' as const };
@@ -764,6 +917,8 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
       adjustment: due.adjustment,
       startAt: valid.start.toISOString(),
       endAt: valid.end?.toISOString() ?? null,
+      timing: sessions.kind,
+      sessions: items.slice(0, sessions.review ? 2 : 1).map((item) => ({ itemId: item.itemId, at: item.resolvedTime as string })),
     },
   };
 }

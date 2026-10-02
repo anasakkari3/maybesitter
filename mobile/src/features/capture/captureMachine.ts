@@ -114,6 +114,13 @@ export interface MeetingReviewContext {
   /** The prep step's item and the meeting's start, so Review can answer again after an edit (FX1). */
   readonly itemId?: string;
   readonly startAt?: string;
+  /**
+   * `day_before`: the step is the first free hour the day before an exam-like
+   * event (audit 2026-10-03 #3), and Review says why; `sessions` counts the
+   * proposed sessions (2 with the short review an hour before).
+   */
+  readonly timing?: 'day_before';
+  readonly sessions?: number;
 }
 
 /** Which input the user was offered first. */

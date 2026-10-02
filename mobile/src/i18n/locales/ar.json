@@ -1038,6 +1038,8 @@
   "reviewPrepNoTime": "بلا وقت، فما رح يرن إشي.",
   "reviewPrepAfterMeeting": "الوقت الجديد مش قبل الاجتماع.",
   "reviewPrepAfterAppointment": "الوقت الجديد مش قبل الموعد.",
+  "reviewPrepWhyDayBefore": "اخترنا أول وقت فاضي عندك قبل الموعد بيوم، حتى يضل في وقت تراجع.",
+  "reviewPrepWhyDayBeforeWithReview": "اخترنا أول وقت فاضي عندك قبل الموعد بيوم، ومراجعة سريعة قبله بساعة.",
   "reviewUntrusted": "محتوى من برّا",
   "detailsHistory": "تاريخها",
   "detailsClosedNote": "هاي خلصت. بتضل بتاريخك.",
