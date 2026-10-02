@@ -45,7 +45,8 @@
         "title": "Dentist",
         "startsAt": "2026-08-09T09:00:00.000Z",
         "endsAt": "2026-08-09T09:00:00.000Z",
-        "blockId": "block:commitment:plan_fixture_pinned"
+        "blockId": "block:commitment:plan_fixture_pinned",
+        "endEstimated": true
       }
     ],
     "inputsChanged": false,

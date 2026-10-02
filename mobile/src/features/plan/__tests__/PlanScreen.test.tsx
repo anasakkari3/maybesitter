@@ -1230,3 +1230,30 @@ describe('a plan that places nothing', () => {
     expect(screen.queryByTestId('plan-empty-accept')).toBeNull();
   });
 });
+
+/**
+ * Audit 2026-10-03 #11: «عندي امتحان رياضيات بكرا الساعة 10» stated no
+ * length, and the plan drew it «10:00–10:30 ثابت». The half hour is the
+ * planner's reservation; the server now says so (`endEstimated`).
+ */
+describe('a fixed row with no stated end', () => {
+  const EXAM = {
+    itemId: 'fx-exam', title: 'Math exam', blockId: null,
+    startsAt: '2026-08-09T07:00:00.000Z', endsAt: '2026-08-09T07:30:00.000Z',
+  };
+
+  it('shows its start alone and says the length is not known', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ fixed: [{ ...EXAM, endEstimated: true }] }) as never);
+    await loaded();
+    expect(screen.getByTestId('plan-fixed-when-fx-exam').props.children).not.toMatch(/–|-/);
+    expect(screen.getByTestId('plan-fixed-length-unknown-fx-exam').props.children).toBe(en.planLengthUnknown);
+    expect(screen.getByTestId('plan-fixed-text-fx-exam').props.accessibilityLabel).toContain(en.planLengthUnknown);
+  });
+
+  it('a stated end is still drawn as a range, with nothing added', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ fixed: [EXAM] }) as never);
+    await loaded();
+    expect(String(screen.getByTestId('plan-fixed-when-fx-exam').props.children)).toMatch(/–/);
+    expect(screen.queryByTestId('plan-fixed-length-unknown-fx-exam')).toBeNull();
+  });
+});

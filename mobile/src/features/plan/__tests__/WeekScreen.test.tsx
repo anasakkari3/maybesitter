@@ -213,6 +213,18 @@ describe('the week', () => {
     expect(row.props.accessibilityRole).toBe('text');
   });
 
+  // Audit 2026-10-03 #11: an exam with no stated length was drawn
+  // «10:00–10:30 ثابت». The recorded week's pinned row names no end either.
+  it('a fixed row with no stated end shows its start alone and says the length is not known', async () => {
+    await show();
+    const t = language();
+    const fixedDay = RECORDED.days.find(day => day.fixed.some(row => row.endEstimated === true))!;
+    const fixedRow = fixedDay.fixed.find(row => row.endEstimated === true)!;
+    expect(screen.getByTestId(`week-fixed-length-unknown-${fixedRow.itemId}`).props.children).toBe(t.planLengthUnknown);
+    expect(String(screen.getByTestId(`week-fixed-time-${fixedRow.itemId}`).props.children)).not.toMatch(/–/);
+    expect(screen.getByTestId(`week-fixed-${fixedRow.itemId}`).props.accessibilityLabel).toContain(t.planLengthUnknown);
+  });
+
   it('says a day with nothing on it is free rather than drawing it empty', async () => {
     await show();
     const t = language();

@@ -636,7 +636,10 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
   const prep = planItemPrepTarget(item, new Date());
   const stacked = useLayoutMode() !== 'normal';
   const start = new Date(item.startsAt);
-  const when = item.startsAt === item.endsAt
+  // An end nobody stated is the planner's reservation, not a fact (audit
+  // 2026-10-03 #11: «امتحان رياضيات» drawn 10:00–10:30): the start alone.
+  const estimated = item.endEstimated === true;
+  const when = item.startsAt === item.endsAt || estimated
     ? formatTime(start, { locale: lang, timeZone: zone })
     : formatTimeRange(start, new Date(item.endsAt), { locale: lang, timeZone: zone });
   const title = item.title ?? t.planRemovedItem;
@@ -647,7 +650,7 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
           testID={`plan-fixed-text-${item.itemId}`}
           accessible
           accessibilityRole="text"
-          accessibilityLabel={`${title}, ${when}, ${t.planItemFixed}`}
+          accessibilityLabel={`${title}, ${when}, ${estimated ? `${t.planLengthUnknown}, ` : ''}${t.planItemFixed}`}
           style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, paddingHorizontal: 18, paddingTop: 16, paddingBottom: prep ? 8 : 16, minHeight: 56 }}
         >
           <Txt size={13} weight={600} latin color={p.mu} testID={`plan-fixed-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
@@ -655,8 +658,9 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
           <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4, alignItems: 'flex-start' }}>
             <Txt size={15} weight={600}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <Txt size={13} color={p.mu} latin>{when}</Txt>
+              <Txt size={13} color={p.mu} latin testID={`plan-fixed-when-${item.itemId}`}>{when}</Txt>
               <Tag kind="fixed" label={t.planItemFixed} />
+              {estimated ? <Txt size={13} color={p.mu} testID={`plan-fixed-length-unknown-${item.itemId}`}>{t.planLengthUnknown}</Txt> : null}
             </View>
           </View>
         </View>

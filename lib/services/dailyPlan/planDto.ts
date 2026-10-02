@@ -46,6 +46,21 @@ export interface PlanItemDto {
    * there is no block to name and protection is therefore unavailable.
    */
   readonly blockId: string | null;
+  /**
+   * A fixed row only: the commitment names no end, so `endsAt` is the
+   * planner's reservation (`DEFAULT_FIXED_EVENT_MINUTES`), not a fact about
+   * it (audit 2026-10-03 #11: «امتحان رياضيات» drawn 10:00–10:30 «ثابت»
+   * though nobody said how long it takes). The client shows the start and
+   * says the length is not known. Absent when the end was stated.
+   */
+  readonly endEstimated?: true;
+}
+
+/** The commitment named no end: an `endsAt` drawn for it is the planner's guess. */
+export function endIsEstimated(commitment: Commitment | undefined): boolean {
+  if (!commitment) return false;
+  const { dueAt, endAt } = commitment.timeSpec;
+  return !endAt || !dueAt || !(Date.parse(endAt) > Date.parse(dueAt));
 }
 
 export interface UnplacedItemDto {
@@ -170,6 +185,7 @@ function fixedRowsOf(
       focusHint: null,
       builtAt: stored.generatedAt,
     }).constraints.fixedEvents;
+  const byId = new Map((commitments ?? []).map((commitment) => [commitment.id, commitment]));
   return pinnedEventsOnDay(events, stored.constraints.horizon)
     .flatMap((event) => {
       const itemId = event.sourceCommitmentId;
@@ -180,6 +196,7 @@ function fixedRowsOf(
         startsAt: event.interval.startsAt,
         endsAt: event.interval.endsAt,
         blockId: fixedBlockBySource.get(itemId) ?? null,
+        ...(endIsEstimated(byId.get(itemId)) ? { endEstimated: true as const } : {}),
       }];
     })
     .sort((left, right) => toEpochMs(left.startsAt) - toEpochMs(right.startsAt));

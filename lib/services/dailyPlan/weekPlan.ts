@@ -79,7 +79,7 @@ import {
   type DailyPlanDeps,
 } from './dailyPlanService';
 import { acceptPlan, effectiveSchedule } from './planActions';
-import { planToDto } from './planDto';
+import { endIsEstimated, planToDto } from './planDto';
 import { readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
 import { isPlanDate, localDateOf, planSettingsOf } from './planSettings';
 import { PLAN_PROPOSAL_DAYS, heldBySavedWeekDay, planDatesFrom } from './weekHolds';
@@ -500,6 +500,8 @@ export interface WeekRowDto {
   readonly title: string | null;
   readonly startsAt: string;
   readonly endsAt: string;
+  /** The commitment names no end: `endsAt` is the planner's reservation (`PlanItemDto.endEstimated`). */
+  readonly endEstimated?: true;
 }
 
 export interface WeekDayDto {
@@ -560,7 +562,10 @@ export function weekToDto(layout: WeekLayout): WeekDto {
             endsAt: row.endsAt,
             reason: reasonFor(byId.get(row.itemId), day.date, layout.today, layout.timezone),
           })),
-          fixed: dto.fixed.map((row) => ({ itemId: row.itemId, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt })),
+          fixed: dto.fixed.map((row) => ({
+            itemId: row.itemId, title: row.title, startsAt: row.startsAt, endsAt: row.endsAt,
+            ...(row.endEstimated ? { endEstimated: true as const } : {}),
+          })),
           allDay: allDayOn(day.date),
           unplaced: [],
         };
@@ -571,6 +576,7 @@ export function weekToDto(layout: WeekLayout): WeekDto {
           title: title(event.sourceCommitmentId),
           startsAt: event.interval.startsAt,
           endsAt: event.interval.endsAt,
+          ...(endIsEstimated(byId.get(event.sourceCommitmentId)) ? { endEstimated: true as const } : {}),
         }])
         .sort((left, right) => toEpochMs(left.startsAt) - toEpochMs(right.startsAt));
       return {

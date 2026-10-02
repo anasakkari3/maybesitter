@@ -31,6 +31,12 @@ export const planItemSchema = z.object({
    * be protected — which is the honest rendering of an old document.
    */
   blockId: z.string().nullable(),
+  /**
+   * A fixed row whose commitment names no end (audit 2026-10-03 #11):
+   * `endsAt` is the planner's reservation, not the event's length. Optional:
+   * an older server does not send it.
+   */
+  endEstimated: z.boolean().optional(),
 });
 
 /**
@@ -360,6 +366,8 @@ export const weekRowSchema = z.object({
   title: z.string().nullable(),
   startsAt: isoDateTime,
   endsAt: isoDateTime,
+  /** As `planItemSchema.endEstimated`: no end was stated, so only the start is a fact. */
+  endEstimated: z.boolean().optional(),
 });
 
 export const weekDaySchema = z.object({

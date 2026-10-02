@@ -1049,6 +1049,7 @@
   "planGeneratingSub": "حول مواعيدك، وضمن ساعاتك",
   "planWhyFallback": "رتّبناها حول مواعيدك وضمن ساعاتك.",
   "planItemFixed": "ثابت",
+  "planLengthUnknown": "المدة مش محددة",
   "planItemMovable": "بتتحرّك",
   "toastClose": "إغلاق",
   "settingsGroupYou": "أنت",

@@ -60,7 +60,8 @@
             "itemId": "plan_fixture_pinned",
             "title": "Dentist",
             "startsAt": "2026-08-09T09:00:00.000Z",
-            "endsAt": "2026-08-09T09:00:00.000Z"
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "endEstimated": true
           }
         ],
         "allDay": [],
@@ -107,7 +108,8 @@
             "itemId": "00000000-0000-4000-8000-000000000001",
             "title": "Send the report to Sami",
             "startsAt": "2026-08-09T09:00:00.000Z",
-            "endsAt": "2026-08-09T09:00:00.000Z"
+            "endsAt": "2026-08-09T09:00:00.000Z",
+            "endEstimated": true
           }
         ],
         "allDay": [
