@@ -595,6 +595,12 @@ type ConfirmInput = {
   edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
   /** The items kept as a weekly block («كل أسبوع»); see `confirmCapture`. */
   weeklyBlockItemIds?: string[];
+  /**
+   * The items whose goal link the person kept; see `confirmCapture`. Not part
+   * of the intent: the server links on a replay too, so a retried press with
+   * the same key still links what was kept.
+   */
+  goalLinkItemIds?: string[];
 };
 
 /**
@@ -647,6 +653,8 @@ export function useConfirmCapture() {
       invalidateCommitments(client, uid);
       // A confirm that kept a weekly block changed the blocks and their busy time.
       if ((confirmation.weeklyBlocks?.length ?? 0) > 0) invalidateWeeklyBlocks(client, uid);
+      // A kept goal link changed that goal's progress (audit 2026-10-03 #6).
+      if ((confirmation.goalLinks?.length ?? 0) > 0) void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
     },
   });
 }

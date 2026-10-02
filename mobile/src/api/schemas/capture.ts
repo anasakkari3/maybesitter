@@ -106,7 +106,20 @@ export const captureProposalSchema = z.object({
         startsAt: isoDateTime,
         endsAt: isoDateTime,
         kind: z.enum(['commitment', 'weekly', 'fixture', 'calendar_busy']),
+        /**
+         * The clash is with another card of this same list, not something
+         * already saved (audit 2026-10-03 #1). Optional: an older server
+         * never sends it.
+         */
+        inProposal: z.boolean().optional(),
       })).optional(),
+      /**
+       * One of the person's active goals this item looks like a step of
+       * (audit 2026-10-03 #6). The card shows it as «مرتبط بهدف …», kept by
+       * default and removable; the confirm names the items it is kept on in
+       * `goalLinkItemIds`. Optional: an older server sends nothing.
+       */
+      goalLink: z.object({ goalId: z.string(), title: z.string() }).optional(),
       /**
        * The one question to ask about this item (UC-2.5, #165).
        *
@@ -232,6 +245,11 @@ export const captureConfirmationSchema = z.object({
    * device event. Optional: an older server sends nothing.
    */
   weeklyBlocks: z.array(z.object({ itemId: z.string(), block: weeklyBlockSchema })).optional(),
+  /**
+   * The confirmed items now counted toward a goal (`goalLinkItemIds`).
+   * Optional: an older server sends nothing, and links nothing.
+   */
+  goalLinks: z.array(z.object({ itemId: z.string(), goalId: z.string(), commitmentId: z.string() })).optional(),
 });
 
 export type CaptureConfirmation = z.infer<typeof captureConfirmationSchema>;

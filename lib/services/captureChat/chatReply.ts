@@ -332,8 +332,8 @@ export function safeChatReply(reply: unknown, context: TemplateContext): { reply
 const SHAPE_NOTES: Readonly<Record<ChatLanguage, { goalSeed: string; goalLinkOne: string; goalLinkMany: string }>> = {
   ar: {
     goalSeed: '«{title}» هدف أكتر منه موعد، فهو تحت لحال: إذا بدك خلّيه.',
-    goalLinkOne: 'اقترحت تنحسب على هدفك «{goal}»، وفيك تشيل الربط من الكرت.',
-    goalLinkMany: 'اقترحت ينحسبوا على هدفك «{goal}»، وفيك تشيل الربط من الكروت.',
+    goalLinkOne: 'اقترحت تنحسب على هدفك «{goal}»، وبتقدر تشيل الربط من الكرت.',
+    goalLinkMany: 'اقترحت ينحسبوا على هدفك «{goal}»، وبتقدر تشيل الربط من الكروت.',
   },
   en: {
     goalSeed: '"{title}" sounds like a goal rather than an appointment, so it is below on its own: keep it if you want.',

@@ -15,6 +15,7 @@ import { Pop, ScreenIn } from '../ui/motion';
 import { UNDO_WINDOW_MS } from '../features/capture/captureMachine';
 import type { UndoOutcome } from '../features/capture/CaptureProvider';
 import { dayKeptWithoutTime } from '../features/capture/noTimeDay';
+import { collisionLines } from '../features/capture/savedCollisions';
 
 const TICK_MS = 1000;
 
@@ -173,11 +174,11 @@ export function SavedScreen() {
             and names what was already there so the user can decide. */}
         {state.collisions.length > 0 ? (
           <View style={{ alignSelf: 'stretch', gap: 6, marginTop: 4 }} testID="saved-collisions">
-            {state.collisions.map((collision) => (
-              <View key={collision.commitmentId} style={{ backgroundColor: p.wms, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
-                <Txt size={13} color={p.wm} testID={`saved-collision-${collision.commitmentId}`}>
-                  {fill(t.savedCollision, { title: collision.title, when: whenOf(collision.startsAt) })}
-                </Txt>
+            {/* One message, however many pairs the server reported (audit
+                2026-10-03 #1: six near-identical lines for three items). */}
+            {collisionLines(state.collisions, t, lang, whenOf).map((line, index) => (
+              <View key={index} style={{ backgroundColor: p.wms, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
+                <Txt size={13} color={p.wm} testID={`saved-collision-${index}`}>{line}</Txt>
               </View>
             ))}
           </View>
