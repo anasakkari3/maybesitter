@@ -73,6 +73,9 @@ export async function POST(request: Request) {
   if (result.outcome === 'already_planned') {
     return Response.json({ success: false, error: 'that day already has a plan', reason: 'already_planned', week }, { status: 409 });
   }
+  if (result.outcome === 'empty_day') {
+    return Response.json({ success: false, error: 'that day has nothing to plan', reason: 'empty_plan', week }, { status: 422 });
+  }
   if (result.outcome === 'week_changed') {
     return Response.json({ success: false, error: 'the week changed since it was shown', reason: 'week_changed', week }, { status: 409 });
   }

@@ -207,7 +207,7 @@ function PlanFrame({
 }
 
 function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; readOnly: boolean }) {
-  const { t, tr, p, lang } = useApp();
+  const { t, tr, p, lang, actions } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   const accept = usePlanAction(date);
   const replayEvent = useReplayEvent();
@@ -307,6 +307,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   useAnnounceOnIos(accepted && accept.isSuccess ? acceptedLine : null);
   const settled = accepted || plan.status === 'dismissed';
   const proposal = !settled;
+  // A plan that places nothing has nothing to accept (audit 2026-10-03 #4):
+  // «اقبل الخطة» under «ما في إشي محطوط بوقت اليوم» answered «حفظنا خطة
+  // اليوم» and counted a planned day. The server refuses it too
+  // (`placesNothing`); here the button is replaced by a way to add something.
+  const placesNothing = plan.scheduled.length === 0;
   // The explanation is rendered only in the language the app is showing.
   // The route says which language it wrote in; when that is not this one,
   // a templated sentence stands in rather than a paragraph the reader may
@@ -504,6 +509,21 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             <View style={{ alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 }}>
               <Txt size={13} weight={600} color={p.acd} testID="plan-accepted">{acceptedLine}</Txt>
             </View>
+          ) : placesNothing ? (
+            <Card pad={16} testID="plan-empty-accept">
+              <View style={{ gap: 12, alignItems: 'flex-start' }}>
+                <Txt size={14} color={p.tx} lh={1.5} testID="plan-empty-accept-body">{t.planNothingToAccept}</Txt>
+                <Pill
+                  label={t.tabCapture}
+                  size={15}
+                  pad={12}
+                  style={{ minHeight: 48 }}
+                  testID="plan-empty-capture"
+                  disabled={readOnly}
+                  onPress={() => actions.goCapture('tab', 'text')}
+                />
+              </View>
+            </Card>
           ) : (
             <Pill
               label={t.planAccept}

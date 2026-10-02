@@ -537,7 +537,9 @@ test('the rebuild cap is per date: an accepted week day is generation 1 of its o
   await withStorage(async (storage) => {
     await seed(storage);
     await save(storage, WEEK[2]!, NONE);
-    await save(storage, WEEK[3]!, NONE);
+    // A day with a step on it: a day the week places nothing on is not saved
+    // as a plan at all (audit 2026-10-03 #4), so it has no cap to test.
+    await save(storage, WEEK[1]!, NONE);
 
     for (let rebuild = 0; rebuild < MAX_PLAN_REBUILDS_PER_DAY; rebuild += 1) {
       const outcome = await regeneratePlan(USER, WEEK[2]!, { storage, now: () => MORNING });
@@ -546,7 +548,7 @@ test('the rebuild cap is per date: an accepted week day is generation 1 of its o
     const capped = await regeneratePlan(USER, WEEK[2]!, { storage, now: () => MORNING });
     assert.deepEqual(capped, { ok: false, reason: 'limit_reached' });
     // Another date's cap is its own.
-    assert.equal((await regeneratePlan(USER, WEEK[3]!, { storage, now: () => MORNING })).ok, true);
+    assert.equal((await regeneratePlan(USER, WEEK[1]!, { storage, now: () => MORNING })).ok, true);
     // A person's own rebuild is a daily plan again: the week's record goes with it.
     assert.equal((await readStoredPlan(USER, WEEK[2]!, storage))!.weekPlan, undefined);
   });

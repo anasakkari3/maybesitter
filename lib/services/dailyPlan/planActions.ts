@@ -88,7 +88,9 @@ export type PlanEditReason =
   | 'outside_working_window'
   | 'overlaps_fixed_event'
   | 'overlaps_scheduled_item'
-  | 'empty_edit';
+  | 'empty_edit'
+  /** Accepting a plan that places nothing (audit 2026-10-03 #4): there is nothing to accept. */
+  | 'empty_plan';
 
 export class PlanEditRejected extends Error {
   constructor(readonly reason: PlanEditReason, readonly itemId: string | null, message: string) {
@@ -227,16 +229,41 @@ function clockOf(options: PlanActionOptions): Date {
   return (options.now ?? (() => new Date()))();
 }
 
+/**
+ * Whether a plan places anything at all.
+ *
+ * Audit 2026-10-03 #4: «اعمل خطة اليوم» on a day with nothing to place said
+ * «ما في إشي محطوط بوقت اليوم», yet «اقبل الخطة» answered «حفظنا خطة اليوم»
+ * and «نشاطي» then counted «يوم واحد إله خطة» and «أول خطة قبلتها». A plan
+ * with no placed step is not a plan the person can accept, and it must never
+ * become a planned day or the first-plan moment.
+ */
+export function placesNothing(stored: StoredDailyPlan): boolean {
+  return effectiveSchedule(stored).length === 0;
+}
+
 export async function acceptPlan(uid: string, date: string, options: PlanActionOptions = {}): Promise<StoredDailyPlan | null> {
   const at = clockOf(options).toISOString();
-  const outcome = await mutateStoredPlan<null>(uid, date, (current) => ({
-    // `proposal: null` in the same transaction, assigned and not omitted —
-    // see `clearsProposal` above. Accepting *the plan* is a statement about
-    // the plan the user is looking at; a patch of it that was solved before
-    // they pressed the button is not part of what they accepted.
-    next: { ...current, status: 'accepted', acceptedAt: at, updatedAt: at, proposal: null },
-    result: null,
-  }), options.storage);
+  let empty = false;
+  const outcome = await mutateStoredPlan<null>(uid, date, (current) => {
+    // Refused inside the transaction, against the document as it is now — and
+    // recorded rather than thrown, as `editPlan` does: a thrown refusal would
+    // be retried by the adapter. Nothing is written: no status, no ledger
+    // entry, no activity counter.
+    if (placesNothing(current)) {
+      empty = true;
+      return null;
+    }
+    return {
+      // `proposal: null` in the same transaction, assigned and not omitted —
+      // see `clearsProposal` above. Accepting *the plan* is a statement about
+      // the plan the user is looking at; a patch of it that was solved before
+      // they pressed the button is not part of what they accepted.
+      next: { ...current, status: 'accepted', acceptedAt: at, updatedAt: at, proposal: null },
+      result: null,
+    };
+  }, options.storage);
+  if (empty) throw new PlanEditRejected('empty_plan', null, 'the plan places nothing, so there is nothing to accept');
   if (!outcome) return null;
   const { path, record } = preparePlanEvent(uid, {
     type: 'plan_accepted', date, at, generation: outcome.stored.generation, inputDigest: outcome.stored.inputDigest,

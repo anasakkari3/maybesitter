@@ -1199,3 +1199,34 @@ describe('a proposal says so once (UAT 2026-09-27, #17, shot 40)', () => {
     expect(Object.keys(en)).not.toContain('planStatusProposal');
   });
 });
+
+/**
+ * Audit 2026-10-03 #4: on a day with nothing placed, «اقبل الخطة» stayed
+ * active under «ما في إشي محطوط بوقت اليوم», and accepting it counted a
+ * planned day and the first-plan moment. There is nothing to accept.
+ */
+describe('a plan that places nothing', () => {
+  it('offers no accept — it offers a way to add something instead', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ scheduled: [], fixed: [], unscheduled: [] }) as never);
+    const act = jest.spyOn(planEndpoints, 'actOnPlan');
+    await loaded();
+    expect(screen.getByTestId('plan-nothing-placed')).toBeTruthy();
+    expect(screen.queryByTestId('plan-accept')).toBeNull();
+    expect(screen.getByTestId('plan-empty-accept-body').props.children).toBe(en.planNothingToAccept);
+    expect(screen.getByTestId('plan-empty-capture')).toBeTruthy();
+    expect(act).not.toHaveBeenCalled();
+  });
+
+  it('a day with only a fixed appointment has nothing to accept either', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ scheduled: [], unscheduled: [] }) as never);
+    await loaded();
+    expect(screen.queryByTestId('plan-accept')).toBeNull();
+    expect(screen.getByTestId('plan-empty-capture')).toBeTruthy();
+  });
+
+  it('a plan with a step on it keeps its accept', async () => {
+    await loaded();
+    expect(screen.getByTestId('plan-accept')).toBeTruthy();
+    expect(screen.queryByTestId('plan-empty-accept')).toBeNull();
+  });
+});

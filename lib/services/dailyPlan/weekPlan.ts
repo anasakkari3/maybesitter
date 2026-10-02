@@ -600,6 +600,8 @@ export function weekToDto(layout: WeekLayout): WeekDto {
 
 export type WeekAcceptOutcome =
   | { readonly outcome: 'accepted'; readonly stored: StoredDailyPlan; readonly layout: WeekLayout }
+  /** The day has no step to place: nothing was stored or accepted (audit 2026-10-03 #4). */
+  | { readonly outcome: 'empty_day'; readonly layout: WeekLayout }
   /** The date has a plan already; it is returned untouched. */
   | { readonly outcome: 'already_planned'; readonly stored: StoredDailyPlan; readonly layout: WeekLayout }
   /**
@@ -641,6 +643,9 @@ export async function acceptWeekDay(
   if (!day) throw new PlanDateOutOfRangeError(date, PLAN_PROPOSAL_DAYS);
   if (day.kind === 'stored') return { outcome: 'already_planned', stored: day.stored, layout };
   if (!sameSteps(day, shown)) return { outcome: 'week_changed', layout };
+  // A day the week places nothing on is not saved as a plan (audit
+  // 2026-10-03 #4): no document, no acceptance, no planned day in «نشاطي».
+  if (day.assignment.include.length === 0) return { outcome: 'empty_day', layout };
 
   const onThisDay = new Set(day.assignment.include);
   const origin: WeekPlanOrigin = {

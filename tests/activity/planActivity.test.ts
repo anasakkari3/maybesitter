@@ -606,6 +606,8 @@ test('deleting the participant’s data leaves no plan, history or first-plan Mo
     await appendPlanEvent(OWNER, {
       type: 'plan_accepted', date: '2026-09-10', at: '2026-09-10T05:00:00.000Z', generation: 1, inputDigest: 'legacy',
     });
+    // A plan that places something: an empty one cannot be accepted (audit 2026-10-03 #4).
+    await seedTask(STRANGER, 's1', '2026-09-14T03:00:00.000Z');
     await buildPlan(STRANGER, '2026-09-14', '2026-09-14T04:00:00.000Z');
     await acceptPlan(STRANGER, '2026-09-14', { now: () => new Date('2026-09-14T05:00:00.000Z') });
 

@@ -777,6 +777,7 @@
   "planWrittenByAssistant": "The assistant wrote this sentence.",
   "planOrderTitle": "The order of the day",
   "planNothingPlaced": "Nothing is placed at a time today.",
+  "planNothingToAccept": "There’s nothing to arrange today, so there’s no plan to accept. Tell us what you want to do, and we’ll find it a time.",
   "planInputsChanged": "Things changed since this plan. “New plan” adds them.",
   "planDayOver": "Today's hours are over. Let's set up tomorrow.",
   "planBuildTomorrowCta": "Build tomorrow's plan",
