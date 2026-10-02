@@ -128,7 +128,7 @@ function TabItem({ label, testID, icon, on, iconsOnly, p, onPress, onOverflow }:
     >
       <View
         onLayout={(e: LayoutChangeEvent) => setSlot(e.nativeEvent.layout.width)}
-        style={{ alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 4, paddingHorizontal: 4, borderRadius: 16, backgroundColor: on ? p.acs : 'transparent' }}
+        style={{ alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 4, paddingHorizontal: 4, borderRadius: 16, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}
       >
         <ReferenceIcon name={icon} size={22} color={color} />
         {iconsOnly ? null : (
