@@ -329,7 +329,7 @@
   "obRoutineSaveLost": "Nothing was saved. Not to your account, and not on this phone.",
   "obRoutineStorageKept": "This phone would not keep a copy of your answers. Your account still has them.",
   "obNotifTitle": "Reminders, when you want them",
-  "obNotifBody": "MaybeSitter can remind you at the times you chose, and never during your quiet hours. When you tap Start, your phone will ask whether to allow notifications. You can change your mind later in Settings.",
+  "obNotifBody": "MaybeSitter can remind you at the times you chose, and never during your quiet hours. When you tap Start, your phone will ask whether to allow notifications. If you change your mind later, you can change it in your phone's settings.",
   "obNotifLater": "Later",
   "obDone": "Start",
   "obStepOf": "Step {current} of {total}",

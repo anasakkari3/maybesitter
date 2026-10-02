@@ -8,9 +8,10 @@
  * Settings. But gentle reminders default *on* at the server, so the switch
  * already showed on, nobody touched it, and the iOS prompt never appeared —
  * reminders were scheduled for a phone that had never been allowed to show
- * one. `permission.ts` explains why cold start and onboarding are the wrong
- * moments. The right one is the moment somebody has just confirmed a
- * commitment *with a time*: there is now a specific thing to be reminded
+ * one. Cold start is the wrong moment; onboarding's reminders step asks on
+ * «يلا نبلّش», but «بعدين» and an account that skips onboarding never see
+ * it. This is the other right moment: somebody has just confirmed a
+ * commitment *with a time*, there is now a specific thing to be reminded
  * about, and the question answers itself.
  *
  * ── Listening, not wiring into the capture flow ──────────────────
@@ -23,8 +24,10 @@
  *
  * ── Once ─────────────────────────────────────────────────────────
  *
- * `requestNotificationPermission` only prompts when the phone says
- * `undetermined`, so after one answer this is a status read. The session flag
+ * `requestNotificationPermission` only prompts while the phone would still
+ * show its prompt (`canPromptFrom` — on Android 13+ that includes a
+ * never-asked permission the OS reports as `denied`, review of #7), so after
+ * a final answer this is a status read. The session flag
  * stops even that read from repeating on every later confirm, and an account
  * that turned reminders off is not asked at all.
  */
@@ -54,6 +57,8 @@ export function resetFirstMomentPromptForTests(): void {
 export async function askAtFirstMoment(remindersWanted: boolean): Promise<void> {
   if (askedThisSession || !remindersWanted) return;
   askedThisSession = true;
+  // `undetermined` here includes Android 13+'s never-asked `denied`
+  // (`getNotificationPermission`); a final no stays `denied` and is not asked.
   if ((await getNotificationPermission()) !== 'undetermined') return;
   // A yes goes to the server now, not at the next cold launch.
   await refreshPushAfterPrompt('undetermined', await requestNotificationPermission());

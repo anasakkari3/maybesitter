@@ -12,6 +12,8 @@ import { join } from 'path';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { cleanup, render, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
+import { Platform } from 'react-native';
+import * as notifications from 'expo-notifications';
 import * as permission from '../permission';
 import * as deviceEndpoints from '../../api/endpoints/devices';
 import * as messaging from '@react-native-firebase/messaging';
@@ -126,5 +128,36 @@ describe('where it runs', () => {
   it('is mounted for the whole signed-in session, by RemindersMount', () => {
     const source = readFileSync(join(__dirname, '..', '..', 'features', 'reminders', 'RemindersMount.tsx'), 'utf8');
     expect(source).toMatch(/useNotificationPromptAtFirstMoment\(queryClient,/);
+  });
+});
+
+/**
+ * Review of #7: on Android 13+ a never-asked POST_NOTIFICATIONS reads `denied`
+ * with `canAskAgain`. The first-moment prompt required `undetermined`, so it
+ * never fired there — for somebody who tapped «بعدين» in onboarding, or a
+ * returning account that skips onboarding. Driven through the native module.
+ */
+describe('on Android 13+', () => {
+  it('asks a phone that has never been asked, which Android reports as denied', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    (permission.getNotificationPermission as jest.Mock).mockRestore?.();
+    (permission.requestNotificationPermission as jest.Mock).mockRestore?.();
+    jest.spyOn(notifications, 'getPermissionsAsync')
+      .mockResolvedValue({ status: 'denied', granted: false, canAskAgain: true, expires: 'never', android: { importance: 3 } } as never);
+    const request = jest.spyOn(notifications, 'requestPermissionsAsync')
+      .mockResolvedValue({ status: 'granted', granted: true, canAskAgain: true, expires: 'never' } as never);
+    await run([confirmation]);
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  });
+
+  it('does not ask a phone that blocked the prompt', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    (permission.getNotificationPermission as jest.Mock).mockRestore?.();
+    (permission.requestNotificationPermission as jest.Mock).mockRestore?.();
+    jest.spyOn(notifications, 'getPermissionsAsync')
+      .mockResolvedValue({ status: 'denied', granted: false, canAskAgain: false, expires: 'never', android: { importance: 3 } } as never);
+    const request = jest.spyOn(notifications, 'requestPermissionsAsync');
+    await run([confirmation]);
+    expect(request).not.toHaveBeenCalled();
   });
 });
