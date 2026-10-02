@@ -1414,6 +1414,7 @@
   "xRetrySameDay": "Retry the same day",
   "xRecoverThisWeek": "Recover this week",
   "xCadence": "Cadence",
+  "xCadenceOrDays": "Or on set days of the week",
   "xDuration": "Duration",
   "xWindows": "Preferred windows",
   "xFlexibility": "Flexibility",
