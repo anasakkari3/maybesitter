@@ -331,3 +331,12 @@ describe('an event at an hour, on the fallback card', () => {
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'night-out' } });
   });
 });
+
+describe('a preparation step on the card', () => {
+  it('leaves the event it prepares for in its own group, at its hour', () => {
+    const prep: NextStepRecommendation = { ...rec('exam'), primaryStep: { commitmentId: 'exam', title: 'Prepare for exam', purpose: 'prepare' } };
+    const m = composeToday({ groups: groups({ must: [item('exam', 'must')] }), next: next({ recommendation: prep }), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'next' });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['exam']);
+  });
+});

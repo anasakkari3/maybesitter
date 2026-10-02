@@ -177,7 +177,10 @@ export function composeToday(input: {
 
   // The recommended commitment is on the card wherever it lives — on the day
   // or in the week — so it is shown there and nowhere else.
-  const primaryId = primary.kind === 'next' ? primary.recommendation.primaryStep?.commitmentId ?? null
+  // Except preparation for an event (audit 2026-10-03 #2): the card is the
+  // preparation, not the event, so the event keeps its own row at its hour.
+  const primaryId = primary.kind === 'next'
+    ? (primary.recommendation.primaryStep?.purpose === 'prepare' ? null : primary.recommendation.primaryStep?.commitmentId ?? null)
     : primary.kind === 'fallback' ? primary.item.id : null;
   const rest = without(groups, primaryId);
   const openInGroups = openItems(rest).length;
