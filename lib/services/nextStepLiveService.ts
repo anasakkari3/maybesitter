@@ -8,7 +8,10 @@ import { NEXT_STEP_ARMS } from '../../src/contracts/v1/experimentContracts';
 import { emitAnalyticsEvent, type AnalyticsContext } from '../analytics/analyticsContext';
 import { resolveNextStepArm } from '../experiments/experimentControls';
 import { selectNextStepForArmFromState } from '../experiments/nextStepArms';
-import { decideNextStep, type NextStepInteractionOutcome } from './nextStepReviewService';
+import { decideNextStep, proposeNextStep, type NextStepInteractionOutcome } from './nextStepReviewService';
+import { evidenceLabels } from './nextStepEvidence';
+import { latenessDeadline } from './mobile/time';
+import { notStartableYet, preparationStep, startsSoon, type PreparationStep } from './nextStepPreparation';
 
 export interface LiveContext extends AnalyticsContext {
   locale: NextStepLocale;
@@ -52,9 +55,76 @@ function visibleState(state: DomainState, exclude?: ReadonlySet<string>): Domain
   return { ...state, commitments };
 }
 
-function proposalId(state: DomainState): string {
-  const fingerprint = JSON.stringify(Object.values(state.commitments).map((item) => [item.id, item.updatedAt]).sort());
+function proposalId(state: DomainState, salt = ''): string {
+  const fingerprint = JSON.stringify(Object.values(state.commitments).map((item) => [item.id, item.updatedAt]).sort()) + salt;
   return `next-step-${createHash('sha256').update(fingerprint).digest('hex').slice(0, 16)}`;
+}
+
+/**
+ * Timed events that are not yet close enough to be a step (audit 2026-10-03
+ * #2, `nextStepPreparation.ts` rule 1). Removed like a deferred item: from
+ * the candidates only, nowhere else.
+ */
+function startableNow(state: DomainState, now: Date): DomainState {
+  const commitments = Object.fromEntries(
+    Object.entries(state.commitments).filter(([, commitment]) => !notStartableYet(commitment, now)),
+  );
+  return { ...state, commitments };
+}
+
+/**
+ * Whether the ordinary pick should stay ahead of a preparation step: a task
+ * (not an event) with a deadline still to come, before the event and within a
+ * day. Doing that first is the order the person's own deadlines imply. A
+ * deadline already gone does not count — a stale item must not hold the
+ * preparation back for ever.
+ */
+function keepsPrecedence(state: DomainState, commitmentId: string | null, prep: PreparationStep, now: Date): boolean {
+  const commitment = commitmentId ? state.commitments[commitmentId] : undefined;
+  if (!commitment || commitment.timeSpec.kind === 'scheduled_event') return false;
+  const deadline = Date.parse(latenessDeadline(commitment.timeSpec) ?? '');
+  const eventStart = Date.parse(prep.event.timeSpec.dueAt as string);
+  return Number.isFinite(deadline) && deadline > now.getTime() && deadline < eventStart
+    && deadline - now.getTime() <= 24 * 60 * 60 * 1_000;
+}
+
+function explanationText(labels: readonly string[]): string {
+  return labels.length === 1 ? `Based on ${labels[0]}.` : `Based on ${labels.slice(0, 2).join(' and ')}.`;
+}
+
+/** The preparation step as a proposal: the event's id, the preparation's words, no `done`/`edit`. */
+function preparationProposal(prep: PreparationStep, locale: NextStepLocale, id: string): NextStepRecommendationContract {
+  const proposal = proposeNextStep([{
+    commitmentId: prep.event.id,
+    title: prep.title,
+    reason: explanationText(evidenceLabels(prep.evidenceCodes)),
+    evidenceCodes: prep.evidenceCodes,
+    rank: 0,
+  }], locale, id);
+  if (proposal.state !== 'ready' || !proposal.primaryStep) return proposal;
+  return {
+    ...proposal,
+    primaryStep: { ...proposal.primaryStep, purpose: 'prepare' },
+    // `done` would complete the exam and `edit` would rename it: the step is
+    // the preparation, the commitment it points at is the event.
+    availableActions: proposal.availableActions.filter((action) => action === 'accept' || action === 'defer' || action === 'dismiss'),
+  };
+}
+
+/** A timed event inside its last hour says so first: it is "coming up", not "start it". */
+function withStartsSoon(proposal: NextStepRecommendationContract, state: DomainState, now: Date): NextStepRecommendationContract {
+  const id = proposal.primaryStep?.commitmentId;
+  if (proposal.state !== 'ready' || !id || !proposal.explanation || !startsSoon(id, state, now)) return proposal;
+  const evidenceCodes = [{ code: 'starts_soon' as const }, ...proposal.explanation.evidenceCodes.filter((entry) => entry.code !== 'starts_soon')].slice(0, 3);
+  return {
+    ...proposal,
+    explanation: {
+      ...proposal.explanation,
+      evidenceCodes,
+      evidenceLabels: evidenceLabels(evidenceCodes),
+      summary: explanationText(evidenceLabels(evidenceCodes)),
+    },
+  };
 }
 
 // Async since UC-1.0c (#142): the `recommendation_shown` event it emits is a
@@ -77,7 +147,8 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
   // signal. Removing them also changes `proposalId`, which is correct — the
   // proposal really is a different one now, and any card still holding the old
   // id is genuinely stale.
-  const candidates = visibleState(state, context.excludeCommitmentIds);
+  const visible = visibleState(state, context.excludeCommitmentIds);
+  const candidates = startableNow(visible, context.now);
   const selection = selectNextStepForArmFromState(arm, candidates, {
     now: context.now,
     locale: context.locale,
@@ -85,8 +156,14 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
     timezone: context.timezone || 'UTC',
     ...(context.routine ? { routine: context.routine } : {}),
   });
+  // Preparation for an important event comes before the ordinary pick, unless
+  // that pick is a task due first (`keepsPrecedence`). Its id is its own: a
+  // card holding the ordinary proposal is stale once this replaces it.
+  const prep = preparationStep(visible, context.now, context.timezone || 'UTC', context.locale);
+  const proposal = prep && !keepsPrecedence(candidates, selection.selectedCommitmentId, prep, context.now)
+    ? preparationProposal(prep, context.locale, proposalId(candidates, `|prepare:${prep.event.id}`))
+    : withStartsSoon(selection.recommendation, candidates, context.now);
   const latencyMs = Math.round(performance.now() - startedAt);
-  const proposal = selection.recommendation;
 
   if (proposal.state === 'ready' && context.emitShown !== false && proposal.primaryStep) {
     await emitAnalyticsEvent(assigned, 'recommendation_shown', {

@@ -46,6 +46,9 @@ const LABELS: Record<NextStepEvidenceCode, (params: NextStepEvidenceContract['pa
   usually_finishes: () => 'you usually finish these',
   often_set_aside: () => 'you often set these aside',
   usual_productive_time: () => 'a time you usually get things done',
+  starts_soon: () => 'starts within the hour',
+  prepares_for_event: () => 'prepares for an important event',
+  evening_plan_before_event: () => 'an evening plan comes before it',
 };
 
 export function evidenceLabel(evidence: NextStepEvidenceContract): string {
