@@ -36,7 +36,6 @@
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
 import type { NextStepEvidenceContract, NextStepLocale } from '../../src/contracts/v1/nextStepContracts';
 import { GATHERING_NOUNS, PREPARATION_NOUNS } from '../../src/extraction/lexicon/eventNouns';
-import { APPOINTMENT_NOUNS } from '../../src/extraction/lexicon/appointmentNouns';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -118,33 +117,111 @@ export function wordsOf(text: string): string[] {
 
 type Nouns = { readonly ar: readonly string[]; readonly he: readonly string[]; readonly en: readonly string[] };
 
-/** One test for a noun list: any of its phrases, word for word, anywhere in the title. */
-function phraseMatcher(...lists: readonly Nouns[]): (title: string) => boolean {
-  const phrases = lists.flatMap((nouns) => [...nouns.ar, ...nouns.he, ...nouns.en]).map((noun) => wordsOf(noun)).filter((phrase) => phrase.length > 0);
-  return (title) => {
-    const words = wordsOf(title);
-    return phrases.some((phrase) => words.some((_, index) => phrase.every((part, offset) => words[index + offset] === part)));
-  };
+function phrasesOf(...lists: readonly Nouns[]): (readonly string[])[] {
+  return lists.flatMap((nouns) => [...nouns.ar, ...nouns.he, ...nouns.en]).map((noun) => wordsOf(noun)).filter((phrase) => phrase.length > 0);
 }
 
-/** The title names an exam, an interview, a presentation… (`PREPARATION_NOUNS`). */
-export const namesPreparedEvent = phraseMatcher(PREPARATION_NOUNS);
-
-const namesEventNoun = phraseMatcher(PREPARATION_NOUNS, GATHERING_NOUNS, APPOINTMENT_NOUNS);
+/** A phrase of `phrases` starting at word `index`. */
+function phraseAt(words: readonly string[], index: number, phrases: readonly (readonly string[])[]): boolean {
+  return phrases.some((phrase) => phrase.every((part, offset) => words[index + offset] === part));
+}
 
 /**
- * The title names an event rather than a task: an exam, a night out, an
- * appointment — or says the person *has* it («عندي…», "I have…", «יש לי…»),
- * which is how people state what is on, not what to do.
+ * The nouns that make a timed entry an event when they *head* its title
+ * (review of audit #2). Narrower than the appointment list on purpose: no
+ * «تحليل»/«فحص» («اعمل تحليل البيانات» is work), and only ever as the head —
+ * "Send the meeting notes", "Buy a birthday cake", «احكي مع الدكتور» name an
+ * event noun and are tasks.
+ */
+const EVENT_HEAD_EXTRA: Nouns = {
+  ar: ['موعد', 'موعدي', 'دكتور', 'دكتورة', 'طبيب', 'طبيبة', 'عيادة', 'عياده', 'طيارة', 'طيارتي', 'طيران', 'محكمة', 'محكمه', 'جلسة', 'جلسه', 'اجتماع', 'ميتنغ', 'ميتينغ'],
+  he: ['תור', 'פגישה', 'טיסה', 'דיון'],
+  en: ['appointment', 'appt', 'doctor', 'dentist', 'clinic', 'flight', 'court hearing', 'court date', 'meeting'],
+};
+const EVENT_HEADS = phrasesOf(PREPARATION_NOUNS, GATHERING_NOUNS, EVENT_HEAD_EXTRA);
+const PREPARED_HEADS = phrasesOf(PREPARATION_NOUNS);
+
+/**
+ * Words that start a task: an action («اعمل», «احجز», "send", «לשלוח») or a
+ * "have to" («لازم», "need to», «צריך»). A title that opens with one is
+ * something to do, whatever event it mentions — «لازم أدرس للامتحان» is the
+ * preparation, not the exam.
+ */
+const TASK_STARTS = new Set(wordsOf([
+  'لازم لازملي ضروري بدي بدنا رح راح خلي خليني ممكن',
+  'اعمل اعملي احكي احكيلي احجز اشتري اشتريلي ابعت ابعث اتصل تصل روح رجع ارجع جيب خلص كمل حضر ادرس راجع اكتب اطبع ادفع نظف رتب صلح وصل سلم قدم سجل اطلب',
+  'send call buy book finish prepare study review revise practice practise write email text pay pick get go make do plan schedule cancel reschedule remind check submit print bring take clean fix order read ask tell remember to dont',
+  'צריך צריכה חייב חייבת תזכיר תזכירי',
+].join(' ')));
+
+/** The possessive people state a plan with — «عندي», "I have", «יש לי» — which is no evidence either way. */
+function withoutPossessive(title: string): string {
+  return title
+    .replace(/^\s*(?:في\s+)?(?:عندي|عندنا|عندك)\s+/, '')
+    .replace(/^\s*(?:i(?:'ve| have)(?: got)?|we have|have|got)\s+(?:an?\s+|my\s+|the\s+)?/i, '')
+    .replace(/^\s*יש\s+(?:לי|לנו)\s+/, '');
+}
+
+/** The first word reads as a verb or a "have to": a task. */
+function startsWithTask(head: string): boolean {
+  const raw = head.trim().split(/\s+/)[0] ?? '';
+  if (!raw) return false;
+  // Arabic first-person imperfect («أسلّم», «أدرس», «أخلص»): «أ» on the first letter.
+  if (/^أ[ء-ي]{2,}/.test(raw)) return true;
+  // A Hebrew infinitive («לשלוח», «ללמוד», «להתכונן»).
+  if (/^ל[א-ת]{3,}$/.test(raw) && !/^(?:ל)?(?:מבחן|בחינה|ראיון|מסיבה)/.test(raw)) return true;
+  const first = wordsOf(raw)[0] ?? '';
+  return TASK_STARTS.has(first);
+}
+
+/**
+ * Where the event noun must stand: the head. Arabic and Hebrew put the head
+ * first («امتحان رياضيات», «מבחן במתמטיקה»); English may put up to two
+ * modifiers before it ("Math exam", "Job interview", "Team meeting").
+ */
+function headIndexOf(words: readonly string[], heads: readonly (readonly string[])[], latin: boolean): number | null {
+  const reach = latin ? 3 : 1;
+  for (let index = 0; index < Math.min(reach, words.length); index += 1) {
+    if (phraseAt(words, index, heads)) return index;
+    if (index > 0 && TASK_STARTS.has(words[index]!)) return null;
+  }
+  return null;
+}
+
+function headedBy(title: string, heads: readonly (readonly string[])[]): boolean {
+  const rest = withoutPossessive(title);
+  const words = wordsOf(rest);
+  if (words.length === 0) return false;
+  // A going-out phrase heads with its verb («تطلع مع أصحابك»): checked first.
+  if (phraseAt(words, 0, heads)) return true;
+  if (startsWithTask(rest)) return false;
+  return headIndexOf(words, heads, !/[\u0590-\u06FF]/.test(rest)) !== null;
+}
+
+/**
+ * The title names an event rather than a task (review of audit #2): an event
+ * noun heads it — an exam, a night out, an appointment — and it does not open
+ * with an action or a "have to". «عندي»/"I have"/«יש לי» is set aside, not
+ * counted: «عندي تقرير لازم أسلمه الساعة 3» is a task.
  */
 export function namesEvent(title: string): boolean {
-  return namesEventNoun(title) || /^\s*(?:في\s+)?(?:عندي|عندنا)\s/.test(title)
-    || /^\s*(?:i have|i've got|we have)\s/i.test(title) || /^\s*יש\s+(?:לי|לנו)\s/.test(title);
+  return headedBy(title, EVENT_HEADS);
+}
+
+/** An event to prepare for: an exam, an interview, a presentation heads the title. */
+export function namesPreparedEvent(title: string): boolean {
+  return headedBy(title, PREPARED_HEADS);
+}
+
+/** Free text (the «حضّرني» notes) that mentions such an event anywhere. */
+export function mentionsPreparedEvent(text: string): boolean {
+  const words = wordsOf(text);
+  return words.some((_, index) => phraseAt(words, index, PREPARED_HEADS));
 }
 
 /** Words that say nothing about the topic: «عندي», "have", «יש לי»… */
 const FILLER = new Set(wordsOf([
-  'عندي عندك عندنا في من مع على عن بكرا اليوم الليله الساعه بعد قبل الصبح المسا هلق',
+  'عندي عندك عندنا في من مع على عن بكرا اليوم الليله الساعه بعد قبل الصبح المسا هلق لازم بدي',
   'i have has had a an the my at on in for with to of tomorrow today tonight',
   'יש לי את של עם על מחר היום בשעה',
 ].join(' ')));
@@ -169,8 +246,9 @@ export function preparationPlanned(event: Commitment, state: DomainState): boole
     if (other.timeSpec.kind === 'due_by' && other.timeSpec.endAt && start !== null
       && Date.parse(other.timeSpec.endAt) === start) return true;
     // Another exam is not preparation for this one; a study session at 17:00
-    // (a `scheduled_event` too, «الساعة 5») is.
-    if (other.timeSpec.kind === 'scheduled_event' && namesPreparedEvent(other.title)) return false;
+    // («لازم أدرس للامتحان الساعة 5», a `scheduled_event` too) is: it opens
+    // with what to do, so it is a task (`namesPreparedEvent`).
+    if (namesPreparedEvent(other.title)) return false;
     const due = other.timeSpec.dueAt ? Date.parse(other.timeSpec.dueAt) : Number.NaN;
     if (Number.isFinite(due) && start !== null && due > start) return false;
     return Array.from(topicWords(other.title)).some((word) => topic.has(word));
@@ -271,7 +349,7 @@ export function preparationStep(
   if (evening) {
     evidenceCodes.push({
       code: 'evening_plan_before_event',
-      params: { title: evening.title.slice(0, 80), at: evening.timeSpec.dueAt as string },
+      params: { title: eventName(evening.title).slice(0, 80), at: evening.timeSpec.dueAt as string },
     });
   }
   evidenceCodes.push({ code: start - nowMs <= 24 * HOUR ? 'due_within_24h' : 'due_within_7d' });

@@ -70,7 +70,7 @@ import { dayPartHour, instantFromLocal } from '../../../src/extraction/timeLexic
 import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
 import { isTimedWindow, type DomainState } from '../../../src/domain/stateMachine';
 import { loadDomainState } from './participantState';
-import { namesPreparedEvent } from '../nextStepPreparation';
+import { mentionsPreparedEvent, namesPreparedEvent } from '../nextStepPreparation';
 
 /** How long before the meeting the prep step is due. */
 export const MEETING_PREP_LEAD_MINUTES = 60;
@@ -809,7 +809,9 @@ export async function prepareMeeting(uid: string, input: MeetingPrepInput, optio
   const sessions = planPrepSessions({
     start: valid.start, now, timezone: valid.timezone, quietHours,
     busy: busyIntervalsOf(state, valid.commitmentId),
-    preparedEvent: namesPreparedEvent(eventTitle) || namesPreparedEvent(valid.notes),
+    // The person's own title when there is one — «أدرس للامتحان» is a task,
+    // not an exam to prepare for; the notes only when there is no title.
+    preparedEvent: eventTitle ? namesPreparedEvent(eventTitle) : mentionsPreparedEvent(valid.notes),
   });
   const due = sessions.main;
   const timing = prepTiming(valid.start, due.at, now, settings, quietHours);
