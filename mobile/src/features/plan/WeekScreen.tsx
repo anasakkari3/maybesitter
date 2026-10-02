@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AccessibilityInfo, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAcceptWeekDay, useWeek } from '../../api/queries';
-import { ConflictError, QuotaExceededError, WeekConflictError } from '../../api/errors';
+import { ConflictError, QuotaExceededError, WeekConflictError, WeekEmptyDayError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { WeekDecisions } from '../../api/endpoints/plans';
@@ -85,6 +85,7 @@ export function WeekScreen() {
 /** A save's failure, in the words that fit it. */
 function saveErrorText(error: unknown, t: ReturnType<typeof useApp>['t']): string {
   if (error instanceof WeekConflictError && error.reason === 'week_changed') return t.weekChanged;
+  if (error instanceof WeekEmptyDayError) return t.weekNothingToSave;
   if (error instanceof ConflictError) return t.weekAlreadyPlanned;
   if (error instanceof QuotaExceededError) return t.weekLimitReached;
   return userFacingMessage(error, t);

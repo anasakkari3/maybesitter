@@ -18,6 +18,7 @@ import {
 import {
   ConflictError,
   WeekConflictError,
+  WeekEmptyDayError,
   PlanEditRefusedError,
   PlanProposalRefusedError,
   QuotaExceededError,
@@ -334,6 +335,22 @@ describe('weekly planning mode (CL5b)', () => {
     expect(error).toBeInstanceOf(WeekConflictError);
     expect((error as WeekConflictError).reason).toBe('week_changed');
     expect((error as WeekConflictError).week.days.map(day => day.date)).toHaveLength(7);
+  });
+
+  // Review of audit 2026-10-03 #4: a day with nothing on it is refused with
+  // 422 `empty_plan` and the week, not a 500 and not a generic refusal.
+  it('reads an empty day\'s refusal as its own error, with the week to redraw', async () => {
+    serve(fixture('plan.weekEmptyDay'), 422);
+    const error = await acceptWeekDay('2026-08-12', [], { moves: [], drops: [] }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(WeekEmptyDayError);
+    expect((error as WeekEmptyDayError).week.days).toHaveLength(7);
+  });
+
+  it('reads the day plan\'s empty_plan refusal as a plan refusal, not a validation error', async () => {
+    serve({ success: false, error: 'the plan places nothing, so there is nothing to accept', reason: 'empty_plan', itemId: null }, 422);
+    const error = await actOnPlan('2026-08-09', { action: 'accept' }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(PlanEditRefusedError);
+    expect((error as PlanEditRefusedError).reason).toBe('empty_plan');
   });
 
   it('refuses to send a date that is not one', async () => {

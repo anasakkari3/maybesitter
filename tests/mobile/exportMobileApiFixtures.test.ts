@@ -2162,6 +2162,10 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         .map((item) => (item as { itemId: string }).itemId);
       // A card that no longer matches the week (I1): refused, with the week to redraw.
       await record('plan.weekChanged', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: ['plan_fixture_not_on_this_day'] } })));
+      // A day with nothing on it cannot be saved (audit 2026-10-03 #4): refused, with the week.
+      const emptyDay = weekDays.find((day) => day.state === 'proposed' && day.items.length === 0);
+      assert.ok(emptyDay, 'the week fixture has no empty proposed day to refuse');
+      await record('plan.weekEmptyDay', 422, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: emptyDay.date, shown: [] } })));
       await record('plan.weekAccepted', 200, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
       await record('plan.weekAlreadyPlanned', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
       // The saved week days the Calendar strip draws (I4): the day just saved.

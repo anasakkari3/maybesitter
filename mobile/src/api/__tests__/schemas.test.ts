@@ -68,6 +68,7 @@ import {
   planSettingsResponseSchema,
   weekAcceptResponseSchema,
   weekConflictSchema,
+  weekEmptyDaySchema,
   savedWeekResponseSchema,
   weekResponseSchema,
 } from '../schemas/plan';
@@ -276,6 +277,7 @@ const CASES: Array<[string, z.ZodType]> = [
   ['plan.weekAccepted', weekAcceptResponseSchema],
   ['plan.weekAlreadyPlanned', weekConflictSchema],
   ['plan.weekChanged', weekConflictSchema],
+  ['plan.weekEmptyDay', weekEmptyDaySchema],
   ['plan.weekSaved', savedWeekResponseSchema],
   // The device calendar (UC-3.1, #185). `commitments.one` above is a commitment
   // with no link and `commitments.oneLinked` the same read once one exists, so

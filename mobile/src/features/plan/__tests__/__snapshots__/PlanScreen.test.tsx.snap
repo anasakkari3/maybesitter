@@ -246,7 +246,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                       }
                       gradientTransform={null}
                       gradientUnits={0}
-                      name="brandr2d"
+                      name="brand-id"
                       x1="0"
                       x2="1"
                       y1="0"
@@ -257,7 +257,7 @@ exports[`right to left matches the Arabic layout it was reviewed in 1`] = `
                     d="M5 12C10 0 23 13 32 22C43 11 55 6 59 19C64 35 59 60 49 60C40 60 29 43 23 38C14 48 5 55 3 43C1 34 1 22 5 12Z"
                     fill={
                       {
-                        "brushRef": "brandr2d",
+                        "brushRef": "brand-id",
                         "type": 1,
                       }
                     }

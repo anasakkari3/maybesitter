@@ -84,6 +84,7 @@ const EDIT_REFUSAL_COPY: Readonly<Record<PlanEditRefusedError['reason'], CopyKey
   invalid_instant: 'planEditUnclear',
   invalid_interval: 'planEditUnclear',
   empty_edit: 'planEditUnclear',
+  empty_plan: 'planEmptyRefused',
 };
 
 export function editRefusalKey(reason: PlanEditRefusedError['reason']): CopyKey {

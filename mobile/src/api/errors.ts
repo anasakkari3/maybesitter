@@ -257,6 +257,16 @@ export class QuotaExceededError extends ApiError {
  * `itemId` is null for the refusals raised before an item is identified: an
  * edit that moves nothing, a move with no id.
  */
+/**
+ * 422 `empty_plan` from the week's save (review of audit #4): nothing on that
+ * day to save, and the week as it is now, to redraw.
+ */
+export class WeekEmptyDayError extends ApiError {
+  constructor(readonly week: Week) {
+    super('that day has nothing to plan');
+  }
+}
+
 export class PlanEditRefusedError extends ApiError {
   constructor(
     readonly reason: PlanEditRejected['reason'],
