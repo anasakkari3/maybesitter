@@ -1201,7 +1201,8 @@ describe('«حضّرني» on a meeting or an appointment pinned to the plan (CL
     expect(button.props.accessibilityLabel).toContain('Prepare me for');
     await fireEvent.press(button);
     await waitFor(() => expect(JSON.parse(String(screen.getByTestId('prep-probe').props.children))).toEqual({
-      startAt: DENTIST_SOON.startsAt, endAt: DENTIST_SOON.endsAt, appointment: true,
+      // The commitment travels with it (review of audit #3), so the server can read what it is.
+      startAt: DENTIST_SOON.startsAt, endAt: DENTIST_SOON.endsAt, appointment: true, commitmentId: DENTIST_SOON.itemId,
     }));
   });
 });

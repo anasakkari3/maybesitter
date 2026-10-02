@@ -76,10 +76,16 @@ describe('a meeting, or an appointment that is not one', () => {
 });
 
 describe('which fixed rows on the Plan offer «حضّرني»', () => {
-  const row = (title: string | null, minutes = 120) => ({ title, startsAt: at(minutes), endsAt: at(minutes + 30) });
+  const row = (title: string | null, minutes = 120) => ({ itemId: 'c-row', title, startsAt: at(minutes), endsAt: at(minutes + 30) });
   it('a meeting or an appointment that has not started', () => {
-    expect(planItemPrepTarget(row('Meeting with Sami'), NOW)).toEqual({ startAt: at(120), endAt: at(150) });
-    expect(planItemPrepTarget(row('Dentist'), NOW)).toEqual({ startAt: at(120), endAt: at(150), appointment: true });
+    expect(planItemPrepTarget(row('Meeting with Sami'), NOW)).toEqual({ startAt: at(120), endAt: at(150), commitmentId: 'c-row' });
+    expect(planItemPrepTarget(row('Dentist'), NOW)).toEqual({ startAt: at(120), endAt: at(150), appointment: true, commitmentId: 'c-row' });
+  });
+  // Review of audit 2026-10-03 #3: «حضّرني» from the Plan tab sent no
+  // commitment, so tomorrow's exam got the hour-before plan there.
+  it('names the commitment, so an exam planned from the Plan tab gets the day before; a guessed end is not sent', () => {
+    expect(planItemPrepTarget({ ...row('امتحان رياضيات'), endEstimated: true }, NOW))
+      .toEqual({ startAt: at(120), endAt: null, appointment: true, commitmentId: 'c-row' });
   });
   it('not an errand, a removed item, or one about to start', () => {
     expect(planItemPrepTarget(row('Call mum'), NOW)).toBeNull();
