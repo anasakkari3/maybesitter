@@ -21,7 +21,8 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
+import * as notifications from 'expo-notifications';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
@@ -589,16 +590,58 @@ describe('the guided setup', () => {
 });
 
 describe('finishing', () => {
-  it('never asks the OS for the notification permission', () => {
-    // The prompt belongs to the S3 reminders issue, at the moment a reminder is
-    // first actually wanted. Asking during onboarding — before there is a
-    // single commitment to be reminded about — is the prompt people deny, and
-    // iOS only lets you ask once. Asserted at the source, because a runtime
-    // check would only prove this one path did not reach it.
+  // Audit 2026-10-03 #7: «تذكيرات، وقت ما بدك ياها» → «يلا نبلّش» never put
+  // Android's prompt on screen, and POST_NOTIFICATIONS stayed not granted.
+  // Driven through the native module, in the shape Android 13+ reports a
+  // permission that has never been asked: `denied`, but `canAskAgain`.
+  async function reachReminders() {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    jest.spyOn(notifications, 'getPermissionsAsync')
+      .mockResolvedValue({ status: 'denied', granted: false, canAskAgain: true, expires: 'never', android: { importance: 3 } } as never);
+    await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'notifications');
+    await mountApp();
+    await waitFor(() => expect(screen.queryByText(en.obNotifTitle)).not.toBeNull());
+  }
+
+  it('asks the phone for notifications when the user taps Start', async () => {
+    await reachReminders();
+    const request = jest.spyOn(notifications, 'requestPermissionsAsync')
+      .mockResolvedValue({ status: 'granted', granted: true, canAskAgain: true, expires: 'never' } as never);
+    await press(en.obDone);
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
+  });
+
+  it('still finishes onboarding when the phone says no', async () => {
+    await reachReminders();
+    jest.spyOn(notifications, 'requestPermissionsAsync')
+      .mockResolvedValue({ status: 'denied', granted: false, canAskAgain: true, expires: 'never' } as never);
+    await press(en.obDone);
+    await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
+  });
+
+  it('asks nothing when the user says later, or goes back', async () => {
+    await reachReminders();
+    const request = jest.spyOn(notifications, 'requestPermissionsAsync');
+    await press(en.obBack);
+    await waitFor(() => expect(screen.queryByText(en.obNotifTitle)).toBeNull());
+    expect(request).not.toHaveBeenCalled();
+    await cleanup();
+
+    await reachReminders();
+    await pressTestId('onboarding-notifications-later');
+    await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('asks from the reminders step and from nowhere else in onboarding', () => {
+    // Asserted at the source: the welcome, consent, routine and about steps
+    // come before the explanation, and must not reach the one prompt iOS allows.
     const directory = join(__dirname, '..');
     for (const file of readdirSync(directory).filter(name => name.endsWith('.tsx') || name.endsWith('.ts'))) {
       const source = readFileSync(join(directory, file), 'utf8');
       expect(source).not.toMatch(/expo-notifications|requestPermissionsAsync/);
+      if (file !== 'NotificationsStep.tsx') expect(source).not.toMatch(/requestNotificationPermission/);
     }
   });
 });
