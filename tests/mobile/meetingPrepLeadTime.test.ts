@@ -100,6 +100,17 @@ test('#3: never inside quiet hours — late at night, the day-before plan gives 
   });
 });
 
+test('#3: the day-before session keeps out of quiet hours the person set inside the day', async () => {
+  await withMemoryStorage(async () => {
+    const target = await exam();
+    // Quiet 12:00–15:30 on Saturday afternoon: the first free hour is 15:30.
+    const quiet: QuietHours = { window: { start: '12:00', end: '15:30' }, timezone: TZ };
+    const { proposal, prep } = await prepare(target, AT_PREP, { quietHours: quiet });
+    assert.equal(prep.timing, 'day_before');
+    assert.equal(proposal.items[0]!.resolvedTime, '2026-10-03T12:30:00.000Z', `the session was at ${proposal.items[0]!.resolvedTime}`);
+  });
+});
+
 test('#3: the exam is known from the notes alone too, as an older phone sends no commitment id', async () => {
   await withMemoryStorage(async () => {
     const target = await exam();
