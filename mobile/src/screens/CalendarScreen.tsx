@@ -173,8 +173,11 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const dayRows: PlanRow[] = [
     ...selected.map((item): PlanRow => {
       const clock = drawnClockAt(item);
-      const conflict = clock ? chipBlock(busyAt(clock, selectedBusy)) : null;
-      return { kind: 'commitment', key: `c-${item.id}`, at: drawnAt(item) ? Date.parse(drawnAt(item)!) : Number.POSITIVE_INFINITY, item, clock, due: dueAsideFor(item), conflict };
+      // Work that rolled over from an earlier day keeps its own hour, which is
+      // not an hour of this day: it is listed with its day, not drawn here.
+      const offDay = clock !== null && dayKey(new Date(clock), timezone) !== selectedKey;
+      const conflict = clock && !offDay ? chipBlock(busyAt(clock, selectedBusy)) : null;
+      return { kind: 'commitment', key: `c-${item.id}`, at: drawnAt(item) ? Date.parse(drawnAt(item)!) : Number.POSITIVE_INFINITY, item, clock, offDay, due: dueAsideFor(item), conflict };
     }),
     ...selectedBusy.map((block): PlanRow => ({ kind: 'busy', key: `busy-${block.nativeId}-${block.startAt}`, at: Date.parse(block.startAt), block, prep: busyBlockPrepTarget(block, now) })),
     ...(weeklyByDay.get(selectedKey) ?? []).map((occurrence): PlanRow => ({ kind: 'weekly', key: `weekly-${occurrence.weeklyBlockId}-${occurrence.startAt}`, at: Date.parse(occurrence.startAt), occurrence })),
@@ -187,7 +190,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
     || (shownFilter === 'busy' ? row.kind === 'busy' || row.kind === 'weekly' : row.kind === shownFilter));
   // Where each visible row goes: an hour on the timeline, the all-day lane
   // above it, or «التزامات بلا وقت» under it.
-  const untimed = visibleRows.filter((row): row is Extract<PlanRow, { kind: 'commitment' }> => row.kind === 'commitment' && row.clock === null);
+  const untimed = visibleRows.filter((row): row is Extract<PlanRow, { kind: 'commitment' }> => row.kind === 'commitment' && (row.clock === null || row.offDay));
   const allDay = visibleRows.filter(row => row.kind === 'busy' && row.block.allDay);
   const timed = visibleRows.filter(row => !untimed.includes(row as never) && !allDay.includes(row));
   const loadOf = (key: string) => dayLoad(

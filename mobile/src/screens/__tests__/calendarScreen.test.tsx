@@ -481,6 +481,16 @@ describe('the day on equal hours (Stitch)', () => {
     expect(within(screen.getByTestId('calendar-timeline')).queryByTestId('calendar-item-someday')).toBeNull();
   });
 
+  it('keeps work rolled over from yesterday off today\'s hours, and says its day', async () => {
+    // The server lists yesterday's still-active work on today (the overdue
+    // rule, #383); its 09:00 is yesterday's, not an hour of today.
+    await show([item('old', onDay(-1, 9)), item('mine', onDay(0, 17))], []);
+    const untimed = await screen.findByTestId('calendar-untimed');
+    expect(within(untimed).queryByTestId('calendar-item-old')).not.toBeNull();
+    expect(within(screen.getByTestId('calendar-timeline')).queryByTestId('calendar-item-old')).toBeNull();
+    expect(String(screen.getByTestId('calendar-time-old').props.children)).toContain(en.yesterday);
+  });
+
   it('says when a commitment falls inside busy time, in the existing words', async () => {
     connected([{ nativeId: 'evt-1', startAt: onDay(0, 16), endAt: onDay(0, 18), allDay: false }]);
     await show([item('mine', onDay(0, 17))], []);

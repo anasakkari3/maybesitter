@@ -16,6 +16,7 @@ import type { WeeklyBlockOccurrence } from '../../api/schemas/weeklyBlocks';
 import type { CommitmentView } from '../commitments/model';
 import { rowAccessibilityLabel } from '../commitments/accessibility';
 import { WeeklyOccurrenceRow } from '../weeklyBlocks/WeeklyOccurrenceRow';
+import { dayAndTime } from '../plan/savedPlacement';
 import type { DeviceBusyBlock } from './busyBlocks';
 import { HOUR_HEIGHT, hourWindow, minuteOfDay, placeSpans, yOf, type TimelineSpan } from './dayTimeline';
 
@@ -31,7 +32,15 @@ import { HOUR_HEIGHT, hourWindow, minuteOfDay, placeSpans, yOf, type TimelineSpa
  */
 
 export type PlanRow =
-  | { kind: 'commitment'; key: string; at: number; item: CommitmentView; clock: string | null; due: string | null; conflict: DeviceBusyBlock | null }
+  | {
+    kind: 'commitment'; key: string; at: number; item: CommitmentView;
+    /** The instant it is drawn at (a saved slot, or its own time unless all-day); null when it has no hour. */
+    clock: string | null;
+    /** `clock` is on another day than the one shown (work rolled over from yesterday): said with its day, kept off the hours. */
+    offDay: boolean;
+    due: string | null;
+    conflict: DeviceBusyBlock | null;
+  }
   | { kind: 'busy'; key: string; at: number; block: DeviceBusyBlock; prep: MeetingPrepTarget | null }
   | { kind: 'weekly'; key: string; at: number; occurrence: WeeklyBlockOccurrence };
 
@@ -66,9 +75,9 @@ export function CommitmentCard({ row, marker = false, narrow = false }: {
   const { t, p, lang, actions } = useApp();
   const timeZone = useTimeZone();
   const stacked = useLayoutMode() !== 'normal';
-  const { item, clock, due, conflict } = row;
+  const { item, clock, offDay, due, conflict } = row;
   const look = importanceLook(item.importance, p);
-  const time = clock ? ltr(formatTime(new Date(clock), { locale: lang, timeZone })) : null;
+  const time = clock ? (offDay ? dayAndTime(clock, lang, timeZone) : ltr(formatTime(new Date(clock), { locale: lang, timeZone }))) : null;
   const overlap = conflict ? conflictText(conflict, t, lang, timeZone) : null;
   return (
     <Btn
@@ -91,7 +100,7 @@ export function CommitmentCard({ row, marker = false, narrow = false }: {
         <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
           <Txt size={15} weight={700} color={p.tx}>{isolateAuto(item.title)}</Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
-            <Txt size={13} color={p.mu} latin={time !== null} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
+            <Txt size={13} color={p.mu} latin={time !== null && !offDay} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
             {due ? <Txt size={13} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
           </View>
         </View>
@@ -267,7 +276,10 @@ export function DayAgenda({ rows }: { rows: readonly PlanRow[] }) {
   );
 }
 
-/** «التزامات بلا وقت»: what the day holds with no hour, under the timeline. */
+/**
+ * «التزامات بلا وقت»: what the day holds with no hour on it, under the
+ * timeline — and anything whose time is on another day, said with that day.
+ */
 export function UntimedSection({ rows, title }: { rows: readonly Extract<PlanRow, { kind: 'commitment' }>[]; title: string }) {
   const { p } = useApp();
   return (
