@@ -262,6 +262,79 @@ describe('the gate', () => {
     expect(screen.queryByText('THE APP')).toBeNull();
   });
 
+  // Review of #5: offline, the consents query is *paused* — pending, no
+  // failure — and the gate held the blank view for as long as the phone had
+  // no signal.
+  it('does not hold on a blank screen while the phone is offline', async () => {
+    onlineManager.setOnline(false);
+    try {
+      await mountApp();
+      await waitFor(() => expect(screen.queryByText(en.obWelcomeTitle)).not.toBeNull());
+      expect(screen.queryByText('THE APP')).toBeNull();
+    } finally {
+      onlineManager.setOnline(true);
+    }
+  });
+
+  it('stops holding after a few seconds when the server is slow', async () => {
+    getConsents.mockReturnValue(new Promise(() => {}) as never);
+    await mountApp();
+    await waitFor(() => expect(screen.queryByTestId('onboarding-loading')).not.toBeNull());
+    expect(screen.queryByText(en.obWelcomeTitle)).toBeNull();
+    await waitFor(() => expect(screen.queryByText(en.obWelcomeTitle)).not.toBeNull(), { timeout: 5000 });
+  }, 10000);
+
+  it('lets a server answer that lands after the fallback replace it', async () => {
+    // The first ask fails and the gate falls back to onboarding. A later read
+    // finds the account already answered, and the returning user goes in.
+    let calls = 0;
+    let answer: () => void = () => {};
+    getConsents.mockImplementation(() => {
+      calls += 1;
+      if (calls === 1) return Promise.reject(new NetworkError('no signal'));
+      // The retry — the flow's own consents read on mount — is held until the
+      // test has seen the fallback on screen.
+      return new Promise(resolve => {
+        answer = () => resolve({ ...CONSENTS, recommendations: { state: 'granted', version: 'rec-consent-v1', changedAt: '2026-10-03T09:00:00.000Z', asked: true } });
+      }) as never;
+    });
+    await renderApp();
+    expect(screen.queryByText('THE APP')).toBeNull();
+    await waitFor(() => expect(calls).toBeGreaterThan(1));
+    answer();
+    await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
+  });
+
+  it('does not end onboarding early once the person has moved past the welcome screen after a fallback', async () => {
+    // Fallback taken offline-ish, then the person's own consent answer makes
+    // the refetch say asked: true. That is their answer from this run, not a
+    // returning account, and the remaining steps must still show.
+    let answered = false;
+    let calls = 0;
+    getConsents.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) throw new NetworkError('no signal');
+      return answered
+        ? { ...CONSENTS, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: '2026-10-03T09:00:00.000Z', asked: true } }
+        : CONSENTS;
+    });
+    putRecommendationConsent.mockImplementation(async () => {
+      answered = true;
+      return { success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never;
+    });
+    await renderApp();
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
+    await waitFor(() => expect(screen.getByLabelText(en.obContinue)).not.toBeNull());
+    await waitFor(() => expect(calls).toBeGreaterThan(1));
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
+    await client.refetchQueries();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(screen.queryByText('THE APP')).toBeNull();
+    expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull();
+  });
+
   it('resumes on the step it was left on', async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'routine');
     await render(
