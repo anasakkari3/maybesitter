@@ -266,11 +266,12 @@ describe('the two surfaces the S2 issues name', () => {
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
 
     // Two selected: Hebrew's `two` category, which is a different word from
-    // the plural — «שתי התחייבויות», not «2 התחייבויות».
-    expect(screen.getByTestId('review-confirm').props.accessibilityLabel).toBe('אישור שתי התחייבויות');
+    // the plural — «את שתיהן», not «את כל ה-2». The chat's save says what it
+    // saves (Stitch 03, `chatSaveN`); the review screen keeps `confirmN`.
+    expect(screen.getByTestId('review-confirm').props.accessibilityLabel).toBe('לשמור את שתיהן');
 
     await fireEvent.press(screen.getByTestId('review-check-i-2'));
     await waitFor(() =>
-      expect(screen.getByTestId('review-confirm').props.accessibilityLabel).toBe('אישור התחייבות אחת'));
+      expect(screen.getByTestId('review-confirm').props.accessibilityLabel).toBe('לשמור אותה'));
   });
 });

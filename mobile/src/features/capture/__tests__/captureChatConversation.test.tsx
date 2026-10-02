@@ -21,8 +21,9 @@
  *     message, and Back returns to the conversation.
  */
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
@@ -221,6 +222,21 @@ describe('chat UAT details (2026-09-30)', () => {
     const disclosure = screen.getByTestId('capture-ai-disclosure');
     expect(disclosure).toBeTruthy();
     expect(textOf('capture-ai-disclosure-title')).toBe(en.aiDisclosureTitle);
+  });
+
+  it('the disclosure heading is a 44-point link that folds its words, which start open (Stitch 03)', async () => {
+    conversation([], ['unused']);
+    await openCapture();
+    const toggle = screen.getByTestId('capture-ai-disclosure-toggle');
+    expect(toggle.props.accessibilityLabel).toBe(en.aiDisclosureTitle);
+    expect(toggle.props.accessibilityState.expanded).toBe(true);
+    expect((StyleSheet.flatten(toggle.props.style) as { minHeight?: number }).minHeight).toBeGreaterThanOrEqual(44);
+    expect(screen.queryByTestId('capture-ai-disclosure-body')).not.toBeNull();
+    await fireEvent.press(toggle);
+    expect(screen.queryByTestId('capture-ai-disclosure-body')).toBeNull();
+    expect(screen.getByTestId('capture-ai-disclosure-toggle').props.accessibilityState.expanded).toBe(false);
+    await fireEvent.press(screen.getByTestId('capture-ai-disclosure-toggle'));
+    expect(screen.queryByTestId('capture-ai-disclosure-body')).not.toBeNull();
   });
 
   it('«حزرناها» sits beside a «لازم» it qualifies, never alone under a time the person said', async () => {
@@ -448,6 +464,10 @@ describe('after a save, the chat stays open for the next one', () => {
     expect(textOf('chat-turn-text-0')).toBe('Remind me to call the dentist tomorrow at 5pm');
     expect(screen.queryByText('Call the dentist tomorrow at 5pm.')).not.toBeNull();
     expect(screen.queryByTestId('chat-done')).not.toBeNull();
+    // Undo and Done sit inside the saved line while it is the newest thing said (Stitch 03).
+    const saved = screen.getByTestId('chat-saved-1');
+    expect(within(saved).queryByTestId('chat-done')).not.toBeNull();
+    expect(within(saved).queryByTestId('chat-saved-undo')).not.toBeNull();
   });
 
   it('the next message starts a new conversation, under what was saved', async () => {

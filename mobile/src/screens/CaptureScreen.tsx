@@ -28,7 +28,7 @@ import { createSpeechCaptureService, SpeechEventBridge } from '../features/captu
 import { VoiceLanguageChip } from '../features/capture/voice/VoiceLanguageChip';
 import { speechLanguageForTag } from '../features/capture/voice/speechLocale';
 import { loadSpeechLanguage, saveSpeechLanguage, type SpeechLanguagePref } from '../lib/deviceSettings/speechLanguage';
-import { SayItChatPage, ChatMicrophone, ChatLanguage, type ChatHistoryEntry, type ChatScheduleGroup } from '../features/capture/SayItChatPage';
+import { SayItChatPage, ChatMicrophone, ChatLanguage, ChatIcon, type ChatHistoryEntry, type ChatScheduleGroup } from '../features/capture/SayItChatPage';
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
 import { weeklyA11yLabel, weeklyLine } from '../features/weeklyBlocks/weeklyText';
 import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
@@ -37,6 +37,7 @@ import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt, chipBlock } from '../features/calendar/conflicts';
 import { Btn, Pill, Txt } from '../ui/primitives';
+import { Tag } from '../ui/chrome';
 import { ProcessingDots } from '../ui/motion';
 import { Screen } from '../ui/screen';
 import { AvoidKeyboard } from '../ui/keyboard';
@@ -49,8 +50,9 @@ const REVIEW_STATUSES = ['needsConfirmation', 'needsClarification', 'unresolvedI
 /**
  * What a save in the chat says, as the assistant's line (owner request
  * 2026-09-30): what was saved, by title; the weekly blocks and where they are
- * changed; what it lands on; what did not save; Undo's answer when pressed;
- * then the invitation to say the next thing. Built here, from the confirm's
+ * changed; what it lands on; what did not save; Undo's answer when pressed.
+ * The invitation to say the next thing («في إشي تاني؟ احكيلي.») follows in a
+ * bubble of its own (Stitch 03, the line's `tail`). Built here, from the confirm's
  * own answer — the server never wrote it, and it claims nothing the server
  * did not report saved.
  */
@@ -73,7 +75,6 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
     const still = note.undone.stillSaved.map((id) => note.persisted.find((item) => item.commitmentId === id)?.title ?? id);
     paragraphs.push(still.length === 0 ? t.undoneTitle : `${t.undonePartialTitle}. ${fill(t.undonePartialBody, { titles: list(still) })}`);
   }
-  paragraphs.push(t.chatSavedNext);
   return paragraphs.join('\n\n');
 }
 
@@ -136,6 +137,8 @@ export function CaptureScreen() {
   const onDictationStart = () => { dictationEnabled.current = true; dictationBase.current = latestText.current; };
   const onDictated = (spoken: string) => { if (dictationEnabled.current) changeText(appendDictation(dictationBase.current, spoken)); };
   const stopDictation = () => { dictationEnabled.current = false; void speech.cancel?.(); setVoiceEpoch(epoch => epoch + 1); };
+  /** «إلغاء» while listening: the dictation ends and the field holds what it held before it. */
+  const cancelDictation = () => { const before = dictationBase.current; stopDictation(); changeText(before); };
   const strings = t as unknown as Record<string, string>;
   const items = reviewing ? state.proposal?.items ?? [] : [];
   const confirmable = confirmableItems(state.proposal, state.edits);
@@ -153,9 +156,10 @@ export function CaptureScreen() {
   let savedLines = 0;
   const earlier: ChatHistoryEntry[] = state.earlier.map(entry => entry.kind === 'turn'
     ? { role: entry.role, text: entry.text, ...(entry.role === 'user' ? { delivered: true } : {}) }
-    : { role: 'assistant', id: `chat-saved-${++savedLines}`, text: savedNoteText(entry, t, lang, timezone) });
-  const newest = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
-  useAnnounceOnIos(newest?.role === 'assistant' ? newest.text : null);
+    : { role: 'assistant', id: `chat-saved-${++savedLines}`, tone: 'saved', text: savedNoteText(entry, t, lang, timezone), tail: t.chatSavedNext });
+  const newest: { role: string; text: string; tail?: string } | undefined = state.turns.length > 0 ? state.turns[state.turns.length - 1] : earlier[earlier.length - 1];
+  useAnnounceOnIos(newest?.role === 'assistant' ? (newest.tail ? `${newest.text}\n\n${newest.tail}` : newest.text) : null);
+  const [disclosureOpen, setDisclosureOpen] = useState(true);
   const [undoing, setUndoing] = useState(false);
   const undoLast = () => {
     if (undoing) return;
@@ -243,21 +247,24 @@ export function CaptureScreen() {
     const clashLines = weekly === 'weekly' ? [] : chatConflictLines(item, state.edits[item.itemId], { lang, timezone, t, busyChipShown: chipBlock(busyHere) !== null });
     if (!groups.has(groupKey)) groups.set(groupKey, { id: groupKey,
       title: weekly === 'weekly' ? t.wbReviewWeekly : shown.date ? formatDayKey(shown.date, { locale: lang, timeZone: timezone }) : t.chatUnscheduled, rows: [] });
-    const extra = <View style={{ gap: 4, alignItems: 'flex-start' }}>
-      {/* «حزرناها» qualifies the importance, so it sits beside the importance
-          it qualifies — never alone under a time the person said, where it
-          read as "we guessed the time" (chat UAT 2026-09-30). The card shows
-          the importance only when it is «لازم». */}
-      {shown.priority === 'high' ? <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-        <Txt size={12} color={p.wm} testID={`review-priority-${item.itemId}`}>{t.todayGroupMust}</Txt>
-        {shown.priorityEstimated ? <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt> : null}
-      </View> : null}
+    // «حزرناها» qualifies the importance, so it sits beside the importance it
+    // qualifies — never alone under a time the person said, where it read as
+    // "we guessed the time" (chat UAT 2026-09-30). The card shows the
+    // importance only when it is «لازم», as the coral «لازم» tag (Stitch).
+    const badge = shown.priority === 'high' ? <>
+      <Tag kind="must" label={t.todayGroupMust} testID={`review-priority-${item.itemId}`} />
+      {shown.priorityEstimated ? <Txt size={12} color={p.mu} testID={`review-estimated-${item.itemId}`}>{t.reviewEstimated}</Txt> : null}
+    </> : null;
+    const extra = <View style={{ gap: 6, alignItems: 'flex-start' }}>
       {shown.dateEstimated && weekly !== 'weekly' ? <Btn testID={`review-date-estimated-${item.itemId}`} label={t.reviewDateEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={12} color={p.mu}>{t.reviewDateEstimated}</Txt></Btn> : null}
       {shown.timeEstimated && weekly !== 'weekly' ? <Btn testID={`review-time-estimated-${item.itemId}`} label={t.reviewTimeEstimated} hint={t.reviewEdit} hitSlop={12} onPress={() => setEditingId(item.itemId)}><Txt size={12} color={p.mu} testID={`review-time-estimated-${item.itemId}-text`}>{t.reviewTimeEstimated}</Txt></Btn> : null}
       {needsQuestion ? <Txt size={12} color={p.wm} testID={`review-needs-question-${item.itemId}`}>{t.reviewNeedsQuestion}</Txt> : null}
+      {/* A clash is a full-width warning line naming what it clashes with
+          (Stitch 03), not a pill: amber edge, warning glyph, the words. */}
       {clashLines.map((line, index) => <View key={`clash-${index}`} testID={`review-conflict-${item.itemId}-${index}`} accessible accessibilityLabel={chatConflictA11y(line)}
-        style={{ backgroundColor: p.sf2, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 }}>
-        <Txt size={12} color={p.mu} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
+        style={{ alignSelf: 'stretch', flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.wms, borderStartWidth: 4, borderStartColor: p.wm, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 12 }}>
+        <ChatIcon name="warning" size={18} color={p.wm} />
+        <Txt size={13} weight={500} color={p.wm} style={{ flex: 1 }} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
       </View>)}
       {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}
       {item.weeklyBlock && weekly ? <WeeklyChoice itemId={item.itemId} offer={item.weeklyBlock} title={state.edits[item.itemId]?.title ?? item.weeklyBlock.title} choice={weekly} locked={weeklyLockedByEdit(state, item.itemId)} onChoose={value => flow.setWeekly(item.itemId, value)} /> : null}
@@ -268,7 +275,7 @@ export function CaptureScreen() {
     groups.get(groupKey)!.rows = [...groups.get(groupKey)!.rows, {
       id: item.itemId, title: cardTitle,
       ...(weekly === 'weekly' ? {} : { subtitle: shown.subtitle }),
-      icon: /doctor|طبيب|دكتور|רופא/i.test(shown.title) ? 'doctor' : 'briefcase', selected, selectionDisabled: busy || answering || needsQuestion, disabled: busy || answering,
+      icon: /doctor|طبيب|دكتور|רופא/i.test(shown.title) ? 'doctor' : 'briefcase', selected, badge, selectionDisabled: busy || answering || needsQuestion, disabled: busy || answering,
       accessibilityLabel: `${cardTitle}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${weekly === 'weekly' && item.weeklyBlock ? weeklyA11yLabel({ ...item.weeklyBlock, title: state.edits[item.itemId]?.title ?? item.weeklyBlock.title }, lang, { withTitle: false }) : shown.subtitle}${shown.dateEstimated && weekly !== 'weekly' ? ', ' + t.reviewDateEstimated : ''}${shown.timeEstimated && weekly !== 'weekly' ? ', ' + t.reviewTimeEstimated : ''}${clashLines.map(line => ', ' + chatConflictA11y(line)).join('')}`,
       extra,
     }];
@@ -303,25 +310,42 @@ export function CaptureScreen() {
   else if (failed) bodyOverride = <Failed status={failed} messageKey={state.messageKey}
     onRetry={() => { setSentAt(new Date()); void flow.analyze(); }} onBack={flow.dismissFailure} />;
 
-  const reviewExtras = reviewing ? <View style={{ gap: 12 }}>
-    <Txt size={12} color={p.mu} testID="review-note">{t.suggestionNote}</Txt>
-    {asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1}
-      total={unclarified.length} busy={answering} error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
-      onAnswer={value => { void answer(asking.itemId, value); }} onSkip={() => {
-        const noTime = asking.clarification?.options.find(option => !option.value.localTime && !option.value.localDate);
-        if (noTime) void answer(asking.itemId, { optionId: noTime.optionId });
-        else setSkipped(current => [...current, asking.itemId]);
-      }} /> : null}
+  // The one question's quick replies sit under the reply that asks it, above
+  // the cards (Stitch 03b); answering is still `/capture/clarify`.
+  const clarification = reviewing && asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1}
+    total={unclarified.length} busy={answering} error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
+    onAnswer={value => { void answer(asking.itemId, value); }} onSkip={() => {
+      const noTime = asking.clarification?.options.find(option => !option.value.localTime && !option.value.localDate);
+      if (noTime) void answer(asking.itemId, { optionId: noTime.optionId });
+      else setSkipped(current => [...current, asking.itemId]);
+    }} /> : null;
+  const reviewExtras = reviewing ? <View style={{ gap: 10 }}>
     {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
-    {state.selected.length === 0 && items.length ? <Txt testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
+    {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
     {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} /> : null}
-    <Pill testID="review-cancel" label={t.cancelAll} onPress={requestClose} disabled={state.status === 'confirming'} kind="ghost" size={13} />
-  </View> : saves > 0 && state.status !== 'analyzing' ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }} testID="chat-saved-actions">
-    {/* Undo for the last save, while its window is open — what the saved
-        screen offered, here where the person stayed. */}
-    {state.undoable && state.persisted.length > 0 ? <Pill testID="chat-saved-undo" label={t.undo} onPress={undoLast} disabled={undoing} kind="outline" size={14} weight={500} /> : null}
-    <Pill testID="chat-done" label={t.chatDone} onPress={done} size={14} />
   </View> : null;
+  // Under the save (Stitch 03): every review option, the propose-only note,
+  // and the explicit exit.
+  const reviewFooter = reviewing ? <>
+    <Pill testID="review-tools" label={t.chatReviewTools} onPress={() => setToolsOpen(true)} disabled={state.status === 'confirming'} kind="ghost" size={13} weight={500} pad={10} />
+    <Txt size={13} color={p.mu} align="center" testID="review-note">{t.suggestionNote}</Txt>
+    <Pill testID="review-cancel" label={t.cancelAll} onPress={requestClose} disabled={state.status === 'confirming'} kind="ghost" size={13} pad={10} />
+  </> : null;
+  // After a save the person stays in the chat: Undo for the last save while
+  // its window is open — what the saved screen offered — and «خلصت», inside
+  // the saved line when it is the newest thing said, under the chat otherwise.
+  const savedActions = !reviewing && saves > 0 && state.status !== 'analyzing' ? <>
+    {state.undoable && state.persisted.length > 0 ? <Pill testID="chat-saved-undo" label={t.undo} onPress={undoLast} disabled={undoing} kind="soft" size={13} pad={10} radius={12} style={{ minWidth: 88 }} /> : null}
+    <Pill testID="chat-done" label={t.chatDone} onPress={done} kind="soft" size={13} pad={10} radius={12} style={{ minWidth: 88 }} />
+  </> : null;
+  const savedIsNewest = savedActions !== null && state.turns.length === 0 && state.earlier.length > 0
+    && state.earlier[state.earlier.length - 1]!.kind === 'saved';
+  if (savedIsNewest) {
+    const last = earlier[earlier.length - 1]!;
+    earlier[earlier.length - 1] = { ...last, actions: <View testID="chat-saved-actions" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{savedActions}</View> };
+  }
+  const afterChat = reviewing ? reviewExtras : savedActions && !savedIsNewest
+    ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }} testID="chat-saved-actions">{savedActions}</View> : null;
   const counter = inputLength > MAX_CAPTURE_LENGTH - 200
     ? <Txt size={12} latin color={inputLength > MAX_CAPTURE_LENGTH ? p.wm : p.mu} testID="capture-counter">{fill(t.captureCounter, { n: inputLength })}</Txt> : null;
   const language = voiceStatus !== 'unavailable' ? <VoiceLanguageChip value={speechLang}
@@ -378,7 +402,11 @@ export function CaptureScreen() {
         forText: (value, weight) => { const run = scriptOfText(value, script); return { fontFamily: family(weight === 'semibold' ? 600 : 400, run), lineRatio: LINE_HEIGHT[run] }; } }}
         copy={{ title: t.captureTitle, subtitle: t.chatSubtitle, placeholder: t.chatPlaceholder,
           closeLabel: reviewing ? t.back : t.cancel, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.chatSend,
-          confirmLabel: tr('confirmN', { n: state.selected.length }), editLabel: t.reviewEdit, notIncludedLabel: t.chatNotIncluded }}
+          // The save says what it saves, by count and plural-safe (ICU, as
+          // confirmN): «احفظ الاتنين», «احفظ وحدة», nothing when none is ticked.
+          confirmLabel: tr('chatSaveN', { n: state.selected.length }), editLabel: t.reviewEdit, includeLabel: t.chatWillSave,
+          proposalsTitle: fill(t.chatProposedN, { n: items.length }),
+          listeningTitle: t.chatListening, listeningNote: t.voiceListening, cancelListeningLabel: t.cancel }}
         text={composerText} onChangeText={changeText} onSend={send}
         canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering}
         inputDisabled={state.status === 'confirming' || answering}
@@ -390,10 +418,21 @@ export function CaptureScreen() {
         // 2026-09-30): on the page, before the first message is sent.
         // Its heading as on Trust («مين بيفهم كلامك»), so it reads as what it
         // is rather than a stray line (chat UAT 2026-09-30).
+        // Stitch draws it as the link «مين بيفهم كلامك» under the welcome; the
+        // words stay open under it until the person folds them (a 44-point
+        // control), so the disclosure is read, not hidden behind a tap.
         notice={<View testID="capture-ai-disclosure" style={{ gap: 2, alignItems: 'flex-start' }}>
-          <Txt role="section" size={12.5} weight={600} color={p.tx} testID="capture-ai-disclosure-title">{t.aiDisclosureTitle}</Txt>
-          <Txt size={12} color={p.mu} testID="capture-ai-disclosure-body">{isolateLatinRuns(t.aiDisclosure)}</Txt>
-          <Txt size={12} color={p.mu}>{t.aiDisclosureKept}</Txt>
+          <Btn testID="capture-ai-disclosure-toggle" label={t.aiDisclosureTitle} onPress={() => setDisclosureOpen(open => !open)}
+            accessibilityState={{ expanded: disclosureOpen }} scaleTo={1}
+            style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 6, paddingEnd: 4 }}>
+            <ChatIcon name="info" size={16} color={p.success} />
+            <Txt size={13} weight={500} color={p.mu} testID="capture-ai-disclosure-title"
+              style={{ textDecorationLine: 'underline', textDecorationColor: p.lnStrong }}>{t.aiDisclosureTitle}</Txt>
+          </Btn>
+          {disclosureOpen ? <View style={{ gap: 4, alignItems: 'flex-start', paddingBottom: 4 }}>
+            <Txt size={13} color={p.mu} testID="capture-ai-disclosure-body">{isolateLatinRuns(t.aiDisclosure)}</Txt>
+            <Txt size={13} color={p.mu}>{t.aiDisclosureKept}</Txt>
+          </View> : null}
         </View>}
         history={history}
         {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}
@@ -402,10 +441,13 @@ export function CaptureScreen() {
         quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
-        bodyOverride={bodyOverride} reviewExtras={reviewExtras} languageControl={language}
+        bodyOverride={bodyOverride} clarification={clarification} reviewExtras={afterChat} reviewFooter={reviewFooter} languageControl={language}
+        onCancelListening={cancelDictation}
         // After each save the field is ready for the next commitment.
         composerFocusKey={saves}
-        voiceNotice={<>{counter}<VoiceNote status={voiceStatus} /></>}
+        // While listening the panel above the field says so; the note line
+        // keeps the other states (failed, no speech, denied → Settings).
+        voiceNotice={<>{counter}{voiceStatus === 'listening' ? null : <VoiceNote status={voiceStatus} />}</>}
         microphone={busy || answering || voiceStatus === 'unavailable' ? undefined : <VoiceButton key={voiceEpoch} service={speech} showNote={false} autoFocus={voiceEpoch === 0 && state.inputMode === 'voice'} onStart={onDictationStart}
           onStatusChange={setVoiceStatus} onPartial={onDictated} onFinal={onDictated}
           renderControl={({ onPress, listening, busy }) => <ChatMicrophone colors={p} label={listening ? t.stopReview : t.tapToTalk}
