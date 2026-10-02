@@ -133,7 +133,7 @@ export function SavedScreen() {
             <View
               key={item.commitmentId}
               testID={`saved-item-${item.itemId}`}
-              style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
+              style={[{ backgroundColor: p.sf, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
             >
               <Txt role="card">{item.title}</Txt>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
@@ -155,7 +155,7 @@ export function SavedScreen() {
                 testID={`saved-weekly-${block.id}`}
                 accessible
                 accessibilityLabel={`${weeklyA11yLabel(block, lang)}${t.wbListSep}${t.wbReviewWeekly}`}
-                style={[{ backgroundColor: p.sf, borderRadius: 18, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
+                style={[{ backgroundColor: p.sf, borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18, alignItems: 'stretch', gap: 10 }, cardShadow(p)]}
               >
                 <Txt role="card">{block.title}</Txt>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>

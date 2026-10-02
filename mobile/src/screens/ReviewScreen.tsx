@@ -281,7 +281,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 20, gap: 12 }}
       >
         {state.source === 'meeting' ? (
-          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source-meeting">
+          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source-meeting">
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
             <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
               <Txt size={13} color={p.mu}>{state.meeting?.appointment ? t.reviewSourceAppointment : t.reviewSourceMeeting}</Txt>
@@ -301,7 +301,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
           </View>
         ) : null}
         {state.source === 'share' ? (
-          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source">
+          <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source">
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
             <Txt size={13} color={p.mu} style={{ flex: 1 }}>{t.reviewSourceShare}</Txt>
             <Txt size={12} color={p.wm}>{t.reviewUntrusted}</Txt>
@@ -323,7 +323,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         </View>
 
         {asking ? (
-          <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
+          <View style={{ backgroundColor: p.sf, borderRadius: 20, padding: 18 }}>
             <ClarifySheet
               key={asking.itemId}
               item={asking}
@@ -354,7 +354,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         ) : null}
 
         {state.status === 'confirmFailed' ? (
-          <View style={{ backgroundColor: p.wms, borderRadius: 18, padding: 14 }} testID="review-confirm-failed">
+          <View style={{ backgroundColor: p.wms, borderRadius: 20, padding: 14 }} testID="review-confirm-failed">
             <Txt size={14} color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt>
           </View>
         ) : null}
@@ -497,7 +497,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         {/* Held, and applied atomically at confirm (#164). Nothing is written
             while this is open. */}
         {editingItemId ? (
-          <View style={{ backgroundColor: p.sf, borderRadius: 24, padding: 18 }}>
+          <View style={{ backgroundColor: p.sf, borderRadius: 20, padding: 18 }}>
             <EditProposalItemSheet
               item={items.find((item) => item.itemId === editingItemId)!}
               edit={state.edits[editingItemId]}
@@ -595,7 +595,7 @@ function ItemCard({
       style={{
         // Dashed all round in the proposal colour: nothing has been written.
         // Selection belongs to the explicit checkbox, not the proposal border.
-        backgroundColor: p.sf, borderRadius: 24, overflow: 'hidden',
+        backgroundColor: p.sf, borderRadius: 20, overflow: 'hidden',
         borderWidth: 1.5, borderStyle: 'dashed', borderColor: p.prop,
       }}
     >
