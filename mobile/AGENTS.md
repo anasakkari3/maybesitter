@@ -7,10 +7,18 @@ writing any code. This app targets Expo SDK 57, React Native 0.86, React 19.2.
 
 ## Design source of truth
 
-The approved coral/charcoal continuation is the current visual reference.
-`src/design/coral.source.json` records its fifteen reference images and palette;
-`docs/design/coral-continuation.md` records the implementation decisions.
-`design/R2App.dc.html` remains the Round-2 structural reference: three tabs with their own
+The Stitch redesign (owner decision 2026-10-02) is the current visual
+reference: `docs/design/stitch-2026-10-02/IMPLEMENTATION_SPEC.md` is binding,
+with the exact Stitch markup in `html/` and renders in `png/`.
+`src/design/stitch.source.json` pins the palette and the reference hashes.
+Navy dark is the default scheme (light and "system" stay selectable); Arabic is
+set in Noto Kufi Arabic, Latin and digits in Plus Jakarta Sans, Hebrew in Noto
+Sans Hebrew. The bar is Today · Plan · My things · Watching with the «احكيها»
+pill floating above it; Settings opens from the avatar in each tab root's
+header (`AvatarButton`, testID `open-settings`) and is pushed onto that tab.
+The coral continuation it replaced is archived at tag `archive/pre-stitch-design`
+(`src/design/coral.source.json` is kept as history).
+`design/R2App.dc.html` remains the Round-2 structural reference: tabs with their own
 stacks, tasks, sheets and dialogs (`src/state/navigation.ts`), one screen
 grammar (`src/ui/chrome.tsx`), and the reconciled Today
 (`src/features/today/composeToday.ts`). Where Round 2 drew no screen — the
@@ -33,10 +41,13 @@ Rules the design fixes, which code must keep:
   physical left even under `direction: 'rtl'`. Give start-aligned column
   content `alignItems: 'flex-start'` instead of relying on `textAlign`.
 - Digits and Latin-only labels that sit in tight boxes (calendar day numbers)
-  use `<Txt latin>`: Noto Naskh's tall line box clips them otherwise.
+  use `<Txt latin>`: Noto Kufi's tall line box clips them otherwise.
 - Coral (`ac`) marks actions and selected navigation; green marks confirmed
-  completion; warm sand (`wm`) marks attention and proposals. Every state has
+  completion; amber (`wm`) marks attention and proposals. Importance chips:
+  «لازم» coral, «مهم» amber, «حلو» green (`priorityTagKind`). Every state has
   a text label and uses the contrast-tested pair from `src/theme/tokens.ts`.
+  Text on the accent is `onAccent` (navy in dark), never white.
+- Nothing is set below 12 px; tab labels and chips are 13. Cards are radius 20.
 - There is no "overdue". Only active, done, rearranged, dropped on purpose.
   «أسقطه بوعي» has the same weight as «تمّت».
 - Suggestions always say «هذا اقتراح. لم يتغيّر أي شيء بعد.» (`suggestionNote`) and
@@ -55,12 +66,14 @@ Rules the design fixes, which code must keep:
 
 ```
 App.tsx              fonts + providers + the sign-in gate
-src/Root.tsx         screen switch, tab bar, toast host, sheet host (signed-in only)
+src/Root.tsx         screen switch, tab bar + «احكيها» pill, toast host, sheet host (signed-in only)
 src/auth/            AuthProvider/useAuth, AuthGate, the repositories, dev override
 src/state/           AppContext (state + actions), navigation (history), types
 src/screens/         the spine: Today, Calendar, Settings, Details, Plan, Capture/Review/Saved, Share, Sheets, TabBar
+src/features/things/ «أشيائي», the hub tab (commitments, goals, habits, ideas, recent saves)
+src/features/watching/ «يتابع لك», the hub tab (questions, suggestions, watches)
 src/features/        one directory per product area: today (composeToday), nextStep, plan, commitments, capture, share, calendar, settings, memory, activity, onboarding, account…
-src/ui/              primitives, chrome (the screen grammar), taskHeader, dialog, toast, icons, motion
+src/ui/              primitives, chrome (the screen grammar, AvatarButton), hub (the hubs' rows), taskHeader, dialog, toast, icons, motion
 src/i18n/            all copy, ar + en + he, and the format/bidi helpers
 src/theme/           tokens (light/dark roles + palettes), textScale, fonts
 src/config/          env + the release config guard shared with app.config.ts
