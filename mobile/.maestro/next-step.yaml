@@ -31,7 +31,7 @@ name: The next step, accepted and dismissed
 # ── Later asks when, and shows what each choice means ──────────────
 - tapOn:
     id: 'next-step-defer'
-- assertVisible: 'إيمتى نرجّعها؟'
+- assertVisible: 'إمتى نرجّعها؟'
 - assertVisible:
     id: 'next-step-defer-when-oneHour'
 - tapOn:
@@ -42,6 +42,9 @@ name: The next step, accepted and dismissed
 
 # ── Dismiss ────────────────────────────────────────────────────────
 - assertVisible: 'خطوتك التالية'
+# «مش هاي» sits behind «المزيد» (Stitch: accept, done and «مش هلّق» up front).
+- tapOn:
+    id: 'next-step-more'
 - tapOn:
     id: 'next-step-dismiss'
 - assertVisible: 'يومك'
