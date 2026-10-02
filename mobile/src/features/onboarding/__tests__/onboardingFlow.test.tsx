@@ -184,6 +184,83 @@ describe('the gate', () => {
     await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
   });
 
+  // Audit 2026-10-03 #5: Settings → Account → sign out → sign in again with the
+  // same email replayed the whole onboarding, consents included, because the
+  // only record of "finished" was a device bit that sign-out clears. The
+  // account's own answers are on the server and survive the sign-out.
+  it('does not replay onboarding when the same account signs out and back in', async () => {
+    await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'done');
+    // What the server holds once this account has been through the consent
+    // screen: the recommendation question answered (declined counts).
+    getConsents.mockResolvedValue({
+      ...CONSENTS,
+      recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: '2026-10-03T09:00:00.000Z', asked: true },
+    });
+    await mountApp();
+    await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
+
+    await repository.signOut();
+    await waitFor(() => expect(screen.queryByText('THE APP')).toBeNull());
+    // Sign-out still forgets the device copy: a shared phone must not hand the
+    // next person this one's state.
+    await waitFor(async () => expect(await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull());
+
+    repository.emit({ ...USER });
+    await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
+    expect(screen.queryByText(en.obWelcomeTitle)).toBeNull();
+    expect(screen.queryByText(en.obConsentTitle)).toBeNull();
+    // And the account's answer is written back, so the next launch does not
+    // have to ask the server again before showing the app.
+    expect(await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY)).toBe('done');
+  });
+
+  it('never flashes the welcome screen while it asks the server', async () => {
+    let answer: (value: typeof CONSENTS) => void = () => {};
+    getConsents.mockReturnValue(new Promise(resolve => { answer = resolve as never; }));
+    await mountApp();
+    await waitFor(() => expect(screen.queryByTestId('onboarding-loading')).not.toBeNull());
+    expect(screen.queryByText(en.obWelcomeTitle)).toBeNull();
+    answer({
+      ...CONSENTS,
+      recommendations: { state: 'granted', version: 'rec-consent-v1', changedAt: '2026-10-03T09:00:00.000Z', asked: true },
+    } as never);
+    await waitFor(() => expect(screen.queryByText('THE APP')).not.toBeNull());
+  });
+
+  it('still onboards a brand-new account on a phone that has never seen it', async () => {
+    await renderApp();
+    expect(getConsents).toHaveBeenCalled();
+    expect(screen.queryByText('THE APP')).toBeNull();
+  });
+
+  it('keeps a brand-new account in onboarding after its consent answer lands', async () => {
+    // The consent write invalidates the consents query; the refetch now says
+    // the question has been asked. That must not end onboarding early.
+    let answered = false;
+    getConsents.mockImplementation(async () => (answered
+      ? { ...CONSENTS, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: '2026-10-03T09:00:00.000Z', asked: true } }
+      : CONSENTS));
+    putRecommendationConsent.mockImplementation(async () => {
+      answered = true;
+      return { success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never;
+    });
+    await renderApp();
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
+    await press(en.obContinue);
+    await waitFor(() => expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull());
+    await waitFor(() => expect(getConsents.mock.calls.length).toBeGreaterThan(1));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(screen.queryByText('THE APP')).toBeNull();
+    expect(screen.queryByText(en.obRoutineTitle)).not.toBeNull();
+  });
+
+  it('falls back to onboarding when the server cannot be reached', async () => {
+    getConsents.mockRejectedValue(new NetworkError('no signal'));
+    await renderApp();
+    expect(screen.queryByText('THE APP')).toBeNull();
+  });
+
   it('resumes on the step it was left on', async () => {
     await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'routine');
     await render(
@@ -250,8 +327,11 @@ describe('the consent screen', () => {
    *
    *  1. The account granted recommendations before — on another device, or
    *     before a sign-out. The record is on the server.
-   *  2. Signing back in runs onboarding again, deliberately (#171), and the
-   *     screen seeds the toggle from that record: on.
+   *  2. This install is part-way through onboarding — resumed on the consent
+   *     step — and the screen seeds the toggle from that record: on. (Signing
+   *     back in on a phone with no progress used to be the way here; since
+   *     audit 2026-10-03 #5 an account that has answered goes straight to the
+   *     app instead, so the resumed install is the path that is left.)
    *  3. The user turns it off. That is an explicit decline, not an absence.
    *  4. A consents refetch lands. There is nothing exotic about it — the
    *     recommendation write invalidates this very query when it settles, so
@@ -289,7 +369,9 @@ describe('the consent screen', () => {
       .mockImplementationOnce(async () => { attempted = true; throw new NetworkError('no signal'); })
       .mockResolvedValue({ success: true, recommendations: { state: 'declined', version: 'rec-consent-v1', changedAt: 'x' } } as never);
 
-    await reachConsent();
+    await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'consent');
+    await mountApp();
+    await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
     // Seeded from the account's own earlier answer: the question is not asked
     // twice, which is what the seeding block is for.
     await waitFor(() => expect(screen.getByLabelText(en.obRecTitle).props.value).toBe(true));
@@ -350,8 +432,10 @@ describe('the consent screen', () => {
 describe('when the consent versions cannot be fetched', () => {
   it('says what went wrong and offers a retry that actually recovers', async () => {
     getConsents.mockRejectedValueOnce(new NetworkError('no signal'));
-    await renderApp();
-    await press(en.obContinue);
+    // Resumed on the consent step. From the welcome screen the gate itself
+    // asks first, and the consent screen's mount refetches past the failure.
+    await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'consent');
+    await mountApp();
     await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
 
     // The screen says it, in the words `userFacingMessage` owns.
@@ -379,8 +463,10 @@ describe('when the consent versions cannot be fetched', () => {
     getConsents.mockImplementationOnce(() => new Promise(resolve => {
       release = () => resolve(CONSENTS);
     }) as never);
-    await renderApp();
-    await press(en.obContinue);
+    // Resumed on the consent step: from the welcome screen the gate holds on
+    // the plain background until this answer lands.
+    await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'consent');
+    await mountApp();
     await waitFor(() => expect(screen.queryByText(en.obConsentTitle)).not.toBeNull());
 
     // Continue will not move yet: the screen has to say why.

@@ -497,12 +497,12 @@ export function useWeeklySummary(weekStart?: string) {
  * rather than context so that a revocation made elsewhere arrives on the next
  * refetch; `staleTime` is the layer's default, and the answer is cheap.
  */
-export function useConsents() {
+export function useConsents(options: { enabled?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.consents(uid),
     queryFn: () => getConsents(),
-    enabled: uid !== 'signed-out',
+    enabled: uid !== 'signed-out' && options.enabled !== false,
     // Never from a cache. Somebody who revoked on another device has to see it
     // revoked here on the next look, and a toggle rendered from a stale answer
     // is a toggle that lies about what the server will actually do — which is
