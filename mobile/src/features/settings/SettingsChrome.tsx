@@ -10,8 +10,9 @@ import { useLayoutMode } from '../../theme/textScale';
 /**
  * Settings' own chrome (Stitch `06-settings`, 2026-10-02).
  *
- *   SettingsHeader   the top bar every settings page shares: a 44 × 44 back
- *                    arrow and the page's title on one line.
+ *   SettingsHeader   the top bar every settings page shares: the way back
+ *                    (an arrow and «رجوع», 44 tall) and the page's title on
+ *                    one line.
  *   SettingsHubRow   a destination on the Settings hub: a round tinted icon,
  *                    a title, one muted line of what is inside, a chevron.
  *   SettingsRow      one tappable row of a grouped list, for the category
@@ -38,7 +39,11 @@ export function SettingsHeader({ title, onBack, end, backLabel }: {
   );
 }
 
-/** The way back: an arrow pointing to the start edge, 44 × 44, announced in words. */
+/**
+ * The way back: an arrow pointing to the start edge and the word «رجوع» —
+ * a word reads in every language and announces itself (Round 2), the arrow
+ * is Stitch's. At least 44 × 44.
+ */
 export function BackArrowButton({ label, onPress, testID = 'header-back' }: { label: string; onPress: () => void; testID?: string }) {
   const { p, rtl } = useApp();
   return (
@@ -46,14 +51,15 @@ export function BackArrowButton({ label, onPress, testID = 'header-back' }: { la
       label={label}
       onPress={onPress}
       testID={testID}
-      scaleTo={0.94}
-      style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }}
+      scaleTo={0.96}
+      style={{ minHeight: 44, minWidth: 44, borderRadius: 999, paddingStart: 8, paddingEnd: 12, flexDirection: 'row', alignItems: 'center', gap: 4 }}
     >
       <View style={{ transform: [{ scaleX: rtl ? -1 : 1 }] }}>
-        <Svg width={24} height={24} viewBox="0 0 24 24">
+        <Svg width={22} height={22} viewBox="0 0 24 24">
           <Path d="M19 12H5M11 5l-7 7 7 7" fill="none" stroke={p.tx} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
         </Svg>
       </View>
+      <Txt size={15} weight={600} color={p.tx}>{label}</Txt>
     </Btn>
   );
 }

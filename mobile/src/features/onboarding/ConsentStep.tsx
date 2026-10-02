@@ -5,7 +5,7 @@ import { useApp } from '../../state/AppContext';
 import { userFacingMessageKey } from '../../api/ui/userFacingMessage';
 import { Btn, Card, Txt } from '../../ui/primitives';
 import { OnboardingChrome } from './OnboardingChrome';
-import { DisclosureCard } from './WelcomeStep';
+import { ShieldGlyph } from './WelcomeStep';
 
 /**
  * What MaybeSitter may use, on the way in (UC-2.9 #170, UC-2.R1 #171).
@@ -107,7 +107,16 @@ export function ConsentStep({
       }
     >
       {/* ── AI processing: told, before the first capture ─────────── */}
-      <DisclosureCard testID="onboarding-ai-disclosure" />
+      {/* Spelled out here rather than through WelcomeStep's DisclosureCard:
+          the census (aiAlwaysOnCensus) reads this file for both lines. */}
+      <Card pad={16} style={{ gap: 8, backgroundColor: p.sf }} testID="onboarding-ai-disclosure">
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <ShieldGlyph color={p.ac} />
+          <Txt role="section" size={17} weight={700} style={{ flexShrink: 1 }}>{t.aiDisclosureTitle}</Txt>
+        </View>
+        <Txt size={15} color={p.mu} lh={1.5}>{t.aiDisclosure}</Txt>
+        <Txt size={15} weight={600} lh={1.5}>{t.aiDisclosureKept}</Txt>
+      </Card>
 
       <Txt size={15} color={p.mu} lh={1.5}>{t.obConsentLede}</Txt>
 

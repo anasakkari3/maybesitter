@@ -55,15 +55,22 @@ export function DisclosureCard({ testID }: { testID: string }) {
   return (
     <View testID={testID} style={{ gap: 8, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, padding: 16 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <View accessible={false}>
-          <Svg width={20} height={20} viewBox="0 0 24 24">
-            <Path d="M12 3l8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6Z" fill="none" stroke={p.ac} strokeWidth={1.8} strokeLinejoin="round" />
-          </Svg>
-        </View>
+        <ShieldGlyph color={p.ac} />
         <Txt role="section" size={17} weight={700} style={{ flexShrink: 1 }}>{t.aiDisclosureTitle}</Txt>
       </View>
       <Txt size={15} color={p.mu} lh={1.5}>{t.aiDisclosure}</Txt>
       <Txt size={15} weight={600} color={p.tx} lh={1.5}>{t.aiDisclosureKept}</Txt>
+    </View>
+  );
+}
+
+/** The disclosure's shield, decorative. */
+export function ShieldGlyph({ color }: { color: string }) {
+  return (
+    <View accessible={false}>
+      <Svg width={20} height={20} viewBox="0 0 24 24">
+        <Path d="M12 3l8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6Z" fill="none" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+      </Svg>
     </View>
   );
 }
