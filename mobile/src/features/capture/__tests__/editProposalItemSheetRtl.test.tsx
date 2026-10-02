@@ -212,7 +212,7 @@ describe('the edit sheet in Arabic', () => {
     // from the wrong edge of the box.
     expect(styleOf(field, 'textAlign')).toBe('right');
     // Outfit has no Arabic glyphs, so the wrong face here is a field of tofu.
-    expect(styleOf(field, 'fontFamily')).toBe('NotoNaskhArabic_400Regular');
+    expect(styleOf(field, 'fontFamily')).toBe('NotoKufiArabic_400Regular');
   });
 
   it('keeps the clock left to right, in Latin digits, in the Latin face', async () => {
@@ -244,12 +244,12 @@ describe('the edit sheet in Arabic', () => {
 
     // 3. Set in Outfit even though the app is Arabic: `Txt latin` exists
     //    because Noto Naskh's tall line box clips digits in a tight box.
-    expect(styleOf(time, 'fontFamily')).toBe('Outfit_400Regular');
+    expect(styleOf(time, 'fontFamily')).toBe('PlusJakartaSans_400Regular');
 
     // And the button beside it is not Latin — it is a date in Arabic, so it
     // keeps the Arabic face. Both being Outfit would mean `latin` had leaked.
     const date = within(screen.getByTestId('edit-item-pick-date')).getByText(/./);
-    expect(styleOf(date, 'fontFamily')).toBe('NotoNaskhArabic_400Regular');
+    expect(styleOf(date, 'fontFamily')).toBe('NotoKufiArabic_400Regular');
     expect(String(date.props.children)).toMatch(/[؀-ۿ]/);
   });
 

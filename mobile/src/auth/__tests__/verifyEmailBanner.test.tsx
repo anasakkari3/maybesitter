@@ -215,8 +215,10 @@ describe('the banner takes a bounded share of the screen at every text size', ()
         if ((lines ?? 0) > 1) expect((lines ?? 0) * LINE * fontScale).toBeLessThanOrEqual(windowHeight * TEXT_SHARE);
       }
     }
-    // The UAT phone: two lines at AX1–AX3, one at AX4–AX5.
-    expect(AX.map((fontScale) => bannerTextLines({ windowHeight: 844, fontScale }))).toEqual([2, 2, 2, 1, 1]);
+    // The UAT phone: two lines at AX1–AX2, one at AX3–AX5. (AX3 was two
+    // lines under Noto Naskh's 1.6; Noto Kufi's 1.7 line box, Stitch
+    // 2026-10-02, no longer fits a second line in the banner's share.)
+    expect(AX.map((fontScale) => bannerTextLines({ windowHeight: 844, fontScale }))).toEqual([2, 2, 1, 1, 1]);
   });
 
   it('keeps the default-size row exactly as the design draws it', async () => {

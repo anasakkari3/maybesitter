@@ -34,7 +34,7 @@ async function lineBoxAt(fontScale: number, size = 20): Promise<Box> {
   // The stored preference is read in an effect; until then the box is Latin.
   await waitFor(() => {
     const st = StyleSheet.flatten(view.getByTestId('subject').props.style) as { fontFamily: string };
-    expect(st.fontFamily).toContain('NotoNaskhArabic');
+    expect(st.fontFamily).toContain('NotoKufiArabic');
   });
   const node = view.getByTestId('subject');
   const style = StyleSheet.flatten(node.props.style) as { fontSize: number; lineHeight: number };
@@ -60,7 +60,7 @@ describe('Txt delegates scaling once to the native renderer', () => {
       expect(max).toBeUndefined();
       expect(allow).not.toBe(false);
       // RN 0.86 RCTAttributedTextUtils.mm applies the same multiplier to both.
-      expect((lineHeight * scale) / (fontSize * scale)).toBeCloseTo(1.6);
+      expect((lineHeight * scale) / (fontSize * scale)).toBeCloseTo(LINE_HEIGHT.arabic);
     },
   );
 });

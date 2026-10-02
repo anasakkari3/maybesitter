@@ -75,7 +75,7 @@ glyph.
 
 - `isRtl(locale)` → `ar`, `he`. Read once, in `src/Root.tsx`.
 - `scriptFor(locale)` → `'latin' | 'arabic' | 'hebrew'`, which picks the face in
-  `src/theme/fonts.ts`: Outfit, Noto Naskh Arabic, Noto Sans Hebrew.
+  `src/theme/fonts.ts`: Plus Jakarta Sans, Noto Kufi Arabic, Noto Sans Hebrew.
 
 `useApp()` exposes both as `rtl` and `script`. It still exposes `ar`, which is
 now *the RTL script or `false`* rather than a boolean, so the handful of call
@@ -136,5 +136,5 @@ It is **not** a claim that the copy is right. The review is a person's job and
 is tracked on its own issue; nothing in this repository can stand in for it.
 
 The other old blocker is gone. `src/theme/fonts.ts` now loads Noto Sans Hebrew
-alongside Outfit and Noto Naskh Arabic, so Hebrew draws glyphs rather than tofu
+alongside the Latin and Arabic faces (Plus Jakarta Sans and Noto Kufi Arabic since the Stitch redesign; Outfit and Noto Naskh before it), so Hebrew draws glyphs rather than tofu
 (□□□). See "Scripts and faces" above.

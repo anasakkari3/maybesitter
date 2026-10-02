@@ -185,10 +185,10 @@ describe('chat page details (UAT 2026-09-30)', () => {
   const PLUS_PATH = 'M12 5v14M5 12h14';
   const faces = {
     ...baseProps.fonts,
-    regular: 'NotoNaskhArabic_400Regular', semibold: 'NotoNaskhArabic_600SemiBold', lineRatio: 1.6,
+    regular: 'NotoKufiArabic_400Regular', semibold: 'NotoKufiArabic_600SemiBold', lineRatio: 1.7,
     forText: (value: string, weight: 'regular' | 'semibold') => /[\u0600-\u06FF]/.test(value) || !/[A-Za-z]/.test(value)
-      ? { fontFamily: weight === 'semibold' ? 'NotoNaskhArabic_600SemiBold' : 'NotoNaskhArabic_400Regular', lineRatio: 1.6 }
-      : { fontFamily: weight === 'semibold' ? 'Outfit_600SemiBold' : 'Outfit_400Regular', lineRatio: 1.4 },
+      ? { fontFamily: weight === 'semibold' ? 'NotoKufiArabic_600SemiBold' : 'NotoKufiArabic_400Regular', lineRatio: 1.7 }
+      : { fontFamily: weight === 'semibold' ? 'PlusJakartaSans_600SemiBold' : 'PlusJakartaSans_400Regular', lineRatio: 1.4 },
   };
 
   it('the row checkbox and its «…» are each at least 44 tall', async () => {
@@ -202,14 +202,14 @@ describe('chat page details (UAT 2026-09-30)', () => {
     const view = await render(<SayItChatPage {...baseProps} rtl fonts={faces} text="Dentist tomorrow at 5pm"
       outgoing={{ text: 'Dentist tomorrow at 5pm' }} onRowToggle={() => {}}
       scheduleGroups={[{ id: 'g', title: 'بكرا', rows: [{ id: 'd', title: 'Dentist', selected: true }] }]} />);
-    expect(flat('capture-input').fontFamily).toBe('Outfit_400Regular');
-    expect(flat('chat-outgoing-text').fontFamily).toBe('Outfit_400Regular');
-    expect(flat('review-title-d').fontFamily).toBe('Outfit_400Regular');
-    // Arabic words, and the empty field under its Arabic placeholder, keep Naskh.
+    expect(flat('capture-input').fontFamily).toBe('PlusJakartaSans_400Regular');
+    expect(flat('chat-outgoing-text').fontFamily).toBe('PlusJakartaSans_400Regular');
+    expect(flat('review-title-d').fontFamily).toBe('PlusJakartaSans_400Regular');
+    // Arabic words, and the empty field under its Arabic placeholder, keep Kufi.
     await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} text="" />);
-    expect(flat('capture-input').fontFamily).toBe('NotoNaskhArabic_400Regular');
+    expect(flat('capture-input').fontFamily).toBe('NotoKufiArabic_400Regular');
     await view.rerender(<SayItChatPage {...baseProps} rtl fonts={faces} text="موعد مع Sami" />);
-    expect(flat('capture-input').fontFamily).toBe('NotoNaskhArabic_400Regular');
+    expect(flat('capture-input').fontFamily).toBe('NotoKufiArabic_400Regular');
   });
 
   it('a finished reply is read out as its words, never as the typing bubble\u2019s «بنفهمها…»', async () => {
@@ -243,8 +243,8 @@ describe('chat page details (UAT 2026-09-30)', () => {
       { role: 'user', text: 'بكرا الساعة 5' },
       { role: 'assistant', text: 'تمام، بكرا الساعة 5 المسا. أكّد من تحت.' },
     ]} />);
-    expect(flat('chat-turn-assistant-1-text-0').fontFamily).toBe('Outfit_400Regular');
-    expect(flat('chat-turn-assistant-3-text-0').fontFamily).toBe('NotoNaskhArabic_400Regular');
+    expect(flat('chat-turn-assistant-1-text-0').fontFamily).toBe('PlusJakartaSans_400Regular');
+    expect(flat('chat-turn-assistant-3-text-0').fontFamily).toBe('NotoKufiArabic_400Regular');
   });
 
   it('the paste control draws a clipboard, not a plus', async () => {

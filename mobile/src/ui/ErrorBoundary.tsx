@@ -93,9 +93,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
 /**
  * Large type is set tighter than body copy, so the title has its own map rather
  * than reading LINE_HEIGHT. The two RTL faces keep the boxes their own metrics
- * ask for; only Outfit is squeezed, and only here.
+ * ask for; only the Latin face is squeezed, and only here.
  */
-const TITLE_LINE: Record<Script, number> = { latin: 1.3, arabic: 1.6, hebrew: 1.5 };
+const TITLE_LINE: Record<Script, number> = { latin: 1.3, arabic: 1.7, hebrew: 1.5 };
 
 export function CrashFallback({ onRetry }: { onRetry: () => void }) {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
