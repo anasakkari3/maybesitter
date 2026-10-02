@@ -106,11 +106,13 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
     const resendButton = (
       <Pill
         label={cooldown > 0 ? tr('authVerifyCooldown', { s: cooldown }) : t.authVerifyResend}
-        kind="soft"
+        kind="warm"
         size={13}
         pad={8}
         disabled={cooldown > 0}
         onPress={() => void resend()}
+        // Stitch `01c`: the action outlined in the banner's own amber.
+        style={{ borderWidth: 1, borderColor: p.prop, minHeight: 44 }}
       />
     );
 
@@ -120,6 +122,8 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
           testID="verify-email-banner"
           style={{
             backgroundColor: p.wms,
+            borderBottomWidth: 1,
+            borderBottomColor: p.prop,
             paddingTop: topInset + 12,
             paddingBottom: 12,
             paddingHorizontal: 16,
@@ -156,6 +160,8 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
         testID="verify-email-banner"
         style={{
           backgroundColor: p.wms,
+          borderBottomWidth: 1,
+          borderBottomColor: p.prop,
           paddingTop: topInset + 12,
           paddingBottom: 12,
           paddingHorizontal: 16,

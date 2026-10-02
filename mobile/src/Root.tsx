@@ -280,7 +280,8 @@ export function Root() {
           </OfflineBanner>
           {/* The bar and the «احكيها» pill, at a tab root only. */}
           {s.showTabs && <TabBar onClearanceChange={setTabClearance} />}
-          <ToastHost />
+          {/* Above the bar and the pill when they show, so a toast never covers «احكيها». */}
+          <ToastHost clearance={s.showTabs ? tabClearance : undefined} />
           <SheetHost key={s.sheet ?? 'none'} />
         </View>
       </ShareProvider>
