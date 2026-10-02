@@ -173,19 +173,19 @@ describe('a Hebrew phone gets a Hebrew app', () => {
   it('still mirrors the other two languages the way it always did', async () => {
     const arabic = await openAppIn('ar');
     expect(renderedDirection(arabic.toJSON())).toBe('rtl');
-    expect(fontOf(screen.getByText(ar.emptyTitle))).toMatch(/^NotoNaskhArabic_/);
+    expect(fontOf(screen.getByText(ar.emptyTitle))).toMatch(/^NotoKufiArabic_/);
     await arabic.unmount();
 
     const english = await openAppIn('en');
     expect(renderedDirection(english.toJSON())).toBe('ltr');
-    expect(fontOf(screen.getByText(en.emptyTitle))).toMatch(/^Outfit_/);
+    expect(fontOf(screen.getByText(en.emptyTitle))).toMatch(/^PlusJakartaSans_/);
   });
 });
 
 describe('the language picker offers it', () => {
   it('Arabic → עברית through the picker, and the app turns Hebrew as it goes', async () => {
     await openAppIn('ar');
-    await fireEvent.press(screen.getByRole('button', { name: ar.tabSettings }));
+    await fireEvent.press(screen.getByRole('button', { name: ar.settingsTitle }));
     await waitFor(() => expect(screen.queryByTestId('settings-category-app')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('settings-category-app'));
     // Round 2: language and appearance are a picker screen, not a row that

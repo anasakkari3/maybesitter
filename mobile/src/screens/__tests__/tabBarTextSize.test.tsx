@@ -27,7 +27,7 @@ const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
-const IDS = ['tab-today', 'tab-calendar', 'tab-capture', 'tab-settings'];
+const IDS = ['tab-today', 'tab-calendar', 'tab-things', 'tab-watching', 'tab-capture'];
 
 async function atFontScale(fontScale: number): Promise<RenderResult> {
   useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale });
@@ -65,7 +65,7 @@ describe('the tab bar keeps its identity at every text size', () => {
     for (const name of names(view)) expect(view.queryAllByText(name)).toHaveLength(0);
   });
 
-  it('announces the same four names at 2.0× as at 1×, and every control is still there', async () => {
+  it('announces the same five names at 2.0× as at 1×, and every control is still there', async () => {
     const small = names(await atFontScale(1));
     const view = await atFontScale(2.0);
     expect(names(view)).toEqual(small);

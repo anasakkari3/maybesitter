@@ -62,8 +62,9 @@ describe('screen reachability', () => {
     expect(screenUnion().length).toBeGreaterThan(3);
   });
 
-  it('found the three tabs in navigation.ts, so the tab check is not vacuous', () => {
-    expect(tabScreens).toEqual(['today', 'calendar', 'settings']);
+  it('found the four tabs in navigation.ts, so the tab check is not vacuous', () => {
+    // Stitch redesign (2026-10-02): Settings left the bar for the avatar.
+    expect(tabScreens).toEqual(['today', 'calendar', 'things', 'watching']);
   });
 
   it.each(screenUnion())("'%s' has a way in", screen => {

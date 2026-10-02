@@ -43,10 +43,11 @@ afterEach(() => { jest.restoreAllMocks(); });
 
 describe('reference header keeps the real product routes', () => {
   for (const locale of [{ lang: 'en', copy: en }, { lang: 'ar', copy: ar }]) {
+    // Stitch (2026-10-02): search and the avatar. The avatar is the way into
+    // Settings now; notifications and the account are inside it.
     const routes = [
       { label: locale.copy.xSearch, route: 'commitments' },
-      { label: locale.copy.notifTitle, route: 'notificationsSettings' },
-      { label: locale.copy.accountTitle, route: 'account' },
+      { label: locale.copy.settingsTitle, route: 'settings' },
     ];
     it.each(routes)(`${locale.lang}: $route is reachable and returns to Today`, async ({ label, route }) => {
       await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, locale.lang);
@@ -68,7 +69,7 @@ describe('reference header keeps the real product routes', () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
     await render(<AppProvider><HeaderHarness /></AppProvider>);
     await waitFor(() => expect(screen.getByTestId('reference-language')).toHaveTextContent('en'));
-    for (const name of [en.xSearch, en.notifTitle, en.accountTitle]) {
+    for (const name of [en.xSearch, en.settingsTitle]) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
     const heading = screen.getByRole('header', { name: 'Your week' });

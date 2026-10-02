@@ -6,11 +6,16 @@ import { referenceGradients, referencePalettes } from '../theme/tokens';
 import { useLayoutMode } from '../theme/textScale';
 import { Btn, Txt } from './primitives';
 import { ReferenceIcon } from './referenceIcons';
+import { AvatarButton } from './chrome';
 
 export { ReferenceIcon } from './referenceIcons';
 type Tone = 'hero' | 'plan' | 'waiting' | 'surface';
 
-/** Scoped appearance only: account state and navigation stay in AppContext. */
+/**
+ * The palette Today, Calendar and the cards built for them read. Since the
+ * Stitch redesign it is the app palette (plus `focus`, `focusSoft`, `heroEdge`)
+ * — one look for every screen.
+ */
 export function useReferencePalette() {
   const { scheme, reduceTransparency } = useApp();
   return useMemo(() => {
@@ -47,7 +52,7 @@ export function ReferenceCard({ children, tone = 'surface', pad = 16, style, tes
   const p = useReferencePalette();
   return <View testID={testID} style={[{
     backgroundColor: p.sf, borderColor: tone === 'hero' ? p.heroEdge : p.ln,
-    borderWidth: 1, borderRadius: 22, padding: pad, gap: 12, overflow: 'hidden',
+    borderWidth: 1, borderRadius: 20, padding: pad, gap: 12, overflow: 'hidden',
   }, style]}>
     <ReferenceBackdrop tone={tone} />
     {children}
@@ -68,15 +73,12 @@ export function ReferenceHeader({ eyebrow, title, subtitle, end, eyebrowTestID }
         <Txt latin size={22} weight={700} color={p.tx} style={{ flexShrink: 1 }}>MaybeSitter</Txt>
       </View>
       <View style={{ flexDirection: 'row', gap: 4, alignSelf: stacked ? 'flex-end' : undefined }}>
-        <Btn label={t.xSearch} testID="reference-search" onPress={() => actions.go('commitments')} style={styles.headerAction}>
+        <Btn label={t.xSearch} testID="reference-search" onPress={() => actions.go('commitments')} style={[styles.headerAction, { borderWidth: 1, borderColor: p.ln }]}>
           <ReferenceIcon name="search" size={22} color={p.tx} />
         </Btn>
-        <Btn label={t.notifTitle} testID="reference-notifications" onPress={() => actions.go('notificationsSettings')} style={styles.headerAction}>
-          <ReferenceIcon name="bell" size={22} color={p.tx} />
-        </Btn>
-        <Btn label={t.accountTitle} testID="reference-account" onPress={() => actions.go('account')} style={[styles.headerAction, { backgroundColor: p.acs, borderWidth: 1, borderColor: p.heroEdge }]}>
-          <ReferenceIcon name="person" size={21} color={p.tx} />
-        </Btn>
+        {/* Settings (and the account, notifications, everything else) is one
+            tap away behind the avatar since the Stitch redesign. */}
+        <AvatarButton />
       </View>
     </View>
     <View style={{ gap: 5 }}>

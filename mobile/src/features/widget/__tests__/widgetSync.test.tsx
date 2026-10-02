@@ -151,7 +151,7 @@ async function settled() {
 }
 
 async function openWidgetSettings() {
-  await fireEvent.press(screen.getByLabelText(en.tabSettings));
+  await fireEvent.press(screen.getByTestId('open-settings'));
   await waitFor(() => expect(screen.queryByTestId('settings-category-alerts')).not.toBeNull());
   await fireEvent.press(screen.getByTestId('settings-category-alerts'));
   await waitFor(() => expect(screen.queryByTestId('settings-widget')).not.toBeNull());

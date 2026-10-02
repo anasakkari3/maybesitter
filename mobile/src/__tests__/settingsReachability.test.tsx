@@ -10,9 +10,9 @@
  * Settings tab, the row, the screen — for both, in one app.
  */
 import React from 'react';
-import { StyleSheet } from 'react-native';
+import { BackHandler, StyleSheet } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -129,7 +129,7 @@ async function openApp() {
 }
 
 async function openSettings() {
-  await fireEvent.press(screen.getByLabelText(en.tabSettings));
+  await fireEvent.press(screen.getByTestId('open-settings'));
   await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
 }
 
@@ -156,24 +156,42 @@ describe('from Settings, on the merged Root', () => {
     await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
   });
 
-  it('clips Settings above the measured floating tabs, including after their height changes', async () => {
+  it('opens from the avatar without the bar or the pill, and back returns to the tab it came from', async () => {
+    // Stitch redesign (2026-10-02): Settings left the bar. It is pushed onto
+    // the tab the avatar was pressed on, so nothing floats over its rows.
+    const handlers: (() => boolean | null | undefined)[] = [];
+    type Handler = Parameters<typeof BackHandler.addEventListener>[1];
+    const addListener = BackHandler.addEventListener.bind(BackHandler);
+    jest.spyOn(BackHandler, 'addEventListener').mockImplementation((event, handler) => {
+      if (event === 'hardwareBackPress') handlers.push(() => (handler as Handler)({} as never));
+      return addListener(event, handler);
+    });
     await openApp();
+    await fireEvent.press(screen.getByTestId('tab-calendar'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-scroll')).not.toBeNull());
     await openSettings();
-    let initialViewport = screen.getByTestId('settings-category-privacy').parent;
-    while (initialViewport && !initialViewport.props.contentContainerStyle) initialViewport = initialViewport.parent;
-    expect(initialViewport).not.toBeNull();
-    expect(StyleSheet.flatten(initialViewport?.props.style)?.marginBottom ?? 0).toBeGreaterThan(0);
-    const bar = screen.getByTestId('floating-tab-bar');
-    for (const height of [74, 102]) {
-      await fireEvent(bar, 'layout', { nativeEvent: { layout: { x: 14, y: 700, width: 362, height } } });
-      const viewport = screen.getByTestId('settings-scroll');
-      // Insetting the viewport prevents rows at ANY scroll offset from being
-      // painted/hit behind a tab. Content padding only clears the final row.
-      expect(StyleSheet.flatten(viewport.props.style).marginBottom).toBeGreaterThanOrEqual(height + METRICS.insets.bottom + 4);
-    }
-    await openCategory('privacy');
-    await fireEvent.press(screen.getByTestId('settings-activity'));
-    await waitFor(() => expect(screen.queryByTestId('settings-scroll')).toBeNull());
+    expect(screen.queryByTestId('settings-root')).not.toBeNull();
+    expect(screen.queryByTestId('floating-tab-bar')).toBeNull();
+    expect(screen.queryByTestId('tab-capture')).toBeNull();
+    // Its viewport is not inset for a bar that is not there.
+    expect(StyleSheet.flatten(screen.getByTestId('settings-scroll').props.style)?.marginBottom ?? 0).toBe(0);
+
+    // The header's back returns to the Calendar root, bar and pill back.
+    await fireEvent.press(screen.getByTestId('header-back'));
+    await waitFor(() => expect(screen.queryByTestId('calendar-scroll')).not.toBeNull());
+    expect(screen.queryByTestId('settings-root')).toBeNull();
+    expect(screen.queryByTestId('floating-tab-bar')).not.toBeNull();
+
+    // Android's back does the same: it is consumed, and lands on Calendar.
+    await openSettings();
+    expect(handlers.length).toBeGreaterThan(0);
+    let consumed: boolean | null | undefined;
+    await act(async () => { consumed = handlers[handlers.length - 1]!(); });
+    expect(consumed).toBe(true);
+    await waitFor(() => expect(screen.queryByTestId('calendar-scroll')).not.toBeNull());
+    expect(screen.queryByTestId('settings-root')).toBeNull();
+    // At the tab root back is the platform's again.
+    expect(handlers[handlers.length - 1]!()).toBe(false);
   });
 
   it('reaches the widget settings screen', async () => {

@@ -82,7 +82,7 @@ describe('Categories is reachable', () => {
   it('opens from the Settings row and can turn the split on', async () => {
     await openApp();
 
-    await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await fireEvent.press(screen.getByTestId('open-settings'));
     await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('settings-category-day'));
     await waitFor(() => expect(screen.queryByTestId('settings-categories')).not.toBeNull());
@@ -103,9 +103,9 @@ describe('Categories is reachable', () => {
     expect(screen.queryByTestId('category-bar')).toBeNull();
   });
 
-  it('is a Settings sub-screen, so the tab bar stays four tabs', async () => {
+  it('is a Settings sub-screen, so the bar stays the four Stitch tabs and the pill', async () => {
     await openApp();
-    for (const tab of [en.tabToday, en.tabCalendar, en.tabCapture, en.tabSettings]) {
+    for (const tab of [en.tabToday, en.tabPlan, en.tabThings, en.tabWatching, en.tabCapture]) {
       expect(screen.queryAllByLabelText(tab).length).toBeGreaterThan(0);
     }
     expect(screen.queryByLabelText(en.settingsParts)).toBeNull();
@@ -113,7 +113,7 @@ describe('Categories is reachable', () => {
 
   it('goes back to Settings rather than stranding the user', async () => {
     await openApp();
-    await fireEvent.press(screen.getByLabelText(en.tabSettings));
+    await fireEvent.press(screen.getByTestId('open-settings'));
     await waitFor(() => expect(screen.queryByTestId('settings-category-day')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('settings-category-day'));
     await waitFor(() => expect(screen.queryByTestId('settings-categories')).not.toBeNull());

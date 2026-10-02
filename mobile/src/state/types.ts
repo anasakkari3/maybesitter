@@ -54,6 +54,13 @@ export type Screen =
   | 'commitments' | 'contextualAssistant'
   | 'today'
   | 'calendar'
+  // The two hubs the Stitch redesign added to the bar (2026-10-02): «أشيائي»
+  // (commitments, goals, habits, ideas, recent saves) and «يتابع لك»
+  // (questions, suggestions, watches). Both are tab roots.
+  | 'things'
+  | 'watching'
+  // Opened from the avatar in a tab root's header and pushed onto that tab;
+  // not a tab since the Stitch redesign.
   | 'settings'
   | 'settingsDay' | 'settingsConnections' | 'settingsAlerts' | 'settingsPrivacy' | 'settingsApp'
   | 'details'

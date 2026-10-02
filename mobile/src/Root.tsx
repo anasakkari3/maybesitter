@@ -53,6 +53,9 @@ import { PlaceRemindersMount } from './features/places/PlaceRemindersMount';
 import { PlacesScreen } from './features/places/PlacesScreen';
 
 import { WeekScreen } from './features/plan/WeekScreen';
+import { ThingsScreen } from './features/things/ThingsScreen';
+import { WatchingScreen } from './features/watching/WatchingScreen';
+import { TAB_CLEARANCE } from './ui/screen';
 import { MyMaybeSitterScreen, IntegrationsScreen, GoogleIntegrationScreen, ActionModesScreen, AddToMaybeSitterScreen, GoalExecutionScreen, PatchReviewScreen, HabitDetailScreen } from './features/product/ControlScreens';
 import { PersonalizationScreen, CommitmentsScreen, ContextualAssistantScreen } from './features/product/ContextScreens';
 import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product/WatcherScreens';
@@ -60,7 +63,7 @@ import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
   const { takePendingLink } = useAuth();
-  const [tabClearance, setTabClearance] = useState(130);
+  const [tabClearance, setTabClearance] = useState(TAB_CLEARANCE);
   const latest = useRef(actions);
   latest.current = actions;
   const pending = useRef(takePendingLink);
@@ -86,7 +89,8 @@ export function Root() {
    * Android's hardware and gesture back walks the same history as every
    * on-screen back button (Round 2, Phase B). At a tab root there is nothing
    * to walk, so the event is left to the platform, which leaves the app — the
-   * one place a user should ever exit is the place they came in.
+   * one place a user should ever exit is the place they came in. Settings is
+   * pushed onto a tab, so back from it returns to that tab like any push.
    */
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -172,7 +176,11 @@ export function Root() {
 {s.screen === 'contextualAssistant' && <ContextualAssistantScreen />}
           {s.screen === 'today' && <TodayScreen key="today" tabClearance={tabClearance} />}
           {s.screen === 'calendar' && <CalendarScreen key="calendar" tabClearance={tabClearance} />}
-          {s.screen === 'settings' && <SettingsScreen key="settings" tabClearance={tabClearance} />}
+          {s.screen === 'things' && <ThingsScreen key="things" tabClearance={tabClearance} />}
+          {s.screen === 'watching' && <WatchingScreen key="watching" tabClearance={tabClearance} />}
+          {/* Opened from the avatar and pushed onto the tab it came from, so
+              it shows without the bar and back returns to that tab. */}
+          {s.screen === 'settings' && <SettingsScreen key="settings" />}
           {s.screen === 'settingsDay' && <SettingsCategoryScreen key="settingsDay" category="day" onBack={() => latest.current.back()} />}
           {s.screen === 'settingsConnections' && <SettingsCategoryScreen key="settingsConnections" category="connections" onBack={() => latest.current.back()} />}
           {s.screen === 'settingsAlerts' && <SettingsCategoryScreen key="settingsAlerts" category="alerts" onBack={() => latest.current.back()} />}
@@ -270,6 +278,7 @@ export function Root() {
           )}
           </VerifyEmailBanner>
           </OfflineBanner>
+          {/* The bar and the «احكيها» pill, at a tab root only. */}
           {s.showTabs && <TabBar onClearanceChange={setTabClearance} />}
           <ToastHost />
           <SheetHost key={s.sheet ?? 'none'} />

@@ -24,7 +24,7 @@ export type AppState = {
    */
   nav: nav.Nav;
   screen: Screen;
-  /** Whether the tab bar is showing: no task open and the current tab at its root. */
+  /** Whether the tab bar and the «احكيها» pill are showing: no task open and the current tab at its root. */
   showTabs: boolean;
   /**
    * Capture holds none of its state here any more (UC-2.R2, #172).
@@ -251,7 +251,7 @@ function useAppModel() {
         // Additionally behind an env flag the release guard refuses to let a
         // staging or production build set at all (UC-1.8 #152).
         case 'calendarDemo': if (googleCalendarDemoEnabled()) move(n => nav.arrive(n, { name: 'calendarDemo' })); return;
-        case 'today': case 'calendar': case 'settings':
+        case 'today': case 'calendar': case 'things': case 'watching': case 'settings':
           move(n => nav.arrive(n, { name }), onToday(name)); return;
         // Capture has one entry now. The gallery's old `typing`, `listening`,
         // `processing`, `nothing`, `review`, `clarify`, `readings` and `saved`

@@ -4,19 +4,24 @@ import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import type { Tab as NavTab } from '../state/navigation';
-import { accentGlow, barShadow } from '../theme/tokens';
+import { accentGlow, barShadow, type Palette } from '../theme/tokens';
 import { useLayoutMode, useTextScale, type LayoutMode } from '../theme/textScale';
 import { Btn, Txt } from '../ui/primitives';
-import { CalendarIcon, MicIcon, SettingsIcon, TodayIcon } from '../ui/icons';
-import { ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
+import { ReferenceIcon } from '../ui/referenceIcons';
 
 /**
- * Floating pill tab bar: Today · Calendar · Say it · Settings.
+ * The bottom bar (Stitch redesign, 2026-10-02): Today · Plan · My things ·
+ * Watching, with the «احكيها» pill floating centred above it.
+ *
+ * Settings is not in the bar any more; it opens from the avatar in each tab
+ * root's header (`ui/chrome.tsx` `AvatarButton`) and renders without the bar.
+ * The pill keeps the `tab-capture` testID and opens the capture flow exactly
+ * as the old centre button did.
  *
  * ── Labels come off when there is genuinely no room ──────────────
  *
  * The reader's text is never capped, so at some size the four painted labels
- * stop fitting the pill. Two things decide when:
+ * stop fitting. Two things decide when:
  *
  *   1. The layout mode. At `xl` (the platform's first accessibility size)
  *      the bar starts icons-only, the way iOS's own bars do. That is the
@@ -29,14 +34,11 @@ import { ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
  *
  * Dropping a label is not dropping a name. Every button keeps its
  * `accessibilityLabel` and its `testID` at every size, so VoiceOver, TalkBack
- * and a device flow all find the same four controls whether or not a word is
+ * and a device flow all find the same five controls whether or not a word is
  * painted under the icon.
  */
 export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: number) => void } = {}) {
-  const { s, t, p: basePalette, scheme, reduceTransparency, actions } = useApp();
-  const referencePalette = useReferencePalette();
-  const reference = s.screen === 'today' || s.screen === 'calendar';
-  const p = reference ? referencePalette : basePalette;
+  const { s, t, p, scheme, reduceTransparency, actions } = useApp();
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const scale = useTextScale();
@@ -47,57 +49,28 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   const key = `${scale}|${barWidth}`;
   const [overflowAt, setOverflowAt] = useState<string | null>(null);
   const iconsOnly = decideIconsOnly(mode, overflowAt === key);
+  const onOverflow = () => setOverflowAt(key);
 
-  const reportLabel = (slotWidth: number) => (e: NativeSyntheticEvent<TextLayoutEventData>) => {
-    if (labelOverflows(e.nativeEvent.lines, slotWidth)) setOverflowAt(key);
-  };
-
-  const Tab = ({ screen, label, testID, icon }: { screen: NavTab; label: string; testID: string; icon: (c: string) => React.ReactNode }) => {
-    const on = s.screen === screen;
-    const color = on ? p.ac : p.tx;
-    const [slot, setSlot] = useState(0);
-    return (
-      <Btn
-        onPress={() => actions.switchTab(screen)}
-        label={label}
-        testID={testID}
-        scaleTo={0.92}
-        accessibilityState={{ selected: on }}
-        style={{ flex: 1, borderRadius: 999, backgroundColor: on ? p.sf2 : 'transparent', alignItems: 'center', gap: 3, paddingVertical: 6, minHeight: 48 }}
-      >
-        <View onLayout={(e: LayoutChangeEvent) => setSlot(e.nativeEvent.layout.width)} style={{ alignItems: 'center', gap: 3, alignSelf: 'stretch' }}>
-          {icon(color)}
-          {iconsOnly ? null : (
-            <Txt size={11} weight={on ? 600 : 500} color={color} align="center" lh={1.3} onTextLayout={reportLabel(slot)}>
-              {label}
-            </Txt>
-          )}
-        </View>
-      </Btn>
-    );
-  };
+  const tabs: { screen: NavTab; label: string; testID: string; icon: string }[] = [
+    { screen: 'today', label: t.tabToday, testID: 'tab-today', icon: 'today' },
+    { screen: 'calendar', label: t.tabPlan, testID: 'tab-calendar', icon: 'calendar' },
+    { screen: 'things', label: t.tabThings, testID: 'tab-things', icon: 'shapes' },
+    { screen: 'watching', label: t.tabWatching, testID: 'tab-watching', icon: 'radar' },
+  ];
 
   return (
     <View
       testID="floating-tab-bar"
       onLayout={(e) => {
         setBarWidth(e.nativeEvent.layout.width);
-        onClearanceChange?.(e.nativeEvent.layout.height + Math.max(insets.bottom, 12) + 4 + 8);
+        // The whole block — pill, bar and home-indicator inset — plus the
+        // gap a last row needs to read as clear of it.
+        onClearanceChange?.(e.nativeEvent.layout.height + 12);
       }}
-      style={[
-        {
-          position: 'absolute', start: 14, end: 14, bottom: Math.max(insets.bottom, 12) + 4, zIndex: 20,
-          borderRadius: 999, borderWidth: 1, borderColor: p.ln, overflow: 'hidden',
-        },
-        barShadow(p),
-      ]}
+      style={{ position: 'absolute', start: 0, end: 0, bottom: 0, zIndex: 20, pointerEvents: 'box-none' }}
     >
-      {Platform.OS === 'ios' && !reduceTransparency ? (
-        <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, start: 0, end: 0, bottom: 0 }} />
-      ) : null}
-      <View style={{ backgroundColor: p.sfBar, padding: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Tab screen="today" label={t.tabToday} testID="tab-today" icon={c => reference ? <ReferenceIcon name="target" color={c} /> : <TodayIcon color={c} />} />
-        <Tab screen="calendar" label={t.tabCalendar} testID="tab-calendar" icon={c => reference ? <ReferenceIcon name="grid" color={c} /> : <CalendarIcon color={c} />} />
+      {/* The pill floats above the bar, centred; only it takes touches here. */}
+      <View style={{ alignItems: 'center', paddingBottom: 10, pointerEvents: 'box-none' }}>
         <Btn
           testID="tab-capture"
           onPress={() => actions.goCapture('tab', 'text')}
@@ -105,23 +78,67 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
           scaleTo={0.94}
           style={[
             {
-              backgroundColor: p.ac, borderRadius: 999, minHeight: 56, minWidth: 56,
-              paddingHorizontal: iconsOnly ? 18 : 22, paddingVertical: 8,
+              backgroundColor: p.ac, borderRadius: 999, minHeight: 52, minWidth: 52,
+              paddingHorizontal: iconsOnly ? 16 : 24, paddingVertical: 10,
               flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
             },
             accentGlow(p, 0.3),
           ]}
         >
-          {reference ? <ReferenceIcon name="mic" size={20} color={p.onAccent} /> : <MicIcon size={20} color={p.onAccent} />}
+          <ReferenceIcon name="mic" size={20} color={p.onAccent} />
           {iconsOnly ? null : (
-            <Txt size={15} weight={600} color={p.onAccent} onTextLayout={reportLabel(barWidth * 0.4)}>{t.tabCapture}</Txt>
+            <Txt size={16} weight={700} color={p.onAccent}
+              onTextLayout={(e) => { if (labelOverflows(e.nativeEvent.lines, barWidth * 0.6)) onOverflow(); }}>
+              {t.tabCapture}
+            </Txt>
           )}
         </Btn>
-        {/* The knob punched out of the settings icon is the bar's own solid
-            colour, not the card surface: the bar is what sits behind it. */}
-        <Tab screen="settings" label={t.tabSettings} testID="tab-settings" icon={c => reference ? <ReferenceIcon name="sliders" color={c} /> : <SettingsIcon color={c} knob={p.sfBarSolid} />} />
+      </View>
+      <View testID="tab-bar" style={[{ borderTopWidth: 1, borderColor: p.ln, overflow: 'hidden' }, barShadow(p)]}>
+        {Platform.OS === 'ios' && !reduceTransparency ? (
+          <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, start: 0, end: 0, bottom: 0 }} />
+        ) : null}
+        <View style={{ backgroundColor: p.sfBar, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 8, flexDirection: 'row', alignItems: 'stretch', gap: 4 }}>
+          {tabs.map(tab => (
+            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} iconsOnly={iconsOnly}
+              onPress={() => actions.switchTab(tab.screen)} onOverflow={onOverflow} />
+          ))}
+        </View>
       </View>
     </View>
+  );
+}
+
+function TabItem({ label, testID, icon, on, iconsOnly, p, onPress, onOverflow }: {
+  label: string; testID: string; icon: string; on: boolean; iconsOnly: boolean; p: Palette;
+  onPress: () => void; onOverflow: () => void;
+}) {
+  // Selected is the coral tint with the solid pressed-coral label on it, the
+  // contrast-tested pair (`brandPressed` on `brandContainer`); the rest are muted.
+  const color = on ? p.acd : p.mu;
+  const [slot, setSlot] = useState(0);
+  return (
+    <Btn
+      onPress={onPress}
+      label={label}
+      testID={testID}
+      scaleTo={0.92}
+      accessibilityState={{ selected: on }}
+      style={{ flex: 1, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <View
+        onLayout={(e: LayoutChangeEvent) => setSlot(e.nativeEvent.layout.width)}
+        style={{ alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 4, paddingHorizontal: 4, borderRadius: 16, backgroundColor: on ? p.acs : 'transparent' }}
+      >
+        <ReferenceIcon name={icon} size={22} color={color} />
+        {iconsOnly ? null : (
+          <Txt size={13} weight={on ? 700 : 500} color={color} align="center" lh={1.3}
+            onTextLayout={(e: NativeSyntheticEvent<TextLayoutEventData>) => { if (labelOverflows(e.nativeEvent.lines, slot)) onOverflow(); }}>
+            {label}
+          </Txt>
+        )}
+      </View>
+    </Btn>
   );
 }
 
