@@ -22,6 +22,7 @@
  * `usual_productive_time` on someone's screen is not.
  */
 import { fill } from '../../i18n/strings';
+import { isolateAuto } from '../../i18n/bidi';
 
 export interface EvidenceItem {
   code: string;
@@ -30,10 +31,18 @@ export interface EvidenceItem {
    * `exactOptionalPropertyTypes`, and the Zod-inferred shape this receives has
    * them that way.
    */
-  params?: { level?: 'low' | 'normal' | 'high' | undefined; minutes?: number | undefined } | undefined;
+  params?: {
+    level?: 'low' | 'normal' | 'high' | undefined;
+    minutes?: number | undefined;
+    at?: string | undefined;
+    allDay?: boolean | undefined;
+    title?: string | undefined;
+  } | undefined;
 }
 
 type CountTranslator = (key: 'evidenceEffort', values: { minutes: number }) => string;
+/** An instant as the card says it — «بكرا · 10:00» — or its day alone for an all-day event. */
+export type WhenFormatter = (iso: string, allDay: boolean) => string;
 
 const PHRASE_KEY: Record<string, string> = {
   overdue: 'evidenceOverdue',
@@ -49,6 +58,15 @@ const PHRASE_KEY: Record<string, string> = {
   usually_finishes: 'evidenceUsuallyFinishes',
   often_set_aside: 'evidenceOftenSetAside',
   usual_productive_time: 'evidenceUsualProductiveTime',
+  starts_soon: 'evidenceStartsSoon',
+  prepares_for_event: 'evidencePreparesForEvent',
+  evening_plan_before_event: 'evidenceEveningPlan',
+};
+
+/** The parametric codes' fuller phrase, used when the parameters and a formatter are in hand. */
+const PHRASE_WITH_TIME: Record<string, string> = {
+  prepares_for_event: 'evidencePreparesForEventAt',
+  evening_plan_before_event: 'evidenceEveningPlanAt',
 };
 
 /** Must / Should / Nice — the same words the groups use, so they agree. */
@@ -63,11 +81,28 @@ export function evidencePhrase(
   item: EvidenceItem,
   strings: Record<string, string>,
   translateCount?: CountTranslator,
+  formatWhen?: WhenFormatter,
 ): string | null {
   const key = PHRASE_KEY[item.code];
   if (!key) return null;
   const phrase = strings[key];
   if (!phrase) return null;
+
+  // Audit 2026-10-03 #2: when the event is, and the evening plan before it,
+  // in the person's own words. Without the time (or a formatter) the plain
+  // phrase still says why, rather than nothing.
+  const timed = PHRASE_WITH_TIME[item.code];
+  if (timed) {
+    const at = item.params?.at;
+    const full = strings[timed];
+    if (!at || !formatWhen || !full || !Number.isFinite(Date.parse(at))) return phrase;
+    const when = formatWhen(at, item.params?.allDay === true);
+    if (item.code === 'evening_plan_before_event') {
+      const title = item.params?.title?.trim();
+      return title ? fill(full, { title: isolateAuto(title), when }) : phrase;
+    }
+    return fill(full, { when });
+  }
 
   if (item.code === 'importance' || item.code === 'importance_estimated') {
     const level = item.params?.level;
@@ -91,9 +126,10 @@ export function evidencePhrases(
   items: readonly EvidenceItem[],
   strings: Record<string, string>,
   translateCount?: CountTranslator,
+  formatWhen?: WhenFormatter,
 ): string[] {
   return items
-    .map((item) => evidencePhrase(item, strings, translateCount))
+    .map((item) => evidencePhrase(item, strings, translateCount, formatWhen))
     .filter((phrase): phrase is string => phrase !== null);
 }
 

@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -471,5 +471,60 @@ describe('the three answers up front (Stitch)', () => {
     expect(screen.getAllByText(en.suggestionNote).length).toBeGreaterThanOrEqual(2);
     await fireEvent.press(screen.getByTestId('next-step-defer-close'));
     await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).toBeNull());
+  });
+});
+
+/**
+ * Audit 2026-10-03 #2: «عندي امتحان رياضيات بكرا الساعة 10» put the exam
+ * itself on the card with «بلّش فيها» and «خلصتها». The server now sends the
+ * preparation instead (`purpose: 'prepare'`, no `done`/`edit`), with the
+ * exam's time and, when there is one, the evening plan before it.
+ */
+describe('a preparation step for an event', () => {
+  const examAt = () => new Date(Date.now() + 20 * 60 * 60_000).toISOString();
+  const nightAt = () => new Date(Date.now() + 8 * 60 * 60_000).toISOString();
+  const prepResponse = () => response({
+    primaryStep: { commitmentId: 'exam-1', title: 'Prepare for Math exam', purpose: 'prepare' },
+    explanation: {
+      summary: 'Based on prepares for an important event.',
+      evidenceLabels: ['prepares for an important event'],
+      evidenceCodes: [
+        { code: 'prepares_for_event', params: { at: examAt() } },
+        { code: 'evening_plan_before_event', params: { title: 'Night out with friends', at: nightAt() } },
+        { code: 'due_within_24h' },
+      ],
+      sensitiveInferenceUsed: false,
+    },
+    availableActions: ['accept', 'defer', 'dismiss'],
+  });
+
+  it('offers to start the preparation and to plan it — never to complete the exam', async () => {
+    await show(prepResponse());
+    expect(screen.getByTestId('next-step-title').props.children).toBe('Prepare for Math exam');
+    expect(screen.getByTestId('next-step-accept')).toBeTruthy();
+    expect(screen.queryByTestId('next-step-done')).toBeNull();
+    expect(screen.getByTestId('next-step-prepare')).toBeTruthy();
+  });
+
+  it('asks about the evening plan on a line of its own, in the person’s own words', async () => {
+    await show(prepResponse());
+    const note = screen.getByTestId('next-step-evening-note');
+    expect(within(note).getByText(/Night out with friends.*prepare before you go\?/)).toBeTruthy();
+    // Not also a chip: the question is said once.
+    expect(screen.getAllByText(/Night out with friends/)).toHaveLength(1);
+  });
+
+  it('says when the exam is, since tomorrow’s exam is not among today’s items', async () => {
+    await show(prepResponse());
+    expect(screen.getByText(/^it’s Tomorrow · /)).toBeTruthy();
+  });
+
+  it('after «start», says good luck rather than promising to wait for «done»', async () => {
+    mockDecision();
+    await show(prepResponse());
+    await fireEvent.press(screen.getByTestId('next-step-accept'));
+    await waitFor(() => expect(screen.getByTestId('next-step-started-note')).toBeTruthy());
+    expect(screen.getByTestId('next-step-started-note').props.children).toBe(en.nextStepPrepStartedNote);
+    expect(screen.getByTestId('next-step-prepare')).toBeTruthy();
   });
 });

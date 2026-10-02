@@ -32,7 +32,18 @@ export const nextStepRecommendationSchema = z.object({
   state: z.string(),
   locale: z.string(),
   primaryStep: z
-    .object({ commitmentId: z.string(), title: z.string() })
+    .object({
+      commitmentId: z.string(),
+      title: z.string(),
+      /**
+       * `prepare`: the step is preparation for the event `commitmentId` names
+       * (audit 2026-10-03 #2) — the title is the preparation, and the server
+       * offers no `done` or `edit`, which would act on the event itself. A
+       * string, not an enum, so a purpose this build does not know yet reads
+       * as an ordinary step rather than failing the response.
+       */
+      purpose: z.string().optional(),
+    })
     .nullable()
     .optional(),
   explanation: z
@@ -56,6 +67,12 @@ export const nextStepRecommendationSchema = z.object({
           params: z.object({
             level: z.enum(['low', 'normal', 'high']).optional(),
             minutes: z.number().optional(),
+            /** `prepares_for_event`, `evening_plan_before_event`: when it is (audit 2026-10-03 #2). */
+            at: z.string().optional(),
+            /** `prepares_for_event`: the event names a day, not an hour. */
+            allDay: z.boolean().optional(),
+            /** `evening_plan_before_event`: the plan's own title, the person's words. */
+            title: z.string().optional(),
           }).optional(),
         }))
         .optional(),

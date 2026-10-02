@@ -53,6 +53,12 @@ export interface CommitmentView {
    * view built by hand reads as neither.
    */
   allDayEvent?: boolean;
+  /**
+   * A `scheduled_event` with an hour (audit 2026-10-03 #2): it happens at
+   * `shownAt`. Today's fallback card does not offer one hours ahead as the
+   * thing to do now. Optional so a view built by hand reads as a task.
+   */
+  timedEvent?: boolean;
   /** Separate from the due time: postponing pauses resurfacing, not the deadline. */
   postponedUntil?: string | null;
   /** Past its shown time, and still active. Not a status — see the header. */
@@ -106,6 +112,7 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
     shownAt,
     allDay,
     allDayEvent: allDay && commitment.timeSpec.kind === 'scheduled_event',
+    timedEvent: !allDay && commitment.timeSpec.kind === 'scheduled_event' && !!commitment.timeSpec.dueAt,
     postponedUntil: commitment.currentAckState === 'postponed' ? commitment.postponedUntil : null,
     isPast,
     importanceIsStated: commitment.priority.source === 'user_explicit',

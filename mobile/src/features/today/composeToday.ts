@@ -104,6 +104,15 @@ export interface PlanInput {
 
 const OPEN_KEYS = ['must', 'should', 'nice'] as const;
 
+/** The server's `FIXED_EVENT_LEAD_MS`: an event at an hour is a step only in its last hour. */
+export const FIXED_EVENT_LEAD_MS = 60 * 60_000;
+
+function eventNotYetClose(item: CommitmentView, nowMs: number): boolean {
+  if (!item.timedEvent || !item.shownAt) return false;
+  const at = Date.parse(item.shownAt);
+  return Number.isFinite(at) && at - nowMs > FIXED_EVENT_LEAD_MS;
+}
+
 function openItems(groups: TodayGroups): CommitmentView[] {
   return OPEN_KEYS.flatMap((k) => groups[k]);
 }
@@ -124,8 +133,11 @@ export function composeToday(input: {
   plan: PlanInput;
   upcoming: readonly CommitmentView[];
   laterLimit?: number;
+  /** The moment Today is drawn for; the phone's clock when absent. */
+  now?: Date;
 }): TodayModel {
   const { groups, next, plan, upcoming, laterLimit = 3 } = input;
+  const nowMs = (input.now ?? new Date()).getTime();
   const open = openItems(groups);
   const byId = new Map(open.map((c) => [c.id, c]));
 
@@ -156,7 +168,10 @@ export function composeToday(input: {
     // screen asks with `whyFirstLine`; `topItemFor` answers that one, not this.
     // An appointment on a day is not a step: it stays in its group as the
     // day's context, and the card goes to the first thing to do (N18).
-    const top = open.find((c) => !c.allDayEvent) ?? null;
+    // Nor is an event at an hour still more than its last hour away — the
+    // exam tomorrow at 10:00, the night out at 21:00 (audit 2026-10-03 #2):
+    // the server holds them back the same way (`nextStepPreparation.ts`).
+    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs)) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 

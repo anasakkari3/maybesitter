@@ -19,6 +19,7 @@ import { drawnWhenLine, dueAsideText } from '../plan/savedPlacement';
 import type { NextStepDecisionKind, NextStepRecommendation } from '../../api/schemas/nextStep';
 import { ReferenceIcon, useReferencePalette } from '../../ui/referenceDesign';
 import { BottomSheet, SheetChoice, SheetFootnote, SheetHeader } from '../../ui/bottomSheet';
+import { canPrepareFor } from '../meetings/prepTargets';
 
 /**
  * The one suggestion, and the answers to it (UC-2.R3 #173, UC-2.9 #170;
@@ -218,7 +219,28 @@ function Ready({
   // the server reading its midnight as a deadline (final UAT, N18).
   const evidence = (recommendation.explanation?.evidenceCodes ?? [])
     .filter((e) => !(e.code === 'overdue' && item?.allDay === true && !item.isPast));
-  const phrases = evidencePhrases(evidence, strings, translateCount);
+  // When an event is, as the «حضّرني» sheet says it: «بكرا · 10:00».
+  const formatWhen = (iso: string, allDay: boolean) => {
+    const at = new Date(iso);
+    const day = formatRelativeDay(at, { locale: lang, timeZone: timezone });
+    return allDay ? day : `${day} · ${ltr(formatTime(at, { locale: lang, timeZone: timezone }))}`;
+  };
+  // The evening plan before the event is a question to the person, not a
+  // reason chip (audit 2026-10-03 #2): it gets its own line, and stays in
+  // «ليش هاي بالذات» with the rest.
+  const chipEvidence = evidence.filter((e) => e.code !== 'evening_plan_before_event');
+  const eveningItem = evidence.find((e) => e.code === 'evening_plan_before_event');
+  const eveningNote = eveningItem ? evidencePhrases([eveningItem], strings, translateCount, formatWhen)[0] ?? null : null;
+  const chips = evidencePhrases(chipEvidence, strings, translateCount, formatWhen);
+  const phrases = evidencePhrases(evidence, strings, translateCount, formatWhen);
+  // Preparation for an event (audit 2026-10-03 #2): the card names the
+  // preparation, and «حضّرني» on it plans the time for it. The event's own
+  // start comes with the reason, since a tomorrow's exam is not in `lookup`.
+  const prepare = step.purpose === 'prepare';
+  const eventAt = prepare ? evidence.find((e) => e.code === 'prepares_for_event')?.params : undefined;
+  const prepTarget = prepare && eventAt?.at && eventAt.allDay !== true && canPrepareFor(eventAt.at, new Date())
+    ? { startAt: eventAt.at, endAt: null, appointment: true as const, commitmentId: step.commitmentId }
+    : null;
   // The server's list, in the server's order, filtered to what this build can
   // render — never a fixed row with the rest greyed out.
   const actionsOffered = DECISIONS.filter((decision) => recommendation.availableActions?.includes(decision));
@@ -267,9 +289,16 @@ function Ready({
         {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
       </Btn>
 
-      {phrases.length > 0 || (item && !item.importanceIsStated) ? (
+      {eveningNote ? (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }} testID="next-step-evening-note">
+          <ReferenceIcon name="bulb" size={16} color={p.wm} />
+          <Txt size={14} color={p.tx} lh={1.5} style={{ flex: 1 }}>{eveningNote}</Txt>
+        </View>
+      ) : null}
+
+      {chips.length > 0 || (item && !item.importanceIsStated) ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
-          {phrases.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
+          {chips.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
           {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
         </View>
       ) : null}
@@ -296,8 +325,11 @@ function Ready({
         <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.acs, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
             <ReferenceIcon name="play" size={16} color={p.acd} />
-            <Txt size={14} weight={500} color={p.acd} lh={1.4} style={{ flex: 1 }} testID="next-step-started-note">{t.nextStepStartedNote}</Txt>
+            <Txt size={14} weight={500} color={p.acd} lh={1.4} style={{ flex: 1 }} testID="next-step-started-note">{prepare ? t.nextStepPrepStartedNote : t.nextStepStartedNote}</Txt>
           </View>
+          {prepTarget ? (
+            <Pill testID="next-step-prepare" label={t.xPrepare} kind="outline" size={15} pad={12} onPress={() => actions.openMeetingPrep(prepTarget)} />
+          ) : null}
           {offers('done') ? (
             <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')} style={button('primary')}>
               <ReferenceIcon name="check" size={17} color={busy ? p.disTx : p.onAccent} />
@@ -338,6 +370,10 @@ function Ready({
               </Btn>
             ) : null}
           </View>
+          {/* Preparing has a planner of its own: «حضّرني» finds the time. */}
+          {prepTarget ? (
+            <Pill testID="next-step-prepare" label={t.xPrepare} kind="outline" size={15} pad={12} onPress={() => actions.openMeetingPrep(prepTarget)} />
+          ) : null}
           {more ? (
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }} testID="next-step-more-actions">
               {folded.map((decision) => (

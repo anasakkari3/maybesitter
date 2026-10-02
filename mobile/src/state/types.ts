@@ -175,6 +175,12 @@ export type MeetingPrepTarget = {
   endAt: string | null;
   /** The person's title names an appointment (a dentist, an exam), not a meeting: the sheet says «الموعد». */
   appointment?: true;
+  /**
+   * The commitment it is for, when it is one (audit 2026-10-03 #3): the
+   * server reads that commitment's own title to tell an exam, which wants a
+   * day of lead, from a meeting, which wants an hour. Never a calendar title.
+   */
+  commitmentId?: string;
 };
 
 /**

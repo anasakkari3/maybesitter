@@ -296,3 +296,38 @@ describe('an all-day appointment is never the step (N18)', () => {
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'bill' } });
   });
 });
+
+/**
+ * Audit 2026-10-03 #2: «سهرة مع الصحاب الليلة 21:00» was «خطوتك التالية» at
+ * 12:22. With no recommendation to show, the fallback must not make the same
+ * mistake: an event at an hour is the card only in its last hour.
+ */
+describe('an event at an hour, on the fallback card', () => {
+  const NOW = new Date('2026-10-03T09:22:00.000Z');
+  const event = (id: string, at: string): CommitmentView => ({ ...item(id, 'must'), shownAt: at, timedEvent: true });
+
+  it('is not the card nine hours before it starts — the next thing to do is', () => {
+    const m = composeToday({
+      groups: groups({ must: [event('night-out', '2026-10-03T18:00:00.000Z')], should: [item('call')] }),
+      next: next({ recommendation: rec('', 'empty') }), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'call' } });
+  });
+
+  it('is no card at all when it is all the day has', () => {
+    const m = composeToday({
+      groups: groups({ must: [event('night-out', '2026-10-03T18:00:00.000Z')] }),
+      next: next({ recommendation: rec('', 'empty') }), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toEqual({ kind: 'none' });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['night-out']);
+  });
+
+  it('is the card in its last hour', () => {
+    const m = composeToday({
+      groups: groups({ must: [event('night-out', '2026-10-03T18:00:00.000Z')] }),
+      next: next({ recommendation: rec('', 'empty') }), plan: plan(), upcoming: [], now: new Date('2026-10-03T17:15:00.000Z'),
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'night-out' } });
+  });
+});
