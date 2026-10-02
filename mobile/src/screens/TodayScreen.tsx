@@ -29,8 +29,8 @@ import { TodayPlanRow } from '../features/plan/TodayPlanRow';
 import { drawnAt, drawnClockAt, drawnWhenLine, dueAsideText, laterWhen, placeView, savedPlacements } from '../features/plan/savedPlacement';
 import { composeToday, type Primary } from '../features/today/composeToday';
 import { Btn, Txt } from '../ui/primitives';
-import { ActionRow, EmptyState, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
-import { CheckIcon, ChevronIcon } from '../ui/icons';
+import { AvatarButton, SectionLabel, Tag, TextLink, priorityTagKind } from '../ui/chrome';
+import { CheckIcon } from '../ui/icons';
 import { isolateAuto } from '../i18n/bidi';
 import { occurrenceCovering, occurrencesAsBusy, useWeeklyOccurrences } from '../features/weeklyBlocks/occurrences';
 import { hideWeeklyDuplicates } from '../features/weeklyBlocks/weeklyDeviceEvents';
@@ -38,7 +38,11 @@ import { useWeeklyEventIds } from '../features/weeklyBlocks/useWeeklyBlockDevice
 import { WeeklyOccurrenceRow } from '../features/weeklyBlocks/WeeklyOccurrenceRow';
 import type { WeeklyBlockOccurrence } from '../api/schemas/weeklyBlocks';
 import { Screen, ScreenScroll, TAB_CLEARANCE } from '../ui/screen';
-import { ReferenceBackdrop, ReferenceCard, ReferenceHeader, ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
+import { ReferenceCard, ReferenceIcon, useReferencePalette } from '../ui/referenceDesign';
+import { useLayoutMode } from '../theme/textScale';
+import { firstConflict } from '../features/today/todayConflict';
+import { ConflictLine, ConflictSheet, useFootballCommitmentIds } from '../features/today/ConflictLine';
+import { PostponeSheetFor } from './Sheets';
 
 /**
  * Today (UC-2.R3 #173, ordering from UC-2.8 #169; Round 2, Phase C).
@@ -70,6 +74,14 @@ import { ReferenceBackdrop, ReferenceCard, ReferenceHeader, ReferenceIcon, useRe
  * ── One card explains itself ─────────────────────────────────────
  *
  * The primary card, and only when it has a reason worth giving.
+ *
+ * ── The first screen (Stitch, 2026-10-02) ────────────────────────
+ *
+ * The conflict line when something clashes, the one next step, and «لازم»,
+ * open. «مهم» and «حلو» fold to a line each that names their first item; the
+ * plan, the weekly fixed time and what is finished come after. «مش هلّق»
+ * asks when (the postpone sheet); the conflict line explains, it never
+ * postpones. A football match is drawn with a ball, not a circle to tick.
  */
 export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: number } = {}) {
   const { t, tr, lang, actions } = useApp();
@@ -167,7 +179,6 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   const later = model.later.filter(item => !previewIds.has(item.id) && item.id !== insight?.id);
 
   const strings = t as unknown as Record<string, string>;
-  const hasRest = Object.values(restGroups).some(items => items.length > 0);
 
   // Quiet hours end on the profile's clock (FZ2 review M4): said on the
   // phone's, and asked again the moment they end, so a card that says
@@ -210,23 +221,39 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     void Promise.all([today.refetch(), next.refetch(), plan.refetch(), upcoming.refetch(), savedWeek.refetch()]).finally(() => setRefreshing(false));
   };
 
+  const conflict = useMemo(
+    () => firstConflict([...groups.must, ...groups.should, ...groups.nice], busy),
+    [groups, busy],
+  );
+  const [conflictOpen, setConflictOpen] = useState(false);
+  const [postponeId, setPostponeId] = useState<string | null>(null);
+  const football = useFootballCommitmentIds();
+  const stacked = useLayoutMode() !== 'normal';
+
   return (
-    <Screen style={{ backgroundColor: p.bg }} decoration={<ReferenceBackdrop tone="surface" />}>
+    <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="today-scroll"
         bottom={tabClearance}
         topGap={8}
+        gap={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
       >
-        <ReferenceHeader
-          eyebrow={formatDate(new Date(), 'weekday', { locale: lang, timeZone: timezone })}
-          eyebrowTestID="today-date"
-          title={t.todayTitle}
-          subtitle={t.referenceTodaySubtitle}
-          end={<TextLink label={t.xAssistant} onPress={() => actions.go('contextualAssistant')} testID="today-assistant" />}
-        />
-
-        <ProactiveInboxBanner />
+        {/* Stitch header: the title and the date at the start, search and the
+            avatar (Settings) at the end. */}
+        <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'flex-start', justifyContent: 'space-between', gap: 12, paddingHorizontal: 4 }}>
+          <View style={{ flexShrink: 1, gap: 2, alignItems: 'flex-start' }}>
+            <Txt role="page" size={28} weight={700} color={p.tx}>{t.todayTitle}</Txt>
+            <Txt size={13} weight={500} color={p.mu} testID="today-date">{formatDate(new Date(), 'weekday', { locale: lang, timeZone: timezone })}</Txt>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8, alignSelf: stacked ? 'flex-end' : undefined }}>
+            <Btn label={t.xSearch} testID="reference-search" onPress={() => actions.go('commitments')} scaleTo={0.94}
+              style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln }}>
+              <ReferenceIcon name="search" size={20} color={p.mu} />
+            </Btn>
+            <AvatarButton />
+          </View>
+        </View>
 
         {showBar ? <CategoryBar chips={chips} selected={chip} onSelect={setChip} /> : null}
 
@@ -237,44 +264,36 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
             <>
               {/* A day with only a fixed block still has the block on it. */}
               <WeeklyToday items={weeklyToday} />
-              <EmptyState title={t.emptyTitle} body={t.emptyBody} testID="today-empty" />
+              <EmptyDay />
             </>
           ) : (
             <>
-              <Txt size={13} color={p.mu} testID="today-count">
+              {/* FIRST SCREEN · the clash (if any), the one next step, «لازم». */}
+              {conflict ? <ConflictLine conflict={conflict} onOpen={() => setConflictOpen(true)} /> : null}
+
+              <PrimaryCard primary={model.primary} quietEndsAt={quietEndsAt} holding={holding} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} onPostpone={setPostponeId} />
+
+              <Txt size={13} color={p.mu} testID="today-count" style={{ paddingHorizontal: 4 }}>
                 {progress ? tr('todayProgressCompact', progress) : tr('todayCountOpen', { n: model.openTotal })}
               </Txt>
 
-              {/* PRIMARY · what matters now */}
-              <PrimaryCard primary={model.primary} quietEndsAt={quietEndsAt} holding={holding} lookup={byId} strings={strings} timezone={timezone} lang={lang} busy={busy} />
+              <Group kind="must" items={restGroups.must} timezone={timezone} lang={lang} busy={busy} football={football} />
+
+              {/* The plan, always present, always honest. Under «لازم» and
+                  above the rest: the items it previews are taken out of those
+                  groups, so below them it would land under the finished ones. */}
+              <TodayPlanRow row={model.plan} preview={preview} />
+
+              {/* The rest of today, in the user's own groups, folded to one line each. */}
+              <Group kind="should" items={restGroups.should} timezone={timezone} lang={lang} busy={busy} football={football} />
+              <Group kind="nice" items={restGroups.nice} timezone={timezone} lang={lang} busy={busy} football={football} />
 
               {/* Fixed today: taken time, not things to do. */}
               <WeeklyToday items={weeklyToday} />
 
-              {/* SECONDARY · the plan, always present, always honest. Above the
-                  rest: the items it previews are taken out of those groups, so
-                  below them they would land under the finished ones. */}
-              <TodayPlanRow row={model.plan} preview={preview} />
-
-              {/* The rest of today, in the user's own groups */}
-              {hasRest ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, paddingTop: 8 }}>
-                  <Txt role="section" color={p.tx} testID="today-rest-title">{t.todayRestTitle}</Txt>
-                  <TextLink label={t.todayLaterSeeAll} onPress={() => actions.go('calendar')} testID="today-rest-all" size={13} />
-                </View>
-              ) : null}
-              {(['must', 'should', 'nice'] as const).map((key) => (
-                <Group
-                  key={key}
-                  title={strings[GROUP_TITLE[key]]!}
-                  testID={`today-group-${key}`}
-                  items={restGroups[key]}
-                  timezone={timezone}
-                  lang={lang}
-                  busy={busy}
-                />
-              ))}
               {restGroups.finished.length > 0 ? <FinishedGroup items={restGroups.finished} /> : null}
+
+              <ProactiveInboxBanner />
 
               {/* TERTIARY · later */}
               {later.length > 0 ? (
@@ -294,7 +313,15 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
             </>
           )}
         </QueryBoundary>
+
+        {/* Your day's context, one quiet link at the end rather than in the header. */}
+        <View style={{ alignItems: 'center' }}>
+          <TextLink label={t.xAssistant} onPress={() => actions.go('contextualAssistant')} testID="today-assistant" size={13} />
+        </View>
       </ScreenScroll>
+
+      <ConflictSheet conflict={conflictOpen ? conflict : null} onClose={() => setConflictOpen(false)} />
+      <PostponeSheetFor commitmentId={postponeId} onClose={() => setPostponeId(null)} />
     </Screen>
   );
 }
@@ -312,26 +339,77 @@ const QUIET_END_RETRY_MS = 30_000;
 /** setTimeout's ceiling (about 24.8 days). */
 const MAX_TIMER_MS = 2_147_483_647;
 
-/** Exactly one of these renders. See `composeToday`. */
-/** Today's weekly fixed blocks, under their own heading, in time order. */
+/** Today's weekly fixed blocks («ثابت اليوم»), folded to one line that names them; open, in time order. */
 function WeeklyToday({ items }: { items: readonly WeeklyBlockOccurrence[] }) {
-  const { t } = useApp();
+  const { t, lang } = useApp();
+  const p = useReferencePalette();
+  const timezone = useTimeZone();
+  const [open, setOpen] = useState(false);
   if (items.length === 0) return null;
+  const sorted = [...items].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt));
+  const summary = sorted
+    .map((o) => `${o.title} ${ltr(formatTime(new Date(o.startAt), { locale: lang, timeZone: timezone }))}`)
+    .join(' · ');
   return (
-    <View style={{ gap: 6 }} testID="today-weekly">
-      <SectionLabel testID="today-weekly-title">{t.wbTodayTitle}</SectionLabel>
-      {[...items].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).map((occurrence) => (
-        <WeeklyOccurrenceRow
-          key={`${occurrence.weeklyBlockId}-${occurrence.startAt}`}
-          occurrence={occurrence}
-          testID={`today-weekly-${occurrence.weeklyBlockId}`}
-        />
-      ))}
+    <View style={{ gap: 8, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 18, paddingHorizontal: 14, paddingVertical: 4 }} testID="today-weekly">
+      <Btn
+        testID="today-weekly-toggle"
+        label={`${t.wbTodayTitle}: ${summary}`}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        scaleTo={0.99}
+        style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}
+      >
+        <ReferenceIcon name="repeat" size={18} color={p.mu} />
+        <Txt size={13} color={p.mu} style={{ flex: 1 }}>
+          <Txt size={13} weight={600} color={p.mu} testID="today-weekly-title">{t.wbTodayTitle}</Txt>
+          {': '}
+          <Txt size={13} weight={600} color={p.tx}>{summary}</Txt>
+        </Txt>
+        <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}><ReferenceIcon name="chevron-down" size={18} color={p.mu} /></View>
+      </Btn>
+      {open ? (
+        <View style={{ gap: 8, paddingBottom: 10 }}>
+          {sorted.map((occurrence) => (
+            <WeeklyOccurrenceRow
+              key={`${occurrence.weeklyBlockId}-${occurrence.startAt}`}
+              occurrence={occurrence}
+              testID={`today-weekly-${occurrence.weeklyBlockId}`}
+            />
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function PrimaryCard({ primary, quietEndsAt, holding, lookup, strings, timezone, lang, busy }: {
+/** The calm empty day (Stitch `01c`): a quiet mark, the title, one sentence. */
+function EmptyDay() {
+  const { t } = useApp();
+  const p = useReferencePalette();
+  return (
+    <View testID="today-empty" style={{ alignItems: 'center', gap: 12, paddingTop: 40, paddingHorizontal: 24 }}>
+      <View accessible={false} style={{ width: 136, height: 136, borderRadius: 28, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+        <View style={{ width: 92, height: 92, borderRadius: 20, borderWidth: 1, borderColor: p.heroEdge, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center', gap: 8, transform: [{ rotate: '-3deg' }] }}>
+          <View style={{ width: 40, height: 6, borderRadius: 3, backgroundColor: p.acs }} />
+          <View style={{ width: 56, height: 6, borderRadius: 3, backgroundColor: p.ln }} />
+          <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 1, borderColor: p.ac, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.ac }} />
+          </View>
+        </View>
+      </View>
+      <Txt role="section" size={24} weight={700} align="center">{t.emptyTitle}</Txt>
+      <Txt size={15} color={p.mu} align="center" lh={1.6} style={{ maxWidth: 320 }}>{t.emptyBody}</Txt>
+    </View>
+  );
+}
+
+/** A card on Today: the surface, the hairline, radius 20 (Stitch). */
+const cardStyle = (p: ReturnType<typeof useReferencePalette>) => ({
+  backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln, borderRadius: 20, padding: 18, gap: 10,
+});
+
+function PrimaryCard({ primary, quietEndsAt, holding, lookup, strings, timezone, lang, busy, onPostpone }: {
   primary: Primary;
   /** When quiet hours (or a weekly block) end, as an instant; null until it is known on which clock. */
   quietEndsAt: Date | null;
@@ -342,6 +420,7 @@ function PrimaryCard({ primary, quietEndsAt, holding, lookup, strings, timezone,
   timezone: string;
   lang: Lang;
   busy: readonly DeviceBusyBlock[];
+  onPostpone: (id: string) => void;
 }) {
   const { t, actions } = useApp();
   const p = useReferencePalette();
@@ -352,7 +431,7 @@ function PrimaryCard({ primary, quietEndsAt, holding, lookup, strings, timezone,
       // end by themselves and point at where they are set; the operator's
       // pause offers nothing to switch.
       return (
-        <ReferenceCard pad={18} style={{ gap: 8 }} testID="today-quiet">
+        <View style={cardStyle(p)} testID="today-quiet">
           <Txt size={13} weight={600} color={p.mu}>{t.nextStepLabel}</Txt>
           <Txt size={15} lh={1.5}>
             {primary.why === 'mode' ? t.todayQuietModeOn
@@ -369,22 +448,22 @@ function PrimaryCard({ primary, quietEndsAt, holding, lookup, strings, timezone,
           {primary.why === 'block' ? (
             <TextLink label={t.wbTitle} onPress={() => actions.go('weeklyBlocks')} testID="today-quiet-weekly" />
           ) : null}
-        </ReferenceCard>
+        </View>
       );
     case 'allDone':
       return (
-        <ReferenceCard pad={22} style={{ alignItems: 'center', gap: 10 }} testID="today-all-done">
-          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: p.success, alignItems: 'center', justifyContent: 'center' }}>
-            <CheckIcon size={22} color={p.onSuccess} />
+        <View style={[cardStyle(p), { alignItems: 'center', padding: 22 }]} testID="today-all-done">
+          <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: p.successSoft, alignItems: 'center', justifyContent: 'center' }}>
+            <CheckIcon size={22} color={p.success} />
           </View>
           <Txt size={20} weight={600} align="center">{t.todayAllDoneTitle}</Txt>
           <Txt size={14} color={p.mu} align="center">{t.todayAllDoneBody}</Txt>
-        </ReferenceCard>
+        </View>
       );
     case 'next':
       return <NextStepCard lookup={lookup} />;
     case 'fallback':
-      return <FallbackCard item={primary.item} strings={strings} timezone={timezone} lang={lang} busy={busy} />;
+      return <FallbackCard item={primary.item} strings={strings} timezone={timezone} lang={lang} busy={busy} onPostpone={onPostpone} />;
     case 'none':
       return null;
   }
@@ -410,103 +489,150 @@ function weeklyHoldLine(
 /**
  * The list's own top item, as the primary when there is no recommendation to
  * show. It explains itself with the ranking's reasons (#169) — the one place
- * a "why first" line appears — and offers the same two answers a row does.
+ * a "why first" line appears — and offers two answers: «خلصتها» completes it,
+ * «مش هلّق» asks when to bring it back (the postpone sheet). There is no
+ * «بلّش فيها» here: starting is an answer to a proposal, and this is not one.
  */
-function FallbackCard({ item, strings, timezone, lang, busy }: {
+function FallbackCard({ item, strings, timezone, lang, busy, onPostpone }: {
   item: CommitmentView;
   strings: Record<string, string>;
   timezone: string;
   lang: Lang;
   busy: readonly DeviceBusyBlock[];
+  onPostpone: (id: string) => void;
 }) {
   const { t, actions } = useApp();
   const p = useReferencePalette();
   const act = useCommitmentAction();
+  const stacked = useLayoutMode() !== 'normal';
   const why = whyFirstLine(item.reasonCodes, strings);
   const drawn = drawnClockAt(item);
   const line = drawnWhenLine(item, lang, timezone);
   const when = line?.text ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
-  const impLabel = item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
   return (
-    <ReferenceCard tone="hero" pad={18} style={{ gap: 16 }} testID="today-primary">
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: p.acs, alignItems: 'center', justifyContent: 'center' }}>
-          <ReferenceIcon name="bolt" size={20} color={p.acd} />
+    <View
+      testID="today-primary"
+      style={{
+        gap: 12, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: p.heroEdge, backgroundColor: p.sf,
+        shadowColor: p.ac, shadowOpacity: p.shadow ? 0.12 : 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 4,
+      }}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: p.acs, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12 }}>
+          <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.ac }} />
+          <Txt size={13} weight={600} color={p.acd}>{t.nextStepLabel}</Txt>
         </View>
-        <Txt size={15} weight={600} color={p.tx} style={{ flexGrow: 1 }}>{t.nextStepLabel}</Txt>
-        <Tag kind={priorityTagKind(item.importance)} label={impLabel} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 1 }}>
+          <Tag kind={priorityTagKind(item.importance)} label={importanceLabel(item, t)} />
+          <Txt size={13} weight={500} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
+        </View>
       </View>
       <Btn
         testID={`today-item-${item.id}`}
         label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.99}
-        style={{ alignItems: 'flex-start', gap: 12 }}
+        style={{ alignItems: 'flex-start', gap: 4 }}
       >
-        <Txt role="section" size={27} color={p.tx}>{item.title}</Txt>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, width: '100%' }}>
-          <View style={{ flex: 1, gap: 7 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <ReferenceIcon name="calendar" size={18} color={p.mu} />
-              <Txt size={14} color={p.mu} style={{ flex: 1 }} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
-            </View>
-            {!item.importanceIsStated && item.importance === 'must' ? (
-              <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
-            ) : null}
-            {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
-          </View>
-        </View>
+        <Txt role="section" size={20} weight={700} color={p.tx}>{item.title}</Txt>
+        {!item.importanceIsStated && item.importance === 'must' ? (
+          <Txt size={13} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
+        ) : null}
+        {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
       </Btn>
+      {why ? <Txt size={15} color={p.mu} lh={1.6} testID="today-why-first">{why}</Txt> : null}
       <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
-      <ActionRow>
-        <Btn testID={`today-primary-complete`} label={t.doneS} onPress={() => act.mutate({ id: item.id, action: 'complete' })} style={{ minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 999, backgroundColor: p.ac, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
-          <CheckIcon size={17} color={p.onAccent} />
-          <Txt size={15} weight={600} color={p.onAccent}>{t.doneS}</Txt>
+      <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
+        <Btn testID={`today-primary-complete`} label={t.nextStepDone} onPress={() => act.mutate({ id: item.id, action: 'complete' })}
+          style={{ ...(stacked ? {} : { flex: 1 }), minHeight: 48, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: p.ac, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
+          <CheckIcon size={16} color={p.onAccent} />
+          <Txt size={15} weight={600} color={p.onAccent}>{t.nextStepDone}</Txt>
         </Btn>
-        <Btn testID={`today-primary-postpone`} label={t.nextStepDefer} onPress={() => act.mutate({ id: item.id, action: 'postpone', postponedUntil: postponeTo('oneHour', new Date(), timezone) })} style={{ minHeight: 48, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, backgroundColor: p.sf2, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
-          <ReferenceIcon name="clock" size={19} color={p.tx} />
-          <Txt size={15} weight={500} color={p.tx}>{t.nextStepDefer}</Txt>
+        <Btn testID={`today-primary-postpone`} label={t.notNow} onPress={() => onPostpone(item.id)}
+          style={{ minHeight: 48, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
+          <Txt size={14} weight={500} color={p.mu}>{t.notNow}</Txt>
         </Btn>
-      </ActionRow>
-      {why ? <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
-        <ReferenceIcon name="bulb" size={20} color={p.mu} />
-        <Txt role="supporting" color={p.mu} style={{ flex: 1 }} testID="today-why-first">{why}</Txt>
-      </View> : null}
-    </ReferenceCard>
-  );
-}
-
-function Group({ title, items, timezone, lang, testID, busy }: {
-  title: string;
-  items: CommitmentView[];
-  timezone: string;
-  lang: Lang;
-  testID: string;
-  busy: readonly DeviceBusyBlock[];
-}) {
-  const p = useReferencePalette();
-  if (items.length === 0) return null;
-  return (
-    <View style={{ gap: 6 }} testID={testID}>
-      <View style={{ paddingHorizontal: 4, paddingBottom: 2 }}>
-        <Txt size={12} weight={600} color={p.mu}>{title}</Txt>
       </View>
-      {items.map((item, index) => (
-        <Row key={item.id} item={item} first={index === 0} timezone={timezone} lang={lang} busy={busy} />
-      ))}
     </View>
   );
 }
 
-function Row({ item, first, timezone, lang, busy }: {
+function importanceLabel(item: CommitmentView, t: ReturnType<typeof useApp>['t']): string {
+  return item.importance === 'must' ? t.todayGroupMust : item.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
+}
+
+/** The colour a row's time is drawn in: its importance's own, from the contrast-tested pairs. */
+function importanceInk(importance: CommitmentView['importance'], p: ReturnType<typeof useReferencePalette>): string {
+  return importance === 'must' ? p.acd : importance === 'should' ? p.wm : p.success;
+}
+
+/**
+ * One importance group (Stitch). «لازم» is always open: it is part of the
+ * first screen. «مهم» and «حلو» fold to one line — their chip, the first
+ * item and its time, and how many more — and open on a tap.
+ */
+function Group({ kind, items, timezone, lang, busy, football }: {
+  kind: 'must' | 'should' | 'nice';
+  items: CommitmentView[];
+  timezone: string;
+  lang: Lang;
+  busy: readonly DeviceBusyBlock[];
+  football: ReadonlySet<string>;
+}) {
+  const { t, tr } = useApp();
+  const p = useReferencePalette();
+  const [open, setOpen] = useState(false);
+  if (items.length === 0) return null;
+  const title = (t as unknown as Record<string, string>)[GROUP_TITLE[kind]]!;
+  const rows = items.map((item, index) => (
+    <Row key={item.id} item={item} first={index === 0} timezone={timezone} lang={lang} busy={busy} football={football.has(item.id)} />
+  ));
+
+  if (kind === 'must') {
+    return (
+      <View style={{ gap: 10 }} testID="today-group-must">
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+          <Tag kind="must" label={title} />
+          <Txt size={13} weight={500} color={p.mu}>{tr('todayCountOpen', { n: items.length })}</Txt>
+        </View>
+        {rows}
+      </View>
+    );
+  }
+
+  const first = items[0]!;
+  const firstWhen = drawnWhenLine(first, lang, timezone)?.text;
+  const preview = `· ${first.title}${firstWhen ? ` ${firstWhen}` : ''}${items.length > 1 ? ` ${isolateAuto(`+${items.length - 1}`)}` : ''}`;
+  return (
+    <View style={{ gap: 10 }} testID={`today-group-${kind}`}>
+      <Btn
+        testID={`today-group-${kind}-toggle`}
+        label={`${title}, ${tr('todayCountOpen', { n: items.length })}`}
+        accessibilityState={{ expanded: open }}
+        onPress={() => setOpen(!open)}
+        scaleTo={0.99}
+        style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 16, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln }}
+      >
+        <Tag kind={priorityTagKind(kind)} label={title} />
+        <Txt size={13} weight={500} color={p.mu} style={{ flex: 1 }} testID={`today-group-${kind}-preview`}>{preview}</Txt>
+        <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}><ReferenceIcon name="chevron-down" size={18} color={p.mu} /></View>
+      </Btn>
+      {open ? rows : null}
+    </View>
+  );
+}
+
+function Row({ item, timezone, lang, busy, football }: {
   item: CommitmentView;
   first: boolean;
   timezone: string;
   lang: Lang;
   busy: readonly DeviceBusyBlock[];
+  /** A match (football): a ball where the completion circle would be. */
+  football: boolean;
 }) {
-  const { t, rtl, actions } = useApp();
+  const { t, actions } = useApp();
   const p = useReferencePalette();
   const act = useCommitmentAction();
 
@@ -523,6 +649,7 @@ function Row({ item, first, timezone, lang, busy }: {
   const line = drawnWhenLine(item, lang, timezone);
   const when = line?.text ?? t.noTimeYet;
   const aside = dueAsideText(item, t.plannedDueAside, lang, timezone);
+  const ink = importanceInk(item.importance, p);
 
   return (
     <SwipeableRow actions={rowActions} testID={`today-swipe-${item.id}`}>
@@ -532,41 +659,48 @@ function Row({ item, first, timezone, lang, busy }: {
         onAccessibilityAction={(event) => {
           rowActions.find((action) => action.name === event.nativeEvent.actionName)?.run();
         }}
-        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}`}
+        label={`${rowAccessibilityLabel(item, t, line?.text ?? null)}${aside ? `, ${aside}` : ''}${football ? `, ${t.todayFootballMark}` : ''}`}
         onPress={() => actions.openDetail(item.id)}
         scaleTo={0.98}
         style={{
-          flexDirection: 'row', alignItems: 'center', gap: 12,
-          paddingVertical: 12, paddingHorizontal: 12, minHeight: 68,
-          borderWidth: 1, borderColor: p.ln, borderRadius: 19, backgroundColor: p.sf,
-          marginTop: first ? 0 : 2,
+          flexDirection: 'row', alignItems: 'center', gap: 8,
+          paddingVertical: 10, paddingStart: 6, paddingEnd: 14, minHeight: 68,
+          borderWidth: 1, borderColor: p.ln, borderRadius: 20, backgroundColor: p.sf,
         }}
       >
-        {/* The circle is the row's own done affordance in Round 2; the swipe
-            and the assistive action do the same thing. */}
-        <Btn label={t.doneS} testID={`today-row-done-${item.id}`} onPress={() => act.mutate({ id: item.id, action: 'complete' })} hitSlop={8}
-          style={{ width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: p.lnStrong, alignItems: 'center', justifyContent: 'center' }}>
-          <View />
-        </Btn>
-        <View style={{ flex: 1, gap: 2 }}>
-          <Txt size={16} color={p.tx}>{item.title}</Txt>
+        {football ? (
+          // A match is not ticked off; it is time that is taken.
+          <View accessible={false} testID={`today-football-${item.id}`} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: p.successSoft, alignItems: 'center', justifyContent: 'center' }}>
+              <ReferenceIcon name="football" size={18} color={p.success} />
+            </View>
+          </View>
+        ) : (
+          // The circle is the row's own done affordance; the swipe and the
+          // assistive action do the same thing. 44 × 44 to press, 22 to see.
+          <Btn label={t.doneS} testID={`today-row-done-${item.id}`} onPress={() => act.mutate({ id: item.id, action: 'complete' })}
+            style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: p.lnStrong }} />
+          </Btn>
+        )}
+        <View style={{ flex: 1, gap: 4, alignItems: 'flex-start' }}>
+          <Txt size={15} weight={600} color={p.tx}>{item.title}</Txt>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <ReferenceIcon name="clock" size={14} color={p.mu} />
             {/* A deadline is a point in time, so it reads as one. There is no
-                "overdue": a time that has passed is shown in the accent, not in
-                a warning colour, because a missed thing is not a failure state. */}
-            <Txt size={12} color={p.mu} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
+                "overdue": a time that has passed is drawn like any other. */}
+            <Txt size={13} weight={500} color={ink} latin={!line?.dated} testID={`today-time-${item.id}`}>{when}</Txt>
             {/* The importance was read off their words, not stated by them (#169). */}
             {!item.importanceIsStated && item.importance === 'must' ? (
-              <Txt size={12} color={p.mu} testID={`today-estimated-${item.id}`}>{`· ${t.todayEstimatedMark}`}</Txt>
+              <Txt size={13} color={p.mu} testID={`today-estimated-${item.id}`}>{`· ${t.todayEstimatedMark}`}</Txt>
             ) : null}
+            <Txt size={13} color={p.mu}>·</Txt>
+            <Tag kind={priorityTagKind(item.importance)} label={importanceLabel(item, t)} />
           </View>
-          {aside ? <Txt size={12} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
+          {aside ? <Txt size={13} color={p.mu} testID={`today-due-${item.id}`}>{aside}</Txt> : null}
           {/* What else is happening then (UC-3.2, #186): a muted note, never a
               warning, never something that stops the row being opened. */}
           <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
         </View>
-        <ChevronIcon color={p.mu} rtl={rtl} />
       </Btn>
     </SwipeableRow>
   );
@@ -614,17 +748,18 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
   const p = useReferencePalette();
   const [open, setOpen] = useState(false);
   return (
-    <ReferenceCard pad={0} style={{ overflow: 'hidden', gap: 0 }} testID="today-group-finished">
+    <View style={{ borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 4, gap: 8 }} testID="today-group-finished">
       <Btn
         testID="today-finished-toggle"
         accessibilityState={{ expanded: open }}
-        label={t.todayGroupFinished}
+        label={`${t.todayGroupFinished} (${items.length})`}
         onPress={() => setOpen(!open)}
         scaleTo={0.99}
-        style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 18, minHeight: 48 }}
+        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 4 }}
       >
-        <Txt size={13} weight={600} color={p.mu}>{`${t.todayGroupFinished} · ${items.length}`}</Txt>
-        <Txt size={13} color={p.mu}>{open ? t.todayHideFinished : t.todayShowFinished}</Txt>
+        <ReferenceIcon name="check" size={18} color={p.success} />
+        <Txt size={14} weight={600} color={p.tx} style={{ flex: 1 }}>{`${t.todayGroupFinished} (${items.length})`}</Txt>
+        <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}><ReferenceIcon name="chevron-down" size={18} color={p.mu} /></View>
       </Btn>
       {open ? items.map((item) => (
         <Btn
@@ -633,19 +768,19 @@ function FinishedGroup({ items }: { items: CommitmentView[] }) {
           label={item.title}
           onPress={() => actions.openDetail(item.id)}
           scaleTo={0.98}
-          style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 18, borderTopWidth: 1, borderTopColor: p.ln, minHeight: 48 }}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, minHeight: 48 }}
         >
           <View style={{
-            width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
-            backgroundColor: item.status === 'done' ? p.success : 'transparent',
+            width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center',
+            backgroundColor: item.status === 'done' ? p.successSoft : 'transparent',
             borderWidth: item.status === 'done' ? 0 : 2, borderColor: p.lnStrong,
           }}>
-            {item.status === 'done' ? <CheckIcon color={p.onSuccess} /> : null}
+            {item.status === 'done' ? <CheckIcon color={p.success} /> : null}
           </View>
-          <Txt size={15} color={p.mu} style={{ flex: 1, textDecorationLine: 'line-through' }}>{item.title}</Txt>
-          <Txt size={12} color={p.mu}>{item.status === 'done' ? t.doneS : t.dropped}</Txt>
+          <Txt size={14} color={p.mu} style={{ flex: 1, textDecorationLine: 'line-through' }}>{item.title}</Txt>
+          <Txt size={13} weight={600} color={item.status === 'done' ? p.success : p.mu}>{item.status === 'done' ? t.doneS : t.dropped}</Txt>
         </Btn>
       )) : null}
-    </ReferenceCard>
+    </View>
   );
 }

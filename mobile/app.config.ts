@@ -634,13 +634,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
      * app opens on a white rectangle. `dark` is given its own background rather
      * than left to invert: the brand mark is drawn for a light ground and
      * inverting it is not the same image.
+     *
+     * Both grounds are the Stitch navy (`#0E1526`, `color.dark.background` in
+     * src/theme/tokens.ts) since 2026-10-02: the app opens dark for anyone who
+     * never chose otherwise, so a light launch screen would flash before it.
+     * The mark is light grey on transparency, which reads on navy.
      */
     ['expo-splash-screen', {
       image: './assets/splash-icon.png',
       imageWidth: 200,
       resizeMode: 'contain',
-      backgroundColor: '#F5F7F8',
-      dark: { image: './assets/splash-icon.png', backgroundColor: '#101416' }
+      backgroundColor: '#0E1526',
+      dark: { image: './assets/splash-icon.png', backgroundColor: '#0E1526' }
     }],
     /*
      * Local notifications, channels and categories (UC-3.11, #196).

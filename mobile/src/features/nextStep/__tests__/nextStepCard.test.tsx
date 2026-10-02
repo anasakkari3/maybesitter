@@ -215,11 +215,14 @@ describe('«the time has passed» on an all-day item (N18)', () => {
 });
 
 describe('only the answers the server offered', () => {
-  it('shows all five when all five are available — accept and defer up front, the rest behind More', async () => {
+  it('shows all five when all five are available — accept, done and defer up front, the rest behind More', async () => {
     await show();
+    // Stitch: «بلّش فيها» · «خلصتها» · «مش هلّق».
     expect(screen.queryByTestId('next-step-accept')).not.toBeNull();
+    expect(screen.queryByTestId('next-step-done')).not.toBeNull();
     expect(screen.queryByTestId('next-step-defer')).not.toBeNull();
-    for (const action of ['edit', 'dismiss', 'done']) expect(screen.queryByTestId(`next-step-${action}`)).toBeNull();
+    expect(screen.getByTestId('next-step-defer').props.accessibilityLabel).toBe(en.notNow);
+    for (const action of ['edit', 'dismiss']) expect(screen.queryByTestId(`next-step-${action}`)).toBeNull();
     await fireEvent.press(screen.getByTestId('next-step-more'));
     for (const action of ['accept', 'edit', 'defer', 'dismiss', 'done']) {
       expect(screen.queryByTestId(`next-step-${action}`)).not.toBeNull();
@@ -435,5 +438,38 @@ describe('later, and when', () => {
   it('is not offered when the server did not offer defer', async () => {
     await show(response({ availableActions: ['accept', 'dismiss'] }));
     expect(screen.queryByTestId('next-step-defer')).toBeNull();
+  });
+});
+
+describe('the three answers up front (Stitch)', () => {
+  it('«بلّش فيها» records accept — started, never done', async () => {
+    const decide = mockDecision();
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-accept'));
+    await waitFor(() => expect(decide).toHaveBeenCalled());
+    expect((decide.mock.calls[0]![0] as { decision: string }).decision).toBe('accept');
+    await waitFor(() => expect(screen.queryByTestId('next-step-started-note')).not.toBeNull());
+    // Started is not done: nothing else was sent, and «خلصتها» is still there to say it.
+    expect(decide).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('next-step-done')).not.toBeNull();
+  });
+
+  it('«خلصتها» records done', async () => {
+    const decide = mockDecision();
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-done'));
+    await waitFor(() => expect(decide).toHaveBeenCalled());
+    expect((decide.mock.calls[0]![0] as { decision: string }).decision).toBe('done');
+  });
+
+  it('«مش هلّق» asks «Bring it back when?» in a sheet that says nothing has changed', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('next-step-defer'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).not.toBeNull());
+    expect(screen.getByText(en.nextStepDeferTitle)).toBeTruthy();
+    // The card's note and the sheet's own.
+    expect(screen.getAllByText(en.suggestionNote).length).toBeGreaterThanOrEqual(2);
+    await fireEvent.press(screen.getByTestId('next-step-defer-close'));
+    await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).toBeNull());
   });
 });

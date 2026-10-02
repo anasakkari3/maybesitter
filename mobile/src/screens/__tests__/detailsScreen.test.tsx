@@ -24,6 +24,7 @@ import { postponeTo } from '../../features/commitments/postpone';
 import en from '../../i18n/locales/en.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
+import * as nextStepEndpoints from '../../api/endpoints/nextStep';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -293,5 +294,70 @@ describe('what is deliberately absent', () => {
     await waitFor(() => expect(screen.queryByTestId('postpone-oneHour')).not.toBeNull());
     expect(screen.queryByText(en.intensify)).toBeNull();
     expect(screen.queryByText(en.shrink)).toBeNull();
+  });
+});
+
+/**
+ * The Stitch details page (2026-10-02, `04b`): letting it go is two different
+ * answers, and «بلّش فيها» is offered only for the proposed next step.
+ */
+describe('Stitch details', () => {
+  function proposing(commitmentId: string) {
+    return jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue({
+      success: true, participantId: USER.uid,
+      recommendation: {
+        version: 'v1', proposalId: 'p-9', state: 'ready', locale: 'en',
+        primaryStep: { commitmentId, title: 'Hand in the project report' },
+        explanation: null,
+        availableActions: ['accept', 'defer', 'done'],
+        persistence: { occurred: false, confirmationRequired: true },
+      },
+    } as never);
+  }
+
+  it('says what a drop and a deletion each do to the history, before either is asked', async () => {
+    await show();
+    expect(screen.getByText(en.detailsLetGoTitle)).toBeTruthy();
+    expect(screen.getByTestId('details-drop').props.accessibilityLabel).toContain(en.detailsDropSub);
+    expect(screen.getByTestId('details-delete').props.accessibilityLabel).toContain(en.detailsDeleteSub);
+    expect(en.detailsDropSub).not.toBe(en.detailsDeleteSub);
+  });
+
+  it('asks the drop and the deletion in two different sheets', async () => {
+    await show();
+    await fireEvent.press(screen.getByTestId('details-drop'));
+    await waitFor(() => expect(screen.queryByTestId('confirm-drop-dialog')).not.toBeNull());
+    expect(screen.queryByTestId('confirm-delete')).toBeNull();
+    await fireEvent.press(screen.getByTestId('confirm-keep'));
+    await waitFor(() => expect(screen.queryByTestId('confirm-drop-dialog')).toBeNull());
+
+    await fireEvent.press(screen.getByTestId('details-delete'));
+    await waitFor(() => expect(screen.queryByTestId('confirm-delete-dialog')).not.toBeNull());
+    expect(screen.queryByTestId('confirm-drop')).toBeNull();
+  });
+
+  it('offers no «start» for a commitment that is not the proposed next step', async () => {
+    proposing('someone-else');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('details-title')).not.toBeNull());
+    expect(screen.queryByTestId('details-start')).toBeNull();
+  });
+
+  it('«بلّش فيها» on the proposed one records accept and says it is started, not done', async () => {
+    proposing(ID);
+    const decide = jest.spyOn(nextStepEndpoints, 'recordNextStepDecision').mockResolvedValue({
+      success: true, replayed: false, participantId: USER.uid,
+      outcome: { status: 'recorded_without_penalty', decision: { version: 'v1', proposalId: 'p-9', decision: 'accept', decidedAt: '2026-09-13T09:00:00.000Z' }, persisted: false },
+    } as never);
+    const act = jest.spyOn(commitmentEndpoints, 'actOnCommitment');
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('details-start')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('details-start'));
+    await waitFor(() => expect(decide).toHaveBeenCalled());
+    expect((decide.mock.calls[0]![0] as { decision: string }).decision).toBe('accept');
+    await waitFor(() => expect(screen.queryByTestId('details-started')).not.toBeNull());
+    // Nothing was completed: started is not done.
+    expect(act).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('details-done')).not.toBeNull();
   });
 });

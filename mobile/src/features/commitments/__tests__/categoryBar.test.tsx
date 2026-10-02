@@ -118,6 +118,17 @@ async function show() {
   );
 }
 
+/**
+ * «مهم» and «حلو» fold to one line on Today (Stitch, 2026-10-02); the rows in
+ * them are reached by opening them, the way a person would.
+ */
+async function openGroups() {
+  for (const kind of ['should', 'nice']) {
+    const toggle = screen.queryByTestId(`today-group-${kind}-toggle`);
+    if (toggle) await fireEvent.press(toggle);
+  }
+}
+
 describe('the category filter bar', () => {
   it('is absent for a user who has never turned it on', async () => {
     jest.spyOn(categoryEndpoints, 'getCategoryPreferences').mockResolvedValue(preferences(false));
@@ -125,6 +136,7 @@ describe('the category filter bar', () => {
 
     await waitFor(() => expect(screen.getByText('Send the invoice')).toBeTruthy());
     expect(screen.queryByTestId('category-bar')).toBeNull();
+    await openGroups();
     // Every commitment is there, exactly as it was before the feature existed.
     expect(screen.getByText('Call the school')).toBeTruthy();
     expect(screen.getByText('Finish the thing')).toBeTruthy();
@@ -148,6 +160,8 @@ describe('the category filter bar', () => {
     await show();
 
     await waitFor(() => expect(screen.getByTestId('category-chip-work')).toBeTruthy());
+    await openGroups();
+    await waitFor(() => expect(screen.getByText('Call the school')).toBeTruthy());
 
     await fireEvent.press(screen.getByTestId('category-chip-work'));
     await waitFor(() => expect(screen.queryByText('Call the school')).toBeNull());
@@ -161,6 +175,8 @@ describe('the category filter bar', () => {
     jest.spyOn(categoryEndpoints, 'getCategoryPreferences').mockResolvedValue(preferences(true));
     await show();
 
+    await waitFor(() => expect(screen.getByTestId('category-chip-work')).toBeTruthy());
+    await openGroups();
     await waitFor(() => expect(screen.getByText('Finish the thing')).toBeTruthy());
 
     await fireEvent.press(screen.getByTestId('category-chip-work'));
@@ -176,6 +192,7 @@ describe('the category filter bar', () => {
 
     await waitFor(() => expect(screen.getByText('Send the invoice')).toBeTruthy());
     expect(screen.queryByTestId('category-bar')).toBeNull();
+    await openGroups();
     expect(screen.getByText('Call the school')).toBeTruthy();
   });
 

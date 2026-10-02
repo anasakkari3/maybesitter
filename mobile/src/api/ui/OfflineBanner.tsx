@@ -1,9 +1,12 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import NetInfo from '@react-native-community/netinfo';
 import { onlineManager } from '@tanstack/react-query';
 import { useApp } from '../../state/AppContext';
-import { Txt } from '../../ui/primitives';
+import { Btn, Txt } from '../../ui/primitives';
+import { ReferenceIcon } from '../../ui/referenceIcons';
+import { useLayoutMode } from '../../theme/textScale';
 import { ScreenTopInsetConsumedContext } from '../../ui/screen';
 
 /**
@@ -30,14 +33,30 @@ export function OfflineBanner({ children }: { children?: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   const consumedAbove = useContext(ScreenTopInsetConsumedContext);
   const [online, setOnline] = useState(() => onlineManager.isOnline());
+  const stacked = useLayoutMode() !== 'normal';
 
   useEffect(() => onlineManager.subscribe(setOnline), []);
 
   return (
     <>
       {online ? null : (
-        <View testID="offline-banner" style={{ backgroundColor: p.sf2, paddingTop: (consumedAbove ? 0 : insets.top) + 10, paddingBottom: 10, paddingHorizontal: 16 }}>
-          <Txt size={13} color={p.mu} align="center">{t.offline}</Txt>
+        // Stitch `01c`: an amber card on the page, a cloud with a line through
+        // it, the sentence, and «جرّب كمان مرّة» — which asks the network again
+        // (`NetInfo.refresh`), the same source the query layer listens to.
+        <View testID="offline-banner" style={{ backgroundColor: p.bg, paddingTop: (consumedAbove ? 0 : insets.top) + 10, paddingBottom: 4, paddingHorizontal: 16 }}>
+          <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'center', gap: 10, backgroundColor: p.wms, borderWidth: 1, borderColor: p.prop, borderRadius: 16, paddingVertical: 10, paddingHorizontal: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: stacked ? undefined : 1 }}>
+              <View accessible={false} style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: p.wms, alignItems: 'center', justifyContent: 'center' }}>
+                <ReferenceIcon name="cloud-off" size={20} color={p.wm} />
+              </View>
+              <Txt size={13} weight={500} color={p.tx} style={{ flex: 1 }} testID="offline-banner-text">{t.offline}</Txt>
+            </View>
+            <Btn testID="offline-retry" label={t.errorsRetry} onPress={() => { void NetInfo.refresh(); }} scaleTo={0.95}
+              style={{ minHeight: 44, borderRadius: 999, borderWidth: 1, borderColor: p.prop, paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, alignSelf: stacked ? 'flex-start' : undefined }}>
+              <ReferenceIcon name="refresh" size={16} color={p.wm} />
+              <Txt size={13} weight={600} color={p.wm}>{t.errorsRetry}</Txt>
+            </Btn>
+          </View>
         </View>
       )}
       <ScreenTopInsetConsumedContext.Provider value={consumedAbove || !online}>
