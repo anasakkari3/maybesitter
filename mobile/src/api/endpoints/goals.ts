@@ -40,7 +40,9 @@ export async function confirmGoalCommitments(goalId: string, generation: number,
 export type GoalConfirmationSelection =
   | { nodeId: string; as: 'commitment' }
   | { nodeId: string; as: 'habit'; habit: {
-    cadence: { kind: 'weekly_count'; count: number };
+    // Either shape the habit contract takes (audit 2026-10-03, #12): the
+    // confirm route hands this straight to habit creation.
+    cadence: { kind: 'weekly_count'; count: number } | { kind: 'weekdays'; weekdays: readonly number[] };
     durationMinutes: number;
     preferredWindows: readonly { start: string; end: string }[];
     minimumOccurrences: number;

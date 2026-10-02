@@ -38,6 +38,7 @@
  * is *seen*, only that it was scheduled.
  */
 
+import { Platform } from 'react-native';
 import { notificationsModule } from './nativeModules';
 
 export type NotificationPermission = 'granted' | 'provisional' | 'denied' | 'undetermined';
@@ -46,6 +47,8 @@ export type NotificationPermission = 'granted' | 'provisional' | 'denied' | 'und
 export interface PermissionResponseLike {
   readonly granted?: boolean;
   readonly status?: string;
+  /** Whether the OS will still show its prompt. */
+  readonly canAskAgain?: boolean;
   readonly ios?: { readonly status?: number } | undefined;
 }
 
@@ -70,6 +73,32 @@ export function permissionFrom(response: PermissionResponseLike | null | undefin
   if (response.status === 'granted') return 'granted';
   if (response.status === 'denied') return 'denied';
   return 'undetermined';
+}
+
+/**
+ * Whether asking now would put the system prompt on screen.
+ *
+ * `undetermined` always would. A `denied` would only on **Android**, and only
+ * while `canAskAgain` is true — and that is the case that matters (audit
+ * 2026-10-03, #7). On Android 13+ expo-notifications reports a
+ * POST_NOTIFICATIONS that has *never been asked* as `denied`, because its
+ * status is denied whenever `areNotificationsEnabled()` is false, and that is
+ * false until the permission is granted. Reading it as an answer meant the
+ * prompt was never shown on any Android 13+ phone. Android itself decides when
+ * to stop showing it (a second "Don't allow" sets `canAskAgain` false).
+ *
+ * iOS is untouched: a denial there is final, whatever the flag says, and
+ * provisional is a granted-enough state that is never asked over (see the
+ * header).
+ */
+export function canPromptFrom(
+  response: PermissionResponseLike | null | undefined,
+  platform: string = Platform.OS,
+): boolean {
+  const permission = permissionFrom(response);
+  if (permission === 'undetermined') return true;
+  if (permission !== 'denied') return false;
+  return platform === 'android' && response?.canAskAgain === true;
 }
 
 /** What the device currently says, without asking the user anything. */
@@ -97,10 +126,10 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   try {
     const Notifications = notificationsModule();
     if (!Notifications) return 'undetermined';
-    const existing = permissionFrom(await Notifications.getPermissionsAsync());
-    // Asking again after an answer is a no-op on iOS and a second prompt on
-    // some Android versions; either way the answer is already known.
-    if (existing !== 'undetermined') return existing;
+    const current = await Notifications.getPermissionsAsync();
+    // Asking again after a final answer is a no-op on iOS and a nag on
+    // Android; `canPromptFrom` says when the OS would still show its prompt.
+    if (!canPromptFrom(current)) return permissionFrom(current);
     return permissionFrom(await Notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowSound: true, allowBadge: false },
     }));

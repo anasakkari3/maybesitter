@@ -415,6 +415,27 @@ describe('Android hardening', () => {
       expect(blocked).not.toContain('android.permission.SCHEDULE_EXACT_ALARM');
     }
   });
+
+  /**
+   * POST_NOTIFICATIONS reaches the manifest through expo-notifications' own
+   * `AndroidManifest.xml`, which the merger brings in (see `app.config.ts`).
+   * Onboarding's reminders step asks for it at runtime (audit 2026-10-03,
+   * #7), and Android 13+ shows no prompt for a permission the merged manifest
+   * does not declare — so it must never land in `blockedPermissions`, and the
+   * library must still declare it.
+   */
+  it('declares POST_NOTIFICATIONS for Android 13+, through expo-notifications, and never blocks it', () => {
+    for (const profile of PROFILES) {
+      const blocked = configs[profile].android.blockedPermissions ?? [];
+      expect(blocked).not.toContain('android.permission.POST_NOTIFICATIONS');
+      expect(configs[profile].plugins.some(plugin => (Array.isArray(plugin) ? plugin[0] : plugin) === 'expo-notifications')).toBe(true);
+    }
+    const libraryManifest = readFileSync(
+      join(__dirname, '..', '..', '..', 'node_modules', 'expo-notifications', 'android', 'src', 'main', 'AndroidManifest.xml'),
+      'utf8',
+    );
+    expect(libraryManifest).toMatch(/<uses-permission android:name="android\.permission\.POST_NOTIFICATIONS"\s*\/>/);
+  });
 });
 
 /**
