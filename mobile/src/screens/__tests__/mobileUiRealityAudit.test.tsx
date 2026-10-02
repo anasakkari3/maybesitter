@@ -14,7 +14,7 @@ import { ReviewScreen } from '../ReviewScreen';
 import { TodayScreen } from '../TodayScreen';
 import { CalendarScreen } from '../CalendarScreen';
 import { Txt } from '../../ui/primitives';
-import { TAB_CLEARANCE } from '../../ui/screen';
+import { FLOATING_GAP, TAB_CLEARANCE } from '../../ui/screen';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -80,28 +80,35 @@ describe('Mobile Pre-Launch UI Reality Audit Regressions', () => {
   });
 
   describe('Tab Clearance propagation on root tab screens', () => {
-    it('applies custom tabClearance to TodayScreen scroll container padding', async () => {
+    // Audit 2026-10-03 #9: at text size 1.3 the «احكيها» pill sat on «ليش
+    // هاي بالذات», at 1.5 on «…», before any scroll. The viewport now stops
+    // above the measured bar-and-pill block, so it covers no row at rest
+    // either; the last row keeps the 12 pt gap above the pill.
+    const viewportInset = (scroller: { props: { style?: unknown } }) => flat(scroller.props.style as never)?.marginBottom;
+
+    it('stops TodayScreen\'s viewport above a custom tabClearance', async () => {
       await wrap(<TodayScreen tabClearance={165} />);
       const scroller = screen.getByTestId('today-scroll');
-      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(165);
+      expect(viewportInset(scroller)).toBe(165 - FLOATING_GAP);
+      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(FLOATING_GAP);
     });
 
-    it('defaults TodayScreen scroll container padding to the bar-and-pill clearance when unprovided', async () => {
+    it('defaults TodayScreen\'s viewport to the bar-and-pill clearance when unprovided', async () => {
       await wrap(<TodayScreen />);
       const scroller = screen.getByTestId('today-scroll');
-      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(TAB_CLEARANCE);
+      expect(viewportInset(scroller)).toBe(TAB_CLEARANCE - FLOATING_GAP);
     });
 
-    it('applies custom tabClearance to CalendarScreen scroll container padding', async () => {
+    it('stops CalendarScreen\'s viewport above a custom tabClearance', async () => {
       await wrap(<CalendarScreen tabClearance={175} />);
       const scroller = screen.getByTestId('calendar-scroll');
-      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(175);
+      expect(viewportInset(scroller)).toBe(175 - FLOATING_GAP);
     });
 
-    it('defaults CalendarScreen scroll container padding to the bar-and-pill clearance when unprovided', async () => {
+    it('defaults CalendarScreen\'s viewport to the bar-and-pill clearance when unprovided', async () => {
       await wrap(<CalendarScreen />);
       const scroller = screen.getByTestId('calendar-scroll');
-      expect(flat(scroller.props.contentContainerStyle).paddingBottom).toBe(TAB_CLEARANCE);
+      expect(viewportInset(scroller)).toBe(TAB_CLEARANCE - FLOATING_GAP);
     });
   });
 });

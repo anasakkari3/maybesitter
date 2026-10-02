@@ -287,3 +287,26 @@ describe('from Settings, on the merged Root', () => {
     expect(screen.queryByTestId('calendar-feeds-entry')).toBeNull();
   });
 });
+
+/**
+ * Audit 2026-10-03 #9: the «احكيها» pill covered «ليش هاي بالذات» (text size
+ * 1.3) and «…» (1.5) on Today before any scroll. What Today keeps clear is
+ * the bar-and-pill block as it actually measured — at the reader's text size
+ * — and it is kept clear of the viewport, not only of the scroll's end.
+ */
+describe('Today keeps the floating pill off its rows', () => {
+  it('insets the viewport by the bar and pill as they measured, and follows when they grow', async () => {
+    await openApp();
+    await waitFor(() => expect(screen.queryByTestId('today-scroll')).not.toBeNull());
+    const inset = () => StyleSheet.flatten(screen.getByTestId('today-scroll').props.style)?.marginBottom;
+    // The block at an enlarged text size: taller than the 170 fallback.
+    await act(async () => {
+      fireEvent(screen.getByTestId('floating-tab-bar'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 214 } } });
+    });
+    expect(inset()).toBe(214);
+    await act(async () => {
+      fireEvent(screen.getByTestId('floating-tab-bar'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 238 } } });
+    });
+    expect(inset()).toBe(238);
+  });
+});

@@ -54,7 +54,7 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
 
   return (
     <Screen testID="watching-root">
-      <ScreenScroll testID="watching-scroll" bottom={tabClearance} gap={12} topGap={8}>
+      <ScreenScroll testID="watching-scroll" floating={tabClearance} gap={12} topGap={8}>
         <ScreenHeader brand={false} title={t.tabWatching} end={<AvatarButton />} />
         <Txt role="supporting" color={p.mu}>{t.watchingBody}</Txt>
 

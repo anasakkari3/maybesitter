@@ -211,7 +211,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
     <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="calendar-scroll"
-        bottom={tabClearance}
+        floating={tabClearance}
         topGap={8}
         gap={14}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}

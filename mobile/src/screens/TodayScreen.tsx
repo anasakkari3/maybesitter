@@ -234,7 +234,7 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
     <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="today-scroll"
-        bottom={tabClearance}
+        floating={tabClearance}
         topGap={8}
         gap={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
