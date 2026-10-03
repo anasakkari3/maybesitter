@@ -21,6 +21,7 @@ import ar from '../../../i18n/locales/ar.json';
 
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
 import type { CommitmentView } from '../../commitments/model';
+import { deviceTimeZone } from '../../../i18n/timezone';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -481,10 +482,16 @@ describe('the three answers up front (Stitch)', () => {
  * exam's time and, when there is one, the evening plan before it.
  */
 describe('a preparation step for an event', () => {
-  // Tomorrow at 10:00 and tonight at 21:00 on the clock, not "now + 20 h": run
-  // before 04:00, now + 20 h was still today and «Tomorrow» never showed.
-  const examAt = () => { const at = new Date(); at.setDate(at.getDate() + 1); at.setHours(10, 0, 0, 0); return at.toISOString(); };
-  const nightAt = () => { const at = new Date(); at.setHours(21, 0, 0, 0); return at.toISOString(); };
+  // Tomorrow and tonight on the card's own calendar (the device zone it draws
+  // in), not "now + 20 h" and not the process zone: run before 04:00, or with
+  // TZ=America/Los_Angeles in CI, those landed on the card's today.
+  const zoneDay = (offsetDays: number) => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: deviceTimeZone() }).format(new Date());
+    return new Date(Date.parse(`${today}T12:00:00Z`) + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  };
+  // Midday UTC of a zone date is inside that date for every zone within ±11 h.
+  const examAt = () => `${zoneDay(1)}T10:00:00.000Z`;
+  const nightAt = () => `${zoneDay(0)}T18:00:00.000Z`;
   const prepResponse = () => response({
     primaryStep: { commitmentId: 'exam-1', title: 'Prepare for Math exam', purpose: 'prepare' },
     explanation: {
