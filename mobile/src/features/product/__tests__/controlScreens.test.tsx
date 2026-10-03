@@ -12,6 +12,7 @@ const mockCreateMemory = jest.fn();
 const mockGenerate = jest.fn();
 const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
+let mockHabits: unknown[] = [];
 
 jest.mock('../../../api/queries', () => ({
   useMemory: () => ({
@@ -37,7 +38,7 @@ jest.mock('../../../api/queries', () => ({
   useRegenerateGoalExecution: () => ({ mutate: mockRegenerate, isPending: false, error: null }),
   useUnlinkGoalNode: () => ({ mutate: mockUnlink, isPending: false, error: null }),
   useCommitment: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
-  useHabits: () => ({ data: [], isPending: false, error: null, refetch: jest.fn() }),
+  useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
@@ -52,6 +53,7 @@ const wrap = (child: React.ReactNode) => (
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockHabits = [];
   mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
     generation: 1,
     nodes: [
@@ -218,4 +220,24 @@ it('offers the habit choice only for steps that are not one-offs', async () => {
       }),
     ]),
   }, expect.any(Object));
+});
+
+/**
+ * A saved habit's rows read in the person's words (audit 2026-10-03 device
+ * pass): the detail showed the raw `30 min`, `flexible` and `skip` values in
+ * the Arabic app.
+ */
+it('names a saved habit\'s duration, flexibility and recovery in words, not raw values', async () => {
+  mockHabits = [{
+    habitId: 'h1', title: 'Pilates', cadence: { kind: 'weekdays', weekdays: [2, 4] }, durationMinutes: 30,
+    preferredWindows: [], minimumOccurrences: 2, maximumOccurrences: 3, flexibility: 'protected_flexible',
+    recoveryPolicy: 'recover_within_period', status: 'active', source: 'user_created',
+    confirmation: { confirmedByUserAt: '2026-10-03T00:00:00.000Z', sourceRef: null, acceptedSuggestedValues: true },
+    createdAt: '2026-10-03T00:00:00.000Z', updatedAt: '2026-10-03T00:00:00.000Z',
+  }];
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByText(strings.en.xProtectedFlexible)).toBeTruthy();
+  expect(screen.getByText(strings.en.xRecoverThisWeek)).toBeTruthy();
+  expect(screen.queryByText('protected_flexible')).toBeNull();
+  expect(screen.queryByText('recover_within_period')).toBeNull();
 });

@@ -267,10 +267,10 @@ export function HabitDetailScreen() {
       {items.length === 0 ? <ProductSection title={t.xHabits} body={t.xNoOccurrences} icon="habit" /> : null}
       {items.map(habit => <ProductSection key={habit.habitId} title={isolateAuto(habit.title)} icon="habit" status={habit.status === 'active' ? 'LIVE' : 'BLOCKED'}>
         <ProductRow title={t.xCadence} body={describeCadence(habit.cadence, t, lang)} icon="calendar" />
-        <ProductRow title={t.xDuration} body={`${habit.durationMinutes} min`} icon="watch" />
+        <ProductRow title={t.xDuration} body={tr('xMinutes', { count: habit.durationMinutes })} icon="watch" />
         <ProductRow title={t.xWindows} body={habit.preferredWindows.length > 0 ? habit.preferredWindows.map(window => `${window.start}–${window.end}`).join(' · ') : t.xNotSet} icon="watch" />
-        <ProductRow title={t.xFlexibility} body={habit.flexibility} icon="shield" />
-        <ProductRow title={t.xRecovery} body={habit.recoveryPolicy} icon="check" />
+        <ProductRow title={t.xFlexibility} body={habit.flexibility === 'protected_flexible' ? t.xProtectedFlexible : t.xFlexible} icon="shield" />
+        <ProductRow title={t.xRecovery} body={habit.recoveryPolicy === 'retry_same_day' ? t.xRetrySameDay : habit.recoveryPolicy === 'recover_within_period' ? t.xRecoverThisWeek : t.xLetItGo} icon="check" />
         {status.error || remove.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(status.error ?? remove.error, t)}</Txt> : null}
         <ProductActions>
           <Pill testID={`habit-toggle-${habit.habitId}`} label={habit.status === 'paused' ? t.xResume : t.xPause} kind="outline" disabled={status.isPending || habit.status === 'archived'} onPress={() => status.mutate({ id: habit.habitId, status: habit.status === 'paused' ? 'active' : 'paused' })} />
