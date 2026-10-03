@@ -26,7 +26,7 @@
 import { CAPTURE_INPUT_MAX_CHARACTERS, type CaptureGoalLinkSuggestionContract, type CaptureProposalItemContract } from '../../../src/contracts/v1/captureContracts';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { instantFromLocal, localTimeSpecFor, statedClockHours } from '../../../src/extraction/timeLexicon';
-import { readWeekdayLists, type WeekdayList } from '../../../src/extraction/weekdayLexicon';
+import { readRecurrence, readWeekdayLists, type WeekdayList } from '../../../src/extraction/weekdayLexicon';
 import { contentWords, sameWord } from './chatEvidence';
 
 /** An active goal of the person's, as the capture is shown it: its id and its own words. */
@@ -81,12 +81,43 @@ function gapAllowed(gap: string, ownWords: ReadonlySet<string> = new Set()): boo
 /** Words that carry no thing of their own around a list: "I want to", «بدي», «عندي», «אני רוצה». */
 const FILLER_WORDS: ReadonlySet<string> = new Set([
   'every', 'each', 'كل', 'כל', 'בכל',
-  'i', "i'm", 'im', 'we', 'want', 'wanna', 'need', 'have', 'got', 'to', 'and', 'also', 'too', 'my', 'a', 'an', 'for', 'will', 'should', 'go', 'do',
+  'i', "i'm", 'im', "i'll", 'ill', 'be', 'going', 'gonna', 'we', 'want', 'wanna', 'need', 'have', 'got', 'to', 'and', 'also', 'too', 'my', 'a', 'an', 'for', 'will', 'should', 'go', 'do',
   'بدي', 'بدّي', 'عندي', 'عنا', 'عنّا', 'لازم', 'كمان', 'و', 'رح', 'راح', 'انا', 'أنا', 'بس',
   'אני', 'רוצה', 'צריך', 'צריכה', 'יש', 'לי', 'וגם', 'גם', 'ו',
 ]);
 
 const SPAN_BOUNDARY = /[,،;.!?؟:\n]/;
+
+/*
+ * A word's stem, lightly (round 4 B): «وأدرس», «بدرس» and «أدرس» are one
+ * verb; "studying" and "study", "classes" and "class" one word; «ובחדר» and
+ * «חדר». Enough to tell that a span names this item, not a morphology.
+ */
+function stemOf(word: string): string {
+  let stem = word.toLowerCase().replace(/[\u064B-\u0652\u0640]/g, '');
+  if (/^[\u0600-\u06FF]+$/.test(stem)) {
+    if (stem.length > 3 && /^[وفبلك]/.test(stem)) stem = stem.slice(1);
+    if (stem.length > 3 && /^[أاتين]/.test(stem)) stem = stem.slice(1);
+    return stem.replace(/[ةه]$/, '');
+  }
+  if (/^[\u0590-\u05FF]+$/.test(stem)) return stem.length > 3 && /^[ובלהמשכ]/.test(stem) ? stem.slice(1) : stem;
+  if (stem.length > 5 && stem.endsWith('ing')) return stem.slice(0, -3);
+  if (stem.length > 4 && stem.endsWith('ies')) return `${stem.slice(0, -3)}y`;
+  if (stem.length > 4 && /(?:ss|sh|ch|x)es$/.test(stem)) return stem.slice(0, -2);
+  if (stem.length > 3 && stem.endsWith('s') && !stem.endsWith('ss')) return stem.slice(0, -1);
+  return stem;
+}
+
+function sameStem(left: string, right: string): boolean {
+  const a = stemOf(left);
+  const b = stemOf(right);
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= 4 && long.startsWith(short) && long.length - short.length <= 2;
+}
+
+/* A span of days, or a choice between them — never a list (round 4 C). */
+const SPAN_OR_CHOICE_BEFORE = new RegExp('(?:\\b(?:between|from|either|whether)|(?:^|[^\\p{L}])(?:بين|من|إما|اما)|(?:^|[^\\p{L}])(?:בין|מ|או))\\s*(?:on\\s+|يوم\\s+|ביום\\s+)?$', 'u');
 
 /**
  * The list of days this item's own hour belongs to, or null (audit
@@ -108,13 +139,21 @@ function attachedList(words: string, hour: number, titles: readonly string[], co
   const lower = words.slice(0, CAPTURE_INPUT_MAX_CHARACTERS).toLowerCase();
   // Bounded like everything a parser reads here: never more than one capture.
   const tokens = (text: string) => text.slice(0, CAPTURE_INPUT_MAX_CHARACTERS).toLowerCase().split(/[\s,،.\-–:;!?؟()]+/).filter(Boolean);
-  const own = new Set(tokens(titles.join(' ')));
-  const goals = new Set(tokens((context.goalTitles ?? []).join(' ')));
+  const own = tokens(titles.join(' '));
+  const goals = tokens((context.goalTitles ?? []).join(' '));
+  const isOwn = (word: string) => own.some((candidate) => sameStem(candidate, word));
+  const isGoal = (word: string) => goals.some((candidate) => sameStem(candidate, word));
   for (const list of readWeekdayLists(lower)) {
+    if (SPAN_OR_CHOICE_BEFORE.test(lower.slice(Math.max(0, list.start - 20), list.start))) continue;
     let clockEnd = -1;
     const after = lower.slice(list.end, list.end + 80);
     const digitAt = after.search(DIGIT);
-    if (digitAt !== -1 && gapAllowed(after.slice(0, digitAt), list.recurring ? own : new Set())) {
+    // The item's own words (and filler) may sit between a recurring list, or
+    // one the model stacked copies on, and its hour: «كل ثلاثاء وخميس بدي
+    // أدرس الساعة 7», «التلاتا وبالخميس عندي نادي الساعة 6».
+    const between = tokens(after.slice(0, Math.max(0, digitAt))).filter((word) => !FILLER_WORDS.has(word) && !GAP_WORDS.has(word));
+    const ownBetween = (list.recurring || context.stacked) && between.every((word) => isOwn(word));
+    if (digitAt !== -1 && (gapAllowed(after.slice(0, digitAt)) || (ownBetween && between.length <= 4))) {
       const clock = after.slice(Math.max(0, digitAt - 12), digitAt + 12);
       const hours = statedClockHours(clock);
       if (hours.size === 1 && hours.has(hour % 12)) clockEnd = list.end + digitAt;
@@ -143,8 +182,8 @@ function attachedList(words: string, hour: number, titles: readonly string[], co
     }
     const rest = tokens(`${lower.slice(spanStart, list.start)} ${lower.slice(list.end, spanEnd)}`)
       .filter((word) => !DIGIT.test(word) && !GAP_WORDS.has(word) && !FILLER_WORDS.has(word));
-    if (rest.some((word) => !own.has(word) && !goals.has(word))) continue;
-    if (!rest.some((word) => own.has(word)) && !context.stacked) continue;
+    if (rest.some((word) => !isOwn(word) && !isGoal(word))) continue;
+    if (!rest.some((word) => isOwn(word)) && !context.stacked) continue;
     return list;
   }
   return null;
@@ -462,4 +501,21 @@ export function tidyTitle(title: string): string {
   }
   const tidy = words.slice(start, end).join(' ');
   return tidy || title.trim();
+}
+
+/**
+ * A per-day item's title without the recurrence phrase (round 4 D): once
+ * "gym every Tuesday and Thursday" is two items, each is «gym» — the days are
+ * theirs. Only for items a list actually made; anything else keeps its title.
+ * A title that would be left with only a connector keeps its words.
+ */
+export function withoutRecurrenceTitle(title: string): string {
+  let text = title;
+  for (let pass = 0; pass < 4; pass += 1) {
+    const found = readRecurrence(text);
+    if (!found || found.phrases.length === 0) break;
+    for (const phrase of found.phrases) text = text.split(phrase).join(' ');
+  }
+  const cleaned = tidyTitle(text.replace(/\s+/g, ' ').trim());
+  return cleaned && !/^(?:and|&|or|و|ו|\s)+$/i.test(cleaned) ? cleaned : title;
 }

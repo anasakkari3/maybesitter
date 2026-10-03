@@ -354,31 +354,6 @@ function withPhraseInTitle(result: ExtractionResult, phrases: readonly string[])
   return { ...result, title: titled, ...(result.action === result.title ? { action: titled } : {}) };
 }
 
-/**
- * The title without any recurrence phrase (audit 2026-10-03 review): a list
- * of days becomes one item per day, each on its own day, so "study every
- * Tuesday and Thursday at 7pm" is «study» on each — not «study every Tuesday
- * and every Tuesday and Thursday», the phrase appended to a title that
- * already held half of it. One day keeps its phrase (FIX-R8: «تدريب كل سبت»).
- */
-function withoutRecurrencePhrases(result: ExtractionResult): ExtractionResult {
-  const strip = (title: string): string => {
-    let text = title;
-    for (let pass = 0; pass < 4; pass += 1) {
-      const found = readRecurrence(text);
-      if (!found || found.phrases.length === 0) break;
-      for (const phrase of found.phrases) text = text.split(phrase).join(' ');
-    }
-    const cleaned = text.replace(/\s+/g, ' ').replace(/^[\s,،\-–]+|[\s,،\-–]+$/g, '').replace(/\s+(?:and|&|و)$/i, "").trim();
-    // Nothing but a connector left ("Every Tuesday and Thursday at 7 PM"
-    // alone): the words as they were, for `tidyTitle` to trim.
-    return cleaned && !/^(?:and|&|or|و|ו|\s)+$/i.test(cleaned) ? cleaned : title;
-  };
-  const title = result.title ? strip(result.title) : result.title;
-  if (title === result.title) return result;
-  return { ...result, title, ...(result.action === result.title ? { action: title } : {}), ...(result.appTitle ? { appTitle: strip(result.appTitle) } : {}) };
-}
-
 function withStatedShape(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
   if (result.type !== 'task' && result.type !== 'follow_up') return result;
   const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
@@ -398,18 +373,16 @@ function withStatedShape(result: ExtractionResult, rawText: string, context: Ext
   }
   if (recurrence) {
     const placed = onRecurrenceDay(shaped, recurrence, rawText, context.now, timeZone);
-    shaped = recurrence.weekdays.length > 1 ? withoutRecurrencePhrases(placed) : withPhraseInTitle(placed, recurrence.phrases);
+    // The title as it always was: the phrase as the recurrence patterns read it.
+    // A list's per-day items lose the whole phrase where they are made
+    // (`withoutRecurrenceTitle`), and only when they are (round 4 D).
+    // A list of days is not appended at all: half of it on a Thursday item
+    // («Gym every Tuesday») says the wrong day. Words already in the title stay.
+    shaped = recurrence.weekdays.length > 1 ? placed : withPhraseInTitle(placed, recurrence.shortPhrases ?? recurrence.phrases);
   }
   const minutes = shaped.timeAnchor === 'deadline' ? null : rangeMinutesFrom(rawText, localTimeOf(shaped, timeZone));
   if (minutes) shaped = { ...shaped, rangeMinutes: minutes };
-  if (recurrence) {
-    // Several days: the hint is this item's own day — each day is its own
-    // item, and two items each hinting both days would offer two blocks each.
-    const day = shaped.localTimeSpec?.date ?? null;
-    const own = day ? new Date(`${day}T12:00:00Z`).getUTCDay() : null;
-    const weekdays = recurrence.weekdays.length > 1 && own !== null && recurrence.weekdays.includes(own) ? [own] : recurrence.weekdays;
-    shaped = { ...shaped, recurrenceHint: { weekdays } };
-  }
+  if (recurrence) shaped = { ...shaped, recurrenceHint: { weekdays: recurrence.weekdays } };
   return shaped;
 }
 
