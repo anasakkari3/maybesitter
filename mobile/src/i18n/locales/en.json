@@ -1019,6 +1019,8 @@
   "planRowProposalSub": "Suggestion — not saved yet",
   "planRowNone": "No plan for today",
   "planRowNoneSub": "Build it now, or turn the morning plan on.",
+  "planRowEmpty": "Nothing to arrange today",
+  "planRowEmptySub": "Tell us what you want to do, and we’ll find it a time.",
   "planRowDismissedSub": "Left aside for today",
   "planRowLoading": "Getting today’s plan…",
   "planRowFailed": "Couldn’t fetch today’s plan.",

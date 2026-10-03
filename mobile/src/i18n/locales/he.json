@@ -1022,6 +1022,8 @@
   "planRowProposalSub": "הצעה — עוד לא נשמרה",
   "planRowNone": "אין תוכנית להיום",
   "planRowNoneSub": "בנו אותה עכשיו, או הפעילו את תוכנית הבוקר.",
+  "planRowEmpty": "אין היום מה לסדר",
+  "planRowEmptySub": "אפשר לספר לנו מה רוצים לעשות, ונמצא לזה זמן.",
   "planRowDismissedSub": "הונחה בצד להיום",
   "planRowLoading": "טוען את התוכנית להיום…",
   "planRowFailed": "לא הצלחנו להביא את התוכנית להיום.",

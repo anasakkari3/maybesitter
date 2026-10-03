@@ -250,3 +250,30 @@ describe('in the three languages', () => {
     expect(screen.getByTestId('today-plan-summary')).toHaveTextContent(bundle.planRowProposalSub);
   });
 });
+
+/**
+ * Device pass after audit 2026-10-03 #4: «اعمل خطة اليوم» on a day with
+ * nothing to place left a proposed plan with no rows, and Today's card said
+ * «خطة اليوم جاهزة · اقتراح — ما انحفظت بعد · شوفها» over it. A plan that
+ * places nothing is not a ready plan: the card says there is nothing to
+ * arrange and offers «احكيها».
+ */
+describe('a proposed plan that places nothing', () => {
+  it('is not presented as a ready plan; it says so and offers to add something', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ date: deviceDay(), status: 'proposed', scheduled: [], fixed: [], unscheduled: [] }) as never);
+    await shown();
+    await waitFor(() => expect(screen.getByTestId('today-plan-title').props.children).toBe(en.planRowEmpty));
+    expect(screen.queryByText(en.planRowProposal)).toBeNull();
+    expect(screen.queryByText(en.planRowProposalSub)).toBeNull();
+    expect(screen.getByTestId('today-plan-summary').props.children).toBe(en.planRowEmptySub);
+    expect(screen.getByTestId('today-plan-open').props.children).toBe(en.tabCapture);
+    await fireEvent.press(screen.getByTestId('today-plan-card'));
+    await waitFor(() => expect(screen.getByTestId('probe').props.children).toMatch(/^capture:/));
+  });
+
+  it('a proposed plan with a step on it is still the ready proposal', async () => {
+    jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(planWith({ date: deviceDay(), status: 'proposed' }) as never);
+    await shown();
+    await waitFor(() => expect(screen.getByTestId('today-plan-title').props.children).toBe(en.planRowProposal));
+  });
+});
