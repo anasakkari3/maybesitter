@@ -41,6 +41,7 @@ import { listWeeklyBlockOccurrences } from '../../weeklyBlocks/weeklyBlockServic
 import { listActiveFixtureCommitments } from '../../football/projectFixtures';
 import { getParticipantStateSnapshot } from '../mobile/participantState';
 import { candidateIntervalOf, candidatesCollide, findCollisions, type CollisionCandidate } from '../timeCollision';
+import { titleKey } from '../captureBoundary/proposalShape';
 
 const DAY_MS = 86_400_000;
 /** How far ahead the schedule is read: the busy store's own widest window. */
@@ -187,6 +188,9 @@ export function withProposalClashes<T extends { items: ReadonlyArray<{ itemId: s
     const clashes = proposal.items.flatMap((other): CaptureItemConflictContract[] => {
       const theirs = other.itemId === item.itemId ? undefined : candidates.get(other.itemId);
       if (!theirs || !candidatesCollide(mine, theirs)) return [];
+      // An identical twin — the same title at the same instant — is the same
+      // thing said twice, never a clash with itself (round 5).
+      if (Date.parse(theirs.dueAt) === Date.parse(mine.dueAt) && titleKey(other.title) === titleKey(item.title)) return [];
       const interval = candidateIntervalOf(theirs);
       return [{ title: other.title, startsAt: interval.startsAt, endsAt: interval.endsAt, kind: 'commitment', inProposal: true }];
     });

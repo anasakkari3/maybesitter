@@ -242,14 +242,14 @@ test('two days that span, or are a choice, are one item — "between Tuesday and
   }
 });
 
-test('copies the model stacked are merged only once a list placed them; otherwise they stay as base kept them (round 4)', async () => {
-  // No list to place them on: nothing is dropped silently.
+test('copies the model stacked are spread when a list places them; exact copies with no list are one card (rounds 4, 5)', async () => {
+  // No list to place them on: two identical cards at one instant are one thing (round 5).
   begin([{ reply: 'تمام، «تدرس» يوم الجمعة الساعة 7 المسا. أكّد من تحت.', action: 'propose', items: [
     item('Study', 'تدرس', FRIDAY, '19:00'), item('Study', 'تدرس', FRIDAY, '19:00'),
   ] }]);
   try {
     const [body] = await conversation(uidFor('DuplicatesKept'), ['study on Friday at 7 PM']);
-    assert.equal(body!.proposal!.items.length, 2, JSON.stringify(body!.proposal!.items));
+    assert.equal(body!.proposal!.items.length, 1, JSON.stringify(body!.proposal!.items));
   } finally {
     end();
   }
@@ -678,4 +678,49 @@ test('round 2 #8: rules titles lose the connectors and list days left at their e
   for (const entry of off.items) assert.doesNotMatch(entry.title, /^(?:and|&)\s|\s(?:and|&)$/i, entry.title);
   const bare = await rulesAt('Every Tuesday and Thursday at 7 PM', MON_10);
   for (const entry of bare.items) assert.notEqual(entry.title, 'and');
+});
+
+/* ── 6. round 5 (independent sweep review-a4): exact inflections, exact copies ── */
+
+const TUE_6 = '2026-10-06';
+const THU_8 = '2026-10-08';
+type HintItem = Item & { recurrenceHint?: { weekdays: number[] } | null };
+
+test('round 5 #1: a list owned by a longer or different title never lends its days to a one-off', async () => {
+  for (const [label, message, title, appTitle, time, locale] of [
+    ['N01', 'اجتماعات كل ثلاثاء وخميس الساعة 10 الصبح، وعندي اجتماع مع المدير الثلاثاء الساعة 10 الصبح', 'Meeting with the manager', 'اجتماع مع المدير', '10:00', 'ar'],
+    ['N03', 'I work every Tuesday and Thursday at 9am; worker coming Tuesday at 9am', 'Worker coming', 'Worker coming', '09:00', 'en'],
+    ['N04', 'Classes every Tuesday and Thursday at 6pm, and the class party Tuesday at 6pm', 'Class party', 'Class party', '18:00', 'en'],
+    ['N05', 'محاضرات كل ثلاثاء وخميس الساعة 8 الصبح، ومحاضرة ضيف الثلاثاء الساعة 8 الصبح', 'Guest lecture', 'محاضرة ضيف', '08:00', 'ar'],
+    ['N07', 'swimming every Tuesday and Thursday at 6pm, and my swim test is Tuesday at 6pm', 'Swim test', 'Swim test', '18:00', 'en'],
+  ] as const) {
+    const { body } = await chatOnce(`Round5Leak${label}`, message, [item(title, appTitle, TUE_6, time)], { locale, now: MON_10 });
+    const items = body.proposal!.items as HintItem[];
+    assert.equal(items.length, 1, label);
+    assert.ok(!items[0]!.recurrenceHint || items[0]!.recurrenceHint.weekdays.length < 2, `${label}: ${JSON.stringify(items[0])}`);
+  }
+});
+
+test('round 5 #1: an inflected form of the item\u2019s own title still spreads its copies — «عالنادي», «اما الثلاثاء…»', async () => {
+  for (const [label, message, title, appTitle, time] of [
+    ['N09', 'بروح عالنادي الثلاثاء والخميس الساعة 6 المسا', 'Club', 'النادي', '18:00'],
+    ['N13', 'اما الثلاثاء والخميس عندي جيم الساعة 7 المسا', 'Gym', 'جيم', '19:00'],
+  ] as const) {
+    const { body } = await chatOnce(`Round5Spread${label}`, message, [item(title, appTitle, TUE_6, time), item(title, appTitle, TUE_6, time)], { locale: 'ar', now: MON_10 });
+    assert.deepEqual(body.proposal!.items.map((entry) => local(entry.resolvedTime)), [`${TUE_6} ${time}`, `${THU_8} ${time}`], label);
+  }
+});
+
+test('round 5 #2: exact copies with no list are one card, and never clash with themselves', async () => {
+  for (const [label, message, title, appTitle, time, locale] of [
+    ['C18', 'dentist Tuesday at 4pm', 'Dentist', 'Dentist', '16:00', 'en'],
+    ['N12', 'gym either Tuesday or Thursday at 7pm', 'Gym', 'Gym', '19:00', 'en'],
+    ['N23', 'بكرا الساعة 5 المسا اتصل بماما', 'Call mom', 'اتصل بماما', '17:00', 'ar'],
+    ['N24', 'الثلاثاء والخميس عندي دوام، وبكرا الساعة 5 المسا اتصل بماما', 'Call mom', 'اتصل بماما', '17:00', 'ar'],
+  ] as const) {
+    const { body } = await chatOnce(`Round5Copies${label}`, message, [item(title, appTitle, TUE_6, time), item(title, appTitle, TUE_6, time)], { locale, now: MON_10 });
+    assert.equal(body.proposal!.items.length, 1, `${label}: ${JSON.stringify(timedAs(body.proposal!.items))}`);
+    assert.equal(body.proposal!.items[0]!.conflicts, undefined, label);
+    assert.doesNotMatch(body.reply, /clashes with|بيتعارض/, label);
+  }
 });

@@ -83,6 +83,8 @@ const FILLER_WORDS: ReadonlySet<string> = new Set([
   'every', 'each', 'كل', 'כל', 'בכל',
   'i', "i'm", 'im', "i'll", 'ill', 'be', 'going', 'gonna', 'we', 'want', 'wanna', 'need', 'have', 'got', 'to', 'and', 'also', 'too', 'my', 'a', 'an', 'for', 'will', 'should', 'go', 'do',
   'بدي', 'بدّي', 'عندي', 'عنا', 'عنّا', 'لازم', 'كمان', 'و', 'رح', 'راح', 'انا', 'أنا', 'بس',
+  // Going somewhere, and «اما» "as for" (round 5): «بروح عالنادي…», «اما الثلاثاء…».
+  'بروح', 'رايح', 'رايحة', 'أروح', 'اروح', 'منروح', 'اما', 'أما',
   'אני', 'רוצה', 'צריך', 'צריכה', 'יש', 'לי', 'וגם', 'גם', 'ו',
 ]);
 
@@ -96,11 +98,19 @@ const SPAN_BOUNDARY = /[,،;.!?؟:\n]/;
 function stemOf(word: string): string {
   let stem = word.toLowerCase().replace(/[\u064B-\u0652\u0640]/g, '');
   if (/^[\u0600-\u06FF]+$/.test(stem)) {
-    if (stem.length > 3 && /^[وفبلك]/.test(stem)) stem = stem.slice(1);
+    // Proclitics and the article: «وبالنادي», «عالنادي», «للدكتور».
+    const article = /^(?:وبال|وال|بال|فال|كال|عال|لل|ال)/.exec(stem);
+    if (article && stem.length - article[0].length >= 3) stem = stem.slice(article[0].length);
+    else if (stem.length > 3 && /^[وفبلك]/.test(stem)) stem = stem.slice(1);
     if (stem.length > 3 && /^[أاتين]/.test(stem)) stem = stem.slice(1);
+    // Plural and feminine endings only: «اجتماعات»/«اجتماع», «محاضرة»/«محاضرات».
+    if (stem.length > 4 && /(?:ات|ين|ون)$/.test(stem)) stem = stem.slice(0, -2);
     return stem.replace(/[ةه]$/, '');
   }
-  if (/^[\u0590-\u05FF]+$/.test(stem)) return stem.length > 3 && /^[ובלהמשכ]/.test(stem) ? stem.slice(1) : stem;
+  if (/^[\u0590-\u05FF]+$/.test(stem)) {
+    if (stem.length > 3 && /^[ובלהמשכ]/.test(stem)) stem = stem.slice(1);
+    return stem.length > 4 && /(?:ים|ות)$/.test(stem) ? stem.slice(0, -2) : stem;
+  }
   if (stem.length > 5 && stem.endsWith('ing')) return stem.slice(0, -3);
   if (stem.length > 4 && stem.endsWith('ies')) return `${stem.slice(0, -3)}y`;
   if (stem.length > 4 && /(?:ss|sh|ch|x)es$/.test(stem)) return stem.slice(0, -2);
@@ -108,16 +118,17 @@ function stemOf(word: string): string {
   return stem;
 }
 
+/**
+ * The same word, by explicit inflection only (round 5): "study"/"studying",
+ * "class"/"classes", «اجتماع»/«اجتماعات», «שיעור»/«שיעורים» — never one word
+ * that merely begins another ("work"/"worker", "swim"/"swimming").
+ */
 function sameStem(left: string, right: string): boolean {
-  const a = stemOf(left);
-  const b = stemOf(right);
-  if (a === b) return true;
-  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
-  return short.length >= 4 && long.startsWith(short) && long.length - short.length <= 2;
+  return stemOf(left) === stemOf(right);
 }
 
 /* A span of days, or a choice between them — never a list (round 4 C). */
-const SPAN_OR_CHOICE_BEFORE = new RegExp('(?:\\b(?:between|from|either|whether)|(?:^|[^\\p{L}])(?:بين|من|إما|اما)|(?:^|[^\\p{L}])(?:בין|מ|או))\\s*(?:on\\s+|يوم\\s+|ביום\\s+)?$', 'u');
+const SPAN_OR_CHOICE_BEFORE = new RegExp('(?:\\b(?:between|from|either|whether)|(?:^|[^\\p{L}])(?:بين|من|إما)|(?:^|[^\\p{L}])(?:בין|מ|או))\\s*(?:on\\s+|يوم\\s+|ביום\\s+)?$', 'u');
 
 /**
  * The list of days this item's own hour belongs to, or null (audit
@@ -183,7 +194,13 @@ function attachedList(words: string, hour: number, titles: readonly string[], co
     const rest = tokens(`${lower.slice(spanStart, list.start)} ${lower.slice(list.end, spanEnd)}`)
       .filter((word) => !DIGIT.test(word) && !GAP_WORDS.has(word) && !FILLER_WORDS.has(word));
     if (rest.some((word) => !isOwn(word) && !isGoal(word))) continue;
-    if (!rest.some((word) => isOwn(word)) && !context.stacked) continue;
+    if (!rest.some((word) => isOwn(word))) {
+      if (!context.stacked) continue;
+    } else if (!titles.some((title) => titleWords(title).length > 0 && titleWords(title).every((word) => rest.some((said) => sameStem(said, word))))) {
+      // The stretch names part of this item but not all of it: «اجتماعات»
+      // is not «اجتماع مع المدير», "Classes" is not "Class party" (round 5).
+      continue;
+    }
     return list;
   }
   return null;
@@ -239,6 +256,20 @@ export function listBelongsTo(result: ExtractionResult, words: string, timezone:
   if (!time) return false;
   return attachedList(words, Number(time.slice(0, 2)),
     [result.title ?? '', result.action ?? '', result.appTitle ?? '', result.sourceTitle ?? ''].filter(Boolean), { ...context, stacked: true }) !== null;
+}
+
+/** Days and "every", in any of their spellings and with their proclitics: never what a title is about. */
+let daySteMs: ReadonlySet<string> | null = null;
+function isDayWord(word: string): boolean {
+  daySteMs ??= new Set(Array.from(KEY_DROPPED).map((day) => stemOf(day)));
+  return daySteMs.has(stemOf(word));
+}
+
+/** A title's words that say what it is: no filler, hour words, days or articles. */
+function titleWords(title: string): string[] {
+  return title.slice(0, CAPTURE_INPUT_MAX_CHARACTERS).toLowerCase().split(/[\s,،.\-–:;!?؟()]+/)
+    .filter((word) => word && !FILLER_WORDS.has(word) && !GAP_WORDS.has(word) && !KEY_DROPPED.has(word) && !isDayWord(word)
+      && !/^\d+$/.test(word) && !['with', 'the', 'my', 'of', 'مع', 'عند', 'של', 'עם', 'את', 'בכל'].includes(word));
 }
 
 /** How this item came to its day, which decides whether a list of days may fan it out. */

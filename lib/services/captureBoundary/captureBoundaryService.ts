@@ -733,6 +733,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // reading as it was before it was spread — what a spread that cannot stand
   // goes back to.
   const spreadFamily = new Set<string>();
+  const listCouldPlace = new Set<string>();
   const unspread = new Map<string, ExtractionResult>();
   // Each item's own clause (in the chat, its evidence), for telling a bare
   // «تدرس» of one goal from a study session of something else. Never stored.
@@ -1228,9 +1229,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         };
       };
       const readings = occurrences ? occurrences.map((date) => perDay(onDate(tidyResult, date, options.timezone))) : [tidyResult];
+      // A copy the model stacked, whose list is this item's, that was still not spread.
+      const couldPlace = chat && !occurrences && stackedModelItems.has(index)
+        && listBelongsTo(tidyResult, occurrenceWords || segment, options.timezone, occurrenceContext);
       for (const reading of readings) {
         const itemId = randomUUID();
         if (reading !== readings[0]) spreadCopies.add(itemId);
+        if (couldPlace) listCouldPlace.add(itemId);
         if (readings.length > 1) {
           spreadFamily.add(itemId);
           if (reading === readings[0]) unspread.set(itemId, tidyResult);
@@ -1361,9 +1366,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // The chat's list only: one model answer for the whole conversation is
   // where a repeat or a goal-at-the-session's-hour comes from. A share's
   // items are one per source message, each with its own provenance.
-  // Only a list's own per-day items are merged: a stacked copy that was not
-  // placed on another day stays, as base kept it (round 4 B).
-  if (chat) for (const itemId of Array.from(duplicateItemIds(items.filter((item) => spreadFamily.has(item.itemId)), sourceTitleOf))) dropItem(itemId);
+  // Exact copies — every title the same, the same instant — are one item
+  // (round 5: the audit's «تدرس» twice, the model's two dentists): merging
+  // them drops nothing. A stacked copy a list of the person's could have
+  // placed on another day but did not is kept, never merged away (round 4 B).
+  if (chat) {
+    for (const itemId of Array.from(duplicateItemIds(items.filter((item) => !listCouldPlace.has(item.itemId)), sourceTitleOf))) dropItem(itemId);
+  }
   const activeGoals = options.activeGoals ?? [];
   const goalItems = chat ? items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId))) : [];
   const sessions = items.filter((item) => !goalItems.includes(item));
