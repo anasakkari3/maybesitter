@@ -9,6 +9,7 @@ import {
   useGenerateGoalExecution,
   useGoalExecution,
   useHabits,
+  useIntelligenceDecided,
   useMemory,
   useRegenerateGoalExecution,
   useUnlinkGoalNode,
@@ -50,6 +51,7 @@ type Notice = 'saved' | 'partial' | 'stale' | 'refused' | 'unlinked' | null;
 export function GoalExecutionScreen() {
   const { t, p, rtl, lang, actions, s } = useApp();
   const memory = useMemory();
+  const decided = useIntelligenceDecided();
   const create = useCreateMemory();
   const [draft, setDraft] = React.useState('');
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
@@ -65,7 +67,7 @@ export function GoalExecutionScreen() {
       // an input whose save can only fail.
       <ProductSection title={t.xAddGoal} body={t.errorsFeatureDisabled} icon="goal" />
     ) : <>
-      <IntelligencePanel onChanged={() => { void memory.refetch(); }} />
+      <IntelligencePanel onChanged={decided} />
       <ProductSection title={t.xAddGoal} body={t.xAddGoalBody} icon="goal">
         <TextInput
           testID="goal-add-input"

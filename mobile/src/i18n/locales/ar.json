@@ -1703,5 +1703,14 @@
   "detailsReminderLabel": "التذكير",
   "detailsLetGoTitle": "ما عاد بدّك ياها؟",
   "detailsDropSub": "بتضل بتاريخك إنك قرّرت تتركها.",
-  "detailsDeleteSub": "بتنمسح من قوائمك نهائي."
+  "detailsDeleteSub": "بتنمسح من قوائمك نهائي.",
+  "xIntelligenceUnderstoodGoal": "فهمت إنه «{evidence}» هدف إلك. صح؟",
+  "xIntelligenceUnderstoodIntention": "فهمت إنه ببالك «{evidence}». صح؟",
+  "xIntelligenceUnderstoodRequest": "فهمت إنه «{evidence}» طلب إجا إلك. صح؟",
+  "xIntelligenceUnderstoodEvent": "فهمت إنه «{evidence}» موعد عندك. صح؟",
+  "xIntelligenceUnderstoodCommitment": "فهمت إنه «{evidence}» إشي لازم تعمله. صح؟",
+  "xIntelligenceUnderstoodPreference": "فهمت إنه هاد بيناسبك: «{evidence}». صح؟",
+  "xIntelligenceUnderstoodConstraint": "فهمت إنه «{evidence}» إشي لازم نحسب حسابه. صح؟",
+  "xIntelligenceUnderstoodOpportunity": "فهمت إنه «{evidence}» فرصة إلك. صح؟",
+  "xIntelligenceUnderstoodOutcome": "فهمت إنه «{evidence}» صار. صح؟"
 }

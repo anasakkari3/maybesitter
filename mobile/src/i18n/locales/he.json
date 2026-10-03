@@ -1706,5 +1706,14 @@
   "detailsReminderLabel": "תזכורת",
   "detailsLetGoTitle": "כבר לא צריך את זה?",
   "detailsDropSub": "נשאר בהיסטוריה שלך שבחרת לוותר על זה.",
-  "detailsDeleteSub": "יוצא מהרשימות שלך לתמיד."
+  "detailsDeleteSub": "יוצא מהרשימות שלך לתמיד.",
+  "xIntelligenceUnderstoodGoal": "הבנתי ש„{evidence}” הוא יעד שלכם. נכון?",
+  "xIntelligenceUnderstoodIntention": "הבנתי שאתם מתכננים „{evidence}”. נכון?",
+  "xIntelligenceUnderstoodRequest": "הבנתי ש„{evidence}” היא בקשה שהגיעה אליכם. נכון?",
+  "xIntelligenceUnderstoodEvent": "הבנתי ש„{evidence}” הוא מועד שיש לכם. נכון?",
+  "xIntelligenceUnderstoodCommitment": "הבנתי ש„{evidence}” זה משהו שצריך לעשות. נכון?",
+  "xIntelligenceUnderstoodPreference": "הבנתי שזה מתאים לכם: „{evidence}”. נכון?",
+  "xIntelligenceUnderstoodConstraint": "הבנתי ש„{evidence}” היא מגבלה שצריך לקחת בחשבון. נכון?",
+  "xIntelligenceUnderstoodOpportunity": "הבנתי ש„{evidence}” היא הזדמנות בשבילכם. נכון?",
+  "xIntelligenceUnderstoodOutcome": "הבנתי ש„{evidence}” כבר קרה. נכון?"
 }

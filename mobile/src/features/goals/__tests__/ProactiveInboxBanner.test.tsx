@@ -15,10 +15,16 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import en from '../../../i18n/locales/en.json';
 import { FeatureUnavailableError, ForbiddenError } from '../../../api/errors';
 import { ProactiveInboxBanner } from '../ProactiveInboxBanner';
+import { AuthProvider } from '../../../auth/AuthProvider';
+import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
+import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
+import { resetVisitThrottleForTests } from '../../../lib/deviceSettings/visitThrottle';
 
 const mockGenerate = jest.fn<any>();
+const mockInbox = jest.fn<any>();
 jest.mock('../../../api/endpoints/intelligence', () => ({
   generateIntelligenceSuggestions: (...args: unknown[]) => mockGenerate(...args),
+  getIntelligenceInbox: (...args: unknown[]) => mockInbox(...args),
 }));
 
 const suggestion = (id: string, title: string, status = 'pending') => ({
@@ -32,15 +38,25 @@ function Probe() {
 }
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
-const show = () => render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><ProactiveInboxBanner /><Probe /></AppProvider></SafeAreaProvider>);
+const USER = { uid: 'banner-user', email: 'b@example.com', emailVerified: true, displayName: 'B', providerIds: ['password'] };
+const show = () => {
+  const repository = createFakeAuthRepository({ initialUser: USER });
+  setAuthRepository(repository);
+  return render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><AuthProvider repository={repository} isDevBundle={false}>
+    <ProactiveInboxBanner /><Probe />
+  </AuthProvider></AppProvider></SafeAreaProvider>);
+};
+const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
 
 beforeEach(async () => {
   jest.clearAllMocks();
   process.env.EXPO_PUBLIC_APP_ENV = 'production';
   await AsyncStorage.clear();
+  resetVisitThrottleForTests();
+  mockInbox.mockRejectedValue(new FeatureUnavailableError('not found'));
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
 });
-afterEach(async () => { await cleanup(); delete process.env.EXPO_PUBLIC_APP_ENV; });
+afterEach(async () => { await cleanup(); resetAuthForTests(); delete process.env.EXPO_PUBLIC_APP_ENV; });
 
 it('shows the first waiting suggestion in a production build, asked for as a visit, and leads to «يتابع لك»', async () => {
   mockGenerate.mockResolvedValue({ success: true, schedule: [], suggestions: [
@@ -65,7 +81,7 @@ it.each([
   mockGenerate.mockRejectedValue(error());
   await show();
   await waitFor(() => expect(mockGenerate).toHaveBeenCalled());
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await settle();
   expect(screen.queryByTestId('today-proactive-suggestion')).toBeNull();
   expect(screen.queryByText(en.errorsFeatureDisabled)).toBeNull();
   expect(screen.queryByText(en.errorsConsentRequired)).toBeNull();
@@ -75,6 +91,20 @@ it('shows nothing when nothing is waiting', async () => {
   mockGenerate.mockResolvedValue({ success: true, schedule: [], suggestions: [] });
   await show();
   await waitFor(() => expect(mockGenerate).toHaveBeenCalled());
-  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  await settle();
   expect(screen.queryByTestId('today-proactive-suggestion')).toBeNull();
+});
+
+it('switching back to Today reads what is waiting instead of asking again', async () => {
+  const waiting = { success: true, schedule: [], suggestions: [suggestion('s1', 'Review the exam notes')] };
+  mockGenerate.mockResolvedValue({ ...waiting, nextVisitAt: new Date(Date.now() + 3_600_000).toISOString() });
+  mockInbox.mockResolvedValue({ ...waiting, observations: [] });
+  for (let i = 0; i < 3; i += 1) {
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('today-proactive-suggestion')).not.toBeNull());
+    await settle();
+    await cleanup();
+  }
+  expect(mockGenerate).toHaveBeenCalledTimes(1);
+  expect(mockInbox).toHaveBeenCalledTimes(2);
 });

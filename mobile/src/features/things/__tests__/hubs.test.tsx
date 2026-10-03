@@ -29,6 +29,7 @@ import { FeatureUnavailableError } from '../../../api/errors';
 import one from '../../../api/__fixtures__/commitments.one.json';
 import retrying from '../../../api/__fixtures__/backgroundActivity.footballRetrying.json';
 import { ThingsScreen } from '../ThingsScreen';
+import { resetVisitThrottleForTests } from '../../../lib/deviceSettings/visitThrottle';
 import { WatchingScreen } from '../../watching/WatchingScreen';
 import { AvatarButton, avatarInitial } from '../../../ui/chrome';
 
@@ -73,6 +74,7 @@ async function show(node: React.ReactNode, user: AuthUser = USER) {
 
 beforeEach(async () => {
   await AsyncStorage.clear();
+  resetVisitThrottleForTests();
   onlineManager.setOnline(true);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 });
@@ -162,7 +164,7 @@ describe('«أشيائي»', () => {
 });
 
 describe('«يتابع لك»', () => {
-  it('asks for suggestions on entry and reviews them in place: evidence, accept, not for me', async () => {
+  it('shows what is waiting, asks for more in the background, and a decision refreshes Today, «أشيائي» and the plan', async () => {
     const observation = { id: 'o1', kind: 'goal', evidence: 'I want to learn React', confidence: 0.9, source: 'manual',
       sourceRef: 'n1', observedAt: '2026-10-01T08:00:00.000Z', review: 'confirmed', reviewedAt: null, linkedMemoryId: null };
     const inbox = {
@@ -173,27 +175,35 @@ describe('«يتابع لك»', () => {
       ],
     };
     const generate = jest.spyOn(intelligenceEndpoints, 'generateIntelligenceSuggestions')
-      .mockResolvedValue({ success: true, suggestions: inbox.suggestions, schedule: [] } as never);
-    jest.spyOn(intelligenceEndpoints, 'getIntelligenceInbox').mockResolvedValue(inbox as never);
+      .mockResolvedValue({ success: true, suggestions: inbox.suggestions, schedule: [], nextVisitAt: '2099-01-01T00:00:00.000Z' } as never);
+    const read = jest.spyOn(intelligenceEndpoints, 'getIntelligenceInbox').mockResolvedValue(inbox as never);
     jest.spyOn(intelligenceEndpoints, 'getGmailIntelligenceMonitor').mockResolvedValue({ success: true, enabled: false, lastSuccessAt: null, error: null } as never);
     const decide = jest.spyOn(intelligenceEndpoints, 'decideIntelligenceSuggestion')
       .mockResolvedValue({ success: true, suggestion: { ...inbox.suggestions[1], status: 'dismissed' } } as never);
     jest.spyOn(backgroundEndpoints, 'getBackgroundActivity').mockResolvedValue(retrying as never);
+    const invalidate = jest.spyOn(client, 'invalidateQueries');
     await show(<WatchingScreen />);
     await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-a1')).not.toBeNull());
-    // Opening the hub is a visit: the server holds it to its floor.
-    expect(generate).toHaveBeenCalledTimes(1);
+    // Opening the hub is a visit: asked once, in the background.
+    await waitFor(() => expect(generate).toHaveBeenCalledTimes(1));
     expect(generate).toHaveBeenCalledWith({ visit: true });
+    // Nothing new came back, so the inbox is not read twice.
+    expect(read).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('intelligence-suggestion-q1')).not.toBeNull();
     expect(screen.queryByTestId('intelligence-suggestion-a2')).toBeNull();
     const card = within(screen.getByTestId('intelligence-suggestion-a1'));
-    expect(card.getByText(`From: ${observation.evidence}`)).toBeTruthy();
+    expect(card.getByText(new RegExp(`From: .{0,2}${observation.evidence}`))).toBeTruthy();
     // A suggestion says it is one: nothing has changed.
     expect(card.getByText(en.suggestionNote)).toBeTruthy();
     expect(decide).not.toHaveBeenCalled();
     await fireEvent.press(card.getByText(en.xIntelligenceDismiss));
     await waitFor(() => expect(decide).toHaveBeenCalledWith('a1', 'dismiss'));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'commitments'] }));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'plan'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['user', USER.uid, 'memory'] });
     expect(screen.queryByTestId('watching-nothing')).toBeNull();
+    // The body lifts above the keyboard the app's own way, on Android too.
+    expect(screen.queryByTestId('watching-kav')).not.toBeNull();
   });
 
   it('lists the watches with their last check and opens background activity, the builder and Knows', async () => {
@@ -203,7 +213,8 @@ describe('«يتابع لك»', () => {
     await show(<WatchingScreen />);
     const id = `watching-watch-${retrying.monitors[0]!.watcherId}`;
     await waitFor(() => expect(screen.queryByTestId(id)).not.toBeNull());
-    expect(screen.getByTestId('watching-nothing')).toHaveTextContent(en.watchingNothing);
+    // An empty inbox says so in the review itself.
+    await waitFor(() => expect(screen.queryByText(en.xIntelligenceNoIdeas)).not.toBeNull());
     expect(screen.getByLabelText(new RegExp(`${en.xLastChecked}: ${en.xNotObserved}`))).toBeTruthy();
     // Its state in words, as Background activity says it (Stitch 05's chip).
     expect(screen.getByTestId(`watching-state-${retrying.monitors[0]!.watcherId}`)).toHaveTextContent(en.xFootballRetrying);

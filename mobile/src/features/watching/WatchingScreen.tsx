@@ -13,6 +13,8 @@ import { AvailabilityBadge } from '../../ui/product';
 import { monitorTitleFor } from '../product/WatcherScreens';
 import { useBackgroundActivity, useSetBackgroundActivityPaused } from '../product/useWatchers';
 import { IntelligencePanel } from '../goals/IntelligencePanel';
+import { useIntelligenceDecided } from '../../api/queries';
+import { AvoidKeyboard } from '../../ui/keyboard';
 
 /**
  * «يتابع لك» (Stitch redesign, 2026-10-02): what the assistant noticed, what it
@@ -22,9 +24,11 @@ import { IntelligencePanel } from '../goals/IntelligencePanel';
  *     (`IntelligencePanel`), actionable here: each suggestion with its
  *     evidence, accept / not for me / edit, answers to questions, and
  *     «هذا اقتراح. لم يتغيّر أي شيء بعد.». Nothing is saved without a tap.
- *     Opening the screen asks for fresh suggestions as a visit, which the
- *     server holds to its floor (review of 2026-10-03: the hub used to only
- *     read, and its cards led to a panel production never showed).
+ *     What is waiting is read first; fresh suggestions are asked for in the
+ *     background as a visit, within the phone's and the server's limits
+ *     (review of 2026-10-03: the hub used to only read, and its cards led to
+ *     a panel production never showed). A decision refreshes Today, «أشيائي»
+ *     and the plan. Edit fields stay above the keyboard (`AvoidKeyboard`).
  *   Watches  the background monitors with their last check, each opening
  *     Background activity; «تابعلي هالإشي» opens the builder.
  *   «شو بيعرف» opens Knows; the pause switch is Background activity's own.
@@ -37,6 +41,7 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const zone = useTimeZone();
   const activity = useBackgroundActivity();
   const setPaused = useSetBackgroundActivityPaused();
+  const decided = useIntelligenceDecided();
   const monitors = activity.data?.monitors ?? [];
 
   const instant = (value: string | null) => value
@@ -45,13 +50,14 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
 
   return (
     <Screen testID="watching-root">
-      <ScreenScroll testID="watching-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+      <AvoidKeyboard testID="watching-kav">
+      <ScreenScroll testID="watching-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
         <ScreenHeader brand={false} title={t.tabWatching} end={<AvatarButton />} />
         <Txt role="supporting" color={p.mu}>{t.watchingBody}</Txt>
 
         <IntelligencePanel
           autoGenerate
-          onChanged={() => undefined}
+          onChanged={decided}
           whenOff={<Txt role="supporting" color={p.mu} testID="watching-nothing">{t.watchingNothing}</Txt>}
         />
 
@@ -87,6 +93,7 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
           </Card>
         ) : null}
       </ScreenScroll>
+      </AvoidKeyboard>
     </Screen>
   );
 }

@@ -24,7 +24,11 @@ const suggestionScheduleSchema = z.object({
 });
 export const intelligenceInboxSchema = z.object({ success: z.literal(true), observations: z.array(observationSchema), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema) });
 export const intelligenceAnalyzeSchema = z.object({ success: z.literal(true), observations: z.array(observationSchema) });
-export const intelligenceGenerateSchema = z.object({ success: z.literal(true), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema) });
+// `nextVisitAt`: when a screen visit may next ask (servers from 2026-10-03, on a visit only).
+export const intelligenceGenerateSchema = z.object({
+  success: z.literal(true), suggestions: z.array(suggestionSchema), schedule: z.array(suggestionScheduleSchema),
+  nextVisitAt: isoDateTime.optional(),
+});
 export const intelligenceSuggestionDecisionSchema = z.object({ success: z.literal(true), suggestion: suggestionSchema });
 export const intelligenceObservationReviewSchema = z.object({ success: z.literal(true), observation: observationSchema });
 export const intelligenceGmailScanSchema = z.object({ success: z.literal(true), messagesRead: z.number().int().nonnegative(), observations: z.array(observationSchema) });
@@ -35,3 +39,4 @@ export const intelligenceGmailMonitorSchema = z.object({
 
 export type IntelligenceInbox = z.infer<typeof intelligenceInboxSchema>;
 export type IntelligenceSuggestion = z.infer<typeof suggestionSchema>;
+export type IntelligenceObservation = z.infer<typeof observationSchema>;

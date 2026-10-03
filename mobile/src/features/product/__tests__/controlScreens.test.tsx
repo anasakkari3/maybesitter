@@ -15,6 +15,7 @@ const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
 
 jest.mock('../../../api/queries', () => ({
+  useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({
     data: { items: [{ id: 'goal-1', kind: 'goal', content: 'Launch the pilot' }] },
     isPending: false, error: null, refetch: jest.fn(),
