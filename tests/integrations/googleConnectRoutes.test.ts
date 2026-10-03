@@ -733,7 +733,11 @@ function tripForms(count: number, padding = 0): void {
       id: `m${String(index).padStart(3, '0')}`,
       subject: `Trip form ${index}`,
       body: `SECRET-BODY-${index}\n\n${'Lorem ipsum dolor sit amet. '.repeat(padding)}\n\nPlease return the signed trip form ${index} by Friday.`,
-      receivedAt: new Date(now - index * 3_600_000).toISOString(),
+      // A minute apart, not an hour: «by Friday» in a mail received on a
+      // Friday is that Friday, so on a Saturday an hour-spaced batch reached
+      // back into yesterday and those forms were rightly dropped as past —
+      // the test failed every Saturday, for its fixture and not the scan.
+      receivedAt: new Date(now - index * 60_000).toISOString(),
     });
   }
 }

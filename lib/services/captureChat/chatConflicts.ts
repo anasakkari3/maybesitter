@@ -40,7 +40,8 @@ import { listBusyBlocks, type BusyBlock, type BusySourceKind } from '../../calen
 import { listWeeklyBlockOccurrences } from '../../weeklyBlocks/weeklyBlockService';
 import { listActiveFixtureCommitments } from '../../football/projectFixtures';
 import { getParticipantStateSnapshot } from '../mobile/participantState';
-import { candidateIntervalOf, findCollisions, type CollisionCandidate } from '../timeCollision';
+import { candidateIntervalOf, candidatesCollide, findCollisions, type CollisionCandidate } from '../timeCollision';
+import { titleKey } from '../captureBoundary/proposalShape';
 
 const DAY_MS = 86_400_000;
 /** How far ahead the schedule is read: the busy store's own widest window. */
@@ -164,6 +165,38 @@ export function withItemConflicts<T extends { items: ReadonlyArray<{ itemId: str
     }
     changed = true;
     return { ...item, conflicts };
+  });
+  return changed ? { ...proposal, items } : proposal;
+}
+
+/**
+ * The proposal's items with the clashes among themselves added (audit
+ * 2026-10-03 #1: «تتعلم React» and two «تدرس», all Tuesday 19:00, were only
+ * found to clash after they were saved — six warnings at once). Each item
+ * names the others it lands on, `inProposal`, so the card says so before
+ * anything is kept; what it already clashes with among the person's own
+ * things stays first. Measured by the confirm's own rule (`candidatesCollide`).
+ */
+export function withProposalClashes<T extends { items: ReadonlyArray<{ itemId: string; title: string; conflicts?: CaptureItemConflictContract[] }> }>(
+  proposal: T,
+  candidates: ReadonlyMap<string, CollisionCandidate>,
+): T {
+  let changed = false;
+  const items = proposal.items.map((item) => {
+    const mine = candidates.get(item.itemId);
+    if (!mine) return item;
+    const clashes = proposal.items.flatMap((other): CaptureItemConflictContract[] => {
+      const theirs = other.itemId === item.itemId ? undefined : candidates.get(other.itemId);
+      if (!theirs || !candidatesCollide(mine, theirs)) return [];
+      // An identical twin — the same title at the same instant — is the same
+      // thing said twice, never a clash with itself (round 5).
+      if (Date.parse(theirs.dueAt) === Date.parse(mine.dueAt) && titleKey(other.title) === titleKey(item.title)) return [];
+      const interval = candidateIntervalOf(theirs);
+      return [{ title: other.title, startsAt: interval.startsAt, endsAt: interval.endsAt, kind: 'commitment', inProposal: true }];
+    });
+    if (clashes.length === 0) return item;
+    changed = true;
+    return { ...item, conflicts: [...(item.conflicts ?? []), ...clashes].slice(0, MAX_ITEM_CONFLICTS) };
   });
   return changed ? { ...proposal, items } : proposal;
 }

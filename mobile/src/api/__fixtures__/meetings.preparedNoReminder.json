@@ -30,6 +30,13 @@
     "leadMinutes": 15,
     "adjustment": "short_notice",
     "startAt": "2026-08-09T09:00:00.000Z",
-    "endAt": null
+    "endAt": null,
+    "timing": "hour_before",
+    "sessions": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000004",
+        "at": "2026-08-09T09:00:00.000Z"
+      }
+    ]
   }
 }

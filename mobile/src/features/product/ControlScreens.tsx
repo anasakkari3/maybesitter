@@ -1,4 +1,5 @@
 import React from 'react';
+import { DEFAULT_CADENCE_DRAFT, HabitCadencePicker, cadenceOf, describeCadence, perWeekOf, type CadenceDraft } from './HabitCadencePicker';
 import { AccessibilityInfo, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAuth } from '../../auth/AuthProvider';
@@ -228,7 +229,7 @@ export function PatchReviewScreen() {
 }
 
 export function HabitDetailScreen() {
-  const { t, tr, p, rtl, actions } = useApp();
+  const { t, tr, p, rtl, lang, actions } = useApp();
   const query = useHabits();
   const create = useCreateHabit();
   const status = useSetHabitStatus();
@@ -236,23 +237,24 @@ export function HabitDetailScreen() {
   const [deleting, setDeleting] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
   const [title, setTitle] = React.useState('');
-  const [count, setCount] = React.useState(3);
+  const [cadence, setCadence] = React.useState<CadenceDraft>(DEFAULT_CADENCE_DRAFT);
   const [duration, setDuration] = React.useState(30);
   const [flexibility, setFlexibility] = React.useState<'flexible'|'protected_flexible'>('flexible');
   const [recovery, setRecovery] = React.useState<'skip'|'retry_same_day'|'recover_within_period'>('skip');
   const items = query.data ?? [];
+  const perWeek = perWeekOf(cadence);
   const save = () => create.mutate({
     title: title.trim(),
-    cadence: { kind: 'weekly_count', count },
+    cadence: cadenceOf(cadence),
     durationMinutes: duration,
     preferredWindows: [],
-    minimumOccurrences: count,
-    maximumOccurrences: recovery === 'recover_within_period' ? Math.min(7, count + 1) : count,
+    minimumOccurrences: perWeek,
+    maximumOccurrences: recovery === 'recover_within_period' ? Math.min(7, perWeek + 1) : perWeek,
     flexibility,
     recoveryPolicy: recovery,
     source: 'user_created',
     confirmation: { confirmedByUserAt: new Date().toISOString(), sourceRef: null, acceptedSuggestedValues: true },
-  }, { onSuccess: () => { setAdding(false); setTitle(''); } });
+  }, { onSuccess: () => { setAdding(false); setTitle(''); setCadence(DEFAULT_CADENCE_DRAFT); } });
   return <ProductPage id="habit" title={t.xHabits} subtitle={t.xHabitBody} overlay={deleting ? <Dialog
     title={t.confirmDeleteTitle}
     body={t.xDeleteHabitBody}
@@ -264,11 +266,11 @@ export function HabitDetailScreen() {
     <QueryBoundary isPending={query.isPending} error={query.error} onRetry={() => void query.refetch()}>
       {items.length === 0 ? <ProductSection title={t.xHabits} body={t.xNoOccurrences} icon="habit" /> : null}
       {items.map(habit => <ProductSection key={habit.habitId} title={isolateAuto(habit.title)} icon="habit" status={habit.status === 'active' ? 'LIVE' : 'BLOCKED'}>
-        <ProductRow title={t.xCadence} body={habit.cadence.kind === 'weekly_count' ? String(habit.cadence.count) : habit.cadence.weekdays.join(' · ')} icon="calendar" />
-        <ProductRow title={t.xDuration} body={`${habit.durationMinutes} min`} icon="watch" />
+        <ProductRow title={t.xCadence} body={describeCadence(habit.cadence, t, lang)} icon="calendar" />
+        <ProductRow title={t.xDuration} body={tr('xMinutes', { count: habit.durationMinutes })} icon="watch" />
         <ProductRow title={t.xWindows} body={habit.preferredWindows.length > 0 ? habit.preferredWindows.map(window => `${window.start}–${window.end}`).join(' · ') : t.xNotSet} icon="watch" />
-        <ProductRow title={t.xFlexibility} body={habit.flexibility} icon="shield" />
-        <ProductRow title={t.xRecovery} body={habit.recoveryPolicy} icon="check" />
+        <ProductRow title={t.xFlexibility} body={habit.flexibility === 'protected_flexible' ? t.xProtectedFlexible : t.xFlexible} icon="shield" />
+        <ProductRow title={t.xRecovery} body={habit.recoveryPolicy === 'retry_same_day' ? t.xRetrySameDay : habit.recoveryPolicy === 'recover_within_period' ? t.xRecoverThisWeek : t.xLetItGo} icon="check" />
         {status.error || remove.error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(status.error ?? remove.error, t)}</Txt> : null}
         <ProductActions>
           <Pill testID={`habit-toggle-${habit.habitId}`} label={habit.status === 'paused' ? t.xResume : t.xPause} kind="outline" disabled={status.isPending || habit.status === 'archived'} onPress={() => status.mutate({ id: habit.habitId, status: habit.status === 'paused' ? 'active' : 'paused' })} />
@@ -281,7 +283,7 @@ export function HabitDetailScreen() {
         placeholder={t.xHabitTitlePlaceholder} placeholderTextColor={p.mu}
         style={{ minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: p.lnStrong, backgroundColor: p.bg, color: p.tx, fontSize: 17, paddingHorizontal: 14, textAlign: rtl ? 'right' : 'left' }} />
       <Txt role="label">{t.xCadence}</Txt>
-      <ProductActions>{[1, 3, 5].map(value => <Pill key={value} label={t.xTimesPerWeek.replace('{count}', String(value))} kind={count === value ? 'accent' : 'outline'} onPress={() => setCount(value)} />)}</ProductActions>
+      <HabitCadencePicker value={cadence} onChange={setCadence} testIDPrefix="habit" />
       <Txt role="label">{t.xDuration}</Txt>
       <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={tr('xMinutes', { count: value })} kind={duration === value ? 'accent' : 'outline'} onPress={() => setDuration(value)} />)}</ProductActions>
       <Txt role="label">{t.xFlexibility}</Txt>

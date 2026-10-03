@@ -17,6 +17,21 @@ export interface StoredObservation extends SemanticObservation {
   linkedMemoryId: string | null;
 }
 
+/**
+ * Sources that are the person's own record, not something read about them:
+ * a goal they kept, a commitment they saved, an outcome they tapped. They are
+ * facts already confirmed by the person, so they are stored confirmed and
+ * never come back as "is this right?" (review of 2026-10-03). Everything read
+ * from a statement, an email or a file stays pending until reviewed.
+ */
+export const SELF_CONFIRMED_SOURCES: ReadonlySet<ObservationSource> = new Set<ObservationSource>(['memory', 'commitment', 'behavior']);
+
+function initialReview(source: ObservationSource, observedAt: string): Pick<StoredObservation, 'review' | 'reviewedAt'> {
+  return SELF_CONFIRMED_SOURCES.has(source)
+    ? { review: 'confirmed', reviewedAt: observedAt }
+    : { review: 'pending', reviewedAt: null };
+}
+
 export function observationId(source: ObservationSource, sourceRef: string, item: SemanticObservation): string {
   return createHash('sha256').update([source, sourceRef, item.kind, item.evidence].join('\0')).digest('hex');
 }
@@ -50,7 +65,7 @@ export async function putObservations(
         if (!monitor?.enabled || monitor.generation !== monitorGuard.generation) return null;
         if (existing) return existing;
         const record: StoredObservation = { ...item, id, source, sourceRef, observedAt,
-          review: 'pending', reviewedAt: null, linkedMemoryId: null };
+          ...initialReview(source, observedAt), linkedMemoryId: null };
         tx.create(path(uid, id), record);
         return record;
       });
@@ -62,7 +77,7 @@ export async function putObservations(
     if (existing) { out.push(existing); continue; }
     const record: StoredObservation = {
       ...item, id, source, sourceRef, observedAt,
-      review: 'pending', reviewedAt: null, linkedMemoryId: null,
+      ...initialReview(source, observedAt), linkedMemoryId: null,
     };
     await storage.set(path(uid, id), record);
     out.push(record);

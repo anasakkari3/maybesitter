@@ -31,6 +31,12 @@ export const planItemSchema = z.object({
    * be protected — which is the honest rendering of an old document.
    */
   blockId: z.string().nullable(),
+  /**
+   * A fixed row whose commitment names no end (audit 2026-10-03 #11):
+   * `endsAt` is the planner's reservation, not the event's length. Optional:
+   * an older server does not send it.
+   */
+  endEstimated: z.boolean().optional(),
 });
 
 /**
@@ -243,8 +249,11 @@ export const planEditRejectedSchema = z.object({
     'overlaps_fixed_event',
     'overlaps_scheduled_item',
     'empty_edit',
+    // Accepting a plan that places nothing (audit 2026-10-03 #4).
+    'empty_plan',
   ]),
-  itemId: z.string().nullable(),
+  // Absent on the week's `empty_plan`, which is about a day, not an item.
+  itemId: z.string().nullable().optional(),
 });
 
 export type PlanEditRejected = z.infer<typeof planEditRejectedSchema>;
@@ -360,6 +369,8 @@ export const weekRowSchema = z.object({
   title: z.string().nullable(),
   startsAt: isoDateTime,
   endsAt: isoDateTime,
+  /** As `planItemSchema.endEstimated`: no end was stated, so only the start is a fact. */
+  endEstimated: z.boolean().optional(),
 });
 
 export const weekDaySchema = z.object({
@@ -402,6 +413,18 @@ export const weekAcceptResponseSchema = z.object({
  * (the day is no longer what its card showed, I1). The week comes back so a
  * screen can redraw without another call.
  */
+/**
+ * 422 `empty_plan` from the week's save (review of audit #4): the day places
+ * nothing now — a step moved there no longer fits — so nothing was saved. The
+ * week as it is now comes back to redraw from.
+ */
+export const weekEmptyDaySchema = z.object({
+  success: z.literal(false),
+  error: z.string(),
+  reason: z.literal('empty_plan'),
+  week: weekSchema,
+});
+
 export const weekConflictSchema = z.object({
   success: z.literal(false),
   error: z.string(),

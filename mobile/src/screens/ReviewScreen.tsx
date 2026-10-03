@@ -712,6 +712,7 @@ function PrepReminderLine({ meeting, proposed, edit }: {
   proposed: CaptureProposalItem | null;
   edit: CaptureItemEdit | undefined;
 }) {
+  const { t, p } = useApp();
   const timezone = useTimeZone();
   const editedAt = edit?.localDateTime === undefined
     ? undefined
@@ -736,6 +737,12 @@ function PrepReminderLine({ meeting, proposed, edit }: {
           appointment={meeting.appointment === true}
         />
       ) : <ProposedPrepLine meeting={meeting} announceOnMount={everEdited} />}
+      {/* Why then (audit 2026-10-03 #3): the day before, at the first free hour. */}
+      {!edited && meeting.timing === 'day_before' ? (
+        <Txt size={13} color={p.mu} testID="review-prep-why">
+          {(meeting.sessions ?? 1) > 1 ? t.reviewPrepWhyDayBeforeWithReview : t.reviewPrepWhyDayBefore}
+        </Txt>
+      ) : null}
     </View>
   );
 }

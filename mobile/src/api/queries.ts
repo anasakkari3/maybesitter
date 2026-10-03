@@ -108,7 +108,7 @@ import {
   InvalidTransitionError,
   PlanProposalRefusedError,
   StaleCommitmentError,
-  WeekConflictError,
+  WeekConflictError, WeekEmptyDayError,
 } from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
@@ -243,6 +243,22 @@ function invalidateCommitments(client: QueryClient, uid: string, id?: string): v
   // request for nothing.
   void client.invalidateQueries({ queryKey: queryKeys.activity(uid) });
   void client.invalidateQueries({ queryKey: ['user', uid, 'activitySummary'] });
+}
+
+/**
+ * A proactive suggestion accepted or answered (review of 2026-10-03): an
+ * action became a commitment, a goal became memory. Today, «أشيائي» and the
+ * plan read those, so they are told — accepting on «يتابع لك» used to leave
+ * them showing the day before the tap.
+ */
+export function useIntelligenceDecided(): () => void {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useCallback(() => {
+    invalidateCommitments(client, uid);
+    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+  }, [client, uid]);
 }
 
 /**
@@ -497,12 +513,12 @@ export function useWeeklySummary(weekStart?: string) {
  * rather than context so that a revocation made elsewhere arrives on the next
  * refetch; `staleTime` is the layer's default, and the answer is cheap.
  */
-export function useConsents() {
+export function useConsents(options: { enabled?: boolean } = {}) {
   const uid = useUid();
   return useQuery({
     queryKey: queryKeys.consents(uid),
     queryFn: () => getConsents(),
-    enabled: uid !== 'signed-out',
+    enabled: uid !== 'signed-out' && options.enabled !== false,
     // Never from a cache. Somebody who revoked on another device has to see it
     // revoked here on the next look, and a toggle rendered from a stale answer
     // is a toggle that lies about what the server will actually do — which is
@@ -544,7 +560,7 @@ export function usePrepareMeeting() {
   const timezone = useTimeZone();
   return useMutation({
     retry: false,
-    mutationFn: (input: { notes: string; startAt: string; endAt: string | null }) => prepareMeeting({ ...input, timezone, locale: apiLocale() }),
+    mutationFn: (input: { notes: string; startAt: string; endAt: string | null; commitmentId?: string }) => prepareMeeting({ ...input, timezone, locale: apiLocale() }),
   });
 }
 
@@ -595,6 +611,12 @@ type ConfirmInput = {
   edits?: { itemId: string; title?: string; resolvedTime?: string | null; priority?: 'high' | 'normal' | 'low' }[];
   /** The items kept as a weekly block («كل أسبوع»); see `confirmCapture`. */
   weeklyBlockItemIds?: string[];
+  /**
+   * The items whose goal link the person kept; see `confirmCapture`. Not part
+   * of the intent: the server links on a replay too, so a retried press with
+   * the same key still links what was kept.
+   */
+  goalLinkItemIds?: string[];
 };
 
 /**
@@ -647,6 +669,8 @@ export function useConfirmCapture() {
       invalidateCommitments(client, uid);
       // A confirm that kept a weekly block changed the blocks and their busy time.
       if ((confirmation.weeklyBlocks?.length ?? 0) > 0) invalidateWeeklyBlocks(client, uid);
+      // A kept goal link changed that goal's progress (audit 2026-10-03 #6).
+      if ((confirmation.goalLinks?.length ?? 0) > 0) void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
     },
   });
 }
@@ -946,7 +970,7 @@ export function useWeek(decisions: WeekDecisions) {
  * without one reads the week again.
  */
 export function adoptWeekConflict(client: QueryClient, uid: string, decisions: WeekDecisions, error: unknown): void {
-  if (error instanceof WeekConflictError) {
+  if (error instanceof WeekConflictError || error instanceof WeekEmptyDayError) {
     client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), error.week);
     return;
   }

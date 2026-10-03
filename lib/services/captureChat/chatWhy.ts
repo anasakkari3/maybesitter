@@ -44,7 +44,7 @@ const LRI = '\u2066';
 const FSI = '\u2068';
 const PDI = '\u2069';
 
-type ConflictLike = Pick<CaptureItemConflictContract, 'title' | 'startsAt' | 'endsAt' | 'kind'>;
+type ConflictLike = Pick<CaptureItemConflictContract, 'title' | 'startsAt' | 'endsAt' | 'kind' | 'inProposal'>;
 
 /** An item of the proposal, as far as the reply's grounds need it. */
 export interface GroundsItem {
@@ -355,9 +355,20 @@ export function withConflictsNamed(
   context: { language: ChatLanguage; now: Date; timezone: string; alreadyShown?: ReadonlySet<string> },
 ): string {
   const added: string[] = [];
+  // Two cards that land on each other are one clash, said once.
+  const pairs = new Set<string>();
   for (const item of items) {
     const conflict = item.conflicts?.[0];
-    if (!conflict || context.alreadyShown?.has(clashKey(item.title, conflict)) || mentions(reply, conflict)) continue;
+    // Another card of the same list is named by any reply that describes the
+    // list (audit 2026-10-03 #1): for it, only a reply that says it clashes
+    // has named the clash.
+    if (!conflict || context.alreadyShown?.has(clashKey(item.title, conflict))) continue;
+    if (mentions(reply, conflict) && (!conflict.inProposal || claimsClash(reply))) continue;
+    if (conflict.inProposal) {
+      const pair = [item.title, conflict.title ?? ''].sort().join('|');
+      if (pairs.has(pair)) continue;
+      pairs.add(pair);
+    }
     added.push(clashSentence(context.language, item.title, conflict, context.now, context.timezone));
     if (added.length >= MAX_ADDED_CLASHES) break;
   }

@@ -1,4 +1,5 @@
 import { useClarityStage, useReplayEvent } from '../../clarity/ClarityProvider';
+import { DEFAULT_CADENCE_DRAFT, HabitCadencePicker, cadenceOf, perWeekOf, type CadenceDraft } from '../product/HabitCadencePicker';
 import React from 'react';
 import { TextInput, View } from 'react-native';
 import {
@@ -8,6 +9,7 @@ import {
   useGenerateGoalExecution,
   useGoalExecution,
   useHabits,
+  useIntelligenceDecided,
   useMemory,
   useRegenerateGoalExecution,
   useUnlinkGoalNode,
@@ -29,12 +31,27 @@ import { IntelligencePanel } from './IntelligencePanel';
 
 type ProposalNode = Extract<GoalGraph['nodes'][number], { kind: 'milestone_proposal' | 'decomposition_step_proposal' }>;
 type LinkedNode = Extract<GoalGraph['nodes'][number], { kind: 'linked_commitment' | 'linked_habit' }>;
-type DraftSelection = { as: 'commitment' } | { as: 'habit'; count: number; durationMinutes: number };
+type DraftSelection = { as: 'commitment' } | { as: 'habit'; cadence: CadenceDraft; durationMinutes: number };
+
+/**
+ * Whether a step may become a habit (audit 2026-10-03, #12, screen 26).
+ *
+ * The goal planner marks each step it proposes `commitment` or `habit`, and
+ * its prompt keeps `habit` for "something repeated every week". A step it
+ * marked `commitment` — «Install Node.js and npm» — is a one-off, and offering
+ * to repeat it weekly is offering nonsense. A step with no mark (split out of
+ * the goal's own sentence, where the engine has no opinion) and a milestone
+ * keep the choice: the person knows whether it repeats.
+ */
+export function canBecomeHabit(node: ProposalNode): boolean {
+  return !(node.kind === 'decomposition_step_proposal' && node.suggestedAs === 'commitment');
+}
 type Notice = 'saved' | 'partial' | 'stale' | 'refused' | 'unlinked' | null;
 
 export function GoalExecutionScreen() {
   const { t, p, rtl, lang, actions, s } = useApp();
   const memory = useMemory();
+  const decided = useIntelligenceDecided();
   const create = useCreateMemory();
   const [draft, setDraft] = React.useState('');
   const goals = memory.data?.items.filter(item => item.kind === 'goal') ?? [];
@@ -50,7 +67,7 @@ export function GoalExecutionScreen() {
       // an input whose save can only fail.
       <ProductSection title={t.xAddGoal} body={t.errorsFeatureDisabled} icon="goal" />
     ) : <>
-      <IntelligencePanel onChanged={() => { void memory.refetch(); }} />
+      <IntelligencePanel onChanged={decided} />
       <ProductSection title={t.xAddGoal} body={t.xAddGoalBody} icon="goal">
         <TextInput
           testID="goal-add-input"
@@ -128,11 +145,11 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
       return next;
     }
     const suggestedHabit = node.kind === 'decomposition_step_proposal' && node.suggestedAs === 'habit';
-    return { ...current, [node.nodeId]: suggestedHabit ? { as: 'habit', count: 3, durationMinutes: 30 } : { as: 'commitment' } };
+    return { ...current, [node.nodeId]: suggestedHabit ? { as: 'habit', cadence: DEFAULT_CADENCE_DRAFT, durationMinutes: 30 } : { as: 'commitment' } };
   });
   const chooseKind = (nodeId: string, as: 'commitment' | 'habit') => setSelections(current => ({
     ...current,
-    [nodeId]: as === 'commitment' ? { as } : { as, count: 3, durationMinutes: 30 },
+    [nodeId]: as === 'commitment' ? { as } : { as, cadence: DEFAULT_CADENCE_DRAFT, durationMinutes: 30 },
   }));
   const updateHabit = (nodeId: string, update: Partial<Extract<DraftSelection, { as: 'habit' }>>) => setSelections(current => {
     const value = current[nodeId];
@@ -145,11 +162,11 @@ function GoalDetail({ goalId, title, onBack }: { goalId: string; title: string; 
       nodeId,
       as: 'habit',
       habit: {
-        cadence: { kind: 'weekly_count', count: value.count },
+        cadence: cadenceOf(value.cadence),
         durationMinutes: value.durationMinutes,
         preferredWindows: [],
-        minimumOccurrences: value.count,
-        maximumOccurrences: value.count,
+        minimumOccurrences: perWeekOf(value.cadence),
+        maximumOccurrences: perWeekOf(value.cadence),
         flexibility: 'flexible',
         recoveryPolicy: 'skip',
       },
@@ -297,13 +314,13 @@ function ProposalReview({ graph, proposals, checkpoints, selections, busy, error
           onPress={() => onToggle(node)}
         />
         {selected ? <>
-          <ProductActions>
+          {canBecomeHabit(node) ? <ProductActions>
             <Pill testID={`goal-kind-commitment-${node.nodeId}`} label={t.xGoalAsCommitment} kind={selected.as === 'commitment' ? 'accent' : 'outline'} onPress={() => onChooseKind(node.nodeId, 'commitment')} />
             <Pill testID={`goal-kind-habit-${node.nodeId}`} label={t.xGoalAsHabit} kind={selected.as === 'habit' ? 'accent' : 'outline'} onPress={() => onChooseKind(node.nodeId, 'habit')} />
-          </ProductActions>
+          </ProductActions> : null}
           {selected.as === 'habit' ? <>
             <Txt role="supporting" color={p.mu}>{t.xHabitConfirmationBody}</Txt>
-            <ProductActions>{[1, 3, 5].map(value => <Pill key={value} label={fill(t.xTimesPerWeek, { count: formatNumber(value, { locale: lang }) })} kind={selected.count === value ? 'accent' : 'outline'} onPress={() => onUpdateHabit(node.nodeId, { count: value })} />)}</ProductActions>
+            <HabitCadencePicker value={selected.cadence} onChange={cadence => onUpdateHabit(node.nodeId, { cadence })} testIDPrefix={`goal-${node.nodeId}`} />
             <ProductActions>{[15, 30, 45, 60].map(value => <Pill key={value} label={tr('xMinutes', { count: value })} kind={selected.durationMinutes === value ? 'accent' : 'outline'} onPress={() => onUpdateHabit(node.nodeId, { durationMinutes: value })} />)}</ProductActions>
           </> : null}
         </> : null}

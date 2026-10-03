@@ -604,3 +604,63 @@ describe('an appointment, and a step moved by quiet hours', () => {
     expect(screen.queryByTestId('review-prep-quiet-moved')).toBeNull();
   });
 });
+
+/**
+ * Audit 2026-10-03 #3: «حضّرني» on tomorrow's exam proposed one session an
+ * hour before it. The phone now names the commitment, so the server can read
+ * that it is an exam, and Review says why the time it chose was chosen.
+ */
+describe('an exam, prepared the day before', () => {
+  const exam = () => meeting({ id: 'c-exam', title: 'Math exam', timeSpec: { kind: 'scheduled_event', dueAt: START, endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' } as Commitment['timeSpec'] });
+
+  it('sends the commitment it is for, so the server can tell an exam from a meeting', async () => {
+    jest.spyOn(commitmentEndpoints, 'getCommitment').mockResolvedValue({ data: exam(), etag: null } as never);
+    const prepare = jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue(prepared());
+    await show({ today: [exam()], aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-item-c-exam'));
+    await waitFor(() => expect(screen.getByTestId('details-prepare')).toBeTruthy());
+    await fireEvent.press(screen.getByTestId('details-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), 'Algebra, practice problems');
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+    expect(prepare.mock.calls[0]![0]).toMatchObject({ commitmentId: 'c-exam' });
+  });
+
+  it('a busy block still sends no commitment — there is none', async () => {
+    const prepare = jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue(prepared());
+    await show({ aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(prepare).toHaveBeenCalledTimes(1));
+    expect(prepare.mock.calls[0]![0]).not.toHaveProperty('commitmentId');
+  });
+
+  it('Review says why: the first free hour the day before, and a quick review an hour before', async () => {
+    const plan = prepared();
+    jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue({
+      ...plan,
+      prep: { ...plan.prep, timing: 'day_before', sessions: [{ itemId: 'prep-1', at: plan.prep.dueAt }, { itemId: 'follow-1', at: plan.prep.dueAt }] },
+    });
+    await show({ aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(screen.getByTestId('review-prep-why')).toBeTruthy());
+    expect(screen.getByTestId('review-prep-why').props.children).toBe(en.reviewPrepWhyDayBeforeWithReview);
+  });
+
+  it('an hour-before plan says nothing more than it always has', async () => {
+    jest.spyOn(meetingEndpoints, 'prepareMeeting').mockResolvedValue(prepared());
+    await show({ aiGranted: true });
+    await fireEvent.press(screen.getByTestId('calendar-busy-prepare'));
+    await waitFor(() => expect(screen.getByTestId('meeting-prep-notes')).toBeTruthy());
+    await fireEvent.changeText(screen.getByTestId('meeting-prep-notes'), NOTES);
+    await fireEvent.press(screen.getByTestId('meeting-prep-submit'));
+    await waitFor(() => expect(screen.getByTestId('review-source-meeting')).toBeTruthy());
+    expect(screen.queryByTestId('review-prep-why')).toBeNull();
+  });
+});

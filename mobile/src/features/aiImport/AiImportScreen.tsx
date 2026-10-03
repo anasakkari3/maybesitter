@@ -3,6 +3,7 @@ import { useApp } from '../../state/AppContext';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from '../settings/SettingsChrome';
 import { AiImportFlow } from './AiImportFlow';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 /**
  * The Settings entry point: chrome and a back button around `AiImportFlow`.
@@ -14,9 +15,10 @@ import { AiImportFlow } from './AiImportFlow';
  */
 export function AiImportScreen({ onBack }: { onBack: () => void }) {
   const { t } = useApp();
+  const insets = useSafeAreaInsets();
   return (
     <Screen pinned={<SettingsHeader title={t.aiImportTitle} onBack={onBack} />}>
-      <ScreenScroll>
+      <ScreenScroll style={{ marginBottom: insets.bottom }}>
         <AiImportFlow onDone={onBack} onCancel={onBack} />
       </ScreenScroll>
     </Screen>

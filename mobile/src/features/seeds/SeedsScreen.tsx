@@ -4,7 +4,7 @@ import { useApp } from '../../state/AppContext';
 import { formatDate } from '../../i18n/format';
 import { isolateAuto } from '../../i18n/bidi';
 import { useTimeZone } from '../../i18n/timezone';
-import { Btn, Card, Txt } from '../../ui/primitives';
+import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { useDeleteSeed, usePatchSeed, usePromoteSeed, useSeeds } from '../../api/queries';
@@ -39,7 +39,7 @@ import { hasRevisit, liveSeeds, seedKindLabel, seedStatusLabel } from './seedDis
  * "bring this back to me" and never "this is due".
  */
 export function SeedsScreen({ onBack }: { onBack: () => void }) {
-  const { t, p, lang } = useApp();
+  const { t, p, lang, actions } = useApp();
   const seeds = useSeeds();
   const strings = t as unknown as Record<string, string>;
 
@@ -58,8 +58,22 @@ export function SeedsScreen({ onBack }: { onBack: () => void }) {
           onRetry={() => { void seeds.refetch(); }}
         >
           {items.length === 0 ? (
-            <View style={{ padding: 26, backgroundColor: p.sf, borderRadius: 18 }} testID="seeds-empty">
+            // A door, not a dead end (audit 2026-10-03, #13): ideas reach this
+            // list through «احكيها» — the seed detector runs on capture — so
+            // the empty state opens it. There is no "seed mode" to pre-select:
+            // the server decides from the sentence, and nothing becomes a
+            // commitment without the review's explicit confirm.
+            <View style={{ padding: 22, backgroundColor: p.sf, borderRadius: 20, gap: 10, alignItems: 'center' }} testID="seeds-empty">
               <Txt size={14} color={p.mu} align="center">{t.seedsEmpty}</Txt>
+              <Txt size={13} color={p.mu} align="center" lh={1.5} testID="seeds-empty-hint">{t.seedsEmptyHint}</Txt>
+              <Pill
+                label={t.seedsEmptyCta}
+                size={15}
+                pad={12}
+                testID="seeds-empty-capture"
+                style={{ paddingHorizontal: 22, marginTop: 4 }}
+                onPress={() => actions.goCapture('tab', 'text')}
+              />
             </View>
           ) : null}
           {items.map((seed) => (

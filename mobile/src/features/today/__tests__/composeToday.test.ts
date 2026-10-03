@@ -124,11 +124,14 @@ describe('the plan row is honest', () => {
    */
   it('counts what is pinned to a time, not only what the planner placed', () => {
     const dinner = { itemId: 'dinner', title: 'dinner', startsAt: '2026-09-22T17:00:00.000Z', endsAt: '2026-09-22T17:30:00.000Z', blockId: null };
-    for (const status of ['accepted', 'proposed'] as const) {
-      const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan(status, 0), fixed: [dinner] } }), upcoming: [] });
-      expect(m.plan).toEqual({ kind: status, placed: 1 });
-      expect(m.isEmpty).toBe(false);
-    }
+    const accepted = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 0), fixed: [dinner] } }), upcoming: [] });
+    expect(accepted.plan).toEqual({ kind: 'accepted', placed: 1 });
+    expect(accepted.isEmpty).toBe(false);
+    // A proposal that places nothing is not a ready plan (audit 2026-10-03 #4),
+    // but the dinner pinned on the day still keeps the day from reading as empty.
+    const proposed = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('proposed', 0), fixed: [dinner] } }), upcoming: [] });
+    expect(proposed.plan).toEqual({ kind: 'empty', pinned: 1 });
+    expect(proposed.isEmpty).toBe(false);
     const both = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 2), fixed: [dinner] } }), upcoming: [] });
     expect(both.plan).toEqual({ kind: 'accepted', placed: 3 });
   });
@@ -294,5 +297,49 @@ describe('an all-day appointment is never the step (N18)', () => {
     const bill = { ...doctor, id: 'bill', timeSpec: { ...doctor.timeSpec, kind: 'due_by' } } as Commitment;
     const m = composeToday({ groups: groupForToday([bill], NOW), next: next(), plan: plan(), upcoming: [] });
     expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'bill' } });
+  });
+});
+
+/**
+ * Audit 2026-10-03 #2: «سهرة مع الصحاب الليلة 21:00» was «خطوتك التالية» at
+ * 12:22. With no recommendation to show, the fallback must not make the same
+ * mistake: an event at an hour is the card only in its last hour.
+ */
+describe('an event at an hour, on the fallback card', () => {
+  const NOW = new Date('2026-10-03T09:22:00.000Z');
+  const event = (id: string, at: string): CommitmentView => ({ ...item(id, 'must'), shownAt: at, timedEvent: true });
+
+  it('is not the card nine hours before it starts — the next thing to do is', () => {
+    const m = composeToday({
+      groups: groups({ must: [event('night-out', '2026-10-03T18:00:00.000Z')], should: [item('call')] }),
+      next: next({ recommendation: rec('', 'empty') }), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'call' } });
+  });
+
+  it('is no card at all when it is all the day has', () => {
+    const m = composeToday({
+      groups: groups({ must: [event('night-out', '2026-10-03T18:00:00.000Z')] }),
+      next: next({ recommendation: rec('', 'empty') }), plan: plan(), upcoming: [], now: NOW,
+    });
+    expect(m.primary).toEqual({ kind: 'none' });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['night-out']);
+  });
+
+  it('is the card in its last hour', () => {
+    const m = composeToday({
+      groups: groups({ must: [event('night-out', '2026-10-03T18:00:00.000Z')] }),
+      next: next({ recommendation: rec('', 'empty') }), plan: plan(), upcoming: [], now: new Date('2026-10-03T17:15:00.000Z'),
+    });
+    expect(m.primary).toMatchObject({ kind: 'fallback', item: { id: 'night-out' } });
+  });
+});
+
+describe('a preparation step on the card', () => {
+  it('leaves the event it prepares for in its own group, at its hour', () => {
+    const prep: NextStepRecommendation = { ...rec('exam'), primaryStep: { commitmentId: 'exam', title: 'Prepare for exam', purpose: 'prepare' } };
+    const m = composeToday({ groups: groups({ must: [item('exam', 'must')] }), next: next({ recommendation: prep }), plan: plan(), upcoming: [] });
+    expect(m.primary).toMatchObject({ kind: 'next' });
+    expect(m.groups.must.map((c) => c.id)).toEqual(['exam']);
   });
 });

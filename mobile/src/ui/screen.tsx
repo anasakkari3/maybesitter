@@ -16,6 +16,9 @@ export const ScreenTopInsetConsumedContext = createContext(false);
  */
 export const TAB_CLEARANCE = 170;
 
+/** The gap between a tab root's last row and the pill: part of the measured clearance (`TabBar`'s +12). */
+export const FLOATING_GAP = 12;
+
 /**
  * The screen shell — one owner of the top of the display (F1/F2, found on
  * device 2026-09-22).
@@ -98,8 +101,18 @@ export function Screen({ pinned, children, footer, decoration, overlay, style, t
  * clearance (`TAB_CLEARANCE` until it is measured), because the bar and the
  * pill are drawn over the screen and the last row has to clear them.
  */
-export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, automaticallyAdjustKeyboardInsets, style, scrollRef }: {
+export function ScreenScroll({ children, gap = 14, bottom = 60, floating, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, automaticallyAdjustKeyboardInsets, style, scrollRef }: {
   children: React.ReactNode;
+  /**
+   * A tab root's measured clearance for the bar and the «احكيها» pill drawn
+   * over it (Root's `tabClearance`). The *viewport* stops above them, so the
+   * pill covers no row — not at the end of the scroll and not at rest either
+   * (audit 2026-10-03 #9: at text size 1.3 the pill sat on «ليش هاي بالذات»,
+   * at 1.5 on «…», on the first frame). The clearance is measured from the
+   * real, text-scaled pill and bar, so it grows with the reader's text.
+   * With it, `bottom` is ignored: the last row needs only the gap above the pill.
+   */
+  floating?: number | undefined;
   /** For a screen that has to bring something it opened into view. */
   scrollRef?: React.Ref<ScrollView> | undefined;
   gap?: number;
@@ -124,14 +137,14 @@ export function ScreenScroll({ children, gap = 14, bottom = 60, grow = false, te
     <ScrollView
       ref={scrollRef}
       testID={testID}
-      style={style}
+      style={floating === undefined ? style : [{ marginBottom: Math.max(0, floating - FLOATING_GAP) }, style]}
       {...(refreshControl ? { refreshControl } : {})}
       {...(keyboardShouldPersistTaps ? { keyboardShouldPersistTaps } : {})}
       {...(automaticallyAdjustKeyboardInsets ? { automaticallyAdjustKeyboardInsets } : {})}
       contentContainerStyle={{
         paddingHorizontal: 16,
         paddingTop: topGap,
-        paddingBottom: bottom,
+        paddingBottom: floating === undefined ? bottom : FLOATING_GAP,
         gap,
         ...(grow ? { flexGrow: 1 } : {}),
       }}

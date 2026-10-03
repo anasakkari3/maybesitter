@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Platform, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
@@ -83,8 +83,8 @@ import { SettingsHeader, SettingsRow } from './SettingsChrome';
  * this switch too, on the way on, exactly as the reminders switch calls it.
  *
  * That does not spend a second prompt. `requestNotificationPermission` reads
- * the current status first and returns it unchanged unless it is
- * `undetermined`, so whichever of the two switches the user reaches first is
+ * the current status first and returns it unchanged unless the phone would
+ * still show its prompt (`canPromptFrom`), so whichever of the two switches the user reaches first is
  * the one that asks, and the other one silently learns the answer. Which is
  * the routing #195 wanted: one prompt, spent by whichever thing the user
  * actually asked for.
@@ -171,7 +171,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
       ? osPermission
       : null;
   // Whenever the phone says no, the top card says so (CL2b #18). The Must
-  // warning, when it is up, adds only what that means for ringing.
+  // warning, when it is up, adds only what that means for ringing. `denied`
+  // here is a final no: an Android 13+ permission that has never been asked
+  // reads `undetermined` (`getNotificationPermission`) and gets the in-app
+  // ask below, not «افتح إعدادات التلفون» (review of #7, audit screen 36).
   const permissionDenied = osPermission === 'denied';
   // The note on a switch that is on while the phone blocks it.
   const blockedNote = permissionDenied ? t.notifBlockedByPhone : undefined;
@@ -616,7 +619,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             // in the device's own wall clock and the answer is read back off
             // it, with no zone arithmetic in between to get wrong.
             is24Hour
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            locale={lang}
+            positiveButton={{ label: t.ok, textColor: p.ac }}
+            negativeButton={{ label: t.cancel, textColor: p.mu }}
+            display="spinner"
             onChange={(event, value) => {
               setPicking(Platform.OS === 'ios');
               if (event.type === 'dismissed' || !value) return;

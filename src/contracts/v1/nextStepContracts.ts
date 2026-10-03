@@ -37,16 +37,25 @@ export type NextStepEvidenceCode =
   | 'fits_before_due'
   | 'usually_finishes'
   | 'often_set_aside'
-  | 'usual_productive_time';
+  | 'usual_productive_time'
+  /** A timed event inside its last hour: "coming up", the one time it is a step (audit 2026-10-03 #2). */
+  | 'starts_soon'
+  /** The step prepares for an important event at `params.at` (audit 2026-10-03 #2). */
+  | 'prepares_for_event'
+  /** A fixed evening plan, `params.title` at `params.at`, sits before that event: asked about, never judged. */
+  | 'evening_plan_before_event';
 
 export interface NextStepEvidenceContract {
   code: NextStepEvidenceCode;
   /**
    * Values the phrase interpolates: `importance` carries `level`, `effort`
-   * carries `minutes`. Everything else carries nothing, and a client that does
-   * not know a code renders no line rather than the code itself.
+   * carries `minutes`; `prepares_for_event` carries the event's `at` (and
+   * `allDay` when it names a day), `evening_plan_before_event` the plan's own
+   * `title` and `at` — the person's words and times, sent back to them.
+   * Everything else carries nothing, and a client that does not know a code
+   * renders no line rather than the code itself.
    */
-  params?: { level?: 'low' | 'normal' | 'high'; minutes?: number };
+  params?: { level?: 'low' | 'normal' | 'high'; minutes?: number; at?: string; allDay?: boolean; title?: string };
 }
 
 export interface NextStepExplanationContract {
@@ -69,6 +78,13 @@ export interface NextStepRecommendationContract {
   primaryStep: {
     commitmentId: string;
     title: string;
+    /**
+     * Absent for the ordinary case: the step *is* the commitment. `prepare`
+     * when it is preparation for the event `commitmentId` names (audit
+     * 2026-10-03 #2): the title is the preparation, and `done` / `edit` are not
+     * offered, because they would complete or rename the event itself.
+     */
+    purpose?: 'prepare';
   } | null;
   explanation: NextStepExplanationContract | null;
   availableActions: NextStepDecision[];

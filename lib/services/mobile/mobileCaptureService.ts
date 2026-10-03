@@ -57,6 +57,11 @@ import {
   weeklyBlockDocumentFrom,
   weeklyBlockPath,
 } from '../../weeklyBlocks/weeklyBlockService';
+import { createStorageRuntimeMemoryStore } from '../../runtimeMemory/runtimeMemoryStore';
+import { createStorageGoalNodeLinkStore } from '../../goalGraph/linkStore';
+import { GOAL_GRAPH_FIRST_GENERATION } from '../../../src/contracts/v1/goalGraphContracts';
+import type { ActiveGoal } from '../captureBoundary/proposalShape';
+import { readOwnedMemory } from './memoryService';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -80,6 +85,87 @@ export interface MobileConfirmInput {
   edits?: unknown;
   /** Selected items confirmed as weekly blocks rather than one-offs («ثابت أسبوعي»). */
   weeklyBlockItemIds?: unknown;
+  /** Selected items whose suggested goal link the person kept (audit 2026-10-03 #6). */
+  goalLinkItemIds?: unknown;
+}
+
+/** A confirmed item linked to one of the person's goals, so the goal's progress counts it. */
+export interface ConfirmedGoalLink {
+  itemId: string;
+  goalId: string;
+  commitmentId: string;
+}
+
+/** The most goals a capture is matched against; more than anybody keeps active. */
+const MAX_CAPTURE_GOALS = 50;
+
+/**
+ * The person's active goals, as a capture is matched against them (audit
+ * 2026-10-03 #6): the memory store's own read (`retrieve` — active, fresh,
+ * in scope), goals only, their ids and their own words. A failed read is no
+ * goals: a capture is never failed by the lookup of a suggestion.
+ */
+async function activeGoalsFor(participantId: string | undefined): Promise<ActiveGoal[]> {
+  if (!participantId) return [];
+  try {
+    const records = await createStorageRuntimeMemoryStore().retrieve({ scopeId: participantId, now: new Date().toISOString(), kind: 'goal' });
+    return records
+      .filter((record) => record.status === 'active' && typeof record.content === 'string' && record.content.trim().length > 0)
+      .slice(0, MAX_CAPTURE_GOALS)
+      .map((record) => ({ goalId: record.id, title: record.content.trim() }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Links each just-confirmed item the person kept a goal link on to that goal
+ * (audit 2026-10-03 #6), through the goal graph's own link store — the one
+ * `deriveGoalGraphProgress` counts — keyed `capture.<commitmentId>`, so a
+ * replayed confirm finds the link it already made and makes no second one.
+ *
+ * The goal is the one the stored proposal suggested for that item, never one
+ * the request names, and it must still be the caller's own active goal
+ * (`readOwnedMemory`, the goal routes' own ownership check). Anything that
+ * fails here leaves the commitment saved and unlinked: the confirm has
+ * already succeeded and says so. Nothing is logged but the error's name.
+ */
+async function linkConfirmedItemsToGoals(
+  proposalId: string,
+  persisted: readonly PersistedProposalItem[],
+  goalLinkItemIds: readonly string[],
+  context: MobileBackendContext,
+): Promise<ConfirmedGoalLink[]> {
+  const uid = context.participantId;
+  if (!uid || goalLinkItemIds.length === 0 || persisted.length === 0) return [];
+  const stored = await store.get(proposalId).catch(() => undefined);
+  if (!stored) return [];
+  const wanted = new Set(goalLinkItemIds);
+  const links = createStorageGoalNodeLinkStore();
+  const out: ConfirmedGoalLink[] = [];
+  for (const item of persisted) {
+    if (!wanted.has(item.itemId)) continue;
+    const suggestion = stored.contract.items.find((candidate) => candidate.itemId === item.itemId)?.goalLink;
+    if (!suggestion) continue;
+    try {
+      const goal = await readOwnedMemory(uid, suggestion.goalId);
+      if (goal.kind !== 'goal' || goal.status !== 'active') continue;
+      const now = new Date().toISOString();
+      const { link } = await links.claim({
+        scopeId: uid,
+        goalMemoryId: goal.id,
+        nodeId: `capture.${item.commitmentId}`,
+        generation: GOAL_GRAPH_FIRST_GENERATION,
+        entityKind: 'commitment',
+        confirmedByUserAt: now,
+      }, now);
+      const settled = link.state === 'linked' ? link : await links.settle(uid, link.linkId, item.commitmentId, now);
+      if (settled?.state === 'linked') out.push({ itemId: item.itemId, goalId: goal.id, commitmentId: item.commitmentId });
+    } catch (error) {
+      console.error('[capture/confirm] goal link failed; the commitment is saved unlinked', error instanceof Error ? error.name : 'unknown');
+    }
+  }
+  return out;
 }
 
 export interface PersistedProposalItem {
@@ -465,6 +551,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
     requestedEngine: consent === 'granted' ? 'model' : 'rules',
     requestStartedAt,
     ...(locale ? { locale } : {}),
+    activeGoals: await activeGoalsFor(context.participantId),
   }, {
     store,
     persistence: persistenceFor(context),
@@ -538,6 +625,7 @@ export async function proposeMobileChatTurn(
     ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items, previous: input.previous ?? [] } } : {}),
     titleWithoutLeadIn: true,
     ...(input.locale ? { locale: input.locale } : {}),
+    activeGoals: await activeGoalsFor(context.participantId),
   }, {
     store,
     persistence: persistenceFor(context),
@@ -692,6 +780,12 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
    * device event (`block.deviceEvent`). Always present; empty otherwise.
    */
   weeklyBlocks: Array<{ itemId: string; block: WeeklyBlockContract }>;
+  /**
+   * The confirmed items now counted toward one of the person's goals (audit
+   * 2026-10-03 #6): those named in `goalLinkItemIds` whose stored proposal
+   * suggested that goal. Always present; empty otherwise.
+   */
+  goalLinks: ConfirmedGoalLink[];
 }> {
   const proposalId = typeof input.proposalId === 'string' ? input.proposalId : '';
   if (!proposalId) throw new Error('proposalId is required');
@@ -703,6 +797,9 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
   const edits = editsFrom(input.edits);
   const weeklyBlockItemIds = Array.isArray(input.weeklyBlockItemIds)
     ? input.weeklyBlockItemIds.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    : [];
+  const goalLinkItemIds = Array.isArray(input.goalLinkItemIds)
+    ? input.goalLinkItemIds.filter((item): item is string => typeof item === 'string' && item.trim().length > 0).slice(0, 50)
     : [];
   const result = await confirmCapture({
     proposalId,
@@ -733,6 +830,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
       })),
       collisions: [],
       weeklyBlocks: [],
+      goalLinks: [],
     };
   }
 
@@ -810,6 +908,7 @@ export async function confirmMobileCapture(input: MobileConfirmInput, context: M
       .map((itemId) => ({ itemId, reason: 'not_selected' })),
     collisions: await collisionsForPersisted(persisted, context),
     weeklyBlocks,
+    goalLinks: await linkConfirmedItemsToGoals(proposalId, persisted, goalLinkItemIds, context),
   };
 }
 

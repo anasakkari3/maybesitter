@@ -1,18 +1,16 @@
 /**
  * Whether this person has finished onboarding (UC-2.R1, #171).
  *
- * ── One bit, on the device, on purpose ───────────────────────────
+ * ── The device copy is the step; the account says whether ────────
  *
- * Not on the account. Onboarding explains what the app does and asks what it
- * may use; the *answers* are on the account (consents, routine), and those are
- * the parts that must follow the person to a new phone. Whether they have seen
- * the explanation is a fact about this install.
- *
- * The consequence is deliberate: a second device runs onboarding again, and
- * the consent screen there shows the answers already on the account rather
- * than asking afresh. That is the right trade — re-showing three sentences
- * costs a person ten seconds, and skipping the screens on a device that has
- * never asked would leave somebody with no idea what they had agreed to.
+ * This value is per install, and sign-out clears it (a shared phone must not
+ * hand the next person a finished state). On its own that made the same
+ * account replay every screen after signing out and back in (audit
+ * 2026-10-03, #5). So a device with no progress now asks the account — see
+ * `resolveOnboardingGate` at the bottom of this file — and an account that
+ * has answered the consent screen opens straight into the app, on this phone
+ * or a new one. A brand-new account has answered nothing and gets every
+ * screen.
  *
  * ── Which step, not just whether ─────────────────────────────────
  *
@@ -86,4 +84,50 @@ export function nextStep(step: OnboardingStep): OnboardingProgress {
 export function previousStep(step: OnboardingStep): OnboardingStep | null {
   const index = ONBOARDING_STEPS.indexOf(step);
   return index > 0 ? ONBOARDING_STEPS[index - 1]! : null;
+}
+
+/**
+ * What the account itself says about onboarding (audit 2026-10-03, #5).
+ *
+ * The device bit above is cleared on sign-out, so on its own it made a person
+ * who signed out and back in with the same account sit through every screen
+ * again — consents included. The consent screen's answer is on the account
+ * (`GET /api/mobile/consents`, `recommendations.asked`), survives sign-out and
+ * reinstalls. The onboarding consent step always writes it — on or off — and
+ * every other place that can (Settings → Trust, the next-step launch consent)
+ * is only reachable after onboarding, inside the app. So an account that has
+ * answered it has been through the consent screen at least once.
+ *
+ * The steps after it — routine, about you, reminders — are all skippable and
+ * all reachable again from Settings, so they are not a reason to replay the
+ * consent screen for an account that has already answered it.
+ */
+export type AccountOnboardingSignal =
+  /** The consents view arrived. */
+  | { kind: 'answered'; consentAsked: boolean }
+  /** Still asking. */
+  | { kind: 'pending' }
+  /** The server could not be reached. */
+  | { kind: 'unreachable' };
+
+/**
+ * Whether the gate may open: `true` the app, `false` onboarding, `null` hold.
+ *
+ * Order matters. The device copy wins when it says anything more than "never
+ * started": `done` opens the app, and a step mid-way resumes there (this
+ * install, this account, no sign-out in between). Only a device that has no
+ * progress — a fresh install, or one that was signed out — asks the account.
+ * An unreachable server falls back to onboarding, never to the app: the
+ * consent screen must not be skipped on a guess.
+ */
+export function resolveOnboardingGate(
+  device: OnboardingProgress | null,
+  account: AccountOnboardingSignal,
+): boolean | null {
+  if (device === null) return null;
+  if (device === 'done') return true;
+  if (device !== 'welcome') return false;
+  if (account.kind === 'pending') return null;
+  if (account.kind === 'unreachable') return false;
+  return account.consentAsked;
 }

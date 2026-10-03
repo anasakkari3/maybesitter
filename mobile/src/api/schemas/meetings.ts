@@ -36,6 +36,15 @@ export const meetingPrepResponseSchema = z.object({
     adjustment: z.enum(['none', 'short_notice', 'quiet_hours', 'quiet_hours_unavoidable']),
     startAt: isoDateTime,
     endAt: isoDateTime.nullable(),
+    /**
+     * Why the step is when it is (audit 2026-10-03 #3): `hour_before`, or
+     * `day_before` — the first free hour the day before an exam-like event.
+     * Optional, and a plain string, so a server without it, or with a reason
+     * this build does not know, still parses.
+     */
+    timing: z.string().optional(),
+    /** Every session proposed, the prep step first; two with a day-before plan (step + short review). */
+    sessions: z.array(z.object({ itemId: z.string(), at: isoDateTime })).optional(),
   }),
 });
 

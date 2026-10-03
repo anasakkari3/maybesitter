@@ -49,6 +49,13 @@ export type PlanRow =
   | { kind: 'error' }
   | { kind: 'none' }
   | { kind: 'proposed'; placed: number }
+  /**
+   * A proposed plan that places nothing (audit 2026-10-03 #4): not a plan to
+   * show as ready, since there is nothing in it to accept. `pinned` counts
+   * what is fixed to a time on the day anyway (dinner at 20:00), so the day
+   * is still not called empty.
+   */
+  | { kind: 'empty'; pinned: number }
   | { kind: 'accepted'; placed: number }
   | { kind: 'dismissed' };
 
@@ -104,6 +111,15 @@ export interface PlanInput {
 
 const OPEN_KEYS = ['must', 'should', 'nice'] as const;
 
+/** The server's `FIXED_EVENT_LEAD_MS`: an event at an hour is a step only in its last hour. */
+export const FIXED_EVENT_LEAD_MS = 60 * 60_000;
+
+function eventNotYetClose(item: CommitmentView, nowMs: number): boolean {
+  if (!item.timedEvent || !item.shownAt) return false;
+  const at = Date.parse(item.shownAt);
+  return Number.isFinite(at) && at - nowMs > FIXED_EVENT_LEAD_MS;
+}
+
 function openItems(groups: TodayGroups): CommitmentView[] {
   return OPEN_KEYS.flatMap((k) => groups[k]);
 }
@@ -124,8 +140,11 @@ export function composeToday(input: {
   plan: PlanInput;
   upcoming: readonly CommitmentView[];
   laterLimit?: number;
+  /** The moment Today is drawn for; the phone's clock when absent. */
+  now?: Date;
 }): TodayModel {
   const { groups, next, plan, upcoming, laterLimit = 3 } = input;
+  const nowMs = (input.now ?? new Date()).getTime();
   const open = openItems(groups);
   const byId = new Map(open.map((c) => [c.id, c]));
 
@@ -156,13 +175,19 @@ export function composeToday(input: {
     // screen asks with `whyFirstLine`; `topItemFor` answers that one, not this.
     // An appointment on a day is not a step: it stays in its group as the
     // day's context, and the card goes to the first thing to do (N18).
-    const top = open.find((c) => !c.allDayEvent) ?? null;
+    // Nor is an event at an hour still more than its last hour away — the
+    // exam tomorrow at 10:00, the night out at 21:00 (audit 2026-10-03 #2):
+    // the server holds them back the same way (`nextStepPreparation.ts`).
+    const top = open.find((c) => !c.allDayEvent && !eventNotYetClose(c, nowMs)) ?? null;
     primary = top ? { kind: 'fallback', item: top } : { kind: 'none' };
   }
 
   // The recommended commitment is on the card wherever it lives — on the day
   // or in the week — so it is shown there and nowhere else.
-  const primaryId = primary.kind === 'next' ? primary.recommendation.primaryStep?.commitmentId ?? null
+  // Except preparation for an event (audit 2026-10-03 #2): the card is the
+  // preparation, not the event, so the event keeps its own row at its hour.
+  const primaryId = primary.kind === 'next'
+    ? (primary.recommendation.primaryStep?.purpose === 'prepare' ? null : primary.recommendation.primaryStep?.commitmentId ?? null)
     : primary.kind === 'fallback' ? primary.item.id : null;
   const rest = without(groups, primaryId);
   const openInGroups = openItems(rest).length;
@@ -178,6 +203,9 @@ export function composeToday(input: {
   // alone said «ما في إشي إله وقت اليوم» over an accepted plan whose one row
   // was dinner at 20:00 (UAT round 6, N-h).
   else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: planRows(plan.plan).length };
+  // Nothing placed is nothing to accept (the server refuses it, `empty_plan`):
+  // said as an empty day, never as «خطة اليوم جاهزة».
+  else if (plan.plan.scheduled.length === 0) planRow = { kind: 'empty', pinned: planRows(plan.plan).length };
   else planRow = { kind: 'proposed', placed: planRows(plan.plan).length };
 
   // ── later ──
@@ -195,7 +223,8 @@ export function composeToday(input: {
   // recommendation to show and no request for quiet — or when every open
   // item is an appointment on the day (N18), which is still a day with
   // something on it. So the open count is part of the answer.
-  const planShowsWork = (planRow.kind === 'proposed' || planRow.kind === 'accepted') && planRow.placed > 0;
+  const planShowsWork = ((planRow.kind === 'proposed' || planRow.kind === 'accepted') && planRow.placed > 0)
+    || (planRow.kind === 'empty' && planRow.pinned > 0);
   // Pending or failed is *not* an answer. Saying «empty» while a source is
   // still talking is the false empty state itself, and on failure the empty
   // branch would hide the very row that reports it.

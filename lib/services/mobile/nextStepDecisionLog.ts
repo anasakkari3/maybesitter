@@ -42,6 +42,25 @@ export interface NextStepDecisionRecord {
 
 /** A dismissal hides the item for a day. */
 export const DISMISS_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The ledger key of a preparation step for event `eventId` (review of audit
+ * #2). Deferring, dismissing or finishing the preparation is a decision about
+ * the preparation: keyed by the event's own id, it hid the exam itself, and
+ * its starts-soon step with it, for a day.
+ */
+export function preparationKey(eventId: string): string {
+  return `prepare:${eventId}`;
+}
+
+export function isPreparationKey(id: string): boolean {
+  return id.startsWith('prepare:');
+}
+
+/** The events whose preparation the person has deferred, dismissed or finished, from the hidden keys. */
+export function preparationsHidden(hidden: ReadonlySet<string>): Set<string> {
+  return new Set(Array.from(hidden).filter(isPreparationKey).map((key) => key.slice('prepare:'.length)));
+}
 /** The default defer, when the client did not name a time. */
 export const DEFER_DEFAULT_MS = 24 * 60 * 60 * 1000;
 /** How far back eligibility looks. Older decisions cannot hide anything. */
@@ -116,6 +135,15 @@ export function hiddenCommitmentIds(
         ? Date.parse(record.deferUntil)
         : Date.parse(record.at) + DEFER_DEFAULT_MS;
       if (Number.isFinite(until) && now.getTime() < until) hidden.add(id);
+      continue;
+    }
+    // A preparation step marked done (review of audit #2) has no commitment
+    // of its own to complete: the ledger is the only record that it is done,
+    // so it stays hidden. Its key is `preparationKey(eventId)`, never the
+    // event's id — the event itself is untouched.
+    if (record.decision === 'done' && isPreparationKey(id)) {
+      settled.add(id);
+      hidden.add(id);
       continue;
     }
     // accept, edit and done say nothing about eligibility: an accepted item is

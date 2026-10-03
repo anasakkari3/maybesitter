@@ -4,6 +4,7 @@ import { getAiConsent } from '../../../../../lib/consents/aiConsentService';
 import { analyzeSource } from '../../../../../lib/intelligence/analyzeSource';
 import { intelligenceDisabledResponse } from '../../../../../lib/intelligence/gate';
 import { listObservations } from '../../../../../lib/intelligence/observationStore';
+import { learnOutcomesWithin } from '../../../../../lib/intelligence/outcomeLearning';
 import { listSuggestions } from '../../../../../lib/intelligence/proposalEngine';
 import { previewSuggestionSchedule } from '../../../../../lib/intelligence/schedulePreview';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
@@ -16,6 +17,9 @@ export async function GET(request: Request) {
   let user;
   try { user = await requireMobileUser(request); } catch (error) { return mobileAuthErrorResponse(error); }
   try {
+    // Outcomes recorded since the last read become evidence before it is
+    // shown (no model call); a failure here never hides the inbox.
+    await learnOutcomesWithin(user.uid);
     const [observations, suggestions] = await Promise.all([
       listObservations(user.uid), listSuggestions(user.uid),
     ]);

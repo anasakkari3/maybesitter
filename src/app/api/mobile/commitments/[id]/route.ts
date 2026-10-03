@@ -16,6 +16,7 @@ import {
 import { commitmentToMobileDto, mobileError } from '../../../../../../lib/services/mobile/response';
 import { getDeviceCalendarLink } from '../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
+import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,6 +103,9 @@ export async function DELETE(
       participantId: user.uid,
       expectedValidator: ifMatchFrom(request),
     });
+    // A drop is an outcome the proactive loop learns from, as the actions
+    // route's are (gated, consent-checked, never fails the drop).
+    await learnOutcomesWithin(user.uid);
     return Response.json({
       success: true,
       id,

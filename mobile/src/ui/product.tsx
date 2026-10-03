@@ -9,6 +9,7 @@ import { BackButton } from './chrome';
 import { useLayoutMode } from '../theme/textScale';
 import { ChevronIcon } from './icons';
 import { availabilityKey, type Availability } from '../features/product/capabilities';
+import { AvoidKeyboard } from './keyboard';
 
 const GroupedRows = createContext(false);
 
@@ -49,11 +50,13 @@ export function ProductPage({ title, subtitle, children, id, overlay }: { title:
       {!stacked ? <View style={{ flexShrink: 1 }}><Txt role="section">{title}</Txt></View> : null}
     </View>
   </View>}>
-    <ScreenScroll testID={`product-scroll-${id}`} gap={16} keyboardShouldPersistTaps="handled">
-      {stacked ? <Txt role="section">{title}</Txt> : null}
-      {subtitle ? <Txt role="supporting" color={p.mu}>{subtitle}</Txt> : null}
-      {children}
-    </ScreenScroll>
+    <AvoidKeyboard>
+      <ScreenScroll testID={`product-scroll-${id}`} gap={16} keyboardShouldPersistTaps="handled">
+        {stacked ? <Txt role="section">{title}</Txt> : null}
+        {subtitle ? <Txt role="supporting" color={p.mu}>{subtitle}</Txt> : null}
+        {children}
+      </ScreenScroll>
+    </AvoidKeyboard>
   </Screen>;
 }
 export function ProductSection({ title, body, icon, status, children }: { title: string; body?: string | undefined; icon?: ProductIconName; status?: Availability; children?: React.ReactNode }) {
@@ -90,6 +93,5 @@ export function ProductRow({ title, body, icon = 'spark', onPress, status, id }:
   return onPress ? <Btn testID={id} label={[title, body].filter(Boolean).join('. ')} onPress={onPress} style={style}>{content}</Btn> : <View testID={id} style={style}>{content}</View>;
 }
 export function ProductActions({ children }: { children: React.ReactNode }) {
-  const stacked = useLayoutMode() !== 'normal';
-  return <View style={{ flexDirection: stacked ? 'column' : 'row', flexWrap: 'wrap', gap: 10 }}>{children}</View>;
+  return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{children}</View>;
 }

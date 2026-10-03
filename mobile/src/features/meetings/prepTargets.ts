@@ -124,23 +124,26 @@ export function isAppointmentNotMeeting(title: string): boolean {
   return isMeetingLike(title) && !namesMeeting(title);
 }
 
-function targetFor(title: string, startAt: string, endAt: string | null): MeetingPrepTarget {
+function targetFor(title: string, startAt: string, endAt: string | null, commitmentId?: string): MeetingPrepTarget {
   return {
     startAt,
     endAt: endAt && Date.parse(endAt) > Date.parse(startAt) ? endAt : null,
     ...(isAppointmentNotMeeting(title) ? { appointment: true } : {}),
+    // The person's own commitment, so the server can read what it is (audit
+    // 2026-10-03 #3: an exam gets a day of lead). Never a calendar block's.
+    ...(commitmentId ? { commitmentId } : {}),
   };
 }
 
 export function commitmentPrepTarget(
-  commitment: Pick<Commitment, 'title' | 'status' | 'timeSpec'>,
+  commitment: Pick<Commitment, 'title' | 'status' | 'timeSpec'> & { id?: string },
   now: Date,
 ): MeetingPrepTarget | null {
   if (commitment.status !== 'active') return null;
   const { kind, dueAt, endAt, allDay } = commitment.timeSpec;
   if (!dueAt || allDay || !canPrepareFor(dueAt, now)) return null;
   if (kind !== 'scheduled_event' && !isMeetingLike(commitment.title)) return null;
-  return targetFor(commitment.title, dueAt, endAt);
+  return targetFor(commitment.title, dueAt, endAt, commitment.id);
 }
 
 /**
@@ -148,7 +151,11 @@ export function commitmentPrepTarget(
  * meeting or an appointment that has not started. The row carries the
  * commitment's own title, the same words Details reads.
  */
-export function planItemPrepTarget(item: Pick<PlanItem, 'title' | 'startsAt' | 'endsAt'>, now: Date): MeetingPrepTarget | null {
+export function planItemPrepTarget(item: Pick<PlanItem, 'itemId' | 'title' | 'startsAt' | 'endsAt' | 'endEstimated'>, now: Date): MeetingPrepTarget | null {
   if (!item.title || !isMeetingLike(item.title) || !canPrepareFor(item.startsAt, now)) return null;
-  return targetFor(item.title, item.startsAt, item.endsAt);
+  // A fixed row's id is its commitment's (`fixedRowsOf`): sent, so an exam
+  // planned from here gets the same day-before preparation as from Details
+  // (review of audit #3).
+  // An end the planner guessed is no end of the event's (audit #11).
+  return targetFor(item.title, item.startsAt, item.endEstimated === true ? null : item.endsAt, item.itemId);
 }

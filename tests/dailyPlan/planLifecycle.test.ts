@@ -335,6 +335,8 @@ test('a generation solved later than its generatedAt says is not stale for that 
 test('an accepted plan is not rebuilt: it comes back as it was, flagged', async () => {
   await withHarness(async ({ storage }) => {
     await seedAccount(storage);
+    // A plan that places something: an empty one cannot be accepted (audit 2026-10-03 #4).
+    await captureAndConfirm(storage, 'cmt_first', 'First thing', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
     await build();
     const accepted = await actionPost(request(`/api/mobile/plans/${DATE}/actions`, { action: 'accept' }), params(DATE));
     assert.equal(accepted.status, 200);
@@ -345,7 +347,7 @@ test('an accepted plan is not rebuilt: it comes back as it was, flagged', async 
     const read = await readPlan();
     assert.equal(read.body.plan.generation, 1, 'an accepted plan was overwritten');
     assert.equal(read.body.plan.status, 'accepted');
-    assert.equal(read.body.plan.scheduled.length, 0);
+    assert.deepEqual(read.body.plan.scheduled.map((row) => row.itemId), ['cmt_first']);
     assert.equal(read.body.plan.inputsChanged, true, 'the screen is not told the day changed under the plan');
   });
 });
@@ -374,6 +376,8 @@ test('an edited plan is not rebuilt, and neither is a dismissed one', async () =
 test('an accept that lands while the refresh is solving is not overwritten', async () => {
   await withHarness(async ({ storage }) => {
     await seedAccount(storage);
+    // A plan that places something: an empty one cannot be accepted (audit 2026-10-03 #4).
+    await captureAndConfirm(storage, 'cmt_first', 'First thing', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
     await build();
     setClock(LATER);
     await captureAndConfirm(storage, 'cmt_report', 'Send the report', { kind: 'due_by', dueAt: DUE_TODAY }, LATER);
@@ -456,6 +460,8 @@ test('I2: on an accepted plan, a commitment added to the day or re-timed within 
   // commitment moved to later the same day.
   await withHarness(async ({ storage }) => {
     await seedAccount(storage);
+    // A plan that places something: an empty one cannot be accepted (audit 2026-10-03 #4).
+    await captureAndConfirm(storage, 'cmt_first', 'First thing', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
     await captureAndConfirm(storage, 'cmt_dentist', 'Dentist', { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z' }, MORNING);
     await build();
     await accept();
@@ -469,6 +475,8 @@ test('I2: on an accepted plan, a commitment added to the day or re-timed within 
   // Added with no date at all: an undated commitment that matters joins the day.
   await withHarness(async ({ storage }) => {
     await seedAccount(storage);
+    // A plan that places something: an empty one cannot be accepted (audit 2026-10-03 #4).
+    await captureAndConfirm(storage, 'cmt_first', 'First thing', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
     await build();
     await accept();
     setClock(LATER);
@@ -563,6 +571,8 @@ test('I3: a pending offer is not discarded by a refresh', async () => {
 test('I4: an accepted plan shows a commitment timed later today, and drops a finished one', async () => {
   await withHarness(async ({ storage }) => {
     await seedAccount(storage);
+    // A plan that places something: an empty one cannot be accepted (audit 2026-10-03 #4).
+    await captureAndConfirm(storage, 'cmt_first', 'First thing', { kind: 'due_by', dueAt: DUE_TODAY }, MORNING);
     await captureAndConfirm(storage, 'cmt_dentist', 'Dentist', { kind: 'scheduled_event', dueAt: '2026-09-15T11:00:00.000Z' }, MORNING);
     await build();
     await accept();

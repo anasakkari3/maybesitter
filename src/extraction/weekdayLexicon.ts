@@ -43,6 +43,11 @@ export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
   'الخميس': 4,
   'الجمعة': 5,
   'السبت': 6,
+  // Spoken spellings (audit 2026-10-03 #1 review): «التلاتا», «الأربعا».
+  'التلاتا': 2,
+  'التلاتاء': 2,
+  'الأربعا': 3,
+  'الاربعا': 3,
   // Without the article, only inside a frame that makes them days (FIX-R8-
   // CAPTURE): «يوم سبت», «كل سبت», «كل يوم خميس» — see `AR_BARE_DAY`.
   'أحد': 0,
@@ -57,6 +62,10 @@ export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
   'جمعة': 5,
   'جمعه': 5,
   'سبت': 6,
+  'تلاتا': 2,
+  'تلاتاء': 2,
+  'أربعا': 3,
+  'اربعا': 3,
   'ראשון': 0,
   'שני': 1,
   'שלישי': 2,
@@ -67,7 +76,7 @@ export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
 };
 
 const EN_DAY = '(sunday|monday|tuesday|wednesday|thursday|friday|saturday)';
-const AR_DAY = '(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)';
+const AR_DAY = '(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|التلاتاء|التلاتا|الأربعاء|الاربعاء|الأربعا|الاربعا|الخميس|الجمعة|السبت)';
 const HE_DAY = '(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)';
 
 /*
@@ -94,7 +103,7 @@ const NOT_LETTER_BEFORE = '(?<![\\p{L}\\p{M}])';
 const NOT_LETTER_AFTER = '(?![\\p{L}\\p{M}])';
 const AR_COMING = '(?:الجاي|الجاية|الجايه|الجّاي|القادم|القادمة)';
 const AR_SUFFIX = '(?:\\s+(?:الجاي|الجاية|الجايه|الجّاي|القادم|القادمة|الماضي|الماضية))?';
-const AR_UNAMBIGUOUS_DAY = '(الأحد|الاحد|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)';
+const AR_UNAMBIGUOUS_DAY = '(الأحد|الاحد|الثلاثاء|الثلثاء|التلاتاء|التلاتا|الأربعاء|الاربعاء|الأربعا|الاربعا|الخميس|الجمعة|السبت)';
 const AR_MONDAY = '(الاثنين|الإثنين|الأثنين)';
 const AR_HOUR_WORD = '(?:اللي|الّي|الساعة|الساعه|الصبح|الصباح|الظهر|الضهر|العصر|المسا|المساء|بالليل|عالساعة)';
 const HE_SUFFIX = '(?:\\s+(?:הבא|הבאה|הקרוב|הקרובה))?';
@@ -107,13 +116,13 @@ const HE_SUFFIX = '(?:\\s+(?:הבא|הבאה|הקרוב|הקרובה))?';
  * meaning cannot follow «كل» («كل أحد» is "everyone", «كل اثنين» "every
  * two", «كل جمعة» "every week" as often as "every Friday").
  */
-const AR_BARE_DAY = '(أحد|احد|اثنين|إثنين|ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|جمعة|جمعه|سبت)';
-const AR_BARE_DAY_AFTER_EVERY = '(ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|سبت)';
+const AR_BARE_DAY = '(أحد|احد|اثنين|إثنين|ثلاثاء|ثلثاء|تلاتاء|تلاتا|أربعاء|اربعاء|أربعا|اربعا|خميس|جمعة|جمعه|سبت)';
+const AR_BARE_DAY_AFTER_EVERY = '(ثلاثاء|ثلثاء|تلاتاء|تلاتا|أربعاء|اربعاء|أربعا|اربعا|خميس|سبت)';
 
 /** Every whole-word weekday mention, as sources. Group 1 is the day name. */
 const MENTION_SOURCES: readonly string[] = [
   `\\b${EN_DAY}\\b`,
-  `${NOT_LETTER_BEFORE}(?:يوم\\s+)?و?${AR_UNAMBIGUOUS_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}(?:يوم\\s+)?و?ب?${AR_UNAMBIGUOUS_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
   `${NOT_LETTER_BEFORE}و?يوم\\s+${AR_BARE_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
   `(?<=${NOT_LETTER_BEFORE}كل\\s+)${AR_BARE_DAY_AFTER_EVERY}${NOT_LETTER_AFTER}`,
   `${NOT_LETTER_BEFORE}يوم\\s+${AR_MONDAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
@@ -142,6 +151,67 @@ function firstMention(lower: string): Mention | null {
     if (weekday !== undefined && (best === null || match.index < best.index)) best = { weekday, index: match.index };
   }
   return best;
+}
+
+/*
+ * ══ A LIST OF DAYS IS EVERY DAY IN IT (audit 2026-10-03 #1) ══
+ *
+ * "Every Tuesday and Thursday at 7 PM" was read as Tuesday alone: the weekday
+ * rules read the first mention, so the Thursday item was moved onto Tuesday
+ * and three items sat at one hour. A day named in a list after another day —
+ * "Tuesday and Thursday", "Tuesday, Thursday", «الثلاثاء والخميس», «كل ثلاثاء
+ * وخميس», «כל יום שלישי וחמישי» — is a day the person said as well. The bare
+ * Arabic and Hebrew names count here only right after «و» that follows a day:
+ * the list is the frame that makes them days, as «يوم» and «كل» are.
+ */
+const LIST_JOINER_EN = '(?:\\s*,\\s*(?:and\\s+|&\\s*)?|\\s+(?:and|&)\\s+|\\s*&\\s*)(?:on\\s+)?(?:every\\s+|each\\s+)?';
+const LIST_CONTINUATIONS: readonly RegExp[] = [
+  new RegExp(`^${LIST_JOINER_EN}${EN_DAY}s?\\b`, 'u'),
+  // «والخميس», «وخميس», «وبالخميس», and a bare comma between definite days: «الثلاثاء، الخميس».
+  new RegExp(`^\\s*(?:[,،]?\\s*و\\s*(?:كل\\s+)?(?:يوم\\s+)?ب?(?:ال)?${AR_BARE_DAY}|[,،]\\s*(?:يوم\\s+)?ب?ال${AR_BARE_DAY})${NOT_LETTER_AFTER}`, 'u'),
+  new RegExp(`^\\s*,?\\s*ו\\s*(?:ב?יום\\s+)?${HE_DAY}${NOT_LETTER_AFTER}`, 'u'),
+];
+
+/** The days listed right after a mention that ends at `end`, in order, with where the list ends. */
+function listedAfter(lower: string, end: number): { weekdays: number[]; end: number } {
+  const weekdays: number[] = [];
+  let position = end;
+  // Bounded: a week has seven days, and a list is never longer.
+  for (let step = 0; step < 7; step += 1) {
+    const rest = lower.slice(position, position + 40);
+    let advanced = false;
+    for (const pattern of LIST_CONTINUATIONS) {
+      const match = pattern.exec(rest);
+      const name = match?.slice(1).find((group) => group !== undefined);
+      const weekday = name === undefined ? undefined : WEEKDAY_INDEX[name];
+      if (match && weekday !== undefined) {
+        weekdays.push(weekday);
+        position += match[0].length;
+        advanced = true;
+        break;
+      }
+    }
+    if (!advanced) break;
+  }
+  return { weekdays, end: position };
+}
+
+/** Every weekday the text names, first said first, each once — a list's later days included. */
+function allMentions(lower: string): Mention[] {
+  const found: Mention[] = [];
+  for (const source of MENTION_SOURCES) {
+    for (const match of Array.from(lower.matchAll(new RegExp(source, 'gu')))) {
+      const weekday = WEEKDAY_INDEX[match[1]!];
+      if (weekday === undefined) continue;
+      const index = match.index ?? 0;
+      found.push({ weekday, index });
+      const listed = listedAfter(lower, index + match[0].length);
+      listed.weekdays.forEach((listedDay, offset) => found.push({ weekday: listedDay, index: index + 1 + offset }));
+    }
+  }
+  found.sort((left, right) => left.index - right.index);
+  const seen = new Set<number>();
+  return found.filter((mention) => (seen.has(mention.weekday) ? false : (seen.add(mention.weekday), true)));
 }
 
 /** «اللي بعده» and «اللي بعد الجاي» spellings of "which". */
@@ -340,18 +410,26 @@ export interface StatedRecurrence {
   weekdays: number[];
   /** The phrases as the person wrote them, in order. */
   phrases: string[];
+  /** The same phrases without a list's later days ("every Tuesday" of "every Tuesday and Thursday"). */
+  shortPhrases?: string[];
 }
 
 /** The weekly recurrence the words state, or null. */
 export function readRecurrence(rawText: string): StatedRecurrence | null {
   if (typeof rawText !== 'string' || !rawText.trim()) return null;
   const lower = rawText.toLowerCase();
-  const found: Array<{ index: number; text: string; weekday: number | null }> = [];
+  const found: Array<{ index: number; text: string; weekday: number | null; short?: string }> = [];
   for (const pattern of RECURRENCE_PATTERNS) {
     for (const match of Array.from(lower.matchAll(pattern))) {
       const name = match.slice(1).find((group) => group !== undefined);
       const weekday = name === undefined ? undefined : WEEKDAY_INDEX[name];
-      if (weekday !== undefined) found.push({ index: match.index ?? 0, text: rawText.slice(match.index ?? 0, (match.index ?? 0) + match[0].length).trim(), weekday });
+      if (weekday === undefined) continue;
+      const index = match.index ?? 0;
+      // "every Tuesday and Thursday", «كل ثلاثاء وخميس»: the listed days recur
+      // too, and the phrase runs to the list's end so a title loses all of it.
+      const listed = listedAfter(lower, index + match[0].length);
+      found.push({ index, text: rawText.slice(index, listed.end).trim(), weekday, short: rawText.slice(index, index + match[0].length).trim() });
+      listed.weekdays.forEach((listedDay, offset) => found.push({ index: index + 1 + offset, text: '', weekday: listedDay }));
     }
   }
   for (const pattern of WEEKLY_PATTERNS) {
@@ -368,7 +446,101 @@ export function readRecurrence(rawText: string): StatedRecurrence | null {
     const mention = readWeekdayReference(rawText);
     if (mention) weekdays.push(mention.weekday);
   }
-  return { weekdays, phrases: found.map(({ text }) => text) };
+  return {
+    weekdays,
+    phrases: found.map(({ text }) => text).filter((text) => text.length > 0),
+    shortPhrases: found.map(({ text, short }) => short ?? text).filter((text) => text.length > 0),
+  };
+}
+
+/**
+ * The days the text names as one list — "Tuesday and Thursday", «الثلاثاء
+ * والخميس», «שלישי וחמישי» — first said first, or empty. Two days the words
+ * name apart ("Sunday, but it moved to Monday", «يوم الجمعة … ويوم الأحد» for
+ * two different things) are not a list.
+ */
+export function readListedWeekdays(rawText: string): number[] {
+  if (typeof rawText !== 'string' || !rawText.trim()) return [];
+  const lower = rawText.toLowerCase();
+  let best: { index: number; weekdays: number[] } | null = null;
+  for (const source of MENTION_SOURCES) {
+    for (const match of Array.from(lower.matchAll(new RegExp(source, 'gu')))) {
+      const weekday = WEEKDAY_INDEX[match[1]!];
+      if (weekday === undefined) continue;
+      const index = match.index ?? 0;
+      const listed = listedAfter(lower, index + match[0].length);
+      if (listed.weekdays.length === 0) continue;
+      if (best === null || index < best.index) best = { index, weekdays: Array.from(new Set([weekday, ...listed.weekdays])) };
+    }
+  }
+  return best && best.weekdays.length > 1 ? best.weekdays : [];
+}
+
+/** One list of days the text says, where it is, and whether it recurs. */
+export interface WeekdayList {
+  weekdays: number[];
+  /** Offsets into the text (lower-cased; the same length for these scripts). */
+  start: number;
+  end: number;
+  /** Said with «كل», "every", "each", «כל»: "every Tuesday and Thursday". */
+  recurring: boolean;
+}
+
+const RECURRING_BEFORE = new RegExp(`(?:\\b(?:every|each)|${NOT_LETTER_BEFORE}[وف]?(?:ب|في\\s+)?كل|${NOT_LETTER_BEFORE}ו?ב?כל)\\s+(?:(?:on\\s+)?|(?:يوم|יום)\\s+)?$`, 'iu');
+
+/**
+ * Every list of two or more days the text says, in order, with its place and
+ * whether it recurs (audit 2026-10-03 review): whether a list belongs to an
+ * item is read from what sits beside it, so it has to be found where it is.
+ */
+export function readWeekdayLists(rawText: string): WeekdayList[] {
+  if (typeof rawText !== 'string' || !rawText.trim()) return [];
+  const lower = rawText.toLowerCase();
+  const lists: WeekdayList[] = [];
+  for (const source of MENTION_SOURCES) {
+    for (const match of Array.from(lower.matchAll(new RegExp(source, 'gu')))) {
+      const weekday = WEEKDAY_INDEX[match[1]!];
+      if (weekday === undefined) continue;
+      const start = match.index ?? 0;
+      if (lists.some((list) => start >= list.start && start < list.end)) continue;
+      const listed = listedAfter(lower, start + match[0].length);
+      if (listed.weekdays.length === 0) continue;
+      const weekdays = Array.from(new Set([weekday, ...listed.weekdays]));
+      if (weekdays.length < 2) continue;
+      const before = lower.slice(Math.max(0, start - 16), start);
+      lists.push({ weekdays, start, end: listed.end, recurring: RECURRING_BEFORE.test(before) });
+    }
+  }
+  return lists.sort((left, right) => left.start - right.start);
+}
+
+/** Every weekday the text names, in the order said, each once ("Tuesday and Thursday" → 2, 4). */
+export function readWeekdayMentions(rawText: string): number[] {
+  if (typeof rawText !== 'string' || !rawText.trim()) return [];
+  return allMentions(rawText.toLowerCase()).map((mention) => mention.weekday);
+}
+
+/**
+ * The local dates every weekday the text names lands on, by rules 1 and 3 —
+ * "Tuesday and Thursday" is the coming Tuesday and the coming Thursday. A
+ * following-week phrase (rule 2) names one day and answers only that one, as
+ * `resolveWeekdayDate` does.
+ */
+export function resolveWeekdayDates(rawText: string, now: Date, timeZone: string): string[] {
+  const first = resolveWeekdayDate(rawText, now, timeZone);
+  if (!first) return [];
+  const lower = rawText.toLowerCase();
+  if (followingWeekMention(lower)) return [first.date];
+  const today = localTimeSpecFor(now, timeZone)?.date;
+  if (!today) return [first.date];
+  const [year, month, day] = today.split('-').map(Number) as [number, number, number];
+  const currentWeekday = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  const saysToday = TODAY_TOKEN.test(lower);
+  const dates = allMentions(lower).map((mention) => {
+    const ahead = daysUntilWeekday(currentWeekday, { weekday: mention.weekday, weeksLater: 0, today: saysToday });
+    return new Date(Date.UTC(year, month - 1, day + ahead)).toISOString().slice(0, 10);
+  });
+  return Array.from(new Set([first.date, ...dates]));
 }
 
 export interface WeekdayResolution {

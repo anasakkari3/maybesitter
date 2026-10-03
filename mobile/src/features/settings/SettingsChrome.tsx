@@ -28,11 +28,12 @@ export function SettingsHeader({ title, onBack, end, backLabel }: {
   backLabel?: string | undefined;
 }) {
   const { t, p } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   return (
-    <View testID="back-header" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 52 }}>
+    <View testID="back-header" style={{ flexDirection: stacked ? 'column' : 'row', alignItems: 'flex-start', gap: stacked ? 2 : 8, minHeight: 52 }}>
       <BackArrowButton label={backLabel ?? t.settingsBack} onPress={onBack} />
-      <View style={{ flex: 1, alignItems: 'flex-start' }}>
-        <Txt role="page" size={22} weight={700} color={p.tx}>{title}</Txt>
+      <View style={{ flex: stacked ? undefined : 1, alignItems: 'flex-start' }}>
+        <Txt role="page" size={stacked ? 20 : 22} weight={700} color={p.tx}>{title}</Txt>
       </View>
       {end ?? null}
     </View>

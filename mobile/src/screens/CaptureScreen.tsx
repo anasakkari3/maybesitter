@@ -3,7 +3,7 @@ import { BackHandler, Keyboard, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
 import { ClipboardImportSheet } from '../features/capture/ClipboardImportSheet';
@@ -13,8 +13,9 @@ import { questionText } from '../features/capture/clarificationCopy';
 import { EditProposalItemSheet } from '../features/capture/EditProposalItemSheet';
 import { chatItemPresentation } from '../features/capture/chatPresentation';
 import { chatConflictA11y, chatConflictLines } from '../features/capture/chatConflicts';
+import { collisionLines } from '../features/capture/savedCollisions';
 import { fill, ltr } from '../i18n/strings';
-import { isolateAuto, isolateLatinRuns } from '../i18n/bidi';
+import { isolateAuto, isolateLatinRuns, stripIsolates } from '../i18n/bidi';
 import { formatDayKey, formatRelativeDay, formatTime } from '../i18n/format';
 import type { Lang, Strings } from '../i18n/strings';
 import { useTimeZone } from '../i18n/timezone';
@@ -38,7 +39,7 @@ import { useConflictBusyBlocks } from '../features/google/useGoogle';
 import { busyAt, chipBlock } from '../features/calendar/conflicts';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { Tag } from '../ui/chrome';
-import { ProcessingDots } from '../ui/motion';
+import { ProcessingDots, useReducedMotion } from '../ui/motion';
 import { Screen } from '../ui/screen';
 import { AvoidKeyboard } from '../ui/keyboard';
 import { useAnnounceOnIos } from '../ui/announce';
@@ -67,7 +68,11 @@ function savedNoteText(note: ChatSavedNote, t: Strings, lang: Lang, timeZone: st
   if (note.weeklySaved.length > 0) {
     paragraphs.push([...note.weeklySaved.map(({ block }) => weeklyLine(block, lang)), t.wbSavedNote].join('\n'));
   }
-  for (const collision of note.collisions) paragraphs.push(fill(t.savedCollision, { title: collision.title, when: whenOf(collision.startsAt) }));
+  // One line for every clash the confirm reported, never one per pair (audit
+  // 2026-10-03 #1); Undo sits right under it.
+  paragraphs.push(...collisionLines(note.collisions, t, lang, (startsAt) => whenOf(startsAt)));
+  // What it now counts toward (audit 2026-10-03 #6), when a goal link was kept.
+  if (note.goalTitles?.length) paragraphs.push(fill(t.chatSavedGoal, { goals: list(note.goalTitles) }));
   if (note.failed.length > 0) {
     paragraphs.push(`${t.savedFailedTitle}${note.failedTitles.length > 0 ? `: ${list(note.failedTitles)}` : ''}. ${t.savedFailedBody}`);
   }
@@ -101,6 +106,7 @@ export function CaptureScreen() {
   const mode = useLayoutMode();
   const timezone = useTimeZone();
   const keyboardShown = useKeyboardShown();
+  const reducedMotion = useReducedMotion();
   const reviewing = REVIEW_STATUSES.includes(state.status);
   const busy = state.status === 'confirming' || state.status === 'analyzing';
   // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
@@ -240,6 +246,7 @@ export function CaptureScreen() {
     const selected = state.selected.includes(item.itemId);
     const needsQuestion = !confirmable.includes(item.itemId);
     const weekly = weeklyChoice(state, item.itemId);
+    const linked = goalLinkKept(state, item.itemId);
     const groupKey = weekly === 'weekly' ? 'weekly' : shown.date ?? 'undated';
     // What the item's time lands on (owner request 2026-09-30): the server's
     // clashes, named; the device chip below keeps the phone's own calendar.
@@ -267,6 +274,18 @@ export function CaptureScreen() {
         <Txt size={13} weight={500} color={p.wm} style={{ flex: 1 }} testID={`review-conflict-${item.itemId}-${index}-text`}>{line}</Txt>
       </View>)}
       {shown.instant && weekly !== 'weekly' ? <BusyConflictChip testID={`review-busy-${item.itemId}`} blocks={busyHere} /> : null}
+      {/* «مرتبط بهدف …» (audit 2026-10-03 #6): the goal this card would count
+          toward, kept unless the person takes it off — one control, a
+          checkbox, its state said in words as well as by the action. */}
+      {item.goalLink ? <Btn testID={`review-goal-${item.itemId}`} accessibilityRole="checkbox" accessibilityState={{ checked: linked, disabled: busy || answering }}
+        label={stripIsolates(fill(t.reviewGoalLink, { goal: item.goalLink.title }))} disabled={busy || answering}
+        onPress={() => flow.setGoalLink(item.itemId, !linked)} scaleTo={1}
+        style={{ alignSelf: 'stretch', minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.sf, borderRadius: 12, paddingVertical: 8, paddingHorizontal: 12 }}>
+        <Txt size={13} weight={500} color={linked ? p.tx : p.mu} style={{ flex: 1 }} testID={`review-goal-${item.itemId}-text`}>
+          {fill(linked ? t.reviewGoalLink : t.reviewGoalLinkRemoved, { goal: isolateAuto(item.goalLink.title) })}
+        </Txt>
+        <Txt size={13} weight={600} color={busy || answering ? p.mu : p.ac} testID={`review-goal-${item.itemId}-action`}>{linked ? t.reviewGoalLinkRemove : t.reviewGoalLinkRestore}</Txt>
+      </Btn> : null}
       {item.weeklyBlock && weekly ? <WeeklyChoice itemId={item.itemId} offer={item.weeklyBlock} title={state.edits[item.itemId]?.title ?? item.weeklyBlock.title} choice={weekly} locked={weeklyLockedByEdit(state, item.itemId)} onChoose={value => flow.setWeekly(item.itemId, value)} /> : null}
     </View>;
     // Kept weekly, the card is the block: «تدريب», with «كل سبت · 10:00–16:00»
@@ -276,7 +295,7 @@ export function CaptureScreen() {
       id: item.itemId, title: cardTitle,
       ...(weekly === 'weekly' ? {} : { subtitle: shown.subtitle }),
       icon: /doctor|طبيب|دكتور|רופא/i.test(shown.title) ? 'doctor' : 'briefcase', selected, badge, selectionDisabled: busy || answering || needsQuestion, disabled: busy || answering,
-      accessibilityLabel: `${cardTitle}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${weekly === 'weekly' && item.weeklyBlock ? weeklyA11yLabel({ ...item.weeklyBlock, title: state.edits[item.itemId]?.title ?? item.weeklyBlock.title }, lang, { withTitle: false }) : shown.subtitle}${shown.dateEstimated && weekly !== 'weekly' ? ', ' + t.reviewDateEstimated : ''}${shown.timeEstimated && weekly !== 'weekly' ? ', ' + t.reviewTimeEstimated : ''}${clashLines.map(line => ', ' + chatConflictA11y(line)).join('')}`,
+      accessibilityLabel: `${cardTitle}, ${selected ? t.reviewSelected : t.reviewNotSelected}, ${weekly === 'weekly' && item.weeklyBlock ? weeklyA11yLabel({ ...item.weeklyBlock, title: state.edits[item.itemId]?.title ?? item.weeklyBlock.title }, lang, { withTitle: false }) : shown.subtitle}${shown.dateEstimated && weekly !== 'weekly' ? ', ' + t.reviewDateEstimated : ''}${shown.timeEstimated && weekly !== 'weekly' ? ', ' + t.reviewTimeEstimated : ''}${clashLines.map(line => ', ' + chatConflictA11y(line)).join('')}${item.goalLink && linked ? ', ' + stripIsolates(fill(t.reviewGoalLink, { goal: item.goalLink.title })) : ''}`,
       extra,
     }];
   }
@@ -443,8 +462,12 @@ export function CaptureScreen() {
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
         bodyOverride={bodyOverride} clarification={clarification} reviewExtras={afterChat} reviewFooter={reviewFooter} languageControl={language}
         onCancelListening={cancelDictation}
-        // After each save the field is ready for the next commitment.
-        composerFocusKey={saves}
+        // After a save the field is NOT focused (audit 2026-10-03 #8): the
+        // keyboard it raised hid the line saying what was saved. The person
+        // taps the field when they have the next thing to say.
+        // A new proposal scrolls its confirm into view above the composer.
+        revealConfirmKey={reviewing ? state.proposal?.proposalId ?? null : null}
+        reduceMotion={reducedMotion}
         // While listening the panel above the field says so; the note line
         // keeps the other states (failed, no speech, denied → Settings).
         voiceNotice={<>{counter}{voiceStatus === 'listening' ? null : <VoiceNote status={voiceStatus} />}</>}

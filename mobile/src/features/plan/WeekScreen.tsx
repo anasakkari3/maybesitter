@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AccessibilityInfo, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useAcceptWeekDay, useWeek } from '../../api/queries';
-import { ConflictError, QuotaExceededError, WeekConflictError } from '../../api/errors';
+import { ConflictError, QuotaExceededError, WeekConflictError, WeekEmptyDayError } from '../../api/errors';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { userFacingMessage } from '../../api/ui/userFacingMessage';
 import type { WeekDecisions } from '../../api/endpoints/plans';
@@ -85,6 +85,7 @@ export function WeekScreen() {
 /** A save's failure, in the words that fit it. */
 function saveErrorText(error: unknown, t: ReturnType<typeof useApp>['t']): string {
   if (error instanceof WeekConflictError && error.reason === 'week_changed') return t.weekChanged;
+  if (error instanceof WeekEmptyDayError) return t.weekNothingToSave;
   if (error instanceof ConflictError) return t.weekAlreadyPlanned;
   if (error instanceof QuotaExceededError) return t.weekLimitReached;
   return userFacingMessage(error, t);
@@ -262,9 +263,11 @@ function DayCard({
   );
 }
 
-function when(row: { startsAt: string; endsAt: string }, lang: 'ar' | 'en' | 'he', zone: string): string {
+function when(row: { startsAt: string; endsAt: string; endEstimated?: boolean | undefined }, lang: 'ar' | 'en' | 'he', zone: string): string {
   const start = new Date(row.startsAt);
-  return row.startsAt === row.endsAt
+  // An end nobody stated is not drawn as one (audit 2026-10-03 #11): the
+  // start alone, and the row says the length is not known.
+  return row.startsAt === row.endsAt || row.endEstimated === true
     ? formatTime(start, { locale: lang, timeZone: zone })
     : formatTimeRange(start, new Date(row.endsAt), { locale: lang, timeZone: zone });
 }
@@ -331,12 +334,17 @@ function FixedWeekRow({ row, zone }: { row: WeekRow; zone: string }) {
   const { t, p, lang } = useApp();
   const title = row.title ? isolateAuto(row.title) : t.planRemovedItem;
   const time = when(row, lang, zone);
+  const estimated = row.endEstimated === true;
   return (
-    <View testID={`week-fixed-${row.itemId}`} accessible accessibilityRole="text" accessibilityLabel={[title, time, t.planItemFixed].join(lang === 'ar' ? '، ' : ', ')}
+    <View testID={`week-fixed-${row.itemId}`} accessible accessibilityRole="text"
+      accessibilityLabel={[title, time, ...(estimated ? [t.planLengthUnknown] : []), t.planItemFixed].join(lang === 'ar' ? '، ' : ', ')}
       style={{ gap: 4, alignItems: 'flex-start', backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
-      <Txt size={13} weight={600} latin color={p.mu}>{time}</Txt>
+      <Txt size={13} weight={600} latin color={p.mu} testID={`week-fixed-time-${row.itemId}`}>{time}</Txt>
       <Txt size={15}>{title}</Txt>
-      <Tag kind="fixed" label={t.planItemFixed} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <Tag kind="fixed" label={t.planItemFixed} />
+        {estimated ? <Txt size={13} color={p.mu} testID={`week-fixed-length-unknown-${row.itemId}`}>{t.planLengthUnknown}</Txt> : null}
+      </View>
     </View>
   );
 }

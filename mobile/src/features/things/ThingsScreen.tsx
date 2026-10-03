@@ -63,7 +63,7 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
 
   return (
     <Screen testID="things-root">
-      <ScreenScroll testID="things-scroll" bottom={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
+      <ScreenScroll testID="things-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
         <ScreenHeader brand={false} title={t.tabThings} end={<AvatarButton />} />
         <View style={{ minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 8 }}>
           <ReferenceIcon name="search" size={20} color={p.mu} />
@@ -157,7 +157,7 @@ function SavedRow({ view, when, imp, onPress }: { view: CommitmentView; when: st
           {done ? <Tag kind="saved" label={t.xDone} /> : <Tag kind={priorityTagKind(view.importance)} label={imp} />}
         </View>
       </View>
-      {stacked ? null : <ChevronIcon color={p.mu} rtl={rtl} />}
+      <ChevronIcon color={p.mu} rtl={rtl} />
     </Btn>
   );
 }

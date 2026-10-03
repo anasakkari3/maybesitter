@@ -207,7 +207,7 @@ function PlanFrame({
 }
 
 function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; readOnly: boolean }) {
-  const { t, tr, p, lang } = useApp();
+  const { t, tr, p, lang, actions } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   const accept = usePlanAction(date);
   const replayEvent = useReplayEvent();
@@ -277,6 +277,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   };
 
   const refusal = editRefusalOf(edit.error);
+  // The server refusing to accept a plan that places nothing (audit
+  // 2026-10-03 #4) — reachable when the day emptied after this screen read it.
+  const acceptRefusal = editRefusalOf(accept.error);
   // A 429 means another device spent the last rebuild between this screen's
   // read and this tap. The cap copy is the same either way.
   // The server's count when it sends one (L5): a generation its automatic
@@ -307,6 +310,11 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   useAnnounceOnIos(accepted && accept.isSuccess ? acceptedLine : null);
   const settled = accepted || plan.status === 'dismissed';
   const proposal = !settled;
+  // A plan that places nothing has nothing to accept (audit 2026-10-03 #4):
+  // «اقبل الخطة» under «ما في إشي محطوط بوقت اليوم» answered «حفظنا خطة
+  // اليوم» and counted a planned day. The server refuses it too
+  // (`placesNothing`); here the button is replaced by a way to add something.
+  const placesNothing = plan.scheduled.length === 0;
   // The explanation is rendered only in the language the app is showing.
   // The route says which language it wrote in; when that is not this one,
   // a templated sentence stands in rather than a paragraph the reader may
@@ -504,6 +512,21 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             <View style={{ alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 }}>
               <Txt size={13} weight={600} color={p.acd} testID="plan-accepted">{acceptedLine}</Txt>
             </View>
+          ) : placesNothing ? (
+            <Card pad={16} testID="plan-empty-accept">
+              <View style={{ gap: 12, alignItems: 'flex-start' }}>
+                <Txt size={14} color={p.tx} lh={1.5} testID="plan-empty-accept-body">{t.planNothingToAccept}</Txt>
+                <Pill
+                  label={t.tabCapture}
+                  size={15}
+                  pad={12}
+                  style={{ minHeight: 48 }}
+                  testID="plan-empty-capture"
+                  disabled={readOnly}
+                  onPress={() => actions.goCapture('tab', 'text')}
+                />
+              </View>
+            </Card>
           ) : (
             <Pill
               label={t.planAccept}
@@ -520,6 +543,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             />
           )}
         </View>
+        {acceptRefusal ? (
+          <Txt size={13} color={p.wm} testID="plan-accept-refused">{t[acceptRefusal.key] as string}</Txt>
+        ) : null}
         <ActionRow>
           <Pill
             label={t.planRegenerate}
@@ -616,7 +642,10 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
   const prep = planItemPrepTarget(item, new Date());
   const stacked = useLayoutMode() !== 'normal';
   const start = new Date(item.startsAt);
-  const when = item.startsAt === item.endsAt
+  // An end nobody stated is the planner's reservation, not a fact (audit
+  // 2026-10-03 #11: «امتحان رياضيات» drawn 10:00–10:30): the start alone.
+  const estimated = item.endEstimated === true;
+  const when = item.startsAt === item.endsAt || estimated
     ? formatTime(start, { locale: lang, timeZone: zone })
     : formatTimeRange(start, new Date(item.endsAt), { locale: lang, timeZone: zone });
   const title = item.title ?? t.planRemovedItem;
@@ -627,7 +656,7 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
           testID={`plan-fixed-text-${item.itemId}`}
           accessible
           accessibilityRole="text"
-          accessibilityLabel={`${title}, ${when}, ${t.planItemFixed}`}
+          accessibilityLabel={`${title}, ${when}, ${estimated ? `${t.planLengthUnknown}, ` : ''}${t.planItemFixed}`}
           style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 12, paddingHorizontal: 18, paddingTop: 16, paddingBottom: prep ? 8 : 16, minHeight: 56 }}
         >
           <Txt size={13} weight={600} latin color={p.mu} testID={`plan-fixed-time-${item.itemId}`} style={stacked ? undefined : { minWidth: 48 }}>{formatTime(start, { locale: lang, timeZone: zone })}</Txt>
@@ -635,8 +664,9 @@ function FixedRow({ item, zone }: { item: PlanItem; zone: string }) {
           <View style={{ ...(stacked ? {} : { flex: 1 }), gap: 4, alignItems: 'flex-start' }}>
             <Txt size={15} weight={600}>{item.title ? isolateAuto(item.title) : t.planRemovedItem}</Txt>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <Txt size={13} color={p.mu} latin>{when}</Txt>
+              <Txt size={13} color={p.mu} latin testID={`plan-fixed-when-${item.itemId}`}>{when}</Txt>
               <Tag kind="fixed" label={t.planItemFixed} />
+              {estimated ? <Txt size={13} color={p.mu} testID={`plan-fixed-length-unknown-${item.itemId}`}>{t.planLengthUnknown}</Txt> : null}
             </View>
           </View>
         </View>

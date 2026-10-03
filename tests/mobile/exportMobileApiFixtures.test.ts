@@ -62,6 +62,7 @@ import { applyCommand as applyDomainCommand, createEmptyDomainState } from '../.
 import { persistParticipantState, readParticipantState } from '../../lib/services/mobile/participantState.ts';
 import { POST as capturePost } from '../../src/app/api/mobile/capture/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
+import { createManualMemory } from '../../lib/services/mobile/memoryService.ts';
 import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/route.ts';
 import { POST as sharePost } from '../../src/app/api/mobile/capture/share/route.ts';
 import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
@@ -2162,6 +2163,10 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         .map((item) => (item as { itemId: string }).itemId);
       // A card that no longer matches the week (I1): refused, with the week to redraw.
       await record('plan.weekChanged', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: ['plan_fixture_not_on_this_day'] } })));
+      // A day with nothing on it cannot be saved (audit 2026-10-03 #4): refused, with the week.
+      const emptyDay = weekDays.find((day) => day.state === 'proposed' && day.items.length === 0);
+      assert.ok(emptyDay, 'the week fixture has no empty proposed day to refuse');
+      await record('plan.weekEmptyDay', 422, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: emptyDay.date, shown: [] } })));
       await record('plan.weekAccepted', 200, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
       await record('plan.weekAlreadyPlanned', 409, await planWeekAcceptPost(request('/api/mobile/plans/week/accept', { body: { date: '2026-08-11', shown: shownOn11th } })));
       // The saved week days the Calendar strip draws (I4): the day just saved.
@@ -2563,6 +2568,9 @@ test('exports a fixture for every /api/mobile call the React Native client makes
         timezone: 'Asia/Jerusalem',
         confirmedAt: REFERENCE_TIME,
       }, { now: new Date(REFERENCE_TIME) });
+      // A goal the person has (audit 2026-10-03 #6): the dentist call offers
+      // to count toward it (`goalLink`), and the confirm below keeps it.
+      const dentistGoal = await createManualMemory(CHAT_CONFLICT_USER, { kind: 'goal', content: 'Look after my teeth: see the dentist', language: 'en' }, REFERENCE_TIME);
       const chatClash = await record('capture.chatConflict', 200, await chatPost(request('/api/mobile/capture/chat', {
         body: { message: 'Remind me to call the dentist tomorrow at 5pm', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en' },
         uid: CHAT_CONFLICT_USER,
@@ -2570,6 +2578,13 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       const clashItem = (chatClash.proposal as { items: Array<{ conflicts?: Array<{ kind: string; title: string | null }> }> }).items[0]!;
       assert.deepEqual(clashItem.conflicts?.map((conflict) => [conflict.kind, conflict.title]), [['weekly', 'Gym']]);
       assert.match(chatClash.reply as string, /clashes with "Gym"/);
+      const linkedItem = (chatClash.proposal as { proposalId: string; items: Array<{ itemId: string; goalLink?: { goalId: string } }> });
+      assert.equal(linkedItem.items[0]!.goalLink?.goalId, dentistGoal.id);
+      const goalConfirmed = await record('capture.chatGoalLinkConfirmation', 200, await confirmPost(request('/api/mobile/capture/confirm', {
+        body: { proposalId: linkedItem.proposalId, itemIds: [linkedItem.items[0]!.itemId], goalLinkItemIds: [linkedItem.items[0]!.itemId] },
+        uid: CHAT_CONFLICT_USER,
+      })));
+      assert.equal((goalConfirmed.goalLinks as unknown[]).length, 1);
     } finally {
       removeStub();
       if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;

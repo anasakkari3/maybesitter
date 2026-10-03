@@ -18,6 +18,7 @@
  * one first", and it is deliberately not a status.
  */
 import type { Commitment } from '../../api/schemas/common';
+import { namesEvent } from '../../../../src/extraction/lexicon/eventTitles';
 import { dayKey, formatTime, type FormatOptions } from '../../i18n/format';
 import { ltr } from '../../i18n/strings';
 import { resolveTimeZone } from '../../i18n/timezone';
@@ -53,6 +54,14 @@ export interface CommitmentView {
    * view built by hand reads as neither.
    */
   allDayEvent?: boolean;
+  /**
+   * An event at an hour (audit 2026-10-03 #2): a `scheduled_event` whose
+   * title an event noun heads (`namesEvent`, shared with the server). It
+   * happens at `shownAt`; Today's fallback card does not offer one hours
+   * ahead as the thing to do now. A task given an hour is not one. Optional
+   * so a view built by hand reads as a task.
+   */
+  timedEvent?: boolean;
   /** Separate from the due time: postponing pauses resurfacing, not the deadline. */
   postponedUntil?: string | null;
   /** Past its shown time, and still active. Not a status — see the header. */
@@ -106,6 +115,9 @@ export function toViewModel(commitment: Commitment, now: string): CommitmentView
     shownAt,
     allDay,
     allDayEvent: allDay && commitment.timeSpec.kind === 'scheduled_event',
+    // The server's own test (`eventTitles.ts`): an event noun heads the title.
+    // «Send the meeting notes at 3pm» is a task with an hour (review of #2).
+    timedEvent: !allDay && commitment.timeSpec.kind === 'scheduled_event' && !!commitment.timeSpec.dueAt && namesEvent(commitment.title),
     postponedUntil: commitment.currentAckState === 'postponed' ? commitment.postponedUntil : null,
     isPast,
     importanceIsStated: commitment.priority.source === 'user_explicit',

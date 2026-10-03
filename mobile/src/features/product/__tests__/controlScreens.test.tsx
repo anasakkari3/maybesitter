@@ -12,8 +12,10 @@ const mockCreateMemory = jest.fn();
 const mockGenerate = jest.fn();
 const mockRegenerate = jest.fn();
 const mockUnlink = jest.fn();
+let mockHabits: unknown[] = [];
 
 jest.mock('../../../api/queries', () => ({
+  useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({
     data: { items: [{ id: 'goal-1', kind: 'goal', content: 'Launch the pilot' }] },
     isPending: false, error: null, refetch: jest.fn(),
@@ -37,7 +39,7 @@ jest.mock('../../../api/queries', () => ({
   useRegenerateGoalExecution: () => ({ mutate: mockRegenerate, isPending: false, error: null }),
   useUnlinkGoalNode: () => ({ mutate: mockUnlink, isPending: false, error: null }),
   useCommitment: () => ({ data: null, isPending: false, error: null, refetch: jest.fn() }),
-  useHabits: () => ({ data: [], isPending: false, error: null, refetch: jest.fn() }),
+  useHabits: () => ({ data: mockHabits, isPending: false, error: null, refetch: jest.fn() }),
   useCreateHabit: () => ({ mutate: mockCreateHabit, isPending: false, error: null }),
   useSetHabitStatus: () => ({ mutate: jest.fn(), isPending: false, error: null }),
   useDeleteHabit: () => ({ mutate: jest.fn(), isPending: false, error: null }),
@@ -52,6 +54,7 @@ const wrap = (child: React.ReactNode) => (
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockHabits = [];
   mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
     generation: 1,
     nodes: [
@@ -122,4 +125,120 @@ it('creates a habit only after the user fills and confirms its concrete schedule
       confirmedByUserAt: expect.any(String),
     }),
   }), expect.any(Object));
+});
+
+/**
+ * Habit cadence beyond 1× / 3× / 5× (audit 2026-10-03, #12).
+ *
+ * «بيلاتيس الثلاثاء والخميس» could not be said: the creator offered three
+ * counts and no days. The server's cadence has always had both shapes
+ * (`weekly_count` 1–7, and `weekdays`, 0 = Sunday).
+ */
+it('creates a Tuesday and Thursday habit from the days the user picks', async () => {
+  await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-create'));
+  await fireEvent.changeText(screen.getByTestId('habit-title-input'), 'Pilates');
+  await fireEvent.press(screen.getByTestId('habit-day-2'));
+  await fireEvent.press(screen.getByTestId('habit-day-4'));
+  expect(screen.getByTestId('habit-day-2').props.accessibilityState).toMatchObject({ checked: true });
+  expect(screen.getByTestId('habit-day-3').props.accessibilityState).toMatchObject({ checked: false });
+  await fireEvent.press(screen.getByTestId('habit-create-confirm'));
+
+  expect(mockCreateHabit).toHaveBeenCalledWith(expect.objectContaining({
+    title: 'Pilates',
+    cadence: { kind: 'weekdays', weekdays: [2, 4] },
+    minimumOccurrences: 2,
+    maximumOccurrences: 2,
+  }), expect.any(Object));
+});
+
+it('offers every weekly count from 1 to 7', async () => {
+  await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-create'));
+  for (const count of [1, 2, 3, 4, 5, 6, 7]) expect(screen.queryByTestId(`habit-count-${count}`)).not.toBeNull();
+  await fireEvent.changeText(screen.getByTestId('habit-title-input'), 'Walk');
+  // A day, then a count: the count wins and the day is cleared.
+  await fireEvent.press(screen.getByTestId('habit-day-1'));
+  await fireEvent.press(screen.getByTestId('habit-count-2'));
+  expect(screen.getByTestId('habit-day-1').props.accessibilityState).toMatchObject({ checked: false });
+  await fireEvent.press(screen.getByTestId('habit-create-confirm'));
+  expect(mockCreateHabit).toHaveBeenCalledWith(expect.objectContaining({
+    cadence: { kind: 'weekly_count', count: 2 },
+    minimumOccurrences: 2,
+    maximumOccurrences: 2,
+  }), expect.any(Object));
+});
+
+it('falls back to the count when the last picked day is taken off', async () => {
+  await render(wrap(<HabitDetailScreen />));
+  await fireEvent.press(screen.getByTestId('habit-create'));
+  await fireEvent.changeText(screen.getByTestId('habit-title-input'), 'Read');
+  await fireEvent.press(screen.getByTestId('habit-day-5'));
+  await fireEvent.press(screen.getByTestId('habit-day-5'));
+  await fireEvent.press(screen.getByTestId('habit-create-confirm'));
+  expect(mockCreateHabit).toHaveBeenCalledWith(expect.objectContaining({
+    cadence: { kind: 'weekly_count', count: 3 },
+  }), expect.any(Object));
+});
+
+/**
+ * Only a step that repeats can become a habit (audit 2026-10-03, #12, screen
+ * 26): «Install Node.js and npm» — a one-off the goal planner marked
+ * `suggestedAs: 'commitment'` — was offered as a recurring habit.
+ */
+it('offers the habit choice only for steps that are not one-offs', async () => {
+  mockGenerate.mockImplementation((_input, options: any) => options.onSuccess({
+    generation: 2,
+    nodes: [
+      { nodeId: 'g1.step.node', kind: 'decomposition_step_proposal', status: 'proposed', stepId: 'node', title: 'Install Node.js and npm', sourceSpans: [], inferred: true, statedTiming: null, statedOwner: null, suggestedAs: 'commitment', suggestedWhen: 'today' },
+      { nodeId: 'g1.step.practice', kind: 'decomposition_step_proposal', status: 'proposed', stepId: 'practice', title: 'Practise React components', sourceSpans: [], inferred: true, statedTiming: null, statedOwner: null, suggestedAs: 'habit' },
+      { nodeId: 'g1.step.split', kind: 'decomposition_step_proposal', status: 'proposed', stepId: 'split', title: 'Read the React docs', sourceSpans: [], inferred: false, statedTiming: null, statedOwner: null },
+    ],
+  }));
+  await render(wrap(<GoalExecutionScreen />));
+  await fireEvent.press(screen.getByTestId('goal-open-goal-1'));
+  await fireEvent.press(screen.getByTestId('goal-generate'));
+  for (const title of ['Install Node.js and npm', 'Practise React components', 'Read the React docs']) {
+    await fireEvent.press(screen.getByLabelText(new RegExp(title)));
+  }
+  expect(screen.queryByTestId('goal-kind-habit-g1.step.node')).toBeNull();
+  expect(screen.queryByTestId('goal-kind-commitment-g1.step.node')).toBeNull();
+  expect(screen.queryByTestId('goal-kind-habit-g1.step.practice')).not.toBeNull();
+  expect(screen.queryByTestId('goal-kind-habit-g1.step.split')).not.toBeNull();
+
+  // The habit step takes the same cadence picker, days included.
+  await fireEvent.press(screen.getByTestId('goal-g1.step.practice-day-2'));
+  await fireEvent.press(screen.getByTestId('goal-g1.step.practice-day-4'));
+  await fireEvent.press(screen.getByTestId('goal-confirm-selected'));
+  expect(mockConfirmGoal).toHaveBeenCalledWith({
+    generation: 2,
+    selections: expect.arrayContaining([
+      { nodeId: 'g1.step.node', as: 'commitment' },
+      expect.objectContaining({
+        nodeId: 'g1.step.practice',
+        as: 'habit',
+        habit: expect.objectContaining({ cadence: { kind: 'weekdays', weekdays: [2, 4] }, minimumOccurrences: 2, maximumOccurrences: 2 }),
+      }),
+    ]),
+  }, expect.any(Object));
+});
+
+/**
+ * A saved habit's rows read in the person's words (audit 2026-10-03 device
+ * pass): the detail showed the raw `30 min`, `flexible` and `skip` values in
+ * the Arabic app.
+ */
+it('names a saved habit\'s duration, flexibility and recovery in words, not raw values', async () => {
+  mockHabits = [{
+    habitId: 'h1', title: 'Pilates', cadence: { kind: 'weekdays', weekdays: [2, 4] }, durationMinutes: 30,
+    preferredWindows: [], minimumOccurrences: 2, maximumOccurrences: 3, flexibility: 'protected_flexible',
+    recoveryPolicy: 'recover_within_period', status: 'active', source: 'user_created',
+    confirmation: { confirmedByUserAt: '2026-10-03T00:00:00.000Z', sourceRef: null, acceptedSuggestedValues: true },
+    createdAt: '2026-10-03T00:00:00.000Z', updatedAt: '2026-10-03T00:00:00.000Z',
+  }];
+  await render(wrap(<HabitDetailScreen />));
+  expect(screen.getByText(strings.en.xProtectedFlexible)).toBeTruthy();
+  expect(screen.getByText(strings.en.xRecoverThisWeek)).toBeTruthy();
+  expect(screen.queryByText('protected_flexible')).toBeNull();
+  expect(screen.queryByText('recover_within_period')).toBeNull();
 });

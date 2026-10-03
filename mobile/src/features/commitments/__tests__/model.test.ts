@@ -278,3 +278,27 @@ describe('an all-day commitment', () => {
     expect(toViewModel(sunday, '2026-09-27T21:00:00.000Z').isPast).toBe(true);
   });
 });
+
+/**
+ * Review of audit 2026-10-03 #2: the fallback card held back every timed
+ * entry. Only an event an event noun heads is held back — the same test the
+ * server applies (`src/extraction/lexicon/eventTitles.ts`).
+ */
+describe('which timed entries are events', () => {
+  const at = (id: string, title: string) => toViewModel(commitment({
+    id, title,
+    timeSpec: { kind: 'scheduled_event', dueAt: '2026-10-03T18:00:00.000Z', endAt: null, remindAt: null, allDay: false, timezone: 'Asia/Jerusalem' },
+  } as never), '2026-10-03T06:00:00.000Z');
+
+  it('a night out, an exam, an appointment are events', () => {
+    for (const title of ['سهرة مع الصحاب', 'عندي امتحان رياضيات', 'Dentist appointment', 'יש לי מסיבה', 'تحضر عرس ابن عمك', 'Take the math exam']) {
+      expect(at(title, title).timedEvent).toBe(true);
+    }
+  });
+
+  it('a task given an hour is not, whatever event it mentions', () => {
+    for (const title of ['Send the meeting notes', 'Buy a birthday cake', 'احكي مع الدكتور', 'عندي تقرير لازم أسلمه', 'أدرس للامتحان', 'יש לי לשלוח את הדוח']) {
+      expect(at(title, title).timedEvent).toBe(false);
+    }
+  });
+});

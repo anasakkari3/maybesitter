@@ -56,9 +56,9 @@ import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
 import { buildChatPrompt, parseChatModelAnswer, type ChatPromptItem } from './chatPrompt';
-import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, type PersonSchedule } from './chatConflicts';
+import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
-import { detectChatLanguage, safeChatReply, templateReply, type ChatLanguage } from './chatReply';
+import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
 import {
   CaptureConversationStore,
   conversationExpired,
@@ -187,7 +187,8 @@ function promptItems(
  */
 async function withConflicts(proposal: CaptureChatProposal | null, schedule: PersonSchedule): Promise<CaptureChatProposal | null> {
   if (!proposal) return null;
-  return withItemConflicts(proposal, await proposalCollisionCandidates(proposal), schedule);
+  const candidates = await proposalCollisionCandidates(proposal);
+  return withProposalClashes(withItemConflicts(proposal, candidates, schedule), candidates);
 }
 
 /**
@@ -265,7 +266,7 @@ export async function chatMobileCapture(
     const proposal = answered === current || options.conflictsKnown ? answered : await withConflicts(answered, schedule);
     const reply = options.refused || !proposal
       ? replyText
-      : withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown });
+      : withWeeklyOffer(withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown }), language, proposal, current);
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
     const updatedAt = new Date(clock()).toISOString();
     await conversations.put(uid, { ...conversation, turns: kept, proposalId: proposal?.proposalId ?? null, updatedAt }, new Date(clock()));
@@ -357,7 +358,13 @@ export async function chatMobileCapture(
       // A reason only from the person's words or the list; a clash only when there is one (`chatWhy`).
       grounds: { userTurns: evidenceTurns, items: proposal?.items ?? [], now, timezone },
     });
-    return finish(reply, 'model', proposal, turns, { conflictsKnown: true });
+    // The list the boundary proposes may not be the model's (`proposalShape`:
+    // a goal off the timed list, a repeat gone, a day added): the reply says
+    // the list the person sees, not the one the model wrote.
+    const shaped = changesList
+      ? withShapeNoted(reply, { language, modelItems: answer.items, proposal, previous: current, updated: answer.action === 'update' && Boolean(current) })
+      : reply;
+    return finish(shaped, 'model', proposal, turns, { conflictsKnown: true });
   }
 
   // ── the rules, on the person's turns joined ─────────────────────

@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react-native';
+import { act, render, screen, waitFor, fireEvent, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider } from '../../../state/AppContext';
@@ -21,6 +21,7 @@ import ar from '../../../i18n/locales/ar.json';
 
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
 import type { CommitmentView } from '../../commitments/model';
+import { deviceTimeZone } from '../../../i18n/timezone';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -471,5 +472,87 @@ describe('the three answers up front (Stitch)', () => {
     expect(screen.getAllByText(en.suggestionNote).length).toBeGreaterThanOrEqual(2);
     await fireEvent.press(screen.getByTestId('next-step-defer-close'));
     await waitFor(() => expect(screen.queryByTestId('next-step-defer-sheet')).toBeNull());
+  });
+});
+
+/**
+ * Audit 2026-10-03 #2: «عندي امتحان رياضيات بكرا الساعة 10» put the exam
+ * itself on the card with «بلّش فيها» and «خلصتها». The server now sends the
+ * preparation instead (`purpose: 'prepare'`, no `done`/`edit`), with the
+ * exam's time and, when there is one, the evening plan before it.
+ */
+describe('a preparation step for an event', () => {
+  // Tomorrow and tonight on the card's own calendar (the device zone it draws
+  // in), not "now + 20 h" and not the process zone: run before 04:00, or with
+  // TZ=America/Los_Angeles in CI, those landed on the card's today.
+  const zoneDay = (offsetDays: number) => {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: deviceTimeZone() }).format(new Date());
+    return new Date(Date.parse(`${today}T12:00:00Z`) + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  };
+  // Midday UTC of a zone date is inside that date for every zone within ±11 h.
+  const examAt = () => `${zoneDay(1)}T10:00:00.000Z`;
+  const nightAt = () => `${zoneDay(0)}T18:00:00.000Z`;
+  const prepResponse = () => response({
+    primaryStep: { commitmentId: 'exam-1', title: 'Prepare for Math exam', purpose: 'prepare' },
+    explanation: {
+      summary: 'Based on prepares for an important event.',
+      evidenceLabels: ['prepares for an important event'],
+      evidenceCodes: [
+        { code: 'prepares_for_event', params: { at: examAt() } },
+        { code: 'evening_plan_before_event', params: { title: 'Night out with friends', at: nightAt() } },
+        { code: 'due_within_24h' },
+      ],
+      sensitiveInferenceUsed: false,
+    },
+    availableActions: ['accept', 'done', 'defer', 'dismiss'],
+  });
+
+  it('offers to start the preparation and to plan it', async () => {
+    await show(prepResponse());
+    expect(screen.getByTestId('next-step-title').props.children).toBe('Prepare for Math exam');
+    expect(screen.getByTestId('next-step-accept')).toBeTruthy();
+    expect(screen.queryByTestId('next-step-edit')).toBeNull();
+    expect(screen.getByTestId('next-step-prepare')).toBeTruthy();
+  });
+
+  it('asks about the evening plan on a line of its own, in the person’s own words', async () => {
+    await show(prepResponse());
+    const note = screen.getByTestId('next-step-evening-note');
+    expect(within(note).getByText(/Night out with friends.*prepare before you go\?/)).toBeTruthy();
+    // Not also a chip: the question is said once.
+    expect(screen.getAllByText(/Night out with friends/)).toHaveLength(1);
+  });
+
+  it('says when the exam is, since tomorrow’s exam is not among today’s items', async () => {
+    await show(prepResponse());
+    expect(screen.getByText(/^it’s Tomorrow · /)).toBeTruthy();
+  });
+
+  it('after «start», is no dead end: done, later and not-this stay, and «حضّرني» is there to plan it', async () => {
+    mockDecision();
+    await show(prepResponse());
+    await fireEvent.press(screen.getByTestId('next-step-accept'));
+    await waitFor(() => expect(screen.getByTestId('next-step-started-note')).toBeTruthy());
+    expect(screen.getByTestId('next-step-started-note').props.children).toBe(en.nextStepPrepStartedNote);
+    expect(screen.getByTestId('next-step-prepare')).toBeTruthy();
+    expect(screen.getByTestId('next-step-done')).toBeTruthy();
+    expect(screen.getByTestId('next-step-defer')).toBeTruthy();
+    expect(screen.getByTestId('next-step-dismiss')).toBeTruthy();
+  });
+
+  it('after «start», says nothing about «حضّرني» when it cannot be offered (an all-day exam)', async () => {
+    mockDecision();
+    const base = prepResponse();
+    await show({
+      ...base,
+      recommendation: {
+        ...base.recommendation,
+        explanation: { ...base.recommendation.explanation!, evidenceCodes: [{ code: 'prepares_for_event', params: { at: examAt(), allDay: true } }] },
+      },
+    });
+    await fireEvent.press(screen.getByTestId('next-step-accept'));
+    await waitFor(() => expect(screen.getByTestId('next-step-started-note')).toBeTruthy());
+    expect(screen.getByTestId('next-step-started-note').props.children).toBe(en.nextStepPrepStartedPlain);
+    expect(screen.queryByTestId('next-step-prepare')).toBeNull();
   });
 });

@@ -20,6 +20,7 @@ import { GoalExecutionScreen } from '../../goals/GoalExecutionScreen';
 
 let mockMemoryError: unknown;
 jest.mock('../../../api/queries', () => ({
+  useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({ data: undefined, isPending: false, error: mockMemoryError, refetch: jest.fn() }),
   useConsents: () => ({ data: { currentVersions: { personalization: 'v1' }, personalization: { state: 'granted' } }, isPending: false, error: null, refetch: jest.fn() }),
   useSetPersonalizationConsent: () => ({ mutateAsync: jest.fn() }),

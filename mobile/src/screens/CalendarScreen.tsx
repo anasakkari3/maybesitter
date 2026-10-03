@@ -211,7 +211,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
     <Screen style={{ backgroundColor: p.bg }}>
       <ScreenScroll
         testID="calendar-scroll"
-        bottom={tabClearance}
+        floating={tabClearance}
         topGap={8}
         gap={14}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={p.ac} />}
@@ -270,14 +270,14 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                   setStrip({ offset: contentOffset.x, content: contentSize.width, viewport: layoutMeasurement.width });
                 }
               } : undefined}
-              contentContainerStyle={{ flexGrow: 1, gap: 6 }} itemStyle={stacked ? undefined : { flex: 1 }}>
+              contentContainerStyle={{ flexGrow: 1, gap: 6, paddingBottom: stacked ? 12 : 0 }} itemStyle={stacked ? undefined : { flex: 1 }}>
               {keys.map((key, offset) => {
                 const load = loadOf(key);
                 return (
                   <DayCell key={key} dayKey={key} isToday={key === todayKey} selected={key === selectedKey}
                     items={byDay.get(key) ?? []}
                     busy={(calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0) + (weeklyByDay.get(key)?.length ?? 0)}
-                    load={load} loadLabel={loadWord(load)}
+                    load={load} loadLabel={calendarConnected ? loadWord(load) : t.loadUnknown} complete={calendarConnected}
                     onPress={() => actions.setSelDay(offset)} />
                 );
               })}
@@ -421,7 +421,7 @@ function CalendarLegend({ color, label, testID }: { color: string; label: string
  * three commitments and one for busy time — not a count to read.
  */
 function DayCell({
-  dayKey: key, isToday, selected, items, busy, load, loadLabel, onPress,
+  dayKey: key, isToday, selected, items, busy, load, loadLabel, complete, onPress,
 }: {
   dayKey: string;
   isToday: boolean;
@@ -431,6 +431,7 @@ function DayCell({
   busy: number;
   load: DayLoad;
   loadLabel: string;
+  complete: boolean;
   onPress: () => void;
 }) {
   const { lang } = useApp();
@@ -439,7 +440,7 @@ function DayCell({
   const stacked = useLayoutMode() !== 'normal';
   const date = civilDate(key);
   const options = { locale: lang, timeZone: CIVIL_ZONE } as const;
-  const loadColor = load === 'full' ? p.acd : load === 'light' ? p.success : p.mu;
+  const loadColor = complete ? (load === 'full' ? p.acd : load === 'light' ? p.success : p.mu) : p.mu;
 
   return (
     <Btn

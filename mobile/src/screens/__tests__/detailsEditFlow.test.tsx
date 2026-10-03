@@ -30,6 +30,11 @@ import { usePatchCommitment } from '../../api/queries';
 import { StaleCommitmentError } from '../../api/errors';
 import type { Commitment } from '../../api/schemas/common';
 import en from '../../i18n/locales/en.json';
+import ar from '../../i18n/locales/ar.json';
+import he from '../../i18n/locales/he.json';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LANGUAGE_STORAGE_KEY } from '../../i18n/language';
+import { impLabel } from '../../state/derive';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 
@@ -215,8 +220,8 @@ describe('what the user changed reaches the account', () => {
     // The sheet closes, and the details screen draws «Nice» from the
     // refetched commitment — on its chip and on its importance row (Stitch).
     await waitFor(() => expect(screen.queryByTestId('edit-priority-low')).toBeNull());
-    await waitFor(() => expect(screen.getByTestId('details-importance').props.children).toBe(en.niceL));
-    expect(screen.getByTestId('details-importance-row').props.children).toBe(en.niceL);
+    await waitFor(() => expect(screen.getByTestId('details-importance').props.children).toBe(en.todayGroupNice));
+    expect(screen.getByTestId('details-importance-row').props.children).toBe(en.todayGroupNice);
   });
 });
 
@@ -396,5 +401,43 @@ describe('the conflict story is unchanged', () => {
     // a state the user has not seen.
     await waitFor(() => expect(screen.getByTestId('details-title').props.children).toBe('Hand it in on Sunday'));
     expect(patch).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * What Details calls its rows, in Arabic (audit 2026-10-03, #10 and #14).
+ *
+ * #10: the date row was labelled «اليوم» ("today") over «بكرا» and later over
+ * «الخميس 8 أكتوبر». #14: the same importance read «يُفضّل» on the Today card
+ * and «مستحسن» here. The exam from the audit: tomorrow at 10:00, importance
+ * left at the default (normal → «should»).
+ */
+describe('Details in Arabic', () => {
+  afterEach(async () => { await AsyncStorage.clear(); });
+
+  it('labels the date row for any date, and names the importance as every other surface does', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    // Three days out — the «الخميس 8 أكتوبر» case: the value is a weekday, and
+    // a row labelled «اليوم» above it says something false.
+    await show(commitment({
+      title: 'امتحان رياضيات',
+      priority: { level: 'normal', source: 'model_inferred', pressureAllowed: false, pressureLevel: 'none' },
+      timeSpec: { kind: 'due_by', dueAt: SOON.toISOString(), remindAt: null, timezone: ZONE },
+    } as Partial<Commitment>));
+    await waitFor(() => expect(screen.queryByText('الموعد')).not.toBeNull());
+    expect(screen.getByTestId('details-day').props.children).not.toBe('اليوم');
+    expect(screen.queryByText('اليوم')).toBeNull();
+    expect(screen.getByTestId('details-importance-row').props.children).toBe('يُفضّل');
+    expect(screen.queryByText('مستحسن')).toBeNull();
+  });
+});
+
+describe('one word per importance level, on every surface', () => {
+  it('Details says what the Today card says, in ar, en and he', () => {
+    for (const t of [ar, en, he]) {
+      expect(impLabel('must', t as never)).toBe(t.todayGroupMust);
+      expect(impLabel('should', t as never)).toBe(t.todayGroupShould);
+      expect(impLabel('nice', t as never)).toBe(t.todayGroupNice);
+    }
   });
 });

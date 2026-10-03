@@ -21,7 +21,7 @@
 import { foldInjectionPattern, normalizeForInjectionScan } from '../../../src/extraction/ollamaExtractor';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { localTimeSpecFor, statesClock } from '../../../src/extraction/timeLexicon';
-import { namesOnlyItem } from '../captureBoundary/chatEvidence';
+import { contentWords, namesOnlyItem, sameWord } from '../captureBoundary/chatEvidence';
 import { groundedReply, type ReplyGrounds } from './chatWhy';
 
 export type ChatLanguage = 'ar' | 'en' | 'he';
@@ -325,4 +325,150 @@ export function safeChatReply(reply: unknown, context: TemplateContext): { reply
     return { reply: `${ended} ${missingQuestion(context.language, asking)}`, replaced: false };
   }
   return { reply: text, replaced: false };
+}
+
+/* ── the reply after the proposal's shape (audit 2026-10-03 #1, #6) ── */
+
+const SHAPE_NOTES: Readonly<Record<ChatLanguage, { goalSeed: string; goalLinkOne: string; goalLinkMany: string }>> = {
+  ar: {
+    goalSeed: '«{title}» هدف أكتر منه موعد، فهو تحت لحال: إذا بدك خلّيه.',
+    goalLinkOne: 'اقترحت تنحسب على هدفك «{goal}»، وبتقدر تشيل الربط من الكرت.',
+    goalLinkMany: 'اقترحت ينحسبوا على هدفك «{goal}»، وبتقدر تشيل الربط من الكروت.',
+  },
+  en: {
+    goalSeed: '"{title}" sounds like a goal rather than an appointment, so it is below on its own: keep it if you want.',
+    goalLinkOne: 'I suggested counting it toward your goal "{goal}" — you can remove that on the card.',
+    goalLinkMany: 'I suggested counting them toward your goal "{goal}" — you can remove that on the cards.',
+  },
+  he: {
+    goalSeed: '"{title}" נשמע כמו מטרה ולא כמו פגישה, אז הוא מופיע למטה בנפרד: אפשר לשמור אותו.',
+    goalLinkOne: 'הצעתי לספור את זה למטרה "{goal}" — אפשר להסיר את זה בכרטיס.',
+    goalLinkMany: 'הצעתי לספור אותם למטרה "{goal}" — אפשר להסיר את זה בכרטיסים.',
+  },
+};
+
+const QUOTED_TITLE = /«([^»]{1,120})»|"([^"]{1,120})"|“([^”]{1,120})”/g;
+
+function clippedTitle(title: string): string {
+  return title.length > TEMPLATE_TITLE_MAX ? `${title.slice(0, TEMPLATE_TITLE_MAX - 1)}…` : title;
+}
+
+type ShapeProposal = {
+  items: ReadonlyArray<ProposalItemLike & { goalLink?: { title: string } }>;
+  seeds?: ReadonlyArray<{ kind: string; summary: string }>;
+  noCommitmentReason?: CaptureProposalContract['noCommitmentReason'];
+};
+
+export interface ShapeContext {
+  language: ChatLanguage;
+  /** What the model returned, before the boundary read it: its titles only are read. */
+  modelItems: readonly unknown[];
+  proposal: ShapeProposal | null;
+  /** The list the person saw before this message, so a note already given is not given again. */
+  previous: ShapeProposal | null;
+  updated?: boolean;
+}
+
+/**
+ * The reply brought into line with the list the boundary actually proposes
+ * (`proposalShape`): a sentence naming, in quotes, something of the model's
+ * that is no longer a card — "learn React" taken off the timed list — goes;
+ * and what was done instead is said once, from the proposal, never from the
+ * model: the goal offered below on its own, the goal the items may count
+ * toward. A reply left with nothing is the template.
+ */
+export function withShapeNoted(reply: string, context: ShapeContext): string {
+  const cards = (context.proposal?.items ?? []).map((item) => contentWords(item.title));
+  const offTheList = context.modelItems.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const record = item as Record<string, unknown>;
+    const titles = [record.title, record.appTitle].filter((title): title is string => typeof title === 'string' && title.trim().length > 0);
+    const kept = titles.some((title) => contentWords(title).some((word) => cards.some((card) => card.some((candidate) => sameWord(word, candidate)))));
+    return kept ? [] : titles.map((title) => contentWords(title));
+  });
+  const namesOffTheList = (sentence: string) => Array.from(sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).matchAll(QUOTED_TITLE)).some((match) => {
+    const words = contentWords(match[1] ?? match[2] ?? match[3] ?? '');
+    return words.length > 0 && offTheList.some((title) => words.some((word) => title.some((candidate) => sameWord(word, candidate))))
+      && !cards.some((card) => words.some((word) => card.some((candidate) => sameWord(word, candidate))));
+  });
+  const sentences = sentencesOf(reply);
+  const remaining = offTheList.length > 0 ? sentences.filter((sentence) => !namesOffTheList(sentence)) : sentences;
+  // What is left after a sentence went names no card («أكّد من تحت.» alone):
+  // the template says the list instead.
+  const kept = remaining.length === sentences.length || new RegExp(QUOTED_TITLE.source).test(remaining.join(' '))
+    ? remaining.join(' ')
+    : '';
+
+  const notes: string[] = [];
+  const table = SHAPE_NOTES[context.language];
+  const before = new Set((context.previous?.seeds ?? []).filter((seed) => seed.kind === 'possible_goal').map((seed) => seed.summary));
+  for (const seed of context.proposal?.seeds ?? []) {
+    if (seed.kind === 'possible_goal' && !before.has(seed.summary)) notes.push(table.goalSeed.replace('{title}', clippedTitle(seed.summary)));
+  }
+  const linkedBefore = new Set((context.previous?.items ?? []).flatMap((item) => (item.goalLink ? [item.goalLink.title] : [])));
+  const linkedNow = Array.from(new Set((context.proposal?.items ?? []).flatMap((item) => (item.goalLink ? [item.goalLink.title] : []))));
+  for (const goal of linkedNow) {
+    if (linkedBefore.has(goal)) continue;
+    const count = (context.proposal?.items ?? []).filter((item) => item.goalLink?.title === goal).length;
+    notes.push((count > 1 ? table.goalLinkMany : table.goalLinkOne).replace('{goal}', clippedTitle(goal)));
+  }
+
+  const text = kept.trim() || (notes.length > 0 || remaining.length !== sentences.length
+    ? templateReply({ language: context.language, proposal: context.proposal, ...(context.updated ? { updated: true } : {}) })
+    : '');
+  if (notes.length === 0) return text;
+  const ended = /[.!?؟。…]$/.test(text) ? text : `${text}.`;
+  return `${ended} ${notes.join(' ')}`.trim();
+}
+
+/* ── weekly, once the end is known (audit 2026-10-03 review, orchestrator's decision) ── */
+
+const WEEKLY_OFFER: Readonly<Record<ChatLanguage, string>> = {
+  ar: 'إذا بدك ياه كل أسبوع، قلّي لأي ساعة بيخلص.',
+  en: 'If you want it every week, tell me what time it ends.',
+  he: 'אם רוצים את זה כל שבוע, ספרו לי עד איזו שעה זה.',
+};
+
+type WeeklyLike = { items: ReadonlyArray<{ needsClarification?: boolean; recurrenceHint?: { weekdays?: number[]; start?: string; end?: string } | null; weeklyBlock?: unknown }> };
+
+/**
+ * Whether the list holds a repeat over several days that it cannot keep as
+ * weekly yet — "every Tuesday and Thursday at 7 PM": an hour, no end, so no
+ * weekly block to offer — and nothing on it is still being asked about.
+ * One day ("every Friday at 8pm take out the trash") is a one-off the person
+ * can keep weekly from its own card; it gets no line (round 2).
+ */
+function multiDayWithoutEnd(proposal: WeeklyLike | null): boolean {
+  const items = proposal?.items ?? [];
+  if (items.length === 0 || items.some((item) => item.needsClarification)) return false;
+  const open = items.filter((item) => Boolean(item.recurrenceHint?.start) && !item.recurrenceHint?.end && !item.weeklyBlock);
+  const byStart = new Map<string, number>();
+  for (const item of open) byStart.set(item.recurrenceHint!.start!, (byStart.get(item.recurrenceHint!.start!) ?? 0) + 1);
+  return open.some((item) => (item.recurrenceHint?.weekdays?.length ?? 0) > 1) || Array.from(byStart.values()).some((count) => count > 1);
+}
+
+/** The reply already asks for the end, or already talks of every week. */
+const SAYS_WEEKLY = new RegExp([
+  '\\b(?:until|till|ends?|ending|finish(?:es)?|every\\s+week|weekly)\\b',
+  'بتخلص|بيخلص|بتخلّص|بيخلّص|لأي ساعة|لاي ساعة|لحد أي|لحد اي|كل أسبوع|كل اسبوع|أسبوعي|اسبوعي',
+  'עד איזו|מתי זה נגמר|מתי נגמר|כל שבוע|שבועי',
+].join('|'), 'iu');
+
+/**
+ * "Every Tuesday and Thursday at 7 PM" is this week's sessions — a weekly
+ * block needs an end, and none is ever invented. So the reply says, once,
+ * what makes it weekly: the hour it ends. Not when the reply already asks,
+ * not while anything on the list is still asked about, and said again only
+ * when the list it applied to is gone.
+ */
+export function withWeeklyOffer(reply: string, language: ChatLanguage, proposal: WeeklyLike | null, previous: WeeklyLike | null): string {
+  if (!multiDayWithoutEnd(proposal) || multiDayWithoutEnd(previous) || SAYS_WEEKLY.test(reply.slice(0, CHAT_REPLY_SCAN_LIMIT))) return reply;
+  const offer = WEEKLY_OFFER[language];
+  const text = reply.trim();
+  if (!text) return offer;
+  const sentences = sentencesOf(text);
+  const last = sentences[sentences.length - 1];
+  // Before a closing question, so the question stays the last thing said.
+  if (last && isQuestion(last)) return [...sentences.slice(0, -1), offer, last].join(' ');
+  return `${/[.!?؟。…]$/.test(text) ? text : `${text}.`} ${offer}`;
 }

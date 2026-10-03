@@ -85,6 +85,7 @@ export function ServerToggle({
           value={value}
           disabled={disabled || busy}
           trackColor={{ false: p.ln, true: blocked ? p.wm : p.ac }}
+          thumbColor={value ? (blocked ? p.wm : p.ac) : p.sf}
           onValueChange={next => {
             // Guarded here as well as through `disabled`. The native control
             // blocks a tap while disabled, but that is the platform's promise,

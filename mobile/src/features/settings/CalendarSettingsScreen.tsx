@@ -381,9 +381,9 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
                 testID="calendar-read-allow"
                 disabled={allowing}
                 onPress={() => void allow()}
-                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}
+                style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac, paddingHorizontal: 16, paddingVertical: 12 }}
               >
-                <Txt size={15} weight={600} color={p.onAccent}>{t.calendarDeviceAllow}</Txt>
+                <Txt size={15} weight={600} color={p.onAccent} align="center">{t.calendarDeviceAllow}</Txt>
               </Btn>
               <LiveRegion style={{ paddingTop: 8 }}>
                 {allowFailed ? <Txt size={13} color={p.wm} testID="calendar-read-allow-failed">{t[allowFailed]}</Txt> : null}

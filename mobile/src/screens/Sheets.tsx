@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Animated, Platform, Pressable, ScrollView, Switch, TextInput, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { AppDateTimePicker as DateTimePicker } from '../ui/AppDateTimePicker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { ltr } from '../i18n/strings';
@@ -234,9 +234,12 @@ function PostponeChoices({ commitmentId, onMoved }: {
               // a dark sheet, which is unreadable. `scheme` is what the rest of
               // the app is painted from, so it is what this follows.
               themeVariant={scheme}
+              locale={lang}
+              positiveButton={{ label: t.ok, textColor: p.ac }}
+              negativeButton={{ label: t.cancel, textColor: p.mu }}
               // The wheel does not offer a time that has gone.
               minimumDate={notBefore}
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              display={Platform.OS === 'ios' || picking === 'time' ? 'spinner' : 'default'}
               onChange={(event, picked) => {
                 setPicking(Platform.OS === 'ios' ? picking : null);
                 // Android hands a dismiss the value the picker opened with, so
@@ -476,11 +479,14 @@ function EditSheet() {
           // The native picker's own chrome is light unless told otherwise, and
           // unreadable inside a dark sheet.
           themeVariant={scheme}
+          locale={lang}
+          positiveButton={{ label: t.ok, textColor: p.ac }}
+          negativeButton={{ label: t.cancel, textColor: p.mu }}
           // No `minimumDate` here, deliberately. This sheet edits an item that
           // may already have a time in the past, and the date it opens on would
           // then be below its own minimum. The past is refused on Save, where
           // the sheet can tell a time the user picked from one that was there.
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          display={Platform.OS === 'ios' || picking === 'time' ? 'spinner' : 'default'}
           onChange={(event, picked) => {
             setPicking(Platform.OS === 'ios' ? picking : null);
             // A dismiss on Android carries the value the picker opened with.
@@ -518,9 +524,9 @@ const LEVEL_LABEL = (t: Strings): Record<PriorityLevel, string> => ({
  * the other does not, and that difference is the whole reason «أسقطه بوعي»
  * exists in this product. Round 2 asked both in a centred dialog; the Stitch
  * redesign asks them in a sheet over the details screen, each with its own
- * icon (an archive box for a drop, a bin for a deletion) and its own confirm:
- * the drop drawn warm, the deletion in ink — never red, because this product
- * has no failure state to paint.
+ * icon (an archive box for a drop, a bin for a deletion) and its own warm
+ * confirmation. Deleting names the commitment so the irreversible action is
+ * unambiguous.
  *
  * On success the details screen pops and the line at the bottom of the list
  * says what happened. Neither can be undone from here — the actions route has
@@ -550,13 +556,14 @@ function ConfirmSheet({ intent }: { intent: 'drop' | 'delete' }) {
       <SheetHeader
         title={intent === 'drop' ? t.confirmDropTitle : t.confirmDeleteTitle}
         icon={intent === 'drop' ? 'archive' : 'trash'}
-        tone={intent === 'drop' ? 'attention' : 'neutral'}
+        tone="attention"
         onClose={actions.closeSheet}
       />
       <Txt role="supporting" color={p.mu} lh={1.5}>{intent === 'drop' ? t.confirmDropBody : t.confirmDeleteBody}</Txt>
+      {intent === 'delete' && query.data?.title ? <Txt role="card" color={p.tx}>{query.data.title}</Txt> : null}
       <ActionRow>
         <Pill testID={keepId.testID} label={t.confirmKeep} onPress={actions.closeSheet} kind="outline" size={15} pad={12} />
-        <Pill testID={confirmId.testID} label={intent === 'drop' ? t.dropIt : t.detailsDelete} onPress={confirm} disabled={pending} kind={intent === 'drop' ? 'warmSolid' : 'ink'} size={15} pad={12} />
+        <Pill testID={confirmId.testID} label={intent === 'drop' ? t.dropIt : t.detailsDelete} onPress={confirm} disabled={pending} kind="warmSolid" size={15} pad={12} />
       </ActionRow>
     </View>
   );

@@ -135,6 +135,15 @@ export interface SayItChatPageProps {
    * after a save in the chat, so the next commitment can be typed at once.
    */
   composerFocusKey?: number;
+  /**
+   * A new proposal's identity (its id). Each time it changes to a new
+   * non-empty value the page scrolls once so the confirm sits above the
+   * composer, not under it (audit 2026-10-03 #8: the save was below the
+   * fold, behind the fixed composer, and had to be found by scrolling).
+   */
+  revealConfirmKey?: string | null;
+  /** Reduce motion: the reveal jumps instead of scrolling. */
+  reduceMotion?: boolean;
   rtl?: boolean;
   safeTop?: number;
   safeBottom?: number;
@@ -151,11 +160,39 @@ export function SayItChatPage({
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, clarification, reviewExtras, reviewFooter,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
+  revealConfirmKey = null, reduceMotion = false,
 }: SayItChatPageProps) {
   const input = React.useRef<TextInput>(null);
   React.useEffect(() => {
     if (composerFocusKey > 0) input.current?.focus();
   }, [composerFocusKey]);
+  // Where the confirm is, in the scroll's content: the schedule block's top,
+  // the card's top inside it, and the confirm's box inside the card — each
+  // measured by its own onLayout, and each tagged with the proposal it was
+  // measured for — and how tall the scroll's window is. A measurement of the
+  // last proposal says nothing about this one (audit 2026-10-03 review: a list
+  // that grew from one card to three scrolled short), so the reveal waits for
+  // all three to be this proposal's own.
+  type Measured<T> = { key: string | null; value: T } | null;
+  const scroller = React.useRef<ScrollView>(null);
+  const keyRef = React.useRef<string | null>(revealConfirmKey);
+  // Before any layout event of the new proposal is delivered.
+  React.useLayoutEffect(() => { keyRef.current = revealConfirmKey; }, [revealConfirmKey]);
+  const [viewport, setViewport] = React.useState(0);
+  const [block, setBlock] = React.useState<Measured<number>>(null);
+  const [card, setCard] = React.useState<Measured<number>>(null);
+  const [confirmBox, setConfirmBox] = React.useState<Measured<{ y: number; height: number }>>(null);
+  const measured = <T,>(setter: React.Dispatch<React.SetStateAction<Measured<T>>>, value: T) =>
+    setter({ key: keyRef.current, value });
+  const revealed = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!revealConfirmKey || revealed.current === revealConfirmKey || viewport <= 0) return;
+    if (block?.key !== revealConfirmKey || card?.key !== revealConfirmKey || confirmBox?.key !== revealConfirmKey) return;
+    revealed.current = revealConfirmKey;
+    const bottom = block.value + card.value + confirmBox.value.y + confirmBox.value.height;
+    const target = Math.max(0, bottom + 16 - viewport);
+    if (target > 0) scroller.current?.scrollTo({ y: target, animated: !reduceMotion });
+  }, [revealConfirmKey, viewport, block, card, confirmBox, reduceMotion]);
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
@@ -260,7 +297,8 @@ export function SayItChatPage({
   return (
     <View testID="say-it-chat-page" style={[styles.page, { backgroundColor: p.bg }]}>
       {!accessibilitySize && header}
-      <ScrollView testID={scheduleGroups.length ? 'review-scroll' : 'capture-scroll'} style={styles.scroller}
+      <ScrollView ref={scroller} testID={scheduleGroups.length ? 'review-scroll' : 'capture-scroll'} style={styles.scroller}
+        onLayout={(event) => setViewport(event.nativeEvent.layout.height)}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
         contentContainerStyle={styles.conversation}>
         {accessibilitySize && <View style={styles.scrollHeader}>{header}</View>}
@@ -288,8 +326,10 @@ export function SayItChatPage({
               : null}
           </View>
           {clarification ? <View testID="chat-clarification" style={[styles.clarification, expanded && styles.expandedSchedule]}>{clarification}</View> : null}
-          {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}>
-            <View style={[styles.scheduleCard, { backgroundColor: p.sf, borderColor: p.ln }]}>
+          {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}
+            onLayout={(event) => measured(setBlock, event.nativeEvent.layout.y)}>
+            <View style={[styles.scheduleCard, { backgroundColor: p.sf, borderColor: p.ln }]}
+              testID="chat-schedule-card" onLayout={(event) => measured(setCard, event.nativeEvent.layout.y)}>
               {copy.proposalsTitle ? <View style={[styles.blockTitle, { borderBottomColor: p.ln }]}>
                 <ChatIcon name="calendar" size={20} color={p.wm ?? p.tx} />
                 <Text testID="review-proposals-title" accessibilityRole="header"
@@ -347,7 +387,10 @@ export function SayItChatPage({
                 })}
               </View>)}
               {reviewExtras ? <View testID="chat-review-extras" style={styles.reviewExtras}>{reviewExtras}</View> : null}
-              {onConfirm ? <View testID="chat-add-schedule"><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
+              {onConfirm ? <View testID="chat-add-schedule" onLayout={(event) => {
+                const { y, height } = event.nativeEvent.layout;
+                measured(setConfirmBox, { y, height });
+              }}><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
                 accessibilityState={{ disabled: !canConfirm || confirming, busy: confirming }}
                 disabled={!canConfirm || confirming} onPress={onConfirm}
                 style={({ pressed }) => [styles.confirm, {

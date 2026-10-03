@@ -66,7 +66,7 @@ export function MeetingPrepSheet() {
 
   const submit = () => {
     if (!trimmed || tooLong || prepare.isPending) return;
-    prepare.mutate({ notes: trimmed, startAt: target.startAt, endAt: target.endAt }, {
+    prepare.mutate({ notes: trimmed, startAt: target.startAt, endAt: target.endAt, ...(target.commitmentId ? { commitmentId: target.commitmentId } : {}) }, {
       onSuccess: (result) => {
         // Into review, as a share arrives there: the flow is reset and holds
         // this proposal before the capture task opens, so it does not start
@@ -78,6 +78,7 @@ export function MeetingPrepSheet() {
           appointment,
           itemId: result.prep.itemId,
           startAt: result.prep.startAt,
+          ...(result.prep.timing === 'day_before' ? { timing: 'day_before' as const, sessions: result.prep.sessions?.length ?? 1 } : {}),
         });
         actions.go('capture');
       },

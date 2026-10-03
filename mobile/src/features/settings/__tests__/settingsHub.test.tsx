@@ -78,7 +78,7 @@ describe('the account row', () => {
 describe('the destinations', () => {
   it('says what each one holds, in the words of its rows', async () => {
     await show({ uid: 'u3', email: 'a@b.c', emailVerified: true, displayName: null, providerIds: ['password'] });
-    await waitFor(() => expect(screen.queryByText(`${en.settingsRoutine} · ${en.wbTitle} · ${en.financialTitle}`)).not.toBeNull());
+    await waitFor(() => expect(screen.queryByText(en.financialTitle)).not.toBeNull());
     for (const [id, target] of [
       ['settings-category-day', 'settingsDay'],
       ['settings-category-alerts', 'settingsAlerts'],

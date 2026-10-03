@@ -3,21 +3,27 @@
  *
  * ── iOS gives an app one chance ──────────────────────────────────
  *
- * The system prompt can be shown once per install. Spending it at cold start,
- * or during onboarding before there is a single commitment to be reminded
- * about, is spending it on the version of the question most likely to be
- * answered no — and there is no second version. So it is called when the user
- * turns something that rings on in Settings, and right after they confirm
- * their first commitment that has a time (`firstMomentPrompt.ts`): gentle
- * reminders default on at the server, so the switch alone never asked.
- * `onboardingFlow.test.tsx` asserts at the source that nothing under
- * `src/features/onboarding` can reach it.
+ * The system prompt can be shown once per install on iOS. So it is asked
+ * where the person has just been told what it is for: onboarding's reminders
+ * step, on «يلا نبلّش» (audit 2026-10-03, #7) — never on «بعدين» —, turning
+ * something that rings on in Settings, Settings' own «اسمح», and right after
+ * the first confirmed commitment that has a time (`firstMomentPrompt.ts`).
+ * `onboardingFlow.test.tsx` asserts at the source that no other onboarding
+ * step can reach it.
  *
- * ── Denied is not an error ───────────────────────────────────────
+ * ── `denied` means the phone will not ask again ──────────────────
  *
- * It is an answer. The screen says what it means and offers
- * `Linking.openSettings()`, which is the only place the answer can be changed
- * afterwards — and is what `NotificationsSettingsScreen` has offered since
+ * Android 13+ reports a POST_NOTIFICATIONS that has never been asked as
+ * `denied` with `canAskAgain` (expo-notifications reads
+ * `areNotificationsEnabled()`, false until the grant). Read raw, that sent
+ * every new Android user to phone settings to undo an answer they never gave,
+ * and no in-app path ever showed the prompt. So the app reads the
+ * permission through `getNotificationPermissionState`: `canPrompt` says
+ * whether asking would put the system prompt on screen, and
+ * `getNotificationPermission` answers `undetermined` for an Android `denied`
+ * that can still be asked. `denied` is left for the case where only the
+ * phone's settings can change it — and there the screen offers
+ * `Linking.openSettings()`, as `NotificationsSettingsScreen` has since
  * UC-2.R4 (#174).
  *
  * ── `provisional` is why the simulator is testable at all ────────
@@ -38,6 +44,7 @@
  * is *seen*, only that it was scheduled.
  */
 
+import { Platform } from 'react-native';
 import { notificationsModule } from './nativeModules';
 
 export type NotificationPermission = 'granted' | 'provisional' | 'denied' | 'undetermined';
@@ -46,6 +53,8 @@ export type NotificationPermission = 'granted' | 'provisional' | 'denied' | 'und
 export interface PermissionResponseLike {
   readonly granted?: boolean;
   readonly status?: string;
+  /** Whether the OS will still show its prompt. */
+  readonly canAskAgain?: boolean;
   readonly ios?: { readonly status?: number } | undefined;
 }
 
@@ -72,17 +81,63 @@ export function permissionFrom(response: PermissionResponseLike | null | undefin
   return 'undetermined';
 }
 
-/** What the device currently says, without asking the user anything. */
-export async function getNotificationPermission(): Promise<NotificationPermission> {
+/**
+ * Whether asking now would put the system prompt on screen.
+ *
+ * `undetermined` always would. A `denied` would only on **Android**, and only
+ * while `canAskAgain` is true — and that is the case that matters (audit
+ * 2026-10-03, #7). On Android 13+ expo-notifications reports a
+ * POST_NOTIFICATIONS that has *never been asked* as `denied`, because its
+ * status is denied whenever `areNotificationsEnabled()` is false, and that is
+ * false until the permission is granted. Reading it as an answer meant the
+ * prompt was never shown on any Android 13+ phone. Android itself decides when
+ * to stop showing it (a second "Don't allow" sets `canAskAgain` false).
+ *
+ * iOS is untouched: a denial there is final, whatever the flag says, and
+ * provisional is a granted-enough state that is never asked over (see the
+ * header).
+ */
+export function canPromptFrom(
+  response: PermissionResponseLike | null | undefined,
+  platform: string = Platform.OS,
+): boolean {
+  const permission = permissionFrom(response);
+  if (permission === 'undetermined') return true;
+  if (permission !== 'denied') return false;
+  return platform === 'android' && response?.canAskAgain === true;
+}
+
+export interface NotificationPermissionState {
+  /** What the OS reports, as-is. */
+  readonly permission: NotificationPermission;
+  /** Whether asking now would show the system prompt. */
+  readonly canPrompt: boolean;
+}
+
+/** What the device currently says, and whether it would still ask. Asks nothing. */
+export async function getNotificationPermissionState(): Promise<NotificationPermissionState> {
   try {
     const Notifications = notificationsModule();
-    if (!Notifications) return 'undetermined';
-    return permissionFrom(await Notifications.getPermissionsAsync());
+    if (!Notifications) return { permission: 'undetermined', canPrompt: true };
+    const response = await Notifications.getPermissionsAsync();
+    return { permission: permissionFrom(response), canPrompt: canPromptFrom(response) };
   } catch {
     // No native module — a unit test, or a build without notifications. The
     // honest answer is "nobody has been asked", not "denied".
-    return 'undetermined';
+    return { permission: 'undetermined', canPrompt: true };
   }
+}
+
+/**
+ * The permission as the app acts on it: `denied` only when the phone will not
+ * ask again. An Android `denied` that can still be asked is `undetermined` —
+ * which is what it is — so every caller (the Settings banner, the Settings
+ * list, the first-moment prompt, the device row) treats it as "ask in the
+ * app", not "go to phone settings". See the header.
+ */
+export async function getNotificationPermission(): Promise<NotificationPermission> {
+  const { permission, canPrompt } = await getNotificationPermissionState();
+  return permission === 'denied' && canPrompt ? 'undetermined' : permission;
 }
 
 /**
@@ -97,10 +152,10 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   try {
     const Notifications = notificationsModule();
     if (!Notifications) return 'undetermined';
-    const existing = permissionFrom(await Notifications.getPermissionsAsync());
-    // Asking again after an answer is a no-op on iOS and a second prompt on
-    // some Android versions; either way the answer is already known.
-    if (existing !== 'undetermined') return existing;
+    const current = await Notifications.getPermissionsAsync();
+    // Asking again after a final answer is a no-op on iOS and a nag on
+    // Android; `canPromptFrom` says when the OS would still show its prompt.
+    if (!canPromptFrom(current)) return permissionFrom(current);
     return permissionFrom(await Notifications.requestPermissionsAsync({
       ios: { allowAlert: true, allowSound: true, allowBadge: false },
     }));

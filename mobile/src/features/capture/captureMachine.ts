@@ -114,6 +114,13 @@ export interface MeetingReviewContext {
   /** The prep step's item and the meeting's start, so Review can answer again after an edit (FX1). */
   readonly itemId?: string;
   readonly startAt?: string;
+  /**
+   * `day_before`: the step is the first free hour the day before an exam-like
+   * event (audit 2026-10-03 #3), and Review says why; `sessions` counts the
+   * proposed sessions (2 with the short review an hour before).
+   */
+  readonly timing?: 'day_before';
+  readonly sessions?: number;
 }
 
 /** Which input the user was offered first. */
@@ -133,6 +140,8 @@ export interface ChatSavedNote {
   weeklySaved: NonNullable<CaptureConfirmation['weeklyBlocks']>;
   /** The titles of what did not save, from the proposal the person confirmed. */
   failedTitles: string[];
+  /** The goals what was saved now counts toward (`goalLinks`), by their titles. Absent from older lines. */
+  goalTitles?: string[];
   undone?: { stillSaved: string[] };
 }
 
@@ -233,6 +242,13 @@ export interface CaptureState {
   /** The weekly blocks the confirm made, straight from the server's answer. */
   weeklySaved: NonNullable<CaptureConfirmation['weeklyBlocks']>;
   /**
+   * Items carrying a suggested goal link («مرتبط بهدف …», audit 2026-10-03
+   * #6) that the person took off the card. Stored as the exceptions, like
+   * `onceOnly`: a suggestion is kept until somebody removes it, and nothing
+   * is linked before the confirm.
+   */
+  goalUnlinked: string[];
+  /**
    * The capture chat's conversation, as the server named it (owner decision
    * 2026-09-30). Null until the first answer; the next message carries it.
    * Memory only, like the draft: a closed capture forgets it.
@@ -279,6 +295,8 @@ export type CaptureEvent =
   | { type: 'clearEdit'; itemId: string }
   /** «كل أسبوع» (`weekly: true`) or «مرة وحدة بس» on an item with a weekly offer. */
   | { type: 'setWeekly'; itemId: string; weekly: boolean }
+  /** Keep (`linked: true`) or remove an item's suggested goal link. */
+  | { type: 'setGoalLink'; itemId: string; linked: boolean }
   | { type: 'confirmStarted' }
   | { type: 'confirmSucceeded'; confirmation: CaptureConfirmation }
   | { type: 'confirmFailed'; reason?: string; messageKey?: UserFacingKey }
@@ -329,6 +347,7 @@ export function initialCaptureState(
     undoable: false,
     onceOnly: [],
     weeklySaved: [],
+    goalUnlinked: [],
     conversationId: null,
     turns: [],
     earlier: [],
@@ -463,6 +482,20 @@ export function weeklyLockedByEdit(state: CaptureState, itemId: string): boolean
   return !!item?.weeklyBlock && editMovesItem(state.edits[itemId]);
 }
 
+/** The goals a confirm linked, by title, as a saved line keeps them; nothing when it linked none. */
+function goalTitlesOf(state: CaptureState, confirmation: CaptureConfirmation): { goalTitles?: string[] } {
+  const titles = Array.from(new Set((confirmation.goalLinks ?? [])
+    .map((link) => state.proposal?.items.find((candidate) => candidate.itemId === link.itemId)?.goalLink?.title ?? '')
+    .filter((title) => title.trim().length > 0)));
+  return titles.length > 0 ? { goalTitles: titles } : {};
+}
+
+/** Whether the item's suggested goal link is kept on the card; false when it has none. */
+export function goalLinkKept(state: CaptureState, itemId: string): boolean {
+  const item = state.proposal?.items.find((candidate) => candidate.itemId === itemId);
+  return !!item?.goalLink && !state.goalUnlinked.includes(itemId);
+}
+
 /** What the confirm request carries. Only the selection, and only its edits. */
 export function confirmPayload(state: CaptureState): {
   proposalId: string;
@@ -470,6 +503,8 @@ export function confirmPayload(state: CaptureState): {
   edits: Record<string, CaptureItemEdit>;
   /** The selected items kept as weekly blocks; everything else confirms once. */
   weeklyBlockItemIds: string[];
+  /** The selected items whose goal link is kept; absent when none is. */
+  goalLinkItemIds?: string[];
 } {
   const itemIds = state.selected.filter((id) => confirmableItems(state.proposal, state.edits).includes(id));
   // Edits for items that are not being confirmed are dropped rather than sent.
@@ -480,7 +515,10 @@ export function confirmPayload(state: CaptureState): {
     if (state.edits[id]) edits[id] = state.edits[id];
   }
   const weeklyBlockItemIds = itemIds.filter((id) => weeklyChoice(state, id) === 'weekly');
-  return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits, weeklyBlockItemIds };
+  // Only the chat's cards show «مرتبط بهدف …»: a review that never drew the
+  // chip (a share, a meeting prep) links nothing — no link the person did not see.
+  const goalLinkItemIds = state.conversationId === null ? [] : itemIds.filter((id) => goalLinkKept(state, id));
+  return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits, weeklyBlockItemIds, ...(goalLinkItemIds.length > 0 ? { goalLinkItemIds } : {}) };
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -510,6 +548,7 @@ export function wantsDiscardConfirmation(state: CaptureState): boolean {
     if (state.turns.length > 0 && state.text.trim() && state.status !== 'analyzing') return true;
     if (Object.keys(state.edits).length > 0) return true;
     if (state.onceOnly.length > 0) return true;
+    if (state.goalUnlinked.length > 0) return true;
     const base = state.original ?? state.proposal;
     const defaultSelected = defaultSelectedItems(base);
     return !sameIds(state.selected, defaultSelected);
@@ -582,7 +621,7 @@ function sameServerFacts(a: CaptureProposal['items'][number], b: CaptureProposal
  * (today's server mints fresh ids every turn) — starts as a new proposal does:
  * every confirmable item selected, no edits, weekly by default.
  */
-function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly'> {
+function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked'> {
   const before = new Map((state.proposal?.items ?? []).map((item) => [item.itemId, item]));
   const wasConfirmable = confirmableItems(state.proposal, state.edits);
   const edits: Record<string, CaptureItemEdit> = {};
@@ -595,7 +634,8 @@ function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureSt
   const selected = confirmableItems(next, edits).filter((id) =>
     wasConfirmable.includes(id) ? state.selected.includes(id) : defaults.includes(id));
   const onceOnly = state.onceOnly.filter((id) => next.items.some((item) => item.itemId === id && item.weeklyBlock));
-  return { selected, edits, onceOnly };
+  const goalUnlinked = state.goalUnlinked.filter((id) => next.items.some((item) => item.itemId === id && item.goalLink));
+  return { selected, edits, onceOnly, goalUnlinked };
 }
 
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
@@ -631,6 +671,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         selected: defaultSelectedItems(event.proposal),
         edits: {},
         onceOnly: [],
+        goalUnlinked: [],
         errorReason: null,
         messageKey: null,
       };
@@ -654,7 +695,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         messageKey: null,
       };
       if (!proposal) {
-        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [] };
+        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [] };
       }
       const carried = carriedInto(state, proposal);
       return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal };
@@ -780,6 +821,17 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       };
     }
 
+    case 'setGoalLink': {
+      const item = state.proposal?.items.find((candidate) => candidate.itemId === event.itemId);
+      if (!item?.goalLink) return state;
+      const removed = state.goalUnlinked.includes(event.itemId);
+      if (event.linked === !removed) return state;
+      return {
+        ...state,
+        goalUnlinked: event.linked ? state.goalUnlinked.filter((id) => id !== event.itemId) : [...state.goalUnlinked, event.itemId],
+      };
+    }
+
     case 'confirmStarted':
       if (confirmPayload(state).itemIds.length === 0) return state;
       return { ...state, status: 'confirming', errorReason: null, messageKey: null };
@@ -814,11 +866,12 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
             kind: 'saved', persisted: saved.persisted, failed: saved.failed, collisions: saved.collisions, weeklySaved: saved.weeklySaved,
             failedTitles: saved.failed.map((item) => state.proposal?.items.find((candidate) => candidate.itemId === item.itemId)?.title ?? '')
               .filter((title) => title.trim().length > 0),
+            ...goalTitlesOf(state, event.confirmation),
           },
         ],
         turns: [],
         conversationId: null,
-        proposal: null, original: null, selected: [], edits: {}, onceOnly: [], errorReason: null, messageKey: null,
+        proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
       };
     }
 
@@ -851,7 +904,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         ...state,
         text,
         status: text.trim() ? 'editing' : 'idle',
-        proposal: null, original: null, selected: [], edits: {}, onceOnly: [], errorReason: null, messageKey: null,
+        proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], errorReason: null, messageKey: null,
         conversationId: null,
         turns: [],
       };
