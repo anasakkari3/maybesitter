@@ -9,7 +9,6 @@ import { dayKey, formatDate, formatTime } from '../../i18n/format';
 import { resolveTimeZone, useTimeZone } from '../../i18n/timezone';
 import { isolateAuto } from '../../i18n/bidi';
 import { fill } from '../../i18n/strings';
-import { useLayoutMode } from '../../theme/textScale';
 import { memorySentence } from '../memory/memoryDisplay';
 import { durationText } from '../memory/memoryProvenance';
 import { toViewModel, type CommitmentView } from '../commitments/model';

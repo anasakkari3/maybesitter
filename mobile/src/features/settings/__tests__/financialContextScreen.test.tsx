@@ -460,7 +460,7 @@ describe('in Arabic', () => {
       expect([id, style.writingDirection]).toEqual([id, 'rtl']);
     }
     const dateStyle = StyleSheet.flatten(screen.getByTestId('financial-bill-date').props.style);
-    expect(dateStyle.textAlign).toBe('left');
+    expect(dateStyle.textAlign).toBe('right');
     expect(dateStyle.writingDirection).toBe('ltr');
   });
 });

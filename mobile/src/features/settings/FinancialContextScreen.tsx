@@ -308,7 +308,7 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
           </View>
           <Txt size={14} weight={600}>{t.financialAddBillDate}</Txt>
           <TextInput testID="financial-bill-date" accessibilityLabel={t.financialAddBillDate} value={billDate} onChangeText={setBillDate} keyboardType="numbers-and-punctuation" placeholder="YYYY-MM-DD" placeholderTextColor={p.mu}
-            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left', writingDirection: 'ltr' }} />
+            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: 'ltr' }} />
           <Btn label={t.financialAddBillSave} testID="financial-bill-save" onPress={() => void saveBill()}
             disabled={saveObligation.isPending || !billLabel.trim() || !billAmount.trim() || !billCurrency.trim() || !billDate.trim()}
             style={{ minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}>
