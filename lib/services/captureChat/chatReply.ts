@@ -420,3 +420,36 @@ export function withShapeNoted(reply: string, context: ShapeContext): string {
   const ended = /[.!?؟。…]$/.test(text) ? text : `${text}.`;
   return `${ended} ${notes.join(' ')}`.trim();
 }
+
+/* ── weekly, once the end is known (audit 2026-10-03 review, orchestrator's decision) ── */
+
+const WEEKLY_OFFER: Readonly<Record<ChatLanguage, string>> = {
+  ar: 'إذا بدك ياه كل أسبوع، قلّي لأي ساعة بيخلص.',
+  en: 'If you want it every week, tell me what time it ends.',
+  he: 'אם רוצים את זה כל שבוע, ספרו לי עד איזו שעה זה.',
+};
+
+type WeeklyLike = { items: ReadonlyArray<{ recurrenceHint?: { start?: string; end?: string } | null; weeklyBlock?: unknown }> };
+
+/** Whether the list says a weekly repeat it cannot keep yet: an hour, no end, so no weekly block to offer. */
+function weeklyWithoutEnd(proposal: WeeklyLike | null): boolean {
+  return (proposal?.items ?? []).some((item) => Boolean(item.recurrenceHint?.start) && !item.recurrenceHint?.end && !item.weeklyBlock);
+}
+
+/**
+ * "Every Tuesday and Thursday at 7 PM" is this week's sessions — a weekly
+ * block needs an end, and none is ever invented. So the reply says, once,
+ * what makes it weekly: the hour it ends. Said again only when the list it
+ * applied to is gone.
+ */
+export function withWeeklyOffer(reply: string, language: ChatLanguage, proposal: WeeklyLike | null, previous: WeeklyLike | null): string {
+  if (!weeklyWithoutEnd(proposal) || weeklyWithoutEnd(previous)) return reply;
+  const offer = WEEKLY_OFFER[language];
+  const text = reply.trim();
+  if (!text) return offer;
+  const sentences = sentencesOf(text);
+  const last = sentences[sentences.length - 1];
+  // Before a closing question, so the question stays the last thing said.
+  if (last && isQuestion(last)) return [...sentences.slice(0, -1), offer, last].join(' ');
+  return `${/[.!?؟。…]$/.test(text) ? text : `${text}.`} ${offer}`;
+}

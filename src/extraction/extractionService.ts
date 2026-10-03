@@ -346,13 +346,37 @@ function withPhraseInTitle(result: ExtractionResult, phrases: readonly string[])
   return { ...result, title: titled, ...(result.action === result.title ? { action: titled } : {}) };
 }
 
+/**
+ * The title without any recurrence phrase (audit 2026-10-03 review): a list
+ * of days becomes one item per day, each on its own day, so "study every
+ * Tuesday and Thursday at 7pm" is «study» on each — not «study every Tuesday
+ * and every Tuesday and Thursday», the phrase appended to a title that
+ * already held half of it. One day keeps its phrase (FIX-R8: «تدريب كل سبت»).
+ */
+function withoutRecurrencePhrases(result: ExtractionResult): ExtractionResult {
+  const strip = (title: string): string => {
+    let text = title;
+    for (let pass = 0; pass < 4; pass += 1) {
+      const found = readRecurrence(text);
+      if (!found || found.phrases.length === 0) break;
+      for (const phrase of found.phrases) text = text.split(phrase).join(' ');
+    }
+    const cleaned = text.replace(/\s+/g, ' ').replace(/^[\s,،\-–]+|[\s,،\-–]+$/g, '').replace(/\s+(?:and|&|و)$/i, "").trim();
+    return cleaned || title;
+  };
+  const title = result.title ? strip(result.title) : result.title;
+  if (title === result.title) return result;
+  return { ...result, title, ...(result.action === result.title ? { action: title } : {}), ...(result.appTitle ? { appTitle: strip(result.appTitle) } : {}) };
+}
+
 function withStatedShape(result: ExtractionResult, rawText: string, context: ExtractionContext): ExtractionResult {
   if (result.type !== 'task' && result.type !== 'follow_up') return result;
   const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
   let shaped = result;
   const recurrence = readRecurrence(rawText);
   if (recurrence) {
-    shaped = withPhraseInTitle(onRecurrenceDay(shaped, recurrence, rawText, context.now, timeZone), recurrence.phrases);
+    const placed = onRecurrenceDay(shaped, recurrence, rawText, context.now, timeZone);
+    shaped = recurrence.weekdays.length > 1 ? withoutRecurrencePhrases(placed) : withPhraseInTitle(placed, recurrence.phrases);
   }
   const minutes = shaped.timeAnchor === 'deadline' ? null : rangeMinutesFrom(rawText, localTimeOf(shaped, timeZone));
   if (minutes) shaped = { ...shaped, rangeMinutes: minutes };
