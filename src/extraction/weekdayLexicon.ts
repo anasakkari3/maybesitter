@@ -43,6 +43,11 @@ export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
   'الخميس': 4,
   'الجمعة': 5,
   'السبت': 6,
+  // Spoken spellings (audit 2026-10-03 #1 review): «التلاتا», «الأربعا».
+  'التلاتا': 2,
+  'التلاتاء': 2,
+  'الأربعا': 3,
+  'الاربعا': 3,
   // Without the article, only inside a frame that makes them days (FIX-R8-
   // CAPTURE): «يوم سبت», «كل سبت», «كل يوم خميس» — see `AR_BARE_DAY`.
   'أحد': 0,
@@ -57,6 +62,10 @@ export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
   'جمعة': 5,
   'جمعه': 5,
   'سبت': 6,
+  'تلاتا': 2,
+  'تلاتاء': 2,
+  'أربعا': 3,
+  'اربعا': 3,
   'ראשון': 0,
   'שני': 1,
   'שלישי': 2,
@@ -67,7 +76,7 @@ export const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
 };
 
 const EN_DAY = '(sunday|monday|tuesday|wednesday|thursday|friday|saturday)';
-const AR_DAY = '(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)';
+const AR_DAY = '(الأحد|الاحد|الاثنين|الإثنين|الأثنين|الثلاثاء|الثلثاء|التلاتاء|التلاتا|الأربعاء|الاربعاء|الأربعا|الاربعا|الخميس|الجمعة|السبت)';
 const HE_DAY = '(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)';
 
 /*
@@ -94,7 +103,7 @@ const NOT_LETTER_BEFORE = '(?<![\\p{L}\\p{M}])';
 const NOT_LETTER_AFTER = '(?![\\p{L}\\p{M}])';
 const AR_COMING = '(?:الجاي|الجاية|الجايه|الجّاي|القادم|القادمة)';
 const AR_SUFFIX = '(?:\\s+(?:الجاي|الجاية|الجايه|الجّاي|القادم|القادمة|الماضي|الماضية))?';
-const AR_UNAMBIGUOUS_DAY = '(الأحد|الاحد|الثلاثاء|الثلثاء|الأربعاء|الاربعاء|الخميس|الجمعة|السبت)';
+const AR_UNAMBIGUOUS_DAY = '(الأحد|الاحد|الثلاثاء|الثلثاء|التلاتاء|التلاتا|الأربعاء|الاربعاء|الأربعا|الاربعا|الخميس|الجمعة|السبت)';
 const AR_MONDAY = '(الاثنين|الإثنين|الأثنين)';
 const AR_HOUR_WORD = '(?:اللي|الّي|الساعة|الساعه|الصبح|الصباح|الظهر|الضهر|العصر|المسا|المساء|بالليل|عالساعة)';
 const HE_SUFFIX = '(?:\\s+(?:הבא|הבאה|הקרוב|הקרובה))?';
@@ -107,13 +116,13 @@ const HE_SUFFIX = '(?:\\s+(?:הבא|הבאה|הקרוב|הקרובה))?';
  * meaning cannot follow «كل» («كل أحد» is "everyone", «كل اثنين» "every
  * two", «كل جمعة» "every week" as often as "every Friday").
  */
-const AR_BARE_DAY = '(أحد|احد|اثنين|إثنين|ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|جمعة|جمعه|سبت)';
-const AR_BARE_DAY_AFTER_EVERY = '(ثلاثاء|ثلثاء|أربعاء|اربعاء|خميس|سبت)';
+const AR_BARE_DAY = '(أحد|احد|اثنين|إثنين|ثلاثاء|ثلثاء|تلاتاء|تلاتا|أربعاء|اربعاء|أربعا|اربعا|خميس|جمعة|جمعه|سبت)';
+const AR_BARE_DAY_AFTER_EVERY = '(ثلاثاء|ثلثاء|تلاتاء|تلاتا|أربعاء|اربعاء|أربعا|اربعا|خميس|سبت)';
 
 /** Every whole-word weekday mention, as sources. Group 1 is the day name. */
 const MENTION_SOURCES: readonly string[] = [
   `\\b${EN_DAY}\\b`,
-  `${NOT_LETTER_BEFORE}(?:يوم\\s+)?و?${AR_UNAMBIGUOUS_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
+  `${NOT_LETTER_BEFORE}(?:يوم\\s+)?و?ب?${AR_UNAMBIGUOUS_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
   `${NOT_LETTER_BEFORE}و?يوم\\s+${AR_BARE_DAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
   `(?<=${NOT_LETTER_BEFORE}كل\\s+)${AR_BARE_DAY_AFTER_EVERY}${NOT_LETTER_AFTER}`,
   `${NOT_LETTER_BEFORE}يوم\\s+${AR_MONDAY}${AR_SUFFIX}${NOT_LETTER_AFTER}`,
@@ -158,7 +167,8 @@ function firstMention(lower: string): Mention | null {
 const LIST_JOINER_EN = '(?:\\s*,\\s*(?:and\\s+|&\\s*)?|\\s+(?:and|&)\\s+|\\s*&\\s*)(?:on\\s+)?(?:every\\s+|each\\s+)?';
 const LIST_CONTINUATIONS: readonly RegExp[] = [
   new RegExp(`^${LIST_JOINER_EN}${EN_DAY}s?\\b`, 'u'),
-  new RegExp(`^\\s*[,،]?\\s*و\\s*(?:كل\\s+)?(?:يوم\\s+)?(?:ال)?${AR_BARE_DAY}${NOT_LETTER_AFTER}`, 'u'),
+  // «والخميس», «وخميس», «وبالخميس», and a bare comma between definite days: «الثلاثاء، الخميس».
+  new RegExp(`^\\s*(?:[,،]?\\s*و\\s*(?:كل\\s+)?(?:يوم\\s+)?ب?(?:ال)?${AR_BARE_DAY}|[,،]\\s*(?:يوم\\s+)?ب?ال${AR_BARE_DAY})${NOT_LETTER_AFTER}`, 'u'),
   new RegExp(`^\\s*,?\\s*ו\\s*(?:ב?יום\\s+)?${HE_DAY}${NOT_LETTER_AFTER}`, 'u'),
 ];
 
@@ -458,6 +468,44 @@ export function readListedWeekdays(rawText: string): number[] {
     }
   }
   return best && best.weekdays.length > 1 ? best.weekdays : [];
+}
+
+/** One list of days the text says, where it is, and whether it recurs. */
+export interface WeekdayList {
+  weekdays: number[];
+  /** Offsets into the text (lower-cased; the same length for these scripts). */
+  start: number;
+  end: number;
+  /** Said with «كل», "every", "each", «כל»: "every Tuesday and Thursday". */
+  recurring: boolean;
+}
+
+const RECURRING_BEFORE = new RegExp(`(?:\\b(?:every|each)|${NOT_LETTER_BEFORE}[وف]?(?:ب|في\\s+)?كل|${NOT_LETTER_BEFORE}ו?ב?כל)\\s+(?:(?:on\\s+)?|(?:يوم|יום)\\s+)?$`, 'iu');
+
+/**
+ * Every list of two or more days the text says, in order, with its place and
+ * whether it recurs (audit 2026-10-03 review): whether a list belongs to an
+ * item is read from what sits beside it, so it has to be found where it is.
+ */
+export function readWeekdayLists(rawText: string): WeekdayList[] {
+  if (typeof rawText !== 'string' || !rawText.trim()) return [];
+  const lower = rawText.toLowerCase();
+  const lists: WeekdayList[] = [];
+  for (const source of MENTION_SOURCES) {
+    for (const match of Array.from(lower.matchAll(new RegExp(source, 'gu')))) {
+      const weekday = WEEKDAY_INDEX[match[1]!];
+      if (weekday === undefined) continue;
+      const start = match.index ?? 0;
+      if (lists.some((list) => start >= list.start && start < list.end)) continue;
+      const listed = listedAfter(lower, start + match[0].length);
+      if (listed.weekdays.length === 0) continue;
+      const weekdays = Array.from(new Set([weekday, ...listed.weekdays]));
+      if (weekdays.length < 2) continue;
+      const before = lower.slice(Math.max(0, start - 16), start);
+      lists.push({ weekdays, start, end: listed.end, recurring: RECURRING_BEFORE.test(before) });
+    }
+  }
+  return lists.sort((left, right) => left.start - right.start);
 }
 
 /** Every weekday the text names, in the order said, each once ("Tuesday and Thursday" → 2, 4). */

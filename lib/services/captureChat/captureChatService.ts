@@ -58,7 +58,7 @@ import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
 import { buildChatPrompt, parseChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
-import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, type ChatLanguage } from './chatReply';
+import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
 import {
   CaptureConversationStore,
   conversationExpired,
@@ -266,7 +266,7 @@ export async function chatMobileCapture(
     const proposal = answered === current || options.conflictsKnown ? answered : await withConflicts(answered, schedule);
     const reply = options.refused || !proposal
       ? replyText
-      : withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown });
+      : withWeeklyOffer(withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown }), language, proposal, current);
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
     const updatedAt = new Date(clock()).toISOString();
     await conversations.put(uid, { ...conversation, turns: kept, proposalId: proposal?.proposalId ?? null, updatedAt }, new Date(clock()));

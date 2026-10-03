@@ -33,7 +33,7 @@ import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
 import { withWeeklyBlockOffers, withoutPossessionLeadIn } from '../../weeklyBlocks/offer';
-import { duplicateItemIds, goalLinkFor, isGoalTitle, matchingGoal, occurrenceDatesFor, onDate, titleKey, type ActiveGoal } from './proposalShape';
+import { duplicateItemIds, goalLinkFor, isGoalTitle, isSessionOf, matchingGoal, modelItemDay, modelItemKeys, occurrenceDatesFor, onDate, titleKey, type ActiveGoal } from './proposalShape';
 import {
   alignToPrevious,
   chatEvidenceFrom,
@@ -726,9 +726,6 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   let noCommitmentReason: NoCommitmentReason | null = null;
   // Clock times said in clauses that produced nothing (FY1 N1); see the valve.
   let timesReadAsNothing = 0;
-  // Each item's own words — its clause, or in the chat its evidence — for the
-  // proposal's shape below (`proposalShape`). Never stored, never logged.
-  const itemWords = new Map<string, string>();
 
   /*
    * The capture chat (owner decision 2026-09-30): one clause per model item,
@@ -750,6 +747,18 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // (`chatItemEvidence`): another item's day or hour is never its evidence.
   const chatItemEvidences = chat ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone) : [];
   const chatAligned = alignToPrevious(chatItems, chatPrevious);
+  // The model's items that share a title and a day with another of its items
+  // (audit 2026-10-03: «تدرس» twice on Tuesday): the one case a list of days
+  // in the words may fan a day the model chose out over the others.
+  const stackedModelItems = new Set<number>();
+  chatItems.forEach((item, index) => {
+    const day = modelItemDay(item, options.timezone);
+    if (!day) return;
+    const keys = modelItemKeys(item);
+    chatItems.forEach((other, at) => {
+      if (at !== index && modelItemDay(other, options.timezone) === day && modelItemKeys(other).some((key) => keys.includes(key))) stackedModelItems.add(index);
+    });
+  });
   const clauses: CaptureClause[] = chat
     ? chatItemEvidences.map((evidence) => evidence.clause)
     : raw ? splitInput(raw) : [];
@@ -1157,7 +1166,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         : segment;
       const occurrences = needsClarification || (chat && !chatItemEvidences[index]!.touchedNow)
         ? null
-        : occurrenceDatesFor(extracted.result, occurrenceWords, options.now, options.timezone);
+        : occurrenceDatesFor(extracted.result, occurrenceWords, options.now, options.timezone, {
+          // A day the model chose itself, or (outside the chat) a model reading at all.
+          modelPlacedDay: chat ? modelItemDay(chatItems[index], options.timezone) !== null : extracted.engine !== 'rule-based',
+          stacked: chat ? stackedModelItems.has(index) : false,
+        });
       const readings = occurrences ? occurrences.map((date) => onDate(extracted.result, date, options.timezone)) : [extracted.result];
       for (const reading of readings) {
         const itemId = randomUUID();
@@ -1199,7 +1212,6 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         });
         commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences));
         resultsByItemId.set(itemId, reading);
-        itemWords.set(itemId, chat ? chatItemEvidences[index]!.turns.join('\n') || segment : segment);
       }
     } catch (error) {
       // Gap B: a negated request is understood, not malformed. It produces no
@@ -1270,17 +1282,28 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const sessions = items.filter((item) => !goalItems.includes(item));
   const instantOf = (item: CaptureProposalContract['items'][number]) => (item.resolvedTime ? Date.parse(item.resolvedTime) : null);
   const goalSeedKeys = new Set(seeds.map((seed) => titleKey(seed.summary)));
+  const titlesOf = (item: CaptureProposalContract['items'][number]) => [item.title, sourceTitleOf.get(item.itemId) ?? ''].filter(Boolean);
+  // The goal each session serves, when its goal item was taken off the list
+  // and the person already has that goal: the session links to it.
+  const goalOfSession = new Map<string, ActiveGoal>();
   for (const goalItem of goalItems) {
-    if (sessions.length === 0) break;
-    const goalWords = `${goalItem.title}\n${sourceTitleOf.get(goalItem.itemId) ?? ''}`;
+    // A session of this goal, by its own title only (`isSessionOf`): at the
+    // goal's own hour, or — when the goal has none — anywhere on the list.
+    // Anything else at that hour («اتصل بماما» at the swimming lesson's 18:00)
+    // leaves the goal where it is: a thing with its own time, kept.
     const at = instantOf(goalItem);
-    const sharesASlot = at !== null && sessions.some((session) => instantOf(session) === at);
-    const aboutTheSameThing = at === null && sessions.some((session) =>
-      matchingGoal(`${session.title}\n${sourceTitleOf.get(session.itemId) ?? ''}\n${itemWords.get(session.itemId) ?? ''}`, [{ goalId: '', title: goalWords }]) !== null);
-    if (!sharesASlot && !aboutTheSameThing) continue;
+    const ofThisGoal = sessions.filter((session) => isSessionOf(titlesOf(goalItem), titlesOf(session)));
+    if (!ofThisGoal.some((session) => at === null || instantOf(session) === at)) continue;
+    // Every session of it on the list counts toward it, not only the one at its hour.
+    const served = ofThisGoal;
     dropItem(goalItem.itemId);
-    if (matchingGoal(goalWords, activeGoals)) continue;
-    const summary = (sourceTitleOf.get(goalItem.itemId) || goalItem.title).trim();
+    const existing = matchingGoal(titlesOf(goalItem).join('\n'), activeGoals);
+    if (existing) {
+      for (const session of served) goalOfSession.set(session.itemId, existing);
+      continue;
+    }
+    // In the card's words — the app's language — as the person saw it.
+    const summary = goalItem.title.trim();
     const key = titleKey(summary);
     if (!summary || goalSeedKeys.has(key)) continue;
     goalSeedKeys.add(key);
@@ -1289,7 +1312,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   if (activeGoals.length > 0) {
     for (let at = 0; at < items.length; at += 1) {
       const item = items[at]!;
-      const goal = matchingGoal(`${item.title}\n${sourceTitleOf.get(item.itemId) ?? ''}\n${itemWords.get(item.itemId) ?? ''}`, activeGoals);
+      // By the item's own titles only: a sentence about the dentist and React
+      // does not make the dentist a step of learning React.
+      const goal = goalOfSession.get(item.itemId) ?? matchingGoal(titlesOf(item).join('\n'), activeGoals);
       if (goal) items[at] = { ...item, goalLink: goalLinkFor(goal) };
     }
   }
