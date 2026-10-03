@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Platform, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
@@ -619,7 +619,10 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
             // in the device's own wall clock and the answer is read back off
             // it, with no zone arithmetic in between to get wrong.
             is24Hour
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            locale={lang}
+            positiveButton={{ label: t.ok, textColor: p.ac }}
+            negativeButton={{ label: t.cancel, textColor: p.mu }}
+            display="spinner"
             onChange={(event, value) => {
               setPicking(Platform.OS === 'ios');
               if (event.type === 'dismissed' || !value) return;

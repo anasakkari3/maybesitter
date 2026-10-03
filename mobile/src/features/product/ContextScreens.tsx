@@ -9,7 +9,6 @@ import { dayKey, formatDate, formatTime } from '../../i18n/format';
 import { resolveTimeZone, useTimeZone } from '../../i18n/timezone';
 import { isolateAuto } from '../../i18n/bidi';
 import { fill } from '../../i18n/strings';
-import { useLayoutMode } from '../../theme/textScale';
 import { memorySentence } from '../memory/memoryDisplay';
 import { durationText } from '../memory/memoryProvenance';
 import { toViewModel, type CommitmentView } from '../commitments/model';
@@ -147,22 +146,21 @@ export function CommitmentsScreen() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all'|'active'|'done'>('active');
   const [reverse, setReverse] = useState(false);
-  const stacked = useLayoutMode() !== 'normal';
   const items = uniqueCommitments([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])]);
   const views = items.map(item => toViewModel(item, new Date().toISOString())).filter(item => item.status !== 'dropped'
     && (filter === 'all' || item.status === filter) && item.title.toLocaleLowerCase(lang).includes(search.trim().toLocaleLowerCase(lang)))
     .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999') * (reverse ? -1 : 1));
   return <ProductPage id="commitments" title={t.xCommitments} subtitle={t.xCurrentHorizon}>
-    <ProductActions><Pill label={t.tabCalendar} kind="outline" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="soft" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>
+    {search.trim() ? null : <ProductActions><Pill label={t.tabCalendar} kind="outline" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="soft" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>}
     <TextInput testID="commitments-search" accessibilityLabel={t.xSearch} placeholder={t.xSearch} placeholderTextColor={p.mu}
       value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 18, padding: 16, minHeight: 52, fontSize: 17, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
-    <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8 }}>
+    <View style={{ flexDirection: 'row', gap: 8 }}>
       {(['all','active','done'] as const).map(key => <Btn key={key} label={key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone} accessibilityRole="radio" accessibilityState={{ checked: filter === key }}
-        onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? p.acs : p.sf, borderRadius: 16, padding: 14, minHeight: 48, flex: stacked ? undefined : 1, alignItems: 'center' }}>
+        onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? p.acs : p.sf, borderRadius: 16, paddingHorizontal: 8, paddingVertical: 10, minHeight: 48, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <Txt role="label" color={filter === key ? p.ac : p.tx}>{key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone}</Txt>
       </Btn>)}
     </View>
-    <Pill label={reverse ? t.xSortLatest : t.xSortEarliest} kind="outline" testID="commitments-sort" onPress={() => setReverse(value => !value)} />
+    {search.trim() ? null : <Pill label={reverse ? t.xSortLatest : t.xSortEarliest} kind="outline" testID="commitments-sort" onPress={() => setReverse(value => !value)} />}
     <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
       {views.length === 0 ? <ProductSection title={t.xNoResults} icon="check" /> : null}
       {views.map(item => <ProductRow key={item.id} id={`commitments-item-${item.id}`} title={isolateAuto(item.title)} icon={item.status === 'done' ? 'check' : 'calendar'}

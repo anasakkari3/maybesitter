@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { Appearance, useColorScheme } from 'react-native';
 import { strings, type Lang, type Strings } from '../i18n/strings';
 import { setLocale, tFor } from '../i18n';
 import { isRtl, scriptFor } from '../i18n/locale';
@@ -99,6 +99,11 @@ function useAppModel() {
   const [themePref, setThemePref] = useState<ThemePref>(DEFAULT_THEME_PREF);
   const system = useColorScheme();
   const scheme: Scheme = themePref === 'system' ? (system === 'dark' ? 'dark' : 'light') : themePref;
+  // Native dialogs and pickers follow the same explicit choice as the React
+  // views. On "system", release the override so scheduled OS changes still work.
+  useEffect(() => {
+    Appearance.setColorScheme(themePref === 'system' ? 'unspecified' : themePref);
+  }, [themePref]);
   const t: Strings = strings[lang];
   // ICU-aware, key-checked translator for count messages `fill` cannot
   // inflect. See src/i18n/README.md.

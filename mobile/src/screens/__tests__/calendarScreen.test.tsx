@@ -448,11 +448,17 @@ describe('the day on equal hours (Stitch)', () => {
   }
 
   it('says how full each day is, from what is on it', async () => {
+    connected([]);
     await show([], [item('a', onDay(1, 9)), item('b', onDay(1, 10)), item('c', onDay(1, 11)), item('d', onDay(2, 9))]);
     await waitFor(() => expect(screen.getByTestId(`calendar-load-${shiftDayKey(TODAY_KEY, 1)}`).props.children).toBe(en.loadFull));
     expect(screen.getByTestId(`calendar-load-${shiftDayKey(TODAY_KEY, 2)}`).props.children).toBe(en.loadNormal);
     expect(screen.getByTestId(`calendar-load-${TODAY_KEY}`).props.children).toBe(en.loadLight);
     expect(screen.getByTestId(`calendar-day-${shiftDayKey(TODAY_KEY, 1)}`).props.accessibilityLabel).toContain(en.loadFull);
+  });
+
+  it('does not claim a light day when the calendar is disconnected', async () => {
+    await show([], []);
+    await waitFor(() => expect(screen.getByTestId(`calendar-load-${TODAY_KEY}`).props.children).toBe(en.loadUnknown));
   });
 
   it('draws busy time exactly as tall as it lasts, as busy and nothing more', async () => {

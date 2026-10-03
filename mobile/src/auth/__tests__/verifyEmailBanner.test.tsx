@@ -8,7 +8,6 @@ import { AuthProvider } from '../AuthProvider';
 import {
   EXPANDED_SHARE,
   RESEND_COOLDOWN_SECONDS,
-  TEXT_SHARE,
   VerifyEmailBanner,
   bannerTextLines,
 } from '../VerifyEmailBanner';
@@ -29,8 +28,6 @@ const useWindowDimensions = require('react-native/Libraries/Utilities/useWindowD
 
 /** The iOS accessibility sizes the UAT phone steps through (AX1 … AX5). */
 const AX = [1.64, 1.94, 2.35, 2.76, 3.12];
-/** One line of the banner's 13pt Arabic, before the reader's scale: round(13 × 1.6). */
-const LINE = 21;
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -201,24 +198,17 @@ describe('the banner takes a bounded share of the screen at every text size', ()
   });
 
   it('caps nothing below the accessibility sizes', () => {
-    for (const fontScale of [0.82, 1, 1.12, 1.24, 1.35, 1.5]) {
+    for (const fontScale of [0.82, 1, 1.12]) {
       expect(bannerTextLines({ windowHeight: 844, fontScale })).toBeUndefined();
     }
   });
 
-  it('caps the sentence to the lines that fit its share of the window, never fewer than one', () => {
-    for (const fontScale of AX) {
+  it('keeps the folded accessibility label to one line', () => {
+    for (const fontScale of [1.24, 1.35, 1.5, ...AX]) {
       for (const windowHeight of [844, 932, 667, 390]) {
-        const lines = bannerTextLines({ windowHeight, fontScale });
-        expect(lines).toBeGreaterThanOrEqual(1);
-        // One line always shows; past one, the cap is the share.
-        if ((lines ?? 0) > 1) expect((lines ?? 0) * LINE * fontScale).toBeLessThanOrEqual(windowHeight * TEXT_SHARE);
+        expect(bannerTextLines({ windowHeight, fontScale })).toBe(1);
       }
     }
-    // The UAT phone: two lines at AX1–AX2, one at AX3–AX5. (AX3 was two
-    // lines under Noto Naskh's 1.6; Noto Kufi's 1.7 line box, Stitch
-    // 2026-10-02, no longer fits a second line in the banner's share.)
-    expect(AX.map((fontScale) => bannerTextLines({ windowHeight: 844, fontScale }))).toEqual([2, 2, 1, 1, 1]);
   });
 
   it('keeps the default-size row exactly as the design draws it', async () => {
@@ -230,18 +220,18 @@ describe('the banner takes a bounded share of the screen at every text size', ()
     expect(screen.queryByRole('button', { name: en.authVerifyBanner })).toBeNull();
   });
 
-  it.each(AX)('at %p× stacks the button under a capped sentence, and says the whole of it', async (fontScale) => {
+  it.each(AX)('at %p× shows a short label beside resend and announces the whole sentence', async (fontScale) => {
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), fontScale);
     const lines = bannerTextLines({ windowHeight: 844, fontScale });
-    const text = screen.getByText(en.authVerifyBanner);
+    const text = screen.getByText(en.authVerifyShort);
     expect(text.props.numberOfLines).toBe(lines);
     // A screen reader hears the full sentence, whatever is painted.
     expect(message().props.accessibilityState).toMatchObject({ expanded: false });
-    // «ابعت من جديد» is still there, full width under the sentence.
+    // «Resend» remains visible beside the shortened sentence.
     expect(screen.getByLabelText(en.authVerifyResend)).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('verify-email-banner').props.style)).toMatchObject({
-      flexDirection: 'column',
-      paddingTop: METRICS.insets.top + 12,
+      flexDirection: 'row',
+      paddingTop: METRICS.insets.top + 6,
     });
   });
 
@@ -253,14 +243,15 @@ describe('the banner takes a bounded share of the screen at every text size', ()
     const region = screen.getByTestId('verify-email-banner-full');
     expect(StyleSheet.flatten(region.props.style).maxHeight).toBeLessThanOrEqual(Math.round(844 * EXPANDED_SHARE));
     await fireEvent.press(message());
-    expect(screen.getByText(en.authVerifyBanner).props.numberOfLines).toBe(1);
+    expect(screen.getByText(en.authVerifyShort).props.numberOfLines).toBe(1);
   });
 
   it('caps the "sent" confirmation the same way', async () => {
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), 3.12);
     await fireEvent.press(screen.getByLabelText(en.authVerifyResend));
-    expect(screen.getByText(en.authVerifyResent).props.numberOfLines).toBe(1);
+    expect(screen.getByText(en.authVerifySentShort).props.numberOfLines).toBe(1);
     expect(screen.getByLabelText(en.authVerifyResent)).toBeTruthy();
+    expect(screen.getByText('60s')).toBeTruthy();
   });
 });
 
@@ -277,12 +268,13 @@ describe('the banner steps aside while the reader types', () => {
   it.each([1, 3.12])('at %p× it is gone while the keyboard is up and back when it goes down', async (fontScale) => {
     const keyboard = fakeKeyboard();
     await renderBanner(createFakeAuthRepository({ initialUser: UNVERIFIED }), fontScale);
-    expect(screen.getByText(en.authVerifyBanner)).toBeTruthy();
+    const painted = fontScale >= 1.24 ? en.authVerifyShort : en.authVerifyBanner;
+    expect(screen.getByText(painted)).toBeTruthy();
     await keyboard.show();
-    expect(screen.queryByText(en.authVerifyBanner)).toBeNull();
+    expect(screen.queryByText(painted)).toBeNull();
     expect(screen.queryByTestId('verify-email-banner')).toBeNull();
     await keyboard.hide();
-    expect(screen.getByText(en.authVerifyBanner)).toBeTruthy();
+    expect(screen.getByText(painted)).toBeTruthy();
     expect(screen.getByLabelText(en.authVerifyResend)).toBeTruthy();
   });
 

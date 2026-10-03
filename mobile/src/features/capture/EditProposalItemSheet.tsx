@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Platform, Switch, TextInput, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { CIVIL_ZONE, civilDate, formatDate, formatTime, shiftDayKey } from '../../i18n/format';
@@ -221,7 +221,10 @@ export function EditProposalItemSheet({
           // The native picker's own chrome is light unless told otherwise, and
           // unreadable inside a dark sheet.
           themeVariant={scheme}
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          locale={lang}
+          positiveButton={{ label: t.ok, textColor: p.ac }}
+          negativeButton={{ label: t.cancel, textColor: p.mu }}
+          display={Platform.OS === 'ios' || picking === 'time' ? 'spinner' : 'default'}
           onChange={(event, picked) => {
             setPicking(Platform.OS === 'ios' ? picking : null);
             // A dismiss on Android carries the value the picker opened with.
