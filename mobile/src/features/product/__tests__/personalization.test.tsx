@@ -9,6 +9,7 @@ import { strings } from '../../../i18n/strings';
 const mockCreate = jest.fn();
 const mockDecide = jest.fn();
 jest.mock('../../../api/queries', () => ({
+  useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({ data: mockFixture, isPending: false, error: null, refetch: jest.fn() }),
   useConsents: () => ({ data: { currentVersions: { personalization: 'v1' }, personalization: { state: 'granted' } }, isPending: false, error: null, refetch: jest.fn() }),
   useSetPersonalizationConsent: () => ({ mutateAsync: jest.fn() }),

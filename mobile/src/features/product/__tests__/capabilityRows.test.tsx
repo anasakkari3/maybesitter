@@ -37,11 +37,13 @@ const mutation = () => () => ({ mutate: jest.fn(), mutateAsync: jest.fn(), reset
 
 jest.mock('../../../auth/AuthProvider', () => ({
   useAuth: () => ({ user: { uid: 'u', email: 'a@b.c', displayName: 'Sami' } }),
+  useOptionalAuth: () => ({ user: { uid: 'u', email: 'a@b.c', displayName: 'Sami' } }),
 }));
 jest.mock('../../../api/queries', () => ({
   useUid: () => 'u',
   useConsents: query({ currentVersions: { personalization: 'v1' }, personalization: null }),
   useSetPersonalizationConsent: mutation(),
+  useIntelligenceDecided: () => () => undefined,
   useMemory: query({ items: [{ id: 'goal-1', kind: 'goal', content: 'Launch the pilot', createdAt: '2026-09-20T10:00:00.000Z' }], suggestions: [] }),
   useCreateMemory: mutation(),
   useMemorySuggestion: mutation(),

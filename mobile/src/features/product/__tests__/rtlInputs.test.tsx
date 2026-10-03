@@ -22,6 +22,7 @@ import ar from '../../../i18n/locales/ar.json';
 jest.mock('../../../api/queries', () => ({
   useToday: () => ({ data: { items: [] }, isPending: false, error: null, refetch: jest.fn() }),
   useUpcoming: () => ({ data: { items: [] }, isPending: false, error: null, refetch: jest.fn() }),
+  useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({ data: mockFixture, isPending: false, error: null, refetch: jest.fn() }),
   useConsents: () => ({ data: { currentVersions: { personalization: 'v1' }, personalization: { state: 'granted' } }, isPending: false, error: null, refetch: jest.fn() }),
   useSetPersonalizationConsent: () => ({ mutateAsync: jest.fn() }),

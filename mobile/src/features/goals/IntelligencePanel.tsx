@@ -7,7 +7,7 @@ import {
   answerIntelligenceQuestion,
   getGmailIntelligenceMonitor, setGmailIntelligenceMonitor,
 } from '../../api/endpoints/intelligence';
-import type { IntelligenceInbox } from '../../api/schemas/intelligence';
+import type { IntelligenceInbox, IntelligenceObservation } from '../../api/schemas/intelligence';
 import type { z } from 'zod';
 import { intelligenceGmailMonitorSchema } from '../../api/schemas/intelligence';
 import { forbiddenReason, userFacingMessage } from '../../api/ui/userFacingMessage';
@@ -19,6 +19,26 @@ import { Pill, Txt } from '../../ui/primitives';
 import { ProductSection } from '../../ui/product';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { isolateAuto } from '../../i18n/bidi';
+import { useOptionalAuth } from '../../auth/AuthProvider';
+import type { Strings } from '../../i18n/strings';
+import { claimVisit, recordVisitAnswer, recordVisitFailure } from '../../lib/deviceSettings/visitThrottle';
+
+/** The person's own records are facts already; only what was read from their words is asked about. */
+const SELF_CONFIRMED_SOURCES: ReadonlySet<string> = new Set(['memory', 'commitment', 'behavior']);
+/** At most this many "is this right?" cards at once, below the suggestions. */
+export const MAX_CONFIRM_CARDS = 4;
+
+const UNDERSTOOD_KEY = {
+  goal: 'xIntelligenceUnderstoodGoal',
+  intention: 'xIntelligenceUnderstoodIntention',
+  request: 'xIntelligenceUnderstoodRequest',
+  event: 'xIntelligenceUnderstoodEvent',
+  commitment: 'xIntelligenceUnderstoodCommitment',
+  preference: 'xIntelligenceUnderstoodPreference',
+  constraint: 'xIntelligenceUnderstoodConstraint',
+  opportunity: 'xIntelligenceUnderstoodOpportunity',
+  outcome: 'xIntelligenceUnderstoodOutcome',
+} as const satisfies Record<IntelligenceObservation['kind'], keyof Strings>;
 
 /**
  * The proactive loop's review: evidence, suggestions, and the taps that decide
@@ -32,8 +52,14 @@ import { isolateAuto } from '../../i18n/bidi';
  * not an error: the panel steps aside, and `whenOff` says so where the screen
  * wants it said.
  *
- * `autoGenerate` (on «يتابع لك»): opening the screen asks for suggestions as a
- * visit, which the server holds to its floor, before the inbox is read.
+ * `autoGenerate` (on «يتابع لك»): the inbox is read and shown first; then,
+ * when the visit throttle allows (`visitThrottle.ts`), suggestions are asked
+ * for as a visit in the background, and the inbox is read again only if that
+ * brought something new.
+ *
+ * What it shows, review first: the waiting suggestions with their evidence,
+ * then what was understood from the person's words and needs a yes or no
+ * (never their own saved records), then the ways to tell it more.
  */
 export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: {
   onChanged: () => void;
@@ -42,6 +68,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   whenOff?: React.ReactNode;
 }) {
   const { t, p, rtl, lang } = useApp();
+  const uid = useOptionalAuth()?.user?.uid ?? '';
   const zone = useTimeZone();
   const [phase, setPhase] = React.useState<'loading' | 'ready' | 'off' | 'failed'>('loading');
   const [loadError, setLoadError] = React.useState<unknown>(null);
@@ -66,30 +93,45 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   }, [read]);
   const load = React.useCallback((alive: () => boolean) => {
     void (async () => {
-      if (autoGenerate) {
-        try { await generateIntelligenceSuggestions({ visit: true }); }
-        catch (cause) {
-          // Off or refused: nothing to show and nothing to retry. Any other
-          // failure (offline, quota) still shows what is already there.
-          if (forbiddenReason(cause) !== null) { if (alive()) setPhase('off'); return; }
-        }
-      }
       try {
         const { next, monitor } = await read();
         if (!alive()) return;
         setInbox(next); setGmailMonitor(monitor); setPhase('ready');
       } catch (cause) {
         if (!alive()) return;
+        // Off or refused is a state, not an error: nothing to retry.
         setLoadError(cause);
         setPhase(forbiddenReason(cause) !== null ? 'off' : 'failed');
       }
     })();
-  }, [autoGenerate, read]);
+  }, [read]);
   React.useEffect(() => {
     let alive = true;
     load(() => alive);
     return () => { alive = false; };
   }, [load]);
+  // The visit, once per mount, after the inbox is on screen and the account
+  // is known; never on a loop that answered off.
+  const visited = React.useRef(false);
+  const shown = React.useRef<IntelligenceInbox | null>(null);
+  React.useEffect(() => { shown.current = inbox; }, [inbox]);
+  React.useEffect(() => {
+    if (!autoGenerate || !uid || phase !== 'ready' || visited.current) return undefined;
+    visited.current = true;
+    let alive = true;
+    void (async () => {
+      if (!(await claimVisit(uid))) return;
+      try {
+        const answer = await generateIntelligenceSuggestions({ visit: true });
+        recordVisitAnswer(uid, answer.nextVisitAt);
+        const known = new Set((shown.current?.suggestions ?? []).map(item => item.id));
+        if (alive && answer.suggestions.some(item => item.status === 'pending' && !known.has(item.id))) await refresh();
+      } catch (cause) {
+        recordVisitFailure(uid, forbiddenReason(cause) !== null);
+      }
+    })();
+    return () => { alive = false; };
+  }, [autoGenerate, uid, phase, refresh]);
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
@@ -111,37 +153,9 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   const evidence = new Map(inbox.observations.map(item => [item.id, item.evidence]));
   const schedule = new Map(inbox.schedule.map(item => [item.suggestionId, item]));
   return <ProductSection title={t.xIntelligenceTitle} body={t.xIntelligenceBody} icon="goal">
-    <TextInput
-      testID="intelligence-statement"
-      accessibilityLabel={t.xIntelligenceTitle}
-      value={draft}
-      onChangeText={setDraft}
-      placeholder={t.xIntelligencePlaceholder}
-      placeholderTextColor={p.mu}
-      maxLength={2000}
-      multiline
-      style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: rtl ? 'right' : 'left' }}
-    />
-    <Pill testID="intelligence-analyze" label={t.xIntelligenceAnalyze} disabled={busy || !draft.trim()} onPress={() => void run(async () => {
-      await analyzeIntelligenceStatement(draft.trim());
-      setDraft('');
-    })} />
-    <Pill testID="intelligence-generate" label={t.xIntelligenceGenerate} disabled={busy || inbox.observations.length === 0} onPress={() => void run(() => generateIntelligenceSuggestions())} />
-    <Pill testID="intelligence-gmail-scan" label={t.xIntelligenceGmailScan} kind="outline" disabled={busy} onPress={() => void run(scanGmailForIntelligence)} />
-    <Txt role="supporting">{t.xIntelligenceGmailMonitorInfo}</Txt>
-    <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
-      kind="outline" disabled={busy || gmailMonitor === null} onPress={() => void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled))} />
-    {gmailMonitor?.error ? <Txt role="supporting" color={p.wm}>{t.xIntelligenceGmailMonitorError}</Txt> : null}
     {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
     {inbox.suggestions.filter(item => item.status === 'pending').length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
-    {inbox.observations.filter(item => item.review === 'pending').slice(0, 8).map(item => <View key={item.id}>
-      <Txt role="supporting">{fill(t.xIntelligenceEvidence, { evidence: item.evidence })}</Txt>
-      <View style={{ flexDirection: rtl ? 'row-reverse' : 'row', gap: 8 }}>
-        <Pill label={t.xIntelligenceConfirm} disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'confirmed'))} />
-        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'dismissed'))} />
-      </View>
-    </View>)}
     {inbox.suggestions.filter(item => item.status === 'pending').map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
       <Txt role="body">{isolateAuto(item.title)}</Txt>
       <Txt role="supporting">{isolateAuto(item.reason)}</Txt>
@@ -155,7 +169,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
         maxLength={100}
         style={{ color: p.tx, backgroundColor: p.bg, padding: 12, borderRadius: 12, fontSize: 16, textAlign: rtl ? 'right' : 'left' }}
       /> : null}
-      <Txt role="supporting">{fill(t.xIntelligenceEvidence, { evidence: item.observationIds.map(id => evidence.get(id) ?? '').filter(Boolean).join(' · ') })}</Txt>
+      <Txt role="supporting">{fill(t.xIntelligenceEvidence, { evidence: item.observationIds.map(id => evidence.get(id) ?? '').filter(Boolean).map(isolateAuto).join(' · ') })}</Txt>
       {item.kind === 'action' && schedule.get(item.id)?.slot ? <Txt role="supporting">{fill(t.xIntelligenceSlot, {
         date: formatDate(new Date(schedule.get(item.id)!.slot!.startsAt), 'short', { locale: lang, timeZone: zone }),
         time: ltr(formatTime(new Date(schedule.get(item.id)!.slot!.startsAt), { locale: lang, timeZone: zone })),
@@ -184,5 +198,33 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       </View>
       {item.kind !== 'question' ? <Txt role="supporting" color={p.mu}>{t.suggestionNote}</Txt> : null}
     </View>)}
+    {inbox.observations.filter(item => item.review === 'pending' && !SELF_CONFIRMED_SOURCES.has(item.source)).slice(0, MAX_CONFIRM_CARDS).map(item => <View key={item.id} testID={`intelligence-observation-${item.id}`}>
+      <Txt role="supporting">{fill(t[UNDERSTOOD_KEY[item.kind]], { evidence: isolateAuto(item.evidence) })}</Txt>
+      <View style={{ flexDirection: rtl ? 'row-reverse' : 'row', gap: 8 }}>
+        <Pill label={t.xIntelligenceConfirm} disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'confirmed'))} />
+        <Pill label={t.xIntelligenceDismiss} kind="outline" disabled={busy} onPress={() => void run(() => reviewIntelligenceObservation(item.id, 'dismissed'))} />
+      </View>
+    </View>)}
+    <TextInput
+      testID="intelligence-statement"
+      accessibilityLabel={t.xIntelligenceTitle}
+      value={draft}
+      onChangeText={setDraft}
+      placeholder={t.xIntelligencePlaceholder}
+      placeholderTextColor={p.mu}
+      maxLength={2000}
+      multiline
+      style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: rtl ? 'right' : 'left' }}
+    />
+    <Pill testID="intelligence-analyze" label={t.xIntelligenceAnalyze} disabled={busy || !draft.trim()} onPress={() => void run(async () => {
+      await analyzeIntelligenceStatement(draft.trim());
+      setDraft('');
+    })} />
+    <Pill testID="intelligence-generate" label={t.xIntelligenceGenerate} disabled={busy || inbox.observations.length === 0} onPress={() => void run(() => generateIntelligenceSuggestions())} />
+    <Pill testID="intelligence-gmail-scan" label={t.xIntelligenceGmailScan} kind="outline" disabled={busy} onPress={() => void run(scanGmailForIntelligence)} />
+    <Txt role="supporting">{t.xIntelligenceGmailMonitorInfo}</Txt>
+    <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
+      kind="outline" disabled={busy || gmailMonitor === null} onPress={() => void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled))} />
+    {gmailMonitor?.error ? <Txt role="supporting" color={p.wm}>{t.xIntelligenceGmailMonitorError}</Txt> : null}
   </ProductSection>;
 }

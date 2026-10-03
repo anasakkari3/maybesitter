@@ -246,6 +246,22 @@ function invalidateCommitments(client: QueryClient, uid: string, id?: string): v
 }
 
 /**
+ * A proactive suggestion accepted or answered (review of 2026-10-03): an
+ * action became a commitment, a goal became memory. Today, «أشيائي» and the
+ * plan read those, so they are told — accepting on «يتابع لك» used to leave
+ * them showing the day before the tap.
+ */
+export function useIntelligenceDecided(): () => void {
+  const client = useQueryClient();
+  const uid = useUid();
+  return useCallback(() => {
+    invalidateCommitments(client, uid);
+    void client.invalidateQueries({ queryKey: queryKeys.memory(uid) });
+    void client.invalidateQueries({ queryKey: ['user', uid, 'goalExecution'] });
+  }, [client, uid]);
+}
+
+/**
  * Everything a weekly block change can move: the blocks and their occurrences,
  * the plans that keep their hours free, and the next step — which is silent
  * while one is under way.

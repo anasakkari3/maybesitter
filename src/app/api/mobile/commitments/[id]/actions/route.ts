@@ -14,7 +14,7 @@ import {
 import { commitmentToMobileDto, mobileError } from '../../../../../../../lib/services/mobile/response';
 import { getDeviceCalendarLink } from '../../../../../../../lib/services/calendar/deviceCalendarLinks';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
-import { learnOutcomesWhenEnabled } from '../../../../../../../lib/intelligence/outcomeLearning';
+import { learnOutcomesWithin } from '../../../../../../../lib/intelligence/outcomeLearning';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,7 +70,7 @@ export async function POST(
     // from; recorded here, as they happen, rather than only when somebody
     // opens the loop's own screen (review of 2026-10-03). Idempotent per
     // event, gated and consent-checked inside, and never fails the action.
-    if (body.action !== 'aware') await learnOutcomesWhenEnabled(user.uid);
+    if (body.action !== 'aware') await learnOutcomesWithin(user.uid);
     return Response.json({
       success: true,
       id,

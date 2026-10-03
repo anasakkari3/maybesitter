@@ -67,3 +67,11 @@ on the account instead.
   iOS never tells an app a read was refused, so "turned on here" can only be
   remembered here. No sample, score or band is stored: the summary goes to the
   server and is read back from there. Disconnect removes it.
+
+- **`visitThrottle.ts`** (proactive loop, review of 2026-10-03) — when this
+  installation may next ask the server for suggestions because a screen
+  opened: one instant per account, never anything the person wrote. It exists
+  to keep passive visits from spending the shared model caps, including
+  against a server that does not answer with its own limit; losing it costs
+  one extra ask, so it is best effort and kept in memory first. The header
+  makes the full argument.

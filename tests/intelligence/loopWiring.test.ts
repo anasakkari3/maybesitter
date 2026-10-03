@@ -25,7 +25,7 @@ import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentC
 import { learnFromCommitmentEvents } from '../../lib/intelligence/outcomeLearning.ts';
 import { putObservations, type StoredObservation } from '../../lib/intelligence/observationStore.ts';
 import {
-  VISIT_GENERATION_MIN_INTERVAL_MS, proposeFromObservations, setIntelligenceGeneratorForTests,
+  VISIT_POLICY, proposeFromObservations, setIntelligenceGeneratorForTests,
 } from '../../lib/intelligence/proposalEngine.ts';
 import { BEGIN_UNTRUSTED_SHARED_CONTENT, END_UNTRUSTED_SHARED_CONTENT } from '../../lib/services/share/shareTypes.ts';
 import type { ShareStructuredGenerator } from '../../lib/llm/shareProvider.ts';
@@ -248,25 +248,232 @@ test('screen visits cannot multiply model calls; the explicit button still reads
   } finally { h.restore(); }
 });
 
-test('the visit floor is exactly the window: reused inside it, regenerated at its edge', async () => {
+/** A fake model for the engine directly; `withSuggestion` answers one action on the first observation. */
+function countingModel(withSuggestion: boolean, seen: string[] = []) {
+  const counter = { calls: 0 };
+  const generate: ShareStructuredGenerator = async request => {
+    counter.calls += 1;
+    const text = request.parts.map(part => part.kind === 'text' ? part.text : '').join('');
+    seen.push(text);
+    const id = /"id":"([a-f0-9]{64})"/.exec(text)![1];
+    return { text: JSON.stringify({ suggestions: withSuggestion ? [{
+      kind: 'action', title: `Do a thing ${counter.calls}`, reason: 'Because you said so', observationIds: [id], confidence: 0.8, durationMinutes: 30,
+    }] : [] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+  };
+  return { counter, generate };
+}
+const at = (t0: string, minutes: number) => new Date(Date.parse(t0) + minutes * 60_000).toISOString();
+
+test('visits on unchanged data never regenerate within a day, whatever the hour (probe D)', async () => {
+  for (const withSuggestion of [true, false]) {
+    const storage = createMemoryStorage();
+    const T0 = '2026-10-03T08:00:00.000Z';
+    const { counter, generate } = countingModel(withSuggestion);
+    await putObservations(UID, 'manual', 'n1', T0, [{ kind: 'goal', evidence: 'learn React', confidence: 0.9 }], storage);
+    for (let m = 0; m <= 240; m += 16) await proposeFromObservations(UID, at(T0, m), { storage, generate, visit: true });
+    assert.equal(counter.calls, 1, `suggestions=${withSuggestion}: ${counter.calls} runs in 4 h with nothing changed`);
+  }
+});
+
+test('the visit floor: a change inside 15 minutes waits; after it, the change is read', async () => {
   const storage = createMemoryStorage();
   const T0 = '2026-10-03T08:00:00.000Z';
-  let calls = 0;
-  const generate: ShareStructuredGenerator = async () => {
-    calls += 1;
-    return { text: JSON.stringify({ suggestions: [] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
-  };
+  const { counter, generate } = countingModel(true);
   await putObservations(UID, 'manual', 'n1', T0, [{ kind: 'goal', evidence: 'I want to learn React', confidence: 0.9 }], storage);
-  await proposeFromObservations(UID, T0, { storage, generate, minIntervalMs: VISIT_GENERATION_MIN_INTERVAL_MS });
-  assert.equal(calls, 1);
-  // A new signal: the digest changes, so only the floor stands between it and the model.
-  await putObservations(UID, 'manual', 'n2', T0, [{ kind: 'event', evidence: 'Exam tomorrow', confidence: 0.9 }], storage);
-  const inside = new Date(Date.parse(T0) + VISIT_GENERATION_MIN_INTERVAL_MS - 1_000).toISOString();
-  await proposeFromObservations(UID, inside, { storage, generate, minIntervalMs: VISIT_GENERATION_MIN_INTERVAL_MS });
-  assert.equal(calls, 1);
-  const edge = new Date(Date.parse(T0) + VISIT_GENERATION_MIN_INTERVAL_MS).toISOString();
-  await proposeFromObservations(UID, edge, { storage, generate, minIntervalMs: VISIT_GENERATION_MIN_INTERVAL_MS });
-  assert.ok(calls > 1, 'a visit after the floor must be allowed to read the new signal');
+  const first = await proposeFromObservations(UID, T0, { storage, generate, visit: true });
+  assert.equal(counter.calls, 1);
+  await putObservations(UID, 'manual', 'n2', T0, [{ kind: 'goal', evidence: 'More time for Pilates', confidence: 0.9 }], storage);
+  const inside = await proposeFromObservations(UID, at(T0, VISIT_POLICY.minIntervalMs / 60_000 - 1), { storage, generate, visit: true });
+  assert.equal(counter.calls, 1);
+  assert.deepEqual(inside.map(item => item.id), first.map(item => item.id), 'a refused visit still gets the latest suggestions');
+  await proposeFromObservations(UID, at(T0, VISIT_POLICY.minIntervalMs / 60_000), { storage, generate, visit: true });
+  assert.equal(counter.calls, 2);
+});
+
+test('a visit run that found nothing waits 6 hours, even as the data changes', async () => {
+  const storage = createMemoryStorage();
+  const T0 = '2026-10-03T08:00:00.000Z';
+  const { counter, generate } = countingModel(false);
+  await putObservations(UID, 'manual', 'n0', T0, [{ kind: 'goal', evidence: 'learn React', confidence: 0.9 }], storage);
+  for (let m = 0; m < 6 * 60; m += 20) {
+    await putObservations(UID, 'manual', `n${m + 1}`, T0, [{ kind: 'goal', evidence: `goal number ${m}`, confidence: 0.9 }], storage);
+    await proposeFromObservations(UID, at(T0, m), { storage, generate, visit: true });
+  }
+  assert.equal(counter.calls, 1);
+  await putObservations(UID, 'manual', 'late', T0, [{ kind: 'goal', evidence: 'one more goal', confidence: 0.9 }], storage);
+  await proposeFromObservations(UID, at(T0, 6 * 60), { storage, generate, visit: true });
+  assert.equal(counter.calls, 2);
+});
+
+test(`visits start at most ${VISIT_POLICY.dailyRuns} runs a day, however much changes; the button still can`, async () => {
+  const storage = createMemoryStorage();
+  const T0 = '2026-10-03T00:05:00.000Z';
+  const { counter, generate } = countingModel(true);
+  for (let m = 0; m < 23 * 60; m += 20) {
+    await putObservations(UID, 'manual', `n${m}`, T0, [{ kind: 'goal', evidence: `goal number ${m}`, confidence: 0.9 }], storage);
+    await proposeFromObservations(UID, at(T0, m), { storage, generate, visit: true });
+  }
+  assert.equal(counter.calls, VISIT_POLICY.dailyRuns);
+  // The explicit request is the person asking; the ceiling is for passive visits.
+  await proposeFromObservations(UID, at(T0, 23 * 60), { storage, generate });
+  assert.equal(counter.calls, VISIT_POLICY.dailyRuns + 1);
+  // A new UTC day, a new allowance.
+  await putObservations(UID, 'manual', 'tomorrow', T0, [{ kind: 'goal', evidence: 'a new day goal', confidence: 0.9 }], storage);
+  await proposeFromObservations(UID, at(T0, 24 * 60), { storage, generate, visit: true });
+  assert.equal(counter.calls, VISIT_POLICY.dailyRuns + 2);
+});
+
+test('a refused visit reaches neither the outcome scan nor the model; the answer says when to ask again', async () => {
+  const h = begin(call => ({ suggestions: [{
+    kind: 'action', title: 'Prepare something', reason: 'From what you told me',
+    observationIds: [call.context.observations[0]!.id], confidence: 0.8, durationMinutes: 30,
+  }] }));
+  try {
+    await grantPersonalization(h.storage);
+    await seedCommitment(ID_DONE, 'Call the clinic');
+    const first = await generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit' }));
+    const body = await first.json() as { nextVisitAt?: string };
+    assert.ok(body.nextVisitAt && Date.parse(body.nextVisitAt) >= Date.now() + VISIT_POLICY.minIntervalMs - 5_000);
+    const reads: string[] = [];
+    const list = h.storage.list.bind(h.storage);
+    (h.storage as { list: typeof h.storage.list }).list = (async (path: string, options?: unknown) => {
+      reads.push(path);
+      return list(path, options as never);
+    }) as typeof h.storage.list;
+    for (let i = 0; i < 3; i += 1) {
+      assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit' }))).status, 200);
+    }
+    // The schedule preview still reads what it shows; the outcome scan over
+    // the event log does not run, and neither does the model.
+    assert.deepEqual(reads.filter(path => /\/events$/.test(path)), []);
+    assert.equal(h.calls.length, 1);
+  } finally { h.restore(); }
+});
+
+test('probe C: the outcome scan failing never fails the tap that triggered it', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    await seedCommitment(ID_DONE, 'Call the clinic');
+    const list = h.storage.list.bind(h.storage);
+    (h.storage as { list: typeof h.storage.list }).list = (async (path: string, options?: { where?: unknown }) => {
+      if (options?.where) throw new Error('FAILED_PRECONDITION: index');
+      return list(path, options as never);
+    }) as typeof h.storage.list;
+    assert.equal((await act(ID_DONE, 'complete')).status, 200);
+    assert.equal((await inboxGet(req('/api/mobile/intelligence'))).status, 200);
+  } finally { h.restore(); }
+});
+
+test('a slow outcome scan holds the tap for at most a second', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    await seedCommitment(ID_DONE, 'Call the clinic');
+    const list = h.storage.list.bind(h.storage);
+    (h.storage as { list: typeof h.storage.list }).list = (async (path: string, options?: unknown) => {
+      if (path.endsWith('/events')) return new Promise<never>(() => undefined);
+      return list(path, options as never);
+    }) as typeof h.storage.list;
+    const started = Date.now();
+    assert.equal((await act(ID_DONE, 'complete')).status, 200);
+    const waited = Date.now() - started;
+    assert.ok(waited < 2_500, `the tap waited ${waited} ms for the scan`);
+  } finally { h.restore(); }
+});
+
+test('the outcome scan reads already-recorded outcomes only as far back as the events it scanned', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    // An old observation the scan has no business reading.
+    await putObservations(UID, 'manual', 'old', '2020-01-01T00:00:00.000Z', [{ kind: 'goal', evidence: 'an old goal', confidence: 0.9 }], h.storage);
+    await seedCommitment(ID_DONE, 'Call the clinic');
+    const queries: Array<{ path: string; options: unknown }> = [];
+    const list = h.storage.list.bind(h.storage);
+    (h.storage as { list: typeof h.storage.list }).list = (async (path: string, options?: unknown) => {
+      queries.push({ path, options });
+      return list(path, options as never);
+    }) as typeof h.storage.list;
+    assert.equal((await act(ID_DONE, 'complete')).status, 200);
+    const observationReads = queries.filter(query => query.path.endsWith('intelligenceObservations'));
+    assert.equal(observationReads.length, 1);
+    const where = (observationReads[0]!.options as { where?: Array<[string, string, string]> }).where ?? [];
+    assert.equal(where.length, 1);
+    assert.equal(where[0]![0], 'observedAt');
+    assert.equal(where[0]![1], '>=');
+    assert.ok(where[0]![2] > '2020-01-01T00:00:00.000Z');
+    assert.equal((await outcomes(h.storage)).length, 1);
+  } finally { h.restore(); }
+});
+
+test('the model is given local wall-clock times: a 10:00 exam in Jerusalem is never "7 in the morning"', async () => {
+  const h = begin();
+  try {
+    await h.storage.set(`users/${UID}`, { timezone: 'Asia/Jerusalem' });
+    await applyParticipantCommands(UID, [
+      { type: 'CreateDraft', now: '2026-10-03T09:00:00.000Z', commitment: {
+        id: ID_DONE, kind: 'task', title: 'امتحان رياضيات',
+        timeSpec: { kind: 'scheduled_event', dueAt: '2026-10-04T07:00:00.000Z', timezone: 'Asia/Jerusalem' },
+      } },
+      { type: 'ConfirmCommitment', commitmentId: ID_DONE, now: '2026-10-03T09:00:00.000Z' },
+    ]);
+    const storage = h.storage;
+    const seen: string[] = [];
+    const { generate } = countingModel(false, seen);
+    const systems: string[] = [];
+    await proposeFromObservations(UID, '2026-10-03T15:20:00.000Z', { storage, generate: async request => {
+      systems.push(String(request.system ?? ''));
+      return generate(request);
+    } });
+    const text = seen[0]!;
+    const context = JSON.parse(text.slice(text.indexOf(BEGIN_UNTRUSTED_SHARED_CONTENT) + BEGIN_UNTRUSTED_SHARED_CONTENT.length,
+      text.indexOf(END_UNTRUSTED_SHARED_CONTENT))) as { currentTime: string; timezone: string; confirmedWork: Array<{ title: string; at: string }> };
+    assert.equal(context.timezone, 'Asia/Jerusalem');
+    assert.equal(context.confirmedWork.find(item => item.title === 'امتحان رياضيات')?.at, '2026-10-04 10:00');
+    assert.equal(context.currentTime, '2026-10-03 18:00');
+    assert.doesNotMatch(text, /07:00|T07|Z"/);
+    assert.match(systems[0]!, /local wall-clock time in timezone/);
+  } finally { h.restore(); }
+});
+
+test('the person is not asked to confirm what they recorded themselves', async () => {
+  const h = begin();
+  try {
+    await grantPersonalization(h.storage);
+    await seedCommitment(ID_MOVED, 'Renew the passport');
+    assert.equal((await act(ID_MOVED, 'postpone', { postponedUntil: later() })).status, 200);
+    await proposeFromObservations(UID, new Date().toISOString(), { storage: h.storage, generate: countingModel(false).generate });
+    const all = (await h.storage.list<StoredObservation>(`users/${UID}/intelligenceObservations`)).map(row => row.data);
+    assert.deepEqual(all.map(item => `${item.source}:${item.review}`).sort(), ['behavior:confirmed', 'commitment:confirmed']);
+    // What was read from a statement still waits for the person.
+    assert.equal((await statementPost(req('/api/mobile/intelligence', 'POST', { text: 'عندي امتحان بكرا' }))).status, 201);
+    const statement = (await h.storage.list<StoredObservation>(`users/${UID}/intelligenceObservations`))
+      .map(row => row.data).filter(item => item.source === 'manual');
+    assert.ok(statement.length > 0 && statement.every(item => item.review === 'pending'));
+  } finally { h.restore(); }
+});
+
+test('one idea worded twice is one suggestion; a goal\'s different steps all stay', async () => {
+  const storage = createMemoryStorage();
+  const T0 = '2026-10-03T08:00:00.000Z';
+  const [exam, react] = await putObservations(UID, 'manual', 'n', T0, [
+    { kind: 'event', evidence: 'امتحان الرياضيات بكرا', confidence: 0.9 },
+    { kind: 'goal', evidence: 'بدي اتعلم React', confidence: 0.9 },
+  ], storage);
+  const generate: ShareStructuredGenerator = async () => ({ text: JSON.stringify({ suggestions: [
+    { kind: 'action', title: 'حضّر لامتحان الرياضيات', reason: 'عندك امتحان رياضيات بكرا', observationIds: [exam!.id], confidence: 0.8, durationMinutes: 45 },
+    { kind: 'action', title: 'راجع مواد امتحان الرياضيات', reason: 'عندك امتحان رياضيات بكرا', observationIds: [exam!.id], confidence: 0.7, durationMinutes: 60 },
+    { kind: 'action', title: 'لاقي كورس React مناسب', reason: 'بدك تتعلم React', observationIds: [react!.id], confidence: 0.8, durationMinutes: 30 },
+    { kind: 'action', title: 'اعمل مشروع React صغير', reason: 'بدك تتعلم React', observationIds: [react!.id], confidence: 0.7, durationMinutes: 60 },
+    { kind: 'goal', title: 'Learn React well', reason: 'You want to learn React', observationIds: [react!.id], confidence: 0.7, durationMinutes: 0 },
+    { kind: 'goal', title: 'Learn React really well', reason: 'You want to learn React', observationIds: [react!.id], confidence: 0.6, durationMinutes: 0 },
+  ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 });
+  const suggestions = await proposeFromObservations(UID, T0, { storage, generate });
+  assert.deepEqual(suggestions.map(item => item.title), [
+    'حضّر لامتحان الرياضيات', 'لاقي كورس React مناسب', 'اعمل مشروع React صغير', 'Learn React well',
+  ]);
+  assert.deepEqual(suggestions.map(item => item.position), [0, 1, 2, 3]);
 });
 
 test('E2E 1-3: exam and React become reviewable suggestions; accept, complete, postpone are learned, never auto-saved', async () => {

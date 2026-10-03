@@ -1703,5 +1703,14 @@
   "detailsReminderLabel": "Reminder",
   "detailsLetGoTitle": "Don’t need it anymore?",
   "detailsDropSub": "It stays in your history that you chose to let it go.",
-  "detailsDeleteSub": "It leaves your lists for good."
+  "detailsDeleteSub": "It leaves your lists for good.",
+  "xIntelligenceUnderstoodGoal": "I understood “{evidence}” as a goal of yours. Is that right?",
+  "xIntelligenceUnderstoodIntention": "I understood you’re planning “{evidence}”. Is that right?",
+  "xIntelligenceUnderstoodRequest": "I understood “{evidence}” as something someone asked of you. Is that right?",
+  "xIntelligenceUnderstoodEvent": "I understood “{evidence}” as an appointment you have. Is that right?",
+  "xIntelligenceUnderstoodCommitment": "I understood “{evidence}” as something you need to do. Is that right?",
+  "xIntelligenceUnderstoodPreference": "I understood this suits you: “{evidence}”. Is that right?",
+  "xIntelligenceUnderstoodConstraint": "I understood “{evidence}” as a limit to plan around. Is that right?",
+  "xIntelligenceUnderstoodOpportunity": "I understood “{evidence}” as an opportunity for you. Is that right?",
+  "xIntelligenceUnderstoodOutcome": "I understood that “{evidence}” already happened. Is that right?"
 }
