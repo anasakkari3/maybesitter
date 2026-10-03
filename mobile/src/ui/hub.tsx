@@ -49,7 +49,6 @@ export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, badg
   onPress: () => void;
 }) {
   const { p, rtl } = useApp();
-  const stacked = useLayoutMode() !== 'normal';
   const c = toneColors(tone, p);
   return (
     <Btn
@@ -59,21 +58,21 @@ export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, badg
       scaleTo={0.985}
       style={{
         minHeight: 72, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf,
-        paddingVertical: 14, paddingHorizontal: 16, gap: 14,
-        flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center',
+        paddingVertical: 12, paddingHorizontal: 16, gap: 12,
+        flexDirection: 'row', alignItems: 'center',
       }}
     >
       <View accessible={false} style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
         <ReferenceIcon name={icon} size={22} color={c.fg} />
       </View>
-      <View style={{ flex: stacked ? undefined : 1, gap: 2, alignItems: 'flex-start' }}>
+      <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
         <Txt size={17} weight={700}>{title}</Txt>
-        {sub ? <Txt size={13} color={p.mu}>{sub}</Txt> : null}
+        {sub ? <Txt size={13} color={p.mu} lines={2}>{sub}</Txt> : null}
         {badge ?? null}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         {count === undefined ? null : <CountChip count={count} testID={`${testID}-count`} />}
-        {stacked ? null : <ChevronIcon color={p.mu} rtl={rtl} />}
+        <ChevronIcon color={p.mu} rtl={rtl} />
       </View>
     </Btn>
   );

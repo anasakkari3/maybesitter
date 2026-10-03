@@ -5,8 +5,7 @@ import { useApp } from '../state/AppContext';
 import { useAuth } from './AuthProvider';
 import { Btn, Pill, Txt } from '../ui/primitives';
 import { useSoftKeyboardShown } from '../ui/keyboard';
-import { LINE_HEIGHT } from '../theme/fonts';
-import { layoutModeFor, textScaleOf } from '../theme/textScale';
+import { layoutModeFor } from '../theme/textScale';
 import { ScreenTopInsetConsumedContext } from '../ui/screen';
 
 /** Firebase rate-limits verification mail; the UI says so rather than failing. */
@@ -14,29 +13,16 @@ export const RESEND_COOLDOWN_SECONDS = 60;
 
 /** The sentence's size, in points before the reader's scale. */
 const TEXT_SIZE = 13;
-/** The most of the window the folded sentence may take at the accessibility sizes. */
-export const TEXT_SHARE = 0.12;
 /** The most of the window the unfolded sentence may take; past it the sentence scrolls. */
 export const EXPANDED_SHARE = 0.25;
 
 /**
- * How many lines the sentence may paint, or undefined for no cap.
- *
- * UAT round 6, batch 9 (D-g remainder): the banner sits above every screen,
- * and at the accessibility sizes it was a row of a pill and a sentence a few
- * letters wide, 74–862pt tall at AX5 — it swallowed the capture composer,
- * Today, Calendar and Settings alike. So from the first accessibility size
- * (the boundary where the rest of the chrome changes structure) the sentence
- * gets the lines that fit `TEXT_SHARE` of the window, never fewer than one:
- * two on the UAT iPhone at AX1–AX3, one at AX4–AX5. Below that nothing is
- * capped and the default row is unchanged. The line box is the one `Txt`
- * paints: 13pt × the tallest script ratio, which React Native scales by the
- * reader's size.
+ * Enlarged text uses a short visible label and a full accessible sentence.
+ * The full sentence opens on press, within a bounded scroll area.
  */
-export function bannerTextLines({ windowHeight, fontScale }: { windowHeight: number; fontScale: number | undefined }): number | undefined {
-  if (layoutModeFor(fontScale) !== 'xl') return undefined;
-  const line = Math.round(TEXT_SIZE * Math.max(...Object.values(LINE_HEIGHT))) * textScaleOf(fontScale);
-  return Math.max(1, Math.floor((windowHeight * TEXT_SHARE) / line));
+export function bannerTextLines({ fontScale }: { windowHeight: number; fontScale: number | undefined }): number | undefined {
+  if (layoutModeFor(fontScale) === 'normal') return undefined;
+  return 1;
 }
 
 /**
@@ -105,7 +91,8 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
     const lines = bannerTextLines({ windowHeight, fontScale });
     const resendButton = (
       <Pill
-        label={cooldown > 0 ? tr('authVerifyCooldown', { s: cooldown }) : t.authVerifyResend}
+        label={cooldown > 0 ? (lines === undefined ? tr('authVerifyCooldown', { s: cooldown }) : tr('authVerifyCooldownShort', { s: cooldown })) : t.authVerifyResend}
+        accessibilityLabel={cooldown > 0 ? tr('authVerifyCooldown', { s: cooldown }) : t.authVerifyResend}
         kind="warm"
         size={13}
         pad={8}
@@ -140,18 +127,19 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
       );
     }
 
-    // The accessibility sizes: the sentence on its own full-width lines, capped,
-    // with the button under it. The sentence is a toggle that unfolds it for a
-    // reader who wants all of it; a screen reader hears all of it either way.
+    // Keep the folded strip short at enlarged sizes; the full sentence remains
+    // available by touch and to screen readers.
+    const visibleMessage = sent && cooldown > 0 ? t.authVerifySentShort : t.authVerifyShort;
     const sentence = (
       <Btn
         label={message}
         accessibilityState={{ expanded }}
         scaleTo={0.99}
         onPress={() => setExpanded(open => !open)}
+        style={{ flexShrink: 1, minWidth: 0 }}
       >
-        <Txt size={TEXT_SIZE} color={p.wm} lines={expanded ? undefined : lines}>
-          {message}
+        <Txt size={TEXT_SIZE} color={p.wm} lines={expanded ? undefined : lines} style={{ flexShrink: 1 }}>
+          {expanded ? message : visibleMessage}
         </Txt>
       </Btn>
     );
@@ -162,18 +150,18 @@ export function VerifyEmailBanner({ children }: React.PropsWithChildren) {
           backgroundColor: p.wms,
           borderBottomWidth: 1,
           borderBottomColor: p.prop,
-          paddingTop: topInset + 12,
-          paddingBottom: 12,
+          paddingTop: topInset + 6,
+          paddingBottom: 6,
           paddingHorizontal: 16,
-          flexDirection: 'column',
-          alignItems: 'stretch',
+          flexDirection: expanded ? 'column' : 'row',
+          alignItems: 'center',
           gap: 8,
         }}
       >
         {expanded
           ? <ScrollView testID="verify-email-banner-full" style={{ maxHeight: Math.round(windowHeight * EXPANDED_SHARE), flexGrow: 0 }}>{sentence}</ScrollView>
           : sentence}
-        <View style={{ alignItems: 'flex-start' }}>{resendButton}</View>
+        <View style={{ flexShrink: 0 }}>{resendButton}</View>
       </View>
     );
   };

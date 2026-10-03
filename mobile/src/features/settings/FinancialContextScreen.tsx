@@ -26,6 +26,7 @@ import { Btn, Card, Txt } from '../../ui/primitives';
 import { LiveRegion } from '../../ui/liveRegion';
 import { Screen, ScreenScroll } from '../../ui/screen';
 import { SettingsHeader } from './SettingsChrome';
+import { useLayoutMode } from '../../theme/textScale';
 
 const BAND_COPY = {
   comfortable: 'financialBandComfortable',
@@ -148,11 +149,12 @@ function Line({ label, amount, testID }: {
   testID: string;
 }) {
   const { t } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   return (
     <View style={{ gap: 2 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-        <Txt size={14}>{label}</Txt>
-        <Txt size={15} weight={600} testID={testID}>
+      <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', alignItems: stacked ? 'flex-start' : 'center', gap: stacked ? 2 : 12 }}>
+        <Txt size={14} style={{ flexShrink: 1 }}>{label}</Txt>
+        <Txt size={15} weight={600} testID={testID} style={{ flexShrink: 1 }}>
           {amount === null ? t.financialUnknown : money(amount.minorUnits, amount.currency)}
         </Txt>
       </View>
@@ -163,6 +165,7 @@ function Line({ label, amount, testID }: {
 
 export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
   const { t, p, rtl, lang } = useApp();
+  const stacked = useLayoutMode() !== 'normal';
   const timeZone = useTimeZone();
   // A TextInput is not mirrored by the root's `direction` the way a Text is:
   // it takes the physical edge (first iPhone run, L7).
@@ -303,8 +306,9 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
             <TextInput testID="financial-bill-currency" value={billCurrency} onChangeText={setBillCurrencyTyped} autoCapitalize="characters" maxLength={3} placeholder="USD" placeholderTextColor={p.mu}
               style={{ width: 82, minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
           </View>
-          <TextInput testID="financial-bill-date" value={billDate} onChangeText={setBillDate} keyboardType="numbers-and-punctuation" placeholder={t.financialAddBillDate} placeholderTextColor={p.mu}
-            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, ...inputAlign }} />
+          <Txt size={14} weight={600}>{t.financialAddBillDate}</Txt>
+          <TextInput testID="financial-bill-date" accessibilityLabel={t.financialAddBillDate} value={billDate} onChangeText={setBillDate} keyboardType="numbers-and-punctuation" placeholder="YYYY-MM-DD" placeholderTextColor={p.mu}
+            style={{ minHeight: 44, borderRadius: 14, borderWidth: 1, borderColor: p.ln, paddingHorizontal: 14, color: p.tx, textAlign: 'left', writingDirection: 'ltr' }} />
           <Btn label={t.financialAddBillSave} testID="financial-bill-save" onPress={() => void saveBill()}
             disabled={saveObligation.isPending || !billLabel.trim() || !billAmount.trim() || !billCurrency.trim() || !billDate.trim()}
             style={{ minHeight: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: p.ac }}>
@@ -327,9 +331,9 @@ export function FinancialContextScreen({ onBack }: { onBack: () => void }) {
               <Line label={t.financialDueBeforeIncome} amount={state.obligationsBeforeNextIncome} testID="financial-due" />
               <Line label={t.financialFreeBuffer} amount={state.freeBuffer} testID="financial-buffer" />
               <Line label={t.financialFixedMonthly} amount={state.fixedMonthlyObligations} testID="financial-fixed" />
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 12 }}>
-                <Txt size={14}>{t.financialNextIncome}</Txt>
-                <Txt size={15} weight={600} testID="financial-next-income">
+              <View style={{ flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between', gap: stacked ? 2 : 12 }}>
+                <Txt size={14} style={{ flexShrink: 1 }}>{t.financialNextIncome}</Txt>
+                <Txt size={15} weight={600} testID="financial-next-income" style={{ flexShrink: 1 }}>
                   {state.nextIncomeAt === null ? t.financialUnknown : day(state.nextIncomeAt.at)}
                 </Txt>
               </View>

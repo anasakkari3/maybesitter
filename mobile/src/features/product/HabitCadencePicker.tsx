@@ -71,6 +71,7 @@ export function HabitCadencePicker({ value, onChange, testIDPrefix }: {
   return (
     <View style={{ gap: 10 }}>
       <View accessibilityRole="radiogroup" accessibilityLabel={t.xCadence}>
+        <Txt role="supporting" color={p.mu}>{t.xCountPerWeek}</Txt>
         <ProductActions>
           {WEEKLY_COUNTS.map(count => {
             const checked = value.mode === 'count' && value.count === count;
@@ -85,7 +86,7 @@ export function HabitCadencePicker({ value, onChange, testIDPrefix }: {
                 onPress={() => onChange(chooseCount(value, count))}
                 style={chipStyle(checked, p)}
               >
-                <Txt size={15} weight={600} color={checked ? p.onAccent : p.tx} align="center">{label}</Txt>
+                <Txt size={15} latin weight={600} color={checked ? p.onAccent : p.tx} align="center">{`${count}×`}</Txt>
               </Btn>
             );
           })}

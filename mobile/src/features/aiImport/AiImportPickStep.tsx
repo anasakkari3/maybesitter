@@ -22,7 +22,7 @@ export function AiImportPickStep({ onPick }: { onPick: (assistant: ImportAssista
         <Txt size={14} color={p.mu} lh={1.5}>{t.aiImportPickBody}</Txt>
       </View>
 
-      <Card pad={0}>
+      <Card pad={0} style={{ paddingHorizontal: 16 }}>
         {IMPORT_ASSISTANTS.map((assistant, index) => (
           <SettingsRow
             key={assistant}

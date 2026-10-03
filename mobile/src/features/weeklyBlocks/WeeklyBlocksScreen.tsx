@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { BackHandler, Platform, TextInput, View } from 'react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
 import { fill } from '../../i18n/strings';
@@ -257,7 +257,10 @@ function WeeklyBlockEditor({ block, onDone }: { block: WeeklyBlock | null; onDon
             // `start`/`end` are `HH:MM` on the block's own clock face; the wheel
             // works in wall-clock terms and the answer is read straight back.
             is24Hour
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            locale={lang}
+            positiveButton={{ label: t.ok, textColor: p.ac }}
+            negativeButton={{ label: t.cancel, textColor: p.mu }}
+            display="spinner"
             onChange={(event, value) => {
               const which = picking;
               if (Platform.OS !== 'ios') setPicking(null);

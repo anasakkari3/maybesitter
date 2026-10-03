@@ -157,7 +157,7 @@ function SavedRow({ view, when, imp, onPress }: { view: CommitmentView; when: st
           {done ? <Tag kind="saved" label={t.xDone} /> : <Tag kind={priorityTagKind(view.importance)} label={imp} />}
         </View>
       </View>
-      {stacked ? null : <ChevronIcon color={p.mu} rtl={rtl} />}
+      <ChevronIcon color={p.mu} rtl={rtl} />
     </Btn>
   );
 }

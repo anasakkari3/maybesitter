@@ -54,6 +54,7 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
       <ScreenScroll testID="watching-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
         <ScreenHeader brand={false} title={t.tabWatching} end={<AvatarButton />} />
         <Txt role="supporting" color={p.mu}>{t.watchingBody}</Txt>
+        <HubRow testID="watching-knows" icon="person" title={t.knowsTitle} onPress={() => actions.go('knows')} />
 
         <IntelligencePanel
           autoGenerate
@@ -82,9 +83,7 @@ export function WatchingScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
           <Txt role="supporting" color={p.mu}>{t.xWatchLimits}</Txt>
         </QueryBoundary>
 
-        <HubRow testID="watching-knows" icon="search" title={t.knowsTitle} onPress={() => actions.go('knows')} />
-
-        {activity.data ? (
+        {activity.data && monitors.length > 0 ? (
           <Card pad={0} style={{ paddingHorizontal: 16 }}>
             <ServerToggle title={t.watchingPauseAll} testID="watching-pause" value={activity.data.paused} onChange={async paused => {
               await setPaused.mutateAsync(paused);

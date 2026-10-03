@@ -377,10 +377,10 @@ function LetGoRow({ testID, icon, label, sub, onPress, disabled }: { testID: str
     <Btn testID={testID} label={`${label}. ${sub}`} onPress={onPress} disabled={disabled} scaleTo={0.99}
       style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, padding: 12, minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2 }}>
       <View accessible={false} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: p.sf, alignItems: 'center', justifyContent: 'center' }}>
-        <ReferenceIcon name={icon} size={18} color={disabled ? p.disTx : p.mu} />
+        <ReferenceIcon name={icon} size={18} color={disabled ? p.disTx : icon === 'trash' ? p.wm : p.mu} />
       </View>
       <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-        <Txt size={15} weight={600} color={disabled ? p.disTx : p.tx}>{label}</Txt>
+        <Txt size={15} weight={600} color={disabled ? p.disTx : icon === 'trash' ? p.wm : p.tx}>{label}</Txt>
         <Txt size={13} color={disabled ? p.disTx : p.mu}>{sub}</Txt>
       </View>
     </Btn>

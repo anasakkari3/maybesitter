@@ -454,10 +454,13 @@ describe('in Arabic', () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
     await show();
     await waitFor(() => expect(screen.getByTestId('financial-correction-input')).toBeTruthy());
-    for (const id of ['financial-bill-label', 'financial-bill-amount', 'financial-bill-currency', 'financial-bill-date', 'financial-correction-input']) {
+    for (const id of ['financial-bill-label', 'financial-bill-amount', 'financial-bill-currency', 'financial-correction-input']) {
       const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
       expect([id, style.textAlign]).toEqual([id, 'right']);
       expect([id, style.writingDirection]).toEqual([id, 'rtl']);
     }
+    const dateStyle = StyleSheet.flatten(screen.getByTestId('financial-bill-date').props.style);
+    expect(dateStyle.textAlign).toBe('left');
+    expect(dateStyle.writingDirection).toBe('ltr');
   });
 });

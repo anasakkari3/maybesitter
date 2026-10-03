@@ -13,7 +13,7 @@ import { describe, expect, it, jest, beforeEach } from '@jest/globals';
 import { render, type RenderResult } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../state/AppContext';
-import { TabBar, decideIconsOnly, labelOverflows } from '../TabBar';
+import { TabBar } from '../TabBar';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
   __esModule: true,
@@ -60,9 +60,9 @@ describe('the tab bar keeps its identity at every text size', () => {
     for (const name of names(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
   });
 
-  it('is icons-only from the first accessibility size', async () => {
+  it('keeps visible names at the first accessibility size', async () => {
     const view = await atFontScale(1.64);
-    for (const name of names(view)) expect(view.queryAllByText(name)).toHaveLength(0);
+    for (const name of names(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
   });
 
   it('announces the same five names at 2.0× as at 1×, and every control is still there', async () => {
@@ -73,34 +73,9 @@ describe('the tab bar keeps its identity at every text size', () => {
     expect(small.every((n) => typeof n === 'string' && n.length > 0)).toBe(true);
   });
 
-  it('holds the xl structure past the top of the platform ramp', async () => {
+  it('keeps names visible past the top of the platform ramp', async () => {
     const view = await atFontScale(3.12);
     for (const id of IDS) expect(view.getByTestId(id)).toBeTruthy();
-    for (const name of names(view)) expect(view.queryAllByText(name)).toHaveLength(0);
-  });
-});
-
-describe('below the accessibility sizes, measurement decides', () => {
-  it('a label that wrapped has no room', () => {
-    expect(labelOverflows([{ width: 40 }, { width: 12 }], 70)).toBe(true);
-  });
-
-  it('a label wider than its slot has no room', () => {
-    expect(labelOverflows([{ width: 74 }], 70)).toBe(true);
-  });
-
-  it('a label inside its slot has room', () => {
-    expect(labelOverflows([{ width: 52 }], 70)).toBe(false);
-  });
-
-  it('an unmeasured slot says nothing, so labels are not removed on a guess', () => {
-    expect(labelOverflows([{ width: 999 }], 0)).toBe(false);
-  });
-
-  it('measured overflow removes labels even in normal mode; xl removes them regardless', () => {
-    expect(decideIconsOnly('normal', true)).toBe(true);
-    expect(decideIconsOnly('large', true)).toBe(true);
-    expect(decideIconsOnly('normal', false)).toBe(false);
-    expect(decideIconsOnly('xl', false)).toBe(true);
+    for (const name of names(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
   });
 });

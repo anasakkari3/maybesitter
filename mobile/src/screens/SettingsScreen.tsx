@@ -34,16 +34,15 @@ export function SettingsScreen() {
   const auth = useOptionalAuth();
   const user = auth?.user ?? null;
   const [confirmSignOut, setConfirmSignOut] = useState(false);
-  const join = (...parts: string[]) => parts.join(' · ');
   const categories: readonly {
     screen: 'settingsDay' | 'settingsAlerts' | 'settingsConnections' | 'settingsPrivacy' | 'settingsApp';
     label: string; sub: string; glyph: SettingsGlyphName; tint: string; id: string;
   }[] = [
-    { screen: 'settingsDay', label: t.settingsCategoryDay, sub: join(t.settingsRoutine, t.wbTitle, t.financialTitle), glyph: 'calendar', tint: p.wm, id: 'settings-category-day' },
-    { screen: 'settingsAlerts', label: t.settingsCategoryAlerts, sub: join(t.settingsAlertsNotifications, t.settingsWidget, t.placesTitle), glyph: 'bell', tint: p.wm, id: 'settings-category-alerts' },
-    { screen: 'settingsConnections', label: t.settingsCategoryConnections, sub: join(t.xIntegrations, t.calendarWriteTitle, t.aiImportTitle), glyph: 'link', tint: p.acd, id: 'settings-category-connections' },
-    { screen: 'settingsPrivacy', label: t.settingsCategoryPrivacy, sub: join(t.settingsKnows, t.sTrust, t.activityTitle), glyph: 'shield', tint: p.success, id: 'settings-category-privacy' },
-    { screen: 'settingsApp', label: t.settingsCategoryApp, sub: join(t.settingsLangAppearance, ...(user ? [t.accountTitle] : []), t.settingsAbout), glyph: 'sliders', tint: p.tx, id: 'settings-category-app' },
+    { screen: 'settingsDay', label: t.settingsCategoryDay, sub: t.financialTitle, glyph: 'calendar', tint: p.wm, id: 'settings-category-day' },
+    { screen: 'settingsAlerts', label: t.settingsCategoryAlerts, sub: t.settingsAlertsNotifications, glyph: 'bell', tint: p.wm, id: 'settings-category-alerts' },
+    { screen: 'settingsConnections', label: t.settingsCategoryConnections, sub: t.calendarWriteTitle, glyph: 'link', tint: p.acd, id: 'settings-category-connections' },
+    { screen: 'settingsPrivacy', label: t.settingsCategoryPrivacy, sub: t.settingsKnows, glyph: 'shield', tint: p.success, id: 'settings-category-privacy' },
+    { screen: 'settingsApp', label: t.settingsCategoryApp, sub: t.settingsLangAppearance, glyph: 'sliders', tint: p.tx, id: 'settings-category-app' },
   ];
   const version = Constants.expoConfig?.version;
 
@@ -87,15 +86,15 @@ export function SettingsScreen() {
       {user ? (
         <View style={{ gap: 6, marginTop: 20, alignItems: 'stretch' }}>
           <Btn testID="settings-sign-out" label={t.authSignOut} onPress={() => setConfirmSignOut(true)} scaleTo={0.98}
-            style={{ minHeight: 48, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
+            style={{ minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
             <Txt size={16} weight={600} color={p.tx} align="center">{t.authSignOut}</Txt>
           </Btn>
           {/* Destructive, but not shouting: the accent's own text colour, and
               last, so it is never the thing a thumb lands on by accident. The
               flow it opens asks again before anything is sent. */}
           <Btn testID="settings-delete-account" label={t.accountDeleteAction} onPress={() => actions.go('deleteAccount')} scaleTo={0.98}
-            style={{ minHeight: 44, borderRadius: 999, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
-            <Txt size={15} weight={600} color={p.acd} align="center">{t.accountDeleteAction}</Txt>
+            style={{ minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: p.wm, backgroundColor: p.sf, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 }}>
+            <Txt size={15} weight={600} color={p.wm} align="center">{t.accountDeleteAction}</Txt>
           </Btn>
         </View>
       ) : null}
@@ -123,8 +122,8 @@ function AccountCard({ user, onPress }: { user: { displayName: string | null; em
           : <ReferenceIcon name="person" size={24} color={p.acd} />}
       </View>
       <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-        <Txt size={16} weight={700} color={p.tx}>{name}</Txt>
-        <Txt size={13} color={p.mu}>{sub}</Txt>
+        <Txt size={16} weight={700} color={p.tx} lines={1} latin={name.includes('@')} style={name.includes('@') ? { writingDirection: 'ltr', alignSelf: 'stretch' } : { flexShrink: 1 }}>{name}</Txt>
+        <Txt size={13} color={p.mu} lines={1} latin={sub.includes('@')} style={sub.includes('@') ? { writingDirection: 'ltr', alignSelf: 'stretch' } : { flexShrink: 1 }}>{sub}</Txt>
       </View>
       <ChevronIcon color={p.mu} rtl={rtl} />
     </Btn>
