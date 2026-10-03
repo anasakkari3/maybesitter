@@ -648,6 +648,24 @@ test('round 4 A: a later clause keeps the day said earlier; an Arabic card title
   assert.deepEqual(audit.body.proposal!.items.map((entry) => [entry.title, entry.resolvedTime]), [['أدرس', at(TUESDAY, '19:00')], ['أدرس', at(THURSDAY, '19:00')]]);
 });
 
+test('round 4 D: a lost time sends a spread back to its one reading; an old list hints no other day', async () => {
+  // Base asked one item here; spread copies are not added to the question.
+  const asked = await rulesAt('gym every Tuesday and Thursday at 7pm, and the dentist on Friday at 4pm', MON_10);
+  assert.equal(asked.items.length, 1, JSON.stringify(asked.items.map((entry) => [entry.title, entry.resolvedDate, entry.needsClarification])));
+  assert.equal(asked.items[0]!.needsClarification, true);
+  begin([
+    { reply: 'OK. Confirm below.', action: 'propose', items: [enItem('Gym', TUESDAY, '19:00'), enItem('Gym', THURSDAY, '19:00')] },
+    { reply: 'OK. Confirm below.', action: 'update', items: [enItem('Gym', TUESDAY, '19:00')] },
+  ]);
+  try {
+    const [, only] = await conversation(uidFor('Round4OnlyTuesdays'), ['gym every Tuesday and Thursday at 7pm', 'actually only Tuesdays']);
+    const hint = (only!.proposal!.items[0] as Item & { recurrenceHint?: { weekdays: number[] } }).recurrenceHint;
+    assert.deepEqual(hint?.weekdays, [2]);
+  } finally {
+    end();
+  }
+});
+
 test('round 2 #8: rules titles lose the connectors and list days left at their edges', async () => {
   for (const [text, title] of [
     ['gym Tuesday and Thursday at 7pm', 'gym'],
