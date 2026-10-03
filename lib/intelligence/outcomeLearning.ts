@@ -22,15 +22,22 @@ export async function learnFromCommitmentEvents(
   storage: StorageAdapter = getStorage(),
 ): Promise<StoredObservation[]> {
   if (!(await personalizationGrowthAllowed(uid, { storage }))) return [];
-  const [rows, state, recorded] = await Promise.all([
-    storage.list<DomainEvent>(userCol(uid, EVENTS), { orderBy: { field: 'at', direction: 'desc' }, limit: 100 }),
+  const rows = await storage.list<DomainEvent>(userCol(uid, EVENTS), { orderBy: { field: 'at', direction: 'desc' }, limit: 100 });
+  const outcomes = rows.map(row => row.data)
+    .filter(event => OUTCOME_TYPES.has(event.type) && event.id && Number.isFinite(Date.parse(event.at)));
+  if (outcomes.length === 0) return [];
+  // What is already recorded, read only as far back as the oldest outcome in
+  // this scan: an outcome observation is stamped with its event's time, so
+  // nothing older can be one of these. One field, so no composite index, and
+  // the read stays the size of the scan window rather than of the account.
+  const oldest = outcomes.reduce((min, event) => event.at < min ? event.at : min, outcomes[0]!.at);
+  const [state, recorded] = await Promise.all([
     loadDomainState(storage, uid),
-    storage.list<StoredObservation>(userCol(uid, INTELLIGENCE_OBSERVATIONS), { where: [['source', '==', 'behavior']] }),
+    storage.list<StoredObservation>(userCol(uid, INTELLIGENCE_OBSERVATIONS), { where: [['observedAt', '>=', oldest]] }),
   ]);
-  const seen = new Set(recorded.map(row => row.data.sourceRef));
+  const seen = new Set(recorded.filter(row => row.data.source === 'behavior').map(row => row.data.sourceRef));
   const learned: StoredObservation[] = [];
-  for (const { data: event } of rows) {
-    if (!OUTCOME_TYPES.has(event.type) || !event.id || !Number.isFinite(Date.parse(event.at))) continue;
+  for (const event of outcomes) {
     if (seen.has(event.id)) continue;
     const commitment = state.commitments[event.aggregateId];
     if (!commitment) continue;
@@ -59,4 +66,25 @@ export async function learnOutcomesWhenEnabled(
   if (!intelligenceEnabled()) return [];
   try { return await learnFromCommitmentEvents(uid, storage); }
   catch { return []; }
+}
+
+/**
+ * The same, waited for at most `ms`: a person's tap or an inbox read is never
+ * held hostage by the scan. What does not finish in time keeps running and is
+ * caught up by the next read; it cannot fail, since the call above cannot.
+ */
+export async function learnOutcomesWithin(
+  uid: string,
+  ms = 1_000,
+  storage: StorageAdapter = getStorage(),
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      learnOutcomesWhenEnabled(uid, storage),
+      new Promise<void>(resolve => { timer = setTimeout(resolve, ms); }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
