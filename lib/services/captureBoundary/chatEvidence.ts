@@ -365,7 +365,19 @@ export function chatItemEvidence(
   const aligned = alignToPrevious(items, previous);
   const titles = items.map((item, index) => {
     const before = aligned[index] === null ? '' : previous[aligned[index]!]!.title;
-    return contentWords(`${itemTitle(item)} ${before}`);
+    // The card's title too: an Arabic message is matched against «أدرس», not
+    // against the model's "Study" (audit 2026-10-03 review, round 2).
+    const appTitle = item && typeof item === 'object' && typeof (item as Record<string, unknown>).appTitle === 'string'
+      ? (item as Record<string, unknown>).appTitle as string : '';
+    return contentWords(`${itemTitle(item)} ${appTitle} ${before}`);
+  });
+  // Each title on its own, in its own words: a clause names an item whole
+  // when it says every word of any one of them.
+  const titleParts = items.map((item, index) => {
+    const before = aligned[index] === null ? '' : previous[aligned[index]!]!.title;
+    const appTitle = item && typeof item === 'object' && typeof (item as Record<string, unknown>).appTitle === 'string'
+      ? (item as Record<string, unknown>).appTitle as string : '';
+    return [itemTitle(item), appTitle, before].map((title) => Array.from(new Set(contentWords(title)))).filter((words) => words.length > 0);
   });
   const changed = items.flatMap((item, index) => {
     const at = aligned[index];
@@ -400,7 +412,8 @@ export function chatItemEvidence(
           // only the best gave "Study" no words at all, and its 19:00 was
           // taken off and asked for again.
           let owners = best > 0
-            ? scores.flatMap((score, index) => (score === best || (score > 0 && score === new Set(titles[index]).size) ? [index] : []))
+            ? scores.flatMap((score, index) => (score === best
+              || titleParts[index]!.some((part) => titleScore(part, words) === part.length) ? [index] : []))
             : null;
           if (!owners && turnIndex === newest && turnIndex > 0 && changed.length === 1) owners = [changed[0]!];
           return { text: clause.text.trim(), detail: clause, owners };

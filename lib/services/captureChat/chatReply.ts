@@ -429,21 +429,40 @@ const WEEKLY_OFFER: Readonly<Record<ChatLanguage, string>> = {
   he: 'אם רוצים את זה כל שבוע, ספרו לי עד איזו שעה זה.',
 };
 
-type WeeklyLike = { items: ReadonlyArray<{ recurrenceHint?: { start?: string; end?: string } | null; weeklyBlock?: unknown }> };
+type WeeklyLike = { items: ReadonlyArray<{ needsClarification?: boolean; recurrenceHint?: { weekdays?: number[]; start?: string; end?: string } | null; weeklyBlock?: unknown }> };
 
-/** Whether the list says a weekly repeat it cannot keep yet: an hour, no end, so no weekly block to offer. */
-function weeklyWithoutEnd(proposal: WeeklyLike | null): boolean {
-  return (proposal?.items ?? []).some((item) => Boolean(item.recurrenceHint?.start) && !item.recurrenceHint?.end && !item.weeklyBlock);
+/**
+ * Whether the list holds a repeat over several days that it cannot keep as
+ * weekly yet — "every Tuesday and Thursday at 7 PM": an hour, no end, so no
+ * weekly block to offer — and nothing on it is still being asked about.
+ * One day ("every Friday at 8pm take out the trash") is a one-off the person
+ * can keep weekly from its own card; it gets no line (round 2).
+ */
+function multiDayWithoutEnd(proposal: WeeklyLike | null): boolean {
+  const items = proposal?.items ?? [];
+  if (items.length === 0 || items.some((item) => item.needsClarification)) return false;
+  const open = items.filter((item) => Boolean(item.recurrenceHint?.start) && !item.recurrenceHint?.end && !item.weeklyBlock);
+  const byStart = new Map<string, number>();
+  for (const item of open) byStart.set(item.recurrenceHint!.start!, (byStart.get(item.recurrenceHint!.start!) ?? 0) + 1);
+  return open.some((item) => (item.recurrenceHint?.weekdays?.length ?? 0) > 1) || Array.from(byStart.values()).some((count) => count > 1);
 }
+
+/** The reply already asks for the end, or already talks of every week. */
+const SAYS_WEEKLY = new RegExp([
+  '\\b(?:until|till|ends?|ending|finish(?:es)?|every\\s+week|weekly)\\b',
+  'بتخلص|بيخلص|بتخلّص|بيخلّص|لأي ساعة|لاي ساعة|لحد أي|لحد اي|كل أسبوع|كل اسبوع|أسبوعي|اسبوعي',
+  'עד איזו|מתי זה נגמר|מתי נגמר|כל שבוע|שבועי',
+].join('|'), 'iu');
 
 /**
  * "Every Tuesday and Thursday at 7 PM" is this week's sessions — a weekly
  * block needs an end, and none is ever invented. So the reply says, once,
- * what makes it weekly: the hour it ends. Said again only when the list it
- * applied to is gone.
+ * what makes it weekly: the hour it ends. Not when the reply already asks,
+ * not while anything on the list is still asked about, and said again only
+ * when the list it applied to is gone.
  */
 export function withWeeklyOffer(reply: string, language: ChatLanguage, proposal: WeeklyLike | null, previous: WeeklyLike | null): string {
-  if (!weeklyWithoutEnd(proposal) || weeklyWithoutEnd(previous)) return reply;
+  if (!multiDayWithoutEnd(proposal) || multiDayWithoutEnd(previous) || SAYS_WEEKLY.test(reply.slice(0, CHAT_REPLY_SCAN_LIMIT))) return reply;
   const offer = WEEKLY_OFFER[language];
   const text = reply.trim();
   if (!text) return offer;
