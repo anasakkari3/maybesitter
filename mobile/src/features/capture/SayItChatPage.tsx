@@ -176,7 +176,8 @@ export function SayItChatPage({
   type Measured<T> = { key: string | null; value: T } | null;
   const scroller = React.useRef<ScrollView>(null);
   const keyRef = React.useRef<string | null>(revealConfirmKey);
-  keyRef.current = revealConfirmKey;
+  // Before any layout event of the new proposal is delivered.
+  React.useLayoutEffect(() => { keyRef.current = revealConfirmKey; }, [revealConfirmKey]);
   const [viewport, setViewport] = React.useState(0);
   const [block, setBlock] = React.useState<Measured<number>>(null);
   const [card, setCard] = React.useState<Measured<number>>(null);
