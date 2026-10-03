@@ -495,14 +495,14 @@ describe('a preparation step for an event', () => {
       ],
       sensitiveInferenceUsed: false,
     },
-    availableActions: ['accept', 'defer', 'dismiss'],
+    availableActions: ['accept', 'done', 'defer', 'dismiss'],
   });
 
-  it('offers to start the preparation and to plan it — never to complete the exam', async () => {
+  it('offers to start the preparation and to plan it', async () => {
     await show(prepResponse());
     expect(screen.getByTestId('next-step-title').props.children).toBe('Prepare for Math exam');
     expect(screen.getByTestId('next-step-accept')).toBeTruthy();
-    expect(screen.queryByTestId('next-step-done')).toBeNull();
+    expect(screen.queryByTestId('next-step-edit')).toBeNull();
     expect(screen.getByTestId('next-step-prepare')).toBeTruthy();
   });
 
@@ -519,12 +519,31 @@ describe('a preparation step for an event', () => {
     expect(screen.getByText(/^it’s Tomorrow · /)).toBeTruthy();
   });
 
-  it('after «start», says good luck rather than promising to wait for «done»', async () => {
+  it('after «start», is no dead end: done, later and not-this stay, and «حضّرني» is there to plan it', async () => {
     mockDecision();
     await show(prepResponse());
     await fireEvent.press(screen.getByTestId('next-step-accept'));
     await waitFor(() => expect(screen.getByTestId('next-step-started-note')).toBeTruthy());
     expect(screen.getByTestId('next-step-started-note').props.children).toBe(en.nextStepPrepStartedNote);
     expect(screen.getByTestId('next-step-prepare')).toBeTruthy();
+    expect(screen.getByTestId('next-step-done')).toBeTruthy();
+    expect(screen.getByTestId('next-step-defer')).toBeTruthy();
+    expect(screen.getByTestId('next-step-dismiss')).toBeTruthy();
+  });
+
+  it('after «start», says nothing about «حضّرني» when it cannot be offered (an all-day exam)', async () => {
+    mockDecision();
+    const base = prepResponse();
+    await show({
+      ...base,
+      recommendation: {
+        ...base.recommendation,
+        explanation: { ...base.recommendation.explanation!, evidenceCodes: [{ code: 'prepares_for_event', params: { at: examAt(), allDay: true } }] },
+      },
+    });
+    await fireEvent.press(screen.getByTestId('next-step-accept'));
+    await waitFor(() => expect(screen.getByTestId('next-step-started-note')).toBeTruthy());
+    expect(screen.getByTestId('next-step-started-note').props.children).toBe(en.nextStepPrepStartedPlain);
+    expect(screen.queryByTestId('next-step-prepare')).toBeNull();
   });
 });

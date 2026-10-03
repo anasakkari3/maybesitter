@@ -12,6 +12,7 @@ import { decideNextStep, proposeNextStep, type NextStepInteractionOutcome } from
 import { evidenceLabels } from './nextStepEvidence';
 import { latenessDeadline } from './mobile/time';
 import { notStartableYet, preparationStep, startsSoon, type PreparationStep } from './nextStepPreparation';
+import { preparationsHidden } from './mobile/nextStepDecisionLog';
 
 export interface LiveContext extends AnalyticsContext {
   locale: NextStepLocale;
@@ -105,9 +106,10 @@ function preparationProposal(prep: PreparationStep, locale: NextStepLocale, id: 
   return {
     ...proposal,
     primaryStep: { ...proposal.primaryStep, purpose: 'prepare' },
-    // `done` would complete the exam and `edit` would rename it: the step is
-    // the preparation, the commitment it points at is the event.
-    availableActions: proposal.availableActions.filter((action) => action === 'accept' || action === 'defer' || action === 'dismiss'),
+    // `edit` would rename the exam: the step is the preparation, the
+    // commitment it points at is the event. `done` is offered, and records
+    // the preparation as done — never the exam (`recordMobileNextStepDecision`).
+    availableActions: proposal.availableActions.filter((action) => action !== 'edit'),
   };
 }
 
@@ -159,7 +161,10 @@ export async function getLiveNextStep(state: DomainState, context: LiveContext):
   // Preparation for an important event comes before the ordinary pick, unless
   // that pick is a task due first (`keepsPrecedence`). Its id is its own: a
   // card holding the ordinary proposal is stale once this replaces it.
-  const prep = preparationStep(visible, context.now, context.timezone || 'UTC', context.locale);
+  // The preparations the person set aside are keyed `prepare:<event>` in
+  // the same exclusions; the event itself stays a candidate (review of #2).
+  const prep = preparationStep(visible, context.now, context.timezone || 'UTC', context.locale,
+    preparationsHidden(context.excludeCommitmentIds ?? new Set()));
   const proposal = prep && !keepsPrecedence(candidates, selection.selectedCommitmentId, prep, context.now)
     ? preparationProposal(prep, context.locale, proposalId(candidates, `|prepare:${prep.event.id}`))
     : withStartsSoon(selection.recommendation, candidates, context.now);

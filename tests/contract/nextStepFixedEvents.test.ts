@@ -90,14 +90,15 @@ for (const arm of NEXT_STEP_ARMS) {
       assert.equal(proposal.state, 'ready');
       assert.equal(proposal.primaryStep?.purpose, 'prepare', `the step was ${JSON.stringify(proposal.primaryStep)}`);
       assert.equal(proposal.primaryStep?.title, 'حضّر لامتحان رياضيات');
-      // It opens the exam (and its «حضّرني») — and can neither complete nor rename it.
+      // It opens the exam (and its «حضّرني») — and cannot rename it. «خلصتها»
+      // is offered and marks the preparation done, never the exam
+      // (tests/mobile/nextStepPrepDecisions.test.ts).
       assert.equal(proposal.primaryStep?.commitmentId, exam.id);
-      assert.ok(!proposal.availableActions.includes('done'), '«خلصتها» would complete the exam');
       assert.ok(!proposal.availableActions.includes('edit'), 'editing would rename the exam');
-      assert.ok(proposal.availableActions.includes('accept'));
+      assert.deepEqual([...proposal.availableActions].sort(), ['accept', 'defer', 'dismiss', 'done']);
       const prepares = proposal.explanation!.evidenceCodes.find((entry) => entry.code === 'prepares_for_event');
       assert.equal(prepares?.params?.at, exam.timeSpec.dueAt);
-      assert.throws(() => prepareLiveNextStepDecision(proposal, 'done', liveContext(arm, AT_EXAM)), /not available/);
+      assert.throws(() => prepareLiveNextStepDecision(proposal, 'edit', liveContext(arm, AT_EXAM), 'x'), /not available/);
     });
   });
 

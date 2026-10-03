@@ -1011,6 +1011,7 @@
   "nextStepTagStarted": "Started",
   "nextStepStartedNote": "We’ll stay quiet until you say it’s done.",
   "nextStepPrepStartedNote": "Good luck. “Prepare me” can find time to prepare before it, if you like.",
+  "nextStepPrepStartedPlain": "Good luck with the prep.",
   "nextStepMore": "More",
   "nextStepKnows": "What it knows about you",
   "nextStepEvidenceEstimated": "Importance read from your words",

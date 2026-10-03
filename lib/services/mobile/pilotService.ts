@@ -24,6 +24,7 @@ import {
   appendNextStepDecision,
   hiddenCommitmentIds,
   listRecentNextStepDecisions,
+  preparationKey,
   resolveDeferUntil,
 } from './nextStepDecisionLog';
 import { completeCommitment, patchCommitment } from './commitmentService';
@@ -456,7 +457,13 @@ export async function recordMobileNextStepDecision(participantId: string, input:
     throw new MobilePilotError('proposal is stale or invalid', 409);
   }
 
-  const commitmentId = canonicalProposal.primaryStep?.commitmentId ?? null;
+  // A preparation step's decisions are about the preparation (review of
+  // audit #2): recorded under its own key, so deferring it does not hide the
+  // exam, and `done` never completes the exam.
+  const preparing = canonicalProposal.primaryStep?.purpose === 'prepare';
+  const commitmentId = canonicalProposal.primaryStep
+    ? (preparing ? preparationKey(canonicalProposal.primaryStep.commitmentId) : canonicalProposal.primaryStep.commitmentId)
+    : null;
   const deferUntil = decision === 'defer' ? resolveDeferUntil(input.deferUntil, now) : null;
 
   /**
@@ -484,7 +491,7 @@ export async function recordMobileNextStepDecision(participantId: string, input:
       deferUntil,
       at,
     });
-    if (!commitmentId) return;
+    if (!commitmentId || preparing) return;
     if (decision === 'done') {
       await completeCommitment(commitmentId, now, { participantId });
     }
