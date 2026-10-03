@@ -22,7 +22,8 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
-import { AppState, Linking, type AppStateStatus } from 'react-native';
+import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
+import * as notifications from 'expo-notifications';
 import { AppProvider } from '../../../state/AppContext';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
@@ -291,5 +292,60 @@ describe('the Settings list', () => {
     read.mockResolvedValue('granted');
     await act(async () => { fire('active'); });
     await waitFor(() => expect(screen.queryByTestId('settings-alerts-blocked')).toBeNull());
+  });
+});
+
+/**
+ * Review of #7 (audit screen 36): an Android 13+ phone that has never been
+ * asked reads `denied` with `canAskAgain`. The screen showed «افتح إعدادات
+ * التلفون» for it — sending somebody to undo an answer they never gave —
+ * instead of asking in the app. Driven through the native module.
+ */
+describe('Android 13+, never asked', () => {
+  function androidSays(canAskAgain: boolean) {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    // Back to the real read, still watched: the helpers wait for it.
+    (permission.getNotificationPermission as jest.Mock).mockRestore();
+    jest.spyOn(permission, 'getNotificationPermission');
+    jest.spyOn(notifications, 'getPermissionsAsync')
+      .mockResolvedValue({ status: 'denied', granted: false, canAskAgain, expires: 'never', android: { importance: 3 } } as never);
+  }
+
+  it('asks in the app, and does not send the person to phone settings', async () => {
+    androidSays(true);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-allow')).not.toBeNull());
+    expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
+    expect(screen.queryByTestId('notifications-denied')).toBeNull();
+    await fireEvent.press(screen.getByTestId('notifications-allow'));
+    await waitFor(() => expect(permission.requestNotificationPermission).toHaveBeenCalled());
+  });
+
+  it('keeps «open phone settings» for a phone that will not ask again', async () => {
+    androidSays(false);
+    await show();
+    await waitFor(() => expect(screen.queryByTestId('notifications-open-settings')).not.toBeNull());
+    expect(screen.queryByTestId('notifications-allow')).toBeNull();
+  });
+
+  it('does not mark Alerts blocked in the Settings list', async () => {
+    androidSays(true);
+    jest.spyOn(trustEndpoints, 'getTrust')
+      .mockResolvedValue({ success: true, participantId: USER.uid, trust: { analyticsConsent: false } } as never);
+    jest.spyOn(profileEndpoints, 'listMemory').mockResolvedValue({ items: [], suggestions: [], adaptive: null } as never);
+    await render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <AppProvider>
+          <AuthProvider repository={repository} isDevBundle={false}>
+            <QueryClientProvider client={client}>
+              <SettingsScreen />
+            </QueryClientProvider>
+          </AuthProvider>
+        </AppProvider>
+      </SafeAreaProvider>,
+    );
+    await waitFor(() => expect(notifications.getPermissionsAsync).toHaveBeenCalled());
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(screen.queryByTestId('settings-alerts-blocked')).toBeNull();
   });
 });

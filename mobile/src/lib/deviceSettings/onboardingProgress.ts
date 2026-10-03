@@ -93,9 +93,10 @@ export function previousStep(step: OnboardingStep): OnboardingStep | null {
  * who signed out and back in with the same account sit through every screen
  * again — consents included. The consent screen's answer is on the account
  * (`GET /api/mobile/consents`, `recommendations.asked`), survives sign-out and
- * reinstalls, and is written by exactly one screen: the onboarding consent
- * step, which records the recommendation question whether it was switched on
- * or left off. An account that has answered it has been onboarded.
+ * reinstalls. The onboarding consent step always writes it — on or off — and
+ * every other place that can (Settings → Trust, the next-step launch consent)
+ * is only reachable after onboarding, inside the app. So an account that has
+ * answered it has been through the consent screen at least once.
  *
  * The steps after it — routine, about you, reminders — are all skippable and
  * all reachable again from Settings, so they are not a reason to replay the

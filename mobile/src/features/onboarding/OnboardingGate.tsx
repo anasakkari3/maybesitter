@@ -45,6 +45,9 @@ import {
  * The next person's *account* answers for them — a brand-new one has answered
  * nothing, and gets every screen.
  */
+/** How long the gate holds on the blank view for the account's answer. */
+export const HOLD_MS = 3000;
+
 export function OnboardingGate({ children }: { children: React.ReactNode }) {
   const { status, user } = useAuth();
   const { p } = useApp();
@@ -87,7 +90,11 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
     return () => { live = false; };
   }, [status, uid]);
 
-  const failed = consents.isError || consents.failureCount > 0;
+  // Unreachable is three things: an error, a failed attempt still retrying,
+  // and a query TanStack has *paused* because the phone is offline — which
+  // is pending with no failure at all, and held the blank view for as long as
+  // there was no signal (review of #5).
+  const failed = consents.isError || consents.failureCount > 0 || consents.fetchStatus === 'paused';
   // Latched. The first failure is enough to stop holding — the retries that
   // follow can take seconds, and the consent step has its own "can't reach
   // the server" state. It has to stay stopped: the flow's own consent query
@@ -95,6 +102,14 @@ export function OnboardingGate({ children }: { children: React.ReactNode }) {
   // `pending`, and un-latched the gate would hold again, unmount the flow, and
   // loop. An answer that arrives later still wins (below).
   if (failed && !fellBack) setFellBack(true);
+  // And a slow server is not worth more than a few seconds of blank screen:
+  // past `HOLD_MS` the gate falls back the same way.
+  const waiting = device === 'welcome' && !consents.data && !failed && !fellBack;
+  useEffect(() => {
+    if (!waiting) return;
+    const timer = setTimeout(() => setFellBack(true), HOLD_MS);
+    return () => clearTimeout(timer);
+  }, [waiting]);
   const account: AccountOnboardingSignal = consents.data
     ? { kind: 'answered', consentAsked: consents.data.recommendations.asked }
     : failed || fellBack
