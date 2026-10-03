@@ -410,13 +410,15 @@ export interface StatedRecurrence {
   weekdays: number[];
   /** The phrases as the person wrote them, in order. */
   phrases: string[];
+  /** The same phrases without a list's later days ("every Tuesday" of "every Tuesday and Thursday"). */
+  shortPhrases?: string[];
 }
 
 /** The weekly recurrence the words state, or null. */
 export function readRecurrence(rawText: string): StatedRecurrence | null {
   if (typeof rawText !== 'string' || !rawText.trim()) return null;
   const lower = rawText.toLowerCase();
-  const found: Array<{ index: number; text: string; weekday: number | null }> = [];
+  const found: Array<{ index: number; text: string; weekday: number | null; short?: string }> = [];
   for (const pattern of RECURRENCE_PATTERNS) {
     for (const match of Array.from(lower.matchAll(pattern))) {
       const name = match.slice(1).find((group) => group !== undefined);
@@ -426,7 +428,7 @@ export function readRecurrence(rawText: string): StatedRecurrence | null {
       // "every Tuesday and Thursday", «كل ثلاثاء وخميس»: the listed days recur
       // too, and the phrase runs to the list's end so a title loses all of it.
       const listed = listedAfter(lower, index + match[0].length);
-      found.push({ index, text: rawText.slice(index, listed.end).trim(), weekday });
+      found.push({ index, text: rawText.slice(index, listed.end).trim(), weekday, short: rawText.slice(index, index + match[0].length).trim() });
       listed.weekdays.forEach((listedDay, offset) => found.push({ index: index + 1 + offset, text: '', weekday: listedDay }));
     }
   }
@@ -444,7 +446,11 @@ export function readRecurrence(rawText: string): StatedRecurrence | null {
     const mention = readWeekdayReference(rawText);
     if (mention) weekdays.push(mention.weekday);
   }
-  return { weekdays, phrases: found.map(({ text }) => text).filter((text) => text.length > 0) };
+  return {
+    weekdays,
+    phrases: found.map(({ text }) => text).filter((text) => text.length > 0),
+    shortPhrases: found.map(({ text, short }) => short ?? text).filter((text) => text.length > 0),
+  };
 }
 
 /**

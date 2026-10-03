@@ -222,8 +222,9 @@ test('every day of a list is a day the person said: the Thursday item is not mov
     llmProvider: async () => JSON.stringify(thursday),
   } as never);
   assert.equal(read.result.localTimeSpec?.date, THURSDAY, JSON.stringify(read.result.localTimeSpec));
-  // Its hint is its own day: each day of the list is its own item (round 2).
-  assert.deepEqual(read.result.recurrenceHint?.weekdays, [4]);
+  // The reading's hint is the whole list; the proposal narrows it to the
+  // item's own day where the list's other days have items of their own.
+  assert.deepEqual(read.result.recurrenceHint?.weekdays, [2, 4]);
 });
 
 test('two days that span, or are a choice, are one item — "between Tuesday and Thursday", "Tuesday or Thursday"', async () => {
@@ -241,16 +242,26 @@ test('two days that span, or are a choice, are one item — "between Tuesday and
   }
 });
 
-test('the same thing twice at the same time is one item, whatever the model returned', async () => {
+test('copies the model stacked are merged only once a list placed them; otherwise they stay as base kept them (round 4)', async () => {
+  // No list to place them on: nothing is dropped silently.
   begin([{ reply: 'تمام، «تدرس» يوم الجمعة الساعة 7 المسا. أكّد من تحت.', action: 'propose', items: [
-    item('Study', 'تدرس', FRIDAY, '19:00'), item('Study', 'تدرس', FRIDAY, '19:00'), item('study', 'تدرس ', FRIDAY, '19:00'),
+    item('Study', 'تدرس', FRIDAY, '19:00'), item('Study', 'تدرس', FRIDAY, '19:00'),
   ] }]);
   try {
-    const [body] = await conversation(uidFor('Duplicates'), ['study on Friday at 7 PM']);
-    assert.equal(body!.proposal!.items.length, 1, JSON.stringify(body!.proposal!.items));
-    assert.equal(body!.proposal!.items[0]!.resolvedTime, at(FRIDAY, '19:00'));
+    const [body] = await conversation(uidFor('DuplicatesKept'), ['study on Friday at 7 PM']);
+    assert.equal(body!.proposal!.items.length, 2, JSON.stringify(body!.proposal!.items));
   } finally {
     end();
+  }
+  // A list places them: one on each day, the copies merged.
+  for (const [message, title, appTitle, time] of [
+    ['بدرس الثلاثاء والخميس الساعة 7 المسا', 'Study', 'أدرس', '19:00'],
+    ["I'll be studying Tuesday and Thursday at 7pm", 'Study', 'Study', '19:00'],
+    ['I have classes Tuesday and Thursday at 6pm', 'Class', 'Class', '18:00'],
+    ['التلاتا وبالخميس عندي نادي الساعة 6 المسا', 'Gym', 'نادي', '18:00'],
+  ] as const) {
+    const { body } = await chatOnce(`Stacked${message.length}`, message, [item(title, appTitle, TUESDAY, time), item(title, appTitle, TUESDAY, time)], { locale: /[a-z]/i.test(message.slice(0, 3)) ? 'en' : 'ar' });
+    assert.deepEqual(body.proposal!.items.map((entry) => entry.resolvedTime).sort(), [at(TUESDAY, time), at(THURSDAY, time)].sort(), message);
   }
 });
 
@@ -348,6 +359,7 @@ test('the hour of an occurrence is the person’s clock on its own day', () => {
 
 const SUNDAY = weekday('Sunday');
 const MONDAY = weekday('Monday');
+const TOMORROW_DAY = (() => { const today = localTimeSpecFor(new Date(), TZ)!.date; const [y, m, d] = today.split('-').map(Number) as [number, number, number]; return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10); })();
 const WEDNESDAY = weekday('Wednesday');
 
 /** One chat message, with the model answering `items`; the proposal and reply. */
@@ -404,6 +416,12 @@ test('review #1: on the rules path too, "Exams on Tuesday and Thursday, party Th
 });
 
 test('review #2: a real task beside a session is never turned into a goal', async () => {
+  // "between Tuesday and Thursday" is a span, never a list (round 4 C).
+  const between = await rulesAt('submit the report between Tuesday and Thursday at 5pm', MON_10);
+  assert.equal(between.items.length, 1, JSON.stringify(between.items.map((entry) => [entry.title, local(entry.resolvedTime)])));
+  // A recurrence whose days were not made into items keeps its words (round 4 D).
+  const work = await rulesAt('كل ثلاثاء وخميس عندي شغل من 9 لـ 5', MON_10);
+  assert.ok(work.items.every((entry) => entry.title.includes('كل ثلاثاء')), JSON.stringify(work.items.map((entry) => entry.title)));
   for (const [label, message, items] of [
     ['B', 'I need to improve the slides, and the presentation is on Tuesday at 10am', [enItem('Improve the slides', null, null), enItem('Presentation', TUESDAY, '10:00')]],
     ['B2', 'I have to learn my lines for the play, rehearsal of the play is Tuesday at 6pm', [enItem('Learn my lines', null, null), enItem('Play rehearsal', TUESDAY, '18:00')]],
@@ -613,6 +631,21 @@ test('round 2 #7: no weekly line for one day, while anything is asked, or when t
   } finally {
     end();
   }
+});
+
+test('round 4 A: a later clause keeps the day said earlier; an Arabic card title speaks only for an item nothing else names', async () => {
+  for (const [label, message, items, locale] of [
+    ['V14', 'بكرا الساعة 3 دكتور وبعدين الساعة 5 اجتماع', [item('Doctor', 'دكتور', TOMORROW_DAY, '15:00'), item('Meeting', 'اجتماع', TOMORROW_DAY, '17:00')], 'ar'],
+    ['W06', 'מחר ב-15:00 רופא ואחר כך ב-17:00 פגישה', [item('Doctor', 'רופא', TOMORROW_DAY, '15:00'), item('Meeting', 'פגישה', TOMORROW_DAY, '17:00')], 'he'],
+    ['C30', 'بدي اتعلم سباحة الثلاثاء الساعة 6 المسا، ونفس الوقت اتصل بماما', [item('Learn swimming', 'اتعلم سباحة', TUESDAY, '18:00'), item('Call mom', 'اتصل بماما', TUESDAY, '18:00')], 'ar'],
+  ] as const) {
+    const { body } = await chatOnce(`Round4A${label}`, message, [...items], { locale });
+    for (const entry of body.proposal!.items) assert.equal(entry.needsClarification, false, `${label}: ${JSON.stringify(timedAs(body.proposal!.items))}`);
+  }
+  // «…وأدرس الثلاثاء والخميس…»: the model's "Study" is named by its card title only; it is spread, not asked.
+  const audit = await chatOnce('Round4AAudit', 'بدي أتعلم React وأدرس الثلاثاء والخميس الساعة 7 المسا',
+    [item('Learn React', 'أتعلم React', TUESDAY, '19:00'), item('Study', 'أدرس', TUESDAY, '19:00'), item('Study', 'أدرس', TUESDAY, '19:00')], { locale: 'ar' });
+  assert.deepEqual(audit.body.proposal!.items.map((entry) => [entry.title, entry.resolvedTime]), [['أدرس', at(TUESDAY, '19:00')], ['أدرس', at(THURSDAY, '19:00')]]);
 });
 
 test('round 2 #8: rules titles lose the connectors and list days left at their edges', async () => {

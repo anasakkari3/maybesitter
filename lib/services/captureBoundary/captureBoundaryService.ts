@@ -33,7 +33,7 @@ import type { CapturePersistenceAdapter } from './persistenceAdapter';
 import type { CaptureProposalStore, StoredCaptureProposal } from './proposalStore';
 import { storageFailureCause } from '../../storage/storageAdapter';
 import { withWeeklyBlockOffers, withoutPossessionLeadIn } from '../../weeklyBlocks/offer';
-import { duplicateItemIds, goalLinkFor, isGoalTitle, isSessionOf, matchingGoal, modelItemDay, modelItemKeys, modelItemTime, occurrenceDatesFor, tidyTitle, listBelongsTo, onDate, titleKey, type ActiveGoal } from './proposalShape';
+import { duplicateItemIds, goalLinkFor, isGoalTitle, isSessionOf, matchingGoal, modelItemDay, modelItemKeys, modelItemTime, occurrenceDatesFor, tidyTitle, listBelongsTo, withoutRecurrenceTitle, onDate, titleKey, type ActiveGoal } from './proposalShape';
 import {
   alignToPrevious,
   chatEvidenceFrom,
@@ -729,6 +729,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // Items that are a reading spread onto another day of its list: the valve
   // counts each reading once.
   const spreadCopies = new Set<string>();
+  // Every item of a spread (the first day and its copies), and each spread's
+  // reading as it was before it was spread — what a spread that cannot stand
+  // goes back to.
+  const spreadFamily = new Set<string>();
+  const unspread = new Map<string, ExtractionResult>();
   // Each item's own clause (in the chat, its evidence), for telling a bare
   // «تدرس» of one goal from a study session of something else. Never stored.
   const itemClause = new Map<string, string>();
@@ -1211,10 +1216,25 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       const tidied = extracted.result.title ? tidyTitle(extracted.result.title) : extracted.result.title;
       const tidyResult = tidied === extracted.result.title ? extracted.result
         : { ...extracted.result, title: tidied, ...(extracted.result.action === extracted.result.title ? { action: tidied } : {}) };
-      const readings = occurrences ? occurrences.map((date) => onDate(tidyResult, date, options.timezone)) : [tidyResult];
+      // Each per-day item a list made is the thing itself — «gym», not «gym
+      // every Tuesday» — and only those lose the phrase (round 4 D).
+      const perDay = (result: ExtractionResult): ExtractionResult => {
+        const title = result.title ? withoutRecurrenceTitle(result.title) : result.title;
+        return {
+          ...result,
+          title,
+          ...(result.action === result.title ? { action: title } : {}),
+          ...(result.sourceTitle ? { sourceTitle: withoutRecurrenceTitle(result.sourceTitle) } : {}),
+        };
+      };
+      const readings = occurrences ? occurrences.map((date) => perDay(onDate(tidyResult, date, options.timezone))) : [tidyResult];
       for (const reading of readings) {
         const itemId = randomUUID();
         if (reading !== readings[0]) spreadCopies.add(itemId);
+        if (readings.length > 1) {
+          spreadFamily.add(itemId);
+          if (reading === readings[0]) unspread.set(itemId, tidyResult);
+        }
         itemClause.set(itemId, segment);
         // An all-day deadline has a day and no hour (FX3): `resolvedDate` below
         // says which day, and no instant is shown as if somebody chose it.
@@ -1286,6 +1306,26 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       items.filter((item) => !spreadCopies.has(item.itemId)).map((item) => item.resolvedTime).filter(Boolean),
     ).size;
     if (timesAccountedFor < timesInInput) {
+      // A time was lost, so everything is asked about: a list's per-day
+      // copies go back to the one reading they came from, as base had it.
+      for (const itemId of Array.from(spreadCopies)) {
+        const at = items.findIndex((item) => item.itemId === itemId);
+        if (at !== -1) items.splice(at, 1);
+        commandsByItemId.delete(itemId);
+        resultsByItemId.delete(itemId);
+      }
+      for (let i = 0; i < items.length; i++) {
+        const before = unspread.get(items[i].itemId);
+        if (!before) continue;
+        const date = before.localTimeSpec?.date;
+        items[i] = {
+          ...items[i],
+          title: (before.title || before.action || '').trim(),
+          ...(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { resolvedDate: date } : {}),
+          ...(before.recurrenceHint ? { recurrenceHint: recurrenceHintOf(before, options.timezone, false) } : {}),
+        };
+        resultsByItemId.set(items[i].itemId, before);
+      }
       for (let i = 0; i < items.length; i++) {
         if (items[i].needsClarification) continue;
         items[i] = { ...items[i], resolvedTime: null, needsClarification: true, timeEstimated: false };
@@ -1321,7 +1361,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // The chat's list only: one model answer for the whole conversation is
   // where a repeat or a goal-at-the-session's-hour comes from. A share's
   // items are one per source message, each with its own provenance.
-  if (chat) for (const itemId of Array.from(duplicateItemIds(items, sourceTitleOf))) dropItem(itemId);
+  // Only a list's own per-day items are merged: a stacked copy that was not
+  // placed on another day stays, as base kept it (round 4 B).
+  if (chat) for (const itemId of Array.from(duplicateItemIds(items.filter((item) => spreadFamily.has(item.itemId)), sourceTitleOf))) dropItem(itemId);
   const activeGoals = options.activeGoals ?? [];
   const goalItems = chat ? items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId))) : [];
   const sessions = items.filter((item) => !goalItems.includes(item));
@@ -1364,6 +1406,24 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       const goal = goalOfSession.get(item.itemId) ?? matchingGoal(titlesOf(item).join('\n'), activeGoals);
       if (goal) items[at] = { ...item, goalLink: goalLinkFor(goal) };
     }
+  }
+
+  // A hint over several days on an item whose title also has items on the
+  // other days of the list is that item's own day only: two items each
+  // hinting both days would offer two weekly blocks each (round 4).
+  for (let at = 0; at < items.length; at += 1) {
+    const item = items[at]!;
+    const hint = item.recurrenceHint;
+    if (!hint || hint.weekdays.length < 2 || !item.resolvedDate) continue;
+    const own = new Date(`${item.resolvedDate}T12:00:00Z`).getUTCDay();
+    const key = titleKey(item.title);
+    const siblings = items.filter((other) => other !== item && other.resolvedDate && titleKey(other.title) === key
+      && hint.weekdays.includes(new Date(`${other.resolvedDate}T12:00:00Z`).getUTCDay())
+      && new Date(`${other.resolvedDate}T12:00:00Z`).getUTCDay() !== own);
+    // Nor does a list said in an earlier message hint several days for an
+    // item this message did not spread ("actually only Tuesdays").
+    const listNow = spreadFamily.has(item.itemId) || (readRecurrence(raw)?.weekdays.length ?? 0) > 1;
+    if ((siblings.length > 0 || !listNow) && hint.weekdays.includes(own)) items[at] = { ...item, recurrenceHint: { ...hint, weekdays: [own] } };
   }
 
   // «كل سبت من 10 لـ 4»: a complete weekly range is also offered as a weekly

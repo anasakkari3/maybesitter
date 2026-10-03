@@ -415,7 +415,17 @@ export function chatItemEvidence(
     if (!named) {
       // Read as before; but a day or an hour only from words naming no other item.
       const shared = byTurn.flatMap((clauses) => clauses.filter((clause) => clause.owners === null).map((clause) => clause.text));
-      return { clause: { text: whole }, turns: shared, touchedNow };
+      if (shared.length > 0) return { clause: { text: whole }, turns: shared, touchedNow };
+      // Only when nothing else speaks for it (round 4): the clauses that say
+      // the card's title whole, in the app's language — «…وأدرس الثلاثاء
+      // والخميس…» for «أدرس» beside the model's "Study". Never in place of
+      // the person's own words about it, so no clause changes hands.
+      const record = items[index] && typeof items[index] === 'object' ? items[index] as Record<string, unknown> : null;
+      const card = typeof record?.appTitle === 'string' ? Array.from(new Set(contentWords(record.appTitle))) : [];
+      const saysCard = (clause: AttributedClause) => card.length > 0 && titleScore(card, contentWords(clause.text)) === card.length;
+      const byCard = byTurn.flatMap((clauses) => clauses.filter(saysCard).map((clause) => clause.text));
+      const cardNow = byTurn.some((clauses, at) => turnOf[at] === newest && clauses.some(saysCard));
+      return { clause: { text: whole }, turns: byCard, touchedNow: touchedNow || cardNow };
     }
     const kept: string[] = [];
     const own: AttributedClause[] = [];
