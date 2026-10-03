@@ -222,7 +222,8 @@ test('every day of a list is a day the person said: the Thursday item is not mov
     llmProvider: async () => JSON.stringify(thursday),
   } as never);
   assert.equal(read.result.localTimeSpec?.date, THURSDAY, JSON.stringify(read.result.localTimeSpec));
-  assert.deepEqual(read.result.recurrenceHint?.weekdays, [2, 4]);
+  // Its hint is its own day: each day of the list is its own item (round 2).
+  assert.deepEqual(read.result.recurrenceHint?.weekdays, [4]);
 });
 
 test('two days that span, or are a choice, are one item — "between Tuesday and Thursday", "Tuesday or Thursday"', async () => {
@@ -346,16 +347,18 @@ test('the hour of an occurrence is the person’s clock on its own day', () => {
 /* ── 4. the adversarial review of this fix (2026-10-03), its exact inputs ── */
 
 const SUNDAY = weekday('Sunday');
+const MONDAY = weekday('Monday');
+const WEDNESDAY = weekday('Wednesday');
 
 /** One chat message, with the model answering `items`; the proposal and reply. */
-async function chatOnce(label: string, message: string, items: unknown[], options: { locale?: 'ar' | 'en' | 'he'; goals?: string[] } = {}) {
+async function chatOnce(label: string, message: string, items: unknown[], options: { locale?: 'ar' | 'en' | 'he'; goals?: string[]; now?: Date } = {}) {
   begin([{ reply: 'OK. Confirm below.', action: 'propose', items }]);
   try {
     const uid = uidFor(label);
     const goals = [] as Array<{ id: string }>;
     for (const goal of options.goals ?? []) goals.push(await createManualMemory(uid, { kind: 'goal', content: goal, language: 'en' }, new Date().toISOString()));
     const response = await chatPost(post('/api/mobile/capture/chat', uid, {
-      message, timezone: TZ, referenceTime: new Date().toISOString(), locale: options.locale ?? 'en',
+      message, timezone: TZ, referenceTime: (options.now ?? new Date()).toISOString(), locale: options.locale ?? 'en',
     }));
     assert.equal(response.status, 200);
     const body = await response.json() as Body;
@@ -516,4 +519,112 @@ test('review #8: a weekly repeat with no end says, once, what makes it weekly', 
   } finally {
     end();
   }
+});
+
+/* ── 5. round 2 of the review (orchestrator: conservative; never invent or move what base kept) ── */
+
+const timedAs = (entries: Item[]) => entries.map((entry) => [entry.title, entry.resolvedTime, entry.needsClarification]);
+
+test('round 2 #1: a spread list never hides a dropped item from the multi-time check — it is asked', async () => {
+  for (const text of ['Tuesday and Thursday at 7 and Friday at 9', 'study math Tuesday and Thursday at 7pm and study physics Wednesday at 7pm']) {
+    const proposal = await rulesAt(text, MON_10);
+    assert.ok(proposal.items.length > 0 && proposal.items.every((entry) => entry.needsClarification), `${text}: ${JSON.stringify(proposal.items.map((entry) => [entry.title, local(entry.resolvedTime)]))}`);
+  }
+  const { body } = await chatOnce('Round2Valve', 'every Tuesday and Thursday at 7pm and Friday at 9pm gym', [enItem('Gym', TUESDAY, '19:00')]);
+  assert.ok(body.proposal!.items.every((entry) => entry.needsClarification), JSON.stringify(timedAs(body.proposal!.items)));
+  // The gym's own list spreads it over Tuesday and Thursday — two instants —
+  // and the dentist the model lost still has its 9pm counted as missing.
+  const spread = await chatOnce('Round2ValveSpread', 'gym every Tuesday and Thursday at 7pm, and the dentist on Friday at 9pm', [enItem('Gym', TUESDAY, '19:00')]);
+  assert.ok(spread.body.proposal!.items.every((entry) => entry.needsClarification), JSON.stringify(timedAs(spread.body.proposal!.items)));
+});
+
+test('round 2 #2: a recurring list that is another item\u2019s never invents a copy of this one', async () => {
+  const work = await chatOnce('Round2Work', 'I work every Tuesday and Thursday at 9am, and I have a meeting with Dana Tuesday at 9am',
+    [enItem('Work', TUESDAY, '09:00'), enItem('Work', THURSDAY, '09:00'), enItem('Meeting with Dana', TUESDAY, '09:00')]);
+  const meetings = work.body.proposal!.items.filter((entry) => entry.title === 'Meeting with Dana');
+  assert.deepEqual(meetings.map((entry) => entry.resolvedTime), [at(TUESDAY, '09:00')]);
+  assert.equal((meetings[0] as Item & { recurrenceHint?: unknown }).recurrenceHint, undefined, 'the list is not the meeting\u2019s');
+  const training = await chatOnce('Round2Training', 'كل ثلاثاء وخميس الساعة 5 المسا عندي تدريب، والثلاثاء الساعة 5 المسا عندي دكتور',
+    [item('Training', 'تدريب', TUESDAY, '17:00'), item('Training', 'تدريب', THURSDAY, '17:00'), item('Doctor', 'دكتور', TUESDAY, '17:00')], { locale: 'ar' });
+  assert.deepEqual(training.body.proposal!.items.filter((entry) => entry.title === 'دكتور').map((entry) => entry.resolvedTime), [at(TUESDAY, '17:00')]);
+});
+
+test('round 2 #3: a recurrence never moves another item off the day its own words name', async () => {
+  begin([
+    { reply: 'OK. Confirm below.', action: 'propose', items: [item('Study', 'أدرس', TUESDAY, '19:00')] },
+    { reply: 'تمام. أكّد من تحت.', action: 'update', items: [item('Study', 'أدرس', TUESDAY, '19:00'), item('Study', 'أدرس', THURSDAY, '19:00'), item('Doctor', 'دكتور', FRIDAY, '16:00')] },
+  ]);
+  try {
+    const [, second] = await conversation(uidFor('Round2Doctor'), ['كل ثلاثاء وخميس الساعة 7 المسا بدي أدرس', 'وكمان دكتور الجمعة الساعة 4 العصر']);
+    assert.deepEqual(second!.proposal!.items.filter((entry) => entry.title === 'دكتور').map((entry) => entry.resolvedTime), [at(FRIDAY, '16:00')]);
+  } finally {
+    end();
+  }
+  const gym = await chatOnce('Round2GymDentist', 'gym every Tuesday and Thursday at 7pm, and the dentist on Friday at 4pm',
+    [enItem('Gym', TUESDAY, '19:00'), enItem('Gym', THURSDAY, '19:00'), enItem('Dentist', FRIDAY, '16:00')]);
+  assert.deepEqual(gym.body.proposal!.items.filter((entry) => entry.title === 'Dentist').map((entry) => entry.resolvedTime), [at(FRIDAY, '16:00')]);
+});
+
+test('round 2 #4: a bare «Study» for something else is not a session of the goal, and is not linked to it', async () => {
+  const { body } = await chatOnce('Round2Chemistry', 'I want to learn React; also study for the chemistry exam Tuesday at 6pm',
+    [enItem('Learn React', null, null), enItem('Study', TUESDAY, '18:00')], { goals: ['Learn React'] });
+  const study = body.proposal!.items.find((entry) => entry.title === 'Study');
+  assert.ok(study, JSON.stringify(timedAs(body.proposal!.items)));
+  assert.equal(study.goalLink, undefined);
+  // The goal-like item is the goal itself, never a step of it.
+  for (const entry of body.proposal!.items.filter((candidate) => candidate.title === 'Learn React')) assert.equal(entry.goalLink, undefined);
+});
+
+test('round 2 #5: an everyday verb or a general noun is never a goal link', async () => {
+  for (const [label, goal, message, title, appTitle, locale] of [
+    ['Play', 'Play guitar every day', 'Play football with Omar on Friday at 5pm', 'Play football with Omar', 'Play football with Omar', 'en'],
+    ['House', 'Save money for a house', "House party at Dana's on Friday at 8pm", "House party at Dana's", "House party at Dana's", 'en'],
+    ['Write', 'أكتب رسالة الماجستير', 'اكتب بطاقة عيد ميلاد لماما الجمعة الساعة 5 المسا', 'Write a birthday card for mom', 'اكتب بطاقة عيد ميلاد لماما', 'ar'],
+  ] as const) {
+    const time = label === 'House' ? '20:00' : '17:00';
+    const { body } = await chatOnce(`Round2Link${label}`, message, [item(title, appTitle, FRIDAY, time)], { goals: [goal], locale });
+    assert.equal(body.proposal!.items[0]!.goalLink, undefined, label);
+  }
+});
+
+test('round 2 #6: said on Monday morning, «every Monday and Wednesday» keeps tonight\u2019s item, and "Gym (Mon)"/"Gym (Wed)" stay two', async () => {
+  const monday = await chatOnce('Round2AbbrevToday', 'every Monday and Wednesday at 6pm gym',
+    [item('Gym (Mon)', 'Gym (Mon)', '2026-10-05', '18:00'), item('Gym (Wed)', 'Gym (Wed)', '2026-10-07', '18:00')], { now: MON_10 });
+  assert.deepEqual(monday.body.proposal!.items.map((entry) => [entry.title, local(entry.resolvedTime)]),
+    [['Gym (Mon)', '2026-10-05 18:00'], ['Gym (Wed)', '2026-10-07 18:00']]);
+});
+
+test('round 2 #6: "Gym (Mon)" and "Gym (Wed)" stay two, each on its own day', async () => {
+  const { body } = await chatOnce('Round2Abbrev', 'every Monday and Wednesday at 6pm gym', [enItem('Gym (Mon)', MONDAY, '18:00'), enItem('Gym (Wed)', WEDNESDAY, '18:00')]);
+  assert.deepEqual(body.proposal!.items.map((entry) => entry.resolvedTime).sort(), [at(MONDAY, '18:00'), at(WEDNESDAY, '18:00')].sort());
+});
+
+test('round 2 #7: no weekly line for one day, while anything is asked, or when the reply already says weekly', async () => {
+  const trash = await chatOnce('Round2Trash', 'every Friday at 8pm take out the trash', [enItem('Take out the trash', FRIDAY, '20:00')]);
+  assert.doesNotMatch(trash.body.reply, /every week, tell me/, trash.body.reply);
+  const asking = await chatOnce('Round2Asking', 'gym every Tuesday and Thursday at 7pm. I also need to call the bank', [enItem('Gym', TUESDAY, '19:00'), enItem('Call the bank', null, null)]);
+  assert.ok(asking.body.proposal!.items.some((entry) => entry.needsClarification));
+  assert.doesNotMatch(asking.body.reply, /every week, tell me/, asking.body.reply);
+  begin([{ reply: 'تمام، نادي الثلاثاء والخميس الساعة 7 المسا، كل أسبوع. أكّد من تحت.', action: 'propose', items: [item('Gym', 'نادي', TUESDAY, '19:00')] }]);
+  try {
+    const [said] = await conversation(uidFor('Round2SaidWeekly'), ['gym every Tuesday and Thursday at 7pm']);
+    assert.equal(said!.proposal!.items.length, 2);
+    assert.doesNotMatch(said!.reply, /tell me what time it ends|قلّي لأي ساعة/, said!.reply);
+  } finally {
+    end();
+  }
+});
+
+test('round 2 #8: rules titles lose the connectors and list days left at their edges', async () => {
+  for (const [text, title] of [
+    ['gym Tuesday and Thursday at 7pm', 'gym'],
+    ['חדר כושר ביום שלישי וחמישי ב-19:00', 'חדר כושר'],
+  ] as const) {
+    const proposal = await rulesAt(text, MON_10);
+    assert.deepEqual(Array.from(new Set(proposal.items.map((entry) => entry.title))), [title], text);
+  }
+  const off = await rulesAt("Monday and Tuesday I'm off, dentist Tuesday at 5pm", MON_10);
+  for (const entry of off.items) assert.doesNotMatch(entry.title, /^(?:and|&)\s|\s(?:and|&)$/i, entry.title);
+  const bare = await rulesAt('Every Tuesday and Thursday at 7 PM', MON_10);
+  for (const entry of bare.items) assert.notEqual(entry.title, 'and');
 });

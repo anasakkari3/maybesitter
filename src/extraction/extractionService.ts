@@ -7,7 +7,7 @@ import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
 import { instantFromLocal, localTimeSpecFor, rangeMinutesFrom, relativeDayOffset } from './timeLexicon';
-import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
+import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
 import type { Command } from '../domain/stateMachine';
 import type { ExtractionContext, ExtractionDisposition, ExtractionResult, RecurrenceHint } from './extractionTypes';
 
@@ -321,6 +321,14 @@ function onRecurrenceDay(result: ExtractionResult, recurrence: StatedRecurrence,
   if (date && recurrence.weekdays.some((weekday) => nextOccurrence([weekday], now, timeZone) === date)) {
     return { ...result, dateInferred: true };
   }
+  // Tonight's session of a list said today, before it starts ("every Monday
+  // and Wednesday at 6pm", said Monday morning): the item already on today
+  // stays there. A single day keeps FIX-R8's next-week rule.
+  const local = localTimeSpecFor(now, timeZone);
+  if (date && local && recurrence.weekdays.length > 1 && date === local.date && time && time > local.time) {
+    const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+    if (recurrence.weekdays.includes(new Date(Date.UTC(year, month - 1, day)).getUTCDay())) return { ...result, dateInferred: true };
+  }
   const { undatedTime: _undated, ...rest } = result;
   if (result.allDay) {
     const midnight = instantFromLocal(target, '00:00', timeZone)?.toISOString() ?? null;
@@ -362,7 +370,9 @@ function withoutRecurrencePhrases(result: ExtractionResult): ExtractionResult {
       for (const phrase of found.phrases) text = text.split(phrase).join(' ');
     }
     const cleaned = text.replace(/\s+/g, ' ').replace(/^[\s,،\-–]+|[\s,،\-–]+$/g, '').replace(/\s+(?:and|&|و)$/i, "").trim();
-    return cleaned || title;
+    // Nothing but a connector left ("Every Tuesday and Thursday at 7 PM"
+    // alone): the words as they were, for `tidyTitle` to trim.
+    return cleaned && !/^(?:and|&|or|و|ו|\s)+$/i.test(cleaned) ? cleaned : title;
   };
   const title = result.title ? strip(result.title) : result.title;
   if (title === result.title) return result;
@@ -373,14 +383,33 @@ function withStatedShape(result: ExtractionResult, rawText: string, context: Ext
   if (result.type !== 'task' && result.type !== 'follow_up') return result;
   const timeZone = context.timezone || result.localTimeSpec?.timezone || 'UTC';
   let shaped = result;
-  const recurrence = readRecurrence(rawText);
+  let recurrence = readRecurrence(rawText);
+  // An item whose own words put it on a day outside the list is not the
+  // list's (audit 2026-10-03 review, round 2): "gym every Tuesday and Thursday
+  // at 7pm, and the dentist on Friday at 4pm" leaves the dentist on Friday.
+  if (recurrence && recurrence.weekdays.length > 0) {
+    const day = result.localTimeSpec?.date
+      ?? (result.remindAt ?? result.dueAt ? localTimeSpecFor(new Date(Date.parse((result.remindAt ?? result.dueAt)!)), timeZone)?.date ?? null : null);
+    if (day) {
+      const [year, month, date] = day.split('-').map(Number) as [number, number, number];
+      const weekday = new Date(Date.UTC(year, month - 1, date)).getUTCDay();
+      if (!recurrence.weekdays.includes(weekday) && readWeekdayMentions(rawText).includes(weekday)) recurrence = null;
+    }
+  }
   if (recurrence) {
     const placed = onRecurrenceDay(shaped, recurrence, rawText, context.now, timeZone);
     shaped = recurrence.weekdays.length > 1 ? withoutRecurrencePhrases(placed) : withPhraseInTitle(placed, recurrence.phrases);
   }
   const minutes = shaped.timeAnchor === 'deadline' ? null : rangeMinutesFrom(rawText, localTimeOf(shaped, timeZone));
   if (minutes) shaped = { ...shaped, rangeMinutes: minutes };
-  if (recurrence) shaped = { ...shaped, recurrenceHint: { weekdays: recurrence.weekdays } };
+  if (recurrence) {
+    // Several days: the hint is this item's own day — each day is its own
+    // item, and two items each hinting both days would offer two blocks each.
+    const day = shaped.localTimeSpec?.date ?? null;
+    const own = day ? new Date(`${day}T12:00:00Z`).getUTCDay() : null;
+    const weekdays = recurrence.weekdays.length > 1 && own !== null && recurrence.weekdays.includes(own) ? [own] : recurrence.weekdays;
+    shaped = { ...shaped, recurrenceHint: { weekdays } };
+  }
   return shaped;
 }
 

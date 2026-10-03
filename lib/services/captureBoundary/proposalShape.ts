@@ -78,27 +78,74 @@ function gapAllowed(gap: string, ownWords: ReadonlySet<string> = new Set()): boo
  * only hour words, then a clock whose hour is the item's — or the clock
  * first, then the list.
  */
-function attachedList(words: string, hour: number, titles: readonly string[]): WeekdayList | null {
-  const lower = words.toLowerCase();
-  // The item's own title may sit between a recurring list and its hour —
-  // «كل ثلاثاء وخميس بدي أدرس الساعة 7» — but nothing else may.
+/** Words that carry no thing of their own around a list: "I want to", «بدي», «عندي», «אני רוצה». */
+const FILLER_WORDS: ReadonlySet<string> = new Set([
+  'every', 'each', 'كل', 'כל', 'בכל',
+  'i', "i'm", 'im', 'we', 'want', 'wanna', 'need', 'have', 'got', 'to', 'and', 'also', 'too', 'my', 'a', 'an', 'for', 'will', 'should', 'go', 'do',
+  'بدي', 'بدّي', 'عندي', 'عنا', 'عنّا', 'لازم', 'كمان', 'و', 'رح', 'راح', 'انا', 'أنا', 'بس',
+  'אני', 'רוצה', 'צריך', 'צריכה', 'יש', 'לי', 'וגם', 'גם', 'ו',
+]);
+
+const SPAN_BOUNDARY = /[,،;.!?؟:\n]/;
+
+/**
+ * The list of days this item's own hour belongs to, or null (audit
+ * 2026-10-03 review, rounds 1 and 2). Three things must hold:
+ *
+ *   the hour     only hour words between the list and a clock whose hour is
+ *                the item's ("evenings at 7 PM", «الساعة 7 المسا») — or the
+ *                clock first, then the list; for an «كل»/every list the
+ *                item's own title may sit between them too;
+ *   the span     the stretch of words the list sits in (up to a comma or a
+ *                full stop) names nothing but this item — its own title, the
+ *                goal it serves, filler like "I want to" or «بدي». "I work
+ *                every Tuesday and Thursday at 9am" is not the meeting's list;
+ *   a name       a span that names no item at all ("Every Tuesday and
+ *                Thursday at 7 PM" on its own) is only the list of items the
+ *                model stacked on one of its days — the audit's failure.
+ */
+function attachedList(words: string, hour: number, titles: readonly string[], context: OccurrenceContext): WeekdayList | null {
+  const lower = words.slice(0, CAPTURE_INPUT_MAX_CHARACTERS).toLowerCase();
   // Bounded like everything a parser reads here: never more than one capture.
-  const own = new Set(titles.join(' ').slice(0, CAPTURE_INPUT_MAX_CHARACTERS).toLowerCase().split(/[\s,،.\-–:]+/).filter(Boolean));
-  for (const list of readWeekdayLists(words)) {
+  const tokens = (text: string) => text.slice(0, CAPTURE_INPUT_MAX_CHARACTERS).toLowerCase().split(/[\s,،.\-–:;!?؟()]+/).filter(Boolean);
+  const own = new Set(tokens(titles.join(' ')));
+  const goals = new Set(tokens((context.goalTitles ?? []).join(' ')));
+  for (const list of readWeekdayLists(lower)) {
+    let clockEnd = -1;
     const after = lower.slice(list.end, list.end + 80);
     const digitAt = after.search(DIGIT);
     if (digitAt !== -1 && gapAllowed(after.slice(0, digitAt), list.recurring ? own : new Set())) {
       const clock = after.slice(Math.max(0, digitAt - 12), digitAt + 12);
       const hours = statedClockHours(clock);
-      if (hours.size === 1 && hours.has(hour % 12)) return list;
+      if (hours.size === 1 && hours.has(hour % 12)) clockEnd = list.end + digitAt;
     }
-    const before = lower.slice(Math.max(0, list.start - 40), list.start);
-    const lastDigit = Math.max(...Array.from(before).map((char, index) => (DIGIT.test(char) ? index : -1)));
-    if (lastDigit >= 0) {
-      const tail = before.slice(lastDigit + 1).replace(/^[0-9:.\s]*(?:am|pm|a\.m\.|p\.m\.)?/, '');
-      const hours = statedClockHours(before.slice(Math.max(0, lastDigit - 14), lastDigit + 8));
-      if (gapAllowed(tail) && hours.size === 1 && hours.has(hour % 12)) return list;
+    let clockStart = -1;
+    if (clockEnd === -1) {
+      const before = lower.slice(Math.max(0, list.start - 40), list.start);
+      const lastDigit = Math.max(...Array.from(before).map((char, index) => (DIGIT.test(char) ? index : -1)));
+      if (lastDigit >= 0) {
+        const tail = before.slice(lastDigit + 1).replace(/^[0-9:.\s]*(?:am|pm|a\.m\.|p\.m\.)?/, '');
+        const hours = statedClockHours(before.slice(Math.max(0, lastDigit - 14), lastDigit + 8));
+        if (gapAllowed(tail) && hours.size === 1 && hours.has(hour % 12)) clockStart = Math.max(0, list.start - 40) + lastDigit;
+      }
     }
+    if (clockEnd === -1 && clockStart === -1) continue;
+    // The span: from the boundary before the list (or its clock) to the one after.
+    const from = clockStart === -1 ? list.start : clockStart;
+    let spanStart = from;
+    while (spanStart > 0 && !SPAN_BOUNDARY.test(lower[spanStart - 1]!)) spanStart -= 1;
+    let spanEnd = Math.max(list.end, clockEnd);
+    while (spanEnd < lower.length && !SPAN_BOUNDARY.test(lower[spanEnd]!)) spanEnd += 1;
+    // A clock's own "7:30" holds a colon; read past it.
+    if (lower[spanEnd] === ':' && DIGIT.test(lower[spanEnd + 1] ?? '')) {
+      spanEnd += 1;
+      while (spanEnd < lower.length && !SPAN_BOUNDARY.test(lower[spanEnd]!)) spanEnd += 1;
+    }
+    const rest = tokens(`${lower.slice(spanStart, list.start)} ${lower.slice(list.end, spanEnd)}`)
+      .filter((word) => !DIGIT.test(word) && !GAP_WORDS.has(word) && !FILLER_WORDS.has(word));
+    if (rest.some((word) => !own.has(word) && !goals.has(word))) continue;
+    if (!rest.some((word) => own.has(word)) && !context.stacked) continue;
+    return list;
   }
   return null;
 }
@@ -116,6 +163,21 @@ export function modelItemDay(item: unknown, timezone: string): string | null {
   return null;
 }
 
+/** The local `HH:MM` a raw model item names (its wall clock or its instant), or null. */
+export function modelItemTime(item: unknown, timezone: string): string | null {
+  if (!item || typeof item !== 'object') return null;
+  const record = item as Record<string, unknown>;
+  const spec = record.localTimeSpec as { time?: unknown } | null | undefined;
+  if (spec && typeof spec.time === 'string' && /^\d{2}:\d{2}$/.test(spec.time)) return spec.time;
+  for (const key of ['dueAt', 'remindAt']) {
+    const value = record[key];
+    if (typeof value !== 'string') continue;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return localTimeSpecFor(new Date(parsed), timezone)?.time ?? null;
+  }
+  return null;
+}
+
 /** The title keys of a raw model item: its own words and its app-language title. */
 export function modelItemKeys(item: unknown): string[] {
   if (!item || typeof item !== 'object') return [];
@@ -126,12 +188,30 @@ export function modelItemKeys(item: unknown): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Whether a list of days in these words belongs to this item at all
+ * (`attachedList`), whatever the model did with it: a recurrence hint read
+ * from a list that is somebody else's is dropped (round 2: "I work every
+ * Tuesday and Thursday at 9am, and I have a meeting with Dana…").
+ */
+export function listBelongsTo(result: ExtractionResult, words: string, timezone: string, context: OccurrenceContext): boolean {
+  if (result.allDay || !(result.dueAt || result.remindAt) || !words.trim()) return false;
+  const time = result.localTimeSpec?.time ?? localTimeSpecFor(new Date(Date.parse((result.remindAt ?? result.dueAt)!)), timezone)?.time ?? null;
+  if (!time) return false;
+  return attachedList(words, Number(time.slice(0, 2)),
+    [result.title ?? '', result.action ?? '', result.appTitle ?? '', result.sourceTitle ?? ''].filter(Boolean), { ...context, stacked: true }) !== null;
+}
+
 /** How this item came to its day, which decides whether a list of days may fan it out. */
 export interface OccurrenceContext {
   /** The model put this item on a day itself: a list beside it is not the item's to fan out over. */
   modelPlacedDay: boolean;
   /** The model stacked two or more items of this title on one day (the audit's failure). */
   stacked: boolean;
+  /** Days and hours (`YYYY-MM-DD HH:MM`) another of the model's items already holds: never spread onto them. */
+  occupied?: ReadonlySet<string>;
+  /** The titles of the goal-like items of the same list ("Learn React"): words a session's span may share. */
+  goalTitles?: readonly string[];
 }
 
 /**
@@ -159,7 +239,8 @@ export function occurrenceDatesFor(
   const date = result.localTimeSpec?.date ?? localDateOf(result.remindAt ?? result.dueAt, timezone);
   const time = result.localTimeSpec?.time ?? localTimeSpecFor(new Date(Date.parse((result.remindAt ?? result.dueAt)!)), timezone)?.time ?? null;
   if (!date || !time) return null;
-  const list = attachedList(words, Number(time.slice(0, 2)), [result.title ?? '', result.action ?? '', result.appTitle ?? ''].filter(Boolean));
+  const list = attachedList(words, Number(time.slice(0, 2)),
+    [result.title ?? '', result.action ?? '', result.appTitle ?? '', result.sourceTitle ?? ''].filter(Boolean), context);
   if (!list || !list.weekdays.includes(weekdayOf(date))) return null;
   if (!list.recurring && context.modelPlacedDay && !context.stacked) return null;
   const nowLocal = localTimeSpecFor(now, timezone);
@@ -170,7 +251,11 @@ export function occurrenceDatesFor(
     if (list.recurring && weekday === todayWeekday && time > nowLocal.time) return nowLocal.date;
     return shiftDate(nowLocal.date, ((weekday - todayWeekday + 7) % 7) || 7);
   });
-  return Array.from(new Set(dates)).sort();
+  // Never onto a day another item already holds at this hour ("Gym (Wed)"
+  // for "Gym (Mon)", the meeting the list was not about).
+  const free = dates.filter((day) => day === date || !context.occupied?.has(`${day} ${time}`));
+  const unique = Array.from(new Set(free)).sort();
+  return unique.length > 1 ? unique : null;
 }
 
 /**
@@ -202,6 +287,7 @@ function foldDigits(text: string): string {
 /** Words a title may carry for when it happens, and articles: "Study every Tuesday" is "Study". */
 const KEY_DROPPED: ReadonlySet<string> = new Set([
   'a', 'an', 'the', 'on', 'at', 'every', 'each', 'sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday',
+  'sun', 'mon', 'tue', 'tues', 'wed', 'thu', 'thur', 'thurs', 'fri', 'sat',
   'كل', 'يوم', 'الأحد', 'الاحد', 'الاثنين', 'الثلاثاء', 'التلاتا', 'الأربعاء', 'الاربعاء', 'الأربعا', 'الخميس', 'الجمعة', 'السبت',
   'ثلاثاء', 'تلاتا', 'أربعاء', 'اربعاء', 'أربعا', 'خميس', 'جمعة', 'سبت',
   'כל', 'יום', 'ביום', 'ראשון', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת',
@@ -288,6 +374,14 @@ const NOT_A_TOPIC = contentWords([
   'اشتري أشتري اقرأ اقرا أقرأ اعمل أعمل روح خذ اتصل أتصل ابعت أبعت جيب',
   'כל יום שבוע חודש שנה היום מחר בוקר ערב לילה שעה יותר פחות לפני אחרי',
   'ראשון שני שלישי רביעי חמישי שישי שבת לקנות לקרוא לעשות להתקשר',
+  // Everyday verbs (round 2: "Play football" is not "Play guitar", «اكتب
+  // بطاقة» is not «أكتب رسالة») and nouns too general to name a goal
+  // ("House party" is not "Save money for a house").
+  'play playing write writing watch see look save saving run running walk cook clean meet visit fix prepare plan book pay check find give help move tell ask eat drink sleep',
+  'house home money party parties work school family friend friends people stuff thing things life health room office place card',
+  'اكتب أكتب يكتب كتابة العب ألعب لعب شوف أشوف روح أروح اطبخ أطبخ نضف أنضف زور أزور وفر أوفر جهز أجهز حضر أحضر ادفع أدفع',
+  'بيت دار شغل مصاري فلوس حفلة حفله مدرسة مدرسه عيلة عيله صحاب ناس اشيا أشياء بطاقة بطاقه',
+  'לכתוב לשחק ללכת לראות לחסוך לבשל לנקות לפגוש לשלם בית כסף מסיבה עבודה משפחה חברים אנשים דברים',
 ].join(' '));
 
 /** The words that say what something is about: no verb, no day or hour, nothing shorter than four letters. */
@@ -324,14 +418,48 @@ export function matchingGoal(words: string, goals: readonly ActiveGoal[]): Activ
  * its own («تدرس», "Study") beside the goal it serves. "Call mom" at the
  * swimming lesson's hour is not a session of learning to swim.
  */
-export function isSessionOf(goalTitles: readonly string[], sessionTitles: readonly string[]): boolean {
+export function isSessionOf(goalTitles: readonly string[], sessionTitles: readonly string[], sessionClause = ''): boolean {
   const goal = topicWords(goalTitles.join('\n'));
   const own = sessionTitles.join('\n');
   const topics = topicWords(own);
   if (topics.length > 0) return sharesTopic(topics, goal) > 0;
-  return contentWords(own).some((word) => GOAL_VERB_WORDS.some((verb) => sameWord(verb, word)));
+  if (!contentWords(own).some((word) => GOAL_VERB_WORDS.some((verb) => sameWord(verb, word)))) return false;
+  // A bare «تدرس», "Study": its own words say what for. "study for the
+  // chemistry exam" is not a session of learning React (round 2) — every
+  // topic its clause names must be the goal's.
+  const said = topicWords(sessionClause);
+  return said.every((word) => goal.some((candidate) => sameWord(word, candidate)));
 }
 
 export function goalLinkFor(goal: ActiveGoal): CaptureGoalLinkSuggestionContract {
   return { goalId: goal.goalId, title: goal.title };
+}
+
+/* ── a title's leftovers (audit 2026-10-03 review, round 2) ── */
+
+const CONNECTORS: ReadonlySet<string> = new Set(['and', '&', 'or', 'then', 'also', 'و', 'ثم', 'وبعدين', 'وكمان', 'ו', 'וגם', 'או', '-', '–', ',', '،']);
+const DAY_NAMES = '(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday|(?:ال)?(?:أحد|احد|اثنين|إثنين|ثلاثاء|ثلثاء|تلاتا|أربعاء|اربعاء|أربعا|اربعا|خميس|جمعة|جمعه|سبت)|ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)';
+/** A day left behind by a list the parser took apart: «וחמישי», «والخميس». */
+const JOINED_DAY = new RegExp(`^(?:و|ו)(?:ب)?${DAY_NAMES}$`, 'iu');
+const BARE_DAY = new RegExp(`^${DAY_NAMES}$`, 'iu');
+
+/**
+ * The title without the connectors and list days a rules reading leaves at
+ * its edges: «and gym» → «gym», «gym and» → «gym», «חדר כושר וחמישי» →
+ * «חדר כושר». A title that would be left with nothing stays as it was.
+ */
+export function tidyTitle(title: string): string {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  const edge = (word: string) => CONNECTORS.has(word.toLowerCase()) || JOINED_DAY.test(word);
+  let start = 0;
+  let end = words.length;
+  while (start < end && edge(words[start]!)) start += 1;
+  for (;;) {
+    if (end > start && edge(words[end - 1]!)) { end -= 1; continue; }
+    // "… and Thursday": a connector and a day, at the end.
+    if (end - start >= 2 && BARE_DAY.test(words[end - 1]!) && CONNECTORS.has(words[end - 2]!.toLowerCase())) { end -= 2; continue; }
+    break;
+  }
+  const tidy = words.slice(start, end).join(' ');
+  return tidy || title.trim();
 }
