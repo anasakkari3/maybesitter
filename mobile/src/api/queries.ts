@@ -108,7 +108,7 @@ import {
   InvalidTransitionError,
   PlanProposalRefusedError,
   StaleCommitmentError,
-  WeekConflictError,
+  WeekConflictError, WeekEmptyDayError,
 } from './errors';
 import { icsFeedsEnabled, safeCommitmentPatchEnabled } from '../config/env';
 import {
@@ -954,7 +954,7 @@ export function useWeek(decisions: WeekDecisions) {
  * without one reads the week again.
  */
 export function adoptWeekConflict(client: QueryClient, uid: string, decisions: WeekDecisions, error: unknown): void {
-  if (error instanceof WeekConflictError) {
+  if (error instanceof WeekConflictError || error instanceof WeekEmptyDayError) {
     client.setQueryData(queryKeys.week(uid, weekDecisionsKey(decisions)), error.week);
     return;
   }

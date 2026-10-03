@@ -23,6 +23,7 @@ import {
   CAPTURE_CONFIRM_FAILURE_CODES,
   PlanEditRefusedError,
   PlanProposalRefusedError,
+  WeekEmptyDayError,
   ServerError,
   ServiceUnavailableError,
   ApiError,
@@ -39,7 +40,7 @@ import {
 } from './errors';
 import { mockResponseFor } from './mockAdapter';
 import { commitmentSchema } from './schemas/common';
-import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema } from './schemas/plan';
+import { planEditRejectedSchema, planProposalRejectedSchema, weekConflictSchema, weekEmptyDaySchema } from './schemas/plan';
 import { icsFeedRefusalSchema } from './schemas/icsFeeds';
 import { googleRefusalSchema } from './schemas/google';
 
@@ -254,9 +255,12 @@ function planEditRefusal(body: unknown, message: string): Error {
   // error; without it both reasons flattened into "check it and try again".
   const proposal = planProposalRejectedSchema.safeParse(body);
   if (proposal.success) return new PlanProposalRefusedError(proposal.data.reason);
+  // The week's save refusing an empty day, with the week to redraw (review of #4).
+  const emptyDay = weekEmptyDaySchema.safeParse(body);
+  if (emptyDay.success) return new WeekEmptyDayError(emptyDay.data.week);
   const parsed = planEditRejectedSchema.safeParse(body);
   if (!parsed.success) return new ValidationError(message);
-  return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId);
+  return new PlanEditRefusedError(parsed.data.reason, parsed.data.itemId ?? null);
 }
 
 /** The confirm route's refusal body — `success: false` and a known code — or null. */

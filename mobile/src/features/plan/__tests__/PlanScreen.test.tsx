@@ -773,6 +773,22 @@ describe('nothing about the plan reaches the disk', () => {
   });
 });
 
+/** The rendered tree with `useId`-derived gradient ids (`brandr2d`, a fill's `brushRef`) given one fixed name. */
+function withStableIds<T>(node: T): T {
+  const ID = /brandr[0-9a-z]+/g;
+  const visit = (value: unknown): void => {
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    for (const [key, entry] of Object.entries(record)) {
+      if (typeof entry === 'string' && ID.test(entry)) record[key] = entry.replace(ID, 'brand-id');
+      else if (entry && typeof entry === 'object') visit(entry);
+      ID.lastIndex = 0;
+    }
+  };
+  visit(node);
+  return node;
+}
+
 describe('right to left', () => {
   it('renders in Arabic, in Arabic', async () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
@@ -807,8 +823,11 @@ describe('right to left', () => {
     await waitFor(() => expect(screen.queryByText(ar.planWhyTitle)).not.toBeNull());
     // Deterministic: every instant in the tree comes from the committed
     // fixture and every time is read in the plan's own zone, so nothing here
-    // depends on when or where the suite runs.
-    expect(screen.toJSON()).toMatchSnapshot();
+    // depends on when or where the suite runs. The brand mark's gradient id
+    // comes from `useId`, which counts every render before this one in the
+    // file, so it is replaced by one fixed name: adding a test above must not
+    // change the layout this pins.
+    expect(withStableIds(screen.toJSON())).toMatchSnapshot();
   });
 });
 
@@ -1182,7 +1201,8 @@ describe('«حضّرني» on a meeting or an appointment pinned to the plan (CL
     expect(button.props.accessibilityLabel).toContain('Prepare me for');
     await fireEvent.press(button);
     await waitFor(() => expect(JSON.parse(String(screen.getByTestId('prep-probe').props.children))).toEqual({
-      startAt: DENTIST_SOON.startsAt, endAt: DENTIST_SOON.endsAt, appointment: true,
+      // The commitment travels with it (review of audit #3), so the server can read what it is.
+      startAt: DENTIST_SOON.startsAt, endAt: DENTIST_SOON.endsAt, appointment: true, commitmentId: DENTIST_SOON.itemId,
     }));
   });
 });
@@ -1222,6 +1242,14 @@ describe('a plan that places nothing', () => {
     await loaded();
     expect(screen.queryByTestId('plan-accept')).toBeNull();
     expect(screen.getByTestId('plan-empty-capture')).toBeTruthy();
+  });
+
+  it('when the server finds the plan empty after all, says so instead of saying nothing', async () => {
+    jest.spyOn(planEndpoints, 'actOnPlan').mockRejectedValue(new PlanEditRefusedError('empty_plan', null));
+    await loaded();
+    await fireEvent.press(screen.getByTestId('plan-accept'));
+    await waitFor(() => expect(screen.getByTestId('plan-accept-refused')).toBeTruthy());
+    expect(screen.getByTestId('plan-accept-refused').props.children).toBe(en.planEmptyRefused);
   });
 
   it('a plan with a step on it keeps its accept', async () => {

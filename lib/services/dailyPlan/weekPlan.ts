@@ -78,9 +78,9 @@ import {
   titlesOf,
   type DailyPlanDeps,
 } from './dailyPlanService';
-import { acceptPlan, effectiveSchedule } from './planActions';
+import { PlanEditRejected, acceptPlan, effectiveSchedule } from './planActions';
 import { endIsEstimated, planToDto } from './planDto';
-import { readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
+import { planPath, readStoredPlan, type StoredDailyPlan, type WeekPlanOrigin } from './planStore';
 import { isPlanDate, localDateOf, planSettingsOf } from './planSettings';
 import { PLAN_PROPOSAL_DAYS, heldBySavedWeekDay, planDatesFrom } from './weekHolds';
 import { DEFAULT_MOBILE_TIMEZONE } from '../mobile/time';
@@ -651,7 +651,9 @@ export async function acceptWeekDay(
   if (!sameSteps(day, shown)) return { outcome: 'week_changed', layout };
   // A day the week places nothing on is not saved as a plan (audit
   // 2026-10-03 #4): no document, no acceptance, no planned day in «نشاطي».
-  if (day.assignment.include.length === 0) return { outcome: 'empty_day', layout };
+  // The solve's placements, not the assignment: a step moved onto a day it no
+  // longer fits is assigned there and placed nowhere (review of #4).
+  if (day.plan.scheduled.length === 0) return { outcome: 'empty_day', layout };
 
   const onThisDay = new Set(day.assignment.include);
   const origin: WeekPlanOrigin = {
@@ -668,7 +670,22 @@ export async function acceptWeekDay(
   if (!created) {
     return { outcome: 'already_planned', stored, layout: await composeWeek(uid, decisions, { ...deps, storage }) };
   }
-  const accepted = await acceptPlan(uid, date, { storage, ...(deps.now ? { now: deps.now } : {}) });
+  let accepted: StoredDailyPlan | null;
+  try {
+    accepted = await acceptPlan(uid, date, { storage, ...(deps.now ? { now: deps.now } : {}) });
+  } catch (error) {
+    if (!(error instanceof PlanEditRejected) || error.reason !== 'empty_plan') throw error;
+    // The store re-solved against busy time read after the week was composed,
+    // and placed nothing. The document this call just created is not a plan
+    // the person saved: it is removed, unaccepted, rather than left behind.
+    await storage.runTransaction(async (tx) => {
+      const current = await tx.get<StoredDailyPlan>(planPath(uid, date));
+      if (current && current.status === 'proposed' && current.generation === stored.generation && effectiveSchedule(current).length === 0) {
+        tx.delete(planPath(uid, date));
+      }
+    });
+    return { outcome: 'empty_day', layout: await composeWeek(uid, decisions, { ...deps, storage }) };
+  }
   const after = await composeWeek(uid, decisions, { ...deps, storage });
   // No plan to accept by the time the accept ran (M-a): the document went
   // between the store and the accept. Never answered as accepted.

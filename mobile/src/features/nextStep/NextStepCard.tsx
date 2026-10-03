@@ -325,7 +325,7 @@ function Ready({
         <View style={{ gap: 10, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: p.acs, borderRadius: 14, paddingVertical: 10, paddingHorizontal: 12 }}>
             <ReferenceIcon name="play" size={16} color={p.acd} />
-            <Txt size={14} weight={500} color={p.acd} lh={1.4} style={{ flex: 1 }} testID="next-step-started-note">{prepare ? t.nextStepPrepStartedNote : t.nextStepStartedNote}</Txt>
+            <Txt size={14} weight={500} color={p.acd} lh={1.4} style={{ flex: 1 }} testID="next-step-started-note">{prepare ? (prepTarget ? t.nextStepPrepStartedNote : t.nextStepPrepStartedPlain) : t.nextStepStartedNote}</Txt>
           </View>
           {prepTarget ? (
             <Pill testID="next-step-prepare" label={t.xPrepare} kind="outline" size={15} pad={12} onPress={() => actions.openMeetingPrep(prepTarget)} />
@@ -335,6 +335,24 @@ function Ready({
               <ReferenceIcon name="check" size={17} color={busy ? p.disTx : p.onAccent} />
               <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center">{ACTION_LABEL(strings).done}</Txt>
             </Btn>
+          ) : null}
+          {/* A started preparation is never a dead end (review of audit #2):
+              «مش هلّق» and «مش هاي» stay, as the server offers them. */}
+          {prepare && (offers('defer') || offers('dismiss')) ? (
+            <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: stacked ? 'stretch' : 'center' }}>
+              {offers('defer') ? (
+                <Btn testID="next-step-defer" label={ACTION_LABEL(strings).defer} disabled={busy} onPress={() => run('defer')}
+                  style={{ ...button('tertiary'), ...(stacked ? {} : { flex: 1 }) }}>
+                  <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center">{ACTION_LABEL(strings).defer}</Txt>
+                </Btn>
+              ) : null}
+              {offers('dismiss') ? (
+                <Btn testID="next-step-dismiss" label={ACTION_LABEL(strings).dismiss} disabled={busy} onPress={() => run('dismiss')}
+                  style={{ ...button('tertiary'), ...(stacked ? {} : { flex: 1 }) }}>
+                  <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center">{ACTION_LABEL(strings).dismiss}</Txt>
+                </Btn>
+              ) : null}
+            </View>
           ) : null}
         </View>
       ) : (

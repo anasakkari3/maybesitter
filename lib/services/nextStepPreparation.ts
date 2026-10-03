@@ -35,8 +35,9 @@
  */
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
 import type { NextStepEvidenceContract, NextStepLocale } from '../../src/contracts/v1/nextStepContracts';
-import { GATHERING_NOUNS, PREPARATION_NOUNS } from '../../src/extraction/lexicon/eventNouns';
-import { APPOINTMENT_NOUNS } from '../../src/extraction/lexicon/appointmentNouns';
+import { mentionsPreparedEvent, namesEvent, namesPreparedEvent, wordsOf } from '../../src/extraction/lexicon/eventTitles';
+
+export { mentionsPreparedEvent, namesEvent, namesPreparedEvent, wordsOf };
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -84,67 +85,11 @@ export function startsSoon(commitmentId: string, state: DomainState, now: Date):
   return delta >= 0 && delta <= FIXED_EVENT_LEAD_MS;
 }
 
-// ── words ─────────────────────────────────────────────────────────
-
-const SPLIT = new RegExp('[^\\p{L}\\p{N}]+', 'u');
-
-/** An Arabic word without «و»/«ف», «ب»/«ك»/«ل» and the article, so «للامتحان» is «امتحان». */
-function arabicStem(word: string): string {
-  if (!/^[ء-ي]/.test(word)) return word;
-  let rest = word;
-  if (/^[وف]/.test(rest) && rest.length > 3) rest = rest.slice(1);
-  if (rest.startsWith('لل') && rest.length > 3) return rest.slice(2);
-  if (/^[بكل]/.test(rest) && rest.length > 3) rest = rest.slice(1);
-  if (rest.startsWith('ال') && rest.length > 3) rest = rest.slice(2);
-  return rest;
-}
-
-/** A Hebrew word without one of the prefixes ה ו ב ל מ ש, when it is long enough to have one. */
-function hebrewStem(word: string): string {
-  return /^[הובלמש][א-ת]{3,}$/.test(word) ? word.slice(1) : word;
-}
-
-export function wordsOf(text: string): string[] {
-  return text
-    .toLowerCase()
-    .replace(/[ً-ْـ]/g, '')
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .split(SPLIT)
-    .filter(Boolean)
-    .map((word) => hebrewStem(arabicStem(word)));
-}
-
-type Nouns = { readonly ar: readonly string[]; readonly he: readonly string[]; readonly en: readonly string[] };
-
-/** One test for a noun list: any of its phrases, word for word, anywhere in the title. */
-function phraseMatcher(...lists: readonly Nouns[]): (title: string) => boolean {
-  const phrases = lists.flatMap((nouns) => [...nouns.ar, ...nouns.he, ...nouns.en]).map((noun) => wordsOf(noun)).filter((phrase) => phrase.length > 0);
-  return (title) => {
-    const words = wordsOf(title);
-    return phrases.some((phrase) => words.some((_, index) => phrase.every((part, offset) => words[index + offset] === part)));
-  };
-}
-
-/** The title names an exam, an interview, a presentation… (`PREPARATION_NOUNS`). */
-export const namesPreparedEvent = phraseMatcher(PREPARATION_NOUNS);
-
-const namesEventNoun = phraseMatcher(PREPARATION_NOUNS, GATHERING_NOUNS, APPOINTMENT_NOUNS);
-
-/**
- * The title names an event rather than a task: an exam, a night out, an
- * appointment — or says the person *has* it («عندي…», "I have…", «יש לי…»),
- * which is how people state what is on, not what to do.
- */
-export function namesEvent(title: string): boolean {
-  return namesEventNoun(title) || /^\s*(?:في\s+)?(?:عندي|عندنا)\s/.test(title)
-    || /^\s*(?:i have|i've got|we have)\s/i.test(title) || /^\s*יש\s+(?:לי|לנו)\s/.test(title);
-}
+// ── words: shared with the phone (`src/extraction/lexicon/eventTitles.ts`) ──
 
 /** Words that say nothing about the topic: «عندي», "have", «יש לי»… */
 const FILLER = new Set(wordsOf([
-  'عندي عندك عندنا في من مع على عن بكرا اليوم الليله الساعه بعد قبل الصبح المسا هلق',
+  'عندي عندك عندنا في من مع على عن بكرا اليوم الليله الساعه بعد قبل الصبح المسا هلق لازم بدي',
   'i have has had a an the my at on in for with to of tomorrow today tonight',
   'יש לי את של עם על מחר היום בשעה',
 ].join(' ')));
@@ -169,8 +114,9 @@ export function preparationPlanned(event: Commitment, state: DomainState): boole
     if (other.timeSpec.kind === 'due_by' && other.timeSpec.endAt && start !== null
       && Date.parse(other.timeSpec.endAt) === start) return true;
     // Another exam is not preparation for this one; a study session at 17:00
-    // (a `scheduled_event` too, «الساعة 5») is.
-    if (other.timeSpec.kind === 'scheduled_event' && namesPreparedEvent(other.title)) return false;
+    // («لازم أدرس للامتحان الساعة 5», a `scheduled_event` too) is: it opens
+    // with what to do, so it is a task (`namesPreparedEvent`).
+    if (namesPreparedEvent(other.title)) return false;
     const due = other.timeSpec.dueAt ? Date.parse(other.timeSpec.dueAt) : Number.NaN;
     if (Number.isFinite(due) && start !== null && due > start) return false;
     return Array.from(topicWords(other.title)).some((word) => topic.has(word));
@@ -271,7 +217,7 @@ export function preparationStep(
   if (evening) {
     evidenceCodes.push({
       code: 'evening_plan_before_event',
-      params: { title: evening.title.slice(0, 80), at: evening.timeSpec.dueAt as string },
+      params: { title: eventName(evening.title).slice(0, 80), at: evening.timeSpec.dueAt as string },
     });
   }
   evidenceCodes.push({ code: start - nowMs <= 24 * HOUR ? 'due_within_24h' : 'due_within_7d' });

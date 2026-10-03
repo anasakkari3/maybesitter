@@ -90,14 +90,15 @@ for (const arm of NEXT_STEP_ARMS) {
       assert.equal(proposal.state, 'ready');
       assert.equal(proposal.primaryStep?.purpose, 'prepare', `the step was ${JSON.stringify(proposal.primaryStep)}`);
       assert.equal(proposal.primaryStep?.title, 'حضّر لامتحان رياضيات');
-      // It opens the exam (and its «حضّرني») — and can neither complete nor rename it.
+      // It opens the exam (and its «حضّرني») — and cannot rename it. «خلصتها»
+      // is offered and marks the preparation done, never the exam
+      // (tests/mobile/nextStepPrepDecisions.test.ts).
       assert.equal(proposal.primaryStep?.commitmentId, exam.id);
-      assert.ok(!proposal.availableActions.includes('done'), '«خلصتها» would complete the exam');
       assert.ok(!proposal.availableActions.includes('edit'), 'editing would rename the exam');
-      assert.ok(proposal.availableActions.includes('accept'));
+      assert.deepEqual([...proposal.availableActions].sort(), ['accept', 'defer', 'dismiss', 'done']);
       const prepares = proposal.explanation!.evidenceCodes.find((entry) => entry.code === 'prepares_for_event');
       assert.equal(prepares?.params?.at, exam.timeSpec.dueAt);
-      assert.throws(() => prepareLiveNextStepDecision(proposal, 'done', liveContext(arm, AT_EXAM)), /not available/);
+      assert.throws(() => prepareLiveNextStepDecision(proposal, 'edit', liveContext(arm, AT_EXAM), 'x'), /not available/);
     });
   });
 
@@ -203,4 +204,99 @@ test('#2: the preparation title reads as spoken Arabic, Hebrew and English', () 
   assert.equal(preparationTitle('Math exam', 'en'), 'Prepare for Math exam');
   assert.equal(preparationTitle('יש לי מבחן במתמטיקה', 'he'), 'להתכונן למבחן במתמטיקה');
   assert.equal(preparationTitle('הראיון', 'he'), 'להתכונן לראיון');
+});
+
+/* ── Review of the fix: tasks are not held back, preparation is not an exam ── */
+
+/** 09:00 in Jerusalem on the audit's Saturday. */
+const MORNING = new Date('2026-10-03T06:00:00.000Z');
+
+/**
+ * Timed tasks a reviewer found held back as "events" until their last hour:
+ * a possessive, an appointment noun somewhere in the title, or a verb-led
+ * errand about an event. Every one is work to do and stays a candidate.
+ */
+const TIMED_TASKS: Array<[string, string]> = [
+  ['عندي تقرير لازم أسلمه اليوم الساعة 3 العصر', 'ar'],
+  ['عندي شغل لازم أخلصه الساعة 2 الظهر', 'ar'],
+  ['יש לי לשלוח את הדוח היום בשעה 15', 'he'],
+  ['Call the dentist today at 3pm to reschedule', 'en'],
+  ['Send the meeting notes today at 3pm', 'en'],
+  ['اعمل تحليل البيانات الساعة 3 العصر', 'ar'],
+  ['احكي مع الدكتور الساعة 3 العصر', 'ar'],
+  ['Buy a birthday cake at 5pm', 'en'],
+  ['احجز تذاكر الرحلة الساعة 4 العصر', 'ar'],
+  ['Book the wedding venue at 4pm', 'en'],
+  ['لازم أدرس للامتحان اليوم الساعة 5 المسا', 'ar'],
+  ['Prepare for the interview today at 4pm', 'en'],
+  ['Finish the presentation slides at 4pm', 'en'],
+];
+
+for (const [text, locale] of TIMED_TASKS) {
+  test(`review #1/#2: «${text}» is a task — at 09:00 it is the next step itself, unchanged`, async () => {
+    await withMemoryStorage(async () => {
+      await capture(text, MORNING);
+      const state = await getParticipantStateSnapshot(UID);
+      const [only] = Object.values(state.commitments);
+      assert.ok(only);
+      assert.equal(namesEvent(only.title), false, `«${only.title}» read as an event`);
+      const proposal = await getLiveNextStep(state, { ...(liveContext('generic', MORNING) as object), locale } as never);
+      assert.equal(proposal.primaryStep?.commitmentId, only.id, `held back: ${JSON.stringify(proposal.primaryStep)}`);
+      assert.equal(proposal.primaryStep?.purpose, undefined, `made into its own preparation: ${proposal.primaryStep?.title}`);
+      assert.equal(proposal.primaryStep?.title, only.title);
+    });
+  });
+}
+
+test('review #1: events are still told apart from tasks by the noun that heads them', () => {
+  for (const title of ['امتحان رياضيات', 'عندي امتحان رياضيات', 'سهرة مع الصحاب', 'عندي سهرة مع الصحاب', 'تطلع مع أصحابك', 'موعد دكتور', 'Math exam', 'Job interview', 'Birthday party', 'יש לי מבחן במתמטיקה', 'יש לי מסיבה', 'מסיבה אצל דנה']) {
+    assert.equal(namesEvent(title), true, title);
+  }
+  for (const title of ['عندي تقرير لازم أسلمه', 'عندي شغل لازم أخلصه', 'יש לי לשלוח את הדוח', 'Call the dentist to reschedule', 'Send the meeting notes', 'اعمل تحليل البيانات', 'احكي مع الدكتور', 'Buy a birthday cake', 'احجز تذاكر الرحلة', 'Book the wedding venue', 'أدرس للامتحان', 'Prepare for the interview', 'Finish the presentation slides']) {
+    assert.equal(namesEvent(title), false, title);
+  }
+});
+
+test('review #2: a study session for the exam counts as its preparation — the session is next, no second preparation', async () => {
+  await withMemoryStorage(async () => {
+    await capture(EXAM, AT_EXAM);
+    await capture('لازم أدرس للامتحان اليوم الساعة 5 المسا', AT_EXAM);
+    const state = await getParticipantStateSnapshot(UID);
+    const proposal = await getLiveNextStep(state, liveContext('generic', AT_EXAM));
+    assert.equal(proposal.primaryStep?.commitmentId, byTitle(state, 'أدرس').id, `the step was ${proposal.primaryStep?.title}`);
+    assert.equal(proposal.primaryStep?.purpose, undefined);
+  });
+});
+
+test('review #4: the evening question names the plan once, without «عندي» / «יש לי»', async () => {
+  await withMemoryStorage(async () => {
+    await capture(EXAM, MORNING);
+    await capture('عندي سهرة مع الصحاب الليلة الساعة 9', MORNING);
+    const proposal = await getLiveNextStep(await getParticipantStateSnapshot(UID), liveContext('generic', MORNING));
+    const evening = proposal.explanation!.evidenceCodes.find((entry) => entry.code === 'evening_plan_before_event');
+    assert.equal(evening?.params?.title, 'سهرة مع الصحاب');
+  });
+  await withMemoryStorage(async () => {
+    await capture('יש לי מבחן במתמטיקה מחר בשעה 10', MORNING);
+    await capture('יש לי מסיבה הערב בשעה 21', MORNING);
+    const proposal = await getLiveNextStep(await getParticipantStateSnapshot(UID), { ...(liveContext('generic', MORNING) as object), locale: 'he' } as never);
+    assert.equal(proposal.primaryStep?.title, 'להתכונן למבחן במתמטיקה');
+    const evening = proposal.explanation!.evidenceCodes.find((entry) => entry.code === 'evening_plan_before_event');
+    assert.equal(evening?.params?.title, 'מסיבה');
+  });
+});
+
+test('review #9: a bill due this afternoon comes before preparing for tomorrow\'s exam', async () => {
+  await withMemoryStorage(async () => {
+    await capture(EXAM, MORNING);
+    await capture('لازم أدفع فاتورة الكهربا اليوم قبل الساعة 5 المسا', MORNING);
+    const state = await getParticipantStateSnapshot(UID);
+    const bill = byTitle(state, 'فاتورة');
+    assert.equal(bill.timeSpec.kind, 'due_by');
+    const proposal = await getLiveNextStep(state, liveContext('generic', MORNING));
+    assert.equal(proposal.primaryStep?.commitmentId, bill.id, `the step was ${proposal.primaryStep?.title}`);
+    // Once the bill is due later than the exam, preparing comes first again.
+    const evening = await getLiveNextStep(state, liveContext('generic', new Date('2026-10-03T14:30:00.000Z')));
+    assert.equal(evening.primaryStep?.purpose, 'prepare');
+  });
 });

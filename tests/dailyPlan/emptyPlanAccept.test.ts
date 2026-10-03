@@ -24,6 +24,8 @@ import { POST as actionPost } from '../../src/app/api/mobile/plans/[date]/action
 import { POST as weekPost } from '../../src/app/api/mobile/plans/week/route.ts';
 import { POST as weekAcceptPost } from '../../src/app/api/mobile/plans/week/accept/route.ts';
 import { GET as summaryGet } from '../../src/app/api/mobile/activity/summary/route.ts';
+import { replaceBusyBlocksAsFixture } from '../support/busyFixtures.ts';
+import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 
 const BASE = 'http://127.0.0.1:4321';
 const TZ = 'Asia/Jerusalem';
@@ -109,6 +111,33 @@ test('#4: the week cannot save an empty day either', async () => {
     assert.equal(response.status, 422);
     assert.equal((await response.json() as { reason: string }).reason, 'empty_plan');
     assert.equal(await readStoredPlan(USER, TODAY, storage), null, 'an empty day was stored as a plan');
+    assert.equal((await summary()).plannedDaysCount, 0);
+  });
+});
+
+test('review of #4: a step moved onto a day it no longer fits is refused with 422, and leaves no plan behind', async () => {
+  await withHarness(async (storage) => {
+    await capture('لازم أبعت التقرير اليوم قبل الساعة 6 المسا');
+    const [report] = Object.values((await getParticipantStateSnapshot(USER)).commitments);
+    const DAY = '2026-10-05';
+    // Monday is wall-to-wall busy on the calendar.
+    await replaceBusyBlocksAsFixture(USER, 'device:cal-1', { startsAt: '2026-10-04T21:00:00.000Z', endsAt: '2026-10-05T21:00:00.000Z' }, [{
+      blockId: 'busy-all-day', sourceId: 'device:cal-1', sourceKind: 'device' as const,
+      startAt: '2026-10-04T21:00:00.000Z', endAt: '2026-10-05T20:59:00.000Z', allDay: false,
+    }], { storage });
+    const moves = [{ itemId: report!.id, date: DAY }];
+    const shown = (await (await weekPost(request('/api/mobile/plans/week', { moves, drops: [] }))).json() as { week: { days: Array<{ date: string; items: Array<{ itemId: string }>; unplaced: Array<{ itemId: string }> }> } }).week;
+    const monday = shown.days.find((day) => day.date === DAY)!;
+    assert.deepEqual([monday.items.length, monday.unplaced.map((item) => item.itemId)], [0, [report!.id]], 'the setup is not the reviewer\'s day');
+
+    const response = await weekAcceptPost(request('/api/mobile/plans/week/accept', {
+      date: DAY, shown: monday.unplaced.map((item) => item.itemId), moves, drops: [],
+    }));
+    assert.equal(response.status, 422, `answered ${response.status}`);
+    assert.equal((await response.json() as { reason: string }).reason, 'empty_plan');
+    assert.equal(await readStoredPlan(USER, DAY, storage), null, 'an empty plan was left stored');
+    // Refused before anything was built: not even a proposal in the ledger.
+    assert.ok(!(await listPlanEvents(USER, storage)).some((event) => event.date === DAY), 'the empty day was built and stored first');
     assert.equal((await summary()).plannedDaysCount, 0);
   });
 });

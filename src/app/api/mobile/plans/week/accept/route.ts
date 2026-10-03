@@ -2,6 +2,7 @@ import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../..
 import { mobileError } from '../../../../../../../lib/services/mobile/response';
 import { isPlanDate } from '../../../../../../../lib/services/dailyPlan/planSettings';
 import { planToDto } from '../../../../../../../lib/services/dailyPlan/planDto';
+import { PlanEditRejected } from '../../../../../../../lib/services/dailyPlan/planActions';
 import { PlanDateOutOfRangeError, titlesOf } from '../../../../../../../lib/services/dailyPlan/dailyPlanService';
 import {
   WEEK_BODY_LIMIT_BYTES,
@@ -63,6 +64,10 @@ export async function POST(request: Request) {
   try {
     result = await acceptWeekDay(user.uid, date, decisions, shown);
   } catch (error) {
+    // Never a 500 for a day with nothing to accept (review of audit #4).
+    if (error instanceof PlanEditRejected) {
+      return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 422 });
+    }
     if (error instanceof PlanDateOutOfRangeError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });
     }

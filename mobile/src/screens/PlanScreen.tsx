@@ -277,6 +277,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
   };
 
   const refusal = editRefusalOf(edit.error);
+  // The server refusing to accept a plan that places nothing (audit
+  // 2026-10-03 #4) — reachable when the day emptied after this screen read it.
+  const acceptRefusal = editRefusalOf(accept.error);
   // A 429 means another device spent the last rebuild between this screen's
   // read and this tap. The cap copy is the same either way.
   // The server's count when it sends one (L5): a generation its automatic
@@ -540,6 +543,9 @@ function LoadedPlan({ plan, date, readOnly }: { plan: DailyPlan; date: string; r
             />
           )}
         </View>
+        {acceptRefusal ? (
+          <Txt size={13} color={p.wm} testID="plan-accept-refused">{t[acceptRefusal.key] as string}</Txt>
+        ) : null}
         <ActionRow>
           <Pill
             label={t.planRegenerate}
