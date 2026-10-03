@@ -301,11 +301,11 @@ describe('Today keeps the floating pill off its rows', () => {
     const inset = () => StyleSheet.flatten(screen.getByTestId('today-scroll').props.style)?.marginBottom;
     // The block at an enlarged text size: taller than the 170 fallback.
     await act(async () => {
-      fireEvent(screen.getByTestId('floating-tab-bar'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 214 } } });
+      await fireEvent(screen.getByTestId('floating-tab-bar'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 214 } } });
     });
     expect(inset()).toBe(214);
     await act(async () => {
-      fireEvent(screen.getByTestId('floating-tab-bar'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 238 } } });
+      await fireEvent(screen.getByTestId('floating-tab-bar'), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 390, height: 238 } } });
     });
     expect(inset()).toBe(238);
   });

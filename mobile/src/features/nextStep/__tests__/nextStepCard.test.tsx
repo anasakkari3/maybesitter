@@ -481,8 +481,10 @@ describe('the three answers up front (Stitch)', () => {
  * exam's time and, when there is one, the evening plan before it.
  */
 describe('a preparation step for an event', () => {
-  const examAt = () => new Date(Date.now() + 20 * 60 * 60_000).toISOString();
-  const nightAt = () => new Date(Date.now() + 8 * 60 * 60_000).toISOString();
+  // Tomorrow at 10:00 and tonight at 21:00 on the clock, not "now + 20 h": run
+  // before 04:00, now + 20 h was still today and «Tomorrow» never showed.
+  const examAt = () => { const at = new Date(); at.setDate(at.getDate() + 1); at.setHours(10, 0, 0, 0); return at.toISOString(); };
+  const nightAt = () => { const at = new Date(); at.setHours(21, 0, 0, 0); return at.toISOString(); };
   const prepResponse = () => response({
     primaryStep: { commitmentId: 'exam-1', title: 'Prepare for Math exam', purpose: 'prepare' },
     explanation: {
