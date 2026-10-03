@@ -43,6 +43,7 @@ import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { deleteMemory } from '../../lib/services/mobile/memoryService.ts';
 import { duplicateItemIds, isGoalTitle, matchingGoal, occurrenceDatesFor } from '../../lib/services/captureBoundary/proposalShape.ts';
 import type { ExtractionResult } from '../../src/extraction/extractionTypes.ts';
+import { withProposalClashes } from '../../lib/services/captureChat/chatConflicts.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -723,4 +724,24 @@ test('round 5 #2: exact copies with no list are one card, and never clash with t
     assert.equal(body.proposal!.items[0]!.conflicts, undefined, label);
     assert.doesNotMatch(body.reply, /clashes with|بيتعارض/, label);
   }
+});
+
+test('round 5 #1: one word that merely begins another is not the same word; a plural is', async () => {
+  // "work" is not "worker": the worker's visit is not spread over the work days.
+  const worker = await chatOnce('Round5Worker', 'I work every Tuesday and Thursday at 9am, and the worker comes too',
+    [item('Worker', 'Worker', TUE_6, '09:00'), item('Worker', 'Worker', TUE_6, '09:00')], { now: MON_10 });
+  assert.ok(worker.body.proposal!.items.every((entry) => !local(entry.resolvedTime)?.startsWith(THU_8)), JSON.stringify(timedAs(worker.body.proposal!.items)));
+  // «محاضرات» is the plural of «محاضرة»: the lectures are spread.
+  const lectures = await chatOnce('Round5Lectures', 'محاضرات كل ثلاثاء وخميس الساعة 8 الصبح',
+    [item('Lecture', 'محاضرة', TUE_6, '08:00'), item('Lecture', 'محاضرة', TUE_6, '08:00')], { locale: 'ar', now: MON_10 });
+  assert.deepEqual(lectures.body.proposal!.items.map((entry) => local(entry.resolvedTime)), [`${TUE_6} 08:00`, `${THU_8} 08:00`]);
+});
+
+test('round 5 #2: an item never clashes with its identical twin at the same instant', () => {
+  const at6 = '2026-10-06T15:00:00.000Z';
+  const proposal = { items: [{ itemId: 'a', title: 'Gym' }, { itemId: 'b', title: 'Gym' }, { itemId: 'c', title: 'Dinner' }] };
+  const candidate = { dueAt: at6, endAt: null, kind: 'scheduled_event' as const };
+  const shown = withProposalClashes(proposal, new Map([['a', candidate], ['b', candidate], ['c', candidate]]));
+  assert.deepEqual(shown.items.map((entry) => (entry as { conflicts?: Array<{ title: string | null }> }).conflicts?.map((conflict) => conflict.title)),
+    [['Dinner'], ['Dinner'], ['Gym', 'Gym']]);
 });
