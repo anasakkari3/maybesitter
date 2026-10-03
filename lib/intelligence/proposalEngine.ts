@@ -43,6 +43,17 @@ interface IntelligenceRun {
 
 const RUN_COOLDOWN_MS = 60 * 60 * 1000;
 const FAILED_COOLDOWN_MS = 5 * 60 * 1000;
+/**
+ * The floor between generations a screen visit may start (review of
+ * 2026-10-03). Opening Today or «يتابع لك» asks for suggestions; the digest
+ * cooldown above only holds while nothing changed, and nearly every tap
+ * changes something (a completed task, a new outcome). Without this floor
+ * every visit after any change was another model call. A visit inside the
+ * window gets the latest run's suggestions back and calls nothing; the
+ * explicit "suggest" button keeps the digest rule, so a statement just added
+ * is still read at once.
+ */
+export const VISIT_GENERATION_MIN_INTERVAL_MS = 15 * 60 * 1000;
 
 const SCHEMA = {
   type: 'object',
@@ -76,6 +87,7 @@ const SYSTEM = [
   'Every item must reference one or more supplied observationIds. A goal is a lasting desired result; an action is one concrete next step.',
   'Use priorDecisions to learn what this person accepted or dismissed. Do not repeat a dismissed idea with slightly different wording.',
   'Use confirmedWork, memory and recent outcomes to avoid duplicate tasks and choose what helps this person, while treating unconfirmed observations as tentative.',
+  'An outcome that says Postponed means the person moved the item to a later time. It is not a failure, a missed task or a lack of commitment; never describe or treat it as one.',
   'Treat pending observations as hypotheses. Never state an outcome, readiness, or personal preference as fact unless evidence supports it.',
   'Interpret relative time in an observation using its observedAt timestamp, then compare it with currentTime. Do not suggest preparation for an event that has already passed.',
   'For a consequential event or deadline, look for useful preparation in available time. Before judging a leisure plan, check readiness and recovery needs if they are unknown.',
@@ -155,6 +167,13 @@ export function validateSuggestions(raw: unknown, observations: readonly StoredO
   return result;
 }
 
+let generatorForTests: ShareStructuredGenerator | null = null;
+
+/** Route-level tests run the real loop with a fake model; production never sets this. */
+export function setIntelligenceGeneratorForTests(generate: ShareStructuredGenerator | null): void {
+  generatorForTests = generate;
+}
+
 export function suggestionPath(uid: string, id: string): string {
   requireUserId(uid);
   if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('invalid suggestion id');
@@ -171,9 +190,19 @@ export async function listSuggestions(uid: string, storage: StorageAdapter = get
 export async function proposeFromObservations(
   uid: string,
   now: string,
-  options: { storage?: StorageAdapter; generate?: ShareStructuredGenerator } = {},
+  options: { storage?: StorageAdapter; generate?: ShareStructuredGenerator; minIntervalMs?: number } = {},
 ): Promise<IntelligenceSuggestion[]> {
   const storage = options.storage ?? getStorage();
+  const runPath = `${userCol(uid, INTELLIGENCE_RUNS)}/latest`;
+  if (options.minIntervalMs !== undefined) {
+    // A visit inside the floor reuses the latest finished run, whatever
+    // changed since; it never reaches the model.
+    const latest = await storage.get<IntelligenceRun>(runPath);
+    const age = latest ? Date.parse(now) - Date.parse(latest.generatedAt) : Infinity;
+    if (latest?.status === 'complete' && age >= 0 && age < options.minIntervalMs) {
+      return readRun(uid, latest, storage);
+    }
+  }
   await syncCanonicalObservations(uid, now, storage);
   const observations = (await listObservations(uid, storage))
     .filter(item => item.review !== 'dismissed').slice(0, 30);
@@ -198,7 +227,6 @@ export async function proposeFromObservations(
     confirmedWork: knownWork.slice(0, 40).map(item => ({ title: item.title, status: item.status, dueAt: item.timeSpec.dueAt })),
   };
   const digest = createHash('sha256').update(JSON.stringify(modelContext)).digest('hex');
-  const runPath = `${userCol(uid, INTELLIGENCE_RUNS)}/latest`;
   const claimId = randomUUID();
   const claimed = await storage.runTransaction(async tx => {
     const current = await tx.get<IntelligenceRun>(runPath);
@@ -213,10 +241,9 @@ export async function proposeFromObservations(
   if (!claimed) {
     const current = await storage.get<IntelligenceRun>(runPath);
     if (!current || current.digest !== digest || current.status !== 'complete') return [];
-    const found = await Promise.all(current.suggestionIds.map(id => storage.get<IntelligenceSuggestion>(suggestionPath(uid, id))));
-    return found.filter((item): item is IntelligenceSuggestion => item !== null);
+    return readRun(uid, current, storage);
   }
-  const generate = options.generate ?? shareLlmProvider(uid, { purpose: 'semantic_observation' });
+  const generate = options.generate ?? generatorForTests ?? shareLlmProvider(uid, { purpose: 'semantic_observation' });
   let suggestions: IntelligenceSuggestion[];
   try {
     const response = await generate({
@@ -274,4 +301,9 @@ export async function proposeFromObservations(
     tx.set(runPath, { ...current, status: 'complete', suggestionIds: persisted.map(item => item.id) });
   });
   return persisted;
+}
+
+async function readRun(uid: string, run: IntelligenceRun, storage: StorageAdapter): Promise<IntelligenceSuggestion[]> {
+  const found = await Promise.all(run.suggestionIds.map(id => storage.get<IntelligenceSuggestion>(suggestionPath(uid, id))));
+  return found.filter((item): item is IntelligenceSuggestion => item !== null);
 }
