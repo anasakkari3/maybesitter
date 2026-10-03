@@ -24,7 +24,7 @@ import { namesEvent, preparationTitle } from '../../lib/services/nextStepPrepara
 import { NEXT_STEP_PINNED_ARM_ENV } from '../../lib/experiments/experimentControls.ts';
 import { NEXT_STEP_ARMS } from '../../src/contracts/v1/experimentContracts.ts';
 import { MODULE_FEATURE_FLAG_DEFAULTS, MODULE_KILL_SWITCH_DEFAULTS } from '../../src/contracts/v1/runtimeControls.ts';
-import type { Commitment, DomainState } from '../../src/domain/stateMachine.ts';
+import { applyCommand, createEmptyDomainState, type Commitment, type DomainState } from '../../src/domain/stateMachine.ts';
 
 const TZ = 'Asia/Jerusalem';
 const UID = 'audit-2026-10-03';
@@ -300,3 +300,56 @@ test('review #9: a bill due this afternoon comes before preparing for tomorrow\'
     assert.equal(evening.primaryStep?.purpose, 'prepare');
   });
 });
+
+/* ── Second review: the titles the capture model writes ──────────────── */
+
+/**
+ * In production the model titles a commitment as an instruction to the
+ * person: «تطلع مع أصحابك» (the audit's own), «تحضر عرس ابن عمك», «تقدّم
+ * امتحان الرياضيات». Read as verb-led tasks, an exam titled that way lost its
+ * preparation step and a wedding came back as «بلّش فيها» hours early. The
+ * verb of going to an event is set aside like «عندي»; what follows must still
+ * be an event, so «قدّم الطلب» or "Take the trash out" stay tasks.
+ */
+const ATTENDED_EVENTS = [
+  'تطلع مع أصحابك', 'تحضر عرس ابن عمك', 'تروح على عرس ابن عمك', 'تروح عالحفلة', 'تحضر حفلة عيد ميلاد',
+  'تقدّم امتحان الرياضيات', 'قدم امتحان رياضيات', 'احضر حفلة عيد الميلاد', 'روح على المقابلة', 'تروح على مقابلة الشغل',
+  'Take the math exam', 'Go to the party', 'Attend Sara\'s birthday party',
+  'לעשות מבחן במתמטיקה', 'להגיע לחתונה', 'ללכת לחתונה של דני', 'ללכת למסיבה',
+];
+const STILL_TASKS = [
+  'أحضّر الغداء', 'أحضّر للامتحان', 'حضّر للامتحان', 'احضر للمقابلة', 'قدّم الطلب', 'Take the trash out', 'לעשות כביסה',
+  // The head is the first word in Arabic and Hebrew: a report or a summary *about* an exam is work.
+  'تقرير عن امتحان الرياضيات', 'ملخص المقابلة', 'סיכום של המבחן',
+];
+
+test('second review: going to an event is still the event; preparing for one is a task', () => {
+  for (const title of ATTENDED_EVENTS) assert.equal(namesEvent(title), true, title);
+  for (const title of STILL_TASKS) assert.equal(namesEvent(title), false, title);
+  assert.equal(preparationTitle('تقدّم امتحان الرياضيات', 'ar'), 'حضّر لامتحان الرياضيات');
+  assert.equal(preparationTitle('Take the math exam', 'en'), 'Prepare for math exam');
+});
+
+/** A confirmed commitment as the model would have titled it, at an hour. */
+function modelTitled(state: DomainState, id: string, title: string, dueAt: string, at: Date): DomainState {
+  const now = at.toISOString();
+  const created = applyCommand(state, {
+    type: 'CreateDraft', now, draftStatus: 'pending_confirmation',
+    commitment: { id, kind: 'task', title, timeSpec: { kind: 'scheduled_event', dueAt, remindAt: dueAt, timezone: TZ } },
+  } as never).newState;
+  return applyCommand(created, { type: 'ConfirmCommitment', commitmentId: id, now, reminders: [] } as never).newState;
+}
+
+for (const arm of NEXT_STEP_ARMS) {
+  test(`second review (${arm}): «تقدّم امتحان الرياضيات» tomorrow gets its preparation, and «تحضر عرس ابن عمك» tonight is asked about, not started`, async () => {
+    let state = createEmptyDomainState();
+    state = modelTitled(state, 'exam', 'تقدّم امتحان الرياضيات', '2026-10-04T07:00:00.000Z', AT_EXAM);
+    state = modelTitled(state, 'wedding', 'تحضر عرس ابن عمك', '2026-10-03T18:00:00.000Z', AT_NIGHT_OUT);
+    const proposal = await getLiveNextStep(state, liveContext(arm, AT_NIGHT_OUT));
+    assert.equal(proposal.primaryStep?.commitmentId, 'exam', `the step was ${JSON.stringify(proposal.primaryStep)}`);
+    assert.equal(proposal.primaryStep?.purpose, 'prepare');
+    assert.equal(proposal.primaryStep?.title, 'حضّر لامتحان الرياضيات');
+    const evening = proposal.explanation!.evidenceCodes.find((entry) => entry.code === 'evening_plan_before_event');
+    assert.equal(evening?.params?.title, 'عرس ابن عمك');
+  });
+}

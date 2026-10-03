@@ -291,7 +291,7 @@ describe('which timed entries are events', () => {
   } as never), '2026-10-03T06:00:00.000Z');
 
   it('a night out, an exam, an appointment are events', () => {
-    for (const title of ['سهرة مع الصحاب', 'عندي امتحان رياضيات', 'Dentist appointment', 'יש לי מסיבה']) {
+    for (const title of ['سهرة مع الصحاب', 'عندي امتحان رياضيات', 'Dentist appointment', 'יש לי מסיבה', 'تحضر عرس ابن عمك', 'Take the math exam']) {
       expect(at(title, title).timedEvent).toBe(true);
     }
   });
