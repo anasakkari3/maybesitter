@@ -1016,6 +1016,8 @@
   "planRowProposalSub": "اقتراح — ما انحفظت بعد",
   "planRowNone": "ما في خطة لليوم",
   "planRowNoneSub": "اعملها هلّق، أو شغّل خطة الصبح.",
+  "planRowEmpty": "ما في إشي نرتّبه اليوم",
+  "planRowEmptySub": "احكيلنا شو بدك تعمل، ومنحطّه بوقت.",
   "planRowDismissedSub": "متروكة لليوم",
   "planRowLoading": "عم نجيب خطة اليوم…",
   "planRowFailed": "ما قدرنا نجيب خطة اليوم.",

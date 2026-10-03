@@ -50,21 +50,27 @@ export function TodayPlanRow({ row, preview = [] }: { row: PlanRowModel; preview
 
   const proposed = row.kind === 'proposed';
   const accepted = row.kind === 'accepted';
+  const empty = row.kind === 'empty';
   const title = row.kind === 'proposed' ? t.planRowProposal
     : row.kind === 'none' ? t.planRowNone
+    : empty ? t.planRowEmpty
     : t.planTitle;
   const sub = row.kind === 'loading' ? t.planRowLoading
     : row.kind === 'error' ? t.planRowFailed
     : row.kind === 'none' ? t.planRowNoneSub
     : row.kind === 'dismissed' ? t.planRowDismissedSub
     : row.kind === 'proposed' ? t.planRowProposalSub
+    : row.kind === 'empty' ? t.planRowEmptySub
     : tr('planCardPlaced', { n: row.placed });
   const cta = row.kind === 'error' ? t.errorsRetry
     : row.kind === 'none' ? t.planRowMake
+    : empty ? t.tabCapture
     : row.kind === 'loading' ? null
     : t.planRowOpen;
   const onPress = row.kind === 'error' ? () => void query.refetch()
     : row.kind === 'loading' ? undefined
+    // Nothing to arrange: the way forward is to add something.
+    : empty ? () => actions.goCapture('tab', 'text')
     : () => actions.openPlan(date);
 
   const stateLabels = { done: t.planPreviewDone, next: t.planPreviewNext, planned: t.planPreviewPlanned, proposed: t.planPreviewProposed };

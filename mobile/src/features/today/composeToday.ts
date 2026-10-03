@@ -49,6 +49,13 @@ export type PlanRow =
   | { kind: 'error' }
   | { kind: 'none' }
   | { kind: 'proposed'; placed: number }
+  /**
+   * A proposed plan that places nothing (audit 2026-10-03 #4): not a plan to
+   * show as ready, since there is nothing in it to accept. `pinned` counts
+   * what is fixed to a time on the day anyway (dinner at 20:00), so the day
+   * is still not called empty.
+   */
+  | { kind: 'empty'; pinned: number }
   | { kind: 'accepted'; placed: number }
   | { kind: 'dismissed' };
 
@@ -196,6 +203,9 @@ export function composeToday(input: {
   // alone said «ما في إشي إله وقت اليوم» over an accepted plan whose one row
   // was dinner at 20:00 (UAT round 6, N-h).
   else if (plan.plan.status === 'accepted') planRow = { kind: 'accepted', placed: planRows(plan.plan).length };
+  // Nothing placed is nothing to accept (the server refuses it, `empty_plan`):
+  // said as an empty day, never as «خطة اليوم جاهزة».
+  else if (plan.plan.scheduled.length === 0) planRow = { kind: 'empty', pinned: planRows(plan.plan).length };
   else planRow = { kind: 'proposed', placed: planRows(plan.plan).length };
 
   // ── later ──
@@ -213,7 +223,8 @@ export function composeToday(input: {
   // recommendation to show and no request for quiet — or when every open
   // item is an appointment on the day (N18), which is still a day with
   // something on it. So the open count is part of the answer.
-  const planShowsWork = (planRow.kind === 'proposed' || planRow.kind === 'accepted') && planRow.placed > 0;
+  const planShowsWork = ((planRow.kind === 'proposed' || planRow.kind === 'accepted') && planRow.placed > 0)
+    || (planRow.kind === 'empty' && planRow.pinned > 0);
   // Pending or failed is *not* an answer. Saying «empty» while a source is
   // still talking is the false empty state itself, and on failure the empty
   // branch would hide the very row that reports it.

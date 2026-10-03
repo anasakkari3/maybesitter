@@ -26,7 +26,11 @@ function arabicStem(word: string): string {
 
 /** A Hebrew word without one of the prefixes ה ו ב ל מ ש, when it is long enough to have one. */
 function hebrewStem(word: string): string {
-  return /^[הובלמש][\u05D0-\u05EA]{3,}$/.test(word) ? word.slice(1) : word;
+  // Repeated, so the noun and the word in a title land on the same stem
+  // however many letters each lost: «למסיבה» and «מסיבה» both reach «סיבה».
+  let stem = word;
+  while (/^[הובלמש][\u05D0-\u05EA]{3,}$/.test(stem)) stem = stem.slice(1);
+  return stem;
 }
 
 export function wordsOf(text: string): string[] {
@@ -88,6 +92,42 @@ function withoutPossessive(title: string): string {
     .replace(/^\s*יש\s+(?:לי|לנו)\s+/, '');
 }
 
+/**
+ * The verb of *going to* an event, which titles open with — the imperative
+ * the capture model writes («تطلع مع أصحابك», «تحضر عرس ابن عمك», «تقدّم
+ * امتحان الرياضيات», "Take the math exam", «ללכת לחתונה»). Set aside like
+ * the possessive, so the event noun after it can head the title (second
+ * review of #2). Only when what follows is an event noun does it count: «قدّم
+ * الطلب», "Take the trash out", «לעשות כביסה» stay tasks.
+ *
+ * The trap is «حضّر» (prepare) against «تحضر»/«احضر» (attend): without the
+ * shadda they are one spelling. Only the forms with a prefix letter — «تحضر»,
+ * «احضر», «أحضر», «بحضر» — are attendance, and never with a shadda or before
+ * «ل…» («أحضّر للامتحان», «احضر للمقابلة» is preparing for it); a bare
+ * «حضر»/«حضّر» is not stripped at all, so it stays the task it is.
+ */
+export function withoutAttendance(title: string): string {
+  const text = title.trim();
+  const tokens = text.split(/\s+/);
+  // Matched without the short vowels and the shadda («تقدّم» is «تقدم»).
+  const plain = tokens.map((token) => token.replace(/[\u064B-\u0652]/g, ''));
+  const ARABIC_VERB = /^(?:تحضري?|احضر|إحضر|أحضر|بحضر|نحضر|تروحي?|روح|اروح|أروح|بروح|نروح|منروح|تقدمي?|قدم|اقدم|أقدم|بقدم|تطلعي?|اطلع|أطلع|نطلع|بطلع)$/;
+  if (tokens.length > 1 && ARABIC_VERB.test(plain[0]!)) {
+    const verb = tokens[0]!;
+    const skip = /^(?:على|عل|ع|الى|إلى|لعند)$/.test(plain[1]!) && tokens.length > 2 ? 2 : 1;
+    const rest = tokens.slice(skip).join(' ');
+    // «أحضّر» with its shadda is preparing; so is «احضر للمقابلة», for something.
+    if (/حض/.test(plain[0]!) && (/\u0651/.test(verb) || /^ل/.test(rest))) return title;
+    // «عالحفلة» is «على الحفلة».
+    return rest.replace(/^عال/, 'ال');
+  }
+  const english = /^(?:attend(?:ing)?|go(?:ing)? to|head(?:ing)? to|take|taking|sit(?:ting)?(?: for)?|be at)\s+(?:the\s+|a\s+|an\s+|my\s+|our\s+)?(.+)$/i.exec(text);
+  if (english) return english[1]!;
+  const hebrew = /^(?:ללכת|להגיע|לעשות|לגשת|לבוא)\s+(.+)$/.exec(text);
+  if (hebrew) return hebrew[1]!;
+  return title;
+}
+
 /** The first word reads as a verb or a "have to": a task. */
 function startsWithTask(head: string): boolean {
   const raw = head.trim().split(/\s+/)[0] ?? '';
@@ -118,6 +158,12 @@ function headedBy(title: string, heads: readonly (readonly string[])[]): boolean
   const rest = withoutPossessive(title);
   const words = wordsOf(rest);
   if (words.length === 0) return false;
+  // Going to it: the event noun after the verb heads the title.
+  const attended = withoutAttendance(rest);
+  if (attended !== rest) {
+    const after = wordsOf(attended);
+    if (headIndexOf(after, heads, !/[\u0590-\u06FF]/.test(attended)) !== null) return true;
+  }
   // A going-out phrase heads with its verb («تطلع مع أصحابك»): checked first.
   if (phraseAt(words, 0, heads)) return true;
   if (startsWithTask(rest)) return false;

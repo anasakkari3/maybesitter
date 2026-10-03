@@ -8,6 +8,7 @@ import {
   WEEK_BODY_LIMIT_BYTES,
   WeekDecisionsInvalid,
   acceptWeekDay,
+  composeWeek,
   parseShown,
   parseWeekDecisions,
   reserveWeekPlan,
@@ -66,7 +67,15 @@ export async function POST(request: Request) {
   } catch (error) {
     // Never a 500 for a day with nothing to accept (review of audit #4).
     if (error instanceof PlanEditRejected) {
-      return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 422 });
+      // With the week as it is now, when it can be read, so the phone redraws
+      // from it (`WeekEmptyDayError`) rather than from the day it was shown.
+      let week: ReturnType<typeof weekToDto> | undefined;
+      try {
+        week = weekToDto(await composeWeek(user.uid, decisions));
+      } catch {
+        week = undefined;
+      }
+      return Response.json({ success: false, error: error.message, reason: error.reason, ...(week ? { week } : {}) }, { status: 422 });
     }
     if (error instanceof PlanDateOutOfRangeError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: 400 });

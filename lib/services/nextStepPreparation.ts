@@ -35,7 +35,7 @@
  */
 import type { Commitment, DomainState } from '../../src/domain/stateMachine';
 import type { NextStepEvidenceContract, NextStepLocale } from '../../src/contracts/v1/nextStepContracts';
-import { mentionsPreparedEvent, namesEvent, namesPreparedEvent, wordsOf } from '../../src/extraction/lexicon/eventTitles';
+import { mentionsPreparedEvent, namesEvent, namesPreparedEvent, withoutAttendance, wordsOf } from '../../src/extraction/lexicon/eventTitles';
 
 export { mentionsPreparedEvent, namesEvent, namesPreparedEvent, wordsOf };
 
@@ -158,11 +158,14 @@ export interface PreparationStep {
 
 /** «عندي امتحان رياضيات» → «امتحان رياضيات»: the rule-based title keeps the possessive. */
 function eventName(title: string): string {
-  return title
+  const bare = title
     .replace(/^\s*(?:في\s+)?(?:عندي|عندنا|عندك)\s+/, '')
     .replace(/^\s*(?:i(?:'ve| have)(?: got)?|have|got)\s+(?:an?\s+|my\s+)?/i, '')
     .replace(/^\s*יש\s+(?:לי|לנו)\s+/, '')
     .trim() || title.trim();
+  // «تقدّم امتحان الرياضيات» → «امتحان الرياضيات», when what follows is the event.
+  const attended = withoutAttendance(bare).trim();
+  return attended !== bare && namesEvent(attended) ? attended : bare;
 }
 
 /** The step's words, in the language the phone asked for. */

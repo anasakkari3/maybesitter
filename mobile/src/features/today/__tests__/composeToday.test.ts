@@ -124,11 +124,14 @@ describe('the plan row is honest', () => {
    */
   it('counts what is pinned to a time, not only what the planner placed', () => {
     const dinner = { itemId: 'dinner', title: 'dinner', startsAt: '2026-09-22T17:00:00.000Z', endsAt: '2026-09-22T17:30:00.000Z', blockId: null };
-    for (const status of ['accepted', 'proposed'] as const) {
-      const m = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan(status, 0), fixed: [dinner] } }), upcoming: [] });
-      expect(m.plan).toEqual({ kind: status, placed: 1 });
-      expect(m.isEmpty).toBe(false);
-    }
+    const accepted = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 0), fixed: [dinner] } }), upcoming: [] });
+    expect(accepted.plan).toEqual({ kind: 'accepted', placed: 1 });
+    expect(accepted.isEmpty).toBe(false);
+    // A proposal that places nothing is not a ready plan (audit 2026-10-03 #4),
+    // but the dinner pinned on the day still keeps the day from reading as empty.
+    const proposed = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('proposed', 0), fixed: [dinner] } }), upcoming: [] });
+    expect(proposed.plan).toEqual({ kind: 'empty', pinned: 1 });
+    expect(proposed.isEmpty).toBe(false);
     const both = composeToday({ groups: groups({}), next: next(), plan: plan({ plan: { ...aPlan('accepted', 2), fixed: [dinner] } }), upcoming: [] });
     expect(both.plan).toEqual({ kind: 'accepted', placed: 3 });
   });
