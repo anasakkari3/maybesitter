@@ -143,6 +143,22 @@ export interface CaptureProposalItemContract {
    * nothing; optional on the phone, so an older app ignores it.
    */
   conflicts?: CaptureItemConflictContract[];
+  /**
+   * An active goal of the person's this item looks like a step of (audit
+   * 2026-10-03 #6: React study sessions captured beside the goal "Learn
+   * React" left it at «0 من 0»). A suggestion the card shows as «مرتبط بهدف
+   * …» and the person keeps or removes: the confirm links the commitment to
+   * the goal only for an item named in `goalLinkItemIds`. The id is read back
+   * from the stored proposal at confirm, never from the request. Optional, so
+   * an older app ignores it and links nothing.
+   */
+  goalLink?: CaptureGoalLinkSuggestionContract;
+}
+
+/** See `CaptureProposalItemContract.goalLink`. `title` is the goal in the person's own words. */
+export interface CaptureGoalLinkSuggestionContract {
+  goalId: string;
+  title: string;
 }
 
 /** What a proposed item clashes with: the chat card's line and the reply both name it. */
@@ -161,6 +177,13 @@ export interface CaptureItemConflictContract {
   startsAt: string;
   endsAt: string;
   kind: CaptureItemConflictKind;
+  /**
+   * The clash is with another item of this same proposal, not with something
+   * already saved (audit 2026-10-03 #1: three items at one hour were only
+   * found to clash after they were saved). Optional; an older app reads the
+   * line as it reads a commitment's.
+   */
+  inProposal?: true;
 }
 
 /** See `CaptureProposalItemContract.recurrenceHint`. */
@@ -398,6 +421,13 @@ export interface CaptureConfirmationRequestContract {
    * hours are changed on the block itself, after it exists).
    */
   weeklyBlockItemIds?: string[];
+  /**
+   * The selected items whose suggested goal link (`goalLink`) the person kept
+   * on the card. Each one's commitment is linked to that goal after it is
+   * saved, so the goal's progress counts it; an item not named here is saved
+   * unlinked. An id without a stored suggestion is ignored, never an error.
+   */
+  goalLinkItemIds?: string[];
 }
 
 export interface CaptureConfirmationResultContract {

@@ -181,6 +181,8 @@ const CASES: Array<[string, z.ZodType]> = [
   ['capture.chatProposal', captureChatSchema],
   ['capture.chatUpdated', captureChatSchema],
   ['capture.chatConflict', captureChatSchema],
+  // The goal link kept at confirm (audit 2026-10-03 #6).
+  ['capture.chatGoalLinkConfirmation', captureConfirmationSchema],
   ['capture.chatRules', captureChatSchema],
   ['capture.chatNotFound', captureChatRefusalSchema],
   ['capture.chatTooLong', captureChatRefusalSchema],

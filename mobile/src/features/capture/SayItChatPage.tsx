@@ -135,6 +135,15 @@ export interface SayItChatPageProps {
    * after a save in the chat, so the next commitment can be typed at once.
    */
   composerFocusKey?: number;
+  /**
+   * A new proposal's identity (its id). Each time it changes to a new
+   * non-empty value the page scrolls once so the confirm sits above the
+   * composer, not under it (audit 2026-10-03 #8: the save was below the
+   * fold, behind the fixed composer, and had to be found by scrolling).
+   */
+  revealConfirmKey?: string | null;
+  /** Reduce motion: the reveal jumps instead of scrolling. */
+  reduceMotion?: boolean;
   rtl?: boolean;
   safeTop?: number;
   safeBottom?: number;
@@ -151,11 +160,28 @@ export function SayItChatPage({
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, clarification, reviewExtras, reviewFooter,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
+  revealConfirmKey = null, reduceMotion = false,
 }: SayItChatPageProps) {
   const input = React.useRef<TextInput>(null);
   React.useEffect(() => {
     if (composerFocusKey > 0) input.current?.focus();
   }, [composerFocusKey]);
+  // Where the confirm is, in the scroll's content: the schedule block's top,
+  // the card's top inside it, and the confirm's box inside the card — each
+  // measured by its own onLayout — and how tall the scroll's window is.
+  const scroller = React.useRef<ScrollView>(null);
+  const [layout, setLayout] = React.useState<{ viewport: number; block: number; card: number; confirm: { y: number; height: number } | null }>(
+    { viewport: 0, block: 0, card: 0, confirm: null },
+  );
+  const revealed = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!revealConfirmKey || revealed.current === revealConfirmKey) return;
+    if (!layout.confirm || layout.viewport <= 0) return;
+    revealed.current = revealConfirmKey;
+    const bottom = layout.block + layout.card + layout.confirm.y + layout.confirm.height;
+    const target = Math.max(0, bottom + 16 - layout.viewport);
+    if (target > 0) scroller.current?.scrollTo({ y: target, animated: !reduceMotion });
+  }, [revealConfirmKey, layout, reduceMotion]);
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
@@ -260,7 +286,8 @@ export function SayItChatPage({
   return (
     <View testID="say-it-chat-page" style={[styles.page, { backgroundColor: p.bg }]}>
       {!accessibilitySize && header}
-      <ScrollView testID={scheduleGroups.length ? 'review-scroll' : 'capture-scroll'} style={styles.scroller}
+      <ScrollView ref={scroller} testID={scheduleGroups.length ? 'review-scroll' : 'capture-scroll'} style={styles.scroller}
+        onLayout={(event) => { const viewport = event.nativeEvent.layout.height; setLayout((was) => (was.viewport === viewport ? was : { ...was, viewport })); }}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
         contentContainerStyle={styles.conversation}>
         {accessibilitySize && <View style={styles.scrollHeader}>{header}</View>}
@@ -288,8 +315,10 @@ export function SayItChatPage({
               : null}
           </View>
           {clarification ? <View testID="chat-clarification" style={[styles.clarification, expanded && styles.expandedSchedule]}>{clarification}</View> : null}
-          {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}>
-            <View style={[styles.scheduleCard, { backgroundColor: p.sf, borderColor: p.ln }]}>
+          {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}
+            onLayout={(event) => { const block = event.nativeEvent.layout.y; setLayout((was) => (was.block === block ? was : { ...was, block })); }}>
+            <View style={[styles.scheduleCard, { backgroundColor: p.sf, borderColor: p.ln }]}
+              onLayout={(event) => { const card = event.nativeEvent.layout.y; setLayout((was) => (was.card === card ? was : { ...was, card })); }}>
               {copy.proposalsTitle ? <View style={[styles.blockTitle, { borderBottomColor: p.ln }]}>
                 <ChatIcon name="calendar" size={20} color={p.wm ?? p.tx} />
                 <Text testID="review-proposals-title" accessibilityRole="header"
@@ -347,7 +376,10 @@ export function SayItChatPage({
                 })}
               </View>)}
               {reviewExtras ? <View testID="chat-review-extras" style={styles.reviewExtras}>{reviewExtras}</View> : null}
-              {onConfirm ? <View testID="chat-add-schedule"><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
+              {onConfirm ? <View testID="chat-add-schedule" onLayout={(event) => {
+                const { y, height } = event.nativeEvent.layout;
+                setLayout((was) => (was.confirm?.y === y && was.confirm.height === height ? was : { ...was, confirm: { y, height } }));
+              }}><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
                 accessibilityState={{ disabled: !canConfirm || confirming, busy: confirming }}
                 disabled={!canConfirm || confirming} onPress={onConfirm}
                 style={({ pressed }) => [styles.confirm, {

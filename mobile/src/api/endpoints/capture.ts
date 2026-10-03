@@ -137,6 +137,11 @@ export async function confirmCapture(input: {
    * one an older app sends.
    */
   weeklyBlockItemIds?: string[];
+  /**
+   * The selected items whose suggested goal link («مرتبط بهدف …») the person
+   * kept. Sent only when non-empty; an older server ignores it.
+   */
+  goalLinkItemIds?: string[];
   idempotencyKey?: string;
 }): Promise<CaptureConfirmation> {
   const result = await apiRequest('POST', '/api/mobile/capture/confirm', {
@@ -145,6 +150,7 @@ export async function confirmCapture(input: {
       itemIds: input.itemIds,
       ...(input.edits?.length ? { edits: input.edits } : {}),
       ...(input.weeklyBlockItemIds?.length ? { weeklyBlockItemIds: input.weeklyBlockItemIds } : {}),
+      ...(input.goalLinkItemIds?.length ? { goalLinkItemIds: input.goalLinkItemIds } : {}),
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
     },
     schema: captureConfirmationSchema,

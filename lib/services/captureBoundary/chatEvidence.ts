@@ -43,7 +43,7 @@ import {
   statesClock,
   thisMonthEndWords,
 } from '../../../src/extraction/timeLexicon';
-import { namesCalendarDate, readRecurrence, resolveWeekdayDate } from '../../../src/extraction/weekdayLexicon';
+import { namesCalendarDate, readRecurrence, resolveWeekdayDates } from '../../../src/extraction/weekdayLexicon';
 import { isNegatedRequest } from '../mobile/safety';
 
 /** A clause that refuses a reminder, by either of the two checks the capture path makes. */
@@ -394,7 +394,14 @@ export function chatItemEvidence(
           const words = contentWords(clause.text);
           const scores = titles.map((title) => titleScore(title, words));
           const best = Math.max(0, ...scores);
-          let owners = best > 0 ? scores.flatMap((score, index) => (score === best ? [index] : [])) : null;
+          // The best-matching items, and every item the clause names whole:
+          // «I want to learn React and study on Tuesday… at 7 PM» is about
+          // "Learn React" and "Study" both (audit 2026-10-03 #1). Scoring
+          // only the best gave "Study" no words at all, and its 19:00 was
+          // taken off and asked for again.
+          let owners = best > 0
+            ? scores.flatMap((score, index) => (score === best || (score > 0 && score === new Set(titles[index]).size) ? [index] : []))
+            : null;
           if (!owners && turnIndex === newest && turnIndex > 0 && changed.length === 1) owners = [changed[0]!];
           return { text: clause.text.trim(), detail: clause, owners };
         }));
@@ -494,8 +501,10 @@ export function chatTimeAllowance(turns: readonly string[], now: Date, timezone:
     }
     const offset = relativeDayOffset(turn);
     if (today && offset !== null) allowance.namedDates.add(shiftDate(today, offset));
-    const weekday = resolveWeekdayDate(turn, now, timezone);
-    if (weekday) allowance.namedDates.add(weekday.date);
+    // Every day a turn names, a list's later days too (audit 2026-10-03 #1):
+    // "Tuesday and Thursday" named Tuesday alone, and the Thursday item was
+    // moved onto Tuesday as "the one day its words name".
+    for (const date of resolveWeekdayDates(turn, now, timezone)) allowance.namedDates.add(date);
     for (const named of Array.from(allowance.namedDates)) allowance.dates.add(named);
     // A clock or a part of the day with no day of its own is today's, as the
     // capture path reads it — never a later day picked for the person.

@@ -50,7 +50,9 @@ export function chatConflictLines(
       busySaid = true;
       lines.push(fill(t.calendarBusyConflict, { range: when }));
     } else {
-      lines.push(fill(t.chatConflictWith, { title: isolateAuto(conflict.title), when }));
+      // Another card of this list (audit 2026-10-03 #1): said so, so the
+      // person can fix it here, before anything is saved.
+      lines.push(fill(conflict.inProposal ? t.chatConflictInList : t.chatConflictWith, { title: isolateAuto(conflict.title), when }));
     }
   }
   return lines;

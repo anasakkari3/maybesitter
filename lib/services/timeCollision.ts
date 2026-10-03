@@ -173,6 +173,16 @@ function eitherIsFixed(a: CollisionCandidate['kind'], b: CollisionCandidate['kin
 }
 
 /**
+ * Whether two candidates clash by `findCollisions`' own rule — a fixed event
+ * on at least one side, half-open overlap — for two things that are both
+ * still only proposed (the capture chat's list, audit 2026-10-03 #1), so a
+ * clash inside one proposal is measured exactly as the confirm measures it.
+ */
+export function candidatesCollide(a: CollisionCandidate, b: CollisionCandidate): boolean {
+  return eitherIsFixed(a.kind, b.kind) && intervalsOverlap(candidateIntervalOf(a), candidateIntervalOf(b));
+}
+
+/**
  * The collisions for a commitment that already exists in `all` -- the capture
  * confirm, the edit route and the legacy create route all ask exactly this --
  * or none when it is not timed. It is never compared with itself.
