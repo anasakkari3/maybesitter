@@ -27,6 +27,10 @@ function storedPlan(date: string): StoredDailyPlan {
   return {
     date, timezone: 'Asia/Jerusalem', locale: 'ar', status: 'proposed', generation: 1,
     inputDigest: 'd'.repeat(64), acceptedAt: null, generatedAt: `${date}T04:00:00.000Z`, updatedAt: `${date}T04:00:00.000Z`,
+    // One placed step: a plan that places nothing cannot be accepted (audit
+    // 2026-10-03 #4), and acceptance now reads the schedule and the edits.
+    plan: { scheduled: [{ itemId: 'task-1', interval: { startsAt: `${date}T06:00:00.000Z`, endsAt: `${date}T06:30:00.000Z` }, reservedInterval: { startsAt: `${date}T06:00:00.000Z`, endsAt: `${date}T06:30:00.000Z` } }] },
+    edits: { removals: [], moves: [] },
   } as unknown as StoredDailyPlan;
 }
 
