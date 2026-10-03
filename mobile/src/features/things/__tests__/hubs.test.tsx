@@ -7,7 +7,7 @@
 import React from 'react';
 import { Text } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -162,30 +162,42 @@ describe('«أشيائي»', () => {
 });
 
 describe('«يتابع لك»', () => {
-  it('shows the pending questions and suggestions, each with the way to decide it', async () => {
-    jest.spyOn(intelligenceEndpoints, 'getIntelligenceInbox').mockResolvedValue({
-      success: true, observations: [], schedule: [], suggestions: [
-        suggestion('q1', 'question', 'Is Tuesday football fixed?'),
-        suggestion('a1', 'action', 'A small project for Learn React'),
+  it('asks for suggestions on entry and reviews them in place: evidence, accept, not for me', async () => {
+    const observation = { id: 'o1', kind: 'goal', evidence: 'I want to learn React', confidence: 0.9, source: 'manual',
+      sourceRef: 'n1', observedAt: '2026-10-01T08:00:00.000Z', review: 'confirmed', reviewedAt: null, linkedMemoryId: null };
+    const inbox = {
+      success: true, observations: [observation], schedule: [], suggestions: [
+        { ...suggestion('q1', 'question', 'Is Tuesday football fixed?'), observationIds: ['o1'] },
+        { ...suggestion('a1', 'action', 'A small project for Learn React'), observationIds: ['o1'], durationMinutes: 60 },
         suggestion('a2', 'action', 'Already dismissed', 'dismissed'),
       ],
-    } as never);
-    const generate = jest.spyOn(intelligenceEndpoints, 'generateIntelligenceSuggestions');
+    };
+    const generate = jest.spyOn(intelligenceEndpoints, 'generateIntelligenceSuggestions')
+      .mockResolvedValue({ success: true, suggestions: inbox.suggestions, schedule: [] } as never);
+    jest.spyOn(intelligenceEndpoints, 'getIntelligenceInbox').mockResolvedValue(inbox as never);
+    jest.spyOn(intelligenceEndpoints, 'getGmailIntelligenceMonitor').mockResolvedValue({ success: true, enabled: false, lastSuccessAt: null, error: null } as never);
+    const decide = jest.spyOn(intelligenceEndpoints, 'decideIntelligenceSuggestion')
+      .mockResolvedValue({ success: true, suggestion: { ...inbox.suggestions[1], status: 'dismissed' } } as never);
     jest.spyOn(backgroundEndpoints, 'getBackgroundActivity').mockResolvedValue(retrying as never);
     await show(<WatchingScreen />);
-    await waitFor(() => expect(screen.queryByTestId('watching-item-q1')).not.toBeNull());
-    expect(screen.getByTestId('watching-questions')).toHaveTextContent(en.watchingQuestions);
-    expect(screen.queryByTestId('watching-item-a1')).not.toBeNull();
-    expect(screen.queryByTestId('watching-item-a2')).toBeNull();
+    await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-a1')).not.toBeNull());
+    // Opening the hub is a visit: the server holds it to its floor.
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(generate).toHaveBeenCalledWith({ visit: true });
+    expect(screen.queryByTestId('intelligence-suggestion-q1')).not.toBeNull();
+    expect(screen.queryByTestId('intelligence-suggestion-a2')).toBeNull();
+    const card = within(screen.getByTestId('intelligence-suggestion-a1'));
+    expect(card.getByText(`From: ${observation.evidence}`)).toBeTruthy();
     // A suggestion says it is one: nothing has changed.
-    expect(screen.getAllByText(en.suggestionNote)).toHaveLength(1);
-    // Reading the hub never runs the model.
-    expect(generate).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByTestId('watching-open-a1'));
-    expect(screen.getByTestId('probe-screen')).toHaveTextContent('goalExecution');
+    expect(card.getByText(en.suggestionNote)).toBeTruthy();
+    expect(decide).not.toHaveBeenCalled();
+    await fireEvent.press(card.getByText(en.xIntelligenceDismiss));
+    await waitFor(() => expect(decide).toHaveBeenCalledWith('a1', 'dismiss'));
+    expect(screen.queryByTestId('watching-nothing')).toBeNull();
   });
 
   it('lists the watches with their last check and opens background activity, the builder and Knows', async () => {
+    jest.spyOn(intelligenceEndpoints, 'generateIntelligenceSuggestions').mockRejectedValue(new FeatureUnavailableError('off'));
     jest.spyOn(intelligenceEndpoints, 'getIntelligenceInbox').mockResolvedValue({ success: true, observations: [], schedule: [], suggestions: [] } as never);
     jest.spyOn(backgroundEndpoints, 'getBackgroundActivity').mockResolvedValue(retrying as never);
     await show(<WatchingScreen />);
@@ -205,6 +217,7 @@ describe('«يتابع لك»', () => {
   });
 
   it('reads a loop switched off on the server as "nothing yet", not as an error to retry', async () => {
+    jest.spyOn(intelligenceEndpoints, 'generateIntelligenceSuggestions').mockRejectedValue(new FeatureUnavailableError('off'));
     jest.spyOn(intelligenceEndpoints, 'getIntelligenceInbox').mockRejectedValue(new FeatureUnavailableError('off'));
     jest.spyOn(backgroundEndpoints, 'getBackgroundActivity').mockResolvedValue({ ...retrying, monitors: [] } as never);
     await show(<WatchingScreen />);
