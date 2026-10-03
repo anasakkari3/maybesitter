@@ -12,8 +12,17 @@ export function getIntelligenceInbox() {
 export function analyzeIntelligenceStatement(text: string) {
   return apiRequest('POST', '/api/mobile/intelligence', { body: { text }, schema: intelligenceAnalyzeSchema, expectStatus: 201 });
 }
-export function generateIntelligenceSuggestions(signal?: AbortSignal) {
-  return apiRequest('POST', '/api/mobile/intelligence/generate', { body: {}, schema: intelligenceGenerateSchema, ...(signal ? { signal } : {}) });
+/**
+ * `visit`: a screen opening (Today's banner, «يتابع لك»), which the server
+ * holds to its visit floor so opening screens cannot multiply model calls.
+ * Without it the request is explicit (the panel's button). A server that
+ * predates the floor ignores the body.
+ */
+export function generateIntelligenceSuggestions(options: { signal?: AbortSignal; visit?: boolean } = {}) {
+  return apiRequest('POST', '/api/mobile/intelligence/generate', {
+    body: options.visit ? { trigger: 'visit' } : {}, schema: intelligenceGenerateSchema,
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
 }
 export function reviewIntelligenceObservation(id: string, review: 'confirmed' | 'dismissed') {
   return apiRequest('POST', `/api/mobile/intelligence/observations/${encodeURIComponent(id)}`, {

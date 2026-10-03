@@ -1,11 +1,14 @@
 import React from 'react';
 import { afterEach, beforeEach, expect, it, jest } from '@jest/globals';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppProvider } from '../../../state/AppContext';
 import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { IntelligencePanel } from '../IntelligencePanel';
+import { FeatureUnavailableError, ForbiddenError, NetworkError } from '../../../api/errors';
+import en from '../../../i18n/locales/en.json';
+import { Text } from 'react-native';
 
 const mockAnalyze = jest.fn<any>();
 const mockGenerate = jest.fn<any>();
@@ -41,11 +44,14 @@ const suggestion = {
 };
 
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
-const wrap = () => <SafeAreaProvider initialMetrics={metrics}><AppProvider><IntelligencePanel onChanged={onChanged} /></AppProvider></SafeAreaProvider>;
+const wrap = (props: Partial<React.ComponentProps<typeof IntelligencePanel>> = {}) =>
+  <SafeAreaProvider initialMetrics={metrics}><AppProvider><IntelligencePanel onChanged={onChanged} {...props} /></AppProvider></SafeAreaProvider>;
 
 beforeEach(async () => {
   jest.clearAllMocks();
-  process.env.EXPO_PUBLIC_APP_ENV = 'staging';
+  // The production build (review of 2026-10-03): the loop was released to
+  // production on 2026-10-01, and whether it shows is the server's answer.
+  process.env.EXPO_PUBLIC_APP_ENV = 'production';
   await AsyncStorage.clear();
   await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'en');
   currentInbox = { success: true, observations: [], suggestions: [], schedule: [] };
@@ -71,7 +77,7 @@ it('takes a wish through analysis, multi-step review surface, and explicit confi
   currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
   await waitFor(() => expect(mockGenerate).toHaveBeenCalled());
-  await waitFor(() => expect(screen.queryByText('Find a Pilates class')).not.toBeNull());
+  await waitFor(() => expect(screen.queryByText(/Find a Pilates class/)).not.toBeNull());
   expect(mockDecide).not.toHaveBeenCalled();
   await act(async () => { await fireEvent.press(screen.getByText('Add to my plan')); });
   await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', undefined, undefined));
@@ -86,4 +92,72 @@ it('lets the person correct a suggestion before accepting it', async () => {
   await fireEvent.changeText(screen.getByTestId('intelligence-edit-proposal-1'), 'Book a Pilates class');
   await act(async () => { await fireEvent.press(screen.getByText('Add to my plan')); });
   await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'accept', 'Book a Pilates class', slot));
+});
+
+it('shows in a production build when the server answers, with each suggestion marked as only a suggestion', async () => {
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
+  expect(screen.getByText(/Find a Pilates class/)).toBeTruthy();
+  expect(within(screen.getByTestId('intelligence-suggestion-proposal-1')).getByText(`From: ${evidence.evidence}`)).toBeTruthy();
+  expect(screen.getAllByText(en.suggestionNote)).toHaveLength(1);
+  // Showing is not deciding.
+  expect(mockDecide).not.toHaveBeenCalled();
+  expect(mockGenerate).not.toHaveBeenCalled();
+});
+
+it('on «يتابع لك» asks for suggestions as a visit, then shows them for review', async () => {
+  mockGenerate.mockImplementation(async () => {
+    currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+    return { success: true, suggestions: [suggestion], schedule: [] };
+  });
+  await render(wrap({ autoGenerate: true, whenOff: <Text testID="off">off</Text> }));
+  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
+  expect(mockGenerate).toHaveBeenCalledTimes(1);
+  expect(mockGenerate).toHaveBeenCalledWith({ visit: true });
+  expect(screen.queryByTestId('off')).toBeNull();
+  await act(async () => { await fireEvent.press(within(screen.getByTestId('intelligence-suggestion-proposal-1')).getByText('Not for me')); });
+  await waitFor(() => expect(mockDecide).toHaveBeenCalledWith('proposal-1', 'dismiss'));
+});
+
+it.each([
+  ['the loop switched off (404 feature_unavailable)', () => new FeatureUnavailableError('not found')],
+  ['AI consent refused (403 consent_required)', () => new ForbiddenError('forbidden', 'consent_required')],
+])('steps aside cleanly when %s: no error, no claim of a suggestion', async (_label, error) => {
+  mockGenerate.mockRejectedValue(error());
+  await render(wrap({ autoGenerate: true, whenOff: <Text testID="off">off</Text> }));
+  await waitFor(() => expect(screen.queryByTestId('off')).not.toBeNull());
+  expect(screen.queryByTestId('intelligence-statement')).toBeNull();
+  expect(screen.queryByText(en.suggestionNote)).toBeNull();
+  expect(screen.queryByTestId('query-error')).toBeNull();
+  expect(screen.queryByText(en.errorsRetry)).toBeNull();
+  expect(mockInbox).not.toHaveBeenCalled();
+});
+
+it('hides on the Goals screen when the server has the loop off', async () => {
+  mockInbox.mockRejectedValue(new FeatureUnavailableError('not found'));
+  await render(wrap());
+  await waitFor(() => expect(mockInbox).toHaveBeenCalled());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(screen.queryByTestId('intelligence-statement')).toBeNull();
+  expect(screen.queryByText(en.errorsFeatureDisabled)).toBeNull();
+});
+
+it('a failed visit generation still shows what is already waiting; a dead Gmail switch does not hide the review', async () => {
+  mockGenerate.mockRejectedValue(new NetworkError('offline'));
+  mockMonitor.mockRejectedValue(new NetworkError('offline'));
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  await render(wrap({ autoGenerate: true, whenOff: <Text testID="off">off</Text> }));
+  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
+  expect(screen.queryByTestId('off')).toBeNull();
+});
+
+it('on «يتابع لك» a failed read offers Retry, and Retry reads again', async () => {
+  mockInbox.mockRejectedValueOnce(new NetworkError('offline'));
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  await render(wrap({ autoGenerate: true, whenOff: <Text testID="off">off</Text> }));
+  await waitFor(() => expect(screen.queryByTestId('query-error')).not.toBeNull());
+  expect(screen.queryByTestId('off')).toBeNull();
+  await act(async () => { await fireEvent.press(screen.getByText(en.errorsRetry)); });
+  await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
 });
