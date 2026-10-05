@@ -304,7 +304,7 @@
   "obConsentTitle": "What may MaybeSitter use?",
   "obConsentLede": "Each choice is separate, and you can change it in Settings.",
   "obRecTitle": "Suggest one next step",
-  "obRecBody": "One suggestion at a time, with a short reason, from your own commitments, deadlines and routine. It never acts for you and nothing goes to a model.",
+  "obRecBody": "Suggestions from your commitments, goals and deadlines. Gemini may help analyze them. Nothing is added until you confirm.",
   "obAnalyticsTitle": "Share anonymous usage",
   "obAnalyticsBody": "Counts of what screens are used, with no content and nothing that names you.",
   "obConsentFailed": "Your answers did not reach the server. Nothing was changed.",
