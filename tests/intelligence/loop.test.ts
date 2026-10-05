@@ -160,6 +160,31 @@ test('a confirmed goal asks for missing context when both passes find no safe ac
   } finally { resetStorageForTests(); }
 });
 
+test('a goal question cannot delegate choosing the first step back to the person', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const [goal] = await putObservations('alice', 'manual', 'note-react-question', NOW, [
+      { kind: 'goal', evidence: 'I want to learn React', confidence: 0.9 },
+    ], storage);
+    await reviewObservation('alice', goal!.id, 'confirmed', NOW, storage);
+    let calls = 0;
+    const suggestions = await proposeFromObservations('alice', '2026-09-30T10:20:00.000Z', { storage, generate: async () => {
+      calls++;
+      return { text: JSON.stringify({ suggestions: calls === 1 ? [{
+        kind: 'question', title: 'شو أول خطوة بدك تعملها عشان تتعلم React؟',
+        reason: 'عشان نبلش لازم نعرف من وين بدك تبلش', observationIds: [goal!.id],
+        confidence: 0.8, durationMinutes: 0,
+      }] : [] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    } });
+    assert.equal(calls, 2);
+    assert.equal(suggestions.length, 1);
+    assert.equal(suggestions[0]?.kind, 'question');
+    assert.doesNotMatch(suggestions[0]!.title, /أول خطوة/);
+    assert.deepEqual(suggestions[0]?.observationIds, [goal!.id]);
+  } finally { resetStorageForTests(); }
+});
+
 test('a time-sensitive event receives a preparation pass when the first pass only warns', async () => {
   const storage = createMemoryStorage();
   const [exam, party] = await putObservations('alice', 'manual', 'note', NOW, [
