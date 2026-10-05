@@ -1252,6 +1252,7 @@
   "xIntelligenceAnalyze": "افهم اللي حكيتلي إياه",
   "xIntelligenceGenerate": "اقترحلي خطة",
   "xIntelligenceGmailScan": "شوف المعلومات الجديدة بإيميلي",
+  "xIntelligenceGmailScanProgress": "فحصنا {count} إيميل من آخر أسبوع…",
   "xIntelligenceGmailMonitorInfo": "بموافقتك، بنفحص الإيميلات الجديدة كل كم دقيقة ونستخرج منها اقتراحات للمراجعة. ما بنعمل التزام تلقائي.",
   "xIntelligenceGmailMonitorOn": "فعّل متابعة الإيميلات الجديدة",
   "xIntelligenceGmailMonitorOff": "أوقف متابعة الإيميلات",

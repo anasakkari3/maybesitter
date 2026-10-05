@@ -31,7 +31,10 @@ export const intelligenceGenerateSchema = z.object({
 });
 export const intelligenceSuggestionDecisionSchema = z.object({ success: z.literal(true), suggestion: suggestionSchema });
 export const intelligenceObservationReviewSchema = z.object({ success: z.literal(true), observation: observationSchema });
-export const intelligenceGmailScanSchema = z.object({ success: z.literal(true), messagesRead: z.number().int().nonnegative(), observations: z.array(observationSchema) });
+export const intelligenceGmailScanSchema = z.object({
+  success: z.literal(true), messagesRead: z.number().int().nonnegative(), observations: z.array(observationSchema),
+  scan: z.object({ status: z.enum(['running', 'complete', 'busy']), messagesVisited: z.number().int().nonnegative() }),
+});
 export const intelligenceGmailMonitorSchema = z.object({
   success: z.literal(true), enabled: z.boolean(), lastSuccessAt: isoDateTime.nullable(),
   error: z.enum(['source_unavailable', 'analysis_unavailable']).nullable(),

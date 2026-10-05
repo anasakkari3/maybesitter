@@ -1255,6 +1255,7 @@
   "xIntelligenceAnalyze": "למצוא מידע שימושי",
   "xIntelligenceGenerate": "להציע תוכנית",
   "xIntelligenceGmailScan": "לחפש מידע בהודעות האחרונות",
+  "xIntelligenceGmailScanProgress": "נבדקו {count} הודעות מהשבוע האחרון…",
   "xIntelligenceGmailMonitorInfo": "באישורך, נבדוק הודעות חדשות כל כמה דקות ונכין הצעות לבדיקה שלך. שום דבר לא הופך להתחייבות אוטומטית.",
   "xIntelligenceGmailMonitorOn": "הפעל מעקב אחר דואר חדש",
   "xIntelligenceGmailMonitorOff": "הפסק מעקב אחר דואר",

@@ -80,6 +80,12 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   const [answers, setAnswers] = React.useState<Record<string, string>>({});
   const [editedTitles, setEditedTitles] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
+  const [gmailScanProgress, setGmailScanProgress] = React.useState<number | null>(null);
+  const scanMounted = React.useRef(true);
+  React.useEffect(() => {
+    scanMounted.current = true;
+    return () => { scanMounted.current = false; };
+  }, []);
   const [gmailMonitor, setGmailMonitor] = React.useState<z.infer<typeof intelligenceGmailMonitorSchema> | null>(null);
   const [error, setError] = React.useState<unknown>(null);
   const read = React.useCallback(async () => {
@@ -224,7 +230,17 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       setDraft('');
     })} />
     {recommendationsEnabled ? <Pill testID="intelligence-generate" label={t.xIntelligenceGenerate} disabled={busy || inbox.observations.length === 0} onPress={() => void run(() => generateIntelligenceSuggestions())} /> : null}
-    <Pill testID="intelligence-gmail-scan" label={t.xIntelligenceGmailScan} kind="outline" disabled={busy} onPress={() => void run(scanGmailForIntelligence)} />
+    <Pill testID="intelligence-gmail-scan" label={t.xIntelligenceGmailScan} kind="outline" disabled={busy} onPress={() => void run(async () => {
+      let status: 'running' | 'complete' | 'busy' = 'running';
+      while (scanMounted.current && status !== 'complete') {
+        const answer = await scanGmailForIntelligence();
+        status = answer.scan.status;
+        if (scanMounted.current) setGmailScanProgress(answer.scan.messagesVisited);
+        if (status === 'busy') await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+      if (status === 'complete' && scanMounted.current) setGmailScanProgress(null);
+    })} />
+    {gmailScanProgress !== null ? <View accessibilityLiveRegion="polite"><Txt role="supporting">{fill(t.xIntelligenceGmailScanProgress, { count: gmailScanProgress })}</Txt></View> : null}
     <Txt role="supporting">{t.xIntelligenceGmailMonitorInfo}</Txt>
     <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
       kind="outline" disabled={busy || gmailMonitor === null} onPress={() => void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled))} />

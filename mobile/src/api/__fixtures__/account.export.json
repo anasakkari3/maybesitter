@@ -52,6 +52,7 @@
     "intelligenceProposals": [],
     "intelligenceRuns": [],
     "intelligenceMonitors": [],
+    "intelligenceGmailScans": [],
     "intelligenceSourceMarkers": [],
     "feedbackEvents": [],
     "feedbackBaselines": [],

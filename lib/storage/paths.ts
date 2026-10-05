@@ -68,6 +68,8 @@ export const INTELLIGENCE_PROPOSALS = 'intelligenceProposals';
 export const INTELLIGENCE_RUNS = 'intelligenceRuns';
 /** Explicit per-source permission and bounded sync cursor for staging intelligence. */
 export const INTELLIGENCE_MONITORS = 'intelligenceMonitors';
+/** Cursor for a user-invoked seven-day Gmail scan; contains no message content. */
+export const INTELLIGENCE_GMAIL_SCANS = 'intelligenceGmailScans';
 /** Content-free receipts so a retry does not re-analyze empty messages. */
 export const INTELLIGENCE_SOURCE_MARKERS = 'intelligenceSourceMarkers';
 export const FEEDBACK_EVENTS = 'feedbackEvents';
@@ -559,6 +561,7 @@ export const USER_SCOPED_COLLECTIONS = [
   INTELLIGENCE_PROPOSALS,
   INTELLIGENCE_RUNS,
   INTELLIGENCE_MONITORS,
+  INTELLIGENCE_GMAIL_SCANS,
   INTELLIGENCE_SOURCE_MARKERS,
   FEEDBACK_EVENTS,
   FEEDBACK_BASELINES,

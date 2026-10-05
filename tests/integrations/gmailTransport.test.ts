@@ -371,6 +371,19 @@ test('a recent-mail read accepts a padded body after successful list and get ope
   assert.equal(calls[0]?.url.searchParams.get('q'), 'category:primary newer_than:7d');
 });
 
+test('a recent-mail page forwards the opaque cursor and returns the next one', async () => {
+  const { fetchImpl, calls } = scriptedFetch({
+    messagesList: ok({ messages: [{ id: MSG_ID_1 }], nextPageToken: 'next-page' }),
+    messagesGet: ok(MESSAGE_FULL.body),
+  });
+  const page = await createGmailTransport(transportDeps(fetchImpl)).listRecentMessagePage({
+    query: 'after:1780000000 before:1780600000', maxResults: 3, pageToken: 'previous-page',
+  });
+  assert.equal(page.messages.length, 1);
+  assert.equal(page.nextPageToken, 'next-page');
+  assert.equal(calls[0]?.url.searchParams.get('pageToken'), 'previous-page');
+});
+
 /* ══ Failure classification ═══════════════════════════════════════ */
 
 test('a mid-walk 5xx yields partial with the OLD cursor', async () => {

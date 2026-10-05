@@ -83,6 +83,18 @@ beforeEach(async () => {
 });
 afterEach(async () => { await cleanup(); resetAuthForTests(); delete process.env.EXPO_PUBLIC_APP_ENV; jest.useRealTimers(); });
 
+it('keeps requesting Gmail pages until the whole week is complete', async () => {
+  mockScan
+    .mockResolvedValueOnce({ success: true, messagesRead: 3, observations: [], scan: { status: 'running', messagesVisited: 3 } })
+    .mockResolvedValueOnce({ success: true, messagesRead: 3, observations: [], scan: { status: 'running', messagesVisited: 6 } })
+    .mockResolvedValueOnce({ success: true, messagesRead: 1, observations: [], scan: { status: 'complete', messagesVisited: 7 } });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  await waitFor(() => expect(mockScan).toHaveBeenCalledTimes(3));
+  expect(onChanged).toHaveBeenCalledTimes(1);
+});
+
 it('takes a wish through analysis, multi-step review surface, and explicit confirmation', async () => {
   await render(wrap());
   await waitFor(() => expect(screen.queryByTestId('intelligence-statement')).not.toBeNull());

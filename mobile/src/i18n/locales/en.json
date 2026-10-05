@@ -1252,6 +1252,7 @@
   "xIntelligenceAnalyze": "Find useful signals",
   "xIntelligenceGenerate": "Suggest a plan",
   "xIntelligenceGmailScan": "Find signals in recent email",
+  "xIntelligenceGmailScanProgress": "Checked {count} emails from the past week…",
   "xIntelligenceGmailMonitorInfo": "With your permission, we check new email every few minutes and prepare ideas for your review. Nothing becomes a commitment automatically.",
   "xIntelligenceGmailMonitorOn": "Monitor new email",
   "xIntelligenceGmailMonitorOff": "Stop monitoring email",

@@ -222,9 +222,18 @@ export interface GmailRecentRequest {
   readonly query: string;
   /** Clamped to `[1, GMAIL_MAX_PAGE_SIZE]`, and never more than `maxMessagesPerPage`. */
   readonly maxResults: number;
+  /** Opaque token returned by the preceding page. */
+  readonly pageToken?: string | null;
+}
+
+export interface GmailRecentPage {
+  readonly messages: readonly GmailMessagePayload[];
+  readonly nextPageToken: string | null;
 }
 
 export interface GmailTransport extends GmailApiPort {
+  /** One bounded page; callers may continue until nextPageToken is null. */
+  listRecentMessagePage(request: GmailRecentRequest): Promise<GmailRecentPage>;
   /**
    * The newest messages matching `query`, at most `maxResults`, newest first.
    *
@@ -674,13 +683,13 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
     });
   }
 
-  async function listRecentMessages(request: GmailRecentRequest): Promise<readonly GmailMessagePayload[]> {
+  async function listRecentMessagePage(request: GmailRecentRequest): Promise<GmailRecentPage> {
     const startedAt = monotonicMs();
     const limit = Math.min(clamp(request.maxResults, 1, GMAIL_MAX_PAGE_SIZE), maxMessagesPerPage);
     try {
       const body = await get(
         'messages.list',
-        url('/users/me/messages', { q: request.query, maxResults: limit }),
+        url('/users/me/messages', { q: request.query, maxResults: limit, pageToken: request.pageToken ?? undefined }),
         startedAt,
       );
       if (!isRecord(body)) throw new GmailWireError('messages.list', 'object body');
@@ -698,17 +707,22 @@ export function createGmailTransport(deps: GmailTransportDeps): GmailTransport {
       const messages = await fetchMessages(ids, startedAt);
       // Newest first, whatever order the workers finished in; ties on id so
       // two reads of an unchanged mailbox are the same list.
-      return Object.freeze([...messages].sort((a, b) => {
+      return Object.freeze({ messages: Object.freeze([...messages].sort((a, b) => {
         const delta = Date.parse(b.receivedAt) - Date.parse(a.receivedAt);
         return delta !== 0 ? delta : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-      }));
+      })), nextPageToken: nonEmptyString(body.nextPageToken) ? body.nextPageToken : null });
     } catch (error) {
       throw toGmailProviderError(error);
     }
   }
 
+  async function listRecentMessages(request: GmailRecentRequest): Promise<readonly GmailMessagePayload[]> {
+    return (await listRecentMessagePage(request)).messages;
+  }
+
   return {
     listHistory,
+    listRecentMessagePage,
     listRecentMessages,
 
     asReadPort(): ProviderReadPort {
