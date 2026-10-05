@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMemoryStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { analyzeSource } from '../../lib/intelligence/analyzeSource.ts';
-import { putObservations } from '../../lib/intelligence/observationStore.ts';
-import { groundCommitmentReasons, proposeFromObservations, validateSuggestions } from '../../lib/intelligence/proposalEngine.ts';
+import { observationId, putObservations, reviewObservation } from '../../lib/intelligence/observationStore.ts';
+import { groundCommitmentReasons, hideSavedGoalProposals, proposeFromObservations, validateSuggestions } from '../../lib/intelligence/proposalEngine.ts';
 import { reviewSuggestion } from '../../lib/intelligence/reviewSuggestion.ts';
 import { answerIntelligenceQuestion } from '../../lib/intelligence/answerQuestion.ts';
 import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
@@ -73,6 +73,38 @@ test('a generated reason cannot move the time of confirmed work it cites', async
   }], 'Asia/Jerusalem');
   assert.match(grounded!.reason, /19:00/);
   assert.doesNotMatch(grounded!.reason, /6 المسا/);
+});
+
+test('a saved goal becomes evidence for steps, never a second goal proposal', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const [goal] = await putObservations('alice', 'manual', 'note-react', NOW, [
+      { kind: 'goal', evidence: 'I want to learn React', confidence: 0.95 },
+    ], storage);
+    const confirmed = await reviewObservation('alice', goal!.id, 'confirmed', NOW, storage);
+    assert.ok(confirmed?.linkedMemoryId);
+    const oldPending = validateSuggestions({ suggestions: [{
+      kind: 'goal', title: 'تعلّم React', reason: 'عندك هدف إنك تتعلّم React',
+      observationIds: [goal!.id], confidence: 0.9, durationMinutes: 0,
+    }] }, [goal!], NOW);
+    assert.equal(hideSavedGoalProposals(oldPending, [confirmed!]).length, 0,
+      'an older pending copy must leave the inbox after the goal is saved');
+    let modelInput = '';
+    const suggestions = await proposeFromObservations('alice', '2026-09-30T10:05:00.000Z', { storage, generate: async request => {
+      modelInput = JSON.stringify(request.parts);
+      return { text: JSON.stringify({ suggestions: [
+        { kind: 'goal', title: 'تعلّم React', reason: 'عندك هدف إنك تتعلّم React', observationIds: [goal!.id], confidence: 0.9, durationMinutes: 0 },
+        { kind: 'action', title: 'اختار درس React للمبتدئين', reason: 'خطوة أولى لهدفك', observationIds: [goal!.id], confidence: 0.8, durationMinutes: 30 },
+      ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    } });
+    assert.deepEqual(suggestions.map(item => item.kind), ['action']);
+    assert.equal(modelInput.split(goal!.id).length - 1, 1,
+      'the confirmed statement should enter the observations only once');
+    assert.ok(!modelInput.includes(observationId('memory', confirmed.linkedMemoryId!, {
+      kind: 'goal', evidence: 'I want to learn React', confidence: 0.95,
+    })), 'the canonical copy must not appear as a second observation');
+  } finally { resetStorageForTests(); }
 });
 
 test('a time-sensitive event receives a preparation pass when the first pass only warns', async () => {

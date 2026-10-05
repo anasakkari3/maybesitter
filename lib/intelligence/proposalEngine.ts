@@ -258,6 +258,19 @@ export function groundCommitmentReasons(
   });
 }
 
+/** A saved goal is context for steps, not another goal for the person to save. */
+export function hideSavedGoalProposals(
+  suggestions: readonly IntelligenceSuggestion[],
+  observations: readonly StoredObservation[],
+): IntelligenceSuggestion[] {
+  const cited = new Map(observations.map(item => [item.id, item]));
+  return suggestions.filter(item => item.kind !== 'goal' || item.status !== 'pending'
+    || !item.observationIds.some(id => {
+      const source = cited.get(id);
+      return source?.kind === 'goal' && (source.source === 'memory' || !!source.linkedMemoryId);
+    }));
+}
+
 let generatorForTests: ShareStructuredGenerator | null = null;
 
 /** Route-level tests run the real loop with a fake model; production never sets this. */
@@ -354,8 +367,16 @@ export async function proposeFromObservations(
     if (reused) return reused;
   }
   await syncCanonicalObservations(uid, now, storage);
-  const observations = (await listObservations(uid, storage))
-    .filter(item => item.review !== 'dismissed').slice(0, 30);
+  const availableObservations = (await listObservations(uid, storage))
+    .filter(item => item.review !== 'dismissed');
+  const linkedGoalMemories = new Set(availableObservations
+    .filter(item => item.kind === 'goal' && item.review === 'confirmed' && item.linkedMemoryId)
+    .map(item => item.linkedMemoryId));
+  // A confirmed statement and the canonical memory created from it are one
+  // piece of evidence. Showing both made the source line repeat verbatim.
+  const observations = availableObservations
+    .filter(item => !(item.source === 'memory' && linkedGoalMemories.has(item.sourceRef)))
+    .slice(0, 30);
   if (observations.length === 0) return [];
   const [memory, state, planSettings] = await Promise.all([
     listMemory(uid, now, { storage }), loadDomainState(storage, uid), readPlanSettings(uid, { storage }),
@@ -452,9 +473,9 @@ export async function proposeFromObservations(
     }
     const existingTitles = new Set(knownWork.map(item => item.title.trim().toLowerCase()));
     const existingGoals = new Set(memory.filter(item => item.kind === 'goal').map(item => item.content.trim().toLowerCase()));
-    suggestions = collapseNearDuplicates(suggestions.filter(item =>
+    suggestions = collapseNearDuplicates(hideSavedGoalProposals(suggestions.filter(item =>
       (item.kind !== 'action' || !existingTitles.has(item.title.trim().toLowerCase()))
-      && (item.kind !== 'goal' || !existingGoals.has(item.title.trim().toLowerCase()))), observations)
+      && (item.kind !== 'goal' || !existingGoals.has(item.title.trim().toLowerCase()))), observations), observations)
       .map((item, position) => ({ ...item, position }));
   } catch {
     suggestions = [];

@@ -6,7 +6,7 @@ import { analyzeSource } from '../../../../../lib/intelligence/analyzeSource';
 import { intelligenceDisabledResponse } from '../../../../../lib/intelligence/gate';
 import { listObservations } from '../../../../../lib/intelligence/observationStore';
 import { learnOutcomesWithin } from '../../../../../lib/intelligence/outcomeLearning';
-import { listSuggestions } from '../../../../../lib/intelligence/proposalEngine';
+import { hideSavedGoalProposals, listSuggestions } from '../../../../../lib/intelligence/proposalEngine';
 import { previewSuggestionSchedule } from '../../../../../lib/intelligence/schedulePreview';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../lib/net/requestBody';
 
@@ -26,7 +26,8 @@ export async function GET(request: Request) {
     ]);
     // Keep the person's evidence review available after a revocation, but
     // never display an old recommendation under an off switch.
-    const suggestions = consent === 'granted' ? await listSuggestions(user.uid) : [];
+    const suggestions = consent === 'granted'
+      ? hideSavedGoalProposals(await listSuggestions(user.uid), observations) : [];
     let schedule: Awaited<ReturnType<typeof previewSuggestionSchedule>> = [];
     try { schedule = await previewSuggestionSchedule(user.uid, suggestions, new Date().toISOString()); }
     catch { /* A failed preview must not hide the evidence or suggestions. */ }
