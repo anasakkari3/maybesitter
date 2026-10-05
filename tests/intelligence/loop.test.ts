@@ -138,6 +138,28 @@ test('a goal-only first pass gets one bounded second pass for concrete steps', a
   } finally { resetStorageForTests(); }
 });
 
+test('a confirmed goal asks for missing context when both passes find no safe action', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const [goal] = await putObservations('alice', 'manual', 'note-goal', NOW, [
+      { kind: 'goal', evidence: 'I want more time for Pilates', confidence: 0.9 },
+    ], storage);
+    await reviewObservation('alice', goal!.id, 'confirmed', NOW, storage);
+    let calls = 0;
+    const suggestions = await proposeFromObservations('alice', '2026-09-30T10:15:00.000Z', { storage, generate: async () => {
+      calls++;
+      return { text: JSON.stringify({ suggestions: [] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    } });
+    assert.equal(calls, 2, 'the fallback must not spend a third model call');
+    assert.equal(suggestions.length, 1);
+    assert.equal(suggestions[0]?.kind, 'question');
+    assert.deepEqual(suggestions[0]?.observationIds, [goal!.id]);
+    assert.equal((await answerIntelligenceQuestion('alice', suggestions[0]!.id, 'Tuesday evening', NOW, storage))?.status, 'accepted');
+    assert.equal((await storage.list('users/alice/intelligenceObservations')).length, 3);
+  } finally { resetStorageForTests(); }
+});
+
 test('a time-sensitive event receives a preparation pass when the first pass only warns', async () => {
   const storage = createMemoryStorage();
   const [exam, party] = await putObservations('alice', 'manual', 'note', NOW, [
