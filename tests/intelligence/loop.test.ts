@@ -185,6 +185,31 @@ test('a goal question cannot delegate choosing the first step back to the person
   } finally { resetStorageForTests(); }
 });
 
+test('a goal action that says choose the first step is hidden, including an old pending card', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const [goal] = await putObservations('alice', 'manual', 'note-react-action', NOW, [
+      { kind: 'goal', evidence: 'I want to learn React', confidence: 0.9 },
+    ], storage);
+    const confirmed = await reviewObservation('alice', goal!.id, 'confirmed', NOW, storage);
+    const [oldCard] = validateSuggestions({ suggestions: [{
+      kind: 'action', title: 'حدد أول خطوة لتعلم React', reason: 'عندك هدف تتعلم React',
+      observationIds: [goal!.id], confidence: 0.8, durationMinutes: 15,
+    }] }, [confirmed!], NOW);
+    assert.equal(hideSavedGoalProposals([oldCard!], [confirmed!]).length, 0);
+    const suggestions = await proposeFromObservations('alice', '2026-09-30T10:25:00.000Z', { storage, generate: async () => ({
+      text: JSON.stringify({ suggestions: [
+        { kind: 'action', title: 'ابحث عن مصادر لتعلم React', reason: 'عندك هدف تتعلم React',
+          observationIds: [goal!.id], confidence: 0.8, durationMinutes: 30 },
+        { kind: 'action', title: 'حدد أول خطوة لتعلم React', reason: 'عندك هدف تتعلم React',
+          observationIds: [goal!.id], confidence: 0.8, durationMinutes: 15 },
+      ] }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1,
+    }) });
+    assert.deepEqual(suggestions.map(item => item.title), ['ابحث عن مصادر لتعلم React']);
+  } finally { resetStorageForTests(); }
+});
+
 test('a time-sensitive event receives a preparation pass when the first pass only warns', async () => {
   const storage = createMemoryStorage();
   const [exam, party] = await putObservations('alice', 'manual', 'note', NOW, [

@@ -196,7 +196,7 @@ function goalClarification(goal: StoredObservation, observations: readonly Store
 }
 
 function offloadsGoalPlanning(title: string): boolean {
-  return /(?:شو|ما|ايش|إيش|ايش|ما هي|ما هو).{0,30}(?:أول|اول|التالية|الجاية).{0,15}(?:خطوة|تعمل|تسوي)|(?:what|which).{0,35}(?:first|next).{0,15}(?:step|do)|(?:צעד|שלב).{0,12}(?:ראשון|הבא)/i.test(title);
+  return /(?:شو|ما|ايش|إيش|ما هي|ما هو).{0,30}(?:أول|اول|التالية|الجاية).{0,15}(?:خطوة|تعمل|تسوي)|(?:حدد|حدّد|اختار|اختر).{0,15}(?:(?:أول|اول).{0,5}خطوة|الخطوة.{0,8}(?:التالية|الجاية))|(?:what|which).{0,35}(?:first|next).{0,15}(?:step|do)|(?:choose|decide|define).{0,15}(?:first|next).{0,10}step|(?:צעד|שלב).{0,12}(?:ראשון|הבא)/i.test(title);
 }
 
 function safeText(value: unknown, max: number): value is string {
@@ -292,11 +292,16 @@ export function hideSavedGoalProposals(
   observations: readonly StoredObservation[],
 ): IntelligenceSuggestion[] {
   const cited = new Map(observations.map(item => [item.id, item]));
-  return suggestions.filter(item => item.kind !== 'goal' || item.status !== 'pending'
-    || !item.observationIds.some(id => {
+  return suggestions.filter(item => {
+    if (item.status !== 'pending') return true;
+    const citesSavedGoal = item.observationIds.some(id => {
       const source = cited.get(id);
       return source?.kind === 'goal' && (source.source === 'memory' || !!source.linkedMemoryId);
-    }));
+    });
+    if (!citesSavedGoal) return true;
+    if (item.kind === 'goal') return false;
+    return !((item.kind === 'action' || item.kind === 'question') && offloadsGoalPlanning(item.title));
+  });
 }
 
 let generatorForTests: ShareStructuredGenerator | null = null;
@@ -538,7 +543,8 @@ export async function proposeFromObservations(
       const clarification = goal ? goalClarification(goal, observations, now) : null;
       return clarification ? { ...clarification, position: item.position } : item;
     });
-    suggestions = collapseNearDuplicates(suggestions, observations).map((item, position) => ({ ...item, position }));
+    suggestions = collapseNearDuplicates(hideSavedGoalProposals(suggestions, observations), observations)
+      .map((item, position) => ({ ...item, position }));
     if (confirmedGoalIds.size > 0 && !suggestions.some(item => (item.kind === 'action' || item.kind === 'question')
       && item.observationIds.some(id => confirmedGoalIds.has(id)))) {
       const goal = observations.find(item => confirmedGoalIds.has(item.id));
