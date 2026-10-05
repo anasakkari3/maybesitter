@@ -11,15 +11,15 @@ import { useLayoutMode } from '../theme/textScale';
 
 /**
  * The bottom bar (Stitch redesign, 2026-10-02): Today · Plan · My things ·
- * Watching, with the «احكيها» pill floating centred above it.
+ * Watching, with the «احكيها» action centred above it.
  *
  * Settings is not in the bar any more; it opens from the avatar in each tab
  * root's header (`ui/chrome.tsx` `AvatarButton`) and renders without the bar.
  * The pill keeps the `tab-capture` testID and opens the capture flow exactly
  * as the old centre button did.
  *
- * At enlarged text sizes, the four tabs form two rows. Each keeps a visible
- * name beside its icon and half the device width for Arabic and Hebrew text.
+ * The whole control occupies normal layout space. It never sits over the
+ * active screen, including at accessibility text sizes.
  */
 export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: number) => void } = {}) {
   const { s, t, p, scheme, reduceTransparency, actions } = useApp();
@@ -37,14 +37,12 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
     <View
       testID="floating-tab-bar"
       onLayout={(e) => {
-        // The whole block — pill, bar and home-indicator inset — plus the
-        // gap a last row needs to read as clear of it.
+        // Toasts still need the real, text-scaled height of the whole block.
         onClearanceChange?.(e.nativeEvent.layout.height + 12);
       }}
-      style={{ position: 'absolute', start: 0, end: 0, bottom: 0, zIndex: 20, pointerEvents: 'box-none' }}
+      style={{ flexShrink: 0 }}
     >
-      {/* The pill floats above the bar, centred; only it takes touches here. */}
-      <View style={{ alignItems: 'center', paddingBottom: 10, pointerEvents: 'box-none' }}>
+      <View style={{ alignItems: 'center', paddingVertical: enlarged ? 6 : 10 }}>
         <Btn
           testID="tab-capture"
           onPress={() => actions.goCapture('tab', 'text')}
@@ -53,7 +51,7 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
           style={[
             {
               backgroundColor: p.ac, borderRadius: 999, minHeight: 52, minWidth: 52,
-              paddingHorizontal: 24, paddingVertical: 10,
+              paddingHorizontal: enlarged ? 18 : 24, paddingVertical: enlarged ? 7 : 10,
               flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
             },
             accentGlow(p, 0.3),
@@ -67,7 +65,7 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
         {Platform.OS === 'ios' && !reduceTransparency ? (
           <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, start: 0, end: 0, bottom: 0 }} />
         ) : null}
-        <View style={{ backgroundColor: p.sfBar, paddingTop: 8, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 8, flexDirection: 'row', flexWrap: enlarged ? 'wrap' : 'nowrap', alignItems: 'stretch', gap: 4 }}>
+        <View style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', alignItems: 'stretch', gap: 2 }}>
           {tabs.map(tab => (
             <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged}
               onPress={() => actions.switchTab(tab.screen)} />
@@ -92,11 +90,11 @@ function TabItem({ label, testID, icon, on, p, enlarged, onPress }: {
       testID={testID}
       scaleTo={0.92}
       accessibilityState={{ selected: on }}
-      style={{ flexGrow: 1, flexShrink: 1, flexBasis: enlarged ? '48%' : 0, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
+      style={{ flex: 1, minWidth: 0, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
     >
-      <View style={{ flexDirection: enlarged ? 'row' : 'column', alignItems: 'center', justifyContent: 'center', gap: enlarged ? 8 : 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 4, paddingHorizontal: 4, borderRadius: 16, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}>
-        <ReferenceIcon name={icon} size={22} color={color} />
-        <Txt size={12} weight={on ? 700 : 500} color={color} align="center" lh={1.3} style={{ flexShrink: 1 }}>{label}</Txt>
+      <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 3, paddingHorizontal: 2, borderRadius: 14, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}>
+        <ReferenceIcon name={icon} size={enlarged ? 20 : 22} color={color} />
+        <Txt size={enlarged ? 10 : 12} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
       </View>
     </Btn>
   );

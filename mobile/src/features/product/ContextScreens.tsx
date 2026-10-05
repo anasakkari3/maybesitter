@@ -18,10 +18,10 @@ import { ProductPage, ProductSection, ProductRow, ProductActions } from '../../u
 import { Screen } from '../../ui/screen';
 import { BackHeader } from '../../ui/chrome';
 import { AvoidKeyboard, useSoftKeyboardShown } from '../../ui/keyboard';
-import { useLayoutMode } from '../../theme/textScale';
 import { capabilities as cap } from './capabilities';
 import type { Commitment } from '../../api/schemas/common';
 import { ExportDataRow } from '../account/ExportDataRow';
+import { ReferenceIcon } from '../../ui/referenceIcons';
 
 export function uniqueCommitments(items: readonly Commitment[]) {
   return [...new Map(items.map(item => [item.id, item])).values()];
@@ -147,7 +147,6 @@ export function CommitmentsScreen() {
   const zone = useTimeZone();
   const today = useToday();
   const upcoming = useUpcoming();
-  const stacked = useLayoutMode() !== 'normal';
   const keyboardShown = useSoftKeyboardShown();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all'|'active'|'done'>('active');
@@ -161,10 +160,10 @@ export function CommitmentsScreen() {
     ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })}${item.allDay ? '' : ` · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`}`
     : t.xUntimed;
 
-  return <Screen testID="product-commitments" pinned={<View style={{ gap: 10 }}>
+  return <Screen testID="product-commitments" pinned={<View style={{ gap: 8 }}>
     {keyboardShown ? null : <BackHeader title={t.xCommitments} onBack={() => actions.back()} />}
     <TextInput testID="commitments-search" accessibilityLabel={t.xSearch} placeholder={t.xSearch} placeholderTextColor={p.mu}
-      value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, minHeight: 48, fontSize: 16, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
+      value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 0, minHeight: 44, fontSize: 14, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
     <View style={{ flexDirection: 'row', gap: 8 }}>
       {(['active','done','all'] as const).map(key => <Btn key={key} label={key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone} accessibilityRole="radio" accessibilityState={{ checked: filter === key }}
         onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? p.acs : p.sf, borderRadius: 14, paddingHorizontal: 8, minHeight: 44, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
@@ -185,23 +184,25 @@ export function CommitmentsScreen() {
           windowSize={7}
           contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 60, gap: 8 }}
           ListHeaderComponent={<View style={{ gap: 8, paddingBottom: 4 }}>
-            {needle ? null : <ProductActions>
-              <Pill label={t.tabCalendar} kind="outline" onPress={() => actions.go('calendar')} />
-              <Pill label={t.xAdd} kind="soft" onPress={() => actions.go('addToMaybeSitter')} />
-            </ProductActions>}
-            <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'flex-start' : 'center', justifyContent: 'space-between', gap: 6 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
               <Txt size={13} color={p.mu} testID="commitments-result-count">{`${t.xCurrentHorizon} · ${views.length}`}</Txt>
-              <Btn label={reverse ? t.xSortLatest : t.xSortEarliest} testID="commitments-sort" onPress={() => setReverse(value => !value)}
-                style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 12, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln }}>
-                <Txt size={13} color={p.tx}>{reverse ? t.xSortLatest : t.xSortEarliest}</Txt>
-              </Btn>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Btn label={reverse ? t.xSortLatest : t.xSortEarliest} testID="commitments-sort" onPress={() => setReverse(value => !value)}
+                  style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 12, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln }}>
+                  <Txt size={13} color={p.tx}>{reverse ? t.xSortLatest : t.xSortEarliest}</Txt>
+                </Btn>
+                {!needle ? <Btn label={t.xAdd} testID="commitments-add" onPress={() => actions.go('addToMaybeSitter')}
+                  style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: p.acs, borderWidth: 1, borderColor: p.ac }}>
+                  <ReferenceIcon name="plus" size={20} color={p.acd} />
+                </Btn> : null}
+              </View>
             </View>
           </View>}
           ListEmptyComponent={<View style={{ paddingVertical: 28 }}><Txt role="supporting" color={p.mu}>{t.xNoResults}</Txt></View>}
           renderItem={({ item }) => <Btn testID={`commitments-item-${item.id}`} label={`${item.title}. ${when(item)}`} onPress={() => actions.openDetail(item.id)}
-            style={{ minHeight: 64, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingHorizontal: 14, paddingVertical: 10, justifyContent: 'center', gap: 3 }}>
-            <Txt size={15} weight={600} lines={stacked ? undefined : 2}>{isolateAuto(item.title)}</Txt>
-            <Txt size={13} color={p.mu}>{`${item.status === 'done' ? t.xDone : t.xOpen} · ${when(item)}`}</Txt>
+            style={{ minHeight: 56, borderRadius: 14, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingHorizontal: 12, paddingVertical: 7, justifyContent: 'center', gap: 2 }}>
+            <Txt size={15} weight={600} lines={2}>{isolateAuto(item.title)}</Txt>
+            <Txt size={13} color={p.mu} lines={1}>{`${item.status === 'done' ? t.xDone : t.xOpen} · ${when(item)}`}</Txt>
           </Btn>}
         />
       </QueryBoundary>

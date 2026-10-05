@@ -287,7 +287,9 @@ describe('calendar timeline filters', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-filter-busy')).toBeNull());
     expect(screen.queryByTestId('calendar-busy-row')).toBeNull();
     expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull();
-    expect(screen.getByTestId('calendar-filter-all').props.accessibilityState.selected).toBe(true);
+    // With nothing besides commitments left to filter, the whole filter row
+    // leaves too. The commitment itself remains visible.
+    expect(screen.queryByTestId('calendar-filter-all')).toBeNull();
   });
 });
 

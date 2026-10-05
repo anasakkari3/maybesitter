@@ -7,7 +7,6 @@ import { formatDate, formatTime } from '../../i18n/format';
 import { isolateAuto } from '../../i18n/bidi';
 import { fill } from '../../i18n/strings';
 import { useTimeZone } from '../../i18n/timezone';
-import { useLayoutMode } from '../../theme/textScale';
 import { toViewModel, type CommitmentView } from '../commitments/model';
 import { uniqueCommitments } from '../product/ContextScreens';
 import { AvatarButton, ScreenHeader, Tag, priorityTagKind } from '../../ui/chrome';
@@ -82,7 +81,7 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
             value={search}
             onChangeText={setSearch}
             autoCorrect={false}
-            style={{ flex: 1, minHeight: 46, fontSize: 15, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }}
+            style={{ flex: 1, minHeight: 44, paddingVertical: 0, fontSize: 14, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }}
           />
         </View>
     </View>}>
@@ -108,18 +107,18 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
         <ScreenScroll testID="things-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
             <View style={{ gap: 10 }}>
               <HubRow testID="things-commitments" icon="clipboard" tone="accent" title={t.xCommitments}
-                sub={commitmentsLoaded ? fill(t.thingsCommitmentsSub, { timed, untimed: active.length - timed }) : undefined}
+                sub={commitmentsLoaded && timed !== active.length ? fill(t.thingsCommitmentsSub, { timed, untimed: active.length - timed }) : undefined}
                 count={commitmentsLoaded ? active.length : undefined}
                 onPress={() => actions.go('commitments')} />
               <HubRow testID="things-goals" icon="flag" tone="attention" title={t.thingsGoals}
-                sub={memory.data ? (goals.length > 0 ? titlesOf(goals.map(goal => goal.content)) : t.thingsNone) : undefined}
+                sub={memory.data && goals.length > 0 ? titlesOf(goals.map(goal => goal.content)) : undefined}
                 count={memory.data ? goals.length : undefined}
                 onPress={() => actions.go('goalExecution')} />
               <HubRow testID="things-habits" icon="repeat" tone="success" title={t.thingsHabits}
-                sub={habits.data ? (habitItems.length > 0 ? titlesOf(habitItems.map(habit => habit.title)) : t.thingsNone) : undefined}
+                sub={habits.data && habitItems.length > 0 ? titlesOf(habitItems.map(habit => habit.title)) : undefined}
                 count={habits.data ? habitItems.length : undefined}
                 onPress={() => actions.go('habitDetail')} />
-              <HubRow testID="things-ideas" icon="bulb" title={t.thingsIdeas} sub={t.thingsIdeasSub}
+              <HubRow testID="things-ideas" icon="bulb" title={t.thingsIdeas} sub={seedItems.length > 0 ? t.thingsIdeasSub : undefined}
                 count={seeds.data ? seedItems.length : undefined}
                 onPress={() => actions.go('seeds')} />
             </View>
@@ -144,7 +143,6 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
 /** One saved commitment: title, when, its importance chip. Opens Details. */
 function SavedRow({ view, when, imp, onPress }: { view: CommitmentView; when: string; imp: string; onPress: () => void }) {
   const { t, p, rtl } = useApp();
-  const stacked = useLayoutMode() !== 'normal';
   const done = view.status === 'done';
   return (
     <Btn
@@ -152,10 +150,10 @@ function SavedRow({ view, when, imp, onPress }: { view: CommitmentView; when: st
       label={[view.title, when, done ? t.xDone : imp].join('. ')}
       onPress={onPress}
       scaleTo={0.985}
-      style={{ minHeight: 64, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingVertical: 12, paddingHorizontal: 14, gap: 12, flexDirection: 'row', alignItems: 'center' }}
+      style={{ minHeight: 56, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingVertical: 8, paddingHorizontal: 12, gap: 10, flexDirection: 'row', alignItems: 'center' }}
     >
       <View style={{ flex: 1, gap: 4, alignItems: 'flex-start' }}>
-        <Txt size={15} weight={600} lines={stacked ? undefined : 2}>{isolateAuto(view.title)}</Txt>
+        <Txt size={15} weight={600} lines={2}>{isolateAuto(view.title)}</Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <Txt size={13} color={p.mu}>{when}</Txt>
           {done ? <Tag kind="saved" label={t.xDone} /> : <Tag kind={priorityTagKind(view.importance)} label={imp} />}

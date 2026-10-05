@@ -9,14 +9,13 @@ import { ScreenIn } from './motion';
 export const ScreenTopInsetConsumedContext = createContext(false);
 
 /**
- * What a tab root's last row has to clear before the bar has measured itself:
- * the bar, the «احكيها» pill floating above it, and the home indicator
- * (Stitch redesign, 2026-10-02). `Root` replaces it with the bar's measured
- * height as soon as there is one.
+ * A tab root keeps a small breathing gap above the navigation block. The
+ * navigation itself occupies layout space below the screen, so content never
+ * needs to guess or reserve its height.
  */
-export const TAB_CLEARANCE = 170;
+export const TAB_CLEARANCE = 12;
 
-/** The gap between a tab root's last row and the pill: part of the measured clearance (`TabBar`'s +12). */
+/** The breathing gap between a tab root's last row and the navigation block. */
 export const FLOATING_GAP = 12;
 
 /**
@@ -97,20 +96,14 @@ export function Screen({ pinned, children, footer, decoration, overlay, style, t
  * The ordinary scrolling body: the gutter, the gap and the bottom clearance
  * every screen was repeating, in one place.
  *
- * `bottom` defaults to a pushed screen's 60. A tab root passes the measured
- * clearance (`TAB_CLEARANCE` until it is measured), because the bar and the
- * pill are drawn over the screen and the last row has to clear them.
+ * `bottom` defaults to a pushed screen's 60. A tab root passes the small gap
+ * above the navigation block.
  */
 export function ScreenScroll({ children, gap = 14, bottom = 60, floating, grow = false, testID, refreshControl, topGap = 14, keyboardShouldPersistTaps, automaticallyAdjustKeyboardInsets, style, scrollRef }: {
   children: React.ReactNode;
   /**
-   * A tab root's measured clearance for the bar and the «احكيها» pill drawn
-   * over it (Root's `tabClearance`). The *viewport* stops above them, so the
-   * pill covers no row — not at the end of the scroll and not at rest either
-   * (audit 2026-10-03 #9: at text size 1.3 the pill sat on «ليش هاي بالذات»,
-   * at 1.5 on «…», on the first frame). The clearance is measured from the
-   * real, text-scaled pill and bar, so it grows with the reader's text.
-   * With it, `bottom` is ignored: the last row needs only the gap above the pill.
+   * A tab root's gap above the navigation block. The block is a normal sibling
+   * below the screen, so it cannot cover content at any text size.
    */
   floating?: number | undefined;
   /** For a screen that has to bring something it opened into view. */

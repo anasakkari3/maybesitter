@@ -2,7 +2,7 @@ import { importantDeadline } from '../features/today/dayContext';
 import { DeadlineContext } from '../features/today/DeadlineContext';
 import React, { useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
-import { useLayoutMode, useTextScale } from '../theme/textScale';
+import { useLayoutMode } from '../theme/textScale';
 import { useApp } from '../state/AppContext';
 import { useTimeZone } from '../i18n/timezone';
 import { CIVIL_ZONE, civilDate, dayKey, formatDate, formatDayRange, formatRelativeDay, formatTimeRange } from '../i18n/format';
@@ -221,8 +221,8 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
       >
         <ScreenHeader
           brand={false}
-          eyebrow={range}
-          eyebrowTestID="calendar-range"
+          eyebrow={stacked ? undefined : range}
+          eyebrowTestID={stacked ? undefined : 'calendar-range'}
           title={t.tabPlan}
           end={(
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -248,7 +248,11 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
           </Btn>
         </View>
         {trust.data && !calendarConnected ? (
-          <Notice text={t.calendarNotConnected} action={t.calendarSettingsBtn} onAction={() => actions.go('calendarSettings')} testID="calendar-not-connected" />
+          <Notice
+            text={t.calendarNotConnected}
+            testID="calendar-not-connected"
+            style={{ paddingVertical: 7, paddingHorizontal: 12 }}
+          />
         ) : null}
 
         <QueryBoundary
@@ -285,16 +289,9 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                 );
               })}
             </DirectionalScrollRow>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, paddingHorizontal: 6 }}>
-              <CalendarLegend color={p.ac} label={t.legendCommit} />
-              {/* A must draws in the coral (dot, tile, chip); the legend says so
-                  whenever the week has one (UAT 2026-09-30, u35/u39). */}
-              {weekHasMust ? <CalendarLegend color={p.acd} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}
-              {calendarConnected || weekly.length > 0 ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
-            </View>
           </View>
 
-          <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}>
+          {busyFilterShown ? <DirectionalScrollRow showsHorizontalScrollIndicator={stacked} contentContainerStyle={{ gap: 8, paddingVertical: 2 }}>
             {([
               { id: 'all', label: t.catAll, dot: p.wm },
               { id: 'commitment', label: t.xCommitments, dot: p.ac },
@@ -308,7 +305,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
                 <Txt size={14} weight={on ? 700 : 500} color={on ? p.tx : p.mu}>{option.label}</Txt>
               </Btn>;
             })}
-          </DirectionalScrollRow>
+          </DirectionalScrollRow> : null}
 
           {proposal && laterProposal !== proposal.proposalId ? (
             <ProposalCard
@@ -320,11 +317,16 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
           ) : null}
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, flexShrink: 1 }}>
               <ReferenceIcon name="clock" size={20} color={p.wm} />
               <Txt role="section" size={17} weight={700} color={p.tx} testID="calendar-selected-day" style={{ flexShrink: 1 }}>
                 {formatRelativeDay(civilDate(selectedKey), { locale: lang, timeZone: CIVIL_ZONE, now: civilDate(todayKey) })}
               </Txt>
+              {!stacked ? <CalendarLegend color={p.ac} label={t.legendCommit} /> : null}
+              {/* A must draws in the coral; keep its key beside the selected
+                  day instead of spending a full row below the week strip. */}
+              {!stacked && weekHasMust ? <CalendarLegend color={p.acd} label={t.todayGroupMust} testID="calendar-legend-must" /> : null}
+              {!stacked && (calendarConnected || weekly.length > 0) ? <CalendarLegend color={p.mu} label={t.calendarBusyLegend} /> : null}
             </View>
             <View style={{ paddingVertical: 5, paddingHorizontal: 12, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, borderRadius: 999 }}>
               <Txt size={13} color={p.mu} testID="calendar-selected-load">{loadWord(loadOf(selectedKey))}</Txt>
@@ -439,7 +441,6 @@ function DayCell({
 }) {
   const { lang } = useApp();
   const p = useReferencePalette();
-  const scale = useTextScale();
   const stacked = useLayoutMode() !== 'normal';
   const date = civilDate(key);
   const options = { locale: lang, timeZone: CIVIL_ZONE } as const;
@@ -453,8 +454,8 @@ function DayCell({
       accessibilityState={{ selected }}
       scaleTo={0.94}
       style={{
-        ...(stacked ? { width: 72 * scale } : { flex: 1 }), minWidth: 44, minHeight: 64,
-        alignItems: 'center', gap: 1, paddingTop: 8, paddingBottom: 7, paddingHorizontal: 2, borderRadius: 16,
+        ...(stacked ? { width: 88 } : { flex: 1 }), minWidth: 44, minHeight: stacked ? 60 : 64,
+        alignItems: 'center', gap: 1, paddingTop: stacked ? 6 : 8, paddingBottom: stacked ? 5 : 7, paddingHorizontal: 2, borderRadius: 16,
         backgroundColor: selected ? p.sf2 : p.sf, borderWidth: 1, borderColor: selected ? p.heroEdge : 'transparent',
       }}
     >
@@ -463,7 +464,7 @@ function DayCell({
       <Txt size={16} weight={700} align="center" color={p.tx} lh={1.25} latin>
         {formatDate(date, 'dayNumber', options)}
       </Txt>
-      <Txt size={12} weight={load === 'normal' ? 400 : 700} color={loadColor} align="center" lines={1} testID={`calendar-load-${key}`}>{loadLabel}</Txt>
+      {!stacked ? <Txt size={12} weight={load === 'normal' ? 400 : 700} color={loadColor} align="center" lines={1} testID={`calendar-load-${key}`}>{loadLabel}</Txt> : null}
       <View accessible={false} style={{ flexDirection: 'row', gap: 3, minHeight: 5, marginTop: 3 }}>
         {/* Three dots at most: a fourth would make a busy day unreadable, and
             the count is not the point — the shape of the week is. */}

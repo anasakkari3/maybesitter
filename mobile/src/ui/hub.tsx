@@ -29,14 +29,15 @@ function toneColors(tone: HubTone, p: ReturnType<typeof useApp>['p']) {
 /** A count in a quiet pill: digits are Latin in every language. */
 export function CountChip({ count, testID }: { count: number; testID?: string | undefined }) {
   const { p } = useApp();
+  const compact = useLayoutMode() !== 'normal';
   return (
-    <View style={{ minWidth: 28, minHeight: 24, paddingHorizontal: 8, borderRadius: 999, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
-      <Txt latin size={13} weight={600} color={p.tx} align="center" testID={testID}>{String(count)}</Txt>
+    <View style={{ minWidth: compact ? 24 : 28, minHeight: compact ? 22 : 24, paddingHorizontal: compact ? 6 : 8, borderRadius: 999, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
+      <Txt latin size={compact ? 11 : 13} weight={600} color={p.tx} align="center" testID={testID}>{String(count)}</Txt>
     </View>
   );
 }
 
-export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, badge, onPress }: {
+export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, badge, compact, onPress }: {
   testID: string;
   icon: string;
   tone?: HubTone;
@@ -46,9 +47,12 @@ export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, badg
   count?: number | undefined;
   /** A state chip under the line (a watch's «شغّال» / «موقّف»), in words. */
   badge?: React.ReactNode;
+  compact?: boolean | undefined;
   onPress: () => void;
 }) {
   const { p, rtl } = useApp();
+  const layoutMode = useLayoutMode();
+  const dense = compact ?? layoutMode !== 'normal';
   const c = toneColors(tone, p);
   return (
     <Btn
@@ -57,17 +61,17 @@ export function HubRow({ testID, icon, tone = 'neutral', title, sub, count, badg
       onPress={onPress}
       scaleTo={0.985}
       style={{
-        minHeight: 72, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf,
-        paddingVertical: 12, paddingHorizontal: 16, gap: 12,
+        minHeight: dense ? 56 : 72, borderRadius: dense ? 16 : 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf,
+        paddingVertical: dense ? 8 : 12, paddingHorizontal: dense ? 12 : 16, gap: dense ? 9 : 12,
         flexDirection: 'row', alignItems: 'center',
       }}
     >
-      <View accessible={false} style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
-        <ReferenceIcon name={icon} size={22} color={c.fg} />
+      <View accessible={false} style={{ width: dense ? 36 : 48, height: dense ? 36 : 48, borderRadius: dense ? 18 : 24, backgroundColor: c.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ReferenceIcon name={icon} size={dense ? 19 : 22} color={c.fg} />
       </View>
       <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-        <Txt size={17} weight={700}>{title}</Txt>
-        {sub ? <Txt size={13} color={p.mu} lines={2}>{sub}</Txt> : null}
+        <Txt size={dense ? 15 : 17} weight={700} lines={dense ? 2 : undefined}>{title}</Txt>
+        {sub ? <Txt size={13} color={p.mu} lines={dense ? 1 : 2}>{sub}</Txt> : null}
         {badge ?? null}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
