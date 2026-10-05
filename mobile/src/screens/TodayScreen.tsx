@@ -241,12 +241,12 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
       >
         {/* Stitch header: the title and the date at the start, search and the
             avatar (Settings) at the end. */}
-        <View style={{ flexDirection: stacked ? 'column' : 'row', alignItems: stacked ? 'stretch' : 'flex-start', justifyContent: 'space-between', gap: 12, paddingHorizontal: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, paddingHorizontal: 4 }}>
           <View style={{ flexShrink: 1, gap: 2, alignItems: 'flex-start' }}>
-            <Txt role="page" size={28} weight={700} color={p.tx}>{t.todayTitle}</Txt>
+            <Txt role="page" size={stacked ? 22 : 28} weight={700} color={p.tx}>{t.todayTitle}</Txt>
             <Txt size={13} weight={500} color={p.mu} testID="today-date">{formatDate(new Date(), 'weekday', { locale: lang, timeZone: timezone })}</Txt>
           </View>
-          <View style={{ flexDirection: 'row', gap: 8, alignSelf: stacked ? 'flex-end' : undefined }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
             <Btn label={t.xSearch} testID="reference-search" onPress={() => actions.go('commitments')} scaleTo={0.94}
               style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln }}>
               <ReferenceIcon name="search" size={20} color={p.mu} />
@@ -514,7 +514,7 @@ function FallbackCard({ item, strings, timezone, lang, busy, onPostpone }: {
     <View
       testID="today-primary"
       style={{
-        gap: 12, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: p.heroEdge, backgroundColor: p.sf,
+        gap: stacked ? 9 : 12, padding: stacked ? 14 : 18, borderRadius: stacked ? 18 : 22, borderWidth: 1, borderColor: p.heroEdge, backgroundColor: p.sf,
         shadowColor: p.ac, shadowOpacity: p.shadow ? 0.12 : 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 4,
       }}
     >
@@ -535,7 +535,7 @@ function FallbackCard({ item, strings, timezone, lang, busy, onPostpone }: {
         scaleTo={0.99}
         style={{ alignItems: 'flex-start', gap: 4 }}
       >
-        <Txt role="section" size={20} weight={700} color={p.tx}>{item.title}</Txt>
+        <Txt role="section" size={stacked ? 17 : 20} weight={700} color={p.tx} lines={2}>{item.title}</Txt>
         {!item.importanceIsStated && item.importance === 'must' ? (
           <Txt size={13} color={p.mu} testID={`today-estimated-${item.id}`}>{t.todayEstimatedMark}</Txt>
         ) : null}
@@ -543,14 +543,14 @@ function FallbackCard({ item, strings, timezone, lang, busy, onPostpone }: {
       </Btn>
       {why ? <Txt size={15} color={p.mu} lh={1.6} testID="today-why-first">{why}</Txt> : null}
       <BusyConflictChip blocks={drawn ? busyAt(drawn, busy) : []} testID={`today-busy-${item.id}`} />
-      <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 12 }}>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, borderTopWidth: 1, borderTopColor: p.ln, paddingTop: 10 }}>
         <Btn testID={`today-primary-complete`} label={t.nextStepDone} onPress={() => act.mutate({ id: item.id, action: 'complete' })}
-          style={{ ...(stacked ? {} : { flex: 1 }), minHeight: 48, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: p.ac, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
+          style={{ flexGrow: 1, flexBasis: 130, minHeight: 48, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 999, backgroundColor: p.ac, flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'center' }}>
           <CheckIcon size={16} color={p.onAccent} />
           <Txt size={15} weight={600} color={p.onAccent}>{t.nextStepDone}</Txt>
         </Btn>
         <Btn testID={`today-primary-postpone`} label={t.notNow} onPress={() => onPostpone(item.id)}
-          style={{ minHeight: 48, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
+          style={{ flexGrow: 1, flexBasis: 110, minHeight: 48, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf2, alignItems: 'center', justifyContent: 'center' }}>
           <Txt size={14} weight={500} color={p.mu}>{t.notNow}</Txt>
         </Btn>
       </View>
@@ -572,6 +572,8 @@ function importanceInk(importance: CommitmentView['importance'], p: ReturnType<t
  * first screen. «مهم» and «حلو» fold to one line — their chip, the first
  * item and its time, and how many more — and open on a tap.
  */
+const DAY_GROUP_PREVIEW = 3;
+
 function Group({ kind, items, timezone, lang, busy, football }: {
   kind: 'must' | 'should' | 'nice';
   items: CommitmentView[];
@@ -580,14 +582,21 @@ function Group({ kind, items, timezone, lang, busy, football }: {
   busy: readonly DeviceBusyBlock[];
   football: ReadonlySet<string>;
 }) {
-  const { t, tr } = useApp();
+  const { t, tr, actions } = useApp();
   const p = useReferencePalette();
+  const previewLimit = useLayoutMode() === 'xl' ? 2 : DAY_GROUP_PREVIEW;
   const [open, setOpen] = useState(false);
   if (items.length === 0) return null;
   const title = (t as unknown as Record<string, string>)[GROUP_TITLE[kind]]!;
-  const rows = items.map((item, index) => (
+  const rows = items.slice(0, previewLimit).map((item, index) => (
     <Row key={item.id} item={item} first={index === 0} timezone={timezone} lang={lang} busy={busy} football={football.has(item.id)} />
   ));
+  const more = items.length > previewLimit ? (
+    <Btn testID={`today-group-${kind}-all`} label={`${t.todayShowFinished} · ${t.xCommitments}`} onPress={() => actions.go('commitments')}
+      style={{ minHeight: 48, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 14, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf }}>
+      <Txt size={14} weight={600} color={p.ac}>{`${t.todayShowFinished} · ${t.xCommitments}`}</Txt>
+    </Btn>
+  ) : null;
 
   if (kind === 'must') {
     return (
@@ -597,6 +606,7 @@ function Group({ kind, items, timezone, lang, busy, football }: {
           <Txt size={13} weight={500} color={p.mu}>{tr('todayCountOpen', { n: items.length })}</Txt>
         </View>
         {rows}
+        {more}
       </View>
     );
   }
@@ -618,7 +628,7 @@ function Group({ kind, items, timezone, lang, busy, football }: {
         <Txt size={13} weight={500} color={p.mu} style={{ flex: 1 }} testID={`today-group-${kind}-preview`}>{preview}</Txt>
         <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}><ReferenceIcon name="chevron-down" size={18} color={p.mu} /></View>
       </Btn>
-      {open ? rows : null}
+      {open ? <>{rows}{more}</> : null}
     </View>
   );
 }
@@ -635,6 +645,7 @@ function Row({ item, timezone, lang, busy, football }: {
   const { t, actions } = useApp();
   const p = useReferencePalette();
   const act = useCommitmentAction();
+  const compact = useLayoutMode() !== 'normal';
 
   /**
    * Done and "not now", from the row (UC-2.R3 #173 steps 3, 8). Both are real
@@ -664,8 +675,8 @@ function Row({ item, timezone, lang, busy, football }: {
         scaleTo={0.98}
         style={{
           flexDirection: 'row', alignItems: 'center', gap: 8,
-          paddingVertical: 10, paddingStart: 6, paddingEnd: 14, minHeight: 68,
-          borderWidth: 1, borderColor: p.ln, borderRadius: 20, backgroundColor: p.sf,
+          paddingVertical: compact ? 7 : 10, paddingStart: 6, paddingEnd: compact ? 10 : 14, minHeight: compact ? 56 : 68,
+          borderWidth: 1, borderColor: p.ln, borderRadius: compact ? 16 : 20, backgroundColor: p.sf,
         }}
       >
         {football ? (

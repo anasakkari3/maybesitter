@@ -149,6 +149,19 @@ describe('«أشيائي»', () => {
     expect(screen.getByTestId('things-no-results')).toHaveTextContent(en.xNoResults);
   });
 
+  it('finds a late commitment in a crowded account without mounting a long result column', async () => {
+    seed();
+    jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: Array.from({ length: 60 }, (_, index) =>
+      commitment(`dense-${index}`, index === 53 ? 'Passport needle' : `Task ${index}`, '2026-10-01T08:00:00.000Z', true)) } as never);
+    jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
+    await show(<ThingsScreen />);
+    await waitFor(() => expect(screen.getByTestId('things-commitments-count')).toHaveTextContent('60'));
+    await fireEvent.changeText(screen.getByTestId('things-search'), 'needle');
+    expect(screen.getByTestId('things-results-list')).toBeTruthy();
+    expect(screen.getByTestId('things-recent-dense-53')).toBeTruthy();
+    expect(screen.getByTestId('things-search')).toBeTruthy();
+  });
+
   it('invents nothing for an empty account', async () => {
     jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
     jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);

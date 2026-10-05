@@ -61,10 +61,11 @@ export function ActionRow({ children, testID }: { children: React.ReactNode; tes
 
 export function BackButton({ label, onPress }: { label: string; onPress: () => void }) {
   const { p, rtl } = useApp();
+  const compact = useLayoutMode() !== 'normal';
   return <Btn label={label} onPress={onPress} testID="header-back" scaleTo={0.97}
-    style={{ alignSelf: 'flex-start', minHeight: 44, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.glass, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    style={{ alignSelf: 'flex-start', minHeight: 44, paddingHorizontal: compact ? 8 : 12, borderRadius: 999, borderWidth: 1, borderColor: p.ln, backgroundColor: p.glass, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
     <ChevronIcon color={p.mu} rtl={rtl} back />
-    <Txt role="action" color={p.tx} style={{ flexShrink: 1 }}>{label}</Txt>
+    <Txt role="action" size={compact ? 14 : undefined} color={p.tx} style={{ flexShrink: 1 }}>{label}</Txt>
   </Btn>;
 }
 
@@ -108,7 +109,7 @@ export function ScreenHeader({ eyebrow, title, end, eyebrowTestID, brand = true 
             below it wraps freely: it is the content, and it may take the room
             the reader asked for. Found on device at AX5, Round 2 Phase M. */}
         {eyebrow ? <Txt size={13} color={p.mu} lines={1} testID={eyebrowTestID}>{eyebrow}</Txt> : null}
-        <Txt role="page" weight={700}>{title}</Txt>
+        <Txt role="page" size={compact ? 22 : undefined} weight={700}>{title}</Txt>
       </View>
       {end ?? null}
     </View>
@@ -134,14 +135,24 @@ export function BackHeader({ title, onBack, end, backLabel }: {
   backLabel?: string | undefined;
 }) {
   const { t } = useApp();
+  const compact = useLayoutMode() !== 'normal';
   const label = backLabel ?? t.back;
+  if (compact) {
+    return (
+      <View testID="back-header" style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <BackButton label={label} onPress={onBack} />
+        <Txt role="page" size={22} lines={2} style={{ flex: 1 }}>{title}</Txt>
+        {end ?? null}
+      </View>
+    );
+  }
   return (
     <View testID="back-header" style={{ gap: 10 }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <BackButton label={label} onPress={onBack} />
         {end ?? <BrandMark size={28} />}
       </View>
-      <View style={{ alignItems: 'flex-start' }}><Txt role="page">{title}</Txt></View>
+      <View style={{ alignItems: 'flex-start' }}><Txt role="page" size={compact ? 22 : undefined}>{title}</Txt></View>
     </View>
   );
 }
@@ -167,6 +178,7 @@ export function priorityTagKind(importance: 'must' | 'should' | 'nice' | null | 
  */
 export function Tag({ kind, label, testID }: { kind: TagKind; label: string; testID?: string | undefined }) {
   const { p } = useApp();
+  const compact = useLayoutMode() !== 'normal';
   const look: Record<TagKind, { bg?: string; fg: string; border?: string; dashed?: boolean; weight: 400 | 600 }> = {
     proposal: { fg: p.mu, border: p.prop, dashed: true, weight: 400 },
     saved: { bg: p.successSoft, fg: p.success, weight: 600 },
@@ -183,13 +195,13 @@ export function Tag({ kind, label, testID }: { kind: TagKind; label: string; tes
   return (
     <View
       style={{
-        alignSelf: 'flex-start', borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10,
+        alignSelf: 'flex-start', borderRadius: 999, paddingVertical: compact ? 2 : 4, paddingHorizontal: compact ? 7 : 10,
         backgroundColor: l.bg ?? 'transparent',
         borderWidth: l.border ? 1 : 0, borderColor: l.border, borderStyle: l.dashed ? 'dashed' : 'solid',
       }}
     >
       {/* The testID sits on the text, so a test reads the word, not a box. */}
-      <Txt size={13} weight={l.weight} color={l.fg} testID={testID}>{label}</Txt>
+      <Txt size={compact ? 11 : 13} weight={l.weight} color={l.fg} testID={testID}>{label}</Txt>
     </View>
   );
 }

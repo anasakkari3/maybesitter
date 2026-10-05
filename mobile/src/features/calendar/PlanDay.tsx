@@ -65,12 +65,14 @@ function conflictText(block: DeviceBusyBlock, t: ReturnType<typeof useApp>['t'],
 }
 
 /** A commitment: its time (or «بدون وقت»), title, importance, and what it runs into. Opens Details. */
-export function CommitmentCard({ row, marker = false, narrow = false }: {
+export function CommitmentCard({ row, marker = false, narrow = false, agenda = false }: {
   row: Extract<PlanRow, { kind: 'commitment' }>;
   /** On the timeline: a tighter card whose top edge is its time. */
   marker?: boolean;
   /** Sharing its hour with something else: the icon tile gives its width to the title. */
   narrow?: boolean;
+  /** Dense ordered-list treatment used when a timeline would be unreadable. */
+  agenda?: boolean;
 }) {
   const { t, p, lang, actions } = useApp();
   const timeZone = useTimeZone();
@@ -86,25 +88,36 @@ export function CommitmentCard({ row, marker = false, narrow = false }: {
       onPress={() => actions.openDetail(item.id)}
       scaleTo={0.98}
       style={{
-        minHeight: 44, borderRadius: marker ? 16 : 20, borderWidth: 1,
+        minHeight: 44, borderRadius: agenda ? 14 : marker ? 16 : 20, borderWidth: 1,
         borderColor: conflict ? p.prop : p.ln, backgroundColor: p.sf,
-        paddingVertical: marker ? 8 : 12, paddingHorizontal: marker ? 10 : 14, gap: 6,
+        paddingVertical: agenda ? 7 : marker ? 8 : 12, paddingHorizontal: agenda ? 10 : marker ? 10 : 14, gap: agenda ? 3 : 6,
+        ...(agenda ? { borderStartWidth: 3, borderStartColor: look.fg } : {}),
       }}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        {!stacked && !narrow ? (
+        {!agenda && !stacked && !narrow ? (
           <View accessible={false} style={{ width: marker ? 28 : 40, height: marker ? 28 : 40, borderRadius: marker ? 9 : 12, backgroundColor: look.bg, alignItems: 'center', justifyContent: 'center' }}>
             <ReferenceIcon name={clock ? 'clock' : 'clipboard'} size={marker ? 16 : 20} color={look.fg} />
           </View>
         ) : null}
-        <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
-          <Txt size={15} weight={700} color={p.tx}>{isolateAuto(item.title)}</Txt>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
-            <Txt size={13} color={p.mu} latin={time !== null && !offDay} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
-            {due ? <Txt size={13} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+        {agenda ? (
+          <View style={{ flex: 1, gap: due ? 2 : 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Txt size={15} weight={700} color={p.tx} lines={1} style={{ flex: 1 }}>{isolateAuto(item.title)}</Txt>
+              <Txt size={13} color={p.mu} latin={time !== null && !offDay} lines={1} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
+            </View>
+            {due ? <Txt size={13} color={p.mu} lines={1} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
           </View>
-        </View>
-        <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} />
+        ) : (
+          <View style={{ flex: 1, gap: 2, alignItems: 'flex-start' }}>
+            <Txt size={15} weight={700} color={p.tx}>{isolateAuto(item.title)}</Txt>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8 }}>
+              <Txt size={13} color={p.mu} latin={time !== null && !offDay} testID={`calendar-time-${item.id}`}>{time ?? t.noTimeYet}</Txt>
+              {due ? <Txt size={13} color={p.mu} testID={`calendar-due-${item.id}`}>{due}</Txt> : null}
+            </View>
+          </View>
+        )}
+        {!agenda ? <Tag kind={priorityTagKind(item.importance)} label={importanceWord(item.importance, t)} /> : null}
       </View>
       {overlap ? (
         <View testID={`calendar-conflict-${item.id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'stretch', borderRadius: 10, backgroundColor: p.wms, paddingVertical: 4, paddingHorizontal: 8 }}>
@@ -268,7 +281,7 @@ export function DayAgenda({ rows }: { rows: readonly PlanRow[] }) {
   return (
     <View testID="calendar-agenda-list" style={{ gap: 10 }}>
       {rows.map(row => row.kind === 'commitment'
-        ? <CommitmentCard key={row.key} row={row} />
+        ? <CommitmentCard key={row.key} row={row} agenda />
         : row.kind === 'busy'
           ? <BusyCard key={row.key} row={row} />
           : <WeeklyOccurrenceRow key={row.key} occurrence={row.occurrence} testID={`calendar-weekly-${row.occurrence.weeklyBlockId}`} />)}
@@ -289,7 +302,7 @@ export function UntimedSection({ rows, title }: { rows: readonly Extract<PlanRow
         <Txt role="section" size={16} weight={700} style={{ flexShrink: 1 }}>{title}</Txt>
         <CountChip count={rows.length} testID="calendar-untimed-count" />
       </View>
-      {rows.map(row => <CommitmentCard key={row.key} row={row} />)}
+      {rows.map(row => <CommitmentCard key={row.key} row={row} agenda />)}
     </View>
   );
 }

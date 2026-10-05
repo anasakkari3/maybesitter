@@ -73,6 +73,11 @@ describe('the tab bar keeps its identity at every text size', () => {
     expect(small.every((n) => typeof n === 'string' && n.length > 0)).toBe(true);
   });
 
+  it('occupies layout space instead of covering the active screen', async () => {
+    const view = await atFontScale(2.0);
+    expect(view.getByTestId('floating-tab-bar').props.style).toEqual({ flexShrink: 0 });
+  });
+
   it('keeps names visible past the top of the platform ramp', async () => {
     const view = await atFontScale(3.12);
     for (const id of IDS) expect(view.getByTestId(id)).toBeTruthy();

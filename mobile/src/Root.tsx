@@ -63,7 +63,7 @@ import { BackgroundActivityScreen, WatchBuilderScreen } from './features/product
 export function Root() {
   const { s, p, rtl, scheme, actions } = useApp();
   const { takePendingLink } = useAuth();
-  const [tabClearance, setTabClearance] = useState(TAB_CLEARANCE);
+  const [toastClearance, setToastClearance] = useState(TAB_CLEARANCE);
   const latest = useRef(actions);
   latest.current = actions;
   const pending = useRef(takePendingLink);
@@ -174,10 +174,10 @@ export function Root() {
 {s.screen === 'watchBuilder' && <WatchBuilderScreen />}
 {s.screen === 'commitments' && <CommitmentsScreen />}
 {s.screen === 'contextualAssistant' && <ContextualAssistantScreen />}
-          {s.screen === 'today' && <TodayScreen key="today" tabClearance={tabClearance} />}
-          {s.screen === 'calendar' && <CalendarScreen key="calendar" tabClearance={tabClearance} />}
-          {s.screen === 'things' && <ThingsScreen key="things" tabClearance={tabClearance} />}
-          {s.screen === 'watching' && <WatchingScreen key="watching" tabClearance={tabClearance} />}
+          {s.screen === 'today' && <TodayScreen key="today" />}
+          {s.screen === 'calendar' && <CalendarScreen key="calendar" />}
+          {s.screen === 'things' && <ThingsScreen key="things" />}
+          {s.screen === 'watching' && <WatchingScreen key="watching" />}
           {/* Opened from the avatar and pushed onto the tab it came from, so
               it shows without the bar and back returns to that tab. */}
           {s.screen === 'settings' && <SettingsScreen key="settings" />}
@@ -278,10 +278,10 @@ export function Root() {
           )}
           </VerifyEmailBanner>
           </OfflineBanner>
-          {/* The bar and the «احكيها» pill, at a tab root only. */}
-          {s.showTabs && <TabBar onClearanceChange={setTabClearance} />}
+          {/* A normal layout sibling: it reserves its own height and never covers rows. */}
+          {s.showTabs && <TabBar onClearanceChange={setToastClearance} />}
           {/* Above the bar and the pill when they show, so a toast never covers «احكيها». */}
-          <ToastHost clearance={s.showTabs ? tabClearance : undefined} />
+          <ToastHost clearance={s.showTabs ? toastClearance : undefined} />
           <SheetHost key={s.sheet ?? 'none'} />
         </View>
       </ShareProvider>

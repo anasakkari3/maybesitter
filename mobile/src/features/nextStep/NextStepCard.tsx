@@ -73,6 +73,7 @@ export function NextStepCard({ lookup }: {
 }) {
   const { t, tr } = useApp();
   const p = useReferencePalette();
+  const compact = useLayoutMode() !== 'normal';
   const query = useNextStep();
   const decide = useNextStepDecision();
   const [showWhy, setShowWhy] = useState(false);
@@ -111,7 +112,7 @@ export function NextStepCard({ lookup }: {
         <View
           testID="next-step-card"
           style={{
-            gap: 12, padding: 18, borderRadius: 22, borderWidth: 1, borderColor: p.heroEdge, backgroundColor: p.sf,
+            gap: compact ? 9 : 12, padding: compact ? 14 : 18, borderRadius: compact ? 18 : 22, borderWidth: 1, borderColor: p.heroEdge, backgroundColor: p.sf,
             // The one card with a halo (Stitch): coral, soft, below it.
             shadowColor: p.ac, shadowOpacity: p.shadow ? 0.12 : 0.22, shadowRadius: 22, shadowOffset: { width: 0, height: 8 }, elevation: 4,
           }}
@@ -285,7 +286,7 @@ function Ready({
       {stale ? <Txt size={13} color={p.wm} testID="next-step-stale">{t.nextStepStale}</Txt> : null}
 
       <Btn label={dueAside ? `${step.title}, ${dueAside}` : step.title} onPress={() => actions.openDetail(step.commitmentId)} scaleTo={0.99} testID="next-step-open" style={{ alignItems: 'flex-start', gap: 4 }}>
-        <Txt role="section" size={20} weight={700} color={p.tx} testID="next-step-title">{step.title}</Txt>
+        <Txt role="section" size={stacked ? 17 : 20} weight={700} color={p.tx} lines={2} testID="next-step-title">{step.title}</Txt>
         {dueAside ? <Txt size={13} color={p.mu} testID="next-step-due">{dueAside}</Txt> : null}
       </Btn>
 
@@ -296,7 +297,7 @@ function Ready({
         </View>
       ) : null}
 
-      {chips.length > 0 || (item && !item.importanceIsStated) ? (
+      {!stacked && (chips.length > 0 || (item && !item.importanceIsStated)) ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
           {chips.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
           {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
@@ -339,16 +340,16 @@ function Ready({
           {/* A started preparation is never a dead end (review of audit #2):
               «مش هلّق» and «مش هاي» stay, as the server offers them. */}
           {prepare && (offers('defer') || offers('dismiss')) ? (
-            <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: stacked ? 'stretch' : 'center' }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
               {offers('defer') ? (
                 <Btn testID="next-step-defer" label={ACTION_LABEL(strings).defer} disabled={busy} onPress={() => run('defer')}
-                  style={{ ...button('tertiary'), ...(stacked ? {} : { flex: 1 }) }}>
+                  style={{ ...button('tertiary'), flexGrow: 1, flexBasis: 120 }}>
                   <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center">{ACTION_LABEL(strings).defer}</Txt>
                 </Btn>
               ) : null}
               {offers('dismiss') ? (
                 <Btn testID="next-step-dismiss" label={ACTION_LABEL(strings).dismiss} disabled={busy} onPress={() => run('dismiss')}
-                  style={{ ...button('tertiary'), ...(stacked ? {} : { flex: 1 }) }}>
+                  style={{ ...button('tertiary'), flexGrow: 1, flexBasis: 120 }}>
                   <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center">{ACTION_LABEL(strings).dismiss}</Txt>
                 </Btn>
               ) : null}
@@ -368,22 +369,22 @@ function Ready({
               <Txt size={15} weight={600} color={busy ? p.disTx : p.onAccent} align="center" style={{ flexShrink: 1 }}>{ACTION_LABEL(strings).accept}</Txt>
             </Btn>
           ) : null}
-          <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8, alignItems: stacked ? 'stretch' : 'center' }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
             {offers('done') ? (
               <Btn testID="next-step-done" label={ACTION_LABEL(strings).done} disabled={busy} onPress={() => run('done')}
-                style={{ ...button('secondary'), ...(stacked ? {} : { flex: 1 }) }}>
+                style={{ ...button('secondary'), flexGrow: 1, flexBasis: 120 }}>
                 <Txt size={15} weight={600} color={busy ? p.disTx : p.tx} align="center">{ACTION_LABEL(strings).done}</Txt>
               </Btn>
             ) : null}
             {offers('defer') ? (
               <Btn testID="next-step-defer" label={ACTION_LABEL(strings).defer} disabled={busy} onPress={() => run('defer')}
-                style={{ ...button('tertiary'), ...(stacked ? {} : { flex: 1 }) }}>
+                style={{ ...button('tertiary'), flexGrow: 1, flexBasis: 120 }}>
                 <Txt size={14} weight={500} color={busy ? p.disTx : p.mu} align="center">{ACTION_LABEL(strings).defer}</Txt>
               </Btn>
             ) : null}
             {folded.length > 0 ? (
               <Btn testID="next-step-more" accessibilityState={{ expanded: more }} label={t.nextStepMore} onPress={onMore}
-                style={{ width: stacked ? undefined : 48, minHeight: 48, borderRadius: 999, backgroundColor: p.sf2, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
+                style={{ width: 48, minHeight: 48, borderRadius: 999, backgroundColor: p.sf2, borderWidth: 1, borderColor: p.ln, alignItems: 'center', justifyContent: 'center' }}>
                 <Txt size={18} weight={600} color={p.tx} latin>{more ? '×' : '…'}</Txt>
               </Btn>
             ) : null}

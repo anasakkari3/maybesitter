@@ -153,6 +153,13 @@ describe('the strip', () => {
 });
 
 describe('the open day', () => {
+  it('uses a readable agenda for a day with many commitments', async () => {
+    await show(Array.from({ length: 12 }, (_, index) => item(`crowded-${index}`, onDay(0, 9 + index))), []);
+    expect(screen.getByTestId('calendar-agenda-list')).toBeTruthy();
+    expect(screen.queryByTestId('calendar-timeline')).toBeNull();
+    expect(screen.getAllByTestId(/^calendar-item-crowded-/)).toHaveLength(12);
+  });
+
   it('opens on today', async () => {
     await show([item('mine', onDay(0))], [item('later', onDay(3))]);
     expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull();
@@ -280,7 +287,9 @@ describe('calendar timeline filters', () => {
     await waitFor(() => expect(screen.queryByTestId('calendar-filter-busy')).toBeNull());
     expect(screen.queryByTestId('calendar-busy-row')).toBeNull();
     expect(screen.queryByTestId('calendar-item-mine')).not.toBeNull();
-    expect(screen.getByTestId('calendar-filter-all').props.accessibilityState.selected).toBe(true);
+    // With nothing besides commitments left to filter, the whole filter row
+    // leaves too. The commitment itself remains visible.
+    expect(screen.queryByTestId('calendar-filter-all')).toBeNull();
   });
 });
 

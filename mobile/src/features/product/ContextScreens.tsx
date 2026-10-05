@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Platform, TextInput, View } from 'react-native';
+import { FlatList, Platform, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useConsents, useSetPersonalizationConsent, useCreateMemory, useMemory, useMemorySuggestion, useToday, useUpcoming } from '../../api/queries';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
@@ -15,9 +15,13 @@ import { toViewModel, type CommitmentView } from '../commitments/model';
 import { ServerToggle } from '../settings/ServerToggle';
 import { Btn, Card, Pill, Txt } from '../../ui/primitives';
 import { ProductPage, ProductSection, ProductRow, ProductActions } from '../../ui/product';
+import { Screen } from '../../ui/screen';
+import { BackHeader } from '../../ui/chrome';
+import { AvoidKeyboard, useSoftKeyboardShown } from '../../ui/keyboard';
 import { capabilities as cap } from './capabilities';
 import type { Commitment } from '../../api/schemas/common';
 import { ExportDataRow } from '../account/ExportDataRow';
+import { ReferenceIcon } from '../../ui/referenceIcons';
 
 export function uniqueCommitments(items: readonly Commitment[]) {
   return [...new Map(items.map(item => [item.id, item])).values()];
@@ -143,31 +147,67 @@ export function CommitmentsScreen() {
   const zone = useTimeZone();
   const today = useToday();
   const upcoming = useUpcoming();
+  const keyboardShown = useSoftKeyboardShown();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all'|'active'|'done'>('active');
   const [reverse, setReverse] = useState(false);
   const items = uniqueCommitments([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])]);
+  const needle = search.trim().toLocaleLowerCase(lang);
   const views = items.map(item => toViewModel(item, new Date().toISOString())).filter(item => item.status !== 'dropped'
-    && (filter === 'all' || item.status === filter) && item.title.toLocaleLowerCase(lang).includes(search.trim().toLocaleLowerCase(lang)))
+    && (filter === 'all' || item.status === filter) && item.title.toLocaleLowerCase(lang).includes(needle))
     .sort((a,b) => (a.shownAt ?? '9999').localeCompare(b.shownAt ?? '9999') * (reverse ? -1 : 1));
-  return <ProductPage id="commitments" title={t.xCommitments} subtitle={t.xCurrentHorizon}>
-    {search.trim() ? null : <ProductActions><Pill label={t.tabCalendar} kind="outline" onPress={() => actions.go('calendar')} /><Pill label={t.xAdd} kind="soft" onPress={() => actions.go('addToMaybeSitter')} /></ProductActions>}
+  const when = (item: CommitmentView) => item.shownAt
+    ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })}${item.allDay ? '' : ` · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`}`
+    : t.xUntimed;
+
+  return <Screen testID="product-commitments" pinned={<View style={{ gap: 8 }}>
+    {keyboardShown ? null : <BackHeader title={t.xCommitments} onBack={() => actions.back()} />}
     <TextInput testID="commitments-search" accessibilityLabel={t.xSearch} placeholder={t.xSearch} placeholderTextColor={p.mu}
-      value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 18, padding: 16, minHeight: 52, fontSize: 17, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
+      value={search} onChangeText={setSearch} style={{ backgroundColor: p.sf, borderColor: p.lnStrong, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, paddingVertical: 0, minHeight: 44, fontSize: 14, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }} />
     <View style={{ flexDirection: 'row', gap: 8 }}>
-      {(['all','active','done'] as const).map(key => <Btn key={key} label={key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone} accessibilityRole="radio" accessibilityState={{ checked: filter === key }}
-        onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? p.acs : p.sf, borderRadius: 16, paddingHorizontal: 8, paddingVertical: 10, minHeight: 48, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      {(['active','done','all'] as const).map(key => <Btn key={key} label={key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone} accessibilityRole="radio" accessibilityState={{ checked: filter === key }}
+        onPress={() => setFilter(key)} style={{ backgroundColor: filter === key ? p.acs : p.sf, borderRadius: 14, paddingHorizontal: 8, minHeight: 44, flex: 1, alignItems: 'center', justifyContent: 'center' }}>
         <Txt role="label" color={filter === key ? p.ac : p.tx}>{key === 'all' ? t.xAll : key === 'active' ? t.xOpen : t.xDone}</Txt>
       </Btn>)}
     </View>
-    {search.trim() ? null : <Pill label={reverse ? t.xSortLatest : t.xSortEarliest} kind="outline" testID="commitments-sort" onPress={() => setReverse(value => !value)} />}
-    <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
-      {views.length === 0 ? <ProductSection title={t.xNoResults} icon="check" /> : null}
-      {views.map(item => <ProductRow key={item.id} id={`commitments-item-${item.id}`} title={isolateAuto(item.title)} icon={item.status === 'done' ? 'check' : 'calendar'}
-        body={[item.status === 'done' ? t.xDone : t.xOpen, item.shownAt ? `${formatDate(new Date(item.shownAt), 'short', { locale: lang, timeZone: zone })}${item.allDay ? '' : ` · ${formatTime(new Date(item.shownAt), { locale: lang, timeZone: zone })}`}` : t.xUntimed].join(' · ')}
-        onPress={() => actions.openDetail(item.id)} />)}
-    </QueryBoundary>
-  </ProductPage>;
+  </View>}>
+    <AvoidKeyboard>
+      <QueryBoundary isPending={today.isPending || upcoming.isPending} error={today.error ?? upcoming.error} onRetry={() => { void today.refetch(); void upcoming.refetch(); }}>
+        <FlatList
+          testID="commitments-list"
+          style={{ flex: 1 }}
+          data={views}
+          keyExtractor={item => item.id}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 60, gap: 8 }}
+          ListHeaderComponent={<View style={{ gap: 8, paddingBottom: 4 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+              <Txt size={13} color={p.mu} testID="commitments-result-count">{`${t.xCurrentHorizon} · ${views.length}`}</Txt>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Btn label={reverse ? t.xSortLatest : t.xSortEarliest} testID="commitments-sort" onPress={() => setReverse(value => !value)}
+                  style={{ minHeight: 44, justifyContent: 'center', paddingHorizontal: 10, borderRadius: 12, backgroundColor: p.sf, borderWidth: 1, borderColor: p.ln }}>
+                  <Txt size={13} color={p.tx}>{reverse ? t.xSortLatest : t.xSortEarliest}</Txt>
+                </Btn>
+                {!needle ? <Btn label={t.xAdd} testID="commitments-add" onPress={() => actions.go('addToMaybeSitter')}
+                  style={{ width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: p.acs, borderWidth: 1, borderColor: p.ac }}>
+                  <ReferenceIcon name="plus" size={20} color={p.acd} />
+                </Btn> : null}
+              </View>
+            </View>
+          </View>}
+          ListEmptyComponent={<View style={{ paddingVertical: 28 }}><Txt role="supporting" color={p.mu}>{t.xNoResults}</Txt></View>}
+          renderItem={({ item }) => <Btn testID={`commitments-item-${item.id}`} label={`${item.title}. ${when(item)}`} onPress={() => actions.openDetail(item.id)}
+            style={{ minHeight: 56, borderRadius: 14, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, paddingHorizontal: 12, paddingVertical: 7, justifyContent: 'center', gap: 2 }}>
+            <Txt size={15} weight={600} lines={2}>{isolateAuto(item.title)}</Txt>
+            <Txt size={13} color={p.mu} lines={1}>{`${item.status === 'done' ? t.xDone : t.xOpen} · ${when(item)}`}</Txt>
+          </Btn>}
+        />
+      </QueryBoundary>
+    </AvoidKeyboard>
+  </Screen>;
 }
 
 export function ContextualAssistantScreen() {
