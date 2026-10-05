@@ -572,6 +572,8 @@ function importanceInk(importance: CommitmentView['importance'], p: ReturnType<t
  * first screen. «مهم» and «حلو» fold to one line — their chip, the first
  * item and its time, and how many more — and open on a tap.
  */
+const DAY_GROUP_PREVIEW = 3;
+
 function Group({ kind, items, timezone, lang, busy, football }: {
   kind: 'must' | 'should' | 'nice';
   items: CommitmentView[];
@@ -580,14 +582,20 @@ function Group({ kind, items, timezone, lang, busy, football }: {
   busy: readonly DeviceBusyBlock[];
   football: ReadonlySet<string>;
 }) {
-  const { t, tr } = useApp();
+  const { t, tr, actions } = useApp();
   const p = useReferencePalette();
   const [open, setOpen] = useState(false);
   if (items.length === 0) return null;
   const title = (t as unknown as Record<string, string>)[GROUP_TITLE[kind]]!;
-  const rows = items.map((item, index) => (
+  const rows = items.slice(0, DAY_GROUP_PREVIEW).map((item, index) => (
     <Row key={item.id} item={item} first={index === 0} timezone={timezone} lang={lang} busy={busy} football={football.has(item.id)} />
   ));
+  const more = items.length > DAY_GROUP_PREVIEW ? (
+    <Btn testID={`today-group-${kind}-all`} label={`${t.todayShowFinished} · ${t.xCommitments}`} onPress={() => actions.go('commitments')}
+      style={{ minHeight: 48, paddingHorizontal: 14, justifyContent: 'center', borderRadius: 14, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf }}>
+      <Txt size={14} weight={600} color={p.ac}>{`${t.todayShowFinished} · ${t.xCommitments}`}</Txt>
+    </Btn>
+  ) : null;
 
   if (kind === 'must') {
     return (
@@ -597,6 +605,7 @@ function Group({ kind, items, timezone, lang, busy, football }: {
           <Txt size={13} weight={500} color={p.mu}>{tr('todayCountOpen', { n: items.length })}</Txt>
         </View>
         {rows}
+        {more}
       </View>
     );
   }
@@ -618,7 +627,7 @@ function Group({ kind, items, timezone, lang, busy, football }: {
         <Txt size={13} weight={500} color={p.mu} style={{ flex: 1 }} testID={`today-group-${kind}-preview`}>{preview}</Txt>
         <View style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}><ReferenceIcon name="chevron-down" size={18} color={p.mu} /></View>
       </Btn>
-      {open ? rows : null}
+      {open ? <>{rows}{more}</> : null}
     </View>
   );
 }

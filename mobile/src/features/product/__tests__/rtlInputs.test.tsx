@@ -18,9 +18,12 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { CommitmentsScreen, PersonalizationScreen } from '../ContextScreens';
 import mockFixture from '../../../api/__fixtures__/memory.withSuggestion.json';
 import ar from '../../../i18n/locales/ar.json';
+import one from '../../../api/__fixtures__/commitments.one.json';
+
+let mockDenseItems: unknown[] = [];
 
 jest.mock('../../../api/queries', () => ({
-  useToday: () => ({ data: { items: [] }, isPending: false, error: null, refetch: jest.fn() }),
+  useToday: () => ({ data: { items: mockDenseItems }, isPending: false, error: null, refetch: jest.fn() }),
   useUpcoming: () => ({ data: { items: [] }, isPending: false, error: null, refetch: jest.fn() }),
   useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({ data: mockFixture, isPending: false, error: null, refetch: jest.fn() }),
@@ -33,6 +36,7 @@ jest.mock('../../../api/queries', () => ({
 const metrics = { frame: { x: 0, y: 0, width: 390, height: 844 }, insets: { top: 47, left: 0, right: 0, bottom: 34 } };
 
 afterEach(async () => {
+  mockDenseItems = [];
   await cleanup();
   await AsyncStorage.clear();
 });
@@ -60,5 +64,23 @@ describe('text fields in Arabic start on the right', () => {
     await fireEvent.press((await screen.findAllByLabelText(ar.memoryEdit))[0]!);
     expect(styleOf('personalization-edit-input').textAlign).toBe('right');
     expect(styleOf('personalization-edit-input').writingDirection).toBe('rtl');
+  });
+});
+
+describe('a crowded commitment list', () => {
+  it('keeps search and status controls visible while a late item is found among 60', async () => {
+    mockDenseItems = Array.from({ length: 60 }, (_, index) => ({
+      ...one,
+      id: `dense-${index}`,
+      title: index === 54 ? 'Renew passport needle' : `Commitment ${index}`,
+      timeSpec: { ...one.timeSpec, dueAt: new Date(Date.UTC(2099, 0, index + 1, 10)).toISOString() },
+    }));
+    await show('en', <CommitmentsScreen />);
+    expect(screen.getByTestId('commitments-list')).toBeTruthy();
+    expect(screen.getByTestId('commitments-result-count').props.children).toContain('60');
+    await fireEvent.changeText(screen.getByTestId('commitments-search'), 'needle');
+    expect(screen.getByTestId('commitments-result-count').props.children).toContain('1');
+    expect(screen.getByTestId('commitments-item-dense-54')).toBeTruthy();
+    expect(screen.getByTestId('commitments-search')).toBeTruthy();
   });
 });

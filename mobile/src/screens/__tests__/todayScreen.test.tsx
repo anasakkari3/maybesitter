@@ -143,6 +143,12 @@ async function openGroups() {
 }
 
 describe('the day comes from the account', () => {
+  it('keeps a crowded day short and provides the complete list', async () => {
+    await show(Array.from({ length: 40 }, (_, index) => withPriority(`crowded-${index}`, 'high')));
+    expect(within(screen.getByTestId('today-group-must')).getAllByTestId(/^today-item-/)).toHaveLength(3);
+    expect(screen.getByTestId('today-group-must-all').props.accessibilityLabel).toContain(en.xCommitments);
+  });
+
   it('shows what the server sent, in the groups the user chose', async () => {
     await show([withPriority('m', 'high'), withPriority('m2', 'high'), withPriority('s', 'normal'), withPriority('n', 'low')]);
     // The top item is the primary card (Round 2): shown once, there, and

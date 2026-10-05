@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TextInput, View } from 'react-native';
+import { FlatList, TextInput, View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { useHabits, useMemory, useSeeds, useToday, useUpcoming } from '../../api/queries';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
@@ -15,7 +15,8 @@ import { HubHeading, HubRow } from '../../ui/hub';
 import { Btn, Txt } from '../../ui/primitives';
 import { ReferenceIcon } from '../../ui/referenceIcons';
 import { ChevronIcon } from '../../ui/icons';
-import { Screen, ScreenScroll, TAB_CLEARANCE } from '../../ui/screen';
+import { Screen, ScreenScroll, TAB_CLEARANCE, FLOATING_GAP } from '../../ui/screen';
+import { AvoidKeyboard, useSoftKeyboardShown } from '../../ui/keyboard';
 
 /** Seeds that are still something the person is weighing up. */
 const LIVE_SEED = new Set(['open', 'snoozed', 'waiting']);
@@ -39,6 +40,7 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
   const habits = useHabits();
   const seeds = useSeeds();
   const [search, setSearch] = useState('');
+  const keyboardShown = useSoftKeyboardShown();
 
   const now = new Date().toISOString();
   const records = uniqueCommitments([...(today.data?.items ?? []), ...(upcoming.data?.items ?? [])]);
@@ -60,11 +62,16 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
     ? `${formatDate(new Date(view.shownAt), 'short', { locale: lang, timeZone: zone })}${view.allDay ? '' : ` · ${formatTime(new Date(view.shownAt), { locale: lang, timeZone: zone })}`}`
     : t.xUntimed;
   const impLabel = (view: CommitmentView) => view.importance === 'must' ? t.todayGroupMust : view.importance === 'should' ? t.todayGroupShould : t.todayGroupNice;
+  const results = needle.length === 0 ? [] : [
+    ...views.filter(({ view }) => matches(view.title)).map(({ view }) => ({ kind: 'commitment' as const, id: view.id, view })),
+    ...goals.filter(goal => matches(goal.content)).map(goal => ({ kind: 'goal' as const, id: goal.id, goal })),
+    ...habitItems.filter(habit => matches(habit.title)).map(habit => ({ kind: 'habit' as const, id: habit.habitId, habit })),
+    ...seedItems.filter(seed => matches(seed.summary)).map(seed => ({ kind: 'seed' as const, id: seed.seedId, seed })),
+  ];
 
   return (
-    <Screen testID="things-root">
-      <ScreenScroll testID="things-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
-        <ScreenHeader brand={false} title={t.tabThings} end={<AvatarButton />} />
+    <Screen testID="things-root" pinned={<View style={{ gap: 10 }}>
+        {keyboardShown ? null : <ScreenHeader brand={false} title={t.tabThings} end={<AvatarButton />} />}
         <View style={{ minHeight: 48, borderRadius: 16, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, gap: 8 }}>
           <ReferenceIcon name="search" size={20} color={p.mu} />
           <TextInput
@@ -78,29 +85,27 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
             style={{ flex: 1, minHeight: 46, fontSize: 15, color: p.tx, textAlign: rtl ? 'right' : 'left', writingDirection: rtl ? 'rtl' : 'ltr' }}
           />
         </View>
-
-        {needle.length > 0 ? (
-          <View testID="things-results" style={{ gap: 10 }}>
-            {(() => {
-              const rows = [
-                ...views.filter(({ view }) => matches(view.title)).map(({ view }) => (
-                  <SavedRow key={`c-${view.id}`} view={view} when={whenOf(view)} imp={impLabel(view)} onPress={() => actions.openDetail(view.id)} />
-                )),
-                ...goals.filter(goal => matches(goal.content)).map(goal => (
-                  <HubRow key={`g-${goal.id}`} testID={`things-result-goal-${goal.id}`} icon="flag" tone="attention" title={isolateAuto(goal.content)} sub={t.thingsGoals} onPress={() => actions.openGoal(goal.id)} />
-                )),
-                ...habitItems.filter(habit => matches(habit.title)).map(habit => (
-                  <HubRow key={`h-${habit.habitId}`} testID={`things-result-habit-${habit.habitId}`} icon="repeat" tone="success" title={isolateAuto(habit.title)} sub={t.thingsHabits} onPress={() => actions.go('habitDetail')} />
-                )),
-                ...seedItems.filter(seed => matches(seed.summary)).map(seed => (
-                  <HubRow key={`s-${seed.seedId}`} testID={`things-result-seed-${seed.seedId}`} icon="bulb" title={isolateAuto(seed.summary)} sub={t.thingsIdeas} onPress={() => actions.go('seeds')} />
-                )),
-              ];
-              return rows.length > 0 ? rows : <Txt role="supporting" color={p.mu} testID="things-no-results">{t.xNoResults}</Txt>;
-            })()}
+    </View>}>
+      {needle.length > 0 ? (
+        <AvoidKeyboard>
+          <View testID="things-results" style={{ flex: 1 }}>
+            <FlatList testID="things-results-list" data={results} keyExtractor={item => `${item.kind}-${item.id}`}
+              style={{ flex: 1, marginBottom: Math.max(0, tabClearance - FLOATING_GAP) }}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: FLOATING_GAP, gap: 10 }}
+              keyboardShouldPersistTaps="handled" initialNumToRender={10} maxToRenderPerBatch={10} windowSize={7}
+              ListEmptyComponent={<Txt role="supporting" color={p.mu} testID="things-no-results">{t.xNoResults}</Txt>}
+              renderItem={({ item }) => item.kind === 'commitment'
+                ? <SavedRow view={item.view} when={whenOf(item.view)} imp={impLabel(item.view)} onPress={() => actions.openDetail(item.id)} />
+                : item.kind === 'goal'
+                  ? <HubRow testID={`things-result-goal-${item.id}`} icon="flag" tone="attention" title={isolateAuto(item.goal.content)} sub={t.thingsGoals} onPress={() => actions.openGoal(item.id)} />
+                  : item.kind === 'habit'
+                    ? <HubRow testID={`things-result-habit-${item.id}`} icon="repeat" tone="success" title={isolateAuto(item.habit.title)} sub={t.thingsHabits} onPress={() => actions.go('habitDetail')} />
+                    : <HubRow testID={`things-result-seed-${item.id}`} icon="bulb" title={isolateAuto(item.seed.summary)} sub={t.thingsIdeas} onPress={() => actions.go('seeds')} />}
+            />
           </View>
-        ) : (
-          <>
+        </AvoidKeyboard>
+      ) : (
+        <ScreenScroll testID="things-scroll" floating={tabClearance} gap={12} topGap={8} keyboardShouldPersistTaps="handled">
             <View style={{ gap: 10 }}>
               <HubRow testID="things-commitments" icon="clipboard" tone="accent" title={t.xCommitments}
                 sub={commitmentsLoaded ? fill(t.thingsCommitmentsSub, { timed, untimed: active.length - timed }) : undefined}
@@ -130,9 +135,8 @@ export function ThingsScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: 
                   ))}
                 </View>}
             </QueryBoundary>
-          </>
-        )}
-      </ScreenScroll>
+        </ScreenScroll>
+      )}
     </Screen>
   );
 }

@@ -193,6 +193,9 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
   const untimed = visibleRows.filter((row): row is Extract<PlanRow, { kind: 'commitment' }> => row.kind === 'commitment' && (row.clock === null || row.offDay));
   const allDay = visibleRows.filter(row => row.kind === 'busy' && row.block.allDay);
   const timed = visibleRows.filter(row => !untimed.includes(row as never) && !allDay.includes(row));
+  // With many points at nearby hours, the proportional timeline makes narrow
+  // overlapping cards. The ordered agenda keeps every row readable.
+  const crowdedDay = timed.filter(row => row.kind === 'commitment').length > 7;
   const loadOf = (key: string) => dayLoad(
     (byDay.get(key)?.length ?? 0)
     + (calendarConnected ? (busyByDay.get(key)?.length ?? 0) : 0)
@@ -330,7 +333,7 @@ export function CalendarScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?
 
           {allDay.length > 0 ? <DayAgenda rows={allDay} /> : null}
           {timed.length > 0
-            ? (stacked ? <DayAgenda rows={timed} /> : <DayTimeline rows={timed} day={selectedKey} nowIso={selectedKey === todayKey ? now.toISOString() : null} />)
+            ? (stacked || crowdedDay ? <DayAgenda rows={timed} /> : <DayTimeline rows={timed} day={selectedKey} nowIso={selectedKey === todayKey ? now.toISOString() : null} />)
             : null}
           {visibleRows.length === 0 ? (
             <View style={{ paddingVertical: 24, paddingHorizontal: 12, borderRadius: 20, borderWidth: 1, borderColor: p.ln, backgroundColor: p.sf }} testID={dayRows.length === 0 ? 'calendar-day-free' : 'calendar-filter-empty'}>
