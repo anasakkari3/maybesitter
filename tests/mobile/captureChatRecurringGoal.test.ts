@@ -614,8 +614,11 @@ test('round 2 #6: said on Monday morning, «every Monday and Wednesday» keeps t
 });
 
 test('round 2 #6: "Gym (Mon)" and "Gym (Wed)" stay two, each on its own day', async () => {
-  const { body } = await chatOnce('Round2Abbrev', 'every Monday and Wednesday at 6pm gym', [enItem('Gym (Mon)', MONDAY, '18:00'), enItem('Gym (Wed)', WEDNESDAY, '18:00')]);
-  assert.deepEqual(body.proposal!.items.map((entry) => entry.resolvedTime).sort(), [at(MONDAY, '18:00'), at(WEDNESDAY, '18:00')].sort());
+  const monday = '2026-10-05';
+  const wednesday = '2026-10-07';
+  const { body } = await chatOnce('Round2Abbrev', 'every Monday and Wednesday at 6pm gym',
+    [enItem('Gym (Mon)', monday, '18:00'), enItem('Gym (Wed)', wednesday, '18:00')], { now: MON_10 });
+  assert.deepEqual(body.proposal!.items.map((entry) => entry.resolvedTime).sort(), [at(monday, '18:00'), at(wednesday, '18:00')].sort());
 });
 
 test('round 2 #7: no weekly line for one day, while anything is asked, or when the reply already says weekly', async () => {
