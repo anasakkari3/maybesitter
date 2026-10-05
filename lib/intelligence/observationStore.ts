@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { getStorage, INTELLIGENCE_OBSERVATIONS, requireUserId, userCol, type StorageAdapter } from '../storage';
+import { createStorageRuntimeMemoryStore } from '../runtimeMemory/runtimeMemoryStore';
 import type { SemanticObservation } from './semantic';
 
 export type ObservationSource = 'manual' | 'gmail' | 'calendar' | 'drive' | 'share' | 'behavior' | 'memory' | 'commitment';
@@ -99,11 +100,33 @@ export async function reviewObservation(
   storage: StorageAdapter = getStorage(),
 ): Promise<StoredObservation | null> {
   if (!Number.isFinite(Date.parse(at))) throw new Error('invalid review time');
-  return storage.runTransaction(async tx => {
+  const reviewed = await storage.runTransaction(async tx => {
     const current = await tx.get<StoredObservation>(path(uid, id));
     if (!current) return null;
     if (current.review !== 'pending') return current;
     const next = { ...current, review, reviewedAt: at };
+    tx.set(path(uid, id), next);
+    return next;
+  });
+  if (!reviewed || reviewed.review !== 'confirmed' || reviewed.kind !== 'goal' || reviewed.linkedMemoryId) return reviewed;
+
+  // A retry after a memory write failure must finish the same goal, not
+  // confirm a second copy. The review is claimed first so a concurrent
+  // dismissal cannot create memory for an observation the person rejected.
+  const content = reviewed.evidence.trim();
+  const language = /[\u0590-\u05ff]/.test(content) ? 'he'
+    : /[\u0600-\u06ff]/.test(content) ? 'ar' : 'en';
+  const memory = await createStorageRuntimeMemoryStore(undefined, storage).putIdempotent({
+    scopeId: uid, kind: 'goal', content, language,
+    source: 'model_inferred', confidence: reviewed.confidence,
+    observedAt: reviewed.observedAt, evidenceIds: [reviewed.id],
+    provenance: { origin: 'proactive_suggestion', originRef: reviewed.id, confirmedByUserAt: reviewed.reviewedAt ?? at },
+  }, reviewed.reviewedAt ?? at, `observation-goal:${reviewed.id}`);
+  return storage.runTransaction(async tx => {
+    const current = await tx.get<StoredObservation>(path(uid, id));
+    if (!current) return null;
+    if (current.review !== 'confirmed' || current.linkedMemoryId) return current;
+    const next = { ...current, linkedMemoryId: memory.id };
     tx.set(path(uid, id), next);
     return next;
   });

@@ -21,6 +21,7 @@ import en from '../../../i18n/locales/en.json';
 import { fill } from '../../../i18n/strings';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as profileEndpoints from '../../../api/endpoints/profile';
+import * as consentEndpoints from '../../../api/endpoints/consents';
 import * as habitEndpoints from '../../../api/endpoints/habits';
 import * as seedEndpoints from '../../../api/endpoints/seeds';
 import * as intelligenceEndpoints from '../../../api/endpoints/intelligence';
@@ -77,6 +78,13 @@ beforeEach(async () => {
   resetVisitThrottleForTests();
   onlineManager.setOnline(true);
   client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue({
+    success: true,
+    currentVersions: { aiProcessing: 'ai-consent-v1', recommendations: 'rec-consent-v1' },
+    aiProcessing: { state: 'granted', version: 'ai-consent-v1', changedAt: null, asked: true },
+    recommendations: { state: 'granted', version: 'rec-consent-v1', changedAt: null, asked: true },
+    personalization: { state: 'declined', version: null, changedAt: null, asked: false },
+  } as never);
 });
 
 afterEach(async () => {

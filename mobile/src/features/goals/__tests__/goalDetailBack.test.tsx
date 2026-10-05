@@ -26,6 +26,7 @@ const progress = {
 };
 
 jest.mock('../../../api/queries', () => ({
+  useConsents: () => ({ data: { recommendations: { state: 'granted' } } }),
   useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({ data: { items: [{ id: 'goal-1', kind: 'goal', content: 'Launch the pilot' }] }, isPending: false, error: null, refetch: jest.fn() }),
   useCreateMemory: () => ({ mutate: jest.fn(), isPending: false, error: null }),

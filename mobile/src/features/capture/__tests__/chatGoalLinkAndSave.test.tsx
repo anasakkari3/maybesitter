@@ -7,13 +7,13 @@
  *       (no conversation) links nothing.
  *   #1  after a save, the confirm's clash warnings are one message, not one
  *       per pair: three items at one hour came back as six lines.
- *   #8  a new proposal scrolls its confirm into view above the composer, and
+ *   #8  a new proposal scrolls to its first decision, and
  *       a save does not focus the empty composer (its keyboard hid the line
  *       saying what was saved).
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { ScrollView } from 'react-native';
+import { ScrollView, Text } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -269,7 +269,7 @@ describe('audit #8: a new proposal brings its confirm into view', () => {
   };
   const layout = (y: number, height: number) => ({ nativeEvent: { layout: { x: 0, y, width: 390, height } } });
 
-  /** One proposal laid out: the window, the schedule block, its card, and the confirm inside it. */
+  /** One proposal laid out: the window and the start of the review. */
   const lay = async (viewport: number, blockY: number, confirmY: number) => {
     await fireEvent(screen.getByTestId('review-scroll'), 'layout', layout(0, viewport));
     await fireEvent(screen.getByTestId('chat-schedule'), 'layout', layout(blockY, 400));
@@ -277,20 +277,19 @@ describe('audit #8: a new proposal brings its confirm into view', () => {
     await fireEvent(screen.getByTestId('chat-add-schedule'), 'layout', layout(confirmY, 52));
   };
 
-  it('scrolls once per proposal so the confirm sits above the composer, never past it', async () => {
+  it('scrolls once per proposal to the first review card', async () => {
     const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo').mockImplementation(() => {});
     scrollTo.mockClear();
     await render(<SayItChatPage {...baseProps} revealConfirmKey="p-1" />);
     await lay(500, 640, 300);
-    // 640 + 300 + 52 + 16 − 500: the confirm's bottom at the window's bottom.
-    expect(scrollTo).toHaveBeenLastCalledWith({ y: 508, animated: true });
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 624, animated: true });
     const calls = scrollTo.mock.calls.length;
     // The same proposal laid out again does not pull the person back down.
     await fireEvent(screen.getByTestId('review-scroll'), 'layout', layout(0, 480));
     expect(scrollTo.mock.calls.length).toBe(calls);
   });
 
-  it('a new proposal waits for its own layout: a list that grew from one card to three is scrolled to its new confirm', async () => {
+  it('a new proposal waits for its own layout and shows the first card even when the list grew', async () => {
     const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo').mockImplementation(() => {});
     scrollTo.mockClear();
     const view = await render(<SayItChatPage {...baseProps} revealConfirmKey="p-1" />);
@@ -299,16 +298,25 @@ describe('audit #8: a new proposal brings its confirm into view', () => {
     // The next proposal arrives: nothing is scrolled on the last one's numbers.
     await view.rerender(<SayItChatPage {...baseProps} revealConfirmKey="p-2" reduceMotion />);
     expect(scrollTo.mock.calls).toEqual([]);
-    // Its own layout — three cards, the confirm 500 points lower — decides, and under reduce motion it jumps.
+    // Its own start position decides, even when the confirm is much lower.
     await lay(500, 640, 800);
-    expect(scrollTo.mock.calls).toEqual([[{ y: 1008, animated: false }]]);
+    expect(scrollTo.mock.calls).toEqual([[{ y: 624, animated: false }]]);
   });
 
-  it('does not scroll when the confirm is already in view', async () => {
+  it('does not scroll when the first card is already in view', async () => {
     const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo').mockImplementation(() => {});
     scrollTo.mockClear();
     await render(<SayItChatPage {...baseProps} revealConfirmKey="p-1" />);
     await lay(800, 100, 200);
     expect(scrollTo.mock.calls).toEqual([]);
+  });
+
+  it('shows the clarification question before the cards', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype as unknown as { scrollTo: (...args: unknown[]) => void }, 'scrollTo').mockImplementation(() => {});
+    await render(<SayItChatPage {...baseProps} revealConfirmKey="p-1" clarification={<Text>Which time?</Text>} />);
+    await fireEvent(screen.getByTestId('review-scroll'), 'layout', layout(0, 500));
+    await fireEvent(screen.getByTestId('chat-schedule'), 'layout', layout(720, 400));
+    await fireEvent(screen.getByTestId('chat-clarification'), 'layout', layout(540, 150));
+    expect(scrollTo).toHaveBeenLastCalledWith({ y: 524, animated: true });
   });
 });

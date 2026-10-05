@@ -41,7 +41,7 @@ jest.mock('../../../auth/AuthProvider', () => ({
 }));
 jest.mock('../../../api/queries', () => ({
   useUid: () => 'u',
-  useConsents: query({ currentVersions: { personalization: 'v1' }, personalization: null }),
+  useConsents: query({ currentVersions: { personalization: 'v1' }, personalization: null, recommendations: { state: 'granted' } }),
   useSetPersonalizationConsent: mutation(),
   useIntelligenceDecided: () => () => undefined,
   useMemory: query({ items: [{ id: 'goal-1', kind: 'goal', content: 'Launch the pilot', createdAt: '2026-09-20T10:00:00.000Z' }], suggestions: [] }),

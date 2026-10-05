@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../../lib/auth/mobileAuth';
 import { intelligenceDisabledResponse } from '../../../../../../../lib/intelligence/gate';
+import { getRecommendationConsent } from '../../../../../../../lib/consents/recommendationConsentService';
 import { InvalidSuggestionEditError, QuestionAnswerRequiredError, SuggestionScheduleChangedError, reviewSuggestion } from '../../../../../../../lib/intelligence/reviewSuggestion';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../../lib/net/requestBody';
 
@@ -21,6 +22,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const slot = (body as { slot?: unknown } | null)?.slot;
   if (decision !== 'accept' && decision !== 'dismiss') {
     return Response.json({ success: false, reason: 'invalid_decision' }, { status: 400 });
+  }
+  if (decision === 'accept' && await getRecommendationConsent(user.uid) !== 'granted') {
+    return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
   }
   if (title !== undefined && (typeof title !== 'string' || title.trim().length < 4 || title.trim().length > 100)) {
     return Response.json({ success: false, reason: 'invalid_title' }, { status: 400 });

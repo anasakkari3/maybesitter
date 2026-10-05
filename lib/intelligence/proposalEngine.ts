@@ -229,6 +229,35 @@ export function validateSuggestions(raw: unknown, observations: readonly StoredO
   return result;
 }
 
+/**
+ * A model can shift a saved appointment by an hour while explaining a new
+ * idea. When it cites confirmed work, show the work's own title and wall
+ * clock instead of trusting a paraphrased time in the generated reason.
+ */
+export function groundCommitmentReasons(
+  suggestions: readonly IntelligenceSuggestion[],
+  observations: readonly StoredObservation[],
+  work: readonly { id: string; title: string; timeSpec: { dueAt?: string | null; allDay?: boolean } }[],
+  timezone: string,
+): IntelligenceSuggestion[] {
+  const sources = new Map(observations.map(item => [item.id, item]));
+  const saved = new Map(work.map(item => [item.id, item]));
+  return suggestions.map(item => {
+    const cited = item.observationIds.map(id => sources.get(id))
+      .filter((source): source is StoredObservation => source?.source === 'commitment')
+      .map(source => saved.get(source.sourceRef))
+      .filter((record): record is NonNullable<typeof record> => record !== undefined);
+    if (cited.length === 0) return item;
+    const record = cited[0]!;
+    const at = localWallClock(record.timeSpec.dueAt ?? null, timezone, record.timeSpec.allDay);
+    const details = at ? `${record.title} (${at})` : record.title;
+    const reason = /[\u0590-\u05ff]/.test(item.title) ? `מבוסס על ההתחייבות ששמרת: ${details}`
+      : /[\u0600-\u06ff]/.test(item.title) ? `مبني على التزامك المسجّل: ${details}`
+        : `Based on your saved commitment: ${details}`;
+    return { ...item, reason };
+  });
+}
+
 let generatorForTests: ShareStructuredGenerator | null = null;
 
 /** Route-level tests run the real loop with a fake model; production never sets this. */
@@ -397,7 +426,7 @@ export async function proposeFromObservations(
       timeoutMs: 8_000,
       retry: false,
     });
-    suggestions = validateSuggestions(JSON.parse(response.text), observations, now);
+    suggestions = groundCommitmentReasons(validateSuggestions(JSON.parse(response.text), observations, now), observations, knownWork, zone);
     if (observations.some(item => item.kind === 'event')
       && !suggestions.some(item => item.kind === 'action'
         && item.observationIds.some(id => observations.find(observation => observation.id === id)?.kind === 'event'))) {
@@ -411,7 +440,7 @@ export async function proposeFromObservations(
           retry: false,
         });
         const eventIds = new Set(observations.filter(item => item.kind === 'event').map(item => item.id));
-        const extra = validateSuggestions(JSON.parse(preparation.text), observations, now)
+        const extra = groundCommitmentReasons(validateSuggestions(JSON.parse(preparation.text), observations, now), observations, knownWork, zone)
           .find(item => item.kind === 'action' && item.observationIds.some(id => eventIds.has(id))
             && !suggestions.some(existing => existing.id === item.id));
         if (extra) {

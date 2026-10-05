@@ -15,6 +15,7 @@ const mockUnlink = jest.fn();
 let mockHabits: unknown[] = [];
 
 jest.mock('../../../api/queries', () => ({
+  useConsents: () => ({ data: { recommendations: { state: 'granted' } } }),
   useIntelligenceDecided: () => () => undefined,
   useMemory: () => ({
     data: { items: [{ id: 'goal-1', kind: 'goal', content: 'Launch the pilot' }] },

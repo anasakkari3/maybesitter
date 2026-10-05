@@ -24,6 +24,11 @@ const mockMonitor = jest.fn<any>();
 const mockSetMonitor = jest.fn<any>();
 const onChanged = jest.fn();
 let currentInbox: any;
+let mockRecommendationState: 'granted' | 'declined' = 'granted';
+
+jest.mock('../../../api/queries', () => ({
+  useConsents: () => ({ data: { recommendations: { state: mockRecommendationState } } }),
+}));
 
 jest.mock('../../../api/endpoints/intelligence', () => ({
   analyzeIntelligenceStatement: (...args: unknown[]) => mockAnalyze(...args),
@@ -61,6 +66,7 @@ const settle = () => act(async () => { await new Promise(resolve => setTimeout(r
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  mockRecommendationState = 'granted';
   // The production build (review of 2026-10-03): the loop was released to
   // production on 2026-10-01, and whether it shows is the server's answer.
   process.env.EXPO_PUBLIC_APP_ENV = 'production';
@@ -116,6 +122,17 @@ it('shows in a production build when the server answers, with each suggestion ma
   expect(screen.getAllByText(en.suggestionNote)).toHaveLength(1);
   // Showing is not deciding.
   expect(mockDecide).not.toHaveBeenCalled();
+  expect(mockGenerate).not.toHaveBeenCalled();
+});
+
+it('keeps evidence review available but does not show or generate suggestions when recommendations are off', async () => {
+  mockRecommendationState = 'declined';
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  await render(watching());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-observation-obs-1')).not.toBeNull());
+  expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).toBeNull();
+  expect(screen.queryByTestId('intelligence-generate')).toBeNull();
+  await settle();
   expect(mockGenerate).not.toHaveBeenCalled();
 });
 

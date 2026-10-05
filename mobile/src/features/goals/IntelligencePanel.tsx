@@ -22,6 +22,7 @@ import { isolateAuto } from '../../i18n/bidi';
 import { useOptionalAuth } from '../../auth/AuthProvider';
 import type { Strings } from '../../i18n/strings';
 import { claimVisit, recordVisitAnswer, recordVisitFailure } from '../../lib/deviceSettings/visitThrottle';
+import { useConsents } from '../../api/queries';
 
 /** The person's own records are facts already; only what was read from their words is asked about. */
 const SELF_CONFIRMED_SOURCES: ReadonlySet<string> = new Set(['memory', 'commitment', 'behavior']);
@@ -69,6 +70,8 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
 }) {
   const { t, p, rtl, lang } = useApp();
   const uid = useOptionalAuth()?.user?.uid ?? '';
+  const consents = useConsents();
+  const recommendationsEnabled = consents.data?.recommendations.state === 'granted';
   const zone = useTimeZone();
   const [phase, setPhase] = React.useState<'loading' | 'ready' | 'off' | 'failed'>('loading');
   const [loadError, setLoadError] = React.useState<unknown>(null);
@@ -116,7 +119,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   const shown = React.useRef<IntelligenceInbox | null>(null);
   React.useEffect(() => { shown.current = inbox; }, [inbox]);
   React.useEffect(() => {
-    if (!autoGenerate || !uid || phase !== 'ready' || visited.current) return undefined;
+    if (!autoGenerate || !uid || !recommendationsEnabled || phase !== 'ready' || visited.current) return undefined;
     visited.current = true;
     let alive = true;
     void (async () => {
@@ -131,7 +134,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       }
     })();
     return () => { alive = false; };
-  }, [autoGenerate, uid, phase, refresh]);
+  }, [autoGenerate, uid, recommendationsEnabled, phase, refresh]);
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError(null);
@@ -154,9 +157,9 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   const schedule = new Map(inbox.schedule.map(item => [item.suggestionId, item]));
   return <ProductSection title={t.xIntelligenceTitle} body={t.xIntelligenceBody} icon="goal">
     {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
-    {inbox.suggestions.filter(item => item.status === 'pending').length === 0
+    {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
-    {inbox.suggestions.filter(item => item.status === 'pending').map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
+    {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
       <Txt role="body">{isolateAuto(item.title)}</Txt>
       <Txt role="supporting">{isolateAuto(item.reason)}</Txt>
       {(item.kind === 'action' || item.kind === 'goal') ? <TextInput
@@ -220,7 +223,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       await analyzeIntelligenceStatement(draft.trim());
       setDraft('');
     })} />
-    <Pill testID="intelligence-generate" label={t.xIntelligenceGenerate} disabled={busy || inbox.observations.length === 0} onPress={() => void run(() => generateIntelligenceSuggestions())} />
+    {recommendationsEnabled ? <Pill testID="intelligence-generate" label={t.xIntelligenceGenerate} disabled={busy || inbox.observations.length === 0} onPress={() => void run(() => generateIntelligenceSuggestions())} /> : null}
     <Pill testID="intelligence-gmail-scan" label={t.xIntelligenceGmailScan} kind="outline" disabled={busy} onPress={() => void run(scanGmailForIntelligence)} />
     <Txt role="supporting">{t.xIntelligenceGmailMonitorInfo}</Txt>
     <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}

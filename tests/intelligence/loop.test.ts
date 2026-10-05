@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createMemoryStorage, resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { analyzeSource } from '../../lib/intelligence/analyzeSource.ts';
 import { putObservations } from '../../lib/intelligence/observationStore.ts';
-import { proposeFromObservations, validateSuggestions } from '../../lib/intelligence/proposalEngine.ts';
+import { groundCommitmentReasons, proposeFromObservations, validateSuggestions } from '../../lib/intelligence/proposalEngine.ts';
 import { reviewSuggestion } from '../../lib/intelligence/reviewSuggestion.ts';
 import { answerIntelligenceQuestion } from '../../lib/intelligence/answerQuestion.ts';
 import { loadDomainState } from '../../lib/services/mobile/participantState.ts';
@@ -57,6 +57,22 @@ test('an external follow-up keeps the requested workflow stage even when the mod
   assert.equal(suggestions.length, 1);
   assert.match(suggestions[0]!.title, /complete your job application/i);
   assert.doesNotMatch(suggestions[0]!.title, /^Apply for the job$/);
+});
+
+test('a generated reason cannot move the time of confirmed work it cites', async () => {
+  const storage = createMemoryStorage();
+  const [saved] = await putObservations('alice', 'commitment', 'meeting-1', NOW, [{
+    kind: 'commitment', evidence: 'موعد سامي', confidence: 1,
+  }], storage);
+  const [suggestion] = validateSuggestions({ suggestions: [{
+    kind: 'action', title: 'أكّد موعد سامي', reason: 'موعد سامي الساعة 6 المسا',
+    observationIds: [saved!.id], confidence: 0.8, durationMinutes: 15,
+  }] }, [saved!], NOW);
+  const [grounded] = groundCommitmentReasons([suggestion!], [saved!], [{
+    id: 'meeting-1', title: 'موعد سامي', timeSpec: { dueAt: '2026-09-30T16:00:00.000Z' },
+  }], 'Asia/Jerusalem');
+  assert.match(grounded!.reason, /19:00/);
+  assert.doesNotMatch(grounded!.reason, /6 المسا/);
 });
 
 test('a time-sensitive event receives a preparation pass when the first pass only warns', async () => {

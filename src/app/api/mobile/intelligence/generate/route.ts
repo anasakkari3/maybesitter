@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { getAiConsent } from '../../../../../../lib/consents/aiConsentService';
+import { getRecommendationConsent } from '../../../../../../lib/consents/recommendationConsentService';
 import { intelligenceDisabledResponse } from '../../../../../../lib/intelligence/gate';
 import { learnOutcomesWithin } from '../../../../../../lib/intelligence/outcomeLearning';
 import {
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
   let user;
   try { user = await requireMobileUser(request); } catch (error) { return mobileAuthErrorResponse(error); }
   if (await getAiConsent(user.uid) !== 'granted') {
+    return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
+  }
+  if (await getRecommendationConsent(user.uid) !== 'granted') {
     return Response.json({ success: false, reason: 'consent_required' }, { status: 403 });
   }
   // `{ trigger: 'visit' }`: a screen opening (Today, «يتابع لك»), held to the

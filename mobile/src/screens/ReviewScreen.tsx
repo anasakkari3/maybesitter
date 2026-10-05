@@ -76,6 +76,7 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
   // the network would appear after the user had already pressed Confirm.
   const busyBlocks = useConflictBusyBlocks(useBusyBlocks());
   const items = state.proposal?.items ?? [];
+  const editingItem = items.find((item) => item.itemId === editingItemId);
   const seeds = state.proposal?.seeds ?? [];
   const selectedCount = state.selected.length;
   const busy = state.status === 'confirming';
@@ -262,7 +263,9 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
     <ScreenIn style={{ backgroundColor: p.bg }}>
       <TaskHeader
         pill={t.back}
-        onPill={confirmingDiscard ? () => setConfirmingDiscard(false) : onBackToChat ?? (() => flow.backToComposer())}
+        onPill={confirmingDiscard ? () => setConfirmingDiscard(false)
+          : editingItem ? () => setEditingItemId(null)
+            : onBackToChat ?? (() => flow.backToComposer())}
         title={!asking && scrollActions ? t.reviewConfirmationHeading : t.reviewTitle}
         pillTestID="review-back"
       />
@@ -280,6 +283,17 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingTop: 16, paddingHorizontal: 16, paddingBottom: 20, gap: 12 }}
       >
+        {editingItem ? (
+          <View style={{ backgroundColor: p.sf, borderRadius: 20, padding: 18 }}>
+            <EditProposalItemSheet
+              key={editingItem.itemId}
+              item={editingItem}
+              edit={state.edits[editingItem.itemId]}
+              onChange={(next) => handleEditChange(editingItem.itemId, next)}
+              onClose={() => setEditingItemId(null)}
+            />
+          </View>
+        ) : <>
         {state.source === 'meeting' ? (
           <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: p.sf, borderRadius: 20, paddingVertical: 10, paddingHorizontal: 14 }, cardShadow(p)]} testID="review-source-meeting">
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: p.wm }} />
@@ -494,22 +508,11 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
           <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds} />
         ) : null}
 
-        {/* Held, and applied atomically at confirm (#164). Nothing is written
-            while this is open. */}
-        {editingItemId ? (
-          <View style={{ backgroundColor: p.sf, borderRadius: 20, padding: 18 }}>
-            <EditProposalItemSheet
-              item={items.find((item) => item.itemId === editingItemId)!}
-              edit={state.edits[editingItemId]}
-              onChange={(next) => handleEditChange(editingItemId, next)}
-              onClose={() => setEditingItemId(null)}
-            />
-          </View>
-        ) : null}
-        {scrollActions ? confirmationActions : null}
+        </>}
+        {scrollActions && !editingItem ? confirmationActions : null}
       </ScrollView>
 
-      {!scrollActions ? confirmationActions : null}
+      {!scrollActions && !editingItem ? confirmationActions : null}
         </AvoidKeyboard>
       )}
     </ScreenIn>

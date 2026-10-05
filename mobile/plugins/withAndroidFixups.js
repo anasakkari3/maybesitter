@@ -1,4 +1,8 @@
-const { AndroidConfig, withAndroidManifest } = require('@expo/config-plugins');
+const { AndroidConfig, withAndroidManifest, withDangerousMod } = require('@expo/config-plugins');
+const { readFile, writeFile } = require('node:fs/promises');
+const path = require('node:path');
+
+const headlessLoaderRule = '-keep class expo.modules.adapters.react.apploader.RNHeadlessAppLoader { *; }';
 
 /**
  * Android Manifest fixups for Expo CNG build baseline (#458).
@@ -28,7 +32,17 @@ const { AndroidConfig, withAndroidManifest } = require('@expo/config-plugins');
  * mod executes AFTER `expo-notifications` has inserted the default channel meta-data element.
  */
 function withAndroidFixups(config) {
-  return withAndroidManifest(config, (modConfig) => {
+  const withLoaderKept = withDangerousMod(config, ['android', async (modConfig) => {
+    // Expo generates android/ during prebuild. This class is loaded from a
+    // manifest string; R8's reachability pass otherwise strips it in release.
+    const rulesPath = path.join(modConfig.modRequest.platformProjectRoot, 'app', 'proguard-rules.pro');
+    const rules = await readFile(rulesPath, 'utf8');
+    if (!rules.includes(headlessLoaderRule)) {
+      await writeFile(rulesPath, `${rules.trimEnd()}\n\n# Expo TaskManager's manifest-loaded headless app.\n${headlessLoaderRule}\n`);
+    }
+    return modConfig;
+  }]);
+  return withAndroidManifest(withLoaderKept, (modConfig) => {
     const androidManifest = modConfig.modResults;
     const application = AndroidConfig.Manifest.getMainApplicationOrThrow(androidManifest);
 

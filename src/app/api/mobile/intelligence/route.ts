@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../lib/auth/mobileAuth';
 import { getAiConsent } from '../../../../../lib/consents/aiConsentService';
+import { getRecommendationConsent } from '../../../../../lib/consents/recommendationConsentService';
 import { analyzeSource } from '../../../../../lib/intelligence/analyzeSource';
 import { intelligenceDisabledResponse } from '../../../../../lib/intelligence/gate';
 import { listObservations } from '../../../../../lib/intelligence/observationStore';
@@ -20,9 +21,12 @@ export async function GET(request: Request) {
     // Outcomes recorded since the last read become evidence before it is
     // shown (no model call); a failure here never hides the inbox.
     await learnOutcomesWithin(user.uid);
-    const [observations, suggestions] = await Promise.all([
-      listObservations(user.uid), listSuggestions(user.uid),
+    const [observations, consent] = await Promise.all([
+      listObservations(user.uid), getRecommendationConsent(user.uid),
     ]);
+    // Keep the person's evidence review available after a revocation, but
+    // never display an old recommendation under an off switch.
+    const suggestions = consent === 'granted' ? await listSuggestions(user.uid) : [];
     let schedule: Awaited<ReturnType<typeof previewSuggestionSchedule>> = [];
     try { schedule = await previewSuggestionSchedule(user.uid, suggestions, new Date().toISOString()); }
     catch { /* A failed preview must not hide the evidence or suggestions. */ }

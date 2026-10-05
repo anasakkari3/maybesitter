@@ -135,12 +135,7 @@ export interface SayItChatPageProps {
    * after a save in the chat, so the next commitment can be typed at once.
    */
   composerFocusKey?: number;
-  /**
-   * A new proposal's identity (its id). Each time it changes to a new
-   * non-empty value the page scrolls once so the confirm sits above the
-   * composer, not under it (audit 2026-10-03 #8: the save was below the
-   * fold, behind the fixed composer, and had to be found by scrolling).
-   */
+  /** A new proposal's identity; reveal its first question or first card. */
   revealConfirmKey?: string | null;
   /** Reduce motion: the reveal jumps instead of scrolling. */
   reduceMotion?: boolean;
@@ -166,13 +161,9 @@ export function SayItChatPage({
   React.useEffect(() => {
     if (composerFocusKey > 0) input.current?.focus();
   }, [composerFocusKey]);
-  // Where the confirm is, in the scroll's content: the schedule block's top,
-  // the card's top inside it, and the confirm's box inside the card — each
-  // measured by its own onLayout, and each tagged with the proposal it was
-  // measured for — and how tall the scroll's window is. A measurement of the
-  // last proposal says nothing about this one (audit 2026-10-03 review: a list
-  // that grew from one card to three scrolled short), so the reveal waits for
-  // all three to be this proposal's own.
+  // Start a new proposal at its first decision. Scrolling to the final save
+  // hid clarification and the first cards on long lists. Measurements are
+  // keyed so the previous proposal cannot move this one.
   type Measured<T> = { key: string | null; value: T } | null;
   const scroller = React.useRef<ScrollView>(null);
   const keyRef = React.useRef<string | null>(revealConfirmKey);
@@ -180,19 +171,17 @@ export function SayItChatPage({
   React.useLayoutEffect(() => { keyRef.current = revealConfirmKey; }, [revealConfirmKey]);
   const [viewport, setViewport] = React.useState(0);
   const [block, setBlock] = React.useState<Measured<number>>(null);
-  const [card, setCard] = React.useState<Measured<number>>(null);
-  const [confirmBox, setConfirmBox] = React.useState<Measured<{ y: number; height: number }>>(null);
+  const [question, setQuestion] = React.useState<Measured<number>>(null);
   const measured = <T,>(setter: React.Dispatch<React.SetStateAction<Measured<T>>>, value: T) =>
     setter({ key: keyRef.current, value });
   const revealed = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (!revealConfirmKey || revealed.current === revealConfirmKey || viewport <= 0) return;
-    if (block?.key !== revealConfirmKey || card?.key !== revealConfirmKey || confirmBox?.key !== revealConfirmKey) return;
+    const first = clarification ? question : block;
+    if (first?.key !== revealConfirmKey) return;
     revealed.current = revealConfirmKey;
-    const bottom = block.value + card.value + confirmBox.value.y + confirmBox.value.height;
-    const target = Math.max(0, bottom + 16 - viewport);
-    if (target > 0) scroller.current?.scrollTo({ y: target, animated: !reduceMotion });
-  }, [revealConfirmKey, viewport, block, card, confirmBox, reduceMotion]);
+    if (first.value > viewport - 80) scroller.current?.scrollTo({ y: Math.max(0, first.value - 16), animated: !reduceMotion });
+  }, [revealConfirmKey, viewport, block, question, clarification, reduceMotion]);
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
@@ -325,11 +314,11 @@ export function SayItChatPage({
               ? <React.Fragment key={`reply-${newestReply}`}>{message(history[newestReply]!, history[newestReply]!.id ?? `chat-turn-assistant-${newestReply}`)}</React.Fragment>
               : null}
           </View>
-          {clarification ? <View testID="chat-clarification" style={[styles.clarification, expanded && styles.expandedSchedule]}>{clarification}</View> : null}
+          {clarification ? <View testID="chat-clarification" onLayout={(event) => measured(setQuestion, event.nativeEvent.layout.y)} style={[styles.clarification, expanded && styles.expandedSchedule]}>{clarification}</View> : null}
           {scheduleGroups.length > 0 ? <View testID="chat-schedule" style={[styles.scheduleBlock, expanded && styles.expandedSchedule]}
             onLayout={(event) => measured(setBlock, event.nativeEvent.layout.y)}>
             <View style={[styles.scheduleCard, { backgroundColor: p.sf, borderColor: p.ln }]}
-              testID="chat-schedule-card" onLayout={(event) => measured(setCard, event.nativeEvent.layout.y)}>
+              testID="chat-schedule-card">
               {copy.proposalsTitle ? <View style={[styles.blockTitle, { borderBottomColor: p.ln }]}>
                 <ChatIcon name="calendar" size={20} color={p.wm ?? p.tx} />
                 <Text testID="review-proposals-title" accessibilityRole="header"
@@ -387,10 +376,7 @@ export function SayItChatPage({
                 })}
               </View>)}
               {reviewExtras ? <View testID="chat-review-extras" style={styles.reviewExtras}>{reviewExtras}</View> : null}
-              {onConfirm ? <View testID="chat-add-schedule" onLayout={(event) => {
-                const { y, height } = event.nativeEvent.layout;
-                measured(setConfirmBox, { y, height });
-              }}><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
+              {onConfirm ? <View testID="chat-add-schedule"><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
                 accessibilityState={{ disabled: !canConfirm || confirming, busy: confirming }}
                 disabled={!canConfirm || confirming} onPress={onConfirm}
                 style={({ pressed }) => [styles.confirm, {

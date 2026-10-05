@@ -21,7 +21,8 @@ import { createMemoryStorage, resetStorageForTests, setStorageForTests, type Sto
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
 import { applyParticipantCommands, loadDomainState } from '../../lib/services/mobile/participantState.ts';
 import { setPersonalizationConsent } from '../../lib/consents/personalizationConsentService.ts';
-import { PERSONALIZATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
+import { setRecommendationConsent } from '../../lib/consents/recommendationConsentService.ts';
+import { PERSONALIZATION_CONSENT_VERSION, RECOMMENDATION_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { learnFromCommitmentEvents } from '../../lib/intelligence/outcomeLearning.ts';
 import { putObservations, type StoredObservation } from '../../lib/intelligence/observationStore.ts';
 import {
@@ -92,6 +93,10 @@ async function grantPersonalization(storage: StorageAdapter): Promise<void> {
   await setPersonalizationConsent(UID, {
     state: 'granted', version: PERSONALIZATION_CONSENT_VERSION, at: new Date(Date.now() - 60_000),
   }, { storage });
+}
+
+async function setRecommendations(storage: StorageAdapter, state: 'granted' | 'declined'): Promise<void> {
+  await setRecommendationConsent(UID, { state, version: RECOMMENDATION_CONSENT_VERSION }, { storage });
 }
 
 async function seedCommitment(id: string, title: string): Promise<void> {
@@ -206,6 +211,7 @@ test('a postpone reaches the model as a postpone, and the model is told it is no
   const h = begin();
   try {
     await grantPersonalization(h.storage);
+    await setRecommendations(h.storage, 'granted');
     await seedCommitment(ID_MOVED, 'Renew the passport');
     assert.equal((await act(ID_MOVED, 'postpone', { postponedUntil: later() })).status, 200);
     assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
@@ -222,6 +228,7 @@ test('screen visits cannot multiply model calls; the explicit button still reads
     observationIds: [call.context.observations[0]!.id], confidence: 0.8, durationMinutes: 30,
   }] }));
   try {
+    await setRecommendations(h.storage, 'granted');
     await seedCommitment(ID_DONE, 'Call the clinic');
     const visit = () => generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit' }));
     const first = await visit();
@@ -245,6 +252,28 @@ test('screen visits cannot multiply model calls; the explicit button still reads
     // keeps the digest rule: the changed context is read at once.
     assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
     assert.equal(h.calls.length, 2);
+  } finally { h.restore(); }
+});
+
+test('switching recommendations off stops generation and hides old proposals without hiding evidence', async () => {
+  const h = begin(call => ({ suggestions: [{
+    kind: 'action', title: 'Prepare the call', reason: 'You planned a call',
+    observationIds: [call.context.observations[0]!.id], confidence: 0.8, durationMinutes: 30,
+  }] }));
+  try {
+    await seedCommitment(ID_DONE, 'Call the clinic');
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 403);
+    assert.equal(h.calls.length, 0);
+    await setRecommendations(h.storage, 'granted');
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 200);
+    const shown = await (await inboxGet(req('/api/mobile/intelligence'))).json() as { suggestions: Array<{ id: string }>; observations: unknown[] };
+    assert.equal(shown.suggestions.length, 1);
+    await setRecommendations(h.storage, 'declined');
+    const hidden = await (await inboxGet(req('/api/mobile/intelligence'))).json() as { suggestions: unknown[]; observations: unknown[] };
+    assert.equal(hidden.suggestions.length, 0);
+    assert.ok(hidden.observations.length > 0);
+    assert.equal((await generatePost(req('/api/mobile/intelligence/generate', 'POST', {}))).status, 403);
+    assert.equal((await decisionPost(req(`/api/mobile/intelligence/suggestions/${shown.suggestions[0]!.id}`, 'POST', { decision: 'accept' }), params(shown.suggestions[0]!.id))).status, 403);
   } finally { h.restore(); }
 });
 
@@ -330,6 +359,7 @@ test('a refused visit reaches neither the outcome scan nor the model; the answer
   }] }));
   try {
     await grantPersonalization(h.storage);
+    await setRecommendations(h.storage, 'granted');
     await seedCommitment(ID_DONE, 'Call the clinic');
     const first = await generatePost(req('/api/mobile/intelligence/generate', 'POST', { trigger: 'visit' }));
     const body = await first.json() as { nextVisitAt?: string };
@@ -490,6 +520,7 @@ test('E2E 1-3: exam and React become reviewable suggestions; accept, complete, p
   });
   try {
     await grantPersonalization(h.storage);
+    await setRecommendations(h.storage, 'granted');
     // 1. A new account says two things.
     for (const text of ['عندي امتحان بكرا', 'بدي اتعلم React']) {
       assert.equal((await statementPost(req('/api/mobile/intelligence', 'POST', { text }))).status, 201);

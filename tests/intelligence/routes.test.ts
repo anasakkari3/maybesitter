@@ -4,6 +4,7 @@ import { createMemoryStorage, resetStorageForTests, setStorageForTests } from '.
 import { installFakeAuth, tokenFor, uidFor } from '../support/fakeAuth.ts';
 import { GET as inboxGet, POST as statementPost } from '../../src/app/api/mobile/intelligence/route.ts';
 import { POST as observationPost } from '../../src/app/api/mobile/intelligence/observations/[id]/route.ts';
+import { createStorageRuntimeMemoryStore } from '../../lib/runtimeMemory/runtimeMemoryStore.ts';
 import { GET as monitorGet, POST as monitorPost } from '../../src/app/api/mobile/intelligence/sources/gmail/monitor/route.ts';
 
 const ALICE = uidFor('IntelligenceAlice');
@@ -40,7 +41,14 @@ test('staging route keeps each observation under the authenticated account and r
     const stranger = await observationPost(request(BOB, `/api/mobile/intelligence/observations/${observation.id}`, { review: 'confirmed' }), { params: Promise.resolve({ id: observation.id }) });
     assert.equal(stranger.status, 404);
     const confirmed = await observationPost(request(ALICE, `/api/mobile/intelligence/observations/${observation.id}`, { review: 'confirmed' }), { params: Promise.resolve({ id: observation.id }) });
-    assert.equal(((await confirmed.json()) as any).observation.review, 'confirmed');
+    const confirmedObservation = ((await confirmed.json()) as any).observation;
+    assert.equal(confirmedObservation.review, 'confirmed');
+    assert.ok(confirmedObservation.linkedMemoryId, 'confirming a goal must make it available to My things');
+    const memory = createStorageRuntimeMemoryStore(undefined, storage);
+    assert.equal((await memory.retrieve({ scopeId: ALICE, kind: 'goal', now: new Date().toISOString() })).length, 1);
+    assert.equal((await memory.retrieve({ scopeId: BOB, kind: 'goal', now: new Date().toISOString() })).length, 0);
+    assert.equal((await observationPost(request(ALICE, `/api/mobile/intelligence/observations/${observation.id}`, { review: 'confirmed' }), { params: Promise.resolve({ id: observation.id }) })).status, 200);
+    assert.equal((await memory.retrieve({ scopeId: ALICE, kind: 'goal', now: new Date().toISOString() })).length, 1);
     await storage.set(`users/${ALICE}/intelligenceMonitors/gmail`, {
       enabled: true, generation: 'alice-only', cursor: '100', pageToken: null,
       nextPollAt: '2026-10-01T00:00:00.000Z', leaseUntil: null, lastSuccessAt: null, error: null,
