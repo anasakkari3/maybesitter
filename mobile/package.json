@@ -38,7 +38,7 @@
     "expo-secure-store": "~57.0.4",
     "expo-share-intent": "^8.0.1",
     "expo-sharing": "~57.0.22",
-    "expo-speech-recognition": "^57.0.0",
+    "expo-speech-recognition": "^57.1.0",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
     "expo-task-manager": "~57.0.21",
