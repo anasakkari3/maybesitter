@@ -32,8 +32,10 @@ import ar from '../../../i18n/locales/ar.json';
 import he from '../../../i18n/locales/he.json';
 import * as commitmentEndpoints from '../../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../../api/endpoints/nextStep';
+import * as consentEndpoints from '../../../api/endpoints/consents';
 import * as planEndpoints from '../../../api/endpoints/plans';
 import nextStepFixture from '../../../api/__fixtures__/nextStep.recommendation.json';
+import consentsFixture from '../../../api/__fixtures__/consents.answered.json';
 import { instantAt } from '../../../testing/wallClock';
 import { toViewModel } from '../../commitments/model';
 import { drawnWhen } from '../savedPlacement';
@@ -93,6 +95,7 @@ beforeEach(() => {
     success: true, participantId: USER.uid,
     recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
   } as never);
+  jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(consentsFixture as never);
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [market()] } as never);
   jest.spyOn(commitmentEndpoints, 'getCommitment').mockResolvedValue({ data: market(), etag: 'W/"v1"' } as never);

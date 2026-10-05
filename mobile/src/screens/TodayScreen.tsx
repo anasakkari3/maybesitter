@@ -7,7 +7,7 @@ import { useApp } from '../state/AppContext';
 import { isValidTimeZone, useTimeZone } from '../i18n/timezone';
 import { dayKey, formatDate, formatRelativeDay, formatTime } from '../i18n/format';
 import { fill, ltr, type Lang } from '../i18n/strings';
-import { useCategoryPreferences, useCommitmentAction, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
+import { useCategoryPreferences, useCommitmentAction, useConsents, useNextStep, usePlan, useProfile, useSavedWeek, useToday, useUpcoming } from '../api/queries';
 import { quietHoursEndAt } from '../features/today/quietHoursEnd';
 import { QueryBoundary } from '../api/ui/QueryBoundary';
 import { ForbiddenError } from '../api/errors';
@@ -89,6 +89,11 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   const timezone = useTimeZone();
   const today = useToday();
   const next = useNextStep();
+  const consents = useConsents();
+  // A revoked answer must win over a previously cached next-step exposure.
+  // The route can return 403 after revocation while React Query still holds
+  // its last successful quiet-hours card in `data`.
+  const recommendationsAllowed = consents.data?.recommendations.state === 'granted';
   const plan = usePlan(dayKey(new Date(), timezone));
   const upcoming = useUpcoming();
   // Where the saved week days put things (FX1): a row shows that, and its own
@@ -145,19 +150,19 @@ export function TodayScreen({ tabClearance = TAB_CLEARANCE }: { tabClearance?: n
   const model = useMemo(() => composeToday({
     groups,
     next: {
-      recommendation: next.data?.recommendation,
-      silenced: next.data?.exposure?.allowed === false,
-      silencedReason: next.data?.exposure?.reason,
-      quietUntil: next.data?.exposure?.until,
-      isPending: next.isPending,
-      isError: next.isError,
+      recommendation: recommendationsAllowed ? next.data?.recommendation : null,
+      silenced: recommendationsAllowed && next.data?.exposure?.allowed === false,
+      silencedReason: recommendationsAllowed ? next.data?.exposure?.reason : undefined,
+      quietUntil: recommendationsAllowed ? next.data?.exposure?.until : undefined,
+      isPending: recommendationsAllowed && next.isPending,
+      isError: recommendationsAllowed && next.isError,
       // A 403 is the route answering, not failing: recommendations are off
       // until the account turns them on, and every account starts that way.
-      unavailable: next.error instanceof ForbiddenError,
+      unavailable: !recommendationsAllowed || next.error instanceof ForbiddenError,
     },
     plan: { plan: plan.data, isPending: plan.isPending, isError: plan.isError },
     upcoming: upcomingViews,
-  }), [groups, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews]);
+  }), [groups, recommendationsAllowed, next.data, next.isPending, next.isError, next.error, plan.data, plan.isPending, plan.isError, upcomingViews]);
 
   const byId = useMemo(() => {
     const all = [...groups.must, ...groups.should, ...groups.nice, ...groups.finished];

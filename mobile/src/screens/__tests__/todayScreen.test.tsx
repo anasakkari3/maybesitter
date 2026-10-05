@@ -29,6 +29,8 @@ import he from '../../i18n/locales/he.json';
 
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
+import * as consentEndpoints from '../../api/endpoints/consents';
+import { queryKeys } from '../../api/queries';
 import * as planEndpoints from '../../api/endpoints/plans';
 import * as profileEndpoints from '../../api/endpoints/profile';
 import * as footballEndpoints from '../../api/endpoints/football';
@@ -37,6 +39,7 @@ import { fill, ltr } from '../../i18n/strings';
 import { Txt } from '../../ui/primitives';
 import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 import profileFixture from '../../api/__fixtures__/profile.one.json';
+import consentsFixture from '../../api/__fixtures__/consents.answered.json';
 
 /** The phone's zone, when a case needs one other than the suite's. */
 let mockDeviceZone: string | null = null;
@@ -107,6 +110,7 @@ beforeEach(() => {
     recommendation: { version: 'v1', proposalId: 'next-step-empty', state: 'empty', locale: 'en', primaryStep: null, explanation: null },
   } as never);
   jest.spyOn(planEndpoints, 'getPlan').mockResolvedValue(null as never);
+  jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(consentsFixture as never);
 });
 
 afterEach(() => {
@@ -541,6 +545,17 @@ describe('the top card during quiet hours is not quiet mode (UAT round 3, N12)',
       ...profileFixture, routine: { ...profileFixture.routine, timezone },
     } as never);
   }
+
+  it('hides a cached quiet-hours promise as soon as recommendation consent is revoked', async () => {
+    await showSilenced(quietHoursFixture);
+    await act(async () => {
+      client.setQueryData(queryKeys.consents(USER.uid), {
+        ...consentsFixture,
+        recommendations: { ...consentsFixture.recommendations, state: 'declined' },
+      });
+    });
+    await waitFor(() => expect(screen.queryByTestId('today-quiet')).toBeNull());
+  });
 
   it('says when suggestions come back, offers no "turn it off", and links to where quiet hours are set', async () => {
     // The real route's answer at 00:30 inside 22:30–07:30, phone and profile in one zone.

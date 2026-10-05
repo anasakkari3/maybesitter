@@ -23,6 +23,8 @@ import quietHoursFixture from '../../api/__fixtures__/nextStep.quietHours.json';
 import profileFixture from '../../api/__fixtures__/profile.one.json';
 import * as commitmentEndpoints from '../../api/endpoints/commitments';
 import * as nextStepEndpoints from '../../api/endpoints/nextStep';
+import * as consentEndpoints from '../../api/endpoints/consents';
+import consentsFixture from '../../api/__fixtures__/consents.answered.json';
 import * as planEndpoints from '../../api/endpoints/plans';
 import * as profileEndpoints from '../../api/endpoints/profile';
 import * as weeklyEndpoints from '../../api/endpoints/weeklyBlocks';
@@ -60,6 +62,7 @@ beforeEach(() => {
   jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [] } as never);
   jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   jest.spyOn(profileEndpoints, 'getProfile').mockResolvedValue({ ...profileFixture, routine: { ...profileFixture.routine, timezone: ZONE } } as never);
+  jest.spyOn(consentEndpoints, 'getConsents').mockResolvedValue(consentsFixture as never);
 });
 
 afterEach(() => { client.clear(); resetAuthForTests(); jest.restoreAllMocks(); });

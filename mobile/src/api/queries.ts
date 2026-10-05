@@ -57,6 +57,7 @@ import {
   putRecommendationConsent,
   type ConsentAnswer,
 } from './endpoints/consents';
+import type { ConsentsView } from './schemas/consents';
 import { getReminderSettings, putReminderSettings, type ReminderSettingsPatch } from './endpoints/reminders';
 import {
   deleteSeed,
@@ -1263,6 +1264,15 @@ export function useSetRecommendationConsent() {
   const uid = useUid();
   return useMutation({
     mutationFn: (answer: ConsentAnswer) => putRecommendationConsent(answer),
+    onSuccess: (saved) => {
+      // A failed/refused next-step refresh can retain its last successful
+      // response. Publish the confirmed consent answer first so Today hides
+      // that cached recommendation in the same session.
+      client.setQueryData<ConsentsView>(queryKeys.consents(uid), current => current ? {
+        ...current,
+        recommendations: { ...saved.recommendations, asked: true },
+      } : current);
+    },
     onSettled: () => {
       void client.invalidateQueries({ queryKey: queryKeys.consents(uid) });
       // The next step is gated on this answer, so it is wrong the moment it
