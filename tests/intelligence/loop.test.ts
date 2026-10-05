@@ -107,6 +107,37 @@ test('a saved goal becomes evidence for steps, never a second goal proposal', as
   } finally { resetStorageForTests(); }
 });
 
+test('a goal-only first pass gets one bounded second pass for concrete steps', async () => {
+  const storage = createMemoryStorage();
+  setStorageForTests(storage);
+  try {
+    const [goal] = await putObservations('alice', 'manual', 'note-pilates', NOW, [
+      { kind: 'goal', evidence: 'I want more time for Pilates', confidence: 0.9 },
+    ], storage);
+    await reviewObservation('alice', goal!.id, 'confirmed', NOW, storage);
+    const systems: string[] = [];
+    const suggestions = await proposeFromObservations('alice', '2026-09-30T10:10:00.000Z', { storage, generate: async request => {
+      systems.push(String(request.system));
+      const rows = systems.length === 1 ? [
+        { kind: 'goal', title: 'Practice Pilates', reason: 'You want more time for Pilates',
+          observationIds: [goal!.id], confidence: 0.8, durationMinutes: 0 },
+      ] : [
+        { kind: 'action', title: 'Find a nearby Pilates class', reason: 'Start with a class option',
+          observationIds: [goal!.id], confidence: 0.8, durationMinutes: 30 },
+        { kind: 'action', title: 'Choose one open practice slot', reason: 'Reserve time after finding a class',
+          observationIds: [goal!.id], confidence: 0.8, durationMinutes: 15 },
+      ];
+      return { text: JSON.stringify({ suggestions: rows }), model: 'fake', latencyMs: 1, promptTokens: 1, outputTokens: 1 };
+    } });
+    assert.equal(systems.length, 2);
+    assert.match(systems[1]!, /Do not propose saving the goal again/);
+    assert.deepEqual(suggestions.map(item => item.title), [
+      'Find a nearby Pilates class', 'Choose one open practice slot',
+    ]);
+    assert.deepEqual(suggestions.map(item => item.position), [0, 1]);
+  } finally { resetStorageForTests(); }
+});
+
 test('a time-sensitive event receives a preparation pass when the first pass only warns', async () => {
   const storage = createMemoryStorage();
   const [exam, party] = await putObservations('alice', 'manual', 'note', NOW, [
