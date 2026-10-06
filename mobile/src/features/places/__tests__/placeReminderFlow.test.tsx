@@ -9,7 +9,7 @@
 import React from 'react';
 import { Linking, Platform, ScrollView } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -357,6 +357,17 @@ describe('My places', () => {
     expect(screen.getByTestId('places-home-remove').props.accessibilityLabel).toBe('Remove Home');
     expect(await loadPlaces(USER.uid)).toEqual([expect.objectContaining({ id: HOME_ID, kind: 'home', label: 'Home', latitude: 32.0853 })]);
     expect(mockLocation.calls).toEqual(['requestForeground', 'position']);
+  });
+
+  it('clears the saved event when another local consumer removes Home', async () => {
+    await render(wrap(<PlacesScreen onBack={() => undefined} />));
+    await fireEvent.press(screen.getByTestId('places-home-pin'));
+    await waitFor(() => expect(screen.queryByTestId('places-saved')).not.toBeNull());
+
+    await act(async () => { await removePlace(USER.uid, HOME_ID); });
+
+    await waitFor(() => expect(screen.queryByTestId('places-saved')).toBeNull());
+    expect(screen.queryByTestId('places-home-remove')).toBeNull();
   });
 
   it('a named place is added and can be removed', async () => {
