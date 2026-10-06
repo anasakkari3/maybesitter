@@ -1740,6 +1740,8 @@
   "understoodEditPickTime": "Pick a time",
   "understoodEditNoTime": "No time",
   "understoodEditSave": "Save change",
+  "captureConfirmedElsewhere": "This was already saved somewhere else, so there's nothing to save again.",
+  "understoodEditReopen": "Back to my change",
   "understoodCorrection": "I heard “{from}” as “{to}”",
   "understoodCorrectionReject": "Not that",
   "understoodCorrectionRejectLabel": "Not that: put back “{from}” in {text}",

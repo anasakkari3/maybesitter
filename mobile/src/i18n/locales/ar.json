@@ -1740,6 +1740,8 @@
   "understoodEditPickTime": "اختار وقت",
   "understoodEditNoTime": "بلا وقت",
   "understoodEditSave": "احفظ التعديل",
+  "captureConfirmedElsewhere": "هالاقتراح انحفظ من مكان تاني، فما في إشي تحفظه هون.",
+  "understoodEditReopen": "رجّع تعديلي",
   "understoodCorrection": "فهمت «{from}» إنها «{to}»",
   "understoodCorrectionReject": "مش هيك",
   "understoodCorrectionRejectLabel": "مش هيك: رجّع «{from}» في {text}",

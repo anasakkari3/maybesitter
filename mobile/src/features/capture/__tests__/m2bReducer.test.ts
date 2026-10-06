@@ -49,13 +49,13 @@ describe('a structured edit', () => {
   });
   it('clears the folded staged title and time but keeps the staged priority', () => {
     const staged = captureReducer(shown(), { type: 'editItem', itemId: 'i1', edit: { title: 'Call Dana and Rami', localDateTime: '2030-01-09T10:00', priority: 'high' } });
-    const edited = captureReducer(staged, { type: 'editAnswered', folded: 'i1', answer: answer(proposal({ revision: 4, items: [{ ...proposal().items[0]!, title: 'Call Dana and Rami', resolvedTime: '2030-01-09T10:00:00.000Z' }] })) });
+    const edited = captureReducer(staged, { type: 'editAnswered', folded: { itemId: 'i1', title: true, time: true }, answer: answer(proposal({ revision: 4, items: [{ ...proposal().items[0]!, title: 'Call Dana and Rami', resolvedTime: '2030-01-09T10:00:00.000Z' }] })) });
     expect(edited.edits.i1).toEqual({ priority: 'high' });
     expect(confirmPayload(edited)).toEqual(expect.objectContaining({ revision: 4 }));
   });
   it('an item that became a seed takes its staged choices with it', () => {
     const staged = captureReducer(shown(), { type: 'editItem', itemId: 'i1', edit: { priority: 'high' } });
-    const edited = captureReducer(staged, { type: 'editAnswered', folded: 'i1', answer: answer(proposal({ revision: 4, items: [], seeds: [{ seedItemId: 'i1', kind: 'idea', summary: 'Call Dana' }] })) });
+    const edited = captureReducer(staged, { type: 'editAnswered', folded: { itemId: 'i1', title: false, time: false }, answer: answer(proposal({ revision: 4, items: [], seeds: [{ seedItemId: 'i1', kind: 'idea', summary: 'Call Dana' }] })) });
     expect(edited.edits).toEqual({});
     expect(edited.selected).toEqual([]);
   });
@@ -70,5 +70,30 @@ describe('a 409 with the current proposal', () => {
   it('ignores a proposal of another id', () => {
     const shown = run(initialCaptureState('share'), { type: 'analyzeSucceeded', proposal: proposal() });
     expect(captureReducer(shown, { type: 'proposalReplaced', proposal: proposal({ proposalId: 'other' }) })).toBe(shown);
+  });
+});
+
+describe('after Codex\'s inspection (M2B-A-002/003/004/008/009)', () => {
+  const shown = () => run(initialCaptureState(), { type: 'textChanged', text: 'first' }, { type: 'chatStarted' }, { type: 'chatAnswered', answer: answer(proposal()) });
+
+  it('a «مش هيك» answer folds nothing: a staged card title survives it', () => {
+    const staged = captureReducer(shown(), { type: 'editItem', itemId: 'i1', edit: { title: 'Call Dana and Rami' } });
+    const edited = captureReducer(staged, { type: 'editAnswered', answer: answer(proposal({ revision: 4 })) });
+    expect(edited.edits.i1).toEqual({ title: 'Call Dana and Rami' });
+  });
+  it('a 409 keeps every staged choice on its id even where the facts moved, and asks for review', () => {
+    const staged = captureReducer(shown(), { type: 'editItem', itemId: 'i1', edit: { title: 'Mine', priority: 'high' } });
+    const replaced = captureReducer(staged, { type: 'proposalReplaced', proposal: proposal({ revision: 9, items: [{ ...proposal().items[0]!, title: 'Theirs' }] }) });
+    expect([replaced.edits.i1, replaced.reviewNotice]).toEqual([{ title: 'Mine', priority: 'high' }, 'proposalChanged']);
+    expect(run(replaced, { type: 'textChanged', text: 'next' }, { type: 'chatStarted' }).reviewNotice).toBeNull();
+  });
+  it('already confirmed elsewhere: no proposal left to write to, and it says so', () => {
+    const elsewhere = captureReducer(shown(), { type: 'proposalConfirmedElsewhere' });
+    expect([elsewhere.proposal, elsewhere.confirmedElsewhere, elsewhere.selected]).toEqual([null, true, []]);
+  });
+  it('a starting dictation clears the chips at once and spends a voice launch\'s auto-start', () => {
+    const voiced = run(initialCaptureState('widget', 'voice'), { type: 'dictationFinished', text: 'call Dana', alternatives: ['call Dina'] });
+    const restarted = captureReducer(voiced, { type: 'dictationStarted' });
+    expect([restarted.alternatives, restarted.inputMode, restarted.text, restarted.spoken]).toEqual([[], 'text', 'call Dana', true]);
   });
 });

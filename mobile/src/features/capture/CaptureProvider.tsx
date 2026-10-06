@@ -123,8 +123,10 @@ interface CaptureContextValue {
    * commitment). Never retried; a 409 adopts the current answer.
    */
   editPoint(target: CaptureProposalEdit['target'], change: CaptureProposalEdit['change']): Promise<EditOutcome>;
-  /** The current proposal a 409 brought back from somewhere else (seed keep). */
-  adoptCurrent(proposal: CaptureProposal): void;
+  /** The current proposal a 409 brought back from somewhere else (seed keep); `confirmed` when it is already saved. */
+  adoptCurrent(proposal: CaptureProposal, confirmed?: boolean): void;
+  /** A dictation is starting: the previous chips go, and a voice launch's auto-start is spent. */
+  dictationStarted(): void;
 }
 
 /** How a structured edit went: applied, or why not — the summary shows a note. */
@@ -312,7 +314,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       // It moved on elsewhere (M2b): show it as it is now, and say so.
       if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && generation === analysisGeneration.current) {
-        dispatch({ type: 'proposalReplaced', proposal: error.current.proposal });
+        dispatch(error.current.state === 'confirmed'
+          ? { type: 'proposalConfirmedElsewhere' }
+          : { type: 'proposalReplaced', proposal: error.current.proposal });
         return { ok: false, messageKey: 'captureProposalChanged' } as const;
       }
       // The proposal is untouched. The screen keeps the question rather than
@@ -357,7 +361,10 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     if (!outcome.ok) {
       if (generation === analysisGeneration.current) {
         const current = (changed as ProposalChangedError | null)?.current;
-        if (current?.kind === 'proposal') {
+        if (current?.kind === 'proposal' && current.state === 'confirmed') {
+          // Already confirmed elsewhere: nothing to save twice.
+          dispatch({ type: 'proposalConfirmedElsewhere' });
+        } else if (current?.kind === 'proposal') {
           // Nothing was saved: the version that is current now goes up for review.
           dispatch({ type: 'proposalReplaced', proposal: current.proposal });
           dispatch({ type: 'confirmFailed', reason: 'proposal_changed', messageKey: 'captureProposalChanged' });
@@ -419,7 +426,10 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     dispatch(final ? { type: 'dictationFinished', text, alternatives } : { type: 'dictationChanged', text });
   }, []);
   const chooseAlternative = useCallback((text: string) => dispatch({ type: 'alternativeChosen', text }), []);
-  const adoptCurrent = useCallback((proposal: CaptureProposal) => dispatch({ type: 'proposalReplaced', proposal }), []);
+  const adoptCurrent = useCallback((proposal: CaptureProposal, confirmed = false) => {
+    dispatch(confirmed ? { type: 'proposalConfirmedElsewhere' } : { type: 'proposalReplaced', proposal });
+  }, []);
+  const dictationStarted = useCallback(() => dispatch({ type: 'dictationStarted' }), []);
 
   const editPoint = useCallback(async (target: CaptureProposalEdit['target'], change: CaptureProposalEdit['change']): Promise<EditOutcome> => {
     const proposal = state.proposal;
@@ -431,10 +441,17 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const staged = itemId ? state.edits[itemId] : undefined;
     const finalKind = change.kind ?? ('itemId' in target ? 'commitment' : undefined);
     const patch: CaptureProposalEdit['change'] = { ...change };
-    if (staged?.title !== undefined && patch.text === undefined && patch.rejectCorrectionIds === undefined) patch.text = staged.title;
+    // Only what actually goes into this patch is cleared from the card after
+    // the answer; a «مش هيك» carries no staged words and folds nothing.
+    const folded = { title: false, time: false };
+    if (staged?.title !== undefined && patch.text === undefined && patch.rejectCorrectionIds === undefined) {
+      patch.text = staged.title;
+      folded.title = true;
+    }
     if (staged?.localDateTime !== undefined && patch.time === undefined && finalKind === 'commitment' && patch.rejectCorrectionIds === undefined) {
       const at = staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone) : null;
       patch.time = { at: at ? at.toISOString() : null, timeZone: timezone };
+      folded.time = true;
     }
     const generation = analysisGeneration.current;
     try {
@@ -443,7 +460,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
         edit: { proposalId: proposal.proposalId, revision: proposal.revision, target, change: patch },
       });
       if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
-      dispatch({ type: 'editAnswered', answer, ...(itemId && staged ? { folded: itemId } : {}) });
+      dispatch({ type: 'editAnswered', answer, ...(itemId && (folded.title || folded.time) ? { folded: { itemId, ...folded } } : {}) });
       return { ok: true };
     } catch (error) {
       if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
@@ -461,9 +478,9 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
     state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
-    dictate, chooseAlternative, editPoint, adoptCurrent,
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted,
   }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
-    dictate, chooseAlternative, editPoint, adoptCurrent]);
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

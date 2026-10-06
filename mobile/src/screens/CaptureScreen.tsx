@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Keyboard, Platform, View } from 'react-native';
+import { AccessibilityInfo, BackHandler, Keyboard, Platform, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
@@ -129,16 +129,6 @@ export function CaptureScreen() {
     const current = seedAnchors.current.get(seedItemId) ?? { target: null, focus: null };
     seedAnchors.current.set(seedItemId, part === 'card' ? { ...current, target: node } : { ...current, focus: node });
   };
-  /** One structured change to the summary, through the chat (M2b). */
-  const sendEdit = async (target: { itemId: string } | { seedItemId: string }, change: Parameters<typeof flow.editPoint>[1]) => {
-    if (editBusy) return;
-    setEditBusy(true);
-    setEditNote(null);
-    const outcome = await flow.editPoint(target, change);
-    setEditBusy(false);
-    setSummaryEditing(null);
-    if (!outcome.ok && outcome.reason !== 'unavailable') setEditNote(outcome.reason);
-  };
   const openFromSummary = (target: UnderstoodTarget | null) => {
     flow.acceptUnderstood();
     const proposalId = state.proposal?.proposalId;
@@ -159,6 +149,38 @@ export function CaptureScreen() {
   const [summaryEditing, setSummaryEditing] = useState<number | null>(null);
   const [editNote, setEditNote] = useState<'changed' | 'ended' | 'failed' | null>(null);
   const [editBusy, setEditBusy] = useState(false);
+  /** A change refused because the proposal moved on, kept to reopen (M2b). */
+  const [rejectedDraft, setRejectedDraft] = useState<{ n: number; change: Parameters<typeof flow.editPoint>[1] } | null>(null);
+  const [draftToReopen, setDraftToReopen] = useState<Parameters<typeof flow.editPoint>[1] | undefined>(undefined);
+  /** Each «عدّل», and the one to give the screen reader back to when its sheet closes. */
+  const editRefs = useRef(new Map<number, View>());
+  const returnFocusTo = useRef<number | null>(null);
+  /** One structured change to the summary, through the chat (M2b). */
+  const sendEdit = async (target: { itemId: string } | { seedItemId: string }, change: Parameters<typeof flow.editPoint>[1]) => {
+    if (editBusy) return;
+    const line = summaryEditing;
+    setEditBusy(true);
+    setEditNote(null);
+    setRejectedDraft(null);
+    const outcome = await flow.editPoint(target, change);
+    setEditBusy(false);
+    closeSummaryEdit();
+    if (!outcome.ok && outcome.reason !== 'unavailable') setEditNote(outcome.reason);
+    // Not lost: the refused change can be opened again over the current version.
+    if (!outcome.ok && outcome.reason === 'changed' && line !== null && change.rejectCorrectionIds === undefined) setRejectedDraft({ n: line, change });
+  };
+  const closeSummaryEdit = () => {
+    returnFocusTo.current = summaryEditing;
+    setSummaryEditing(null);
+    setDraftToReopen(undefined);
+  };
+  // Back to the «عدّل» the sheet came from, for a screen reader (criterion 6).
+  useEffect(() => {
+    if (summaryEditing !== null || returnFocusTo.current === null) return;
+    const control = editRefs.current.get(returnFocusTo.current);
+    returnFocusTo.current = null;
+    if (control) AccessibilityInfo.sendAccessibilityEvent(control, 'focus');
+  });
   const [sentAt, setSentAt] = useState<Date | null>(null);
   const [answering, setAnswering] = useState(false);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -181,7 +203,10 @@ export function CaptureScreen() {
   useEffect(() => { latestText.current = composerText; }, [composerText]);
   const dictationBase = useRef('');
   const dictationEnabled = useRef(true);
-  const onDictationStart = () => { dictationEnabled.current = true; dictationBase.current = latestText.current; };
+  const onDictationStart = () => { dictationEnabled.current = true; dictationBase.current = latestText.current; flow.dictationStarted(); };
+  // Leaving this screen (another account, a closed capture) ends the dictation
+  // here: a recogniser answering afterwards writes into nothing (M2b).
+  useEffect(() => () => { dictationEnabled.current = false; }, []);
   const onDictated = (spoken: string) => { if (dictationEnabled.current) flow.dictate(appendDictation(dictationBase.current, spoken), false); };
   /**
    * The dictation's end: its words, and the recogniser's other readings of the
@@ -393,7 +418,8 @@ export function CaptureScreen() {
       : item?.resolvedTime ?? null;
     bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} busy={editBusy}
       text={staged?.title ?? item?.title ?? seed?.summary ?? point.text} at={stagedAt}
-      onCancel={() => setSummaryEditing(null)}
+      {...(draftToReopen ? { draft: draftToReopen } : {})}
+      onCancel={closeSummaryEdit}
       onSave={(change) => { void sendEdit(point.kind === 'commitment' ? { itemId: point.itemId } : { seedItemId: point.seedItemId }, change); }} />;
   }
   else if (menuOpen) bodyOverride = <View style={{ gap: 14 }} testID="chat-menu">
@@ -419,6 +445,7 @@ export function CaptureScreen() {
       else setSkipped(current => [...current, asking.itemId]);
     }} /> : null;
   const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
+    {state.reviewNotice ? <Txt testID="review-conflict-note" color={p.wm}>{t.captureProposalChanged}</Txt> : null}
     {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
     {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
     {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
@@ -444,7 +471,9 @@ export function CaptureScreen() {
     const last = earlier[earlier.length - 1]!;
     earlier[earlier.length - 1] = { ...last, actions: <View testID="chat-saved-actions" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{savedActions}</View> };
   }
-  const afterChat = cardsOpen ? reviewExtras : reviewing ? null : savedActions && !savedIsNewest
+  const confirmedElsewhereLine = state.confirmedElsewhere
+    ? <Txt size={13} color={p.mu} testID="capture-confirmed-elsewhere">{t.captureConfirmedElsewhere}</Txt> : null;
+  const afterChat = cardsOpen ? reviewExtras : reviewing ? null : confirmedElsewhereLine && !savedActions ? confirmedElsewhereLine : savedActions && !savedIsNewest
     ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }} testID="chat-saved-actions">{savedActions}</View> : null;
   const counter = inputLength > MAX_CAPTURE_LENGTH - 200
     ? <Txt size={12} latin color={inputLength > MAX_CAPTURE_LENGTH ? p.wm : p.mu} testID="capture-counter">{fill(t.captureCounter, { n: inputLength })}</Txt> : null;
@@ -466,10 +495,14 @@ export function CaptureScreen() {
         <UnderstoodMessage proposal={state.proposal} points={understood} edits={state.edits} onOpen={openFromSummary}
           editable={state.proposal.revision !== undefined} busy={editBusy}
           onEdit={(n) => { setEditNote(null); setSummaryEditing(n); }}
+          editRef={(n, node) => { if (node) editRefs.current.set(n, node); else editRefs.current.delete(n); }}
           onRejectCorrection={(itemId, correctionId) => { void sendEdit({ itemId }, { rejectCorrectionIds: [correctionId] }); }} />
         {editNote ? <Txt size={13} color={p.wm} testID="understood-edit-note">
           {editNote === 'changed' ? t.captureProposalChanged : editNote === 'ended' ? t.understoodEditEnded : t.errorsGeneric}
         </Txt> : null}
+        {editNote === 'changed' && rejectedDraft ? <Pill testID="understood-edit-reopen" label={t.understoodEditReopen} kind="soft" size={13} pad={10}
+          style={{ alignSelf: 'flex-start' }}
+          onPress={() => { setDraftToReopen(rejectedDraft.change); setSummaryEditing(rejectedDraft.n); setRejectedDraft(null); setEditNote(null); }} /> : null}
       </View>,
       actions: <Pill testID="understood-confirm" label={t.understoodConfirm} onPress={() => openFromSummary(null)} size={15} pad={12} style={{ minWidth: 120 }} /> };
   }
@@ -493,7 +526,9 @@ export function CaptureScreen() {
     else if (summaryEditing) setSummaryEditing(null);
     else if (fromSummary) { setRevealRequest(null); setToolsOpen(false); flow.reopenUnderstood(); }
     // Cards with no summary (an older server, a share's review): back to the composer, as before.
-    else if (reviewing && !understood) requestBack();
+    // Cards with no summary in the chat (an older server) close and keep too;
+    // a share's or a meeting's review (no conversation) goes back as before.
+    else if (reviewing && !understood) { if (state.conversationId !== null) closeKeeping(); else requestBack(); }
     else closeKeeping();
   };
   /*

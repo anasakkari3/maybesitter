@@ -44,7 +44,7 @@ export function SeedProposalSection({
    * A 409: the proposal moved on elsewhere. Nothing was kept; the current
    * version goes back to the review to be looked at again.
    */
-  onProposalChanged?: (proposal: CaptureProposal) => void;
+  onProposalChanged?: (proposal: CaptureProposal, confirmed: boolean) => void;
   /**
    * Each seed's card and its words, for a host that brings one seed into view
    * and to the screen reader — a line of the chat's «هيك فهمت» (M2a).
@@ -102,7 +102,7 @@ export function SeedProposalSection({
                     .then(() => setKept((current) => [...current, seed.seedItemId]))
                     .catch((error: unknown) => {
                       if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && onProposalChanged) {
-                        onProposalChanged(error.current.proposal);
+                        onProposalChanged(error.current.proposal, error.current.state === 'confirmed');
                         return;
                       }
                       setFailed((current) => [...current, seed.seedItemId]);

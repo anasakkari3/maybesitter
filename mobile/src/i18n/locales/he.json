@@ -1743,6 +1743,8 @@
   "understoodEditPickTime": "בחירת שעה",
   "understoodEditNoTime": "בלי שעה",
   "understoodEditSave": "שמירת השינוי",
+  "captureConfirmedElsewhere": "זה כבר נשמר במקום אחר, אז אין מה לשמור שוב.",
+  "understoodEditReopen": "חזרה לשינוי שלי",
   "understoodCorrection": "הבנתי „{from}” כ„{to}”",
   "understoodCorrectionReject": "לא זה",
   "understoodCorrectionRejectLabel": "לא זה: להחזיר „{from}” ב{text}",

@@ -284,7 +284,8 @@ describe('chat UAT details (2026-09-30)', () => {
     await say('Dentist at 5 and bread at 6');
     await waitFor(() => expect(screen.queryByTestId('review-item-i-1')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('review-item-i-2'));
-    await fireEvent.press(screen.getByTestId('review-back'));
+    // The question now comes from «إلغاء الكل» (M2b): Back keeps the proposal.
+    await fireEvent.press(screen.getByTestId('review-cancel'));
     await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
     expect(screen.queryByText(en.chatBackToProposal)).not.toBeNull();
     expect(screen.queryByText(en.captureKeepEditing)).toBeNull();

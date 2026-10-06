@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Platform, TextInput, View } from 'react-native';
+import { AccessibilityInfo, Platform, TextInput, View } from 'react-native';
 import { AppDateTimePicker as DateTimePicker } from '../../ui/AppDateTimePicker';
 import { useApp } from '../../state/AppContext';
 import { useTimeZone } from '../../i18n/timezone';
@@ -29,21 +29,28 @@ function kindName(kind: PointKind, t: Strings): string {
  * — for a commitment — its time, changed together and sent as one patch.
  * Nothing changed is nothing sent. Proposal-only: the confirm still decides.
  */
-export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt, busy = false, onSave, onCancel }: {
+export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt, draft, busy = false, onSave, onCancel }: {
   kind: PointKind;
   text: string;
   /** The time the line shows now; null for none. */
   at: string | null;
+  /** A change the server refused because the proposal moved on: reopened for review (M2b). */
+  draft?: CaptureProposalEdit['change'];
   busy?: boolean;
   onSave(change: CaptureProposalEdit['change']): void;
   onCancel(): void;
 }) {
   const { t, p, script, rtl } = useApp();
   const timezone = useTimeZone();
-  const [kind, setKind] = useState<PointKind>(startKind);
-  const [text, setText] = useState(startText);
+  const [kind, setKind] = useState<PointKind>(draft?.kind ?? startKind);
+  const [text, setText] = useState(draft?.text ?? startText);
   // `undefined`: the time is not touched. A string or null: the person set it.
-  const [at, setAt] = useState<string | null | undefined>(undefined);
+  const [at, setAt] = useState<string | null | undefined>(draft?.time ? draft.time.at : undefined);
+  // A screen reader lands on the sheet's heading when it opens (criterion 6).
+  const heading = React.useRef<View>(null);
+  React.useEffect(() => {
+    if (heading.current) AccessibilityInfo.sendAccessibilityEvent(heading.current, 'focus');
+  }, []);
 
   const save = () => {
     const change: CaptureProposalEdit['change'] = {};
@@ -57,7 +64,9 @@ export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt
 
   return (
     <View testID="understood-edit-sheet" accessibilityViewIsModal style={{ gap: 14 }}>
-      <Txt size={22} weight={600} lh={1.5}>{t.understoodEditTitle}</Txt>
+      <View ref={heading} accessible accessibilityRole="header" accessibilityLabel={t.understoodEditTitle}>
+        <Txt size={22} weight={600} lh={1.5}>{t.understoodEditTitle}</Txt>
+      </View>
 
       <Txt size={13} color={p.mu}>{t.understoodEditKind}</Txt>
       <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>

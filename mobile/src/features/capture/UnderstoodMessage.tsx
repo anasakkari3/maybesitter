@@ -46,7 +46,7 @@ function kindLabel(point: UnderstoodPoint, t: Strings): string {
  * each line's label is what says "a list of five". One point is a single
  * tappable line, without list chrome.
  */
-export function UnderstoodMessage({ proposal, points, edits, onOpen, editable = false, onEdit, onRejectCorrection, busy = false }: {
+export function UnderstoodMessage({ proposal, points, edits, onOpen, editable = false, onEdit, onRejectCorrection, busy = false, editRef }: {
   proposal: CaptureProposal;
   points: readonly UnderstoodPoint[];
   edits: Record<string, CaptureItemEdit>;
@@ -62,6 +62,8 @@ export function UnderstoodMessage({ proposal, points, edits, onOpen, editable = 
   onRejectCorrection?(itemId: string, correctionId: string): void;
   /** An edit is on its way: the controls wait for its answer. */
   busy?: boolean;
+  /** Each «عدّل», so a screen reader can come back to it after the sheet closes. */
+  editRef?(n: number, node: View | null): void;
 }) {
   const { t, p, lang } = useApp();
   const timezone = useTimeZone();
@@ -99,11 +101,13 @@ export function UnderstoodMessage({ proposal, points, edits, onOpen, editable = 
   const controls = (line: Line, n: number, lineElement: React.ReactNode) => <View key={line.key} style={{ alignSelf: 'stretch', gap: 2 }}>
     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 4 }}>
       <View style={{ flex: 1 }}>{lineElement}</View>
-      {editable && onEdit ? <Btn testID={`understood-edit-${n}`} label={stripIsolates(fill(t.understoodEditLabel, { text: line.text }))}
-        onPress={() => onEdit(n)} disabled={busy} scaleTo={0.97}
-        style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+      {editable && onEdit ? <Pressable testID={`understood-edit-${n}`} ref={(node) => editRef?.(n, node)}
+        accessibilityRole="button" accessibilityLabel={stripIsolates(fill(t.understoodEditLabel, { text: line.text }))}
+        accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => onEdit(n)}
+        style={({ pressed }) => [{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+          pressed && { backgroundColor: p.sf2 }]}>
         <Txt size={13} weight={600} color={busy ? p.mu : p.ac}>{t.understoodEdit}</Txt>
-      </Btn> : null}
+      </Pressable> : null}
     </View>
     {editable && 'itemId' in line.target ? line.corrections.map((correction) => {
       const itemId = (line.target as { itemId: string }).itemId;

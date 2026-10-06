@@ -277,8 +277,14 @@ function mockChat(body: unknown): MockResponse {
   const change = edit.change ?? {};
   const itemId = edit.target?.itemId;
   const seedId = edit.target?.seedItemId;
-  const item = proposal.items.find((candidate) => candidate.itemId === itemId) ?? (itemId ? proposal.items[0] : undefined);
+  const item = proposal.items.find((candidate) => candidate.itemId === itemId);
   const seed = proposal.seeds.find((candidate) => candidate.seedItemId === seedId);
+  // What the server refuses, refused here too: an unknown point, a time on a
+  // seed that stays a seed, words with a correction undo in one patch.
+  const invalid = (!item && !seed)
+    || (seed && change.time && change.kind !== 'commitment')
+    || (change.text !== undefined && change.rejectCorrectionIds !== undefined);
+  if (invalid) return { status: 400, body: { reason: 'edit_invalid' } };
   const point = (proposal.understood ?? []).find((candidate) =>
     (item && candidate.itemId === item.itemId) || (seed && candidate.seedItemId === seed.seedItemId));
   if (change.text !== undefined) {
@@ -292,9 +298,18 @@ function mockChat(body: unknown): MockResponse {
     item.needsClarification = false;
     item.clarification = null;
   }
-  if (change.rejectCorrectionIds && item && Array.isArray(item.corrections)) {
-    item.corrections = (item.corrections as { id: string }[]).filter((correction) => !change.rejectCorrectionIds!.includes(correction.id));
-    if ((item.corrections as unknown[]).length === 0) delete item.corrections;
+  if (change.rejectCorrectionIds) {
+    const all = (item && Array.isArray(item.corrections) ? item.corrections : []) as { id: string; from: string; to: string }[];
+    const rejected = all.filter((correction) => change.rejectCorrectionIds!.includes(correction.id));
+    // The heard word goes back where the correction put the other one.
+    for (const correction of rejected) {
+      item!.title = String(item!.title).replace(correction.to, correction.from);
+      if (point) point.text = String(point.text).replace(correction.to, correction.from);
+    }
+    if (item) {
+      item.corrections = all.filter((correction) => !rejected.includes(correction));
+      if ((item.corrections as unknown[]).length === 0) delete item.corrections;
+    }
   }
   if (change.kind && SEED_KINDS.has(change.kind) && item) {
     // The item becomes a seed of that kind, keeping its id and its place.
