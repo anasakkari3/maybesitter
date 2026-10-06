@@ -74,7 +74,7 @@ export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt
       <View accessibilityRole="radiogroup" style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         {KINDS.map((option) => (
           <Btn key={option} testID={`understood-edit-kind-${option}`} label={kindName(option, t)}
-            accessibilityRole="radio" accessibilityState={{ checked: option === kind }} onPress={() => setKind(option)} scaleTo={0.97}
+            accessibilityRole="radio" accessibilityState={{ checked: option === kind, disabled: busy }} disabled={busy} onPress={() => setKind(option)} scaleTo={0.97}
             style={{ backgroundColor: option === kind ? p.acs : p.sf2, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' }}>
             <Txt size={14} weight={600} color={option === kind ? p.ac : p.tx}>{kindName(option, t)}</Txt>
           </Btn>
@@ -82,14 +82,16 @@ export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt
       </View>
 
       <Txt size={13} color={p.mu}>{t.understoodEditWords}</Txt>
+      {/* While the change is on its way nothing in the sheet moves: what was
+          sent is what the answer (or a refusal's «رجعلي تعديلي») is about (M2B-A-R5-REVIEW-001). */}
       <TextInput testID="understood-edit-text" accessibilityLabel={t.understoodEditWords} value={text} onChangeText={setText}
-        maxLength={MAX_TITLE_LENGTH} multiline
+        editable={!busy} maxLength={MAX_TITLE_LENGTH} multiline
         style={{ backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 16, fontSize: 16, minHeight: 56, color: p.tx, fontFamily: family(400, script), textAlign: rtl ? 'right' : 'left' }} />
 
       {kind === 'commitment' ? <>
         <Txt size={13} color={p.mu}>{t.understoodEditTime}</Txt>
-        <SummaryTimeField testID="understood-edit-time" value={at === undefined ? startAt : at} timeZone={timezone} onValueChange={setAt} />
-        <Pill testID="understood-edit-time-clear" label={t.understoodEditNoTime} onPress={() => setAt(null)} kind="soft" size={14} pad={12} />
+        <SummaryTimeField testID="understood-edit-time" value={at === undefined ? startAt : at} timeZone={timezone} onValueChange={setAt} disabled={busy} />
+        <Pill testID="understood-edit-time-clear" label={t.understoodEditNoTime} onPress={() => setAt(null)} disabled={busy} kind="soft" size={14} pad={12} />
       </> : null}
 
       {/* Side by side, or one under the other at large text, where two halves
@@ -107,11 +109,12 @@ export function SummaryEditSheet({ kind: startKind, text: startText, at: startAt
  * (`onValueChange(iso)`): the picker reads and writes wall-clock values in
  * `timeZone`, so what the person picks is what the patch says.
  */
-function SummaryTimeField({ testID, value, timeZone, onValueChange }: {
+function SummaryTimeField({ testID, value, timeZone, onValueChange, disabled = false }: {
   testID: string;
   value: string | null;
   timeZone: string;
   onValueChange(at: string): void;
+  disabled?: boolean;
 }) {
   const { t, p, lang, scheme } = useApp();
   const [picking, setPicking] = useState<'date' | 'time' | null>(null);
@@ -126,17 +129,17 @@ function SummaryTimeField({ testID, value, timeZone, onValueChange }: {
     <View testID={testID} style={{ gap: 8 }}>
       <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 8 }}>
         <Btn testID={`${testID}-date`} label={instant ? formatDate(instant, 'short', { locale: lang, timeZone }) : t.understoodEditPickTime}
-          onPress={() => setPicking('date')}
+          onPress={() => setPicking('date')} disabled={disabled}
           style={{ ...(stacked ? {} : { flex: 1 }), backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
           <Txt size={14}>{instant ? formatDate(instant, 'short', { locale: lang, timeZone }) : t.understoodEditPickTime}</Txt>
         </Btn>
         <Btn testID={`${testID}-clock`} label={instant ? formatTime(instant, { locale: lang, timeZone }) : t.understoodEditPickTime}
-          onPress={() => setPicking('time')}
+          onPress={() => setPicking('time')} disabled={disabled}
           style={{ ...(stacked ? {} : { flex: 1 }), backgroundColor: p.sf2, borderRadius: 18, paddingVertical: 12, alignItems: 'center', minHeight: 48, justifyContent: 'center' }}>
           <Txt size={14} latin>{instant ? ltr(formatTime(instant, { locale: lang, timeZone })) : '—'}</Txt>
         </Btn>
       </View>
-      {picking ? (
+      {picking && !disabled ? (
         <DateTimePicker testID={`${testID}-picker`} value={pickerValue} mode={picking} is24Hour themeVariant={scheme} locale={lang}
           positiveButton={{ label: t.ok, textColor: p.ac }} negativeButton={{ label: t.cancel, textColor: p.mu }}
           display={Platform.OS === 'ios' || picking === 'time' ? 'spinner' : 'default'}

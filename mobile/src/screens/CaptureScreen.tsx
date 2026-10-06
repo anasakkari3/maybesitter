@@ -498,6 +498,11 @@ export function CaptureScreen() {
   const history: ChatHistoryEntry[] = [...earlier, ...state.turns.map((turn, index): ChatHistoryEntry => turn.role === 'user'
     ? { role: 'user', text: turn.text, delivered: true, ...(index === lastMine && sentTime && state.status !== 'analyzing' ? { time: sentTime } : {}) }
     : { role: 'assistant', text: turn.text })];
+  // Which sheet is showing, in the order the chain above picks it: the page
+  // starts each one at its top (M2B-A-R5-REVIEW-002).
+  const overlayKey = bodyOverride == null ? null
+    : discarding ? `discard-${discarding}` : clipboard ? 'clipboard' : editingId ? `card-${editingId}`
+      : summaryEditing !== null ? `summary-${summaryEditing}` : menuOpen ? 'menu' : `status-${state.status}`;
   // The summary is the newest reply's: its words, then the numbered lines, then «هيك صح».
   if (understood && state.proposal && state.status !== 'analyzing' && history.length > 0 && history[history.length - 1]!.role === 'assistant') {
     const last = history[history.length - 1]!;
@@ -609,7 +614,7 @@ export function CaptureScreen() {
         quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}
-        bodyOverride={bodyOverride} clarification={clarification} reviewExtras={afterChat} reviewFooter={reviewFooter} languageControl={language}
+        bodyOverride={bodyOverride} bodyKey={overlayKey} clarification={clarification} reviewExtras={afterChat} reviewFooter={reviewFooter} languageControl={language}
         onCancelListening={cancelDictation}
         // After a save the field is NOT focused (audit 2026-10-03 #8): the
         // keyboard it raised hid the line saying what was saved. The person

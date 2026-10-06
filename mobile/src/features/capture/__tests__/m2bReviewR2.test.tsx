@@ -5,7 +5,7 @@
  * time, and every way out of the «عدّل» sheet giving focus back.
  */
 import React from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, ScrollView } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -404,5 +404,40 @@ describe('the start-over question asks what it does (M2b design critique)', () =
     await press('chat-more');
     await press('chat-menu-start-over');
     expect(screen.queryByText('Start over?')).not.toBeNull();
+  });
+});
+
+// ── Codex's fifth inspection (M2B-A-R5-REVIEW-001, 002) ─────────────────────
+
+describe('the sheet holds still while its change is on its way (M2B-A-R5-REVIEW-001)', () => {
+  it('kind, words, day, hour and «بلا وقت» wait with Save, and come back when the answer lands', async () => {
+    const pending = deferred<unknown>();
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation((async (raw: unknown) => {
+      const input = raw as { message?: string; edit?: unknown };
+      return input.edit ? pending.promise : answerFor(commitmentProposal(), input.message ?? 'First message');
+    }) as never);
+    await show();
+    await press('understood-edit-1');
+    await changeText('understood-edit-text', 'My words');
+    await press('understood-edit-save');
+    for (const id of ['understood-edit-kind-idea', 'understood-edit-text', 'understood-edit-time-date', 'understood-edit-time-clock', 'understood-edit-time-clear', 'understood-edit-save']) {
+      expect(screen.getByTestId(id)).toBeDisabled();
+    }
+    await act(async () => { pending.resolve(answerFor({ ...commitmentProposal(), revision: 8 })); });
+    await waitFor(() => expect(screen.queryByTestId('understood-edit-sheet')).toBeNull());
+  });
+});
+
+describe('each sheet starts at its own top (M2B-A-R5-REVIEW-002)', () => {
+  it('the start-over question replacing the menu scrolls to the top again', async () => {
+    server(commitmentProposal());
+    await show();
+    const scroll = jest.spyOn(ScrollView.prototype, 'scrollTo');
+    await press('chat-more');
+    const afterMenu = scroll.mock.calls.filter(([to]) => (to as { y?: number })?.y === 0).length;
+    expect(afterMenu).toBeGreaterThan(0);
+    await press('chat-menu-start-over');
+    const afterQuestion = scroll.mock.calls.filter(([to]) => (to as { y?: number })?.y === 0).length;
+    expect(afterQuestion).toBeGreaterThan(afterMenu);
   });
 });

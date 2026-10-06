@@ -132,6 +132,8 @@ export interface SayItChatPageProps {
   voiceNotice?: React.ReactNode;
   headerAccessory?: React.ReactNode;
   bodyOverride?: React.ReactNode;
+  /** Which sheet `bodyOverride` is (a menu, a question, an edit of point n): a new one starts at its top. */
+  bodyKey?: string | null;
   /** The one question's quick replies, under the reply that asks it. */
   clarification?: React.ReactNode;
   /** Real proposal disclosure, corrections, and clarification controls. */
@@ -178,7 +180,7 @@ export function SayItChatPage({
   colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, toolsDisabled = false, onClose, onMore, onPaste,
   outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], scheduleTime, onConfirm, canConfirm = false,
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
-  microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, clarification, reviewExtras, reviewFooter,
+  microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, bodyKey = null, clarification, reviewExtras, reviewFooter,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
   revealConfirmKey = null, reduceMotion = false, reviewing = scheduleGroups.length > 0, revealRow = null, revealAnchor,
 }: SayItChatPageProps) {
@@ -231,12 +233,15 @@ export function SayItChatPage({
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
-  // A sheet, a question or a menu that takes the conversation's place starts at
-  // its own top, not where the conversation was scrolled to — at large text
-  // that left the «عدّل» sheet's title and kinds off screen (simulator, AX5).
-  React.useEffect(() => {
-    if (!composing) scroller.current?.scrollTo({ y: 0, animated: false });
-  }, [composing]);
+  // A sheet, a question or a menu that takes the conversation's place — or
+  // another sheet's — starts at its own top, not where the last one was
+  // scrolled to: at large text that left the «عدّل» sheet's title and kinds off
+  // screen (simulator, AX5), and the start-over question under a scrolled menu
+  // (M2B-A-R5-REVIEW-002). Keyed by the sheet's identity, not its node.
+  const overlay = composing ? null : (bodyKey ?? 'overlay');
+  React.useLayoutEffect(() => {
+    if (overlay !== null) scroller.current?.scrollTo({ y: 0, animated: false });
+  }, [overlay]);
   const showSend = !listening && (microphone == null || !!text.trim().length);
   const textStyle = (size: number, weight: 'regular' | 'semibold' = 'regular', muted = false): TextStyle => ({
     fontFamily: fonts[weight], fontSize: size,
