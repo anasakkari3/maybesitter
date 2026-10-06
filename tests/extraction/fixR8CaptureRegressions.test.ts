@@ -232,10 +232,32 @@ test('M2b F4: dash and “between” ranges keep both ends and leave no range wo
 });
 
 test('M2b F7: an equal-ended range has a start but no invented end', async () => {
-  for (const text of ['Meeting tomorrow 16:00-16:00', 'Meeting tomorrow 4-4pm']) {
+  for (const [text, start] of [
+    ['Meeting tomorrow 16:00-16:00', '16:00'],
+    ['Meeting tomorrow 4-4pm', '16:00'],
+  ] as const) {
     const byRules = await rules(text, TUE);
     assert.equal(byRules.items.length, 1, text);
+    assert.equal(local(byRules.items[0]!.resolvedTime), start, text);
     assert.equal(byRules.items[0]!.endTime ?? null, null, text);
+  }
+});
+
+test('M2b D3: equal written hours respect their stated halves, including the Arabic from/to twin', async () => {
+  const cases = [
+    ['Shift tomorrow 7am-7pm', 'Shift', '07:00', '19:00'],
+    ['Shift tomorrow 8am-8pm', 'Shift', '08:00', '20:00'],
+    ['Shift tomorrow 8pm-8am', 'Shift', '20:00', '08:00'],
+    ['Shift tomorrow from 7am to 7pm', 'Shift', '07:00', '19:00'],
+    ['دوام بكرا 8-8 المسا', 'دوام', '08:00', '20:00'],
+    ['شفت بكرا من 8 الصبح لـ 4 المسا', 'شفت', '08:00', '16:00'],
+  ] as const;
+  for (const [text, title, start, end] of cases) {
+    const byRules = await rules(text, TUE);
+    assert.equal(byRules.items.length, 1, text);
+    assert.equal(byRules.items[0]!.title, title, text);
+    assert.equal(local(byRules.items[0]!.resolvedTime), start, text);
+    assert.equal(local(byRules.items[0]!.endTime ?? null), end, text);
   }
 });
 

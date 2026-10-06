@@ -215,11 +215,21 @@ test('firestore M2b: proposal timezone and correction spans round-trip', { skip:
       commandsByItemId: new Map([['item-1', []]]),
       timezone: ZONE,
       correctionSpans: { 'correction-1': { itemId: 'item-1', index: 5, length: 4 } },
+      structuredEditSources: {
+        'item-1': { ordinal: 0, originalText: 'Call Dena', rawText: 'Call Dena', fields: { text: true, corrections: true } },
+      },
+      latestChatTouchedIds: ['item-1'],
+      keptSeedItemIds: ['seed-kept-1'],
     });
     resetFirestoreForTests();
     const read = await new StorageCaptureProposalStore(createFirestoreStorage()).get(proposalId);
     assert.equal(read?.timezone, ZONE);
     assert.deepEqual(read?.correctionSpans, { 'correction-1': { itemId: 'item-1', index: 5, length: 4 } });
+    assert.deepEqual(read?.structuredEditSources, {
+      'item-1': { ordinal: 0, originalText: 'Call Dena', rawText: 'Call Dena', fields: { text: true, corrections: true } },
+    });
+    assert.deepEqual(read?.latestChatTouchedIds, ['item-1']);
+    assert.deepEqual(read?.keptSeedItemIds, ['seed-kept-1']);
     assert.equal(read?.contract.revision, 3);
   });
 });
@@ -238,14 +248,24 @@ test('firestore M2b: seed keep receipt and seed are one durable replayable claim
       chatPost(request('/api/mobile/capture/chat', uid,
         editBody(raced, { seedItemId: racedSeed.seedItemId }, 'Maybe I will learn Spanish this year'))).then(raw),
     ]);
-    // The keep is revision-neutral. Firestore may retry either transaction,
-    // but both operations remain valid against revision 0 and both commit.
-    assert.equal(racedKeep.status, 201, JSON.stringify(racedKeep.body));
-    assert.equal(racedEdit.status, 200, JSON.stringify(racedEdit.body));
     const afterRace = await new StorageCaptureProposalStore(createFirestoreStorage()).get(raced.proposal.proposalId);
-    assert.equal(afterRace?.contract.revision, 1);
-    const rowsAfterRace = await createFirestoreStorage().list(userCol(uid, INTENT_SEEDS));
-    assert.equal(rowsAfterRace.length, 1, 'the revision-neutral keep did not commit its seed');
+    const rowsAfterRace = await createFirestoreStorage().list<Record<string, any>>(userCol(uid, INTENT_SEEDS));
+    if (racedKeep.status === 201) {
+      assert.equal(racedEdit.status, 400, JSON.stringify(racedEdit.body));
+      assert.equal(racedEdit.body.reason, 'edit_invalid');
+      assert.equal(afterRace?.contract.revision, 0);
+      assert.equal(afterRace?.contract.seeds.find((candidate) => candidate.seedItemId === racedSeed.seedItemId)?.summary, racedSeed.summary);
+      assert.equal(rowsAfterRace.length, 1, 'the winning keep did not commit its seed');
+      assert.equal(rowsAfterRace[0]?.data.summary, racedSeed.summary, 'the kept row differs from the proposal that was kept');
+    } else {
+      assert.equal(racedEdit.status, 200, JSON.stringify(racedEdit.body));
+      assert.equal(racedKeep.status, 409, JSON.stringify(racedKeep.body));
+      assert.equal(racedKeep.body.reason, 'proposal_changed');
+      assert.equal(racedKeep.body.state, 'open');
+      assert.equal(afterRace?.contract.revision, 1);
+      assert.equal(afterRace?.contract.seeds.find((candidate) => candidate.seedItemId === racedSeed.seedItemId)?.summary, 'Maybe I will learn Spanish this year');
+      assert.equal(rowsAfterRace.length, 0, 'the losing keep committed the stale seed');
+    }
 
     const first = await chat(uid, 'Maybe I will travel this summer');
     const seed = first.proposal.seeds[0]!;
@@ -272,6 +292,7 @@ test('firestore M2b: seed keep receipt and seed are one durable replayable claim
     const keptProposal = proposalRows.find((row) => row.data.proposalId === first.proposal.proposalId)?.data;
     assert.equal(keptProposal?.contract.revision, 0);
     assert.equal(keptProposal?.seedKeepReceipt.seedItemId, seed.seedItemId);
+    assert.deepEqual(keptProposal?.keptSeedItemIds, [seed.seedItemId]);
     const seedRows = await createFirestoreStorage().list(userCol(uid, INTENT_SEEDS));
     assert.equal(seedRows.length, rowsAfterRace.length + 1);
   });

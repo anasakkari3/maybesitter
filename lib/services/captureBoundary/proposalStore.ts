@@ -93,15 +93,31 @@ export interface StoredCaptureProposal {
   correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
   /** Only the edit that produced the current revision is retained (M2b v4 bounded receipt). */
   editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
-  /** Stable evidence used to transplant structured edits into later chat proposals. */
-  structuredEditSources?: Readonly<Record<string, { ordinal?: number; originalText: string; rawText?: string }>>;
+  /** Stable evidence and the exact edited fields carried into later chat proposals. */
+  structuredEditSources?: Readonly<Record<string, StructuredEditSource>>;
+  /** Entities whose evidence includes the newest model-chat message. */
+  latestChatTouchedIds?: readonly string[];
   /** A kept capture seed's idempotent claim, bounded to this proposal. */
   seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
+  /** Every seed already kept from this proposal; later edits may not promote one twice. */
+  keptSeedItemIds?: readonly string[];
   /**
    * Rolling-deploy compatibility: a revisionless legacy clarification may
    * confirm its own result exactly once. Any later proposal writer clears it.
    */
   legacyConfirmRevision?: number;
+}
+
+export interface StructuredEditSource {
+  ordinal?: number;
+  originalText: string;
+  rawText?: string;
+  fields: {
+    text?: true;
+    kind?: true;
+    time?: true;
+    corrections?: true;
+  };
 }
 
 /**
@@ -154,8 +170,10 @@ export interface StoredProposalDocument {
   timezone?: string;
   correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
   editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
-  structuredEditSources?: Record<string, { ordinal?: number; originalText: string; rawText?: string }>;
+  structuredEditSources?: Record<string, StructuredEditSource>;
+  latestChatTouchedIds?: string[];
   seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
+  keptSeedItemIds?: string[];
   legacyConfirmRevision?: number;
   expiresAt: Date;
 }
@@ -182,7 +200,9 @@ export function captureProposalToDocument(proposal: StoredCaptureProposal, now: 
     ...(proposal.correctionSpans === undefined ? {} : { correctionSpans: proposal.correctionSpans }),
     ...(proposal.editReceipt === undefined ? {} : { editReceipt: proposal.editReceipt }),
     ...(proposal.structuredEditSources === undefined ? {} : { structuredEditSources: proposal.structuredEditSources }),
+    ...(proposal.latestChatTouchedIds === undefined ? {} : { latestChatTouchedIds: [...proposal.latestChatTouchedIds] }),
     ...(proposal.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: proposal.seedKeepReceipt }),
+    ...(proposal.keptSeedItemIds === undefined ? {} : { keptSeedItemIds: [...proposal.keptSeedItemIds] }),
     ...(proposal.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: proposal.legacyConfirmRevision }),
     expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
   };
@@ -204,7 +224,9 @@ export function captureProposalFromDocument(document: StoredProposalDocument): S
     ...(document.correctionSpans === undefined ? {} : { correctionSpans: document.correctionSpans }),
     ...(document.editReceipt === undefined ? {} : { editReceipt: document.editReceipt }),
     ...(document.structuredEditSources === undefined ? {} : { structuredEditSources: { ...document.structuredEditSources } }),
+    ...(document.latestChatTouchedIds === undefined ? {} : { latestChatTouchedIds: [...document.latestChatTouchedIds] }),
     ...(document.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: document.seedKeepReceipt }),
+    ...(document.keptSeedItemIds === undefined ? {} : { keptSeedItemIds: [...document.keptSeedItemIds] }),
     ...(document.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: document.legacyConfirmRevision }),
   };
 }

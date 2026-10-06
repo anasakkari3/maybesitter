@@ -119,6 +119,21 @@ function editTurns(edit: CaptureProposalEditContract, before: string, after: str
   return { user, reply };
 }
 
+/** Synthetic edit display pairs never evict older user evidence. */
+function boundedEditTurns(turns: CaptureChatTurn[]): CaptureChatTurn[] {
+  const kept = [...turns];
+  while (kept.length > 12) {
+    const synthetic = kept.findIndex((turn) => turn.role === 'user' && turn.evidence === false);
+    if (synthetic < 0) {
+      kept.shift();
+      continue;
+    }
+    kept.splice(synthetic, kept[synthetic + 1]?.role === 'assistant' ? 2 : 1);
+  }
+  while (kept[0]?.role === 'assistant') kept.shift();
+  return kept;
+}
+
 function statusOf(contract: CaptureProposalContract): CaptureProposalContract['status'] {
   if (contract.items.length === 0) return contract.seeds.length > 0 ? 'unresolved_intent' : 'no_commitment';
   return contract.items.every((item) => item.needsClarification) ? 'needs_clarification' : 'proposed';
@@ -164,6 +179,9 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
   const itemIndex = itemId ? stored.contract.items.findIndex((candidate) => candidate.itemId === itemId) : -1;
   const seedIndex = seedId ? stored.contract.seeds.findIndex((candidate) => candidate.seedItemId === seedId) : -1;
   if (itemIndex < 0 && seedIndex < 0) throw new StructuredEditError();
+  if (seedId && (stored.keptSeedItemIds?.includes(seedId) || stored.seedKeepReceipt?.seedItemId === seedId)) {
+    throw new StructuredEditError();
+  }
   if (hasTime && (
     (itemIndex >= 0 && change.kind !== undefined && change.kind !== 'commitment')
     || (seedIndex >= 0 && change.kind !== 'commitment')
@@ -340,23 +358,33 @@ export async function applyStructuredEdit(input: {
       : (mutated.contract.items.find((item) => item.itemId === targetId)?.title
         ?? mutated.contract.seeds.find((seed) => seed.seedItemId === targetId)?.summary ?? beforeTitle);
     const words = editTurns(input.edit, beforeTitle, afterTitle, input.locale);
-    const turns: CaptureChatTurn[] = [
+    const turns: CaptureChatTurn[] = boundedEditTurns([
       ...conversationDoc.turns,
       // Still rendered as the person's edit in the app, but never eligible
       // as extraction or model evidence on a later message.
       { role: 'user' as const, text: words.user, evidence: false as const },
       { role: 'assistant' as const, text: words.reply },
-    ].slice(-12);
+    ]);
     const answer = { conversationId: input.conversation.conversationId, reply: words.reply, engine: input.engine, proposal: mutated.contract, turns };
     mutated.editReceipt = { fingerprint: fp, resultingRevision: currentRevision + 1, answer };
+    const previousSource = stored.structuredEditSources?.[targetId];
     mutated.structuredEditSources = {
       ...(stored.structuredEditSources ?? {}),
-      [targetId]: stored.structuredEditSources?.[targetId] ?? {
-        ...(Number.isFinite(sourceOrdinal) ? { ordinal: sourceOrdinal } : {}),
-        originalText: beforeTitle,
-        ...(stored.resultsByItemId?.get(targetId)?.rawText
-          ? { rawText: stored.resultsByItemId.get(targetId)!.rawText }
-          : {}),
+      [targetId]: {
+        ...(previousSource ?? {
+          ...(Number.isFinite(sourceOrdinal) ? { ordinal: sourceOrdinal } : {}),
+          originalText: beforeTitle,
+          ...(stored.resultsByItemId?.get(targetId)?.rawText
+            ? { rawText: stored.resultsByItemId.get(targetId)!.rawText }
+            : {}),
+        }),
+        fields: {
+          ...(previousSource?.fields ?? {}),
+          ...(input.edit.change.text !== undefined ? { text: true as const } : {}),
+          ...(input.edit.change.kind !== undefined ? { kind: true as const } : {}),
+          ...(Object.prototype.hasOwnProperty.call(input.edit.change, 'time') ? { time: true as const } : {}),
+          ...(input.edit.change.rejectCorrectionIds !== undefined ? { corrections: true as const } : {}),
+        },
       },
     };
     mutated.seedKeepReceipt = stored.seedKeepReceipt;

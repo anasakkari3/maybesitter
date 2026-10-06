@@ -24,7 +24,8 @@ import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
-import { eventDayOf } from '../captureBoundary/applyEdits';
+import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
+import { namesDay, statesClock } from '../../../src/extraction/timeLexicon';
 import {
   appendClarificationEvent,
   captureProposalFromDocument,
@@ -39,6 +40,7 @@ import {
   type CaptureProposalStore,
   type StoredProposalDocument,
   type StoredCaptureProposal,
+  type StructuredEditSource,
   type CapturePersistenceAdapter,
   ProposalChangedError,
   proposalRevision,
@@ -699,6 +701,8 @@ function proposalStatus(contract: CaptureProposalContract): CaptureProposalContr
 async function carryStructuredEditsForward(
   baseProposalId: string | undefined,
   proposal: CaptureProposalContract,
+  latestMessage: string,
+  renamedItem: boolean,
 ): Promise<CaptureProposalContract> {
   if (!baseProposalId) return proposal;
   const [base, built] = await Promise.all([store.get(baseProposalId), store.get(proposal.proposalId)]);
@@ -717,6 +721,8 @@ async function carryStructuredEditsForward(
   const commands = new Map(built.commandsByItemId);
   const results = new Map(built.resultsByItemId ?? []);
   const spans = { ...(built.correctionSpans ?? {}) };
+  const nextEdited: Record<string, StructuredEditSource> = {};
+  const touched = new Set(built.latestChatTouchedIds ?? []);
 
   const idAt = (source: CaptureSourceOrdinals, ordinal: number): string | null => {
     const entry = [...Object.entries(source.items), ...Object.entries(source.seeds)]
@@ -734,12 +740,12 @@ async function carryStructuredEditsForward(
   ];
   const claimed = new Set<string>();
   for (const [baseId, source] of Object.entries(edited)) {
-    const rawMatch = source.rawText
-      ? Array.from(built.resultsByItemId ?? []).find(([, result]) => result.rawText === source.rawText)?.[0]
-      : undefined;
+    const rawMatches = source.rawText
+      ? Array.from(built.resultsByItemId ?? []).filter(([, result]) => result.rawText === source.rawText).map(([id]) => id)
+      : [];
     const textMatches = builtIds.filter((id) => entityText(id)?.trim() === source.originalText.trim());
     const ordinalMatch = source.ordinal === undefined ? null : idAt(built.sourceOrdinals, source.ordinal);
-    const builtId = [rawMatch, textMatches.length === 1 ? textMatches[0] : undefined, ordinalMatch]
+    const builtId = [ordinalMatch, rawMatches.length === 1 ? rawMatches[0] : undefined, textMatches.length === 1 ? textMatches[0] : undefined]
       .find((id): id is string => Boolean(id) && !claimed.has(id!));
     if (!builtId) continue;
     claimed.add(builtId);
@@ -751,31 +757,77 @@ async function carryStructuredEditsForward(
     const builtSeedAt = contract.seeds.findIndex((seed) => seed.seedItemId === builtId);
     if ((!baseItem && !baseSeed) || (builtItemAt < 0 && builtSeedAt < 0)) continue;
 
-    if (baseItem && builtItemAt >= 0) contract.items.splice(builtItemAt, 1, { ...baseItem });
-    else if (builtItemAt >= 0) contract.items.splice(builtItemAt, 1);
-    if (baseSeed && builtSeedAt >= 0) contract.seeds.splice(builtSeedAt, 1, { ...baseSeed });
-    else if (builtSeedAt >= 0) contract.seeds.splice(builtSeedAt, 1);
+    const fields = { ...(source.fields ?? { text: true as const, kind: true as const, time: true as const, corrections: true as const }) };
+    const touchedNow = touched.has(builtId);
+    if (touchedNow && renamedItem) {
+      delete fields.text;
+      delete fields.corrections;
+    }
+    if (touchedNow && (statesClock(latestMessage) || namesDay(latestMessage))) delete fields.time;
+    if (touchedNow && /\b(?:idea|goal|consideration|waiting)\b|(?:فكرة|هدف|احتمال|ناطر|منتظر|רעיון|מטרה|מחכה)/i.test(latestMessage)) delete fields.kind;
+
+    const builtItem = builtItemAt >= 0 ? contract.items[builtItemAt]! : undefined;
+    const builtSeed = builtSeedAt >= 0 ? contract.seeds[builtSeedAt]! : undefined;
+    const carryKind = fields.kind === true;
+    const carryText = fields.text === true || fields.corrections === true;
+    const carryTime = fields.time === true;
+    const resultKind = carryKind ? (baseItem ? 'commitment' : baseSeed!.kind) : (builtItem ? 'commitment' : builtSeed!.kind);
+    const title = carryText
+      ? (baseItem?.title ?? baseSeed!.summary)
+      : (builtItem?.title ?? builtSeed!.summary);
+
+    if (builtItemAt >= 0) contract.items.splice(builtItemAt, 1);
+    if (builtSeedAt >= 0) contract.seeds.splice(builtSeedAt, 1);
     delete ordinals.items[builtId];
     delete ordinals.seeds[builtId];
-    commands.delete(builtId);
-    results.delete(builtId);
+    const builtCommands = commands.get(builtId) ?? [];
+    const builtResult = results.get(builtId);
+    commands.delete(builtId); results.delete(builtId);
     for (const [correctionId, span] of Object.entries(spans)) {
       if (span.itemId === builtId) delete spans[correctionId];
     }
 
-    if (baseItem) {
-      if (builtItemAt < 0) contract.items.push({ ...baseItem });
-      ordinals.items[baseItem.itemId] = ordinal;
-      commands.set(baseItem.itemId, [...(base.commandsByItemId.get(baseItem.itemId) ?? [])]);
-      const result = base.resultsByItemId?.get(baseItem.itemId);
-      if (result) results.set(baseItem.itemId, result);
-      for (const [correctionId, span] of Object.entries(base.correctionSpans ?? {})) {
-        if (span.itemId === baseItem.itemId) spans[correctionId] = { ...span };
+    if (resultKind === 'commitment') {
+      const template = builtItem ?? baseItem;
+      if (!template) continue;
+      const nextItem = { ...template, itemId: baseId, title };
+      if (carryTime && baseItem) {
+        for (const key of ['resolvedTime', 'endTime', 'needsClarification', 'timeEstimated', 'resolvedDate', 'dateEstimated', 'allDayEvent', 'eventOnDay', 'clarification', 'recurrenceHint', 'weeklyBlock'] as const) {
+          delete (nextItem as unknown as Record<string, unknown>)[key];
+          const value = baseItem[key];
+          if (value !== undefined) (nextItem as unknown as Record<string, unknown>)[key] = value;
+        }
       }
-    } else if (baseSeed) {
-      if (builtSeedAt < 0) contract.seeds.push({ ...baseSeed });
-      ordinals.seeds[baseSeed.seedItemId] = ordinal;
+      if (fields.text || fields.corrections) {
+        delete (nextItem as unknown as Record<string, unknown>).corrections;
+        if (baseItem?.corrections) nextItem.corrections = [...baseItem.corrections];
+      }
+      const at = builtItemAt >= 0 ? builtItemAt : contract.items.length;
+      contract.items.splice(at, 0, nextItem);
+      ordinals.items[baseId] = ordinal;
+      const sourceCommands = carryTime && baseItem ? base.commandsByItemId.get(baseId) ?? [] : builtCommands;
+      commands.set(baseId, applyEditToCommands(sourceCommands, { title }));
+      const baseResult = base.resultsByItemId?.get(baseId);
+      let nextResult = builtResult ?? baseResult;
+      if (nextResult && carryTime && baseResult) {
+        nextResult = { ...nextResult };
+        for (const key of ['dueAt', 'remindAt', 'localTimeSpec', 'timeEvidence', 'rangeMinutes', 'missingFields', 'ambiguityFlags', 'allDay', 'undatedTime', 'timeAnchor'] as const) {
+          delete (nextResult as unknown as Record<string, unknown>)[key];
+          const value = baseResult[key];
+          if (value !== undefined) (nextResult as unknown as Record<string, unknown>)[key] = value;
+        }
+      }
+      if (nextResult) results.set(baseId, carryText ? { ...nextResult, action: title, title, sourceTitle: title } : nextResult);
+      if (fields.text || fields.corrections) for (const [correctionId, span] of Object.entries(base.correctionSpans ?? {})) {
+        if (span.itemId === baseId) spans[correctionId] = { ...span, itemId: baseId };
+      }
+    } else {
+      const kind = resultKind;
+      const at = builtSeedAt >= 0 ? builtSeedAt : contract.seeds.length;
+      contract.seeds.splice(at, 0, { seedItemId: baseId, kind, summary: title });
+      ordinals.seeds[baseId] = ordinal;
     }
+    if (Object.keys(fields).length > 0) nextEdited[baseId] = { ...source, fields };
   }
 
   const merged = finalizeUnderstood(
@@ -790,7 +842,7 @@ async function carryStructuredEditsForward(
     resultsByItemId: results,
     sourceOrdinals: ordinals,
     correctionSpans: spans,
-    structuredEditSources: { ...edited },
+    structuredEditSources: nextEdited,
   });
   return merged;
 }
@@ -819,6 +871,10 @@ export async function proposeMobileChatTurn(
     previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
     /** Current proposal whose structured edits form this new proposal's base. */
     baseProposalId?: string;
+    /** Newest real user message, used only to retire fields explicitly replaced there. */
+    latestMessage?: string;
+    /** The newest message explicitly asked to rename an item. */
+    renamedItem?: boolean;
     /** The phone's UI language: the items' titles are shown in it (owner request 2026-09-30). */
     locale?: CaptureAppLocale;
     /** Language already resolved by the chat service, including its fallback. */
@@ -849,7 +905,7 @@ export async function proposeMobileChatTurn(
     // The chat's items came from the configured hosted model; name it.
     ...(input.items ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
   });
-  proposal = await carryStructuredEditsForward(input.baseProposalId, proposal);
+  proposal = await carryStructuredEditsForward(input.baseProposalId, proposal, input.latestMessage ?? input.text, input.renamedItem === true);
   if (input.spoken && input.items) proposal = await attachSpokenCorrections(proposal, input.items, input.text);
   // A proposal the chat produced is a capture submitted, counted as the
   // capture route counts one: its length, never its words.
@@ -975,6 +1031,9 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
           );
         }
         if (proposalRevision(current.contract) !== currentRevision) {
+          throw new ProposalChangedError(current.contract, 'open');
+        }
+        if (legacyClarify && current.legacyConfirmRevision !== currentRevision) {
           throw new ProposalChangedError(current.contract, 'open');
         }
         tx.set(proposalPath, captureProposalToDocument(next, new Date()));

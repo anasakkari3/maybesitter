@@ -477,7 +477,7 @@ export const RANGE_PATTERN_SOURCES: readonly string[] = [
   /(?<![\d:])(?:[01]?\d|2[0-3]):[0-5]\d\s*[-–—]\s*(?:[01]?\d|2[0-3]):[0-5]\d(?![\d:])/.source,
   /(?<![\d:])\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*[-–—]\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
   `(?<![\\d:/.\\-])[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*[-–—]\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
-  `(?<![؀-ۿ])من\\s*(?:(?:ال|ل)?(?:ساعة|ساعه)\\s*)?[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${AR_RANGE_TO}|-)\\s*(?:(?:ال|ل)ـ*)?(?:ساعة|ساعه)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?`,
+  `(?<![؀-ۿ])من\\s*(?:(?:ال|ل)?(?:ساعة|ساعه)\\s*)?[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${RANGE_HALF_OF_DAY_WORD})?\\s*(?:${AR_RANGE_TO}|-)\\s*(?:(?:ال|ل)ـ*)?(?:ساعة|ساعه)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${RANGE_HALF_OF_DAY_WORD})?`,
   `(?<![؀-ۿ])بين\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:و|إلى|الى|حتى)\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
   /(?:מ[-־]?|משעה|מהשעה|בין)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:עד\s+ל[-־]?|עד|ל[-־]?|ו[-־]?)\s*(?:ה?שעה\s*)?[0-9]{1,2}(?::[0-9]{2})?/.source,
   `(?<![\\d:/.\\-])\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\s+(?:to|until|till)\\s+\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\b(?![:/.\\-]\\d)${EN_RANGE_END_CONTEXT}`,
@@ -533,8 +533,17 @@ export function readClockRange(rawText: string): ClockRange | null {
   const clocks = Array.from(best[0].matchAll(RANGE_CLOCK));
   if (clocks.length < 2) return null;
   const at = (clock: RegExpMatchArray): RegExpExecArray => Object.assign(clock, { index: best!.index + clock.index! }) as unknown as RegExpExecArray;
-  const start = rangeEndAt(text, at(clocks[0]!));
+  let start = rangeEndAt(text, at(clocks[0]!));
   const end = rangeEndAt(text, at(clocks[clocks.length - 1]!));
+  // English dash shorthand shares its trailing am/pm with the start when the
+  // written endpoints are equal: "4-4pm" starts at 16:00 but still names no
+  // duration. Arabic day-part shorthand keeps the established 08:00–20:00
+  // reading of «8-8 المسا».
+  if (start.statedHour === null && end.statedHour !== null
+    && start.hour === end.hour && start.minute === end.minute
+    && /[-–—]/.test(best[0]) && /(?:am|pm)\b/i.test(best[0])) {
+    start = { ...start, statedHour: end.statedHour };
+  }
   if (start.hour > 23 || end.hour > 23 || start.minute > 59 || end.minute > 59) return null;
   return { start, end };
 }
@@ -582,10 +591,13 @@ export function rangeMinutesFrom(rawText: string, startTime: string | null | und
   if (!startTime || !/^\d{2}:\d{2}$/.test(startTime)) return null;
   const range = readClockRange(rawText);
   if (!range) return null;
-  // Equal written endpoints name no duration. This also covers the common
-  // shorthand "4-4pm": the trailing meridiem must not turn the unstated
-  // start into a fabricated twelve-hour range.
-  if (range.start.hour === range.end.hour && range.start.minute === range.end.minute) return null;
+  // Equal endpoints name no duration only when both are absolute-equal or both
+  // are unstated-equal. A mixed Arabic «8-8 المسا» is 08:00–20:00; English
+  // "4-4pm" was normalised to two stated 16:00 endpoints above.
+  if (range.start.minute === range.end.minute && (
+    (range.start.statedHour !== null && range.end.statedHour !== null && range.start.statedHour === range.end.statedHour)
+    || (range.start.statedHour === null && range.end.statedHour === null && range.start.hour === range.end.hour)
+  )) return null;
   const startHour = Number(startTime.slice(0, 2));
   const start = startHour * 60 + Number(startTime.slice(3, 5));
   if (startHour % 12 !== range.start.hour % 12 || Number(startTime.slice(3, 5)) !== range.start.minute) return null;
