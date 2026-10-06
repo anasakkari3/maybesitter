@@ -1,4 +1,3 @@
-import React from 'react';
 import { expect, jest } from '@jest/globals';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import type { AuthUser } from '../../auth/types';
