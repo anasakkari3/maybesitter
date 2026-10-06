@@ -13,6 +13,11 @@ import { chatServer } from '../../testing/captureChat';
 import { openCapture, plain, prepareRoot, say, type RootHarness } from './harness';
 import legacyChatFixture from '../../api/__fixtures__/capture.chatProposal.json';
 
+jest.mock('expo-localization', () => ({
+  getCalendars: jest.fn(() => [{ timeZone: 'UTC' }]),
+  getLocales: jest.fn(() => [{ languageCode: 'en', languageTag: 'en-US', textDirection: 'ltr' }]),
+}));
+
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
   __esModule: true,
   default: jest.fn(() => ({ width: 390, height: 844, scale: 3, fontScale: 2 })),
@@ -70,12 +75,15 @@ async function answerWith(proposal: CaptureProposal): Promise<void> {
 
 function understoodLines() {
   const assistant = screen.getByTestId('chat-turn-assistant-1');
-  const list = within(assistant).getByRole('list');
-  return { list, lines: within(list).getAllByRole('listitem') };
-}
-
-function actionablePart(line: ReturnType<typeof screen.getByRole>) {
-  return within(line).queryByRole('button') ?? line;
+  const list = within(assistant).getByTestId('understood-list');
+  expect(list.props.accessibilityRole).toBe('list');
+  expect(list.props.accessible).toBe(false);
+  const lines = within(list).getAllByRole('button');
+  expect(lines).toHaveLength(POINTS.length);
+  expect(lines.map((line) => line.props.testID)).toEqual(
+    POINTS.map((_, index) => `understood-line-${index + 1}`),
+  );
+  return { list, lines };
 }
 
 type RenderNode = { children?: readonly (RenderNode | string | number)[] };
@@ -118,8 +126,7 @@ describe('the understood message', () => {
     const { lines } = understoodLines();
 
     for (const [index, line] of lines.entries()) {
-      const control = actionablePart(line);
-      const spoken = plain(String(control.props.accessibilityLabel ?? line.props.accessibilityLabel ?? ''));
+      const spoken = plain(String(line.props.accessibilityLabel ?? ''));
       const visible = renderedText(line as unknown as RenderNode);
       expect(spoken.indexOf(POINTS[index]!.text)).toBeGreaterThan(0);
       expect(visible.replace(POINTS[index]!.text, '').replace(String(index + 1), '').trim().length).toBeGreaterThan(0);
@@ -134,7 +141,7 @@ describe('the understood message', () => {
     ];
     for (const [index, target] of targets.entries()) {
       const current = understoodLines().lines[index]!;
-      await act(async () => { await fireEvent.press(actionablePart(current)); });
+      await act(async () => { await fireEvent.press(current); });
       await waitFor(() => expect(screen.queryByTestId(target)).not.toBeNull());
       await act(async () => { await fireEvent.press(screen.getByTestId('review-back')); });
       await waitFor(() => expect(screen.queryByTestId('chat-turn-assistant-1')).not.toBeNull());
@@ -150,7 +157,7 @@ describe('the understood message', () => {
 
     const line = understoodLines().lines[0]!;
     const visible = plain(renderedText(line as unknown as RenderNode));
-    const spoken = plain(String(actionablePart(line).props.accessibilityLabel ?? line.props.accessibilityLabel ?? ''));
+    const spoken = plain(String(line.props.accessibilityLabel ?? ''));
     expect({ visible, spoken }).toEqual(expect.objectContaining({
       visible: expect.stringContaining('16:00\u201320:00'),
       spoken: expect.stringContaining('16:00\u201320:00'),
@@ -166,10 +173,13 @@ describe('the understood message', () => {
     };
     await answerWith(proposal);
 
-    expect(screen.queryByRole('list')).toBeNull();
+    const assistant = screen.getByTestId('chat-turn-assistant-1');
+    expect(within(assistant).queryByTestId('understood-list')).toBeNull();
     expect(screen.queryByTestId('review-card-only-item')).toBeNull();
-    const lineText = screen.getByText(pointText);
-    await act(async () => { await fireEvent.press(lineText); });
+    const line = within(assistant).getByTestId('understood-line-1');
+    expect(line.props.accessibilityRole).toBe('button');
+    expect(renderedText(line as unknown as RenderNode)).toContain(pointText);
+    await act(async () => { await fireEvent.press(line); });
     await waitFor(() => expect(screen.queryByTestId('review-card-only-item')).not.toBeNull());
   });
 
@@ -179,12 +189,11 @@ describe('the understood message', () => {
     expect(inheritedDirection(list)).toBe('rtl');
 
     for (const [index, line] of lines.entries()) {
-      const control = actionablePart(line);
-      const style = StyleSheet.flatten(control.props.style);
-      const spoken = plain(String(control.props.accessibilityLabel ?? line.props.accessibilityLabel ?? ''));
+      const style = StyleSheet.flatten(line.props.style);
+      const spoken = plain(String(line.props.accessibilityLabel ?? ''));
       expect(style?.minHeight).toBeGreaterThanOrEqual(44);
-      expect(control.props.numberOfLines).not.toBe(1);
-      expect(control.props.ellipsizeMode).toBeUndefined();
+      expect(line.props.numberOfLines).not.toBe(1);
+      expect(line.props.ellipsizeMode).toBeUndefined();
       expect(spoken.indexOf(POINTS[index]!.text)).toBeGreaterThan(0);
     }
   });
