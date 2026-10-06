@@ -24,9 +24,7 @@ function withUsableEnd(raw: unknown): unknown {
 }
 
 const SEED_KINDS = ['consideration', 'waiting_for', 'idea', 'possible_goal'] as const;
-/* eslint-disable no-control-regex */
 const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
-/* eslint-enable no-control-regex */
 const URL_LIKE = /\bhttps?:\/\/|\bwww\.|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|app|ly|co|me|info|link|to|gl)\b/i;
 /**
  * A line that says something was saved, in the three languages — the server's
