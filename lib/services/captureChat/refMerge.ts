@@ -156,39 +156,22 @@ export async function mergeChatProposalByRef(
     item?: CaptureProposalContract['items'][number];
     seed?: CaptureProposalContract['seeds'][number];
     ordinal?: number;
-    sourceOrdinal?: number;
   };
   const allBuiltEntities: BuiltEntity[] = [
     ...built.contract.items.map((item) => ({
       id: item.itemId,
       item,
       ordinal: built.chatOperationIndices?.items[item.itemId],
-      sourceOrdinal: built.sourceOrdinals?.items[item.itemId],
     })),
     ...built.contract.seeds.map((seed) => ({
       id: seed.seedItemId,
       seed,
       ordinal: built.chatOperationIndices?.seeds[seed.seedItemId],
-      sourceOrdinal: built.sourceOrdinals?.seeds[seed.seedItemId],
     })),
   ];
-  const directBuiltEntities = (index: number): BuiltEntity[] => allBuiltEntities
+  const builtEntities = (index: number): BuiltEntity[] => allBuiltEntities
     .filter((entry) => Math.floor(entry.ordinal ?? -1) === index)
     .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
-  // A recurrence can fan each of two model entries over the same two days;
-  // exact-copy cleanup then keeps the first fan-out and removes the second.
-  // When the final entity count still exactly covers the delta, retain the
-  // model's one-entity-per-operation identity instead of treating that safe
-  // deduplication as a partly missing answer. A genuinely partial answer has
-  // fewer entities than deltas and continues to roll back atomically below.
-  const onePerDelta = plan
-    && allBuiltEntities.length === plan.delta.length
-    && plan.delta.some((_, index) => directBuiltEntities(index).length === 0)
-    ? [...allBuiltEntities].sort((a, b) => (a.sourceOrdinal ?? Number.POSITIVE_INFINITY) - (b.sourceOrdinal ?? Number.POSITIVE_INFINITY))
-    : null;
-  const builtEntities = (index: number): BuiltEntity[] => onePerDelta
-    ? [onePerDelta[index]!]
-    : directBuiltEntities(index);
 
   if (plan && plan.delta.some((_, index) => builtEntities(index).length === 0)) {
     return withPublicRemovedItems(base.contract, base);

@@ -324,11 +324,11 @@ export function chatItemEvidence(
   items: readonly unknown[],
   previous: readonly ChatPreviousItem[] = [],
   timezone = 'UTC',
+  evidenceStartIndices: readonly number[] = [],
 ): ChatItemEvidence[] {
   const perTurn = userTurns.map((turn) => chatEvidenceTurns([turn]));
   const newest = perTurn.length - 1;
   const turns = perTurn.flat();
-  const whole = turns.join('\n');
   const aligned = alignToPrevious(items, previous);
   const titles = items.map((item, index) => {
     const before = aligned[index] === null ? '' : previous[aligned[index]!]!.title;
@@ -376,17 +376,20 @@ export function chatItemEvidence(
   });
 
   return items.map((_, index) => {
+    const evidenceStartsAt = Math.max(0, Math.min(newest, evidenceStartIndices[index] ?? 0));
+    const eligible = byTurn.map((clauses, at) => turnOf[at]! >= evidenceStartsAt ? clauses : []);
+    const eligibleWhole = turns.filter((_, at) => turnOf[at]! >= evidenceStartsAt).join('\n');
     // A shared/no-owner acknowledgement ("ok", «تمام») does not retire
     // fields carried for every existing card. Other shared clauses still
     // touch the list: ordinal and recurring-list edits rely on that signal.
     const touchedNow = byTurn.some((clauses, at) => turnOf[at] === newest
       && clauses.some((clause) => clause.owners?.includes(index)
         || (clause.owners === null && !isPlainYes(clause.text))));
-    const named = byTurn.some((clauses) => clauses.some((clause) => clause.owners?.includes(index)));
+    const named = eligible.some((clauses) => clauses.some((clause) => clause.owners?.includes(index)));
     if (!named) {
       // Read as before; but a day or an hour only from words naming no other item.
-      const shared = byTurn.flatMap((clauses) => clauses.filter((clause) => clause.owners === null).map((clause) => clause.text));
-      if (shared.length > 0) return { clause: { text: whole }, turns: shared, touchedNow };
+      const shared = eligible.flatMap((clauses) => clauses.filter((clause) => clause.owners === null).map((clause) => clause.text));
+      if (shared.length > 0) return { clause: { text: eligibleWhole }, turns: shared, touchedNow };
       // Only when nothing else speaks for it (round 4): the clauses that say
       // the card's title whole, in the app's language — «…وأدرس الثلاثاء
       // والخميس…» for «أدرس» beside the model's "Study". Never in place of
@@ -394,14 +397,15 @@ export function chatItemEvidence(
       const record = items[index] && typeof items[index] === 'object' ? items[index] as Record<string, unknown> : null;
       const card = typeof record?.appTitle === 'string' ? Array.from(new Set(contentWords(record.appTitle))) : [];
       const saysCard = (clause: AttributedClause) => card.length > 0 && titleScore(card, contentWords(clause.text)) === card.length;
-      const byCard = byTurn.flatMap((clauses) => clauses.filter(saysCard).map((clause) => clause.text));
-      const cardNow = byTurn.some((clauses, at) => turnOf[at] === newest && clauses.some(saysCard));
-      return { clause: { text: whole }, turns: byCard, touchedNow: touchedNow || cardNow };
+      const byCard = eligible.flatMap((clauses) => clauses.filter(saysCard).map((clause) => clause.text));
+      const cardNow = eligible.some((clauses, at) => turnOf[at] === newest && clauses.some(saysCard));
+      return { clause: { text: eligibleWhole }, turns: byCard, touchedNow: touchedNow || cardNow };
     }
     const kept: string[] = [];
     const own: AttributedClause[] = [];
     turns.forEach((turn, turnIndex) => {
-      const clauses = byTurn[turnIndex]!;
+      const clauses = eligible[turnIndex]!;
+      if (clauses.length === 0) return;
       const mine = clauses.filter((clause) => clause.owners === null || clause.owners.includes(index));
       own.push(...mine.filter((clause) => clause.owners !== null));
       // A turn all of whose clauses are this item's stays whole, as it was read.
@@ -538,6 +542,7 @@ export function withoutUnsaidTime(
   turns: readonly string[],
   now: Date,
   timezone: string,
+  carried?: Pick<ChatPreviousItem, 'date' | 'time'>,
 ): UnsaidTimeOutcome {
   const time = localTimeOf(result, timezone);
   const date = localDateOf(result, timezone);
@@ -548,9 +553,9 @@ export function withoutUnsaidTime(
   if (time) {
     const hour = Number(time.slice(0, 2));
     const minute = Number(time.slice(3, 5));
-    keepTime = allowance.hours.has(hour % 12) && allowance.minutes.has(minute);
+    keepTime = carried?.time === time || (allowance.hours.has(hour % 12) && allowance.minutes.has(minute));
   }
-  const keepDate = !date || allowance.anyDate || allowance.dates.has(date);
+  const keepDate = !date || carried?.date === date || allowance.anyDate || allowance.dates.has(date);
   if (keepTime && keepDate) return { result, fired: false };
 
   // A day nobody said for this item, when its own words name exactly one day

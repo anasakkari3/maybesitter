@@ -333,8 +333,18 @@ export async function chatMobileCapture(
     conversation = found;
   }
 
+  // A card answer or seed keep can mutate the proposal without changing the
+  // conversation document. Read that live state before replaying a receipt:
+  // an answer older than either its revision or its lock set is not a retry.
+  const read = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid) : null;
+  const currentLockedRefs = read ? Array.from(read.lockedRefs).sort() : [];
   const receiptAge = conversation.messageReceipt ? clock() - conversation.messageReceipt.receivedAt : Number.POSITIVE_INFINITY;
-  if (conversation.messageReceipt?.fingerprint === messageFingerprint && receiptAge >= 0 && receiptAge <= 120_000) {
+  const receiptMatchesProposal = conversation.messageReceipt !== undefined
+    && conversation.messageReceipt.proposalId === (read?.proposal.proposalId ?? null)
+    && conversation.messageReceipt.proposalRevision === (read?.proposal.revision ?? null)
+    && JSON.stringify(conversation.messageReceipt.lockedRefs) === JSON.stringify(currentLockedRefs);
+  if (conversation.messageReceipt?.fingerprint === messageFingerprint
+    && receiptAge >= 0 && receiptAge <= 120_000 && receiptMatchesProposal) {
     return conversation.messageReceipt.answer as CaptureChatResponse;
   }
 
@@ -351,7 +361,6 @@ export async function chatMobileCapture(
   // What the person already has (owner request 2026-09-30): read once, for the
   // days the model is shown and for the clashes of every proposal answered.
   const schedule = await readPersonSchedule(uid, now);
-  const read = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid) : null;
   const current = await withConflicts(read?.proposal ?? null, schedule);
   // Each item's title in the person's own words, where the card shows the
   // app's: what their next message is matched against (`chatEvidence`).
@@ -380,12 +389,20 @@ export async function chatMobileCapture(
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
     const updatedAt = new Date(clock()).toISOString();
     const answer = { conversationId: conversation.conversationId, reply, engine, proposal, turns: kept };
+    const receiptProposal = proposal ? await readMobileChatProposal(proposal.proposalId, uid) : null;
     await conversations.put(uid, {
       ...conversation,
       turns: kept,
       proposalId: proposal?.proposalId ?? null,
       updatedAt,
-      messageReceipt: { fingerprint: messageFingerprint, receivedAt: clock(), answer },
+      messageReceipt: {
+        fingerprint: messageFingerprint,
+        receivedAt: clock(),
+        answer,
+        proposalId: receiptProposal?.proposal.proposalId ?? null,
+        proposalRevision: receiptProposal?.proposal.revision ?? null,
+        lockedRefs: receiptProposal ? Array.from(receiptProposal.lockedRefs).sort() : [],
+      },
     }, new Date(clock()));
     return answer;
   };
@@ -484,6 +501,14 @@ export async function chatMobileCapture(
         {
           text: message,
           userTurns: evidenceTurns,
+          // Updates are ref-targeted and retain the prior card as their
+          // baseline. Added entries have no prior identity: only this newest
+          // turn may supply their title, kind, day or time.
+          evidenceStartIndices: [
+            ...updates.map(() => 0),
+            ...answer.added.map(() => Math.max(0, evidenceTurns.length - 1)),
+          ],
+          changedFieldEvidenceStartIndices: deltaItems.map(() => Math.max(0, evidenceTurns.length - 1)),
           items: evidence ? deltaItems : [],
           now,
           timezone,

@@ -37,7 +37,15 @@ export interface StoredCaptureConversation {
   createdAt: string;
   updatedAt: string;
   /** Exact last message response, so a transport retry within two minutes cannot apply its delta twice. */
-  messageReceipt?: { fingerprint: string; receivedAt: number; answer: unknown };
+  messageReceipt?: {
+    fingerprint: string;
+    receivedAt: number;
+    answer: unknown;
+    /** Proposal state the answer describes; a later card mutation makes the receipt stale. */
+    proposalId: string | null;
+    proposalRevision: number | null;
+    lockedRefs: string[];
+  };
 }
 
 interface ConversationDocument extends StoredCaptureConversation {
@@ -94,7 +102,19 @@ export class CaptureConversationStore {
         && Number.isFinite(document.messageReceipt.receivedAt)
         && document.messageReceipt.answer
         && typeof document.messageReceipt.answer === 'object'
-        ? { messageReceipt: document.messageReceipt }
+        && (document.messageReceipt.proposalId === null || typeof document.messageReceipt.proposalId === 'string')
+        && (document.messageReceipt.proposalRevision === null
+          || (typeof document.messageReceipt.proposalRevision === 'number' && Number.isInteger(document.messageReceipt.proposalRevision)))
+        && Array.isArray(document.messageReceipt.lockedRefs)
+        && document.messageReceipt.lockedRefs.every((ref) => typeof ref === 'string')
+        ? { messageReceipt: {
+          fingerprint: document.messageReceipt.fingerprint,
+          receivedAt: document.messageReceipt.receivedAt,
+          answer: document.messageReceipt.answer,
+          proposalId: document.messageReceipt.proposalId,
+          proposalRevision: document.messageReceipt.proposalRevision,
+          lockedRefs: [...document.messageReceipt.lockedRefs].sort(),
+        } }
         : {}),
     };
   }

@@ -1297,6 +1297,24 @@ test('v5 ref schema uses only this turn refs, and hostile ref parsing is content
   }), null, 'an unagreed top-level shape must not be partially applied');
 });
 
+test('a retired full-list answer never replaces the current ref-based list', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [
+      modelItem('اتصل بأمي', TOMORROW, '17:00'), modelItem('ادفع الفاتورة', TOMORROW, '18:00'),
+    ]),
+    { reply: 'استبدلت القائمة.', action: 'update', items: [modelItem('اشتري خبز', TOMORROW, '19:00')] },
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 وادفع الفاتورة الساعة 6 المسا', { locale: 'ar' });
+    const next = await gateChat(uid, 'لازم اشتري خبز بكرا الساعة 7 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.deepEqual(next.proposal!.items.map((item) => item.itemId), first.proposal!.items.map((item) => item.itemId));
+    assert.deepEqual(next.proposal!.items.map((item) => item.title), first.proposal!.items.map((item) => item.title));
+    assert.equal(next.proposal!.items.some((item) => item.title.includes('خبز')), false);
+  } finally {
+    endGate();
+  }
+});
+
 test('the carry path has no title, ordinal, raw-text, cancel, rename, or acknowledgement matcher', () => {
   const merge = readFileSync('lib/services/captureChat/refMerge.ts', 'utf8');
   const service = readFileSync('lib/services/captureChat/captureChatService.ts', 'utf8');
@@ -1313,6 +1331,8 @@ test('the carry path has no title, ordinal, raw-text, cancel, rename, or acknowl
   ].sort(), 'the identity-only merge imported a new dependency; review it before allowing text matching');
   assert.doesNotMatch(merge, /(?:\.|\[['"])(?:title|summary|text)(?:\b|['"]\])/,
     'the identity-only merge must not inspect user-facing words inline');
+  assert.doesNotMatch(merge, /\b(?:const|let|var)\s*\{[^}]*\b(?:title|summary|text)\b/,
+    'the identity-only merge must not inspect user-facing words by destructuring');
   assert.doesNotMatch(mobile, /carryStructuredEditsForward|ordinalMatch|rawMatches/);
   assert.doesNotMatch(boundary, /withPreviousTitles/);
   assert.doesNotMatch(evidence, /renamesListItem|cancelsListItem|const RENAME/);
@@ -1399,6 +1419,214 @@ test('a retried message receipt ignores a fresh referenceTime for 120 seconds, t
   }
 });
 
+test('a retry receipt is bypassed after a card clarification changes the proposal revision', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('أي ساعة؟', 'ask', [
+      modelItem('اتصل بأمي', TOMORROW, null), modelItem('ادفع الفاتورة', TOMORROW, '18:00'),
+    ]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }, { ref: 'i2', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+    modelRefAnswer('القائمة محدّثة.', 'update', {
+      locked: [{ ref: 'i1', op: 'keep' }],
+      open: [{ ref: 'i2', op: 'keep' }, { ref: 'i3', op: 'keep' }],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا وادفع الفاتورة بكرا الساعة 6 المسا', { locale: 'ar' });
+    const message = 'وكمان لازم اشتري خبز بكرا الساعة 7 المسا';
+    const beforeClarify = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    const call = itemWith(beforeClarify.proposal, 'اتصل بأمي');
+    const clarified = await clarifyRaw(uid, beforeClarify.proposal!, call, { freeText: 'الساعة 9 الصبح' });
+    assert.equal(clarified.status, 200, JSON.stringify(clarified.body));
+    const retry = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(modelCalls(), 3, 'the pre-clarification receipt was replayed');
+    assert.equal(itemById(retry.proposal, call.itemId).resolvedTime, at(TOMORROW, '09:00'));
+    assert.equal(revisionOf(retry.proposal), revisionOf(clarified.body));
+  } finally {
+    endGate();
+  }
+});
+
+test('a retry receipt is bypassed after keeping a seed changes the proposal lock set', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [
+      modelItem('اتصل بأمي', TOMORROW, '17:00'),
+      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
+    ]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }, { ref: 's1', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+    modelRefAnswer('القائمة محدّثة.', 'update', {
+      locked: [{ ref: 's1', op: 'keep' }],
+      open: [{ ref: 'i1', op: 'keep' }, { ref: 'i2', op: 'keep' }],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
+    const message = 'وكمان لازم اشتري خبز بكرا الساعة 7 المسا';
+    const beforeKeep = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    const travel = seedWith(beforeKeep.proposal, 'أسافر');
+    assert.equal((await keepSeedRaw(uid, {
+      proposalId: beforeKeep.proposal!.proposalId,
+      seedItemId: travel.seedItemId,
+      revision: revisionOf(beforeKeep.proposal),
+    })).status, 201);
+    const retry = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(modelCalls(), 3, 'the pre-keep receipt was replayed');
+    assert.equal(seedWith(retry.proposal, 'أسافر').seedItemId, travel.seedItemId);
+  } finally {
+    endGate();
+  }
+});
+
+test('spoken and locale are both part of the retry fingerprint', async () => {
+  let uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelRefAnswer('أضفت السوق.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('اطلع عالسوق', TOMORROW, '19:00')],
+    }),
+    modelRefAnswer('صححت السوق.', 'update', {
+      open: [
+        { ref: 'i1', op: 'keep' },
+        { ref: 'i2', op: 'update', fields: modelItem('اطلع عالسوق', TOMORROW, '19:00', modelCorrections(['الطلع', 'اطلع'])) },
+      ],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const message = 'وكمان لازم الطلع عالسوق بكرا الساعة 7 المسا';
+    await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    const spoken = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar', spoken: true });
+    assert.equal(modelCalls(), 3, 'typed input was replayed for a spoken message');
+    assert.deepEqual(itemWith(spoken.proposal, 'عالسوق').corrections?.map(({ from, to }) => ({ from, to })), [
+      { from: 'الطلع', to: 'اطلع' },
+    ]);
+  } finally {
+    endGate();
+  }
+
+  uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }], added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+    modelRefAnswer('Confirm below.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }, { ref: 'i2', op: 'keep' }],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const message = 'وكمان لازم اشتري خبز بكرا الساعة 7 المسا';
+    await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    await gateChat(uid, message, { conversationId: first.conversationId, locale: 'en' });
+    assert.equal(modelCalls(), 3, 'the old locale answer was replayed after the app language changed');
+  } finally {
+    endGate();
+  }
+});
+
+for (const [label, locale, firstMessage, firstItem, message, added, expectedTitle] of [
+  ['Arabic', 'ar', 'لازم اتصل بأمي بكرا الساعة 5 المسا', modelItem('اتصل بأمي', TOMORROW, '17:00'), 'وكمان لازم اشتري خبز', modelItem('اشتري خبز', null, null), 'اشتري خبز'],
+  ['English', 'en', 'I need to call mom tomorrow at 5 PM', modelItem('Call mom', TOMORROW, '17:00'), 'I also need to buy bread', modelItem('Buy bread', null, null), 'Buy bread'],
+] as const) test(`a later untimed commitment uses only its own ${label} words`, async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('Review it.', 'propose', [firstItem]),
+    modelRefAnswer('When?', 'ask', { open: [{ ref: 'i1', op: 'keep' }], added: [added] }),
+  );
+  try {
+    const first = await gateChat(uid, firstMessage, { locale });
+    const next = await gateChat(uid, message, { conversationId: first.conversationId, locale });
+    const bread = itemWith(next.proposal, expectedTitle);
+    assert.equal(bread.resolvedTime, null, JSON.stringify(bread));
+    assert.equal(bread.needsClarification, true, JSON.stringify(bread));
+    assert.deepEqual(bread.conflicts ?? [], []);
+  } finally {
+    endGate();
+  }
+});
+
+for (const [label, locale, message, item, word, kind] of [
+  ['Arabic consideration', 'ar', 'عم بفكر أسافر الصيف الجاي', modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }), 'أسافر', 'consideration'],
+  ['English consideration', 'en', "I'm thinking about traveling next summer", modelItem('Travel next summer', null, null, { kind: 'consideration' }), 'travel', 'consideration'],
+  ['English idea', 'en', 'maybe learn the oud', modelItem('Learn the oud', null, null, { kind: 'idea' }), 'oud', 'idea'],
+] as const) test(`a later ${label} stays a seed`, async () => {
+  const firstMessage = locale === 'ar' ? 'لازم اتصل بأمي بكرا الساعة 5 المسا' : 'I need to call mom tomorrow at 5 PM';
+  const call = locale === 'ar' ? modelItem('اتصل بأمي', TOMORROW, '17:00') : modelItem('Call mom', TOMORROW, '17:00');
+  const uid = beginGateModel(
+    modelFirstAnswer('Review it.', 'propose', [call]),
+    modelRefAnswer('Review it.', 'update', { open: [{ ref: 'i1', op: 'keep' }], added: [item] }),
+  );
+  try {
+    const first = await gateChat(uid, firstMessage, { locale });
+    const next = await gateChat(uid, message, { conversationId: first.conversationId, locale });
+    assert.equal(next.proposal!.seeds.length, 1, JSON.stringify(next.proposal));
+    assert.equal(next.proposal!.seeds[0]!.kind, kind);
+    assert.match(next.proposal!.seeds[0]!.summary.toLowerCase(), new RegExp(word.toLowerCase()));
+    assert.equal(next.proposal!.items.length, 1, JSON.stringify(next.proposal));
+  } finally {
+    endGate();
+  }
+});
+
+test('a later thought keeps its words after an untimed first item, while a later item with its own time keeps that time', async () => {
+  let uid = beginGateModel(
+    modelFirstAnswer('أي ساعة؟', 'ask', [modelItem('اتصل بأمي', null, null)]),
+    modelRefAnswer('راجع.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' })],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي', { locale: 'ar' });
+    const next = await gateChat(uid, 'وعم بفكر أسافر الصيف الجاي', { conversationId: first.conversationId, locale: 'ar' });
+    assert.match(next.proposal!.seeds[0]!.summary, /أسافر/);
+    assert.doesNotMatch(next.proposal!.seeds[0]!.summary, /اتصل/);
+  } finally {
+    endGate();
+  }
+
+  uid = beginGateModel(
+    modelFirstAnswer('راجع.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelRefAnswer('راجع.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }], added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const next = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 7 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(itemWith(next.proposal, 'اشتري خبز').resolvedTime, at(TOMORROW, '19:00'));
+  } finally {
+    endGate();
+  }
+});
+
+test('an open update cannot take a changed time from an older turn', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('Review it.', 'propose', [modelItem('Call mom', TOMORROW, '17:00')]),
+    modelRefAnswer('Changed.', 'update', {
+      open: [{ ref: 'i1', op: 'update', fields: modelItem('Call mom', TOMORROW, '18:00') }],
+    }),
+    modelRefAnswer('Renamed.', 'update', {
+      open: [{ ref: 'i1', op: 'update', fields: modelItem('Phone mom', TOMORROW, '17:00') }],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'I need to call mom tomorrow at 5 PM', { locale: 'en' });
+    const moved = await gateChat(uid, 'make it 6 PM', { conversationId: first.conversationId, locale: 'en' });
+    const renamed = await gateChat(uid, 'rename it to Phone mom', { conversationId: first.conversationId, locale: 'en' });
+    assert.equal(itemWith(moved.proposal, 'Call mom').resolvedTime, at(TOMORROW, '18:00'));
+    const item = itemWith(renamed.proposal, 'Phone mom');
+    assert.equal(item.resolvedTime, null, JSON.stringify(item));
+    assert.equal(item.needsClarification, true, JSON.stringify(item));
+  } finally {
+    endGate();
+  }
+});
+
 test('spoken corrections follow their added or updated ref and never attach to a locked card', async () => {
   let uid = beginGateModel(
     modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اطلع عالسوق', TOMORROW, '17:00')]),
@@ -1443,6 +1671,31 @@ test('spoken corrections follow their added or updated ref and never attach to a
     });
     const bank = itemById(updated.proposal, beforeId);
     assert.deepEqual(bank.corrections?.map(({ from, to }) => ({ from, to })), [{ from: 'الطلع', to: 'اطلع' }]);
+  } finally {
+    endGate();
+  }
+});
+
+test('a correction follows its operation index when an earlier recurring add fans out', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('Review.', 'propose', [modelItem('Call mom', TOMORROW, '17:00')]),
+    modelRefAnswer('Updated.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [
+        modelItem('Go to the gym', '2026-10-13', '19:00'),
+        modelItem('Buy bread', TOMORROW, '20:00', modelCorrections(['By', 'Buy'])),
+      ],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'Call mom tomorrow at 5 PM', { locale: 'en' });
+    const next = await gateChat(uid, 'Also the gym every Tuesday and Thursday at 7 PM, and By bread tomorrow at 8 PM', {
+      conversationId: first.conversationId, locale: 'en', spoken: true,
+    });
+    assert.deepEqual(itemWith(next.proposal, 'Buy bread').corrections?.map(({ from, to }) => ({ from, to })), [
+      { from: 'By', to: 'Buy' },
+    ]);
+    assert.ok(next.proposal!.items.filter((item) => item.title === 'Go to the gym').length >= 2, JSON.stringify(next.proposal));
   } finally {
     endGate();
   }
@@ -1498,6 +1751,34 @@ test('a partly invalid model answer rolls back every ref operation and uses a no
   }
 });
 
+test('an invalid update beside a two-day recurring add rolls back by operation index', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('Review.', 'propose', [
+      modelItem('Call mom', TOMORROW, '17:00'), modelItem('Pay the bill', TOMORROW, '18:00'),
+    ]),
+    modelRefAnswer('Done.', 'update', {
+      open: [
+        { ref: 'i1', op: 'update', fields: { title: 'broken' } },
+        { ref: 'i2', op: 'keep' },
+      ],
+      added: [modelItem('Go to the gym', '2026-10-13', '19:00')],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'Call mom tomorrow at 5 PM and pay the bill tomorrow at 6 PM', { locale: 'en' });
+    const call = itemWith(first.proposal, 'Call mom');
+    const next = await gateChat(uid, 'Also go to the gym every Tuesday and Thursday at 7 PM', {
+      conversationId: first.conversationId, locale: 'en',
+    });
+    assert.deepEqual(next.proposal!.items.map((item) => item.itemId), first.proposal!.items.map((item) => item.itemId));
+    assert.equal(itemById(next.proposal, call.itemId).title, 'Call mom');
+    assert.equal(next.proposal!.items.some((item) => item.title === 'Go to the gym'), false);
+    assert.match(next.reply, /couldn.t apply|could not apply/i);
+  } finally {
+    endGate();
+  }
+});
+
 test('a removed locked item restores before points added on later turns', async () => {
   const uid = beginGateModel(
     modelFirstAnswer('راجع القائمة.', 'propose', [
@@ -1531,7 +1812,39 @@ test('a removed locked item restores before points added on later turns', async 
   }
 });
 
-test('two kept seeds remain locked across a model turn and the second cannot be promoted', async () => {
+test('a locked point removed beside an add restores to its original position', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [
+      modelItem('اتصل بأمي', TOMORROW, '17:00'), modelItem('ادفع الفاتورة', TOMORROW, '18:00'),
+    ]),
+    modelRefAnswer('شلت الفاتورة وأضفت الخبز.', 'update', {
+      locked: [{ ref: 'i2', op: 'remove' }],
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 وادفع الفاتورة الساعة 6 المسا', { locale: 'ar' });
+    const [call, bill] = first.proposal!.items;
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: bill!.itemId }, { text: 'ادفع فاتورة الكهربا' }));
+    const changed = await gateChat(uid, 'شيل الفاتورة ولازم اشتري خبز بكرا الساعة 7 المسا', {
+      conversationId: first.conversationId, locale: 'ar',
+    });
+    const bread = itemWith(changed.proposal, 'اشتري خبز');
+    const restored = await gateEditRaw(uid, first.conversationId, {
+      proposalId: changed.proposal!.proposalId,
+      revision: revisionOf(changed.proposal),
+      target: { itemId: bill!.itemId },
+      change: { restore: true },
+    } as never);
+    assert.equal(restored.status, 200, JSON.stringify(restored.body));
+    assert.deepEqual((restored.body as Answer).proposal!.items.map((item) => item.itemId), [call!.itemId, bill!.itemId, bread.itemId]);
+  } finally {
+    endGate();
+  }
+});
+
+test('two kept seeds remain locked across a model turn and neither can be promoted', async () => {
   const uid = beginGateModel(
     modelFirstAnswer('راجع القائمة.', 'propose', [
       modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
@@ -1552,10 +1865,12 @@ test('two kept seeds remain locked across a model turn and the second cannot be 
     }
     const next = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
     assert.equal(next.proposal!.seeds[0]!.summary, first.proposal!.seeds[0]!.summary, 'the model updated a kept seed');
-    const second = next.proposal!.seeds[1]!;
-    assertEditInvalid(await gateEditRaw(uid, first.conversationId, editOf(next, { seedItemId: second.seedItemId }, {
-      kind: 'commitment', time: { at: at(LATER, '17:00'), timeZone: ZONE },
-    })), 'the second kept seed after a later turn');
+    for (let index = 0; index < next.proposal!.seeds.length; index += 1) {
+      const seed = next.proposal!.seeds[index]!;
+      assertEditInvalid(await gateEditRaw(uid, first.conversationId, editOf(next, { seedItemId: seed.seedItemId }, {
+        kind: 'commitment', time: { at: at(LATER, '17:00'), timeZone: ZONE },
+      })), `kept seed ${index + 1} after a later turn`);
+    }
   } finally {
     endGate();
   }

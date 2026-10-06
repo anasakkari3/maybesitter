@@ -703,6 +703,10 @@ export async function proposeMobileChatTurn(
   input: {
     text: string;
     userTurns: readonly string[];
+    /** First user-turn index each model delta item may use as evidence. */
+    evidenceStartIndices?: readonly number[];
+    /** First user-turn index usable to justify changed fields on existing items. */
+    changedFieldEvidenceStartIndices?: readonly number[];
     items: readonly unknown[] | null;
     now: Date;
     timezone: string;
@@ -733,7 +737,15 @@ export async function proposeMobileChatTurn(
     scopeId: context.participantId,
     requestedEngine: input.items ? 'model' : 'rules',
     ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
-    ...(boundaryItems ? { chat: { userTurns: input.userTurns, items: boundaryItems, previous: input.previous ?? [] } } : {}),
+    ...(boundaryItems ? { chat: {
+      userTurns: input.userTurns,
+      items: boundaryItems,
+      previous: input.previous ?? [],
+      ...(input.evidenceStartIndices ? { evidenceStartIndices: input.evidenceStartIndices } : {}),
+      ...(input.changedFieldEvidenceStartIndices
+        ? { changedFieldEvidenceStartIndices: input.changedFieldEvidenceStartIndices }
+        : {}),
+    } } : {}),
     titleWithoutLeadIn: true,
     guardUnresolvedIntentWithSchedule: true,
     ...(input.locale ? { locale: input.locale } : {}),

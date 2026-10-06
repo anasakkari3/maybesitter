@@ -124,6 +124,10 @@ export interface ProposeCaptureOptions {
   chat?: {
     userTurns: readonly string[];
     items: readonly unknown[];
+    /** First user-turn index each delta item may use as evidence. */
+    evidenceStartIndices?: readonly number[];
+    /** First user-turn index usable to justify fields changed on an existing item. */
+    changedFieldEvidenceStartIndices?: readonly number[];
     /** The list the person saw before this message, on their clock, in order (chat UAT round 2). */
     previous?: readonly ChatPreviousItem[];
   };
@@ -802,7 +806,12 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     : [];
   // Each item against its own clauses and those naming no item
   // (`chatItemEvidence`): another item's day or hour is never its evidence.
-  const chatItemEvidences = chat ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone) : [];
+  const chatItemEvidences = chat
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices)
+    : [];
+  const chatChangedFieldEvidences = chat
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices)
+    : [];
   const chatAligned = alignToPrevious(chatItems, chatPrevious);
   // The days and hours each other model item holds, and the goal-like items'
   // titles (`occurrenceDatesFor`).
@@ -1093,7 +1102,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
             } };
           }
         }
-        const guarded = withoutUnsaidTime(extracted.result, evidence.turns, options.now, options.timezone);
+        const changedFieldEvidence = before && evidence.touchedNow ? chatChangedFieldEvidences[index]! : evidence;
+        const guarded = withoutUnsaidTime(
+          extracted.result,
+          changedFieldEvidence.turns,
+          options.now,
+          options.timezone,
+          before,
+        );
         extracted = { ...extracted, result: guarded.result };
         unsaid = guarded.fired;
       }
@@ -1434,6 +1450,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     commandsByItemId.delete(itemId);
     resultsByItemId.delete(itemId);
     delete sourceOrdinals.items[itemId];
+    delete chatOperationIndices.items[itemId];
   };
   // The chat's list only: one model answer for the whole conversation is
   // where a repeat or a goal-at-the-session's-hour comes from. A share's
@@ -1443,7 +1460,43 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // them drops nothing. A stacked copy a list of the person's could have
   // placed on another day but did not is kept, never merged away (round 4 B).
   if (chat) {
-    for (const itemId of Array.from(duplicateItemIds(items.filter((item) => !listCouldPlace.has(item.itemId)), sourceTitleOf))) dropItem(itemId);
+    const duplicateIds = duplicateItemIds(items.filter((item) => !listCouldPlace.has(item.itemId)), sourceTitleOf);
+    const duplicateOrigins = new Map<string, number[]>();
+    for (const itemId of Array.from(duplicateIds)) {
+      const duplicate = items.find((item) => item.itemId === itemId);
+      const operationIndex = chatOperationIndices.items[itemId];
+      if (!duplicate || !Number.isFinite(operationIndex)) continue;
+      const survivor = items.find((candidate) => !duplicateIds.has(candidate.itemId)
+        && duplicateItemIds([candidate, duplicate], sourceTitleOf).has(itemId));
+      if (!survivor) continue;
+      const origins = duplicateOrigins.get(survivor.itemId) ?? [];
+      origins.push(Math.floor(operationIndex!));
+      duplicateOrigins.set(survivor.itemId, origins);
+    }
+    for (const itemId of Array.from(duplicateIds)) dropItem(itemId);
+
+    // Exact-copy cleanup can leave two fan-out survivors carrying operation 1
+    // while operation 2's identical copies were removed. Reassign one such
+    // survivor to each missing originating operation. This preserves the
+    // operation mapping itself; it never guesses from title position.
+    const operationCounts = new Map<number, number>();
+    for (const value of [...Object.values(chatOperationIndices.items), ...Object.values(chatOperationIndices.seeds)]) {
+      const operation = Math.floor(value);
+      operationCounts.set(operation, (operationCounts.get(operation) ?? 0) + 1);
+    }
+    for (const missing of Array.from(new Set(Array.from(duplicateOrigins.values()).flat())).sort((a, b) => a - b)) {
+      if ((operationCounts.get(missing) ?? 0) > 0) continue;
+      const survivorId = Array.from(duplicateOrigins.entries()).find(([id, origins]) => {
+        const current = chatOperationIndices.items[id];
+        return origins.includes(missing) && Number.isFinite(current)
+          && (operationCounts.get(Math.floor(current!)) ?? 0) > 1;
+      })?.[0];
+      if (!survivorId) continue;
+      const previousOperation = Math.floor(chatOperationIndices.items[survivorId]!);
+      chatOperationIndices.items[survivorId] = missing;
+      operationCounts.set(previousOperation, operationCounts.get(previousOperation)! - 1);
+      operationCounts.set(missing, 1);
+    }
   }
   const activeGoals = options.activeGoals ?? [];
   const goalItems = chat ? items.filter((item) => isGoalTitle(item.title, sourceTitleOf.get(item.itemId))) : [];
@@ -1473,6 +1526,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     // Every session of it on the list counts toward it, not only the one at its hour.
     const served = ofThisGoal;
     const goalOrdinal = sourceOrdinals.items[goalItem.itemId];
+    const goalOperationIndex = chatOperationIndices.items[goalItem.itemId];
     dropItem(goalItem.itemId);
     const existing = matchingGoal(titlesOf(goalItem).join('\n'), activeGoals);
     if (existing) {
@@ -1487,6 +1541,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     const seedItemId = randomUUID();
     seeds.push({ seedItemId, kind: 'possible_goal', summary });
     if (Number.isFinite(goalOrdinal)) sourceOrdinals.seeds[seedItemId] = goalOrdinal!;
+    if (Number.isFinite(goalOperationIndex)) chatOperationIndices.seeds[seedItemId] = goalOperationIndex!;
   }
   if (activeGoals.length > 0) {
     for (let at = 0; at < items.length; at += 1) {
