@@ -47,7 +47,7 @@ import type { CaptureProposalContract } from '../../../src/contracts/v1/captureC
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
-import { dayPartHour, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, instantFromLocal, localTimeSpecFor, typedHalfOfDay } from '../../../src/extraction/timeLexicon';
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
@@ -84,6 +84,18 @@ const CHAT_AFTER_MODEL_RESERVE_MS = 1_500;
  * failed without answering, and not for a reason another call would repeat.
  */
 const CHAT_RETRY_REASONS: ReadonlySet<string> = new Set(['server_error', 'unavailable', 'provider_error']);
+const EXPLICIT_PRIORITY = /\b(?:urgent|important|critical|must|have to)\b|(?:^|\s)(?:ضروري|مهم|عاجل|لازم)(?=\s|$)|(?:^|\s)(?:דחוף|חשוב|חייב|חייבת)(?=\s|$)/i;
+
+function visibleProposalState(proposal: CaptureChatProposal | null): unknown {
+  return {
+    items: (proposal?.items ?? []).map((item) => ({
+      ...item,
+      ...(item.clarification ? { clarification: { ...item.clarification, questionId: undefined } } : {}),
+    })),
+    seeds: proposal?.seeds ?? [],
+    removedItems: proposal?.removedItems ?? [],
+  };
+}
 
 export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found' | 'edit_invalid';
 
@@ -530,7 +542,8 @@ export async function chatMobileCapture(
       const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
       const sameStoredField = (key: 'priority' | 'rangeMinutes' | 'recurrenceHint' | 'allDay'): boolean =>
         !Object.prototype.hasOwnProperty.call(fields, key)
-        || JSON.stringify(fields[key]) === JSON.stringify(stored?.[key]);
+        || JSON.stringify(fields[key]) === JSON.stringify(stored?.[key])
+        || (key === 'priority' && !EXPLICIT_PRIORITY.test(message));
       return title.trim() === before.title
         && (appTitle === undefined || appTitle === before.appTitle)
         && (kind === undefined ? before.kind === undefined : kind === before.kind)
@@ -545,11 +558,55 @@ export async function chatMobileCapture(
     const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
       ? { ref: operation.ref, op: 'keep' as const }
       : operation);
-    const modelUpdates = open.filter((operation) => operation.op === 'update');
-    const cited = current ? validateChatCitations({ ...answer, open }, message) : null;
+    const cited = current ? validateChatCitations({ ...answer, open }, message, { now, timezone }) : null;
     if (current && !cited) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'model', current, turns, { conflictsKnown: true });
     }
+    let updateSourceIndex = 0;
+    const resolvedOpen = open.map((operation) => {
+      if (operation.op !== 'update' || !operation.fields || typeof operation.fields !== 'object' || Array.isArray(operation.fields)) return operation;
+      const source = cited?.deltaSources[updateSourceIndex++] ?? message;
+      const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
+      const card = entityId ? current?.items.find((item) => item.itemId === entityId) : undefined;
+      const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
+      const half = card?.clarification?.questionKey === 'ask_am_pm' ? typedHalfOfDay(source) : null;
+      const askedTime = stored?.localTimeSpec?.time;
+      const date = stored?.localTimeSpec?.date;
+      if (!half || !askedTime || !date) return operation;
+      const statedHour = Number(askedTime.slice(0, 2)) % 12;
+      // This is an answer to the card's binary AM/PM question: every evening
+      // or night form selects that card's PM option, preserving the minute.
+      const hour = half === 'am' ? statedHour : statedHour + 12;
+      const time = `${String(hour).padStart(2, '0')}:${askedTime.slice(3, 5)}`;
+      const instant = instantFromLocal(date, time, timezone)?.toISOString();
+      if (!instant) return operation;
+      const fields = operation.fields as Record<string, unknown>;
+      return {
+        ...operation,
+        fields: {
+          ...fields,
+          dueAt: fields.dueAt === null && !stored.dueAt ? null : instant,
+          remindAt: fields.remindAt === null && !stored.remindAt ? null : instant,
+          localTimeSpec: { date, time, timezone },
+          missingFields: Array.isArray(fields.missingFields) ? fields.missingFields.filter((field) => field !== 'time') : [],
+          ambiguityFlags: Array.isArray(fields.ambiguityFlags) ? fields.ambiguityFlags.filter((flag) => flag !== 'vague_time') : [],
+        },
+      };
+    });
+    const modelUpdates = resolvedOpen.filter((operation) => operation.op === 'update');
+    const answeredAmPmClocks = modelUpdates.map((operation, index) => {
+      const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
+      const card = entityId ? current?.items.find((item) => item.itemId === entityId) : undefined;
+      const source = cited?.deltaSources[index] ?? message;
+      if (card?.clarification?.questionKey !== 'ask_am_pm' || !typedHalfOfDay(source)) return null;
+      const spec = operation.fields && typeof operation.fields === 'object' && !Array.isArray(operation.fields)
+        ? (operation.fields as Record<string, unknown>).localTimeSpec
+        : null;
+      return spec && typeof spec === 'object' && !Array.isArray(spec)
+        && typeof (spec as Record<string, unknown>).time === 'string'
+        ? (spec as Record<string, string>).time
+        : null;
+    });
     const addedItems = cited?.added ?? answer.added.map((entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
       const { source: _source, ...fields } = entry as Record<string, unknown>;
@@ -581,6 +638,7 @@ export async function chatMobileCapture(
             operationSources: isPlainYes(message) && evidenceTurns.at(-1)?.startsWith(`${message}\n`)
               ? cited.deltaSources.map(() => evidenceTurns.at(-1)!)
               : cited.deltaSources,
+            ...(answeredAmPmClocks.some(Boolean) ? { answeredAmPmClocks } : {}),
           } : {}),
           items: evidence ? deltaItems : [],
           now,
@@ -601,7 +659,7 @@ export async function chatMobileCapture(
           ...(current ? { baseProposalId: current.proposalId } : {}),
           refPlan: {
             locked: answer.locked,
-            open,
+            open: resolvedOpen,
             delta: [
               ...modelUpdates.map((operation) => ({
                 kind: noOpRefs.has(operation.ref) ? 'keep' as const : 'update' as const,
@@ -618,8 +676,7 @@ export async function chatMobileCapture(
       );
       proposal = await withConflicts(shown(built), schedule);
     }
-    const listChanged = JSON.stringify({ items: current?.items ?? [], seeds: current?.seeds ?? [], removedItems: current?.removedItems ?? [] })
-      !== JSON.stringify({ items: proposal?.items ?? [], seeds: proposal?.seeds ?? [], removedItems: proposal?.removedItems ?? [] });
+    const listChanged = JSON.stringify(visibleProposalState(current)) !== JSON.stringify(visibleProposalState(proposal));
     const after = proposal ? await readMobileChatProposal(proposal.proposalId, uid) : null;
     const modelClock = (fields: Record<string, unknown>): { date: string | null; time: string | null } => {
       const spec = fields.localTimeSpec && typeof fields.localTimeSpec === 'object'
@@ -665,6 +722,7 @@ export async function chatMobileCapture(
       if (desiredClock.date !== beforeClock.date && actualClock.date !== desiredClock.date) return true;
       if (desiredClock.time !== beforeClock.time && actualClock.time !== desiredClock.time) return true;
       for (const key of ['priority', 'rangeMinutes', 'recurrenceHint', 'allDay'] as const) {
+        if (key === 'priority' && !EXPLICIT_PRIORITY.test(message)) continue;
         if (JSON.stringify(fields[key]) !== JSON.stringify(beforeResult?.[key])
           && JSON.stringify(actualResult?.[key]) !== JSON.stringify(fields[key])) return true;
       }
@@ -695,7 +753,7 @@ export async function chatMobileCapture(
         return !recurring && desired.date !== (item.resolvedDate ?? local?.date ?? null);
       });
     };
-    const partlyApplied = answer.open.some(partlyAppliedUpdate) || answer.added.some(partlyAppliedAdd);
+    const partlyApplied = resolvedOpen.some(partlyAppliedUpdate) || answer.added.some(partlyAppliedAdd);
     const { reply } = safeChatReply(answer.reply, {
       language,
       proposal,
@@ -708,7 +766,14 @@ export async function chatMobileCapture(
     });
     const attemptedListChange = changesList || noOpRefs.size > 0
       || (answer.action === 'update' && (answer.ignoredRefOperations ?? 0) > 0);
-    const needsTruthTemplate = partlyApplied || noOpRefs.size > 0 || (answer.ignoredRefOperations ?? 0) > 0;
+    const changedOperations = resolvedOpen.filter((operation) => operation.op !== 'keep').length + addedItems.length
+      + answer.locked.filter((operation) => operation.op === 'remove').length;
+    const claimsSeveral = typeof answer.reply === 'string'
+      && /\bboth\b|\b(?:the )?(?:two|three)\b|(?:التنين|الاثنين|الاتنين|كلاهما|שניהם)/i.test(answer.reply);
+    const needsTruthTemplate = Boolean(current) && (
+      partlyApplied || noOpRefs.size > 0 || (answer.ignoredRefOperations ?? 0) > 0
+      || (claimsSeveral && changedOperations < 2)
+    );
     const truthfulReply = attemptedListChange && (!listChanged || needsTruthTemplate)
       ? templateReply({
         language,

@@ -9,9 +9,10 @@ export type RecordedFullListAnswer = {
   reply: unknown;
   action: 'propose' | 'update' | 'ask' | 'chat';
   items: unknown[];
+  /** Exact newest-message citation for each item; null means no operation. */
+  sources?: Array<string | null>;
 };
 
-import { splitCaptureClauseDetails } from '../../src/extraction/clauseSplitter.ts';
 import { contentWords } from '../../lib/services/captureBoundary/chatEvidence.ts';
 
 type PromptEntry = { ref: string; locked: boolean; title: string; date: string | null; time: string | null };
@@ -22,8 +23,9 @@ export function recordedFullListAnswer(
   reply: unknown,
   action: RecordedFullListAnswer['action'],
   items: unknown[],
+  sources?: Array<string | null>,
 ): RecordedFullListAnswer {
-  return { reply, action, items };
+  return { reply, action, items, ...(sources ? { sources } : {}) };
 }
 
 function promptDataFrom(prompt: string): PromptData {
@@ -86,71 +88,13 @@ function messageTargetsEntry(message: string, current: readonly PromptEntry[], i
   return current.length === 1;
 }
 
-/** Test-only adapter for recordings made before capture-chat-v9 citations. */
-function withFixtureCitations(answer: Record<string, unknown>, newestMessage: string, current: readonly PromptEntry[]): Record<string, unknown> {
-  if (!newestMessage) return answer;
-  const open = Array.isArray(answer.open) ? answer.open.map((value) => {
-    const operation = { ...(value as Record<string, unknown>) };
-    const beforeIndex = current.findIndex((entry) => entry.ref === operation.ref);
-    const before = beforeIndex >= 0 ? current[beforeIndex] : undefined;
-    return operation.op === 'update' && before
-      && (isSamePoint(operation.fields, before) || !messageTargetsEntry(newestMessage, current, beforeIndex))
-      ? { ref: operation.ref, op: 'keep' }
-      : operation;
-  }) : [];
-  const added = Array.isArray(answer.added) ? answer.added.map((value) => (
-    value && typeof value === 'object' && !Array.isArray(value) ? { ...(value as Record<string, unknown>) } : value
-  )) : [];
-  const targets = [
-    ...open.flatMap((operation, index) => operation.op === 'update' && operation.source === undefined
-      ? [{ kind: 'open' as const, index, title: titleOf(operation.fields) }]
-      : []),
-    ...added.flatMap((fields, index) => fields && typeof fields === 'object' && !Array.isArray(fields)
-      && !Object.prototype.hasOwnProperty.call(fields, 'source')
-      ? [{ kind: 'added' as const, index, title: titleOf(fields) }]
-      : []),
-  ];
-  if (targets.length === 0) return answer;
-  let clauses = splitCaptureClauseDetails(newestMessage).map((clause) => clause.text.trim()).filter(Boolean);
-  // Older recordings sometimes answer two ordinal clauses joined only by
-  // Arabic waw ("the first ... and the second ..."). The production model is
-  // now required to cite those spans itself; this test-only adapter gives the
-  // pre-v9 recording the two literal, non-overlapping spans it would cite.
-  if (targets.length > 1 && clauses.length < targets.length) {
-    const ordinalStarts = Array.from(newestMessage.matchAll(/(?:^|\s)(?:و\s*)?(?:first|second|third|الأولى|الاولى|الأول|الاول|الثانية|التانية|الثاني|التاني|الثالثة|التالتة|الثالث|التالت)(?=\s|$)/gi))
-      .map((match) => match.index ?? 0);
-    if (ordinalStarts.length >= targets.length) {
-      clauses = ordinalStarts.map((start, index) => newestMessage.slice(start, ordinalStarts[index + 1] ?? newestMessage.length).trim());
-    }
-  }
-  const unused = new Set(clauses.map((_, index) => index));
-  targets.forEach((target) => {
-    let source = newestMessage;
-    if (targets.length > 1 && clauses.length >= targets.length) {
-      const title = contentWords(target.title);
-      const scored = Array.from(unused).map((index) => ({
-        index,
-        score: title.filter((word) => contentWords(clauses[index]!).includes(word)).length,
-      })).sort((a, b) => b.score - a.score || a.index - b.index);
-      const picked = scored[0];
-      if (picked) {
-        source = clauses[picked.index]!;
-        unused.delete(picked.index);
-      }
-    }
-    if (target.kind === 'open') open[target.index]!.source = source;
-    else (added[target.index] as Record<string, unknown>).source = source;
-  });
-  return { ...answer, open, added };
-}
-
 /** Render a recorded fixture as the exact v5 JSON a fake model returns. */
 export function renderRefModelAnswer(answer: unknown, prompt: string): string {
   if (typeof answer === 'string') return answer;
   if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return JSON.stringify(answer);
   const record = answer as Record<string, unknown>;
   const promptData = promptDataFrom(prompt);
-  if (isV5Answer(record)) return JSON.stringify(withFixtureCitations(record, promptData.newestMessage, promptData.current));
+  if (isV5Answer(record)) return JSON.stringify(record);
   if (!Array.isArray(record.items) || typeof record.action !== 'string') return JSON.stringify(record);
 
   const fixture = record as RecordedFullListAnswer;
@@ -165,18 +109,30 @@ export function renderRefModelAnswer(answer: unknown, prompt: string): string {
   const open: Array<Record<string, unknown>> = [];
   current.forEach((entry, index) => {
     const fields = fixture.items[index];
+    const source = fixture.sources?.[index];
+    if (fields !== undefined && !entry.locked && !isSamePoint(fields, entry)
+      && messageTargetsEntry(promptData.newestMessage, current, index) && !source) {
+      throw new Error(`recorded fixture update is missing an explicit citation for item ${index + 1}`);
+    }
     const operation = fields === undefined
-      ? { ref: entry.ref, op: 'remove' }
+      ? { ref: entry.ref, op: 'remove', ...(source ? { source } : {}) }
       : entry.locked || isSamePoint(fields, entry) || !messageTargetsEntry(promptData.newestMessage, current, index)
         ? { ref: entry.ref, op: 'keep' }
-        : { ref: entry.ref, op: 'update', fields };
+        : { ref: entry.ref, op: 'update', fields, ...(source ? { source } : {}) };
     (entry.locked ? locked : open).push(operation);
   });
-  return JSON.stringify(withFixtureCitations({
+  const added = fixture.items.slice(current.length).map((fields, index) => {
+    const source = fixture.sources?.[current.length + index];
+    if (!source) throw new Error(`recorded fixture add is missing an explicit citation for item ${current.length + index + 1}`);
+    return fields && typeof fields === 'object' && !Array.isArray(fields) && source
+      ? { ...(fields as Record<string, unknown>), source }
+      : fields;
+  });
+  return JSON.stringify({
     reply: fixture.reply,
     action: fixture.action,
     locked,
     open,
-    added: fixture.items.slice(current.length),
-  }, promptData.newestMessage, current));
+    added,
+  });
 }

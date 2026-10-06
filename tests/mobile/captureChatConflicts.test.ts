@@ -95,8 +95,8 @@ function item(title: string, date: string | null, time: string | null): Record<s
   };
 }
 
-function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): RecordedFullListAnswer {
-  return recordedFullListAnswer(reply, action, items);
+function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[], sources?: Array<string | null>): RecordedFullListAnswer {
+  return recordedFullListAnswer(reply, action, items, sources);
 }
 
 /** A scripted model: answers in order, and keeps every prompt it was sent. */
@@ -459,7 +459,7 @@ test('offer, then "yes": the item moves to the offered hour', async () => {
   const model = scripted(
     SEED_WEDDING,
     answer(OFFER, 'propose', [item(DINNER, FRIDAY, '18:00')]),
-    answer('تمام، الجمعة الساعة 7 المسا لأنك وافقت. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')]),
+    answer('تمام، الجمعة الساعة 7 المسا لأنك وافقت. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')], ['اه']),
   );
   begin(model.provider);
   try {
@@ -505,8 +505,8 @@ test('the model moving the item on its own, with no yes, is dropped by the inven
   const model = scripted(
     SEED_WEDDING,
     answer(OFFER, 'propose', [item(DINNER, FRIDAY, '18:00')]),
-    answer('تمام، الساعة 7 المسا. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')]),
-    answer('تمام، السبت الساعة 6 المسا. أكّد من تحت.', 'update', [item(DINNER, SATURDAY, '18:00')]),
+    answer('تمام، الساعة 7 المسا. أكّد من تحت.', 'update', [item(DINNER, FRIDAY, '19:00')], ['مش متأكد']),
+    answer('تمام، السبت الساعة 6 المسا. أكّد من تحت.', 'update', [item(DINNER, SATURDAY, '18:00')], ['مش متأكد']),
   );
   begin(model.provider);
   try {

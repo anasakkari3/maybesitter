@@ -16,6 +16,9 @@
 import { captureItemRuleLines } from '../../../src/extraction/ollamaExtractor';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
 import { CAPTURE_CHAT_ACTIONS } from '../../../src/extraction/ollamaExtractionSchema';
+import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
+import { dayPartHour } from '../../../src/extraction/timeLexicon';
+import { chatTimeAllowance } from '../captureBoundary/chatEvidence';
 import type { ChatLanguage } from './chatReply';
 import type { CaptureChatTurn } from './conversationStore';
 import type { ScheduleEntryForPrompt } from './chatConflicts';
@@ -227,16 +230,23 @@ interface CitationOperation {
   source: unknown;
   required: boolean;
   kind: 'update' | 'added' | 'remove';
+  fields?: unknown;
 }
 
 const CITATION_WORD = new RegExp('[\\p{L}\\p{N}]', 'u');
 const CITATION_WORDS = new RegExp('[\\p{L}\\p{N}]+', 'gu');
 
-/** The agreed citation fold: Unicode marks/tatweel/alef forms, then whitespace. */
+/** The agreed citation fold: script variants, digits, case, then whitespace. */
 function foldCitation(text: string): string {
   return text
+    .normalize('NFKC')
+    .toLowerCase()
     .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0591-\u05C7\u0640]/g, '')
     .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
+    .replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 0x06F0))
+    .replace(new RegExp('ة(?=$|[^\\p{L}\\p{M}])', 'gu'), 'ه')
+    .replace(/[’‘`´]/g, "'")
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -293,11 +303,66 @@ function citationsCanCoexist(
   return false;
 }
 
+/** True only when every possible placement makes the two citations overlap. */
+function citationsMustShareWords(left: readonly Set<number>[], right: readonly Set<number>[]): boolean {
+  return left.length > 0 && right.length > 0
+    && left.every((a) => right.every((b) => Array.from(a).some((word) => b.has(word))));
+}
+
+function modelClock(fields: unknown): { date: string | null; time: string | null } {
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return { date: null, time: null };
+  const spec = (fields as Record<string, unknown>).localTimeSpec;
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return { date: null, time: null };
+  const record = spec as Record<string, unknown>;
+  return {
+    date: typeof record.date === 'string' ? record.date : null,
+    time: typeof record.time === 'string' ? record.time : null,
+  };
+}
+
+/**
+ * A citation shared by updates is safe only when its facts apply uniformly.
+ * A phrase with two times/days cannot identify which belongs to which point;
+ * nor may its one time/day overwrite an update whose model fields deliberately
+ * retain a different value for that point.
+ */
+function sharedUpdateFactsAreUniform(
+  operations: readonly CitationOperation[],
+  candidates: readonly Set<number>[][],
+  now: Date,
+  timezone: string,
+): boolean {
+  for (let left = 0; left < operations.length; left += 1) {
+    const a = operations[left]!;
+    if (a.kind !== 'update') continue;
+    for (let right = left + 1; right < operations.length; right += 1) {
+      const b = operations[right]!;
+      if (b.kind !== 'update' || !citationsMustShareWords(candidates[left]!, candidates[right]!)) continue;
+      const source = `${String(a.source)}\n${String(b.source)}`;
+      const clocks = new Set(clockTimesIn(source).map(({ hour, minute }) => `${hour}:${minute}`));
+      const dateAllowance = chatTimeAllowance([source], now, timezone);
+      const dates = dateAllowance.namedDates;
+      if (clocks.size > 1 || dates.size > 1) return false;
+      const sourceHasTime = clocks.size > 0 || dayPartHour(source) !== null;
+      const sourceHasDate = dates.size > 0 || dateAllowance.anyDate;
+      const aClock = modelClock(a.fields);
+      const bClock = modelClock(b.fields);
+      if (sourceHasTime && aClock.time !== null && bClock.time !== null && aClock.time !== bClock.time) return false;
+      if (sourceHasDate && aClock.date !== null && bClock.date !== null && aClock.date !== bClock.date) return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Validates a later-turn answer atomically. A single uncited update/add may
  * use the whole newest message; a multi-operation answer may not guess.
  */
-export function validateChatCitations(answer: ChatModelAnswer, newestMessage: string): ValidatedChatCitations | null {
+export function validateChatCitations(
+  answer: ChatModelAnswer,
+  newestMessage: string,
+  context: { now: Date; timezone: string },
+): ValidatedChatCitations | null {
   const updates = answer.open.filter((operation) => operation.op === 'update');
   const added = answer.added.map((entry) => {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return { fields: entry, source: undefined };
@@ -309,7 +374,7 @@ export function validateChatCitations(answer: ChatModelAnswer, newestMessage: st
       .map((operation) => ({ key: operation.ref, source: operation.source, required: false, kind: 'remove' as const })),
     ...answer.open.filter((operation) => operation.op === 'remove' && operation.source !== undefined)
       .map((operation) => ({ key: operation.ref, source: operation.source, required: false, kind: 'remove' as const })),
-    ...updates.map((operation) => ({ key: operation.ref, source: operation.source, required: true, kind: 'update' as const })),
+    ...updates.map((operation) => ({ key: operation.ref, source: operation.source, required: true, kind: 'update' as const, fields: operation.fields })),
     ...added.map((entry, index) => ({ key: `added:${index}`, source: entry.source, required: true, kind: 'added' as const })),
   ];
   const required = operations.filter((operation) => operation.required);
@@ -323,12 +388,14 @@ export function validateChatCitations(answer: ChatModelAnswer, newestMessage: st
     if (typeof operation.source !== 'string') return null;
     const source = foldCitation(operation.source);
     if (!source) return null;
+    if (!Array.from(source.matchAll(CITATION_WORDS)).some((match) => match[0].length > 1)) return null;
     const occurrences = sourceOccurrences(message, source);
     if (occurrences.length === 0) return null;
     sources.set(operation.key, operation.source);
     candidates.push(occurrences);
   }
   if (!citationsCanCoexist(operations, candidates)) return null;
+  if (!sharedUpdateFactsAreUniform(operations, candidates, context.now, context.timezone)) return null;
   return {
     added: added.map((entry) => entry.fields),
     deltaSources: [

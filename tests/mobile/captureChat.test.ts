@@ -101,8 +101,8 @@ function item(title: string, date: string | null, time: string | null, extra: Re
   };
 }
 
-function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): RecordedFullListAnswer {
-  return recordedFullListAnswer(reply, action, items);
+function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[], sources?: Array<string | null>): RecordedFullListAnswer {
+  return recordedFullListAnswer(reply, action, items, sources);
 }
 
 /** A scripted model: answers in order, and keeps every prompt it was sent. */
@@ -226,7 +226,7 @@ test('a first message becomes a model proposal, and the existing confirm route p
 test('"make it 6pm" moves the time: the new hour is in the person’s own turn', async () => {
   const model = scripted(
     answer('Call the dentist tomorrow at 5pm — confirm if that is right.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
-    answer('Okay, 6pm instead. Confirm when it looks right.', 'update', [item('Call the dentist', TOMORROW, '18:00')]),
+    answer('Okay, 6pm instead. Confirm when it looks right.', 'update', [item('Call the dentist', TOMORROW, '18:00')], ['please make it 6pm']),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -262,7 +262,7 @@ test('"make it 6pm" moves the time: the new hour is in the person’s own turn',
 test('«خلّيها الساعة 6 المسا» moves the time, and the reply stays in spoken Arabic', async () => {
   const model = scripted(
     answer('تمام، بكرا الساعة 5 المسا بتحكي مع الدكتور. أكّدها إذا هيك.', 'propose', [item('أحكي مع الدكتور', TOMORROW, '17:00')]),
-    answer('ماشي، خليتها الساعة 6 المسا. شوفها وأكّد.', 'update', [item('أحكي مع الدكتور', TOMORROW, '18:00')]),
+    answer('ماشي، خليتها الساعة 6 المسا. شوفها وأكّد.', 'update', [item('أحكي مع الدكتور', TOMORROW, '18:00')], ['خلّيها الساعة 6 المسا']),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -289,7 +289,7 @@ test('a cited hour wins over a different model hour', async () => {
   // model and a 19:00 nobody said.
   const model = scripted(
     answer('Dentist tomorrow at 5pm. Confirm if right.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
-    answer('Dentist at 7pm then. Confirm if right.', 'update', [item('Call the dentist', TOMORROW, '19:00')]),
+    answer('Dentist at 7pm then. Confirm if right.', 'update', [item('Call the dentist', TOMORROW, '19:00')], ['hmm, or maybe 6pm']),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -396,11 +396,11 @@ test('an edit to one item never gives the other item its day', async () => {
     // The model moves the dentist and leaves Sara with nothing.
     answer('Dentist moved to 5 PM. What day and time is the meeting with Sara?', 'update', [
       item('Dentist appointment', friday, '17:00'), item('Meeting with Sara', null, null, { person: 'Sara', ambiguityFlags: ['vague_time'] }),
-    ]),
+    ], ['make the dentist 5pm', null]),
     // Or it gives Sara the dentist's Friday outright.
     answer('Dentist at 5 PM. Confirm below.', 'update', [
       item('Dentist appointment', friday, '17:00'), item('Meeting with Sara', friday, '09:00', { person: 'Sara' }),
-    ]),
+    ], ['make the dentist 5pm please', null]),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -449,7 +449,7 @@ test('«الاول … عال ٤ والثاني … عال٦» then a bare 7 ask
     ]),
     answer('تمام، خطبة صاحبك الثاني صارت الساعة ٧. شوف القائمة وأكّدها.', 'update', [
       item('خطبة صاحبي الاول', friday, '16:00'), item('خطبة صاحبي الثاني', friday, '19:00'),
-    ]),
+    ], [null, 'التانية الساعة 7']),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -602,7 +602,7 @@ test('a partly applied edit uses the truthful template, with the other item\u201
     ]),
     answer('Okay, the dentist is now at 5 PM.', 'update', [
       item('Dentist appointment', friday, '17:00'), item('Call Sara', sunday, null),
-    ]),
+    ], ['make the dentist 5pm', null]),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -612,7 +612,7 @@ test('a partly applied edit uses the truthful template, with the other item\u201
     const second = await chat(uid, 'make the dentist 5pm', first.conversationId);
     assert.equal(second.proposal!.items[0]!.resolvedTime, instant(friday, '17:00'));
     assert.equal(second.proposal!.items[1]!.resolvedDate, sunday);
-    assert.equal(second.reply, 'Okay, I changed that. What time is "Call Sara"?');
+    assert.equal(second.reply, 'Okay, the dentist is now at 5 PM. What time is "Call Sara"?');
   } finally {
     end();
   }
@@ -622,7 +622,7 @@ test('an unusable reply falls to a template that asks exactly what is missing, a
   const model = scripted(
     answer('بكرا بتحكي مع الدكتور الساعة 5 المسا. أكّد من تحت.', 'propose', [item('أحكي مع الدكتور', TOMORROW, '17:00'), item('أشتري خبز', TOMORROW, null)]),
     // English on an Arabic message: not shown.
-    answer('Okay, the doctor is at 6 PM now.', 'update', [item('أحكي مع الدكتور', TOMORROW, '18:00'), item('أشتري خبز', TOMORROW, null)]),
+    answer('Okay, the doctor is at 6 PM now.', 'update', [item('أحكي مع الدكتور', TOMORROW, '18:00'), item('أشتري خبز', TOMORROW, null)], ['خلّي الدكتور الساعة 6 المسا', null]),
   );
   begin({ llmProviderFor: () => model.provider });
   try {

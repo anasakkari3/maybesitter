@@ -94,6 +94,16 @@ function replay(answers: readonly unknown[]): { provider: LLMProviderFunction; c
   return { provider: async (prompt) => renderRefModelAnswer(rebased(answers[calls++]), prompt), calls: () => calls };
 }
 
+/** Pre-v9 recordings declare their later-turn citations beside the fixture. */
+function explicitCitations(
+  answers: readonly unknown[],
+  byTurn: readonly (Array<string | null> | undefined)[],
+): unknown[] {
+  return answers.map((answer, index) => byTurn[index]
+    ? { ...(answer as Record<string, unknown>), sources: byTurn[index] }
+    : answer);
+}
+
 /** Replay a live turn that fell back to rules as a model outage, without shifting later answers. */
 function replayLive(records: readonly { modelAnswers: string[] }[]): { provider: LLMProviderFunction; calls: () => number } {
   const queue = records.flatMap((record) => record.modelAnswers.length > 0
@@ -1054,7 +1064,7 @@ const RETITLED_BY_REF = [
     open: [
       { ref: 'i1', op: 'keep' },
       {
-        ref: 'i2', op: 'update', fields: REAL.engagementsRetitled[1].items[1],
+        ref: 'i2', op: 'update', fields: REAL.engagementsRetitled[1].items[1], source: 'التانية الساعة 7',
       },
     ],
     added: [],
@@ -1062,9 +1072,9 @@ const RETITLED_BY_REF = [
 ] as const;
 
 for (const [label, answers] of [
-  ['as the model usually answers', REAL.engagements],
+  ['as the model usually answers', explicitCitations(REAL.engagements, [undefined, [null, 'التانية الساعة 7']])],
   ['the recorded ref update retitles the second', RETITLED_BY_REF],
-  ['the model moved the first to 09:00', REAL.engagementsFirstMoved],
+  ['the model moved the first to 09:00', explicitCitations(REAL.engagementsFirstMoved, [undefined, [null, 'التانية الساعة 7']])],
 ] as const) {
   for (const locale of [undefined, 'ar'] as const) test(`«لا خلّي التانية الساعة 7» asks AM or PM for the second (${label}${locale ? ', app in Arabic' : ''})`, async () => {
     begin(replay(answers).provider);
@@ -1126,7 +1136,7 @@ for (const [label, message, answers, blockTitle] of [
 /* ── 3. the earlier real cases, still right ─────────────────────── */
 
 test('dentist and Sara, then "make the dentist 5pm": Friday 17:00 and Sunday 09:00', async () => {
-  begin(replay(REAL.dentistSara).provider);
+  begin(replay(explicitCitations(REAL.dentistSara, [undefined, ['make the dentist 5pm', null]])).provider);
   try {
     const [first, second] = await conversation('ChatRealDentistSara', [
       'I have a dentist appointment on Friday at 4pm and a meeting with Sara on Sunday morning', 'make the dentist 5pm',
@@ -1141,7 +1151,7 @@ test('dentist and Sara, then "make the dentist 5pm": Friday 17:00 and Sunday 09:
 });
 
 test('«لازم أتصل بالبنك» asks the hour; «بكرا الساعة 10 الصبح» settles it tomorrow at 10:00', async () => {
-  begin(replay(REAL.bank).provider);
+  begin(replay(explicitCitations(REAL.bank, [undefined, ['بكرا الساعة 10 الصبح']])).provider);
   try {
     const [first, second] = await conversation('ChatRealBank', ['لازم أتصل بالبنك', 'بكرا الساعة 10 الصبح']);
     assert.equal(first!.proposal!.items[0]!.needsClarification, true);
@@ -1231,10 +1241,14 @@ test('the model never answers «الصبح ولا المسا؟» for the person:
   // put the FIRST at 04:00 — the morning — settled, with nothing asked.
   const [, edit] = REAL.engagements;
   const pickedMorning = {
-    ...edit,
-    items: edit.items.map((entry, index) => index === 0
-      ? { ...entry, dueAt: '2026-10-02T01:00:00.000Z', remindAt: '2026-10-02T01:00:00.000Z', localTimeSpec: { date: '2026-10-02', time: '04:00', timezone: TZ } }
-      : entry),
+    reply: edit.reply,
+    action: 'update',
+    locked: [],
+    open: [
+      { ref: 'i1', op: 'keep' },
+      { ref: 'i2', op: 'update', fields: edit.items[1], source: 'التانية الساعة 7' },
+    ],
+    added: [],
   };
   let calls = 0;
   const provider: LLMProviderFunction = async (prompt) => {
@@ -1271,10 +1285,18 @@ test('a pending question is the model\u2019s to settle once the person answers i
   // «الأولى 4 المسا»: the person answers the first engagement's question.
   const [, edit] = REAL.engagements;
   const answered = {
-    ...edit,
-    items: edit.items.map((entry, index) => index === 0 ? entry : {
-      ...entry, dueAt: '2026-10-02T15:00:00.000Z', remindAt: '2026-10-02T15:00:00.000Z', localTimeSpec: { date: '2026-10-02', time: '18:00', timezone: TZ },
-    }),
+    reply: edit.reply,
+    action: 'update',
+    locked: [],
+    open: [
+      { ref: 'i1', op: 'update', fields: edit.items[0], source: 'الأولى الساعة 4 المسا' },
+      {
+        ref: 'i2', op: 'update', source: 'والتانية 6 المسا', fields: {
+          ...edit.items[1], dueAt: '2026-10-02T15:00:00.000Z', remindAt: '2026-10-02T15:00:00.000Z', localTimeSpec: { date: '2026-10-02', time: '18:00', timezone: TZ },
+        },
+      },
+    ],
+    added: [],
   };
   let calls = 0;
   const provider: LLMProviderFunction = async (prompt) => {

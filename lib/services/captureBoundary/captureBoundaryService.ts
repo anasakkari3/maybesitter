@@ -137,6 +137,8 @@ export interface ProposeCaptureOptions {
     previousMatchIndices?: readonly (number | null)[];
     /** Validated citation span for each delta item, in the same order. */
     operationSources?: readonly string[];
+    /** Exact clocks selected by chat answers to a pending AM/PM question. */
+    answeredAmPmClocks?: readonly (string | null)[];
   };
   /**
    * Titles without the possession lead-in ("I have a", «عندي»), as a weekly
@@ -777,6 +779,7 @@ function withStatedBareEarlyClock(result: ExtractionResult, clock: string, timez
     dueAt: result.dueAt || !result.remindAt ? stated : null,
     remindAt: result.remindAt ? stated : null,
     localTimeSpec: { date, time: clock, timezone },
+    timeEvidence: 'clock_marker',
     missingFields: result.missingFields.filter((field) => field !== 'time'),
   };
 }
@@ -1234,13 +1237,21 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
             } };
           }
         }
+        const answeredAmPmClock = chat.answeredAmPmClocks?.[index];
+        if (answeredAmPmClock) {
+          extracted = {
+            ...extracted,
+            result: withStatedBareEarlyClock(extracted.result, answeredAmPmClock, options.timezone),
+          };
+          stillAsked = false;
+        }
         const changedFieldEvidence = before && evidence.touchedNow ? chatChangedFieldEvidences[index]! : evidence;
         const guarded = withoutUnsaidTime(
           extracted.result,
           changedFieldEvidence.turns,
           options.now,
           options.timezone,
-          before,
+          answeredAmPmClock && before ? { ...before, time: answeredAmPmClock } : before,
         );
         extracted = { ...extracted, result: guarded.result };
         unsaid = guarded.fired;
@@ -1386,7 +1397,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
        * A bare early hour is asked about, not guessed (CL1 round 6, D2
        * family). The rules read «الساعة 5» as 05:00 — a number the user said
        * and a half of the day they did not — and proposed it as a time to be
-       * at. For one to six with no period word the morning reading is the
+       * at. For one to eleven with no period word the morning reading is the
        * unlikely one, so the clarification asks صبح or مسا (`ask_am_pm`,
        * the question the review screen already renders); «الساعة 5 المسا»
        * and «الساعة 10» resolve as before.
@@ -1534,52 +1545,59 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // and input naming no clock time cannot trigger it. A time said in a clause
   // that was read as no commitment is not one an item lost (FY1 N1): the past
   // meeting's «الساعة 3» used to send the bank's 17:00 back to be asked.
-  // Shared update citations describe several points with one clock. Count the
-  // words once: duplicating the same (or a contained) span would otherwise
-  // make the multi-time valve believe a clock was lost and clear every item.
-  const operationTimeSources = chat?.operationSources
-    ?.filter((source, index, sources) => !sources.some((candidate, candidateIndex) =>
-      candidateIndex !== index && candidate.length >= source.length && candidate.includes(source)
-      && (candidate.length > source.length || candidateIndex < index)))
-    .join('\n');
-  const timeValveInput = operationTimeSources ?? raw;
-  const timesInInput = Math.max(0, countTimeExpressions(timeValveInput) - timesReadAsNothing);
-  if (timesInInput > 0 && items.length > 0) {
-    // One per reading: the days a list spread a reading over are one time the
-    // words said, not several (audit 2026-10-03 review, round 2: "Tuesday and
-    // Thursday at 7 and Friday at 9" hid the lost Friday behind Thursday).
+  // In chat, each validated citation is its point's evidence boundary. A bare
+  // hour cleared on one point must never make the valve clear a different
+  // point whose own citation states a complete time.
+  const clearMissingTimes = (targetIds: ReadonlySet<string>, timesInInput: number) => {
+    if (timesInInput <= 0 || targetIds.size === 0) return;
     const timesAccountedFor = new Set(
-      items.filter((item) => !spreadCopies.has(item.itemId)).map((item) => item.resolvedTime).filter(Boolean),
+      items.filter((item) => targetIds.has(item.itemId) && !spreadCopies.has(item.itemId))
+        .map((item) => item.resolvedTime).filter(Boolean),
     ).size;
-    if (timesAccountedFor < timesInInput) {
-      // A time was lost, so everything is asked about: a list's per-day
-      // copies go back to the one reading they came from, as base had it.
-      for (const itemId of Array.from(spreadCopies)) {
-        const at = items.findIndex((item) => item.itemId === itemId);
-        if (at !== -1) items.splice(at, 1);
-        commandsByItemId.delete(itemId);
-        resultsByItemId.delete(itemId);
-        delete sourceOrdinals.items[itemId];
-      }
-      for (let i = 0; i < items.length; i++) {
-        const before = unspread.get(items[i].itemId);
-        if (!before) continue;
-        const date = before.localTimeSpec?.date;
-        items[i] = {
-          ...items[i],
-          title: (before.title || before.action || '').trim(),
-          ...(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { resolvedDate: date } : {}),
-          ...(before.recurrenceHint ? { recurrenceHint: recurrenceHintOf(before, options.timezone, false) } : {}),
-        };
-        resultsByItemId.set(items[i].itemId, before);
-      }
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].needsClarification) continue;
-        const { endTime: _endTime, ...item } = items[i]!;
-        items[i] = { ...item, resolvedTime: null, needsClarification: true, timeEstimated: false };
-        commandsByItemId.set(items[i].itemId, []);
-      }
+    if (timesAccountedFor >= timesInInput) return;
+    // A time was lost, so this reading alone is asked about: a per-day list
+    // goes back to the one reading it came from, as base had it.
+    for (const itemId of Array.from(spreadCopies)) {
+      if (!targetIds.has(itemId)) continue;
+      const at = items.findIndex((item) => item.itemId === itemId);
+      if (at !== -1) items.splice(at, 1);
+      commandsByItemId.delete(itemId);
+      resultsByItemId.delete(itemId);
+      delete sourceOrdinals.items[itemId];
+      delete chatOperationIndices.items[itemId];
     }
+    for (let i = 0; i < items.length; i++) {
+      if (!targetIds.has(items[i]!.itemId)) continue;
+      const before = unspread.get(items[i]!.itemId);
+      if (!before) continue;
+      const date = before.localTimeSpec?.date;
+      items[i] = {
+        ...items[i],
+        title: (before.title || before.action || '').trim(),
+        ...(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? { resolvedDate: date } : {}),
+        ...(before.recurrenceHint ? { recurrenceHint: recurrenceHintOf(before, options.timezone, false) } : {}),
+      };
+      resultsByItemId.set(items[i]!.itemId, before);
+    }
+    for (let i = 0; i < items.length; i++) {
+      if (!targetIds.has(items[i]!.itemId) || items[i]!.needsClarification) continue;
+      const { endTime: _endTime, ...item } = items[i]!;
+      items[i] = { ...item, resolvedTime: null, needsClarification: true, timeEstimated: false };
+      commandsByItemId.set(items[i]!.itemId, []);
+    }
+  };
+
+  if (chat?.operationSources) {
+    chat.operationSources.forEach((source, operationIndex) => {
+      const targetIds = new Set(items.flatMap((item) =>
+        Math.floor(chatOperationIndices.items[item.itemId] ?? -1) === operationIndex ? [item.itemId] : []));
+      clearMissingTimes(targetIds, countTimeExpressions(source));
+    });
+  } else {
+    clearMissingTimes(
+      new Set(items.map((item) => item.itemId)),
+      Math.max(0, countTimeExpressions(raw) - timesReadAsNothing),
+    );
   }
 
   /*

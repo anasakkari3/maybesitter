@@ -145,8 +145,8 @@ const SECOND_AS_PRODUCTION = (prompt: string) => prompt.includes('"ref":"s1"') ?
   locked: [],
   open: [
     { ref: 's1', op: 'keep' },
-    { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
-    { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
+    { ref: 'i1', op: 'update', fields: item('Study every Tuesday and Thursday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
+    { ref: 'i2', op: 'remove' },
   ],
   added: [],
 }) : ({
@@ -154,8 +154,8 @@ const SECOND_AS_PRODUCTION = (prompt: string) => prompt.includes('"ref":"s1"') ?
   action: 'update',
   locked: [],
   open: [
-    { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
-    { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
+    { ref: 'i1', op: 'update', fields: item('Study every Tuesday and Thursday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
+    { ref: 'i2', op: 'remove' },
   ],
   added: [],
 });
@@ -624,7 +624,11 @@ test('round 2 #2: a recurring list that is another item\u2019s never invents a c
 test('round 2 #3: a recurrence never moves another item off the day its own words name', async () => {
   begin([
     { reply: 'OK. Confirm below.', action: 'propose', items: [item('Study', 'أدرس', TUESDAY, '19:00')] },
-    { reply: 'تمام. أكّد من تحت.', action: 'update', items: [item('Study', 'أدرس', TUESDAY, '19:00'), item('Study', 'أدرس', THURSDAY, '19:00'), item('Doctor', 'دكتور', FRIDAY, '16:00')] },
+    {
+      reply: 'تمام. أكّد من تحت.', action: 'update',
+      items: [item('Study', 'أدرس', TUESDAY, '19:00'), item('Study', 'أدرس', THURSDAY, '19:00'), item('Doctor', 'دكتور', FRIDAY, '16:00')],
+      sources: [null, null, 'وكمان دكتور الجمعة الساعة 4 العصر'],
+    },
   ]);
   try {
     const [, second] = await conversation(uidFor('Round2Doctor'), ['كل ثلاثاء وخميس الساعة 7 المسا بدي أدرس', 'وكمان دكتور الجمعة الساعة 4 العصر']);

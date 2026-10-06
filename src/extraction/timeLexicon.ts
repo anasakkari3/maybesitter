@@ -621,10 +621,10 @@ const HHMM = /\b\d{1,2}:\d{2}(?=$|[\s,.،])/;
 
 /**
  * Minutes on a bare early hour (CL1 round 7, I-3): `4:30`, `5:00` — one digit,
- * one to six, no leading zero. The colon does not say which half of the day;
+ * one to eleven, no leading zero. The colon does not say which half of the day;
  * "at 4:30" is as ambiguous as "at 4". `04:30` and `16:30` are not.
  */
-const BARE_EARLY_HHMM = /(?<![\d:])[1-6]:\d{2}(?=$|[\s,.،])/;
+const BARE_EARLY_HHMM = /(?<![\d:])(?:[1-9]|1[01]):\d{2}(?=$|[\s,.،])/;
 
 /** An explicit meridiem, in any of the three languages. */
 const AMPM = /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|[0-9]{1,2}(?::[0-9]{2})?\s*(?:صباحا|صباحاً|ص|مساءً|مساء|م)(?=$|[\s,.،])/i;
