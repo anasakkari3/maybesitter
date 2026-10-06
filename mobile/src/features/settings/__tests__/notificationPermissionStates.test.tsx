@@ -192,6 +192,12 @@ describe('granted', () => {
     expect(screen.queryByTestId('gentle-reminders-switch-blocked')).toBeNull();
     expect(screen.queryByTestId('plan-morning-toggle-blocked')).toBeNull();
   });
+
+  it('keeps the empty status live region mounted for a later permission refusal', async () => {
+    await show();
+    expect(screen.getByTestId('notifications-status-live').props.accessibilityLiveRegion).toBe('polite');
+    expect(screen.queryByTestId('notifications-denied')).toBeNull();
+  });
 });
 
 describe('undetermined', () => {

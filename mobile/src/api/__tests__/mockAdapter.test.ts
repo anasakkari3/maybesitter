@@ -6,6 +6,8 @@ import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { listToday, listUpcoming } from '../endpoints/commitments';
 import { chatCapture, proposeCapture } from '../endpoints/capture';
 import { getTrust } from '../endpoints/trust';
+import { getBackgroundActivity, getBackgroundActivityHistory, setBackgroundActivityPaused } from '../endpoints/backgroundActivity';
+import { getReminderSettings, putReminderSettings } from '../endpoints/reminders';
 import { commitmentListSchema } from '../schemas/common';
 import { ServerError } from '../errors';
 import { releaseConfigProblems } from '../../config/releaseGuard';
@@ -103,6 +105,21 @@ describe('serving the real routes own output', () => {
     expect(proposal.status).toBe('proposed');
     const trust = await getTrust();
     expect(trust.success).toBe(true);
+    expect(fetchCalls).toBe(0);
+  });
+
+  it('serves Task B reminder settings and background activity from exported fixtures', async () => {
+    const reminderDefaults = await getReminderSettings();
+    const reminderSaved = await putReminderSettings({ softLeadMinutes: 30 });
+    const background = await getBackgroundActivity();
+    const paused = await setBackgroundActivityPaused(true);
+    const history = await getBackgroundActivityHistory();
+
+    expect(reminderDefaults.reminderSettings.softLeadMinutes).toBe(60);
+    expect(reminderSaved.reminderSettings.softLeadMinutes).toBe(30);
+    expect(background.monitors).toHaveLength(1);
+    expect(paused.monitors).toHaveLength(1);
+    expect(history.items).toHaveLength(1);
     expect(fetchCalls).toBe(0);
   });
 

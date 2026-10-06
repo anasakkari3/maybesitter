@@ -335,14 +335,12 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
     <Screen pinned={<SettingsHeader title={t.notifTitle} onBack={onBack} />}>
       <ScreenScroll>
         {/* What the phone allows, first (CL2b #18). */}
-        {notificationStatus ? <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
-          {/* Mounted whatever the permission, so a refusal that lands after
-              «اسمح» is heard by TalkBack (review I1). */}
-          <LiveRegion>
-            {permissionDenied ? <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt> : null}
-          </LiveRegion>
+        {/* Mounted whatever the permission, so a refusal that lands after
+            «اسمح» is heard by TalkBack (review I1). */}
+        <LiveRegion testID="notifications-status-live">
           {permissionDenied ? (
-            <>
+            <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+              <Txt size={15} color={p.wm} weight={600} lh={1.5} testID="notifications-denied">{t.notifDenied}</Txt>
               {/* The one place a no can be undone. */}
               <Btn
                 label={t.notifOpenSettings}
@@ -352,8 +350,11 @@ export function NotificationsSettingsScreen({ onBack }: { onBack: () => void }) 
               >
                 <Txt size={15} color={p.ac}>{t.notifOpenSettings}</Txt>
               </Btn>
-            </>
-          ) : needsAsking ? (
+            </Card>
+          ) : null}
+        </LiveRegion>
+        {!permissionDenied && notificationStatus ? <Card pad={18} style={{ gap: 12 }} testID="notifications-status">
+          {needsAsking ? (
             <View style={{ gap: 12 }} testID="notifications-not-asked">
               <Txt size={15} color={p.mu} lh={1.5}>{t.notifAllowBody}</Txt>
               <Btn

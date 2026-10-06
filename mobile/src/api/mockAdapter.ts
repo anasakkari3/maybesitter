@@ -31,6 +31,8 @@ import activityList from './__fixtures__/activity.list.json';
 import activitySummary from './__fixtures__/activity.summary.json';
 import alphaFeedbackFlag from './__fixtures__/alphaFeedback.flag.json';
 import analyticsAck from './__fixtures__/analytics.ack.json';
+import backgroundActivityFootballRetrying from './__fixtures__/backgroundActivity.footballRetrying.json';
+import backgroundActivityHistory from './__fixtures__/backgroundActivity.history.json';
 import captureChatProposal from './__fixtures__/capture.chatProposal.json';
 import captureConfirmation from './__fixtures__/capture.confirmation.json';
 import captureProposal from './__fixtures__/capture.proposal.json';
@@ -67,6 +69,8 @@ import financialManual from './__fixtures__/financial.manual.json';
 import financialManualSaved from './__fixtures__/financial.manualSaved.json';
 import readinessCurrent from './__fixtures__/readiness.current.json';
 import readinessSaved from './__fixtures__/readiness.saved.json';
+import remindersSettingsDefault from './__fixtures__/reminders.settingsDefault.json';
+import remindersSettingsSaved from './__fixtures__/reminders.settingsSaved.json';
 import trustState from './__fixtures__/trust.state.json';
 import trustUpdated from './__fixtures__/trust.updated.json';
 import weeklyBlocksCreated from './__fixtures__/weeklyBlocks.created.json';
@@ -141,6 +145,13 @@ const ROUTES: [string, RegExp, MockResponse][] = [
 
   ['GET', /^\/api\/mobile\/pilot\/trust$/, { status: 200, body: trustState }],
   ['POST', /^\/api\/mobile\/pilot\/trust$/, { status: 200, body: trustUpdated }],
+
+  // Task B settings screens: fixture-backed reminders and background activity.
+  ['GET', /^\/api\/mobile\/settings\/reminders$/, { status: 200, body: remindersSettingsDefault }],
+  ['PUT', /^\/api\/mobile\/settings\/reminders$/, { status: 200, body: remindersSettingsSaved }],
+  ['GET', /^\/api\/mobile\/trust\/background-activity\/history$/, { status: 200, body: backgroundActivityHistory }],
+  ['GET', /^\/api\/mobile\/trust\/background-activity$/, { status: 200, body: backgroundActivityFootballRetrying }],
+  ['PATCH', /^\/api\/mobile\/trust\/background-activity$/, { status: 200, body: backgroundActivityFootballRetrying }],
 
   ['GET', /^\/api\/mobile\/feedback\/history$/, { status: 200, body: feedbackHistory }],
   ['POST', /^\/api\/mobile\/feedback\/[^/]+\/revoke$/, { status: 200, body: feedbackRevoked }],
