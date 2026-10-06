@@ -7,6 +7,10 @@
  * sizes, or the moment a label measures itself out of its slot; the four
  * `testID`s and the four accessible names stay at every size, so a screen
  * reader and a device flow find the same bar whatever the text is set to.
+ *
+ * Since 2026-10-06 «احكيها» is the bar's first item and shows the app's mark
+ * instead of a word (owner decision), so it is named but never painted as
+ * text; the four tabs still paint theirs.
  */
 import React from 'react';
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
@@ -14,6 +18,7 @@ import { render, type RenderResult } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../state/AppContext';
 import { TabBar } from '../TabBar';
+import en from '../../i18n/locales/en.json';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
   __esModule: true,
@@ -28,6 +33,8 @@ const METRICS: Metrics = {
   insets: { top: 47, left: 0, right: 0, bottom: 34 },
 };
 const IDS = ['tab-today', 'tab-calendar', 'tab-things', 'tab-watching', 'tab-capture'];
+/** The four that paint a word; `tab-capture` shows the mark instead. */
+const TEXT_IDS = ['tab-today', 'tab-calendar', 'tab-things', 'tab-watching'];
 
 async function atFontScale(fontScale: number): Promise<RenderResult> {
   useWindowDimensions.mockReturnValue({ width: 390, height: 844, scale: 3, fontScale });
@@ -45,6 +52,15 @@ function names(view: RenderResult): string[] {
   return IDS.map((id) => view.getByTestId(id).props.accessibilityLabel as string);
 }
 
+function painted(view: RenderResult): string[] {
+  return TEXT_IDS.map((id) => view.getByTestId(id).props.accessibilityLabel as string);
+}
+
+function fontSizeOf(view: RenderResult, testID: string): number {
+  const style = [view.getByTestId(testID).props.style].flat(Infinity).filter(Boolean);
+  return Object.assign({}, ...style).fontSize as number;
+}
+
 beforeEach(() => {
   useWindowDimensions.mockReset();
 });
@@ -52,17 +68,17 @@ beforeEach(() => {
 describe('the tab bar keeps its identity at every text size', () => {
   it('paints the labels at the default size, under stable testIDs', async () => {
     const view = await atFontScale(1);
-    for (const name of names(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
+    for (const name of painted(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
   });
 
   it('still paints them one category up (large mode is not icons-only by itself)', async () => {
     const view = await atFontScale(1.35);
-    for (const name of names(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
+    for (const name of painted(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
   });
 
   it('keeps visible names at the first accessibility size', async () => {
     const view = await atFontScale(1.64);
-    for (const name of names(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
+    for (const name of painted(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
   });
 
   it('announces the same five names at 2.0× as at 1×, and every control is still there', async () => {
@@ -81,6 +97,37 @@ describe('the tab bar keeps its identity at every text size', () => {
   it('keeps names visible past the top of the platform ramp', async () => {
     const view = await atFontScale(3.12);
     for (const id of IDS) expect(view.getByTestId(id)).toBeTruthy();
-    for (const name of names(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
+    for (const name of painted(view)) expect(view.getAllByText(name).length).toBeGreaterThan(0);
+  });
+
+  it('is five items with «احكيها» first, shown as the mark and named for a screen reader', async () => {
+    const view = await atFontScale(1);
+    const bar = view.getByTestId('tab-bar');
+    const order: string[] = [];
+    const walk = (node: unknown): void => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) { node.forEach(walk); return; }
+      const n = node as { props?: { testID?: unknown }; children?: unknown };
+      if (typeof n.props?.testID === 'string' && IDS.includes(n.props.testID) && !order.includes(n.props.testID)) order.push(n.props.testID);
+      walk(n.children);
+    };
+    walk(view.toJSON());
+    expect(order).toEqual(['tab-capture', 'tab-today', 'tab-calendar', 'tab-things', 'tab-watching']);
+    expect(bar).toBeTruthy();
+    const capture = view.getByTestId('tab-capture');
+    expect(capture.props.accessibilityLabel).toBe(en.tabCapture);
+    expect(view.queryAllByText(en.tabCapture)).toHaveLength(0);
+  });
+
+  it('sets the tab labels at 13 points, and never below 12 at the larger sizes', async () => {
+    const normal = await atFontScale(1);
+    for (const id of TEXT_IDS) expect(fontSizeOf(normal, `${id}-label`)).toBeGreaterThanOrEqual(13);
+    await normal.unmount();
+    const large = await atFontScale(1.35);
+    for (const id of TEXT_IDS) {
+      expect(fontSizeOf(large, `${id}-label`)).toBeGreaterThanOrEqual(12);
+      expect(large.getByTestId(`${id}-label`).props.numberOfLines ?? 2).toBeGreaterThanOrEqual(2);
+      expect(large.getByTestId(`${id}-label`).props.ellipsizeMode).toBeUndefined();
+    }
   });
 });

@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "observations": [
+    {
+      "kind": "goal",
+      "evidence": "I want to learn React",
+      "confidence": 0.5,
+      "id": "0000000000000000000000000000000000000000000000000000000000000000",
+      "source": "manual",
+      "sourceRef": "00000000-0000-4000-8000-000000000001",
+      "observedAt": "2026-08-09T09:00:00.000Z",
+      "review": "pending",
+      "reviewedAt": null,
+      "linkedMemoryId": null
+    }
+  ],
+  "suggestions": [],
+  "schedule": []
+}

@@ -10,6 +10,7 @@ import { useLayoutMode } from '../theme/textScale';
 import { ChevronIcon } from './icons';
 import { availabilityKey, type Availability } from '../features/product/capabilities';
 import { AvoidKeyboard } from './keyboard';
+import { Disclosure } from './Disclosure';
 
 const GroupedRows = createContext(false);
 
@@ -59,7 +60,13 @@ export function ProductPage({ title, subtitle, children, id, overlay }: { title:
     </AvoidKeyboard>
   </Screen>;
 }
-export function ProductSection({ title, body, icon, status, children }: { title: string; body?: string | undefined; icon?: ProductIconName; status?: Availability; children?: React.ReactNode }) {
+/**
+ * `why` puts an optional explanation behind an arrow beside the title instead
+ * of a paragraph under it (owner audit 2026-10-06): `{ id, body }` renders a
+ * `Disclosure` with testIDs `${id}-why` / `${id}-why-body`. Use `body` only for
+ * text the section cannot be understood without.
+ */
+export function ProductSection({ title, body, why, icon, status, children }: { title: string; body?: string | undefined; why?: { id: string; body: string } | undefined; icon?: ProductIconName; status?: Availability; children?: React.ReactNode }) {
   const { p } = useApp();
   const stacked = useLayoutMode() !== 'normal';
   // The section's testID carries its status so the capability guard can find
@@ -68,7 +75,9 @@ export function ProductSection({ title, body, icon, status, children }: { title:
     <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 14, alignItems: 'flex-start' }}>
       {icon ? <ProductIcon name={icon} /> : null}
       <View style={{ flex: stacked ? undefined : 1, gap: 6 }}>
-        <Txt role="section">{title}</Txt>
+        {why
+          ? <Disclosure id={why.id} body={why.body} label={title}><Txt role="section">{title}</Txt></Disclosure>
+          : <Txt role="section">{title}</Txt>}
         {body ? <Txt role="supporting" color={p.mu}>{body}</Txt> : null}
         {status ? <AvailabilityBadge status={status} testID={`section-status-${status}`} /> : null}
       </View>

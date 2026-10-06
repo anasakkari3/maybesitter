@@ -13,8 +13,10 @@ with the exact Stitch markup in `html/` and renders in `png/`.
 `src/design/stitch.source.json` pins the palette and the reference hashes.
 Navy dark is the default scheme (light and "system" stay selectable); Arabic is
 set in Noto Kufi Arabic, Latin and digits in Plus Jakarta Sans, Hebrew in Noto
-Sans Hebrew. The bar is Today · Plan · My things · Watching with the «احكيها»
-pill floating above it; Settings opens from the avatar in each tab root's
+Sans Hebrew. The bar is «احكيها» · Today · Plan · My things · Watching — five
+equal items, «احكيها» first and shown as the app's mark instead of a word
+(owner decision 2026-10-06; it was a pill floating above a four-item bar until
+then); Settings opens from the avatar in each tab root's
 header (`AvatarButton`, testID `open-settings`) and is pushed onto that tab.
 The coral continuation it replaced is archived at tag `archive/pre-stitch-design`
 (`src/design/coral.source.json` is kept as history).
@@ -50,8 +52,14 @@ Rules the design fixes, which code must keep:
 - Nothing is set below 12 px; tab labels and chips are 13. Cards are radius 20.
 - There is no "overdue". Only active, done, rearranged, dropped on purpose.
   «أسقطه بوعي» has the same weight as «تمّت».
-- Suggestions always say «هذا اقتراح. لم يتغيّر أي شيء بعد.» (`suggestionNote`) and
-  nothing is saved without an explicit confirm.
+- Suggestions always say they are suggestions, and nothing is saved without an
+  explicit confirm. Most surfaces use «هذا اقتراح. لم يتغيّر أي شيء بعد.»
+  (`suggestionNote`); the next-step card says it in its badge, «خطوة مقترحة»
+  (`nextStepSuggestedLabel`), because the owner struck the card's footer as
+  noise on 2026-10-06.
+- An explanation that is not needed to make the decision goes behind an arrow
+  (`ui/Disclosure.tsx`, or `ProductSection`'s `why`), not in a paragraph under
+  the title (owner decision 2026-10-06).
 - Spoken Arabic for actions: تمّت · لسّا · احكيها · أسقطه بوعي.
 - Colours come from `src/theme/tokens.ts`; never hard-code hex in screens.
 - Respect reduce-motion (`useReducedMotion` in `src/ui/motion.tsx`).

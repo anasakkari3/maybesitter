@@ -4,19 +4,24 @@ import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import type { Tab as NavTab } from '../state/navigation';
-import { accentGlow, barShadow, type Palette } from '../theme/tokens';
+import { barShadow, type Palette } from '../theme/tokens';
 import { Btn, Txt } from '../ui/primitives';
 import { ReferenceIcon } from '../ui/referenceIcons';
+import { BrandMark } from '../ui/brand';
 import { useLayoutMode } from '../theme/textScale';
 
 /**
- * The bottom bar (Stitch redesign, 2026-10-02): Today · Plan · My things ·
- * Watching, with the «احكيها» action centred above it.
+ * The bottom bar: «احكيها» · Today · Plan · My things · Watching.
  *
- * Settings is not in the bar any more; it opens from the avatar in each tab
- * root's header (`ui/chrome.tsx` `AvatarButton`) and renders without the bar.
- * The pill keeps the `tab-capture` testID and opens the capture flow exactly
- * as the old centre button did.
+ * Until 2026-10-06 «احكيها» was a red pill floating above a four-item bar
+ * (Stitch redesign, 2026-10-02). The owner moved it into the bar as its first
+ * item and replaced its text with the app's mark, so the bar is five equal
+ * items and nothing floats over the screen. It keeps the `tab-capture` testID,
+ * says «احكيها» to a screen reader, and opens the capture flow exactly as the
+ * pill did. It is an action, not a screen, so it is never shown as selected.
+ *
+ * Settings is not in the bar; it opens from the avatar in each tab root's
+ * header (`ui/chrome.tsx` `AvatarButton`) and renders without the bar.
  *
  * The whole control occupies normal layout space. It never sits over the
  * active screen, including at accessibility text sizes.
@@ -42,30 +47,22 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
       }}
       style={{ flexShrink: 0 }}
     >
-      <View style={{ alignItems: 'center', paddingVertical: enlarged ? 6 : 10 }}>
-        <Btn
-          testID="tab-capture"
-          onPress={() => actions.goCapture('tab', 'text')}
-          label={t.tabCapture}
-          scaleTo={0.94}
-          style={[
-            {
-              backgroundColor: p.ac, borderRadius: 999, minHeight: 52, minWidth: 52,
-              paddingHorizontal: enlarged ? 18 : 24, paddingVertical: enlarged ? 7 : 10,
-              flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-            },
-            accentGlow(p, 0.3),
-          ]}
-        >
-          <ReferenceIcon name="mic" size={20} color={p.onAccent} />
-          <Txt size={16} weight={700} color={p.onAccent}>{t.tabCapture}</Txt>
-        </Btn>
-      </View>
       <View testID="tab-bar" style={[{ borderTopWidth: 1, borderColor: p.ln, overflow: 'hidden' }, barShadow(p)]}>
         {Platform.OS === 'ios' && !reduceTransparency ? (
           <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, start: 0, end: 0, bottom: 0 }} />
         ) : null}
         <View style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', alignItems: 'stretch', gap: 2 }}>
+          <Btn
+            testID="tab-capture"
+            label={t.tabCapture}
+            onPress={() => actions.goCapture('tab', 'text')}
+            scaleTo={0.92}
+            style={{ flex: 1, minWidth: 0, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <View style={{ alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch', minHeight: 48, borderRadius: 14 }}>
+              <BrandMark size={enlarged ? 32 : 36} />
+            </View>
+          </Btn>
           {tabs.map(tab => (
             <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged}
               onPress={() => actions.switchTab(tab.screen)} />
@@ -94,7 +91,7 @@ function TabItem({ label, testID, icon, on, p, enlarged, onPress }: {
     >
       <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 3, paddingHorizontal: 2, borderRadius: 14, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}>
         <ReferenceIcon name={icon} size={enlarged ? 20 : 22} color={color} />
-        <Txt size={enlarged ? 10 : 12} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
+        <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
       </View>
     </Btn>
   );
