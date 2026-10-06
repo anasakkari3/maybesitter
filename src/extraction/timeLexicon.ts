@@ -534,14 +534,16 @@ export function readClockRange(rawText: string): ClockRange | null {
   if (clocks.length < 2) return null;
   const at = (clock: RegExpMatchArray): RegExpExecArray => Object.assign(clock, { index: best!.index + clock.index! }) as unknown as RegExpExecArray;
   let start = rangeEndAt(text, at(clocks[0]!));
-  const end = rangeEndAt(text, at(clocks[clocks.length - 1]!));
+  const endClock = at(clocks[clocks.length - 1]!);
+  const end = rangeEndAt(text, endClock);
   // English dash shorthand shares its trailing am/pm with the start when the
   // written endpoints are equal: "4-4pm" starts at 16:00 but still names no
   // duration. Arabic day-part shorthand keeps the established 08:00–20:00
   // reading of «8-8 المسا».
   if (start.statedHour === null && end.statedHour !== null
     && start.hour === end.hour && start.minute === end.minute
-    && /[-–—]/.test(best[0]) && /(?:am|pm)\b/i.test(best[0])) {
+    && /[-–—]/.test(best[0])
+    && /^\s*(?:am|pm)\b/i.test(text.slice(endClock.index + endClock[0].length))) {
     start = { ...start, statedHour: end.statedHour };
   }
   if (start.hour > 23 || end.hour > 23 || start.minute > 59 || end.minute > 59) return null;
