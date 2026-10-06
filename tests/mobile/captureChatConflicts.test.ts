@@ -197,7 +197,7 @@ test('a proposal on top of a saved commitment carries it, the reply names it, an
     const { system, user } = splitPrompt(model.prompts[1]!);
     assert.ok(user.includes(`"savedSchedule":[{"title":"${WEDDING}","kind":"commitment","date":"${FRIDAY}","start":"18:00","end":"18:30"}]`), 'the saved wedding was not shown');
     assert.ok(!system.includes(WEDDING), 'a saved title leaked into the instructions');
-    assert.match(system, /PROMPT VERSION: capture-chat-v5/);
+    assert.match(system, /PROMPT VERSION: capture-chat-v6/);
 
     // The confirm path is unchanged: it returns its own collisions.
     const confirmed = await confirmAll(uid, body);

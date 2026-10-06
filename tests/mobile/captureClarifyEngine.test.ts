@@ -129,6 +129,26 @@ test('an answer to "what do you want to do?" becomes the action, and the item ca
   assert.equal(draft?.draftStatus, 'pending_confirmation');
 });
 
+test('a legacy interleaved proposal without understood or source ordinals stays without understood after clarification', async () => {
+  const result = baseResult({ dueAt: null, remindAt: null, localTimeSpec: null, timeEvidence: 'none' });
+  const { store, stored } = storeAsking('time', result);
+  await store.put({
+    ...stored,
+    responseLocale: 'en',
+    contract: {
+      ...stored.contract,
+      seeds: [{ seedItemId: 'seed-between', kind: 'consideration', summary: 'Maybe travel next summer' }],
+    },
+  });
+  const contract = await answerClarification(
+    { proposalId: 'proposal-1', itemId: 'item-1', questionId: 'question-1', freeText: 'at 9pm' },
+    { now: NOW, timezone: ZONE, scopeId: 'engine-user' },
+    { store, recordEvent: () => undefined },
+  );
+  assert.equal(contract.understood, undefined);
+  assert.equal((await store.get('proposal-1'))!.contract.understood, undefined);
+});
+
 test('an answer the re-read finds hesitant is still the user\'s answer, and the item can be saved', async () => {
   // No "remind me", and a "maybe" in the answer: the rules score the re-read
   // below the policy floor and would file it as a note — zero commands, on an

@@ -1,0 +1,40 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "reply": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين.",
+  "engine": "rules",
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000002",
+    "status": "unresolved_intent",
+    "items": [],
+    "seeds": [
+      {
+        "seedItemId": "00000000-0000-4000-8000-000000000003",
+        "kind": "consideration",
+        "summary": "عم بفكر أسافر الصيف الجاي"
+      }
+    ],
+    "provenance": {
+      "requestedEngine": "rules",
+      "executedEngine": "rule-based",
+      "fallbackUsed": true
+    },
+    "understood": [
+      {
+        "kind": "consideration",
+        "seedItemId": "00000000-0000-4000-8000-000000000003",
+        "text": "عم بفكر أسافر الصيف الجاي"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "role": "user",
+      "text": "عم بفكر أسافر الصيف الجاي"
+    },
+    {
+      "role": "assistant",
+      "text": "فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين."
+    }
+  ]
+}

@@ -43,6 +43,8 @@ import { resetStorageForTests, setStorageForTests } from '../../lib/storage/inde
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
+import { finalizeUnderstood, type CaptureSourceOrdinals } from '../../lib/services/captureBoundary/understood.ts';
+import type { CaptureProposalContract, CaptureUnderstoodPoint } from '../../src/contracts/v1/captureContracts.ts';
 
 const TZ = 'Asia/Hebron';
 /** Monday 28 Sep 2026, 06:58 on the phone — when N15 was typed. */
@@ -216,6 +218,7 @@ test('N16: on the model path the literal capture keeps «مع العيلة» in 
 
 test('N16: the rules path keeps the company too, and «غدا» said with someone is lunch, not tomorrow', async () => {
   assert.deepEqual((await proposeRules(N16, N16_NOW)).items.map((item) => item.title), ['أروح عالسوق', 'عندي عشا مع العيلة']);
+  assert.equal((await proposeRules('اجتماع بكرا الساعة 4', N16_NOW)).items[0]?.title, 'اجتماع', 'the clock marker consumed the final ع of اجتماع');
   const rows: Array<[string, string]> = [
     ['عندي غدا مع أمي بكرا', 'عندي غدا مع أمي | 2026-09-29 - | ask_time'],
     ['عندي غدا مع أمي يوم الخميس', 'عندي غدا مع أمي | 2026-10-01 - | ask_time'],
@@ -677,4 +680,164 @@ test('round 4 addendum: "busy", «مشغول», «עסוק», "nope", "nah", «�
   }
   // In shape (b): «مش بكرا» is ruled out and the day after taken — unchanged.
   assert.equal((await answerDoctor('مش بكرا، الخميس المسا')).line, 'موعد دكتور | 2026-10-01 19:00 | settled');
+});
+
+// ── M2a understanding finalizer ────────────────────────────────────────
+
+function understandingProposal(
+  itemTitles: readonly string[],
+  seeds: ReadonlyArray<{ id: string; kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; summary: string }> = [],
+  understood?: readonly CaptureUnderstoodPoint[],
+): CaptureProposalContract {
+  return {
+    version: 'v1',
+    proposalId: 'proposal-understanding',
+    status: 'proposed',
+    items: itemTitles.map((title, index) => ({
+      itemId: `item-${index + 1}`,
+      title,
+      resolvedTime: null,
+      needsClarification: false,
+    })),
+    seeds: seeds.map((seed) => ({ seedItemId: seed.id, kind: seed.kind, summary: seed.summary })),
+    provenance: { requestedEngine: 'rules', executedEngine: 'rule-based', fallbackUsed: false },
+    ...(understood ? { understood: [...understood] } : {}),
+  } as CaptureProposalContract;
+}
+
+function understandingOrdinals(
+  items: Record<string, number>,
+  seeds: Record<string, number> = {},
+): CaptureSourceOrdinals {
+  return { items, seeds };
+}
+
+test('understood lines are the point itself: no repeated prefix, and mixed or other-language words stay intact', () => {
+  const contract = understandingProposal(
+    ['Zoom with دانا'],
+    [{ id: 'seed-1', kind: 'consideration', summary: 'Thinking about السفر بالصيف' }],
+  );
+  const final = finalizeUnderstood(contract, 'ar', understandingOrdinals({ 'item-1': 0 }, { 'seed-1': 1 }));
+  assert.deepEqual(final.understood?.map((point) => point.text), [
+    'Zoom with دانا',
+    'Thinking about السفر بالصيف',
+  ]);
+  for (const point of final.understood ?? []) {
+    assert.ok(!/^(?:فهمت:|I understood:|הבנתי:)/.test(point.text), point.text);
+  }
+});
+
+test('understood lines remove a URL run but keep the words around it, falling back only when nothing remains', () => {
+  const contract = understandingProposal([
+    'Call Dana at https://example.com/private tomorrow',
+    'www.example.com/private',
+  ]);
+  const final = finalizeUnderstood(contract, 'en', understandingOrdinals({ 'item-1': 0, 'item-2': 1 }));
+  assert.deepEqual(final.understood?.map((point) => point.text), [
+    'Call Dana at tomorrow',
+    'A point to review',
+  ]);
+
+  const bareDomain = finalizeUnderstood(
+    understandingProposal(['Review notes.example.dev/private then call Dana']),
+    'en',
+    understandingOrdinals({ 'item-1': 0 }),
+  );
+  assert.equal(bareDomain.understood?.[0]?.text, 'Review then call Dana');
+});
+
+test('understood lines replace saved claims with a kind-neutral fallback in the proposal locale', () => {
+  const english = finalizeUnderstood(
+    understandingProposal(['I saved the dentist appointment']),
+    'en',
+    understandingOrdinals({ 'item-1': 0 }),
+  );
+  const arabic = finalizeUnderstood(
+    understandingProposal(['حفظتلك موعد الدكتور']),
+    'ar',
+    understandingOrdinals({ 'item-1': 0 }),
+  );
+  assert.equal(english.understood?.[0]?.text, 'A point to review');
+  assert.equal(arabic.understood?.[0]?.text, 'نقطة بدها مراجعة');
+});
+
+test('understood lines remove controls and clip overlong text to 160 characters with an ellipsis', () => {
+  const contract = understandingProposal(['Call\u0000Dana\nnow', 'x'.repeat(220)]);
+  const final = finalizeUnderstood(contract, 'en', understandingOrdinals({ 'item-1': 0, 'item-2': 1 }));
+  assert.equal(final.understood?.[0]?.text, 'Call Dana now');
+  assert.equal(final.understood?.[1]?.text.length, 160);
+  assert.ok(final.understood?.[1]?.text.endsWith('…'));
+});
+
+test('understood lines drop a split joining conjunction in Arabic, English, and Hebrew without changing seed summaries', () => {
+  const seeds = [
+    { id: 'seed-ar', kind: 'consideration' as const, summary: 'وعم بفكر أسافر الصيف الجاي' },
+    { id: 'seed-en', kind: 'consideration' as const, summary: "and I'm thinking about travelling" },
+    { id: 'seed-he', kind: 'consideration' as const, summary: 'ואני חושב על נסיעה' },
+  ];
+  const contract = understandingProposal(['Call Dana tomorrow'], seeds);
+  const final = finalizeUnderstood(
+    contract,
+    'ar',
+    understandingOrdinals({ 'item-1': 0 }, { 'seed-ar': 1, 'seed-en': 2, 'seed-he': 3 }),
+  );
+
+  assert.deepEqual(final.understood?.map((point) => point.text), [
+    'Call Dana tomorrow',
+    'عم بفكر أسافر الصيف الجاي',
+    "I'm thinking about travelling",
+    'אני חושב על נסיעה',
+  ]);
+  assert.deepEqual(final.seeds.map((seed) => seed.summary), seeds.map((seed) => seed.summary));
+});
+
+test('understood lines keep a leading conjunction when it was first or the remainder is not a recognised clause', () => {
+  const seeds = [
+    { id: 'seed-first', kind: 'consideration' as const, summary: 'وعم بفكر أسافر' },
+    { id: 'seed-ar-word', kind: 'idea' as const, summary: 'وظيفة جديدة' },
+    { id: 'seed-en-fragment', kind: 'idea' as const, summary: 'and Dana' },
+    { id: 'seed-he-word', kind: 'idea' as const, summary: 'ויזה חדשה' },
+  ];
+  const final = finalizeUnderstood(
+    understandingProposal([], seeds),
+    'ar',
+    understandingOrdinals({}, { 'seed-first': 0, 'seed-ar-word': 1, 'seed-en-fragment': 2, 'seed-he-word': 3 }),
+  );
+
+  assert.deepEqual(final.understood?.map((point) => point.text), seeds.map((seed) => seed.summary));
+});
+
+test('understood order follows interleaved source ordinals, then its stored order stays authoritative', () => {
+  const contract = understandingProposal(
+    ['First item', 'Second item'],
+    [{ id: 'seed-1', kind: 'idea', summary: 'Middle idea' }],
+  );
+  const initial = finalizeUnderstood(
+    contract,
+    'en',
+    understandingOrdinals({ 'item-1': 2, 'item-2': 0 }, { 'seed-1': 1 }),
+  );
+  assert.deepEqual(initial.understood?.map((point) => (
+    point.kind === 'commitment' ? point.itemId : point.seedItemId
+  )), ['item-2', 'seed-1', 'item-1']);
+
+  const afterClarification = finalizeUnderstood(
+    { ...initial, items: initial.items.map((item) => ({ ...item, title: `${item.title} updated` })) },
+    'en',
+    understandingOrdinals({ 'item-1': 0, 'item-2': 2 }, { 'seed-1': 1 }),
+  );
+  assert.deepEqual(afterClarification.understood?.map((point) => (
+    point.kind === 'commitment' ? point.itemId : point.seedItemId
+  )), ['item-2', 'seed-1', 'item-1']);
+  assert.deepEqual(afterClarification.understood?.map((point) => point.text), [
+    'Second item updated', 'Middle idea', 'First item updated',
+  ]);
+});
+
+test('a legacy proposal without source ordinals gets no understood ordering', () => {
+  const legacy = understandingProposal(
+    ['First item'],
+    [{ id: 'seed-1', kind: 'consideration', summary: 'A thought between old items' }],
+  );
+  assert.equal(finalizeUnderstood(legacy, 'en').understood, undefined);
 });

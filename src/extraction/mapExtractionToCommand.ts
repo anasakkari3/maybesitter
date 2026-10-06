@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import type { Command, CommitmentKind, ReminderType } from '../domain/stateMachine';
 import { decideExtractionDisposition } from './extractionPolicy';
 import type { ExtractionResult } from './extractionTypes';
+import { rangeEndInstant } from './timeLexicon';
 import {
   DEFAULT_CATEGORY_PREFERENCES,
   resolveCategory,
@@ -17,10 +18,10 @@ function reminderTypeFromExtraction(result: ExtractionResult): ReminderType {
 }
 
 /** `dueAt` plus the range the words gave, for a timed event; otherwise null. */
-function endOfRange(result: ExtractionResult): string | null {
-  if (!result.rangeMinutes || !result.dueAt || result.allDay || result.timeAnchor !== 'event') return null;
-  const start = Date.parse(result.dueAt);
-  return Number.isFinite(start) ? new Date(start + result.rangeMinutes * 60_000).toISOString() : null;
+export function endOfRange(result: ExtractionResult): string | null {
+  const local = result.localTimeSpec;
+  if (!result.rangeMinutes || !result.dueAt || result.allDay || result.timeAnchor !== 'event' || !local?.time) return null;
+  return rangeEndInstant(local.date, local.time, local.timezone, result.rangeMinutes)?.toISOString() ?? null;
 }
 
 /**

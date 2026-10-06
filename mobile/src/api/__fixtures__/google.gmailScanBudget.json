@@ -218,5 +218,22 @@
       "itemCount": 3
     },
     "document": null
-  }
+  },
+  "understood": [
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "text": "Return the signed trip form"
+    },
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000004",
+      "text": "Return the signed trip form"
+    },
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000006",
+      "text": "Return the signed trip form"
+    }
+  ]
 }

@@ -551,6 +551,7 @@ export async function proposeMobileCapture(input: MobileCaptureInput, context: M
     requestedEngine: consent === 'granted' ? 'model' : 'rules',
     requestStartedAt,
     ...(locale ? { locale } : {}),
+    ...(locale ? { responseLocale: locale } : {}),
     activeGoals: await activeGoalsFor(context.participantId),
   }, {
     store,
@@ -612,6 +613,8 @@ export async function proposeMobileChatTurn(
     previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
     /** The phone's UI language: the items' titles are shown in it (owner request 2026-09-30). */
     locale?: CaptureAppLocale;
+    /** Language already resolved by the chat service, including its fallback. */
+    responseLocale?: CaptureAppLocale;
   },
   context: MobileBackendContext & { participantId: string },
 ) {
@@ -624,7 +627,9 @@ export async function proposeMobileChatTurn(
     ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
     ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items, previous: input.previous ?? [] } } : {}),
     titleWithoutLeadIn: true,
+    guardUnresolvedIntentWithSchedule: true,
     ...(input.locale ? { locale: input.locale } : {}),
+    ...(input.responseLocale ? { responseLocale: input.responseLocale } : {}),
     activeGoals: await activeGoalsFor(context.participantId),
   }, {
     store,

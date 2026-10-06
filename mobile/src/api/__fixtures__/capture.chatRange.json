@@ -1,6 +1,6 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
-  "reply": "هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها.",
+  "reply": "Here's what I understood. Check the list and confirm it if it looks right.",
   "engine": "rules",
   "proposal": {
     "version": "v1",
@@ -9,14 +9,16 @@
     "items": [
       {
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "title": "أحكي مع الدكتور",
+        "title": "Meeting",
         "resolvedTime": "2026-08-09T09:00:00.000Z",
+        "endTime": "2026-08-09T13:00:00.000Z",
         "needsClarification": false,
         "timeEstimated": false,
-        "priority": "normal",
+        "priority": "high",
         "priorityEstimated": true,
         "resolvedDate": "2026-08-10",
-        "dateEstimated": false
+        "dateEstimated": false,
+        "eventOnDay": true
       }
     ],
     "seeds": [],
@@ -29,18 +31,18 @@
       {
         "kind": "commitment",
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "text": "أحكي مع الدكتور"
+        "text": "Meeting"
       }
     ]
   },
   "turns": [
     {
       "role": "user",
-      "text": "ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور"
+      "text": "Meeting tomorrow from 4 to 8pm"
     },
     {
       "role": "assistant",
-      "text": "هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها."
+      "text": "Here's what I understood. Check the list and confirm it if it looks right."
     }
   ]
 }

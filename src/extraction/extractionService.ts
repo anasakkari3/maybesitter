@@ -6,7 +6,7 @@ import { decideExtractionDisposition } from './extractionPolicy';
 import { decideEscalation, type EscalationReason } from './escalationGate';
 import { ARBITRATION_UNAVAILABLE, type ArbiterFunction, type ArbitrationVerdict } from './arbiter';
 import { mapExtractionToCommand } from './mapExtractionToCommand';
-import { instantFromLocal, localTimeSpecFor, rangeMinutesFrom, relativeDayOffset } from './timeLexicon';
+import { instantFromLocal, localTimeSpecFor, rangeEndInstant, rangeMinutesFrom, rangeStartTime, readClockRange, relativeDayOffset } from './timeLexicon';
 import { daysUntilWeekday, namesCalendarDate, namesExplicitDate, readRecurrence, readWeekdayMentions, readWeekdayReference, type StatedRecurrence } from './weekdayLexicon';
 import type { Command } from '../domain/stateMachine';
 import type { ExtractionContext, ExtractionDisposition, ExtractionResult, RecurrenceHint } from './extractionTypes';
@@ -380,8 +380,22 @@ function withStatedShape(result: ExtractionResult, rawText: string, context: Ext
     // («Gym every Tuesday») says the wrong day. Words already in the title stay.
     shaped = recurrence.weekdays.length > 1 ? placed : withPhraseInTitle(placed, recurrence.shortPhrases ?? recurrence.phrases);
   }
-  const minutes = shaped.timeAnchor === 'deadline' ? null : rangeMinutesFrom(rawText, localTimeOf(shaped, timeZone));
-  if (minutes) shaped = { ...shaped, rangeMinutes: minutes };
+  const range = readClockRange(rawText);
+  const deterministicStart = range ? rangeStartTime(range) : null;
+  if (range && deterministicStart && shaped.localTimeSpec?.date) {
+    const instant = rangeEndInstant(shaped.localTimeSpec.date, deterministicStart, timeZone, 0);
+    if (instant) {
+      const iso = instant.toISOString();
+      shaped = {
+        ...shaped,
+        dueAt: shaped.dueAt ? iso : null,
+        remindAt: shaped.remindAt ? iso : null,
+        localTimeSpec: { date: shaped.localTimeSpec.date, time: deterministicStart, timezone: timeZone },
+      };
+    }
+  }
+  const minutes = shaped.timeAnchor === 'deadline' ? null : rangeMinutesFrom(rawText, deterministicStart ?? localTimeOf(shaped, timeZone));
+  if (minutes) shaped = { ...shaped, rangeMinutes: minutes, timeAnchor: 'event' };
   if (recurrence) shaped = { ...shaped, recurrenceHint: { weekdays: recurrence.weekdays } };
   return shaped;
 }

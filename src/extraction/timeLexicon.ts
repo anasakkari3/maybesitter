@@ -384,7 +384,26 @@ export function normalizeClockFractions(value: string): string {
 
 /** Every rewrite a clock reader needs, in order: digits, spoken hours, fractions. */
 export function normalizeClockText(value: string): string {
-  return normalizeClockFractions(normalizeSpokenHours(normalizeArabicDigits(value)));
+  return normalizeClockFractions(normalizeSpokenHours(normalizeSpokenArabicRange(normalizeArabicDigits(value))));
+}
+
+/**
+ * A spelled Arabic number is clock evidence inside a range only when the
+ * range itself ends in an explicit part of day. That narrow context keeps
+ * «من أربعة لثمانية أشخاص/مرات/أيام/ساعات/دقايق» as counts, never clocks.
+ */
+function normalizeSpokenArabicRange(value: string): string {
+  if (!ANY_ARABIC_LETTER.test(value)) return value;
+  const word = `(?:${AR_CARDINAL_WORDS})`;
+  const pattern = new RegExp(
+    `(من\\s+)(${word})(\\s*(?:إلى|الى|حتى|لحد|لحدّ|لغاية|لغايه|للغاية|ل)ـ*\\s*)(?:ال)?(${word})(?=\\s+(?:المسا|المساء|مساء|مساءً|الصبح|الصباح|صباحا|صباحاً|العصر|الليل|بالليل|بالمسا|بالصبح))`,
+    'gu',
+  );
+  return value.replace(pattern, (match, lead: string, startWord: string, separator: string, endWord: string) => {
+    const start = arabicCardinalHour(startWord);
+    const end = arabicCardinalHour(endWord);
+    return start && end ? `${lead}${start}${separator}${end}` : match;
+  });
 }
 
 /**
@@ -395,7 +414,7 @@ export function normalizeClockText(value: string): string {
  * المسا» would lose «المسا» first and leave «5 لازم أتصل بأمي» (closure UAT
  * round 6).
  */
-const AR_CLOCK_WORD = '(?:(?:(?:على|عند|ع)\\s*)?(?:الساعة|الساعه)|عند|على|(?<![\\u0600-\\u06FF])عال)';
+const AR_CLOCK_WORD = '(?<![\\u0600-\\u06FF])(?:(?:(?:على|عند|ع)\\s*)?(?:الساعة|الساعه)|عند|على|عال)';
 const AR_CLOCK_WITH_PERIOD = `(?:${AR_CLOCK_WORD}|(?<![\\u0600-\\u06FF])(?:ع|حوالي|حوالى))?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${AR_DAY_PART_AFTER_HOUR}(?=$|[\\s,.،])`;
 const HE_CLOCK_WITH_PERIOD = /(?:בשעה|שעה|בסביבות(?:\s+ה?שעה)?|סביב(?:\s+ה?שעה)?|לקראת(?:\s+ה?שעה)?|עד(?:\s+ה?שעה)?|[בס]-?)?\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:בבוקר|בוקר|בצהריים|בצהרים|צהריים|אחרי הצהריים|אחר הצהריים|אחרי הצהרים|אחר הצהרים|אחה["״]צ|בערב|ערב|בלילה|לילה)(?=$|[\s,.،])/.source;
 const EN_CLOCK_WITH_PERIOD = /\b(?:(?:at|by|around|about)\s+)?\d{1,2}(?::\d{2})?\s+(?:in\s+the\s+(?:morning|afternoon|evening)|at\s+night|tonight)\b/.source;
@@ -1321,6 +1340,48 @@ export function instantFromLocal(date: string, time: string, timeZone: string): 
   const guess = new Date(Date.UTC(Number(day[1]), Number(day[2]) - 1, Number(day[3]), hour, minute));
   const resolved = new Date(guess.getTime() - tzOffsetMs(guess, zone));
   return Number.isFinite(resolved.getTime()) ? resolved : null;
+}
+
+/**
+ * Resolve the local end clock of a range. Exact ambiguous wall times choose
+ * the earlier instant; a wall time inside a DST gap advances to the first
+ * valid minute. This deliberately differs from adding elapsed milliseconds:
+ * a two-hour local range across a transition still ends at the clock the
+ * person said.
+ */
+export function rangeEndInstant(
+  date: string,
+  startTime: string,
+  timeZone: string,
+  rangeMinutes: number,
+): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(startTime)) return null;
+  if (!Number.isFinite(rangeMinutes) || rangeMinutes < 0 || rangeMinutes > 24 * 60) return null;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
+  } catch {
+    return null;
+  }
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  const [hour, minute] = startTime.split(':').map(Number) as [number, number];
+  const targetWall = Date.UTC(year, month - 1, day, hour, minute) + rangeMinutes * 60_000;
+  const formatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  let exact: Date | null = null;
+  let firstAfterGap: { instant: Date; wall: number } | null = null;
+  for (let instantMs = targetWall - 18 * 3_600_000; instantMs <= targetWall + 18 * 3_600_000; instantMs += 60_000) {
+    const instant = new Date(instantMs);
+    const parts = formatter.formatToParts(instant);
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+    const wall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour') === 24 ? 0 : get('hour'), get('minute'));
+    if (wall === targetWall && (!exact || instant < exact)) exact = instant;
+    if (wall > targetWall && wall <= targetWall + 3 * 3_600_000 && (!firstAfterGap || wall < firstAfterGap.wall || (wall === firstAfterGap.wall && instant < firstAfterGap.instant))) {
+      firstAfterGap = { instant, wall };
+    }
+  }
+  return exact ?? firstAfterGap?.instant ?? null;
 }
 
 /** How a resolved instant reads on the user's own clock. */
