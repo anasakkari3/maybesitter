@@ -1730,6 +1730,7 @@
   "chatWillSave": "לשמור",
   "understoodKindCommitment": "התחייבות",
   "understoodConfirm": "נכון",
+  "understoodKindWaitingFor": "מחכה ל־",
   "understoodLineHint": "מציג את הכרטיס שלו",
   "understoodLineLabel": "{n} מתוך {total}. {kind}: {text}",
   "chatListening": "מקשיב…",
