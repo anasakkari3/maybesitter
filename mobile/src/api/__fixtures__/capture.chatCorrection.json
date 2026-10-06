@@ -1,6 +1,6 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
-  "reply": "Okay, 6pm instead. Check it and confirm if it looks right.",
+  "reply": "فهمت: اطلع عالسوق بكرا الساعة 5 المسا. أكّد من تحت.",
   "engine": "model",
   "proposal": {
     "version": "v1",
@@ -9,14 +9,21 @@
     "items": [
       {
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "title": "Call the dentist",
+        "title": "اطلع عالسوق",
         "resolvedTime": "2026-08-09T09:00:00.000Z",
         "needsClarification": false,
         "timeEstimated": false,
-        "priority": "normal",
-        "priorityEstimated": true,
+        "priority": "high",
+        "priorityEstimated": false,
         "resolvedDate": "2026-08-10",
-        "dateEstimated": false
+        "dateEstimated": false,
+        "corrections": [
+          {
+            "id": "00000000-0000-4000-8000-000000000004",
+            "from": "الطلع",
+            "to": "اطلع"
+          }
+        ]
       }
     ],
     "seeds": [],
@@ -30,26 +37,18 @@
       {
         "kind": "commitment",
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "text": "Call the dentist"
+        "text": "اطلع عالسوق"
       }
     ]
   },
   "turns": [
     {
       "role": "user",
-      "text": "Remind me to call the dentist tomorrow at 5pm"
+      "text": "لازم الطلع عالسوق بكرا الساعة 5 المسا"
     },
     {
       "role": "assistant",
-      "text": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right."
-    },
-    {
-      "role": "user",
-      "text": "make it 6pm"
-    },
-    {
-      "role": "assistant",
-      "text": "Okay, 6pm instead. Check it and confirm if it looks right."
+      "text": "فهمت: اطلع عالسوق بكرا الساعة 5 المسا. أكّد من تحت."
     }
   ]
 }

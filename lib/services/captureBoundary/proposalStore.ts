@@ -87,6 +87,19 @@ export interface StoredCaptureProposal {
   responseLocale?: CaptureAppLocale;
   /** Speech order used to rebuild `understood`; absent on legacy proposals. */
   sourceOrdinals?: CaptureSourceOrdinals;
+  /** The clock the proposal was created on; structured edits never trust a later envelope clock. */
+  timezone?: string;
+  /** Internal token positions for dictation corrections, keyed by the server-minted correction id. */
+  correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
+  /** Only the edit that produced the current revision is retained (M2b v4 bounded receipt). */
+  editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
+  /** A kept capture seed's idempotent claim, bounded to this proposal. */
+  seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
+  /**
+   * Rolling-deploy compatibility: a revisionless legacy clarification may
+   * confirm its own result exactly once. Any later proposal writer clears it.
+   */
+  legacyConfirmRevision?: number;
 }
 
 /**
@@ -103,7 +116,7 @@ export interface CaptureProposalStore {
 export const CAPTURE_PROPOSAL_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 /** The document as it is stored: the Map flattened, plus the TTL stamp. */
-interface StoredProposalDocument {
+export interface StoredProposalDocument {
   contract: CaptureProposalContract;
   scopeId: string;
   /**
@@ -136,10 +149,15 @@ interface StoredProposalDocument {
   proposedAt?: string;
   confirmedResult?: unknown;
   idempotencyKey?: string;
+  timezone?: string;
+  correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
+  editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
+  seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
+  legacyConfirmRevision?: number;
   expiresAt: Date;
 }
 
-function toDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalDocument {
+export function captureProposalToDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalDocument {
   return {
     contract: proposal.contract,
     scopeId: proposal.scopeId,
@@ -157,11 +175,16 @@ function toDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalD
     ...(proposal.proposedAt === undefined ? {} : { proposedAt: proposal.proposedAt }),
     ...(proposal.confirmedResult === undefined ? {} : { confirmedResult: proposal.confirmedResult }),
     ...(proposal.idempotencyKey === undefined ? {} : { idempotencyKey: proposal.idempotencyKey }),
+    ...(proposal.timezone === undefined ? {} : { timezone: proposal.timezone }),
+    ...(proposal.correctionSpans === undefined ? {} : { correctionSpans: proposal.correctionSpans }),
+    ...(proposal.editReceipt === undefined ? {} : { editReceipt: proposal.editReceipt }),
+    ...(proposal.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: proposal.seedKeepReceipt }),
+    ...(proposal.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: proposal.legacyConfirmRevision }),
     expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
   };
 }
 
-function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
+export function captureProposalFromDocument(document: StoredProposalDocument): StoredCaptureProposal {
   return {
     contract: document.contract,
     scopeId: document.scopeId,
@@ -173,6 +196,11 @@ function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
     ...(document.proposedAt === undefined ? {} : { proposedAt: document.proposedAt }),
     ...(document.confirmedResult === undefined ? {} : { confirmedResult: document.confirmedResult }),
     ...(document.idempotencyKey === undefined ? {} : { idempotencyKey: document.idempotencyKey }),
+    ...(document.timezone === undefined ? {} : { timezone: document.timezone }),
+    ...(document.correctionSpans === undefined ? {} : { correctionSpans: document.correctionSpans }),
+    ...(document.editReceipt === undefined ? {} : { editReceipt: document.editReceipt }),
+    ...(document.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: document.seedKeepReceipt }),
+    ...(document.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: document.legacyConfirmRevision }),
   };
 }
 
@@ -206,7 +234,7 @@ export class StorageCaptureProposalStore implements CaptureProposalStore {
   async put(proposal: StoredCaptureProposal): Promise<void> {
     await this.storage.set<StoredProposalDocument>(
       this.path(proposal.scopeId, proposal.contract.proposalId),
-      toDocument(proposal, new Date()),
+      captureProposalToDocument(proposal, new Date()),
     );
   }
 
@@ -223,7 +251,7 @@ export class StorageCaptureProposalStore implements CaptureProposalStore {
       limit: 1,
     });
     const document = rows[0]?.data;
-    return document ? fromDocument(document) : undefined;
+    return document ? captureProposalFromDocument(document) : undefined;
   }
 }
 

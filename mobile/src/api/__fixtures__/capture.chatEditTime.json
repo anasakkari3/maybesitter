@@ -1,7 +1,7 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
-  "reply": "Okay, 6pm instead. Check it and confirm if it looks right.",
-  "engine": "model",
+  "reply": "Updated. Review the list and confirm below.",
+  "engine": "rules",
   "proposal": {
     "version": "v1",
     "proposalId": "00000000-0000-4000-8000-000000000002",
@@ -9,47 +9,49 @@
     "items": [
       {
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "title": "Call the dentist",
+        "title": "Meeting",
         "resolvedTime": "2026-08-09T09:00:00.000Z",
         "needsClarification": false,
         "timeEstimated": false,
-        "priority": "normal",
+        "priority": "high",
         "priorityEstimated": true,
-        "resolvedDate": "2026-08-10",
-        "dateEstimated": false
+        "clarification": null,
+        "resolvedDate": "2026-10-09",
+        "dateEstimated": false,
+        "endTime": "2026-08-09T13:00:00.000Z"
       }
     ],
     "seeds": [],
-    "revision": 0,
+    "revision": 1,
     "provenance": {
-      "requestedEngine": "model",
-      "executedEngine": "gemini",
-      "fallbackUsed": false
+      "requestedEngine": "rules",
+      "executedEngine": "rule-based",
+      "fallbackUsed": true
     },
     "understood": [
       {
         "kind": "commitment",
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "text": "Call the dentist"
+        "text": "Meeting"
       }
     ]
   },
   "turns": [
     {
       "role": "user",
-      "text": "Remind me to call the dentist tomorrow at 5pm"
+      "text": "Meeting tomorrow from 4 to 8pm"
     },
     {
       "role": "assistant",
-      "text": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right."
+      "text": "Here's what I understood. Check the list and confirm it if it looks right."
     },
     {
       "role": "user",
-      "text": "make it 6pm"
+      "text": "Update “Meeting”."
     },
     {
       "role": "assistant",
-      "text": "Okay, 6pm instead. Check it and confirm if it looks right."
+      "text": "Updated. Review the list and confirm below."
     }
   ]
 }

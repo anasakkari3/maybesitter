@@ -16,7 +16,7 @@ import { clarifyMobileCapture, confirmMobileCapture, proposeMobileCapture } from
 import { getParticipantStateSnapshot } from '../../lib/services/mobile/participantState.ts';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
-import type { StorageAdapter } from '../../lib/storage/storageAdapter.ts';
+import type { StorageAdapter, StorageTransaction } from '../../lib/storage/storageAdapter.ts';
 import { CAPTURE_PROPOSALS, userDoc } from '../../lib/storage/paths.ts';
 import { getStorage } from '../../lib/storage/index.ts';
 import { composeWeek, weekToDto } from '../../lib/services/dailyPlan/weekPlan.ts';
@@ -115,6 +115,23 @@ function failingFlagRead(): { storage: StorageAdapter; arm(): void; failed(): nu
           if (armed && path.includes(`/${CAPTURE_PROPOSALS}/`)) written = true;
           return (value as (p: string, d: unknown) => Promise<void>).call(target, path, data);
         };
+      }
+      if (key === 'runTransaction') {
+        return async <R>(fn: (tx: StorageTransaction) => Promise<R>) => (
+          value as (callback: (tx: StorageTransaction) => Promise<R>) => Promise<R>
+        ).call(target, (tx) => fn(new Proxy(tx, {
+          get(transaction, transactionKey, transactionReceiver) {
+            const operation = Reflect.get(transaction, transactionKey, transactionReceiver) as unknown;
+            if (typeof operation !== 'function') return operation;
+            if (transactionKey === 'set') {
+              return (path: string, data: unknown) => {
+                if (armed && path.includes(`/${CAPTURE_PROPOSALS}/`)) written = true;
+                return (operation as (p: string, d: unknown) => void).call(transaction, path, data);
+              };
+            }
+            return (operation as (...args: unknown[]) => unknown).bind(transaction);
+          },
+        })));
       }
       if (key === 'listGroup') {
         return async (collection: string, options: unknown) => {

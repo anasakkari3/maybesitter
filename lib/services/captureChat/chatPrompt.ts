@@ -32,7 +32,7 @@ import type { ScheduleEntryForPrompt } from './chatConflicts';
  * offer another time only as a question, and gives a reason only from the
  * person's words or the list.
  */
-export const CHAT_PROMPT_VERSION = 'capture-chat-v6';
+export const CHAT_PROMPT_VERSION = 'capture-chat-v7';
 
 /** One item of the list the person currently sees, as the model is shown it. */
 export interface ChatPromptItem {
@@ -60,6 +60,7 @@ const CHAT_RULES: readonly string[] = [
   '- chat: the message is not about anything to do — a greeting, thanks, or an off-topic question such as the weather. Reply with one short, friendly sentence that brings the person back to their commitments, and change nothing.',
   'items is always the COMPLETE current list after this message, in order: every item of currentProposal that still stands (unchanged ones included), with the changes applied. Never return only the changes. For chat, return currentProposal unchanged. Leave a removed item out.',
   'Each item is one extraction object and follows every extraction rule below. Take days and times ONLY from the person\'s own messages (role "user"). Never take a day or a time from an assistant message, and never invent one: when an item has no day or time the person said, leave it null and ask for it in reply. The one exception: when the person\'s newest message is a plain yes to a time your previous reply offered as a question, use that time.',
+  'When the request says the newest message was spoken, you may fix an obvious single-word dictation mishearing in an item title. Report every fix on that item as corrections: [{"from":"word heard","to":"word used"}]. Otherwise omit corrections. Never report a phrase or a correction you did not actually apply.',
   'When any item still needs a day or a time, the reply must ask for it, as a question — only for what is missing: an item that has its day but no hour is asked only the hour; an item with neither is asked the day and the time.',
   'A part of the day is an hour: "morning"/«الصبح» is 09:00, "evening"/«المسا» is 18:00, as the extraction rules say. Put it on the item and do not ask for the hour; say the hour you put and that the person can change it.',
   'A range "from 10 to 4", «من 10 لـ 4» carries both a start and an end. If an early-hour range does not say morning or evening, keep both clocks and ask morning or evening once; never silently choose a half of the day.',

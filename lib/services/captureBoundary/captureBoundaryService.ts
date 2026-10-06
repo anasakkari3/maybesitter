@@ -47,6 +47,7 @@ import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../
 import type { CaptureAppLocale } from '../../../src/contracts/v1/captureContracts';
 import { titleDropReason } from '../share/shareAllowlist';
 import { finalizeUnderstood, type CaptureSourceOrdinals } from './understood';
+import { ProposalChangedError, proposalRevision, revisionMatches } from './proposalProtocol';
 
 /**
  * Persists a confirmation's commands and records its result on the proposal in
@@ -64,6 +65,7 @@ export type CaptureConfirmationCommitter = (input: {
   scopeId: string;
   proposalId: string;
   idempotencyKey: string;
+  expectedRevision: number;
   commands: readonly Command[];
   /**
    * The commands this confirm committed, per item — what the proposal must
@@ -1523,6 +1525,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     ...(status === 'no_commitment' ? { noCommitmentReason: noCommitmentReason ?? 'low_confidence' } : {}),
     items,
     seeds,
+    revision: 0,
     provenance: { requestedEngine, executedEngine, fallbackUsed },
   };
   const responseLocale = options.responseLocale ?? options.locale ?? 'ar';
@@ -1534,6 +1537,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     resultsByItemId,
     responseLocale,
     sourceOrdinals,
+    timezone: options.timezone,
     /*
      * When it was made, by the server's clock — not `options.now`.
      *
@@ -1602,6 +1606,7 @@ export async function confirmCapture(
     scopeId: string;
     selectedItemIds: string[];
     idempotencyKey: string;
+    revision?: number;
     /** Applied atomically with the confirm, never afterwards (#164). */
     edits?: CaptureItemEditContract[];
     /** Selected items the person confirmed as weekly blocks, not one-offs. */
@@ -1625,9 +1630,17 @@ export async function confirmCapture(
   });
   if (!stored || stored.scopeId !== input.scopeId) return failure('proposal_not_found');
   if (stored.confirmedResult) {
-    if (stored.idempotencyKey !== input.idempotencyKey) return failure('invalid_selection');
+    if (stored.idempotencyKey !== input.idempotencyKey) {
+      throw new ProposalChangedError(stored.contract, 'confirmed', stored.confirmedResult as CaptureConfirmationResultContract);
+    }
     return { ...(stored.confirmedResult as CaptureConfirmationResultContract), replayed: true };
   }
+  const currentRevision = proposalRevision(stored.contract);
+  // The frozen M2a client predates revision-bearing clarification and confirm
+  // requests. Preserve only its immediate legacy clarify → confirm hop; every
+  // other writer clears this marker, so it cannot authorize a stale revision.
+  const legacyClarifyConfirm = input.revision === undefined && stored.legacyConfirmRevision === currentRevision;
+  if (!legacyClarifyConfirm && !revisionMatches(currentRevision, input.revision)) throw new ProposalChangedError(stored.contract, 'open');
   // `needs_clarification` is confirmable, `rejected` and `no_commitment` are not
   // (UC-2.4, #164 step 3).
   //
@@ -1764,6 +1777,7 @@ export async function confirmCapture(
         scopeId: input.scopeId,
         proposalId: input.proposalId,
         idempotencyKey: input.idempotencyKey,
+        expectedRevision: currentRevision,
         commands,
         commandsByItemId: committedByItemId,
         result,
@@ -1771,6 +1785,7 @@ export async function confirmCapture(
       });
       return committed.replayed ? { ...committed.result, replayed: true } : committed.result;
     } catch (error) {
+      if (error instanceof ProposalChangedError || (error instanceof Error && error.name === 'ProposalChangedError')) throw error;
       // The message goes to the operator log, where paths and uids are already
       // permitted; only the cause's name travels on the contract (#419).
       console.error('[capture/confirm] the confirmation transaction failed', error);

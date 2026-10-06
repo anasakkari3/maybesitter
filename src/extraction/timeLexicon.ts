@@ -470,9 +470,14 @@ const CLOCK_PATTERNS_ANY_CASE = CLOCK_PATTERN_SOURCES.map((source) => new RegExp
  */
 const AR_RANGE_TO = '(?:إلى|الى|حتى|لحد|لحدّ|لغاية|لغايه|للغاية|ل)ـ*';
 const EN_RANGE_END_CONTEXT = '(?=\\s*(?:$|[,.;!?،]|(?:on|every|each|at|in|this|next|today|tomorrow|tonight|weekly|daily|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sundays|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays)\\b))';
+const RANGE_HALF_OF_DAY_WORD = `(?:${AR_DAY_PART_AFTER_HOUR}|am|pm|a\\.m\\.?|p\\.m\\.?|(?:in\\s+the\\s+)?(?:morning|afternoon|evening)|at\\s+night|tonight)`;
 export const RANGE_PATTERN_SOURCES: readonly string[] = [
   /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|till|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
+  /\bbetween\s+\d{1,2}(?::\d{2})?\s+(?:and|to)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
+  /(?<![\d:])(?:[01]?\d|2[0-3]):[0-5]\d\s*[-–—]\s*(?:[01]?\d|2[0-3]):[0-5]\d(?![\d:])/.source,
+  `(?<![\\d:/.\\-])[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*[-–—]\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
   `(?<![؀-ۿ])من\\s*(?:(?:ال|ل)?(?:ساعة|ساعه)\\s*)?[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${AR_RANGE_TO}|-)\\s*(?:(?:ال|ل)ـ*)?(?:ساعة|ساعه)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?`,
+  `(?<![؀-ۿ])بين\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:و|إلى|الى|حتى)\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
   /(?:מ[-־]?|משעה|מהשעה|בין)\s*[0-9]{1,2}(?::[0-9]{2})?\s*(?:עד\s+ל[-־]?|עד|ל[-־]?|ו[-־]?)\s*(?:ה?שעה\s*)?[0-9]{1,2}(?::[0-9]{2})?/.source,
   `(?<![\\d:/.\\-])\\b\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\s+(?:to|until|till)\\s+\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?\\b(?![:/.\\-]\\d)${EN_RANGE_END_CONTEXT}`,
 ];

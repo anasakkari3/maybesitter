@@ -536,6 +536,7 @@ export async function commitCaptureConfirmation<T>(
   proposalPath: string,
   commands: readonly Command[],
   idempotencyKey: string,
+  expectedRevision: number,
   result: T,
   /**
    * The commands per item, recorded on the proposal in the same transaction
@@ -555,7 +556,7 @@ export async function commitCaptureConfirmation<T>(
   const at = nowIso();
   return getStorage().runTransaction(async (tx) => {
     const [proposal, user, before, stats] = await Promise.all([
-      tx.get<{ confirmedResult?: T; idempotencyKey?: string }>(proposalPath),
+      tx.get<{ contract?: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract; confirmedResult?: T; idempotencyKey?: string }>(proposalPath),
       tx.get<UserDocument>(userDoc(participantId)),
       loadDomainState(tx, participantId),
       readActivityStats(tx, participantId),
@@ -565,7 +566,14 @@ export async function commitCaptureConfirmation<T>(
     // this transaction was reading. Either way the commitments exist and this
     // must not create a second set.
     if (proposal?.confirmedResult !== undefined) {
-      return { replayed: true, result: proposal.confirmedResult };
+      if (proposal.idempotencyKey === idempotencyKey) return { replayed: true, result: proposal.confirmedResult };
+      const { ProposalChangedError } = await import('../captureBoundary/proposalProtocol');
+      throw new ProposalChangedError(proposal.contract!, 'confirmed', proposal.confirmedResult as never);
+    }
+    const currentRevision = proposal?.contract?.revision ?? 0;
+    if (currentRevision !== expectedRevision) {
+      const { ProposalChangedError } = await import('../captureBoundary/proposalProtocol');
+      throw new ProposalChangedError(proposal!.contract!, 'open');
     }
 
     let candidate = before;
@@ -578,7 +586,8 @@ export async function commitCaptureConfirmation<T>(
     writeDomainDiff(tx, participantId, before, candidate, events, user, at);
     recordActivityEvents(tx, participantId, stats, events);
     for (const document of createdDocuments) tx.set(document.path, document.data);
-    tx.merge<{ confirmedResult: T; idempotencyKey: string; commands?: Record<string, Command[]> }>(proposalPath, {
+    tx.merge<{ contract: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract; confirmedResult: T; idempotencyKey: string; commands?: Record<string, Command[]> }>(proposalPath, {
+      contract: { ...proposal!.contract!, revision: currentRevision + 1 },
       confirmedResult: result,
       idempotencyKey,
       // `commands` is the field `proposalStore` serialises the map into; the

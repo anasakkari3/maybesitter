@@ -47,6 +47,7 @@
         "summary": "ومستني رد من المدير على الإجازة"
       }
     ],
+    "revision": 0,
     "provenance": {
       "requestedEngine": "rules",
       "executedEngine": "rule-based",

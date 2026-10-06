@@ -42,15 +42,16 @@
  * here logs a message, a reply or the model's output.
  */
 import { randomUUID } from 'crypto';
-import { CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom } from '../../../src/contracts/v1/captureContracts';
+import { CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom, type CaptureProposalEditContract } from '../../../src/contracts/v1/captureContracts';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
-import { localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { dayPartHour, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
+import { applyStructuredEdit, StructuredEditError } from '../captureBoundary/structuredEdit';
 import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit } from '../captureBoundary/chatEvidence';
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
@@ -83,14 +84,15 @@ const CHAT_AFTER_MODEL_RESERVE_MS = 1_500;
  */
 const CHAT_RETRY_REASONS: ReadonlySet<string> = new Set(['server_error', 'unavailable', 'provider_error']);
 
-export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found';
+export type CaptureChatErrorReason = 'message_required' | 'invalid_conversation_id' | 'conversation_not_found' | 'edit_invalid';
 
 /** A request the chat refuses; the route answers with `status` and `reason`. */
 export class CaptureChatError extends Error {
   constructor(readonly reason: CaptureChatErrorReason, readonly status: 400 | 404) {
     super(reason === 'conversation_not_found'
       ? 'conversation not found'
-      : reason === 'invalid_conversation_id' ? 'conversationId is not a conversation id' : 'message is required');
+      : reason === 'invalid_conversation_id' ? 'conversationId is not a conversation id'
+        : reason === 'edit_invalid' ? 'edit invalid' : 'message is required');
     this.name = 'CaptureChatError';
   }
 }
@@ -98,6 +100,8 @@ export class CaptureChatError extends Error {
 export interface CaptureChatInput {
   conversationId?: unknown;
   message?: unknown;
+  edit?: unknown;
+  spoken?: unknown;
   timezone?: unknown;
   referenceTime?: unknown;
   /**
@@ -116,6 +120,14 @@ export interface CaptureChatResponse {
   engine: 'model' | 'rules';
   proposal: CaptureChatProposal | null;
   turns: CaptureChatTurn[];
+}
+
+/** The edit lost its proposal revision; the route returns this answer verbatim in a 409. */
+export class CaptureChatProposalChangedError extends Error {
+  constructor(readonly answer: CaptureChatResponse) {
+    super('proposal changed');
+    this.name = 'CaptureChatProposalChangedError';
+  }
 }
 
 export interface CaptureChatDependencies {
@@ -209,6 +221,57 @@ export async function chatMobileCapture(
   const requestStartedAt = context.requestStartedAt ?? clock();
   const uid = context.participantId;
 
+  const hasMessage = Object.prototype.hasOwnProperty.call(input, 'message');
+  const hasEdit = Object.prototype.hasOwnProperty.call(input, 'edit');
+  if (hasMessage && hasEdit) throw new CaptureChatError('message_required', 400);
+  if (hasEdit && Object.prototype.hasOwnProperty.call(input, 'spoken')) throw new CaptureChatError('edit_invalid', 400);
+  if (!hasMessage && !hasEdit) throw new CaptureChatError('message_required', 400);
+
+  const conversations = dependencies.conversations ?? defaultConversations;
+
+  if (hasEdit) {
+    if (!isConversationId(input.conversationId)) {
+      if (input.conversationId === undefined || input.conversationId === null) throw new CaptureChatError('edit_invalid', 400);
+      throw new CaptureChatError('invalid_conversation_id', 400);
+    }
+    const conversation = await conversations.get(uid, input.conversationId);
+    if (!conversation || conversationExpired(conversation, clock())) throw new CaptureChatError('conversation_not_found', 404);
+    if (!input.edit || typeof input.edit !== 'object' || Array.isArray(input.edit)) throw new CaptureChatError('edit_invalid', 400);
+    const now = dateFromOptionalIso(input.referenceTime, new Date(clock()), 'referenceTime');
+    const locale = captureAppLocaleFrom(input.locale) ?? 'ar';
+    const current = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid, { includeConfirmed: true }) : null;
+    if (!current) throw new CaptureChatError('conversation_not_found', 404);
+    try {
+      const outcome = await applyStructuredEdit({
+        uid,
+        conversation,
+        edit: input.edit as CaptureProposalEditContract,
+        locale,
+        now,
+        engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
+      });
+      if (outcome.kind === 'changed') {
+        const answer: CaptureChatResponse = {
+          conversationId: conversation.conversationId,
+          reply: conversation.turns.at(-1)?.role === 'assistant' ? conversation.turns.at(-1)!.text : '',
+          engine: outcome.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
+          proposal: outcome.proposal,
+          turns: conversation.turns,
+        };
+        throw new CaptureChatProposalChangedError(answer);
+      }
+      const answer = outcome.answer as CaptureChatResponse;
+      if (outcome.kind === 'applied' && answer.proposal) {
+        const schedule = await readPersonSchedule(uid, now);
+        answer.proposal = await withConflicts(answer.proposal, schedule);
+      }
+      return answer;
+    } catch (error) {
+      if (error instanceof StructuredEditError) throw new CaptureChatError('edit_invalid', 400);
+      throw error;
+    }
+  }
+
   // The message is bounded before anything reads it, exactly as a capture's
   // text is (#508): the length is checked first, and refused, never cut.
   if (typeof input.message !== 'string' || !input.message.trim()) throw new CaptureChatError('message_required', 400);
@@ -217,7 +280,6 @@ export async function chatMobileCapture(
   const timezone = normalizeTimezone(input.timezone);
   const now = dateFromOptionalIso(input.referenceTime, new Date(clock()), 'referenceTime');
 
-  const conversations = dependencies.conversations ?? defaultConversations;
   let conversation: StoredCaptureConversation;
   if (input.conversationId === undefined || input.conversationId === null) {
     const createdAt = new Date(clock()).toISOString();
@@ -343,7 +405,7 @@ export async function chatMobileCapture(
     if (changesList) {
       const evidence = chatEvidenceFrom(evidenceTurns);
       const built = await proposeMobileChatTurn(
-        { text: message, userTurns: evidenceTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, responseLocale: language, ...(appLanguage ? { locale: appLanguage } : {}) },
+        { text: message, userTurns: evidenceTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, responseLocale: language, spoken: input.spoken === true, ...(appLanguage ? { locale: appLanguage } : {}) },
         { participantId: uid, requestStartedAt },
       );
       proposal = await withConflicts(shown(built), schedule);
@@ -387,8 +449,20 @@ export async function chatMobileCapture(
     if (timeOnly && asking.length === 1) {
       const item = asking[0]!;
       try {
+        const dayPart = item.clarification!.field === 'time_period' ? dayPartHour(message, { answer: true }) : null;
+        const clarificationAnswer = dayPart === null
+          ? { freeText: message }
+          : { optionId: dayPart < 12 ? 'am' : 'pm' };
         const answered = shown(await clarifyMobileCapture(
-          { proposalId: current.proposalId, itemId: item.itemId, questionId: item.clarification!.questionId, freeText: message, timezone, referenceTime: now.toISOString() },
+          {
+            proposalId: current.proposalId,
+            itemId: item.itemId,
+            questionId: item.clarification!.questionId,
+            ...clarificationAnswer,
+            revision: current.revision,
+            timezone,
+            referenceTime: now.toISOString(),
+          },
           { participantId: uid },
         ));
         if (answered) return finish(templateReply({ language, proposal: answered }), 'rules', answered, turns);
@@ -403,8 +477,12 @@ export async function chatMobileCapture(
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
   }
+  const listedTitles = [...listed.map((item) => item.title), ...(current?.items.map((item) => item.title) ?? [])];
+  const rulesUserTurns = current
+    ? userTurns.filter((turn, index) => index === userTurns.length - 1 || !looksLikeListEdit(turn, listedTitles))
+    : userTurns;
   const built = await proposeMobileChatTurn(
-    { text: userTurns.join('\n'), userTurns, items: null, now, timezone, responseLocale: language, ...(appLanguage ? { locale: appLanguage } : {}) },
+    { text: rulesUserTurns.join('\n'), userTurns: rulesUserTurns, items: null, now, timezone, responseLocale: language, spoken: false, ...(appLanguage ? { locale: appLanguage } : {}) },
     { participantId: uid, requestStartedAt },
   );
   const proposal = shown(built);
