@@ -6,6 +6,7 @@ import {
 } from '../../../src/contracts/v1/captureContracts';
 import { hasActionEvidence } from '../../../src/extraction/clauseSplitter';
 import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent';
+import { claimsSaved } from '../captureChat/chatReply';
 
 export interface CaptureSourceOrdinals {
   items: Record<string, number>;
@@ -13,11 +14,7 @@ export interface CaptureSourceOrdinals {
 }
 
 /** A complete URL-like run, removed without throwing away the words around it. */
-const URL_RUN = /(?:\bhttps?:\/\/[^\s]+|\bwww\.[^\s]+|\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}(?:[/?#][^\s]*)?)/gi;
-// Kept deliberately broader than the generated lines. If the person's title
-// itself claims that the assistant saved something, the understanding falls
-// back to neutral fixed copy rather than repeating the claim.
-const SAVED_CLAIM = /\b(?:i|we)(?:'ve| have| just| already| now| will|'ll)*\s+(?:added|saved|scheduled|booked|created|stored|recorded|logged|set|remind)\b|(?:ضفت|أضفت|حفظت|سجلت|حطيت|جدولت|انضاف|انحفظ|انسجل|رح\s*(?:ا|أ)?ذكرك)|(?:הוספתי|שמרתי|קבעתי|רשמתי|נשמר|נוסף|אזכיר)/i;
+const URL_RUN = /(?<![a-z0-9-])(?:[a-z][a-z0-9+.-]*:\/\/[^\s]*|www\.[^\s]*|webcal:[^\s]*|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![a-z0-9-])(?:[/?#][^\s]*)?)/gi;
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001F\u007F-\u009F]/g;
 
@@ -52,7 +49,7 @@ function lineFor(source: string, locale: CaptureAppLocale, followsAnotherPoint: 
     .replace(URL_RUN, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!plain || SAVED_CLAIM.test(plain)) return FALLBACK[locale];
+  if (!plain || claimsSaved(plain)) return FALLBACK[locale];
   return clippedLine(plain);
 }
 
