@@ -8,7 +8,7 @@ import { LANGUAGE_STORAGE_KEY } from '../../../i18n/language';
 import { IntelligencePanel } from '../IntelligencePanel';
 import { FeatureUnavailableError, ForbiddenError, NetworkError } from '../../../api/errors';
 import en from '../../../i18n/locales/en.json';
-import { AccessibilityInfo, Text } from 'react-native';
+import { AccessibilityInfo, Keyboard, Text } from 'react-native';
 import { AuthProvider } from '../../../auth/AuthProvider';
 import { createFakeAuthRepository } from '../../../auth/fakeAuthRepository';
 import { resetAuthForTests, setAuthRepository } from '../../../api/auth';
@@ -477,4 +477,13 @@ it('tells VoiceOver both the result and that the list could not refresh', async 
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
   await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
   expect(announce.mock.calls.map(call => call[0])).toEqual([en.xIntelligenceAnalyzing, `I understood 1 thing — review it below ${en.xIntelligenceRefreshFailed}`]);
+});
+
+it('puts the keyboard away when an explanation opens, so «Continue» is not covered', async () => {
+  const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+  await render(wrap());
+  await typeStatement('Book the dentist');
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  expect(dismiss).toHaveBeenCalled();
+  expect(screen.getByTestId('intelligence-analyze-confirm')).toBeTruthy();
 });

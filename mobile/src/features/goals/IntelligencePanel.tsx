@@ -1,5 +1,5 @@
 import React from 'react';
-import { AccessibilityInfo, Platform, TextInput, View } from 'react-native';
+import { AccessibilityInfo, Keyboard, Platform, TextInput, View } from 'react-native';
 import {
   analyzeIntelligenceStatement, decideIntelligenceSuggestion,
   generateIntelligenceSuggestions, getIntelligenceInbox, reviewIntelligenceObservation,
@@ -249,6 +249,9 @@ function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff 
   const openConfirm = (action: PanelAction) => {
     if (busy || inFlight.current) return;
     if (action === 'analyze') setSnapshot(draft.trim());
+    // The field is locked now; a keyboard left open covered «كمّل» and
+    // «إلغاء» at the largest text size (Codex simulator run, R-A4).
+    Keyboard.dismiss();
     setConfirming(action);
   };
 
