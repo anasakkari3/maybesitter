@@ -33,10 +33,8 @@ it('reads a wrong value, or nothing usable, as none', () => {
 });
 
 it('the route\'s own answers parse: one removed point, then brought back', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const removed = captureProposalSchema.parse(require('../__fixtures__/capture.chatRemovedLocked.json').proposal);
   expect(removed.removedItems).toHaveLength(1);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const restored = captureProposalSchema.parse(require('../__fixtures__/capture.chatEditRestore.json').proposal);
   expect(restored.removedItems).toBeUndefined();
   const id = removed.removedItems![0]!.itemId ?? removed.removedItems![0]!.seedItemId;
