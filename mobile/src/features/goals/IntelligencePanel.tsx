@@ -71,12 +71,34 @@ const UNDERSTOOD_KEY = {
  * then what was understood from the person's words and needs a yes or no
  * (never their own saved records), then the ways to tell it more.
  */
-export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: {
+type IntelligencePanelProps = {
   onChanged: () => void;
   autoGenerate?: boolean;
   /** Embedded mode: shown when the loop is off, and a failed read offers Retry. */
   whenOff?: React.ReactNode;
-}) {
+};
+
+/**
+ * One panel per account. Its inbox, draft, answers and status are local
+ * state; keyed by uid, a direct switch from one account to another mounts a
+ * fresh panel, so not a frame of the first account's words is drawn for the
+ * second, and the first account's reads in flight land on an unmounted panel
+ * and are dropped (inspection A3-001; queryLayer's A→B invariant).
+ */
+export function IntelligencePanel(props: IntelligencePanelProps) {
+  const uid = useOptionalAuth()?.user?.uid ?? '';
+  // A new generation whenever a known account gives way to another (or to
+  // signing out) — not when the first account becomes known, which would
+  // read the inbox twice. Set during render, so the old panel never commits
+  // a frame for the new account.
+  const [account, setAccount] = React.useState({ uid, generation: 0 });
+  if (uid !== account.uid) {
+    setAccount({ uid, generation: account.uid ? account.generation + 1 : account.generation });
+  }
+  return <IntelligencePanelForAccount key={account.generation} {...props} />;
+}
+
+function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff }: IntelligencePanelProps) {
   const { t, tr, p, rtl, lang } = useApp();
   // One row of three equal buttons at the ordinary sizes; at the larger text
   // sizes they wrap at their natural widths instead of squeezing the words.
@@ -122,10 +144,14 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   // (`useAnnounceOnIos` is that effect, so it is not used here.) Nothing is
   // said once the panel has left the screen.
   const [announced, setAnnounced] = React.useState<string | null>(null);
-  const say = React.useCallback((text: string | null) => {
+  // `spoken` is what VoiceOver hears when it says more than the status line
+  // (a result, then that the list could not refresh — the failure line itself
+  // sits in the live region, which iOS does not read out).
+  const say = React.useCallback((text: string | null, spoken?: string) => {
     if (!scanMounted.current) return;
     setAnnounced(text);
-    if (text && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
+    const heard = spoken ?? text;
+    if (heard && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(heard);
   }, []);
   // The action itself succeeded, but re-reading the inbox afterwards did not.
   const [refreshFailed, setRefreshFailed] = React.useState(false);
@@ -283,7 +309,8 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       }
       onChanged();
       let next: IntelligenceInbox | null = null;
-      try { next = await refresh(); } catch { setRefreshFailed(true); }
+      let refreshed = true;
+      try { next = await refresh(); } catch { setRefreshFailed(true); refreshed = false; }
       const said = result(next);
       if (said === null) {
         // Nothing true to count yet: the failure line (inside the live
@@ -292,7 +319,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
         say(null);
         if (Platform.OS === 'ios' && scanMounted.current) AccessibilityInfo.announceForAccessibility(t.xIntelligenceRefreshFailed);
       } else {
-        say(said);
+        say(said, refreshed ? undefined : `${said} ${t.xIntelligenceRefreshFailed}`);
       }
     } finally {
       inFlight.current = false;

@@ -451,3 +451,30 @@ it('says nothing — and never «done» — when the panel leaves the screen mid
   expect(announce.mock.calls.map(call => call[0])).toEqual([en.xIntelligenceGmailScanStarted]);
   expect(mockScan).toHaveBeenCalledTimes(1);
 });
+
+it('draws nothing of one account for the next after a direct switch', async () => {
+  const repository = createFakeAuthRepository({ initialUser: USER });
+  setAuthRepository(repository);
+  currentInbox = { success: true, observations: [evidence], suggestions: [], schedule: [] };
+  await render(<SafeAreaProvider initialMetrics={metrics}><AppProvider><AuthProvider repository={repository} isDevBundle={false}>
+    <IntelligencePanel onChanged={onChanged} />
+  </AuthProvider></AppProvider></SafeAreaProvider>);
+  await waitFor(() => expect(screen.queryByTestId('intelligence-observation-obs-1')).not.toBeNull());
+  await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'Alice private words');
+  // Blake's first read never answers: whatever is on screen now is the first frame.
+  mockInbox.mockImplementation(() => new Promise(() => {}));
+  await act(async () => { repository.emit({ ...USER, uid: 'blake' }); });
+  expect(screen.queryByText('Alice private words')).toBeNull();
+  expect(screen.queryByTestId('intelligence-observation-obs-1')).toBeNull();
+});
+
+it('tells VoiceOver both the result and that the list could not refresh', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  await render(wrap());
+  await typeStatement('Book the dentist');
+  mockInbox.mockImplementationOnce(() => Promise.reject(new NetworkError('offline')));
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
+  await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
+  expect(announce.mock.calls.map(call => call[0])).toEqual([en.xIntelligenceAnalyzing, `I understood 1 thing — review it below ${en.xIntelligenceRefreshFailed}`]);
+});

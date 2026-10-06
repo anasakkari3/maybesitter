@@ -66,9 +66,10 @@ from a pill floating centred above a four-item bar into the bar as its first
 item, with the app's mark in place of its text; it opens the existing
 capture flow and keeps the `tab-capture` testID. Settings is
 opened from the avatar in each tab header (first letter of the user's name),
-renders WITHOUT the tab bar and the pill, and its back returns to the tab it
-was opened from (hardware back too). Content gets bottom padding so the bar
-and pill never cover a row.
+renders WITHOUT the tab bar, and its back returns to the tab it was opened
+from (hardware back too). Content gets bottom padding so the bar never covers
+a row. At the accessibility (xl) text sizes the bar is two rows (three items,
+then two) so every label keeps its full size.
 - «أشيائي» hub: search, entries Commitments (full list) · Goals · Habits ·
   «عم تفكّر فيه» (seeds/ideas), and «آخر ما حفظته». Built from existing screens
   and queries (commitments, goals, habits, seeds). Football stays a commitment

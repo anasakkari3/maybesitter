@@ -74,7 +74,7 @@ Rules the design fixes, which code must keep:
 
 ```
 App.tsx              fonts + providers + the sign-in gate
-src/Root.tsx         screen switch, tab bar + «احكيها» pill, toast host, sheet host (signed-in only)
+src/Root.tsx         screen switch, tab bar (with «احكيها» as its first item), toast host, sheet host (signed-in only)
 src/auth/            AuthProvider/useAuth, AuthGate, the repositories, dev override
 src/state/           AppContext (state + actions), navigation (history), types
 src/screens/         the spine: Today, Calendar, Settings, Details, Plan, Capture/Review/Saved, Share, Sheets, TabBar
