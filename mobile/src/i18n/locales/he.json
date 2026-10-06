@@ -1709,6 +1709,7 @@
   "chatStartOver": "התחל מחדש",
   "chatBackToProposal": "חזרה להצעה",
   "chatStartOverBody": "זה יתחיל שיחה חדשה. השיחה הזאת, ההצעה שלה והשינויים שלך בה יימחקו — שום דבר מהם לא נשמר.",
+  "chatStartOverTitle": "להתחיל מחדש?",
   "chatReviewTools": "כל אפשרויות הסקירה",
   "aiDisclosureTitle": "מי מבין את מה שאתה אומר",
   "aiDisclosure": "מה שאתה כותב או אומר נשלח מהשרת שלנו ל־Gemini של Google‏ (Vertex AI) באיחוד האירופי, כדי להבין אותו.",

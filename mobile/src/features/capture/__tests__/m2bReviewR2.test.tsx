@@ -396,3 +396,13 @@ describe('controls say they wait while another write is on its way', () => {
     await waitFor(() => expect(screen.queryByTestId(`review-seed-kept-${SEED_ID}`)).not.toBeNull());
   });
 });
+
+describe('the start-over question asks what it does (M2b design critique)', () => {
+  it('says «start over?», not the discard question', async () => {
+    server(commitmentProposal());
+    await show();
+    await press('chat-more');
+    await press('chat-menu-start-over');
+    expect(screen.queryByText('Start over?')).not.toBeNull();
+  });
+});

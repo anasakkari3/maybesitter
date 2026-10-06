@@ -1706,6 +1706,7 @@
   "chatStartOver": "ابدأ من جديد",
   "chatBackToProposal": "رجوع للاقتراح",
   "chatStartOverBody": "رح تبلّش محادثة جديدة. هالمحادثة واقتراحها وتعديلاتك عليه بيروحوا، وما انحفظ منهم إشي.",
+  "chatStartOverTitle": "تبلّش من جديد؟",
   "chatReviewTools": "كل خيارات المراجعة",
   "aiDisclosureTitle": "مين بيفهم كلامك",
   "aiDisclosure": "اللي بتكتبه أو بتحكيه بيبعته سيرفرنا لـGemini من Google (Vertex AI) بالاتحاد الأوروبي، عشان يفهمه.",

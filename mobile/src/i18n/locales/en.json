@@ -1706,6 +1706,7 @@
   "chatStartOver": "Start over",
   "chatBackToProposal": "Back to the proposal",
   "chatStartOverBody": "This starts a new conversation. This one, its proposal and your changes to it will go — none of it was saved.",
+  "chatStartOverTitle": "Start over?",
   "chatReviewTools": "All review options",
   "aiDisclosureTitle": "Who understands what you say",
   "aiDisclosure": "What you write or say is sent by our server to Google’s Gemini (Vertex AI), in the EU, to be understood.",

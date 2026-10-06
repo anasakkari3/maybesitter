@@ -404,7 +404,8 @@ export function CaptureScreen() {
   const failed = isFailedStatus(state.status) ? state.status : null;
   let bodyOverride: React.ReactNode = null;
   if (discarding) bodyOverride = <View style={{ gap: 16 }} testID="capture-discard">
-    <Txt size={22} weight={600}>{t.captureDiscardTitle}</Txt>
+    {/* Starting over is asked as what it is, not as «بدك تتجاهلها؟» (M2b design critique). */}
+    <Txt size={22} weight={600}>{discarding === 'restart' ? t.chatStartOverTitle : t.captureDiscardTitle}</Txt>
     <Txt size={15}>{discarding === 'back' ? t.chatBackDiscardBody : discarding === 'restart' ? t.chatStartOverBody : t.captureDiscardBody}</Txt>
     {/* Staying, said as what staying is: with a proposal on screen it is back
         to that proposal, not «كمّل كتابة» (chat UAT 2026-09-30). */}
