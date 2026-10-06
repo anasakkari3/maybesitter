@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput, View } from 'react-native';
+import { AccessibilityInfo, Platform, TextInput, View } from 'react-native';
 import {
   analyzeIntelligenceStatement, decideIntelligenceSuggestion,
   generateIntelligenceSuggestions, getIntelligenceInbox, reviewIntelligenceObservation,
@@ -18,7 +18,6 @@ import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
 import { Disclosure } from '../../ui/Disclosure';
 import { LiveRegion } from '../../ui/liveRegion';
-import { useAnnounceOnIos } from '../../ui/announce';
 import { ProductSection } from '../../ui/product';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { isolateAuto } from '../../i18n/bidi';
@@ -95,8 +94,15 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   // The statement as it was when its explanation opened; that is what is sent.
   const [snapshot, setSnapshot] = React.useState('');
   // Said aloud: only the start, the result and a failure — never per page.
+  // The line sits in an always-mounted LiveRegion (TalkBack); VoiceOver is
+  // told at the moment of each change, not from an effect, because a fast
+  // answer lands in the same render as «started» and an effect would only
+  // ever see the last of the two.
   const [announced, setAnnounced] = React.useState<string | null>(null);
-  useAnnounceOnIos(announced);
+  const say = React.useCallback((text: string | null) => {
+    setAnnounced(text);
+    if (text && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
+  }, []);
   // The action itself succeeded, but re-reading the inbox afterwards did not.
   const [refreshFailed, setRefreshFailed] = React.useState(false);
   // React state lands a render later; two presses in one frame both see
@@ -171,7 +177,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    setAnnounced(null);
+    say(null);
     setRefreshFailed(false);
     try {
       try {
@@ -204,7 +210,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     setBusy(true);
     setError(null);
     setRefreshFailed(false);
-    setAnnounced(action === 'analyze' ? t.xIntelligenceAnalyzing : action === 'generate' ? t.xIntelligenceGenerating : t.xIntelligenceGmailScanStarted);
+    say(action === 'analyze' ? t.xIntelligenceAnalyzing : action === 'generate' ? t.xIntelligenceGenerating : t.xIntelligenceGmailScanStarted);
     try {
       let result: (next: IntelligenceInbox | null) => string;
       try {
@@ -238,14 +244,14 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
         }
       } catch (cause) {
         setError(cause);
-        setAnnounced(userFacingMessage(cause, t));
+        say(userFacingMessage(cause, t));
         try { await refresh(); } catch { /* Keep the action's own error visible. */ }
         return;
       }
       onChanged();
       let next: IntelligenceInbox | null = null;
       try { next = await refresh(); } catch { setRefreshFailed(true); }
-      setAnnounced(result(next));
+      say(result(next));
     } finally {
       inFlight.current = false;
       setGmailScanProgress(null);

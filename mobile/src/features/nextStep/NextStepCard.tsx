@@ -308,9 +308,13 @@ function Ready({
       {/* Facts and the estimated-importance tag, at every text size (they used
           to vanish from the larger sizes up). */}
       {facts.length > 0 || (item && !item.importanceIsStated) ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
-          {facts.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
-          {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {facts.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
+              {facts.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
+            </View>
+          ) : null}
+          {item && !item.importanceIsStated ? <View testID="next-step-estimated"><Tag kind="estimated" label={t.nextStepEvidenceEstimated} /></View> : null}
         </View>
       ) : null}
 

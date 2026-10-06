@@ -317,7 +317,7 @@ it('runs a confirmed action once even when «Continue» is pressed twice in one 
     void fireEvent.press(confirm);
   });
   await act(async () => { release({ success: true, observations: [evidence] }); });
-  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('I understood one thing — review it below'));
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('I understood 1 thing — review it below'));
   expect(mockAnalyze).toHaveBeenCalledTimes(1);
   expect(mockAnalyze).toHaveBeenCalledWith('Book the dentist');
 });
@@ -338,7 +338,7 @@ it('does not call a saved analysis a failure when only the refresh failed, and r
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze')); });
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-analyze-confirm')); });
   await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
-  expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('I understood one thing — review it below');
+  expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('I understood 1 thing — review it below');
   expect(onChanged).toHaveBeenCalledTimes(1);
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-refresh-retry')); });
   await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).toBeNull());
@@ -359,7 +359,7 @@ it('counts only suggestions this request returned that were not already on scree
   await waitFor(() => expect(screen.queryByTestId('intelligence-suggestion-proposal-1')).not.toBeNull());
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
-  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('One new suggestion below'));
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('1 new suggestion below'));
 });
 
 it('says there is nothing new when the request only returns what is already shown', async () => {
