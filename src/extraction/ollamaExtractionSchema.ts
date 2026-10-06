@@ -173,6 +173,7 @@ export type CaptureChatAction = (typeof CAPTURE_CHAT_ACTIONS)[number];
  */
 export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: readonly string[]): Record<string, unknown> {
   const refs = (values: readonly string[]) => values.length > 0 ? values : ['__no_ref__'];
+  const laterTurn = lockedRefs.length > 0 || openRefs.length > 0;
   const citedExtraction = {
     type: 'object',
     additionalProperties: false,
@@ -183,7 +184,39 @@ export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: rea
         description: 'Exact words from the newest user message that support this new point.',
       },
     },
-    required: [...OLLAMA_EXTRACTION_SCHEMA.required],
+    required: [...OLLAMA_EXTRACTION_SCHEMA.required, ...(laterTurn ? ['source'] : [])],
+  } as const;
+  const openRef = { type: 'string', enum: refs(openRefs) } as const;
+  const openOperation = {
+    anyOf: [
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: { ref: openRef, op: { type: 'string', enum: ['keep'] } },
+        required: ['ref', 'op'],
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ref: openRef,
+          op: { type: 'string', enum: ['remove'] },
+          source: { type: 'string', description: 'Optional exact words from the newest user message that support removing this point.' },
+        },
+        required: ['ref', 'op'],
+      },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ref: openRef,
+          op: { type: 'string', enum: ['update'] },
+          fields: OLLAMA_EXTRACTION_SCHEMA,
+          source: { type: 'string', description: 'Exact words from the newest user message that support this update.' },
+        },
+        required: ['ref', 'op', 'fields', 'source'],
+      },
+    ],
   } as const;
   return toVertexSchema({
     type: 'object',
@@ -209,20 +242,7 @@ export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: rea
       },
       open: {
         type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            ref: { type: 'string', enum: refs(openRefs) },
-            op: { type: 'string', enum: ['keep', 'update', 'remove'] },
-            fields: OLLAMA_EXTRACTION_SCHEMA,
-            source: {
-              type: 'string',
-              description: 'Exact words from the newest user message that support this update, or optional support for a removal.',
-            },
-          },
-          required: ['ref', 'op'],
-        },
+        items: openOperation,
       },
       added: { type: 'array', items: citedExtraction },
     },

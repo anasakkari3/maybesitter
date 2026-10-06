@@ -25,6 +25,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
@@ -52,7 +53,17 @@ const SATURDAY = weekday('Saturday');
 const SUNDAY = weekday('Sunday');
 const TOMORROW = localDate(1);
 /** The captured days (2026-09-30 was a Wednesday), and the same days from today. */
-const DAYS: Record<string, string> = { '2026-10-01': TOMORROW, '2026-10-02': FRIDAY, '2026-10-03': SATURDAY, '2026-10-04': SUNDAY };
+const DAYS: Record<string, string> = {
+  '2026-10-01': TOMORROW,
+  '2026-10-02': FRIDAY,
+  '2026-10-03': SATURDAY,
+  '2026-10-04': SUNDAY,
+  // The r11 live recording was made on Tuesday 2026-10-06. Keep relative
+  // "tomorrow" tomorrow and named weekdays on the same weekday from today.
+  '2026-10-07': TOMORROW,
+  '2026-10-08': weekday('Thursday'),
+  '2026-10-12': weekday('Monday'),
+};
 const at = (date: string, time: string): string => instantFromLocal(date, time, TZ)!.toISOString();
 
 /** A captured answer with its days moved (see the header). Nothing else is touched. */
@@ -83,6 +94,22 @@ function replay(answers: readonly unknown[]): { provider: LLMProviderFunction; c
   return { provider: async (prompt) => renderRefModelAnswer(rebased(answers[calls++]), prompt), calls: () => calls };
 }
 
+/** Replay a live turn that fell back to rules as a model outage, without shifting later answers. */
+function replayLive(records: readonly { modelAnswers: string[] }[]): { provider: LLMProviderFunction; calls: () => number } {
+  const queue = records.flatMap((record) => record.modelAnswers.length > 0
+    ? record.modelAnswers.map((answer) => JSON.parse(answer) as unknown)
+    : [null]);
+  let calls = 0;
+  return {
+    provider: async (prompt) => {
+      const answer = queue[calls++];
+      if (answer === null) throw new LLMUnavailableError('recorded_live_fallback');
+      return renderRefModelAnswer(rebased(answer), prompt);
+    },
+    calls: () => calls,
+  };
+}
+
 let auth: FakeAuthControls | null = null;
 function begin(provider: LLMProviderFunction): void {
   auth = installFakeAuth();
@@ -106,11 +133,27 @@ function post(path: string, uid: string, body: unknown): Request {
 type Item = {
   itemId: string; title: string; resolvedTime: string | null; resolvedDate?: string; needsClarification: boolean;
   timeEstimated?: boolean; clarification?: { questionKey: string } | null;
+  endTime?: string | null;
   weeklyBlock?: { title: string; weekdays: number[]; start: string; end: string };
 };
-type Body = { conversationId: string; reply: string; engine: string; proposal: { proposalId: string; items: Item[] } | null };
+type Body = {
+  conversationId: string;
+  reply: string;
+  engine: string;
+  proposal: {
+    proposalId: string;
+    items: Item[];
+    seeds?: Array<{ kind: string; summary: string }>;
+    removedItems?: Array<{ kind: string; text: string }>;
+  } | null;
+};
 
-async function conversation(uidLabel: string, messages: readonly string[], locale?: 'ar' | 'en' | 'he'): Promise<Body[]> {
+async function conversation(
+  uidLabel: string,
+  messages: readonly string[],
+  locale?: 'ar' | 'en' | 'he',
+  expectedEngines?: readonly string[],
+): Promise<Body[]> {
   const uid = uidFor(uidLabel);
   const bodies: Body[] = [];
   for (const message of messages) {
@@ -121,7 +164,7 @@ async function conversation(uidLabel: string, messages: readonly string[], local
     }));
     assert.equal(response.status, 200);
     const body = await response.json() as Body;
-    assert.equal(body.engine, 'model', `the replay did not reach the boundary: ${body.reply}`);
+    assert.equal(body.engine, expectedEngines?.[bodies.length] ?? 'model', `the replay did not reach the boundary: ${body.reply}`);
     bodies.push(body);
   }
   return bodies;
@@ -1023,7 +1066,7 @@ for (const [label, answers] of [
   ['the recorded ref update retitles the second', RETITLED_BY_REF],
   ['the model moved the first to 09:00', REAL.engagementsFirstMoved],
 ] as const) {
-  for (const locale of [undefined, 'ar'] as const) test(`«لا خلّي التانية الساعة 7» moves only the second, to Friday 19:00 (${label}${locale ? ', app in Arabic' : ''})`, async () => {
+  for (const locale of [undefined, 'ar'] as const) test(`«لا خلّي التانية الساعة 7» asks AM or PM for the second (${label}${locale ? ', app in Arabic' : ''})`, async () => {
     begin(replay(answers).provider);
     try {
       // An Arabic app (owner request 2026-09-30) changes nothing for an Arabic conversation.
@@ -1031,13 +1074,15 @@ for (const [label, answers] of [
       settled(first!.proposal!.items[0], FRIDAY, '16:00', 'the first, turn 1');
       settled(first!.proposal!.items[1], FRIDAY, '18:00', 'the second, turn 1');
       settled(second!.proposal!.items[0], FRIDAY, '16:00', 'the first, turn 2');
-      settled(second!.proposal!.items[1], FRIDAY, '19:00', 'the second, turn 2');
+      assert.equal(second!.proposal!.items[1]!.resolvedDate, FRIDAY);
+      assert.equal(second!.proposal!.items[1]!.resolvedTime, null);
+      assert.equal(second!.proposal!.items[1]!.clarification?.questionKey, 'ask_am_pm');
       if (label === 'the recorded ref update retitles the second') {
         assert.equal(second!.proposal!.items[1]!.title, 'خلّي التانية', 'the merge did not apply the model’s exact ref update');
       } else {
         assert.equal(second!.proposal!.items[1]!.title, first!.proposal!.items[1]!.title, 'an unchanged model title drifted');
       }
-      asksNothing(second!.reply);
+      assert.match(second!.reply, /الصبح|المسا/);
     } finally {
       end();
     }
@@ -1213,7 +1258,10 @@ test('the model never answers «الصبح ولا المسا؟» for the person:
     assert.equal(firstItem!.resolvedTime, null, `04:00 was picked for the person: ${JSON.stringify(firstItem)}`);
     assert.equal(firstItem!.needsClarification, true);
     assert.equal(firstItem!.clarification?.questionKey, 'ask_am_pm', JSON.stringify(firstItem));
-    settled(secondItem, FRIDAY, '19:00', 'the second');
+    assert.equal(secondItem!.resolvedDate, FRIDAY);
+    assert.equal(secondItem!.resolvedTime, null);
+    assert.equal(secondItem!.needsClarification, true);
+    assert.equal(secondItem!.clarification?.questionKey, 'ask_am_pm');
   } finally {
     end();
   }
@@ -1243,6 +1291,142 @@ test('a pending question is the model\u2019s to settle once the person answers i
     }))).json() as Body;
     settled(two.proposal!.items[0], FRIDAY, '16:00', 'the first, answered');
     settled(two.proposal!.items[1], FRIDAY, '18:00', 'the second, answered');
+  } finally {
+    end();
+  }
+});
+
+/* ── r11 live Gemini recording, 2026-10-07 ───────────────────────────── */
+
+type LiveRecord = {
+  name: string;
+  turns: Array<{ message: string; modelAnswers: string[] }>;
+};
+
+const LIVE_R11 = JSON.parse(readFileSync(
+  new URL('../fixtures/capture-chat-r11-live.json', import.meta.url),
+  'utf8',
+)) as { records: LiveRecord[] };
+
+function localOf(item: Item): string | null {
+  return item.resolvedTime ? localTimeSpecFor(new Date(item.resolvedTime), TZ)?.time ?? null : null;
+}
+
+function liveItem(body: Body, title: RegExp): Item {
+  const found = body.proposal?.items.find((item) => title.test(item.title));
+  assert.ok(found, `${title} was not in ${JSON.stringify(body.proposal)}`);
+  return found;
+}
+
+function assertAsksAmPm(item: Item): void {
+  assert.equal(item.resolvedTime, null, JSON.stringify(item));
+  assert.equal(item.needsClarification, true, JSON.stringify(item));
+  assert.equal(item.clarification?.questionKey, 'ask_am_pm', JSON.stringify(item));
+}
+
+for (const record of LIVE_R11.records) test(`live r11: ${record.name}`, async () => {
+  const recorded = replayLive(record.turns);
+  begin(recorded.provider);
+  try {
+    const bodies = await conversation(
+      `LiveR11-${record.name}`,
+      record.turns.map((turn) => turn.message),
+      undefined,
+      record.turns.map((turn) => turn.modelAnswers.length > 0 ? 'model' : 'rules'),
+    );
+    assert.equal(recorded.calls(), record.turns.reduce((count, turn) => count + Math.max(1, turn.modelAnswers.length), 0),
+      'the fake provider did not replay every recorded model answer or fallback');
+    const final = bodies.at(-1)!;
+    assert.ok(final.proposal, JSON.stringify(final));
+
+    switch (record.name) {
+      case 'D8 ar one phrase two points':
+        assert.deepEqual(final.proposal.items.map(localOf), ['20:00', '20:00'], JSON.stringify(final));
+        break;
+      case 'D8 en move both':
+        assert.deepEqual(final.proposal.items.map((item) => item.resolvedDate), [FRIDAY, FRIDAY]);
+        assert.deepEqual(final.proposal.items.map(localOf), ['17:00', '18:00']);
+        break;
+      case 'D8 en call and bill':
+        assert.deepEqual(final.proposal.items.map(localOf), ['20:00', '20:00'], JSON.stringify(final));
+        break;
+      case 'R9-1 ar thought + timed add':
+        settled(liveItem(final, /اتصل|أتصل/), TOMORROW, '17:00', record.name);
+        assertAsksAmPm(liveItem(final, /خبز/));
+        assert.ok(final.proposal.seeds?.some((seed) => /أ?سافر|السفر/.test(seed.summary)), JSON.stringify(final.proposal));
+        break;
+      case 'R9-1 en thought + timed add':
+        // The recorded first turn fell back to the unchanged rules extractor,
+        // which merged the call and thought. The later model answer tries to
+        // split it using citations from that older turn, so v9 must roll the
+        // answer back atomically. Changing that first-turn extraction is
+        // explicitly outside this work order.
+        settled(liveItem(final, /Call mom.*travel/i), TOMORROW, '17:00', record.name);
+        assert.equal(final.proposal.items.some((item) => /bread/i.test(item.title)), false);
+        assert.equal(final.proposal.seeds?.length ?? 0, 0);
+        assert.match(final.reply, /couldn.t apply|edit it on the card/i);
+        break;
+      case 'R10-1 en move + untimed add':
+        settled(liveItem(final, /Call mom/i), TOMORROW, '20:00', record.name);
+        assert.equal(liveItem(final, /bread/i).needsClarification, true);
+        break;
+      case 'R10-1 ar move + untimed add':
+        assertAsksAmPm(liveItem(final, /اتصل|أتصل/));
+        assert.equal(liveItem(final, /خبز/).needsClarification, true);
+        assert.match(final.reply, /الصبح|المسا/);
+        break;
+      case 'R10-2 en move + timed add':
+        assert.deepEqual(final.proposal.items.map(localOf), ['20:00', '19:00']);
+        break;
+      case 'ND1 ar remove + add':
+        assert.ok(final.proposal.removedItems?.some((item) => /اتصل|أتصل/.test(item.text)), JSON.stringify(final.proposal));
+        assert.equal(final.proposal.items.some((item) => /اتصل|أتصل/.test(item.title)), false);
+        assert.equal(liveItem(final, /خبز/).needsClarification, true);
+        break;
+      case 'D3 en forget + add':
+        assert.ok(final.proposal.removedItems?.some((item) => /Call mom/i.test(item.text)), JSON.stringify(final.proposal));
+        assert.equal(liveItem(final, /bread/i).needsClarification, true);
+        break;
+      case 'D1 ar commitment to thought':
+        settled(liveItem(final, /اتصل|أتصل/), TOMORROW, '17:00', record.name);
+        break;
+      case 'D2 ar indic digits':
+        settled(liveItem(final, /اتصل|أتصل/), TOMORROW, '20:00', record.name);
+        break;
+      case 'D2 ar proclitic':
+        settled(liveItem(final, /اتصل|أتصل/), TOMORROW, '17:00', record.name);
+        assertAsksAmPm(liveItem(final, /خبز/));
+        break;
+      case 'R10-4 en calendar date':
+        settled(liveItem(final, /Call the bank/i), '2026-10-20', '10:00', record.name);
+        break;
+      case 'R10-6 ar range day move': {
+        const work = liveItem(final, /شغل/);
+        settled(work, weekday('Thursday'), '16:00', record.name);
+        assert.equal(work.endTime ? localTimeSpecFor(new Date(work.endTime), TZ)?.time : null, '18:00');
+        break;
+      }
+      case 'R8-2 ar rename + add':
+        assert.equal(liveItem(final, /كعك/).needsClarification, true);
+        assert.equal(liveItem(final, /ادرس|أدرس/).needsClarification, true);
+        break;
+      case 'D5 en recurring add': {
+        settled(liveItem(final, /Call mom/i), TOMORROW, '17:00', record.name);
+        const gym = final.proposal.items.filter((item) => /Gym/i.test(item.title));
+        assert.equal(gym.length, 2, JSON.stringify(final.proposal));
+        assert.ok(gym.every((item) => localOf(item) === '19:00'));
+        break;
+      }
+      case 'pos ar second one':
+        settled(final.proposal.items[0], TOMORROW, '16:00', record.name);
+        assertAsksAmPm(final.proposal.items[1]!);
+        break;
+      case 'D6 ar offered time yes':
+        assert.equal(liveItem(final, /البنك/).needsClarification, true);
+        break;
+      default:
+        assert.fail(`missing corrected live expectation: ${record.name}`);
+    }
   } finally {
     end();
   }

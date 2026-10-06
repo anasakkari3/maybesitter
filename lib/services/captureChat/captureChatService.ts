@@ -354,9 +354,16 @@ export async function chatMobileCapture(
       previousEvidenceTurns.length > 0 ? detectChatLanguage(previousEvidenceTurns.at(-1)!.text) : 'ar',
     );
     const liveProposal = read?.proposal ?? null;
+    const receiptProposal = !liveProposal && conversation.messageReceipt.proposalId
+      ? await readMobileChatProposal(conversation.messageReceipt.proposalId, uid, { includeConfirmed: true })
+      : null;
     return {
       ...replay,
-      reply: templateReply({ language: replayLanguage, proposal: liveProposal }),
+      reply: templateReply({
+        language: replayLanguage,
+        proposal: liveProposal,
+        alreadySaved: receiptProposal?.confirmed === true,
+      }),
       proposal: liveProposal,
     };
   }
@@ -393,12 +400,18 @@ export async function chatMobileCapture(
     engine: 'model' | 'rules',
     answered: CaptureChatProposal | null,
     turns: CaptureChatTurn[],
-    options: { refused?: boolean; conflictsKnown?: boolean } = {},
+    options: { refused?: boolean; conflictsKnown?: boolean; weeklyEvidence?: string } = {},
   ) => {
     const proposal = answered === current || options.conflictsKnown ? answered : await withConflicts(answered, schedule);
     const reply = options.refused || !proposal
       ? replyText
-      : withWeeklyOffer(withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown }), language, proposal, current);
+      : withWeeklyOffer(
+        withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown }),
+        language,
+        proposal,
+        current,
+        options.weeklyEvidence,
+      );
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
     const updatedAt = new Date(clock()).toISOString();
     const answer = { conversationId: conversation.conversationId, reply, engine, proposal, turns: kept };
@@ -513,11 +526,20 @@ export async function chatMobileCapture(
       const title = typeof fields.title === 'string' ? fields.title : typeof fields.action === 'string' ? fields.action : '';
       const appTitle = typeof fields.appTitle === 'string' ? fields.appTitle : undefined;
       const kind = typeof fields.kind === 'string' ? fields.kind : undefined;
+      const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
+      const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
+      const sameStoredField = (key: 'priority' | 'rangeMinutes' | 'recurrenceHint' | 'allDay'): boolean =>
+        !Object.prototype.hasOwnProperty.call(fields, key)
+        || JSON.stringify(fields[key]) === JSON.stringify(stored?.[key]);
       return title.trim() === before.title
         && (appTitle === undefined || appTitle === before.appTitle)
         && (kind === undefined ? before.kind === undefined : kind === before.kind)
         && (typeof spec?.date === 'string' ? spec.date : derivedSpec?.date ?? null) === before.date
-        && (typeof spec?.time === 'string' ? spec.time : derivedSpec?.time ?? null) === before.time;
+        && (typeof spec?.time === 'string' ? spec.time : derivedSpec?.time ?? null) === before.time
+        && sameStoredField('priority')
+        && sameStoredField('rangeMinutes')
+        && sameStoredField('recurrenceHint')
+        && sameStoredField('allDay');
     };
     const noOpRefs = new Set(answer.open.filter((operation) => samePoint(operation)).map((operation) => operation.ref));
     const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
@@ -557,7 +579,7 @@ export async function chatMobileCapture(
           changedFieldEvidenceStartIndices: deltaItems.map(() => Math.max(0, evidenceTurns.length - 1)),
           ...(cited ? {
             operationSources: isPlainYes(message) && evidenceTurns.at(-1)?.startsWith(`${message}\n`)
-              ? cited.deltaSources.map((source) => source === message ? evidenceTurns.at(-1)! : source)
+              ? cited.deltaSources.map(() => evidenceTurns.at(-1)!)
               : cited.deltaSources,
           } : {}),
           items: evidence ? deltaItems : [],
@@ -598,6 +620,82 @@ export async function chatMobileCapture(
     }
     const listChanged = JSON.stringify({ items: current?.items ?? [], seeds: current?.seeds ?? [], removedItems: current?.removedItems ?? [] })
       !== JSON.stringify({ items: proposal?.items ?? [], seeds: proposal?.seeds ?? [], removedItems: proposal?.removedItems ?? [] });
+    const after = proposal ? await readMobileChatProposal(proposal.proposalId, uid) : null;
+    const modelClock = (fields: Record<string, unknown>): { date: string | null; time: string | null } => {
+      const spec = fields.localTimeSpec && typeof fields.localTimeSpec === 'object'
+        ? fields.localTimeSpec as Record<string, unknown>
+        : null;
+      const instant = [fields.remindAt, fields.dueAt]
+        .find((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)));
+      const derived = !spec && instant ? localTimeSpecFor(new Date(instant), timezone) : null;
+      return {
+        date: typeof spec?.date === 'string' ? spec.date : derived?.date ?? null,
+        time: typeof spec?.time === 'string' ? spec.time : derived?.time ?? null,
+      };
+    };
+    const partlyAppliedUpdate = (operation: (typeof answer.open)[number]): boolean => {
+      if (operation.op !== 'update' || noOpRefs.has(operation.ref)
+        || !operation.fields || typeof operation.fields !== 'object' || Array.isArray(operation.fields)) return false;
+      const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
+      if (!entityId || !after) return true;
+      const beforePrompt = listed.find((item) => item.ref === operation.ref);
+      const beforeResult = read?.resultsByItemId.get(entityId);
+      const actualResult = after.resultsByItemId.get(entityId);
+      const actualItem = proposal?.items.find((item) => item.itemId === entityId);
+      const actualSeed = proposal?.seeds.find((seed) => seed.seedItemId === entityId);
+      if (!actualItem && !actualSeed) return true;
+      const fields = operation.fields as Record<string, unknown>;
+      const desiredClock = modelClock(fields);
+      const actualClock = actualResult ? modelClock(actualResult as unknown as Record<string, unknown>) : {
+        date: actualItem?.resolvedDate ?? null,
+        time: actualItem?.resolvedTime ? localTimeSpecFor(new Date(actualItem.resolvedTime), timezone)?.time ?? null : null,
+      };
+      const desiredTitle = typeof fields.title === 'string' ? fields.title : typeof fields.action === 'string' ? fields.action : '';
+      const beforeTitle = beforeResult?.title ?? beforePrompt?.title ?? '';
+      const actualTitle = actualResult?.title ?? actualItem?.title ?? actualSeed?.summary ?? '';
+      if (desiredTitle && desiredTitle !== beforeTitle && actualTitle !== desiredTitle) return true;
+      const desiredKind = typeof fields.kind === 'string' ? fields.kind : 'commitment';
+      const beforeKind = beforePrompt?.kind ?? 'commitment';
+      const actualKind = actualSeed?.kind ?? 'commitment';
+      if (desiredKind !== beforeKind && actualKind !== desiredKind) return true;
+      const beforeClock = beforeResult ? modelClock(beforeResult as unknown as Record<string, unknown>) : {
+        date: beforePrompt?.date ?? null,
+        time: beforePrompt?.time ?? null,
+      };
+      if (desiredClock.date !== beforeClock.date && actualClock.date !== desiredClock.date) return true;
+      if (desiredClock.time !== beforeClock.time && actualClock.time !== desiredClock.time) return true;
+      for (const key of ['priority', 'rangeMinutes', 'recurrenceHint', 'allDay'] as const) {
+        if (JSON.stringify(fields[key]) !== JSON.stringify(beforeResult?.[key])
+          && JSON.stringify(actualResult?.[key]) !== JSON.stringify(fields[key])) return true;
+      }
+      return false;
+    };
+    const priorIds = new Set([
+      ...(current?.items.map((item) => item.itemId) ?? []),
+      ...(current?.seeds.map((seed) => seed.seedItemId) ?? []),
+    ]);
+    const newItems = proposal?.items.filter((item) => !priorIds.has(item.itemId)) ?? [];
+    const newSeeds = proposal?.seeds.filter((seed) => !priorIds.has(seed.seedItemId)) ?? [];
+    const partlyAppliedAdd = (entry: unknown): boolean => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return true;
+      const fields = entry as Record<string, unknown>;
+      const titles = [fields.appTitle, fields.title, fields.action]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0);
+      const kind = typeof fields.kind === 'string' ? fields.kind : 'commitment';
+      const itemCandidates = newItems.filter((item) => titles.includes(item.title));
+      const seedCandidates = newSeeds.filter((seed) => titles.some((title) => seed.summary === title || seed.summary.includes(title)));
+      if (kind === 'commitment' ? itemCandidates.length === 0 : seedCandidates.length === 0) return true;
+      if (kind !== 'commitment') return seedCandidates.some((seed) => seed.kind !== kind);
+      const desired = modelClock(fields);
+      const source = typeof fields.source === 'string' ? fields.source : '';
+      const recurring = /\bevery\b|(?:كل|أيام|ايام)|(?:כל|בכל)/i.test(source);
+      return itemCandidates.some((item) => {
+        const local = item.resolvedTime ? localTimeSpecFor(new Date(item.resolvedTime), timezone) : null;
+        if (desired.time !== (local?.time ?? null)) return true;
+        return !recurring && desired.date !== (item.resolvedDate ?? local?.date ?? null);
+      });
+    };
+    const partlyApplied = answer.open.some(partlyAppliedUpdate) || answer.added.some(partlyAppliedAdd);
     const { reply } = safeChatReply(answer.reply, {
       language,
       proposal,
@@ -608,9 +706,16 @@ export async function chatMobileCapture(
       // A reason only from the person's words or the list; a clash only when there is one (`chatWhy`).
       grounds: { userTurns: evidenceTurns, items: proposal?.items ?? [], now, timezone },
     });
-    const attemptedListChange = changesList || (answer.action === 'update' && (answer.ignoredRefOperations ?? 0) > 0);
-    const truthfulReply = attemptedListChange && !listChanged
-      ? templateReply({ language, proposal: current, editFailed: true })
+    const attemptedListChange = changesList || noOpRefs.size > 0
+      || (answer.action === 'update' && (answer.ignoredRefOperations ?? 0) > 0);
+    const needsTruthTemplate = partlyApplied || noOpRefs.size > 0 || (answer.ignoredRefOperations ?? 0) > 0;
+    const truthfulReply = attemptedListChange && (!listChanged || needsTruthTemplate)
+      ? templateReply({
+        language,
+        proposal: listChanged ? proposal : current,
+        updated: listChanged,
+        editFailed: !listChanged,
+      })
       : reply;
     // The list the boundary proposes may not be the model's (`proposalShape`:
     // a goal off the timed list, a repeat gone, a day added): the reply says
@@ -618,7 +723,10 @@ export async function chatMobileCapture(
     const shaped = changesList
       ? withShapeNoted(truthfulReply, { language, modelItems: deltaItems, proposal, previous: current, updated: answer.action === 'update' && Boolean(current) && listChanged })
       : truthfulReply;
-    return finish(shaped, 'model', proposal, turns, { conflictsKnown: true });
+    return finish(shaped, 'model', proposal, turns, {
+      conflictsKnown: true,
+      ...(typeof answer.reply === 'string' ? { weeklyEvidence: answer.reply } : {}),
+    });
   }
 
   // ── the rules, on the person's turns joined ─────────────────────

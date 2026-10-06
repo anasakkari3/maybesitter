@@ -65,7 +65,7 @@ const CHAT_RULES: readonly string[] = [
   '- ask: something needed is missing (usually the day or the time). Ask for it in reply.',
   '- chat: the message is not about anything to do — a greeting, thanks, or an off-topic question such as the weather. Reply with one short, friendly sentence that brings the person back to their commitments, and change nothing.',
   'Identity is by ref only. Never copy, invent, translate or derive a ref. Put decisions for entries with locked:true in locked as {ref,op:"keep"|"remove"}; locked entries can never be updated. Put decisions for other entries in open as {ref,op:"keep"|"remove"} or {ref,op:"update",fields:<one complete extraction object>,source:<exact newest-message words>}. Put genuinely new things in added as complete extraction objects with no ref and with source:<exact newest-message words>. An entry you do not mention is kept. For chat, keep locked/open empty and add nothing.',
-  'CITATIONS: On a turn with a currentProposal, every update and every added entry must cite source: a non-empty exact span copied from the person\'s newest message. The source for one point must not overlap words cited for another point. Cite only the words for that operation: its title/kind/day/start/end/recurrence may use facts only from its own source. A recurring request that becomes several dated cards is still one added entry with one source. keep has no source. remove may include source when the newest message says its removal.',
+  'CITATIONS: On a turn with a currentProposal, every update and every added entry must cite source: a non-empty exact span copied from the person\'s newest message. Several updates may cite the same or overlapping words when one phrase changes all of those points. An added point\'s source must not overlap any other operation\'s source. Cite only the words for that operation: its title/kind/day/start/end/recurrence may use facts only from its own source. A recurring request that becomes several dated cards is still one added entry with one source. keep has no source. remove may include source when the newest message says its removal.',
   'A short follow-up that only identifies an existing entry by position — for example «خلّي التانية» or "the second one" — is an instruction about that ref, not title text. Never use those referring words as an item title; preserve the current title unless the person also supplies a new title.',
   'Each item is one extraction object and follows every extraction rule below. Take days and times ONLY from the person\'s own messages (role "user"). Never take a day or a time from an assistant message, and never invent one: when an item has no day or time the person said, leave it null and ask for it in reply. The one exception: when the person\'s newest message is a plain yes to a time your previous reply offered as a question, use that time.',
   'When the request says the newest message was spoken, you may fix an obvious single-word dictation mishearing in an item title. Report every fix on that item as corrections: [{"from":"word heard","to":"word used"}]. Otherwise omit corrections. Never report a phrase or a correction you did not actually apply.',
@@ -226,6 +226,7 @@ interface CitationOperation {
   key: string;
   source: unknown;
   required: boolean;
+  kind: 'update' | 'added' | 'remove';
 }
 
 const CITATION_WORD = new RegExp('[\\p{L}\\p{N}]', 'u');
@@ -260,7 +261,9 @@ function sourceOccurrences(message: string, source: string): Set<number>[] {
   for (let at = message.indexOf(source); at !== -1; at = message.indexOf(source, at + 1)) {
     const before = message[at - 1] ?? '';
     const after = message[at + source.length] ?? '';
-    if ((CITATION_WORD.test(source[0] ?? '') && CITATION_WORD.test(before))
+    const leadingProclitic = /^[وفبلك]$/.test(before)
+      && !CITATION_WORD.test(message[at - 2] ?? '');
+    if ((CITATION_WORD.test(source[0] ?? '') && CITATION_WORD.test(before) && !leadingProclitic)
       || (CITATION_WORD.test(source.at(-1) ?? '') && CITATION_WORD.test(after))) continue;
     const words = wordPositions(message, at, source.length);
     if (words.size > 0) occurrences.push(words);
@@ -268,14 +271,24 @@ function sourceOccurrences(message: string, source: string): Set<number>[] {
   return occurrences;
 }
 
-/** Whether repeated citation strings can be placed on non-overlapping words. */
-function citationsDoNotOverlap(candidates: readonly Set<number>[][], index = 0, used = new Set<number>()): boolean {
+/** Whether citations can be placed without overlap, except between updates. */
+function citationsCanCoexist(
+  operations: readonly CitationOperation[],
+  candidates: readonly Set<number>[][],
+  index = 0,
+  used = new Map<number, CitationOperation['kind'][]>(),
+): boolean {
   if (index >= candidates.length) return true;
+  const operation = operations[index]!;
   for (const occurrence of candidates[index]!) {
-    if (Array.from(occurrence).some((word) => used.has(word))) continue;
-    const next = new Set(used);
-    for (const word of Array.from(occurrence)) next.add(word);
-    if (citationsDoNotOverlap(candidates, index + 1, next)) return true;
+    const conflicts = Array.from(occurrence).some((word) => {
+      const owners = used.get(word) ?? [];
+      return owners.some((owner) => owner !== 'update' || operation.kind !== 'update');
+    });
+    if (conflicts) continue;
+    const next = new Map(Array.from(used, ([word, owners]) => [word, [...owners]]));
+    for (const word of Array.from(occurrence)) next.set(word, [...(next.get(word) ?? []), operation.kind]);
+    if (citationsCanCoexist(operations, candidates, index + 1, next)) return true;
   }
   return false;
 }
@@ -293,11 +306,11 @@ export function validateChatCitations(answer: ChatModelAnswer, newestMessage: st
   });
   const operations: CitationOperation[] = [
     ...answer.locked.filter((operation) => operation.op === 'remove' && operation.source !== undefined)
-      .map((operation) => ({ key: operation.ref, source: operation.source, required: false })),
+      .map((operation) => ({ key: operation.ref, source: operation.source, required: false, kind: 'remove' as const })),
     ...answer.open.filter((operation) => operation.op === 'remove' && operation.source !== undefined)
-      .map((operation) => ({ key: operation.ref, source: operation.source, required: false })),
-    ...updates.map((operation) => ({ key: operation.ref, source: operation.source, required: true })),
-    ...added.map((entry, index) => ({ key: `added:${index}`, source: entry.source, required: true })),
+      .map((operation) => ({ key: operation.ref, source: operation.source, required: false, kind: 'remove' as const })),
+    ...updates.map((operation) => ({ key: operation.ref, source: operation.source, required: true, kind: 'update' as const })),
+    ...added.map((entry, index) => ({ key: `added:${index}`, source: entry.source, required: true, kind: 'added' as const })),
   ];
   const required = operations.filter((operation) => operation.required);
   if (required.length === 1 && required[0]!.source === undefined) required[0]!.source = newestMessage;
@@ -315,7 +328,7 @@ export function validateChatCitations(answer: ChatModelAnswer, newestMessage: st
     sources.set(operation.key, operation.source);
     candidates.push(occurrences);
   }
-  if (!citationsDoNotOverlap(candidates)) return null;
+  if (!citationsCanCoexist(operations, candidates)) return null;
   return {
     added: added.map((entry) => entry.fields),
     deltaSources: [

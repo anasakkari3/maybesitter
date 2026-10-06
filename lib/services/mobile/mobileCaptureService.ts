@@ -806,6 +806,7 @@ export async function readMobileChatProposal(proposalId: string, participantId: 
   const proposal = withPublicRemovedItems(stored.contract, stored);
   return {
     proposal: await withEventsOnTheirDay(proposal),
+    confirmed: stored.confirmedResult !== undefined,
     sourceTitles,
     refs: refs.refs,
     lockedRefs: new Set(stored.lockedChatRefs ?? []),

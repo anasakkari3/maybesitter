@@ -145,8 +145,8 @@ const SECOND_AS_PRODUCTION = (prompt: string) => prompt.includes('"ref":"s1"') ?
   locked: [],
   open: [
     { ref: 's1', op: 'keep' },
-    { ref: 'i1', op: 'update', fields: item('Study every Tuesday and Thursday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
-    { ref: 'i2', op: 'remove' },
+    { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
+    { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
   ],
   added: [],
 }) : ({
@@ -154,8 +154,8 @@ const SECOND_AS_PRODUCTION = (prompt: string) => prompt.includes('"ref":"s1"') ?
   action: 'update',
   locked: [],
   open: [
-    { ref: 'i1', op: 'update', fields: item('Study every Tuesday and Thursday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
-    { ref: 'i2', op: 'remove' },
+    { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
+    { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
   ],
   added: [],
 });

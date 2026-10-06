@@ -1,0 +1,336 @@
+{
+  "summary": {
+    "dry": false,
+    "calls": 38,
+    "tokensIn": 199716,
+    "tokensOut": 10667,
+    "estimatedUsd": 0.0866,
+    "model": "gemini-2.5-flash",
+    "location": "europe-west1",
+    "referenceTime": "2026-10-06T07:00:00.000Z",
+    "timezone": "Asia/Jerusalem"
+  },
+  "records": [
+    {
+      "name": "D8 ar one phrase two points",
+      "turns": [
+        {
+          "message": "لازم اتصل بأمي بكرا الساعة 5 المسا، وادفع الفاتورة بكرا الساعة 6 المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بدك أتصل بأمي بكرا الساعة 5 المسا، وادفع الفاتورة بكرا الساعة 6 المسا. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"أتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"أتصل بأمي\",\"source\":\"لازم اتصل بأمي بكرا الساعة 5 المسا\"},{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"ادفع\",\"title\":\"ادفع الفاتورة\",\"person\":null,\"dueAt\":\"2026-10-07T15:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"18:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"ادفع الفاتورة\",\"source\":\"ادفع الفاتورة بكرا الساعة 6 المسا\"}]}"
+          ]
+        },
+        {
+          "message": "خلي الاتصال والفاتورة الساعة 8 المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، خليت أتصل بأمي وادفع الفاتورة بكرا الساعة 8 المسا. أكّد من تحت.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"أتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T17:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":0.8,\"confidence\":{\"overall\":0.8,\"type\":0.8,\"action\":0.8,\"time\":0.8,\"priority\":0.8},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"أتصل بأمي\"},\"source\":\"الساعة 8 المسا\"},{\"ref\":\"i2\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"ادفع\",\"title\":\"ادفع الفاتورة\",\"person\":null,\"dueAt\":\"2026-10-07T18:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"finance\",\"categoryConfidence\":0.8,\"confidence\":{\"overall\":0.8,\"type\":0.8,\"action\":0.8,\"time\":0.8,\"priority\":0.8},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"ادفع الفاتورة\"},\"source\":\"الساعة 8 المسا\"}],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D8 en move both",
+      "turns": [
+        {
+          "message": "Call mom tomorrow at 5 PM and pay the bill tomorrow at 6 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I have two things for tomorrow: call mom at 5 PM and pay the bill at 6 PM.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T14:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\",\"source\":\"Call mom tomorrow at 5 PM\"},{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Pay\",\"title\":\"Pay the bill\",\"person\":null,\"dueAt\":\"2026-10-07T15:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"18:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Pay the bill\",\"source\":\"pay the bill tomorrow at 6 PM\"}]}"
+          ]
+        },
+        {
+          "message": "Move both to Friday",
+          "modelAnswers": [
+            "{\"reply\":\"I've moved both to Friday.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-09T14:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-09\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\"},\"source\":\"Move both to Friday\"},{\"ref\":\"i2\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Pay\",\"title\":\"Pay the bill\",\"person\":null,\"dueAt\":\"2026-10-09T15:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-09\",\"time\":\"18:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"finance\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Pay the bill\"},\"source\":\"Move both to Friday\"}],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D8 en call and bill",
+      "turns": [
+        {
+          "message": "Call mom tomorrow at 5 PM and pay the bill tomorrow at 6 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I have two things for tomorrow: call mom at 5 PM and pay the bill at 6 PM.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T14:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\",\"source\":\"Call mom tomorrow at 5 PM\"},{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Pay\",\"title\":\"Pay the bill\",\"person\":null,\"dueAt\":\"2026-10-07T15:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"18:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Pay the bill\",\"source\":\"pay the bill tomorrow at 6 PM\"}]}"
+          ]
+        },
+        {
+          "message": "Move the call and the bill to 8 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I have updated both items to 8 PM.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T17:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":0.8,\"confidence\":{\"overall\":0.8,\"type\":0.8,\"action\":0.8,\"time\":0.8,\"priority\":0.8},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\"},\"source\":\"Move the call and the bill to 8 PM\"},{\"ref\":\"i2\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Pay\",\"title\":\"Pay the bill\",\"person\":null,\"dueAt\":\"2026-10-07T18:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"finance\",\"categoryConfidence\":0.8,\"confidence\":{\"overall\":0.8,\"type\":0.8,\"action\":0.8,\"time\":0.8,\"priority\":0.8},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Pay the bill\"},\"source\":\"Move the call and the bill to 8 PM\"}],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R9-1 ar thought + timed add",
+      "turns": [
+        {
+          "message": "لازم اتصل بأمي بكرا الساعة 5 المسا، وعم بفكر أسافر الصيف الجاي",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، فهمت إنك لازم تتصل بأمك بكرة الساعة 5 المسا، وعم تفكر تسافر الصيف الجاي. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"اتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اتصل بأمي\",\"source\":\"لازم اتصل بأمي بكرا الساعة 5 المسا\"},{\"kind\":\"consideration\",\"type\":\"informational_context\",\"action\":\"أسافر\",\"title\":\"أسافر الصيف الجاي\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":1,\"time\":0.8,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"أسافر الصيف الجاي\",\"source\":\"عم بفكر أسافر الصيف الجاي\"}]}"
+          ]
+        },
+        {
+          "message": "يمكن بالطيارة، وكمان لازم اشتري خبز بكرا الساعة 7",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، هلأ صار عندك اتصال بأمك بكرة الساعة 5 المسا، وعم تفكر تسافر الصيف الجاي، ولازم تشتري خبز بكرة الساعة 7. أكّد من تحت.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"s1\",\"op\":\"keep\"}],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اشتري\",\"title\":\"اشتري خبز\",\"person\":null,\"dueAt\":\"2026-10-07T04:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"07:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":1,\"time\":0.8,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اشتري خبز\",\"source\":\"لازم اشتري خبز بكرا الساعة 7\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R9-1 en thought + timed add",
+      "turns": [
+        {
+          "message": "Call mom tomorrow at 5 PM, and I'm thinking about traveling next summer",
+          "modelAnswers": []
+        },
+        {
+          "message": "maybe by plane. And I need to buy bread tomorrow at 7 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I've updated the first item to separate calling mom from thinking about traveling. I also added buying bread for tomorrow at 7 PM.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T14:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":1,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\"},\"source\":\"Call mom tomorrow at 5 PM\"}],\"added\":[{\"kind\":\"consideration\",\"type\":\"informational_context\",\"action\":null,\"title\":\"Thinking about traveling next summer\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":1,\"type\":1,\"action\":0,\"time\":0,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Thinking about traveling next summer\",\"source\":\"I'm thinking about traveling next summer\"},{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Buy\",\"title\":\"Buy bread\",\"person\":null,\"dueAt\":\"2026-10-07T16:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"19:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"errands\",\"categoryConfidence\":1,\"confidence\":{\"overall\":1,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Buy bread\",\"source\":\"I need to buy bread tomorrow at 7 PM\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R10-1 en move + untimed add",
+      "turns": [
+        {
+          "message": "Call mom tomorrow at 5 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I have 'Call mom' for tomorrow at 5 PM. You can confirm it below.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":1,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\",\"source\":\"Call mom tomorrow at 5 PM\"}]}"
+          ]
+        },
+        {
+          "message": "Move the call to 8 PM. Also buy bread.",
+          "modelAnswers": [
+            "{\"reply\":\"I've updated 'Call mom' to tomorrow at 8 PM. I also added 'buy bread'. You can confirm it below.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T18:00:00Z\",\"remindAt\":\"2026-10-07T18:00:00Z\",\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":1,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\"},\"source\":\"8 PM\"}],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"buy\",\"title\":\"buy bread\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"errands\",\"categoryConfidence\":1,\"confidence\":{\"overall\":1,\"type\":1,\"action\":1,\"time\":0,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Buy bread\",\"source\":\"buy bread\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R10-1 ar move + untimed add",
+      "turns": [
+        {
+          "message": "لازم اتصل بأمي بكرا الساعة 5 المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بدك أتصل بأمي بكرا الساعة 5 المسا. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"اتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اتصل بأمي\",\"source\":\"لازم اتصل بأمي بكرا الساعة 5 المسا\"}]}"
+          ]
+        },
+        {
+          "message": "خلي الاتصال الساعة 8، وكمان لازم اشتري خبز",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، خليت الاتصال الساعة 8 المسا. وبدك كمان أضيف أشتري خبز.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"اتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T17:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اتصل بأمي\"},\"source\":\"الساعة 8\"}],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اشتري\",\"title\":\"اشتري خبز\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"errands\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":1,\"time\":0,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اشتري خبز\",\"source\":\"لازم اشتري خبز\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R10-2 en move + timed add",
+      "turns": [
+        {
+          "message": "Call mom tomorrow at 5 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I have \\\"Call mom\\\" for tomorrow at 5 PM.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T14:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\",\"source\":\"Call mom tomorrow at 5 PM\"}]}"
+          ]
+        },
+        {
+          "message": "Move the call to 8 PM. Also buy bread tomorrow at 7 PM.",
+          "modelAnswers": [
+            "{\"reply\":\"I have \\\"Call mom\\\" for tomorrow at 8 PM, and \\\"Buy bread\\\" for tomorrow at 7 PM.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T17:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.8,\"type\":0.8,\"action\":0.8,\"time\":0.8,\"priority\":0.8},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\"},\"source\":\"Move the call to 8 PM\"}],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Buy\",\"title\":\"buy bread\",\"person\":null,\"dueAt\":\"2026-10-07T16:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"19:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"errands\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.8,\"type\":0.8,\"action\":0.8,\"time\":0.8,\"priority\":0.8},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Buy bread\",\"source\":\"buy bread tomorrow at 7 PM\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ND1 ar remove + add",
+      "turns": [
+        {
+          "message": "لازم اتصل بأمي بكرا الساعة 5 المسا، وادفع الفاتورة",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بدك ياني أضيف \\\"أتصل بأمي\\\" بكرا الساعة 5 المسا، و \\\"ادفع الفاتورة\\\"؟\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"أتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"أتصل بأمي\",\"source\":\"لازم اتصل بأمي بكرا الساعة 5 المسا\"},{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"ادفع\",\"title\":\"ادفع الفاتورة\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":1,\"time\":0,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"ادفع الفاتورة\",\"source\":\"ادفع الفاتورة\"}]}"
+          ]
+        },
+        {
+          "message": "شيل الاتصال، ولازم اشتري خبز",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، شلت الاتصال بأمي. شو اليوم والوقت اللي بدك تشتري فيه الخبز؟\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"remove\",\"source\":\"شيل الاتصال\"}],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اشتري\",\"title\":\"اشتري خبز\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0.5,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اشتري خبز\",\"source\":\"لازم اشتري خبز\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D3 en forget + add",
+      "turns": [
+        {
+          "message": "Call mom tomorrow at 5 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I have 'Call mom' for tomorrow at 5 PM. You can confirm it below.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":1,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\",\"source\":\"Call mom tomorrow at 5 PM\"}]}"
+          ]
+        },
+        {
+          "message": "Forget the call at 5 PM. I need to buy bread.",
+          "modelAnswers": [
+            "{\"reply\":\"I removed 'Call mom' and added 'buy bread'. What day and time do you want to buy bread?\",\"action\":\"ask\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"remove\",\"source\":\"Forget the call at 5 PM\"}],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"buy\",\"title\":\"buy bread\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"errands\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[\"vague_time\"],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Buy bread\",\"source\":\"I need to buy bread\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D1 ar commitment to thought",
+      "turns": [
+        {
+          "message": "لازم اتصل بأمي بكرا الساعة 5 المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بدك أتصل بأمي بكرا الساعة 5 المسا. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"اتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اتصل بأمي\",\"source\":\"لازم اتصل بأمي بكرا الساعة 5 المسا\"}]}"
+          ]
+        },
+        {
+          "message": "لا، لسا بفكر فيها",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، شو قررت بخصوص الاتصال بأمك؟\",\"action\":\"chat\",\"locked\":[],\"open\":[],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D2 ar indic digits",
+      "turns": [
+        {
+          "message": "لازم اتصل بأمي بكرا الساعة 5 المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بدك أتصل بأمك بكرة الأربعاء الساعة 5 المسا. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"أتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"أتصل بأمي\",\"source\":\"لازم اتصل بأمي بكرا الساعة 5 المسا\"}]}"
+          ]
+        },
+        {
+          "message": "خليها الساعة ٨ المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، خليتها الساعة 8 المسا. أكّد من تحت.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"أتصل\",\"title\":\"أتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T17:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"20:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"أتصل بأمي\"},\"source\":\"الساعة ٨ المسا\"}],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D2 ar proclitic",
+      "turns": [
+        {
+          "message": "لازم اتصل بأمي بكرا الساعة 5 المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بدك أتصل بأمي بكرا الساعة 5 المسا. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"اتصل بأمي\",\"person\":\"أمي\",\"dueAt\":\"2026-10-07T14:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اتصل بأمي\",\"source\":\"لازم اتصل بأمي بكرا الساعة 5 المسا\"}]}"
+          ]
+        },
+        {
+          "message": "ولازم اشتري خبز بكرا الساعة 7",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بدك أتصل بأمي بكرا الساعة 5 المسا، وبدك أشتري خبز بكرا الساعة 7 المسا. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اشتري\",\"title\":\"اشتري خبز\",\"person\":null,\"dueAt\":\"2026-10-07T16:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"19:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اشتري خبز\",\"source\":\"ولازم اشتري خبز بكرا الساعة 7\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R10-4 en calendar date",
+      "turns": [
+        {
+          "message": "Call the bank",
+          "modelAnswers": [
+            "{\"reply\":\"What day and time should I remind you to call the bank?\",\"action\":\"ask\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"call\",\"title\":\"Call the bank\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call the bank\",\"source\":\"Call the bank\"}]}"
+          ]
+        },
+        {
+          "message": "October 20 at 10 AM",
+          "modelAnswers": [
+            "{\"reply\":\"Okay, I've set it for October 20 at 10 AM. You can confirm it below.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"call\",\"title\":\"Call the bank\",\"person\":null,\"dueAt\":\"2026-10-20T07:00:00.000Z\",\"remindAt\":\"2026-10-20T07:00:00.000Z\",\"localTimeSpec\":{\"date\":\"2026-10-20\",\"time\":\"10:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"finance\",\"categoryConfidence\":0.5,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call the bank\"},\"source\":\"October 20 at 10 AM\"}],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R10-6 ar range day move",
+      "turns": [
+        {
+          "message": "عندي شغل بكرا من 4 لـ 6 المسا",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بكرا عندك شغل من الساعة 4 للساعة 6 المسا. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"شغل\",\"title\":\"عندي شغل\",\"person\":null,\"dueAt\":\"2026-10-07T13:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"16:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"عندي شغل\",\"source\":\"عندي شغل بكرا من 4 لـ 6 المسا\"}]}"
+          ]
+        },
+        {
+          "message": "خليه يوم الخميس",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، خليت الشغل يوم الخميس من الساعة 4 للساعة 6 المسا. أكّد من تحت.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"شغل\",\"title\":\"شغل\",\"person\":null,\"dueAt\":\"2026-10-08T13:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-08\",\"time\":\"16:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":0.8,\"action\":0.8,\"time\":0.8,\"priority\":0.8},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"شغل\"},\"source\":\"يوم الخميس\"}],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "R8-2 ar rename + add",
+      "turns": [
+        {
+          "message": "لازم اشتري خبز",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، شو اليوم والوقت اللي بدك تشتري فيه خبز؟\",\"action\":\"ask\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اشتري\",\"title\":\"اشتري خبز\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"errands\",\"categoryConfidence\":0.7,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0.5,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اشتري خبز\",\"source\":\"لازم اشتري خبز\"}]}"
+          ]
+        },
+        {
+          "message": "لا مش خبز، كعك، وكمان لازم ادرس",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، هلأ صار عندك «اشتري كعك» و «ادرس». إيمتى بدك تعمل هدول الشغلات؟\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i1\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اشتري\",\"title\":\"اشتري كعك\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"errands\",\"categoryConfidence\":0.5,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[\"vague_time\"],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اشتري كعك\"},\"source\":\"كعك\"}],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"ادرس\",\"title\":\"ادرس\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[\"vague_time\"],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"ادرس\",\"source\":\"لازم ادرس\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D5 en recurring add",
+      "turns": [
+        {
+          "message": "Call mom tomorrow at 5 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I have \\\"Call mom\\\" for tomorrow at 5 PM.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Call\",\"title\":\"Call mom\",\"person\":\"mom\",\"dueAt\":\"2026-10-07T14:00:00Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"17:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"family\",\"categoryConfidence\":1,\"confidence\":{\"overall\":0.9,\"type\":1,\"action\":1,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Call mom\",\"source\":\"Call mom tomorrow at 5 PM\"}]}"
+          ]
+        },
+        {
+          "message": "Also gym every Monday and Wednesday at 7 PM",
+          "modelAnswers": [
+            "{\"reply\":\"I added \\\"Gym\\\" for every Monday and Wednesday at 7 PM.\",\"action\":\"update\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"Gym\",\"title\":\"Gym\",\"person\":null,\"dueAt\":\"2026-10-12T16:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-12\",\"time\":\"19:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"Gym\",\"source\":\"gym every Monday and Wednesday at 7 PM\"}]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pos ar second one",
+      "turns": [
+        {
+          "message": "عندي اجتماعين بكرا، الاول الساعة 4 والتاني الساعة 6",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، بكرا عندك اجتماعين، واحد الساعة 4 وواحد الساعة 6. أكّد من تحت.\",\"action\":\"propose\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اجتماع\",\"title\":\"اجتماع\",\"person\":null,\"dueAt\":\"2026-10-07T13:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"16:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اجتماع\",\"source\":\"الاول الساعة 4\"},{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اجتماع\",\"title\":\"اجتماع\",\"person\":null,\"dueAt\":\"2026-10-07T15:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"18:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":1,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اجتماع\",\"source\":\"التاني الساعة 6\"}]}"
+          ]
+        },
+        {
+          "message": "لا خلّي التانية الساعة 7",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، الاجتماع التاني صار الساعة 7 المسا بكرا. أكّد من تحت.\",\"action\":\"update\",\"locked\":[],\"open\":[{\"ref\":\"i2\",\"op\":\"update\",\"fields\":{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اجتماع\",\"title\":\"اجتماع\",\"person\":null,\"dueAt\":\"2026-10-07T16:00:00.000Z\",\"remindAt\":null,\"localTimeSpec\":{\"date\":\"2026-10-07\",\"time\":\"19:00\",\"timezone\":\"Asia/Jerusalem\"},\"priority\":{\"level\":\"normal\",\"source\":\"default\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":null,\"categoryConfidence\":0,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0.8,\"priority\":1},\"missingFields\":[],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"اجتماع\"},\"source\":\"التانية الساعة 7\"}],\"added\":[]}"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "D6 ar offered time yes",
+      "turns": [
+        {
+          "message": "لازم اتصل بالبنك",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، شو اليوم والوقت اللي بدك تتصل فيه بالبنك؟\",\"action\":\"ask\",\"locked\":[],\"open\":[],\"added\":[{\"kind\":\"commitment\",\"type\":\"task\",\"action\":\"اتصل\",\"title\":\"أتصل بالبنك\",\"person\":null,\"dueAt\":null,\"remindAt\":null,\"localTimeSpec\":null,\"priority\":{\"level\":\"high\",\"source\":\"user_explicit\",\"pressureAllowed\":false,\"pressureImplied\":false},\"flexibility\":\"movable\",\"category\":\"finance\",\"categoryConfidence\":0.7,\"confidence\":{\"overall\":0.8,\"type\":1,\"action\":0.8,\"time\":0.8,\"priority\":1},\"missingFields\":[\"time\"],\"ambiguityFlags\":[],\"explicitReminderRequest\":false,\"explicitPressureRequest\":false,\"appTitle\":\"أتصل بالبنك\",\"source\":\"لازم اتصل بالبنك\"}]}"
+          ]
+        },
+        {
+          "message": "اه",
+          "modelAnswers": [
+            "{\"reply\":\"تمام، شو اليوم والساعة اللي بدك تتصل فيهم بالبنك؟\",\"action\":\"ask\",\"locked\":[],\"open\":[],\"added\":[]}"
+          ]
+        }
+      ]
+    }
+  ]
+}

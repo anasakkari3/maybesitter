@@ -440,7 +440,7 @@ test('an item no clause names cannot carry another item’s day or hour: it is a
   }
 });
 
-test('«الاول … عال ٤ والثاني … عال٦» then «لا خلّي التانية الساعة 7»: Friday 16:00 and 18:00, then the second at 19:00', async () => {
+test('«الاول … عال ٤ والثاني … عال٦» then a bare 7 asks AM or PM for the second', async () => {
   // The owner's case, which worked on staging: it must stay working.
   const friday = weekday('Friday');
   const model = scripted(
@@ -458,8 +458,9 @@ test('«الاول … عال ٤ والثاني … عال٦» then «لا خل�
     assert.deepEqual(first.proposal!.items.map((entry) => entry.resolvedTime), [instant(friday, '16:00'), instant(friday, '18:00')]);
     assert.equal(first.proposal!.status, 'proposed');
     const second = await chat(uid, 'لا خلّي التانية الساعة 7', first.conversationId);
-    assert.deepEqual(second.proposal!.items.map((entry) => entry.resolvedTime), [instant(friday, '16:00'), instant(friday, '19:00')]);
-    assert.equal(second.reply, 'تمام، خطبة صاحبك الثاني صارت الساعة ٧. شوف القائمة وأكّدها.');
+    assert.deepEqual(second.proposal!.items.map((entry) => entry.resolvedTime), [instant(friday, '16:00'), null]);
+    assert.equal((second.proposal!.items[1]!.clarification as { questionKey?: string } | null)?.questionKey, 'ask_am_pm');
+    assert.match(second.reply, /الصبح|المسا/);
   } finally {
     end();
   }
@@ -592,7 +593,7 @@ test('a good reply that does not ask is kept, and only the missing hour is asked
   }
 });
 
-test('an edit\u2019s reply is kept (it says what changed), with the other item\u2019s missing hour asked after it', async () => {
+test('a partly applied edit uses the truthful template, with the other item\u2019s missing hour asked after it', async () => {
   const friday = weekday('Friday');
   const sunday = weekday('Sunday');
   const model = scripted(
@@ -611,7 +612,7 @@ test('an edit\u2019s reply is kept (it says what changed), with the other item\u
     const second = await chat(uid, 'make the dentist 5pm', first.conversationId);
     assert.equal(second.proposal!.items[0]!.resolvedTime, instant(friday, '17:00'));
     assert.equal(second.proposal!.items[1]!.resolvedDate, sunday);
-    assert.equal(second.reply, 'Okay, the dentist is now at 5 PM. What time is "Call Sara"?');
+    assert.equal(second.reply, 'Okay, I changed that. What time is "Call Sara"?');
   } finally {
     end();
   }

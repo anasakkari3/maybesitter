@@ -1281,9 +1281,16 @@ test('ND1 a locked edited call removed by chat is restorable and cannot be relab
 test('v9 ref schema uses only this turn refs, carries citations, and hostile ref parsing is content-free', () => {
   const schema = geminiChatSchemaFor(['i1', 's1'], ['i2']) as any;
   assert.deepEqual(schema.properties.locked.items.properties.ref.enum, ['i1', 's1']);
-  assert.deepEqual(schema.properties.open.items.properties.ref.enum, ['i2']);
-  assert.equal(schema.properties.open.items.properties.source.type, 'string');
+  const [keepSchema, removeSchema, updateSchema] = schema.properties.open.items.anyOf;
+  assert.deepEqual(keepSchema.properties.ref.enum, ['i2']);
+  assert.deepEqual(removeSchema.properties.ref.enum, ['i2']);
+  assert.deepEqual(updateSchema.properties.ref.enum, ['i2']);
+  assert.equal(updateSchema.properties.source.type, 'string');
+  assert.deepEqual(updateSchema.required, ['ref', 'op', 'fields', 'source']);
   assert.equal(schema.properties.added.items.properties.source.type, 'string');
+  assert.ok(schema.properties.added.items.required.includes('source'));
+  const firstTurn = geminiChatSchemaFor([], []) as any;
+  assert.equal(firstTurn.properties.added.items.required.includes('source'), false);
 
   const parsed = parseChatModelAnswer(JSON.stringify({
     reply: 'ok', action: 'update',
@@ -1538,6 +1545,7 @@ test('a retry receipt overlays a confirmed proposal and never calls the model ag
     const retry = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
     assert.equal(modelCalls(), 2, 'the retry called the model after confirm');
     assert.notEqual(retry.reply, beforeConfirm.reply, 'the retry kept a reply describing a list that was already confirmed');
+    assert.match(retry.reply, /already saved|انحفظت|حفظنا/i);
     assert.equal(retry.proposal, null);
     assert.deepEqual(await savedCommitments(uid), savedBeforeRetry, 'the retry persisted the points twice');
   } finally {
@@ -1840,12 +1848,14 @@ for (const scenario of [
   }
 });
 
-test('an update that changes nothing while another point is added preserves the exact item and its clarification', async () => {
-  const unchanged = modelItem('اشتري خبز', null, null);
+test('an unchanged update needs no citation, preserves the exact item, and forces a truthful reply', async () => {
+  const unchanged = modelItem('اشتري خبز', null, null, {
+    priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureImplied: false },
+  });
   const uid = beginGateModel(
     modelFirstAnswer('إيمتى؟', 'ask', [unchanged]),
-    modelRefAnswer('أضفت الدراسة.', 'update', {
-      open: [{ ref: 'i1', op: 'keep' }],
+    modelRefAnswer('غيّرت الخبز وأضفت الدراسة.', 'update', {
+      open: [{ ref: 'i1', op: 'update', fields: unchanged, source: 'لازم اشتري خبز' } as any],
       added: [{ ...modelItem('ادرس', null, null), source: 'ولازم ادرس كمان' }],
     }),
   );
@@ -1854,7 +1864,8 @@ test('an update that changes nothing while another point is added preserves the 
     const before = structuredClone(first.proposal!.items[0]!);
     const next = await gateChat(uid, 'ولازم ادرس كمان', { conversationId: first.conversationId, locale: 'ar' });
     assert.deepEqual(next.proposal!.items[0], before);
-    assert.ok(next.proposal!.items.some((item) => item.title.includes('ادرس')));
+    assert.ok(next.proposal!.items.some((item) => /[اأ]درس/.test(item.title)), JSON.stringify(next.proposal));
+    assert.doesNotMatch(next.reply, /غيّرت الخبز/);
   } finally {
     endGate();
   }
@@ -2032,10 +2043,10 @@ test('an invalid update beside a two-day recurring add rolls back by operation i
     ]),
     modelRefAnswer('Done.', 'update', {
       open: [
-        { ref: 'i1', op: 'update', fields: { title: 'broken' } },
+        { ref: 'i1', op: 'update', fields: { title: 'broken' }, source: 'Call mom' } as any,
         { ref: 'i2', op: 'keep' },
       ],
-      added: [modelItem('Go to the gym', '2026-10-13', '19:00')],
+      added: [{ ...modelItem('Go to the gym', '2026-10-13', '19:00'), source: 'go to the gym every Tuesday and Thursday at 7 PM' }],
     }),
   );
   try {
@@ -2051,6 +2062,234 @@ test('an invalid update beside a two-day recurring add rolls back by operation i
   } finally {
     endGate();
   }
+});
+
+/* Exact mutation probes from the r11 independent verification (C4…O5). */
+
+const citedUpdate = (ref: string, fields: Record<string, unknown>, source: string) => (
+  { ref, op: 'update', fields, source } as any
+);
+const citedAdd = (fields: Record<string, unknown>, source: string) => ({ ...fields, source });
+
+async function mutationTwoTurn(options: {
+  label: string;
+  firstMessage?: string;
+  firstItems?: Record<string, unknown>[];
+  message: string;
+  operations: { open?: any[]; added?: unknown[] };
+  locale?: 'ar' | 'en';
+}): Promise<{ first: Answer; next: Answer }> {
+  const firstMessage = options.firstMessage ?? 'Call mom tomorrow at 5 PM';
+  const firstItems = options.firstItems ?? [modelItem('Call mom', TOMORROW, '17:00')];
+  const uid = beginGateModel(
+    modelFirstAnswer('Review it.', 'propose', firstItems),
+    modelRefAnswer('Done.', 'update', options.operations),
+  );
+  try {
+    const first = await gateChat(uid, firstMessage, { locale: options.locale ?? 'en' });
+    const next = await gateChat(uid, options.message, {
+      conversationId: first.conversationId,
+      locale: options.locale ?? 'en',
+    });
+    return { first, next };
+  } finally {
+    endGate();
+  }
+}
+
+test('C4 citation boundaries allow one Arabic proclitic, never a mid-word English match', async () => {
+  const arabic = await mutationTwoTurn({
+    label: 'C4-dropwaw',
+    firstMessage: 'لازم اتصل بأمي بكرا الساعة 5 المسا',
+    firstItems: [modelItem('اتصل بأمي', TOMORROW, '17:00')],
+    message: 'خلّي الاتصال الساعة 8 المسا، ولازم اشتري خبز',
+    operations: {
+      open: [citedUpdate('i1', modelItem('اتصل بأمي', TOMORROW, '20:00'), 'خلّي الاتصال الساعة 8 المسا')],
+      added: [citedAdd(modelItem('اشتري خبز', null, null), 'لازم اشتري خبز')],
+    },
+    locale: 'ar',
+  });
+  assert.equal(itemWith(arabic.next.proposal, 'اتصل بأمي').resolvedTime, at(TOMORROW, '20:00'));
+  assert.equal(itemWith(arabic.next.proposal, 'اشتري خبز').needsClarification, true);
+
+  const midword = await mutationTwoTurn({
+    label: 'C4-midword',
+    message: 'Move the call to 8 PM. Also buy breadsticks.',
+    operations: {
+      open: [citedUpdate('i1', modelItem('Call mom', TOMORROW, '20:00'), 'Move the call to 8 PM.')],
+      added: [citedAdd(modelItem('Buy bread', null, null), 'bread')],
+    },
+  });
+  assert.deepEqual(midword.next.proposal!.items.map((item) => item.itemId), midword.first.proposal!.items.map((item) => item.itemId));
+  assert.equal(itemWith(midword.next.proposal, 'Call mom').resolvedTime, at(TOMORROW, '17:00'));
+  assert.match(midword.next.reply, /couldn.t apply|could not apply/i);
+});
+
+test('C5 citation folding keeps Arabic shadda and alef variants equivalent', async () => {
+  for (const [label, message, source] of [
+    ['shadda', 'خلّي الاتصال الساعة 8 المسا', 'خلي الاتصال الساعة 8 المسا'],
+    ['alef', 'أجّل الاتصال لبكرا الساعة 8 المسا', 'اجل الاتصال لبكرا الساعة 8 المسا'],
+  ] as const) {
+    const { next } = await mutationTwoTurn({
+      label: `C5-${label}`,
+      firstMessage: 'لازم اتصل بأمي بكرا الساعة 5 المسا',
+      firstItems: [modelItem('اتصل بأمي', TOMORROW, '17:00')],
+      message,
+      operations: { open: [citedUpdate('i1', modelItem('اتصل بأمي', TOMORROW, '20:00'), source)] },
+      locale: 'ar',
+    });
+    assert.equal(itemWith(next.proposal, 'اتصل بأمي').resolvedTime, at(TOMORROW, '20:00'), label);
+  }
+});
+
+test('C7 a bad remove citation rolls the whole answer back', async () => {
+  const { first, next } = await mutationTwoTurn({
+    label: 'C7',
+    message: 'Forget the call. I need to buy bread.',
+    operations: {
+      open: [{ ref: 'i1', op: 'remove', source: 'Forget the dentist.' } as any],
+      added: [citedAdd(modelItem('Buy bread', null, null), 'I need to buy bread.')],
+    },
+  });
+  assert.deepEqual(next.proposal!.items.map((item) => item.itemId), first.proposal!.items.map((item) => item.itemId));
+  assert.equal(next.proposal!.items.some((item) => item.title === 'Buy bread'), false);
+});
+
+test('C8 a cited keep is ignored and cannot preserve the model success claim', async () => {
+  const { next } = await mutationTwoTurn({
+    label: 'C8',
+    message: 'thanks',
+    operations: { open: [{ ref: 'i1', op: 'keep', source: 'thanks' } as any] },
+  });
+  assert.equal(itemWith(next.proposal, 'Call mom').resolvedTime, at(TOMORROW, '17:00'));
+  assert.doesNotMatch(next.reply, /^Done\.?$/i);
+});
+
+test('C19 a time-only citation cannot move the stored day', async () => {
+  const { next } = await mutationTwoTurn({
+    label: 'C19',
+    message: 'make it 8 PM',
+    operations: { open: [citedUpdate('i1', modelItem('Call mom', '2026-10-09', '20:00'), 'make it 8 PM')] },
+  });
+  assert.equal(itemWith(next.proposal, 'Call mom').resolvedTime, at(TOMORROW, '20:00'));
+});
+
+test('C20 priority is applied only to the point whose citation states it', async () => {
+  const { next } = await mutationTwoTurn({
+    label: 'C20',
+    firstMessage: 'Call mom tomorrow at 5 PM and pay the bill tomorrow at 6 PM',
+    firstItems: [modelItem('Call mom', TOMORROW, '17:00'), modelItem('Pay the bill', TOMORROW, '18:00')],
+    message: 'The bill is urgent, and make the call 8 PM',
+    operations: { open: [
+      citedUpdate('i1', modelItem('Call mom', TOMORROW, '20:00', { priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureImplied: false } }), 'make the call 8 PM'),
+      citedUpdate('i2', modelItem('Pay the bill', TOMORROW, '18:00', { priority: { level: 'high', source: 'user_explicit', pressureAllowed: false, pressureImplied: false } }), 'The bill is urgent'),
+    ] },
+  });
+  assert.equal((itemWith(next.proposal, 'Call mom') as any).priority, 'normal');
+  assert.equal((itemWith(next.proposal, 'Pay the bill') as any).priority, 'high');
+});
+
+test('C23 a kind change without matching newest intent is rejected', async () => {
+  const drift = await mutationTwoTurn({
+    label: 'C23',
+    message: 'actually I am not sure',
+    operations: { open: [citedUpdate('i1', modelItem('Call mom', null, null, { kind: 'consideration' }), 'actually I am not sure')] },
+  });
+  assert.equal(drift.next.proposal!.seeds.length, 0);
+  assert.ok(drift.next.proposal!.items.some((item) => item.title === 'Call mom'));
+});
+
+test('F11 a commitment demoted to a thought preserves the point words', async () => {
+  const demotion = await mutationTwoTurn({
+    label: 'F11',
+    firstMessage: 'Call mom',
+    firstItems: [modelItem('Call mom', null, null)],
+    message: "I'm thinking about calling mom",
+    operations: { open: [citedUpdate('i1', modelItem('Call mom', null, null, { kind: 'consideration' }), "I'm thinking about calling mom")] },
+  });
+  assert.equal(demotion.next.proposal!.items.length, 0);
+  assert.equal(demotion.next.proposal!.seeds[0]!.kind, 'consideration');
+  assert.match(demotion.next.proposal!.seeds[0]!.summary, /Call mom/i);
+});
+
+test('C24 the time valve reads only each operation citation', async () => {
+  const update = await mutationTwoTurn({
+    label: 'C24-update',
+    firstMessage: 'Call mom tomorrow at 5 PM and pay the bill tomorrow at 6 PM',
+    firstItems: [modelItem('Call mom', TOMORROW, '17:00'), modelItem('Pay the bill', TOMORROW, '18:00')],
+    message: 'Move the call to 8 PM, the bill stays at 6 PM',
+    operations: { open: [
+      citedUpdate('i1', modelItem('Call mom', TOMORROW, '20:00'), 'Move the call to 8 PM'),
+      { ref: 'i2', op: 'keep' },
+    ] },
+  });
+  assert.deepEqual(update.next.proposal!.items.map((item) => item.resolvedTime), [at(TOMORROW, '20:00'), at(TOMORROW, '18:00')]);
+
+  const add = await mutationTwoTurn({
+    label: 'C24-add',
+    message: 'The call stays at 5 PM, also buy bread at 7 PM',
+    operations: {
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [citedAdd(modelItem('Buy bread', '2026-10-07', '19:00'), 'also buy bread at 7 PM')],
+    },
+  });
+  assert.equal(itemWith(add.next.proposal, 'Buy bread').resolvedTime, at('2026-10-07', '19:00'));
+});
+
+async function thoughtKindMutation(
+  message: string,
+  update: ReturnType<typeof modelRefAnswer>,
+): Promise<GateProposal> {
+  const first = modelFirstAnswer('Review.', 'propose', [modelItem('Call mom', TOMORROW, '17:00')]);
+  const thought = modelRefAnswer('Added thought.', 'update', {
+    open: [{ ref: 'i1', op: 'keep' }],
+    added: [citedAdd(modelItem('Travel next summer', null, null, { kind: 'consideration' }), "I'm thinking about traveling next summer")],
+  });
+  const uid = beginGateModel(first, thought, update);
+  try {
+    const one = await gateChat(uid, 'Call mom tomorrow at 5 PM', { locale: 'en' });
+    await gateChat(uid, "I'm thinking about traveling next summer", { conversationId: one.conversationId, locale: 'en' });
+    const changed = await gateChat(uid, message, { conversationId: one.conversationId, locale: 'en' });
+    return changed.proposal!;
+  } finally {
+    endGate();
+  }
+}
+
+test('F4 a thought stays a thought when its span adds details but no new intent', async () => {
+  const proposal = await thoughtKindMutation('with my sister, tomorrow evening', modelRefAnswer('Updated.', 'update', {
+    open: [
+      { ref: 'i1', op: 'keep' },
+      citedUpdate('s1', modelItem('Travel next summer with my sister', TOMORROW, '18:00'), 'with my sister, tomorrow evening'),
+    ],
+  }));
+  assert.equal(proposal.items.some((item) => /Travel/i.test(item.title)), false);
+  assert.equal(seedWith(proposal, 'traveling').kind, 'consideration');
+});
+
+test('F6 a thought changes kind when its own newest span states the new intent', async () => {
+  const proposal = await thoughtKindMutation("I'm waiting for my boss to reply about it", modelRefAnswer('Waiting.', 'update', {
+    open: [
+      { ref: 'i1', op: 'keep' },
+      citedUpdate('s1', modelItem('Travel next summer', null, null, { kind: 'waiting_for' }), "I'm waiting for my boss to reply about it"),
+    ],
+  }));
+  assert.equal(seedWith(proposal, 'traveling').kind, 'waiting_for');
+});
+
+test('O5 a goal operation keeps its index before split session operations', async () => {
+  const { next } = await mutationTwoTurn({
+    label: 'O5',
+    message: 'I want to learn React and study on Tuesday and Thursday evenings at 7 PM',
+    operations: { open: [{ ref: 'i1', op: 'keep' }], added: [
+      citedAdd(modelItem('Learn React', '2026-10-13', '19:00', { kind: 'possible_goal' }), 'I want to learn React'),
+      citedAdd(modelItem('Study on Tuesday', '2026-10-13', '19:00'), 'and study on Tuesday'),
+      citedAdd(modelItem('Study on Thursday', '2026-10-08', '19:00'), 'and Thursday evenings at 7 PM'),
+    ] },
+  });
+  assert.equal(next.proposal!.seeds[0]?.kind, 'possible_goal', JSON.stringify(next.proposal));
+  assert.match(next.proposal!.seeds[0]?.summary ?? '', /learn React/i);
+  assert.deepEqual(next.proposal!.items.filter((item) => /Study/.test(item.title)).map((item) => item.resolvedDate).sort(), ['2026-10-08', '2026-10-13']);
 });
 
 test('a removed locked item restores before points added on later turns', async () => {

@@ -7,7 +7,7 @@ import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapE
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
 import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, type CaptureClause } from '../../../src/extraction/clauseSplitter';
-import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours, statesClock } from '../../../src/extraction/timeLexicon';
+import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours, statesClock, timeOfDayEvidence } from '../../../src/extraction/timeLexicon';
 import { namesExplicitDate, readRecurrence, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
@@ -716,7 +716,7 @@ function isBareEarlyHour(result: ExtractionResult): boolean {
 
 /**
  * The one bare early clock the clause states — «الساعة 5» is `05:00`, "at
- * 4:30" is `04:30`, «ב-5» is `05:00` — or null (UAT round 6, D1). One to six,
+ * 4:30" is `04:30`, «ב-5» is `05:00` — or null (UAT round 6, D1). One to eleven,
  * no part of the day, no meridiem, and a single hour: the words the rules
  * read as the morning and ask صبح or مسا about.
  */
@@ -735,6 +735,26 @@ function statedBareEarlyClock(text: string): string | null {
   const range = readClockRange(text);
   if (range) return `${String(range.start.hour).padStart(2, '0')}:${String(range.start.minute).padStart(2, '0')}`;
   // Two hours («الساعة 5 أو 6») are not one to put a question on.
+  return clocks.size === 1 ? Array.from(clocks)[0]! : null;
+}
+
+/**
+ * A citation operation is narrower than a free-form capture: when its own
+ * literal source states one bare clock from 1 through 11, the model may not
+ * choose AM or PM for the person. Ranges retain their established semantics.
+ */
+function statedBareOperationClock(text: string): string | null {
+  if (readClockRange(text) || timeOfDayEvidence(text) !== 'clock_marker') return null;
+  const normalized = normalizeClockText(text);
+  const clocks = new Set<string>();
+  for (const source of CLOCK_PATTERN_SOURCES) {
+    for (const match of Array.from(normalized.matchAll(new RegExp(source, 'gi')))) {
+      const digits = /(\d{1,2})(?::(\d{2}))?/.exec(match[0]);
+      if (!digits) continue;
+      const hour = Number(digits[1]);
+      if (hour >= 1 && hour <= 11) clocks.add(`${digits[1]!.padStart(2, '0')}:${digits[2] ?? '00'}`);
+    }
+  }
   return clocks.size === 1 ? Array.from(clocks)[0]! : null;
 }
 
@@ -915,8 +935,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     : raw ? splitInput(raw) : [];
   const segments = clauses.map((clause, index) => {
     const before = chat && chatAligned[index] !== null ? chatPrevious[chatAligned[index]!] : undefined;
-    if (!before?.kind) return clause.text;
     const newest = chatChangedFieldEvidences[index]?.clause.text.trim() ?? '';
+    if (!before?.kind) {
+      // A commitment demoted by a span such as «لسا بفكر فيها» keeps what the
+      // point was about. The pronoun is evidence for its kind, not a new name.
+      return before && detectUnresolvedIntent(newest)
+        ? [before.title, newest].filter(Boolean).join('\n')
+        : clause.text;
+    }
     if (before.kind === 'possible_goal' && readRecurrence(newest)) return before.title;
     return [before.title, newest].filter(Boolean).join('\n');
   });
@@ -1089,7 +1115,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // bare early hour said anywhere is asked صبح or مسا; «الاول … عال ٤
       // والثاني … عال٦» — two hours, one per item — is not one to ask about.
       const statedEarlyClock = extracted.engine !== 'rule-based'
-        ? statedBareEarlyClock(chat?.operationSources ? segment : chat ? chatEvidence : segment)
+        ? chat?.operationSources
+          ? statedBareOperationClock(segment)
+          : statedBareEarlyClock(chat ? chatEvidence : segment)
         : null;
       if (statedEarlyClock) {
         extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
@@ -1311,7 +1339,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let clearedPastTime = false;
       // The rules' morning reading of a bare early hour (round 7, I-3): asked
       // as صبح or مسا, whether or not that morning has already gone.
-      const bareEarlyHour = (extracted.engine === 'rule-based' || statedEarlyClock !== null) && isBareEarlyHour(extracted.result);
+      const bareEarlyHour = statedEarlyClock !== null
+        || (extracted.engine === 'rule-based' && isBareEarlyHour(extracted.result));
       if (failure === 'past_time' || passedHour) {
         extracted = { ...extracted, result: withoutPastTime(extracted.result, options.now, options.timezone) };
         failure = semanticFailure(extracted.result, options.now);
@@ -1505,7 +1534,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // and input naming no clock time cannot trigger it. A time said in a clause
   // that was read as no commitment is not one an item lost (FY1 N1): the past
   // meeting's «الساعة 3» used to send the bank's 17:00 back to be asked.
-  const timeValveInput = chat?.operationSources?.join('\n') ?? raw;
+  // Shared update citations describe several points with one clock. Count the
+  // words once: duplicating the same (or a contained) span would otherwise
+  // make the multi-time valve believe a clock was lost and clear every item.
+  const operationTimeSources = chat?.operationSources
+    ?.filter((source, index, sources) => !sources.some((candidate, candidateIndex) =>
+      candidateIndex !== index && candidate.length >= source.length && candidate.includes(source)
+      && (candidate.length > source.length || candidateIndex < index)))
+    .join('\n');
+  const timeValveInput = operationTimeSources ?? raw;
   const timesInInput = Math.max(0, countTimeExpressions(timeValveInput) - timesReadAsNothing);
   if (timesInInput > 0 && items.length > 0) {
     // One per reading: the days a list spread a reading over are one time the
