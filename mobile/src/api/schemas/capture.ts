@@ -2,6 +2,19 @@ import { z } from 'zod';
 import { weeklyBlockOfferSchema, weeklyBlockSchema } from './weeklyBlocks';
 import { isoDateTime } from './common';
 
+const SEED_KINDS = ['consideration', 'waiting_for', 'idea', 'possible_goal'] as const;
+const understoodPointSchema = z.union([
+  z.object({ kind: z.literal('commitment'), itemId: z.string().min(1), text: z.string().min(1).max(160) }).strict(),
+  z.object({ kind: z.enum(SEED_KINDS), seedItemId: z.string().min(1), text: z.string().min(1).max(160) }).strict(),
+]);
+export type UnderstoodPoint = z.infer<typeof understoodPointSchema>;
+
+function parseUnderstoodShape(value: unknown): UnderstoodPoint[] | undefined {
+  if (value === undefined) return undefined;
+  const parsed = z.array(understoodPointSchema).min(1).safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** Mirrors `capture.proposal.json`. A proposal never implies persistence. */
 export const captureProposalSchema = z.object({
   version: z.string(),
@@ -36,6 +49,15 @@ export const captureProposalSchema = z.object({
       title: z.string(),
       resolvedTime: isoDateTime.nullable(),
       needsClarification: z.boolean(),
+      /**
+       * When the item ends (M2a). Tolerant: anything that is not an ISO
+       * instant reads as absent, so a bad end never costs the whole answer —
+       * the card just shows the start.
+       */
+      endTime: z.preprocess(
+        (value) => (typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : undefined),
+        z.string().optional(),
+      ),
       /** What the extractor read the importance as: Must / Should / Nice (#164). */
       priority: z.enum(['low', 'normal', 'high']).optional(),
       /**
@@ -168,6 +190,13 @@ export const captureProposalSchema = z.object({
       summary: z.string(),
     }))
     .default([]),
+  /**
+   * What the assistant understood, line by line (M2a). Tolerant: a value of
+   * the wrong shape reads as absent instead of failing the answer. Whether the
+   * lines match this proposal's items and seeds is checked by
+   * `usableUnderstood()` before anything is shown.
+   */
+  understood: z.preprocess(parseUnderstoodShape, z.array(understoodPointSchema).optional()),
   provenance: z
     .object({
       requestedEngine: z.enum(['model', 'rules']),
@@ -184,6 +213,31 @@ export const captureProposalSchema = z.object({
 export type CaptureProposal = z.infer<typeof captureProposalSchema>;
 export type CaptureProposalItem = CaptureProposal['items'][number];
 export type CaptureSeedProposal = CaptureProposal['seeds'][number];
+
+/**
+ * The understood lines, only when they describe exactly this proposal: every
+ * item and every seed once, no unknown reference, and each seed line carrying
+ * its seed's kind. Anything else — an older or inconsistent server — reads as
+ * no list, and the review shows the cards as before (M2a).
+ */
+export function usableUnderstood(proposal: Pick<CaptureProposal, 'items' | 'seeds' | 'understood'>): UnderstoodPoint[] | undefined {
+  const points = proposal.understood;
+  if (!points) return undefined;
+  const items = new Set(proposal.items.map((item) => item.itemId));
+  const seeds = new Map(proposal.seeds.map((seed) => [seed.seedItemId, seed.kind] as const));
+  const seen = new Set<string>();
+  for (const point of points) {
+    const key = 'itemId' in point ? `i:${point.itemId}` : `s:${point.seedItemId}`;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    if ('itemId' in point) {
+      if (!items.has(point.itemId)) return undefined;
+    } else if (seeds.get(point.seedItemId) !== point.kind) {
+      return undefined;
+    }
+  }
+  return seen.size === items.size + seeds.size ? points : undefined;
+}
 
 /**
  * What a newly-persisted commitment landed on top of (#football-fixtures
