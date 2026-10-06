@@ -72,6 +72,17 @@ describe('the understood summary', () => {
     expect(plain(screen.getByTestId('understood-line-1').props.accessibilityLabel)).toMatch(/18:00–22:00$/);
   });
 
+  it('names a waiting point «مستني عليه», the summary\'s own word, not the seed card\'s', async () => {
+    const waiting = { ...proposal, seeds: [...proposal.seeds, { seedItemId: 'reply', kind: 'waiting_for' as const, summary: 'رد المدير' }] };
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await render(<AppProvider><UnderstoodMessage proposal={waiting}
+      points={[points[0]!, { kind: 'waiting_for' as const, seedItemId: 'reply', text: 'مستني رد المدير' }]} edits={{}} onOpen={jest.fn()} /></AppProvider>);
+    await waitFor(() => expect(screen.queryByTestId('understood-line-2')).not.toBeNull());
+    expect(ar.understoodKindWaitingFor).toBe('مستني عليه');
+    expect(screen.getByTestId('understood-kind-s:reply').props.children).toBe('مستني عليه');
+    expect(plain(screen.getByTestId('understood-line-2').props.accessibilityLabel)).toBe('2 من 2. مستني عليه: مستني رد المدير');
+  });
+
   it('one point is one line, without a list or a position', async () => {
     await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
     await render(<AppProvider><UnderstoodMessage proposal={proposal} points={[points[1]!]} edits={{}} onOpen={jest.fn()} /></AppProvider>);

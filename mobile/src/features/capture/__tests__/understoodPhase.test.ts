@@ -46,6 +46,8 @@ describe('the understood phase', () => {
     const cards = captureReducer(answered(proposal('p1')), { type: 'understoodAccepted' });
     expect(showsUnderstood(answered(proposal('p2'), cards))).toBe(true);
     expect(showsUnderstood(answered(proposal('p1'), cards))).toBe(false);
+    // The reducer forgets the old one outright, not only by comparison.
+    expect(answered(proposal('p2'), cards).reviewOf).toBeNull();
   });
 
   it('a clarification of the same proposal keeps the cards open', () => {
