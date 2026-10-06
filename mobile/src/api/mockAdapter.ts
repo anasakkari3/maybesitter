@@ -266,7 +266,7 @@ function baseAnswer(source: unknown = captureChatProposal): MockAnswer {
  * a phone with no backend. Nothing is remembered between calls.
  */
 function mockChat(body: unknown): MockResponse {
-  const request = body as { edit?: MockEdit; spoken?: boolean } | undefined;
+  const request = body as { edit?: MockEdit; spoken?: boolean; locale?: string } | undefined;
   const edit = request?.edit;
   // A dictated message gets the route's own answer to one: «فهمت "الطلع" إنها "اطلع"».
   if (!edit) return { status: 200, body: baseAnswer(request?.spoken ? captureChatCorrection : captureChatProposal) };
@@ -291,6 +291,7 @@ function mockChat(body: unknown): MockResponse {
   if (invalid) return { status: 400, body: { reason: 'edit_invalid' } };
   const point = (proposal.understood ?? []).find((candidate) =>
     (item && candidate.itemId === item.itemId) || (seed && candidate.seedItemId === seed.seedItemId));
+  const before = String(point?.text ?? item?.title ?? seed?.summary ?? '');
   if (change.text !== undefined) {
     if (item) item.title = change.text;
     if (seed) seed.summary = change.text;
@@ -329,5 +330,23 @@ function mockChat(body: unknown): MockResponse {
     }];
     if (point) { Object.assign(point, { kind: 'commitment', itemId: seed.seedItemId }); delete point.seedItemId; }
   }
+  // The route records the edit as two turns (`structuredEdit.ts`, `editTurns`).
+  const turns = editTurns(change, before, request?.locale);
+  answer.reply = turns.reply;
+  answer.turns = [...(answer.turns ?? []), { role: 'user', text: turns.user }, { role: 'assistant', text: turns.reply }];
   return { status: 200, body: answer };
+}
+
+/** The route's own words for an edit, in the request's language. */
+function editTurns(change: NonNullable<MockEdit['change']>, before: string, locale: string | undefined): { user: string; reply: string } {
+  const after = change.text ?? '';
+  const user = change.text !== undefined
+    ? (locale === 'en' ? `Change \u201C${before}\u201D to \u201C${after}\u201D.` : locale === 'he' ? `\u05DC\u05E9\u05E0\u05D5\u05EA \u05D0\u05EA \u201E${before}\u201D \u05DC\u201E${after}\u201D.` : `\u063A\u064A\u0651\u0631 \u00AB${before}\u00BB \u0644\u0640 \u00AB${after}\u00BB.`)
+    : change.kind !== undefined
+      ? (locale === 'en' ? `Change \u201C${before}\u201D to ${change.kind}.` : locale === 'he' ? `\u05DC\u05E9\u05E0\u05D5\u05EA \u05D0\u05EA \u05D4\u05E1\u05D5\u05D2 \u05E9\u05DC \u201E${before}\u201D.` : `\u063A\u064A\u0651\u0631 \u0646\u0648\u0639 \u00AB${before}\u00BB.`)
+      : (locale === 'en' ? `Update \u201C${before}\u201D.` : locale === 'he' ? `\u05DC\u05E2\u05D3\u05DB\u05DF \u05D0\u05EA \u201E${before}\u201D.` : `\u0639\u062F\u0651\u0644 \u00AB${before}\u00BB.`);
+  const reply = locale === 'en' ? 'Updated. Review the list and confirm below.'
+    : locale === 'he' ? '\u05E2\u05D5\u05D3\u05DB\u05DF. \u05D0\u05E4\u05E9\u05E8 \u05DC\u05D1\u05D3\u05D5\u05E7 \u05D0\u05EA \u05D4\u05E8\u05E9\u05D9\u05DE\u05D4 \u05D5\u05DC\u05D0\u05E9\u05E8 \u05DC\u05DE\u05D8\u05D4.'
+      : '\u062A\u0645\u0627\u0645\u060C \u0639\u062F\u0651\u0644\u062A\u0647\u0627. \u0631\u0627\u062C\u0639 \u0627\u0644\u0642\u0627\u0626\u0645\u0629 \u0648\u0623\u0643\u0651\u062F \u0645\u0646 \u062A\u062D\u062A.';
+  return { user, reply };
 }

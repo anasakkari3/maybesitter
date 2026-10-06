@@ -44,3 +44,19 @@ it('a dictated message gets the corrected answer, and undoing its correction put
   expect(after.items[0]!.title).toContain('الطلع'); // «الطلع»
   expect(after.items[0]!.corrections).toBeUndefined();
 });
+
+it('an edit adds the route\'s two turns, in its words, after the conversation so far', () => {
+  // The route's answer to a kind edit (capture.chatEditKind) ends with these two turns.
+  const route = require('../__fixtures__/capture.chatEditKind.json') as { reply: string; turns: { role: string; text: string }[] };
+  const turnsBefore = (fixture as { turns: unknown[] }).turns.length;
+  const response = edit({ kind: 'idea' });
+  const body = response?.body as { reply: string; turns: { role: string; text: string }[] };
+  expect(body.reply).toBe(route.reply);
+  expect(body.turns).toHaveLength(turnsBefore + 2);
+  expect(body.turns.slice(-2)).toEqual([
+    { role: 'user', text: `غيّر نوع «${ITEM.title}».` },
+    { role: 'assistant', text: route.turns[route.turns.length - 1]!.text },
+  ]);
+  const words = edit({ text: 'Call Sami' })?.body as { turns: { text: string }[] };
+  expect(words.turns[words.turns.length - 2]!.text).toBe(`غيّر «${ITEM.title}» لـ «${'Call Sami'}».`);
+});
