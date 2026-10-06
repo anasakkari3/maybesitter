@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, View, type ViewStyle } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
@@ -31,6 +31,8 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   const insets = useSafeAreaInsets();
   const mode = useLayoutMode();
   const enlarged = mode !== 'normal';
+  const twoRows = mode === 'xl';
+  const slot = twoRows ? { flexBasis: '31%' as const, flexGrow: 1, minWidth: 0 } : { flex: 1, minWidth: 0 };
 
   const tabs: { screen: NavTab; label: string; testID: string; icon: string }[] = [
     { screen: 'today', label: t.tabToday, testID: 'tab-today', icon: 'today' },
@@ -52,20 +54,24 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
         {Platform.OS === 'ios' && !reduceTransparency ? (
           <BlurView intensity={40} tint={scheme === 'dark' ? 'dark' : 'light'} style={{ position: 'absolute', top: 0, start: 0, end: 0, bottom: 0 }} />
         ) : null}
-        <View style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', alignItems: 'stretch', gap: 2 }}>
+        {/* At the accessibility (xl) sizes five slots are too narrow for a
+            one-word label at its full size («الي / وم», device 2026-10-06), and
+            labels are never capped (IMPLEMENTATION_SPEC). So the bar becomes
+            two rows, three and two, each slot wide enough for its word. */}
+        <View testID="tab-bar-row" style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: twoRows ? 'wrap' : 'nowrap', alignItems: 'stretch', gap: 2 }}>
           <Btn
             testID="tab-capture"
             label={t.tabCapture}
             onPress={() => actions.goCapture('tab', 'text')}
             scaleTo={0.92}
-            style={{ flex: 1, minWidth: 0, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
+            style={[slot, { minHeight: 52, alignItems: 'center', justifyContent: 'center' }]}
           >
             <View style={{ alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch', minHeight: 48, borderRadius: 14 }}>
               <BrandMark size={enlarged ? 32 : 36} />
             </View>
           </Btn>
           {tabs.map(tab => (
-            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} fit={mode === 'xl'}
+            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} slot={slot}
               onPress={() => actions.switchTab(tab.screen)} />
           ))}
         </View>
@@ -74,15 +80,10 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   );
 }
 
-/** How far a tab label grows at the accessibility sizes (see TabItem). */
-export const TAB_LABEL_MAX_SCALE = 1.35;
-
-function TabItem({ label, testID, icon, on, p, enlarged, fit, onPress }: {
+function TabItem({ label, testID, icon, on, p, enlarged, slot, onPress }: {
   label: string; testID: string; icon: string; on: boolean; p: Palette; enlarged: boolean;
-  /** At the accessibility sizes five slots are too narrow for a one-word label
-   *  at full size: it grows no further than 1.35× rather than breaking inside
-   *  the word («الي / وم», device, 2026-10-06). */
-  fit: boolean;
+  /** The slot's share of the bar: a fifth, or a third of a row at the xl sizes. */
+  slot: ViewStyle;
   onPress: () => void;
 }) {
   // Selected is the coral tint with the solid pressed-coral label on it, the
@@ -95,11 +96,11 @@ function TabItem({ label, testID, icon, on, p, enlarged, fit, onPress }: {
       testID={testID}
       scaleTo={0.92}
       accessibilityState={{ selected: on }}
-      style={{ flex: 1, minWidth: 0, minHeight: 52, alignItems: 'center', justifyContent: 'center' }}
+      style={[slot, { minHeight: 52, alignItems: 'center', justifyContent: 'center' }]}
     >
       <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 3, paddingHorizontal: 2, borderRadius: 14, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}>
         <ReferenceIcon name={icon} size={enlarged ? 20 : 22} color={color} />
-        <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} maxScale={fit ? TAB_LABEL_MAX_SCALE : undefined} style={{ flexShrink: 1 }}>{label}</Txt>
+        <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
       </View>
     </Btn>
   );

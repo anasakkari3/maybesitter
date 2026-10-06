@@ -168,9 +168,6 @@ const ACTION_LABEL = (t: Record<string, string>): Record<NextStepDecisionKind, s
   done: t.nextStepDone!,
 });
 
-/** Evidence codes that state a fact about the item, kept on the card face. */
-const FACT_CODES: ReadonlySet<string> = new Set(['overdue', 'prepares_for_event']);
-
 const DECISIONS: readonly NextStepDecisionKind[] = ['accept', 'edit', 'defer', 'dismiss', 'done'];
 
 const DEFER_LABEL = (t: Record<string, string>): Record<PostponePreset, string> => ({
@@ -236,11 +233,9 @@ function Ready({
   // «ليش هاي بالذات» with the rest.
   const eveningItem = evidence.find((e) => e.code === 'evening_plan_before_event');
   const eveningNote = eveningItem ? evidencePhrases([eveningItem], strings, translateCount, formatWhen)[0] ?? null : null;
-  // Only facts about the item stay on the card face: that its time has passed,
-  // and which event it prepares for and when. The reasoning chips («لازم خلال
-  // يوم», «برّا أوقاتك المعتادة», «في وقت قبل ما تستحق», …) were struck by the
-  // owner as noise (audit 2026-10-06, image 1) and live in «ليش هاي بالذات».
-  const facts = evidencePhrases(evidence.filter((e) => FACT_CODES.has(e.code)), strings, translateCount, formatWhen);
+  // No evidence chips on the card face: the owner struck them as noise (audit
+  // 2026-10-06, image 1). Every reason, including when an event is, lives in
+  // «ليش هاي بالذات».
   const phrases = evidencePhrases(evidence, strings, translateCount, formatWhen);
   // Preparation for an event (audit 2026-10-03 #2): the card names the
   // preparation, and «حضّرني» on it plans the time for it. The event's own
@@ -305,16 +300,11 @@ function Ready({
         </View>
       ) : null}
 
-      {/* Facts and the estimated-importance tag, at every text size (they used
-          to vanish from the larger sizes up). */}
-      {facts.length > 0 || (item && !item.importanceIsStated) ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {facts.length > 0 ? (
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
-              {facts.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
-            </View>
-          ) : null}
-          {item && !item.importanceIsStated ? <View testID="next-step-estimated"><Tag kind="estimated" label={t.nextStepEvidenceEstimated} /></View> : null}
+      {/* The estimated-importance tag, at every text size (it used to vanish
+          from the larger sizes up). */}
+      {item && !item.importanceIsStated ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-estimated">
+          <Tag kind="estimated" label={t.nextStepEvidenceEstimated} />
         </View>
       ) : null}
 

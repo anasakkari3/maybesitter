@@ -26,7 +26,7 @@ export function textAlignment(align: Align, rtl: boolean, platform: string) {
 }
 
 export function Txt({
-  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout, maxScale,
+  children, role = 'body', size = typography[role].size, weight = typography[role].weight, color, align = 'start', style, lines, lh, latin, selectable, testID, onTextLayout,
 }: {
   children: React.ReactNode;
   role?: TextRole;
@@ -44,12 +44,6 @@ export function Txt({
   testID?: string | undefined;
   /** For chrome that has to know whether this label still fits its slot (TabBar). */
   onTextLayout?: ((e: NativeSyntheticEvent<TextLayoutEventData>) => void) | undefined;
-  /**
-   * The most this text grows with the reader's text size. Only for a label in
-   * a fixed slot that would otherwise break inside a word (the tab bar, the
-   * way the system tab bar caps its own labels); body text is never capped.
-   */
-  maxScale?: number | undefined;
 }) {
   const { rtl, script, p } = useApp();
   // `latin` is the AGENTS.md escape hatch: a digit or a Latin-only label in a
@@ -65,7 +59,6 @@ export function Txt({
   return (
     <Text
       numberOfLines={lines}
-      {...(maxScale !== undefined ? { maxFontSizeMultiplier: maxScale } : {})}
       selectable={selectable}
       testID={testID}
       onTextLayout={onTextLayout}

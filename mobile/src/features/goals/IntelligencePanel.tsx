@@ -97,6 +97,12 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   const [gmailScanProgress, setGmailScanProgress] = React.useState<number | null>(null);
   // Which action's one-line explanation is open, waiting for «كمّل».
   const [confirming, setConfirming] = React.useState<PanelAction | null>(null);
+  // False once the panel unmounts: a scan stops asking, and nothing more is said.
+  const scanMounted = React.useRef(true);
+  React.useEffect(() => {
+    scanMounted.current = true;
+    return () => { scanMounted.current = false; };
+  }, []);
   // The statement as it was when its explanation opened; that is what is sent.
   const [snapshot, setSnapshot] = React.useState('');
   // Said aloud: only the start, the result and a failure — never per page.
@@ -104,8 +110,11 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   // told at the moment of each change, not from an effect, because a fast
   // answer lands in the same render as «started» and an effect would only
   // ever see the last of the two.
+  // (`useAnnounceOnIos` is that effect, so it is not used here.) Nothing is
+  // said once the panel has left the screen.
   const [announced, setAnnounced] = React.useState<string | null>(null);
   const say = React.useCallback((text: string | null) => {
+    if (!scanMounted.current) return;
     setAnnounced(text);
     if (text && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(text);
   }, []);
@@ -114,11 +123,6 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   // React state lands a render later; two presses in one frame both see
   // `busy === false`. This ref is the guard that is set before either returns.
   const inFlight = React.useRef(false);
-  const scanMounted = React.useRef(true);
-  React.useEffect(() => {
-    scanMounted.current = true;
-    return () => { scanMounted.current = false; };
-  }, []);
   const [gmailMonitor, setGmailMonitor] = React.useState<z.infer<typeof intelligenceGmailMonitorSchema> | null>(null);
   const [error, setError] = React.useState<unknown>(null);
   const read = React.useCallback(async () => {
@@ -218,7 +222,9 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     setRefreshFailed(false);
     say(action === 'analyze' ? t.xIntelligenceAnalyzing : action === 'generate' ? t.xIntelligenceGenerating : t.xIntelligenceGmailScanStarted);
     try {
-      let result: (next: IntelligenceInbox | null) => string;
+      // Null when the result cannot be said truthfully: the refresh failed, so
+      // nothing new is visible to point at.
+      let result: (next: IntelligenceInbox | null) => string | null;
       try {
         if (action === 'analyze') {
           const sent = snapshot;
@@ -232,9 +238,9 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
           // Only what this request returned and was not on screen before counts:
           // a reused run, or the Watching visit landing meanwhile, adds nothing.
           const returned = new Set(answer.suggestions.filter(item => item.status === 'pending' && !before.has(item.id)).map(item => item.id));
-          result = next => tr('xIntelligenceNewSuggestionsN', {
-            n: next ? next.suggestions.filter(item => item.status === 'pending' && returned.has(item.id)).length : returned.size,
-          });
+          result = next => next ? tr('xIntelligenceNewSuggestionsN', {
+            n: next.suggestions.filter(item => item.status === 'pending' && returned.has(item.id)).length,
+          }) : null;
         } else {
           let status: 'running' | 'complete' | 'busy' = 'running';
           let visited = 0;
@@ -246,6 +252,8 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
             if (scanMounted.current) setGmailScanProgress(visited);
             if (status === 'busy') await new Promise(resolve => setTimeout(resolve, 1500));
           }
+          // Left the screen mid-scan: the scan is not done, so it is not said to be.
+          if (status !== 'complete') return;
           result = () => tr('xIntelligenceGmailScanDone', { count: visited });
         }
       } catch (cause) {
@@ -257,7 +265,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       onChanged();
       let next: IntelligenceInbox | null = null;
       try { next = await refresh(); } catch { setRefreshFailed(true); }
-      say(result(next));
+      say(result(next) ?? t.xIntelligenceRefreshFailed);
     } finally {
       inFlight.current = false;
       setGmailScanProgress(null);

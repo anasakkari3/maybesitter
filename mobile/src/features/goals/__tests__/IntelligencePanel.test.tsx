@@ -404,3 +404,31 @@ it('keeps the explanations behind their arrows until asked for', async () => {
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-panel-why')); });
   expect(screen.getByText(en.xIntelligenceBody)).toBeTruthy();
 });
+
+it('claims no count of new suggestions when the refresh after generating failed', async () => {
+  currentInbox = { success: true, observations: [evidence], suggestions: [], schedule: [] };
+  mockGenerate.mockResolvedValue({ success: true, suggestions: [suggestion], schedule: [] });
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-generate')).not.toBeNull());
+  mockInbox.mockImplementationOnce(() => Promise.reject(new NetworkError('offline')));
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
+  await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
+  expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent(en.xIntelligenceRefreshFailed);
+  expect(screen.queryByText('1 new suggestion below')).toBeNull();
+});
+
+it('says nothing — and never «done» — when the panel leaves the screen mid-scan', async () => {
+  const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+  let releasePage: (value: unknown) => void = () => {};
+  mockScan.mockImplementation(() => new Promise(resolve => { releasePage = resolve; }));
+  const view = await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan-confirm')); });
+  await view.unmount();
+  await act(async () => { releasePage({ success: true, messagesRead: 3, observations: [], scan: { status: 'running', messagesVisited: 3 } }); });
+  await settle();
+  expect(announce.mock.calls.map(call => call[0])).toEqual([en.xIntelligenceGmailScanStarted]);
+  expect(mockScan).toHaveBeenCalledTimes(1);
+});

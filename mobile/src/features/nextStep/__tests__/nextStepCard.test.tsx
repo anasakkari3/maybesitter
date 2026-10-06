@@ -217,9 +217,11 @@ describe('«the time has passed» on an all-day item (N18)', () => {
     expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
   });
 
-  it('is said once the day is over', async () => {
+  it('is said once the day is over — in «why», since the card face has no reason chips (2026-10-06)', async () => {
     await show(response(), new Map([['c-1', allDay(true)]]));
-    expect(screen.getByText(en.evidenceOverdue)).toBeTruthy();
+    expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    await waitFor(() => expect(within(screen.getByTestId('next-step-why')).getByText(new RegExp(en.evidenceOverdue))).toBeTruthy());
   });
 });
 
@@ -532,9 +534,10 @@ describe('a preparation step for an event', () => {
     expect(screen.getAllByText(/Night out with friends/)).toHaveLength(1);
   });
 
-  it('says when the exam is, since tomorrow’s exam is not among today’s items', async () => {
+  it('says when the exam is, since tomorrow’s exam is not among today’s items — in «why» (2026-10-06)', async () => {
     await show(prepResponse());
-    expect(screen.getByText(/^it’s Tomorrow · /)).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    await waitFor(() => expect(within(screen.getByTestId('next-step-why')).getByText(/it’s Tomorrow · /)).toBeTruthy());
   });
 
   it('after «start», is no dead end: done, later and not-this stay, and «حضّرني» is there to plan it', async () => {

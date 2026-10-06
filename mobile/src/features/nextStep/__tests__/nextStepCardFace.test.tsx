@@ -79,9 +79,10 @@ describe('the next-step card face', () => {
     expect(screen.queryByTestId('next-step-note')).toBeNull();
   });
 
-  it('keeps the fact that the time has passed, and the estimated-importance tag', async () => {
+  it('keeps no reason chip at all on the face — not even «the time has passed» — and keeps the estimated tag', async () => {
     await show(1);
-    expect(screen.getByText(en.evidenceOverdue)).toBeTruthy();
+    expect(screen.queryByText(en.evidenceOverdue)).toBeNull();
+    expect(screen.queryByTestId('next-step-evidence')).toBeNull();
     expect(screen.getByText(en.nextStepEvidenceEstimated)).toBeTruthy();
   });
 

@@ -164,7 +164,8 @@ import {
 import { POST as googleGmailScanPost } from '../../src/app/api/mobile/integrations/google/gmail/scan/route.ts';
 import { GET as intelligenceInboxGet, POST as intelligenceStatementPost } from '../../src/app/api/mobile/intelligence/route.ts';
 import { POST as intelligenceGeneratePost } from '../../src/app/api/mobile/intelligence/generate/route.ts';
-import { GET as intelligenceMonitorGet } from '../../src/app/api/mobile/intelligence/sources/gmail/monitor/route.ts';
+import { POST as intelligenceObservationPost } from '../../src/app/api/mobile/intelligence/observations/[id]/route.ts';
+import { GET as intelligenceMonitorGet, POST as intelligenceMonitorPost } from '../../src/app/api/mobile/intelligence/sources/gmail/monitor/route.ts';
 import { POST as intelligenceGmailScanPost } from '../../src/app/api/mobile/intelligence/sources/gmail/scan/route.ts';
 import { semanticPrompt } from '../../lib/intelligence/semantic.ts';
 import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrations/google/drive/picker/route.ts';
@@ -2659,6 +2660,12 @@ test('exports the proactive-loop (intelligence) fixtures the Goals and Watching 
       await record('intelligence.generated', 200, await intelligenceGeneratePost(request('/api/mobile/intelligence/generate', { body: {} })));
       await record('intelligence.inbox', 200, await intelligenceInboxGet(request('/api/mobile/intelligence')));
       await record('intelligence.gmailMonitor', 200, await intelligenceMonitorGet(request('/api/mobile/intelligence/sources/gmail/monitor')));
+      // «آه، هيك صح» on a card the panel shows.
+      const observationId = (analyzed.observations as Array<{ id: string }>)[0]!.id;
+      await record('intelligence.observationReviewed', 200, await intelligenceObservationPost(
+        request(`/api/mobile/intelligence/observations/${observationId}`, { body: { review: 'confirmed' } }),
+        { params: Promise.resolve({ id: observationId }) },
+      ));
     });
   } finally {
     if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
@@ -2838,6 +2845,16 @@ test('exports the Google connection fixtures', async () => {
       }
       const done = await record('intelligence.gmailScanComplete', 200, page);
       assert.equal((done.scan as { status: string }).status, 'complete');
+      // The panel's «فعّل متابعة الإيميلات الجديدة» switch. Enabling reads
+      // the loop's gate from the Google runtime's own env, so that env carries
+      // the same flags for this one call.
+      const base = googleRuntime();
+      setGoogleRuntimeForTests({ ...base, env: { ...base.env, MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true' } as typeof base.env });
+      const monitored = await record('intelligence.gmailMonitorSet', 200, await intelligenceMonitorPost(as('/api/mobile/intelligence/sources/gmail/monitor', {
+        body: { enabled: true },
+      })));
+      assert.equal(monitored.enabled, true);
+      setGoogleRuntimeForTests(base);
     });
 
     // The same scan with the model switched off: nothing was read, and the
