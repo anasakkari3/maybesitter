@@ -241,6 +241,8 @@ export interface ChatPreviousItem {
   needsDayOrTime?: boolean;
   /** Present when the previous point was a seed rather than a commitment. */
   kind?: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+  /** Stored server reading, never shown to the model; used to carry uncited fields. */
+  result?: ExtractionResult;
 }
 
 interface AttributedClause {
@@ -336,7 +338,23 @@ export function chatItemEvidence(
   timezone = 'UTC',
   evidenceStartIndices: readonly number[] = [],
   previousMatchIndices?: readonly (number | null)[],
+  operationSources?: readonly string[],
 ): ChatItemEvidence[] {
+  if (operationSources) {
+    const aligned = alignToPrevious(items, previous, previousMatchIndices);
+    return items.map((item, index) => {
+      const previousIndex = aligned[index];
+      const ownPrevious = previousIndex === null || previousIndex === undefined ? [] : [previous[previousIndex]!];
+      return chatItemEvidence(
+        [operationSources[index] ?? ''],
+        [item],
+        ownPrevious,
+        timezone,
+        [0],
+        [ownPrevious.length > 0 ? 0 : null],
+      )[0]!;
+    });
+  }
   const perTurn = userTurns.map((turn) => chatEvidenceTurns([turn]));
   const newest = perTurn.length - 1;
   const turns = perTurn.flat();

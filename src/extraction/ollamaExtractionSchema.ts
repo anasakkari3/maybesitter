@@ -167,12 +167,24 @@ export const CAPTURE_CHAT_ACTIONS = ['propose', 'update', 'ask', 'chat'] as cons
 export type CaptureChatAction = (typeof CAPTURE_CHAT_ACTIONS)[number];
 
 /**
- * The ref-constrained capture-chat response schema for one turn (M2b v5).
+ * The ref-constrained capture-chat response schema for one turn (M2b v9).
  * Empty ref sets use an impossible sentinel because Vertex does not accept an
  * empty enum; the parser still rejects the sentinel if a model invents it.
  */
 export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: readonly string[]): Record<string, unknown> {
   const refs = (values: readonly string[]) => values.length > 0 ? values : ['__no_ref__'];
+  const citedExtraction = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      ...OLLAMA_EXTRACTION_SCHEMA.properties,
+      source: {
+        type: 'string',
+        description: 'Exact words from the newest user message that support this new point.',
+      },
+    },
+    required: [...OLLAMA_EXTRACTION_SCHEMA.required],
+  } as const;
   return toVertexSchema({
     type: 'object',
     additionalProperties: false,
@@ -187,6 +199,10 @@ export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: rea
           properties: {
             ref: { type: 'string', enum: refs(lockedRefs) },
             op: { type: 'string', enum: ['keep', 'remove'] },
+            source: {
+              type: 'string',
+              description: 'Optional exact words from the newest user message that support removing this point.',
+            },
           },
           required: ['ref', 'op'],
         },
@@ -200,11 +216,15 @@ export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: rea
             ref: { type: 'string', enum: refs(openRefs) },
             op: { type: 'string', enum: ['keep', 'update', 'remove'] },
             fields: OLLAMA_EXTRACTION_SCHEMA,
+            source: {
+              type: 'string',
+              description: 'Exact words from the newest user message that support this update, or optional support for a removal.',
+            },
           },
           required: ['ref', 'op'],
         },
       },
-      added: { type: 'array', items: OLLAMA_EXTRACTION_SCHEMA },
+      added: { type: 'array', items: citedExtraction },
     },
     required: ['reply', 'action', 'locked', 'open', 'added'],
   });

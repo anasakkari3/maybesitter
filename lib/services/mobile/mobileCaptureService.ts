@@ -24,6 +24,7 @@ import { applyTrustAction } from '../../pilot/pilotTrustStore';
 import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
+import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
 import {
   appendClarificationEvent,
@@ -711,9 +712,11 @@ export async function proposeMobileChatTurn(
     now: Date;
     timezone: string;
     /** The list the person saw before this message (chat UAT round 2), each title in the person's own words. */
-    previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean; kind?: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for' }[];
+    previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean; kind?: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; result?: ExtractionResult }[];
     /** Ref-derived previous entry for each model delta item; null for an add. */
     previousMatchIndices?: readonly (number | null)[];
+    /** Validated citation span for each model delta item, in the same order. */
+    operationSources?: readonly string[];
     /** Current proposal whose server refs form this new proposal's base. */
     baseProposalId?: string;
     /** Parsed model operations. Absent on the append-only rules path. */
@@ -748,6 +751,7 @@ export async function proposeMobileChatTurn(
       ...(input.changedFieldEvidenceStartIndices
         ? { changedFieldEvidenceStartIndices: input.changedFieldEvidenceStartIndices }
         : {}),
+      ...(input.operationSources ? { operationSources: input.operationSources } : {}),
     } } : {}),
     titleWithoutLeadIn: true,
     guardUnresolvedIntentWithSchedule: true,
@@ -805,6 +809,7 @@ export async function readMobileChatProposal(proposalId: string, participantId: 
     sourceTitles,
     refs: refs.refs,
     lockedRefs: new Set(stored.lockedChatRefs ?? []),
+    resultsByItemId: new Map(stored.resultsByItemId ?? []),
   };
 }
 

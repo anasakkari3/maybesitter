@@ -151,7 +151,14 @@ type Item = {
   clarification?: { questionId: string; options: Array<{ optionId: string }> } | null;
   weeklyBlock?: unknown;
 };
-type Proposal = { proposalId: string; status: string; items: Item[]; seeds: unknown[]; provenance: { requestedEngine: string; executedEngine: string } };
+type Proposal = {
+  proposalId: string;
+  status: string;
+  items: Item[];
+  seeds: unknown[];
+  removedItems?: Array<{ text: string }>;
+  provenance: { requestedEngine: string; executedEngine: string };
+};
 type ChatBody = {
   conversationId: string;
   reply: string;
@@ -274,7 +281,7 @@ test('«خلّيها الساعة 6 المسا» moves the time, and the reply s
 
 /* ── 3. an hour or a day nobody said ────────────────────────────── */
 
-test('an hour the person never said is dropped to a question, never a silent pick', async () => {
+test('a cited hour wins over a different model hour', async () => {
   // The person said 5pm and then 6pm for the dentist; the model put it at
   // 7pm. The conversation states times, so the validator's "no time at all"
   // rule does not fire, and with two hours said its "the words' hour wins"
@@ -290,8 +297,8 @@ test('an hour the person never said is dropped to a question, never a silent pic
     const first = await chat(uid, 'Remind me to call the dentist tomorrow at 5pm');
     const body = await chat(uid, 'hmm, or maybe 6pm', first.conversationId);
     const [dentist] = body.proposal!.items;
-    assert.equal(dentist!.resolvedTime, null, 'a 19:00 nobody said was proposed');
-    assert.equal(dentist!.needsClarification, true);
+    assert.equal(dentist!.resolvedTime, instant(TOMORROW, '18:00'), 'the citation\'s 18:00 was not applied');
+    assert.equal(dentist!.needsClarification, false);
     assert.equal(dentist!.resolvedDate, TOMORROW, 'the day the person did say was lost with the hour');
   } finally {
     end();
@@ -305,10 +312,9 @@ test('beside another item, a model hour for one item is replaced by the hour the
   // and never the gym's 18:00.
   const model = scripted(
     answer('Dentist tomorrow at 5pm. Confirm if right.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
-    answer('Dentist and gym tomorrow. Confirm if right.', 'update', [
-      item('Call the dentist', TOMORROW, '19:00'),
-      item('Go to the gym', TOMORROW, '18:00'),
-    ]),
+    { reply: 'Dentist and gym tomorrow. Confirm if right.', action: 'update', locked: [],
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [{ ...item('Go to the gym', TOMORROW, '18:00'), source: 'and the gym tomorrow at 6pm' }] },
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -720,7 +726,7 @@ for (const [label, first, removal] of [
   });
 }
 
-test('removing the only item clears the proposal and says so', async () => {
+test('removing the only item leaves a restorable removedItems receipt and says so', async () => {
   const model = scripted(
     answer('Call the dentist tomorrow at 5pm. Confirm if right.', 'propose', [item('Call the dentist', TOMORROW, '17:00')]),
     answer('Removed. Anything else?', 'update', []),
@@ -730,7 +736,8 @@ test('removing the only item clears the proposal and says so', async () => {
     const uid = uidFor('ChatClear');
     const first = await chat(uid, 'Remind me to call the dentist tomorrow at 5pm');
     const second = await chat(uid, 'actually remove it', first.conversationId);
-    assert.equal(second.proposal, null);
+    assert.deepEqual(second.proposal?.items, []);
+    assert.deepEqual(second.proposal?.removedItems?.map((entry) => entry.text), ['Call the dentist']);
     assert.equal(second.reply, 'Removed. Anything else?');
   } finally {
     end();

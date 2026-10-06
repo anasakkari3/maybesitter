@@ -32,7 +32,7 @@ import type { ScheduleEntryForPrompt } from './chatConflicts';
  * offer another time only as a question, and gives a reason only from the
  * person's words or the list.
  */
-export const CHAT_PROMPT_VERSION = 'capture-chat-v8';
+export const CHAT_PROMPT_VERSION = 'capture-chat-v9';
 
 /** One item of the list the person currently sees, as the model is shown it. */
 export interface ChatPromptItem {
@@ -64,7 +64,8 @@ const CHAT_RULES: readonly string[] = [
   '- update: the person changed, added or removed items. "make it 6pm", «خلّيها الساعة 6 المسا» change a time; «شيل التانية», "remove the second one", «תמחק את השני» remove an item. "the second one" is the second item of currentProposal. The reply says what you changed.',
   '- ask: something needed is missing (usually the day or the time). Ask for it in reply.',
   '- chat: the message is not about anything to do — a greeting, thanks, or an off-topic question such as the weather. Reply with one short, friendly sentence that brings the person back to their commitments, and change nothing.',
-  'Identity is by ref only. Never copy, invent, translate or derive a ref. Put decisions for entries with locked:true in locked as {ref,op:"keep"|"remove"}; locked entries can never be updated. Put decisions for other entries in open as {ref,op:"keep"|"remove"} or {ref,op:"update",fields:<one complete extraction object>}. Put genuinely new things in added as complete extraction objects with no ref. An entry you do not mention is kept. For chat, keep locked/open empty and add nothing.',
+  'Identity is by ref only. Never copy, invent, translate or derive a ref. Put decisions for entries with locked:true in locked as {ref,op:"keep"|"remove"}; locked entries can never be updated. Put decisions for other entries in open as {ref,op:"keep"|"remove"} or {ref,op:"update",fields:<one complete extraction object>,source:<exact newest-message words>}. Put genuinely new things in added as complete extraction objects with no ref and with source:<exact newest-message words>. An entry you do not mention is kept. For chat, keep locked/open empty and add nothing.',
+  'CITATIONS: On a turn with a currentProposal, every update and every added entry must cite source: a non-empty exact span copied from the person\'s newest message. The source for one point must not overlap words cited for another point. Cite only the words for that operation: its title/kind/day/start/end/recurrence may use facts only from its own source. A recurring request that becomes several dated cards is still one added entry with one source. keep has no source. remove may include source when the newest message says its removal.',
   'A short follow-up that only identifies an existing entry by position — for example «خلّي التانية» or "the second one" — is an instruction about that ref, not title text. Never use those referring words as an item title; preserve the current title unless the person also supplies a new title.',
   'Each item is one extraction object and follows every extraction rule below. Take days and times ONLY from the person\'s own messages (role "user"). Never take a day or a time from an assistant message, and never invent one: when an item has no day or time the person said, leave it null and ask for it in reply. The one exception: when the person\'s newest message is a plain yes to a time your previous reply offered as a question, use that time.',
   'When the request says the newest message was spoken, you may fix an obvious single-word dictation mishearing in an item title. Report every fix on that item as corrections: [{"from":"word heard","to":"word used"}]. Otherwise omit corrections. Never report a phrase or a correction you did not actually apply.',
@@ -141,6 +142,7 @@ export interface ChatModelRefOperation {
   ref: string;
   op: 'keep' | 'update' | 'remove';
   fields?: unknown;
+  source?: unknown;
 }
 
 export function parseChatModelAnswer(
@@ -185,12 +187,21 @@ export function parseChatModelAnswer(
       ignoredRefOperations += 1;
       return [];
     }
+    if (op === 'keep' && Object.prototype.hasOwnProperty.call(entry, 'source')) {
+      ignoredRefOperations += 1;
+      return [];
+    }
     if (op === 'update' && (!entry.fields || typeof entry.fields !== 'object' || Array.isArray(entry.fields))) {
       ignoredRefOperations += 1;
       return [];
     }
     seen.add(ref);
-    return [{ ref, op: op as ChatModelRefOperation['op'], ...(op === 'update' ? { fields: entry.fields } : {}) }];
+    return [{
+      ref,
+      op: op as ChatModelRefOperation['op'],
+      ...(op === 'update' ? { fields: entry.fields } : {}),
+      ...(Object.prototype.hasOwnProperty.call(entry, 'source') ? { source: entry.source } : {}),
+    }];
   });
   const locked = operations(answer.locked, constraints.lockedRefs, true);
   const open = operations(answer.open, constraints.openRefs, false);
@@ -201,5 +212,115 @@ export function parseChatModelAnswer(
     open,
     added: answer.added,
     ...(ignoredRefOperations > 0 ? { ignoredRefOperations } : {}),
+  };
+}
+
+export interface ValidatedChatCitations {
+  /** Extraction objects with the server-only citation field removed. */
+  added: unknown[];
+  /** One source for each update, followed by one for each added operation. */
+  deltaSources: string[];
+}
+
+interface CitationOperation {
+  key: string;
+  source: unknown;
+  required: boolean;
+}
+
+const CITATION_WORD = new RegExp('[\\p{L}\\p{N}]', 'u');
+const CITATION_WORDS = new RegExp('[\\p{L}\\p{N}]+', 'gu');
+
+/** The agreed citation fold: Unicode marks/tatweel/alef forms, then whitespace. */
+function foldCitation(text: string): string {
+  return text
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0591-\u05C7\u0640]/g, '')
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Word positions touched by a substring occurrence in the folded message. */
+function wordPositions(text: string, start: number, length: number): Set<number> {
+  const end = start + length;
+  const positions = new Set<number>();
+  let index = 0;
+  for (const match of Array.from(text.matchAll(CITATION_WORDS))) {
+    const at = match.index;
+    const after = at + match[0].length;
+    if (at < end && after > start) positions.add(index);
+    index += 1;
+  }
+  return positions;
+}
+
+/** Every occurrence of `source` in `message`, represented by the words it uses. */
+function sourceOccurrences(message: string, source: string): Set<number>[] {
+  const occurrences: Set<number>[] = [];
+  for (let at = message.indexOf(source); at !== -1; at = message.indexOf(source, at + 1)) {
+    const before = message[at - 1] ?? '';
+    const after = message[at + source.length] ?? '';
+    if ((CITATION_WORD.test(source[0] ?? '') && CITATION_WORD.test(before))
+      || (CITATION_WORD.test(source.at(-1) ?? '') && CITATION_WORD.test(after))) continue;
+    const words = wordPositions(message, at, source.length);
+    if (words.size > 0) occurrences.push(words);
+  }
+  return occurrences;
+}
+
+/** Whether repeated citation strings can be placed on non-overlapping words. */
+function citationsDoNotOverlap(candidates: readonly Set<number>[][], index = 0, used = new Set<number>()): boolean {
+  if (index >= candidates.length) return true;
+  for (const occurrence of candidates[index]!) {
+    if (Array.from(occurrence).some((word) => used.has(word))) continue;
+    const next = new Set(used);
+    for (const word of Array.from(occurrence)) next.add(word);
+    if (citationsDoNotOverlap(candidates, index + 1, next)) return true;
+  }
+  return false;
+}
+
+/**
+ * Validates a later-turn answer atomically. A single uncited update/add may
+ * use the whole newest message; a multi-operation answer may not guess.
+ */
+export function validateChatCitations(answer: ChatModelAnswer, newestMessage: string): ValidatedChatCitations | null {
+  const updates = answer.open.filter((operation) => operation.op === 'update');
+  const added = answer.added.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return { fields: entry, source: undefined };
+    const { source, ...fields } = entry as Record<string, unknown>;
+    return { fields, source };
+  });
+  const operations: CitationOperation[] = [
+    ...answer.locked.filter((operation) => operation.op === 'remove' && operation.source !== undefined)
+      .map((operation) => ({ key: operation.ref, source: operation.source, required: false })),
+    ...answer.open.filter((operation) => operation.op === 'remove' && operation.source !== undefined)
+      .map((operation) => ({ key: operation.ref, source: operation.source, required: false })),
+    ...updates.map((operation) => ({ key: operation.ref, source: operation.source, required: true })),
+    ...added.map((entry, index) => ({ key: `added:${index}`, source: entry.source, required: true })),
+  ];
+  const required = operations.filter((operation) => operation.required);
+  if (required.length === 1 && required[0]!.source === undefined) required[0]!.source = newestMessage;
+  if (required.some((operation) => operation.source === undefined)) return null;
+
+  const message = foldCitation(newestMessage);
+  const sources = new Map<string, string>();
+  const candidates: Set<number>[][] = [];
+  for (const operation of operations) {
+    if (typeof operation.source !== 'string') return null;
+    const source = foldCitation(operation.source);
+    if (!source) return null;
+    const occurrences = sourceOccurrences(message, source);
+    if (occurrences.length === 0) return null;
+    sources.set(operation.key, operation.source);
+    candidates.push(occurrences);
+  }
+  if (!citationsDoNotOverlap(candidates)) return null;
+  return {
+    added: added.map((entry) => entry.fields),
+    deltaSources: [
+      ...updates.map((operation) => sources.get(operation.ref) ?? newestMessage),
+      ...added.map((_, index) => sources.get(`added:${index}`) ?? newestMessage),
+    ],
   };
 }

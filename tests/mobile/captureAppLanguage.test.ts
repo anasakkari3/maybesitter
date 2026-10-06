@@ -111,7 +111,7 @@ test('the chat prompt: reply in the app language, list shown with both titles', 
   );
   const rules = rulesOf(prompt);
   assert.match(rules, /REPLY LANGUAGE: Arabic, spoken Levantine\. This is the app's language: write reply in it whatever language the person writes in/);
-  assert.match(rules, /PROMPT VERSION: capture-chat-v8/);
+  assert.match(rules, /PROMPT VERSION: capture-chat-v9/);
   assert.match(rules, /APP LANGUAGE: Arabic/);
   const data = dataOf(prompt);
   assert.deepEqual(data.currentProposal[0], { number: 1, ref: 'i1', locked: false, title: 'Dentist appointment', appTitle: 'موعد عند دكتور الأسنان', date: FRIDAY, time: '16:00', needsDayOrTime: false });

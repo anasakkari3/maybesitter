@@ -53,11 +53,11 @@ import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
-import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit } from '../captureBoundary/chatEvidence';
+import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, isPlainYes, looksLikeListEdit } from '../captureBoundary/chatEvidence';
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
-import { buildChatPrompt, parseChatModelAnswer, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
+import { buildChatPrompt, parseChatModelAnswer, validateChatCitations, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
 import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
@@ -347,7 +347,18 @@ export async function chatMobileCapture(
   if (conversation.messageReceipt?.fingerprint === messageFingerprint
     && receiptAge >= 0 && receiptAge <= 120_000) {
     const replay = conversation.messageReceipt.answer as CaptureChatResponse;
-    return receiptMatchesProposal ? replay : { ...replay, proposal: read?.proposal ?? null };
+    if (receiptMatchesProposal) return replay;
+    const previousEvidenceTurns = conversation.turns.filter((turn) => turn.role === 'user' && turn.evidence !== false);
+    const replayLanguage = captureAppLocaleFrom(input.locale) ?? detectChatLanguage(
+      message,
+      previousEvidenceTurns.length > 0 ? detectChatLanguage(previousEvidenceTurns.at(-1)!.text) : 'ar',
+    );
+    const liveProposal = read?.proposal ?? null;
+    return {
+      ...replay,
+      reply: templateReply({ language: replayLanguage, proposal: liveProposal }),
+      proposal: liveProposal,
+    };
   }
 
   const evidenceConversationTurns = conversation.turns.filter((turn) => turn.evidence !== false);
@@ -497,28 +508,38 @@ export async function chatMobileCapture(
       const spec = fields.localTimeSpec && typeof fields.localTimeSpec === 'object'
         ? fields.localTimeSpec as Record<string, unknown>
         : null;
+      const instant = [fields.remindAt, fields.dueAt].find((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)));
+      const derivedSpec = !spec && instant ? localTimeSpecFor(new Date(instant), timezone) : null;
       const title = typeof fields.title === 'string' ? fields.title : typeof fields.action === 'string' ? fields.action : '';
       const appTitle = typeof fields.appTitle === 'string' ? fields.appTitle : undefined;
       const kind = typeof fields.kind === 'string' ? fields.kind : undefined;
       return title.trim() === before.title
         && (appTitle === undefined || appTitle === before.appTitle)
         && (kind === undefined ? before.kind === undefined : kind === before.kind)
-        && (typeof spec?.date === 'string' ? spec.date : null) === before.date
-        && (typeof spec?.time === 'string' ? spec.time : null) === before.time;
+        && (typeof spec?.date === 'string' ? spec.date : derivedSpec?.date ?? null) === before.date
+        && (typeof spec?.time === 'string' ? spec.time : derivedSpec?.time ?? null) === before.time;
     };
     const noOpRefs = new Set(answer.open.filter((operation) => samePoint(operation)).map((operation) => operation.ref));
     const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
       ? { ref: operation.ref, op: 'keep' as const }
       : operation);
-    const modelUpdates = answer.open.filter((operation) => operation.op === 'update');
-    const updates = open.filter((operation) => operation.op === 'update');
+    const modelUpdates = open.filter((operation) => operation.op === 'update');
+    const cited = current ? validateChatCitations({ ...answer, open }, message) : null;
+    if (current && !cited) {
+      return finish(templateReply({ language, proposal: current, editFailed: true }), 'model', current, turns, { conflictsKnown: true });
+    }
+    const addedItems = cited?.added ?? answer.added.map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+      const { source: _source, ...fields } = entry as Record<string, unknown>;
+      return fields;
+    });
     const deltaItems = [
       ...modelUpdates.map((operation) => operation.fields),
-      ...answer.added,
+      ...addedItems,
     ];
     const changesList = answer.locked.some((operation) => operation.op === 'remove')
       || open.some((operation) => operation.op === 'remove' || operation.op === 'update')
-      || answer.added.length > 0;
+      || addedItems.length > 0;
     let proposal = current;
     if (changesList) {
       const evidence = chatEvidenceFrom(evidenceTurns);
@@ -531,16 +552,27 @@ export async function chatMobileCapture(
           // turn may supply their title, kind, day or time.
           evidenceStartIndices: [
             ...modelUpdates.map(() => 0),
-            ...answer.added.map(() => Math.max(0, evidenceTurns.length - 1)),
+            ...addedItems.map(() => Math.max(0, evidenceTurns.length - 1)),
           ],
           changedFieldEvidenceStartIndices: deltaItems.map(() => Math.max(0, evidenceTurns.length - 1)),
+          ...(cited ? {
+            operationSources: isPlainYes(message) && evidenceTurns.at(-1)?.startsWith(`${message}\n`)
+              ? cited.deltaSources.map((source) => source === message ? evidenceTurns.at(-1)! : source)
+              : cited.deltaSources,
+          } : {}),
           items: evidence ? deltaItems : [],
           now,
           timezone,
-          previous: listed,
+          previous: listed.map((item) => {
+            const entityId = read
+              ? Object.entries(read.refs).find(([, ref]) => ref === item.ref)?.[0]
+              : undefined;
+            const result = entityId ? read?.resultsByItemId.get(entityId) : undefined;
+            return result ? { ...item, result } : item;
+          }),
           previousMatchIndices: [
             ...modelUpdates.map((operation) => listed.findIndex((item) => item.ref === operation.ref)),
-            ...answer.added.map(() => null),
+            ...addedItems.map(() => null),
           ],
           // The update entries above are in ref order, not title order. Added
           // entries deliberately have no previous match.
@@ -553,7 +585,7 @@ export async function chatMobileCapture(
                 kind: noOpRefs.has(operation.ref) ? 'keep' as const : 'update' as const,
                 ref: operation.ref,
               })),
-              ...answer.added.map(() => ({ kind: 'added' as const })),
+              ...addedItems.map(() => ({ kind: 'added' as const })),
             ],
           },
           responseLocale: language,

@@ -148,7 +148,10 @@ export async function mergeChatProposalByRef(
   for (const operation of plan?.open ?? []) {
     if (operation.op !== 'remove' || locked.has(operation.ref)) continue;
     const id = byRef.get(operation.ref);
-    if (id) removeEntity(next, id);
+    if (!id) continue;
+    const snapshot = snapshotOf(base, id, operation.ref, Math.max(0, order.indexOf(id)));
+    if (snapshot) (next.removedChatEntities as Record<string, RemovedChatEntity>)[operation.ref] = snapshot;
+    removeEntity(next, id);
   }
 
   type BuiltEntity = {
@@ -191,14 +194,22 @@ export async function mergeChatProposalByRef(
   const chatRefs = { ...refs.refs };
   const touched = new Set<string>();
 
-  const appendBuilt = (entry: BuiltEntity, existingId?: string) => {
+  const appendBuilt = (
+    entry: BuiltEntity,
+    existingId?: string,
+    inheritedGoalLink?: CaptureProposalContract['items'][number]['goalLink'],
+  ) => {
     const id = existingId ?? entry.id;
     const ordinal = existingId
       ? (base.sourceOrdinals?.items[existingId] ?? base.sourceOrdinals?.seeds[existingId] ?? nextOrdinal++)
       : nextOrdinal++;
     if (existingId) removeEntity(next, existingId);
     if (entry.item) {
-      next.contract.items.push({ ...entry.item, itemId: id });
+      next.contract.items.push({
+        ...entry.item,
+        itemId: id,
+        ...(entry.item.goalLink || !inheritedGoalLink ? {} : { goalLink: inheritedGoalLink }),
+      });
       (next.commandsByItemId as Map<string, readonly import('../../../src/domain/stateMachine').Command[]>).set(id, [...(built.commandsByItemId.get(entry.id) ?? [])]);
       const result = built.resultsByItemId?.get(entry.id);
       if (result) (next.resultsByItemId as Map<string, import('../../../src/extraction/extractionTypes').ExtractionResult>).set(id, result);
@@ -222,8 +233,9 @@ export async function mergeChatProposalByRef(
       if (descriptor.kind === 'update') {
         const existingId = byRef.get(descriptor.ref);
         if (!existingId || locked.has(descriptor.ref)) return;
-        appendBuilt(entities[0]!, existingId);
-        for (const extra of entities.slice(1)) appendBuilt(extra);
+        const inheritedGoalLink = base.contract.items.find((item) => item.itemId === existingId)?.goalLink;
+        appendBuilt(entities[0]!, existingId, inheritedGoalLink);
+        for (const extra of entities.slice(1)) appendBuilt(extra, undefined, inheritedGoalLink);
       } else {
         for (const entry of entities) appendBuilt(entry);
       }

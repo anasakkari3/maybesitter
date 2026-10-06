@@ -21,6 +21,7 @@ import {
   type NoCommitmentReason,
 } from '../../../src/contracts/v1/captureContracts';
 import { detectUnresolvedIntent } from '../../../src/extraction/unresolvedIntent';
+import { statedObligation } from '../../../src/extraction/priorityLexicon';
 import type { CaptureSeedProposalContract } from '../../../src/contracts/v1/intentContracts';
 import { applyEditToCommands, InvalidEditError, keepEventOnItsDay, validateEdit } from './applyEdits';
 import { buildClarification } from './clarificationBuilder';
@@ -38,6 +39,8 @@ import {
   alignToPrevious,
   chatEvidenceFrom,
   chatItemEvidence,
+  chatTimeAllowance,
+  isPlainYes,
   withInstantFromWallClock,
   withoutUnsaidTime,
   type ChatPreviousItem,
@@ -132,6 +135,8 @@ export interface ProposeCaptureOptions {
     previous?: readonly ChatPreviousItem[];
     /** Ref-derived previous entry for each delta item; null for an add. */
     previousMatchIndices?: readonly (number | null)[];
+    /** Validated citation span for each delta item, in the same order. */
+    operationSources?: readonly string[];
   };
   /**
    * Titles without the possession lead-in ("I have a", «عندي»), as a weekly
@@ -218,6 +223,67 @@ function chatOperationIndex(item: unknown): number | null {
   if (!item || typeof item !== 'object') return null;
   const value = (item as Record<string, unknown>).__chatOpIndex;
   return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : null;
+}
+
+const EXPLICIT_PRIORITY = /\b(?:urgent|important|critical|must|have to)\b|(?:^|\s)(?:ضروري|مهم|عاجل|لازم)(?=\s|$)|(?:^|\s)(?:דחוף|חשוב|חייב|חייבת)(?=\s|$)/i;
+
+/**
+ * An update begins with the stored point. Only fields supported by this
+ * operation's validated citation may replace its stored facts.
+ */
+function withCarriedCitationFacts(
+  result: ExtractionResult,
+  before: ChatPreviousItem | undefined,
+  source: string | undefined,
+  now: Date,
+  timezone: string,
+): ExtractionResult {
+  if (!before?.result || source === undefined) return result;
+  const stored = before.result;
+  const allowance = chatTimeAllowance([source], now, timezone);
+  const supportsDate = allowance.anyDate || allowance.namedDates.size > 0;
+  const supportsTime = allowance.hours.size > 0 || readClockRange(source) !== null;
+  const modelInstant = result.remindAt ?? result.dueAt;
+  const modelWallClock = result.localTimeSpec
+    ?? (modelInstant && Number.isFinite(Date.parse(modelInstant)) ? localTimeSpecFor(new Date(modelInstant), timezone) : null);
+  const currentDate = modelWallClock?.date ?? null;
+  const currentTime = modelWallClock?.time ?? null;
+  const date = supportsDate ? currentDate : before.date;
+  const time = supportsTime ? currentTime : before.time;
+  const instant = date && time ? instantFromLocal(date, time, timezone)?.toISOString() ?? null : null;
+  const oldHadDue = Boolean(stored.dueAt);
+  const oldHadReminder = Boolean(stored.remindAt);
+  const missingFields = time
+    ? result.missingFields.filter((field) => field !== 'time')
+    : result.missingFields.includes('time') ? result.missingFields : [...result.missingFields, 'time' as const];
+  const ambiguityFlags = time
+    ? result.ambiguityFlags.filter((flag) => flag !== 'vague_time')
+    : result.ambiguityFlags.includes('vague_time') ? result.ambiguityFlags : [...result.ambiguityFlags, 'vague_time' as const];
+  const prioritySupported = statedObligation(source) !== null
+    || EXPLICIT_PRIORITY.test(source)
+    || detectUnresolvedIntent(source) !== null;
+  return {
+    ...result,
+    dueAt: instant && (result.dueAt || (!result.remindAt && oldHadDue)) ? instant : null,
+    remindAt: instant && (result.remindAt || oldHadReminder) ? instant : null,
+    localTimeSpec: date ? { date, time, timezone } : null,
+    timeEvidence: supportsTime ? result.timeEvidence : stored.timeEvidence,
+    ...(supportsDate ? {} : { dateInferred: stored.dateInferred }),
+    ...(supportsTime ? {} : {
+      timeAnchor: stored.timeAnchor,
+      allDay: stored.allDay,
+      ...(stored.undatedTime ? { undatedTime: stored.undatedTime } : {}),
+    }),
+    ...(readClockRange(source) !== null
+      ? { rangeMinutes: result.rangeMinutes }
+      : stored.rangeMinutes === undefined ? {} : { rangeMinutes: stored.rangeMinutes }),
+    ...(readRecurrence(source) !== null
+      ? { recurrenceHint: result.recurrenceHint }
+      : stored.recurrenceHint === undefined ? {} : { recurrenceHint: stored.recurrenceHint }),
+    priority: prioritySupported ? result.priority : stored.priority,
+    missingFields,
+    ambiguityFlags,
+  };
 }
 
 /** Why one chat item carries nothing: the model's object failed validation. */
@@ -797,7 +863,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * refuses anything longer, so no parser here reads more than a capture's.
    */
   const chat = options.chat;
-  const chatEvidence = chat ? chatEvidenceFrom(chat.userTurns) : '';
+  const chatEvidence = chat
+    ? chat.operationSources?.join('\n') ?? chatEvidenceFrom(chat.userTurns)
+    : '';
   if (chat && chatEvidence.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const chatPrevious = chat?.previous ?? [];
   // Ref operations already identify the item. The extraction boundary checks
@@ -809,10 +877,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // Each item against its own clauses and those naming no item
   // (`chatItemEvidence`): another item's day or hour is never its evidence.
   const chatItemEvidences = chat
-    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices, chat.previousMatchIndices)
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices, chat.previousMatchIndices, chat.operationSources)
     : [];
   const chatChangedFieldEvidences = chat
-    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices, chat.previousMatchIndices)
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices, chat.previousMatchIndices, chat.operationSources)
     : [];
   const chatAligned = alignToPrevious(chatItems, chatPrevious, chat?.previousMatchIndices);
   // The days and hours each other model item holds, and the goal-like items'
@@ -881,6 +949,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     if (before?.kind && !newestMakesCommitment) {
       const newestIntent = detectUnresolvedIntent(newestEvidence);
       return newestIntent ?? { kind: before.kind };
+    }
+    // An existing commitment becomes a thought only when this operation's
+    // own newest-message span says so. A model kind on "move it to 8" is not
+    // evidence for demoting the stored point.
+    if (before && !before.kind) {
+      const acceptedOffer = newestEvidence.split('\n', 1)[0]?.trim() ?? '';
+      return isPlainYes(acceptedOffer) ? null : detectUnresolvedIntent(newestEvidence);
     }
     // M2a's schedule override belongs to the chat guard. The ordinary capture
     // path already has established unresolved-intent semantics (including its
@@ -1013,7 +1088,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       // In the chat, asked of the whole conversation, as it always was: one
       // bare early hour said anywhere is asked صبح or مسا; «الاول … عال ٤
       // والثاني … عال٦» — two hours, one per item — is not one to ask about.
-      const statedEarlyClock = extracted.engine !== 'rule-based' ? statedBareEarlyClock(chat ? chatEvidence : segment) : null;
+      const statedEarlyClock = extracted.engine !== 'rule-based'
+        ? statedBareEarlyClock(chat?.operationSources ? segment : chat ? chatEvidence : segment)
+        : null;
       if (statedEarlyClock) {
         extracted = { ...extracted, result: withStatedBareEarlyClock(extracted.result, statedEarlyClock, options.timezone) };
       }
@@ -1040,6 +1117,16 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
          * model moved it: nothing the person said this turn is overridden.
          */
         before = chatAligned[index] === null ? undefined : chatPrevious[chatAligned[index]!];
+        extracted = {
+          ...extracted,
+          result: withCarriedCitationFacts(
+            extracted.result,
+            before,
+            chat.operationSources?.[index],
+            options.now,
+            options.timezone,
+          ),
+        };
         if (!evidence.touchedNow && before?.date && before.time && !extracted.result.allDay) {
           const kept = instantFromLocal(before.date, before.time, options.timezone)?.toISOString();
           const spec = extracted.result.localTimeSpec;
@@ -1286,9 +1373,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       const occurrenceWords = chat
         ? chatItemEvidences[index]!.turns.filter((line) => raw.includes(line.trim())).join('\n')
         : segment;
+      // A ref-targeted update already identifies which stored point owns a
+      // nameless recurring answer such as "Every Tuesday and Thursday at
+      // 7 PM". Treat that one citation as the point's list evidence, so the
+      // one operation can fan the stored point out without borrowing a title
+      // or a time from any other operation.
+      const citedRecurringUpdate = Boolean(chat?.operationSources?.[index] && before && readRecurrence(segment));
       const occurrenceContext = {
         modelPlacedDay: chat ? modelItemDay(chatItems[index], options.timezone) !== null : extracted.engine !== 'rule-based',
-        stacked: chat ? stackedModelItems.has(index) : false,
+        stacked: chat ? stackedModelItems.has(index) || citedRecurringUpdate : false,
         ...(chat ? { occupied: occupiedBesides(index), goalTitles: modelGoalTitles } : {}),
       };
       // A recurrence hint over several days, read from a list that is not
@@ -1303,7 +1396,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         : occurrenceDatesFor(extracted.result, occurrenceWords, options.now, options.timezone, {
           // A day the model chose itself, or (outside the chat) a model reading at all.
           modelPlacedDay: chat ? modelItemDay(chatItems[index], options.timezone) !== null : extracted.engine !== 'rule-based',
-          stacked: chat ? stackedModelItems.has(index) : false,
+          stacked: chat ? stackedModelItems.has(index) || citedRecurringUpdate : false,
           ...(chat ? { occupied: occupiedBesides(index), goalTitles: modelGoalTitles } : {}),
         });
       if (chat && before?.date && occurrences?.includes(before.date)) {
@@ -1412,7 +1505,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // and input naming no clock time cannot trigger it. A time said in a clause
   // that was read as no commitment is not one an item lost (FY1 N1): the past
   // meeting's «الساعة 3» used to send the bank's 17:00 back to be asked.
-  const timesInInput = Math.max(0, countTimeExpressions(raw) - timesReadAsNothing);
+  const timeValveInput = chat?.operationSources?.join('\n') ?? raw;
+  const timesInInput = Math.max(0, countTimeExpressions(timeValveInput) - timesReadAsNothing);
   if (timesInInput > 0 && items.length > 0) {
     // One per reading: the days a list spread a reading over are one time the
     // words said, not several (audit 2026-10-03 review, round 2: "Tuesday and
@@ -1594,7 +1688,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       && new Date(`${other.resolvedDate}T12:00:00Z`).getUTCDay() !== own);
     // Nor does a list said in an earlier message hint several days for an
     // item this message did not spread ("actually only Tuesdays").
-    const listNow = spreadFamily.has(item.itemId) || (readRecurrence(raw)?.weekdays.length ?? 0) > 1;
+    const listNow = spreadFamily.has(item.itemId)
+      || (readRecurrence(chat ? itemClause.get(item.itemId) ?? '' : raw)?.weekdays.length ?? 0) > 1;
     if ((siblings.length > 0 || !listNow) && hint.weekdays.includes(own)) items[at] = { ...item, recurrenceHint: { ...hint, weekdays: [own] } };
   }
 

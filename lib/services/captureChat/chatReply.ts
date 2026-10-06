@@ -417,8 +417,15 @@ export function withShapeNoted(reply: string, context: ShapeContext): string {
     return words.length > 0 && offTheList.some((title) => words.some((word) => title.some((candidate) => sameWord(word, candidate))))
       && !cards.some((card) => words.some((word) => card.some((candidate) => sameWord(word, candidate))));
   });
+  const seedTitles = (context.proposal?.seeds ?? []).map((seed) => contentWords(seed.summary));
+  const namesSeedAsTimed = (sentence: string) => statesClock(sentence)
+    && Array.from(sentence.slice(0, CHAT_REPLY_SCAN_LIMIT).matchAll(QUOTED_TITLE)).some((match) => {
+      const words = contentWords(match[1] ?? match[2] ?? match[3] ?? '');
+      return words.length > 0 && seedTitles.some((title) => words.some((word) => title.some((candidate) => sameWord(word, candidate))));
+    });
   const sentences = sentencesOf(reply);
-  const remaining = offTheList.length > 0 ? sentences.filter((sentence) => !namesOffTheList(sentence)) : sentences;
+  const remaining = sentences.filter((sentence) => !namesSeedAsTimed(sentence)
+    && (offTheList.length === 0 || !namesOffTheList(sentence)));
   // What is left after a sentence went names no card («أكّد من تحت.» alone):
   // the template says the list instead.
   const kept = remaining.length === sentences.length || new RegExp(QUOTED_TITLE.source).test(remaining.join(' '))
