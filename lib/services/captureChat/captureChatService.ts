@@ -51,7 +51,7 @@ import { dayPartHour, localTimeSpecFor } from '../../../src/extraction/timeLexic
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
-import { applyStructuredEdit, StructuredEditError } from '../captureBoundary/structuredEdit';
+import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
 import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit } from '../captureBoundary/chatEvidence';
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
@@ -124,7 +124,7 @@ export interface CaptureChatResponse {
 
 /** The edit lost its proposal revision; the route returns this answer verbatim in a 409. */
 export class CaptureChatProposalChangedError extends Error {
-  constructor(readonly answer: CaptureChatResponse) {
+  constructor(readonly answer: CaptureChatResponse, readonly state: 'open' | 'confirmed') {
     super('proposal changed');
     this.name = 'CaptureChatProposalChangedError';
   }
@@ -156,7 +156,7 @@ const defaultConversations = new CaptureConversationStore();
  */
 export function boundedTurns(turns: readonly CaptureChatTurn[], limit: number = MAX_CHAT_TURNS): CaptureChatTurn[] {
   const kept = [...turns];
-  const userLength = () => kept.filter((turn) => turn.role === 'user').map((turn) => turn.text).join('\n').length;
+  const userLength = () => kept.filter((turn) => turn.role === 'user' && turn.evidence !== false).map((turn) => turn.text).join('\n').length;
   while (kept.length > 1 && (kept.length > limit || userLength() > CAPTURE_INPUT_MAX_CHARACTERS || kept[0]!.role !== 'user')) {
     kept.shift();
   }
@@ -251,22 +251,24 @@ export async function chatMobileCapture(
         engine: current.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
       });
       if (outcome.kind === 'changed') {
+        const currentTurns = outcome.turns ?? conversation.turns;
         const answer: CaptureChatResponse = {
           conversationId: conversation.conversationId,
-          reply: conversation.turns.at(-1)?.role === 'assistant' ? conversation.turns.at(-1)!.text : '',
+          reply: currentTurns.at(-1)?.role === 'assistant' ? currentTurns.at(-1)!.text : '',
           engine: outcome.proposal.provenance.requestedEngine === 'model' ? 'model' : 'rules',
           proposal: outcome.proposal,
-          turns: conversation.turns,
+          turns: currentTurns,
         };
-        throw new CaptureChatProposalChangedError(answer);
+        throw new CaptureChatProposalChangedError(answer, outcome.confirmed ? 'confirmed' : 'open');
       }
       const answer = outcome.answer as CaptureChatResponse;
-      if (outcome.kind === 'applied' && answer.proposal) {
+      if (answer.proposal) {
         const schedule = await readPersonSchedule(uid, now);
         answer.proposal = await withConflicts(answer.proposal, schedule);
       }
       return answer;
     } catch (error) {
+      if (error instanceof StructuredEditConversationNotFoundError) throw new CaptureChatError('conversation_not_found', 404);
       if (error instanceof StructuredEditError) throw new CaptureChatError('edit_invalid', 400);
       throw error;
     }
@@ -293,7 +295,8 @@ export async function chatMobileCapture(
     conversation = found;
   }
 
-  const previousUserTurns = conversation.turns.filter((turn) => turn.role === 'user');
+  const evidenceConversationTurns = conversation.turns.filter((turn) => turn.evidence !== false);
+  const previousUserTurns = evidenceConversationTurns.filter((turn) => turn.role === 'user');
   // The app's language, when the phone named it (owner request 2026-09-30):
   // the reply — the model's, checked against it, or a template — is in it
   // whatever the person typed. Without it, the language of their message.
@@ -310,6 +313,8 @@ export async function chatMobileCapture(
   // Each item's title in the person's own words, where the card shows the
   // app's: what their next message is matched against (`chatEvidence`).
   const listed = promptItems(current, timezone, read?.sourceTitles);
+  const listTitles = [...listed.map((item) => item.title), ...(current?.items.map((item) => item.title) ?? [])];
+  const editsCurrentList = Boolean(current) && looksLikeListEdit(message, listTitles);
   // The clashes the person was already shown, named by the reply that showed them.
   const alreadyShown = new Set((current?.items ?? []).flatMap((item) => (item.conflicts ?? []).map((conflict) => clashKey(item.title, conflict))));
 
@@ -345,11 +350,12 @@ export async function chatMobileCapture(
   // turns until the person's words fit the capture cap, one assistant reply
   // short of the limit so the reply still fits after it.
   const turns = boundedTurns([...conversation.turns, { role: 'user', text: message }], MAX_CHAT_TURNS - 1);
-  const userTurns = turns.filter((turn) => turn.role === 'user').map((turn) => turn.text);
+  const evidenceOnlyTurns = turns.filter((turn) => turn.evidence !== false);
+  const userTurns = evidenceOnlyTurns.filter((turn) => turn.role === 'user').map((turn) => turn.text);
   // The person's turns as their items' evidence: a plain "yes" to the one
   // time the assistant offered carries that offer (`chatEvidence`), so the
   // hour they accepted is theirs — and no other hour of the assistant's is.
-  const evidenceTurns = chatUserTurnsWithAcceptedOffers(turns);
+  const evidenceTurns = chatUserTurnsWithAcceptedOffers(evidenceOnlyTurns);
 
   // ── the model ───────────────────────────────────────────────────
   const runtime = resolveModuleRuntime('capture', dependencies.controls);
@@ -373,7 +379,7 @@ export async function chatMobileCapture(
       ...listed.flatMap((item) => (item.date ? [item.date] : [])),
     ];
     const prompt = buildChatPrompt(
-      turns,
+      evidenceOnlyTurns,
       listed,
       { now, timezone, ...(appLanguage ? { titleLanguage: appLanguage } : {}) },
       { replyLanguage: language, ...(appLanguage ? { appLanguage } : {}), savedSchedule: scheduleForPrompt(schedule, days, timezone) },
@@ -405,7 +411,18 @@ export async function chatMobileCapture(
     if (changesList) {
       const evidence = chatEvidenceFrom(evidenceTurns);
       const built = await proposeMobileChatTurn(
-        { text: message, userTurns: evidenceTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, responseLocale: language, spoken: input.spoken === true, ...(appLanguage ? { locale: appLanguage } : {}) },
+        {
+          text: message,
+          userTurns: evidenceTurns,
+          items: evidence ? answer.items : [],
+          now,
+          timezone,
+          previous: listed,
+          ...(!editsCurrentList && current ? { baseProposalId: current.proposalId } : {}),
+          responseLocale: language,
+          spoken: input.spoken === true,
+          ...(appLanguage ? { locale: appLanguage } : {}),
+        },
         { participantId: uid, requestStartedAt },
       );
       proposal = await withConflicts(shown(built), schedule);
@@ -473,16 +490,25 @@ export async function chatMobileCapture(
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
     // By the words of either title: the person's own, and the card's.
-    if (timeOnly || looksLikeListEdit(message, [...listed.map((item) => item.title), ...current.items.map((item) => item.title)])) {
+    if (timeOnly || editsCurrentList) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
   }
-  const listedTitles = [...listed.map((item) => item.title), ...(current?.items.map((item) => item.title) ?? [])];
   const rulesUserTurns = current
-    ? userTurns.filter((turn, index) => index === userTurns.length - 1 || !looksLikeListEdit(turn, listedTitles))
+    ? userTurns.filter((turn, index) => index === userTurns.length - 1 || !looksLikeListEdit(turn, listTitles))
     : userTurns;
   const built = await proposeMobileChatTurn(
-    { text: rulesUserTurns.join('\n'), userTurns: rulesUserTurns, items: null, now, timezone, responseLocale: language, spoken: false, ...(appLanguage ? { locale: appLanguage } : {}) },
+    {
+      text: rulesUserTurns.join('\n'),
+      userTurns: rulesUserTurns,
+      items: null,
+      now,
+      timezone,
+      ...(!editsCurrentList && current ? { baseProposalId: current.proposalId } : {}),
+      responseLocale: language,
+      spoken: false,
+      ...(appLanguage ? { locale: appLanguage } : {}),
+    },
     { participantId: uid, requestStartedAt },
   );
   const proposal = shown(built);

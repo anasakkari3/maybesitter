@@ -93,6 +93,8 @@ export interface StoredCaptureProposal {
   correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
   /** Only the edit that produced the current revision is retained (M2b v4 bounded receipt). */
   editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
+  /** Stable evidence used to transplant structured edits into later chat proposals. */
+  structuredEditSources?: Readonly<Record<string, { ordinal?: number; originalText: string; rawText?: string }>>;
   /** A kept capture seed's idempotent claim, bounded to this proposal. */
   seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
   /**
@@ -152,6 +154,7 @@ export interface StoredProposalDocument {
   timezone?: string;
   correctionSpans?: Record<string, { itemId: string; index: number; length: number }>;
   editReceipt?: { fingerprint: string; resultingRevision: number; answer: unknown };
+  structuredEditSources?: Record<string, { ordinal?: number; originalText: string; rawText?: string }>;
   seedKeepReceipt?: { seedItemId: string; baseRevision: number; seed: unknown };
   legacyConfirmRevision?: number;
   expiresAt: Date;
@@ -178,6 +181,7 @@ export function captureProposalToDocument(proposal: StoredCaptureProposal, now: 
     ...(proposal.timezone === undefined ? {} : { timezone: proposal.timezone }),
     ...(proposal.correctionSpans === undefined ? {} : { correctionSpans: proposal.correctionSpans }),
     ...(proposal.editReceipt === undefined ? {} : { editReceipt: proposal.editReceipt }),
+    ...(proposal.structuredEditSources === undefined ? {} : { structuredEditSources: proposal.structuredEditSources }),
     ...(proposal.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: proposal.seedKeepReceipt }),
     ...(proposal.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: proposal.legacyConfirmRevision }),
     expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
@@ -199,6 +203,7 @@ export function captureProposalFromDocument(document: StoredProposalDocument): S
     ...(document.timezone === undefined ? {} : { timezone: document.timezone }),
     ...(document.correctionSpans === undefined ? {} : { correctionSpans: document.correctionSpans }),
     ...(document.editReceipt === undefined ? {} : { editReceipt: document.editReceipt }),
+    ...(document.structuredEditSources === undefined ? {} : { structuredEditSources: { ...document.structuredEditSources } }),
     ...(document.seedKeepReceipt === undefined ? {} : { seedKeepReceipt: document.seedKeepReceipt }),
     ...(document.legacyConfirmRevision === undefined ? {} : { legacyConfirmRevision: document.legacyConfirmRevision }),
   };

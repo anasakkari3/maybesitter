@@ -238,12 +238,14 @@ test('firestore M2b: seed keep receipt and seed are one durable replayable claim
       chatPost(request('/api/mobile/capture/chat', uid,
         editBody(raced, { seedItemId: racedSeed.seedItemId }, 'Maybe I will learn Spanish this year'))).then(raw),
     ]);
-    assert.equal([racedKeep.status, racedEdit.status].filter((status) => status === 409).length, 1);
-    assert.ok([200, 201].includes([racedKeep, racedEdit].find((result) => result.status !== 409)!.status));
+    // The keep is revision-neutral. Firestore may retry either transaction,
+    // but both operations remain valid against revision 0 and both commit.
+    assert.equal(racedKeep.status, 201, JSON.stringify(racedKeep.body));
+    assert.equal(racedEdit.status, 200, JSON.stringify(racedEdit.body));
     const afterRace = await new StorageCaptureProposalStore(createFirestoreStorage()).get(raced.proposal.proposalId);
     assert.equal(afterRace?.contract.revision, 1);
     const rowsAfterRace = await createFirestoreStorage().list(userCol(uid, INTENT_SEEDS));
-    assert.equal(rowsAfterRace.length, racedKeep.status === 201 ? 1 : 0, 'a stale keep left an orphan seed');
+    assert.equal(rowsAfterRace.length, 1, 'the revision-neutral keep did not commit its seed');
 
     const first = await chat(uid, 'Maybe I will travel this summer');
     const seed = first.proposal.seeds[0]!;
@@ -268,7 +270,7 @@ test('firestore M2b: seed keep receipt and seed are one durable replayable claim
     assert.equal(listed.body.items.length, rowsAfterRace.length + 1);
     const proposalRows = await createFirestoreStorage().list<Record<string, any>>(userCol(uid, CAPTURE_PROPOSALS));
     const keptProposal = proposalRows.find((row) => row.data.proposalId === first.proposal.proposalId)?.data;
-    assert.equal(keptProposal?.contract.revision, 1);
+    assert.equal(keptProposal?.contract.revision, 0);
     assert.equal(keptProposal?.seedKeepReceipt.seedItemId, seed.seedItemId);
     const seedRows = await createFirestoreStorage().list(userCol(uid, INTENT_SEEDS));
     assert.equal(seedRows.length, rowsAfterRace.length + 1);

@@ -38,10 +38,17 @@ export class StructuredEditError extends Error {
   }
 }
 
+export class StructuredEditConversationNotFoundError extends Error {
+  constructor() {
+    super('conversation not found');
+    this.name = 'StructuredEditConversationNotFoundError';
+  }
+}
+
 export type StructuredEditOutcome =
   | { kind: 'applied'; answer: unknown; proposal: CaptureProposalContract }
   | { kind: 'replayed'; answer: unknown; proposal: CaptureProposalContract }
-  | { kind: 'changed'; proposal: CaptureProposalContract; confirmed: boolean };
+  | { kind: 'changed'; proposal: CaptureProposalContract; confirmed: boolean; turns?: CaptureChatTurn[] };
 
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -157,7 +164,10 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
   const itemIndex = itemId ? stored.contract.items.findIndex((candidate) => candidate.itemId === itemId) : -1;
   const seedIndex = seedId ? stored.contract.seeds.findIndex((candidate) => candidate.seedItemId === seedId) : -1;
   if (itemIndex < 0 && seedIndex < 0) throw new StructuredEditError();
-  if (seedIndex >= 0 && hasTime && change.kind !== 'commitment') throw new StructuredEditError();
+  if (hasTime && (
+    (itemIndex >= 0 && change.kind !== undefined && change.kind !== 'commitment')
+    || (seedIndex >= 0 && change.kind !== 'commitment')
+  )) throw new StructuredEditError();
 
   const contract: CaptureProposalContract = {
     ...stored.contract,
@@ -290,9 +300,22 @@ export async function applyStructuredEdit(input: {
       tx.get<StoredProposalDocument>(proposalPath),
       tx.get<StoredCaptureConversation & { expiresAt?: Date }>(conversationPath),
     ]);
-    if (!proposalDoc || !conversationDoc) throw new StructuredEditError();
+    if (!conversationDoc) throw new StructuredEditConversationNotFoundError();
+    if (!proposalDoc) throw new StructuredEditError();
     const stored = captureProposalFromDocument(proposalDoc);
     const currentRevision = proposalRevision(stored.contract);
+    if (conversationDoc.proposalId !== input.edit.proposalId) {
+      const currentDocument = conversationDoc.proposalId
+        ? await tx.get<StoredProposalDocument>(captureProposalPath(input.uid, conversationDoc.proposalId))
+        : null;
+      const current = currentDocument ? captureProposalFromDocument(currentDocument) : stored;
+      return {
+        kind: 'changed' as const,
+        proposal: current.contract,
+        confirmed: current.confirmedResult !== undefined,
+        turns: conversationDoc.turns,
+      };
+    }
     if (stored.editReceipt?.fingerprint === fp && stored.editReceipt.resultingRevision === currentRevision) {
       return { kind: 'replayed' as const, answer: stored.editReceipt.answer, proposal: stored.contract };
     }
@@ -302,6 +325,9 @@ export async function applyStructuredEdit(input: {
     const target = input.edit.target;
     const targetId = 'itemId' in target ? target.itemId : target.seedItemId;
     const targetsItem = 'itemId' in target;
+    const sourceOrdinal = targetsItem
+      ? stored.sourceOrdinals?.items[targetId]
+      : stored.sourceOrdinals?.seeds[targetId];
     const beforeTitle = targetsItem
       ? stored.contract.items.find((item) => item.itemId === targetId)?.title
       : stored.contract.seeds.find((seed) => seed.seedItemId === targetId)?.summary;
@@ -314,14 +340,30 @@ export async function applyStructuredEdit(input: {
       : (mutated.contract.items.find((item) => item.itemId === targetId)?.title
         ?? mutated.contract.seeds.find((seed) => seed.seedItemId === targetId)?.summary ?? beforeTitle);
     const words = editTurns(input.edit, beforeTitle, afterTitle, input.locale);
-    const turns: CaptureChatTurn[] = [...conversationDoc.turns, { role: 'user' as const, text: words.user }, { role: 'assistant' as const, text: words.reply }].slice(-12);
+    const turns: CaptureChatTurn[] = [
+      ...conversationDoc.turns,
+      // Still rendered as the person's edit in the app, but never eligible
+      // as extraction or model evidence on a later message.
+      { role: 'user' as const, text: words.user, evidence: false as const },
+      { role: 'assistant' as const, text: words.reply },
+    ].slice(-12);
     const answer = { conversationId: input.conversation.conversationId, reply: words.reply, engine: input.engine, proposal: mutated.contract, turns };
     mutated.editReceipt = { fingerprint: fp, resultingRevision: currentRevision + 1, answer };
-    mutated.seedKeepReceipt = undefined;
+    mutated.structuredEditSources = {
+      ...(stored.structuredEditSources ?? {}),
+      [targetId]: stored.structuredEditSources?.[targetId] ?? {
+        ...(Number.isFinite(sourceOrdinal) ? { ordinal: sourceOrdinal } : {}),
+        originalText: beforeTitle,
+        ...(stored.resultsByItemId?.get(targetId)?.rawText
+          ? { rawText: stored.resultsByItemId.get(targetId)!.rawText }
+          : {}),
+      },
+    };
+    mutated.seedKeepReceipt = stored.seedKeepReceipt;
     mutated.legacyConfirmRevision = undefined;
     const updatedAt = new Date().toISOString();
     tx.set(proposalPath, captureProposalToDocument(mutated, new Date()));
-    tx.set(conversationPath, { ...conversationDoc, turns, proposalId, updatedAt, expiresAt: new Date(Date.now() + CAPTURE_PROPOSAL_RETENTION_MS) });
+    tx.set(conversationPath, { ...conversationDoc, turns, proposalId: conversationDoc.proposalId, updatedAt, expiresAt: new Date(Date.now() + CAPTURE_PROPOSAL_RETENTION_MS) });
     return { kind: 'applied' as const, answer, proposal: mutated.contract };
   });
 }

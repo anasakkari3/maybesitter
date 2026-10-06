@@ -472,9 +472,10 @@ const AR_RANGE_TO = '(?:إلى|الى|حتى|لحد|لحدّ|لغاية|لغاي
 const EN_RANGE_END_CONTEXT = '(?=\\s*(?:$|[,.;!?،]|(?:on|every|each|at|in|this|next|today|tomorrow|tonight|weekly|daily|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sundays|mondays|tuesdays|wednesdays|thursdays|fridays|saturdays)\\b))';
 const RANGE_HALF_OF_DAY_WORD = `(?:${AR_DAY_PART_AFTER_HOUR}|am|pm|a\\.m\\.?|p\\.m\\.?|(?:in\\s+the\\s+)?(?:morning|afternoon|evening)|at\\s+night|tonight)`;
 export const RANGE_PATTERN_SOURCES: readonly string[] = [
-  /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:to|until|till|-)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
-  /\bbetween\s+\d{1,2}(?::\d{2})?\s+(?:and|to)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
+  /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:(?:to|until|till)\s+|[-–—]\s*)\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.source,
+  /\bbetween\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s+(?:and|to)\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
   /(?<![\d:])(?:[01]?\d|2[0-3]):[0-5]\d\s*[-–—]\s*(?:[01]?\d|2[0-3]):[0-5]\d(?![\d:])/.source,
+  /(?<![\d:])\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*[-–—]\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.source,
   `(?<![\\d:/.\\-])[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*[-–—]\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
   `(?<![؀-ۿ])من\\s*(?:(?:ال|ل)?(?:ساعة|ساعه)\\s*)?[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:${AR_RANGE_TO}|-)\\s*(?:(?:ال|ل)ـ*)?(?:ساعة|ساعه)?\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?`,
   `(?<![؀-ۿ])بين\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*(?:و|إلى|الى|حتى)\\s*[0-9٠-٩۰-۹]{1,2}(?::[0-9٠-٩۰-۹]{2})?\\s*${RANGE_HALF_OF_DAY_WORD}(?![\\p{L}\\p{M}])`,
@@ -581,15 +582,21 @@ export function rangeMinutesFrom(rawText: string, startTime: string | null | und
   if (!startTime || !/^\d{2}:\d{2}$/.test(startTime)) return null;
   const range = readClockRange(rawText);
   if (!range) return null;
+  // Equal written endpoints name no duration. This also covers the common
+  // shorthand "4-4pm": the trailing meridiem must not turn the unstated
+  // start into a fabricated twelve-hour range.
+  if (range.start.hour === range.end.hour && range.start.minute === range.end.minute) return null;
   const startHour = Number(startTime.slice(0, 2));
   const start = startHour * 60 + Number(startTime.slice(3, 5));
   if (startHour % 12 !== range.start.hour % 12 || Number(startTime.slice(3, 5)) !== range.start.minute) return null;
   let minutes: number;
   if (range.end.statedHour !== null) {
     minutes = range.end.statedHour * 60 + range.end.minute - start;
+    if (minutes === 0) return null;
     if (minutes <= 0) minutes += 24 * 60;
   } else {
     minutes = range.end.hour * 60 + range.end.minute - start;
+    if (minutes === 0) return null;
     while (minutes <= 0) minutes += 12 * 60;
   }
   return minutes > 0 && minutes <= LONGEST_RANGE_MINUTES ? minutes : null;

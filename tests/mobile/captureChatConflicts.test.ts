@@ -139,9 +139,28 @@ type ChatBody = {
   conversationId: string;
   reply: string;
   engine: 'model' | 'rules';
-  proposal: { proposalId: string; items: Item[] } | null;
+  proposal: { proposalId: string; revision?: number; items: Item[] } | null;
   turns: Array<{ role: string; text: string }>;
 };
+
+async function edit(uid: string, body: ChatBody, text: string): Promise<ChatBody> {
+  const target = body.proposal!.items[0]!;
+  const response = await chatPost(post('/api/mobile/capture/chat', uid, {
+    conversationId: body.conversationId,
+    edit: {
+      proposalId: body.proposal!.proposalId,
+      revision: body.proposal!.revision ?? 0,
+      target: { itemId: target.itemId },
+      change: { text },
+    },
+    timezone: TZ,
+    referenceTime: new Date().toISOString(),
+    locale: 'ar',
+  }));
+  const answer = await response.json() as ChatBody;
+  assert.equal(response.status, 200, JSON.stringify(answer));
+  return answer;
+}
 
 async function chat(uid: string, message: string, options: { conversationId?: string; locale?: 'ar' | 'en' | 'he' } = {}): Promise<ChatBody> {
   const response = await chatPost(post('/api/mobile/capture/chat', uid, {
@@ -173,6 +192,25 @@ async function saveWedding(uid: string): Promise<void> {
   assert.equal(seeded.proposal!.items[0]!.resolvedTime, at(FRIDAY, '18:00'), 'the seed was not proposed at Friday 18:00');
   assert.equal((await confirmAll(uid, seeded)).success, true);
 }
+
+test('an identical structured-edit replay recomputes the same conflicts as the applied answer', async () => {
+  const provider = scripted(
+    SEED_WEDDING,
+    answer('العشا الجمعة الساعة 6 المسا. أكّد من تحت.', 'propose', [item(DINNER, FRIDAY, '18:00')]),
+  );
+  begin(provider.provider);
+  try {
+    const uid = uidFor('ChatConflictEditReplay');
+    await saveWedding(uid);
+    const proposed = await chat(uid, DINNER_MESSAGE, { locale: 'ar' });
+    const applied = await edit(uid, proposed, 'عشا الجمعة مع أهلي');
+    assert.ok((applied.proposal!.items[0]!.conflicts?.length ?? 0) > 0, JSON.stringify(applied.proposal));
+    const replayed = await edit(uid, proposed, 'عشا الجمعة مع أهلي');
+    assert.deepEqual(replayed.proposal!.items[0]!.conflicts, applied.proposal!.items[0]!.conflicts);
+  } finally {
+    end();
+  }
+});
 
 const DINNER = 'عشا مع أهلي';
 const DINNER_MESSAGE = 'عندي عشا مع أهلي الجمعة الساعة 6 المسا';

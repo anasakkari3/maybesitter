@@ -71,6 +71,7 @@ import { createStorageGoalNodeLinkStore } from '../../goalGraph/linkStore';
 import { GOAL_GRAPH_FIRST_GENERATION } from '../../../src/contracts/v1/goalGraphContracts';
 import type { ActiveGoal } from '../captureBoundary/proposalShape';
 import { readOwnedMemory } from './memoryService';
+import { finalizeUnderstood, type CaptureSourceOrdinals } from '../captureBoundary/understood';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -682,6 +683,118 @@ async function attachSpokenCorrections(
   return contract;
 }
 
+function proposalStatus(contract: CaptureProposalContract): CaptureProposalContract['status'] {
+  if (contract.items.length === 0) return contract.seeds.length > 0 ? 'unresolved_intent' : 'no_commitment';
+  return contract.items.every((item) => item.needsClarification) ? 'needs_clarification' : 'proposed';
+}
+
+/**
+ * A new chat message mints a new proposal, but its starting list is the
+ * current stored one. Re-reading the original user turns would otherwise
+ * reconstruct the pre-edit title/kind/time and even revive a rejected speech
+ * correction. Source ordinals are stable across that re-read, so only the
+ * entities explicitly changed through structured edit are transplanted; new
+ * entities from the latest message remain the newly built ones.
+ */
+async function carryStructuredEditsForward(
+  baseProposalId: string | undefined,
+  proposal: CaptureProposalContract,
+): Promise<CaptureProposalContract> {
+  if (!baseProposalId) return proposal;
+  const [base, built] = await Promise.all([store.get(baseProposalId), store.get(proposal.proposalId)]);
+  const edited = base?.structuredEditSources ?? {};
+  if (!base || !built || Object.keys(edited).length === 0 || !base.sourceOrdinals || !built.sourceOrdinals) return proposal;
+
+  const contract: CaptureProposalContract = {
+    ...built.contract,
+    items: built.contract.items.map((item) => ({ ...item })),
+    seeds: built.contract.seeds.map((seed) => ({ ...seed })),
+  };
+  const ordinals: CaptureSourceOrdinals = {
+    items: { ...built.sourceOrdinals.items },
+    seeds: { ...built.sourceOrdinals.seeds },
+  };
+  const commands = new Map(built.commandsByItemId);
+  const results = new Map(built.resultsByItemId ?? []);
+  const spans = { ...(built.correctionSpans ?? {}) };
+
+  const idAt = (source: CaptureSourceOrdinals, ordinal: number): string | null => {
+    const entry = [...Object.entries(source.items), ...Object.entries(source.seeds)]
+      .find(([, value]) => value === ordinal);
+    return entry?.[0] ?? null;
+  };
+  const entityText = (id: string): string | null => (
+    built.contract.items.find((item) => item.itemId === id)?.title
+    ?? built.contract.seeds.find((seed) => seed.seedItemId === id)?.summary
+    ?? null
+  );
+  const builtIds = [
+    ...built.contract.items.map((item) => item.itemId),
+    ...built.contract.seeds.map((seed) => seed.seedItemId),
+  ];
+  const claimed = new Set<string>();
+  for (const [baseId, source] of Object.entries(edited)) {
+    const rawMatch = source.rawText
+      ? Array.from(built.resultsByItemId ?? []).find(([, result]) => result.rawText === source.rawText)?.[0]
+      : undefined;
+    const textMatches = builtIds.filter((id) => entityText(id)?.trim() === source.originalText.trim());
+    const ordinalMatch = source.ordinal === undefined ? null : idAt(built.sourceOrdinals, source.ordinal);
+    const builtId = [rawMatch, textMatches.length === 1 ? textMatches[0] : undefined, ordinalMatch]
+      .find((id): id is string => Boolean(id) && !claimed.has(id!));
+    if (!builtId) continue;
+    claimed.add(builtId);
+    const ordinal = built.sourceOrdinals.items[builtId] ?? built.sourceOrdinals.seeds[builtId];
+    if (!Number.isFinite(ordinal)) continue;
+    const baseItem = base.contract.items.find((item) => item.itemId === baseId);
+    const baseSeed = base.contract.seeds.find((seed) => seed.seedItemId === baseId);
+    const builtItemAt = contract.items.findIndex((item) => item.itemId === builtId);
+    const builtSeedAt = contract.seeds.findIndex((seed) => seed.seedItemId === builtId);
+    if ((!baseItem && !baseSeed) || (builtItemAt < 0 && builtSeedAt < 0)) continue;
+
+    if (baseItem && builtItemAt >= 0) contract.items.splice(builtItemAt, 1, { ...baseItem });
+    else if (builtItemAt >= 0) contract.items.splice(builtItemAt, 1);
+    if (baseSeed && builtSeedAt >= 0) contract.seeds.splice(builtSeedAt, 1, { ...baseSeed });
+    else if (builtSeedAt >= 0) contract.seeds.splice(builtSeedAt, 1);
+    delete ordinals.items[builtId];
+    delete ordinals.seeds[builtId];
+    commands.delete(builtId);
+    results.delete(builtId);
+    for (const [correctionId, span] of Object.entries(spans)) {
+      if (span.itemId === builtId) delete spans[correctionId];
+    }
+
+    if (baseItem) {
+      if (builtItemAt < 0) contract.items.push({ ...baseItem });
+      ordinals.items[baseItem.itemId] = ordinal;
+      commands.set(baseItem.itemId, [...(base.commandsByItemId.get(baseItem.itemId) ?? [])]);
+      const result = base.resultsByItemId?.get(baseItem.itemId);
+      if (result) results.set(baseItem.itemId, result);
+      for (const [correctionId, span] of Object.entries(base.correctionSpans ?? {})) {
+        if (span.itemId === baseItem.itemId) spans[correctionId] = { ...span };
+      }
+    } else if (baseSeed) {
+      if (builtSeedAt < 0) contract.seeds.push({ ...baseSeed });
+      ordinals.seeds[baseSeed.seedItemId] = ordinal;
+    }
+  }
+
+  const merged = finalizeUnderstood(
+    { ...contract, status: proposalStatus(contract) },
+    built.responseLocale ?? 'ar',
+    ordinals,
+  );
+  await store.put({
+    ...built,
+    contract: merged,
+    commandsByItemId: commands,
+    resultsByItemId: results,
+    sourceOrdinals: ordinals,
+    correctionSpans: spans,
+    structuredEditSources: { ...edited },
+  });
+  return merged;
+}
+
 /**
  * One capture-chat turn's proposal (owner decision 2026-09-30).
  *
@@ -704,6 +817,8 @@ export async function proposeMobileChatTurn(
     timezone: string;
     /** The list the person saw before this message (chat UAT round 2), each title in the person's own words. */
     previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
+    /** Current proposal whose structured edits form this new proposal's base. */
+    baseProposalId?: string;
     /** The phone's UI language: the items' titles are shown in it (owner request 2026-09-30). */
     locale?: CaptureAppLocale;
     /** Language already resolved by the chat service, including its fallback. */
@@ -734,6 +849,7 @@ export async function proposeMobileChatTurn(
     // The chat's items came from the configured hosted model; name it.
     ...(input.items ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
   });
+  proposal = await carryStructuredEditsForward(input.baseProposalId, proposal);
   if (input.spoken && input.items) proposal = await attachSpokenCorrections(proposal, input.items, input.text);
   // A proposal the chat produced is a capture submitted, counted as the
   // capture route counts one: its length, never its words.
@@ -830,7 +946,8 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
   if (before.confirmedResult !== undefined) {
     throw new ProposalChangedError(before.contract, 'confirmed', before.confirmedResult as CaptureConfirmationResultContract);
   }
-  if (!revisionMatches(currentRevision, input.revision)) throw new ProposalChangedError(before.contract, 'open');
+  const legacyClarify = input.revision === undefined && before.legacyConfirmRevision === currentRevision;
+  if (!legacyClarify && !revisionMatches(currentRevision, input.revision)) throw new ProposalChangedError(before.contract, 'open');
   // The typed answer is read by the engine the capture itself may use (#161):
   // the metered model only when this account's AI consent is granted, the
   // rules otherwise. Decided here from the stored consent, never the request.
@@ -881,7 +998,9 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
     {
       store: compareAndSwapStore,
       resultingRevision: currentRevision + 1,
-      legacyConfirmRevision: input.revision === undefined && currentRevision === 0 ? 1 : undefined,
+      // Every revisionless hop re-arms the compatibility marker. A request
+      // carrying a revision deliberately ends the legacy chain.
+      legacyConfirmRevision: input.revision === undefined ? currentRevision + 1 : undefined,
       extractor: guardedMobileExtract,
       ...(context.participantId && consent === 'granted'
         ? { llmProvider: captureLlmProvider(context.participantId), ...engineLabel() }
