@@ -79,6 +79,18 @@ export interface DeviceEventCalendar {
   sourceName: string | null;
 }
 
+/**
+ * Android sometimes exposes a resource key instead of a calendar name. Keep
+ * that implementation detail out of every visible and spoken calendar label.
+ */
+export function calendarDisplayName(value: string | null, phoneCalendar: string): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  const resourceToken = /^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(trimmed)
+    && trimmed.split('_').some(part => part.includes('displayname'));
+  return resourceToken ? phoneCalendar : trimmed;
+}
+
 /** One event, as this app writes it. Nothing here is ever read back out. */
 export interface CalendarEventDraft {
   title: string;

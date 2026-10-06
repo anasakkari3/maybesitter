@@ -7,6 +7,7 @@
  * it without a second read of storage.
  */
 import { useEffect, useSyncExternalStore } from 'react';
+import { Linking, Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { REMOVED_PLACES_MAX, loadPlacesDoc, savePlaces, type Place, type PlaceKind } from '../../lib/deviceSettings/placeReminders';
 import { currentPosition, getLocationAccess, requestForegroundAccess, type LocationAccess } from './nativeLocation';
@@ -72,6 +73,25 @@ export function newPlaceId(): string {
 export type PinResult =
   | { readonly ok: true; readonly place: Place }
   | { readonly ok: false; readonly reason: 'denied' | 'unavailable' | 'position' };
+
+/** Builds the user-triggered action for one local pin. The pin never leaves this module. */
+export function openPlaceInMaps(place: Place): () => Promise<boolean> {
+  const point = `${place.latitude},${place.longitude}`;
+  const url = Platform.OS === 'android'
+    ? `geo:${point}?q=${point}(${encodeURIComponent(place.label)})`
+    : `maps:?ll=${point}&q=${encodeURIComponent(place.label)}`;
+  // Capture the native action with this rendered row. A row that unmounts
+  // cannot accidentally hand a later screen instance its pending press.
+  const openUrl = Linking.openURL;
+  return async () => {
+    try {
+      await openUrl(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+}
 
 /**
  * Saves (or moves) a place to where the phone is now. This is the moment

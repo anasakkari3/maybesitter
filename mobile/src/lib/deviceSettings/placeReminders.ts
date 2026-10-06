@@ -75,6 +75,12 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+    && Number.isFinite(Date.parse(value));
+}
+
 function isPlace(value: unknown): value is Place {
   if (!value || typeof value !== 'object') return false;
   const raw = value as Record<string, unknown>;
@@ -83,7 +89,7 @@ function isPlace(value: unknown): value is Place {
     && typeof raw.label === 'string' && raw.label.trim() !== ''
     && isFiniteNumber(raw.latitude) && Math.abs(raw.latitude) <= 90
     && isFiniteNumber(raw.longitude) && Math.abs(raw.longitude) <= 180
-    && typeof raw.updatedAt === 'string';
+    && isIsoTimestamp(raw.updatedAt);
 }
 
 /** A stored blob, or none. A version this build does not know reads as empty. */

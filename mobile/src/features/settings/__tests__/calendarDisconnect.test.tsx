@@ -205,13 +205,15 @@ describe('pressing disconnect', () => {
 });
 
 describe('what the screen says without being asked', () => {
-  it('names the Android caveat on Android', async () => {
+  it('keeps the Android caveat behind the disconnect disclosure on Android', async () => {
     const original = Platform.OS;
     Object.defineProperty(Platform, 'OS', { value: 'android', configurable: true });
     try {
       await show();
-      expect(String(screen.getByTestId('calendar-declined-note').props.children))
-        .toBe(en.calendarDeclinedNote);
+      expect(screen.queryByText(en.calendarDeclinedNote)).toBeNull();
+      await fireEvent.press(screen.getByTestId('calendar-disconnect-details-why'));
+      expect(String(screen.getByTestId('calendar-disconnect-details-why-body').props.children))
+        .toContain(en.calendarDeclinedNote);
     } finally {
       Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
     }
@@ -224,7 +226,9 @@ describe('what the screen says without being asked', () => {
     try {
       await show();
       expect(screen.queryByTestId('calendar-busy-count')).not.toBeNull();
-      expect(screen.queryByTestId('calendar-declined-note')).toBeNull();
+      await fireEvent.press(screen.getByTestId('calendar-disconnect-details-why'));
+      expect(String(screen.getByTestId('calendar-disconnect-details-why-body').props.children))
+        .not.toContain(en.calendarDeclinedNote);
     } finally {
       Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
     }

@@ -140,10 +140,14 @@ describe('the replanning switch is the server’s record', () => {
   it('says that turning it back on does not catch up, whichever way it sits', async () => {
     await settled();
     const said = () => Object.values(strings).some(bundle => screen.queryByText(bundle.planReplanNoBackfill) !== null);
-    expect(said()).toBe(true);
+    // The rationale is optional detail now, so it is absent until the setting's
+    // disclosure is opened and stays the same whichever way the switch sits.
+    expect(said()).toBe(false);
+    await fireEvent.press(screen.getByTestId('plan-replan-why'));
+    expect(String(screen.getByTestId('plan-replan-why-body').props.children)).toContain(strings.en.planReplanNoBackfill);
     await fireEvent(replan(), 'valueChange', false);
     await waitFor(() => expect(replan().props.value).toBe(false));
-    expect(said()).toBe(true);
+    expect(String(screen.getByTestId('plan-replan-why-body').props.children)).toContain(strings.en.planReplanNoBackfill);
   });
 });
 

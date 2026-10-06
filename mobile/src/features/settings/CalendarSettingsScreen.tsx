@@ -14,6 +14,7 @@ import {
   useDeviceCalendarSync,
 } from '../calendar/useDeviceCalendarSync';
 import {
+  calendarDisplayName,
   deviceCalendar,
   type CalendarAccess,
   type DeviceEventCalendar,
@@ -29,8 +30,8 @@ import { calendarReadEnabled, calendarWriteEnabled } from '../../config/env';
 import { useWeeklyBlockDeviceSync } from '../weeklyBlocks/useWeeklyBlockDeviceSync';
 import { useIcsFeedsAvailable } from '../calendarFeeds/availability';
 import { useBusyBlocks, useBusyCalendar } from '../calendar/useBusyCalendar';
-import { fill } from '../../i18n/strings';
 import { SectionLabel } from '../../ui/chrome';
+import { Disclosure } from '../../ui/Disclosure';
 
 /** The key a calendar with no account is grouped under. */
 const OTHER_SOURCE = 'other';
@@ -113,7 +114,7 @@ function calendarOptionLabel(calendar: WritableCalendar): string {
  * an hour of the user's day owes them the sentence.
  */
 export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void; onFeeds?: () => void }) {
-  const { t, p } = useApp();
+  const { t, tr, p } = useApp();
   const feedsAvailable = useIcsFeedsAvailable();
   const settings = useCalendarSettings();
   const setTarget = useSetCalendarWriteTarget();
@@ -143,7 +144,11 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
 
   const loadCalendars = useCallback(async (): Promise<WritableCalendar[]> => {
     try {
-      const list = await deviceCalendar.listWritableCalendars();
+      const list = (await deviceCalendar.listWritableCalendars()).map(calendar => ({
+        ...calendar,
+        title: calendarDisplayName(calendar.title, t.calendarPhoneName) ?? t.calendarPhoneName,
+        sourceName: calendarDisplayName(calendar.sourceName, t.calendarPhoneName),
+      }));
       setCalendars(list);
       return list;
     } catch {
@@ -152,15 +157,19 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
       setCalendars([]);
       return [];
     }
-  }, []);
+  }, [t.calendarPhoneName]);
 
   const loadPhoneCalendars = useCallback(async () => {
     try {
-      setPhoneCalendars(await deviceCalendar.listEventCalendars());
+      setPhoneCalendars((await deviceCalendar.listEventCalendars()).map(calendar => ({
+        ...calendar,
+        title: calendarDisplayName(calendar.title, t.calendarPhoneName) ?? t.calendarPhoneName,
+        sourceName: calendarDisplayName(calendar.sourceName, t.calendarPhoneName),
+      })));
     } catch {
       setPhoneCalendars([]);
     }
-  }, []);
+  }, [t.calendarPhoneName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -437,27 +446,33 @@ export function CalendarSettingsScreen({ onBack, onFeeds }: { onBack: () => void
 
         {/* What has been read, and the way to stop and delete it (UC-3.2, #186). */}
         <Card pad={18} style={{ gap: 12 }}>
-          <Txt size={13} color={p.mu} testID="calendar-busy-count">
-            {fill(t.calendarBusyCount, { n: busyBlocks.length })}
+          <Txt size={13} color={p.mu} lh={1.5} testID="calendar-reading-benefit">
+            {reading ? t.calendarReadBenefitOn : t.calendarReadBenefitOff}
           </Txt>
-          {/* Android's calendar provider cannot say whose reply was whose, so
-              a declined meeting stays busy. An iPhone has no such gap, and
-              telling its owner about Android is noise (UAT 2026-09-26, #17). */}
-          {Platform.OS === 'android'
-            ? <Txt size={13} color={p.mu} lh={1.5} testID="calendar-declined-note">{t.calendarDeclinedNote}</Txt>
-            : null}
-          <Txt size={13} color={p.mu} lh={1.5}>{t.calendarDisconnectBody}</Txt>
-          <Btn
+          {reading && busyBlocks.length > 0 ? (
+            <Txt size={13} color={p.mu} testID="calendar-busy-count">
+              {tr('calendarBusyCount', { n: busyBlocks.length })}
+            </Txt>
+          ) : null}
+          <Disclosure
+            id="calendar-disconnect-details"
             label={t.calendarDisconnectAction}
-            testID="calendar-disconnect"
-            onPress={() => setConfirmDisconnect(true)}
-            disabled={disconnecting}
-            style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+            body={Platform.OS === 'android'
+              ? `${t.calendarDeclinedNote}\n${reading ? t.calendarDisconnectBody : t.calendarDisconnectBodyOff}`
+              : reading ? t.calendarDisconnectBody : t.calendarDisconnectBodyOff}
           >
-            {disconnecting
-              ? <ActivityIndicator testID="calendar-disconnect-busy" color={p.ac} />
-              : <Txt size={15} color={p.ac}>{t.calendarDisconnectAction}</Txt>}
-          </Btn>
+            <Btn
+              label={t.calendarDisconnectAction}
+              testID="calendar-disconnect"
+              onPress={() => setConfirmDisconnect(true)}
+              disabled={disconnecting}
+              style={{ borderRadius: 16, minHeight: 52, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: p.ln }}
+            >
+              {disconnecting
+                ? <ActivityIndicator testID="calendar-disconnect-busy" color={p.ac} />
+                : <Txt size={15} color={p.ac}>{t.calendarDisconnectAction}</Txt>}
+            </Btn>
+          </Disclosure>
           {disconnected === null ? null : (
             <Txt size={13} color={p.mu} lh={1.5} testID="calendar-disconnect-result">
               {disconnected === 'done' ? t.calendarDisconnectDone : t.calendarDisconnectFailed}
