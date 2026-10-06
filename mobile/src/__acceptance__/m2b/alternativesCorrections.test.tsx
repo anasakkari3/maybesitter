@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resetAuthForTests } from '../../api/auth';
 import * as captureEndpoints from '../../api/endpoints/capture';
-import type { CaptureChatAnswer, CaptureProposal } from '../../api/schemas/capture';
+import type { CaptureProposal } from '../../api/schemas/capture';
 import { ExpoSpeechCaptureService } from '../../features/capture/voice/expoSpeechCaptureService';
 import {
   CONVERSATION_ID,

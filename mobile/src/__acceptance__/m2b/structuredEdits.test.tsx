@@ -9,7 +9,6 @@ import {
   CONVERSATION_ID,
   ITEM_ID,
   SEED_ID,
-  START,
   answerFor,
   changeText,
   commitmentProposal,
@@ -81,7 +80,7 @@ async function chooseKind(kind: EditChange['kind']): Promise<void> {
 
 async function setTime(at: string): Promise<void> {
   await act(async () => {
-    fireEvent(screen.getByTestId('understood-edit-time'), 'valueChange', at);
+    await fireEvent(screen.getByTestId('understood-edit-time'), 'valueChange', at);
   });
 }
 
@@ -287,7 +286,7 @@ describe('M2b coherent staged and summary edits', () => {
     await press('understood-line-1');
     await press(`review-edit-${ITEM_ID}`);
     await changeText('edit-item-title', 'Call Dana later');
-    await act(async () => { fireEvent(screen.getByTestId('edit-item-no-time'), 'valueChange', true); });
+    await act(async () => { await fireEvent(screen.getByTestId('edit-item-no-time'), 'valueChange', true); });
     await press('edit-item-save');
     await press('review-back');
     await openStructuredEdit();

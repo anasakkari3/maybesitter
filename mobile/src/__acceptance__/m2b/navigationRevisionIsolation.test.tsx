@@ -1,7 +1,6 @@
-import React from 'react';
 import { BackHandler } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react-native';
+import { act, cleanup, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resetAuthForTests } from '../../api/auth';
 import { ProposalChangedError } from '../../api/errors';
@@ -10,7 +9,6 @@ import * as seedEndpoints from '../../api/endpoints/seeds';
 import type { CaptureConfirmation, CaptureProposal } from '../../api/schemas/capture';
 import {
   ACCOUNT_B,
-  CONVERSATION_ID,
   ITEM_ID,
   PROPOSAL_ID,
   SEED_ID,
