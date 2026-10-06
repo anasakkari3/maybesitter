@@ -118,10 +118,20 @@ export function CaptureScreen() {
   /** The cards came from the summary: Back returns to it, not to the composer. */
   const fromSummary = cardsOpen && state.proposal !== null && state.reviewOf === state.proposal.proposalId
     && usableUnderstood(state.proposal) !== undefined;
-  const [revealRow, setRevealRow] = useState<{ key: number; id: string | null } | null>(null);
+  // The card a tapped line asked for, for that proposal only: a later answer
+  // never inherits it (M2A-REV-004).
+  const [revealRequest, setRevealRequest] = useState<{ key: number; id: string; proposalId: string } | null>(null);
+  const revealRow = revealRequest && revealRequest.proposalId === state.proposal?.proposalId ? revealRequest : null;
+  const seedAnchors = useRef(new Map<string, { target: View | null; focus: View | null }>());
+  const anchorSeed = (seedItemId: string, part: 'card' | 'focus', node: View | null) => {
+    const current = seedAnchors.current.get(seedItemId) ?? { target: null, focus: null };
+    seedAnchors.current.set(seedItemId, part === 'card' ? { ...current, target: node } : { ...current, focus: node });
+  };
   const openFromSummary = (target: UnderstoodTarget | null) => {
     flow.acceptUnderstood();
-    setRevealRow(target === null ? null : { key: Date.now(), id: 'itemId' in target ? target.itemId : null });
+    const proposalId = state.proposal?.proposalId;
+    setRevealRequest(target === null || !proposalId ? null
+      : { key: Date.now(), id: 'itemId' in target ? target.itemId : target.seedItemId, proposalId });
   };
   const busy = state.status === 'confirming' || state.status === 'analyzing';
   // Something «ابدأ من جديد» would clear: a conversation, a proposal, a draft.
@@ -231,6 +241,7 @@ export function CaptureScreen() {
     setSkipped([]);
     setClarifyError(null);
     setEditingId(null);
+    setRevealRequest(null);
     void flow.analyze();
   };
   const editItem = (itemId: string, edit: CaptureItemEdit) => {
@@ -356,7 +367,7 @@ export function CaptureScreen() {
   const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
     {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
     {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
-    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} /> : null}
+    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed} /> : null}
   </View> : null;
   // Under the save (Stitch 03): every review option, the propose-only note,
   // and the explicit exit.
@@ -416,7 +427,7 @@ export function CaptureScreen() {
     else if (clipboard) setClipboard(null);
     else if (menuOpen) setMenuOpen(false);
     else if (discarding) setDiscarding(null);
-    else if (fromSummary) { setRevealRow(null); setToolsOpen(false); flow.reopenUnderstood(); }
+    else if (fromSummary) { setRevealRequest(null); setToolsOpen(false); flow.reopenUnderstood(); }
     else if (reviewing) requestBack();
     else requestClose();
   };
@@ -490,7 +501,7 @@ export function CaptureScreen() {
         // taps the field when they have the next thing to say.
         // A new proposal scrolls its confirm into view above the composer.
         revealConfirmKey={cardsOpen && !revealRow ? state.proposal?.proposalId ?? null : null}
-        reviewing={cardsOpen} revealRow={cardsOpen ? revealRow : null}
+        reviewing={cardsOpen} revealRow={cardsOpen ? revealRow : null} revealAnchor={(id) => seedAnchors.current.get(id) ?? null}
         reduceMotion={reducedMotion}
         // While listening the panel above the field says so; the note line
         // keeps the other states (failed, no speech, denied → Settings).

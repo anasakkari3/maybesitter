@@ -1731,7 +1731,7 @@
   "understoodKindCommitment": "התחייבות",
   "understoodConfirm": "נכון",
   "understoodLineHint": "מציג את הכרטיס שלו",
-  "understoodLineLabel": "{n}. {kind}: {text}",
+  "understoodLineLabel": "{n} מתוך {total}. {kind}: {text}",
   "chatListening": "מקשיב…",
   "todayConflictOpen": "הצג את ההתנגשות",
   "todayConflictTitle": "שני דברים באותו זמן",

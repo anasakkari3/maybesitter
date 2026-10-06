@@ -24,9 +24,22 @@ function withUsableEnd(raw: unknown): unknown {
 }
 
 const SEED_KINDS = ['consideration', 'waiting_for', 'idea', 'possible_goal'] as const;
+/* eslint-disable no-control-regex */
+const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
+/* eslint-enable no-control-regex */
+const URL_LIKE = /\bhttps?:\/\/|\bwww\.|\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|app|ly|co|me|info|link|to|gl)\b/i;
+/**
+ * A line that says something was saved, in the three languages — the server's
+ * own list (`lib/services/captureBoundary/understood.ts`). Nothing is saved
+ * before the confirm, so a summary claiming it is not shown at all.
+ */
+const SAVED_CLAIM = /\b(?:i|we)(?:'ve| have| just| already| now| will|'ll)*\s+(?:added|saved|scheduled|booked|created|stored|recorded|logged|set|remind)\b|(?:ضفت|أضفت|حفظت|سجلت|حطيت|جدولت|انضاف|انحفظ|انسجل|رح\s*(?:ا|أ)?ذكرك)|(?:הוספתי|שמרתי|קבעתי|רשמתי|נשמר|נוסף|אזכיר)/i;
+/** A summary line is plain words: not blank, no control characters, no link, no "saved". */
+const understoodText = z.string().min(1).max(160).refine((text) => text.trim().length > 0
+  && !CONTROL_CHARACTER.test(text) && !URL_LIKE.test(text) && !SAVED_CLAIM.test(text));
 const understoodPointSchema = z.union([
-  z.object({ kind: z.literal('commitment'), itemId: z.string().min(1), text: z.string().min(1).max(160) }).strict(),
-  z.object({ kind: z.enum(SEED_KINDS), seedItemId: z.string().min(1), text: z.string().min(1).max(160) }).strict(),
+  z.object({ kind: z.literal('commitment'), itemId: z.string().min(1), text: understoodText }).strict(),
+  z.object({ kind: z.enum(SEED_KINDS), seedItemId: z.string().min(1), text: understoodText }).strict(),
 ]);
 export type UnderstoodPoint = z.infer<typeof understoodPointSchema>;
 

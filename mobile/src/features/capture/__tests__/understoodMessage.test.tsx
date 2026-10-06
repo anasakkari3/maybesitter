@@ -1,7 +1,7 @@
 /**
- * M2a: how the «هيك فهمت» summary reaches a screen reader — the kind before the
- * words, the time a commitment's card shows, and on iOS (where the list is one
- * element and hides its lines) a custom action per line that shows its card.
+ * M2a: how the «هيك فهمت» summary reaches a screen reader — each line its own
+ * button, said as its place in the list, its kind, its words and the time its
+ * card shows (M2A-REV-002).
  */
 import React from 'react';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
@@ -45,26 +45,38 @@ async function show(onOpen = jest.fn(), edits = {}) {
 describe('the understood summary', () => {
   it('speaks each line as its number, its kind, its words — and a timed commitment its range', async () => {
     await show();
-    expect(plain(screen.getByTestId('understood-line-1').props.accessibilityLabel)).toMatch(/^1\. التزام: اجتماع, .*16:00–20:00$/);
-    expect(plain(screen.getByTestId('understood-line-2').props.accessibilityLabel)).toBe(`2. ${ar.seedKindConsideration}: عم تفكّر تسافر الصيف الجاي`);
+    expect(plain(screen.getByTestId('understood-line-1').props.accessibilityLabel)).toMatch(/^1 من 3\. التزام: اجتماع, .*16:00–20:00$/);
+    expect(plain(screen.getByTestId('understood-line-2').props.accessibilityLabel)).toBe(`2 من 3. ${ar.seedKindConsideration}: عم تفكّر تسافر الصيف الجاي`);
     // No time yet: the line says nothing about one; its card will ask.
-    expect(plain(screen.getByTestId('understood-line-3').props.accessibilityLabel)).toBe('3. التزام: تتصل بسارة');
+    expect(plain(screen.getByTestId('understood-line-3').props.accessibilityLabel)).toBe('3 من 3. التزام: تتصل بسارة');
     expect(screen.queryByTestId('understood-when-i:call')).toBeNull();
   });
 
-  it('offers every line to VoiceOver as an action on the list, which shows that line\'s card', async () => {
+  it('makes every line its own button that shows its card, inside a list that is not one element', async () => {
     const onOpen = await show();
     const list = screen.getByTestId('understood-list');
-    expect(list.props.accessibilityActions.map((action: { label: string }) => plain(action.label)))
-      .toEqual([0, 1, 2].map((n) => plain(screen.getByTestId(`understood-line-${n + 1}`).props.accessibilityLabel)));
-    await fireEvent(list, 'accessibilityAction', { nativeEvent: { actionName: 'open-1' } });
+    expect(list.props.accessibilityRole).toBe('list');
+    // An accessible wrapper would hide the lines from VoiceOver.
+    expect(list.props.accessible).not.toBe(true);
+    for (const n of [1, 2, 3]) {
+      const line = screen.getByTestId(`understood-line-${n}`);
+      expect(line.props.accessibilityRole).toBe('button');
+      expect(line.props.accessibilityHint).toBe(ar.understoodLineHint);
+    }
+    await fireEvent.press(screen.getByTestId('understood-line-2'));
     expect(onOpen).toHaveBeenLastCalledWith({ seedItemId: 'travel' });
-    await fireEvent(list, 'accessibilityAction', { nativeEvent: { actionName: 'activate' } });
-    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
   it('shows the time the card will show: a moved range keeps its length', async () => {
     await show(jest.fn(), { meeting: { localDateTime: '2030-01-07T18:00' } });
     expect(plain(screen.getByTestId('understood-line-1').props.accessibilityLabel)).toMatch(/18:00–22:00$/);
+  });
+
+  it('one point is one line, without a list or a position', async () => {
+    await AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, 'ar');
+    await render(<AppProvider><UnderstoodMessage proposal={proposal} points={[points[1]!]} edits={{}} onOpen={jest.fn()} /></AppProvider>);
+    await waitFor(() => expect(screen.queryByTestId('understood-line-1')).not.toBeNull());
+    expect(screen.queryByTestId('understood-list')).toBeNull();
+    expect(plain(screen.getByTestId('understood-line-1').props.accessibilityLabel)).toBe(`${ar.seedKindConsideration}: عم تفكّر تسافر الصيف الجاي`);
   });
 });

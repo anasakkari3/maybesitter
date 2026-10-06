@@ -1728,7 +1728,7 @@
   "understoodKindCommitment": "Commitment",
   "understoodConfirm": "That's right",
   "understoodLineHint": "Shows its card",
-  "understoodLineLabel": "{n}. {kind}: {text}",
+  "understoodLineLabel": "{n} of {total}. {kind}: {text}",
   "chatListening": "Listening…",
   "todayConflictOpen": "See the clash",
   "todayConflictTitle": "Two things at once",

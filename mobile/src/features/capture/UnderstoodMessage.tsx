@@ -36,13 +36,13 @@ function kindLabel(point: UnderstoodPoint, t: Strings): string {
  *
  * ── How a screen reader meets it ─────────────────────────────────
  *
- * The list is one accessibility element with the `list` role: VoiceOver reads
- * the whole summary in one go — each line's kind before its words — which is
- * the grouped understanding the audit asked for, and offers each line as a
- * custom action that shows its card. (On iOS an accessible view hides the
- * controls inside it, so the actions are how a line is reached there.)
- * TalkBack also stops on each line, a `listitem` that shows its card.
- * One point is a single tappable line, without list chrome.
+ * Each line is its own button, said as its place in the list, its kind, its
+ * words and its time — «2 من 5. عم تفكّر فيه: …» — with a hint that it shows
+ * the card. The wrapper carries the `list` role for TalkBack and is not itself
+ * an accessibility element: on iOS that would hide the lines inside it, and
+ * React Native gives `list` no meaning there (M2A-REV-002), so the position in
+ * each line's label is what says "a list of five". One point is a single
+ * tappable line, without list chrome.
  */
 export function UnderstoodMessage({ proposal, points, edits, onOpen }: {
   proposal: CaptureProposal;
@@ -57,7 +57,8 @@ export function UnderstoodMessage({ proposal, points, edits, onOpen }: {
     const item = point.kind === 'commitment' ? proposal.items.find((candidate) => candidate.itemId === point.itemId) : undefined;
     const shown = item ? chatItemPresentation(item, edits[item.itemId], lang, timezone, t) : undefined;
     const when = shown?.instant ? shown.subtitle : undefined;
-    const spoken = fill(t.understoodLineLabel, { n: index + 1, kind, text: point.text });
+    const spoken = points.length === 1 ? `${kind}: ${point.text}`
+      : fill(t.understoodLineLabel, { n: index + 1, total: points.length, kind, text: point.text });
     return {
       key: point.kind === 'commitment' ? `i:${point.itemId}` : `s:${point.seedItemId}`,
       target: point.kind === 'commitment' ? { itemId: point.itemId } : { seedItemId: point.seedItemId },
@@ -81,16 +82,9 @@ export function UnderstoodMessage({ proposal, points, edits, onOpen }: {
     </Btn>;
   }
 
-  return <View testID="understood-list" accessible accessibilityRole="list"
-    accessibilityActions={lines.map((line, index) => ({ name: `open-${index}`, label: line.label }))}
-    onAccessibilityAction={(event) => {
-      const index = Number(/^open-(\d+)$/.exec(event.nativeEvent.actionName)?.[1] ?? NaN);
-      const line = lines[index];
-      if (line) onOpen(line.target);
-    }}
-    style={{ alignSelf: 'stretch', gap: 4 }}>
+  return <View testID="understood-list" accessibilityRole="list" style={{ alignSelf: 'stretch', gap: 4 }}>
     {lines.map((line, index) => <Pressable key={line.key} testID={`understood-line-${index + 1}`}
-      accessible role="listitem" accessibilityLabel={line.label} accessibilityHint={t.understoodLineHint}
+      accessibilityRole="button" accessibilityLabel={line.label} accessibilityHint={t.understoodLineHint}
       onPress={() => onOpen(line.target)}
       style={({ pressed }) => [{
         minHeight: 44, flexDirection: 'row', alignItems: 'flex-start', gap: 10,

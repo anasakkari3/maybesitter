@@ -1728,7 +1728,7 @@
   "understoodKindCommitment": "التزام",
   "understoodConfirm": "هيك صح",
   "understoodLineHint": "بيفرجيك بطاقتها",
-  "understoodLineLabel": "{n}. {kind}: {text}",
+  "understoodLineLabel": "{n} من {total}. {kind}: {text}",
   "chatListening": "عم بسمع…",
   "todayConflictOpen": "شوف التعارض",
   "todayConflictTitle": "تعارض بالمواعيد",

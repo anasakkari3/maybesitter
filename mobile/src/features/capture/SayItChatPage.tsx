@@ -154,7 +154,12 @@ export interface SayItChatPageProps {
    * summary was tapped (M2a) — or, with `id: null`, what sits under the cards
    * (the seeds). `key` changes for each request.
    */
-  revealRow?: { key: number; id: string | null } | null;
+  revealRow?: { key: number; id: string } | null;
+  /**
+   * What the host draws itself under the cards (a seed), by id: the view to
+   * scroll to and the one a screen reader lands on.
+   */
+  revealAnchor?(id: string): { target: View | null; focus: View | null } | null;
   /** Reduce motion: the reveal jumps instead of scrolling. */
   reduceMotion?: boolean;
   rtl?: boolean;
@@ -173,7 +178,7 @@ export function SayItChatPage({
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, clarification, reviewExtras, reviewFooter,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
-  revealConfirmKey = null, reduceMotion = false, reviewing = scheduleGroups.length > 0, revealRow = null,
+  revealConfirmKey = null, reduceMotion = false, reviewing = scheduleGroups.length > 0, revealRow = null, revealAnchor,
 }: SayItChatPageProps) {
   const input = React.useRef<TextInput>(null);
   React.useEffect(() => {
@@ -203,24 +208,24 @@ export function SayItChatPage({
   // A tapped line's card, scrolled to once it is laid out, then focused.
   const rowRefs = React.useRef(new Map<string, View>());
   const checkRefs = React.useRef(new Map<string, View>());
-  const extrasRef = React.useRef<View>(null);
   const revealedRow = React.useRef<number | null>(null);
   const [laidOut, setLaidOut] = React.useState(0);
   React.useEffect(() => {
     if (!revealRow || revealedRow.current === revealRow.key) return;
-    const target = revealRow.id === null ? extrasRef.current : rowRefs.current.get(revealRow.id);
+    const anchor = rowRefs.current.has(revealRow.id) ? null : revealAnchor?.(revealRow.id) ?? null;
+    const target = rowRefs.current.get(revealRow.id) ?? anchor?.target ?? null;
     // `getInnerViewRef` is ScrollView's content view; the typings omit it.
     const content = (scroller.current as unknown as { getInnerViewRef?: () => View | null } | null)?.getInnerViewRef?.();
-    if (!target || !content) return;
+    if (!target) return;
     revealedRow.current = revealRow.key;
     try {
-      target.measureLayout(content as never, (_x, y) => {
+      if (content) target.measureLayout(content as never, (_x, y) => {
         scroller.current?.scrollTo({ y: Math.max(0, y - 16), animated: !reduceMotion });
       }, () => undefined);
     } catch { /* not measurable (a test renderer): nothing to scroll */ }
-    const check = revealRow.id === null ? null : checkRefs.current.get(revealRow.id);
-    if (check) AccessibilityInfo.sendAccessibilityEvent(check, 'focus');
-  }, [revealRow, laidOut, reduceMotion]);
+    const focus = checkRefs.current.get(revealRow.id) ?? anchor?.focus ?? null;
+    if (focus) AccessibilityInfo.sendAccessibilityEvent(focus, 'focus');
+  }, [revealRow, laidOut, reduceMotion, revealAnchor]);
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
@@ -418,7 +423,7 @@ export function SayItChatPage({
                   </View>;
                 })}
               </View>)}
-              {reviewExtras ? <View ref={extrasRef} testID="chat-review-extras" style={styles.reviewExtras}
+              {reviewExtras ? <View testID="chat-review-extras" style={styles.reviewExtras}
                 onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}</View> : null}
               {onConfirm ? <View testID="chat-add-schedule"><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
                 accessibilityState={{ disabled: !canConfirm || confirming, busy: confirming }}
@@ -433,7 +438,7 @@ export function SayItChatPage({
               {reviewFooter ? <View testID="chat-review-footer" style={styles.reviewFooter}>{reviewFooter}</View> : null}
             </View>
             {scheduleTime ? <Text style={[timestampStyle, styles.scheduleTime]}>{scheduleTime}</Text> : null}
-          </View> : reviewExtras || reviewFooter ? <View ref={extrasRef} style={[styles.reviewExtras, styles.looseExtras]}
+          </View> : reviewExtras || reviewFooter ? <View style={[styles.reviewExtras, styles.looseExtras]}
             onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}{reviewFooter}</View> : null}
           {followup && message(followup, 'chat-followup')}
           {accessibilitySize && languageControl ? <View style={[styles.languageRow, styles.scrollLanguage]}>{languageControl}</View> : null}
