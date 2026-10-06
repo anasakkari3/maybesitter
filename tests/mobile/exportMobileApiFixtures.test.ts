@@ -933,7 +933,26 @@ test('exports a fixture for every /api/mobile call the React Native client makes
     const weekly = await record('capture.weeklyRange', 200, await capturePost(request('/api/mobile/capture', {
       uid: WEEKLY_USER,
       body: { text: 'عندي تدريب كل سبت من الساعة 10 لـ 4', referenceTime: REFERENCE_TIME, timezone: 'Asia/Jerusalem' },
-    })));
+    })), (body) => body, (live, stable) => {
+      const liveItems = live.items as Array<{ resolvedTime: string | null; endTime?: string }>;
+      const liveRange = liveItems.find((item) => item.endTime);
+      assert.ok(liveRange?.resolvedTime && liveRange.endTime, 'capture.weeklyRange has no live start/end pair');
+      const duration = Date.parse(liveRange.endTime) - Date.parse(liveRange.resolvedTime);
+      assert.equal(duration, 6 * 3_600_000, 'capture.weeklyRange live duration drifted before fixture pinning');
+      const stableItems = stable.items as Array<Record<string, unknown>>;
+      return {
+        ...stable,
+        items: stableItems.map((item, index) => {
+          const liveItem = liveItems[index];
+          if (!liveItem?.endTime) return item;
+          assert.equal(typeof item.resolvedTime, 'string', 'capture.weeklyRange stable start is missing');
+          return {
+            ...item,
+            endTime: new Date(Date.parse(item.resolvedTime as string) + duration).toISOString(),
+          };
+        }),
+      };
+    });
     const weeklyItems = weekly.items as Array<{ itemId: string; title: string; resolvedDate?: string; dateEstimated?: boolean; recurrenceHint?: unknown }>;
     assert.deepEqual(weeklyItems.map((item) => [item.title, item.resolvedDate, item.dateEstimated, item.recurrenceHint]), [
       ['عندي تدريب كل سبت', '2026-08-15', false, { weekdays: [6], start: '10:00', end: '16:00' }],

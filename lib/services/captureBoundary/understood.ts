@@ -14,9 +14,17 @@ export interface CaptureSourceOrdinals {
 }
 
 /** A complete URL-like run, removed without throwing away the words around it. */
-const URL_RUN = /(?<![a-z0-9-])(?:[a-z][a-z0-9+.-]*:\/\/[^\s]*|www\.[^\s]*|webcal:[^\s]*|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![a-z0-9-])(?:[/?#][^\s]*)?)/gi;
+const URL_RUN = /(?<![a-z0-9-])(?:[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}|[a-z][a-z0-9+.-]*:\/\/[^\s]*|www\.[^\s]*|webcal:[^\s]*|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![a-z0-9-])(?:[/?#][^\s]*)?)/gi;
+const FILE_EXTENSION = /\.(?:pdf|doc|docx|xls|xlsx|ppt|pptx|txt|jpg|jpeg|png|heic|mp3|mp4|zip)$/i;
+const CAPITALISED_HONORIFIC = /^(?:Mr|Dr|Mrs|Ms)\.[A-Z][A-Za-z0-9-]*$/;
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001F\u007F-\u009F]/g;
+/** Arabic/Hebrew marks, tatweel, and invisible/bidi marks folded by the client. */
+const FOLDED_AWAY = /[\u064B-\u065F\u0670\u06D6-\u06ED\u0591-\u05C7\u0640\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+/** Only these marks are removed from the line shown to the person. */
+const INVISIBLE_BIDI = /[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+/** Folded marks inside an ASCII host must not leave a partial host behind. */
+const HOST_OBFUSCATING_MARKS = /(?<=[A-Za-z0-9.-])[\u064B-\u065F\u0670\u06D6-\u06ED\u0591-\u05C7\u0640]+(?=[A-Za-z0-9.-])/g;
 
 const FALLBACK: Readonly<Record<CaptureAppLocale, string>> = {
   ar: 'نقطة بدها مراجعة',
@@ -34,6 +42,32 @@ function clippedLine(plain: string): string {
   return `${clipped.trimEnd()}…`;
 }
 
+function keptAsPlainWords(run: string): boolean {
+  const lower = run.toLowerCase();
+  if (run.includes('://') || lower.startsWith('www.') || lower.startsWith('webcal:')) return false;
+  if (run.includes('@') || /[/?#]/.test(run)) return false;
+  return FILE_EXTENSION.test(run) || CAPITALISED_HONORIFIC.test(run);
+}
+
+function foldedForClientChecks(source: string): string {
+  return source
+    .replace(FOLDED_AWAY, '')
+    .replace(/[\u0622\u0623\u0625\u0671]/g, '\u0627')
+    .replace(/\s+/g, ' ');
+}
+
+function hasLink(source: string): boolean {
+  return Array.from(foldedForClientChecks(source).matchAll(URL_RUN))
+    .some((match) => !keptAsPlainWords(match[0]));
+}
+
+function claimsSavedAsClient(source: string): boolean {
+  const withLatinScriptEdges = source
+    .replace(/([A-Za-z])(?=[\u0621-\u06FF\u0590-\u05FF])/g, '$1 ')
+    .replace(/([\u0621-\u06FF\u0590-\u05FF])(?=[A-Za-z])/g, '$1 ');
+  return claimsSaved(withLatinScriptEdges);
+}
+
 function withoutSplitJoiner(source: string, followsAnotherPoint: boolean): string {
   if (!followsAnotherPoint) return source;
   const joined = /^(?:and\s+|و|ו)/i.exec(source);
@@ -44,13 +78,16 @@ function withoutSplitJoiner(source: string, followsAnotherPoint: boolean): strin
 }
 
 function lineFor(source: string, locale: CaptureAppLocale, followsAnotherPoint: boolean): string {
-  const plain = withoutSplitJoiner(source, followsAnotherPoint)
+  const visible = source.replace(INVISIBLE_BIDI, '').replace(HOST_OBFUSCATING_MARKS, '');
+  const plain = withoutSplitJoiner(visible, followsAnotherPoint)
     .replace(CONTROL, ' ')
-    .replace(URL_RUN, ' ')
+    .replace(URL_RUN, (run) => keptAsPlainWords(run) ? run : ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!plain || claimsSaved(plain)) return FALLBACK[locale];
-  return clippedLine(plain);
+  if (!plain || claimsSavedAsClient(plain)) return FALLBACK[locale];
+  const clipped = clippedLine(plain);
+  if (hasLink(clipped) || claimsSavedAsClient(clipped)) return FALLBACK[locale];
+  return clipped;
 }
 
 function refOf(point: CaptureUnderstoodPoint): string {

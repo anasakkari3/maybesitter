@@ -773,6 +773,10 @@ test('understood lines match the client plain-text rule for links, saved claims,
   const cases = [
     { source: 'Meeting details at example.dev', expected: 'Meeting details at' },
     { source: 'Join on zoom.us/j/1 tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoom\u200B.us tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoom\u202E.us tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoـom.us tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Join on zoَom.us tomorrow', expected: 'Join on tomorrow' },
     { source: 'Open ftp://files.example.dev/private later', expected: 'Open later' },
     { source: 'Subscribe at webcal:team-calendar', expected: 'Subscribe at' },
     { source: 'Open ftp:// later', expected: 'Open later' },
@@ -782,9 +786,11 @@ test('understood lines match the client plain-text rule for links, saved claims,
     { source: 'Dentist added to your list', expected: 'A point to review' },
     { source: 'حَفَظْتُ الموعد', expected: 'A point to review' },
     { source: 'حـفـظت الموعد', expected: 'A point to review' },
+    { source: 'Xحفظت الموعد', expected: 'A point to review' },
     { source: 'تم الحفظ', expected: 'A point to review' },
     { source: 'رح ذكرك بكرا', expected: 'A point to review' },
     { source: 'ונשמר ביומן', expected: 'A point to review' },
+    { source: 'Xנשמר ביומן', expected: 'A point to review' },
     { source: 'Pay 2.5 dinars for the bus', expected: 'Pay 2.5 dinars for the bus' },
     { source: 'Bring the forms, e.g. the passport', expected: 'Bring the forms, e.g. the passport' },
     { source: 'محفظة جديدة', expected: 'محفظة جديدة' },
@@ -801,17 +807,48 @@ test('understood lines match the client plain-text rule for links, saved claims,
   // Fixed copies of the client's folding and link regexes. Root tests cannot
   // import mobile code; keep these aligned with mobile/src/api/schemas/understoodText.ts.
   const appFoldedAway = /[ً-ٰٟۖ-ۭ֑-ׇـ​-‏‪-‮⁠-⁩﻿]/g;
-  const appLink = /(?:^|[^a-z0-9-])(?:[a-z][a-z0-9+.-]*:\/\/|www\.|webcal:|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![a-z0-9-]))/;
+  const appLink = /(?<![a-z0-9-])(?:[a-z0-9.!#$%&'*+/=?^_{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}|[a-z][a-z0-9+.-]*:\/\/[^\s]*|www\.[^\s]*|webcal:[^\s]*|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![a-z0-9-])(?:[/?#][^\s]*)?)/gi;
+  const appFileExtension = /\.(?:pdf|doc|docx|xls|xlsx|ppt|pptx|txt|jpg|jpeg|png|heic|mp3|mp4|zip)$/i;
+  const appHonorific = /^(?:Mr|Dr|Mrs|Ms)\.[A-Z][A-Za-z0-9-]*$/;
   const appFold = (text: string) => text
     .replace(appFoldedAway, '')
     .replace(/[آأإٱ]/g, 'ا')
-    .replace(/\s+/g, ' ')
-    .toLowerCase();
+    .replace(/\s+/g, ' ');
+  const appHasLink = (text: string) => Array.from(appFold(text).matchAll(appLink)).some((match) => {
+    const run = match[0];
+    const lower = run.toLowerCase();
+    if (run.includes('://') || lower.startsWith('www.') || lower.startsWith('webcal:')) return true;
+    if (run.includes('@') || /[/?#]/.test(run)) return true;
+    return !appFileExtension.test(run) && !appHonorific.test(match[0]);
+  });
 
   for (const line of lines) {
-    assert.equal(appLink.test(appFold(line)), false, `client rejects link in: ${line}`);
+    assert.equal(appHasLink(line), false, `client rejects link in: ${line}`);
     assert.equal(claimsSaved(line), false, `client rejects saved claim in: ${line}`);
   }
+});
+
+test('understood link stripping keeps file names and honorifics, but removes hosts and whole email addresses', () => {
+  const fileExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'jpg', 'jpeg', 'png', 'heic', 'mp3', 'mp4', 'zip'];
+  const cases = [
+    ...fileExtensions.map((extension) => ({ source: `check report.${extension}`, expected: `check report.${extension}` })),
+    { source: 'Read Mr.Smith notes', expected: 'Read Mr.Smith notes' },
+    { source: 'Read Dr.Smith notes', expected: 'Read Dr.Smith notes' },
+    { source: 'Read Mrs.Smith notes', expected: 'Read Mrs.Smith notes' },
+    { source: 'Read Ms.Smith notes', expected: 'Read Ms.Smith notes' },
+    { source: 'meet at cafe.de', expected: 'meet at' },
+    { source: 'send it to bob@mail.co', expected: 'send it to' },
+    { source: 'open report.pdf/private later', expected: 'open later' },
+    { source: 'open https://files.example.pdf/private later', expected: 'open later' },
+    { source: 'visit Dr.Smith.com tomorrow', expected: 'visit tomorrow' },
+  ];
+  const final = finalizeUnderstood(
+    understandingProposal(cases.map(({ source }) => source)),
+    'en',
+    understandingOrdinals(Object.fromEntries(cases.map((_entry, index) => [`item-${index + 1}`, index]))),
+  );
+  assert.deepEqual(final.understood?.map((point) => point.text), cases.map(({ expected }) => expected));
+  assert.ok(final.understood?.every((point) => !point.text.endsWith('@')));
 });
 
 test('understood lines remove controls and clip overlong text to 160 characters with an ellipsis', () => {
