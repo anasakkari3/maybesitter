@@ -116,6 +116,14 @@ export function CaptureScreen() {
   // understood shows that summary, and its cards only once the person opens
   // them (`showsUnderstood`, keyed to the proposal in the reducer).
   const understood = showsUnderstood(state) && state.proposal ? usableUnderstood(state.proposal) ?? null : null;
+  // The line the refused change belongs to now, found by its point's id: the
+  // current version may have moved it, or dropped it (then nothing reopens).
+  // A point keeps its id when its kind changes, so the id alone finds it.
+  const refused = state.refusedEdit?.target;
+  const refusedId = refused ? ('itemId' in refused ? refused.itemId : refused.seedItemId) : null;
+  const refusedLine = refusedId && understood
+    ? understood.findIndex((point) => (point.kind === 'commitment' ? point.itemId : point.seedItemId) === refusedId) + 1
+    : 0;
   const cardsOpen = reviewing && understood === null;
   /** The cards came from the summary: Back returns to it, not to the composer. */
   const fromSummary = cardsOpen && state.proposal !== null && state.reviewOf === state.proposal.proposalId
@@ -149,8 +157,7 @@ export function CaptureScreen() {
   const [summaryEditing, setSummaryEditing] = useState<number | null>(null);
   const [editNote, setEditNote] = useState<'changed' | 'ended' | 'failed' | null>(null);
   const [editBusy, setEditBusy] = useState(false);
-  /** A change refused because the proposal moved on, kept to reopen (M2b). */
-  const [rejectedDraft, setRejectedDraft] = useState<{ n: number; change: Parameters<typeof flow.editPoint>[1] } | null>(null);
+  /** The refused change opened again in the sheet (it lives in `state.refusedEdit` until then). */
   const [draftToReopen, setDraftToReopen] = useState<Parameters<typeof flow.editPoint>[1] | undefined>(undefined);
   /** Each «عدّل», and the one to give the screen reader back to when its sheet closes. */
   const editRefs = useRef(new Map<number, View>());
@@ -158,16 +165,15 @@ export function CaptureScreen() {
   /** One structured change to the summary, through the chat (M2b). */
   const sendEdit = async (target: { itemId: string } | { seedItemId: string }, change: Parameters<typeof flow.editPoint>[1]) => {
     if (editBusy) return;
-    const line = summaryEditing;
     setEditBusy(true);
     setEditNote(null);
-    setRejectedDraft(null);
     const outcome = await flow.editPoint(target, change);
     setEditBusy(false);
     closeSummaryEdit();
-    if (!outcome.ok && outcome.reason !== 'unavailable') setEditNote(outcome.reason);
-    // Not lost: the refused change can be opened again over the current version.
-    if (!outcome.ok && outcome.reason === 'changed' && line !== null && change.rejectCorrectionIds === undefined) setRejectedDraft({ n: line, change });
+    // A refused change is not lost: the provider keeps it on its point
+    // (`state.refusedEdit`), to be opened again over the current version.
+    // Already saved elsewhere says so in its own line (`capture-confirmed-elsewhere`).
+    if (!outcome.ok && outcome.reason !== 'unavailable' && outcome.reason !== 'confirmed') setEditNote(outcome.reason);
   };
   const closeSummaryEdit = () => {
     returnFocusTo.current = summaryEditing;
@@ -299,7 +305,7 @@ export function CaptureScreen() {
    * answer's proposal replaces the one on screen (`chatAnswered`).
    */
   const send = () => {
-    if (!composerText.trim() || inputLength > MAX_CAPTURE_LENGTH || busy || answering) return;
+    if (!composerText.trim() || inputLength > MAX_CAPTURE_LENGTH || busy || answering || editBusy) return;
     stopDictation();
     Keyboard.dismiss();
     setSentAt(new Date());
@@ -497,12 +503,12 @@ export function CaptureScreen() {
           onEdit={(n) => { setEditNote(null); setSummaryEditing(n); }}
           editRef={(n, node) => { if (node) editRefs.current.set(n, node); else editRefs.current.delete(n); }}
           onRejectCorrection={(itemId, correctionId) => { void sendEdit({ itemId }, { rejectCorrectionIds: [correctionId] }); }} />
-        {editNote ? <Txt size={13} color={p.wm} testID="understood-edit-note">
-          {editNote === 'changed' ? t.captureProposalChanged : editNote === 'ended' ? t.understoodEditEnded : t.errorsGeneric}
+        {editNote || refusedLine ? <Txt size={13} color={p.wm} testID="understood-edit-note">
+          {editNote === 'ended' ? t.understoodEditEnded : editNote === 'failed' ? t.errorsGeneric : t.captureProposalChanged}
         </Txt> : null}
-        {editNote === 'changed' && rejectedDraft ? <Pill testID="understood-edit-reopen" label={t.understoodEditReopen} kind="soft" size={13} pad={10}
+        {refusedLine && state.refusedEdit ? <Pill testID="understood-edit-reopen" label={t.understoodEditReopen} kind="soft" size={13} pad={10}
           style={{ alignSelf: 'flex-start' }}
-          onPress={() => { setDraftToReopen(rejectedDraft.change); setSummaryEditing(rejectedDraft.n); setRejectedDraft(null); setEditNote(null); }} /> : null}
+          onPress={() => { setDraftToReopen(state.refusedEdit!.change); setSummaryEditing(refusedLine); flow.takeRefusedEdit(); setEditNote(null); }} /> : null}
       </View>,
       actions: <Pill testID="understood-confirm" label={t.understoodConfirm} onPress={() => openFromSummary(null)} size={15} pad={12} style={{ minWidth: 120 }} /> };
   }
@@ -523,7 +529,8 @@ export function CaptureScreen() {
     else if (clipboard) setClipboard(null);
     else if (menuOpen) setMenuOpen(false);
     else if (discarding) setDiscarding(null);
-    else if (summaryEditing) setSummaryEditing(null);
+    // The same way out as «إلغاء»: the reopened draft goes, focus goes back (M2B-A-R2-REVIEW-007).
+    else if (summaryEditing !== null) closeSummaryEdit();
     else if (fromSummary) { setRevealRequest(null); setToolsOpen(false); flow.reopenUnderstood(); }
     // Cards with no summary (an older server, a share's review): back to the composer, as before.
     // Cards with no summary in the chat (an older server) close and keep too;
@@ -562,11 +569,12 @@ export function CaptureScreen() {
           proposalsTitle: fill(t.chatProposedN, { n: items.length }),
           listeningTitle: t.chatListening, listeningNote: t.voiceListening, cancelListeningLabel: t.cancel }}
         text={composerText} onChangeText={changeText} onSend={send}
-        canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering}
+        // One proposal writer at a time: a «مش هيك» on its way is one too (M2B-A-R2-REVIEW-005).
+        canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering && !editBusy}
         inputDisabled={state.status === 'confirming' || answering}
         composerDisabled={state.status === 'analyzing'}
-        onClose={headerBack} onMore={() => { if (!busy && !answering) setMenuOpen(true); }}
-        onPaste={() => { if (!busy && !answering) void readClipboardText().then(setClipboard); }}
+        onClose={headerBack} onMore={() => { if (!busy && !answering && !editBusy) setMenuOpen(true); }}
+        onPaste={() => { if (!busy && !answering && !editBusy) void readClipboardText().then(setClipboard); }}
         assistant={{ text: t.chatWelcome }}
         // The disclosure that replaced the AI consent (owner decision
         // 2026-09-30): on the page, before the first message is sent.

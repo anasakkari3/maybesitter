@@ -27,6 +27,7 @@
 import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
 import { usableUnderstood } from '../../api/schemas/capture';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
+import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import type { LocationTrigger } from '../../api/schemas/common';
 
 /**
@@ -94,6 +95,14 @@ export type CaptureStatus =
 /** `meeting`: a proposal «حضّرني» made (CL5a), handed to review like a share's. */
 /** Which staged card fields went into a structured edit, so only those are cleared (M2b). */
 export interface FoldedEdit { itemId: string; title: boolean; time: boolean }
+
+/**
+ * A change from the «عدّل» sheet refused because the proposal moved on (M2b):
+ * the person's own values, kept on the point's id — never its line, which
+ * the current version may have moved — until they reopen it, the point is
+ * gone, or the conversation is (M2B-A-R2-REVIEW-003).
+ */
+export interface RefusedEdit { target: CaptureProposalEdit['target']; change: CaptureProposalEdit['change'] }
 
 export type CaptureSource = 'tab' | 'widget' | 'share' | 'notification' | 'meeting';
 
@@ -300,6 +309,8 @@ export interface CaptureState {
   reviewNotice: 'proposalChanged' | null;
   /** Another device or intent already confirmed this conversation's proposal (M2b). */
   confirmedElsewhere: boolean;
+  /** The person's refused summary change, to open again over the current version (M2b). */
+  refusedEdit: RefusedEdit | null;
 }
 
 export type CaptureEvent =
@@ -323,7 +334,9 @@ export type CaptureEvent =
    * message was sent. `folded` is the item whose staged card title/time went
    * into the edit, so they are cleared here.
    */
-  | { type: 'editAnswered'; answer: CaptureChatAnswer; folded?: FoldedEdit }
+  | { type: 'editAnswered'; answer: CaptureChatAnswer; folded?: FoldedEdit; refused?: RefusedEdit }
+  /** The refused change was opened again in the sheet: it is the sheet's now. */
+  | { type: 'refusedEditTaken' }
   /** The current proposal a 409 `proposal_changed` carried (confirm, clarify, seed keep). */
   | { type: 'proposalReplaced'; proposal: CaptureProposal }
   /** A 409 said the proposal was already confirmed elsewhere: nothing more to write here. */
@@ -415,6 +428,7 @@ export function initialCaptureState(
     alternatives: [],
     reviewNotice: null,
     confirmedElsewhere: false,
+    refusedEdit: null,
   };
 }
 
@@ -829,12 +843,13 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         messageKey: null,
       };
       if (!proposal) {
-        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null };
+        return { ...conversation, status: 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
       }
       const carried = carriedInto(state, proposal);
       // A new proposal starts at its own summary; the same one keeps its cards.
       const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
-      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf };
+      const refusedEdit = state.proposal?.proposalId === proposal.proposalId ? state.refusedEdit : null;
+      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf, refusedEdit };
     }
 
     case 'editAnswered': {
@@ -844,11 +859,15 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       const proposal = chatProposalShown(answer.proposal);
       const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, errorReason: null, messageKey: null };
       if (!proposal) {
-        return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null };
+        return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null, refusedEdit: null };
       }
       const carried = carriedAcrossEdit(state, proposal, event.folded);
       const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
-      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf, reviewNotice: null };
+      // A refusal keeps the person's change; an applied change to the same
+      // point spends an older refused one.
+      const refusedEdit = event.refused
+        ?? (state.refusedEdit && event.folded !== undefined && 'itemId' in state.refusedEdit.target && state.refusedEdit.target.itemId === event.folded.itemId ? null : state.refusedEdit);
+      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf, reviewNotice: null, refusedEdit };
     }
 
     case 'proposalReplaced': {
@@ -875,7 +894,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (!state.proposal) return state;
       return {
         ...state, proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null,
-        status: state.text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null, reviewNotice: null, confirmedElsewhere: true,
+        status: state.text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null, reviewNotice: null, confirmedElsewhere: true, refusedEdit: null,
       };
 
     case 'dismissFailure':
@@ -1095,6 +1114,9 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
     case 'understoodReopened':
       if (!state.proposal || state.reviewOf !== state.proposal.proposalId || state.status === 'confirming') return state;
       return { ...state, reviewOf: null };
+
+    case 'refusedEditTaken':
+      return state.refusedEdit ? { ...state, refusedEdit: null } : state;
 
     case 'reset':
       return initialCaptureState(state.source, state.inputMode);

@@ -368,6 +368,8 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
           </View>
         ) : null}
 
+        {state.reviewNotice ? <Txt testID="review-conflict-note" color={p.wm}>{t.captureProposalChanged}</Txt> : null}
+
         {state.status === 'confirmFailed' ? (
           <View style={{ backgroundColor: p.wms, borderRadius: 20, padding: 14 }} testID="review-confirm-failed">
             <Txt size={14} color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt>
@@ -506,7 +508,11 @@ export function ReviewScreen({ onBackToChat }: { onBackToChat?: () => void } = {
         )}
 
         {state.proposal && seeds.length > 0 ? (
-          <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds} />
+          // The revision on screen, and the current version back on a 409, as in
+          // the chat's review (M2B-A-R2-REVIEW-004): a share's or a meeting's
+          // proposal is clarified on the same protocol.
+          <SeedProposalSection proposalId={state.proposal.proposalId} seeds={seeds}
+            {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent} />
         ) : null}
 
         </>}

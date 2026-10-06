@@ -271,8 +271,9 @@ function mockChat(body: unknown): MockResponse {
   // A dictated message gets the route's own answer to one: «فهمت "الطلع" إنها "اطلع"».
   if (!edit) return { status: 200, body: baseAnswer(request?.spoken ? captureChatCorrection : captureChatProposal) };
   const current = baseAnswer();
-  if ((edit.revision ?? 0) < MOCK_BASE_REVISION) {
-    return { status: 409, body: { reason: 'proposal_changed', answer: current } };
+  // The route's exact check: any revision but the current one is a conflict.
+  if (edit.revision !== MOCK_BASE_REVISION) {
+    return { status: 409, body: { reason: 'proposal_changed', answer: current, state: 'open' } };
   }
   // Undoing a correction edits the corrected answer, the only one that has one.
   const answer = baseAnswer(edit.change?.rejectCorrectionIds ? captureChatCorrection : captureChatProposal);
@@ -285,10 +286,22 @@ function mockChat(body: unknown): MockResponse {
   const seed = proposal.seeds.find((candidate) => candidate.seedItemId === seedId);
   // What the server refuses, refused here too: an unknown point, a time on a
   // seed that stays a seed, words with a correction undo in one patch.
+  // An empty patch, and a correction id the point does not carry, too.
+  const corrections = (item && Array.isArray(item.corrections) ? item.corrections : []) as { id: string }[];
   const invalid = (!item && !seed)
+    || Object.keys(change).length === 0
     || (seed && change.time && change.kind !== 'commitment')
-    || (change.text !== undefined && change.rejectCorrectionIds !== undefined);
+    || (change.text !== undefined && change.rejectCorrectionIds !== undefined)
+    || (change.rejectCorrectionIds !== undefined && (change.rejectCorrectionIds.length === 0
+      || change.rejectCorrectionIds.some((id) => !corrections.some((correction) => correction.id === id))));
   if (invalid) return { status: 400, body: { reason: 'edit_invalid' } };
+  // A patch that changes nothing is refused as the route refuses it.
+  const currentKind = item ? 'commitment' : seed?.kind;
+  const unchanged = (change.kind === undefined || change.kind === currentKind)
+    && (change.text === undefined || change.text === (item ? item.title : seed?.summary))
+    && (change.time === undefined || (item !== undefined && change.time.at === item.resolvedTime && !item.needsClarification))
+    && change.rejectCorrectionIds === undefined;
+  if (unchanged) return { status: 400, body: { reason: 'edit_invalid' } };
   const point = (proposal.understood ?? []).find((candidate) =>
     (item && candidate.itemId === item.itemId) || (seed && candidate.seedItemId === seed.seedItemId));
   const before = String(point?.text ?? item?.title ?? seed?.summary ?? '');
@@ -298,8 +311,12 @@ function mockChat(body: unknown): MockResponse {
     if (point) point.text = change.text;
   }
   if (change.time && item) {
+    // A range moves whole: the end keeps the length it had (the route's rule).
+    const length = typeof item.resolvedTime === 'string' && typeof item.endTime === 'string'
+      ? Date.parse(item.endTime) - Date.parse(item.resolvedTime) : 0;
     item.resolvedTime = change.time.at;
     delete item.endTime;
+    if (change.time.at && length > 0) item.endTime = new Date(Date.parse(change.time.at) + length).toISOString();
     item.needsClarification = false;
     item.clarification = null;
   }
@@ -333,7 +350,7 @@ function mockChat(body: unknown): MockResponse {
   // The route records the edit as two turns (`structuredEdit.ts`, `editTurns`).
   const turns = editTurns(change, before, request?.locale);
   answer.reply = turns.reply;
-  answer.turns = [...(answer.turns ?? []), { role: 'user', text: turns.user }, { role: 'assistant', text: turns.reply }];
+  answer.turns = [...(answer.turns ?? []), { role: 'user', text: turns.user, evidence: false }, { role: 'assistant', text: turns.reply }];
   return { status: 200, body: answer };
 }
 

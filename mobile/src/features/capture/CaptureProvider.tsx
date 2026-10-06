@@ -17,7 +17,7 @@
  * away cannot leave it armed, and so the "5 seconds" in the acceptance criteria
  * is one number in one place.
  */
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useAnalyticsConsent,
@@ -127,10 +127,12 @@ interface CaptureContextValue {
   adoptCurrent(proposal: CaptureProposal, confirmed?: boolean): void;
   /** A dictation is starting: the previous chips go, and a voice launch's auto-start is spent. */
   dictationStarted(): void;
+  /** The refused change (`state.refusedEdit`) is opened again in the sheet. */
+  takeRefusedEdit(): void;
 }
 
 /** How a structured edit went: applied, or why not — the summary shows a note. */
-export type EditOutcome = { ok: true } | { ok: false; reason: 'changed' | 'ended' | 'failed' | 'unavailable' };
+export type EditOutcome = { ok: true } | { ok: false; reason: 'changed' | 'confirmed' | 'ended' | 'failed' | 'unavailable' };
 
 /**
  * How an answer went. A failure carries the line to show under the question,
@@ -210,17 +212,26 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
   // anything still on its way for the previous account — a reply, an edit, a
   // clarification, a confirm — lands nowhere (each checks the generation).
   const uid = useOptionalAuth()?.user?.uid ?? null;
+  // The state is forgotten while rendering, before anything below draws it:
+  // a reset in an effect would commit one frame of A's capture under B
+  // (M2B-A-R2-REVIEW-001). The account first becoming known is not a change
+  // of account: nothing of another person's can be here yet (and an adopted
+  // share must stay).
+  const [owner, setOwner] = useState(uid);
+  if (owner !== uid) {
+    setOwner(uid);
+    if (owner !== null) dispatch({ type: 'reset' });
+  }
+  // What a render may not do — timers, the requests still on their way — is
+  // cancelled right after.
   const previousUid = useRef(uid);
   useEffect(() => {
     if (previousUid.current === uid) return;
     const before = previousUid.current;
     previousUid.current = uid;
-    // The account first becoming known is not a change of account: nothing
-    // of another person's can be here yet (and an adopted share must stay).
     if (before === null) return;
     if (undoTimer.current) clearTimeout(undoTimer.current);
     abandonAnalysis();
-    dispatch({ type: 'reset' });
   }, [uid, abandonAnalysis]);
 
   // The timer is cleared on unmount, so leaving the flow cannot leave Undo
@@ -443,14 +454,20 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     const patch: CaptureProposalEdit['change'] = { ...change };
     // Only what actually goes into this patch is cleared from the card after
     // the answer; a «مش هيك» carries no staged words and folds nothing.
+    // A staged field is spent whenever the patch carries that field — folded
+    // in here, or replaced by what the person typed in the sheet — so the
+    // older card value can never come back over the newer one at confirm
+    // (M2B-A-R2-REVIEW-002).
     const folded = { title: false, time: false };
-    if (staged?.title !== undefined && patch.text === undefined && patch.rejectCorrectionIds === undefined) {
-      patch.text = staged.title;
+    if (staged?.title !== undefined && patch.rejectCorrectionIds === undefined) {
+      if (patch.text === undefined) patch.text = staged.title;
       folded.title = true;
     }
-    if (staged?.localDateTime !== undefined && patch.time === undefined && finalKind === 'commitment' && patch.rejectCorrectionIds === undefined) {
-      const at = staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone) : null;
-      patch.time = { at: at ? at.toISOString() : null, timeZone: timezone };
+    if (staged?.localDateTime !== undefined && finalKind === 'commitment' && patch.rejectCorrectionIds === undefined) {
+      if (patch.time === undefined) {
+        const at = staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone) : null;
+        patch.time = { at: at ? at.toISOString() : null, timeZone: timezone };
+      }
       folded.time = true;
     }
     const generation = analysisGeneration.current;
@@ -464,8 +481,17 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       return { ok: true };
     } catch (error) {
       if (generation !== analysisGeneration.current) return { ok: false, reason: 'failed' };
+      // Already confirmed (another device, or a confirm that landed first):
+      // nothing to edit any more — say so instead of opening it as a review (F7c).
+      if (error instanceof ProposalChangedError && error.current.kind === 'chat' && error.current.state === 'confirmed') {
+        dispatch({ type: 'proposalConfirmedElsewhere' });
+        return { ok: false, reason: 'confirmed' };
+      }
       if (error instanceof ProposalChangedError && error.current.kind === 'chat') {
-        dispatch({ type: 'editAnswered', answer: error.current.answer });
+        // The person's own change is kept, on its point, to reopen over this
+        // version; a «مش هيك» is one tap and is not (M2B-A-R2-REVIEW-003).
+        const refused = change.rejectCorrectionIds === undefined ? { refused: { target, change } } : {};
+        dispatch({ type: 'editAnswered', answer: error.current.answer, ...refused });
         return { ok: false, reason: 'changed' };
       }
       // The conversation is gone: an edit is never sent again into a new one.
@@ -474,13 +500,14 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     }
   }, [chat, state.proposal, state.conversationId, state.edits, timezone]);
 
+  const takeRefusedEdit = useCallback(() => dispatch({ type: 'refusedEditTaken' }), []);
   const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
   const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
     state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
-    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted,
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit,
   }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
-    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted]);
+    dictate, chooseAlternative, editPoint, adoptCurrent, dictationStarted, takeRefusedEdit]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }

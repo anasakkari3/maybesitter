@@ -433,6 +433,9 @@ export const captureChatRefusalSchema = z.object({
 export const proposalChangedChatSchema = z.object({
   reason: z.literal('proposal_changed'),
   answer: captureChatSchema,
+  // Whether the current proposal is still open or already confirmed (M2b,
+  // F7c); an older server says nothing, read as open.
+  state: z.enum(['open', 'confirmed']).optional(),
 });
 export const proposalChangedProposalSchema = z.object({
   reason: z.literal('proposal_changed'),

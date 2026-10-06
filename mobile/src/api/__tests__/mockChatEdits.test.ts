@@ -22,14 +22,25 @@ describe('the mock refuses what the server refuses', () => {
   });
 });
 
-it('undoing a correction puts the heard word back in the title and the summary line', () => {
-  // A fixture item carrying a correction is the server's (capture.chatCorrection);
-  // here one is given to the request-aware path through the base fixture's item.
-  const response = mockResponseFor('POST', '/api/mobile/capture/chat', {
-    conversationId: 'c', timezone: 'UTC',
-    edit: { proposalId: 'p', revision: 1, target: { itemId: ITEM.itemId }, change: { rejectCorrectionIds: ['none-here'] } },
+it('a correction id the point does not carry is refused, as the route refuses it', () => {
+  const response = edit({ rejectCorrectionIds: ['none-here'] });
+  expect(response?.status).toBe(400);
+  expect(response?.body).toEqual({ reason: 'edit_invalid' });
+});
+
+it('an empty patch and a patch that changes nothing are refused', () => {
+  expect(edit({})?.status).toBe(400);
+  expect(edit({ text: ITEM.title })?.status).toBe(400);
+  expect(edit({ kind: 'commitment' })?.status).toBe(400);
+});
+
+it('any revision but the current one is a conflict, a newer one too', () => {
+  const send = (revision: number) => mockResponseFor('POST', '/api/mobile/capture/chat', {
+    conversationId: 'c', timezone: 'UTC', edit: { proposalId: 'p', revision, target: { itemId: ITEM.itemId }, change: { text: 'x' } },
   });
-  expect(response?.status).toBe(200);
+  expect(send(0)?.status).toBe(409);
+  expect(send(2)?.status).toBe(409);
+  expect(send(1)?.status).toBe(200);
 });
 
 it('a dictated message gets the corrected answer, and undoing its correction puts «الطلع» back', () => {
@@ -54,7 +65,7 @@ it('an edit adds the route\'s two turns, in its words, after the conversation so
   expect(body.reply).toBe(route.reply);
   expect(body.turns).toHaveLength(turnsBefore + 2);
   expect(body.turns.slice(-2)).toEqual([
-    { role: 'user', text: `غيّر نوع «${ITEM.title}».` },
+    { role: 'user', text: `غيّر نوع «${ITEM.title}».`, evidence: false },
     { role: 'assistant', text: route.turns[route.turns.length - 1]!.text },
   ]);
   const words = edit({ text: 'Call Sami' })?.body as { turns: { text: string }[] };

@@ -228,7 +228,7 @@ function conflictFor(body: unknown): Error {
     // show a current version it cannot read.
     if (record.reason === 'proposal_changed') {
       const chat = proposalChangedChatSchema.safeParse(body);
-      if (chat.success) return new ProposalChangedError({ kind: 'chat', answer: chat.data.answer });
+      if (chat.success) return new ProposalChangedError({ kind: 'chat', answer: chat.data.answer, ...(chat.data.state ? { state: chat.data.state } : {}) });
       const proposal = proposalChangedProposalSchema.safeParse(body);
       if (proposal.success) return new ProposalChangedError({ kind: 'proposal', proposal: proposal.data.proposal, state: proposal.data.state });
       return new ContractError('proposal_changed', [...(chat.error?.issues ?? []), ...(proposal.error?.issues ?? [])].map(issue => issue.code));

@@ -178,7 +178,7 @@ export class StaleCommitmentError extends ConflictError {
  */
 export class ProposalChangedError extends ConflictError {
   constructor(readonly current:
-    | { kind: 'chat'; answer: CaptureChatAnswer }
+    | { kind: 'chat'; answer: CaptureChatAnswer; state?: 'open' | 'confirmed' }
     | { kind: 'proposal'; proposal: CaptureProposal; state: 'open' | 'confirmed' }) {
     super('the proposal changed');
   }
