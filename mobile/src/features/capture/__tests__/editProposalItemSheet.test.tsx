@@ -198,7 +198,8 @@ async function pressSave() {
 async function confirmAndReadEdits(): Promise<SentEdit[] | undefined> {
   await fireEvent.press(screen.getByTestId('review-confirm'));
   await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
-  return (confirmSpy.mock.calls[0]![0] as { edits?: SentEdit[] }).edits;
+  // An edit-free confirm carries no `edits` at all (M2b): read as none.
+  return (confirmSpy.mock.calls[0]![0] as { edits?: SentEdit[] }).edits ?? [];
 }
 
 describe('what the user changed is what the confirm carries', () => {

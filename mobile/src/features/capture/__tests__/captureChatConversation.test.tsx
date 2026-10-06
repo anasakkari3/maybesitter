@@ -388,6 +388,9 @@ describe('starting over, and failures', () => {
     await fireEvent.press(screen.getByTestId('chat-more'));
     await waitFor(() => expect(screen.queryByTestId('chat-menu-start-over')).not.toBeNull());
     await fireEvent.press(screen.getByTestId('chat-menu-start-over'));
+    // It asks first: the whole conversation goes (M2b).
+    await waitFor(() => expect(screen.queryByTestId('capture-discard')).not.toBeNull());
+    await fireEvent.press(screen.getByTestId('capture-discard-confirm'));
     await waitFor(() => expect(screen.queryByTestId('chat-turn-text-0')).toBeNull());
     expect(screen.queryByTestId('review-item-i-0')).toBeNull();
     expect(field()).toBe('');

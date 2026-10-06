@@ -3,7 +3,8 @@ import { View } from 'react-native';
 import { useApp } from '../../state/AppContext';
 import { Btn, Txt } from '../../ui/primitives';
 import { useKeepSeed } from '../../api/queries';
-import type { CaptureSeedProposal } from '../../api/schemas/capture';
+import type { CaptureProposal, CaptureSeedProposal } from '../../api/schemas/capture';
+import { ProposalChangedError } from '../../api/errors';
 import { seedKindLabel } from './seedDisplay';
 
 /**
@@ -33,10 +34,17 @@ import { seedKindLabel } from './seedDisplay';
  * the one thing a proposal is not allowed to do: persist.
  */
 export function SeedProposalSection({
-  proposalId, seeds, onAnchor,
+  proposalId, seeds, onAnchor, revision, onProposalChanged,
 }: {
   proposalId: string;
   seeds: readonly CaptureSeedProposal[];
+  /** The proposal revision on screen (M2b): the seed kept is the one shown. */
+  revision?: number;
+  /**
+   * A 409: the proposal moved on elsewhere. Nothing was kept; the current
+   * version goes back to the review to be looked at again.
+   */
+  onProposalChanged?: (proposal: CaptureProposal) => void;
   /**
    * Each seed's card and its words, for a host that brings one seed into view
    * and to the screen reader — a line of the chat's «هيك فهمت» (M2a).
@@ -90,9 +98,15 @@ export function SeedProposalSection({
                 onPress={() => {
                   setFailed((current) => current.filter((id) => id !== seed.seedItemId));
                   void keep
-                    .mutateAsync({ proposalId, seedItemId: seed.seedItemId })
+                    .mutateAsync({ proposalId, seedItemId: seed.seedItemId, ...(revision !== undefined ? { revision } : {}) })
                     .then(() => setKept((current) => [...current, seed.seedItemId]))
-                    .catch(() => setFailed((current) => [...current, seed.seedItemId]));
+                    .catch((error: unknown) => {
+                      if (error instanceof ProposalChangedError && error.current.kind === 'proposal' && onProposalChanged) {
+                        onProposalChanged(error.current.proposal);
+                        return;
+                      }
+                      setFailed((current) => [...current, seed.seedItemId]);
+                    });
                 }}
                 scaleTo={0.97}
                 style={{ backgroundColor: p.sf2, borderRadius: 14, paddingVertical: 9, paddingHorizontal: 16, alignItems: 'flex-start', opacity: keep.isPending ? 0.5 : 1 }}

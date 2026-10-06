@@ -412,3 +412,23 @@ describe('stopping', () => {
     await expect(service('en').stop()).resolves.toBeUndefined();
   });
 });
+
+describe('other readings of the whole dictation (M2b)', () => {
+  it('asks for alternatives and hands over readings of everything said, not of its last pause', async () => {
+    const got: [string, readonly string[] | undefined][] = [];
+    await service('en').start({ onFinal: (text, alternatives) => { got.push([text, alternatives]); } });
+    expect(module_.started.at(-1)).toEqual(expect.objectContaining({ maxAlternatives: 4 }));
+    emit('result', { isFinal: true, results: [{ transcript: 'call Dana' }, { transcript: 'call Dina' }] });
+    emit('result', { isFinal: true, results: [{ transcript: 'tomorrow at 5' }, { transcript: 'tomorrow at 9' }, { transcript: 'to borrow at 5' }] });
+    emit('end');
+    expect(got).toEqual([['call Dana tomorrow at 5', ['call Dina tomorrow at 9', 'call Dana to borrow at 5']]]);
+  });
+
+  it('a dictation with no other readings hands over none', async () => {
+    const got: (readonly string[] | undefined)[] = [];
+    await service('en').start({ onFinal: (_text, alternatives) => { got.push(alternatives); } });
+    emit('result', { isFinal: true, results: [{ transcript: 'buy milk' }] });
+    emit('end');
+    expect(got).toEqual([[]]);
+  });
+});

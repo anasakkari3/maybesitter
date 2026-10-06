@@ -278,11 +278,38 @@ export interface CaptureState {
    * same proposal keeps the cards open.
    */
   reviewOf: string | null;
+  /**
+   * The draft came from dictation (M2b): the next message says `spoken: true`,
+   * edited by hand or not. Forgotten when the draft is sent or emptied.
+   */
+  spoken: boolean;
+  /**
+   * Other whole-draft readings the recognizer offered for an untouched
+   * dictation, shown as «أو قصدك: …» chips, at most three (M2b). Never sent:
+   * only the words in the field leave the phone. Cleared by any typing, a
+   * chosen chip, a send and a new dictation.
+   */
+  alternatives: string[];
 }
 
 export type CaptureEvent =
   | { type: 'open'; source?: CaptureSource; inputMode?: CaptureInputMode; meeting?: MeetingReviewContext }
   | { type: 'textChanged'; text: string }
+  /** Dictation in progress: the draft so far. It is the person's words, still spoken. */
+  | { type: 'dictationChanged'; text: string }
+  /** Dictation finished, with the whole-draft alternatives the recognizer offered. */
+  | { type: 'dictationFinished'; text: string; alternatives: readonly string[] }
+  /** A «أو قصدك» chip: that reading replaces the draft; nothing is sent. */
+  | { type: 'alternativeChosen'; text: string }
+  /**
+   * The answer to a structured edit of the summary (M2b), or the current answer
+   * a 409 brought back. Unlike `chatAnswered` it never touches the draft: no
+   * message was sent. `folded` is the item whose staged card title/time went
+   * into the edit, so they are cleared here.
+   */
+  | { type: 'editAnswered'; answer: CaptureChatAnswer; folded?: string }
+  /** The current proposal a 409 `proposal_changed` carried (confirm, clarify, seed keep). */
+  | { type: 'proposalReplaced'; proposal: CaptureProposal }
   | { type: 'analyzeStarted' }
   | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
   /**
@@ -366,6 +393,8 @@ export function initialCaptureState(
     turns: [],
     earlier: [],
     reviewOf: null,
+    spoken: false,
+    alternatives: [],
   };
 }
 
@@ -520,6 +549,8 @@ export function confirmPayload(state: CaptureState): {
   weeklyBlockItemIds: string[];
   /** The selected items whose goal link is kept; absent when none is. */
   goalLinkItemIds?: string[];
+  /** The proposal revision on screen, when the server sent one (M2b). */
+  revision?: number;
 } {
   const itemIds = state.selected.filter((id) => confirmableItems(state.proposal, state.edits).includes(id));
   // Edits for items that are not being confirmed are dropped rather than sent.
@@ -533,7 +564,13 @@ export function confirmPayload(state: CaptureState): {
   // Only the chat's cards show «مرتبط بهدف …»: a review that never drew the
   // chip (a share, a meeting prep) links nothing — no link the person did not see.
   const goalLinkItemIds = state.conversationId === null ? [] : itemIds.filter((id) => goalLinkKept(state, id));
-  return { proposalId: state.proposal?.proposalId ?? '', itemIds, edits, weeklyBlockItemIds, ...(goalLinkItemIds.length > 0 ? { goalLinkItemIds } : {}) };
+  const revision = state.proposal?.revision;
+  return {
+    proposalId: state.proposal?.proposalId ?? '', itemIds, edits, weeklyBlockItemIds,
+    ...(goalLinkItemIds.length > 0 ? { goalLinkItemIds } : {}),
+    // What was seen is what is saved (M2b).
+    ...(revision !== undefined ? { revision } : {}),
+  };
 }
 
 function sameIds(a: readonly string[], b: readonly string[]): boolean {
@@ -666,6 +703,26 @@ function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureSt
   return { selected, edits, onceOnly, goalUnlinked };
 }
 
+/**
+ * Choices carried across a structured edit or a 409's current proposal (M2b).
+ * Ids are kept by the server, so a choice follows its id: the selection as
+ * `carriedInto` keeps it, a hand edit while the server's facts for that item
+ * did not change — except the `folded` item, whose staged title and time just
+ * went into the edit and are now the server's (its priority and place stay).
+ * An item that became a seed takes its choices with it.
+ */
+function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: string): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked'> {
+  const carried = carriedInto(state, next);
+  if (!folded) return carried;
+  const staged = state.edits[folded];
+  if (!staged || !next.items.some((item) => item.itemId === folded)) return carried;
+  const { title: _title, localDateTime: _time, ...rest } = staged;
+  const edits = { ...carried.edits };
+  if (Object.keys(rest).length > 0) edits[folded] = rest;
+  else delete edits[folded];
+  return { ...carried, edits };
+}
+
 export function captureReducer(state: CaptureState, event: CaptureEvent): CaptureState {
   switch (event.type) {
     case 'open': {
@@ -679,10 +736,27 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // Truncated here rather than refused, so a long paste keeps its beginning
       // instead of silently doing nothing.
       const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      // Typing over a dictation keeps it spoken but drops the alternatives:
+      // they were readings of words that are no longer there (M2b).
+      const voice = { spoken: state.spoken && text.trim().length > 0, alternatives: [] as string[] };
       // Under a proposal the composer is the next message of the conversation:
       // typing it changes nothing about the proposal on screen (#chat).
-      if (REVIEWING.has(state.status)) return { ...state, text };
-      return { ...state, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
+      if (REVIEWING.has(state.status)) return { ...state, ...voice, text };
+      return { ...state, ...voice, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
+    }
+
+    case 'dictationChanged':
+    case 'dictationFinished':
+    case 'alternativeChosen': {
+      if (state.status === 'analyzing' || state.status === 'confirming') return state;
+      const text = event.text.slice(0, MAX_CAPTURE_LENGTH);
+      const alternatives = event.type === 'dictationFinished'
+        ? Array.from(new Set(event.alternatives.map((value) => value.slice(0, MAX_CAPTURE_LENGTH))))
+          .filter((value) => value.trim() && value !== text).slice(0, 3)
+        : [];
+      const voice = { spoken: text.trim().length > 0, alternatives };
+      if (REVIEWING.has(state.status)) return { ...state, ...voice, text };
+      return { ...state, ...voice, text, status: text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null };
     }
 
     case 'analyzeStarted':
@@ -708,7 +782,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       if (!state.text.trim() || state.status === 'confirming' || state.status === 'analyzing') return state;
       // The proposal and the conversation stay: a failed send goes back to
       // them, and the answer's own proposal replaces this one when it lands.
-      return { ...state, status: 'analyzing', errorReason: null, messageKey: null };
+      // The chips go with the send: they were readings of this draft (M2b).
+      return { ...state, status: 'analyzing', errorReason: null, messageKey: null, alternatives: [] };
 
     case 'chatAnswered': {
       const { answer } = event;
@@ -717,6 +792,8 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
         ...state,
         // The message is in `turns` now; the field is for the next one.
         text: '',
+        spoken: false,
+        alternatives: [],
         conversationId: answer.conversationId,
         turns: answer.turns,
         errorReason: null,
@@ -729,6 +806,28 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       // A new proposal starts at its own summary; the same one keeps its cards.
       const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
       return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf };
+    }
+
+    case 'editAnswered': {
+      // A structured edit sent no message: the draft, its spoken state and its
+      // chips stay exactly as they were (M2b).
+      const { answer } = event;
+      const proposal = chatProposalShown(answer.proposal);
+      const conversation = { ...state, conversationId: answer.conversationId, turns: answer.turns, errorReason: null, messageKey: null };
+      if (!proposal) {
+        return { ...conversation, status: state.text.trim() ? 'editing' : 'idle', proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null };
+      }
+      const carried = carriedAcrossEdit(state, proposal, event.folded);
+      const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
+      return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf };
+    }
+
+    case 'proposalReplaced': {
+      // A 409 brought the proposal as it is now (M2b). Nothing was saved; the
+      // person reviews this version. Their choices carry where it did not move.
+      if (!state.proposal || event.proposal.proposalId !== state.proposal.proposalId) return state;
+      const carried = carriedAcrossEdit(state, event.proposal);
+      return { ...state, ...carried, status: reviewStatus(event.proposal, carried.edits), proposal: event.proposal, original: event.proposal, errorReason: null, messageKey: null };
     }
 
     case 'dismissFailure':

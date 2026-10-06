@@ -5,6 +5,8 @@ import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
 import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, showsUnderstood, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
 import { UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
+import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
+import { instantForLocalDateTime } from '../features/capture/localInstant';
 import { usableUnderstood } from '../api/schemas/capture';
 import { noCommitmentLine } from '../features/capture/noCommitment';
 import { COMPOSER_EXAMPLE_KEYS, exampleText } from '../features/capture/examples';
@@ -127,6 +129,16 @@ export function CaptureScreen() {
     const current = seedAnchors.current.get(seedItemId) ?? { target: null, focus: null };
     seedAnchors.current.set(seedItemId, part === 'card' ? { ...current, target: node } : { ...current, focus: node });
   };
+  /** One structured change to the summary, through the chat (M2b). */
+  const sendEdit = async (target: { itemId: string } | { seedItemId: string }, change: Parameters<typeof flow.editPoint>[1]) => {
+    if (editBusy) return;
+    setEditBusy(true);
+    setEditNote(null);
+    const outcome = await flow.editPoint(target, change);
+    setEditBusy(false);
+    setSummaryEditing(null);
+    if (!outcome.ok && outcome.reason !== 'unavailable') setEditNote(outcome.reason);
+  };
   const openFromSummary = (target: UnderstoodTarget | null) => {
     flow.acceptUnderstood();
     const proposalId = state.proposal?.proposalId;
@@ -143,6 +155,10 @@ export function CaptureScreen() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** «عدّل» on line n of the summary (M2b), and what the last edit came to. */
+  const [summaryEditing, setSummaryEditing] = useState<number | null>(null);
+  const [editNote, setEditNote] = useState<'changed' | 'ended' | 'failed' | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
   const [sentAt, setSentAt] = useState<Date | null>(null);
   const [answering, setAnswering] = useState(false);
   const [skipped, setSkipped] = useState<string[]>([]);
@@ -166,7 +182,17 @@ export function CaptureScreen() {
   const dictationBase = useRef('');
   const dictationEnabled = useRef(true);
   const onDictationStart = () => { dictationEnabled.current = true; dictationBase.current = latestText.current; };
-  const onDictated = (spoken: string) => { if (dictationEnabled.current) changeText(appendDictation(dictationBase.current, spoken)); };
+  const onDictated = (spoken: string) => { if (dictationEnabled.current) flow.dictate(appendDictation(dictationBase.current, spoken), false); };
+  /**
+   * The dictation's end: its words, and the recogniser's other readings of the
+   * whole draft (what was in the field before it, plus each), offered as
+   * «أو قصدك» chips. Only what is in the field is ever sent (M2b).
+   */
+  const onDictationDone = (spoken: string, alternatives: readonly string[] = []) => {
+    if (!dictationEnabled.current) return;
+    const base = dictationBase.current;
+    flow.dictate(appendDictation(base, spoken), true, alternatives.map((alternative) => appendDictation(base, alternative)));
+  };
   const stopDictation = () => { dictationEnabled.current = false; void speech.cancel?.(); setVoiceEpoch(epoch => epoch + 1); };
   /** «إلغاء» while listening: the dictation ends and the field holds what it held before it. */
   const cancelDictation = () => { const before = dictationBase.current; stopDictation(); changeText(before); };
@@ -203,15 +229,25 @@ export function CaptureScreen() {
   };
 
   const leave = () => { setDiscarding(null); flow.close(); actions.closeCapture(); };
+  /**
+   * Back from the chat (M2b, condition 9): capture closes, and everything —
+   * the conversation, the summary, the draft — is still there when «احكيها»
+   * opens again. Only «ابدأ من جديد» and «إلغاء الكل» throw it away.
+   */
+  const closeKeeping = () => { setDiscarding(null); stopDictation(); actions.closeCapture(); };
   /** «خلصت» after a save: where the saved screen's OK went, to the day the things are on. */
   const done = () => { stopDictation(); flow.close(); actions.go('today'); };
   const back = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); flow.backToComposer(); };
   const restart = () => { setDiscarding(null); setEditingId(null); setToolsOpen(false); setMenuOpen(false); stopDictation(); flow.startOver(); };
   const discardsSomething = () => wantsDiscardConfirmation(state);
-  /** The explicit exit ("Cancel all" in review, the header in the composer). */
+  /**
+   * The explicit exit, «إلغاء الكل»: it throws the conversation away, so it
+   * always asks first when there is anything to lose — a conversation, saved
+   * lines, a proposal or a draft (M2b) — not only after hand edits.
+   */
   const requestClose = () => {
     if (state.status === 'confirming') return;
-    if (discardsSomething()) setDiscarding('close');
+    if (hasConversation) setDiscarding('close');
     else leave();
   };
   /**
@@ -246,6 +282,7 @@ export function CaptureScreen() {
     setClarifyError(null);
     setEditingId(null);
     setRevealRequest(null);
+    setEditNote(null);
     void flow.analyze();
   };
   const editItem = (itemId: string, edit: CaptureItemEdit) => {
@@ -346,13 +383,26 @@ export function CaptureScreen() {
   else if (editingId && items.some(item => item.itemId === editingId)) bodyOverride = <EditProposalItemSheet
     key={editingId} item={items.find(item => item.itemId === editingId)!} edit={state.edits[editingId]}
     onChange={next => editItem(editingId, next)} onClose={() => setEditingId(null)} />;
+  else if (summaryEditing !== null && understood && state.proposal && understood[summaryEditing - 1]) {
+    const point = understood[summaryEditing - 1]!;
+    const item = point.kind === 'commitment' ? state.proposal.items.find((candidate) => candidate.itemId === point.itemId) : undefined;
+    const seed = point.kind !== 'commitment' ? state.proposal.seeds.find((candidate) => candidate.seedItemId === point.seedItemId) : undefined;
+    const staged = item ? state.edits[item.itemId] : undefined;
+    const stagedAt = staged?.localDateTime !== undefined
+      ? (staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone)?.toISOString() ?? null : null)
+      : item?.resolvedTime ?? null;
+    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} busy={editBusy}
+      text={staged?.title ?? item?.title ?? seed?.summary ?? point.text} at={stagedAt}
+      onCancel={() => setSummaryEditing(null)}
+      onSave={(change) => { void sendEdit(point.kind === 'commitment' ? { itemId: point.itemId } : { seedItemId: point.seedItemId }, change); }} />;
+  }
   else if (menuOpen) bodyOverride = <View style={{ gap: 14 }} testID="chat-menu">
     <Pill testID="chat-menu-paste" label={t.capturePaste} onPress={() => { setMenuOpen(false); void readClipboardText().then(setClipboard); }} />
     {cardsOpen ? <Pill testID="chat-menu-review-tools" label={t.chatReviewTools} kind="soft"
       onPress={() => { setMenuOpen(false); setToolsOpen(true); }} /> : null}
     {/* A new conversation, on purpose: the assistant forgets this one. */}
     {hasConversation ? <Pill testID="chat-menu-start-over" label={t.chatStartOver} kind="soft"
-      onPress={() => { setMenuOpen(false); if (wantsDiscardConfirmation(state)) setDiscarding('restart'); else restart(); }} /> : null}
+      onPress={() => { setMenuOpen(false); setDiscarding('restart'); }} /> : null}
     <Pill testID="chat-menu-close" label={t.close} onPress={() => setMenuOpen(false)} kind="ghost" />
   </View>;
   else if (state.status === 'noCommitment') bodyOverride = <NothingFound line={noCommitmentLine(state.proposal?.noCommitmentReason, strings)} onClose={leave} />;
@@ -371,7 +421,8 @@ export function CaptureScreen() {
   const reviewExtras = cardsOpen ? <View style={{ gap: 10 }}>
     {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
     {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
-    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed} /> : null}
+    {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
+      {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent} /> : null}
   </View> : null;
   // Under the save (Stitch 03): every review option, the propose-only note,
   // and the explicit exit.
@@ -411,7 +462,15 @@ export function CaptureScreen() {
   if (understood && state.proposal && state.status !== 'analyzing' && history.length > 0 && history[history.length - 1]!.role === 'assistant') {
     const last = history[history.length - 1]!;
     history[history.length - 1] = { ...last,
-      body: <UnderstoodMessage proposal={state.proposal} points={understood} edits={state.edits} onOpen={openFromSummary} />,
+      body: <View style={{ alignSelf: 'stretch', gap: 6 }}>
+        <UnderstoodMessage proposal={state.proposal} points={understood} edits={state.edits} onOpen={openFromSummary}
+          editable={state.proposal.revision !== undefined} busy={editBusy}
+          onEdit={(n) => { setEditNote(null); setSummaryEditing(n); }}
+          onRejectCorrection={(itemId, correctionId) => { void sendEdit({ itemId }, { rejectCorrectionIds: [correctionId] }); }} />
+        {editNote ? <Txt size={13} color={p.wm} testID="understood-edit-note">
+          {editNote === 'changed' ? t.captureProposalChanged : editNote === 'ended' ? t.understoodEditEnded : t.errorsGeneric}
+        </Txt> : null}
+      </View>,
       actions: <Pill testID="understood-confirm" label={t.understoodConfirm} onPress={() => openFromSummary(null)} size={15} pad={12} style={{ minWidth: 120 }} /> };
   }
   // The message on its way: in the conversation already, not yet delivered.
@@ -431,9 +490,11 @@ export function CaptureScreen() {
     else if (clipboard) setClipboard(null);
     else if (menuOpen) setMenuOpen(false);
     else if (discarding) setDiscarding(null);
+    else if (summaryEditing) setSummaryEditing(null);
     else if (fromSummary) { setRevealRequest(null); setToolsOpen(false); flow.reopenUnderstood(); }
-    else if (reviewing) requestBack();
-    else requestClose();
+    // Cards with no summary (an older server, a share's review): back to the composer, as before.
+    else if (reviewing && !understood) requestBack();
+    else closeKeeping();
   };
   /*
    * Android's hardware/gesture back is the header's back (UAT 2026-09-30,
@@ -458,7 +519,8 @@ export function CaptureScreen() {
       <SayItChatPage colors={p} fonts={{ regular: family(400, script), semibold: family(600, script), latin: family(400, 'latin'), lineRatio: LINE_HEIGHT[script],
         forText: (value, weight) => { const run = scriptOfText(value, script); return { fontFamily: family(weight === 'semibold' ? 600 : 400, run), lineRatio: LINE_HEIGHT[run] }; } }}
         copy={{ title: t.captureTitle, subtitle: t.chatSubtitle, placeholder: t.chatPlaceholder,
-          closeLabel: reviewing ? t.back : t.cancel, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.chatSend,
+          // Back, never «إلغاء»: it closes capture and keeps the conversation (M2b).
+          closeLabel: t.back, moreLabel: t.chatOptions, pasteLabel: t.capturePaste, sendLabel: t.chatSend,
           // The save says what it saves, by count and plural-safe (ICU, as
           // confirmN): «احفظ الاتنين», «احفظ وحدة», nothing when none is ticked.
           confirmLabel: tr('chatSaveN', { n: state.selected.length }), editLabel: t.reviewEdit, includeLabel: t.chatWillSave,
@@ -509,9 +571,10 @@ export function CaptureScreen() {
         reduceMotion={reducedMotion}
         // While listening the panel above the field says so; the note line
         // keeps the other states (failed, no speech, denied → Settings).
-        voiceNotice={<>{counter}{voiceStatus === 'listening' ? null : <VoiceNote status={voiceStatus} />}</>}
+        voiceNotice={<>{counter}{voiceStatus === 'listening' ? null : <VoiceNote status={voiceStatus} />}
+          {state.alternatives.length > 0 && state.status !== 'analyzing' ? <AlternativeChips alternatives={state.alternatives} onChoose={flow.chooseAlternative} /> : null}</>}
         microphone={busy || answering || voiceStatus === 'unavailable' ? undefined : <VoiceButton key={voiceEpoch} service={speech} showNote={false} autoFocus={voiceEpoch === 0 && state.inputMode === 'voice'} onStart={onDictationStart}
-          onStatusChange={setVoiceStatus} onPartial={onDictated} onFinal={onDictated}
+          onStatusChange={setVoiceStatus} onPartial={onDictated} onFinal={onDictationDone}
           renderControl={({ onPress, listening, busy }) => <ChatMicrophone colors={p} label={listening ? t.stopReview : t.tapToTalk}
             onPress={onPress} listening={listening} busy={busy} />} />}
       />
@@ -612,4 +675,23 @@ function Failed({
       </View>
     </>
   );
+}
+
+/**
+ * «أو قصدك: …» (M2b, condition 1): the recogniser's other readings of the
+ * whole dictated draft, under the field before anything is sent. A tap puts
+ * that reading in the field; nothing is sent until the person sends it.
+ */
+function AlternativeChips({ alternatives, onChoose }: { alternatives: readonly string[]; onChoose(text: string): void }) {
+  const { t, p } = useApp();
+  return <View testID="capture-alternatives" style={{ gap: 6, alignItems: 'flex-start' }}>
+    <Txt size={13} color={p.mu}>{t.captureAlternativesTitle}</Txt>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      {alternatives.map((alternative, index) => <Btn key={alternative} testID={`capture-alternative-${index + 1}`} label={alternative}
+        onPress={() => onChoose(alternative)} scaleTo={0.97}
+        style={{ minHeight: 44, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: p.lnStrong, backgroundColor: p.sf2, justifyContent: 'center' }}>
+        <Txt size={14}>{alternative}</Txt>
+      </Btn>)}
+    </View>
+  </View>;
 }

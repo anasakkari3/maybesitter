@@ -17,6 +17,7 @@ import {
   ServerError,
   ServiceUnavailableError,
   StaleCommitmentError,
+  ProposalChangedError,
   SuggestionScheduleChangedError,
   TimeoutError,
   UnauthorizedError,
@@ -150,6 +151,8 @@ export function userFacingMessageKey(error: unknown): UserFacingKey {
   if (error instanceof GoogleRefusedError) return GOOGLE_KEYS[error.reason];
   // Before the generic ConflictError branch: both are conflicts, and both are
   // something another device did rather than something the user got wrong.
+  // A capture proposal moved on elsewhere (M2b): nothing was saved, the latest is on screen.
+  if (error instanceof ProposalChangedError) return 'captureProposalChanged';
   if (error instanceof StaleCommitmentError) return 'errorsStaleCommitment';
   if (error instanceof SuggestionScheduleChangedError) return 'errorsPlanProposalStale';
   // A plan-change offer that moved on (#611). Neither reason is the user's

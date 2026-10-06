@@ -35,6 +35,8 @@ export interface CaptureGateway {
     weeklyBlockItemIds: string[];
     /** The selected items whose goal link is kept (`confirmPayload`). Optional for older gateways. */
     goalLinkItemIds?: string[];
+    /** The proposal revision confirmed (`confirmPayload`, M2b). */
+    revision?: number;
   }): Promise<CaptureConfirmation>;
   /** Soft delete. Used only by undo, only for ids the server said it saved. */
   remove(commitmentId: string): Promise<unknown>;
@@ -85,7 +87,7 @@ export function analyzeCapture(
 
 /** The chat call the flow makes (`POST /api/mobile/capture/chat`). */
 export interface ChatGateway {
-  chat(input: { conversationId: string | null; message: string }): Promise<CaptureChatAnswer>;
+  chat(input: { conversationId: string | null; message: string; spoken?: boolean }): Promise<CaptureChatAnswer>;
 }
 
 export type ChatOutcome =
@@ -109,13 +111,16 @@ export async function chatTurn(
   conversationId: string | null,
   message: string,
   classify: (error: unknown) => AnalyzeFailure,
+  spoken = false,
 ): Promise<ChatOutcome> {
+  // `spoken` only when true, so a typed message is the request it always was.
+  const voice = spoken ? { spoken: true } : {};
   try {
-    return { ok: true, answer: await gateway.chat({ conversationId, message }), restarted: false };
+    return { ok: true, answer: await gateway.chat({ conversationId, message, ...voice }), restarted: false };
   } catch (error) {
     if (conversationId === null || !(error instanceof ConversationNotFoundError)) return { ok: false, ...classify(error) };
     try {
-      return { ok: true, answer: await gateway.chat({ conversationId: null, message }), restarted: true };
+      return { ok: true, answer: await gateway.chat({ conversationId: null, message, ...voice }), restarted: true };
     } catch (retryError) {
       return { ok: false, ...classify(retryError) };
     }
