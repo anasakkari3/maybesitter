@@ -41,6 +41,8 @@ it.each([
   // M2A-REV-001 round 2: any host, passive claims, and folded spellings.
   ['a host outside the old list', 'Meeting details at example.dev'],
   ['a host with a path', 'Join on zoom.us/j/123'],
+  ['a short country host', 'Meet at cafe.de'],
+  ['an e-mail address', 'Send it to bob@mail.co'],
   ['a passive English claim', "It's saved to your calendar"],
   ['an "added to your list" claim', 'Dentist added to your list'],
   ['a diacritized Arabic claim', 'حَفَظْتُ الموعد'],
@@ -57,6 +59,9 @@ it.each([
 
 it.each([
   ['words beside a decimal', 'Pay 2.5 dinars for the bus'],
+  // M2a combined review F3: file names and honorifics are the person's words.
+  ['a file name', 'Check report.pdf before the meeting'],
+  ['an honorific glued to a name', 'Read Mr.Smith notes'],
   ['an abbreviation', 'Bring the forms, e.g. the passport'],
   ['an Arabic word that merely contains a claim root', 'محفظة جديدة'],
   ['the person\'s own "save money"', 'Save money for the trip'],
