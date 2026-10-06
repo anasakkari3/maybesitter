@@ -13,6 +13,7 @@ import { AccessibilityInfo } from 'react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../../state/AppContext';
 import { ServerToggle } from '../ServerToggle';
+import { Disclosure } from '../../../ui/Disclosure';
 import en from '../../../i18n/locales/en.json';
 import ar from '../../../i18n/locales/ar.json';
 import he from '../../../i18n/locales/he.json';
@@ -214,5 +215,32 @@ describe('accessibility', () => {
     const control = screen.getByTestId('toggle');
     expect(control.props.accessibilityRole).toBe('switch');
     expect(control.props.accessibilityState).toMatchObject({ checked: true });
+  });
+
+  it('keeps a title disclosure outside the host ancestor that contains the switch', async () => {
+    await show({
+      titleAccessory: title => (
+        <Disclosure id="toggle-title" label="Allow AI" body="Why this setting exists">
+          {title}
+        </Disclosure>
+      ),
+    });
+
+    type Host = { parent: Host | null };
+    const ancestors = (node: Host): Host[] => {
+      const found: Host[] = [];
+      for (let current = node.parent; current; current = current.parent) found.push(current);
+      return found;
+    };
+    const why = screen.getByTestId('toggle-title-why') as unknown as Host;
+    const title = screen.getByText('Allow AI') as unknown as Host;
+    const control = screen.getByTestId('toggle') as unknown as Host;
+    const titleAncestors = ancestors(title);
+    const nearestSharedHost = ancestors(why).find(node => titleAncestors.includes(node));
+
+    expect(nearestSharedHost).toBeDefined();
+    // The accessory composes the title and its why. If it wraps the bordered
+    // row instead, this shared host also becomes an ancestor of the switch.
+    expect(ancestors(control)).not.toContain(nearestSharedHost);
   });
 });

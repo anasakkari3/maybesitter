@@ -7,9 +7,9 @@
  * never a coordinate, while the pin itself lands in on-device storage.
  */
 import React from 'react';
-import { ScrollView } from 'react-native';
+import { Linking, Platform, ScrollView } from 'react-native';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -27,7 +27,7 @@ import type { CaptureItemEdit } from '../../capture/captureMachine';
 import type { CaptureProposalItem } from '../../../api/schemas/capture';
 import type { Commitment } from '../../../api/schemas/common';
 import { loadPlaces, savePlaces, type Place } from '../../../lib/deviceSettings/placeReminders';
-import { HOME_ID, removePlace, resetPlacesStoreForTests } from '../placesStore';
+import { HOME_ID, openPlaceInMaps, removePlace, resetPlacesStoreForTests } from '../placesStore';
 import { reconcilePlaceReminders } from '../PlaceRemindersMount';
 import { applyRegions, geofenceDeps, isWatchingPlaces } from '../nativeLocation';
 import { GEOFENCE_ENTER, GEOFENCE_EXIT, MAX_REGIONS, handleGeofenceEvent, regionIdentifier } from '../placeReminderEngine';
@@ -359,6 +359,17 @@ describe('My places', () => {
     expect(mockLocation.calls).toEqual(['requestForeground', 'position']);
   });
 
+  it('clears the saved event when another local consumer removes Home', async () => {
+    await render(wrap(<PlacesScreen onBack={() => undefined} />));
+    await fireEvent.press(screen.getByTestId('places-home-pin'));
+    await waitFor(() => expect(screen.queryByTestId('places-saved')).not.toBeNull());
+
+    await act(async () => { await removePlace(USER.uid, HOME_ID); });
+
+    await waitFor(() => expect(screen.queryByTestId('places-saved')).toBeNull());
+    expect(screen.queryByTestId('places-home-remove')).toBeNull();
+  });
+
   it('a named place is added and can be removed', async () => {
     mockLocation.foreground = { granted: true, status: 'granted' };
     await render(wrap(<PlacesScreen onBack={() => undefined} />));
@@ -380,6 +391,50 @@ describe('My places', () => {
     await fireEvent.press(screen.getByTestId('places-work-pin'));
     await waitFor(() => expect(screen.getByTestId('places-denied')).toBeTruthy());
     expect(screen.getByTestId('places-problem').props.children).toBe(en.placeDenied);
+  });
+
+  it('keeps a stored Home with a malformed saved time and all of its local actions', async () => {
+    await savePlaces(USER.uid, [{ ...HOME, updatedAt: 'not-a-date' }]);
+    resetPlacesStoreForTests();
+    await render(wrap(<PlacesScreen onBack={() => undefined} />));
+
+    await waitFor(() => expect(screen.getByTestId('places-home-state').props.children).toBe(en.placeSet));
+    expect(screen.getByTestId('places-home-saved-at').props.children).toBe(en.placeSavedTimeUnknown);
+    expect(screen.queryByTestId('places-home-pin')).not.toBeNull();
+    expect(screen.queryByTestId('places-home-map')).not.toBeNull();
+    expect(screen.queryByTestId('places-home-remove')).not.toBeNull();
+  });
+});
+
+describe('opening a saved place in maps', () => {
+  it('keeps the React Native Linking receiver when the map action is pressed', async () => {
+    await savePlaces(USER.uid, [HOME]);
+    resetPlacesStoreForTests();
+    const open = jest.spyOn(Linking, 'openURL').mockImplementation(function (this: unknown, _url: string) {
+      if (this !== Linking) throw new TypeError('unbound');
+      return Promise.resolve(true);
+    });
+    await render(wrap(<PlacesScreen onBack={() => undefined} />));
+    await waitFor(() => expect(screen.queryByTestId('places-home-map')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('places-home-map'));
+
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('places-problem')).toBeNull();
+  });
+
+  it.each([
+    ['ios', 'https://maps.apple.com/?ll=32.0853,34.7818&q=Home'],
+    ['android', 'geo:32.0853,34.7818?q=32.0853,34.7818(Home)'],
+  ] as ['ios' | 'android', string][])('uses the platform URL on %s only when the returned action is pressed', async (os, expected) => {
+    jest.replaceProperty(Platform, 'OS', os);
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+    open.mockClear();
+    const press = openPlaceInMaps(HOME);
+
+    expect(open).not.toHaveBeenCalled();
+    await expect(press()).resolves.toBe(true);
+    expect(open).toHaveBeenCalledWith(expected);
   });
 });
 

@@ -174,18 +174,29 @@ describe('denied', () => {
 
     await waitFor(() => expect(screen.queryByTestId('gentle-reminders-switch-blocked')).toBeNull());
     expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
-    expect(screen.queryByText(en.notifIntroOn)).not.toBeNull();
+    // Once permission is granted the old intro card is noise, so it leaves.
+    expect(screen.queryByTestId('notifications-status')).toBeNull();
+    expect(screen.queryByText(en.notifIntroOn)).toBeNull();
   });
 });
 
 describe('granted', () => {
-  it('says what reminders do, and nothing about asking or settings', async () => {
+  it('shows no intro card, asking copy or settings action', async () => {
     await show();
-    expect(within(screen.getByTestId('notifications-status')).queryByText(en.notifIntroOn)).not.toBeNull();
+    // The setting disclosures now carry optional explanations; the granted
+    // state no longer repeats an introductory paragraph above them.
+    expect(screen.queryByTestId('notifications-status')).toBeNull();
+    expect(screen.queryByText(en.notifIntroOn)).toBeNull();
     expect(screen.queryByText(en.obNotifBody)).toBeNull();
     expect(screen.queryByTestId('notifications-open-settings')).toBeNull();
     expect(screen.queryByTestId('gentle-reminders-switch-blocked')).toBeNull();
     expect(screen.queryByTestId('plan-morning-toggle-blocked')).toBeNull();
+  });
+
+  it('keeps the empty status live region mounted for a later permission refusal', async () => {
+    await show();
+    expect(screen.getByTestId('notifications-status-live').props.accessibilityLiveRegion).toBe('polite');
+    expect(screen.queryByTestId('notifications-denied')).toBeNull();
   });
 });
 
