@@ -3,7 +3,6 @@ import {
   aiContextImportProposalSchema,
 } from '../schemas/aiContextImport';
 import { describe, expect, it } from '@jest/globals';
-import { proposalChangedChatSchema } from '../schemas/capture';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { z } from 'zod';
@@ -20,6 +19,7 @@ import {
   captureChatSchema,
   captureConfirmationSchema,
   captureProposalSchema,
+  proposalChangedChatSchema,
 } from '../schemas/capture';
 import { shareProposalSchema } from '../schemas/share';
 import {
