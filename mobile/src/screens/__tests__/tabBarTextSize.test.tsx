@@ -137,6 +137,10 @@ describe('the tab bar keeps its identity at every text size', () => {
     const view = await atFontScale(2.0);
     const row = Object.assign({}, ...[view.getByTestId('tab-bar-row').props.style].flat(Infinity).filter(Boolean));
     expect(row.flexWrap).toBe('wrap');
+    // The same width for all five, so the second row's two do not grow wider.
+    const widths = IDS.map((id) => Object.assign({}, ...[view.getByTestId(id).props.style].flat(Infinity).filter(Boolean)).width);
+    expect(new Set(widths).size).toBe(1);
+    expect(widths[0]).toBe('32%');
     for (const id of TEXT_IDS) expect(view.getByTestId(`${id}-label`).props.maxFontSizeMultiplier).toBeUndefined();
     await view.unmount();
     const normal = await atFontScale(1);

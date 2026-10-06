@@ -6,6 +6,7 @@ import { createFakeAuthRepository } from '../../auth/fakeAuthRepository';
 import { listToday, listUpcoming } from '../endpoints/commitments';
 import { chatCapture, proposeCapture } from '../endpoints/capture';
 import { getTrust } from '../endpoints/trust';
+import { reviewIntelligenceObservation, setGmailIntelligenceMonitor } from '../endpoints/intelligence';
 import { commitmentListSchema } from '../schemas/common';
 import { ServerError } from '../errors';
 import { releaseConfigProblems } from '../../config/releaseGuard';
@@ -145,5 +146,16 @@ describe('serving the real routes own output', () => {
     await proposeCapture({ text: 'a new commitment', timezone: 'UTC' });
     const second = await listUpcoming({ timezone: 'UTC' });
     expect(second.items.length).toBe(first.items.length);
+  });
+});
+
+describe('the intelligence panel mutations (M1)', () => {
+  it('answers the Gmail monitor switch and an observation confirm from fixtures, never the network', async () => {
+    setMode('mock');
+    const monitor = await setGmailIntelligenceMonitor(true);
+    expect(monitor.enabled).toBe(true);
+    const reviewed = await reviewIntelligenceObservation('any-id', 'confirmed');
+    expect(reviewed.observation.review).toBe('confirmed');
+    expect(fetchCalls).toBe(0);
   });
 });

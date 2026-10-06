@@ -32,7 +32,9 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   const mode = useLayoutMode();
   const enlarged = mode !== 'normal';
   const twoRows = mode === 'xl';
-  const slot = twoRows ? { flexBasis: '31%' as const, flexGrow: 1, minWidth: 0 } : { flex: 1, minWidth: 0 };
+  // Every item the same width in both rows: a third of the bar, never grown,
+  // with the second row's two centred (inspection M1A-R4-004).
+  const slot = twoRows ? { width: '32%' as const, minWidth: 0 } : { flex: 1, minWidth: 0 };
 
   const tabs: { screen: NavTab; label: string; testID: string; icon: string }[] = [
     { screen: 'today', label: t.tabToday, testID: 'tab-today', icon: 'today' },
@@ -58,7 +60,7 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             one-word label at its full size («الي / وم», device 2026-10-06), and
             labels are never capped (IMPLEMENTATION_SPEC). So the bar becomes
             two rows, three and two, each slot wide enough for its word. */}
-        <View testID="tab-bar-row" style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: twoRows ? 'wrap' : 'nowrap', alignItems: 'stretch', gap: 2 }}>
+        <View testID="tab-bar-row" style={{ backgroundColor: p.sfBar, paddingTop: 6, paddingBottom: Math.max(insets.bottom, 8), paddingHorizontal: 6, flexDirection: 'row', flexWrap: twoRows ? 'wrap' : 'nowrap', justifyContent: 'center', alignItems: 'stretch', gap: 2 }}>
           <Btn
             testID="tab-capture"
             label={t.tabCapture}
