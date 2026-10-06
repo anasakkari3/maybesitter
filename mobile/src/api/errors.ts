@@ -1,4 +1,5 @@
 import type { Commitment } from './schemas/common';
+import type { CaptureChatAnswer, CaptureProposal } from './schemas/capture';
 import type { PlanEditRejected, PlanProposalRejected, Week } from './schemas/plan';
 import type { IcsFeedReason } from './schemas/icsFeeds';
 import type { GoogleRefusalReason } from './schemas/google';
@@ -165,6 +166,21 @@ export class CurrencyRequiredError extends ConflictError {
 export class StaleCommitmentError extends ConflictError {
   constructor(readonly current: Commitment) {
     super('the commitment changed on another device');
+  }
+}
+
+/**
+ * 409 `proposal_changed` (M2b): the person's write was against a version of
+ * the capture proposal that is no longer current, so nothing was saved. It
+ * carries what is current — the chat answer for a structured edit, the
+ * proposal (open or already confirmed) for confirm, clarify and seed keep —
+ * for the screen to show; nothing is resubmitted automatically.
+ */
+export class ProposalChangedError extends ConflictError {
+  constructor(readonly current:
+    | { kind: 'chat'; answer: CaptureChatAnswer }
+    | { kind: 'proposal'; proposal: CaptureProposal; state: 'open' | 'confirmed' }) {
+    super('the proposal changed');
   }
 }
 

@@ -215,7 +215,13 @@ export function mockModeActive(): boolean {
  * deletion would hand back a receipt for an account that still exists, which
  * is the one lie in this product with no recoverable version.
  */
-export function mockResponseFor(method: string, path: string): MockResponse | null {
+/**
+ * The fixture for a request. `body` is the parsed request body, for routes
+ * whose answer depends on what was asked (the capture chat's structured
+ * edits, M2b); every other route ignores it. Nothing is remembered between
+ * calls: mock mode never pretends to persist.
+ */
+export function mockResponseFor(method: string, path: string, _body?: unknown): MockResponse | null {
   if (!mockModeActive()) return null;
   for (const [routeMethod, pattern, response] of ROUTES) {
     if (routeMethod === method && pattern.test(path)) return response;

@@ -35,6 +35,25 @@ const understoodPointSchema = z.union([
 ]);
 export type UnderstoodPoint = z.infer<typeof understoodPointSchema>;
 
+const correctionSchema = z.object({
+  id: z.string().min(1).max(80),
+  from: z.string().min(1).max(60).regex(/^\S+$/),
+  to: z.string().min(1).max(60).regex(/^\S+$/),
+}).strict();
+export type CaptureCorrection = z.infer<typeof correctionSchema>;
+
+function parseCorrections(value: unknown): CaptureCorrection[] | undefined {
+  if (value === undefined) return undefined;
+  const parsed = z.array(correctionSchema).min(1).max(3).safeParse(value);
+  if (!parsed.success) return undefined;
+  return new Set(parsed.data.map((correction) => correction.id)).size === parsed.data.length ? parsed.data : undefined;
+}
+
+/** A proposal revision (M2b): a non-negative integer, or absent. */
+function parseRevision(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 function parseUnderstoodShape(value: unknown): UnderstoodPoint[] | undefined {
   if (value === undefined) return undefined;
   const parsed = z.array(understoodPointSchema).min(1).safeParse(value);
@@ -166,6 +185,12 @@ export const captureProposalSchema = z.object({
        */
       goalLink: z.object({ goalId: z.string(), title: z.string() }).optional(),
       /**
+       * Words the server corrected in a dictated message (M2b): «فهمت "الطلع"
+       * إنها "اطلع"». Tolerant: anything malformed — not a list, a blank or
+       * multi-word part, a repeated id, more than three — reads as absent.
+       */
+      corrections: z.preprocess(parseCorrections, z.array(correctionSchema).optional()),
+      /**
        * The one question to ask about this item (UC-2.5, #165).
        *
        * Keys and parameters, never a sentence: the phone renders the question
@@ -220,6 +245,12 @@ export const captureProposalSchema = z.object({
    * `usableUnderstood()` before anything is shown.
    */
   understood: z.preprocess(parseUnderstoodShape, z.array(understoodPointSchema).optional()),
+  /**
+   * Which version of the proposal this is (M2b). Every write the person makes
+   * sends it back; absent from older servers, and then no structured edits
+   * are offered.
+   */
+  revision: z.preprocess(parseRevision, z.number().int().nonnegative().optional()),
   provenance: z
     .object({
       requestedEngine: z.enum(['model', 'rules']),
@@ -392,4 +423,20 @@ export const captureChatRefusalSchema = z.object({
   reason: z.enum(['message_required', 'invalid_conversation_id', 'conversation_not_found', 'text_too_long', 'payload_too_large']),
   maxCharacters: z.number().int().positive().optional(),
   maxBytes: z.number().int().positive().optional(),
+});
+
+/**
+ * 409 `proposal_changed` (M2b), as the routes send it: the chat edit carries
+ * the current chat answer; confirm, clarify and seed keep carry the current
+ * proposal and whether it is still open or already confirmed.
+ */
+export const proposalChangedChatSchema = z.object({
+  reason: z.literal('proposal_changed'),
+  answer: captureChatSchema,
+});
+export const proposalChangedProposalSchema = z.object({
+  reason: z.literal('proposal_changed'),
+  proposal: captureProposalResponseSchema,
+  state: z.enum(['open', 'confirmed']),
+  confirmation: z.unknown().optional(),
 });
