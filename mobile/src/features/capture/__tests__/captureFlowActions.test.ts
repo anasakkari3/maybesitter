@@ -9,6 +9,7 @@ import { describe, expect, it } from '@jest/globals';
 import { captureReducer, initialCaptureState, type CaptureEvent, type CaptureFailureKind, type CaptureState } from '../captureMachine';
 import {
   analyzeCapture,
+  chatTurn,
   confirmCapture,
   reportCaptureUndone,
   undoCapture,
@@ -267,5 +268,19 @@ describe('reporting an undo (UC-2.R2, #172)', () => {
   it('swallows a failed ping rather than surfacing it to whoever pressed Undo', async () => {
     const r = reporter(true, { throws: true });
     await expect(reportCaptureUndone(outcome, r)).resolves.toBeUndefined();
+  });
+});
+
+describe('chatTurn says «spoken» only for dictation (M2b, mutation gap 6)', () => {
+  it.each([
+    [false, {}],
+    [true, { spoken: true }],
+  ])('spoken=%s → the request carries %j and nothing else about voice', async (spoken, voice) => {
+    const sent: Record<string, unknown>[] = [];
+    await chatTurn(
+      { chat: async (input) => { sent.push(input as Record<string, unknown>); return { conversationId: 'c', reply: '', engine: 'rules', proposal: null, turns: [] } as never; } },
+      null, 'hello', () => ({ kind: 'failed', messageKey: 'errorsGeneric' }) as never, spoken,
+    );
+    expect(sent).toEqual([{ conversationId: null, message: 'hello', ...voice }]);
   });
 });

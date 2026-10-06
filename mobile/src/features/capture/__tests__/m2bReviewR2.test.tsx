@@ -441,3 +441,21 @@ describe('each sheet starts at its own top (M2B-A-R5-REVIEW-002)', () => {
     expect(afterQuestion).toBeGreaterThan(afterMenu);
   });
 });
+
+describe('«مش هيك» carries the rejection and nothing staged (mutation gap 7)', () => {
+  it('a staged card title stays on the card, out of the patch, and goes with the confirm', async () => {
+    const corrected = correctedProposal();
+    const chat = server(corrected, { ...corrected, revision: 8, items: [{ ...corrected.items[0]!, corrections: undefined } as never] });
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue({ success: true, replayed: false, persisted: [], failed: [] } as never);
+    await show();
+    await stageCardTitle('Card words');
+    await press('understood-correction-reject-c1');
+    await waitFor(() => expect(editsSent(chat)).toHaveLength(1));
+    expect(editsSent(chat)[0]!.change).toEqual({ rejectCorrectionIds: ['c1'] });
+    await waitFor(() => expect(screen.queryByTestId('understood-correction-reject-c1')).toBeNull());
+    await press('understood-confirm');
+    await press('review-confirm');
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(JSON.stringify(lastCall(confirm).edits)).toContain('Card words');
+  });
+});
