@@ -1,7 +1,7 @@
 {
   "conversationId": "00000000-0000-4000-8000-000000000001",
-  "reply": "Okay, 6pm instead. Check it and confirm if it looks right.",
-  "engine": "model",
+  "reply": "تمام، عدّلتها. راجع القائمة وأكّد من تحت.",
+  "engine": "rules",
   "proposal": {
     "version": "v1",
     "proposalId": "00000000-0000-4000-8000-000000000002",
@@ -9,7 +9,7 @@
     "items": [
       {
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "title": "Call the dentist",
+        "title": "احكي مع طبيب الأسنان",
         "resolvedTime": "2026-08-09T09:00:00.000Z",
         "needsClarification": false,
         "timeEstimated": false,
@@ -20,36 +20,36 @@
       }
     ],
     "seeds": [],
-    "revision": 0,
+    "revision": 1,
     "provenance": {
-      "requestedEngine": "model",
-      "executedEngine": "gemini",
-      "fallbackUsed": false
+      "requestedEngine": "rules",
+      "executedEngine": "rule-based",
+      "fallbackUsed": true
     },
     "understood": [
       {
         "kind": "commitment",
         "itemId": "00000000-0000-4000-8000-000000000003",
-        "text": "Call the dentist"
+        "text": "احكي مع طبيب الأسنان"
       }
     ]
   },
   "turns": [
     {
       "role": "user",
-      "text": "Remind me to call the dentist tomorrow at 5pm"
+      "text": "ذكرني بكرا الساعة 5 المسا أحكي مع الدكتور"
     },
     {
       "role": "assistant",
-      "text": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right."
+      "text": "هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها."
     },
     {
       "role": "user",
-      "text": "make it 6pm"
+      "text": "غيّر «أحكي مع الدكتور» لـ «احكي مع طبيب الأسنان»."
     },
     {
       "role": "assistant",
-      "text": "Okay, 6pm instead. Check it and confirm if it looks right."
+      "text": "تمام، عدّلتها. راجع القائمة وأكّد من تحت."
     }
   ]
 }

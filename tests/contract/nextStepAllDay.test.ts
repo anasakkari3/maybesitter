@@ -56,16 +56,18 @@ async function withMemoryStorage<T>(run: () => Promise<T>): Promise<T> {
 /** Capture one sentence as the phone does, answer «بدون وقت محدد» if asked, and confirm it. */
 async function captureNoHour(text: string): Promise<void> {
   const proposal = await proposeMobileCapture({ text, timezone: TZ, referenceTime: NOW.toISOString() }, { participantId: UID });
+  let revision = proposal.revision;
   const item = proposal.items[0]!;
   if (item.clarification) {
     const none = item.clarification.options.find((option) => !option.value.localTime && !option.value.localDate);
     assert.ok(none, `${text}: no «بدون وقت محدد» option in ${JSON.stringify(item.clarification)}`);
-    await clarifyMobileCapture({
+    const clarified = await clarifyMobileCapture({
       proposalId: proposal.proposalId, itemId: item.itemId, questionId: item.clarification.questionId, optionId: none.optionId,
-      timezone: TZ, referenceTime: NOW.toISOString(),
+      revision, timezone: TZ, referenceTime: NOW.toISOString(),
     }, { participantId: UID });
+    revision = clarified.revision;
   }
-  const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId] }, { participantId: UID });
+  const confirmed = await confirmMobileCapture({ proposalId: proposal.proposalId, itemIds: [item.itemId], revision }, { participantId: UID });
   assert.equal(confirmed.success, true, JSON.stringify(confirmed));
 }
 

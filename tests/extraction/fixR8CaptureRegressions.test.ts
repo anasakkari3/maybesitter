@@ -52,6 +52,7 @@ type Item = {
   resolvedDate?: string;
   dateEstimated?: boolean;
   resolvedTime: string | null;
+  endTime?: string | null;
   needsClarification: boolean;
   recurrenceHint?: { weekdays: number[]; start?: string; end?: string } | null;
   clarification?: { questionId: string; questionKey?: string; allowFreeText?: boolean; options: Array<{ optionId: string; value: { localDate?: string; localTime?: string } }> } | null;
@@ -68,8 +69,8 @@ async function rules(text: string, now: Date, uid = nextUid()) {
   return { proposal, items: proposal.items as Item[], uid };
 }
 
-async function confirmedCommitments(uid: string, proposalId: string, itemIds: string[]): Promise<Commitment[]> {
-  await confirmMobileCapture({ proposalId, itemIds }, { participantId: uid });
+async function confirmedCommitments(uid: string, proposalId: string, itemIds: string[], revision?: number): Promise<Commitment[]> {
+  await confirmMobileCapture({ proposalId, itemIds, ...(revision === undefined ? {} : { revision }) }, { participantId: uid });
   return Object.values((await getParticipantStateSnapshot(uid)).commitments);
 }
 
@@ -182,8 +183,8 @@ test('FIX-R8 1: a range ends after it starts, whichever half the start is asked 
   const { proposal, items, uid } = await rules('عندي تدريب بكرا من 2 لـ 4', TUE);
   assert.deepEqual(items.map(line), ['عندي تدريب | 2026-09-30 - | ask_am_pm']);
   const pm = items[0]!.clarification!.options.find((option) => option.optionId === 'pm')!;
-  await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: items[0]!.itemId, questionId: items[0]!.clarification!.questionId, optionId: pm.optionId, timezone: TZ, referenceTime: TUE.toISOString() }, { participantId: uid });
-  const [commitment] = await confirmedCommitments(uid, proposal.proposalId, [items[0]!.itemId]);
+  const clarified = await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: items[0]!.itemId, questionId: items[0]!.clarification!.questionId, optionId: pm.optionId, timezone: TZ, referenceTime: TUE.toISOString(), revision: proposal.revision }, { participantId: uid });
+  const [commitment] = await confirmedCommitments(uid, proposal.proposalId, [items[0]!.itemId], clarified.revision);
   assert.equal(local(commitment!.timeSpec.dueAt), '14:00');
   assert.equal(local(commitment!.timeSpec.endAt), '16:00');
   // An end with its own half: «من 10 لـ 4 المسا» is 10:00–16:00, not 22:00.
@@ -191,6 +192,32 @@ test('FIX-R8 1: a range ends after it starts, whichever half the start is asked 
   assert.equal(local(evening.items[0]!.resolvedTime), '10:00');
   // "buy 2 to 4 apples" is no range, and «5 to 10 minutes» no clock.
   assert.equal(extract('buy 2 to 4 apples tomorrow', { now: TUE, timezone: TZ }).localTimeSpec?.time ?? null, null);
+});
+
+test('M2b F4: dash and “between” ranges keep both ends and leave no range words in the title', async () => {
+  const cases = [
+    ['اجتماع بكرا 4-8 المسا', 'اجتماع', '16:00', '20:00'],
+    ['Meeting tomorrow 4-8pm', 'Meeting', '16:00', '20:00'],
+    ['Meeting tomorrow 16:00-20:00', 'Meeting', '16:00', '20:00'],
+    ['Meeting tomorrow between 2 and 5pm', 'Meeting', '14:00', '17:00'],
+    ['اجتماع بكرا بين 2 و5 المسا', 'اجتماع', '14:00', '17:00'],
+  ] as const;
+  for (const [text, title, start, end] of cases) {
+    const byRules = await rules(text, TUE);
+    assert.equal(byRules.items.length, 1, text);
+    assert.equal(byRules.items[0]!.title, title, text);
+    assert.equal(local(byRules.items[0]!.resolvedTime), start, text);
+    assert.equal(local(byRules.items[0]!.endTime ?? null), end, text);
+
+    const byModel = await model(text, TUE, { [text]: modelItem({ title, date: '2026-09-30', time: start }) });
+    assert.equal(byModel.items.length, 1, text);
+    assert.equal(byModel.items[0]!.title, title, text);
+    assert.equal(local(byModel.items[0]!.resolvedTime), start, text);
+    assert.equal(local(byModel.items[0]!.endTime ?? null), end, text);
+  }
+  for (const text of ['buy 4-8 people tomorrow', 'اشتري 4-8 أشخاص بكرا']) {
+    assert.equal(extract(text, { now: TUE, timezone: TZ }).localTimeSpec?.time ?? null, null, text);
+  }
 });
 
 test('FIX-R8 2: «עד 4» inside a range is not a deadline', async () => {
@@ -237,14 +264,14 @@ test('FIX-R8 4: «…الاول يوم الجمعة عال ٤ والثاني ا�
 test('FIX-R8 4: the second is answered «الجمعة», then asked صبح/مسا about its 6; both confirm', async () => {
   const { proposal, items, uid } = await rules(ENGAGEMENTS, TUE);
   const second = items[1]!;
-  const afterDay = await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: second.itemId, questionId: second.clarification!.questionId, freeText: 'الجمعة', timezone: TZ, referenceTime: TUE.toISOString() }, { participantId: uid });
+  const afterDay = await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: second.itemId, questionId: second.clarification!.questionId, freeText: 'الجمعة', timezone: TZ, referenceTime: TUE.toISOString(), revision: proposal.revision }, { participantId: uid });
   const placed = afterDay.items.find((item) => item.itemId === second.itemId) as Item;
   assert.equal(line(placed), 'خطبة صاحبي الثاني | 2026-10-02 - | ask_am_pm');
   assert.deepEqual(offered(placed), ['am 2026-10-02 06:00', 'pm 2026-10-02 18:00']);
   assert.equal(placed.clarification?.allowFreeText, false);
-  await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: second.itemId, questionId: placed.clarification!.questionId, optionId: 'pm', timezone: TZ, referenceTime: TUE.toISOString() }, { participantId: uid });
-  await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: items[0]!.itemId, questionId: items[0]!.clarification!.questionId, optionId: 'pm', timezone: TZ, referenceTime: TUE.toISOString() }, { participantId: uid });
-  const commitments = await confirmedCommitments(uid, proposal.proposalId, [items[0]!.itemId, second.itemId]);
+  const afterSecondTime = await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: second.itemId, questionId: placed.clarification!.questionId, optionId: 'pm', timezone: TZ, referenceTime: TUE.toISOString(), revision: afterDay.revision }, { participantId: uid });
+  const afterFirstTime = await clarifyMobileCapture({ proposalId: proposal.proposalId, itemId: items[0]!.itemId, questionId: items[0]!.clarification!.questionId, optionId: 'pm', timezone: TZ, referenceTime: TUE.toISOString(), revision: afterSecondTime.revision }, { participantId: uid });
+  const commitments = await confirmedCommitments(uid, proposal.proposalId, [items[0]!.itemId, second.itemId], afterFirstTime.revision);
   assert.deepEqual(
     commitments.map((commitment) => `${commitment.title} ${localTimeSpecFor(new Date(commitment.timeSpec.dueAt!), TZ)?.date} ${local(commitment.timeSpec.dueAt)}`).sort(),
     ['خطبة صاحبي الاول 2026-10-02 16:00', 'خطبة صاحبي الثاني 2026-10-02 18:00'],

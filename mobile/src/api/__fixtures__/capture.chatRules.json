@@ -20,6 +20,7 @@
       }
     ],
     "seeds": [],
+    "revision": 0,
     "provenance": {
       "requestedEngine": "rules",
       "executedEngine": "rule-based",

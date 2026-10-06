@@ -920,6 +920,45 @@ test('with the cap spent, a bare day and hour answers the one item that is askin
   }
 });
 
+for (const [label, request, answerText, expected] of [
+  ['Arabic evening', 'بكرا الساعة 5 لازم أتصل بالبنك', 'بالمسا', '17:00'],
+  ['Arabic morning', 'بكرا الساعة 5 لازم أتصل بالبنك', 'الصبح', '05:00'],
+  ['English evening', 'Call the bank tomorrow at 5', 'in the evening', '17:00'],
+] as const) {
+  test(`with the cap spent, a typed ${label} answer uses the clarification on the same proposal`, async () => {
+    begin(capped());
+    try {
+      await quietly(async () => {
+        const uid = uidFor(`ChatRulesTypedPeriod${label}`);
+        const first = await chat(uid, request);
+        assert.equal(first.proposal!.items[0]!.clarification?.questionId !== undefined, true, JSON.stringify(first.proposal));
+        const second = await chat(uid, answerText, first.conversationId);
+        assert.equal(second.proposal!.proposalId, first.proposal!.proposalId);
+        assert.equal(second.proposal!.items[0]!.needsClarification, false, JSON.stringify(second.proposal));
+        assert.equal(localClock(second.proposal!.items[0]!.resolvedTime), expected);
+      });
+    } finally {
+      end();
+    }
+  });
+}
+
+test('with the cap spent, a refused list edit is not re-read as a new item on the next turn', async () => {
+  begin(capped());
+  try {
+    await quietly(async () => {
+      const uid = uidFor('ChatRulesOldEdit');
+      const first = await chat(uid, 'I have a dentist appointment tomorrow at 4pm');
+      const refused = await chat(uid, 'make it 5pm', first.conversationId);
+      const next = await chat(uid, 'and remind me to buy bread tomorrow at 7pm', refused.conversationId);
+      assert.ok(!next.proposal!.items.some((entry) => /make it/i.test(entry.title)), JSON.stringify(next.proposal));
+      assert.ok(next.proposal!.items.some((entry) => /bread/i.test(entry.title)), JSON.stringify(next.proposal));
+    });
+  } finally {
+    end();
+  }
+});
+
 test('with the cap spent, a new request is still a new item', async () => {
   begin(capped());
   try {

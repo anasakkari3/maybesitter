@@ -1,5 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { confirmMobileCapture } from '../../../../../../lib/services/mobile/mobileCaptureService';
+import { ProposalChangedError } from '../../../../../../lib/services/captureBoundary';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
@@ -34,6 +35,10 @@ export async function POST(request: Request) {
     }
     return Response.json(result);
   } catch (error) {
+    if (error instanceof ProposalChangedError || (error instanceof Error && error.name === 'ProposalChangedError')) {
+      const changed = error as ProposalChangedError;
+      return Response.json({ reason: 'proposal_changed', proposal: changed.proposal, state: changed.state, ...(changed.confirmation ? { confirmation: changed.confirmation } : {}) }, { status: 409 });
+    }
     return mobileError(error instanceof Error ? error.message : 'Confirmation failed');
   }
 }

@@ -395,12 +395,10 @@ test('confirming twice with different edits is two intents, not a replay', async
     assert.equal(first.success, true);
     assert.equal(first.replayed, false);
 
-    const second = await confirmWith('Corrected title');
     // Not a replay. The two confirms carry different edits, so they are
-    // different intents and must not share an idempotency key.
-    assert.equal(second.replayed, false, 'a different edit was replayed as the first confirm');
-    assert.equal(second.success, false, 'the same proposal was confirmed twice');
-    assert.equal(second.failureCode, 'invalid_selection');
+    // different intents and the unified revision protocol reports the already
+    // confirmed proposal as changed.
+    await assert.rejects(confirmWith('Corrected title'), (error: unknown) => (error as Error).name === 'ProposalChangedError');
 
     // And the same edit twice *is* the same intent, so it replays rather than
     // persisting a second commitment.

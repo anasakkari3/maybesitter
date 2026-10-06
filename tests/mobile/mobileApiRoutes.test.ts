@@ -459,10 +459,11 @@ test('mobile confirm rejects idempotency mismatch without duplicating commitment
     const second = await json(secondResponse);
 
     assert.equal(first.success, true);
-    // #252: the status says it failed; the body still names the item and why.
-    assert.equal(secondResponse.status, 400);
-    assert.equal(second.success, false);
-    assert.deepEqual(second.failed, [{ itemId, reason: 'invalid_selection' }]);
+    // A different intent on an already-confirmed proposal is a revision
+    // conflict; the current confirmed state is returned without another write.
+    assert.equal(secondResponse.status, 409);
+    assert.equal(second.reason, 'proposal_changed');
+    assert.equal(second.state, 'confirmed');
     assert.equal(await commitmentCount(), 1);
     assert.equal(JSON.stringify((await getParticipantStateSnapshot(USER)).commitments), stateAfterFirst);
   } finally {

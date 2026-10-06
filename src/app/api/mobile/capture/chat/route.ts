@@ -1,6 +1,6 @@
 import { mobileAuthErrorResponse, requireMobileUser } from '../../../../../../lib/auth/mobileAuth';
 import { CaptureInputTooLargeError } from '../../../../../../lib/services/captureBoundary/captureBoundaryService';
-import { CaptureChatError, chatMobileCapture } from '../../../../../../lib/services/captureChat/captureChatService';
+import { CaptureChatError, CaptureChatProposalChangedError, chatMobileCapture } from '../../../../../../lib/services/captureChat/captureChatService';
 import { mobileError } from '../../../../../../lib/services/mobile/response';
 import { RequestBodyTooLargeError, readJsonBody, requestBodyTooLargeResponse } from '../../../../../../lib/net/requestBody';
 
@@ -43,6 +43,9 @@ export async function POST(request: Request) {
   try {
     return Response.json(await chatMobileCapture(body, { participantId: user.uid, requestStartedAt }));
   } catch (error) {
+    if (error instanceof CaptureChatProposalChangedError || (error instanceof Error && error.name === 'CaptureChatProposalChangedError')) {
+      return Response.json({ reason: 'proposal_changed', answer: (error as CaptureChatProposalChangedError).answer }, { status: 409 });
+    }
     if (error instanceof CaptureChatError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: error.status });
     }
