@@ -40,7 +40,7 @@ import {
   itemById,
   itemWith,
   lineOf,
-  modelAnswer,
+  modelFirstAnswer,
   modelCalls,
   modelItem,
   revisionOf,
@@ -133,7 +133,7 @@ test('B2 edit (rules): kind consideration→idea keeps the seed id; only the kin
 });
 
 test('B2 edit (model path): edits are applied with no model call, and still with the model down (cap reached)', async () => {
-  const uid = beginModel(modelAnswer('فهمت: تتصل بأمك بكرا الساعة 5 المسا، وبتفكر تسافر الصيف الجاي. أكّد من تحت.', 'propose', [
+  const uid = beginModel(modelFirstAnswer('فهمت: تتصل بأمك بكرا الساعة 5 المسا، وبتفكر تسافر الصيف الجاي. أكّد من تحت.', 'propose', [
     modelItem('اتصل بأمي', TOMORROW, '17:00', { kind: 'commitment' }),
     modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
   ]));
@@ -159,7 +159,7 @@ test('B2 edit (model path): edits are applied with no model call, and still with
 /* ── target by id ─────────────────────────────────────────────────── */
 
 test('B2 edit (model path): two items with the same title — each edit lands on the item its id names, the other is untouched', async () => {
-  const uid = beginModel(modelAnswer('فهمت: مرتين تتصل بأمك بكرا. أكّد من تحت.', 'propose', [
+  const uid = beginModel(modelFirstAnswer('فهمت: مرتين تتصل بأمك بكرا. أكّد من تحت.', 'propose', [
     modelItem('اتصل بأمي', TOMORROW, '17:00', { kind: 'commitment' }),
     modelItem('اتصل بأمي', TOMORROW, '21:00', { kind: 'commitment' }),
   ]));

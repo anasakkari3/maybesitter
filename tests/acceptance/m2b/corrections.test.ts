@@ -34,7 +34,7 @@ import {
   itemById,
   itemWith,
   lineOf,
-  modelAnswer,
+  modelFirstAnswer,
   modelCorrections,
   modelItem,
   show,
@@ -47,7 +47,7 @@ const TWO_WORDS_MESSAGE = 'لازم الطلع عالسوق وجيب خبس بك
 const TWO_WORDS_TITLE = 'اطلع عالسوق وجيب خبز';
 
 function spokenModel(title: string, corrections: Array<[string, string]>, extra: Record<string, unknown> = {}): string {
-  return beginModel(modelAnswer(REPLY, 'propose', [
+  return beginModel(modelFirstAnswer(REPLY, 'propose', [
     modelItem(title, TOMORROW, '17:00', { kind: 'commitment', ...modelCorrections(...corrections), ...extra }),
   ]));
 }
@@ -129,7 +129,7 @@ test('B3 corrections: a duplicated report is one correction with one id; more th
 });
 
 test('B3 corrections: two items each carry their own corrections, with ids unique across the proposal (a model id is not reused)', async () => {
-  const uid = beginModel(modelAnswer('فهمت: تطلع عالسوق وتتصل بأمك بكرا. أكّد من تحت.', 'propose', [
+  const uid = beginModel(modelFirstAnswer('فهمت: تطلع عالسوق وتتصل بأمك بكرا. أكّد من تحت.', 'propose', [
     modelItem('اطلع عالسوق', TOMORROW, '17:00', { kind: 'commitment', corrections: [{ id: 'c1', from: 'الطلع', to: 'اطلع' }] }),
     modelItem('اتصل بأمي', TOMORROW, '21:00', { kind: 'commitment', corrections: [{ id: 'c1', from: 'اتسل', to: 'اتصل' }] }),
   ]));

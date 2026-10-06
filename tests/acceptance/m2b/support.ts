@@ -386,7 +386,45 @@ export function modelCorrections(...pairs: Array<[from: string, to: string]>): R
   return { corrections: pairs.map(([from, to]) => ({ from, to })) };
 }
 
-export function modelAnswer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): Record<string, unknown> {
+export type ModelAction = 'propose' | 'update' | 'ask' | 'chat';
+
+/**
+ * One ref operation of the model's answer (prompt `capture-chat-v8`, contract
+ * v5): `ref` is the opaque server-minted ref the prompt listed the entry with
+ * (`i1`, `i2`, … for items, `s1`, … for seeds); a locked entry can only be
+ * kept or removed, an open one kept, updated (`fields`: one complete
+ * extraction object) or removed.
+ */
+export type ModelRefOperation =
+  | { ref: string; op: 'keep' | 'remove' }
+  | { ref: string; op: 'update'; fields: Record<string, unknown> };
+
+/**
+ * The model's answer in the v5 shape `{ reply, action, locked, open, added }`.
+ * A first turn has nothing listed, so it answers with `added` only; a later
+ * turn names each listed ref explicitly in `locked` / `open`.
+ */
+export function modelRefAnswer(
+  reply: string,
+  action: ModelAction,
+  operations: { locked?: ModelRefOperation[]; open?: ModelRefOperation[]; added?: unknown[] } = {},
+): Record<string, unknown> {
+  return { reply, action, locked: operations.locked ?? [], open: operations.open ?? [], added: operations.added ?? [] };
+}
+
+/** A first turn's answer: nothing is listed yet, so every item is `added`. */
+export function modelFirstAnswer(reply: string, action: ModelAction, added: unknown[]): Record<string, unknown> {
+  return modelRefAnswer(reply, action, { added });
+}
+
+/**
+ * RETIRED pre-v5 shape `{ reply, action, items }` (the full list, positional).
+ * This gate no longer scripts it; it stays exported, unchanged, only because
+ * `tests/mobile/captureRevisionTransactions.cases.ts` (outside this gate)
+ * still imports it and is read through the server's test-only bridge
+ * `legacyTestAnswer`. Use `modelFirstAnswer` / `modelRefAnswer`.
+ */
+export function modelAnswer(reply: string, action: ModelAction, items: unknown[]): Record<string, unknown> {
   return { reply, action, items };
 }
 
