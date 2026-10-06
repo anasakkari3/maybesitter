@@ -15,6 +15,7 @@ import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/ro
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
 import { GET as seedsGet, POST as seedsPost } from '../../src/app/api/mobile/seeds/route.ts';
 import { captureConversationPath } from '../../lib/services/captureChat/conversationStore.ts';
+import { StorageCaptureProposalStore } from '../../lib/services/captureBoundary/proposalStore.ts';
 import {
   CALL_AND_TRAVEL,
   DOCTOR_AND_TRAVEL,
@@ -245,7 +246,7 @@ test('clarification CAS preserves a confirm committed after its initial read', a
   }
 });
 
-test('seed keep transaction creates nothing when an edit wins before its proposal check', async () => {
+test('seed keep/edit race creates nothing when the edit wins first', async () => {
   const rig = begin('SeedKeepEditRace');
   try {
     const first = await chat(rig.uid, 'Maybe I will travel this summer');
@@ -262,10 +263,44 @@ test('seed keep transaction creates nothing when an edit wins before its proposa
       revision: first.proposal.revision,
     })));
     assert.equal(keep.status, 409, JSON.stringify(keep.body));
+    assert.equal(keep.body.reason, 'proposal_changed');
     assert.equal(keep.body.state, 'open');
+    assert.equal(keep.body.proposal.revision, 1);
+    assert.equal(keep.body.proposal.seeds.find((candidate: { seedItemId: string }) => candidate.seedItemId === seed.seedItemId)?.summary, 'Maybe I will travel to the coast');
 
     const listed = await raw(await seedsGet(request('/api/mobile/seeds', rig.uid)));
     assert.deepEqual(listed.body.items, [], 'a stale keep created an orphan seed');
+  } finally {
+    rig.end();
+  }
+});
+
+test('seed keep/edit race preserves the kept proposal when the keep wins first', async () => {
+  const rig = begin('SeedEditKeepRace');
+  try {
+    const first = await chat(rig.uid, 'Maybe I will travel this summer');
+    const seed = first.proposal.seeds[0]!;
+    rig.storage.arm(async () => {
+      const kept = await raw(await seedsPost(request('/api/mobile/seeds', rig.uid, {
+        proposalId: first.proposal.proposalId,
+        seedItemId: seed.seedItemId,
+        revision: first.proposal.revision,
+      })));
+      assert.equal(kept.status, 201, JSON.stringify(kept.body));
+      assert.equal(kept.body.seed.summary, seed.summary);
+    });
+
+    const edited = await raw(await chatPost(request('/api/mobile/capture/chat', rig.uid,
+      editBody(first, { seedItemId: seed.seedItemId }, 'Maybe I will travel to the coast'))));
+    assert.equal(edited.status, 400, JSON.stringify(edited.body));
+    assert.equal(edited.body.reason, 'edit_invalid');
+
+    const listed = await raw(await seedsGet(request('/api/mobile/seeds', rig.uid)));
+    assert.equal(listed.body.items.length, 1, JSON.stringify(listed.body));
+    assert.equal(listed.body.items[0]?.summary, seed.summary);
+    const proposal = await new StorageCaptureProposalStore(rig.storage).get(first.proposal.proposalId);
+    assert.equal(proposal?.contract.revision, 0);
+    assert.equal(proposal?.contract.seeds.find((candidate) => candidate.seedItemId === seed.seedItemId)?.summary, seed.summary);
   } finally {
     rig.end();
   }
