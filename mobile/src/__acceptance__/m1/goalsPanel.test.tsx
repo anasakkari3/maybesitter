@@ -244,13 +244,17 @@ it('A4 goals actions: analyze explains first, freezes a trimmed snapshot, and pr
   await showPanel();
   await fireEvent.changeText(screen.getByTestId('intelligence-statement'), '  first version  ');
 
-  const confirm = await openConfirmation('intelligence-analyze');
+  await act(async () => {
+    await fireEvent.press(screen.getByTestId('intelligence-analyze'));
+    await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'newer text');
+  });
+  const confirm = screen.queryByTestId('intelligence-analyze-confirm');
   expect(mockAnalyze).not.toHaveBeenCalled();
   expect(confirm).not.toBeNull();
   expect(screen.getByTestId('intelligence-statement').props.editable).toBe(false);
+  expect(screen.getByTestId('intelligence-statement').props.value).toBe('newer text');
   expect(screen.getAllByRole('button').filter(node => node.parent === confirm!.parent)).toHaveLength(2);
 
-  await fireEvent.changeText(screen.getByTestId('intelligence-statement'), 'newer text');
   await act(async () => { await fireEvent.press(confirm!); });
   expect(mockAnalyze).toHaveBeenCalledWith('first version');
   expect(screen.getByTestId('intelligence-statement').props.editable).toBe(false);

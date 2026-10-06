@@ -157,7 +157,8 @@ it('A3 today next-step card: struck evidence chips and the old proposal footer l
 
   expect(card.queryByTestId('next-step-why')).toBeNull();
   await act(async () => { await fireEvent.press(card.getByTestId('next-step-why-toggle')); });
-  const reasons = within(card.getByTestId('next-step-why'));
+  await waitFor(() => expect(screen.queryByTestId('next-step-why')).not.toBeNull());
+  const reasons = within(screen.getByTestId('next-step-why'));
   for (const old of OLD_EVIDENCE) expect(reasons.getByText(`· ${old}`)).toBeTruthy();
 });
 
