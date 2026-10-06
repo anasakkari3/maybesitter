@@ -22,7 +22,7 @@ function kindLabel(point: UnderstoodPoint, t: Strings): string {
     case 'possible_goal': return t.seedKindPossibleGoal;
     case 'consideration': return t.seedKindConsideration;
     case 'idea': return t.seedKindIdea;
-    case 'waiting_for': return t.seedKindWaitingFor;
+    case 'waiting_for': return t.understoodKindWaitingFor;
   }
 }
 
@@ -30,7 +30,7 @@ function kindLabel(point: UnderstoodPoint, t: Strings): string {
  * «هيك فهمت» (audit 2026-10-06 #5, #6): what the assistant understood from the
  * message, one numbered line per point in the order it was said, before any
  * card or question. Each line says its kind in words — «التزام», «يمكن هدف»,
- * «عم تفكّر فيه», «فكرة», «مستني» — never by colour alone, and a commitment's
+ * «عم تفكّر فيه», «فكرة», «مستني عليه» — never by colour alone, and a commitment's
  * line carries the time its card shows, the range included («16:00–20:00»).
  * Tapping a line shows its card; «هيك صح» (the bubble's action) shows them all.
  *

@@ -38,11 +38,32 @@ it.each([
   ['an English saved claim', "I've saved your meeting"],
   ['an Arabic saved claim', 'حفظتلك الاجتماع'],
   ['a Hebrew saved claim', 'שמרתי את הפגישה'],
+  // M2A-REV-001 round 2: any host, passive claims, and folded spellings.
+  ['a host outside the old list', 'Meeting details at example.dev'],
+  ['a host with a path', 'Join on zoom.us/j/123'],
+  ['a passive English claim', "It's saved to your calendar"],
+  ['an "added to your list" claim', 'Dentist added to your list'],
+  ['a diacritized Arabic claim', 'حَفَظْتُ الموعد'],
+  ['a tatweel-stretched Arabic claim', 'حـفـظت الموعد'],
+  ['an Arabic "it was saved"', 'تم الحفظ'],
+  ['an Arabic promised reminder', 'رح ذكرك بكرا'],
+  ['a Hebrew claim with a joining vav', 'ונשמר ביומן'],
 ])('drops a summary with %s, and keeps the answer', async (_label, text) => {
   serve(answerWith(text));
   const answer = await chatCapture({ conversationId: null, message: 'meeting', timezone: 'UTC' });
   expect(answer.proposal?.items[0]?.title).toBe('Meeting');
   expect(answer.proposal?.understood).toBeUndefined();
+});
+
+it.each([
+  ['words beside a decimal', 'Pay 2.5 dinars for the bus'],
+  ['an abbreviation', 'Bring the forms, e.g. the passport'],
+  ['an Arabic word that merely contains a claim root', 'محفظة جديدة'],
+  ['the person\'s own "save money"', 'Save money for the trip'],
+])('keeps %s', async (_label, text) => {
+  serve(answerWith(text));
+  const answer = await chatCapture({ conversationId: null, message: 'meeting', timezone: 'UTC' });
+  expect(answer.proposal?.understood).toHaveLength(1);
 });
 
 it('keeps plain words, in any language', async () => {

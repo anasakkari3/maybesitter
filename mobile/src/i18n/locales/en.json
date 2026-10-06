@@ -1727,6 +1727,7 @@
   "chatWillSave": "Save this",
   "understoodKindCommitment": "Commitment",
   "understoodConfirm": "That's right",
+  "understoodKindWaitingFor": "Waiting on",
   "understoodLineHint": "Shows its card",
   "understoodLineLabel": "{n} of {total}. {kind}: {text}",
   "chatListening": "Listening…",

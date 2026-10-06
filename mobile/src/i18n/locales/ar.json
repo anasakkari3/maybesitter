@@ -1727,6 +1727,7 @@
   "chatWillSave": "ينحفظ",
   "understoodKindCommitment": "التزام",
   "understoodConfirm": "هيك صح",
+  "understoodKindWaitingFor": "مستني عليه",
   "understoodLineHint": "بيفرجيك بطاقتها",
   "understoodLineLabel": "{n} من {total}. {kind}: {text}",
   "chatListening": "عم بسمع…",

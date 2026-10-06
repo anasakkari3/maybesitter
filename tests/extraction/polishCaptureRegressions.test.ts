@@ -44,6 +44,7 @@ import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
 import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { finalizeUnderstood, type CaptureSourceOrdinals } from '../../lib/services/captureBoundary/understood.ts';
+import { claimsSaved } from '../../lib/services/captureChat/chatReply.ts';
 import type { CaptureProposalContract, CaptureUnderstoodPoint } from '../../src/contracts/v1/captureContracts.ts';
 
 const TZ = 'Asia/Hebron';
@@ -759,6 +760,51 @@ test('understood lines replace saved claims with a kind-neutral fallback in the 
   );
   assert.equal(english.understood?.[0]?.text, 'A point to review');
   assert.equal(arabic.understood?.[0]?.text, 'نقطة بدها مراجعة');
+});
+
+test('understood lines match the client plain-text rule for links, saved claims, and kept words', () => {
+  const cases = [
+    { source: 'Meeting details at example.dev', expected: 'Meeting details at' },
+    { source: 'Join on zoom.us/j/1 tomorrow', expected: 'Join on tomorrow' },
+    { source: 'Open ftp://files.example.dev/private later', expected: 'Open later' },
+    { source: 'Subscribe at webcal:team-calendar', expected: 'Subscribe at' },
+    { source: 'Open ftp:// later', expected: 'Open later' },
+    { source: 'Visit www. tomorrow', expected: 'Visit tomorrow' },
+    { source: 'Subscribe at webcal: later', expected: 'Subscribe at later' },
+    { source: "It's saved to your calendar", expected: 'A point to review' },
+    { source: 'Dentist added to your list', expected: 'A point to review' },
+    { source: 'حَفَظْتُ الموعد', expected: 'A point to review' },
+    { source: 'حـفـظت الموعد', expected: 'A point to review' },
+    { source: 'تم الحفظ', expected: 'A point to review' },
+    { source: 'رح ذكرك بكرا', expected: 'A point to review' },
+    { source: 'ונשמר ביומן', expected: 'A point to review' },
+    { source: 'Pay 2.5 dinars for the bus', expected: 'Pay 2.5 dinars for the bus' },
+    { source: 'Bring the forms, e.g. the passport', expected: 'Bring the forms, e.g. the passport' },
+    { source: 'محفظة جديدة', expected: 'محفظة جديدة' },
+    { source: 'Save money for the trip', expected: 'Save money for the trip' },
+  ] as const;
+  const contract = understandingProposal(cases.map(({ source }) => source));
+  const ordinals = understandingOrdinals(Object.fromEntries(
+    cases.map((_entry, index) => [`item-${index + 1}`, index]),
+  ));
+  const final = finalizeUnderstood(contract, 'en', ordinals);
+  const lines = final.understood?.map((point) => point.text) ?? [];
+  assert.deepEqual(lines, cases.map(({ expected }) => expected));
+
+  // Fixed copies of the client's folding and link regexes. Root tests cannot
+  // import mobile code; keep these aligned with mobile/src/api/schemas/understoodText.ts.
+  const appFoldedAway = /[ً-ٰٟۖ-ۭ֑-ׇـ​-‏‪-‮⁠-⁩﻿]/g;
+  const appLink = /(?:^|[^a-z0-9-])(?:[a-z][a-z0-9+.-]*:\/\/|www\.|webcal:|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?![a-z0-9-]))/;
+  const appFold = (text: string) => text
+    .replace(appFoldedAway, '')
+    .replace(/[آأإٱ]/g, 'ا')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+
+  for (const line of lines) {
+    assert.equal(appLink.test(appFold(line)), false, `client rejects link in: ${line}`);
+    assert.equal(claimsSaved(line), false, `client rejects saved claim in: ${line}`);
+  }
 });
 
 test('understood lines remove controls and clip overlong text to 160 characters with an ellipsis', () => {
