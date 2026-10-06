@@ -848,7 +848,7 @@ export async function answerClarification(
     resultsByItemId: results,
     clarifiedItemIds: [...(stored.clarifiedItemIds ?? []), input.itemId],
     editReceipt: undefined,
-    seedKeepReceipt: undefined,
+    seedKeepReceipt: stored.seedKeepReceipt,
     legacyConfirmRevision: dependencies.legacyConfirmRevision,
   };
   await dependencies.store.put(next);
@@ -964,7 +964,7 @@ async function askHalfAfterDay(args: {
     commandsByItemId: commands,
     resultsByItemId: results,
     editReceipt: undefined,
-    seedKeepReceipt: undefined,
+    seedKeepReceipt: stored.seedKeepReceipt,
     legacyConfirmRevision: dependencies.legacyConfirmRevision,
   });
   await dependencies.recordEvent({

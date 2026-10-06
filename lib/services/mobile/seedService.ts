@@ -312,10 +312,19 @@ export async function createSeed(
       if (!existing) tx.create(seedPath, seed);
       tx.set(proposalPath, captureProposalToDocument({
         ...stored,
-        contract: { ...stored.contract, revision: currentRevision + 1 },
+        // Keeping a seed does not change the proposal the person is
+        // reviewing.  The receipt is the keep's CAS/idempotency evidence, so
+        // moving the proposal revision here would make the unchanged cards
+        // stale on the very device that kept one of them.
+        contract: stored.contract,
         seedKeepReceipt: { seedItemId, baseRevision: currentRevision, seed },
-        editReceipt: undefined,
-        legacyConfirmRevision: undefined,
+        // Receipts are independent and bounded to one operation of each
+        // kind.  Preserving the edit receipt also keeps replay-before-conflict
+        // semantics when a keep followed an edit.
+        editReceipt: stored.editReceipt,
+        // A revision-bearing writer ends the rolling legacy chain. A legacy
+        // keep is revision-neutral and therefore leaves that chain intact.
+        legacyConfirmRevision: request.revision === undefined ? stored.legacyConfirmRevision : undefined,
       }, new Date()));
       return { seed, replayed: existing !== null };
     });

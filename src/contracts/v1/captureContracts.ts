@@ -563,5 +563,5 @@ export type CaptureChatRequestContract =
  * with no conversation: shares, meeting prep, Google imports).
  */
 export type CaptureProposalChangedContract =
-  | { reason: 'proposal_changed'; answer: unknown /* the CaptureChatAnswer the chat route returns */ }
+  | { reason: 'proposal_changed'; answer: unknown /* the CaptureChatAnswer the chat route returns */; state?: 'open' | 'confirmed' }
   | { reason: 'proposal_changed'; proposal: CaptureProposalContract; state: 'open' | 'confirmed'; confirmation?: CaptureConfirmationResultContract };

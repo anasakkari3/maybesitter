@@ -44,7 +44,8 @@ export async function POST(request: Request) {
     return Response.json(await chatMobileCapture(body, { participantId: user.uid, requestStartedAt }));
   } catch (error) {
     if (error instanceof CaptureChatProposalChangedError || (error instanceof Error && error.name === 'CaptureChatProposalChangedError')) {
-      return Response.json({ reason: 'proposal_changed', answer: (error as CaptureChatProposalChangedError).answer }, { status: 409 });
+      const changed = error as CaptureChatProposalChangedError;
+      return Response.json({ reason: 'proposal_changed', answer: changed.answer, state: changed.state }, { status: 409 });
     }
     if (error instanceof CaptureChatError) {
       return Response.json({ success: false, error: error.message, reason: error.reason }, { status: error.status });

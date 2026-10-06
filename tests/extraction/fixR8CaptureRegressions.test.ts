@@ -198,8 +198,13 @@ test('M2b F4: dash and “between” ranges keep both ends and leave no range wo
   const cases = [
     ['اجتماع بكرا 4-8 المسا', 'اجتماع', '16:00', '20:00'],
     ['Meeting tomorrow 4-8pm', 'Meeting', '16:00', '20:00'],
+    ['Meeting tomorrow 4pm-8pm', 'Meeting', '16:00', '20:00'],
+    ['Meeting tomorrow 4pm - 8pm', 'Meeting', '16:00', '20:00'],
     ['Meeting tomorrow 16:00-20:00', 'Meeting', '16:00', '20:00'],
     ['Meeting tomorrow between 2 and 5pm', 'Meeting', '14:00', '17:00'],
+    ['Meeting tomorrow between 2pm and 5pm', 'Meeting', '14:00', '17:00'],
+    ['Shift tomorrow 10pm-2am', 'Shift', '22:00', '02:00'],
+    ['Meeting tomorrow from 4-8pm', 'Meeting', '16:00', '20:00'],
     ['اجتماع بكرا بين 2 و5 المسا', 'اجتماع', '14:00', '17:00'],
   ] as const;
   for (const [text, title, start, end] of cases) {
@@ -215,8 +220,22 @@ test('M2b F4: dash and “between” ranges keep both ends and leave no range wo
     assert.equal(local(byModel.items[0]!.resolvedTime), start, text);
     assert.equal(local(byModel.items[0]!.endTime ?? null), end, text);
   }
-  for (const text of ['buy 4-8 people tomorrow', 'اشتري 4-8 أشخاص بكرا']) {
+  for (const text of [
+    'buy 4-8 people tomorrow',
+    'buy between 2 and 5 apples tomorrow',
+    'اشتري 4-8 أشخاص بكرا',
+  ]) {
     assert.equal(extract(text, { now: TUE, timezone: TZ }).localTimeSpec?.time ?? null, null, text);
+  }
+  const guarded = extract('meeting tomorrow 110:00-11:00', { now: TUE, timezone: TZ });
+  assert.notEqual(guarded.title, 'meeting 1', 'the 24-hour range guards consumed a substring of 110:00');
+});
+
+test('M2b F7: an equal-ended range has a start but no invented end', async () => {
+  for (const text of ['Meeting tomorrow 16:00-16:00', 'Meeting tomorrow 4-4pm']) {
+    const byRules = await rules(text, TUE);
+    assert.equal(byRules.items.length, 1, text);
+    assert.equal(byRules.items[0]!.endTime ?? null, null, text);
   }
 });
 
