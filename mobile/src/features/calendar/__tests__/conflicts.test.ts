@@ -11,7 +11,7 @@
  * the same thing in the developer's zone and in CI's UTC.
  */
 import { describe, expect, it } from '@jest/globals';
-import { busyAt, chipBlock, conflictsFor } from '../conflicts';
+import { busyAt, busyDuring, chipBlock, conflictsFor } from '../conflicts';
 import type { DeviceBusyBlock } from '../busyBlocks';
 
 const NOW = new Date();
@@ -88,5 +88,36 @@ describe('which block a chip names', () => {
 
   it('is null when there is nothing to name', () => {
     expect(chipBlock([])).toBeNull();
+  });
+});
+
+describe('a said range against busy intervals (M2a, «من 4 لـ 8»)', () => {
+  const range = (from: number, to: number) => [new Date(at(from)), new Date(at(to))] as const;
+
+  it('runs into a block wholly inside it, which the start alone misses', () => {
+    const [start, end] = range(0, 240);
+    const meeting = block(120, 180);
+    expect(busyAt(start.toISOString(), [meeting])).toEqual([]);
+    expect(busyDuring(start, end, [meeting])).toEqual([meeting]);
+  });
+
+  it('is half-open on both sides: touching at either end is no clash', () => {
+    const [start, end] = range(60, 120);
+    expect(busyDuring(start, end, [block(120, 180), block(0, 60)])).toEqual([]);
+    expect(busyDuring(start, end, [block(119, 180)])).toHaveLength(1);
+  });
+
+  it('runs across midnight into the next morning, earliest first', () => {
+    const [start, end] = range(0, 600);
+    const late = block(500, 520);
+    const early = block(30, 40);
+    expect(busyDuring(start, end, [late, early])).toEqual([early, late]);
+  });
+
+  it('is a point without an end, or with an end that is not after the start', () => {
+    const [start] = range(60, 60);
+    const lecture = block(60, 120);
+    expect(busyDuring(start, null, [lecture])).toEqual([lecture]);
+    expect(busyDuring(start, new Date(at(30)), [block(30, 50)])).toEqual([]);
   });
 });

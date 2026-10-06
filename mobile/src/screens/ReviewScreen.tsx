@@ -27,7 +27,8 @@ import { SeedProposalSection } from '../features/seeds/SeedProposalSection';
 import { BusyConflictChip } from '../features/calendar/BusyConflictChip';
 import { useBusyBlocks } from '../features/calendar/useBusyCalendar';
 import { useConflictBusyBlocks } from '../features/google/useGoogle';
-import { busyAt } from '../features/calendar/conflicts';
+import { busyDuring } from '../features/calendar/conflicts';
+import { captureClock, captureTimeOf } from '../features/capture/chatPresentation';
 import { confirmableItems, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type MeetingReviewContext } from '../features/capture/captureMachine';
 import { WeeklyChoice } from '../features/weeklyBlocks/WeeklyChoice';
 import { weeklyA11yLabel } from '../features/weeklyBlocks/weeklyText';
@@ -544,9 +545,9 @@ function ItemCard({
   // the proposal otherwise. Showing the original under a card the user has
   // changed is how they confirm something they did not mean.
   const title = edit?.title ?? item.title;
-  const editedInstant = edit?.localDateTime !== undefined
-    ? (edit.localDateTime === '' ? null : instantForLocalDateTime(edit.localDateTime, timezone))
-    : (item.resolvedTime ? new Date(item.resolvedTime) : null);
+  // The chat cards' own reading (`captureTimeOf`), so «Review tools» shows
+  // the same «16:00–20:00» the chat did (M2a).
+  const { start: editedInstant, end: editedEnd } = captureTimeOf(item, edit, timezone);
   // A day still waiting on its hour is shown with its date (L4). It used to read
   // only "No time", so the Sunday the product had picked was invisible — and a
   // weekday alone could not say whether it meant this Sunday or next.
@@ -564,7 +565,7 @@ function ItemCard({
   // cleared in the edit sheet: the confirm keeps it there (N11).
   const onDay = pendingDay ?? (item.allDayEvent ? dueByDay : undefined) ?? dayKeptWithoutTime(item, edit);
   const when = editedInstant
-    ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${ltr(formatTime(editedInstant, { locale: lang, timeZone: timezone }))}`
+    ? `${formatRelativeDay(editedInstant, { locale: lang, timeZone: timezone })} · ${captureClock(editedInstant, editedEnd, lang, timezone)}`
     : onDay
       ? `${formatDayKey(onDay, { locale: lang, timeZone: timezone })} · ${t.noTimeYet}`
       : dueByDay
@@ -685,7 +686,7 @@ function ItemCard({
               would be a note about something the user has already changed. It
               never blocks Confirm — see `BusyConflictChip`. */}
           <BusyConflictChip
-            blocks={editedInstant && !asWeekly ? busyAt(editedInstant.toISOString(), busy) : []}
+            blocks={editedInstant && !asWeekly ? busyDuring(editedInstant, editedEnd, busy) : []}
             testID={`review-busy-${item.itemId}`}
           />
         </View>

@@ -3,7 +3,7 @@ import type { Locale } from '../../i18n/locale';
 import {
   captureChatSchema,
   captureConfirmationSchema,
-  captureProposalSchema,
+  captureProposalResponseSchema,
   type CaptureChatAnswer,
   type CaptureConfirmation,
   type CaptureProposal,
@@ -44,7 +44,7 @@ export function clarifyCapture(input: {
       ...(input.optionId ? { optionId: input.optionId } : {}),
       ...(input.freeText ? { freeText: input.freeText } : {}),
     },
-    schema: captureProposalSchema,
+    schema: captureProposalResponseSchema,
   });
 }
 
@@ -66,7 +66,7 @@ export function proposeCapture(input: {
       referenceTime: input.referenceTime ?? new Date().toISOString(),
       ...(input.locale ? { locale: input.locale } : {}),
     },
-    schema: captureProposalSchema,
+    schema: captureProposalResponseSchema,
     ...(input.signal ? { signal: input.signal } : {}),
   });
 }

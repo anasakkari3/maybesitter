@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
+  AccessibilityInfo, ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View,
   type TextStyle,
 } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
@@ -40,6 +40,12 @@ export interface ChatHistoryEntry extends ChatMessage {
   tone?: 'saved';
   /** Controls inside the bubble, under its words (Undo, Done after a save). */
   actions?: React.ReactNode;
+  /**
+   * More of the message under its words, before its actions: the numbered
+   * «هيك فهمت» summary of an answer (M2a). The bubble is then a container, not
+   * one element, so a screen reader reaches what is inside it.
+   */
+  body?: React.ReactNode;
   /**
    * The assistant's next line, in a bubble of its own under this one («في إشي
    * تاني؟ احكيلي.»). Part of the same message: read out with it, and its
@@ -137,6 +143,18 @@ export interface SayItChatPageProps {
   composerFocusKey?: number;
   /** A new proposal's identity; reveal its first question or first card. */
   revealConfirmKey?: string | null;
+  /**
+   * Whether the proposal's cards are open. Defaults to "there are cards"; the
+   * host says so for a proposal of seeds alone, whose Back still returns from
+   * the review.
+   */
+  reviewing?: boolean;
+  /**
+   * Bring one card into view and to the screen reader — a line of the
+   * summary was tapped (M2a) — or, with `id: null`, what sits under the cards
+   * (the seeds). `key` changes for each request.
+   */
+  revealRow?: { key: number; id: string | null } | null;
   /** Reduce motion: the reveal jumps instead of scrolling. */
   reduceMotion?: boolean;
   rtl?: boolean;
@@ -155,7 +173,7 @@ export function SayItChatPage({
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, clarification, reviewExtras, reviewFooter,
   rtl = false, safeTop = 0, safeBottom = 0, keyboardShown = false, mode = 'normal', composerFocusKey = 0,
-  revealConfirmKey = null, reduceMotion = false,
+  revealConfirmKey = null, reduceMotion = false, reviewing = scheduleGroups.length > 0, revealRow = null,
 }: SayItChatPageProps) {
   const input = React.useRef<TextInput>(null);
   React.useEffect(() => {
@@ -182,6 +200,27 @@ export function SayItChatPage({
     revealed.current = revealConfirmKey;
     if (first.value > viewport - 80) scroller.current?.scrollTo({ y: Math.max(0, first.value - 16), animated: !reduceMotion });
   }, [revealConfirmKey, viewport, block, question, clarification, reduceMotion]);
+  // A tapped line's card, scrolled to once it is laid out, then focused.
+  const rowRefs = React.useRef(new Map<string, View>());
+  const checkRefs = React.useRef(new Map<string, View>());
+  const extrasRef = React.useRef<View>(null);
+  const revealedRow = React.useRef<number | null>(null);
+  const [laidOut, setLaidOut] = React.useState(0);
+  React.useEffect(() => {
+    if (!revealRow || revealedRow.current === revealRow.key) return;
+    const target = revealRow.id === null ? extrasRef.current : rowRefs.current.get(revealRow.id);
+    // `getInnerViewRef` is ScrollView's content view; the typings omit it.
+    const content = (scroller.current as unknown as { getInnerViewRef?: () => View | null } | null)?.getInnerViewRef?.();
+    if (!target || !content) return;
+    revealedRow.current = revealRow.key;
+    try {
+      target.measureLayout(content as never, (_x, y) => {
+        scroller.current?.scrollTo({ y: Math.max(0, y - 16), animated: !reduceMotion });
+      }, () => undefined);
+    } catch { /* not measurable (a test renderer): nothing to scroll */ }
+    const check = revealRow.id === null ? null : checkRefs.current.get(revealRow.id);
+    if (check) AccessibilityInfo.sendAccessibilityEvent(check, 'focus');
+  }, [revealRow, laidOut, reduceMotion]);
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
@@ -211,7 +250,7 @@ export function SayItChatPage({
       <View style={styles.headerRow}>
         <View style={styles.headerStart}>
           <IconButton label={copy.closeLabel} onPress={onClose} colors={p} icon="back" rtl={rtl} disabled={inputDisabled}
-            testID={scheduleGroups.length ? 'review-back' : 'capture-cancel'} />
+            testID={reviewing ? 'review-back' : 'capture-cancel'} />
           <View style={styles.identity}>
             <BrandTile colors={p} latinFace={fonts.latin ?? fonts.semibold} />
             <View style={styles.titles}>
@@ -236,11 +275,11 @@ export function SayItChatPage({
   // kept the typing bubble's «بنفهمها…»), and set in the face its alphabet
   // needs, as the person's own message is — an English reply in the Arabic
   // page is not Naskh's Latin.
-  const message = (value: ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail'>, testID: string, first = false) => {
+  const message = (value: ChatMessage & Pick<ChatHistoryEntry, 'tone' | 'actions' | 'tail' | 'body'>, testID: string, first = false) => {
     const paragraphs = value.text.split(/\n\n+/);
     const saved = value.tone === 'saved';
     return (
-      <View testID={testID} accessible={value.actions == null} accessibilityLabel={value.tail ? `${value.text}\n\n${value.tail}` : value.text}
+      <View testID={testID} accessible={value.actions == null && value.body == null} accessibilityLabel={value.tail ? `${value.text}\n\n${value.tail}` : value.text}
         style={[styles.assistantBlock, !first && styles.followup]}>
         <View style={styles.assistantRow}>
           {avatar}
@@ -255,6 +294,7 @@ export function SayItChatPage({
                   ))}
                 </View>
               </View>
+              {value.body ? <View testID={`${testID}-body`} style={styles.bubbleBody}>{value.body}</View> : null}
               {value.actions ? <View testID={`${testID}-actions`} style={[styles.bubbleActions, { borderTopColor: p.ln }]}>{value.actions}</View> : null}
             </View>
             {value.tail ? <View style={[styles.assistantBubble, styles.tailBubble, { backgroundColor: p.sf, borderColor: p.ln }]}>
@@ -286,7 +326,7 @@ export function SayItChatPage({
   return (
     <View testID="say-it-chat-page" style={[styles.page, { backgroundColor: p.bg }]}>
       {!accessibilitySize && header}
-      <ScrollView ref={scroller} testID={scheduleGroups.length ? 'review-scroll' : 'capture-scroll'} style={styles.scroller}
+      <ScrollView ref={scroller} testID={reviewing ? 'review-scroll' : 'capture-scroll'} style={styles.scroller}
         onLayout={(event) => setViewport(event.nativeEvent.layout.height)}
         keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag"
         contentContainerStyle={styles.conversation}>
@@ -332,7 +372,9 @@ export function SayItChatPage({
                 </Text> : null}
                 {group.rows.map((row) => {
                   const excluded = row.selected === false;
-                  return <View key={row.id} testID={`review-card-${row.id}`} style={[styles.itemCard, { backgroundColor: p.sf2, borderColor: p.ln }]}>
+                  return <View key={row.id} testID={`review-card-${row.id}`} style={[styles.itemCard, { backgroundColor: p.sf2, borderColor: p.ln }]}
+                    ref={(view) => { if (view) rowRefs.current.set(row.id, view); else rowRefs.current.delete(row.id); }}
+                    onLayout={() => setLaidOut((count) => count + 1)}>
                     <View testID={`chat-schedule-row-${row.id}`} style={styles.itemTop}>
                       <View style={[styles.rowIcon, { backgroundColor: excluded ? p.sf : (p.iconBg ?? p.acs) }]}>
                         <ChatIcon name={row.icon ?? 'calendar'} size={22} color={excluded ? p.mu : p.ac} />
@@ -360,6 +402,7 @@ export function SayItChatPage({
                           alone — the box carries a check when the card will be
                           saved and is empty when it will not. */}
                       {onRowToggle && typeof row.selected === 'boolean' ? <Pressable testID={`review-item-${row.id}`}
+                        ref={(view) => { if (view) checkRefs.current.set(row.id, view); else checkRefs.current.delete(row.id); }}
                         accessibilityRole="checkbox" accessibilityLabel={row.accessibilityLabel ?? row.title}
                         accessibilityState={{ checked: row.selected, disabled: !!row.selectionDisabled }}
                         disabled={row.selectionDisabled} onPress={() => onRowToggle(row.id)}
@@ -375,7 +418,8 @@ export function SayItChatPage({
                   </View>;
                 })}
               </View>)}
-              {reviewExtras ? <View testID="chat-review-extras" style={styles.reviewExtras}>{reviewExtras}</View> : null}
+              {reviewExtras ? <View ref={extrasRef} testID="chat-review-extras" style={styles.reviewExtras}
+                onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}</View> : null}
               {onConfirm ? <View testID="chat-add-schedule"><Pressable testID="review-confirm" accessibilityRole="button" accessibilityLabel={copy.confirmLabel}
                 accessibilityState={{ disabled: !canConfirm || confirming, busy: confirming }}
                 disabled={!canConfirm || confirming} onPress={onConfirm}
@@ -389,7 +433,8 @@ export function SayItChatPage({
               {reviewFooter ? <View testID="chat-review-footer" style={styles.reviewFooter}>{reviewFooter}</View> : null}
             </View>
             {scheduleTime ? <Text style={[timestampStyle, styles.scheduleTime]}>{scheduleTime}</Text> : null}
-          </View> : reviewExtras || reviewFooter ? <View style={[styles.reviewExtras, styles.looseExtras]}>{reviewExtras}{reviewFooter}</View> : null}
+          </View> : reviewExtras || reviewFooter ? <View ref={extrasRef} style={[styles.reviewExtras, styles.looseExtras]}
+            onLayout={() => setLaidOut((count) => count + 1)}>{reviewExtras}{reviewFooter}</View> : null}
           {followup && message(followup, 'chat-followup')}
           {accessibilitySize && languageControl ? <View style={[styles.languageRow, styles.scrollLanguage]}>{languageControl}</View> : null}
         </> : bodyOverride}
@@ -552,6 +597,7 @@ const styles = StyleSheet.create({
   words: { gap: 6 },
   savedRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   savedWords: { flexShrink: 1, gap: 6 },
+  bubbleBody: { marginTop: 4, alignSelf: 'stretch' },
   bubbleActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth },
   incomingTime: { marginStart: AVATAR_COLUMN, marginTop: 4 },
   clarification: { marginStart: AVATAR_COLUMN, marginTop: 12 },

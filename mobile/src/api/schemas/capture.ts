@@ -258,6 +258,20 @@ export function usableUnderstood(proposal: Pick<CaptureProposal, 'items' | 'seed
 }
 
 /**
+ * A proposal as a response carries it: `understood` survives only when it
+ * describes exactly this proposal (`usableUnderstood`). Lines that name an
+ * unknown item, skip one, or file a seed under another kind read as absent —
+ * the answer itself still parses (M2a, contract v3). The base object stays a
+ * plain object so other schemas can `extend` it.
+ */
+export const captureProposalResponseSchema = captureProposalSchema.transform((proposal): CaptureProposal => {
+  if (proposal.understood === undefined || usableUnderstood(proposal)) return proposal;
+  const kept = { ...proposal };
+  delete kept.understood;
+  return kept;
+});
+
+/**
  * What a newly-persisted commitment landed on top of (#football-fixtures
  * task 10). No `origin` field: an earlier task carried one and it was
  * withdrawn, because a sealed annotation corpus checksums the whole
@@ -355,7 +369,7 @@ export const captureChatSchema = z.object({
   conversationId: z.string(),
   reply: z.string(),
   engine: z.enum(['model', 'rules']),
-  proposal: captureProposalSchema.nullable(),
+  proposal: captureProposalResponseSchema.nullable(),
   turns: z.array(captureChatTurnSchema),
 });
 

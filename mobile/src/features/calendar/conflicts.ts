@@ -55,6 +55,27 @@ export function busyAt(at: string, blocks: readonly DeviceBusyBlock[]): DeviceBu
 }
 
 /**
+ * The blocks a proposed item runs into, earliest first: `busyAt` for a point,
+ * and for a range the person said («من 4 لـ 8», audit 2026-10-06 #2) every
+ * block overlapping it, half-open on both sides — a range ending at 20:00 does
+ * not clash with a block starting at 20:00, and one across midnight clashes
+ * with what is on the next morning.
+ */
+export function busyDuring(start: Date, end: Date | null, blocks: readonly DeviceBusyBlock[]): DeviceBusyBlock[] {
+  if (!end) return busyAt(start.toISOString(), blocks);
+  const from = start.getTime();
+  const to = end.getTime();
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return busyAt(start.toISOString(), blocks);
+  return blocks
+    .filter((block) => {
+      const blockStart = Date.parse(block.startAt);
+      const blockEnd = Date.parse(block.endAt);
+      return Number.isFinite(blockStart) && Number.isFinite(blockEnd) && blockStart < to && from < blockEnd;
+    })
+    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
+}
+
+/**
  * Per subject, what it runs into.
  *
  * A `Map` rather than a decorated copy of the list: the screens already hold

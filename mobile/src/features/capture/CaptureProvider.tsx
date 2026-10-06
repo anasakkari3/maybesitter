@@ -104,6 +104,10 @@ interface CaptureContextValue {
   confirm(): Promise<void>;
   undo(): Promise<UndoOutcome>;
   backToComposer(): void;
+  /** «هيك صح» on the chat's summary: the proposal's cards. */
+  acceptUnderstood(): void;
+  /** Back from those cards to the summary. */
+  reopenUnderstood(): void;
   close(): void;
 }
 
@@ -353,9 +357,11 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'reset' });
   }, [abandonAnalysis]);
 
+  const acceptUnderstood = useCallback(() => dispatch({ type: 'understoodAccepted' }), []);
+  const reopenUnderstood = useCallback(() => dispatch({ type: 'understoodReopened' }), []);
   const value = useMemo<CaptureContextValue>(() => ({
-    state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, close,
-  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, close]);
+    state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close,
+  }), [state, open, setText, analyze, dismissFailure, startOver, adoptProposal, toggleItem, selectAll, deselectAll, editItem, setWeekly, setGoalLink, clarify, confirm, undo, backToComposer, acceptUnderstood, reopenUnderstood, close]);
 
   return <CaptureContext.Provider value={value}>{children}</CaptureContext.Provider>;
 }
