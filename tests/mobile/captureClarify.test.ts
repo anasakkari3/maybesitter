@@ -237,6 +237,9 @@ test('what the durable store keeps survives the round trip', async () => {
 
     assert.ok(stored.resultsByItemId?.get(item.itemId), 'expected the extraction to survive');
     assert.ok(stored.commandsByItemId instanceof Map);
+    assert.deepEqual(stored.contract.understood, proposal.understood);
+    assert.equal(stored.responseLocale, 'ar');
+    assert.equal(stored.sourceOrdinals?.items[item.itemId], 0);
   } finally {
     cleanup();
   }

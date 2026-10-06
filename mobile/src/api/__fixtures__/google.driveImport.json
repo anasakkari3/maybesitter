@@ -71,5 +71,12 @@
       "courseName": null,
       "recurringSessions": []
     }
-  }
+  },
+  "understood": [
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "text": "Submit the lab report"
+    }
+  ]
 }

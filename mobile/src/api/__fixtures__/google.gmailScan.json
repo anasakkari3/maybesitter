@@ -96,5 +96,12 @@
       "itemCount": 1
     },
     "document": null
-  }
+  },
+  "understood": [
+    {
+      "kind": "commitment",
+      "itemId": "00000000-0000-4000-8000-000000000002",
+      "text": "Return the signed trip form"
+    }
+  ]
 }

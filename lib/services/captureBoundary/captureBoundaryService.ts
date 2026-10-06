@@ -3,11 +3,11 @@ import { extractWithFallback, recurrenceHintOf, type ExtractAndMapOptions, type 
 import { buildBatchPrompt } from '../../../src/extraction/ollamaExtractor';
 import { CAPTURE_BATCH_TIMEOUT_MS, CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, RETRY_BACKOFF_MAX_MS } from '../../../src/extraction/llm/llmProvider';
 import { decideExtractionDisposition } from '../../../src/extraction/extractionPolicy';
-import { mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
+import { endOfRange, mapExtractionToCommand } from '../../../src/extraction/mapExtractionToCommand';
 import { countTimeExpressions } from '../../../src/extraction/ruleBasedExtractor';
 import { classifyMessageKind } from '../../../src/extraction/messageKind';
 import { hasActionEvidence, hasRequestEvidence, splitCaptureClauseDetails, type CaptureClause } from '../../../src/extraction/clauseSplitter';
-import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours } from '../../../src/extraction/timeLexicon';
+import { CLOCK_PATTERN_SOURCES, instantFromLocal, isBareEarlyHourAnswer, localTimeSpecFor, namesDay, normalizeClockText, readClockRange, statedClockHours, statesClock } from '../../../src/extraction/timeLexicon';
 import { namesExplicitDate, readRecurrence, readWeekdayReference } from '../../../src/extraction/weekdayLexicon';
 import type { ExtractionContext, ExtractionResult } from '../../../src/extraction/extractionTypes';
 import { resolveModuleRuntime, type AuditEventEnvelope, createAuditEvent, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
@@ -46,6 +46,7 @@ import {
 import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
 import type { CaptureAppLocale } from '../../../src/contracts/v1/captureContracts';
 import { titleDropReason } from '../share/shareAllowlist';
+import { finalizeUnderstood, type CaptureSourceOrdinals } from './understood';
 
 /**
  * Persists a confirmation's commands and records its result on the proposal in
@@ -137,6 +138,10 @@ export interface ProposeCaptureOptions {
    * person's own words stand.
    */
   locale?: CaptureAppLocale;
+  /** Resolved language of the chat response, persisted for clarification. */
+  responseLocale?: CaptureAppLocale;
+  /** Chat rules fallback still applies the M2a unresolved-intent schedule guard. */
+  guardUnresolvedIntentWithSchedule?: boolean;
   /**
    * The person's active goals, their ids and their own words (audit
    * 2026-10-03 #6): an item about one of them offers to count toward it
@@ -172,6 +177,33 @@ function inAppLanguage(result: ExtractionResult): ExtractionResult {
  * send to the model (`MAX_MODEL_SEGMENTS`). Past it, the rest are dropped.
  */
 export const MAX_CHAT_ITEMS = 8;
+
+type ModelItemKind = 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+
+function modelItemKind(item: unknown): ModelItemKind {
+  if (!item || typeof item !== 'object') return 'commitment';
+  const value = (item as Record<string, unknown>).kind;
+  return value === 'possible_goal' || value === 'consideration' || value === 'idea' || value === 'waiting_for'
+    ? value
+    : 'commitment';
+}
+
+/** A concrete schedule overrides unresolved language (B-004). */
+function carriesConcreteSchedule(segment: string): boolean {
+  return statesClock(segment) || namesDay(segment) || Boolean(readRecurrence(segment));
+}
+
+function sourceOrdinal(raw: string, segment: string, item: unknown, fallback: number): number {
+  const candidates = [raw.indexOf(segment)];
+  if (item && typeof item === 'object') {
+    const record = item as Record<string, unknown>;
+    for (const value of [record.title, record.action]) {
+      if (typeof value === 'string' && value.trim()) candidates.push(raw.indexOf(value.trim()));
+    }
+  }
+  const found = candidates.filter((at) => at >= 0);
+  return (found.length > 0 ? Math.min(...found) : raw.length + fallback) + fallback / 10_000;
+}
 
 /** Why one chat item carries nothing: the model's object failed validation. */
 class ChatItemInvalidError extends LLMUnavailableError {
@@ -717,6 +749,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    * `/api/mobile/seeds`.
    */
   const seeds: CaptureSeedProposalContract[] = [];
+  const sourceOrdinals: CaptureSourceOrdinals = { items: {}, seeds: {} };
   let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
   let rejected = !raw;
@@ -811,7 +844,17 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // A chat item is the model's answer to the whole conversation, not a
   // clause: what the person may merely be considering is the capture's
   // question, asked of what they typed there.
-  const intents = segments.map((segment) => (chat ? null : detectUnresolvedIntent(segment)));
+  const intents = segments.map((segment, index) => {
+    // M2a's schedule override belongs to the chat guard. The ordinary capture
+    // path already has established unresolved-intent semantics (including its
+    // frozen FX3 corpus), and did not previously consult the model's `kind`.
+    if ((chat || options.guardUnresolvedIntentWithSchedule) && carriesConcreteSchedule(segment)) return null;
+    const deterministic = detectUnresolvedIntent(segment);
+    if (deterministic) return deterministic;
+    if (!chat) return null;
+    const declared = modelItemKind(chatItems[index]);
+    return declared === 'commitment' ? null : { kind: declared };
+  });
   /*
    * An injection in any clause rejects the capture before a single clause is
    * read (CL1 round 4, N5). Checked only on the model's answer, a `system:`
@@ -890,7 +933,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     const outcome = outcomes[index]!;
     const intent = intents[index];
     if (intent || outcome.kind === 'seed') {
-      if (intent) seeds.push({ seedItemId: randomUUID(), kind: intent.kind, summary: segment });
+      if (intent) {
+        const seedItemId = randomUUID();
+        seeds.push({ seedItemId, kind: intent.kind, summary: segment });
+        sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
+      }
       continue;
     }
     try {
@@ -1248,6 +1295,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           itemId,
           title: (reading.title || reading.action || '').trim(),
           resolvedTime,
+          ...(resolvedTime && endOfRange(reading) ? { endTime: endOfRange(reading)! } : {}),
           needsClarification,
           // The hour shown is ours when the clause gave only a part of the day
           // (UAT round 6, D2): «اليوم المسا» is 18:00 on both engines, and the
@@ -1279,6 +1327,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         });
         commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences));
         resultsByItemId.set(itemId, reading);
+        sourceOrdinals.items[itemId] = sourceOrdinal(raw, segment, chatItems[index], index) + readings.indexOf(reading) / 100_000;
       }
     } catch (error) {
       // Gap B: a negated request is understood, not malformed. It produces no
@@ -1318,6 +1367,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         if (at !== -1) items.splice(at, 1);
         commandsByItemId.delete(itemId);
         resultsByItemId.delete(itemId);
+        delete sourceOrdinals.items[itemId];
       }
       for (let i = 0; i < items.length; i++) {
         const before = unspread.get(items[i].itemId);
@@ -1333,7 +1383,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       }
       for (let i = 0; i < items.length; i++) {
         if (items[i].needsClarification) continue;
-        items[i] = { ...items[i], resolvedTime: null, needsClarification: true, timeEstimated: false };
+        const { endTime: _endTime, ...item } = items[i]!;
+        items[i] = { ...item, resolvedTime: null, needsClarification: true, timeEstimated: false };
         commandsByItemId.set(items[i].itemId, []);
       }
     }
@@ -1362,6 +1413,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     if (at !== -1) items.splice(at, 1);
     commandsByItemId.delete(itemId);
     resultsByItemId.delete(itemId);
+    delete sourceOrdinals.items[itemId];
   };
   // The chat's list only: one model answer for the whole conversation is
   // where a repeat or a goal-at-the-session's-hour comes from. A share's
@@ -1400,6 +1452,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     if (!ofThisGoal.some((session) => at === null || instantOf(session) === at || modelInstantOf(session) === at)) continue;
     // Every session of it on the list counts toward it, not only the one at its hour.
     const served = ofThisGoal;
+    const goalOrdinal = sourceOrdinals.items[goalItem.itemId];
     dropItem(goalItem.itemId);
     const existing = matchingGoal(titlesOf(goalItem).join('\n'), activeGoals);
     if (existing) {
@@ -1411,7 +1464,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     const key = titleKey(summary);
     if (!summary || goalSeedKeys.has(key)) continue;
     goalSeedKeys.add(key);
-    seeds.push({ seedItemId: randomUUID(), kind: 'possible_goal', summary });
+    const seedItemId = randomUUID();
+    seeds.push({ seedItemId, kind: 'possible_goal', summary });
+    if (Number.isFinite(goalOrdinal)) sourceOrdinals.seeds[seedItemId] = goalOrdinal!;
   }
   if (activeGoals.length > 0) {
     for (let at = 0; at < items.length; at += 1) {
@@ -1459,7 +1514,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       : items.every((item) => item.needsClarification)
         ? 'needs_clarification'
         : 'proposed';
-  const contract: CaptureProposalContract = {
+  const shapedContract: CaptureProposalContract = {
     version: CAPTURE_CONTRACT_VERSION,
     proposalId,
     status,
@@ -1470,11 +1525,15 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     seeds,
     provenance: { requestedEngine, executedEngine, fallbackUsed },
   };
+  const responseLocale = options.responseLocale ?? options.locale ?? 'ar';
+  const contract = finalizeUnderstood(shapedContract, responseLocale, sourceOrdinals);
   await dependencies.store.put({
     contract,
     scopeId: options.scopeId,
     commandsByItemId,
     resultsByItemId,
+    responseLocale,
+    sourceOrdinals,
     /*
      * When it was made, by the server's clock — not `options.now`.
      *

@@ -42,7 +42,8 @@
  */
 import type { Command } from '../../../src/domain/stateMachine';
 import type { ExtractionResult } from '../../../src/extraction/extractionTypes';
-import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
+import type { CaptureAppLocale, CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
+import type { CaptureSourceOrdinals } from './understood';
 import {
   CAPTURE_PROPOSALS,
   getStorage,
@@ -82,6 +83,10 @@ export interface StoredCaptureProposal {
   resultsByItemId?: ReadonlyMap<string, ExtractionResult>;
   /** Which items have already spent their one round (#165). */
   clarifiedItemIds?: readonly string[];
+  /** Reply language resolved by chat when the proposal was made. */
+  responseLocale?: CaptureAppLocale;
+  /** Speech order used to rebuild `understood`; absent on legacy proposals. */
+  sourceOrdinals?: CaptureSourceOrdinals;
 }
 
 /**
@@ -116,6 +121,8 @@ interface StoredProposalDocument {
   results?: Record<string, ExtractionResult>;
   /** Items that have spent their one clarification round (#165). */
   clarifiedItemIds?: string[];
+  responseLocale?: CaptureAppLocale;
+  sourceOrdinals?: CaptureSourceOrdinals;
   /**
    * When the proposal was made (UC-2.4, #164).
    *
@@ -145,6 +152,8 @@ function toDocument(proposal: StoredCaptureProposal, now: Date): StoredProposalD
       ? { results: Object.fromEntries(proposal.resultsByItemId) }
       : {}),
     ...(proposal.clarifiedItemIds?.length ? { clarifiedItemIds: [...proposal.clarifiedItemIds] } : {}),
+    ...(proposal.responseLocale ? { responseLocale: proposal.responseLocale } : {}),
+    ...(proposal.sourceOrdinals ? { sourceOrdinals: proposal.sourceOrdinals } : {}),
     ...(proposal.proposedAt === undefined ? {} : { proposedAt: proposal.proposedAt }),
     ...(proposal.confirmedResult === undefined ? {} : { confirmedResult: proposal.confirmedResult }),
     ...(proposal.idempotencyKey === undefined ? {} : { idempotencyKey: proposal.idempotencyKey }),
@@ -159,6 +168,8 @@ function fromDocument(document: StoredProposalDocument): StoredCaptureProposal {
     commandsByItemId: new Map(Object.entries(document.commands ?? {})),
     ...(document.results ? { resultsByItemId: new Map(Object.entries(document.results)) } : {}),
     ...(document.clarifiedItemIds ? { clarifiedItemIds: [...document.clarifiedItemIds] } : {}),
+    ...(document.responseLocale ? { responseLocale: document.responseLocale } : {}),
+    ...(document.sourceOrdinals ? { sourceOrdinals: document.sourceOrdinals } : {}),
     ...(document.proposedAt === undefined ? {} : { proposedAt: document.proposedAt }),
     ...(document.confirmedResult === undefined ? {} : { confirmedResult: document.confirmedResult }),
     ...(document.idempotencyKey === undefined ? {} : { idempotencyKey: document.idempotencyKey }),

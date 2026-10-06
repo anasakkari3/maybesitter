@@ -97,13 +97,15 @@ export function claimsSaved(reply: string): boolean {
   return SAVED_CLAIMS.some((pattern) => pattern.test(folded));
 }
 
-type TemplateKind = 'proposed' | 'updated' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused' | 'acknowledged' | 'edit_failed';
+type TemplateKind = 'proposed' | 'updated' | 'understood' | 'unresolved' | 'ask' | 'nothing' | 'off_topic' | 'cleared' | 'refused' | 'acknowledged' | 'edit_failed';
 
 const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, string>>>> = {
   // Spoken Levantine, not MSA: the product's own voice.
   ar: {
     proposed: 'هيك فهمت. شوف القائمة وإذا كلها تمام أكّدها.',
     updated: 'تمام، غيّرتها. شوف القائمة وإذا كلها تمام أكّدها.',
+    understood: 'هيك فهمت لحد هلّق.',
+    unresolved: 'فهمت عليك. إذا بدك، منقدر نحولها لخطوة واضحة بعدين.',
     acknowledged: 'تمام، غيّرتها.',
     edit_failed: 'ما قدرت أطبّق التعديل هلّق — عدّله من الكرت تحت.',
     ask: 'إيمتى بدك «{title}»؟ احكيلي اليوم والساعة.',
@@ -115,6 +117,8 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
   en: {
     proposed: "Here's what I understood. Check the list and confirm it if it looks right.",
     updated: 'Okay, I changed that. Check the list and confirm it if it looks right.',
+    understood: "Here's what I understood so far.",
+    unresolved: 'I understand. If you want, we can turn that into a clear next step later.',
     acknowledged: 'Okay, I changed that.',
     edit_failed: "I couldn't apply that change right now — edit it on the card below.",
     ask: 'When do you want to do "{title}"? Tell me the day and the time.',
@@ -126,6 +130,8 @@ const TEMPLATES: Readonly<Record<ChatLanguage, Readonly<Record<TemplateKind, str
   he: {
     proposed: 'זה מה שהבנתי. אפשר לבדוק את הרשימה ולאשר אם היא נכונה.',
     updated: 'בסדר, שיניתי. אפשר לבדוק את הרשימה ולאשר אם היא נכונה.',
+    understood: 'זה מה שהבנתי עד עכשיו.',
+    unresolved: 'הבנתי. אם תרצה, נוכל להפוך את זה אחר כך לצעד ברור.',
     acknowledged: 'בסדר, שיניתי.',
     edit_failed: 'לא הצלחתי להחיל את השינוי כרגע — אפשר לערוך אותו בכרטיס למטה.',
     ask: 'מתי לעשות את "{title}"? מה היום ומה השעה?',
@@ -165,7 +171,7 @@ const QUESTIONS: Readonly<Record<ChatLanguage, Readonly<Record<Exclude<MissingKi
 };
 
 type ProposalItemLike = Pick<CaptureProposalContract['items'][number], 'title'> & Partial<Pick<CaptureProposalContract['items'][number], 'needsClarification' | 'resolvedDate' | 'clarification' | 'resolvedTime' | 'timeEstimated'>>;
-type ProposalLike = { items: readonly ProposalItemLike[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
+type ProposalLike = { items: readonly ProposalItemLike[]; seeds?: readonly unknown[]; noCommitmentReason?: CaptureProposalContract['noCommitmentReason'] };
 
 /** The first item still asking for its day or time, if any. */
 function itemAskingForTime(proposal: ProposalLike | null): ProposalItemLike | null {
@@ -227,9 +233,10 @@ export function templateReply(context: TemplateContext): string {
   const asking = itemAskingForTime(context.proposal);
   if (asking) {
     const question = missingQuestion(context.language, asking);
-    return context.updated ? `${table.acknowledged} ${question}` : question;
+    return `${context.updated ? table.acknowledged : table.understood} ${question}`;
   }
   if (context.proposal && context.proposal.items.length > 0) return context.updated ? table.updated : table.proposed;
+  if ((context.proposal?.seeds?.length ?? 0) > 0) return table.unresolved;
   if (context.cleared) return table.cleared;
   const reason = context.proposal?.noCommitmentReason;
   if (context.offTopic || reason === 'question' || reason === 'greeting_or_chat') return table.off_topic;
@@ -249,8 +256,10 @@ export function checkModelReply(reply: unknown, context: TemplateContext): { ok:
   if (URL_PATTERN.test(text)) return { ok: false, rejection: 'link' };
   if (claimsSaved(text)) return { ok: false, rejection: 'claims_saved' };
   if (detectChatLanguage(text, context.language) !== context.language) return { ok: false, rejection: 'wrong_language' };
-  // The proposal still needs a day or a time: the reply has to ask for it.
-  if (itemAskingForTime(context.proposal) && !/[?؟]/.test(text)) return { ok: false, rejection: 'does_not_ask' };
+  // The proposal still needs one particular field. Any question is not enough:
+  // «تمام؟» acknowledges the item but never asks for its missing hour.
+  const asking = itemAskingForTime(context.proposal);
+  if (asking && !asksForMissing(text, asking)) return { ok: false, rejection: 'does_not_ask' };
   return { ok: true, reply: text };
 }
 
@@ -268,6 +277,17 @@ function sentencesOf(text: string): string[] {
 }
 
 const isQuestion = (sentence: string): boolean => /[?؟]/.test(sentence);
+
+function asksForMissing(text: string, item: ProposalItemLike): boolean {
+  if (!/[?؟]/.test(text)) return false;
+  switch (missingKind(item)) {
+    case 'day': return /\b(?:which|what)\s+day\b|(?:أي|اي|بأي|باي)\s+يوم|(?:באיזה|איזה)\s+יום/i.test(text);
+    case 'hour': return /\bwhat\s+time\b|(?:أي|اي|بأي|باي)\s+(?:ساعة|ساعه|وقت)|الساعة\s+كم|كم\s+الساعة|(?:באיזו|איזו)\s+שעה/i.test(text);
+    case 'am_pm': return /(?:morning.*evening|evening.*morning)|(?:الصبح.*المسا|المسا.*الصبح)|(?:בבוקר.*בערב|בערב.*בבוקר)/i.test(text);
+    case 'action': return /\bwhat\b.*\b(?:do|action)\b|شو\s+بالزبط|מה\s+בדיוק/i.test(text);
+    case 'when': return TIME_QUESTION.test(text);
+  }
+}
 
 /** "It is at 09:00 for now", for an item the proposal settled on the hour of a part of the day. */
 const SETTLED_NOTE: Readonly<Record<ChatLanguage, string>> = {
@@ -317,12 +337,18 @@ export function safeChatReply(reply: unknown, context: TemplateContext): { reply
   const usable = checked.ok || checked.rejection === 'does_not_ask';
   if (!usable || typeof reply !== 'string') return { reply: templateReply(context), replaced: true };
   const aligned = alignedWithProposal(reply.trim(), context).trim();
-  const text = context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned;
+  let text = context.grounds ? groundedReply(aligned, context.grounds).trim() : aligned;
   if (!text) return { reply: templateReply(context), replaced: true };
   const asking = itemAskingForTime(context.proposal);
-  if (asking && !isQuestion(text)) {
-    const ended = /[.!?؟。…]$/.test(text) ? text : `${text}.`;
-    return { reply: `${ended} ${missingQuestion(context.language, asking)}`, replaced: false };
+  if (asking && !asksForMissing(text, asking)) {
+    // Keep a grounded acknowledgement, but discard an unrelated question.
+    text = sentencesOf(text).filter((sentence) => !isQuestion(sentence)).join(' ').trim();
+    const opening = text || TEMPLATES[context.language].understood;
+    const ended = /[.!?؟。…]$/.test(opening) ? opening : `${opening}.`;
+    return { reply: `${ended} ${missingQuestion(context.language, asking)}`, replaced: checked.ok === false };
+  }
+  if (asking && isQuestion(sentencesOf(text)[0] ?? '')) {
+    return { reply: `${TEMPLATES[context.language].understood} ${text}`, replaced: false };
   }
   return { reply: text, replaced: false };
 }

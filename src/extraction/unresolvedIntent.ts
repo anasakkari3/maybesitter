@@ -84,6 +84,10 @@ const POSSIBLE_GOAL = new RegExp([
   /\bi dream of\b|\bmy dream is\b/.source,
   /يوم من الأيام|بيوم من الأيام|حلمي|بحلم|نفسي يوم/.source,
   /יום אחד|החלום שלי|אני חולם|אני חולמת/.source,
+  // A small, deliberately tested list of outcome/learning frames. The capture
+  // boundary lets a concrete schedule override this and keep the clause as a
+  // commitment.
+  /(?:حابب|حابة|حابه|بدي)\s+(?:أ|ا)?(?:نزل\s+بالوزن|خفف\s+وزني|تعلم|تعلّم|اتعلم|أتعوّد|اتعوّد)(?=$|[\s,.،])/.source,
 ].join('|'), 'i');
 
 /**

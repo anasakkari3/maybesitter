@@ -343,7 +343,7 @@ export async function chatMobileCapture(
     if (changesList) {
       const evidence = chatEvidenceFrom(evidenceTurns);
       const built = await proposeMobileChatTurn(
-        { text: message, userTurns: evidenceTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, ...(appLanguage ? { locale: appLanguage } : {}) },
+        { text: message, userTurns: evidenceTurns, items: evidence ? answer.items : [], now, timezone, previous: listed, responseLocale: language, ...(appLanguage ? { locale: appLanguage } : {}) },
         { participantId: uid, requestStartedAt },
       );
       proposal = await withConflicts(shown(built), schedule);
@@ -404,7 +404,7 @@ export async function chatMobileCapture(
     }
   }
   const built = await proposeMobileChatTurn(
-    { text: userTurns.join('\n'), userTurns, items: null, now, timezone, ...(appLanguage ? { locale: appLanguage } : {}) },
+    { text: userTurns.join('\n'), userTurns, items: null, now, timezone, responseLocale: language, ...(appLanguage ? { locale: appLanguage } : {}) },
     { participantId: uid, requestStartedAt },
   );
   const proposal = shown(built);
