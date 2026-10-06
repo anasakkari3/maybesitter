@@ -417,17 +417,6 @@ export function modelFirstAnswer(reply: string, action: ModelAction, added: unkn
   return modelRefAnswer(reply, action, { added });
 }
 
-/**
- * RETIRED pre-v5 shape `{ reply, action, items }` (the full list, positional).
- * This gate no longer scripts it; it stays exported, unchanged, only because
- * `tests/mobile/captureRevisionTransactions.cases.ts` (outside this gate)
- * still imports it and is read through the server's test-only bridge
- * `legacyTestAnswer`. Use `modelFirstAnswer` / `modelRefAnswer`.
- */
-export function modelAnswer(reply: string, action: ModelAction, items: unknown[]): Record<string, unknown> {
-  return { reply, action, items };
-}
-
 /* ── what the contract holds an answer to ─────────────────────────── */
 
 const URL_LIKE = /\bhttps?:\/\/|\bwww\.|\b[a-z0-9-]+\.(?:com|net|org|io|app|ly|co|me|info|link|to|gl)\b/i;

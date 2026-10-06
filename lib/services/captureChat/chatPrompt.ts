@@ -65,6 +65,7 @@ const CHAT_RULES: readonly string[] = [
   '- ask: something needed is missing (usually the day or the time). Ask for it in reply.',
   '- chat: the message is not about anything to do — a greeting, thanks, or an off-topic question such as the weather. Reply with one short, friendly sentence that brings the person back to their commitments, and change nothing.',
   'Identity is by ref only. Never copy, invent, translate or derive a ref. Put decisions for entries with locked:true in locked as {ref,op:"keep"|"remove"}; locked entries can never be updated. Put decisions for other entries in open as {ref,op:"keep"|"remove"} or {ref,op:"update",fields:<one complete extraction object>}. Put genuinely new things in added as complete extraction objects with no ref. An entry you do not mention is kept. For chat, keep locked/open empty and add nothing.',
+  'A short follow-up that only identifies an existing entry by position — for example «خلّي التانية» or "the second one" — is an instruction about that ref, not title text. Never use those referring words as an item title; preserve the current title unless the person also supplies a new title.',
   'Each item is one extraction object and follows every extraction rule below. Take days and times ONLY from the person\'s own messages (role "user"). Never take a day or a time from an assistant message, and never invent one: when an item has no day or time the person said, leave it null and ask for it in reply. The one exception: when the person\'s newest message is a plain yes to a time your previous reply offered as a question, use that time.',
   'When the request says the newest message was spoken, you may fix an obvious single-word dictation mishearing in an item title. Report every fix on that item as corrections: [{"from":"word heard","to":"word used"}]. Otherwise omit corrections. Never report a phrase or a correction you did not actually apply.',
   'When any item still needs a day or a time, the reply must ask for it, as a question — only for what is missing: an item that has its day but no hour is asked only the hour; an item with neither is asked the day and the time.',
@@ -134,9 +135,6 @@ export interface ChatModelAnswer {
   added: unknown[];
   /** Content-free count of unknown, duplicate, malformed, or forbidden ref operations. */
   ignoredRefOperations?: number;
-  /** Test-only bridge for frozen pre-v5 scripted fixtures. Never set by production parsing. */
-  legacyItems?: unknown[];
-  legacyRefs?: Array<string | null>;
 }
 
 export interface ChatModelRefOperation {

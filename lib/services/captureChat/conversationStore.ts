@@ -36,8 +36,8 @@ export interface StoredCaptureConversation {
   proposalId: string | null;
   createdAt: string;
   updatedAt: string;
-  /** Exact last message response, so a transport retry cannot apply its delta twice. */
-  messageReceipt?: { fingerprint: string; answer: unknown };
+  /** Exact last message response, so a transport retry within two minutes cannot apply its delta twice. */
+  messageReceipt?: { fingerprint: string; receivedAt: number; answer: unknown };
 }
 
 interface ConversationDocument extends StoredCaptureConversation {
@@ -90,6 +90,8 @@ export class CaptureConversationStore {
       updatedAt: String(document.updatedAt ?? ''),
       ...(document.messageReceipt
         && typeof document.messageReceipt.fingerprint === 'string'
+        && typeof document.messageReceipt.receivedAt === 'number'
+        && Number.isFinite(document.messageReceipt.receivedAt)
         && document.messageReceipt.answer
         && typeof document.messageReceipt.answer === 'object'
         ? { messageReceipt: document.messageReceipt }

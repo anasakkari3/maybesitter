@@ -183,8 +183,14 @@ export function modelItem(
   };
 }
 
-export function modelAnswer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): Record<string, unknown> {
-  return { reply, action, items };
+export function modelFirstAnswer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): Record<string, unknown> {
+  return {
+    reply,
+    action,
+    locked: [],
+    open: [],
+    added: action === 'chat' ? [] : items,
+  };
 }
 
 /* ── what the plan holds an answer to ─────────────────────────────── */

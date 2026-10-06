@@ -44,6 +44,7 @@ import { deleteMemory } from '../../lib/services/mobile/memoryService.ts';
 import { duplicateItemIds, isGoalTitle, matchingGoal, occurrenceDatesFor } from '../../lib/services/captureBoundary/proposalShape.ts';
 import type { ExtractionResult } from '../../src/extraction/extractionTypes.ts';
 import { withProposalClashes } from '../../lib/services/captureChat/chatConflicts.ts';
+import { renderRefModelAnswer } from './captureChatModelFixtures.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -87,13 +88,17 @@ type Body = {
   conversationId: string; reply: string; engine: string;
   proposal: { proposalId: string; items: Item[]; seeds: Array<{ kind: string; summary: string }> } | null;
 };
+type ScriptedAnswer = unknown | ((prompt: string) => unknown);
 
 let auth: FakeAuthControls | null = null;
-function begin(answers: readonly unknown[]): void {
+function begin(answers: readonly ScriptedAnswer[]): void {
   auth = installFakeAuth();
   setStorageForTests(createMemoryStorage());
   let calls = 0;
-  const provider: LLMProviderFunction = async () => JSON.stringify(answers[Math.min(calls++, answers.length - 1)]);
+  const provider: LLMProviderFunction = async (prompt) => {
+    const scripted = answers[Math.min(calls++, answers.length - 1)];
+    return renderRefModelAnswer(typeof scripted === 'function' ? scripted(prompt) : scripted, prompt);
+  };
   setCaptureChatDependenciesForTests({ llmProviderFor: () => provider });
 }
 function end(): void {
@@ -129,12 +134,31 @@ const SECOND = 'Every Tuesday and Thursday at 7 PM';
 const FIRST_REPLY = 'تمام، بدك تتعلم React وتدرس يوم الثلاثاء والخميس الساعة 7 المسا. أكّد من تحت.';
 const SECOND_REPLY = 'تمام، هلأ صار عندك «تتعلم React» يوم الثلاثاء الساعة 7 المسا، و«تدرس» كل ثلاثاء وخميس الساعة 7 المسا. أكّد من تحت.';
 
-/** The second answer, as production's review showed it: the Thursday session moved onto Tuesday. */
-const SECOND_AS_PRODUCTION = { reply: SECOND_REPLY, action: 'update', items: [
-  item('Learn React', 'تتعلم React', TUESDAY, '19:00'),
-  item('Study every Tuesday', 'تدرس', TUESDAY, '19:00'),
-  item('Study every Thursday', 'تدرس', TUESDAY, '19:00'),
-] };
+/**
+ * The second answer, as production's review showed it: the Thursday session
+ * was returned on Tuesday. The v5 fake model updates the two open session
+ * refs and keeps the possible goal; the boundary applies the person's days.
+ */
+const SECOND_AS_PRODUCTION = (prompt: string) => prompt.includes('"ref":"s1"') ? ({
+  reply: SECOND_REPLY,
+  action: 'update',
+  locked: [],
+  open: [
+    { ref: 's1', op: 'update', fields: item('Learn React', 'تتعلم React', TUESDAY, '19:00') },
+    { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'تدرس', TUESDAY, '19:00') },
+    { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'تدرس', TUESDAY, '19:00') },
+  ],
+  added: [],
+}) : ({
+  reply: SECOND_REPLY,
+  action: 'update',
+  locked: [],
+  open: [
+    { ref: 'i1', op: 'keep' },
+    { ref: 'i2', op: 'update', fields: item('Study React on Tuesday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00') },
+  ],
+  added: [],
+});
 
 const FIRST_ANSWERS = {
   // The goal and the sessions with no hour: production asked «إيمتى بدك «تدرس»؟».

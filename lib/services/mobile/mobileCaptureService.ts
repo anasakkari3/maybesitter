@@ -650,13 +650,10 @@ async function attachSpokenCorrections(
 ): Promise<CaptureProposalContract> {
   const stored = await store.get(proposal.proposalId);
   if (!stored) return proposal;
-  const modelCommitments = modelItems.filter((candidate) => {
-    const kind = candidate && typeof candidate === 'object' ? (candidate as Record<string, unknown>).kind : undefined;
-    return kind === undefined || kind === 'commitment';
-  });
-  const spans: NonNullable<StoredCaptureProposal['correctionSpans']> = {};
-  const items = proposal.items.map((item, index) => {
-    const raw = modelCommitments[index];
+  const spans: NonNullable<StoredCaptureProposal['correctionSpans']> = { ...(stored.correctionSpans ?? {}) };
+  const items = proposal.items.map((item) => {
+    const operationIndex = stored.chatOperationIndices?.items[item.itemId];
+    const raw = Number.isFinite(operationIndex) ? modelItems[Math.floor(operationIndex!)] : undefined;
     if (!raw || typeof raw !== 'object') return item;
     const reports = (raw as Record<string, unknown>).corrections;
     if (!Array.isArray(reports)) return item;
@@ -678,7 +675,7 @@ async function attachSpokenCorrections(
     }
     return corrections.length > 0 ? { ...item, corrections } : item;
   });
-  if (Object.keys(spans).length === 0) return proposal;
+  if (Object.keys(spans).length === Object.keys(stored.correctionSpans ?? {}).length) return proposal;
   const contract = { ...proposal, items };
   await store.put({ ...stored, contract, correctionSpans: spans });
   return contract;
@@ -750,8 +747,8 @@ export async function proposeMobileChatTurn(
     // The chat's items came from the configured hosted model; name it.
     ...(boundaryItems ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
   });
-  proposal = await mergeChatProposalByRef(store, input.baseProposalId, proposal, input.refPlan);
   if (input.spoken && input.items) proposal = await attachSpokenCorrections(proposal, input.items, input.text);
+  proposal = await mergeChatProposalByRef(store, input.baseProposalId, proposal, input.refPlan);
   // A proposal the chat produced is a capture submitted, counted as the
   // capture route counts one: its length, never its words.
   if (proposal.items.length > 0) {
@@ -892,10 +889,19 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
         // initial read. Merge its markers from the transaction's current
         // document so this clarification cannot erase the keep while still
         // legitimately advancing the proposal revision.
+        const refState = referenceStateFor(current);
+        const answeredRef = refState.refs[itemId];
         tx.set(proposalPath, captureProposalToDocument({
           ...next,
           keptSeedItemIds: current.keptSeedItemIds,
           seedKeepReceipt: current.seedKeepReceipt,
+          chatRefs: refState.refs,
+          nextChatItemRef: refState.nextItem,
+          nextChatSeedRef: refState.nextSeed,
+          lockedChatRefs: Array.from(new Set([
+            ...(current.lockedChatRefs ?? []),
+            ...(answeredRef ? [answeredRef] : []),
+          ])),
         }, new Date()));
       });
     },

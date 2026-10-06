@@ -21,6 +21,7 @@ import {
   CALL_AND_TRAVEL,
   DOCTOR_AND_TRAVEL,
   LATER,
+  REFERENCE,
   TOMORROW,
   at,
   assertEditInvalid,
@@ -38,7 +39,8 @@ import {
   itemWith,
   keepSeedRaw,
   keptSeeds,
-  modelAnswer,
+  modelFirstAnswer,
+  modelRefAnswer,
   modelCalls,
   modelCorrections,
   modelItem,
@@ -420,15 +422,14 @@ for (const locale of ['ar', 'en'] as const) {
 
 test('structured words and kind edits survive the next model message with the existing fake model', async () => {
   const uid = beginGateModel(
-    modelAnswer('راجع القائمة.', 'propose', [
+    modelFirstAnswer('راجع القائمة.', 'propose', [
       modelItem('اتصل بأمي', TOMORROW, '17:00'),
       modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
     ]),
-    modelAnswer('أضفت الخبز.', 'update', [
-      modelItem('اتصل بأمي', TOMORROW, '17:00'),
-      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
-      modelItem('اشتري خبز', TOMORROW, '18:00'),
-    ]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      locked: [{ ref: 'i1', op: 'keep' }, { ref: 's1', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '18:00')],
+    }),
   );
   try {
     const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
@@ -585,7 +586,7 @@ test('structured-edit user content is not emitted through console.info', async (
 });
 
 test('correction span shifts, combined text+reject refusal, and the three-correction cap are independently guarded', async () => {
-  let uid = beginGateModel(modelAnswer('راجع القائمة.', 'propose', [
+  let uid = beginGateModel(modelFirstAnswer('راجع القائمة.', 'propose', [
     modelItem('اطلع عالسوق وجيب خبز', TOMORROW, '17:00', modelCorrections(['الطلع', 'اطلع'], ['خبس', 'خبز'])),
   ]));
   try {
@@ -615,7 +616,7 @@ test('correction span shifts, combined text+reject refusal, and the three-correc
     endGate();
   }
 
-  uid = beginGateModel(modelAnswer('راجع القائمة.', 'propose', [
+  uid = beginGateModel(modelFirstAnswer('راجع القائمة.', 'propose', [
     modelItem('اطلع عالسوق جيب خبز حليب بيض', TOMORROW, '17:00', modelCorrections(
       ['الطلع', 'اطلع'], ['خبس', 'خبز'], ['حليف', 'حليب'], ['بيظ', 'بيض'],
     )),
@@ -845,14 +846,14 @@ test('R8b seven structured edits cannot evict the original capture evidence', as
 test('D5 a seed-kind edit survives a model list edit and the seed reaches currentProposal', async () => {
   const prompts: string[] = [];
   const answers = [
-    modelAnswer('راجع القائمة.', 'propose', [
+    modelFirstAnswer('راجع القائمة.', 'propose', [
       modelItem('اتصل بأمي', TOMORROW, '17:00'),
       modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
     ]),
-    modelAnswer('غيّرت الوقت.', 'update', [
-      modelItem('اتصل بأمي', TOMORROW, '19:00'),
-      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
-    ]),
+    modelRefAnswer('غيّرت الوقت.', 'update', {
+      locked: [{ ref: 's1', op: 'keep' }],
+      open: [{ ref: 'i1', op: 'update', fields: modelItem('اتصل بأمي', TOMORROW, '19:00') }],
+    }),
   ];
   const uid = beginGateModel(...answers);
   setCaptureChatDependenciesForTests({ llmProviderFor: () => async (prompt: string) => {
@@ -1036,11 +1037,11 @@ test('D1 a later chat rename cannot overwrite a locked structured words edit', a
 
 test('N3 acknowledgements and unrelated title words do not retire structured edits', async () => {
   let uid = beginGateModel(
-    modelAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
-    modelAnswer('أضفت الخبز.', 'update', [
-      modelItem('اتصل بأمي', TOMORROW, '17:00'),
-      modelItem('اشتري خبز', TOMORROW, '18:00'),
-    ]),
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      locked: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '18:00')],
+    }),
   );
   try {
     const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
@@ -1055,11 +1056,11 @@ test('N3 acknowledgements and unrelated title words do not retire structured edi
   }
 
   uid = beginGateModel(
-    modelAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
-    modelAnswer('أضفت العنوان.', 'update', [
-      modelItem('اتصل بأمي', TOMORROW, '17:00'),
-      modelItem('روح على عنوان الدكتور', TOMORROW, '18:00'),
-    ]),
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelRefAnswer('أضفت العنوان.', 'update', {
+      locked: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('روح على عنوان الدكتور', TOMORROW, '18:00')],
+    }),
   );
   try {
     const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
@@ -1126,15 +1127,15 @@ test('N4 a versioned clarification merges a seed keep committed after its read',
 
 test('R14 a seed in the visible model list remains a seed on the following message', async () => {
   const uid = beginGateModel(
-    modelAnswer('راجع القائمة.', 'propose', [modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' })]),
-    modelAnswer('أضفت الخبز.', 'update', [
-      modelItem('أسافر الصيف الجاي', TOMORROW, '17:00'),
-      modelItem('اشتري خبز', TOMORROW, '18:00'),
-    ]),
-    modelAnswer('حدّثت الخبز.', 'update', [
-      modelItem('أسافر الصيف الجاي', TOMORROW, '17:00'),
-      modelItem('اشتري خبز', TOMORROW, '18:00'),
-    ]),
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' })]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      locked: [{ ref: 's1', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '18:00')],
+    }),
+    modelRefAnswer('حدّثت الخبز.', 'update', {
+      locked: [{ ref: 's1', op: 'keep' }],
+      open: [{ ref: 'i1', op: 'update', fields: modelItem('اشتري خبز', TOMORROW, '18:00') }],
+    }),
   );
   try {
     const first = await gateChat(uid, 'عم بفكر أسافر الصيف الجاي', { locale: 'ar' });
@@ -1204,7 +1205,7 @@ test('D8 a revisioned keep between a legacy clarify read and write ends the lega
 });
 
 test('N3e a remaining correction span survives carry-forward and can be rejected later', async () => {
-  const uid = beginGateModel(modelAnswer('راجع القائمة.', 'propose', [
+  const uid = beginGateModel(modelFirstAnswer('راجع القائمة.', 'propose', [
     modelItem('اطلع عالسوق وجيب خبز', TOMORROW, '17:00', modelCorrections(['الطلع', 'اطلع'], ['خبس', 'خبز'])),
   ]));
   try {
@@ -1298,13 +1299,27 @@ test('v5 ref schema uses only this turn refs, and hostile ref parsing is content
 
 test('the carry path has no title, ordinal, raw-text, cancel, rename, or acknowledgement matcher', () => {
   const merge = readFileSync('lib/services/captureChat/refMerge.ts', 'utf8');
+  const service = readFileSync('lib/services/captureChat/captureChatService.ts', 'utf8');
   const mobile = readFileSync('lib/services/mobile/mobileCaptureService.ts', 'utf8');
+  const prompt = readFileSync('lib/services/captureChat/chatPrompt.ts', 'utf8');
   const boundary = readFileSync('lib/services/captureBoundary/captureBoundaryService.ts', 'utf8');
   const evidence = readFileSync('lib/services/captureBoundary/chatEvidence.ts', 'utf8');
-  assert.doesNotMatch(merge, /chatEvidence|timeLexicon|sourceTitle|originalText|rawText|titleScore|ordinalMatch|rawMatches/);
+  const mergeImports = Array.from(merge.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g), (match) => match[1]).sort();
+  assert.deepEqual(mergeImports, [
+    '../../../src/contracts/v1/captureContracts',
+    '../captureBoundary/proposalStore',
+    '../captureBoundary/understood',
+    './chatReferences',
+  ].sort(), 'the identity-only merge imported a new dependency; review it before allowing text matching');
+  assert.doesNotMatch(merge, /(?:\.|\[['"])(?:title|summary|text)(?:\b|['"]\])/,
+    'the identity-only merge must not inspect user-facing words inline');
   assert.doesNotMatch(mobile, /carryStructuredEditsForward|ordinalMatch|rawMatches/);
   assert.doesNotMatch(boundary, /withPreviousTitles/);
   assert.doesNotMatch(evidence, /renamesListItem|cancelsListItem|const RENAME/);
+  assert.doesNotMatch(service, /legacyTestAnswer|legacyItems|legacyRefs/,
+    'production must not accept or reconstruct the retired full-list model answer');
+  assert.match(prompt, /only identifies an existing entry by position/);
+  assert.match(prompt, /Never use those referring words as an item title/);
 });
 
 test('v5 reorder, omission, invented and duplicate refs use identity; remove plus add may keep the same length', async () => {
@@ -1353,19 +1368,233 @@ test('ND2 rules fallback never rebuilds or chat-renames; it appends only genuine
   }
 });
 
-test('a retried message receipt applies its ref delta exactly once', async () => {
+test('a retried message receipt ignores a fresh referenceTime for 120 seconds, then treats the message as new', async () => {
   const uid = beginGateModel(
     { reply: 'راجع القائمة.', action: 'propose', locked: [], open: [], added: [modelItem('اتصل بأمي', TOMORROW, '17:00')] },
     { reply: 'أضفت الخبز.', action: 'update', locked: [], open: [{ ref: 'i1', op: 'keep' }], added: [modelItem('اشتري خبز', TOMORROW, '18:00')] },
   );
   try {
     const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
-    const options = { conversationId: first.conversationId, locale: 'ar' as const };
-    const once = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', options);
-    const retry = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', options);
+    const once = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', {
+      conversationId: first.conversationId, locale: 'ar', referenceTime: REFERENCE,
+    });
+    const retry = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', {
+      conversationId: first.conversationId, locale: 'ar', referenceTime: new Date(Date.parse(REFERENCE) + 1_000).toISOString(),
+    });
     assert.deepEqual(retry, once);
     assert.equal(retry.proposal!.items.filter((item) => item.title.includes('خبز')).length, 1);
     assert.equal(modelCalls(), 2, 'the retry called the model again');
+    const conversationPath = captureConversationPath(uid, first.conversationId);
+    const storedConversation = await currentStorage().get<Record<string, any>>(conversationPath);
+    assert.ok(storedConversation?.messageReceipt?.receivedAt);
+    storedConversation!.messageReceipt.receivedAt -= 121_000;
+    await currentStorage().set(conversationPath, storedConversation!);
+    const afterWindow = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', {
+      conversationId: first.conversationId, locale: 'ar', referenceTime: new Date(Date.parse(REFERENCE) + 122_000).toISOString(),
+    });
+    assert.equal(modelCalls(), 3, 'a message after the receipt window replayed the old answer');
+    assert.equal(afterWindow.proposal!.items.filter((item) => item.title.includes('خبز')).length, 2);
+  } finally {
+    endGate();
+  }
+});
+
+test('spoken corrections follow their added or updated ref and never attach to a locked card', async () => {
+  let uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اطلع عالسوق', TOMORROW, '17:00')]),
+    modelRefAnswer('أضفت البنك.', 'update', {
+      locked: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('اطلع عالبنك', TOMORROW, '18:00', modelCorrections(['الطلع', 'اطلع']))],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اطلع عالسوق بكرا الساعة 5 المسا', { locale: 'ar' });
+    const market = first.proposal!.items[0]!;
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: market.itemId }, {
+      time: { at: at(LATER, '20:00'), timeZone: ZONE },
+    }));
+    const next = await gateChat(uid, 'وكمان لازم الطلع عالبنك بكرا الساعة 6 المسا', {
+      conversationId: first.conversationId, locale: 'ar', spoken: true,
+    });
+    const lockedMarket = itemById(next.proposal, market.itemId);
+    const bank = itemWith(next.proposal, 'عالبنك');
+    assert.deepEqual(lockedMarket.corrections ?? [], [], 'the added item correction landed on the locked item');
+    assert.deepEqual(bank.corrections?.map(({ from, to }) => ({ from, to })), [{ from: 'الطلع', to: 'اطلع' }]);
+    const rejected = await gateEdit(uid, next.conversationId, editOf(next, { itemId: bank.itemId }, {
+      rejectCorrectionIds: [bank.corrections![0]!.id],
+    }));
+    assert.equal(itemById(rejected.proposal, market.itemId).title, 'اطلع عالسوق');
+    assert.equal(itemById(rejected.proposal, bank.itemId).title, 'الطلع عالبنك');
+  } finally {
+    endGate();
+  }
+
+  uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('روح عالبنك', TOMORROW, '17:00')]),
+    modelRefAnswer('صححت البنك.', 'update', {
+      open: [{ ref: 'i1', op: 'update', fields: modelItem('اطلع عالبنك', TOMORROW, '17:00', modelCorrections(['الطلع', 'اطلع'])) }],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم روح عالبنك بكرا الساعة 5 المسا', { locale: 'ar' });
+    const beforeId = first.proposal!.items[0]!.itemId;
+    const updated = await gateChat(uid, 'لا، لازم الطلع عالبنك بكرا الساعة 5 المسا', {
+      conversationId: first.conversationId, locale: 'ar', spoken: true,
+    });
+    const bank = itemById(updated.proposal, beforeId);
+    assert.deepEqual(bank.corrections?.map(({ from, to }) => ({ from, to })), [{ from: 'الطلع', to: 'اطلع' }]);
+  } finally {
+    endGate();
+  }
+});
+
+test('a lock survives another chat turn and a dropped locked update gets a server no-change reply', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      locked: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '18:00')],
+    }),
+    modelRefAnswer('تمام، غيّرتها.', 'update', {
+      open: [{ ref: 'i1', op: 'update', fields: modelItem('اتصل بأمي', TOMORROW, '21:00') }],
+      added: [],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const call = first.proposal!.items[0]!;
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: call.itemId }, {
+      text: 'اتصل بأختي', time: { at: at(LATER, '20:00'), timeZone: ZONE },
+    }));
+    await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    const attacked = await gateChat(uid, 'خلّي الاتصال الساعة 9', { conversationId: first.conversationId, locale: 'ar' });
+    const kept = itemById(attacked.proposal, call.itemId);
+    assert.equal(kept.title, 'اتصل بأختي');
+    assert.equal(kept.resolvedTime, at(LATER, '20:00'));
+    assert.notEqual(attacked.reply, 'تمام، غيّرتها.');
+    assert.match(attacked.reply, /ما قدرت أطبّق/);
+  } finally {
+    endGate();
+  }
+});
+
+test('a partly invalid model answer rolls back every ref operation and uses a no-change reply', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [
+      modelItem('اتصل بأمي', TOMORROW, '17:00'), modelItem('ادفع الفاتورة', TOMORROW, '18:00'),
+    ]),
+    modelRefAnswer('تمام، غيّرتها.', 'update', {
+      open: [{ ref: 'i2', op: 'remove' }],
+      added: [{ title: '' }],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 وادفع الفاتورة الساعة 6 المسا', { locale: 'ar' });
+    const next = await gateChat(uid, 'شيل الفاتورة وضيف إشي', { conversationId: first.conversationId, locale: 'ar' });
+    assert.deepEqual(next.proposal!.items.map((item) => item.itemId), first.proposal!.items.map((item) => item.itemId));
+    assert.match(next.reply, /ما قدرت أطبّق/);
+  } finally {
+    endGate();
+  }
+});
+
+test('a removed locked item restores before points added on later turns', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [
+      modelItem('اتصل بأمي', TOMORROW, '17:00'), modelItem('ادفع الفاتورة', TOMORROW, '18:00'),
+    ]),
+    modelRefAnswer('شلت الفاتورة.', 'update', {
+      locked: [{ ref: 'i2', op: 'remove' }], open: [{ ref: 'i1', op: 'keep' }],
+    }),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }], added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 وادفع الفاتورة الساعة 6 المسا', { locale: 'ar' });
+    const bill = first.proposal!.items[1]!;
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: bill.itemId }, { text: 'ادفع الفاتورة المعدلة' }));
+    const removed = await gateChat(uid, 'شيل الفاتورة', { conversationId: first.conversationId, locale: 'ar' });
+    const movedOn = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 7 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    const restored = await gateEditRaw(uid, first.conversationId, {
+      proposalId: movedOn.proposal!.proposalId,
+      revision: revisionOf(movedOn.proposal),
+      target: { itemId: bill.itemId },
+      change: { restore: true },
+    } as never);
+    assert.equal(restored.status, 200, JSON.stringify(restored.body));
+    const restoredProposal = (restored.body as Answer).proposal!;
+    assert.deepEqual(restoredProposal.items.map((item) => item.itemId), [first.proposal!.items[0]!.itemId, bill.itemId, movedOn.proposal!.items[1]!.itemId]);
+    assert.ok((removed.proposal as GateProposal & Proposal).removedItems?.some((item) => item.itemId === bill.itemId));
+  } finally {
+    endGate();
+  }
+});
+
+test('two kept seeds remain locked across a model turn and the second cannot be promoted', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [
+      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
+      modelItem('أتعلم العبرية', null, null, { kind: 'idea' }),
+    ]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      locked: [{ ref: 's2', op: 'keep' }],
+      open: [{ ref: 's1', op: 'update', fields: modelItem('أسافر عالبحر', TOMORROW, '17:00') }],
+      added: [modelItem('اشتري خبز', TOMORROW, '18:00')],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'عم بفكر أسافر الصيف الجاي، وعم بفكر أتعلم العبرية', { locale: 'ar' });
+    for (const seed of first.proposal!.seeds) {
+      assert.equal((await keepSeedRaw(uid, {
+        proposalId: first.proposal!.proposalId, seedItemId: seed.seedItemId, revision: revisionOf(first.proposal),
+      })).status, 201);
+    }
+    const next = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(next.proposal!.seeds[0]!.summary, first.proposal!.seeds[0]!.summary, 'the model updated a kept seed');
+    const second = next.proposal!.seeds[1]!;
+    assertEditInvalid(await gateEditRaw(uid, first.conversationId, editOf(next, { seedItemId: second.seedItemId }, {
+      kind: 'commitment', time: { at: at(LATER, '17:00'), timeZone: ZONE },
+    })), 'the second kept seed after a later turn');
+  } finally {
+    endGate();
+  }
+});
+
+test('a removed kept seed keeps its original public kind', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' })]),
+    modelRefAnswer('شلت الفكرة.', 'update', { locked: [{ ref: 's1', op: 'remove' }] }),
+  );
+  try {
+    const first = await gateChat(uid, 'عم بفكر أسافر الصيف الجاي', { locale: 'ar' });
+    const travel = first.proposal!.seeds[0]!;
+    assert.equal((await keepSeedRaw(uid, {
+      proposalId: first.proposal!.proposalId, seedItemId: travel.seedItemId, revision: revisionOf(first.proposal),
+    })).status, 201);
+    const removed = await gateChat(uid, 'شيل فكرة السفر', { conversationId: first.conversationId, locale: 'ar' });
+    assert.deepEqual((removed.proposal as GateProposal & Proposal).removedItems, [
+      { seedItemId: travel.seedItemId, kind: 'consideration', text: travel.summary },
+    ]);
+  } finally {
+    endGate();
+  }
+});
+
+test('a clarification answer locks that item against a later model update', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('أي ساعة؟', 'ask', [modelItem('اتصل بأمي', TOMORROW, null)]),
+    modelRefAnswer('تمام، غيّرتها.', 'update', {
+      open: [{ ref: 'i1', op: 'update', fields: modelItem('اتصل بأمي', TOMORROW, '18:00') }],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا', { locale: 'ar' });
+    const call = first.proposal!.items[0]!;
+    const clarified = await clarifyRaw(uid, first.proposal!, call, { freeText: 'الساعة 9 الصبح' });
+    assert.equal(clarified.status, 200, JSON.stringify(clarified.body));
+    const next = await gateChat(uid, 'خلي الاتصال الساعة 6', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(itemById(next.proposal, call.itemId).resolvedTime, at(TOMORROW, '09:00'));
   } finally {
     endGate();
   }

@@ -223,41 +223,6 @@ function promptItems(
   return complete;
 }
 
-/** Compatibility only for frozen scripted tests outside this lane's ownership. */
-function legacyTestAnswer(text: string, listed: readonly ChatPromptItem[]): ChatModelAnswer | null {
-  if (testDependencies === null) return null;
-  let value: unknown;
-  try { value = JSON.parse(text); } catch { return null; }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (!Array.isArray(record.items) || typeof record.action !== 'string') return null;
-  const items = [...record.items];
-  if (record.action === 'chat') {
-    return { reply: record.reply, action: 'chat', locked: [], open: [], added: [] };
-  }
-  const locked: ChatModelAnswer['locked'] = [];
-  const open: ChatModelAnswer['open'] = [];
-  // The independent M2b acceptance harness is frozen outside this lane and
-  // still emits the retired full-list shape. Its model cases are first turns;
-  // other legacy fixtures retain their old positional meaning here. No text is
-  // inspected, and production cannot enter this branch.
-  const legacyRefs: Array<string | null> = items.map((_, index) => listed[index]?.ref ?? null);
-  listed.forEach((entry, index) => {
-    const fields = items[index];
-    const op = fields === undefined ? 'remove' as const : entry.locked ? 'keep' as const : 'update' as const;
-    (entry.locked ? locked : open).push({ ref: entry.ref, op, ...(op === 'update' ? { fields } : {}) });
-  });
-  return {
-    reply: record.reply,
-    action: record.action as ChatModelAnswer['action'],
-    locked,
-    open,
-    added: items.slice(listed.length),
-    legacyItems: items,
-    legacyRefs,
-  };
-}
-
 /**
  * The proposal with each timed item's clashes (`chatConflicts`), against the
  * person's schedule as read for this message. Owner request 2026-09-30.
@@ -352,8 +317,6 @@ export async function chatMobileCapture(
   const messageFingerprint = createHash('sha256').update(JSON.stringify({
     message,
     spoken: input.spoken === true,
-    timezone,
-    referenceTime: now.toISOString(),
     locale: captureAppLocaleFrom(input.locale) ?? null,
   })).digest('hex');
 
@@ -370,7 +333,8 @@ export async function chatMobileCapture(
     conversation = found;
   }
 
-  if (conversation.messageReceipt?.fingerprint === messageFingerprint) {
+  const receiptAge = conversation.messageReceipt ? clock() - conversation.messageReceipt.receivedAt : Number.POSITIVE_INFINITY;
+  if (conversation.messageReceipt?.fingerprint === messageFingerprint && receiptAge >= 0 && receiptAge <= 120_000) {
     return conversation.messageReceipt.answer as CaptureChatResponse;
   }
 
@@ -421,7 +385,7 @@ export async function chatMobileCapture(
       turns: kept,
       proposalId: proposal?.proposalId ?? null,
       updatedAt,
-      messageReceipt: { fingerprint: messageFingerprint, answer },
+      messageReceipt: { fingerprint: messageFingerprint, receivedAt: clock(), answer },
     }, new Date(clock()));
     return answer;
   };
@@ -480,7 +444,7 @@ export async function chatMobileCapture(
       try {
         const rawAnswer = await provider(prompt, { timeoutMs, responseSchema });
         modelAnswered = true;
-        answer = parseChatModelAnswer(rawAnswer, { lockedRefs, openRefs }) ?? legacyTestAnswer(rawAnswer, listed);
+        answer = parseChatModelAnswer(rawAnswer, { lockedRefs, openRefs });
         break;
       } catch (error) {
         // The cap, the kill switch, a timeout, a provider error: the reason is
@@ -506,8 +470,7 @@ export async function chatMobileCapture(
       console.info('[capture/chat] ignored ref operations', { count: answer.ignoredRefOperations });
     }
     const updates = answer.open.filter((operation) => operation.op === 'update');
-    const legacy = answer.legacyItems !== undefined && answer.legacyRefs !== undefined;
-    const deltaItems = legacy ? answer.legacyItems! : [
+    const deltaItems = [
       ...updates.map((operation) => operation.fields),
       ...answer.added,
     ];
@@ -524,26 +487,22 @@ export async function chatMobileCapture(
           items: evidence ? deltaItems : [],
           now,
           timezone,
-          previous: legacy
-            ? listed.filter((item) => item.kind === undefined)
-            : updates.flatMap((operation) => {
-              const before = listed.find((item) => item.ref === operation.ref);
-              return before && before.kind === undefined ? [before] : [];
-            }),
+          previous: updates.flatMap((operation) => {
+            const before = listed.find((item) => item.ref === operation.ref);
+            return before && before.kind === undefined ? [before] : [];
+          }),
           // Seeds belong in the model's currentProposal, but the capture
           // boundary's alignment list is specifically the prior commitment
           // cards. Mixing seed positions into it can fan a repeated item out
           // once from the model and once from the old commitment.
-          ...(current && !(legacy && !listed.some((item) => item.locked)) ? { baseProposalId: current.proposalId } : {}),
+          ...(current ? { baseProposalId: current.proposalId } : {}),
           refPlan: {
             locked: answer.locked,
             open: answer.open,
-            delta: legacy
-              ? answer.legacyRefs!.map((ref) => ref ? { kind: 'update' as const, ref } : { kind: 'added' as const })
-              : [
-                ...updates.map((operation) => ({ kind: 'update' as const, ref: operation.ref })),
-                ...answer.added.map(() => ({ kind: 'added' as const })),
-              ],
+            delta: [
+              ...updates.map((operation) => ({ kind: 'update' as const, ref: operation.ref })),
+              ...answer.added.map(() => ({ kind: 'added' as const })),
+            ],
           },
           responseLocale: language,
           spoken: input.spoken === true,
@@ -553,6 +512,8 @@ export async function chatMobileCapture(
       );
       proposal = await withConflicts(shown(built), schedule);
     }
+    const listChanged = JSON.stringify({ items: current?.items ?? [], seeds: current?.seeds ?? [], removedItems: current?.removedItems ?? [] })
+      !== JSON.stringify({ items: proposal?.items ?? [], seeds: proposal?.seeds ?? [], removedItems: proposal?.removedItems ?? [] });
     const { reply } = safeChatReply(answer.reply, {
       language,
       proposal,
@@ -563,12 +524,16 @@ export async function chatMobileCapture(
       // A reason only from the person's words or the list; a clash only when there is one (`chatWhy`).
       grounds: { userTurns: evidenceTurns, items: proposal?.items ?? [], now, timezone },
     });
+    const attemptedListChange = changesList || (answer.action === 'update' && (answer.ignoredRefOperations ?? 0) > 0);
+    const truthfulReply = attemptedListChange && !listChanged
+      ? templateReply({ language, proposal: current, editFailed: true })
+      : reply;
     // The list the boundary proposes may not be the model's (`proposalShape`:
     // a goal off the timed list, a repeat gone, a day added): the reply says
     // the list the person sees, not the one the model wrote.
     const shaped = changesList
-      ? withShapeNoted(reply, { language, modelItems: deltaItems, proposal, previous: current, updated: answer.action === 'update' && Boolean(current) })
-      : reply;
+      ? withShapeNoted(truthfulReply, { language, modelItems: deltaItems, proposal, previous: current, updated: answer.action === 'update' && Boolean(current) && listChanged })
+      : truthfulReply;
     return finish(shaped, 'model', proposal, turns, { conflictsKnown: true });
   }
 

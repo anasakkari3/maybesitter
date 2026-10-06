@@ -36,6 +36,7 @@ import { chatItemEvidence } from '../../lib/services/captureBoundary/chatEvidenc
 import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
 import { resolveWeekdayDate } from '../../src/extraction/weekdayLexicon.ts';
 import { LLMUnavailableError, type LLMProviderFunction } from '../../src/extraction/llm/index.ts';
+import { renderRefModelAnswer } from './captureChatModelFixtures.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -55,7 +56,7 @@ const DAYS: Record<string, string> = { '2026-10-01': TOMORROW, '2026-10-02': FRI
 const at = (date: string, time: string): string => instantFromLocal(date, time, TZ)!.toISOString();
 
 /** A captured answer with its days moved (see the header). Nothing else is touched. */
-function rebased(answer: unknown): string {
+function rebased(answer: unknown): Record<string, unknown> {
   const copy = JSON.parse(JSON.stringify(answer)) as {
     items?: Array<Record<string, unknown>>;
     added?: Array<Record<string, unknown>>;
@@ -73,13 +74,13 @@ function rebased(answer: unknown): string {
     item.remindAt = shift(item.remindAt);
     if (spec?.date) spec.date = DAYS[spec.date] ?? spec.date;
   }
-  return JSON.stringify(copy);
+  return copy;
 }
 
 /** Gemini's answers, in the order of the conversation they were captured in. */
 function replay(answers: readonly unknown[]): { provider: LLMProviderFunction; calls: () => number } {
   let calls = 0;
-  return { provider: async () => rebased(answers[calls++]), calls: () => calls };
+  return { provider: async (prompt) => renderRefModelAnswer(rebased(answers[calls++]), prompt), calls: () => calls };
 }
 
 let auth: FakeAuthControls | null = null;
@@ -1010,11 +1011,7 @@ const RETITLED_BY_REF = [
     open: [
       { ref: 'i1', op: 'keep' },
       {
-        ref: 'i2', op: 'update', fields: {
-          ...REAL.engagementsRetitled[1].items[1],
-          action: REAL.engagementsRetitled[0].items[1].action,
-          title: REAL.engagementsRetitled[0].items[1].title,
-        },
+        ref: 'i2', op: 'update', fields: REAL.engagementsRetitled[1].items[1],
       },
     ],
     added: [],
@@ -1023,7 +1020,7 @@ const RETITLED_BY_REF = [
 
 for (const [label, answers] of [
   ['as the model usually answers', REAL.engagements],
-  ['the ref update keeps the second title while changing its time', RETITLED_BY_REF],
+  ['the recorded ref update retitles the second', RETITLED_BY_REF],
   ['the model moved the first to 09:00', REAL.engagementsFirstMoved],
 ] as const) {
   for (const locale of [undefined, 'ar'] as const) test(`«لا خلّي التانية الساعة 7» moves only the second, to Friday 19:00 (${label}${locale ? ', app in Arabic' : ''})`, async () => {
@@ -1035,7 +1032,11 @@ for (const [label, answers] of [
       settled(first!.proposal!.items[1], FRIDAY, '18:00', 'the second, turn 1');
       settled(second!.proposal!.items[0], FRIDAY, '16:00', 'the first, turn 2');
       settled(second!.proposal!.items[1], FRIDAY, '19:00', 'the second, turn 2');
-      assert.equal(second!.proposal!.items[1]!.title, first!.proposal!.items[1]!.title, 'the edit’s words became the title');
+      if (label === 'the recorded ref update retitles the second') {
+        assert.equal(second!.proposal!.items[1]!.title, 'خلّي التانية', 'the merge did not apply the model’s exact ref update');
+      } else {
+        assert.equal(second!.proposal!.items[1]!.title, first!.proposal!.items[1]!.title, 'an unchanged model title drifted');
+      }
       asksNothing(second!.reply);
     } finally {
       end();
@@ -1191,10 +1192,10 @@ test('the model never answers «الصبح ولا المسا؟» for the person:
       : entry),
   };
   let calls = 0;
-  const provider: LLMProviderFunction = async () => {
+  const provider: LLMProviderFunction = async (prompt) => {
     calls += 1;
     if (calls === 1) throw new LLMUnavailableError('timeout');
-    return rebased(pickedMorning);
+    return renderRefModelAnswer(rebased(pickedMorning), prompt);
   };
   begin(provider);
   try {
@@ -1228,10 +1229,10 @@ test('a pending question is the model\u2019s to settle once the person answers i
     }),
   };
   let calls = 0;
-  const provider: LLMProviderFunction = async () => {
+  const provider: LLMProviderFunction = async (prompt) => {
     calls += 1;
     if (calls === 1) throw new LLMUnavailableError('timeout');
-    return rebased(answered);
+    return renderRefModelAnswer(rebased(answered), prompt);
   };
   begin(provider);
   try {

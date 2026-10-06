@@ -48,7 +48,14 @@ import { instantFromLocal, localTimeSpecFor } from '../../src/extraction/timeLex
 import { resolveWeekdayDate } from '../../src/extraction/weekdayLexicon.ts';
 import { AI_CONSENT_VERSION } from '../../src/contracts/v1/consentContracts.ts';
 import { CAPTURE_INPUT_MAX_CHARACTERS, CAPTURE_PROPOSAL_TTL_MS } from '../../src/contracts/v1/captureContracts.ts';
-import { LLMUnavailableError, type LLMProviderFunction, type LlmProvider } from '../../src/extraction/llm/index.ts';
+import {
+  LLMUnavailableError,
+  type LLMProviderFunction,
+  type LlmProvider,
+  type LlmRequest,
+  type LlmStructuredRequest,
+} from '../../src/extraction/llm/index.ts';
+import { recordedFullListAnswer, renderRefModelAnswer, type RecordedFullListAnswer } from './captureChatModelFixtures.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -94,18 +101,18 @@ function item(title: string, date: string | null, time: string | null, extra: Re
   };
 }
 
-function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): string {
-  return JSON.stringify({ reply, action, items });
+function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): RecordedFullListAnswer {
+  return recordedFullListAnswer(reply, action, items);
 }
 
 /** A scripted model: answers in order, and keeps every prompt it was sent. */
-function scripted(...answers: Array<string | Error>): { provider: LLMProviderFunction; prompts: string[] } {
+function scripted(...answers: Array<unknown | Error>): { provider: LLMProviderFunction; prompts: string[] } {
   const prompts: string[] = [];
   const provider: LLMProviderFunction = async (prompt) => {
     prompts.push(prompt);
     const next = answers[Math.min(prompts.length - 1, answers.length - 1)];
     if (next instanceof Error) throw next;
-    return next!;
+    return renderRefModelAnswer(next, prompt);
   };
   return { provider, prompts };
 }
@@ -732,17 +739,18 @@ test('removing the only item clears the proposal and says so', async () => {
 
 /* ── 7. the rules fallback ──────────────────────────────────────── */
 
-function fakeGemini(text: string): LlmProvider & { calls: number } {
+function fakeGemini(answer_: unknown): LlmProvider & { calls: number } {
   const provider = {
     name: 'gemini' as const,
     calls: 0,
-    async generateJson() {
+    async generateJson(request: LlmRequest) {
       provider.calls += 1;
-      return { text, model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 10, outputTokens: 10 };
+      return { text: renderRefModelAnswer(answer_, request.user), model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 10, outputTokens: 10 };
     },
-    async generateStructured() {
+    async generateStructured(request: LlmStructuredRequest) {
       provider.calls += 1;
-      return { text, model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 10, outputTokens: 10 };
+      const prompt = request.parts.find((part) => part.kind === 'text')?.text ?? '';
+      return { text: renderRefModelAnswer(answer_, prompt), model: 'gemini-2.5-flash', latencyMs: 1, promptTokens: 10, outputTokens: 10 };
     },
   };
   return provider;

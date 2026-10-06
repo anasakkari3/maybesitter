@@ -18,7 +18,7 @@ import {
   beginRules,
   chat,
   end,
-  modelAnswer,
+  modelFirstAnswer,
   modelItem,
 } from './support.ts';
 
@@ -87,7 +87,7 @@ test('B1 kinds (rules, guard B-004): a goal verb with a concrete schedule stays 
 test('B1 kinds (model path, guard): a clause the model mislabels `commitment` is a consideration seed unless it carries a schedule', async () => {
   const message = 'عم بفكر أسافر الصيف الجاي، وحابب أتعلم إنجليزي بكرا الساعة 6 المسا';
   // Both mislabeled: the model calls the thought a commitment too.
-  const uid = beginModel(modelAnswer(
+  const uid = beginModel(modelFirstAnswer(
     'فهمت: بتفكر تسافر الصيف الجاي، وبدك تتعلم إنجليزي بكرا الساعة 6 المسا. أكّد من تحت.',
     'propose',
     [
@@ -113,7 +113,7 @@ test('B1 kinds (model path, guard): a clause the model mislabels `commitment` is
 
 test('B1 kinds (model path): a model item of kind possible_goal / consideration / idea / waiting_for is a seed of that kind, never an item', async () => {
   const message = 'بكرا الساعة 5 المسا لازم اتصل بأمي، وحابب أنزل بالوزن، وعم بفكر أغيّر شغلي، وحلو لو نعمل رحلة للبحر، ومستني رد من المدير';
-  const uid = beginModel(modelAnswer(
+  const uid = beginModel(modelFirstAnswer(
     'فهمت خمس أشياء. أكّد من تحت.',
     'propose',
     [

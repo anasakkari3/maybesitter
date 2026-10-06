@@ -52,6 +52,7 @@ import {
   type FixtureCore,
 } from '../../src/contracts/v1/fixtureContracts.ts';
 import type { LLMProviderFunction } from '../../src/extraction/llm/index.ts';
+import { recordedFullListAnswer, renderRefModelAnswer, type RecordedFullListAnswer } from './captureChatModelFixtures.ts';
 
 const BASE = 'http://localhost:3000';
 const TZ = 'Asia/Jerusalem';
@@ -94,16 +95,16 @@ function item(title: string, date: string | null, time: string | null): Record<s
   };
 }
 
-function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): string {
-  return JSON.stringify({ reply, action, items });
+function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[]): RecordedFullListAnswer {
+  return recordedFullListAnswer(reply, action, items);
 }
 
 /** A scripted model: answers in order, and keeps every prompt it was sent. */
-function scripted(...answers: string[]): { provider: LLMProviderFunction; prompts: string[] } {
+function scripted(...answers: unknown[]): { provider: LLMProviderFunction; prompts: string[] } {
   const prompts: string[] = [];
   const provider: LLMProviderFunction = async (prompt) => {
     prompts.push(prompt);
-    return answers[Math.min(prompts.length - 1, answers.length - 1)]!;
+    return renderRefModelAnswer(answers[Math.min(prompts.length - 1, answers.length - 1)], prompt);
   };
   return { provider, prompts };
 }
