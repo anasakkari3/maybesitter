@@ -71,12 +71,21 @@ describe('M2b request-aware chat mock', () => {
     });
     const response = mockResponseFor('POST', '/api/mobile/capture/chat', {
       ...BASE,
-      edit: { ...BASE.edit, change: { rejectCorrectionIds: ['correction-1'] } },
+      edit: { ...BASE.edit, change: { rejectCorrectionIds: ['00000000-0000-4000-8000-000000000004'] } },
     });
     expect(response?.status).toBe(200);
     const parsed = captureChatSchema.parse(response?.body);
     expect(parsed.proposal?.revision).toBeGreaterThan(BASE.edit.revision);
     expect(response?.body).not.toEqual(ordinary?.body);
+  });
+
+  it('A5b mock correction fixture: an unknown correction id reaches the 400 edit_invalid response', () => {
+    const response = mockResponseFor('POST', '/api/mobile/capture/chat', {
+      ...BASE,
+      edit: { ...BASE.edit, change: { rejectCorrectionIds: ['correction-1'] } },
+    });
+    expect(response?.status).toBe(400);
+    expect(response?.body).toEqual(expect.objectContaining({ reason: 'edit_invalid' }));
   });
 
   it('A5b mock stale fixture: a stale revision reaches the 409 proposal_changed response', () => {
