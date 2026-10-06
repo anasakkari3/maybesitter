@@ -2662,10 +2662,12 @@ test('exports the proactive-loop (intelligence) fixtures the Goals and Watching 
       await record('intelligence.gmailMonitor', 200, await intelligenceMonitorGet(request('/api/mobile/intelligence/sources/gmail/monitor')));
       // «آه، هيك صح» on a card the panel shows.
       const observationId = (analyzed.observations as Array<{ id: string }>)[0]!.id;
+      // The linked memory id is a content hash that differs run to run; pinned
+      // so the fixture only changes when the shape does.
       await record('intelligence.observationReviewed', 200, await intelligenceObservationPost(
         request(`/api/mobile/intelligence/observations/${observationId}`, { body: { review: 'confirmed' } }),
         { params: Promise.resolve({ id: observationId }) },
-      ));
+      ), (body) => ({ ...body, observation: { ...(body.observation as Record<string, unknown>), linkedMemoryId: 'mem_fixture' } }));
     });
   } finally {
     if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
