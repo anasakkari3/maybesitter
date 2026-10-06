@@ -17,7 +17,7 @@ import { describe, expect, it, jest, beforeEach } from '@jest/globals';
 import { render, type RenderResult } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { AppProvider } from '../../state/AppContext';
-import { TabBar } from '../TabBar';
+import { TAB_LABEL_MAX_SCALE, TabBar } from '../TabBar';
 import en from '../../i18n/locales/en.json';
 
 jest.mock('react-native/Libraries/Utilities/useWindowDimensions', () => ({
@@ -129,5 +129,15 @@ describe('the tab bar keeps its identity at every text size', () => {
       expect(large.getByTestId(`${id}-label`).props.numberOfLines ?? 2).toBeGreaterThanOrEqual(2);
       expect(large.getByTestId(`${id}-label`).props.ellipsizeMode).toBeUndefined();
     }
+  });
+
+  it('caps how far a label grows at the accessibility sizes instead of breaking inside the word', async () => {
+    // Five slots at AX5 split «اليوم» into «الي / وم» on a device (2026-10-06).
+    const view = await atFontScale(2.0);
+    for (const id of TEXT_IDS) expect(view.getByTestId(`${id}-label`).props.maxFontSizeMultiplier).toBe(TAB_LABEL_MAX_SCALE);
+    await view.unmount();
+    // …and only there: at the ordinary sizes the label grows with the reader.
+    const normal = await atFontScale(1);
+    for (const id of TEXT_IDS) expect(normal.getByTestId(`${id}-label`).props.maxFontSizeMultiplier).toBeUndefined();
   });
 });

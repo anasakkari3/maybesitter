@@ -17,6 +17,7 @@ import { useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
 import { Disclosure } from '../../ui/Disclosure';
+import { useLayoutMode } from '../../theme/textScale';
 import { LiveRegion } from '../../ui/liveRegion';
 import { ProductSection } from '../../ui/product';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
@@ -77,6 +78,11 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   whenOff?: React.ReactNode;
 }) {
   const { t, tr, p, rtl, lang } = useApp();
+  // One row of three equal buttons at the ordinary sizes; at the larger text
+  // sizes they wrap at their natural widths instead of squeezing the words.
+  const actionStyle = useLayoutMode() === 'normal'
+    ? { flexGrow: 1, flexBasis: 0, minWidth: 0, paddingHorizontal: 8 }
+    : { paddingHorizontal: 14 };
   const uid = useOptionalAuth()?.user?.uid ?? '';
   const consents = useConsents();
   const recommendationsEnabled = consents.data?.recommendations.state === 'granted';
@@ -344,11 +350,11 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     {/* Three small actions in a row, each named for what it does. A press
         opens a one-line explanation; only «كمّل» runs it. */}
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <Pill testID={ACTION_TEST_ID.analyze} label={t.xIntelligenceAnalyze} size={14} pad={12} kind={confirming === 'analyze' ? 'accent' : 'outline'}
+      <Pill style={actionStyle} testID={ACTION_TEST_ID.analyze} label={t.xIntelligenceAnalyze} size={13} pad={10} kind={confirming === 'analyze' ? 'accent' : 'outline'}
         disabled={busy || !draft.trim()} onPress={() => openConfirm('analyze')} />
-      {recommendationsEnabled ? <Pill testID={ACTION_TEST_ID.generate} label={t.xIntelligenceGenerate} size={14} pad={12} kind={confirming === 'generate' ? 'accent' : 'outline'}
+      {recommendationsEnabled ? <Pill style={actionStyle} testID={ACTION_TEST_ID.generate} label={t.xIntelligenceGenerate} size={13} pad={10} kind={confirming === 'generate' ? 'accent' : 'outline'}
         disabled={busy || inbox.observations.length === 0} onPress={() => openConfirm('generate')} /> : null}
-      <Pill testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={14} pad={12} kind={confirming === 'scan' ? 'accent' : 'outline'}
+      <Pill style={actionStyle} testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={13} pad={10} kind={confirming === 'scan' ? 'accent' : 'outline'}
         disabled={busy} onPress={() => openConfirm('scan')} />
     </View>
     {confirming ? <View testID="intelligence-confirm" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>

@@ -29,7 +29,8 @@ import { useLayoutMode } from '../theme/textScale';
 export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: number) => void } = {}) {
   const { s, t, p, scheme, reduceTransparency, actions } = useApp();
   const insets = useSafeAreaInsets();
-  const enlarged = useLayoutMode() !== 'normal';
+  const mode = useLayoutMode();
+  const enlarged = mode !== 'normal';
 
   const tabs: { screen: NavTab; label: string; testID: string; icon: string }[] = [
     { screen: 'today', label: t.tabToday, testID: 'tab-today', icon: 'today' },
@@ -64,7 +65,7 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
             </View>
           </Btn>
           {tabs.map(tab => (
-            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged}
+            <TabItem key={tab.screen} {...tab} p={p} on={s.screen === tab.screen} enlarged={enlarged} fit={mode === 'xl'}
               onPress={() => actions.switchTab(tab.screen)} />
           ))}
         </View>
@@ -73,8 +74,15 @@ export function TabBar({ onClearanceChange }: { onClearanceChange?: (height: num
   );
 }
 
-function TabItem({ label, testID, icon, on, p, enlarged, onPress }: {
+/** How far a tab label grows at the accessibility sizes (see TabItem). */
+export const TAB_LABEL_MAX_SCALE = 1.35;
+
+function TabItem({ label, testID, icon, on, p, enlarged, fit, onPress }: {
   label: string; testID: string; icon: string; on: boolean; p: Palette; enlarged: boolean;
+  /** At the accessibility sizes five slots are too narrow for a one-word label
+   *  at full size: it grows no further than 1.35× rather than breaking inside
+   *  the word («الي / وم», device, 2026-10-06). */
+  fit: boolean;
   onPress: () => void;
 }) {
   // Selected is the coral tint with the solid pressed-coral label on it, the
@@ -91,7 +99,7 @@ function TabItem({ label, testID, icon, on, p, enlarged, onPress }: {
     >
       <View style={{ flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, alignSelf: 'stretch', minHeight: 48, paddingVertical: 3, paddingHorizontal: 2, borderRadius: 14, overflow: 'hidden', backgroundColor: on ? p.acs : 'transparent' }}>
         <ReferenceIcon name={icon} size={enlarged ? 20 : 22} color={color} />
-        <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} style={{ flexShrink: 1 }}>{label}</Txt>
+        <Txt testID={`${testID}-label`} size={enlarged ? 12 : 13} weight={on ? 700 : 500} color={color} align="center" lh={1.2} lines={2} maxScale={fit ? TAB_LABEL_MAX_SCALE : undefined} style={{ flexShrink: 1 }}>{label}</Txt>
       </View>
     </Btn>
   );

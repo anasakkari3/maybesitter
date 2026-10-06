@@ -74,7 +74,9 @@ export function ProductSection({ title, body, why, icon, status, children }: { t
   return <Card style={{ gap: 16 }} testID={status ? `product-section-${status}` : undefined}>
     <View style={{ flexDirection: stacked ? 'column' : 'row', gap: 14, alignItems: 'flex-start' }}>
       {icon ? <ProductIcon name={icon} /> : null}
-      <View style={{ flex: stacked ? undefined : 1, gap: 6 }}>
+      {/* Stretched when stacked: a title row with a «why» arrow has no width
+          of its own, and the title would collapse to nothing (AX sizes). */}
+      <View style={{ flex: stacked ? undefined : 1, alignSelf: stacked ? 'stretch' : undefined, gap: 6 }}>
         {why
           ? <Disclosure id={why.id} body={why.body} label={title}><Txt role="section">{title}</Txt></Disclosure>
           : <Txt role="section">{title}</Txt>}
