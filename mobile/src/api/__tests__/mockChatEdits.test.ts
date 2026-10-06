@@ -85,3 +85,8 @@ it('the answer is normalized as the route normalizes it: status follows the kind
   expect(item.clarification).toBeNull();
   expect(moved.proposal.status).toBe('proposed');
 });
+
+it('a restore names nothing removed in mock mode, so it is refused as the route refuses it', () => {
+  expect(edit({ restore: true })?.status).toBe(400);
+  expect(edit({ restore: true, text: 'x' })?.status).toBe(400);
+});

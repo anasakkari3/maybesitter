@@ -46,7 +46,36 @@ function kindLabel(point: UnderstoodPoint, t: Strings): string {
  * each line's label is what says "a list of five". One point is a single
  * tappable line, without list chrome.
  */
-export function UnderstoodMessage({ proposal, points, edits, onOpen, editable = false, onEdit, onRejectCorrection, busy = false, editRef }: {
+export function UnderstoodMessage(props: Parameters<typeof UnderstoodLines>[0] & {
+  /**
+   * Protected points a later message took off the list (M2b, contract v5):
+   * shown under the lines, muted, each with «رجّعها» — never gone silently.
+   */
+  onRestore?(target: UnderstoodTarget): void;
+}) {
+  const { t, p } = useApp();
+  const { onRestore, ...rest } = props;
+  const removed = props.editable ? props.proposal.removedItems ?? [] : [];
+  const lines = <UnderstoodLines {...rest} />;
+  if (removed.length === 0) return lines;
+  return <View style={{ alignSelf: 'stretch', gap: 6 }}>
+    {lines}
+    {removed.map((entry) => {
+      const id = entry.itemId ?? entry.seedItemId!;
+      const target: UnderstoodTarget = entry.itemId ? { itemId: entry.itemId } : { seedItemId: entry.seedItemId! };
+      return <View key={`removed-${id}`} testID={`understood-removed-${id}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+        <Txt size={13} color={p.mu} style={{ flex: 1 }}>{fill(t.understoodRemoved, { text: isolateAuto(entry.text) })}</Txt>
+        {onRestore ? <Btn testID={`understood-restore-${id}`} label={stripIsolates(fill(t.understoodRestoreLabel, { text: entry.text }))}
+          onPress={() => onRestore(target)} disabled={props.busy} scaleTo={0.97}
+          style={{ minHeight: 44, minWidth: 44, paddingHorizontal: 10, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }}>
+          <Txt size={13} weight={600} color={props.busy ? p.mu : p.ac}>{t.understoodRestore}</Txt>
+        </Btn> : null}
+      </View>;
+    })}
+  </View>;
+}
+
+function UnderstoodLines({ proposal, points, edits, onOpen, editable = false, onEdit, onRejectCorrection, busy = false, editRef }: {
   proposal: CaptureProposal;
   points: readonly UnderstoodPoint[];
   edits: Record<string, CaptureItemEdit>;

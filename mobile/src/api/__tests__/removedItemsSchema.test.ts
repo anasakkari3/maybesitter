@@ -1,0 +1,30 @@
+/** Contract v5 (M2b): `removedItems` is read tolerantly — a bad entry is dropped, never the answer. */
+import { expect, it } from '@jest/globals';
+import { captureProposalSchema } from '../schemas/capture';
+import fixture from '../__fixtures__/capture.chatProposal.json';
+
+const base = (fixture as { proposal: Record<string, unknown> }).proposal;
+
+it('keeps well-formed entries and drops one with both ids, none, an unknown kind or no words', () => {
+  const parsed = captureProposalSchema.parse({
+    ...base,
+    removedItems: [
+      { itemId: 'a', kind: 'commitment', text: 'Call Mum' },
+      { seedItemId: 'b', kind: 'idea', text: 'Learn pottery' },
+      { itemId: 'c', seedItemId: 'd', kind: 'idea', text: 'both ids' },
+      { kind: 'idea', text: 'no id' },
+      { itemId: 'e', kind: 'chore', text: 'unknown kind' },
+      { itemId: 'f', kind: 'idea', text: '' },
+    ],
+  });
+  expect(parsed.removedItems).toEqual([
+    { itemId: 'a', kind: 'commitment', text: 'Call Mum' },
+    { seedItemId: 'b', kind: 'idea', text: 'Learn pottery' },
+  ]);
+});
+
+it('reads a wrong value, or nothing usable, as none', () => {
+  expect(captureProposalSchema.parse({ ...base, removedItems: 'x' }).removedItems).toBeUndefined();
+  expect(captureProposalSchema.parse({ ...base, removedItems: [{ kind: 'idea' }] }).removedItems).toBeUndefined();
+  expect(captureProposalSchema.parse(base).removedItems).toBeUndefined();
+});

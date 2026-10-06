@@ -512,7 +512,8 @@ export function CaptureScreen() {
           editable={state.proposal.revision !== undefined} busy={editBusy || flow.writing}
           onEdit={(n) => { setEditNote(null); setSummaryEditing(n); }}
           editRef={(n, node) => { if (node) editRefs.current.set(n, node); else editRefs.current.delete(n); }}
-          onRejectCorrection={(itemId, correctionId) => { void sendEdit({ itemId }, { rejectCorrectionIds: [correctionId] }); }} />
+          onRejectCorrection={(itemId, correctionId) => { void sendEdit({ itemId }, { rejectCorrectionIds: [correctionId] }); }}
+          onRestore={(target) => { void sendEdit(target, { restore: true }); }} />
         {editNote || refusedLine ? <Txt size={13} color={p.wm} testID="understood-edit-note">
           {editNote === 'ended' ? t.understoodEditEnded : editNote === 'failed' ? t.errorsGeneric : t.captureProposalChanged}
         </Txt> : null}

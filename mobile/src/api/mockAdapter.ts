@@ -287,6 +287,9 @@ function mockChat(body: unknown): MockResponse {
   const seed = proposal.seeds.find((candidate) => candidate.seedItemId === seedId);
   // What the server refuses, refused here too: an unknown point, a time on a
   // seed that stays a seed, words with a correction undo in one patch.
+  // Nothing is ever taken off the list in mock mode, so a restore names
+  // nothing that was removed — the route's 400 for that (contract v5).
+  if ((change as { restore?: unknown }).restore !== undefined) return { status: 400, body: { reason: 'edit_invalid' } };
   // An empty patch, and a correction id the point does not carry, too.
   const corrections = (item && Array.isArray(item.corrections) ? item.corrections : []) as { id: string }[];
   const invalid = (!item && !seed)

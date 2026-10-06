@@ -506,11 +506,13 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
     // older card value can never come back over the newer one at confirm
     // (M2B-A-R2-REVIEW-002).
     const folded = { title: false, time: false };
-    if (staged?.title !== undefined && patch.rejectCorrectionIds === undefined) {
+    // A one-tap change — «مش هيك», «رجّعها» — carries itself and nothing staged.
+    const oneTap = patch.rejectCorrectionIds !== undefined || patch.restore !== undefined;
+    if (staged?.title !== undefined && !oneTap) {
       if (patch.text === undefined) patch.text = staged.title;
       folded.title = true;
     }
-    if (staged?.localDateTime !== undefined && finalKind === 'commitment' && patch.rejectCorrectionIds === undefined) {
+    if (staged?.localDateTime !== undefined && finalKind === 'commitment' && !oneTap) {
       if (patch.time === undefined) {
         const at = staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone) : null;
         patch.time = { at: at ? at.toISOString() : null, timeZone: timezone };
@@ -539,7 +541,7 @@ export function CaptureProvider({ children }: { children: React.ReactNode }) {
       if (error instanceof ProposalChangedError && error.current.kind === 'chat') {
         // The person's own change is kept, on its point, to reopen over this
         // version; a «مش هيك» is one tap and is not (M2B-A-R2-REVIEW-003).
-        const refused = change.rejectCorrectionIds === undefined ? { refused: { target, change } } : {};
+        const refused = change.rejectCorrectionIds === undefined && change.restore === undefined ? { refused: { target, change } } : {};
         dispatch({ type: 'editAnswered', answer: error.current.answer, ...refused });
         return { ok: false, reason: 'changed' };
       }

@@ -459,3 +459,31 @@ describe('«مش هيك» carries the rejection and nothing staged (mutation gap
     expect(JSON.stringify(lastCall(confirm).edits)).toContain('Card words');
   });
 });
+
+// ── Council ruling, contract v5: a protected point a later message removed stays visible ──
+
+describe('a point taken off the list can be brought back (contract v5)', () => {
+  const withRemoved = (overrides: Partial<CaptureProposal> = {}) => commitmentProposal({
+    removedItems: [{ itemId: 'm2b-gone-1', kind: 'commitment', text: 'Call Mum' }], ...overrides,
+  } as Partial<CaptureProposal>);
+
+  it('shows «Taken off» with «Bring back», which sends only the restore — nothing staged rides along', async () => {
+    const chat = server(withRemoved(), commitmentProposal({ revision: 8 }));
+    await show();
+    await stageCardTitle('Card words');
+    expect(screen.getByTestId('understood-removed-m2b-gone-1')).toBeTruthy();
+    expect(screen.queryByText(/^Taken off: .*Call Mum/)).not.toBeNull();
+    const restore = screen.getByTestId('understood-restore-m2b-gone-1');
+    expect(restore.props.accessibilityLabel).toBe('Bring back “Call Mum”');
+    await press('understood-restore-m2b-gone-1');
+    await waitFor(() => expect(editsSent(chat)).toHaveLength(1));
+    expect(editsSent(chat)[0]).toEqual(expect.objectContaining({ target: { itemId: 'm2b-gone-1' }, change: { restore: true } }));
+    await waitFor(() => expect(screen.queryByTestId('understood-removed-m2b-gone-1')).toBeNull());
+  });
+
+  it('an older server (no revision) shows no removed rows and no «Bring back»', async () => {
+    server(withRemoved({ revision: undefined }));
+    await show();
+    expect(screen.queryByTestId('understood-removed-m2b-gone-1')).toBeNull();
+  });
+});

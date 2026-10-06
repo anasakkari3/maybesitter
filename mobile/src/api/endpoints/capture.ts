@@ -97,6 +97,8 @@ export interface CaptureProposalEdit {
     text?: string;
     time?: { at: string | null; timeZone: string };
     rejectCorrectionIds?: string[];
+    /** Bring back a point a later message took off the list (contract v5); alone, never with another field. */
+    restore?: true;
   };
 }
 

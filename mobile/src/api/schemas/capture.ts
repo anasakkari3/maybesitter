@@ -49,6 +49,28 @@ function parseCorrections(value: unknown): CaptureCorrection[] | undefined {
   return new Set(parsed.data.map((correction) => correction.id)).size === parsed.data.length ? parsed.data : undefined;
 }
 
+/**
+ * A protected point a later chat message took off the list (M2b, contract v5):
+ * shown, muted, with «رجّعها». Exactly one of `itemId` / `seedItemId`.
+ */
+const removedItemSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  seedItemId: z.string().min(1).optional(),
+  kind: z.enum(['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for']),
+  text: z.string().min(1),
+}).refine((entry) => (entry.itemId === undefined) !== (entry.seedItemId === undefined));
+export type CaptureRemovedItem = z.infer<typeof removedItemSchema>;
+
+/** Tolerant: an entry of the wrong shape is dropped, a wrong value reads as none. */
+function parseRemovedItems(value: unknown): CaptureRemovedItem[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const kept = value.flatMap((entry) => {
+    const parsed = removedItemSchema.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+  return kept.length > 0 ? kept : undefined;
+}
+
 /** A proposal revision (M2b): a non-negative integer, or absent. */
 function parseRevision(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined;
@@ -251,6 +273,8 @@ export const captureProposalSchema = z.object({
    * are offered.
    */
   revision: z.preprocess(parseRevision, z.number().int().nonnegative().optional()),
+  /** Protected points a later message took off the list, to bring back (M2b, contract v5). */
+  removedItems: z.preprocess(parseRemovedItems, z.array(removedItemSchema).optional()),
   provenance: z
     .object({
       requestedEngine: z.enum(['model', 'rules']),
