@@ -200,6 +200,7 @@ describe('the understood message', () => {
 
   it('A6 no regression: an old fixture still opens its cards, while a later response carrying understood starts at the list', async () => {
     const legacy = captureChatSchema.parse(legacyChatFixture);
+    delete legacy.proposal?.understood;
     const next = fivePointProposal('proposal-after-legacy');
     const chat = jest.spyOn(captureEndpoints, 'chatCapture')
       .mockResolvedValueOnce(legacy)
