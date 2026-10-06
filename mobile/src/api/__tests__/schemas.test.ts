@@ -3,6 +3,7 @@ import {
   aiContextImportProposalSchema,
 } from '../schemas/aiContextImport';
 import { describe, expect, it } from '@jest/globals';
+import { proposalChangedChatSchema } from '../schemas/capture';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import type { z } from 'zod';
@@ -193,6 +194,12 @@ const CASES: Array<[string, z.ZodType]> = [
   ['capture.chatConsideration', captureChatSchema],
   ['capture.chatGoalStatement', captureChatSchema],
   ['capture.chatRange', captureChatSchema],
+  // M2b: structured edits, a dictation correction, and the 409 an edit gets.
+  ['capture.chatEditKind', captureChatSchema],
+  ['capture.chatEditTime', captureChatSchema],
+  ['capture.chatEditWords', captureChatSchema],
+  ['capture.chatCorrection', captureChatSchema],
+  ['capture.chatEditStale', proposalChangedChatSchema],
   ['capture.chatNotFound', captureChatRefusalSchema],
   ['capture.chatTooLong', captureChatRefusalSchema],
   ['commitments.today', commitmentListSchema],

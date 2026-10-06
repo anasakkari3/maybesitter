@@ -31,3 +31,16 @@ it('undoing a correction puts the heard word back in the title and the summary l
   });
   expect(response?.status).toBe(200);
 });
+
+it('a dictated message gets the corrected answer, and undoing its correction puts «الطلع» back', () => {
+  const spoken = mockResponseFor('POST', '/api/mobile/capture/chat', { message: 'الطلع عالسوق', spoken: true, timezone: 'UTC' });
+  const item = (spoken?.body as { proposal: { items: { itemId: string; title: string; corrections: { id: string }[] }[] } }).proposal.items[0]!;
+  expect(item.corrections).toHaveLength(1);
+  const undone = mockResponseFor('POST', '/api/mobile/capture/chat', {
+    conversationId: 'c', timezone: 'UTC',
+    edit: { proposalId: 'p', revision: 1, target: { itemId: item.itemId }, change: { rejectCorrectionIds: [item.corrections[0]!.id] } },
+  });
+  const after = (undone?.body as { proposal: { items: { title: string; corrections?: unknown }[]; understood?: { text: string }[] } }).proposal;
+  expect(after.items[0]!.title).toContain('الطلع'); // «الطلع»
+  expect(after.items[0]!.corrections).toBeUndefined();
+});

@@ -34,6 +34,7 @@ import analyticsAck from './__fixtures__/analytics.ack.json';
 import backgroundActivityFootballRetrying from './__fixtures__/backgroundActivity.footballRetrying.json';
 import backgroundActivityHistory from './__fixtures__/backgroundActivity.history.json';
 import captureChatProposal from './__fixtures__/capture.chatProposal.json';
+import captureChatCorrection from './__fixtures__/capture.chatCorrection.json';
 import captureConfirmation from './__fixtures__/capture.confirmation.json';
 import captureProposal from './__fixtures__/capture.proposal.json';
 import captureShareProposal from './__fixtures__/capture.shareProposal.json';
@@ -252,8 +253,8 @@ type MockEdit = {
   change?: { kind?: string; text?: string; time?: { at: string | null }; rejectCorrectionIds?: string[] };
 };
 
-function baseAnswer(): MockAnswer {
-  const answer = JSON.parse(JSON.stringify(captureChatProposal)) as MockAnswer;
+function baseAnswer(source: unknown = captureChatProposal): MockAnswer {
+  const answer = JSON.parse(JSON.stringify(source)) as MockAnswer;
   if (answer.proposal) answer.proposal.revision = Math.max(answer.proposal.revision ?? 0, MOCK_BASE_REVISION);
   return answer;
 }
@@ -265,13 +266,16 @@ function baseAnswer(): MockAnswer {
  * a phone with no backend. Nothing is remembered between calls.
  */
 function mockChat(body: unknown): MockResponse {
-  const edit = (body as { edit?: MockEdit } | undefined)?.edit;
-  if (!edit) return { status: 200, body: baseAnswer() };
+  const request = body as { edit?: MockEdit; spoken?: boolean } | undefined;
+  const edit = request?.edit;
+  // A dictated message gets the route's own answer to one: «فهمت "الطلع" إنها "اطلع"».
+  if (!edit) return { status: 200, body: baseAnswer(request?.spoken ? captureChatCorrection : captureChatProposal) };
   const current = baseAnswer();
   if ((edit.revision ?? 0) < MOCK_BASE_REVISION) {
     return { status: 409, body: { reason: 'proposal_changed', answer: current } };
   }
-  const answer = baseAnswer();
+  // Undoing a correction edits the corrected answer, the only one that has one.
+  const answer = baseAnswer(edit.change?.rejectCorrectionIds ? captureChatCorrection : captureChatProposal);
   const proposal = answer.proposal!;
   proposal.revision = (edit.revision ?? MOCK_BASE_REVISION) + 1;
   const change = edit.change ?? {};
