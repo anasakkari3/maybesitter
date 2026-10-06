@@ -254,8 +254,6 @@ export async function createSeed(
     if (!seedItemId) throw new SeedValidationError('seedItemId is required with proposalId');
     const storage = options.storage ?? getStorage();
     const proposalPath = captureProposalPath(uid, proposalId);
-    const requestedBaseRevision = typeof request.revision === 'number' ? request.revision : 0;
-
     const created = await storage.runTransaction(async (tx) => {
       const proposalDocument = await tx.get<StoredProposalDocument>(proposalPath);
       if (!proposalDocument) throw new SeedNotFoundError();
@@ -268,6 +266,9 @@ export async function createSeed(
       // Replay is checked before current-state conflicts (CONTRACT v4). The
       // receipt and seed were committed together, so this never resurrects an
       // orphan created by a stale keep.
+      const currentRevision = proposalRevision(stored.contract);
+      const legacyKeep = request.revision === undefined && stored.legacyConfirmRevision === currentRevision;
+      const requestedBaseRevision = typeof request.revision === 'number' ? request.revision : legacyKeep ? currentRevision : 0;
       const receipt = stored.seedKeepReceipt;
       if (receipt && receipt.seedItemId === seedItemId && receipt.baseRevision === requestedBaseRevision) {
         return { seed: receipt.seed as IntentSeed, replayed: true };
@@ -275,8 +276,7 @@ export async function createSeed(
       if (stored.confirmedResult !== undefined) {
         throw new ProposalChangedError(stored.contract, 'confirmed', stored.confirmedResult as never);
       }
-      const currentRevision = proposalRevision(stored.contract);
-      if (!revisionMatches(currentRevision, request.revision)) {
+      if (!legacyKeep && !revisionMatches(currentRevision, request.revision)) {
         throw new ProposalChangedError(stored.contract, 'open');
       }
       const offered = stored.contract.seeds?.find((candidate) => candidate.seedItemId === seedItemId);
@@ -318,6 +318,7 @@ export async function createSeed(
         // stale on the very device that kept one of them.
         contract: stored.contract,
         seedKeepReceipt: { seedItemId, baseRevision: currentRevision, seed },
+        keptSeedItemIds: Array.from(new Set([...(stored.keptSeedItemIds ?? []), seedItemId])),
         // Receipts are independent and bounded to one operation of each
         // kind.  Preserving the edit receipt also keeps replay-before-conflict
         // semantics when a keep followed an edit.

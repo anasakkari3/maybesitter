@@ -45,6 +45,8 @@ export interface ChatPromptItem {
   /** `HH:MM` on the person's clock, or null. */
   time: string | null;
   needsDayOrTime: boolean;
+  /** Present for a maybe/idea/waiting seed so the model keeps its kind. */
+  kind?: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
   /** What the item's time lands on among the person's own days (`chatConflicts`), when anything. */
   clashesWith?: ScheduleEntryForPrompt[];
 }

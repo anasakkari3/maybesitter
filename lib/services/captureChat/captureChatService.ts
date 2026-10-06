@@ -52,7 +52,7 @@ import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
-import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit } from '../captureBoundary/chatEvidence';
+import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit, renamesListItem } from '../captureBoundary/chatEvidence';
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
@@ -157,6 +157,11 @@ const defaultConversations = new CaptureConversationStore();
 export function boundedTurns(turns: readonly CaptureChatTurn[], limit: number = MAX_CHAT_TURNS): CaptureChatTurn[] {
   const kept = [...turns];
   const userLength = () => kept.filter((turn) => turn.role === 'user' && turn.evidence !== false).map((turn) => turn.text).join('\n').length;
+  while (kept.length > limit) {
+    const synthetic = kept.findIndex((turn) => turn.role === 'user' && turn.evidence === false);
+    if (synthetic < 0) break;
+    kept.splice(synthetic, kept[synthetic + 1]?.role === 'assistant' ? 2 : 1);
+  }
   while (kept.length > 1 && (kept.length > limit || userLength() > CAPTURE_INPUT_MAX_CHARACTERS || kept[0]!.role !== 'user')) {
     kept.shift();
   }
@@ -175,7 +180,7 @@ function promptItems(
   sourceTitles: ReadonlyMap<string, string> = new Map(),
 ): ChatPromptItem[] {
   if (!proposal) return [];
-  return proposal.items.map((item) => {
+  const items = proposal.items.map((item): ChatPromptItem & { ref: string } => {
     const local = item.resolvedTime ? localTimeSpecFor(new Date(item.resolvedTime), timezone) : null;
     const source = sourceTitles.get(item.itemId);
     const clashes = (item.conflicts ?? []).flatMap((conflict) => {
@@ -183,6 +188,7 @@ function promptItems(
       return entry ? [entry] : [];
     });
     return {
+      ref: `i:${item.itemId}`,
       title: source ?? item.title,
       ...(source && source !== item.title ? { appTitle: item.title } : {}),
       date: local?.date ?? item.resolvedDate ?? null,
@@ -191,6 +197,22 @@ function promptItems(
       ...(clashes.length > 0 ? { clashesWith: clashes } : {}),
     };
   });
+  const seeds = proposal.seeds.map((seed): ChatPromptItem & { ref: string } => ({
+    ref: `s:${seed.seedItemId}`,
+    title: seed.summary,
+    date: null,
+    time: null,
+    needsDayOrTime: false,
+    kind: seed.kind,
+  }));
+  const byRef = new Map([...items, ...seeds].map((entry) => [entry.ref, entry]));
+  const ordered = proposal.understood?.flatMap((point) => {
+    const ref = point.kind === 'commitment' ? `i:${point.itemId}` : `s:${point.seedItemId}`;
+    const entry = byRef.get(ref);
+    return entry ? [entry] : [];
+  });
+  const complete = ordered?.length === items.length + seeds.length ? ordered : [...items, ...seeds];
+  return complete.map(({ ref: _ref, ...entry }) => entry);
 }
 
 /**
@@ -417,8 +439,14 @@ export async function chatMobileCapture(
           items: evidence ? answer.items : [],
           now,
           timezone,
-          previous: listed,
-          ...(!editsCurrentList && current ? { baseProposalId: current.proposalId } : {}),
+          // Seeds belong in the model's currentProposal, but the capture
+          // boundary's alignment list is specifically the prior commitment
+          // cards. Mixing seed positions into it can fan a repeated item out
+          // once from the model and once from the old commitment.
+          previous: listed.filter((item) => item.kind === undefined),
+          ...(current ? { baseProposalId: current.proposalId } : {}),
+          latestMessage: message,
+          renamedItem: renamesListItem(message),
           responseLocale: language,
           spoken: input.spoken === true,
           ...(appLanguage ? { locale: appLanguage } : {}),
@@ -504,7 +532,9 @@ export async function chatMobileCapture(
       items: null,
       now,
       timezone,
-      ...(!editsCurrentList && current ? { baseProposalId: current.proposalId } : {}),
+      ...(current ? { baseProposalId: current.proposalId } : {}),
+      latestMessage: message,
+      renamedItem: renamesListItem(message),
       responseLocale: language,
       spoken: false,
       ...(appLanguage ? { locale: appLanguage } : {}),

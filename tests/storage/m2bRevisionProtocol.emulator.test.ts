@@ -215,11 +215,21 @@ test('firestore M2b: proposal timezone and correction spans round-trip', { skip:
       commandsByItemId: new Map([['item-1', []]]),
       timezone: ZONE,
       correctionSpans: { 'correction-1': { itemId: 'item-1', index: 5, length: 4 } },
+      structuredEditSources: {
+        'item-1': { ordinal: 0, originalText: 'Call Dena', rawText: 'Call Dena', fields: { text: true, corrections: true } },
+      },
+      latestChatTouchedIds: ['item-1'],
+      keptSeedItemIds: ['seed-kept-1'],
     });
     resetFirestoreForTests();
     const read = await new StorageCaptureProposalStore(createFirestoreStorage()).get(proposalId);
     assert.equal(read?.timezone, ZONE);
     assert.deepEqual(read?.correctionSpans, { 'correction-1': { itemId: 'item-1', index: 5, length: 4 } });
+    assert.deepEqual(read?.structuredEditSources, {
+      'item-1': { ordinal: 0, originalText: 'Call Dena', rawText: 'Call Dena', fields: { text: true, corrections: true } },
+    });
+    assert.deepEqual(read?.latestChatTouchedIds, ['item-1']);
+    assert.deepEqual(read?.keptSeedItemIds, ['seed-kept-1']);
     assert.equal(read?.contract.revision, 3);
   });
 });
@@ -272,6 +282,7 @@ test('firestore M2b: seed keep receipt and seed are one durable replayable claim
     const keptProposal = proposalRows.find((row) => row.data.proposalId === first.proposal.proposalId)?.data;
     assert.equal(keptProposal?.contract.revision, 0);
     assert.equal(keptProposal?.seedKeepReceipt.seedItemId, seed.seedItemId);
+    assert.deepEqual(keptProposal?.keptSeedItemIds, [seed.seedItemId]);
     const seedRows = await createFirestoreStorage().list(userCol(uid, INTENT_SEEDS));
     assert.equal(seedRows.length, rowsAfterRace.length + 1);
   });

@@ -310,6 +310,11 @@ export function alignToPrevious(items: readonly unknown[], previous: readonly Ch
 /** A request to rename, in which a new title is the person's own words. */
 const RENAME = /\b(?:rename|call\s+it|name\s+it|title)\b|(?:سمّي|سمي|اسمها|اسمه|عنوان|תקרא|שם\s+ל|תשנה\s+את\s+השם)/i;
 
+/** Whether the newest message explicitly asks to replace an item's words. */
+export function renamesListItem(message: string): boolean {
+  return RENAME.test(message);
+}
+
 /**
  * The model's items, each keeping the title it had when the model's new one
  * is only the words of the edit (chat UAT round 2: the second engagement came
@@ -324,7 +329,7 @@ export function withPreviousTitles(
   previous: readonly ChatPreviousItem[],
   newestMessage: string,
 ): unknown[] {
-  if (previous.length === 0 || RENAME.test(newestMessage)) return [...items];
+  if (previous.length === 0 || renamesListItem(newestMessage)) return [...items];
   const aligned = alignToPrevious(items, previous);
   const said = contentWords(newestMessage);
   return items.map((item, index) => {

@@ -752,6 +752,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    */
   const seeds: CaptureSeedProposalContract[] = [];
   const sourceOrdinals: CaptureSourceOrdinals = { items: {}, seeds: {} };
+  const latestChatTouchedIds = new Set<string>();
   let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
   let rejected = !raw;
@@ -939,6 +940,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         const seedItemId = randomUUID();
         seeds.push({ seedItemId, kind: intent.kind, summary: segment });
         sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
+        if (chatItemEvidences[index]?.touchedNow) latestChatTouchedIds.add(seedItemId);
       }
       continue;
     }
@@ -1330,6 +1332,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences));
         resultsByItemId.set(itemId, reading);
         sourceOrdinals.items[itemId] = sourceOrdinal(raw, segment, chatItems[index], index) + readings.indexOf(reading) / 100_000;
+        if (chatItemEvidences[index]?.touchedNow) latestChatTouchedIds.add(itemId);
       }
     } catch (error) {
       // Gap B: a negated request is understood, not malformed. It produces no
@@ -1537,6 +1540,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     resultsByItemId,
     responseLocale,
     sourceOrdinals,
+    ...(chat ? { latestChatTouchedIds: Array.from(latestChatTouchedIds) } : {}),
     timezone: options.timezone,
     /*
      * When it was made, by the server's clock — not `options.now`.

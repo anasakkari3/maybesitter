@@ -9,7 +9,7 @@ import {
   type StorageTransaction,
 } from '../../lib/storage/index.ts';
 import { installFakeAuth, tokenFor, uidFor, type FakeAuthControls } from '../support/fakeAuth.ts';
-import { setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
+import { boundedTurns, setCaptureChatDependenciesForTests } from '../../lib/services/captureChat/captureChatService.ts';
 import { POST as chatPost } from '../../src/app/api/mobile/capture/chat/route.ts';
 import { POST as clarifyPost } from '../../src/app/api/mobile/capture/clarify/route.ts';
 import { POST as confirmPost } from '../../src/app/api/mobile/capture/confirm/route.ts';
@@ -628,5 +628,343 @@ test('edit transaction follows the conversation pointer and reports a concurrent
     assert.equal(edit.body.reason, 'conversation_not_found');
   } finally {
     rig.end();
+  }
+});
+
+test('D1 carries only structured fields: later model times win while edited words and unrelated kinds remain', async () => {
+  let uid = beginGateModel(
+    modelAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', null, null)]),
+    modelAnswer('حدّثت الوقت.', 'update', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي', { locale: 'ar' });
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: call.itemId }, { text: 'اتصل بأختي' }));
+    const timed = await gateChat(uid, 'بكرا الساعة 5 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(itemById(timed.proposal, call.itemId).title, 'اتصل بأختي');
+    assert.equal(itemById(timed.proposal, call.itemId).resolvedTime, at(TOMORROW, '17:00'));
+  } finally {
+    endGate();
+  }
+
+  uid = beginGateModel(
+    modelAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '16:00')]),
+    modelAnswer('حدّثت الوقت.', 'update', [modelItem('اتصل بأمي', TOMORROW, '19:00')]),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 4 المسا', { locale: 'ar' });
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: call.itemId }, {
+      time: { at: at(LATER, '17:00'), timeZone: ZONE },
+    }));
+    const moved = await gateChat(uid, 'لا، الساعة 7 أحسن', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(itemById(moved.proposal, call.itemId).resolvedTime, at(TOMORROW, '19:00'));
+  } finally {
+    endGate();
+  }
+
+  uid = beginGateModel(
+    modelAnswer('راجع القائمة.', 'propose', [modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' })]),
+    modelAnswer('تمام.', 'update', [
+      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
+      modelItem('اشتري خبز', TOMORROW, '18:00'),
+    ]),
+  );
+  try {
+    const first = await gateChat(uid, 'عم بفكر أسافر الصيف الجاي', { locale: 'ar' });
+    const travel = seedWith(first.proposal, 'أسافر');
+    await gateEdit(uid, first.conversationId, editOf(first, { seedItemId: travel.seedItemId }, { kind: 'idea' }));
+    const next = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(next.proposal!.seeds.find((seed) => seed.seedItemId === travel.seedItemId)?.kind, 'idea');
+  } finally {
+    endGate();
+  }
+});
+
+test('D1 rules path keeps edited words when a later clarification supplies the time', async () => {
+  const uid = beginGateRules();
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي', { locale: 'ar' });
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: call.itemId }, { text: 'اتصل بأختي' }));
+    const timed = await gateChat(uid, 'بكرا الساعة 5 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(itemById(timed.proposal, call.itemId).title, 'اتصل بأختي');
+    assert.equal(itemById(timed.proposal, call.itemId).resolvedTime, at(TOMORROW, '17:00'));
+  } finally {
+    endGate();
+  }
+});
+
+for (const text of ['study on Tuesday and Thursday at 7 PM', 'ادرس يوم الثلاثاء والخميس الساعة 7 المسا']) {
+  test(`D2 carries an edit on its own repeated occurrence: ${text}`, async () => {
+    const uid = beginGateRules();
+    try {
+      const first = await gateChat(uid, text, { locale: text.startsWith('study') ? 'en' : 'ar' });
+      assert.equal(first.proposal!.items.length, 2, JSON.stringify(first.proposal));
+      const second = first.proposal!.items[1]!;
+      await gateEdit(uid, first.conversationId, editOf(first, { itemId: second.itemId }, { text: 'study EDITED' }));
+      const next = await gateChat(uid, 'and buy bread tomorrow at 6pm', { conversationId: first.conversationId, locale: 'en' });
+      assert.equal(next.proposal!.items.length, 3, JSON.stringify(next.proposal));
+      assert.equal(itemById(next.proposal, second.itemId).title, 'study EDITED');
+      assert.equal(new Set(next.proposal!.items.filter((item) => !/bread/.test(item.title)).map((item) => item.resolvedTime)).size, 2);
+    } finally {
+      endGate();
+    }
+  });
+}
+
+test('D4/N2d synthetic edit turns cannot evict real evidence by count or length', () => {
+  const original = `capture ${'x'.repeat(1855)}`;
+  const editWords = `Change ${'y'.repeat(108)}`;
+  const kept = boundedTurns([
+    { role: 'user', text: original },
+    { role: 'assistant', text: 'review' },
+    { role: 'user', text: editWords, evidence: false },
+    { role: 'assistant', text: 'updated' },
+    { role: 'user', text: 'buy bread tomorrow at 6pm' },
+  ], 11);
+  assert.ok(kept.some((turn) => turn.text === original));
+});
+
+test('D4/N2f/N3c five edits and two later rules messages keep every edited item without phantom edit seeds', async () => {
+  const uid = beginGateRules();
+  try {
+    const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    let current = first;
+    for (const title of ['اتصل بأختي', 'اتصل بأخي', 'اتصل بأختي اليوم', 'اتصل بأخي اليوم', 'اتصل بأختي']) {
+      current = await gateEdit(uid, first.conversationId, editOf(current, { itemId: call.itemId }, { text: title }));
+    }
+    const one = await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    const two = await gateChat(uid, 'وكمان لازم اشتري حليب بكرا الساعة 7 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(itemById(one.proposal, call.itemId).title, 'اتصل بأختي');
+    assert.equal(itemById(two.proposal, call.itemId).title, 'اتصل بأختي');
+    assert.ok(!two.proposal!.seeds.some((seed) => /غيّر|Change/.test(seed.summary)), JSON.stringify(two.proposal));
+  } finally {
+    endGate();
+  }
+});
+
+test('D5 a seed-kind edit survives a model list edit and the seed reaches currentProposal', async () => {
+  const prompts: string[] = [];
+  const answers = [
+    modelAnswer('راجع القائمة.', 'propose', [
+      modelItem('اتصل بأمي', TOMORROW, '17:00'),
+      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
+    ]),
+    modelAnswer('غيّرت الوقت.', 'update', [
+      modelItem('اتصل بأمي', TOMORROW, '19:00'),
+      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
+    ]),
+  ];
+  const uid = beginGateModel(...answers);
+  setCaptureChatDependenciesForTests({ llmProviderFor: () => async (prompt: string) => {
+    prompts.push(prompt);
+    return JSON.stringify(answers[Math.min(prompts.length - 1, answers.length - 1)]);
+  } });
+  try {
+    const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
+    const travel = seedWith(first.proposal, 'أسافر');
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    const kind = await gateEdit(uid, first.conversationId, editOf(first, { seedItemId: travel.seedItemId }, { kind: 'idea' }));
+    const next = await gateChat(uid, `غيّر «${call.title}» للساعة 7`, { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(next.proposal!.seeds.find((seed) => seed.seedItemId === travel.seedItemId)?.kind, 'idea');
+    assert.ok(prompts[1]!.includes('"kind":"idea"'), 'the edited seed was absent from the model currentProposal');
+    assert.equal(revisionOf(kind.proposal), 1);
+  } finally {
+    endGate();
+  }
+});
+
+test('D6 a revisionless seed keep is accepted at the active legacy clarification revision', async () => {
+  const uid = beginGateRules();
+  try {
+    const first = await gateChat(uid, DOCTOR_AND_TRAVEL, { locale: 'ar' });
+    const doctor = itemWith(first.proposal, 'الدكتور');
+    const travel = seedWith(first.proposal, 'أسافر');
+    const clarified = await clarifyRaw(uid, first.proposal!, doctor, { optionId: doctor.clarification!.options[0]!.optionId });
+    assert.equal(clarified.status, 200, JSON.stringify(clarified.body));
+    const keep = await keepSeedRaw(uid, { proposalId: first.proposal!.proposalId, seedItemId: travel.seedItemId });
+    assert.equal(keep.status, 201, JSON.stringify(keep.body));
+  } finally {
+    endGate();
+  }
+});
+
+test('D7 a kept seed cannot also be edited into a commitment', async () => {
+  const uid = beginGateRules();
+  try {
+    const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
+    const travel = seedWith(first.proposal, 'أسافر');
+    assert.equal((await keepSeedRaw(uid, { proposalId: first.proposal!.proposalId, seedItemId: travel.seedItemId, revision: 0 })).status, 201);
+    assertEditInvalid(await gateEditRaw(uid, first.conversationId, editOf(first, { seedItemId: travel.seedItemId }, {
+      kind: 'commitment',
+      time: { at: at(LATER, '17:00'), timeZone: ZONE },
+    })), 'a seed already kept from this proposal');
+    assert.equal((await keptSeeds(uid)).length, 1);
+  } finally {
+    endGate();
+  }
+});
+
+test('M14 seed words plus time without commitment kind is edit_invalid', async () => {
+  const uid = beginGateRules();
+  try {
+    const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
+    const travel = seedWith(first.proposal, 'أسافر');
+    assertEditInvalid(await gateEditRaw(uid, first.conversationId, editOf(first, { seedItemId: travel.seedItemId }, {
+      text: 'أسافر عالبحر',
+      time: { at: at(LATER, '17:00'), timeZone: ZONE },
+    })), 'seed words plus a silently discarded time');
+  } finally {
+    endGate();
+  }
+});
+
+test('N2b a structured edit display turn is never included in the model prompt', async () => {
+  const prompts: string[] = [];
+  const answers = [
+    modelAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelAnswer('أضفت الخبز.', 'update', [modelItem('اتصل بأمي', TOMORROW, '17:00'), modelItem('اشتري خبز', TOMORROW, '18:00')]),
+  ];
+  const uid = beginGateModel(...answers);
+  setCaptureChatDependenciesForTests({ llmProviderFor: () => async (prompt: string) => {
+    prompts.push(prompt);
+    return JSON.stringify(answers[Math.min(prompts.length - 1, answers.length - 1)]);
+  } });
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: call.itemId }, { text: 'اتصل بأختي' }));
+    await gateChat(uid, 'وكمان لازم اشتري خبز بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    assert.ok(!prompts[1]!.includes('غيّر «اتصل بأمي» لـ «اتصل بأختي»'), prompts[1]);
+  } finally {
+    endGate();
+  }
+});
+
+test('N5b/N5c independent keep, clarify and edit receipts replay after the other writers', async () => {
+  let uid = beginGateRules();
+  try {
+    const first = await gateChat(uid, DOCTOR_AND_TRAVEL, { locale: 'ar' });
+    const doctor = itemWith(first.proposal, 'الدكتور');
+    const travel = seedWith(first.proposal, 'أسافر');
+    const keepBody = { proposalId: first.proposal!.proposalId, seedItemId: travel.seedItemId, revision: 0 };
+    assert.equal((await keepSeedRaw(uid, keepBody)).status, 201);
+    assert.equal((await clarifyRaw(uid, first.proposal!, doctor, { optionId: doctor.clarification!.options[0]!.optionId }, { revision: 0 })).status, 200);
+    const replay = await keepSeedRaw(uid, keepBody);
+    assert.equal(replay.status, 200, JSON.stringify(replay.body));
+    assert.equal(replay.body.replayed, true);
+  } finally {
+    endGate();
+  }
+
+  uid = beginGateRules();
+  try {
+    const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    const travel = seedWith(first.proposal, 'أسافر');
+    const spec = editOf(first, { itemId: call.itemId }, { text: 'اتصل بأختي' });
+    const edited = await gateEdit(uid, first.conversationId, spec);
+    assert.equal((await keepSeedRaw(uid, { proposalId: first.proposal!.proposalId, seedItemId: travel.seedItemId, revision: revisionOf(edited.proposal) })).status, 201);
+    const replay = await gateEditRaw(uid, first.conversationId, spec);
+    assert.equal(replay.status, 200, JSON.stringify(replay.body));
+  } finally {
+    endGate();
+  }
+});
+
+test('D1 a later explicit rename replaces the earlier structured words edit', async () => {
+  const uid = beginGateModel(
+    modelAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelAnswer('غيّرت الاسم.', 'update', [modelItem('اتصل بخالتي', TOMORROW, '17:00')]),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const call = itemWith(first.proposal, 'اتصل بأمي');
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: call.itemId }, { text: 'اتصل بأختي' }));
+    const renamed = await gateChat(uid, 'سميها اتصل بخالتي', { conversationId: first.conversationId, locale: 'ar' });
+    assert.ok(renamed.proposal!.items.some((item) => item.title === 'اتصل بخالتي'), JSON.stringify(renamed.proposal));
+  } finally {
+    endGate();
+  }
+});
+
+test('D8 a revisioned keep between a legacy clarify read and write ends the legacy chain', async () => {
+  const rig = begin('LegacyClarifyKeepRace');
+  try {
+    const started = await raw(await chatPost(request('/api/mobile/capture/chat', rig.uid, {
+      message: 'Maybe I will travel this summer. Remind me to call Dana tomorrow and email Sam on Friday',
+      timezone: ZONE,
+      referenceTime: '2026-10-07T07:00:00.000Z',
+      locale: 'en',
+    })));
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    const first = started.body as Chat;
+    assert.equal(first.proposal.items.filter((item) => item.clarification).length, 2, JSON.stringify(first.proposal));
+    assert.equal(first.proposal.seeds.length, 1, JSON.stringify(first.proposal));
+    const firstQuestion = first.proposal.items.find((item) => item.clarification)!;
+    const clarified = await raw(await clarifyPost(request('/api/mobile/capture/clarify', rig.uid, {
+      proposalId: first.proposal.proposalId,
+      itemId: firstQuestion.itemId,
+      questionId: firstQuestion.clarification!.questionId,
+      optionId: firstQuestion.clarification!.options[0]!.optionId,
+      timezone: ZONE,
+      referenceTime: new Date().toISOString(),
+    })));
+    assert.equal(clarified.status, 200, JSON.stringify(clarified.body));
+    const current = clarified.body as Proposal;
+    const secondQuestion = current.items.find((item) => item.clarification)!;
+    const seed = current.seeds[0]!;
+    rig.storage.arm(async () => {
+      const keep = await raw(await seedsPost(request('/api/mobile/seeds', rig.uid, {
+        proposalId: current.proposalId,
+        seedItemId: seed.seedItemId,
+        revision: current.revision,
+      })));
+      assert.equal(keep.status, 201, JSON.stringify(keep.body));
+    });
+    const raced = await raw(await clarifyPost(request('/api/mobile/capture/clarify', rig.uid, {
+      proposalId: current.proposalId,
+      itemId: secondQuestion.itemId,
+      questionId: secondQuestion.clarification!.questionId,
+      optionId: secondQuestion.clarification!.options[0]!.optionId,
+      timezone: ZONE,
+      referenceTime: new Date().toISOString(),
+    })));
+    assert.equal(raced.status, 409, JSON.stringify(raced.body));
+    assert.equal(raced.body.state, 'open');
+    const legacyConfirm = await raw(await confirmPost(request('/api/mobile/capture/confirm', rig.uid, {
+      proposalId: current.proposalId,
+      itemIds: current.items.map((item) => item.itemId),
+    })));
+    assert.equal(legacyConfirm.status, 409, JSON.stringify(legacyConfirm.body));
+  } finally {
+    rig.end();
+  }
+});
+
+test('N3e a remaining correction span survives carry-forward and can be rejected later', async () => {
+  const uid = beginGateModel(modelAnswer('راجع القائمة.', 'propose', [
+    modelItem('اطلع عالسوق وجيب خبز', TOMORROW, '17:00', modelCorrections(['الطلع', 'اطلع'], ['خبس', 'خبز'])),
+  ]));
+  try {
+    const first = await gateChat(uid, 'لازم الطلع عالسوق وجيب خبس بكرا الساعة 5 المسا', { locale: 'ar', spoken: true });
+    const item = itemWith(first.proposal, 'عالسوق');
+    const firstRejected = await gateEdit(uid, first.conversationId, editOf(first, { itemId: item.itemId }, {
+      rejectCorrectionIds: [item.corrections![0]!.id],
+    }));
+    takeModelDown();
+    const carried = await gateChat(uid, 'وكمان لازم اشتري حليب بكرا الساعة 6 المسا', { conversationId: first.conversationId, locale: 'ar' });
+    const carriedItem = itemById(carried.proposal, item.itemId);
+    assert.equal(carriedItem.corrections?.length, 1, JSON.stringify(carriedItem));
+    const secondRejected = await gateEditRaw(uid, first.conversationId, editOf(carried, { itemId: item.itemId }, {
+      rejectCorrectionIds: [carriedItem.corrections![0]!.id],
+    }));
+    assert.equal(secondRejected.status, 200, JSON.stringify(secondRejected.body));
+    assert.equal(itemById((secondRejected.body as Answer).proposal, item.itemId).title, 'الطلع عالسوق وجيب خبس');
+    assert.equal(revisionOf(firstRejected.proposal), 1);
+  } finally {
+    endGate();
   }
 });
