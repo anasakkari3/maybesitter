@@ -333,9 +333,10 @@ export async function chatMobileCapture(
     conversation = found;
   }
 
-  // A card answer or seed keep can mutate the proposal without changing the
-  // conversation document. Read that live state before replaying a receipt:
-  // an answer older than either its revision or its lock set is not a retry.
+  // A card answer, seed keep, or confirm can mutate the proposal without
+  // changing the conversation document. A transport retry still replays the
+  // stored words and never calls the model twice; when the proposal moved,
+  // overlay its live value so the answer cannot put an old card back on screen.
   const read = conversation.proposalId ? await readMobileChatProposal(conversation.proposalId, uid) : null;
   const currentLockedRefs = read ? Array.from(read.lockedRefs).sort() : [];
   const receiptAge = conversation.messageReceipt ? clock() - conversation.messageReceipt.receivedAt : Number.POSITIVE_INFINITY;
@@ -344,8 +345,9 @@ export async function chatMobileCapture(
     && conversation.messageReceipt.proposalRevision === (read?.proposal.revision ?? null)
     && JSON.stringify(conversation.messageReceipt.lockedRefs) === JSON.stringify(currentLockedRefs);
   if (conversation.messageReceipt?.fingerprint === messageFingerprint
-    && receiptAge >= 0 && receiptAge <= 120_000 && receiptMatchesProposal) {
-    return conversation.messageReceipt.answer as CaptureChatResponse;
+    && receiptAge >= 0 && receiptAge <= 120_000) {
+    const replay = conversation.messageReceipt.answer as CaptureChatResponse;
+    return receiptMatchesProposal ? replay : { ...replay, proposal: read?.proposal ?? null };
   }
 
   const evidenceConversationTurns = conversation.turns.filter((turn) => turn.evidence !== false);
@@ -486,13 +488,36 @@ export async function chatMobileCapture(
     if ((answer.ignoredRefOperations ?? 0) > 0) {
       console.info('[capture/chat] ignored ref operations', { count: answer.ignoredRefOperations });
     }
-    const updates = answer.open.filter((operation) => operation.op === 'update');
+    const samePoint = (operation: (typeof answer.open)[number]): boolean => {
+      if (operation.op !== 'update' || !operation.fields || typeof operation.fields !== 'object') return false;
+      const before = listed.find((item) => item.ref === operation.ref);
+      if (!before) return false;
+      const fields = operation.fields as Record<string, unknown>;
+      if (Object.prototype.hasOwnProperty.call(fields, 'corrections')) return false;
+      const spec = fields.localTimeSpec && typeof fields.localTimeSpec === 'object'
+        ? fields.localTimeSpec as Record<string, unknown>
+        : null;
+      const title = typeof fields.title === 'string' ? fields.title : typeof fields.action === 'string' ? fields.action : '';
+      const appTitle = typeof fields.appTitle === 'string' ? fields.appTitle : undefined;
+      const kind = typeof fields.kind === 'string' ? fields.kind : undefined;
+      return title.trim() === before.title
+        && (appTitle === undefined || appTitle === before.appTitle)
+        && (kind === undefined ? before.kind === undefined : kind === before.kind)
+        && (typeof spec?.date === 'string' ? spec.date : null) === before.date
+        && (typeof spec?.time === 'string' ? spec.time : null) === before.time;
+    };
+    const noOpRefs = new Set(answer.open.filter((operation) => samePoint(operation)).map((operation) => operation.ref));
+    const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
+      ? { ref: operation.ref, op: 'keep' as const }
+      : operation);
+    const modelUpdates = answer.open.filter((operation) => operation.op === 'update');
+    const updates = open.filter((operation) => operation.op === 'update');
     const deltaItems = [
-      ...updates.map((operation) => operation.fields),
+      ...modelUpdates.map((operation) => operation.fields),
       ...answer.added,
     ];
     const changesList = answer.locked.some((operation) => operation.op === 'remove')
-      || answer.open.some((operation) => operation.op === 'remove' || operation.op === 'update')
+      || open.some((operation) => operation.op === 'remove' || operation.op === 'update')
       || answer.added.length > 0;
     let proposal = current;
     if (changesList) {
@@ -505,27 +530,29 @@ export async function chatMobileCapture(
           // baseline. Added entries have no prior identity: only this newest
           // turn may supply their title, kind, day or time.
           evidenceStartIndices: [
-            ...updates.map(() => 0),
+            ...modelUpdates.map(() => 0),
             ...answer.added.map(() => Math.max(0, evidenceTurns.length - 1)),
           ],
           changedFieldEvidenceStartIndices: deltaItems.map(() => Math.max(0, evidenceTurns.length - 1)),
           items: evidence ? deltaItems : [],
           now,
           timezone,
-          previous: updates.flatMap((operation) => {
-            const before = listed.find((item) => item.ref === operation.ref);
-            return before && before.kind === undefined ? [before] : [];
-          }),
-          // Seeds belong in the model's currentProposal, but the capture
-          // boundary's alignment list is specifically the prior commitment
-          // cards. Mixing seed positions into it can fan a repeated item out
-          // once from the model and once from the old commitment.
+          previous: listed,
+          previousMatchIndices: [
+            ...modelUpdates.map((operation) => listed.findIndex((item) => item.ref === operation.ref)),
+            ...answer.added.map(() => null),
+          ],
+          // The update entries above are in ref order, not title order. Added
+          // entries deliberately have no previous match.
           ...(current ? { baseProposalId: current.proposalId } : {}),
           refPlan: {
             locked: answer.locked,
-            open: answer.open,
+            open,
             delta: [
-              ...updates.map((operation) => ({ kind: 'update' as const, ref: operation.ref })),
+              ...modelUpdates.map((operation) => ({
+                kind: noOpRefs.has(operation.ref) ? 'keep' as const : 'update' as const,
+                ref: operation.ref,
+              })),
               ...answer.added.map(() => ({ kind: 'added' as const })),
             ],
           },

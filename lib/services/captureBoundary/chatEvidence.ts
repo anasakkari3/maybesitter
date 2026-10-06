@@ -239,6 +239,8 @@ export interface ChatPreviousItem {
   time: string | null;
   /** It was still asking its question (a day, an hour, «الصبح ولا المسا؟»). */
   needsDayOrTime?: boolean;
+  /** Present when the previous point was a seed rather than a commitment. */
+  kind?: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
 }
 
 interface AttributedClause {
@@ -292,7 +294,15 @@ function modelWhen(item: unknown, timezone: string): string {
  * the list kept its length (the model is told to keep the order), otherwise
  * the one whose title shares the most words, when only one does.
  */
-export function alignToPrevious(items: readonly unknown[], previous: readonly ChatPreviousItem[]): Array<number | null> {
+export function alignToPrevious(
+  items: readonly unknown[],
+  previous: readonly ChatPreviousItem[],
+  explicit?: readonly (number | null)[],
+): Array<number | null> {
+  if (explicit) return items.map((_, index) => {
+    const at = explicit[index];
+    return typeof at === 'number' && Number.isInteger(at) && at >= 0 && at < previous.length ? at : null;
+  });
   if (previous.length === 0) return items.map(() => null);
   if (previous.length === items.length) return items.map((_, index) => index);
   const taken = new Set<number>();
@@ -325,14 +335,18 @@ export function chatItemEvidence(
   previous: readonly ChatPreviousItem[] = [],
   timezone = 'UTC',
   evidenceStartIndices: readonly number[] = [],
+  previousMatchIndices?: readonly (number | null)[],
 ): ChatItemEvidence[] {
   const perTurn = userTurns.map((turn) => chatEvidenceTurns([turn]));
   const newest = perTurn.length - 1;
   const turns = perTurn.flat();
-  const aligned = alignToPrevious(items, previous);
+  const aligned = alignToPrevious(items, previous, previousMatchIndices);
   const titles = items.map((item, index) => {
     const before = aligned[index] === null ? '' : previous[aligned[index]!]!.title;
-    return contentWords(`${itemTitle(item)} ${before}`);
+    const record = item && typeof item === 'object' ? item as Record<string, unknown> : null;
+    const appTitle = previousMatchIndices !== undefined && previous.length > 0 && aligned[index] === null
+      && typeof record?.appTitle === 'string' ? record.appTitle : '';
+    return contentWords(`${itemTitle(item)} ${appTitle} ${before}`);
   });
   const changed = items.flatMap((item, index) => {
     const at = aligned[index];

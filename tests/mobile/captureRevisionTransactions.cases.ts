@@ -1419,7 +1419,7 @@ test('a retried message receipt ignores a fresh referenceTime for 120 seconds, t
   }
 });
 
-test('a retry receipt is bypassed after a card clarification changes the proposal revision', async () => {
+test('a retry receipt overlays the current revision after a clarification and never calls the model again', async () => {
   const uid = beginGateModel(
     modelFirstAnswer('أي ساعة؟', 'ask', [
       modelItem('اتصل بأمي', TOMORROW, null), modelItem('ادفع الفاتورة', TOMORROW, '18:00'),
@@ -1427,10 +1427,6 @@ test('a retry receipt is bypassed after a card clarification changes the proposa
     modelRefAnswer('أضفت الخبز.', 'update', {
       open: [{ ref: 'i1', op: 'keep' }, { ref: 'i2', op: 'keep' }],
       added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
-    }),
-    modelRefAnswer('القائمة محدّثة.', 'update', {
-      locked: [{ ref: 'i1', op: 'keep' }],
-      open: [{ ref: 'i2', op: 'keep' }, { ref: 'i3', op: 'keep' }],
     }),
   );
   try {
@@ -1441,15 +1437,49 @@ test('a retry receipt is bypassed after a card clarification changes the proposa
     const clarified = await clarifyRaw(uid, beforeClarify.proposal!, call, { freeText: 'الساعة 9 الصبح' });
     assert.equal(clarified.status, 200, JSON.stringify(clarified.body));
     const retry = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
-    assert.equal(modelCalls(), 3, 'the pre-clarification receipt was replayed');
+    assert.equal(modelCalls(), 2, 'the retry called the model after a clarification');
+    assert.equal(retry.reply, beforeClarify.reply);
     assert.equal(itemById(retry.proposal, call.itemId).resolvedTime, at(TOMORROW, '09:00'));
     assert.equal(revisionOf(retry.proposal), revisionOf(clarified.body));
+    assert.equal(retry.proposal!.items.filter((item) => item.title.includes('خبز')).length, 1);
   } finally {
     endGate();
   }
 });
 
-test('a retry receipt is bypassed after keeping a seed changes the proposal lock set', async () => {
+test('a retry receipt notices a revision change even when clarification leaves the lock set unchanged', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('أي ساعة؟', 'ask', [
+      modelItem('اتصل بأمي', TOMORROW, null), modelItem('ادفع الفاتورة', TOMORROW, '18:00'),
+    ]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      locked: [{ ref: 'i1', op: 'keep' }],
+      open: [{ ref: 'i2', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا وادفع الفاتورة بكرا الساعة 6 المسا', { locale: 'ar' });
+    const originalCall = itemWith(first.proposal, 'اتصل بأمي');
+    await gateEdit(uid, first.conversationId, editOf(first, { itemId: originalCall.itemId }, { text: 'اتصل بماما' }), { locale: 'ar' });
+    const message = 'وكمان لازم اشتري خبز بكرا الساعة 7 المسا';
+    const beforeClarify = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    const call = itemById(beforeClarify.proposal, originalCall.itemId);
+    assert.ok(call.clarification, JSON.stringify(call));
+    const clarified = await clarifyRaw(uid, beforeClarify.proposal!, call, { freeText: 'الساعة 9 الصبح' });
+    assert.equal(clarified.status, 200, JSON.stringify(clarified.body));
+    assert.equal(revisionOf(beforeClarify.proposal) + 1, revisionOf(clarified.body));
+    const retry = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(modelCalls(), 2, 'the retry called the model when only the revision changed');
+    assert.equal(retry.reply, beforeClarify.reply);
+    assert.equal(revisionOf(retry.proposal), revisionOf(clarified.body));
+    assert.equal(itemById(retry.proposal, call.itemId).resolvedTime, at(TOMORROW, '09:00'));
+  } finally {
+    endGate();
+  }
+});
+
+test('a retry receipt overlays the current lock set after keeping a seed and never calls the model again', async () => {
   const uid = beginGateModel(
     modelFirstAnswer('راجع القائمة.', 'propose', [
       modelItem('اتصل بأمي', TOMORROW, '17:00'),
@@ -1458,10 +1488,6 @@ test('a retry receipt is bypassed after keeping a seed changes the proposal lock
     modelRefAnswer('أضفت الخبز.', 'update', {
       open: [{ ref: 'i1', op: 'keep' }, { ref: 's1', op: 'keep' }],
       added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
-    }),
-    modelRefAnswer('القائمة محدّثة.', 'update', {
-      locked: [{ ref: 's1', op: 'keep' }],
-      open: [{ ref: 'i1', op: 'keep' }, { ref: 'i2', op: 'keep' }],
     }),
   );
   try {
@@ -1475,8 +1501,40 @@ test('a retry receipt is bypassed after keeping a seed changes the proposal lock
       revision: revisionOf(beforeKeep.proposal),
     })).status, 201);
     const retry = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
-    assert.equal(modelCalls(), 3, 'the pre-keep receipt was replayed');
+    assert.equal(modelCalls(), 2, 'the retry called the model after a keep');
+    assert.equal(retry.reply, beforeKeep.reply);
     assert.equal(seedWith(retry.proposal, 'أسافر').seedItemId, travel.seedItemId);
+    assert.equal(retry.proposal!.items.filter((item) => item.title.includes('خبز')).length, 1);
+  } finally {
+    endGate();
+  }
+});
+
+test('a retry receipt overlays a confirmed proposal and never calls the model again', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [modelItem('اتصل بأمي', TOMORROW, '17:00')]),
+    modelRefAnswer('أضفت الخبز.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('اشتري خبز', TOMORROW, '19:00')],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const message = 'وكمان لازم اشتري خبز بكرا الساعة 7 المسا';
+    const beforeConfirm = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    const confirmed = await confirmRaw(uid, {
+      proposalId: beforeConfirm.proposal!.proposalId,
+      revision: revisionOf(beforeConfirm.proposal),
+      itemIds: beforeConfirm.proposal!.items.map((item) => item.itemId),
+      idempotencyKey: 'retry-after-confirm',
+    });
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+    const savedBeforeRetry = await savedCommitments(uid);
+    const retry = await gateChat(uid, message, { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(modelCalls(), 2, 'the retry called the model after confirm');
+    assert.equal(retry.reply, beforeConfirm.reply);
+    assert.equal(retry.proposal, null);
+    assert.deepEqual(await savedCommitments(uid), savedBeforeRetry, 'the retry persisted the points twice');
   } finally {
     endGate();
   }
@@ -1622,6 +1680,217 @@ test('an open update cannot take a changed time from an older turn', async () =>
     const item = itemWith(renamed.proposal, 'Phone mom');
     assert.equal(item.resolvedTime, null, JSON.stringify(item));
     assert.equal(item.needsClarification, true, JSON.stringify(item));
+  } finally {
+    endGate();
+  }
+});
+
+for (const scenario of [
+  {
+    label: 'Arabic consideration', locale: 'ar' as const,
+    firstMessage: 'لازم اتصل بأمي بكرا الساعة 5 المسا',
+    first: modelItem('اتصل بأمي', TOMORROW, '17:00'),
+    thoughtMessage: 'وعم بفكر أسافر الصيف الجاي',
+    thought: modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
+    refineMessage: 'يمكن بالطيارة',
+    refined: modelItem('أسافر الصيف الجاي بالطيارة', null, null, { kind: 'consideration' }),
+    word: 'بالطيارة', kind: 'consideration',
+  },
+  {
+    label: 'English consideration', locale: 'en' as const,
+    firstMessage: 'I need to call mom tomorrow at 5 PM',
+    first: modelItem('Call mom', TOMORROW, '17:00'),
+    thoughtMessage: "I'm thinking about traveling next summer",
+    thought: modelItem('Travel next summer', null, null, { kind: 'consideration' }),
+    refineMessage: 'maybe by plane',
+    refined: modelItem('Travel next summer by plane', null, null, { kind: 'consideration' }),
+    word: 'plane', kind: 'consideration',
+  },
+  {
+    label: 'English idea', locale: 'en' as const,
+    firstMessage: 'I need to call mom tomorrow at 5 PM',
+    first: modelItem('Call mom', TOMORROW, '17:00'),
+    thoughtMessage: 'idea: a cooking podcast',
+    thought: modelItem('Cooking podcast', null, null, { kind: 'idea' }),
+    refineMessage: 'with my sister as co-host',
+    refined: modelItem('Cooking podcast with my sister', null, null, { kind: 'idea' }),
+    word: 'sister', kind: 'idea',
+  },
+] as const) test(`an updated ${scenario.label} is rebuilt only from its ref and prior version`, async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('Review it.', 'propose', [scenario.first]),
+    modelRefAnswer('Review it.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }], added: [scenario.thought],
+    }),
+    modelRefAnswer('Updated.', 'update', {
+      open: [
+        { ref: 'i1', op: 'keep' },
+        { ref: 's1', op: 'update', fields: scenario.refined },
+      ],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, scenario.firstMessage, { locale: scenario.locale });
+    await gateChat(uid, scenario.thoughtMessage, { conversationId: first.conversationId, locale: scenario.locale });
+    const refined = await gateChat(uid, scenario.refineMessage, { conversationId: first.conversationId, locale: scenario.locale });
+    assert.equal(refined.proposal!.items.length, 1, JSON.stringify(refined.proposal));
+    assert.equal(refined.proposal!.seeds.length, 1, JSON.stringify(refined.proposal));
+    assert.equal(refined.proposal!.seeds[0]!.kind, scenario.kind);
+    assert.match(refined.proposal!.seeds[0]!.summary.toLowerCase(), new RegExp(scenario.word.toLowerCase()));
+    assert.deepEqual(refined.proposal!.items[0]!.conflicts ?? [], []);
+  } finally {
+    endGate();
+  }
+});
+
+test('a thought from the first mixed message stays a thought when its ref is updated', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('راجع القائمة.', 'propose', [
+      modelItem('اتصل بأمي', TOMORROW, '17:00'),
+      modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
+    ]),
+    modelRefAnswer('حدّثت الفكرة.', 'update', {
+      open: [
+        { ref: 'i1', op: 'keep' },
+        { ref: 's1', op: 'update', fields: modelItem('أسافر الصيف الجاي بالطيارة', null, null, { kind: 'consideration' }) },
+      ],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, CALL_AND_TRAVEL, { locale: 'ar' });
+    const next = await gateChat(uid, 'يمكن بالطيارة', { conversationId: first.conversationId, locale: 'ar' });
+    assert.equal(next.proposal!.seeds.length, 1, JSON.stringify(next.proposal));
+    assert.equal(next.proposal!.seeds[0]!.kind, 'consideration');
+    assert.match(next.proposal!.seeds[0]!.summary, /بالطيارة/);
+    assert.equal(next.proposal!.items.length, 1);
+    assert.deepEqual(next.proposal!.items[0]!.conflicts ?? [], []);
+  } finally {
+    endGate();
+  }
+});
+
+test('an updated thought keeps its own words when the earlier commitment had no time', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('أي ساعة؟', 'ask', [modelItem('اتصل بأمي', null, null)]),
+    modelRefAnswer('راجع.', 'update', {
+      open: [{ ref: 'i1', op: 'keep' }],
+      added: [modelItem('أسافر الصيف الجاي', null, null, { kind: 'consideration' })],
+    }),
+    modelRefAnswer('حدّثت الفكرة.', 'update', {
+      open: [
+        { ref: 'i1', op: 'keep' },
+        { ref: 's1', op: 'update', fields: modelItem('أسافر الصيف الجاي بالطيارة', null, null, { kind: 'consideration' }) },
+      ],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اتصل بأمي', { locale: 'ar' });
+    await gateChat(uid, 'وعم بفكر أسافر الصيف الجاي', { conversationId: first.conversationId, locale: 'ar' });
+    const next = await gateChat(uid, 'يمكن بالطيارة', { conversationId: first.conversationId, locale: 'ar' });
+    assert.match(next.proposal!.seeds[0]!.summary, /أسافر/);
+    assert.doesNotMatch(next.proposal!.seeds[0]!.summary, /اتصل/);
+  } finally {
+    endGate();
+  }
+});
+
+for (const scenario of [
+  {
+    label: 'Arabic', locale: 'ar' as const,
+    callMessage: 'لازم اتصل بأمي بكرا الساعة 5 المسا', call: modelItem('اتصل بأمي', TOMORROW, '17:00'),
+    breadMessage: 'وكمان لازم اشتري خبز', bread: modelItem('اشتري خبز', null, null),
+    changeMessage: 'لا مش خبز، كعك، وكمان لازم ادرس', cake: modelItem('كعك', null, null), study: modelItem('ادرس', null, null),
+    cakeTitle: 'كعك', studyTitle: 'ادرس',
+  },
+  {
+    label: 'English', locale: 'en' as const,
+    callMessage: 'I need to call mom tomorrow at 5 PM', call: modelItem('Call mom', TOMORROW, '17:00'),
+    breadMessage: 'I also need to buy bread', bread: modelItem('Buy bread', null, null),
+    changeMessage: 'not bread, cake. And I need to study', cake: modelItem('Cake', null, null), study: modelItem('Study', null, null),
+    cakeTitle: 'Cake', studyTitle: 'Study',
+  },
+] as const) test(`a mixed rename and add uses refs rather than ${scenario.label} title matching`, async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('Review it.', 'propose', [scenario.call]),
+    modelRefAnswer('When?', 'ask', { open: [{ ref: 'i1', op: 'keep' }], added: [scenario.bread] }),
+    modelRefAnswer('Updated.', 'update', {
+      open: [
+        { ref: 'i1', op: 'keep' },
+        { ref: 'i2', op: 'update', fields: scenario.cake },
+      ],
+      added: [scenario.study],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, scenario.callMessage, { locale: scenario.locale });
+    await gateChat(uid, scenario.breadMessage, { conversationId: first.conversationId, locale: scenario.locale });
+    const next = await gateChat(uid, scenario.changeMessage, { conversationId: first.conversationId, locale: scenario.locale });
+    const cake = itemWith(next.proposal, scenario.cakeTitle);
+    assert.equal(cake.resolvedTime, null, JSON.stringify(cake));
+    assert.equal(cake.needsClarification, true, JSON.stringify(cake));
+    assert.deepEqual(cake.conflicts ?? [], []);
+    assert.ok(next.proposal!.items.some((item) => item.title.includes(scenario.studyTitle)), JSON.stringify(next.proposal));
+  } finally {
+    endGate();
+  }
+});
+
+test('an update that changes nothing while another point is added preserves the exact item and its clarification', async () => {
+  const unchanged = modelItem('اشتري خبز', null, null);
+  const uid = beginGateModel(
+    modelFirstAnswer('إيمتى؟', 'ask', [unchanged]),
+    modelRefAnswer('أضفت الدراسة.', 'update', {
+      open: [{ ref: 'i1', op: 'update', fields: unchanged }],
+      added: [modelItem('ادرس', null, null)],
+    }),
+  );
+  try {
+    const first = await gateChat(uid, 'لازم اشتري خبز', { locale: 'ar' });
+    const before = structuredClone(first.proposal!.items[0]!);
+    const next = await gateChat(uid, 'ولازم ادرس كمان', { conversationId: first.conversationId, locale: 'ar' });
+    assert.deepEqual(next.proposal!.items[0], before);
+    assert.ok(next.proposal!.items.some((item) => item.title.includes('ادرس')));
+  } finally {
+    endGate();
+  }
+});
+
+for (const scenario of [
+  {
+    label: 'unnamed English', locale: 'en' as const, message: "I'm thinking about traveling next summer",
+    thought: modelItem('Vacation abroad', null, null, { kind: 'consideration' }), kind: 'consideration',
+  },
+  {
+    label: 'cross-language', locale: 'ar' as const, message: "I'm thinking about traveling next summer",
+    thought: modelItem('Vacation abroad', null, null, { appTitle: 'عطلة بالخارج', kind: 'consideration' }), kind: 'consideration',
+  },
+] as const) test(`a later ${scenario.label} title need not occur in the person's words to stay a thought`, async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('Review it.', 'propose', [modelItem('Call mom', TOMORROW, '17:00')]),
+    modelRefAnswer('Review it.', 'update', { open: [{ ref: 'i1', op: 'keep' }], added: [scenario.thought] }),
+  );
+  try {
+    const first = await gateChat(uid, 'I need to call mom tomorrow at 5 PM', { locale: scenario.locale });
+    const next = await gateChat(uid, scenario.message, { conversationId: first.conversationId, locale: scenario.locale });
+    assert.equal(next.proposal!.seeds.length, 1, JSON.stringify(next.proposal));
+    assert.equal(next.proposal!.seeds[0]!.kind, scenario.kind);
+    assert.equal(next.proposal!.items.length, 1, JSON.stringify(next.proposal));
+  } finally {
+    endGate();
+  }
+});
+
+test('a time stated before its item is not reused under the newest-message rule', async () => {
+  const uid = beginGateModel(
+    modelFirstAnswer('What is that for?', 'ask', []),
+    modelRefAnswer('When?', 'ask', { added: [modelItem('Call mom', null, null)] }),
+  );
+  try {
+    const first = await gateChat(uid, 'Tomorrow at 5 PM', { locale: 'en' });
+    const next = await gateChat(uid, 'I need to call mom', { conversationId: first.conversationId, locale: 'en' });
+    const call = itemWith(next.proposal, 'Call mom');
+    assert.equal(call.resolvedTime, null);
+    assert.equal(call.needsClarification, true);
   } finally {
     endGate();
   }

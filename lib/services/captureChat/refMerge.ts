@@ -16,7 +16,7 @@ export interface ChatRefOperation {
 export interface ChatRefMergePlan {
   locked: readonly ChatRefOperation[];
   open: readonly ChatRefOperation[];
-  delta: readonly ({ kind: 'update'; ref: string } | { kind: 'added' })[];
+  delta: readonly ({ kind: 'update' | 'keep'; ref: string } | { kind: 'added' })[];
 }
 
 function statusOf(contract: CaptureProposalContract): CaptureProposalContract['status'] {
@@ -218,6 +218,7 @@ export async function mergeChatProposalByRef(
   if (plan) {
     plan.delta.forEach((descriptor, index) => {
       const entities = builtEntities(index);
+      if (descriptor.kind === 'keep') return;
       if (descriptor.kind === 'update') {
         const existingId = byRef.get(descriptor.ref);
         if (!existingId || locked.has(descriptor.ref)) return;

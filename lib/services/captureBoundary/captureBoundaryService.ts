@@ -130,6 +130,8 @@ export interface ProposeCaptureOptions {
     changedFieldEvidenceStartIndices?: readonly number[];
     /** The list the person saw before this message, on their clock, in order (chat UAT round 2). */
     previous?: readonly ChatPreviousItem[];
+    /** Ref-derived previous entry for each delta item; null for an add. */
+    previousMatchIndices?: readonly (number | null)[];
   };
   /**
    * Titles without the possession lead-in ("I have a", «عندي»), as a weekly
@@ -807,12 +809,12 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // Each item against its own clauses and those naming no item
   // (`chatItemEvidence`): another item's day or hour is never its evidence.
   const chatItemEvidences = chat
-    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices)
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.evidenceStartIndices, chat.previousMatchIndices)
     : [];
   const chatChangedFieldEvidences = chat
-    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices)
+    ? chatItemEvidence(chat.userTurns, chatItems, chatPrevious, options.timezone, chat.changedFieldEvidenceStartIndices, chat.previousMatchIndices)
     : [];
-  const chatAligned = alignToPrevious(chatItems, chatPrevious);
+  const chatAligned = alignToPrevious(chatItems, chatPrevious, chat?.previousMatchIndices);
   // The days and hours each other model item holds, and the goal-like items'
   // titles (`occurrenceDatesFor`).
   const modelSlots = chatItems.map((item) => {
@@ -843,7 +845,13 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const clauses: CaptureClause[] = chat
     ? chatItemEvidences.map((evidence) => evidence.clause)
     : raw ? splitInput(raw) : [];
-  const segments = clauses.map((clause) => clause.text);
+  const segments = clauses.map((clause, index) => {
+    const before = chat && chatAligned[index] !== null ? chatPrevious[chatAligned[index]!] : undefined;
+    if (!before?.kind) return clause.text;
+    const newest = chatChangedFieldEvidences[index]?.clause.text.trim() ?? '';
+    if (before.kind === 'possible_goal' && readRecurrence(newest)) return before.title;
+    return [before.title, newest].filter(Boolean).join('\n');
+  });
   const several = segments.length > 1;
   /*
    * Unresolved intent is read before the extractor, not after it (#519).
@@ -866,6 +874,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   // clause: what the person may merely be considering is the capture's
   // question, asked of what they typed there.
   const intents = segments.map((segment, index) => {
+    const before = chat && chatAligned[index] !== null ? chatPrevious[chatAligned[index]!] : undefined;
+    const newestEvidence = chat ? chatChangedFieldEvidences[index]?.clause.text ?? '' : segment;
+    const newestMakesCommitment = hasRequestEvidence(newestEvidence)
+      || hasActionEvidence(newestEvidence);
+    if (before?.kind && !newestMakesCommitment) {
+      const newestIntent = detectUnresolvedIntent(newestEvidence);
+      return newestIntent ?? { kind: before.kind };
+    }
     // M2a's schedule override belongs to the chat guard. The ordinary capture
     // path already has established unresolved-intent semantics (including its
     // frozen FX3 corpus), and did not previously consult the model's `kind`.
@@ -1012,6 +1028,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
       let unsaid = false;
       // A chat item whose question the person has not answered yet (below).
       let stillAsked = false;
+      let before: ChatPreviousItem | undefined;
       if (chat) {
         if (extracted.engine === 'rule-based' && !/^(?:prompt_injection|semantic_safety)/.test(extracted.fallbackReason ?? '')) continue;
         const evidence = chatItemEvidences[index]!;
@@ -1022,7 +1039,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
          * took off and asked about). Only a settled one, and only when the
          * model moved it: nothing the person said this turn is overridden.
          */
-        const before = chatAligned[index] === null ? undefined : chatPrevious[chatAligned[index]!];
+        before = chatAligned[index] === null ? undefined : chatPrevious[chatAligned[index]!];
         if (!evidence.touchedNow && before?.date && before.time && !extracted.result.allDay) {
           const kept = instantFromLocal(before.date, before.time, options.timezone)?.toISOString();
           const spec = extracted.result.localTimeSpec;
@@ -1281,7 +1298,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         const { recurrenceHint: _notItsOwn, ...rest } = extracted.result;
         extracted = { ...extracted, result: rest };
       }
-      const occurrences = needsClarification || (chat && !chatItemEvidences[index]!.touchedNow)
+      let occurrences = needsClarification || (chat && !chatItemEvidences[index]!.touchedNow)
         ? null
         : occurrenceDatesFor(extracted.result, occurrenceWords, options.now, options.timezone, {
           // A day the model chose itself, or (outside the chat) a model reading at all.
@@ -1289,6 +1306,14 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
           stacked: chat ? stackedModelItems.has(index) : false,
           ...(chat ? { occupied: occupiedBesides(index), goalTitles: modelGoalTitles } : {}),
         });
+      if (chat && before?.date && occurrences?.includes(before.date)) {
+        const represented = new Set(chatAligned.flatMap((at) => {
+          if (at === null) return [];
+          const date = chatPrevious[at]?.date;
+          return date && occurrences!.includes(date) ? [date] : [];
+        }));
+        if (represented.size > 1) occurrences = [before.date];
+      }
       // The title without the connectors and list days a rules reading leaves
       // at its edges («and gym», «חדר כושר וחמישי»), on the card and the saved
       // commitment alike.
