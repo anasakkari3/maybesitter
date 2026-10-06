@@ -36,6 +36,8 @@ export interface StoredCaptureConversation {
   proposalId: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Exact last message response, so a transport retry cannot apply its delta twice. */
+  messageReceipt?: { fingerprint: string; answer: unknown };
 }
 
 interface ConversationDocument extends StoredCaptureConversation {
@@ -86,6 +88,12 @@ export class CaptureConversationStore {
       proposalId: typeof document.proposalId === 'string' ? document.proposalId : null,
       createdAt: String(document.createdAt ?? ''),
       updatedAt: String(document.updatedAt ?? ''),
+      ...(document.messageReceipt
+        && typeof document.messageReceipt.fingerprint === 'string'
+        && document.messageReceipt.answer
+        && typeof document.messageReceipt.answer === 'object'
+        ? { messageReceipt: document.messageReceipt }
+        : {}),
     };
   }
 
@@ -100,6 +108,7 @@ export class CaptureConversationStore {
       proposalId: conversation.proposalId,
       createdAt: conversation.createdAt,
       updatedAt: conversation.updatedAt,
+      ...(conversation.messageReceipt === undefined ? {} : { messageReceipt: conversation.messageReceipt }),
       expiresAt: new Date(now.getTime() + CAPTURE_PROPOSAL_RETENTION_MS),
     });
   }

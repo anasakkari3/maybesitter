@@ -56,8 +56,13 @@ const at = (date: string, time: string): string => instantFromLocal(date, time, 
 
 /** A captured answer with its days moved (see the header). Nothing else is touched. */
 function rebased(answer: unknown): string {
-  const copy = JSON.parse(JSON.stringify(answer)) as { items: Array<Record<string, unknown>> };
-  for (const item of copy.items) {
+  const copy = JSON.parse(JSON.stringify(answer)) as {
+    items?: Array<Record<string, unknown>>;
+    added?: Array<Record<string, unknown>>;
+    open?: Array<{ fields?: Record<string, unknown> }>;
+  };
+  const items = [...(copy.items ?? []), ...(copy.added ?? []), ...(copy.open ?? []).flatMap((operation) => operation.fields ? [operation.fields] : [])];
+  for (const item of items) {
     const spec = item.localTimeSpec as { date?: string; time?: string | null } | null;
     const shift = (instant: unknown): unknown => {
       if (typeof instant !== 'string') return instant;
@@ -996,10 +1001,29 @@ const REAL = {
 /* ── 1. the owner's engagements, then «لا خلّي التانية الساعة 7» ───── */
 
 const ENGAGEMENTS = ['ذكرني بخطبة صاحبي الاول يوم الجمعة عال ٤ والثاني الجمعة عال٦', 'لا خلّي التانية الساعة 7'];
+const RETITLED_BY_REF = [
+  { reply: REAL.engagementsRetitled[0].reply, action: 'propose', locked: [], open: [], added: REAL.engagementsRetitled[0].items },
+  {
+    reply: REAL.engagementsRetitled[1].reply,
+    action: 'update',
+    locked: [],
+    open: [
+      { ref: 'i1', op: 'keep' },
+      {
+        ref: 'i2', op: 'update', fields: {
+          ...REAL.engagementsRetitled[1].items[1],
+          action: REAL.engagementsRetitled[0].items[1].action,
+          title: REAL.engagementsRetitled[0].items[1].title,
+        },
+      },
+    ],
+    added: [],
+  },
+] as const;
 
 for (const [label, answers] of [
   ['as the model usually answers', REAL.engagements],
-  ['the model retitled the second «خلّي التانية»', REAL.engagementsRetitled],
+  ['the ref update keeps the second title while changing its time', RETITLED_BY_REF],
   ['the model moved the first to 09:00', REAL.engagementsFirstMoved],
 ] as const) {
   for (const locale of [undefined, 'ar'] as const) test(`«لا خلّي التانية الساعة 7» moves only the second, to Friday 19:00 (${label}${locale ? ', app in Arabic' : ''})`, async () => {

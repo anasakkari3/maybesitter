@@ -87,6 +87,7 @@ import {
   type CaptureProposalStore,
   type StoredProposalDocument,
 } from '../captureBoundary';
+import { referenceStateFor } from '../captureChat/chatReferences';
 import {
   INTENT_SEEDS,
   docIdForKey,
@@ -310,6 +311,8 @@ export async function createSeed(
         updatedAt: at,
       };
       if (!existing) tx.create(seedPath, seed);
+      const refState = referenceStateFor(stored);
+      const seedRef = refState.refs[seedItemId];
       tx.set(proposalPath, captureProposalToDocument({
         ...stored,
         // Keeping a seed does not change the proposal the person is
@@ -319,6 +322,10 @@ export async function createSeed(
         contract: stored.contract,
         seedKeepReceipt: { seedItemId, baseRevision: currentRevision, seed },
         keptSeedItemIds: Array.from(new Set([...(stored.keptSeedItemIds ?? []), seedItemId])),
+        chatRefs: refState.refs,
+        nextChatItemRef: refState.nextItem,
+        nextChatSeedRef: refState.nextSeed,
+        ...(seedRef ? { lockedChatRefs: Array.from(new Set([...(stored.lockedChatRefs ?? []), seedRef])) } : {}),
         // Receipts are independent and bounded to one operation of each
         // kind.  Preserving the edit receipt also keeps replay-before-conflict
         // semantics when a keep followed an edit.

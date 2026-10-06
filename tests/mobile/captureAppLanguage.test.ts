@@ -105,16 +105,16 @@ test('without an app language, the prompt never mentions appTitle', () => {
 test('the chat prompt: reply in the app language, list shown with both titles', () => {
   const prompt = buildChatPrompt(
     [{ role: 'user', text: 'make the dentist 5pm' }],
-    [{ title: 'Dentist appointment', appTitle: 'موعد عند دكتور الأسنان', date: FRIDAY, time: '16:00', needsDayOrTime: false }],
+    [{ ref: 'i1', locked: false, title: 'Dentist appointment', appTitle: 'موعد عند دكتور الأسنان', date: FRIDAY, time: '16:00', needsDayOrTime: false }],
     { ...CONTEXT, titleLanguage: 'ar' },
     { replyLanguage: 'ar', appLanguage: 'ar' },
   );
   const rules = rulesOf(prompt);
   assert.match(rules, /REPLY LANGUAGE: Arabic, spoken Levantine\. This is the app's language: write reply in it whatever language the person writes in/);
-  assert.match(rules, /PROMPT VERSION: capture-chat-v7/);
+  assert.match(rules, /PROMPT VERSION: capture-chat-v8/);
   assert.match(rules, /APP LANGUAGE: Arabic/);
   const data = dataOf(prompt);
-  assert.deepEqual(data.currentProposal[0], { number: 1, title: 'Dentist appointment', appTitle: 'موعد عند دكتور الأسنان', date: FRIDAY, time: '16:00', needsDayOrTime: false });
+  assert.deepEqual(data.currentProposal[0], { number: 1, ref: 'i1', locked: false, title: 'Dentist appointment', appTitle: 'موعد عند دكتور الأسنان', date: FRIDAY, time: '16:00', needsDayOrTime: false });
 });
 
 /* ── The validator ───────────────────────────────────────────────────── */
@@ -376,14 +376,16 @@ function chatItem(title: string, appTitle: string | null, date: string, time: st
 
 /**
  * The real two-item case (captureChatRealModel.test.ts, `dentistSara`): the
- * same objects, each now with the Arabic app title the v4 prompt asks for, and
+ * same objects, each now with the Arabic app title the v5 prompt asks for, and
  * the reply in Arabic.
  */
 const DENTIST_SARA = [
   {
     reply: 'عندك شغلتين: موعد عند دكتور الأسنان يوم الجمعة الساعة 4 العصر، واجتماع مع سارة يوم الأحد الساعة 9 الصبح. أكّد من تحت.',
     action: 'propose',
-    items: [
+    locked: [],
+    open: [],
+    added: [
       chatItem('Dentist appointment', DENTIST_AR, FRIDAY, '16:00', { action: 'have', priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureImplied: false }, category: 'health', categoryConfidence: 0.8 }),
       chatItem('Meet with Sara', SARA_AR, SUNDAY, '09:00', { action: 'meet', person: 'Sara' }),
     ],
@@ -391,10 +393,12 @@ const DENTIST_SARA = [
   {
     reply: 'تمام، موعد دكتور الأسنان صار الجمعة الساعة 5 المسا. أكّد من تحت.',
     action: 'update',
-    items: [
-      chatItem('Dentist appointment', DENTIST_AR, FRIDAY, '17:00', { priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureImplied: false }, category: 'health', categoryConfidence: 1 }),
-      chatItem('Meet with Sara', SARA_AR, SUNDAY, '09:00', { action: 'Meet', person: 'Sara' }),
+    locked: [],
+    open: [
+      { ref: 'i1', op: 'update', fields: chatItem('Dentist appointment', DENTIST_AR, FRIDAY, '17:00', { priority: { level: 'high', source: 'inferred', pressureAllowed: false, pressureImplied: false }, category: 'health', categoryConfidence: 1 }) },
+      { ref: 'i2', op: 'keep' },
     ],
+    added: [],
   },
 ];
 
@@ -471,15 +475,16 @@ test('an English chat with locale ar: Arabic titles, an Arabic reply, and "make 
   );
 });
 
-test('an edit the model retitles with only its own words keeps both titles the item had', async () => {
-  // «Dentist 5pm» is the words of the edit, not a rename: the item keeps
-  // "Dentist appointment" for the evidence and «موعد عند دكتور الأسنان» on the card.
+test('an open ref update applies only to its targeted item, including its returned title', async () => {
   const retitled = [DENTIST_SARA[0], {
     ...DENTIST_SARA[1],
-    items: [chatItem('Dentist 5pm', 'دكتور أسنان 5', FRIDAY, '17:00'), DENTIST_SARA[1]!.items[1]],
+    open: [
+      { ref: 'i1', op: 'update', fields: chatItem('Dentist 5pm', 'دكتور أسنان 5', FRIDAY, '17:00') },
+      { ref: 'i2', op: 'keep' },
+    ],
   }];
   const [, second] = await chat('AppLangRetitled', MESSAGES, replay(retitled).provider);
-  assert.deepEqual(second!.proposal!.items.map((item) => item.title), [DENTIST_AR, SARA_AR]);
+  assert.deepEqual(second!.proposal!.items.map((item) => item.title), ['دكتور أسنان 5', SARA_AR]);
   assert.equal(second!.proposal!.items[0]!.resolvedTime, at(FRIDAY, '17:00'));
   assert.equal(second!.proposal!.items[1]!.resolvedTime, at(SUNDAY, '09:00'));
 });
@@ -510,7 +515,7 @@ test('the guards hold in Arabic: an Arabic reply claiming it saved is replaced, 
     ...DENTIST_SARA[0],
     reply: 'تمام، حفظتلك الموعدين.',
     // Sara's hour is the model's: the person said "morning", not 07:30.
-    items: [DENTIST_SARA[0]!.items[0], chatItem('Meet with Sara', SARA_AR, SUNDAY, '07:30', { person: 'Sara' })],
+    added: [DENTIST_SARA[0]!.added[0], chatItem('Meet with Sara', SARA_AR, SUNDAY, '07:30', { person: 'Sara' })],
   }];
   const [body] = await chat('AppLangGuards', [MESSAGES[0]], replay(claims).provider);
   assert.doesNotMatch(body!.reply, /حفظت/);

@@ -63,6 +63,7 @@ import {
 import { newUserDocument, type UserDocument } from '../../storage/userDocument';
 import { readActivityStats, recordActivityEvents } from '../activity/activityStats';
 import { commitmentValidator } from './commitmentValidator';
+import { referenceStateForContract } from '../captureChat/chatReferences';
 import {
   HARD_REMINDER_RETENTION_MS,
   hardFireAtFor,
@@ -556,7 +557,15 @@ export async function commitCaptureConfirmation<T>(
   const at = nowIso();
   return getStorage().runTransaction(async (tx) => {
     const [proposal, user, before, stats] = await Promise.all([
-      tx.get<{ contract?: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract; confirmedResult?: T; idempotencyKey?: string }>(proposalPath),
+      tx.get<{
+        contract?: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract;
+        confirmedResult?: T;
+        idempotencyKey?: string;
+        chatRefs?: Record<string, string>;
+        nextChatItemRef?: number;
+        nextChatSeedRef?: number;
+        lockedChatRefs?: string[];
+      }>(proposalPath),
       tx.get<UserDocument>(userDoc(participantId)),
       loadDomainState(tx, participantId),
       readActivityStats(tx, participantId),
@@ -586,10 +595,35 @@ export async function commitCaptureConfirmation<T>(
     writeDomainDiff(tx, participantId, before, candidate, events, user, at);
     recordActivityEvents(tx, participantId, stats, events);
     for (const document of createdDocuments) tx.set(document.path, document.data);
-    tx.merge<{ contract: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract; confirmedResult: T; idempotencyKey: string; commands?: Record<string, Command[]> }>(proposalPath, {
+    const confirmedIds = Array.isArray((result as { persistedItemIds?: unknown }).persistedItemIds)
+      ? ((result as { persistedItemIds: unknown[] }).persistedItemIds.filter((id): id is string => typeof id === 'string'))
+      : [];
+    const refState = referenceStateForContract(
+      proposal!.contract!,
+      proposal?.chatRefs,
+      proposal?.nextChatItemRef,
+      proposal?.nextChatSeedRef,
+    );
+    const confirmedRefs = confirmedIds.flatMap((id) => refState.refs[id] ? [refState.refs[id]!] : []);
+    tx.merge<{
+      contract: import('../../../src/contracts/v1/captureContracts').CaptureProposalContract;
+      confirmedResult: T;
+      idempotencyKey: string;
+      commands?: Record<string, Command[]>;
+      lockedChatRefs?: string[];
+      chatRefs: Record<string, string>;
+      nextChatItemRef: number;
+      nextChatSeedRef: number;
+    }>(proposalPath, {
       contract: { ...proposal!.contract!, revision: currentRevision + 1 },
       confirmedResult: result,
       idempotencyKey,
+      ...(confirmedRefs.length > 0
+        ? { lockedChatRefs: Array.from(new Set([...(proposal?.lockedChatRefs ?? []), ...confirmedRefs])) }
+        : {}),
+      chatRefs: refState.refs,
+      nextChatItemRef: refState.nextItem,
+      nextChatSeedRef: refState.nextSeed,
       // `commands` is the field `proposalStore` serialises the map into; the
       // whole map is rewritten, so a merge cannot leave half of it stale.
       ...(commandsByItemId

@@ -1,0 +1,97 @@
+{
+  "conversationId": "00000000-0000-4000-8000-000000000001",
+  "reply": "Updated. Review the list and confirm below.",
+  "engine": "model",
+  "proposal": {
+    "version": "v1",
+    "proposalId": "00000000-0000-4000-8000-000000000002",
+    "status": "proposed",
+    "items": [
+      {
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "title": "Call the dentist about the results",
+        "resolvedTime": "2026-08-09T09:00:00.000Z",
+        "needsClarification": false,
+        "timeEstimated": false,
+        "priority": "normal",
+        "priorityEstimated": true,
+        "resolvedDate": "2026-08-10",
+        "dateEstimated": false
+      },
+      {
+        "itemId": "00000000-0000-4000-8000-000000000004",
+        "title": "Buy bread",
+        "resolvedTime": "2026-08-09T09:00:00.000Z",
+        "needsClarification": false,
+        "timeEstimated": false,
+        "priority": "normal",
+        "priorityEstimated": true,
+        "resolvedDate": "2026-08-10",
+        "dateEstimated": false
+      }
+    ],
+    "seeds": [],
+    "revision": 1,
+    "provenance": {
+      "requestedEngine": "model",
+      "executedEngine": "gemini",
+      "fallbackUsed": false
+    },
+    "understood": [
+      {
+        "kind": "commitment",
+        "itemId": "00000000-0000-4000-8000-000000000003",
+        "text": "Call the dentist about the results"
+      },
+      {
+        "kind": "commitment",
+        "itemId": "00000000-0000-4000-8000-000000000004",
+        "text": "Buy bread"
+      }
+    ]
+  },
+  "turns": [
+    {
+      "role": "user",
+      "text": "Remind me to call the dentist tomorrow at 5pm"
+    },
+    {
+      "role": "assistant",
+      "text": "Call the dentist tomorrow at 5pm. Check it and confirm if it looks right."
+    },
+    {
+      "role": "user",
+      "text": "make it 6pm"
+    },
+    {
+      "role": "assistant",
+      "text": "Okay, 6pm instead. Check it and confirm if it looks right."
+    },
+    {
+      "role": "user",
+      "text": "Change “Call the dentist” to “Call the dentist about the results”.",
+      "evidence": false
+    },
+    {
+      "role": "assistant",
+      "text": "Updated. Review the list and confirm below."
+    },
+    {
+      "role": "user",
+      "text": "remove that call and buy bread too tomorrow at 7pm"
+    },
+    {
+      "role": "assistant",
+      "text": "I removed the call and added bread. Review the list and confirm below."
+    },
+    {
+      "role": "user",
+      "text": "Update “Call the dentist about the results”.",
+      "evidence": false
+    },
+    {
+      "role": "assistant",
+      "text": "Updated. Review the list and confirm below."
+    }
+  ]
+}

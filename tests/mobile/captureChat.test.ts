@@ -232,6 +232,7 @@ test('"make it 6pm" moves the time: the new hour is in the person’s own turn',
     assert.ok(user.includes('please make it 6pm'));
     assert.ok(user.includes('Call the dentist tomorrow at 5pm — confirm if that is right.'), 'the previous reply was not shown');
     assert.ok(user.includes('"currentProposal":[{"number":1,"title":"Call the dentist"'), 'the current list was not shown');
+    assert.ok(user.includes('"ref":"i1","locked":false'), 'the server ref was not shown to the model');
     assert.ok(!system.includes('please make it 6pm'), 'a user turn leaked into the instructions');
 
     // The edited proposal confirms through the existing route.
@@ -775,12 +776,9 @@ test('a reached cap falls back to the rules, with a template reply and engine ru
   }
 });
 
-for (const [label, failure] of [
-  ['a provider error', new Error('upstream exploded')],
-  ['an answer that is not the agreed shape', 'Sure! Here is your plan: dentist at 5.'],
-] as const) {
+for (const [label, failure] of [['a provider error', new Error('upstream exploded')]] as const) {
   test(`${label} falls back to the rules`, async () => {
-    const model = scripted(failure as string | Error);
+    const model = scripted(failure);
     begin({ llmProviderFor: () => model.provider });
     try {
       const body = await chat(uidFor(`ChatFallback${label.length}`), 'Remind me to call the dentist tomorrow at 5pm');
@@ -794,6 +792,24 @@ for (const [label, failure] of [
     }
   });
 }
+
+test('an answer outside the v5 schema keeps the previous list unchanged and adds nothing', async () => {
+  const model = scripted(
+    answer('Dentist tomorrow at 5. Confirm below.', 'propose', [item('Dentist', TOMORROW, '17:00')]),
+    'Sure! Here is your plan: dentist at 6 and buy bread.',
+  );
+  begin({ llmProviderFor: () => model.provider });
+  try {
+    const uid = uidFor('ChatMalformedV5');
+    const first = await chat(uid, 'Dentist tomorrow at 5pm');
+    const second = await chat(uid, 'and buy bread', first.conversationId);
+    assert.equal(second.engine, 'model');
+    assert.equal(second.proposal!.proposalId, first.proposal!.proposalId);
+    assert.deepEqual(second.proposal!.items.map((entry) => entry.title), ['Dentist']);
+  } finally {
+    end();
+  }
+});
 
 for (const [reason, retried] of [
   ['server_error', true], ['unavailable', true], ['provider_error', true],

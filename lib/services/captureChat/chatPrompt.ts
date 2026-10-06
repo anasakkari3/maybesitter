@@ -32,10 +32,14 @@ import type { ScheduleEntryForPrompt } from './chatConflicts';
  * offer another time only as a question, and gives a reason only from the
  * person's words or the list.
  */
-export const CHAT_PROMPT_VERSION = 'capture-chat-v7';
+export const CHAT_PROMPT_VERSION = 'capture-chat-v8';
 
 /** One item of the list the person currently sees, as the model is shown it. */
 export interface ChatPromptItem {
+  /** Opaque server-minted identity for this conversation. */
+  ref: string;
+  /** Locked points can only be kept or explicitly removed. */
+  locked: boolean;
   /** In the person's own words. */
   title: string;
   /** The title the card shows, in the app's language, when it differs from `title`. */
@@ -54,13 +58,13 @@ export interface ChatPromptItem {
 const CHAT_RULES: readonly string[] = [
   'SYSTEM ROLE: You are the MaybeSitter commitment assistant, in a chat. You help the person capture what they have to do: you understand it, ask for what is missing, and keep a list of proposed items for them to confirm.',
   `PROMPT VERSION: ${CHAT_PROMPT_VERSION}`,
-  'Return exactly one JSON object and nothing else, with exactly these keys: reply, action, items. No Markdown, code fences or prose around it.',
+  'Return exactly one JSON object and nothing else, with exactly these keys: reply, action, locked, open, added. No Markdown, code fences or prose around it.',
   `action is one of: ${CAPTURE_CHAT_ACTIONS.join(', ')}.`,
   '- propose: the first list of items this conversation asks for.',
   '- update: the person changed, added or removed items. "make it 6pm", «خلّيها الساعة 6 المسا» change a time; «شيل التانية», "remove the second one", «תמחק את השני» remove an item. "the second one" is the second item of currentProposal. The reply says what you changed.',
   '- ask: something needed is missing (usually the day or the time). Ask for it in reply.',
   '- chat: the message is not about anything to do — a greeting, thanks, or an off-topic question such as the weather. Reply with one short, friendly sentence that brings the person back to their commitments, and change nothing.',
-  'items is always the COMPLETE current list after this message, in order: every item of currentProposal that still stands (unchanged ones included), with the changes applied. Never return only the changes. For chat, return currentProposal unchanged. Leave a removed item out.',
+  'Identity is by ref only. Never copy, invent, translate or derive a ref. Put decisions for entries with locked:true in locked as {ref,op:"keep"|"remove"}; locked entries can never be updated. Put decisions for other entries in open as {ref,op:"keep"|"remove"} or {ref,op:"update",fields:<one complete extraction object>}. Put genuinely new things in added as complete extraction objects with no ref. An entry you do not mention is kept. For chat, keep locked/open empty and add nothing.',
   'Each item is one extraction object and follows every extraction rule below. Take days and times ONLY from the person\'s own messages (role "user"). Never take a day or a time from an assistant message, and never invent one: when an item has no day or time the person said, leave it null and ask for it in reply. The one exception: when the person\'s newest message is a plain yes to a time your previous reply offered as a question, use that time.',
   'When the request says the newest message was spoken, you may fix an obvious single-word dictation mishearing in an item title. Report every fix on that item as corrections: [{"from":"word heard","to":"word used"}]. Otherwise omit corrections. Never report a phrase or a correction you did not actually apply.',
   'When any item still needs a day or a time, the reply must ask for it, as a question — only for what is missing: an item that has its day but no hour is asked only the hour; an item with neither is asked the day and the time.',
@@ -91,7 +95,7 @@ function appLanguageLines(appLanguage: ChatLanguage | undefined): string[] {
   if (!appLanguage) return [];
   return [
     `REPLY LANGUAGE: ${REPLY_LANGUAGE[appLanguage]}. This is the app's language: write reply in it whatever language the person writes in, and whatever language earlier messages or titles are in.`,
-    'Each item of currentProposal has title, in the person\'s own words, and — when the card shows it in the app\'s language — appTitle. For an item that still stands, return the same title and appTitle; for a new or renamed item, title is in the person\'s own words and appTitle is the same title in the app\'s language, as the extraction rules say.',
+    'Each item of currentProposal has title in the person\'s own words and may have appTitle in the app language. Put translated titles only inside update fields or added items; never change a ref.',
   ];
 }
 
@@ -114,7 +118,7 @@ export function buildChatPrompt(
     'BEGIN_UNTRUSTED_USER_MESSAGE',
     JSON.stringify({
       conversation: turns.map((turn) => ({ role: turn.role, text: turn.text })),
-      currentProposal: currentProposal.map((item, index) => ({ number: index + 1, ...item })),
+      currentProposal: currentProposal.map(({ title, ...item }, index) => ({ number: index + 1, title, ...item })),
       savedSchedule: options.savedSchedule ?? [],
     }),
     'END_UNTRUSTED_USER_MESSAGE',
@@ -125,10 +129,26 @@ export function buildChatPrompt(
 export interface ChatModelAnswer {
   reply: unknown;
   action: (typeof CAPTURE_CHAT_ACTIONS)[number];
-  items: unknown[];
+  locked: ChatModelRefOperation[];
+  open: ChatModelRefOperation[];
+  added: unknown[];
+  /** Content-free count of unknown, duplicate, malformed, or forbidden ref operations. */
+  ignoredRefOperations?: number;
+  /** Test-only bridge for frozen pre-v5 scripted fixtures. Never set by production parsing. */
+  legacyItems?: unknown[];
+  legacyRefs?: Array<string | null>;
 }
 
-export function parseChatModelAnswer(text: string): ChatModelAnswer | null {
+export interface ChatModelRefOperation {
+  ref: string;
+  op: 'keep' | 'update' | 'remove';
+  fields?: unknown;
+}
+
+export function parseChatModelAnswer(
+  text: string,
+  constraints: { lockedRefs: ReadonlySet<string>; openRefs: ReadonlySet<string> },
+): ChatModelAnswer | null {
   const trimmed = typeof text === 'string' ? text.trim() : '';
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
   let parsed: unknown;
@@ -139,8 +159,49 @@ export function parseChatModelAnswer(text: string): ChatModelAnswer | null {
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const answer = parsed as Record<string, unknown>;
+  if (Object.keys(answer).sort().join(',') !== 'action,added,locked,open,reply') return null;
   const action = answer.action;
   if (typeof action !== 'string' || !(CAPTURE_CHAT_ACTIONS as readonly string[]).includes(action)) return null;
-  if (!Array.isArray(answer.items)) return null;
-  return { reply: answer.reply, action: action as ChatModelAnswer['action'], items: answer.items };
+  if (!Array.isArray(answer.locked) || !Array.isArray(answer.open) || !Array.isArray(answer.added)) return null;
+  const seen = new Set<string>();
+  let ignoredRefOperations = 0;
+  const operations = (
+    values: unknown[],
+    allowed: ReadonlySet<string>,
+    locked: boolean,
+  ): ChatModelRefOperation[] => values.flatMap((value) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      ignoredRefOperations += 1;
+      return [];
+    }
+    const entry = value as Record<string, unknown>;
+    const ref = typeof entry.ref === 'string' ? entry.ref : '';
+    const op = typeof entry.op === 'string' ? entry.op : '';
+    // Unknown and duplicate refs are ignored, content-free. A locked update is
+    // dropped even if a provider ever returns one outside constrained decoding.
+    if (!allowed.has(ref) || seen.has(ref) || !['keep', 'update', 'remove'].includes(op) || (locked && op === 'update')) {
+      ignoredRefOperations += 1;
+      return [];
+    }
+    if ((op === 'keep' || op === 'remove') && Object.prototype.hasOwnProperty.call(entry, 'fields')) {
+      ignoredRefOperations += 1;
+      return [];
+    }
+    if (op === 'update' && (!entry.fields || typeof entry.fields !== 'object' || Array.isArray(entry.fields))) {
+      ignoredRefOperations += 1;
+      return [];
+    }
+    seen.add(ref);
+    return [{ ref, op: op as ChatModelRefOperation['op'], ...(op === 'update' ? { fields: entry.fields } : {}) }];
+  });
+  const locked = operations(answer.locked, constraints.lockedRefs, true);
+  const open = operations(answer.open, constraints.openRefs, false);
+  return {
+    reply: answer.reply,
+    action: action as ChatModelAnswer['action'],
+    locked,
+    open,
+    added: answer.added,
+    ...(ignoredRefOperations > 0 ? { ignoredRefOperations } : {}),
+  };
 }

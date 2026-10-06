@@ -417,6 +417,11 @@ export interface CaptureProposalContract {
    */
   seeds: CaptureSeedProposalContract[];
   /**
+   * Locked points a later chat turn explicitly removed (M2b contract v5).
+   * They remain visible so the person can restore them. Absent when none.
+   */
+  removedItems?: CaptureRemovedItemContract[];
+  /**
    * What the assistant understood, one line per thing, in the order the
    * person said them (M2a). Shown before any card. Every item and every seed
    * appears exactly once; a seed's point carries that seed's kind. Plain
@@ -524,10 +529,31 @@ export type CaptureUnderstoodPoint =
 /** The longest `understood` line the server sends. */
 export const UNDERSTOOD_TEXT_MAX = 160;
 
-/* ── M2b: structured proposal edits (CONTRACT v4) ───────────────────── */
+/* ── M2b: structured proposal edits (CONTRACT v5) ───────────────────── */
 
 /** The longest title or seed summary a structured edit may set. */
 export const CAPTURE_EDIT_TEXT_MAX = 120;
+
+/** A locked point removed by a later chat turn, retained for exact restore. */
+export type CaptureRemovedItemContract =
+  | { itemId: string; seedItemId?: never; kind: 'commitment'; text: string }
+  | { seedItemId: string; itemId?: never; kind: 'possible_goal' | 'consideration' | 'idea' | 'waiting_for'; text: string };
+
+export type CaptureProposalEditChangeContract =
+  | {
+      kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+      text?: string;
+      time?: { at: string | null; timeZone: string };
+      rejectCorrectionIds?: string[];
+      restore?: never;
+    }
+  | {
+      restore: true;
+      kind?: never;
+      text?: never;
+      time?: never;
+      rejectCorrectionIds?: never;
+    };
 
 /**
  * One atomic change to one point of the conversation's current proposal,
@@ -541,13 +567,7 @@ export interface CaptureProposalEditContract {
   revision: number;
   target: { itemId: string } | { seedItemId: string };
   /** At least one field; all applied together or none. `text` and `rejectCorrectionIds` never together. */
-  change: {
-    kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
-    text?: string;
-    /** `at` null = no time. `timeZone` is the IANA zone the app displayed. Only for a commitment. */
-    time?: { at: string | null; timeZone: string };
-    rejectCorrectionIds?: string[];
-  };
+  change: CaptureProposalEditChangeContract;
 }
 
 /** The chat route's request: a new message, or an edit — never both (M2b). */
