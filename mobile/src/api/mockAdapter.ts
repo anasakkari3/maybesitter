@@ -221,8 +221,9 @@ export function mockModeActive(): boolean {
  * edits, M2b); every other route ignores it. Nothing is remembered between
  * calls: mock mode never pretends to persist.
  */
-export function mockResponseFor(method: string, path: string, _body?: unknown): MockResponse | null {
+export function mockResponseFor(method: string, path: string, body?: unknown): MockResponse | null {
   if (!mockModeActive()) return null;
+  if (method === 'POST' && path === '/api/mobile/capture/chat') return mockChat(body);
   for (const [routeMethod, pattern, response] of ROUTES) {
     if (routeMethod === method && pattern.test(path)) return response;
   }
@@ -230,4 +231,84 @@ export function mockResponseFor(method: string, path: string, _body?: unknown): 
   // network the developer has told us not to use. A screen hitting something
   // unmapped should say so loudly while it is cheap to fix.
   return { status: 501, body: { success: false, error: `no fixture for ${method} ${path}`, reason: 'not_mocked' } };
+}
+
+/* ── The capture chat, request-aware (M2b) ─────────────────────────── */
+
+/** Mock mode's proposals start at revision 1; an edit naming an older one is stale. */
+const MOCK_BASE_REVISION = 1;
+const SEED_KINDS = new Set(['possible_goal', 'consideration', 'idea', 'waiting_for']);
+
+type MockProposal = {
+  revision?: number;
+  items: Record<string, unknown>[];
+  seeds: Record<string, unknown>[];
+  understood?: Record<string, unknown>[];
+} & Record<string, unknown>;
+type MockAnswer = { proposal: MockProposal | null; turns: unknown[] } & Record<string, unknown>;
+type MockEdit = {
+  revision?: number;
+  target?: { itemId?: string; seedItemId?: string };
+  change?: { kind?: string; text?: string; time?: { at: string | null }; rejectCorrectionIds?: string[] };
+};
+
+function baseAnswer(): MockAnswer {
+  const answer = JSON.parse(JSON.stringify(captureChatProposal)) as MockAnswer;
+  if (answer.proposal) answer.proposal.revision = Math.max(answer.proposal.revision ?? 0, MOCK_BASE_REVISION);
+  return answer;
+}
+
+/**
+ * A message gets the chat fixture at the base revision. A structured edit gets
+ * that same fixture with the requested change applied — deterministically, from
+ * the request alone, at the next revision — so every edit path can be driven on
+ * a phone with no backend. Nothing is remembered between calls.
+ */
+function mockChat(body: unknown): MockResponse {
+  const edit = (body as { edit?: MockEdit } | undefined)?.edit;
+  if (!edit) return { status: 200, body: baseAnswer() };
+  const current = baseAnswer();
+  if ((edit.revision ?? 0) < MOCK_BASE_REVISION) {
+    return { status: 409, body: { reason: 'proposal_changed', answer: current } };
+  }
+  const answer = baseAnswer();
+  const proposal = answer.proposal!;
+  proposal.revision = (edit.revision ?? MOCK_BASE_REVISION) + 1;
+  const change = edit.change ?? {};
+  const itemId = edit.target?.itemId;
+  const seedId = edit.target?.seedItemId;
+  const item = proposal.items.find((candidate) => candidate.itemId === itemId) ?? (itemId ? proposal.items[0] : undefined);
+  const seed = proposal.seeds.find((candidate) => candidate.seedItemId === seedId);
+  const point = (proposal.understood ?? []).find((candidate) =>
+    (item && candidate.itemId === item.itemId) || (seed && candidate.seedItemId === seed.seedItemId));
+  if (change.text !== undefined) {
+    if (item) item.title = change.text;
+    if (seed) seed.summary = change.text;
+    if (point) point.text = change.text;
+  }
+  if (change.time && item) {
+    item.resolvedTime = change.time.at;
+    delete item.endTime;
+    item.needsClarification = false;
+    item.clarification = null;
+  }
+  if (change.rejectCorrectionIds && item && Array.isArray(item.corrections)) {
+    item.corrections = (item.corrections as { id: string }[]).filter((correction) => !change.rejectCorrectionIds!.includes(correction.id));
+    if ((item.corrections as unknown[]).length === 0) delete item.corrections;
+  }
+  if (change.kind && SEED_KINDS.has(change.kind) && item) {
+    // The item becomes a seed of that kind, keeping its id and its place.
+    proposal.items = proposal.items.filter((candidate) => candidate !== item);
+    proposal.seeds = [...proposal.seeds, { seedItemId: item.itemId, kind: change.kind, summary: String(item.title) }];
+    if (point) Object.assign(point, { kind: change.kind, seedItemId: item.itemId, itemId: undefined });
+    if (point) delete point.itemId;
+  }
+  if (change.kind === 'commitment' && seed) {
+    proposal.seeds = proposal.seeds.filter((candidate) => candidate !== seed);
+    proposal.items = [...proposal.items, {
+      itemId: seed.seedItemId, title: seed.summary, resolvedTime: change.time?.at ?? null, needsClarification: !change.time?.at,
+    }];
+    if (point) { Object.assign(point, { kind: 'commitment', itemId: seed.seedItemId }); delete point.seedItemId; }
+  }
+  return { status: 200, body: answer };
 }

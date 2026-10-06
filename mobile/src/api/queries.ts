@@ -4,7 +4,7 @@ import * as Crypto from 'expo-crypto';
 import { useTimeZone } from '../i18n/timezone';
 import { apiLocale } from '../i18n/locale';
 import { useAuth } from '../auth/AuthProvider';
-import { chatCapture, clarifyCapture, confirmCapture, proposeCapture } from './endpoints/capture';
+import { chatCapture, clarifyCapture, confirmCapture, proposeCapture, type CaptureChatInput } from './endpoints/capture';
 import { proposeFromShare } from './endpoints/share';
 import { prepareMeeting } from './endpoints/meetings';
 import type { UploadFile } from './client';
@@ -547,7 +547,7 @@ export function useCaptureChat() {
   const timezone = useTimeZone();
   return useMutation({
     retry: false,
-    mutationFn: (input: { conversationId: string | null; message: string }) => chatCapture({ ...input, timezone, locale: apiLocale() }),
+    mutationFn: (input: CaptureChatInput) => chatCapture({ ...input, timezone, locale: apiLocale() }),
   });
 }
 
@@ -601,7 +601,7 @@ export function useProposeFromShare() {
 export function useClarifyCapture() {
   const timezone = useTimeZone();
   return useMutation({
-    mutationFn: (input: { proposalId: string; itemId: string; questionId: string; optionId?: string; freeText?: string }) =>
+    mutationFn: (input: { proposalId: string; itemId: string; questionId: string; optionId?: string; freeText?: string; revision?: number }) =>
       clarifyCapture({ ...input, timezone }),
   });
 }
@@ -618,6 +618,8 @@ type ConfirmInput = {
    * the same key still links what was kept.
    */
   goalLinkItemIds?: string[];
+  /** The proposal revision confirmed (M2b). Part of the intent: another revision is another request. */
+  revision?: number;
 };
 
 /**
@@ -633,9 +635,11 @@ export function confirmIntent(input: ConfirmInput): string {
   // and must not be answered with the first one's stored result. Appended only
   // when present, so a confirm without it keeps the key it always had.
   const weekly = [...(input.weeklyBlockItemIds ?? [])].sort();
-  return JSON.stringify(weekly.length > 0
+  const base = weekly.length > 0
     ? [input.proposalId, [...input.itemIds].sort(), edits, weekly]
-    : [input.proposalId, [...input.itemIds].sort(), edits]);
+    : [input.proposalId, [...input.itemIds].sort(), edits];
+  // The revision too (M2b), appended only when present so an older intent keeps its key.
+  return JSON.stringify(input.revision !== undefined ? [...base, { revision: input.revision }] : base);
 }
 
 /**
@@ -1722,7 +1726,7 @@ function useSeedMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise
  * writing somebody's commitments without them present, which this is not.
  */
 export function useKeepSeed() {
-  return useSeedMutation((input: { proposalId: string; seedItemId: string }) => keepProposedSeed(input));
+  return useSeedMutation((input: { proposalId: string; seedItemId: string; revision?: number }) => keepProposedSeed(input));
 }
 
 export function usePatchSeed() {

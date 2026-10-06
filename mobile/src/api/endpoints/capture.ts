@@ -33,10 +33,13 @@ export function clarifyCapture(input: {
   optionId?: string;
   freeText?: string;
   timezone: string;
+  /** The proposal revision on screen (M2b); a 409 `proposal_changed` if it moved on. */
+  revision?: number;
 }): Promise<CaptureProposal> {
   return apiRequest('POST', '/api/mobile/capture/clarify', {
     body: {
       proposalId: input.proposalId,
+      ...(input.revision !== undefined ? { revision: input.revision } : {}),
       itemId: input.itemId,
       questionId: input.questionId,
       timezone: input.timezone,
@@ -84,9 +87,32 @@ export function proposeCapture(input: {
  * makes — a `ConversationNotFoundError` restarts with the same message, once —
  * is the caller's, in `captureFlowActions.chatTurn`, where it can be read.
  */
-export function chatCapture(input: {
+/** A structured change to one point of the conversation's current proposal (M2b, CONTRACT v4). */
+export interface CaptureProposalEdit {
+  proposalId: string;
+  revision: number;
+  target: { itemId: string } | { seedItemId: string };
+  change: {
+    kind?: 'commitment' | 'possible_goal' | 'consideration' | 'idea' | 'waiting_for';
+    text?: string;
+    time?: { at: string | null; timeZone: string };
+    rejectCorrectionIds?: string[];
+  };
+}
+
+/**
+ * What the chat is sent: a new message, or a structured edit — never both
+ * (M2b). One shape with optional parts, so callers and tests read `message`
+ * without narrowing; `edit` decides which request goes.
+ */
+export type CaptureChatInput = {
   conversationId: string | null;
-  message: string;
+  message?: string;
+  spoken?: boolean;
+  edit?: CaptureProposalEdit;
+};
+
+export function chatCapture(input: CaptureChatInput & {
   timezone: string;
   referenceTime?: string;
   /** The app's UI language: the reply and the titles are in it (owner request 2026-09-30). */
@@ -95,7 +121,9 @@ export function chatCapture(input: {
   return apiRequest('POST', '/api/mobile/capture/chat', {
     body: {
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
-      message: input.message,
+      // Only the words the person could see go: never an alternative they did
+      // not pick (M2b). `spoken` says they came from dictation.
+      ...(input.edit ? { edit: input.edit } : { message: input.message ?? '', ...(input.spoken ? { spoken: true } : {}) }),
       timezone: input.timezone,
       referenceTime: input.referenceTime ?? new Date().toISOString(),
       ...(input.locale ? { locale: input.locale } : {}),
@@ -143,6 +171,8 @@ export async function confirmCapture(input: {
    */
   goalLinkItemIds?: string[];
   idempotencyKey?: string;
+  /** The proposal revision the person confirmed (M2b): what was seen is what is saved. */
+  revision?: number;
 }): Promise<CaptureConfirmation> {
   const result = await apiRequest('POST', '/api/mobile/capture/confirm', {
     body: {
@@ -152,6 +182,7 @@ export async function confirmCapture(input: {
       ...(input.weeklyBlockItemIds?.length ? { weeklyBlockItemIds: input.weeklyBlockItemIds } : {}),
       ...(input.goalLinkItemIds?.length ? { goalLinkItemIds: input.goalLinkItemIds } : {}),
       ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
+      ...(input.revision !== undefined ? { revision: input.revision } : {}),
     },
     schema: captureConfirmationSchema,
   });
