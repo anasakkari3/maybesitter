@@ -414,8 +414,27 @@ it('claims no count of new suggestions when the refresh after generating failed'
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate')); });
   await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-generate-confirm')); });
   await waitFor(() => expect(screen.queryByTestId('intelligence-refresh-failed')).not.toBeNull());
-  expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent(en.xIntelligenceRefreshFailed);
+  // Said once — the failure line — and no count while nothing new is visible.
+  expect(screen.getAllByText(en.xIntelligenceRefreshFailed)).toHaveLength(1);
   expect(screen.queryByText('1 new suggestion below')).toBeNull();
+  // A retry that reads the list says the true result, and the failure is gone.
+  currentInbox = { success: true, observations: [evidence], suggestions: [suggestion], schedule: [] };
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-refresh-retry')); });
+  await waitFor(() => expect(screen.getByTestId('intelligence-status-text')).toHaveTextContent('1 new suggestion below'));
+  expect(screen.queryByText(en.xIntelligenceRefreshFailed)).toBeNull();
+  expect(mockGenerate).toHaveBeenCalledTimes(1);
+});
+
+it('says an action is expanded and moves a screen reader to its explanation', async () => {
+  const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent').mockImplementation(() => {});
+  await render(wrap());
+  await waitFor(() => expect(screen.queryByTestId('intelligence-gmail-scan')).not.toBeNull());
+  expect(screen.getByTestId('intelligence-gmail-scan').props.accessibilityState).toMatchObject({ expanded: false });
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan')); });
+  expect(screen.getByTestId('intelligence-gmail-scan').props.accessibilityState).toMatchObject({ expanded: true });
+  await waitFor(() => expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus'));
+  await act(async () => { await fireEvent.press(screen.getByTestId('intelligence-gmail-scan-cancel')); });
+  expect(screen.getByTestId('intelligence-gmail-scan').props.accessibilityState).toMatchObject({ expanded: false });
 });
 
 it('says nothing — and never «done» — when the panel leaves the screen mid-scan', async () => {

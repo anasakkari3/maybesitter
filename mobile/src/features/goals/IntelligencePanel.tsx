@@ -97,6 +97,15 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   const [gmailScanProgress, setGmailScanProgress] = React.useState<number | null>(null);
   // Which action's one-line explanation is open, waiting for «كمّل».
   const [confirming, setConfirming] = React.useState<PanelAction | null>(null);
+  // Opening an explanation moves a screen reader to it, so the person hears
+  // what the action will do and finds «كمّل» next (inspection A2-004).
+  React.useEffect(() => {
+    if (confirming === null) return undefined;
+    const timer = setTimeout(() => {
+      if (explainRef.current) AccessibilityInfo.sendAccessibilityEvent(explainRef.current, 'focus');
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [confirming]);
   // False once the panel unmounts: a scan stops asking, and nothing more is said.
   const scanMounted = React.useRef(true);
   React.useEffect(() => {
@@ -120,6 +129,11 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   }, []);
   // The action itself succeeded, but re-reading the inbox afterwards did not.
   const [refreshFailed, setRefreshFailed] = React.useState(false);
+  // What a successful action will say once the inbox can be read again: a
+  // count of new suggestions is only true of a list that is on screen.
+  const pendingResult = React.useRef<((next: IntelligenceInbox) => string | null) | null>(null);
+  // Where a screen reader goes when an action's explanation opens.
+  const explainRef = React.useRef<View>(null);
   // React state lands a render later; two presses in one frame both see
   // `busy === false`. This ref is the guard that is set before either returns.
   const inFlight = React.useRef(false);
@@ -189,6 +203,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     setError(null);
     say(null);
     setRefreshFailed(false);
+    pendingResult.current = null;
     try {
       try {
         await action();
@@ -220,6 +235,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     setBusy(true);
     setError(null);
     setRefreshFailed(false);
+    pendingResult.current = null;
     say(action === 'analyze' ? t.xIntelligenceAnalyzing : action === 'generate' ? t.xIntelligenceGenerating : t.xIntelligenceGmailScanStarted);
     try {
       // Null when the result cannot be said truthfully: the refresh failed, so
@@ -237,6 +253,9 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
           const answer = await generateIntelligenceSuggestions();
           // Only what this request returned and was not on screen before counts:
           // a reused run, or the Watching visit landing meanwhile, adds nothing.
+          // (A run another device completed between the last read and this
+          // request is not told apart yet: that needs run provenance from the
+          // route — deferred to M3.)
           const returned = new Set(answer.suggestions.filter(item => item.status === 'pending' && !before.has(item.id)).map(item => item.id));
           result = next => next ? tr('xIntelligenceNewSuggestionsN', {
             n: next.suggestions.filter(item => item.status === 'pending' && returned.has(item.id)).length,
@@ -265,7 +284,16 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       onChanged();
       let next: IntelligenceInbox | null = null;
       try { next = await refresh(); } catch { setRefreshFailed(true); }
-      say(result(next) ?? t.xIntelligenceRefreshFailed);
+      const said = result(next);
+      if (said === null) {
+        // Nothing true to count yet: the failure line (inside the live
+        // region) says why, and a successful retry says the result.
+        pendingResult.current = result;
+        say(null);
+        if (Platform.OS === 'ios' && scanMounted.current) AccessibilityInfo.announceForAccessibility(t.xIntelligenceRefreshFailed);
+      } else {
+        say(said);
+      }
     } finally {
       inFlight.current = false;
       setGmailScanProgress(null);
@@ -277,7 +305,13 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(true);
-    try { await refresh(); setRefreshFailed(false); } catch { /* Still failing: the line stays. */ } finally {
+    try {
+      const next = await refresh();
+      setRefreshFailed(false);
+      const pending = pendingResult.current;
+      pendingResult.current = null;
+      if (pending) say(pending(next));
+    } catch { /* Still failing: the line stays. */ } finally {
       inFlight.current = false;
       setBusy(false);
     }
@@ -358,15 +392,15 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     {/* Three small actions in a row, each named for what it does. A press
         opens a one-line explanation; only «كمّل» runs it. */}
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-      <Pill style={actionStyle} testID={ACTION_TEST_ID.analyze} label={t.xIntelligenceAnalyze} size={13} pad={10} kind={confirming === 'analyze' ? 'accent' : 'outline'}
+      <Pill style={actionStyle} testID={ACTION_TEST_ID.analyze} label={t.xIntelligenceAnalyze} size={13} pad={10} kind={confirming === 'analyze' ? 'accent' : 'outline'} expanded={confirming === 'analyze'}
         disabled={busy || !draft.trim()} onPress={() => openConfirm('analyze')} />
-      {recommendationsEnabled ? <Pill style={actionStyle} testID={ACTION_TEST_ID.generate} label={t.xIntelligenceGenerate} size={13} pad={10} kind={confirming === 'generate' ? 'accent' : 'outline'}
+      {recommendationsEnabled ? <Pill style={actionStyle} testID={ACTION_TEST_ID.generate} label={t.xIntelligenceGenerate} size={13} pad={10} kind={confirming === 'generate' ? 'accent' : 'outline'} expanded={confirming === 'generate'}
         disabled={busy || inbox.observations.length === 0} onPress={() => openConfirm('generate')} /> : null}
-      <Pill style={actionStyle} testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={13} pad={10} kind={confirming === 'scan' ? 'accent' : 'outline'}
+      <Pill style={actionStyle} testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={13} pad={10} kind={confirming === 'scan' ? 'accent' : 'outline'} expanded={confirming === 'scan'}
         disabled={busy} onPress={() => openConfirm('scan')} />
     </View>
     {confirming ? <View testID="intelligence-confirm" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
-      <Txt role="supporting">{confirming === 'analyze' ? t.xIntelligenceAnalyzeExplain : confirming === 'generate' ? t.xIntelligenceGenerateExplain : t.xIntelligenceGmailScanExplain}</Txt>
+      <View ref={explainRef} accessible testID="intelligence-confirm-explain"><Txt role="supporting">{confirming === 'analyze' ? t.xIntelligenceAnalyzeExplain : confirming === 'generate' ? t.xIntelligenceGenerateExplain : t.xIntelligenceGmailScanExplain}</Txt></View>
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
         <Pill testID={`${ACTION_TEST_ID[confirming]}-confirm`} label={t.xIntelligenceRun} size={14} pad={12} disabled={busy}
           onPress={() => void runConfirmed(confirming)} />
@@ -374,13 +408,19 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
           onPress={() => setConfirming(null)} />
       </View>
     </View> : null}
-    <LiveRegion testID="intelligence-status">{announced ? <Txt role="supporting" testID="intelligence-status-text">{announced}</Txt> : null}</LiveRegion>
+    {/* One region for what the panel says: the status, and a failed refresh
+        with its retry — said once, never repeated in a second line. */}
+    <LiveRegion testID="intelligence-status">
+      {announced || refreshFailed ? <View style={{ gap: 8 }}>
+      {announced ? <Txt role="supporting" testID="intelligence-status-text">{announced}</Txt> : null}
+      {refreshFailed ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <Txt role="supporting" color={p.wm} testID="intelligence-refresh-failed">{t.xIntelligenceRefreshFailed}</Txt>
+        <Pill testID="intelligence-refresh-retry" label={t.errorsRetry} kind="outline" size={14} pad={12} disabled={busy} onPress={() => void retryRefresh()} />
+      </View> : null}
+      </View> : null}
+    </LiveRegion>
     {gmailScanProgress !== null && gmailScanProgress > 0
       ? <Txt role="supporting" color={p.mu} testID="intelligence-gmail-progress">{tr('xIntelligenceGmailScanProgress', { count: gmailScanProgress })}</Txt> : null}
-    {refreshFailed ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-      <Txt role="supporting" color={p.wm} testID="intelligence-refresh-failed">{t.xIntelligenceRefreshFailed}</Txt>
-      <Pill testID="intelligence-refresh-retry" label={t.errorsRetry} kind="outline" size={14} pad={12} disabled={busy} onPress={() => void retryRefresh()} />
-    </View> : null}
     <Disclosure id="intelligence-gmail-monitor-info" body={t.xIntelligenceGmailMonitorInfo} label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}>
       <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
         kind="outline" disabled={busy || gmailMonitor === null} onPress={() => void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled))} />
