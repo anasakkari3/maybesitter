@@ -25,7 +25,7 @@
  * pulls in no storage.
  */
 import type { CaptureChatAnswer, CaptureChatTurn, CaptureProposal, CaptureConfirmation } from '../../api/schemas/capture';
-import { usableUnderstood } from '../../api/schemas/capture';
+import { usableUnderstood, type UnderstoodPoint } from '../../api/schemas/capture';
 import type { UserFacingKey } from '../../api/ui/userFacingMessage';
 import type { CaptureProposalEdit } from '../../api/endpoints/capture';
 import type { LocationTrigger } from '../../api/schemas/common';
@@ -648,6 +648,8 @@ export function wantsDiscardConfirmation(state: CaptureState): boolean {
 
 
 function statusForProposal(proposal: CaptureProposal): CaptureStatus {
+  // Only removed points left: the summary shows them to bring back (contract v5).
+  if (onlyRemoved(proposal)) return 'unresolvedIntent';
   switch (proposal.status) {
     case 'proposed':
       // Every item needing a question is the clarification flow, even though
@@ -690,7 +692,22 @@ const REVIEWING: ReadonlySet<CaptureStatus> = new Set([
  */
 export function chatProposalShown(proposal: CaptureProposal | null): CaptureProposal | null {
   if (!proposal || proposal.status === 'rejected') return null;
-  return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 ? proposal : null;
+  return proposal.items.length > 0 || (proposal.seeds?.length ?? 0) > 0 || onlyRemoved(proposal) ? proposal : null;
+}
+
+/**
+ * A versioned proposal whose every point a later message took off the list
+ * (contract v5): still a proposal — its removed points are shown with
+ * «رجّعها», never dropped as "nothing found" (M2B-A-R7-001).
+ */
+export function onlyRemoved(proposal: CaptureProposal): boolean {
+  return proposal.revision !== undefined && proposal.items.length === 0 && (proposal.seeds?.length ?? 0) === 0
+    && (proposal.removedItems?.length ?? 0) > 0;
+}
+
+/** The summary's lines: `understood` when it describes the proposal, none when only removed points are left. */
+export function summaryPoints(proposal: CaptureProposal): readonly UnderstoodPoint[] | undefined {
+  return usableUnderstood(proposal) ?? (onlyRemoved(proposal) ? [] : undefined);
 }
 
 /**
@@ -703,7 +720,7 @@ export function chatProposalShown(proposal: CaptureProposal | null): CaptureProp
 export function showsUnderstood(state: CaptureState): boolean {
   const proposal = state.proposal;
   if (!proposal || !REVIEWING.has(state.status) || state.conversationId === null) return false;
-  return state.reviewOf !== proposal.proposalId && usableUnderstood(proposal) !== undefined;
+  return state.reviewOf !== proposal.proposalId && summaryPoints(proposal) !== undefined;
 }
 
 /** The facts of an item the server decides; a talk edit changes one of these. */

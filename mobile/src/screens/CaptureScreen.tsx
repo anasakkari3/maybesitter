@@ -3,7 +3,7 @@ import { AccessibilityInfo, BackHandler, Keyboard, Platform, View } from 'react-
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../state/AppContext';
 import { useCaptureFlow } from '../features/capture/CaptureProvider';
-import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, showsUnderstood, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
+import { MAX_CAPTURE_LENGTH, chatSaves, confirmableItems, goalLinkKept, showsUnderstood, summaryPoints, wantsDiscardConfirmation, weeklyChoice, weeklyLockedByEdit, type CaptureItemEdit, type ChatSavedNote } from '../features/capture/captureMachine';
 import { UnderstoodMessage, type UnderstoodTarget } from '../features/capture/UnderstoodMessage';
 import { SummaryEditSheet } from '../features/capture/SummaryEditSheet';
 import { instantForLocalDateTime } from '../features/capture/localInstant';
@@ -115,7 +115,7 @@ export function CaptureScreen() {
   // «هيك فهمت» first (audit 2026-10-06 #5, #6): an answer that says what it
   // understood shows that summary, and its cards only once the person opens
   // them (`showsUnderstood`, keyed to the proposal in the reducer).
-  const understood = showsUnderstood(state) && state.proposal ? usableUnderstood(state.proposal) ?? null : null;
+  const understood = showsUnderstood(state) && state.proposal ? summaryPoints(state.proposal) ?? null : null;
   // The line the refused change belongs to now, found by its point's id: the
   // current version may have moved it, or dropped it (then nothing reopens).
   // A point keeps its id when its kind changes, so the id alone finds it.
@@ -521,7 +521,8 @@ export function CaptureScreen() {
           style={{ alignSelf: 'flex-start' }}
           onPress={() => { setDraftToReopen(state.refusedEdit!.change); setSummaryEditing(refusedLine); flow.takeRefusedEdit(); setEditNote(null); }} /> : null}
       </View>,
-      actions: <Pill testID="understood-confirm" label={t.understoodConfirm} onPress={() => openFromSummary(null)} size={15} pad={12} style={{ minWidth: 120 }} /> };
+      // Nothing to confirm when only removed points are left (contract v5).
+      actions: understood.length > 0 ? <Pill testID="understood-confirm" label={t.understoodConfirm} onPress={() => openFromSummary(null)} size={15} pad={12} style={{ minWidth: 120 }} /> : undefined };
   }
   // The message on its way: in the conversation already, not yet delivered.
   if (state.status === 'analyzing' && state.text.trim()) {

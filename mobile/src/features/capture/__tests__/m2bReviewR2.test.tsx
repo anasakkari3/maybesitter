@@ -487,3 +487,24 @@ describe('a point taken off the list can be brought back (contract v5)', () => {
     expect(screen.queryByTestId('understood-removed-m2b-gone-1')).toBeNull();
   });
 });
+
+describe('the only point taken off the list stays to bring back (M2B-A-R7-001)', () => {
+  it('a proposal with nothing left but a removed point shows it with «Bring back», and no «That\'s right»', async () => {
+    const onlyGone = commitmentProposal({
+      status: 'no_commitment', items: [], seeds: [], understood: undefined,
+      removedItems: [{ itemId: 'm2b-gone-1', kind: 'commitment', text: 'Call Mum' }],
+    } as Partial<CaptureProposal>);
+    const chat = server(onlyGone, commitmentProposal({ revision: 8 }));
+    await show2();
+    expect(screen.queryByTestId('understood-confirm')).toBeNull();
+    await press('understood-restore-m2b-gone-1');
+    await waitFor(() => expect(editsSent(chat)).toHaveLength(1));
+    expect(editsSent(chat)[0]).toEqual(expect.objectContaining({ target: { itemId: 'm2b-gone-1' }, change: { restore: true } }));
+  });
+
+  async function show2(): Promise<void> {
+    await openCapture(harness);
+    await say('First message');
+    await waitFor(() => expect(screen.queryByTestId('understood-removed-m2b-gone-1')).not.toBeNull());
+  }
+});

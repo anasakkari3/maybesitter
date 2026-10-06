@@ -58,7 +58,8 @@ const removedItemSchema = z.object({
   seedItemId: z.string().min(1).optional(),
   kind: z.enum(['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for']),
   text: z.string().min(1),
-}).refine((entry) => (entry.itemId === undefined) !== (entry.seedItemId === undefined));
+}).refine((entry) => (entry.itemId !== undefined && entry.seedItemId === undefined && entry.kind === 'commitment')
+  || (entry.seedItemId !== undefined && entry.itemId === undefined && entry.kind !== 'commitment'));
 export type CaptureRemovedItem = z.infer<typeof removedItemSchema>;
 
 /** Tolerant: an entry of the wrong shape is dropped, a wrong value reads as none. */

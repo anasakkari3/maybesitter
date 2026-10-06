@@ -15,6 +15,9 @@ it('keeps well-formed entries and drops one with both ids, none, an unknown kind
       { kind: 'idea', text: 'no id' },
       { itemId: 'e', kind: 'chore', text: 'unknown kind' },
       { itemId: 'f', kind: 'idea', text: '' },
+      // The id says which list it came from; a kind from the other list is a mismatch (M2B-A-R7-002).
+      { seedItemId: 'g', kind: 'commitment', text: 'seed id, commitment kind' },
+      { itemId: 'h', kind: 'idea', text: 'item id, seed kind' },
     ],
   });
   expect(parsed.removedItems).toEqual([
