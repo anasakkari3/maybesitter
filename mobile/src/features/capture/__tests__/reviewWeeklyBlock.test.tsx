@@ -37,6 +37,7 @@ import * as analyticsEndpoints from '../../../api/endpoints/analytics';
 import * as trustEndpoints from '../../../api/endpoints/trust';
 import * as weeklyEndpoints from '../../../api/endpoints/weeklyBlocks';
 import { chatServer } from '../../../testing/captureChat';
+import { openCards } from '../../../testing/understood';
 
 jest.mock('expo-localization', () => ({
   getCalendars: jest.fn(() => [{ timeZone: 'Asia/Jerusalem' }]),
@@ -98,6 +99,8 @@ async function reachReview() {
   await waitFor(() => expect(screen.queryByTestId('capture-input')).not.toBeNull());
   await fireEvent.changeText(screen.getByTestId('capture-input'), 'عندي تدريب كل سبت من 10 لـ 4');
   await fireEvent.press(screen.getByTestId('capture-analyze'));
+  // The route's answer says what it understood first (M2a); the cards follow «هيك صح».
+  await openCards();
   await waitFor(() => expect(screen.queryByTestId(`review-item-${ITEM}`)).not.toBeNull());
 }
 

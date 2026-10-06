@@ -44,6 +44,7 @@ import { captureChatSchema, type CaptureChatAnswer, type CaptureProposal } from 
 import chatRules from '../../../api/__fixtures__/capture.chatRules.json';
 import { chatServer } from '../../../testing/captureChat';
 import { stripIsolates } from '../../../i18n/bidi';
+import { openCards } from '../../../testing/understood';
 
 const METRICS: Metrics = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -367,6 +368,8 @@ describe('the rules’ answer, when no model is available', () => {
     jest.spyOn(captureEndpoints, 'chatCapture').mockResolvedValue(answer);
     await openCapture();
     await say(answer.turns[0]!.text);
+    // The route's answer says what it understood first (M2a); the cards follow «هيك صح».
+    await openCards();
     const itemId = answer.proposal!.items[0]!.itemId;
     await waitFor(() => expect(screen.queryByTestId(`review-item-${itemId}`)).not.toBeNull());
     expect(screen.queryByText(answer.reply)).not.toBeNull();

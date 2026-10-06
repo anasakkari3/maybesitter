@@ -40,6 +40,7 @@ import { chatServer } from '../../../testing/captureChat';
 import { stripIsolates } from '../../../i18n/bidi';
 import { chatConflictLines } from '../chatConflicts';
 import type { Strings } from '../../../i18n/strings';
+import { openCards } from '../../../testing/understood';
 
 const TZ = 'Asia/Jerusalem';
 const METRICS: Metrics = {
@@ -204,6 +205,8 @@ describe('the chat card', () => {
     jest.spyOn(captureEndpoints, 'chatCapture').mockResolvedValue(answer as never);
     await openCapture('en');
     await say('Remind me to call the dentist tomorrow at 5pm');
+    // The route's answer says what it understood first (M2a); the cards follow «هيك صح».
+    await openCards();
     await waitFor(() => expect(screen.queryByTestId(`review-conflict-${item.itemId}-0`)).not.toBeNull());
     expect(stripIsolates(textOf(`review-conflict-${item.itemId}-0-text`))).toMatch(/^Clashes with "Gym" /);
   });
