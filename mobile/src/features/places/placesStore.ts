@@ -80,12 +80,9 @@ export function openPlaceInMaps(place: Place): () => Promise<boolean> {
   const url = Platform.OS === 'android'
     ? `geo:${point}?q=${point}(${encodeURIComponent(place.label)})`
     : `https://maps.apple.com/?ll=${point}&q=${encodeURIComponent(place.label)}`;
-  // Capture the native action with this rendered row. A row that unmounts
-  // cannot accidentally hand a later screen instance its pending press.
-  const openUrl = Linking.openURL;
   return async () => {
     try {
-      await openUrl(url);
+      await Linking.openURL(url);
       return true;
     } catch {
       return false;

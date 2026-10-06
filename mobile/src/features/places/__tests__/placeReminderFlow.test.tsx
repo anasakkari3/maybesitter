@@ -396,6 +396,22 @@ describe('My places', () => {
 });
 
 describe('opening a saved place in maps', () => {
+  it('keeps the React Native Linking receiver when the map action is pressed', async () => {
+    await savePlaces(USER.uid, [HOME]);
+    resetPlacesStoreForTests();
+    const open = jest.spyOn(Linking, 'openURL').mockImplementation(function (this: unknown, _url: string) {
+      if (this !== Linking) throw new TypeError('unbound');
+      return Promise.resolve(true);
+    });
+    await render(wrap(<PlacesScreen onBack={() => undefined} />));
+    await waitFor(() => expect(screen.queryByTestId('places-home-map')).not.toBeNull());
+
+    await fireEvent.press(screen.getByTestId('places-home-map'));
+
+    await waitFor(() => expect(open).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('places-problem')).toBeNull();
+  });
+
   it.each([
     ['ios', 'https://maps.apple.com/?ll=32.0853,34.7818&q=Home'],
     ['android', 'geo:32.0853,34.7818?q=32.0853,34.7818(Home)'],
