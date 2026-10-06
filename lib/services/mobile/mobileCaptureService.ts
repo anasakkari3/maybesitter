@@ -707,7 +707,28 @@ async function carryStructuredEditsForward(
   if (!baseProposalId) return proposal;
   const [base, built] = await Promise.all([store.get(baseProposalId), store.get(proposal.proposalId)]);
   const edited = base?.structuredEditSources ?? {};
-  if (!base || !built || Object.keys(edited).length === 0 || !base.sourceOrdinals || !built.sourceOrdinals) return proposal;
+  if (!base || !built) return proposal;
+
+  // A seed the person already kept can be offered again by the next model or
+  // rules pass. Its proposal-local id is new, but it is still the same words
+  // in this conversation and must not become a second, timed commitment via a
+  // structured edit. Carry only the refusal marker: the old keep receipt is
+  // tied to the old id and remains on the proposal where it was written.
+  const keptSummaries = new Set((base.keptSeedItemIds ?? []).flatMap((seedItemId) => {
+    const seed = base.contract.seeds.find((candidate) => candidate.seedItemId === seedItemId);
+    return seed ? [seed.summary.trim().replace(/\s+/g, ' ').toLocaleLowerCase()] : [];
+  }));
+  const inheritedKeptSeedItemIds = built.contract.seeds
+    .filter((seed) => keptSummaries.has(seed.summary.trim().replace(/\s+/g, ' ').toLocaleLowerCase()))
+    .map((seed) => seed.seedItemId);
+  if (inheritedKeptSeedItemIds.length > 0) {
+    built.keptSeedItemIds = Array.from(new Set([...(built.keptSeedItemIds ?? []), ...inheritedKeptSeedItemIds]));
+  }
+
+  if (Object.keys(edited).length === 0 || !base.sourceOrdinals || !built.sourceOrdinals) {
+    if (inheritedKeptSeedItemIds.length > 0) await store.put(built);
+    return proposal;
+  }
 
   const contract: CaptureProposalContract = {
     ...built.contract,
@@ -744,8 +765,14 @@ async function carryStructuredEditsForward(
       ? Array.from(built.resultsByItemId ?? []).filter(([, result]) => result.rawText === source.rawText).map(([id]) => id)
       : [];
     const textMatches = builtIds.filter((id) => entityText(id)?.trim() === source.originalText.trim());
+    // Evidence identity wins. An ordinal is meaningful only inside a set of
+    // repeated items built from the exact same raw words; used on its own it
+    // can point at a newly inserted item and transplant the edit onto it.
     const ordinalMatch = source.ordinal === undefined ? null : idAt(built.sourceOrdinals, source.ordinal);
-    const builtId = [ordinalMatch, rawMatches.length === 1 ? rawMatches[0] : undefined, textMatches.length === 1 ? textMatches[0] : undefined]
+    const repeatedRawOrdinal = rawMatches.length > 1 && ordinalMatch && rawMatches.includes(ordinalMatch)
+      ? ordinalMatch
+      : undefined;
+    const builtId = [rawMatches.length === 1 ? rawMatches[0] : undefined, repeatedRawOrdinal, textMatches.length === 1 ? textMatches[0] : undefined]
       .find((id): id is string => Boolean(id) && !claimed.has(id!));
     if (!builtId) continue;
     claimed.add(builtId);
@@ -1036,7 +1063,15 @@ export async function clarifyMobileCapture(input: MobileClarifyInput, context: M
         if (legacyClarify && current.legacyConfirmRevision !== currentRevision) {
           throw new ProposalChangedError(current.contract, 'open');
         }
-        tx.set(proposalPath, captureProposalToDocument(next, new Date()));
+        // A seed keep is revision-neutral and can commit after the clarify's
+        // initial read. Merge its markers from the transaction's current
+        // document so this clarification cannot erase the keep while still
+        // legitimately advancing the proposal revision.
+        tx.set(proposalPath, captureProposalToDocument({
+          ...next,
+          keptSeedItemIds: current.keptSeedItemIds,
+          seedKeepReceipt: current.seedKeepReceipt,
+        }, new Date()));
       });
     },
   };

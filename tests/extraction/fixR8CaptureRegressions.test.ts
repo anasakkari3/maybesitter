@@ -235,6 +235,8 @@ test('M2b F7: an equal-ended range has a start but no invented end', async () =>
   for (const [text, start] of [
     ['Meeting tomorrow 16:00-16:00', '16:00'],
     ['Meeting tomorrow 4-4pm', '16:00'],
+    ['Meeting tomorrow 4:30-4:30pm', '16:30'],
+    ['Meeting tomorrow 7:30-7:30pm', '19:30'],
   ] as const) {
     const byRules = await rules(text, TUE);
     assert.equal(byRules.items.length, 1, text);

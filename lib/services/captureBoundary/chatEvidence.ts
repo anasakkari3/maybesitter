@@ -308,11 +308,20 @@ export function alignToPrevious(items: readonly unknown[], previous: readonly Ch
 }
 
 /** A request to rename, in which a new title is the person's own words. */
-const RENAME = /\b(?:rename|call\s+it|name\s+it|title)\b|(?:سمّي|سمي|اسمها|اسمه|عنوان|תקרא|שם\s+ל|תשנה\s+את\s+השם)/i;
+const RENAME = /\b(?:rename|call\s+it|name\s+it)\b|(?:سمّي|سمي|תקרא|תשנה\s+את\s+השם)/i;
 
 /** Whether the newest message explicitly asks to replace an item's words. */
 export function renamesListItem(message: string): boolean {
   return RENAME.test(message);
+}
+
+/** Whether a clause explicitly drops the previous item it names. */
+function cancelsListItem(message: string, title: string): boolean {
+  const titleWords = contentWords(title);
+  if (titleWords.length === 0) return false;
+  const cancellation = /\b(?:cancel|remove|drop|stop|never\s+mind|do\s+not\s+want|don't\s+want|dont\s+want|no\s+longer)\b|(?:ما\s+بدي|مش\s+بدي|خلص.*ما\s+بدي|بطل|شيل|احذف|الغ[يِ]|ألغي|לא\s+רוצה|תבטל|תמחק)/i;
+  return splitCaptureClauseDetails(message).some((clause) =>
+    cancellation.test(clause.text) && titleScore(titleWords, contentWords(clause.text)) > 0);
 }
 
 /**
@@ -336,6 +345,7 @@ export function withPreviousTitles(
     const before = aligned[index] === null ? null : previous[aligned[index]!]!;
     const title = itemTitle(item);
     if (!before || !title || !item || typeof item !== 'object') return item;
+    if (cancelsListItem(newestMessage, before.title)) return item;
     const keptAppTitle = { appTitle: before.appTitle ?? null };
     if (title.trim() === before.title.trim()) return before.appTitle ? { ...(item as Record<string, unknown>), ...keptAppTitle } : item;
     const words = contentWords(title);
@@ -407,15 +417,19 @@ export function chatItemEvidence(
           let owners = best > 0
             ? scores.flatMap((score, index) => (score === best || (score > 0 && score === new Set(titles[index]).size) ? [index] : []))
             : null;
-          if (!owners && turnIndex === newest && turnIndex > 0 && changed.length === 1) owners = [changed[0]!];
+          if (!owners && turnIndex === newest && turnIndex > 0 && changed.length === 1 && !isPlainYes(clause.text)) owners = [changed[0]!];
           return { text: clause.text.trim(), detail: clause, owners };
         }));
     }
   });
 
   return items.map((_, index) => {
+    // A shared/no-owner acknowledgement ("ok", «تمام») does not retire
+    // fields carried for every existing card. Other shared clauses still
+    // touch the list: ordinal and recurring-list edits rely on that signal.
     const touchedNow = byTurn.some((clauses, at) => turnOf[at] === newest
-      && clauses.some((clause) => clause.owners === null || clause.owners.includes(index)));
+      && clauses.some((clause) => clause.owners?.includes(index)
+        || (clause.owners === null && !isPlainYes(clause.text))));
     const named = byTurn.some((clauses) => clauses.some((clause) => clause.owners?.includes(index)));
     if (!named) {
       // Read as before; but a day or an hour only from words naming no other item.
