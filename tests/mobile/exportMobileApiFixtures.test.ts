@@ -1077,6 +1077,14 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       body: { message: 'Meeting tomorrow from 4 to 8pm', timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en' },
       uid: CHAT_USER,
     })), (body) => body, (live, stable) => {
+      const liveItems = (live.proposal as { items: Array<{ resolvedTime: string | null; endTime?: string }> }).items;
+      const liveRange = liveItems.find((item) => item.endTime);
+      assert.ok(liveRange?.resolvedTime && liveRange.endTime, 'capture.chatRange has no live start/end pair');
+      assert.equal(
+        Date.parse(liveRange.endTime) - Date.parse(liveRange.resolvedTime),
+        4 * 3_600_000,
+        'capture.chatRange live duration drifted before fixture pinning',
+      );
       const pinned = pinCaptureUnderstanding(live, stable);
       const proposal = pinned.proposal as { items: Array<Record<string, unknown>> };
       return {

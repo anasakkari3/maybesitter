@@ -129,6 +129,84 @@ test('an answer to "what do you want to do?" becomes the action, and the item ca
   assert.equal(draft?.draftStatus, 'pending_confirmation');
 });
 
+test('an action answer re-finalises the matching understood point with the new title', async () => {
+  const flagged = baseResult({
+    action: null,
+    title: 'Something to do',
+    ambiguityFlags: ['vague_action'],
+    confidence: { overall: 0.5, type: 0.5, action: 0.2, time: 0.9, priority: 0.8 },
+  });
+  const { store, stored } = storeAsking('action', flagged);
+  await store.put({
+    ...stored,
+    responseLocale: 'en',
+    sourceOrdinals: { items: { 'item-1': 0 }, seeds: {} },
+    contract: {
+      ...stored.contract,
+      understood: [{ kind: 'commitment', itemId: 'item-1', text: 'Something to do' }],
+    },
+  });
+
+  const contract = await answerClarification(
+    { proposalId: 'proposal-1', itemId: 'item-1', questionId: 'question-1', freeText: 'buy milk' },
+    { now: NOW, timezone: ZONE, scopeId: 'engine-user' },
+    { store, recordEvent: () => undefined },
+  );
+
+  assert.equal(contract.items[0]!.title, 'buy milk');
+  assert.deepEqual(contract.understood, [
+    { kind: 'commitment', itemId: 'item-1', text: 'buy milk' },
+  ]);
+});
+
+test('an English saved-claim fallback stays English after its am/pm clarification', async () => {
+  const result = baseResult({
+    rawText: 'Dentist added to your list tomorrow at 4',
+    action: 'Dentist added to your list tomorrow at 4',
+    title: 'Dentist added to your list tomorrow at 4',
+    dueAt: '2026-09-14T01:00:00.000Z',
+    remindAt: '2026-09-14T01:00:00.000Z',
+    localTimeSpec: { date: '2026-09-14', time: '04:00', timezone: ZONE },
+    timeEvidence: 'clock_marker',
+  });
+  const { store, stored } = storeAsking('time', result);
+  const item = stored.contract.items[0]!;
+  await store.put({
+    ...stored,
+    responseLocale: 'en',
+    sourceOrdinals: { items: { 'item-1': 0 }, seeds: {} },
+    contract: {
+      ...stored.contract,
+      understood: [{ kind: 'commitment', itemId: 'item-1', text: 'A point to review' }],
+      items: [{
+        ...item,
+        title: result.title!,
+        clarification: {
+          questionId: 'question-1',
+          field: 'time_period',
+          questionKey: 'ask_am_pm',
+          params: { hour: '4', title: result.title! },
+          options: [{
+            optionId: 'pm',
+            labelKey: 'amPmOption',
+            labelParams: { hour: '4', period: 'pm' },
+            value: { localDate: '2026-09-14', localTime: '16:00' },
+          }],
+          allowFreeText: false,
+        },
+      }],
+    },
+  });
+
+  const contract = await answerClarification(
+    { proposalId: 'proposal-1', itemId: 'item-1', questionId: 'question-1', optionId: 'pm' },
+    { now: NOW, timezone: ZONE, scopeId: 'engine-user' },
+    { store, recordEvent: () => undefined },
+  );
+
+  assert.equal(contract.understood?.[0]?.text, 'A point to review');
+});
+
 test('a legacy interleaved proposal without understood or source ordinals stays without understood after clarification', async () => {
   const result = baseResult({ dueAt: null, remindAt: null, localTimeSpec: null, timeEvidence: 'none' });
   const { store, stored } = storeAsking('time', result);

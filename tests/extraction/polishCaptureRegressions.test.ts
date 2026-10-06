@@ -41,10 +41,10 @@ import { getParticipantStateSnapshot } from '../../lib/services/mobile/participa
 import { createMemoryStorage } from '../../lib/storage/memoryAdapter.ts';
 import { resetStorageForTests, setStorageForTests } from '../../lib/storage/index.ts';
 import { createEmptyDomainState } from '../../src/domain/stateMachine.ts';
-import { localTimeSpecFor } from '../../src/extraction/timeLexicon.ts';
+import { localTimeSpecFor, rangeEndInstant } from '../../src/extraction/timeLexicon.ts';
 import { validateExtractionResult } from '../../src/extraction/schemaValidator.ts';
 import { finalizeUnderstood, type CaptureSourceOrdinals } from '../../lib/services/captureBoundary/understood.ts';
-import { claimsSaved } from '../../lib/services/captureChat/chatReply.ts';
+import { claimsSaved, templateReply } from '../../lib/services/captureChat/chatReply.ts';
 import type { CaptureProposalContract, CaptureUnderstoodPoint } from '../../src/contracts/v1/captureContracts.ts';
 
 const TZ = 'Asia/Hebron';
@@ -102,7 +102,14 @@ async function proposeRules(text: string, now: Date) {
   return withMemoryStorage(() => proposeMobileCapture({ text, timezone: TZ, referenceTime: now.toISOString() }));
 }
 
-type Item = { title: string; resolvedDate?: string; resolvedTime: string | null; needsClarification: boolean; clarification?: { questionKey?: string } | null };
+type Item = {
+  title: string;
+  resolvedDate?: string;
+  resolvedTime: string | null;
+  endTime?: string;
+  needsClarification: boolean;
+  clarification?: { field?: string; questionKey?: string } | null;
+};
 const line = (item: Item) => {
   const time = item.resolvedTime ? localTimeSpecFor(new Date(item.resolvedTime), TZ)?.time : null;
   return `${item.title} | ${item.resolvedDate ?? '-'} ${time ?? '-'} | ${item.needsClarification ? item.clarification?.questionKey ?? 'edit' : 'settled'}`;
@@ -886,4 +893,53 @@ test('a legacy proposal without source ordinals gets no understood ordering', ()
     [{ id: 'seed-1', kind: 'consideration', summary: 'A thought between old items' }],
   );
   assert.equal(finalizeUnderstood(legacy, 'en').understood, undefined);
+});
+
+// ── M2a round 4 mutation closures ───────────────────────────────────────
+
+test('spelled Arabic count ranges never ask morning/evening or acquire an end', async () => {
+  for (const unit of ['أشخاص', 'مرات', 'أيام', 'ساعات', 'دقايق']) {
+    const text = `اجتماع من أربعة لثمانية ${unit}`;
+    const proposal = await proposeRules(text, MON_10);
+    const item = proposal.items[0];
+    assert.ok(item, `${text}: no item`);
+    assert.notEqual(item.clarification?.field, 'time_period', `${text}: count became an am/pm question`);
+    assert.equal(item.endTime, undefined, `${text}: count acquired an end`);
+    const reply = templateReply({ language: 'ar', proposal });
+    assert.doesNotMatch(reply, /الصبح ولا المسا/, `${text}: ${reply}`);
+  }
+});
+
+test('a repeated DST end clock chooses the earlier offset directly and through a captured range', async () => {
+  assert.equal(
+    rangeEndInstant('2026-10-25', '00:30', 'Asia/Jerusalem', 60)?.toISOString(),
+    '2026-10-24T22:30:00.000Z',
+  );
+
+  const proposal = await withMemoryStorage(() => proposeMobileCapture({
+    text: 'Meeting tomorrow from 12:30am to 1:30am',
+    timezone: 'Asia/Jerusalem',
+    referenceTime: '2026-10-24T07:00:00.000Z',
+  }, { participantId: 'm2a-dst-range' }));
+  assert.equal(proposal.items.length, 1, JSON.stringify(proposal.items));
+  assert.equal(proposal.items[0]!.resolvedTime, '2026-10-24T21:30:00.000Z');
+  assert.equal(proposal.items[0]!.endTime, '2026-10-24T22:30:00.000Z');
+});
+
+test('the words override a mismatched model start and invented ten-hour end', async () => {
+  const text = 'اجتماع اليوم من 4 لـ 8 المسا';
+  const modelResult = {
+    ...reportAnswer('2026-09-28', 'اجتماع', '17:00'),
+    timeAnchor: 'event',
+    rangeMinutes: 600,
+  };
+  const { contract } = await proposeModel(
+    text,
+    N15_NOW,
+    recordedModel({ [text]: modelResult }).provider,
+  );
+
+  assert.equal(contract.items.length, 1, JSON.stringify(contract.items));
+  assert.equal(contract.items[0]!.resolvedTime, '2026-09-28T13:00:00.000Z');
+  assert.equal(contract.items[0]!.endTime, '2026-09-28T17:00:00.000Z');
 });
