@@ -17,8 +17,18 @@ describe('endTime', () => {
   it('keeps a valid end and reads an invalid one as absent', () => {
     const ok = captureProposalSchema.parse({ ...base, items: [{ ...base.items[0], endTime: '2026-10-07T17:00:00.000Z' }] });
     expect(ok.items[0]!.endTime).toBe('2026-10-07T17:00:00.000Z');
-    const bad = captureProposalSchema.parse({ ...base, items: [{ ...base.items[0], endTime: 'tonight' }] });
-    expect(bad.items[0]!.endTime).toBeUndefined();
+    for (const endTime of ['tonight', '2026-10-07', '2026-10-07T17:00:00', '2026-10-07T13:00:00.000Z', '2026-10-07T12:00:00.000Z']) {
+      // not an instant, a bare date, no offset, equal to the start, before the start
+      const bad = captureProposalSchema.parse({ ...base, items: [{ ...base.items[0], endTime }] });
+      expect(bad.items[0]!.endTime).toBeUndefined();
+      expect(bad.items[0]!.title).toBe('Meeting');
+    }
+    const untimed = captureProposalSchema.parse({ ...base, items: [{ ...base.items[0], resolvedTime: null, endTime: '2026-10-07T17:00:00.000Z' }] });
+    expect(untimed.items[0]!.endTime).toBeUndefined();
+    const allDay = captureProposalSchema.parse({ ...base, items: [{ ...base.items[0], allDayEvent: true, endTime: '2026-10-07T17:00:00.000Z' }] });
+    expect(allDay.items[0]!.endTime).toBeUndefined();
+    const overnight = captureProposalSchema.parse({ ...base, items: [{ ...base.items[0], resolvedTime: '2026-10-07T19:00:00.000Z', endTime: '2026-10-08T01:00:00.000Z' }] });
+    expect(overnight.items[0]!.endTime).toBe('2026-10-08T01:00:00.000Z');
     expect(captureProposalSchema.parse(base).items[0]!.endTime).toBeUndefined();
   });
 });

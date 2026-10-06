@@ -2,6 +2,27 @@ import { z } from 'zod';
 import { weeklyBlockOfferSchema, weeklyBlockSchema } from './weeklyBlocks';
 import { isoDateTime } from './common';
 
+/** A full ISO instant: date, time and an offset or Z — never a bare date. */
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * An item's `endTime` survives only as a real end of a timed item: a full
+ * instant, later than `resolvedTime`, not on an all-day item. Anything else is
+ * removed — only the end, never the item (M2a).
+ */
+function withUsableEnd(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || !('endTime' in raw)) return raw;
+  const item = raw as Record<string, unknown>;
+  const end = item.endTime;
+  const start = item.resolvedTime;
+  const usable = typeof end === 'string' && ISO_INSTANT.test(end)
+    && typeof start === 'string' && item.allDayEvent !== true
+    && Date.parse(end) > Date.parse(start);
+  if (usable) return raw;
+  const { endTime: _dropped, ...rest } = item;
+  return rest;
+}
+
 const SEED_KINDS = ['consideration', 'waiting_for', 'idea', 'possible_goal'] as const;
 const understoodPointSchema = z.union([
   z.object({ kind: z.literal('commitment'), itemId: z.string().min(1), text: z.string().min(1).max(160) }).strict(),
@@ -44,7 +65,7 @@ export const captureProposalSchema = z.object({
     .enum(['informational', 'greeting_or_chat', 'question', 'past_event', 'negated_request', 'low_confidence'])
     .optional(),
   items: z.array(
-    z.object({
+    z.preprocess(withUsableEnd, z.object({
       itemId: z.string(),
       title: z.string(),
       resolvedTime: isoDateTime.nullable(),
@@ -54,10 +75,7 @@ export const captureProposalSchema = z.object({
        * instant reads as absent, so a bad end never costs the whole answer —
        * the card just shows the start.
        */
-      endTime: z.preprocess(
-        (value) => (typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : undefined),
-        z.string().optional(),
-      ),
+      endTime: z.string().optional(),
       /** What the extractor read the importance as: Must / Should / Nice (#164). */
       priority: z.enum(['low', 'normal', 'high']).optional(),
       /**
@@ -171,7 +189,7 @@ export const captureProposalSchema = z.object({
         })
         .nullable()
         .optional(),
-    }),
+    })),
   ),
   /**
    * What the capture may have named as unresolved intent (#519).
