@@ -40,7 +40,6 @@ import {
   chatItemEvidence,
   withInstantFromWallClock,
   withoutUnsaidTime,
-  withPreviousTitles,
   type ChatPreviousItem,
 } from './chatEvidence';
 import { WEEKLY_BLOCK_TITLE_MAX, type WeeklyBlockOfferContract } from '../../../src/contracts/v1/weeklyBlockContracts';
@@ -48,6 +47,7 @@ import type { CaptureAppLocale } from '../../../src/contracts/v1/captureContract
 import { titleDropReason } from '../share/shareAllowlist';
 import { finalizeUnderstood, type CaptureSourceOrdinals } from './understood';
 import { ProposalChangedError, proposalRevision, revisionMatches } from './proposalProtocol';
+import { referenceStateFor } from '../captureChat/chatReferences';
 
 /**
  * Persists a confirmation's commands and records its result on the proposal in
@@ -205,6 +205,13 @@ function sourceOrdinal(raw: string, segment: string, item: unknown, fallback: nu
   }
   const found = candidates.filter((at) => at >= 0);
   return (found.length > 0 ? Math.min(...found) : raw.length + fallback) + fallback / 10_000;
+}
+
+/** Server-only capture-chat delta position; never part of the model schema. */
+function chatOperationIndex(item: unknown): number | null {
+  if (!item || typeof item !== 'object') return null;
+  const value = (item as Record<string, unknown>).__chatOpIndex;
+  return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
 /** Why one chat item carries nothing: the model's object failed validation. */
@@ -752,6 +759,7 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
    */
   const seeds: CaptureSeedProposalContract[] = [];
   const sourceOrdinals: CaptureSourceOrdinals = { items: {}, seeds: {} };
+  const chatOperationIndices: CaptureSourceOrdinals = { items: {}, seeds: {} };
   const latestChatTouchedIds = new Set<string>();
   let executedEngine: CaptureProposalContract['provenance']['executedEngine'] = 'rule-based';
   let fallbackUsed = forceRules;
@@ -786,10 +794,11 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
   const chatEvidence = chat ? chatEvidenceFrom(chat.userTurns) : '';
   if (chat && chatEvidence.length > CAPTURE_INPUT_MAX_CHARACTERS) throw new CaptureInputTooLargeError();
   const chatPrevious = chat?.previous ?? [];
-  // A title that is only the words of the edit keeps the one the item had; a
-  // wall clock with no instant gets its instant (`chatEvidence`).
+  // Ref operations already identify the item. The extraction boundary checks
+  // the supplied fields, but never rewrites an item's identity from title or
+  // cancellation words. A wall clock with no instant still gets its instant.
   const chatItems = chat && chatEvidence
-    ? withPreviousTitles(chat.items.slice(0, MAX_CHAT_ITEMS), chatPrevious, raw).map((item) => withInstantFromWallClock(item, options.timezone))
+    ? chat.items.slice(0, MAX_CHAT_ITEMS).map((item) => withInstantFromWallClock(item, options.timezone))
     : [];
   // Each item against its own clauses and those naming no item
   // (`chatItemEvidence`): another item's day or hour is never its evidence.
@@ -940,6 +949,8 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         const seedItemId = randomUUID();
         seeds.push({ seedItemId, kind: intent.kind, summary: segment });
         sourceOrdinals.seeds[seedItemId] = sourceOrdinal(raw, segment, chatItems[index], index);
+        const operationIndex = chatOperationIndex(chatItems[index]);
+        if (operationIndex !== null) chatOperationIndices.seeds[seedItemId] = operationIndex;
         if (chatItemEvidences[index]?.touchedNow) latestChatTouchedIds.add(seedItemId);
       }
       continue;
@@ -1332,6 +1343,10 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
         commandsByItemId.set(itemId, needsClarification ? [] : mapExtractionToCommand(reading, options.now.toISOString(), categoryPreferences));
         resultsByItemId.set(itemId, reading);
         sourceOrdinals.items[itemId] = sourceOrdinal(raw, segment, chatItems[index], index) + readings.indexOf(reading) / 100_000;
+        const operationIndex = chatOperationIndex(chatItems[index]);
+        if (operationIndex !== null) {
+          chatOperationIndices.items[itemId] = operationIndex + readings.indexOf(reading) / 100_000;
+        }
         if (chatItemEvidences[index]?.touchedNow) latestChatTouchedIds.add(itemId);
       }
     } catch (error) {
@@ -1540,6 +1555,9 @@ export async function proposeCapture(rawInput: unknown, options: ProposeCaptureO
     resultsByItemId,
     responseLocale,
     sourceOrdinals,
+    ...(Object.keys(chatOperationIndices.items).length > 0 || Object.keys(chatOperationIndices.seeds).length > 0
+      ? { chatOperationIndices }
+      : {}),
     ...(chat ? { latestChatTouchedIds: Array.from(latestChatTouchedIds) } : {}),
     timezone: options.timezone,
     /*
@@ -1809,11 +1827,19 @@ export async function confirmCapture(
   // The Map-backed store persisted this by mutation. A durable store does
   // not, and without the write-back a replayed confirm would find no recorded
   // result and persist the commitments a second time.
+  const refState = referenceStateFor(stored);
   await dependencies.store.put({
     ...stored,
     commandsByItemId: committedByItemId,
     confirmedResult: result,
     idempotencyKey: input.idempotencyKey,
+    lockedChatRefs: Array.from(new Set([
+      ...(stored.lockedChatRefs ?? []),
+      ...result.persistedItemIds.flatMap((id) => refState.refs[id] ? [refState.refs[id]!] : []),
+    ])),
+    chatRefs: refState.refs,
+    nextChatItemRef: refState.nextItem,
+    nextChatSeedRef: refState.nextSeed,
   });
   return result;
 }

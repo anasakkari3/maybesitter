@@ -2578,8 +2578,8 @@ test('exports a fixture for every /api/mobile call the React Native client makes
           usageMetadata: { promptTokenCount: 388, candidatesTokenCount: 132 },
         };
       }
-      // The capture chat asks for `{ reply, action, items }` (2026-09-30): a
-      // first message proposes the dentist at 17:00, and "make it 6pm" moves it.
+      // Capture-chat contract v5 answers with ref operations. A first message
+      // proposes the dentist at 17:00, and "make it 6pm" updates ref i1.
       if (schema?.properties && 'reply' in schema.properties) {
         const localDay = new Date(Date.parse(REFERENCE_TIME) + 86_400_000).toISOString().slice(0, 10);
         if (JSON.stringify(input.contents).includes('الطلع')) {
@@ -2587,7 +2587,7 @@ test('exports a fixture for every /api/mobile call the React Native client makes
             text: JSON.stringify({
               reply: 'فهمت: اطلع عالسوق بكرا الساعة 5 المسا. أكّد من تحت.',
               action: 'propose',
-              items: [{
+              locked: [], open: [], added: [{
                 ...(JSON.parse(geminiExtraction()) as Record<string, unknown>),
                 action: 'اطلع عالسوق', title: 'اطلع عالسوق', appTitle: 'اطلع عالسوق',
                 dueAt: `${localDay}T14:00:00.000Z`, remindAt: `${localDay}T14:00:00.000Z`,
@@ -2599,7 +2599,27 @@ test('exports a fixture for every /api/mobile call the React Native client makes
             usageMetadata: { promptTokenCount: 1800, candidatesTokenCount: 150 },
           };
         }
-        const edited = JSON.stringify(input.contents).includes('make it 6pm');
+        const contents = JSON.stringify(input.contents);
+        const removingLocked = contents.includes('remove that call and buy bread too');
+        if (removingLocked) {
+          return {
+            text: JSON.stringify({
+              reply: 'I removed the call and added bread. Review the list and confirm below.',
+              action: 'update',
+              locked: [{ ref: 'i1', op: 'remove' }],
+              open: [],
+              added: [{
+                ...(JSON.parse(geminiExtraction()) as Record<string, unknown>),
+                action: 'Buy bread', title: 'Buy bread', appTitle: 'Buy bread',
+                dueAt: `${localDay}T16:00:00.000Z`, remindAt: `${localDay}T16:00:00.000Z`,
+                localTimeSpec: { date: localDay, time: '19:00', timezone: 'Asia/Jerusalem' },
+              }],
+            }),
+            modelVersion: 'gemini-2.5-flash',
+            usageMetadata: { promptTokenCount: 2250, candidatesTokenCount: 180 },
+          };
+        }
+        const edited = contents.includes('make it 6pm');
         const time = edited ? '18:00' : '17:00';
         // Asia/Jerusalem is UTC+3 in August.
         const at = `${localDay}T${edited ? '15' : '14'}:00:00.000Z`;
@@ -2607,7 +2627,14 @@ test('exports a fixture for every /api/mobile call the React Native client makes
           text: JSON.stringify({
             reply: edited ? 'Okay, 6pm instead. Check it and confirm if it looks right.' : 'Call the dentist tomorrow at 5pm. Check it and confirm if it looks right.',
             action: edited ? 'update' : 'propose',
-            items: [{
+            locked: [],
+            open: edited ? [{ ref: 'i1', op: 'update', fields: {
+              ...(JSON.parse(geminiExtraction()) as Record<string, unknown>),
+              dueAt: at,
+              remindAt: at,
+              localTimeSpec: { date: localDay, time, timezone: 'Asia/Jerusalem' },
+            } }] : [],
+            added: edited ? [] : [{
               ...(JSON.parse(geminiExtraction()) as Record<string, unknown>),
               dueAt: at,
               remindAt: at,
@@ -2732,6 +2759,49 @@ test('exports a fixture for every /api/mobile call the React Native client makes
       assert.equal((chatEdited.turns as unknown[]).length, 4);
       const editedTime = (chatEdited.proposal as { items: Array<{ resolvedTime: string }> }).items[0]!.resolvedTime;
       assert.equal(new Date(editedTime).toISOString().slice(11, 16), '15:00', 'the edit did not move the dentist to 18:00 Jerusalem');
+
+      const editable = chatEdited.proposal as { proposalId: string; revision: number; items: Array<{ itemId: string }> };
+      const lockedResponse = await chatPost(request('/api/mobile/capture/chat', {
+        body: {
+          conversationId: chatEdited.conversationId,
+          edit: {
+            proposalId: editable.proposalId,
+            revision: editable.revision,
+            target: { itemId: editable.items[0]!.itemId },
+            change: { text: 'Call the dentist about the results' },
+          },
+          timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en',
+        }, uid: CHAT_USER,
+      }));
+      assert.equal(lockedResponse.status, 200);
+      const locked = await lockedResponse.json() as Record<string, unknown>;
+      const removedLocked = await record('capture.chatRemovedLocked', 200, await chatPost(request('/api/mobile/capture/chat', {
+        body: {
+          conversationId: chatEdited.conversationId,
+          message: 'remove that call and buy bread too tomorrow at 7pm',
+          timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en',
+        }, uid: CHAT_USER,
+      })));
+      const removedProposal = removedLocked.proposal as {
+        proposalId: string;
+        revision: number;
+        removedItems: Array<{ itemId?: string; text: string }>;
+      };
+      assert.deepEqual(removedProposal.removedItems.map((item) => item.text), ['Call the dentist about the results']);
+      const removedItemId = removedProposal.removedItems[0]!.itemId!;
+      assert.equal(((locked.proposal as { items: Array<{ itemId: string }> }).items[0]!.itemId), removedItemId);
+      await record('capture.chatEditRestore', 200, await chatPost(request('/api/mobile/capture/chat', {
+        body: {
+          conversationId: chatEdited.conversationId,
+          edit: {
+            proposalId: removedProposal.proposalId,
+            revision: removedProposal.revision,
+            target: { itemId: removedItemId },
+            change: { restore: true },
+          },
+          timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'en',
+        }, uid: CHAT_USER,
+      })));
 
       const corrected = await record('capture.chatCorrection', 200, await chatPost(request('/api/mobile/capture/chat', {
         body: { message: 'لازم الطلع عالسوق بكرا الساعة 5 المسا', spoken: true, timezone: 'Asia/Jerusalem', referenceTime: REFERENCE_TIME, locale: 'ar' },

@@ -25,7 +25,6 @@ import { captureLlmProvider } from '../../llm/captureProvider';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { configuredProviderName } from '../../../src/extraction/llm';
 import { applyEditToCommands, eventDayOf } from '../captureBoundary/applyEdits';
-import { namesDay, statesClock } from '../../../src/extraction/timeLexicon';
 import {
   appendClarificationEvent,
   captureProposalFromDocument,
@@ -40,7 +39,6 @@ import {
   type CaptureProposalStore,
   type StoredProposalDocument,
   type StoredCaptureProposal,
-  type StructuredEditSource,
   type CapturePersistenceAdapter,
   ProposalChangedError,
   proposalRevision,
@@ -73,7 +71,8 @@ import { createStorageGoalNodeLinkStore } from '../../goalGraph/linkStore';
 import { GOAL_GRAPH_FIRST_GENERATION } from '../../../src/contracts/v1/goalGraphContracts';
 import type { ActiveGoal } from '../captureBoundary/proposalShape';
 import { readOwnedMemory } from './memoryService';
-import { finalizeUnderstood, type CaptureSourceOrdinals } from '../captureBoundary/understood';
+import { referenceStateFor, withPublicRemovedItems } from '../captureChat/chatReferences';
+import { mergeChatProposalByRef, type ChatRefMergePlan } from '../captureChat/refMerge';
 
 export interface MobileCaptureInput {
   text?: unknown;
@@ -691,190 +690,6 @@ function proposalStatus(contract: CaptureProposalContract): CaptureProposalContr
 }
 
 /**
- * A new chat message mints a new proposal, but its starting list is the
- * current stored one. Re-reading the original user turns would otherwise
- * reconstruct the pre-edit title/kind/time and even revive a rejected speech
- * correction. Source ordinals are stable across that re-read, so only the
- * entities explicitly changed through structured edit are transplanted; new
- * entities from the latest message remain the newly built ones.
- */
-async function carryStructuredEditsForward(
-  baseProposalId: string | undefined,
-  proposal: CaptureProposalContract,
-  latestMessage: string,
-  renamedItem: boolean,
-): Promise<CaptureProposalContract> {
-  if (!baseProposalId) return proposal;
-  const [base, built] = await Promise.all([store.get(baseProposalId), store.get(proposal.proposalId)]);
-  const edited = base?.structuredEditSources ?? {};
-  if (!base || !built) return proposal;
-
-  // A seed the person already kept can be offered again by the next model or
-  // rules pass. Its proposal-local id is new, but it is still the same words
-  // in this conversation and must not become a second, timed commitment via a
-  // structured edit. Carry only the refusal marker: the old keep receipt is
-  // tied to the old id and remains on the proposal where it was written.
-  const keptSummaries = new Set((base.keptSeedItemIds ?? []).flatMap((seedItemId) => {
-    const seed = base.contract.seeds.find((candidate) => candidate.seedItemId === seedItemId);
-    return seed ? [seed.summary.trim().replace(/\s+/g, ' ').toLocaleLowerCase()] : [];
-  }));
-  const inheritedKeptSeedItemIds = built.contract.seeds
-    .filter((seed) => keptSummaries.has(seed.summary.trim().replace(/\s+/g, ' ').toLocaleLowerCase()))
-    .map((seed) => seed.seedItemId);
-  if (inheritedKeptSeedItemIds.length > 0) {
-    built.keptSeedItemIds = Array.from(new Set([...(built.keptSeedItemIds ?? []), ...inheritedKeptSeedItemIds]));
-  }
-
-  if (Object.keys(edited).length === 0 || !base.sourceOrdinals || !built.sourceOrdinals) {
-    if (inheritedKeptSeedItemIds.length > 0) await store.put(built);
-    return proposal;
-  }
-
-  const contract: CaptureProposalContract = {
-    ...built.contract,
-    items: built.contract.items.map((item) => ({ ...item })),
-    seeds: built.contract.seeds.map((seed) => ({ ...seed })),
-  };
-  const ordinals: CaptureSourceOrdinals = {
-    items: { ...built.sourceOrdinals.items },
-    seeds: { ...built.sourceOrdinals.seeds },
-  };
-  const commands = new Map(built.commandsByItemId);
-  const results = new Map(built.resultsByItemId ?? []);
-  const spans = { ...(built.correctionSpans ?? {}) };
-  const nextEdited: Record<string, StructuredEditSource> = {};
-  const touched = new Set(built.latestChatTouchedIds ?? []);
-
-  const idAt = (source: CaptureSourceOrdinals, ordinal: number): string | null => {
-    const entry = [...Object.entries(source.items), ...Object.entries(source.seeds)]
-      .find(([, value]) => value === ordinal);
-    return entry?.[0] ?? null;
-  };
-  const entityText = (id: string): string | null => (
-    built.contract.items.find((item) => item.itemId === id)?.title
-    ?? built.contract.seeds.find((seed) => seed.seedItemId === id)?.summary
-    ?? null
-  );
-  const builtIds = [
-    ...built.contract.items.map((item) => item.itemId),
-    ...built.contract.seeds.map((seed) => seed.seedItemId),
-  ];
-  const claimed = new Set<string>();
-  for (const [baseId, source] of Object.entries(edited)) {
-    const rawMatches = source.rawText
-      ? Array.from(built.resultsByItemId ?? []).filter(([, result]) => result.rawText === source.rawText).map(([id]) => id)
-      : [];
-    const textMatches = builtIds.filter((id) => entityText(id)?.trim() === source.originalText.trim());
-    // Evidence identity wins. An ordinal is meaningful only inside a set of
-    // repeated items built from the exact same raw words; used on its own it
-    // can point at a newly inserted item and transplant the edit onto it.
-    const ordinalMatch = source.ordinal === undefined ? null : idAt(built.sourceOrdinals, source.ordinal);
-    const repeatedRawOrdinal = rawMatches.length > 1 && ordinalMatch && rawMatches.includes(ordinalMatch)
-      ? ordinalMatch
-      : undefined;
-    const builtId = [rawMatches.length === 1 ? rawMatches[0] : undefined, repeatedRawOrdinal, textMatches.length === 1 ? textMatches[0] : undefined]
-      .find((id): id is string => Boolean(id) && !claimed.has(id!));
-    if (!builtId) continue;
-    claimed.add(builtId);
-    const ordinal = built.sourceOrdinals.items[builtId] ?? built.sourceOrdinals.seeds[builtId];
-    if (!Number.isFinite(ordinal)) continue;
-    const baseItem = base.contract.items.find((item) => item.itemId === baseId);
-    const baseSeed = base.contract.seeds.find((seed) => seed.seedItemId === baseId);
-    const builtItemAt = contract.items.findIndex((item) => item.itemId === builtId);
-    const builtSeedAt = contract.seeds.findIndex((seed) => seed.seedItemId === builtId);
-    if ((!baseItem && !baseSeed) || (builtItemAt < 0 && builtSeedAt < 0)) continue;
-
-    const fields = { ...(source.fields ?? { text: true as const, kind: true as const, time: true as const, corrections: true as const }) };
-    const touchedNow = touched.has(builtId);
-    if (touchedNow && renamedItem) {
-      delete fields.text;
-      delete fields.corrections;
-    }
-    if (touchedNow && (statesClock(latestMessage) || namesDay(latestMessage))) delete fields.time;
-    if (touchedNow && /\b(?:idea|goal|consideration|waiting)\b|(?:فكرة|هدف|احتمال|ناطر|منتظر|רעיון|מטרה|מחכה)/i.test(latestMessage)) delete fields.kind;
-
-    const builtItem = builtItemAt >= 0 ? contract.items[builtItemAt]! : undefined;
-    const builtSeed = builtSeedAt >= 0 ? contract.seeds[builtSeedAt]! : undefined;
-    const carryKind = fields.kind === true;
-    const carryText = fields.text === true || fields.corrections === true;
-    const carryTime = fields.time === true;
-    const resultKind = carryKind ? (baseItem ? 'commitment' : baseSeed!.kind) : (builtItem ? 'commitment' : builtSeed!.kind);
-    const title = carryText
-      ? (baseItem?.title ?? baseSeed!.summary)
-      : (builtItem?.title ?? builtSeed!.summary);
-
-    if (builtItemAt >= 0) contract.items.splice(builtItemAt, 1);
-    if (builtSeedAt >= 0) contract.seeds.splice(builtSeedAt, 1);
-    delete ordinals.items[builtId];
-    delete ordinals.seeds[builtId];
-    const builtCommands = commands.get(builtId) ?? [];
-    const builtResult = results.get(builtId);
-    commands.delete(builtId); results.delete(builtId);
-    for (const [correctionId, span] of Object.entries(spans)) {
-      if (span.itemId === builtId) delete spans[correctionId];
-    }
-
-    if (resultKind === 'commitment') {
-      const template = builtItem ?? baseItem;
-      if (!template) continue;
-      const nextItem = { ...template, itemId: baseId, title };
-      if (carryTime && baseItem) {
-        for (const key of ['resolvedTime', 'endTime', 'needsClarification', 'timeEstimated', 'resolvedDate', 'dateEstimated', 'allDayEvent', 'eventOnDay', 'clarification', 'recurrenceHint', 'weeklyBlock'] as const) {
-          delete (nextItem as unknown as Record<string, unknown>)[key];
-          const value = baseItem[key];
-          if (value !== undefined) (nextItem as unknown as Record<string, unknown>)[key] = value;
-        }
-      }
-      if (fields.text || fields.corrections) {
-        delete (nextItem as unknown as Record<string, unknown>).corrections;
-        if (baseItem?.corrections) nextItem.corrections = [...baseItem.corrections];
-      }
-      const at = builtItemAt >= 0 ? builtItemAt : contract.items.length;
-      contract.items.splice(at, 0, nextItem);
-      ordinals.items[baseId] = ordinal;
-      const sourceCommands = carryTime && baseItem ? base.commandsByItemId.get(baseId) ?? [] : builtCommands;
-      commands.set(baseId, applyEditToCommands(sourceCommands, { title }));
-      const baseResult = base.resultsByItemId?.get(baseId);
-      let nextResult = builtResult ?? baseResult;
-      if (nextResult && carryTime && baseResult) {
-        nextResult = { ...nextResult };
-        for (const key of ['dueAt', 'remindAt', 'localTimeSpec', 'timeEvidence', 'rangeMinutes', 'missingFields', 'ambiguityFlags', 'allDay', 'undatedTime', 'timeAnchor'] as const) {
-          delete (nextResult as unknown as Record<string, unknown>)[key];
-          const value = baseResult[key];
-          if (value !== undefined) (nextResult as unknown as Record<string, unknown>)[key] = value;
-        }
-      }
-      if (nextResult) results.set(baseId, carryText ? { ...nextResult, action: title, title, sourceTitle: title } : nextResult);
-      if (fields.text || fields.corrections) for (const [correctionId, span] of Object.entries(base.correctionSpans ?? {})) {
-        if (span.itemId === baseId) spans[correctionId] = { ...span, itemId: baseId };
-      }
-    } else {
-      const kind = resultKind;
-      const at = builtSeedAt >= 0 ? builtSeedAt : contract.seeds.length;
-      contract.seeds.splice(at, 0, { seedItemId: baseId, kind, summary: title });
-      ordinals.seeds[baseId] = ordinal;
-    }
-    if (Object.keys(fields).length > 0) nextEdited[baseId] = { ...source, fields };
-  }
-
-  const merged = finalizeUnderstood(
-    { ...contract, status: proposalStatus(contract) },
-    built.responseLocale ?? 'ar',
-    ordinals,
-  );
-  await store.put({
-    ...built,
-    contract: merged,
-    commandsByItemId: commands,
-    resultsByItemId: results,
-    sourceOrdinals: ordinals,
-    correctionSpans: spans,
-    structuredEditSources: nextEdited,
-  });
-  return merged;
-}
-
-/**
  * One capture-chat turn's proposal (owner decision 2026-09-30).
  *
  * The same boundary, store, persistence, committer and guarded extractor as
@@ -896,12 +711,10 @@ export async function proposeMobileChatTurn(
     timezone: string;
     /** The list the person saw before this message (chat UAT round 2), each title in the person's own words. */
     previous?: readonly { title: string; appTitle?: string; date: string | null; time: string | null; needsDayOrTime?: boolean }[];
-    /** Current proposal whose structured edits form this new proposal's base. */
+    /** Current proposal whose server refs form this new proposal's base. */
     baseProposalId?: string;
-    /** Newest real user message, used only to retire fields explicitly replaced there. */
-    latestMessage?: string;
-    /** The newest message explicitly asked to rename an item. */
-    renamedItem?: boolean;
+    /** Parsed model operations. Absent on the append-only rules path. */
+    refPlan?: ChatRefMergePlan;
     /** The phone's UI language: the items' titles are shown in it (owner request 2026-09-30). */
     locale?: CaptureAppLocale;
     /** Language already resolved by the chat service, including its fallback. */
@@ -912,13 +725,18 @@ export async function proposeMobileChatTurn(
   context: MobileBackendContext & { participantId: string },
 ) {
   const configured = configuredProviderName();
+  const boundaryItems = input.items?.map((entry, index) => (
+    entry && typeof entry === 'object' && !Array.isArray(entry)
+      ? { ...(entry as Record<string, unknown>), __chatOpIndex: index }
+      : entry
+  )) ?? null;
   let proposal = await proposeCapture(input.text, {
     now: input.now,
     timezone: input.timezone,
     scopeId: context.participantId,
     requestedEngine: input.items ? 'model' : 'rules',
     ...(context.requestStartedAt === undefined ? {} : { requestStartedAt: context.requestStartedAt }),
-    ...(input.items ? { chat: { userTurns: input.userTurns, items: input.items, previous: input.previous ?? [] } } : {}),
+    ...(boundaryItems ? { chat: { userTurns: input.userTurns, items: boundaryItems, previous: input.previous ?? [] } } : {}),
     titleWithoutLeadIn: true,
     guardUnresolvedIntentWithSchedule: true,
     ...(input.locale ? { locale: input.locale } : {}),
@@ -930,9 +748,9 @@ export async function proposeMobileChatTurn(
     commitConfirmation: committerFor(context),
     extractor: guardedMobileExtract,
     // The chat's items came from the configured hosted model; name it.
-    ...(input.items ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
+    ...(boundaryItems ? { llmEngine: configured === 'ollama' ? 'ollama' as const : 'gemini' as const } : {}),
   });
-  proposal = await carryStructuredEditsForward(input.baseProposalId, proposal, input.latestMessage ?? input.text, input.renamedItem === true);
+  proposal = await mergeChatProposalByRef(store, input.baseProposalId, proposal, input.refPlan);
   if (input.spoken && input.items) proposal = await attachSpokenCorrections(proposal, input.items, input.text);
   // A proposal the chat produced is a capture submitted, counted as the
   // capture route counts one: its length, never its words.
@@ -968,7 +786,14 @@ export async function readMobileChatProposal(proposalId: string, participantId: 
     const source = stored.resultsByItemId?.get(item.itemId)?.sourceTitle;
     if (typeof source === 'string' && source.trim()) sourceTitles.set(item.itemId, source);
   }
-  return { proposal: await withEventsOnTheirDay(stored.contract), sourceTitles };
+  const refs = referenceStateFor(stored);
+  const proposal = withPublicRemovedItems(stored.contract, stored);
+  return {
+    proposal: await withEventsOnTheirDay(proposal),
+    sourceTitles,
+    refs: refs.refs,
+    lockedRefs: new Set(stored.lockedChatRefs ?? []),
+  };
 }
 
 /**

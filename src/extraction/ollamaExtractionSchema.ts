@@ -167,19 +167,48 @@ export const CAPTURE_CHAT_ACTIONS = ['propose', 'update', 'ask', 'chat'] as cons
 export type CaptureChatAction = (typeof CAPTURE_CHAT_ACTIONS)[number];
 
 /**
- * `{ reply, action, items }`: one capture-chat turn. `items` is the complete
- * current list, each object in the extraction schema above — the capture
- * boundary validates every one of them exactly as it validates a capture's.
+ * The ref-constrained capture-chat response schema for one turn (M2b v5).
+ * Empty ref sets use an impossible sentinel because Vertex does not accept an
+ * empty enum; the parser still rejects the sentinel if a model invents it.
  */
-export const GEMINI_CHAT_SCHEMA = toVertexSchema({
-  type: 'object',
-  properties: {
-    reply: { type: 'string', description: 'One short message to the person, in the reply language the rules name. Never says anything was saved.' },
-    action: { type: 'string', enum: CAPTURE_CHAT_ACTIONS },
-    items: {
-      type: 'array',
-      items: OLLAMA_EXTRACTION_SCHEMA,
+export function geminiChatSchemaFor(lockedRefs: readonly string[], openRefs: readonly string[]): Record<string, unknown> {
+  const refs = (values: readonly string[]) => values.length > 0 ? values : ['__no_ref__'];
+  return toVertexSchema({
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      reply: { type: 'string', description: 'One short message to the person, in the reply language the rules name. Never says anything was saved.' },
+      action: { type: 'string', enum: CAPTURE_CHAT_ACTIONS },
+      locked: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            ref: { type: 'string', enum: refs(lockedRefs) },
+            op: { type: 'string', enum: ['keep', 'remove'] },
+          },
+          required: ['ref', 'op'],
+        },
+      },
+      open: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            ref: { type: 'string', enum: refs(openRefs) },
+            op: { type: 'string', enum: ['keep', 'update', 'remove'] },
+            fields: OLLAMA_EXTRACTION_SCHEMA,
+          },
+          required: ['ref', 'op'],
+        },
+      },
+      added: { type: 'array', items: OLLAMA_EXTRACTION_SCHEMA },
     },
-  },
-  required: ['reply', 'action', 'items'],
-});
+    required: ['reply', 'action', 'locked', 'open', 'added'],
+  });
+}
+
+/** Initial-turn/default schema retained for callers that do not yet have refs. */
+export const GEMINI_CHAT_SCHEMA = geminiChatSchemaFor([], []);

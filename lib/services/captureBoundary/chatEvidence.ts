@@ -307,54 +307,6 @@ export function alignToPrevious(items: readonly unknown[], previous: readonly Ch
   });
 }
 
-/** A request to rename, in which a new title is the person's own words. */
-const RENAME = /\b(?:rename|call\s+it|name\s+it)\b|(?:سمّي|سمي|תקרא|תשנה\s+את\s+השם)/i;
-
-/** Whether the newest message explicitly asks to replace an item's words. */
-export function renamesListItem(message: string): boolean {
-  return RENAME.test(message);
-}
-
-/** Whether a clause explicitly drops the previous item it names. */
-function cancelsListItem(message: string, title: string): boolean {
-  const titleWords = contentWords(title);
-  if (titleWords.length === 0) return false;
-  const cancellation = /\b(?:cancel|remove|drop|stop|never\s+mind|do\s+not\s+want|don't\s+want|dont\s+want|no\s+longer)\b|(?:ما\s+بدي|مش\s+بدي|خلص.*ما\s+بدي|بطل|شيل|احذف|الغ[يِ]|ألغي|לא\s+רוצה|תבטל|תמחק)/i;
-  return splitCaptureClauseDetails(message).some((clause) =>
-    cancellation.test(clause.text) && titleScore(titleWords, contentWords(clause.text)) > 0);
-}
-
-/**
- * The model's items, each keeping the title it had when the model's new one
- * is only the words of the edit (chat UAT round 2: the second engagement came
- * back titled «خلّي التانية»). A rename the person asked for stands.
- *
- * The app-language title goes with it (owner request 2026-09-30): an item
- * whose own-words title is the one it had keeps the card title it had, so the
- * card does not change its words because the model translated them again.
- */
-export function withPreviousTitles(
-  items: readonly unknown[],
-  previous: readonly ChatPreviousItem[],
-  newestMessage: string,
-): unknown[] {
-  if (previous.length === 0 || renamesListItem(newestMessage)) return [...items];
-  const aligned = alignToPrevious(items, previous);
-  const said = contentWords(newestMessage);
-  return items.map((item, index) => {
-    const before = aligned[index] === null ? null : previous[aligned[index]!]!;
-    const title = itemTitle(item);
-    if (!before || !title || !item || typeof item !== 'object') return item;
-    if (cancelsListItem(newestMessage, before.title)) return item;
-    const keptAppTitle = { appTitle: before.appTitle ?? null };
-    if (title.trim() === before.title.trim()) return before.appTitle ? { ...(item as Record<string, unknown>), ...keptAppTitle } : item;
-    const words = contentWords(title);
-    const onlyTheEdit = words.every((word) => said.some((candidate) => sameWord(word, candidate)))
-      && titleScore(contentWords(before.title), words) < contentWords(before.title).length;
-    return onlyTheEdit ? { ...(item as Record<string, unknown>), title: before.title, action: before.title, ...keptAppTitle } : item;
-  });
-}
-
 /**
  * Each chat item's evidence: the person's clauses about it and those about no
  * item in particular (see above). An item whose clauses are the whole

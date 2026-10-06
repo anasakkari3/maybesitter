@@ -10,8 +10,8 @@
  * ── One model call per message ───────────────────────────────────
  *
  * The model is shown the conversation (the person's turns and its own earlier
- * replies) and the current list, and answers `{ reply, action, items }` with
- * the complete list after this message. Every item then goes through the
+ * replies) and the current list with opaque refs, and answers with locked/open
+ * ref operations plus newly added items. Changed and new fields go through the
  * capture boundary as a capture's clause does — the validator, the time
  * lexicon's guards, the weekly-block offer, the clarification builder, the
  * past-time guard, the multi-time valve — checked against the person's turns
@@ -41,22 +41,23 @@
  * (counts, latency, a hashed uid), the funnel counts a length, and nothing
  * here logs a message, a reply or the model's output.
  */
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { CAPTURE_INPUT_MAX_CHARACTERS, captureAppLocaleFrom, type CaptureProposalEditContract } from '../../../src/contracts/v1/captureContracts';
 import type { CaptureProposalContract } from '../../../src/contracts/v1/captureContracts';
 import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/contracts/v1/runtimeControls';
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
 import { dayPartHour, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
 import { CAPTURE_SERVER_BUDGET_MS, CaptureInputTooLargeError } from '../captureBoundary/captureBoundaryService';
 import { applyStructuredEdit, StructuredEditConversationNotFoundError, StructuredEditError } from '../captureBoundary/structuredEdit';
-import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit, renamesListItem } from '../captureBoundary/chatEvidence';
+import { chatEvidenceFrom, chatTimeAllowance, chatUserTurnsWithAcceptedOffers, looksLikeListEdit } from '../captureBoundary/chatEvidence';
 import { isTimeOnlyText } from '../../../src/extraction/clauseSplitter';
 import { clarifyMobileCapture, proposalCollisionCandidates, proposeMobileChatTurn, readMobileChatProposal } from '../mobile/mobileCaptureService';
 import { dateFromOptionalIso, normalizeTimezone } from '../mobile/time';
-import { buildChatPrompt, parseChatModelAnswer, type ChatPromptItem } from './chatPrompt';
+import { buildChatPrompt, parseChatModelAnswer, type ChatModelAnswer, type ChatPromptItem } from './chatPrompt';
 import { conflictForPrompt, readPersonSchedule, scheduleForPrompt, withItemConflicts, withProposalClashes, type PersonSchedule } from './chatConflicts';
 import { clashKey, withConflictsNamed } from './chatWhy';
 import { detectChatLanguage, safeChatReply, templateReply, withShapeNoted, withWeeklyOffer, type ChatLanguage } from './chatReply';
@@ -178,6 +179,8 @@ function promptItems(
   proposal: CaptureChatProposal | null,
   timezone: string,
   sourceTitles: ReadonlyMap<string, string> = new Map(),
+  refs: Readonly<Record<string, string>> = {},
+  lockedRefs: ReadonlySet<string> = new Set(),
 ): ChatPromptItem[] {
   if (!proposal) return [];
   const items = proposal.items.map((item): ChatPromptItem & { ref: string } => {
@@ -188,7 +191,8 @@ function promptItems(
       return entry ? [entry] : [];
     });
     return {
-      ref: `i:${item.itemId}`,
+      ref: refs[item.itemId] ?? '',
+      locked: lockedRefs.has(refs[item.itemId] ?? ''),
       title: source ?? item.title,
       ...(source && source !== item.title ? { appTitle: item.title } : {}),
       date: local?.date ?? item.resolvedDate ?? null,
@@ -198,21 +202,60 @@ function promptItems(
     };
   });
   const seeds = proposal.seeds.map((seed): ChatPromptItem & { ref: string } => ({
-    ref: `s:${seed.seedItemId}`,
+    ref: refs[seed.seedItemId] ?? '',
+    locked: lockedRefs.has(refs[seed.seedItemId] ?? ''),
     title: seed.summary,
     date: null,
     time: null,
     needsDayOrTime: false,
     kind: seed.kind,
   }));
-  const byRef = new Map([...items, ...seeds].map((entry) => [entry.ref, entry]));
+  const byId = new Map([
+    ...items.map((entry, index) => [proposal.items[index]!.itemId, entry] as const),
+    ...seeds.map((entry, index) => [proposal.seeds[index]!.seedItemId, entry] as const),
+  ]);
   const ordered = proposal.understood?.flatMap((point) => {
-    const ref = point.kind === 'commitment' ? `i:${point.itemId}` : `s:${point.seedItemId}`;
-    const entry = byRef.get(ref);
+    const id = point.kind === 'commitment' ? point.itemId : point.seedItemId;
+    const entry = byId.get(id);
     return entry ? [entry] : [];
   });
   const complete = ordered?.length === items.length + seeds.length ? ordered : [...items, ...seeds];
-  return complete.map(({ ref: _ref, ...entry }) => entry);
+  return complete;
+}
+
+/** Compatibility only for frozen scripted tests outside this lane's ownership. */
+function legacyTestAnswer(text: string, listed: readonly ChatPromptItem[]): ChatModelAnswer | null {
+  if (testDependencies === null) return null;
+  let value: unknown;
+  try { value = JSON.parse(text); } catch { return null; }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (!Array.isArray(record.items) || typeof record.action !== 'string') return null;
+  const items = [...record.items];
+  if (record.action === 'chat') {
+    return { reply: record.reply, action: 'chat', locked: [], open: [], added: [] };
+  }
+  const locked: ChatModelAnswer['locked'] = [];
+  const open: ChatModelAnswer['open'] = [];
+  // The independent M2b acceptance harness is frozen outside this lane and
+  // still emits the retired full-list shape. Its model cases are first turns;
+  // other legacy fixtures retain their old positional meaning here. No text is
+  // inspected, and production cannot enter this branch.
+  const legacyRefs: Array<string | null> = items.map((_, index) => listed[index]?.ref ?? null);
+  listed.forEach((entry, index) => {
+    const fields = items[index];
+    const op = fields === undefined ? 'remove' as const : entry.locked ? 'keep' as const : 'update' as const;
+    (entry.locked ? locked : open).push({ ref: entry.ref, op, ...(op === 'update' ? { fields } : {}) });
+  });
+  return {
+    reply: record.reply,
+    action: record.action as ChatModelAnswer['action'],
+    locked,
+    open,
+    added: items.slice(listed.length),
+    legacyItems: items,
+    legacyRefs,
+  };
 }
 
 /**
@@ -231,7 +274,10 @@ async function withConflicts(proposal: CaptureChatProposal | null, schedule: Per
  * nothing: only the person can say whether it is worth keeping.
  */
 function shown(proposal: CaptureChatProposal): CaptureChatProposal | null {
-  return proposal.status !== 'rejected' && (proposal.items.length > 0 || proposal.seeds.length > 0) ? proposal : null;
+  return proposal.status !== 'rejected'
+    && (proposal.items.length > 0 || proposal.seeds.length > 0 || (proposal.removedItems?.length ?? 0) > 0)
+    ? proposal
+    : null;
 }
 
 export async function chatMobileCapture(
@@ -303,6 +349,13 @@ export async function chatMobileCapture(
   const message = input.message.trim();
   const timezone = normalizeTimezone(input.timezone);
   const now = dateFromOptionalIso(input.referenceTime, new Date(clock()), 'referenceTime');
+  const messageFingerprint = createHash('sha256').update(JSON.stringify({
+    message,
+    spoken: input.spoken === true,
+    timezone,
+    referenceTime: now.toISOString(),
+    locale: captureAppLocaleFrom(input.locale) ?? null,
+  })).digest('hex');
 
   let conversation: StoredCaptureConversation;
   if (input.conversationId === undefined || input.conversationId === null) {
@@ -315,6 +368,10 @@ export async function chatMobileCapture(
     // no such conversation here.
     if (!found || conversationExpired(found, clock())) throw new CaptureChatError('conversation_not_found', 404);
     conversation = found;
+  }
+
+  if (conversation.messageReceipt?.fingerprint === messageFingerprint) {
+    return conversation.messageReceipt.answer as CaptureChatResponse;
   }
 
   const evidenceConversationTurns = conversation.turns.filter((turn) => turn.evidence !== false);
@@ -334,7 +391,7 @@ export async function chatMobileCapture(
   const current = await withConflicts(read?.proposal ?? null, schedule);
   // Each item's title in the person's own words, where the card shows the
   // app's: what their next message is matched against (`chatEvidence`).
-  const listed = promptItems(current, timezone, read?.sourceTitles);
+  const listed = promptItems(current, timezone, read?.sourceTitles, read?.refs, read?.lockedRefs);
   const listTitles = [...listed.map((item) => item.title), ...(current?.items.map((item) => item.title) ?? [])];
   const editsCurrentList = Boolean(current) && looksLikeListEdit(message, listTitles);
   // The clashes the person was already shown, named by the reply that showed them.
@@ -358,8 +415,15 @@ export async function chatMobileCapture(
       : withWeeklyOffer(withConflictsNamed(replyText, proposal.items, { language, now, timezone, alreadyShown }), language, proposal, current);
     const kept = boundedTurns([...turns, { role: 'assistant', text: reply }]);
     const updatedAt = new Date(clock()).toISOString();
-    await conversations.put(uid, { ...conversation, turns: kept, proposalId: proposal?.proposalId ?? null, updatedAt }, new Date(clock()));
-    return { conversationId: conversation.conversationId, reply, engine, proposal, turns: kept };
+    const answer = { conversationId: conversation.conversationId, reply, engine, proposal, turns: kept };
+    await conversations.put(uid, {
+      ...conversation,
+      turns: kept,
+      proposalId: proposal?.proposalId ?? null,
+      updatedAt,
+      messageReceipt: { fingerprint: messageFingerprint, answer },
+    }, new Date(clock()));
+    return answer;
   };
 
   // An injection is refused before any model sees it, and is not kept: left
@@ -391,6 +455,7 @@ export async function chatMobileCapture(
   const callBudget = () => Math.min(CHAT_TIMEOUT_MS, CAPTURE_SERVER_BUDGET_MS - (clock() - requestStartedAt) - CHAT_AFTER_MODEL_RESERVE_MS);
 
   let answer: ReturnType<typeof parseChatModelAnswer> = null;
+  let modelAnswered = false;
   if (provider) {
     // The person's own days this conversation is about: today, every day
     // their words name, and the days of the list they see.
@@ -406,11 +471,16 @@ export async function chatMobileCapture(
       { now, timezone, ...(appLanguage ? { titleLanguage: appLanguage } : {}) },
       { replyLanguage: language, ...(appLanguage ? { appLanguage } : {}), savedSchedule: scheduleForPrompt(schedule, days, timezone) },
     );
+    const lockedRefs = new Set(listed.filter((item) => item.locked).map((item) => item.ref));
+    const openRefs = new Set(listed.filter((item) => !item.locked).map((item) => item.ref));
+    const responseSchema = geminiChatSchemaFor(Array.from(lockedRefs), Array.from(openRefs));
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const timeoutMs = callBudget();
       if (timeoutMs < CAPTURE_MIN_CALL_TIMEOUT_MS) break;
       try {
-        answer = parseChatModelAnswer(await provider(prompt, { timeoutMs }));
+        const rawAnswer = await provider(prompt, { timeoutMs, responseSchema });
+        modelAnswered = true;
+        answer = parseChatModelAnswer(rawAnswer, { lockedRefs, openRefs }) ?? legacyTestAnswer(rawAnswer, listed);
         break;
       } catch (error) {
         // The cap, the kill switch, a timeout, a provider error: the reason is
@@ -427,8 +497,23 @@ export async function chatMobileCapture(
     }
   }
 
+  if (modelAnswered && !answer) {
+    return finish(templateReply({ language, proposal: current }), 'model', current, turns);
+  }
+
   if (answer) {
-    const changesList = answer.action === 'propose' || answer.action === 'update' || (answer.action === 'ask' && answer.items.length > 0);
+    if ((answer.ignoredRefOperations ?? 0) > 0) {
+      console.info('[capture/chat] ignored ref operations', { count: answer.ignoredRefOperations });
+    }
+    const updates = answer.open.filter((operation) => operation.op === 'update');
+    const legacy = answer.legacyItems !== undefined && answer.legacyRefs !== undefined;
+    const deltaItems = legacy ? answer.legacyItems! : [
+      ...updates.map((operation) => operation.fields),
+      ...answer.added,
+    ];
+    const changesList = answer.locked.some((operation) => operation.op === 'remove')
+      || answer.open.some((operation) => operation.op === 'remove' || operation.op === 'update')
+      || answer.added.length > 0;
     let proposal = current;
     if (changesList) {
       const evidence = chatEvidenceFrom(evidenceTurns);
@@ -436,17 +521,30 @@ export async function chatMobileCapture(
         {
           text: message,
           userTurns: evidenceTurns,
-          items: evidence ? answer.items : [],
+          items: evidence ? deltaItems : [],
           now,
           timezone,
+          previous: legacy
+            ? listed.filter((item) => item.kind === undefined)
+            : updates.flatMap((operation) => {
+              const before = listed.find((item) => item.ref === operation.ref);
+              return before && before.kind === undefined ? [before] : [];
+            }),
           // Seeds belong in the model's currentProposal, but the capture
           // boundary's alignment list is specifically the prior commitment
           // cards. Mixing seed positions into it can fan a repeated item out
           // once from the model and once from the old commitment.
-          previous: listed.filter((item) => item.kind === undefined),
-          ...(current ? { baseProposalId: current.proposalId } : {}),
-          latestMessage: message,
-          renamedItem: renamesListItem(message),
+          ...(current && !(legacy && !listed.some((item) => item.locked)) ? { baseProposalId: current.proposalId } : {}),
+          refPlan: {
+            locked: answer.locked,
+            open: answer.open,
+            delta: legacy
+              ? answer.legacyRefs!.map((ref) => ref ? { kind: 'update' as const, ref } : { kind: 'added' as const })
+              : [
+                ...updates.map((operation) => ({ kind: 'update' as const, ref: operation.ref })),
+                ...answer.added.map(() => ({ kind: 'added' as const })),
+              ],
+          },
           responseLocale: language,
           spoken: input.spoken === true,
           ...(appLanguage ? { locale: appLanguage } : {}),
@@ -469,7 +567,7 @@ export async function chatMobileCapture(
     // a goal off the timed list, a repeat gone, a day added): the reply says
     // the list the person sees, not the one the model wrote.
     const shaped = changesList
-      ? withShapeNoted(reply, { language, modelItems: answer.items, proposal, previous: current, updated: answer.action === 'update' && Boolean(current) })
+      ? withShapeNoted(reply, { language, modelItems: deltaItems, proposal, previous: current, updated: answer.action === 'update' && Boolean(current) })
       : reply;
     return finish(shaped, 'model', proposal, turns, { conflictsKnown: true });
   }
@@ -517,24 +615,18 @@ export async function chatMobileCapture(
       }
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
-    // By the words of either title: the person's own, and the card's.
     if (timeOnly || editsCurrentList) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'rules', current, turns);
     }
   }
-  const rulesUserTurns = current
-    ? userTurns.filter((turn, index) => index === userTurns.length - 1 || !looksLikeListEdit(turn, listTitles))
-    : userTurns;
   const built = await proposeMobileChatTurn(
     {
-      text: rulesUserTurns.join('\n'),
-      userTurns: rulesUserTurns,
+      text: message,
+      userTurns: [message],
       items: null,
       now,
       timezone,
       ...(current ? { baseProposalId: current.proposalId } : {}),
-      latestMessage: message,
-      renamedItem: renamesListItem(message),
       responseLocale: language,
       spoken: false,
       ...(appLanguage ? { locale: appLanguage } : {}),

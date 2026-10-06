@@ -24,6 +24,7 @@ import {
   type StoredCaptureProposal,
   type StoredProposalDocument,
 } from './proposalStore';
+import { referenceStateFor, withPublicRemovedItems } from '../captureChat/chatReferences';
 import { finalizeUnderstood } from './understood';
 
 const KINDS = new Set(['commitment', 'possible_goal', 'consideration', 'idea', 'waiting_for']);
@@ -164,7 +165,9 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
   const change = edit.change as CaptureProposalEditContract['change'];
   if (!change || typeof change !== 'object' || Array.isArray(change)) throw new StructuredEditError();
   const keys = Object.keys(change);
-  if (keys.length === 0 || keys.some((key) => !['kind', 'text', 'time', 'rejectCorrectionIds'].includes(key))) throw new StructuredEditError();
+  const restoring = change.restore === true;
+  if (keys.length === 0 || keys.some((key) => !['kind', 'text', 'time', 'rejectCorrectionIds', 'restore'].includes(key))) throw new StructuredEditError();
+  if (Object.prototype.hasOwnProperty.call(change, 'restore') && (!restoring || keys.length !== 1)) throw new StructuredEditError();
   if (change.kind !== undefined && !KINDS.has(change.kind)) throw new StructuredEditError();
   if (change.text !== undefined && !validText(change.text)) throw new StructuredEditError();
   if (change.text !== undefined && change.rejectCorrectionIds !== undefined) throw new StructuredEditError();
@@ -176,6 +179,60 @@ function applyEdit(stored: StoredCaptureProposal, edit: CaptureProposalEditContr
   const itemId = 'itemId' in edit.target && typeof edit.target.itemId === 'string' ? edit.target.itemId : null;
   const seedId = 'seedItemId' in edit.target && typeof edit.target.seedItemId === 'string' ? edit.target.seedItemId : null;
   if ((!itemId && !seedId) || (itemId && seedId)) throw new StructuredEditError();
+  if (restoring) {
+    const removed = Object.values(stored.removedChatEntities ?? {}).find((entry) => entry.entityId === (itemId ?? seedId));
+    if (!removed || Boolean(removed.item) !== Boolean(itemId) || Boolean(removed.seed) !== Boolean(seedId)) throw new StructuredEditError();
+    const contract: CaptureProposalContract = {
+      ...stored.contract,
+      items: stored.contract.items.map((item) => ({ ...item })),
+      seeds: stored.contract.seeds.map((seed) => ({ ...seed })),
+    };
+    const commands = new Map(stored.commandsByItemId);
+    const results = new Map(stored.resultsByItemId ?? []);
+    const ordinals = {
+      items: { ...(stored.sourceOrdinals?.items ?? {}) },
+      seeds: { ...(stored.sourceOrdinals?.seeds ?? {}) },
+    };
+    const restoredOrdinal = removed.ordinal ?? removed.position;
+    if (removed.item) {
+      const at = contract.items.findIndex((item) => (ordinals.items[item.itemId] ?? Number.POSITIVE_INFINITY) > restoredOrdinal);
+      contract.items.splice(at < 0 ? contract.items.length : at, 0, { ...removed.item });
+      commands.set(removed.entityId, [...removed.commands]);
+      if (removed.result) results.set(removed.entityId, { ...removed.result });
+      ordinals.items[removed.entityId] = restoredOrdinal;
+    } else {
+      const at = contract.seeds.findIndex((seed) => (ordinals.seeds[seed.seedItemId] ?? Number.POSITIVE_INFINITY) > restoredOrdinal);
+      contract.seeds.splice(at < 0 ? contract.seeds.length : at, 0, { ...removed.seed! });
+      ordinals.seeds[removed.entityId] = restoredOrdinal;
+    }
+    const correctionSpans = { ...(stored.correctionSpans ?? {}), ...(removed.correctionSpans ?? {}) };
+    const structuredEditSources = {
+      ...(stored.structuredEditSources ?? {}),
+      ...(removed.structuredEditSource ? { [removed.entityId]: removed.structuredEditSource } : {}),
+    };
+    const removedChatEntities = { ...(stored.removedChatEntities ?? {}) };
+    delete removedChatEntities[removed.ref];
+    const keptSeedItemIds = removed.keptSeed
+      ? Array.from(new Set([...(stored.keptSeedItemIds ?? []), removed.entityId]))
+      : stored.keptSeedItemIds;
+    const next = {
+      ...stored,
+      contract,
+      commandsByItemId: commands,
+      resultsByItemId: results,
+      sourceOrdinals: ordinals,
+      correctionSpans,
+      structuredEditSources,
+      removedChatEntities,
+      keptSeedItemIds,
+    };
+    next.contract = finalizeUnderstood(
+      withPublicRemovedItems({ ...contract, status: statusOf(contract) }, next),
+      stored.responseLocale ?? 'ar',
+      ordinals,
+    );
+    return next;
+  }
   const itemIndex = itemId ? stored.contract.items.findIndex((candidate) => candidate.itemId === itemId) : -1;
   const seedIndex = seedId ? stored.contract.seeds.findIndex((candidate) => candidate.seedItemId === seedId) : -1;
   if (itemIndex < 0 && seedIndex < 0) throw new StructuredEditError();
@@ -346,12 +403,24 @@ export async function applyStructuredEdit(input: {
     const sourceOrdinal = targetsItem
       ? stored.sourceOrdinals?.items[targetId]
       : stored.sourceOrdinals?.seeds[targetId];
+    const removedTarget = input.edit.change.restore === true
+      ? Object.values(stored.removedChatEntities ?? {}).find((entry) => entry.entityId === targetId)
+      : undefined;
     const beforeTitle = targetsItem
       ? stored.contract.items.find((item) => item.itemId === targetId)?.title
-      : stored.contract.seeds.find((seed) => seed.seedItemId === targetId)?.summary;
+        ?? removedTarget?.item?.title
+      : stored.contract.seeds.find((seed) => seed.seedItemId === targetId)?.summary
+        ?? removedTarget?.seed?.summary;
     if (!beforeTitle) throw new StructuredEditError();
     const mutated = applyEdit(stored, input.edit, input.now);
     mutated.contract = { ...mutated.contract, revision: currentRevision + 1 };
+    const refState = referenceStateFor(stored);
+    const targetRef = refState.refs[targetId] ?? removedTarget?.ref;
+    if (!targetRef) throw new StructuredEditError();
+    mutated.chatRefs = refState.refs;
+    mutated.nextChatItemRef = refState.nextItem;
+    mutated.nextChatSeedRef = refState.nextSeed;
+    mutated.lockedChatRefs = Array.from(new Set([...(stored.lockedChatRefs ?? []), targetRef]));
     const afterTitle = targetsItem
       ? (mutated.contract.items.find((item) => item.itemId === targetId)?.title
         ?? mutated.contract.seeds.find((seed) => seed.seedItemId === targetId)?.summary ?? beforeTitle)
@@ -387,11 +456,13 @@ export async function applyStructuredEdit(input: {
         },
       },
     };
+    mutated.contract = withPublicRemovedItems(mutated.contract, mutated);
     mutated.seedKeepReceipt = stored.seedKeepReceipt;
     mutated.legacyConfirmRevision = undefined;
     const updatedAt = new Date().toISOString();
     tx.set(proposalPath, captureProposalToDocument(mutated, new Date()));
-    tx.set(conversationPath, { ...conversationDoc, turns, proposalId: conversationDoc.proposalId, updatedAt, expiresAt: new Date(Date.now() + CAPTURE_PROPOSAL_RETENTION_MS) });
+    const { messageReceipt: _staleMessageReceipt, ...conversationWithoutReceipt } = conversationDoc;
+    tx.set(conversationPath, { ...conversationWithoutReceipt, turns, proposalId: conversationDoc.proposalId, updatedAt, expiresAt: new Date(Date.now() + CAPTURE_PROPOSAL_RETENTION_MS) });
     return { kind: 'applied' as const, answer, proposal: mutated.contract };
   });
 }
