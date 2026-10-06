@@ -169,6 +169,9 @@ export function CaptureScreen() {
     setEditNote(null);
     const outcome = await flow.editPoint(target, change);
     setEditBusy(false);
+    // Nothing was sent (another write held the proposal): the sheet and its
+    // values stay, to save again (M2B-A-R4-REVIEW-001).
+    if (!outcome.ok && outcome.reason === 'unavailable') return;
     closeSummaryEdit();
     // A refused change is not lost: the provider keeps it on its point
     // (`state.refusedEdit`), to be opened again over the current version.
@@ -422,7 +425,7 @@ export function CaptureScreen() {
     const stagedAt = staged?.localDateTime !== undefined
       ? (staged.localDateTime ? instantForLocalDateTime(staged.localDateTime, timezone)?.toISOString() ?? null : null)
       : item?.resolvedTime ?? null;
-    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} busy={editBusy}
+    bodyOverride = <SummaryEditSheet key={summaryEditing} kind={point.kind} busy={editBusy || flow.writing}
       text={staged?.title ?? item?.title ?? seed?.summary ?? point.text} at={stagedAt}
       {...(draftToReopen ? { draft: draftToReopen } : {})}
       onCancel={closeSummaryEdit}
@@ -507,7 +510,7 @@ export function CaptureScreen() {
         {editNote || refusedLine ? <Txt size={13} color={p.wm} testID="understood-edit-note">
           {editNote === 'ended' ? t.understoodEditEnded : editNote === 'failed' ? t.errorsGeneric : t.captureProposalChanged}
         </Txt> : null}
-        {refusedLine && state.refusedEdit ? <Pill testID="understood-edit-reopen" label={t.understoodEditReopen} kind="soft" size={13} pad={10}
+        {refusedLine && state.refusedEdit ? <Pill testID="understood-edit-reopen" label={t.understoodEditReopen} kind="soft" size={13} pad={10} disabled={flow.writing}
           style={{ alignSelf: 'flex-start' }}
           onPress={() => { setDraftToReopen(state.refusedEdit!.change); setSummaryEditing(refusedLine); flow.takeRefusedEdit(); setEditNote(null); }} /> : null}
       </View>,
@@ -574,6 +577,7 @@ export function CaptureScreen() {
         canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering && !flow.writing}
         inputDisabled={state.status === 'confirming' || answering}
         composerDisabled={state.status === 'analyzing'}
+        toolsDisabled={flow.writing}
         onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing) setMenuOpen(true); }}
         onPaste={() => { if (!busy && !answering && !flow.writing) void readClipboardText().then(setClipboard); }}
         assistant={{ text: t.chatWelcome }}

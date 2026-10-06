@@ -351,3 +351,48 @@ describe('a late answer about a former proposal (M2B-A-R3-REVIEW-004)', () => {
     expect(own.confirmedElsewhere).toBe(true);
   });
 });
+
+// ── Codex's fourth inspection (M2B-A-R4-REVIEW-001, 002, 004) ─────────────
+
+describe('controls say they wait while another write is on its way', () => {
+  it('⋯ and paste are disabled, and a refused change cannot be reopened, while a «مش هيك» is on its way', async () => {
+    const pending = deferred<unknown>();
+    let edits = 0;
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation((async (raw: unknown) => {
+      const input = raw as { message?: string; edit?: unknown };
+      if (!input.edit) return answerFor(correctedProposal(), input.message ?? 'First message');
+      edits += 1;
+      if (edits === 1) throw new ProposalChangedError({ kind: 'chat', answer: answerFor({ ...correctedProposal(), revision: 8 }) });
+      return pending.promise;
+    }) as never);
+    await show();
+    await press('understood-edit-1');
+    await changeText('understood-edit-text', 'My words');
+    await press('understood-edit-save');
+    await waitFor(() => expect(screen.queryByTestId('understood-edit-reopen')).not.toBeNull());
+    expect(screen.getByTestId('understood-edit-reopen')).not.toBeDisabled();
+    await press('understood-correction-reject-c1');
+    expect(screen.getByTestId('understood-edit-reopen')).toBeDisabled();
+    expect(screen.getByTestId('chat-more')).toBeDisabled();
+    expect(screen.getByTestId('capture-paste')).toBeDisabled();
+    await act(async () => { pending.resolve(answerFor({ ...commitmentProposal(), revision: 9 })); });
+    await waitFor(() => expect(screen.getByTestId('chat-more')).not.toBeDisabled());
+  });
+
+  it('«مش هلّق» waits while its keep is on its way', async () => {
+    const pending = deferred<unknown>();
+    const both = commitmentProposal({
+      seeds: [{ seedItemId: SEED_ID, kind: 'idea', summary: 'Learn pottery' }],
+      understood: [{ kind: 'commitment', itemId: ITEM_ID, text: 'Call Dana tomorrow' }, { kind: 'idea', seedItemId: SEED_ID, text: 'Learn pottery' }],
+    });
+    server(both);
+    jest.spyOn(seedEndpoints, 'keepProposedSeed').mockImplementation((() => pending.promise) as never);
+    await show();
+    await press('understood-confirm');
+    await waitFor(() => expect(screen.queryByTestId(`review-seed-skip-${SEED_ID}`)).not.toBeNull());
+    await act(async () => { await fireEvent.press(screen.getByTestId(`review-seed-keep-${SEED_ID}`)); });
+    expect(screen.getByTestId(`review-seed-skip-${SEED_ID}`)).toBeDisabled();
+    await act(async () => { pending.resolve({ success: true, replayed: false, seed: { id: 's' } }); });
+    await waitFor(() => expect(screen.queryByTestId(`review-seed-kept-${SEED_ID}`)).not.toBeNull());
+  });
+});

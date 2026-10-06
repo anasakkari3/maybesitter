@@ -120,6 +120,8 @@ export function SeedProposalSection({
               <Btn
                 testID={`review-seed-skip-${seed.seedItemId}`}
                 label={t.seedNotNow}
+                // Not while its keep is on its way: that keep may still save it (M2B-A-R4-REVIEW-002).
+                disabled={keep.isPending || writing}
                 onPress={() => setHidden((current) => [...current, seed.seedItemId])}
                 scaleTo={0.97}
                 style={{ borderRadius: 14, paddingVertical: 9, paddingHorizontal: 16, alignItems: 'flex-start' }}

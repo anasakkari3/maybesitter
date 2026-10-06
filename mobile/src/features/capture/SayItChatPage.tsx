@@ -96,6 +96,8 @@ export interface SayItChatPageProps {
   inputDisabled?: boolean;
   /** Only the field and paste — while a message is on its way, back still works. */
   composerDisabled?: boolean;
+  /** ⋯ and paste while another proposal write is on its way (M2b): shown disabled, not silently inert. */
+  toolsDisabled?: boolean;
   onClose(): void;
   onMore(): void;
   onPaste(): void;
@@ -173,7 +175,7 @@ export interface SayItChatPageProps {
 const AVATAR_COLUMN = 42;
 
 export function SayItChatPage({
-  colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, onClose, onMore, onPaste,
+  colors: p, fonts, copy, text, onChangeText, onSend, canSend, inputDisabled = false, composerDisabled = false, toolsDisabled = false, onClose, onMore, onPaste,
   outgoing, assistant, notice, history = [], typing, typingLabel, scheduleGroups = [], scheduleTime, onConfirm, canConfirm = false,
   confirming = false, onRowPress, onRowToggle, followup, quickActions = [], onQuickAction,
   microphone, listening = false, onCancelListening, languageControl, voiceNotice, headerAccessory, bodyOverride, clarification, reviewExtras, reviewFooter,
@@ -229,6 +231,12 @@ export function SayItChatPage({
   const expanded = mode !== 'normal';
   const accessibilitySize = mode === 'xl';
   const composing = bodyOverride == null;
+  // A sheet, a question or a menu that takes the conversation's place starts at
+  // its own top, not where the conversation was scrolled to — at large text
+  // that left the «عدّل» sheet's title and kinds off screen (simulator, AX5).
+  React.useEffect(() => {
+    if (!composing) scroller.current?.scrollTo({ y: 0, animated: false });
+  }, [composing]);
   const showSend = !listening && (microphone == null || !!text.trim().length);
   const textStyle = (size: number, weight: 'regular' | 'semibold' = 'regular', muted = false): TextStyle => ({
     fontFamily: fonts[weight], fontSize: size,
@@ -265,7 +273,7 @@ export function SayItChatPage({
             </View>
           </View>
         </View>
-        <IconButton label={copy.moreLabel} onPress={onMore} colors={p} icon="more" testID="chat-more" disabled={inputDisabled} />
+        <IconButton label={copy.moreLabel} onPress={onMore} colors={p} icon="more" testID="chat-more" disabled={inputDisabled || toolsDisabled} />
       </View>
       {headerAccessory}
     </View>
@@ -473,7 +481,7 @@ export function SayItChatPage({
         {voiceNotice}
         <View testID="chat-composer-row" style={styles.composerRow}>
           {/* A clipboard, not "+": the control pastes, and «الصق» says so (u27). */}
-          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled || composerDisabled} />
+          <IconButton label={copy.pasteLabel} onPress={onPaste} colors={p} icon="paste" testID="capture-paste" disabled={inputDisabled || composerDisabled || toolsDisabled} />
           <TextInput ref={input} testID="capture-input" value={text} onChangeText={onChangeText} multiline scrollEnabled
             editable={!inputDisabled && !composerDisabled} accessibilityState={{ disabled: inputDisabled || composerDisabled }}
             accessibilityLabel={copy.placeholder} placeholder={copy.placeholder} placeholderTextColor={p.mu}

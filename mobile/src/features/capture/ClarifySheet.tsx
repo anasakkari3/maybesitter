@@ -103,6 +103,7 @@ export function ClarifySheet({
               testID="clarify-free-text"
               value={freeText}
               onChangeText={setFreeText}
+              editable={!busy}
               maxLength={CLARIFICATION_FREE_TEXT_MAX}
               placeholder={question.questionKey === 'ask_day' ? t.orTypeDay : t.orTypeTime}
               placeholderTextColor={p.mu}
@@ -129,7 +130,7 @@ export function ClarifySheet({
           without one (#474); otherwise the item stays flagged and #164's edit
           sheet can still fix it — a question nobody wants to answer must not
           be a wall. */}
-      <Pill testID="clarify-skip" label={skipsToNoTime ? t.skipNoTime : t.clarifySkip} onPress={onSkip} kind="ghost" size={13} weight={500} pad={6} style={{ alignSelf: 'flex-start' }} />
+      <Pill testID="clarify-skip" label={skipsToNoTime ? t.skipNoTime : t.clarifySkip} onPress={onSkip} disabled={busy} kind="ghost" size={13} weight={500} pad={6} style={{ alignSelf: 'flex-start' }} />
     </View>
   );
 }
