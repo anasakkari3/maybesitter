@@ -71,3 +71,17 @@ it('an edit adds the route\'s two turns, in its words, after the conversation so
   const words = edit({ text: 'Call Sami' })?.body as { turns: { text: string }[] };
   expect(words.turns[words.turns.length - 2]!.text).toBe(`غيّر «${ITEM.title}» لـ «${'Call Sami'}».`);
 });
+
+it('the answer is normalized as the route normalizes it: status follows the kind, a new time brings its own day', () => {
+  const idea = edit({ kind: 'idea' })?.body as { proposal: { status: string; items: unknown[] } };
+  expect(idea.proposal.items).toHaveLength(0);
+  expect(idea.proposal.status).toBe('unresolved_intent');
+  const moved = edit({ time: { at: '2031-03-04T22:30:00.000Z', timeZone: 'Asia/Jerusalem' } })?.body as { proposal: { status: string; items: Record<string, unknown>[] } };
+  const item = moved.proposal.items[0]!;
+  expect(item.resolvedDate).toBe('2031-03-05');
+  expect(item.dateEstimated).toBe(false);
+  expect(item.timeEstimated).toBe(false);
+  expect(item.weeklyBlock).toBeUndefined();
+  expect(item.clarification).toBeNull();
+  expect(moved.proposal.status).toBe('proposed');
+});

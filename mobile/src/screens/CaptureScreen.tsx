@@ -305,7 +305,7 @@ export function CaptureScreen() {
    * answer's proposal replaces the one on screen (`chatAnswered`).
    */
   const send = () => {
-    if (!composerText.trim() || inputLength > MAX_CAPTURE_LENGTH || busy || answering || editBusy) return;
+    if (!composerText.trim() || inputLength > MAX_CAPTURE_LENGTH || busy || answering || flow.writing) return;
     stopDictation();
     Keyboard.dismiss();
     setSentAt(new Date());
@@ -444,7 +444,7 @@ export function CaptureScreen() {
   // The one question's quick replies sit under the reply that asks it, above
   // the cards (Stitch 03b); answering is still `/capture/clarify`.
   const clarification = reviewing && asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1}
-    total={unclarified.length} busy={answering} error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
+    total={unclarified.length} busy={answering || flow.writing} error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
     onAnswer={value => { void answer(asking.itemId, value); }} onSkip={() => {
       const noTime = asking.clarification?.options.find(option => !option.value.localTime && !option.value.localDate);
       if (noTime) void answer(asking.itemId, { optionId: noTime.optionId });
@@ -455,7 +455,8 @@ export function CaptureScreen() {
     {state.status === 'confirmFailed' ? <Txt testID="review-confirm-failed" color={p.wm}>{t[state.messageKey ?? 'errorsGeneric']}</Txt> : null}
     {state.selected.length === 0 && items.length ? <Txt size={13} testID="review-none-selected" color={p.mu}>{t.reviewNothingSelected}</Txt> : null}
     {state.proposal?.seeds?.length ? <SeedProposalSection proposalId={state.proposal.proposalId} seeds={state.proposal.seeds} onAnchor={anchorSeed}
-      {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent} /> : null}
+      {...(state.proposal.revision !== undefined ? { revision: state.proposal.revision } : {})} onProposalChanged={flow.adoptCurrent}
+      writing={flow.writing} guardWrite={flow.guardWrite} /> : null}
   </View> : null;
   // Under the save (Stitch 03): every review option, the propose-only note,
   // and the explicit exit.
@@ -499,7 +500,7 @@ export function CaptureScreen() {
     history[history.length - 1] = { ...last,
       body: <View style={{ alignSelf: 'stretch', gap: 6 }}>
         <UnderstoodMessage proposal={state.proposal} points={understood} edits={state.edits} onOpen={openFromSummary}
-          editable={state.proposal.revision !== undefined} busy={editBusy}
+          editable={state.proposal.revision !== undefined} busy={editBusy || flow.writing}
           onEdit={(n) => { setEditNote(null); setSummaryEditing(n); }}
           editRef={(n, node) => { if (node) editRefs.current.set(n, node); else editRefs.current.delete(n); }}
           onRejectCorrection={(itemId, correctionId) => { void sendEdit({ itemId }, { rejectCorrectionIds: [correctionId] }); }} />
@@ -570,11 +571,11 @@ export function CaptureScreen() {
           listeningTitle: t.chatListening, listeningNote: t.voiceListening, cancelListeningLabel: t.cancel }}
         text={composerText} onChangeText={changeText} onSend={send}
         // One proposal writer at a time: a «مش هيك» on its way is one too (M2B-A-R2-REVIEW-005).
-        canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering && !editBusy}
+        canSend={Boolean(composerText.trim()) && inputLength <= MAX_CAPTURE_LENGTH && !busy && !answering && !flow.writing}
         inputDisabled={state.status === 'confirming' || answering}
         composerDisabled={state.status === 'analyzing'}
-        onClose={headerBack} onMore={() => { if (!busy && !answering && !editBusy) setMenuOpen(true); }}
-        onPaste={() => { if (!busy && !answering && !editBusy) void readClipboardText().then(setClipboard); }}
+        onClose={headerBack} onMore={() => { if (!busy && !answering && !flow.writing) setMenuOpen(true); }}
+        onPaste={() => { if (!busy && !answering && !flow.writing) void readClipboardText().then(setClipboard); }}
         assistant={{ text: t.chatWelcome }}
         // The disclosure that replaced the AI consent (owner decision
         // 2026-09-30): on the page, before the first message is sent.
@@ -599,7 +600,7 @@ export function CaptureScreen() {
         history={history}
         {...(state.status === 'analyzing' ? { typing: <ProcessingDots color={p.ac} />, typingLabel: t.understanding } : {})}
         scheduleGroups={[...groups.values()]} onRowPress={setEditingId} onRowToggle={flow.toggleItem}
-        onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering} confirming={state.status === 'confirming'}
+        onConfirm={() => { stopDictation(); Keyboard.dismiss(); void flow.confirm(); }} canConfirm={state.selected.length > 0 && !busy && !answering && !flow.writing} confirming={state.status === 'confirming'}
         quickActions={reviewing || state.text.trim() || state.turns.length > 0 || state.earlier.length > 0 || state.status === 'analyzing' ? []
           : COMPOSER_EXAMPLE_KEYS.map(key => ({ id: `example-${key}`, label: exampleText(key, t) }))}
         onQuickAction={quickAction} rtl={rtl} safeBottom={insets.bottom} keyboardShown={keyboardShown} mode={mode} listening={voiceStatus === 'listening'}

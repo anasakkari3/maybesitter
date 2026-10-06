@@ -12,9 +12,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resetAuthForTests } from '../../../api/auth';
 import { ProposalChangedError } from '../../../api/errors';
 import * as captureEndpoints from '../../../api/endpoints/capture';
+import * as seedEndpoints from '../../../api/endpoints/seeds';
 import type { CaptureProposal } from '../../../api/schemas/capture';
+import { captureReducer, initialCaptureState } from '../captureMachine';
 import {
-  ACCOUNT_B, ITEM_ID, answerFor, changeText, commitmentProposal, deferred, lastCall, openCapture, prepareRoot, press, say,
+  ACCOUNT_B, ITEM_ID, SEED_ID, answerFor, seedProposal, changeText, commitmentProposal, deferred, lastCall, openCapture, prepareRoot, press, say,
   type RootHarness,
 } from '../../../__acceptance__/m2b/harness';
 
@@ -268,5 +270,84 @@ describe('an edit refused because the proposal is already saved (F7c)', () => {
     await waitFor(() => expect(screen.queryByTestId('capture-confirmed-elsewhere')).not.toBeNull());
     expect(screen.queryByTestId('understood-confirm')).toBeNull();
     expect(screen.queryByTestId('understood-edit-reopen')).toBeNull();
+  });
+});
+
+// ── Codex's third inspection (M2B-A-R3-REVIEW-002..004) ──────────────────
+
+function correctedProposal(): CaptureProposal {
+  return commitmentProposal({ items: [{ ...commitmentProposal().items[0]!, corrections: [{ id: 'c1', from: 'Dana', to: 'Dina' }] } as never] });
+}
+
+describe('one proposal writer at a time, every writer (M2B-A-R3-REVIEW-002)', () => {
+  it('while a «مش هيك» is on its way, the review cannot confirm', async () => {
+    const pending = deferred<unknown>();
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation((async (raw: unknown) => {
+      const input = raw as { message?: string; edit?: unknown };
+      return input.edit ? pending.promise : answerFor(correctedProposal(), input.message ?? 'First message');
+    }) as never);
+    const confirm = jest.spyOn(captureEndpoints, 'confirmCapture').mockResolvedValue({ success: true, replayed: false, persisted: [], failed: [] } as never);
+    await show();
+    await press('understood-correction-reject-c1');
+    await press('understood-confirm');
+    await act(async () => { await fireEvent.press(screen.getByTestId('review-confirm')); });
+    expect(confirm).not.toHaveBeenCalled();
+    await act(async () => { pending.resolve(answerFor(commitmentProposal({ revision: 8 }))); });
+    await waitFor(() => expect(screen.getByTestId('review-confirm').props.accessibilityState?.disabled).toBe(false));
+    await press('review-confirm');
+    await waitFor(() => expect(confirm).toHaveBeenCalledTimes(1));
+    expect(lastCall(confirm)).toEqual(expect.objectContaining({ revision: 8 }));
+  });
+
+  it('while a «مش هيك» is on its way, a seed is not kept', async () => {
+    const pending = deferred<unknown>();
+    const both = commitmentProposal({
+      items: correctedProposal().items, seeds: [{ seedItemId: SEED_ID, kind: 'idea', summary: 'Learn pottery' }],
+      understood: [{ kind: 'commitment', itemId: ITEM_ID, text: 'Call Dana tomorrow' }, { kind: 'idea', seedItemId: SEED_ID, text: 'Learn pottery' }],
+    });
+    jest.spyOn(captureEndpoints, 'chatCapture').mockImplementation((async (raw: unknown) => {
+      const input = raw as { message?: string; edit?: unknown };
+      return input.edit ? pending.promise : answerFor(both, input.message ?? 'First message');
+    }) as never);
+    const keep = jest.spyOn(seedEndpoints, 'keepProposedSeed').mockResolvedValue({ success: true, replayed: false, seed: { id: 's' } } as never);
+    await show();
+    await press('understood-correction-reject-c1');
+    await press('understood-confirm');
+    await waitFor(() => expect(screen.queryByTestId(`review-seed-keep-${SEED_ID}`)).not.toBeNull());
+    await act(async () => { await fireEvent.press(screen.getByTestId(`review-seed-keep-${SEED_ID}`)); });
+    expect(keep).not.toHaveBeenCalled();
+    await act(async () => { pending.resolve(answerFor(both)); });
+  });
+});
+
+describe('a newer change spends an older refused one (M2B-A-R3-REVIEW-003)', () => {
+  it.each<[string, () => CaptureProposal]>([
+    ['a point', () => commitmentProposal()],
+    ['a seed', () => seedProposal('idea')],
+  ])('on %s, a fresh applied edit removes the stale «رجعلي تعديلي»', async (_label, make) => {
+    const initial = make();
+    const chat = server(initial, new ProposalChangedError({ kind: 'chat', answer: answerFor({ ...make(), revision: 8 }) }), { ...make(), revision: 9 });
+    await show();
+    await press('understood-edit-1');
+    await changeText('understood-edit-text', 'Refused words');
+    await press('understood-edit-save');
+    await waitFor(() => expect(screen.queryByTestId('understood-edit-reopen')).not.toBeNull());
+    await press('understood-edit-1');
+    await changeText('understood-edit-text', 'Newer words');
+    await press('understood-edit-save');
+    await waitFor(() => expect(editsSent(chat)).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByTestId('understood-edit-reopen')).toBeNull());
+  });
+});
+
+describe('a late answer about a former proposal (M2B-A-R3-REVIEW-004)', () => {
+  it('"already saved" for P1 leaves P2 on screen alone; for P2 it clears it', () => {
+    const p2 = commitmentProposal({ proposalId: 'p2' });
+    const shown = captureReducer(captureReducer(initialCaptureState(), { type: 'open' }), { type: 'analyzeSucceeded', proposal: p2 });
+    const late = captureReducer(shown, { type: 'proposalConfirmedElsewhere', proposalId: 'p1' });
+    expect(late).toBe(shown);
+    const own = captureReducer(shown, { type: 'proposalConfirmedElsewhere', proposalId: 'p2' });
+    expect(own.proposal).toBeNull();
+    expect(own.confirmedElsewhere).toBe(true);
   });
 });

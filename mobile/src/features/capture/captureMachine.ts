@@ -334,13 +334,17 @@ export type CaptureEvent =
    * message was sent. `folded` is the item whose staged card title/time went
    * into the edit, so they are cleared here.
    */
-  | { type: 'editAnswered'; answer: CaptureChatAnswer; folded?: FoldedEdit; refused?: RefusedEdit }
+  | { type: 'editAnswered'; answer: CaptureChatAnswer; folded?: FoldedEdit; refused?: RefusedEdit; applied?: CaptureProposalEdit['target'] }
   /** The refused change was opened again in the sheet: it is the sheet's now. */
   | { type: 'refusedEditTaken' }
   /** The current proposal a 409 `proposal_changed` carried (confirm, clarify, seed keep). */
   | { type: 'proposalReplaced'; proposal: CaptureProposal }
-  /** A 409 said the proposal was already confirmed elsewhere: nothing more to write here. */
-  | { type: 'proposalConfirmedElsewhere' }
+  /**
+   * A 409 said the proposal was already confirmed elsewhere: nothing more to
+   * write here. With the id it is about, so a late answer for a former
+   * proposal leaves the one on screen alone (M2B-A-R3-REVIEW-004).
+   */
+  | { type: 'proposalConfirmedElsewhere'; proposalId?: string }
   | { type: 'analyzeStarted' }
   | { type: 'analyzeSucceeded'; proposal: CaptureProposal }
   /**
@@ -745,6 +749,23 @@ function carriedInto(state: CaptureState, next: CaptureProposal): Pick<CaptureSt
  * went into the edit and are now the server's (its priority and place stay).
  * An item that became a seed takes its choices with it.
  */
+/** The id a structured-edit target names; a point keeps it when its kind changes. */
+function targetId(target: CaptureProposalEdit['target']): string {
+  return 'itemId' in target ? target.itemId : target.seedItemId;
+}
+
+/**
+ * A refused change outlives an answer only while its point is still there and
+ * no newer change to that point was applied since (M2B-A-R3-REVIEW-003).
+ */
+function stillRefused(refused: RefusedEdit | null, proposal: CaptureProposal, applied?: CaptureProposalEdit['target']): RefusedEdit | null {
+  if (!refused) return null;
+  const id = targetId(refused.target);
+  if (applied && targetId(applied) === id) return null;
+  const present = proposal.items.some((item) => item.itemId === id) || proposal.seeds.some((seed) => seed.seedItemId === id);
+  return present ? refused : null;
+}
+
 function carriedAcrossEdit(state: CaptureState, next: CaptureProposal, folded?: FoldedEdit): Pick<CaptureState, 'selected' | 'edits' | 'onceOnly' | 'goalUnlinked'> {
   const carried = carriedInto(state, next);
   // Choices on an item the edit did not touch follow their id even if the
@@ -848,7 +869,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       const carried = carriedInto(state, proposal);
       // A new proposal starts at its own summary; the same one keeps its cards.
       const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
-      const refusedEdit = state.proposal?.proposalId === proposal.proposalId ? state.refusedEdit : null;
+      const refusedEdit = state.proposal?.proposalId === proposal.proposalId ? stillRefused(state.refusedEdit, proposal) : null;
       return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf, refusedEdit };
     }
 
@@ -865,8 +886,7 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       const reviewOf = state.reviewOf === proposal.proposalId ? state.reviewOf : null;
       // A refusal keeps the person's change; an applied change to the same
       // point spends an older refused one.
-      const refusedEdit = event.refused
-        ?? (state.refusedEdit && event.folded !== undefined && 'itemId' in state.refusedEdit.target && state.refusedEdit.target.itemId === event.folded.itemId ? null : state.refusedEdit);
+      const refusedEdit = event.refused ?? stillRefused(state.refusedEdit, proposal, event.applied);
       return { ...conversation, ...carried, status: reviewStatus(proposal, carried.edits), proposal, original: proposal, reviewOf, reviewNotice: null, refusedEdit };
     }
 
@@ -884,14 +904,14 @@ export function captureReducer(state: CaptureState, event: CaptureEvent): Captur
       }
       return {
         ...state, ...carried, edits, status: reviewStatus(event.proposal, edits), proposal: event.proposal, original: event.proposal,
-        errorReason: null, messageKey: null, reviewNotice: 'proposalChanged',
+        errorReason: null, messageKey: null, reviewNotice: 'proposalChanged', refusedEdit: stillRefused(state.refusedEdit, event.proposal),
       };
     }
 
     case 'proposalConfirmedElsewhere':
       // Nothing to confirm, clarify or keep any more: say so instead of
       // offering writes that can only be refused again.
-      if (!state.proposal) return state;
+      if (!state.proposal || (event.proposalId !== undefined && event.proposalId !== state.proposal.proposalId)) return state;
       return {
         ...state, proposal: null, original: null, selected: [], edits: {}, onceOnly: [], goalUnlinked: [], reviewOf: null,
         status: state.text.trim() ? 'editing' : 'idle', errorReason: null, messageKey: null, reviewNotice: null, confirmedElsewhere: true, refusedEdit: null,

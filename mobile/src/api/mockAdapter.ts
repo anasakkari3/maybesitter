@@ -26,6 +26,7 @@
  * developer comes to trust a fake — and #148 forbids that pattern here.
  */
 import { apiMode } from '../config/env';
+import { localDateTimeFor } from '../features/capture/localInstant';
 
 import activityList from './__fixtures__/activity.list.json';
 import activitySummary from './__fixtures__/activity.summary.json';
@@ -250,7 +251,7 @@ type MockAnswer = { proposal: MockProposal | null; turns: unknown[] } & Record<s
 type MockEdit = {
   revision?: number;
   target?: { itemId?: string; seedItemId?: string };
-  change?: { kind?: string; text?: string; time?: { at: string | null }; rejectCorrectionIds?: string[] };
+  change?: { kind?: string; text?: string; time?: { at: string | null; timeZone?: string }; rejectCorrectionIds?: string[] };
 };
 
 function baseAnswer(source: unknown = captureChatProposal): MockAnswer {
@@ -315,7 +316,14 @@ function mockChat(body: unknown): MockResponse {
     const length = typeof item.resolvedTime === 'string' && typeof item.endTime === 'string'
       ? Date.parse(item.endTime) - Date.parse(item.resolvedTime) : 0;
     item.resolvedTime = change.time.at;
-    delete item.endTime;
+    // What described the old time goes with it, as the route drops it
+    // (`structuredEdit.ts`): its day, its guesses, its weekly offer, its question.
+    for (const stale of ['endTime', 'resolvedDate', 'dateEstimated', 'weeklyBlock'] as const) delete item[stale];
+    item.timeEstimated = false;
+    if (change.time.at) {
+      item.resolvedDate = localDateTimeFor(new Date(change.time.at), change.time.timeZone ?? 'UTC').slice(0, 10);
+      item.dateEstimated = false;
+    }
     if (change.time.at && length > 0) item.endTime = new Date(Date.parse(change.time.at) + length).toISOString();
     item.needsClarification = false;
     item.clarification = null;
@@ -347,6 +355,10 @@ function mockChat(body: unknown): MockResponse {
     }];
     if (point) { Object.assign(point, { kind: 'commitment', itemId: seed.seedItemId }); delete point.seedItemId; }
   }
+  // The status follows what is left, as the route's `statusOf` decides it.
+  proposal.status = proposal.items.length === 0
+    ? (proposal.seeds.length > 0 ? 'unresolved_intent' : 'no_commitment')
+    : proposal.items.every((candidate) => candidate.needsClarification) ? 'needs_clarification' : 'proposed';
   // The route records the edit as two turns (`structuredEdit.ts`, `editTurns`).
   const turns = editTurns(change, before, request?.locale);
   answer.reply = turns.reply;
