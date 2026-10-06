@@ -51,7 +51,8 @@ function understoodPrimary(pointText: string) {
     'capture-paste', 'capture-analyze', 'voice-button', 'voice-language',
   ]);
   const candidates = screen.getAllByRole('button').filter(button => {
-    if (excluded.has(String(button.props.testID ?? ''))) return false;
+    const testId = String(button.props.testID ?? '');
+    if (excluded.has(testId) || testId.startsWith('clarify-')) return false;
     return !String(button.props.accessibilityLabel ?? '').includes(pointText);
   });
   expect(candidates).toHaveLength(1);
@@ -105,6 +106,7 @@ describe('proposal phase transitions', () => {
     };
     jest.spyOn(captureEndpoints, 'clarifyCapture').mockResolvedValue(settled as never);
     await firstAnswer(initial);
+    expect(screen.queryByTestId('clarify-option-evening')).not.toBeNull();
     await act(async () => { await fireEvent.press(understoodPrimary('Remember to call Dana')); });
     await waitFor(() => expect(screen.queryByTestId('clarify-option-evening')).not.toBeNull());
 

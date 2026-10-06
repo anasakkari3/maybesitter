@@ -173,7 +173,11 @@ export function CaptureScreen() {
   const strings = t as unknown as Record<string, string>;
   const items = cardsOpen ? state.proposal?.items ?? [] : [];
   const confirmable = confirmableItems(state.proposal, state.edits);
-  const unclarified = items.filter(item => item.needsClarification && !confirmable.includes(item.itemId));
+  // The one question is answerable under the summary too: the reply asks it
+  // («الصبح ولا المسا؟»), so its quick replies sit right under that reply,
+  // not behind «هيك صح» (M2a combined review F1).
+  const questioned = reviewing ? state.proposal?.items ?? [] : [];
+  const unclarified = questioned.filter(item => item.needsClarification && !confirmable.includes(item.itemId));
   const waiting = unclarified.filter(item => item.clarification && !skipped.includes(item.itemId)
     && questionText(item.clarification.questionKey, item.clarification.params, strings) !== null);
   const asking = waiting[0];
@@ -357,7 +361,7 @@ export function CaptureScreen() {
 
   // The one question's quick replies sit under the reply that asks it, above
   // the cards (Stitch 03b); answering is still `/capture/clarify`.
-  const clarification = cardsOpen && asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1}
+  const clarification = reviewing && asking ? <ClarifySheet key={asking.itemId} item={asking} position={unclarified.length - waiting.length + 1}
     total={unclarified.length} busy={answering} error={clarifyError?.itemId === asking.itemId ? t[clarifyError.key] : null}
     onAnswer={value => { void answer(asking.itemId, value); }} onSkip={() => {
       const noTime = asking.clarification?.options.find(option => !option.value.localTime && !option.value.localDate);
