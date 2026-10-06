@@ -74,6 +74,13 @@ import weeklyBlocksDeleted from './__fixtures__/weeklyBlocks.deleted.json';
 import weeklyBlocksList from './__fixtures__/weeklyBlocks.list.json';
 import weeklyBlocksOccurrences from './__fixtures__/weeklyBlocks.occurrences.json';
 import weeklyBlocksPaused from './__fixtures__/weeklyBlocks.paused.json';
+import intelligenceAnalyzed from './__fixtures__/intelligence.analyzed.json';
+import intelligenceGenerated from './__fixtures__/intelligence.generated.json';
+import intelligenceGmailMonitor from './__fixtures__/intelligence.gmailMonitor.json';
+import intelligenceGmailMonitorSet from './__fixtures__/intelligence.gmailMonitorSet.json';
+import intelligenceGmailScanComplete from './__fixtures__/intelligence.gmailScanComplete.json';
+import intelligenceInbox from './__fixtures__/intelligence.inbox.json';
+import intelligenceObservationReviewed from './__fixtures__/intelligence.observationReviewed.json';
 
 export interface MockResponse {
   status: number;
@@ -174,6 +181,15 @@ const ROUTES: [string, RegExp, MockResponse][] = [
   // Keep and dismiss share a route and the same bargain as the plan actions:
   // whatever was decided, the kept answer comes back, and nothing accumulates.
   ['POST', /^\/api\/mobile\/memory\/suggestions\/[^/]+$/, { status: 201, body: memorySuggestionKept }],
+  // The proactive loop (Goals and Watching panels). The week scan is served at
+  // its terminal page, because the app keeps asking until it is `complete`.
+  ['GET', /^\/api\/mobile\/intelligence$/, { status: 200, body: intelligenceInbox }],
+  ['POST', /^\/api\/mobile\/intelligence$/, { status: 201, body: intelligenceAnalyzed }],
+  ['POST', /^\/api\/mobile\/intelligence\/observations\/[^/]+$/, { status: 200, body: intelligenceObservationReviewed }],
+  ['POST', /^\/api\/mobile\/intelligence\/generate$/, { status: 200, body: intelligenceGenerated }],
+  ['GET', /^\/api\/mobile\/intelligence\/sources\/gmail\/monitor$/, { status: 200, body: intelligenceGmailMonitor }],
+  ['POST', /^\/api\/mobile\/intelligence\/sources\/gmail\/monitor$/, { status: 200, body: intelligenceGmailMonitorSet }],
+  ['POST', /^\/api\/mobile\/intelligence\/sources\/gmail\/scan$/, { status: 200, body: intelligenceGmailScanComplete }],
 ];
 
 /** True when this build is serving fixtures. Always false in a release. */

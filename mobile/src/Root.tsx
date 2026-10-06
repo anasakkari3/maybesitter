@@ -280,7 +280,7 @@ export function Root() {
           </OfflineBanner>
           {/* A normal layout sibling: it reserves its own height and never covers rows. */}
           {s.showTabs && <TabBar onClearanceChange={setToastClearance} />}
-          {/* Above the bar and the pill when they show, so a toast never covers «احكيها». */}
+          {/* Above the bar when it shows, so a toast never covers «احكيها» (its first item). */}
           <ToastHost clearance={s.showTabs ? toastClearance : undefined} />
           <SheetHost key={s.sheet ?? 'none'} />
         </View>

@@ -162,6 +162,12 @@ import {
   POST as googleCalendarPost,
 } from '../../src/app/api/mobile/integrations/google/calendar/route.ts';
 import { POST as googleGmailScanPost } from '../../src/app/api/mobile/integrations/google/gmail/scan/route.ts';
+import { GET as intelligenceInboxGet, POST as intelligenceStatementPost } from '../../src/app/api/mobile/intelligence/route.ts';
+import { POST as intelligenceGeneratePost } from '../../src/app/api/mobile/intelligence/generate/route.ts';
+import { POST as intelligenceObservationPost } from '../../src/app/api/mobile/intelligence/observations/[id]/route.ts';
+import { GET as intelligenceMonitorGet, POST as intelligenceMonitorPost } from '../../src/app/api/mobile/intelligence/sources/gmail/monitor/route.ts';
+import { POST as intelligenceGmailScanPost } from '../../src/app/api/mobile/intelligence/sources/gmail/scan/route.ts';
+import { semanticPrompt } from '../../lib/intelligence/semantic.ts';
 import { POST as googleDrivePickerPost } from '../../src/app/api/mobile/integrations/google/drive/picker/route.ts';
 import { POST as googleDriveImportPost } from '../../src/app/api/mobile/integrations/google/drive/import/route.ts';
 import { googleRuntime, resetGoogleRuntimeForTests, setGoogleRuntimeForTests } from '../../lib/integrations/google/googleRuntime.ts';
@@ -2611,6 +2617,64 @@ test('exports a fixture for every /api/mobile call the React Native client makes
  * Gemini fixture above does it, answering the email channel, the document
  * channel and the capture pipeline each with the shape its prompt asks for.
  */
+
+/**
+ * The proactive loop answers only in staging or production, with its feature
+ * flag on and its kill switch off (`lib/intelligence/gate.ts`). Its fixtures
+ * are recorded inside this, and nothing leaks into the other cases.
+ */
+async function withIntelligenceLoop<T>(run: () => Promise<T>): Promise<T> {
+  const keys = ['MAYBESITTER_ENV', 'MAYBESITTER_FEATURE_PROACTIVE_LOOP', 'MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP'] as const;
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.MAYBESITTER_ENV = 'staging';
+  process.env.MAYBESITTER_FEATURE_PROACTIVE_LOOP = 'true';
+  process.env.MAYBESITTER_KILL_SWITCH_PROACTIVE_LOOP = 'false';
+  try {
+    return await run();
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
+}
+
+test('exports the proactive-loop (intelligence) fixtures the Goals and Watching panels read', async () => {
+  const teardown = setup();
+  const previousProvider = process.env.MAYBESITTER_LLM_PROVIDER;
+  // No model: a person's own sentence is read by the rules (semanticFallback).
+  process.env.MAYBESITTER_LLM_PROVIDER = 'none';
+  resetProviderForTests();
+  try {
+    await withIntelligenceLoop(async () => {
+      await aiConsentPut(request('/api/mobile/consents/ai-processing', {
+        method: 'PUT', body: { state: 'granted', version: AI_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      }));
+      await recommendationConsentPut(request('/api/mobile/consents/recommendations', {
+        method: 'PUT', body: { state: 'granted', version: RECOMMENDATION_CONSENT_VERSION, locale: 'ar', platform: 'ios' },
+      }));
+      const analyzed = await record('intelligence.analyzed', 201, await intelligenceStatementPost(request('/api/mobile/intelligence', {
+        body: { text: 'I want to learn React' },
+      })));
+      assert.ok((analyzed.observations as unknown[]).length >= 1, 'the analyze fixture must carry an observation');
+      await record('intelligence.generated', 200, await intelligenceGeneratePost(request('/api/mobile/intelligence/generate', { body: {} })));
+      await record('intelligence.inbox', 200, await intelligenceInboxGet(request('/api/mobile/intelligence')));
+      await record('intelligence.gmailMonitor', 200, await intelligenceMonitorGet(request('/api/mobile/intelligence/sources/gmail/monitor')));
+      // «آه، هيك صح» on a card the panel shows.
+      const observationId = (analyzed.observations as Array<{ id: string }>)[0]!.id;
+      await record('intelligence.observationReviewed', 200, await intelligenceObservationPost(
+        request(`/api/mobile/intelligence/observations/${observationId}`, { body: { review: 'confirmed' } }),
+        { params: Promise.resolve({ id: observationId }) },
+      ));
+    });
+  } finally {
+    if (previousProvider === undefined) delete process.env.MAYBESITTER_LLM_PROVIDER;
+    else process.env.MAYBESITTER_LLM_PROVIDER = previousProvider;
+    resetProviderForTests();
+    teardown();
+  }
+});
+
 test('exports the Google connection fixtures', async () => {
   const teardown = setup();
   const google = new FakeGoogle();
@@ -2658,7 +2722,10 @@ test('exports the Google connection fixtures', async () => {
     const system = (input.config as { systemInstruction?: unknown }).systemInstruction;
     const text = JSON.stringify(input.contents);
     let answer: string;
-    if (system === EMAIL_SYSTEM_INSTRUCTION) {
+    if (system === semanticPrompt()) {
+      // The week scan's reading of one message (proactive loop).
+      answer = JSON.stringify({ observations: [{ kind: 'request', evidence: 'Please return the signed trip form by Friday.', confidence: 0.9 }] });
+    } else if (system === EMAIL_SYSTEM_INSTRUCTION) {
       answer = JSON.stringify({ items: [{
         title: 'Return the signed trip form',
         evidenceSentence: 'Please return the signed trip form by Friday.',
@@ -2765,6 +2832,30 @@ test('exports the Google connection fixtures', async () => {
     // A date with no hour, so the item asks for one: the realistic answer.
     assert.ok((scanned.items as unknown[]).length >= 1, 'the scan fixture must carry an item, not the empty answer');
     assert.equal((scanned.share as { channel: string }).channel, 'email');
+
+    // The proactive loop's week scan, walked to the end: the app loops until
+    // `complete`, so the mock serves the terminal page.
+    await withIntelligenceLoop(async () => {
+      let page: Response;
+      let guard = 0;
+      for (;;) {
+        page = await intelligenceGmailScanPost(as('/api/mobile/intelligence/sources/gmail/scan', { body: {} }));
+        const peek = await page.clone().json() as { scan?: { status?: string } };
+        if (peek.scan?.status !== 'running' || ++guard > 20) break;
+      }
+      const done = await record('intelligence.gmailScanComplete', 200, page);
+      assert.equal((done.scan as { status: string }).status, 'complete');
+      // The panel's «فعّل متابعة الإيميلات الجديدة» switch. Enabling reads
+      // the loop's gate from the Google runtime's own env, so that env carries
+      // the same flags for this one call.
+      const base = googleRuntime();
+      setGoogleRuntimeForTests({ ...base, env: { ...base.env, MAYBESITTER_ENV: 'staging', MAYBESITTER_FEATURE_PROACTIVE_LOOP: 'true' } as typeof base.env });
+      const monitored = await record('intelligence.gmailMonitorSet', 200, await intelligenceMonitorPost(as('/api/mobile/intelligence/sources/gmail/monitor', {
+        body: { enabled: true },
+      })));
+      assert.equal(monitored.enabled, true);
+      setGoogleRuntimeForTests(base);
+    });
 
     // The same scan with the model switched off: nothing was read, and the
     // envelope says how many were not — which the app shows instead of an

@@ -53,4 +53,13 @@ describe('Disclosure', () => {
     expect(style.minWidth).toBeGreaterThanOrEqual(44);
     expect(style.minHeight).toBeGreaterThanOrEqual(44);
   });
+
+  it('stretches across its row, so the title beside the arrow keeps its width at the largest text sizes', async () => {
+    await mount(<Text>Gentle reminders</Text>);
+    // A stacked section gave the row no width and the title collapsed to
+    // nothing at AX5 on a device (2026-10-06).
+    const root = screen.getByTestId('gentle-disclosure');
+    const style = Object.assign({}, ...[root.props.style].flat(Infinity).filter(Boolean));
+    expect(style.alignSelf).toBe('stretch');
+  });
 });

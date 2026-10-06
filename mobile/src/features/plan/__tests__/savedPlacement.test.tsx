@@ -12,7 +12,7 @@
  */
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { SafeAreaProvider, type Metrics } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AppProvider, useApp } from '../../../state/AppContext';
@@ -297,13 +297,15 @@ describe('a due on another day says its day (owner\'s Redmi, 2026-09-29)', () =>
     jest.spyOn(commitmentEndpoints, 'listUpcoming').mockResolvedValue({ items: [] } as never);
   });
 
-  it('the next-step card: the day and the hour, beside «the time has passed»', async () => {
+  it('the next-step card: the day and the hour, with «the time has passed» in its «why»', async () => {
     jest.spyOn(commitmentEndpoints, 'listToday').mockResolvedValue({ items: [late()] } as never);
     jest.spyOn(nextStepEndpoints, 'getNextStep').mockResolvedValue(lateCard as never);
     await show(<TodayScreen />);
     await waitFor(() => expect(screen.queryByTestId('next-step-when')).not.toBeNull());
     expect(screen.getByTestId('next-step-when').props.children).toBe(when(LATE));
-    expect(screen.getByText(en.evidenceOverdue)).toBeTruthy();
+    // Reason chips left the card face on 2026-10-06 (owner audit, image 1).
+    await fireEvent.press(screen.getByTestId('next-step-why-toggle'));
+    await waitFor(() => expect(within(screen.getByTestId('next-step-why')).getByText(new RegExp(en.evidenceOverdue))).toBeTruthy());
   });
 
   it('a Today row: the day and the hour, on the row and in its spoken name', async () => {

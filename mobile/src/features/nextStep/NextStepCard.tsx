@@ -25,14 +25,16 @@ import { canPrepareFor } from '../meetings/prepTargets';
  * The one suggestion, and the answers to it (UC-2.R3 #173, UC-2.9 #170;
  * Round 2, Phase C for the shape).
  *
- * ── It is a suggestion, and it says so every time ────────────────
+ * ── It is a suggestion, and its badge says so ─────────────────────
  *
- * `suggestionNote` — «هذا اقتراح. لم يتغيّر أي شيء بعد.» — is not decoration
- * and is not conditional. The contract says `persistence.occurred: false` and
- * `confirmationRequired: true` on every proposal; the line is that fact in
- * words. The reference card has no outline; the note communicates that it is
- * a proposal. There is no «اقتراح» tag as well: that said the note's words a
- * second time on the same card (#17).
+ * The contract says `persistence.occurred: false` and
+ * `confirmationRequired: true` on every proposal. Until 2026-10-06 the card
+ * said that with an unconditional footer, `suggestionNote` («هذا اقتراح. لم
+ * يتغيّر أي شيء بعد.»). The owner struck that footer and the evidence chips
+ * from the card face as noise (audit 2026-10-06, image 1), so the proposal
+ * state now lives in the badge itself: «خطوة مقترحة» (`nextStepSuggestedLabel`)
+ * on a proposal, «خطوتك التالية» on the empty and thin states, which are not
+ * proposals. The reasons are still one tap away in «ليش هاي بالذات».
  *
  * ── Only the actions the server offered ──────────────────────────
  *
@@ -176,14 +178,14 @@ const DEFER_LABEL = (t: Record<string, string>): Record<PostponePreset, string> 
   nextWeek: t.postponeNextWeek!,
 });
 
-/** «خطوتك التالية», as the card's own chip: coral tint, a dot, the words. */
-function NextStepBadge() {
+/** The card's own chip: coral tint, a dot, the words — «خطوة مقترحة» on a proposal. */
+function NextStepBadge({ suggested = false }: { suggested?: boolean }) {
   const { t } = useApp();
   const p = useReferencePalette();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: p.acs, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 12 }}>
       <View accessible={false} style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: p.ac }} />
-      <Txt size={13} weight={600} color={p.acd}>{t.nextStepLabel}</Txt>
+      <Txt size={13} weight={600} color={p.acd} testID="next-step-badge">{suggested ? t.nextStepSuggestedLabel : t.nextStepLabel}</Txt>
     </View>
   );
 }
@@ -229,10 +231,11 @@ function Ready({
   // The evening plan before the event is a question to the person, not a
   // reason chip (audit 2026-10-03 #2): it gets its own line, and stays in
   // «ليش هاي بالذات» with the rest.
-  const chipEvidence = evidence.filter((e) => e.code !== 'evening_plan_before_event');
   const eveningItem = evidence.find((e) => e.code === 'evening_plan_before_event');
   const eveningNote = eveningItem ? evidencePhrases([eveningItem], strings, translateCount, formatWhen)[0] ?? null : null;
-  const chips = evidencePhrases(chipEvidence, strings, translateCount, formatWhen);
+  // No evidence chips on the card face: the owner struck them as noise (audit
+  // 2026-10-06, image 1). Every reason, including when an event is, lives in
+  // «ليش هاي بالذات».
   const phrases = evidencePhrases(evidence, strings, translateCount, formatWhen);
   // Preparation for an event (audit 2026-10-03 #2): the card names the
   // preparation, and «حضّرني» on it plans the time for it. The event's own
@@ -273,9 +276,9 @@ function Ready({
   return (
     <>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-        <NextStepBadge />
+        <NextStepBadge suggested />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', flexShrink: 1 }}>
-          {/* Started only. A proposal already says so in `suggestionNote`;
+          {/* Started only. A proposal already says so in its badge;
               a tag saying it again was #17's duplicate (UAT 2026-09-27). */}
           {started ? <Tag kind="started" label={t.nextStepTagStarted} testID="next-step-tag" /> : null}
           {impLabel && item ? <Tag kind={priorityTagKind(item.importance)} label={impLabel} /> : null}
@@ -297,10 +300,11 @@ function Ready({
         </View>
       ) : null}
 
-      {!stacked && (chips.length > 0 || (item && !item.importanceIsStated)) ? (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-evidence">
-          {chips.map((phrase) => <Tag key={phrase} kind="muted" label={phrase} />)}
-          {item && !item.importanceIsStated ? <Tag kind="estimated" label={t.nextStepEvidenceEstimated} /> : null}
+      {/* The estimated-importance tag, at every text size (it used to vanish
+          from the larger sizes up). */}
+      {item && !item.importanceIsStated ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }} testID="next-step-estimated">
+          <Tag kind="estimated" label={t.nextStepEvidenceEstimated} />
         </View>
       ) : null}
 
@@ -403,9 +407,6 @@ function Ready({
         </View>
       )}
 
-      {/* Unconditional. See the header: the contract says nothing has been
-          written, and this is that fact in words. */}
-      <Txt size={13} color={p.mu} align="center" testID="next-step-note">{t.suggestionNote}</Txt>
 
       {/*
         «مش هلّق» asks when, in a sheet (Stitch: «إمتى نرجّعها؟»). Three

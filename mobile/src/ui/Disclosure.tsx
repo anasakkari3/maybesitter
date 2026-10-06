@@ -33,7 +33,7 @@ export function Disclosure({ id, body, children, label, style }: {
   const a11yLabel = label ? `${t.memoryWhy} ${label}` : t.memoryWhy;
 
   return (
-    <View style={[{ gap: 6 }, style]}>
+    <View testID={`${id}-disclosure`} style={[{ gap: 6, alignSelf: 'stretch' }, style]}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
         {children ? <View style={{ flex: 1, minWidth: 0 }}>{children}</View> : <View style={{ flex: 1 }} />}
         <Btn

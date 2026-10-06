@@ -158,9 +158,11 @@ export function Btn({
 type PillKind = 'accent' | 'soft' | 'outline' | 'warm' | 'warmSolid' | 'ink' | 'ghost';
 
 export function Pill({
-  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID, accessibilityLabel,
+  label, onPress, kind = 'accent', style, size = 16, weight = 600, disabled, pad = 16, radius = 999, testID, accessibilityLabel, expanded,
 }: {
   label: string;
+  /** For a pill that opens something below it: said as expanded / collapsed. */
+  expanded?: boolean | undefined;
   /**
    * What a screen reader announces when the visible label alone is ambiguous:
    * a list of pills that all read "Remove" says which one each removes.
@@ -198,6 +200,7 @@ export function Pill({
       label={accessibilityLabel ?? label}
       disabled={disabled}
       testID={testID}
+      {...(expanded !== undefined ? { accessibilityState: { expanded } } : {})}
       style={[
         {
           backgroundColor: l.bg, borderRadius: radius, paddingVertical: pad, paddingHorizontal: 18,

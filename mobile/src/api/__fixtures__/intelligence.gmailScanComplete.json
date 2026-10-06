@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "messagesRead": 1,
+  "observations": [],
+  "scan": {
+    "status": "complete",
+    "messagesVisited": 1
+  }
+}

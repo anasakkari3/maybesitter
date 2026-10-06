@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput, View } from 'react-native';
+import { AccessibilityInfo, Keyboard, Platform, TextInput, View } from 'react-native';
 import {
   analyzeIntelligenceStatement, decideIntelligenceSuggestion,
   generateIntelligenceSuggestions, getIntelligenceInbox, reviewIntelligenceObservation,
@@ -16,6 +16,9 @@ import { formatDate, formatTime } from '../../i18n/format';
 import { useTimeZone } from '../../i18n/timezone';
 import { useApp } from '../../state/AppContext';
 import { Pill, Txt } from '../../ui/primitives';
+import { Disclosure } from '../../ui/Disclosure';
+import { useLayoutMode } from '../../theme/textScale';
+import { LiveRegion } from '../../ui/liveRegion';
 import { ProductSection } from '../../ui/product';
 import { QueryBoundary } from '../../api/ui/QueryBoundary';
 import { isolateAuto } from '../../i18n/bidi';
@@ -28,6 +31,12 @@ import { useConsents } from '../../api/queries';
 const SELF_CONFIRMED_SOURCES: ReadonlySet<string> = new Set(['memory', 'commitment', 'behavior']);
 /** At most this many "is this right?" cards at once, below the suggestions. */
 export const MAX_CONFIRM_CARDS = 4;
+
+/** The three actions the person confirms before they run (owner audit 2026-10-06, image 8). */
+type PanelAction = 'analyze' | 'generate' | 'scan';
+const ACTION_TEST_ID: Record<PanelAction, string> = {
+  analyze: 'intelligence-analyze', generate: 'intelligence-generate', scan: 'intelligence-gmail-scan',
+};
 
 const UNDERSTOOD_KEY = {
   goal: 'xIntelligenceUnderstoodGoal',
@@ -62,13 +71,40 @@ const UNDERSTOOD_KEY = {
  * then what was understood from the person's words and needs a yes or no
  * (never their own saved records), then the ways to tell it more.
  */
-export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: {
+type IntelligencePanelProps = {
   onChanged: () => void;
   autoGenerate?: boolean;
   /** Embedded mode: shown when the loop is off, and a failed read offers Retry. */
   whenOff?: React.ReactNode;
-}) {
-  const { t, p, rtl, lang } = useApp();
+};
+
+/**
+ * One panel per account. Its inbox, draft, answers and status are local
+ * state; keyed by uid, a direct switch from one account to another mounts a
+ * fresh panel, so not a frame of the first account's words is drawn for the
+ * second, and the first account's reads in flight land on an unmounted panel
+ * and are dropped (inspection A3-001; queryLayer's A→B invariant).
+ */
+export function IntelligencePanel(props: IntelligencePanelProps) {
+  const uid = useOptionalAuth()?.user?.uid ?? '';
+  // A new generation whenever a known account gives way to another (or to
+  // signing out) — not when the first account becomes known, which would
+  // read the inbox twice. Set during render, so the old panel never commits
+  // a frame for the new account.
+  const [account, setAccount] = React.useState({ uid, generation: 0 });
+  if (uid !== account.uid) {
+    setAccount({ uid, generation: account.uid ? account.generation + 1 : account.generation });
+  }
+  return <IntelligencePanelForAccount key={account.generation} {...props} />;
+}
+
+function IntelligencePanelForAccount({ onChanged, autoGenerate = false, whenOff }: IntelligencePanelProps) {
+  const { t, tr, p, rtl, lang } = useApp();
+  // One row of three equal buttons at the ordinary sizes; at the larger text
+  // sizes they wrap at their natural widths instead of squeezing the words.
+  const actionStyle = useLayoutMode() === 'normal'
+    ? { flexGrow: 1, flexBasis: 0, minWidth: 0, paddingHorizontal: 8 }
+    : { paddingHorizontal: 14 };
   const uid = useOptionalAuth()?.user?.uid ?? '';
   const consents = useConsents();
   const recommendationsEnabled = consents.data?.recommendations.state === 'granted';
@@ -81,11 +117,52 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   const [editedTitles, setEditedTitles] = React.useState<Record<string, string>>({});
   const [busy, setBusy] = React.useState(false);
   const [gmailScanProgress, setGmailScanProgress] = React.useState<number | null>(null);
+  // Which action's one-line explanation is open, waiting for «كمّل».
+  const [confirming, setConfirming] = React.useState<PanelAction | null>(null);
+  // Opening an explanation moves a screen reader to it, so the person hears
+  // what the action will do and finds «كمّل» next (inspection A2-004).
+  React.useEffect(() => {
+    if (confirming === null) return undefined;
+    const timer = setTimeout(() => {
+      if (explainRef.current) AccessibilityInfo.sendAccessibilityEvent(explainRef.current, 'focus');
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [confirming]);
+  // False once the panel unmounts: a scan stops asking, and nothing more is said.
   const scanMounted = React.useRef(true);
   React.useEffect(() => {
     scanMounted.current = true;
     return () => { scanMounted.current = false; };
   }, []);
+  // The statement as it was when its explanation opened; that is what is sent.
+  const [snapshot, setSnapshot] = React.useState('');
+  // Said aloud: only the start, the result and a failure — never per page.
+  // The line sits in an always-mounted LiveRegion (TalkBack); VoiceOver is
+  // told at the moment of each change, not from an effect, because a fast
+  // answer lands in the same render as «started» and an effect would only
+  // ever see the last of the two.
+  // (`useAnnounceOnIos` is that effect, so it is not used here.) Nothing is
+  // said once the panel has left the screen.
+  const [announced, setAnnounced] = React.useState<string | null>(null);
+  // `spoken` is what VoiceOver hears when it says more than the status line
+  // (a result, then that the list could not refresh — the failure line itself
+  // sits in the live region, which iOS does not read out).
+  const say = React.useCallback((text: string | null, spoken?: string) => {
+    if (!scanMounted.current) return;
+    setAnnounced(text);
+    const heard = spoken ?? text;
+    if (heard && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(heard);
+  }, []);
+  // The action itself succeeded, but re-reading the inbox afterwards did not.
+  const [refreshFailed, setRefreshFailed] = React.useState(false);
+  // What a successful action will say once the inbox can be read again: a
+  // count of new suggestions is only true of a list that is on screen.
+  const pendingResult = React.useRef<((next: IntelligenceInbox) => string | null) | null>(null);
+  // Where a screen reader goes when an action's explanation opens.
+  const explainRef = React.useRef<View>(null);
+  // React state lands a render later; two presses in one frame both see
+  // `busy === false`. This ref is the guard that is set before either returns.
+  const inFlight = React.useRef(false);
   const [gmailMonitor, setGmailMonitor] = React.useState<z.infer<typeof intelligenceGmailMonitorSchema> | null>(null);
   const [error, setError] = React.useState<unknown>(null);
   const read = React.useCallback(async () => {
@@ -99,6 +176,7 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     setInbox(next);
     setGmailMonitor(monitor);
     setPhase('ready');
+    return next;
   }, [read]);
   const load = React.useCallback((alive: () => boolean) => {
     void (async () => {
@@ -141,19 +219,134 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
     })();
     return () => { alive = false; };
   }, [autoGenerate, uid, recommendationsEnabled, phase, refresh]);
+  // A decision on a card. The mutation decides success; a failed re-read of
+  // the inbox afterwards is its own state, retried by re-reading only — never
+  // by sending the decision again.
   const run = async (action: () => Promise<unknown>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
+    say(null);
+    setRefreshFailed(false);
+    pendingResult.current = null;
     try {
-      await action();
-      await refresh();
+      try {
+        await action();
+      } catch (cause) {
+        setError(cause);
+        try { await refresh(); } catch { /* Keep the original action error visible. */ }
+        return;
+      }
       onChanged();
-    } catch (cause) {
-      setError(cause);
-      try { await refresh(); } catch { /* Keep the original action error visible. */ }
+      try { await refresh(); } catch { setRefreshFailed(true); }
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
     }
-    finally { setBusy(false); }
   };
+
+  const openConfirm = (action: PanelAction) => {
+    if (busy || inFlight.current) return;
+    if (action === 'analyze') setSnapshot(draft.trim());
+    // The field is locked now; a keyboard left open covered «كمّل» and
+    // «إلغاء» at the largest text size (Codex simulator run, R-A4).
+    Keyboard.dismiss();
+    setConfirming(action);
+  };
+
+  // One of the three confirmed actions: says it started, runs it once, then
+  // says what came of it.
+  const runConfirmed = async (action: PanelAction) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setConfirming(null);
+    setBusy(true);
+    setError(null);
+    setRefreshFailed(false);
+    pendingResult.current = null;
+    say(action === 'analyze' ? t.xIntelligenceAnalyzing : action === 'generate' ? t.xIntelligenceGenerating : t.xIntelligenceGmailScanStarted);
+    try {
+      // Null when the result cannot be said truthfully: the refresh failed, so
+      // nothing new is visible to point at.
+      let result: (next: IntelligenceInbox | null) => string | null;
+      try {
+        if (action === 'analyze') {
+          const sent = snapshot;
+          const answer = await analyzeIntelligenceStatement(sent);
+          // Cleared only if the field still holds what was sent.
+          setDraft(current => (current.trim() === sent ? '' : current));
+          result = () => tr('xIntelligenceUnderstoodN', { n: answer.observations.length });
+        } else if (action === 'generate') {
+          const before = new Set((shown.current?.suggestions ?? []).filter(item => item.status === 'pending').map(item => item.id));
+          const answer = await generateIntelligenceSuggestions();
+          // Only what this request returned and was not on screen before counts:
+          // a reused run, or the Watching visit landing meanwhile, adds nothing.
+          // (A run another device completed between the last read and this
+          // request is not told apart yet: that needs run provenance from the
+          // route — deferred to M3.)
+          const returned = new Set(answer.suggestions.filter(item => item.status === 'pending' && !before.has(item.id)).map(item => item.id));
+          result = next => next ? tr('xIntelligenceNewSuggestionsN', {
+            n: next.suggestions.filter(item => item.status === 'pending' && returned.has(item.id)).length,
+          }) : null;
+        } else {
+          let status: 'running' | 'complete' | 'busy' = 'running';
+          let visited = 0;
+          setGmailScanProgress(0);
+          while (scanMounted.current && status !== 'complete') {
+            const answer = await scanGmailForIntelligence();
+            status = answer.scan.status;
+            visited = answer.scan.messagesVisited;
+            if (scanMounted.current) setGmailScanProgress(visited);
+            if (status === 'busy') await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+          // Left the screen mid-scan: the scan is not done, so it is not said to be.
+          if (status !== 'complete') return;
+          result = () => tr('xIntelligenceGmailScanDone', { count: visited });
+        }
+      } catch (cause) {
+        setError(cause);
+        say(userFacingMessage(cause, t));
+        try { await refresh(); } catch { /* Keep the action's own error visible. */ }
+        return;
+      }
+      onChanged();
+      let next: IntelligenceInbox | null = null;
+      let refreshed = true;
+      try { next = await refresh(); } catch { setRefreshFailed(true); refreshed = false; }
+      const said = result(next);
+      if (said === null) {
+        // Nothing true to count yet: the failure line (inside the live
+        // region) says why, and a successful retry says the result.
+        pendingResult.current = result;
+        say(null);
+        if (Platform.OS === 'ios' && scanMounted.current) AccessibilityInfo.announceForAccessibility(t.xIntelligenceRefreshFailed);
+      } else {
+        say(said, refreshed ? undefined : `${said} ${t.xIntelligenceRefreshFailed}`);
+      }
+    } finally {
+      inFlight.current = false;
+      setGmailScanProgress(null);
+      setBusy(false);
+    }
+  };
+
+  const retryRefresh = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      const next = await refresh();
+      setRefreshFailed(false);
+      const pending = pendingResult.current;
+      pendingResult.current = null;
+      if (pending) say(pending(next));
+    } catch { /* Still failing: the line stays. */ } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  };
+
   if (phase === 'off') return whenOff === undefined ? null : <>{whenOff}</>;
   if (whenOff !== undefined && phase !== 'ready') {
     return <QueryBoundary isPending={phase === 'loading'} error={phase === 'failed' ? loadError : null} onRetry={() => { setPhase('loading'); load(() => true); }}>{null}</QueryBoundary>;
@@ -161,8 +354,8 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
   if (phase !== 'ready' || !inbox) return null;
   const evidence = new Map(inbox.observations.map(item => [item.id, item.evidence]));
   const schedule = new Map(inbox.schedule.map(item => [item.suggestionId, item]));
-  return <ProductSection title={t.xIntelligenceTitle} body={t.xIntelligenceBody} icon="goal">
-    {error ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
+  return <ProductSection title={t.xIntelligenceTitle} why={{ id: 'intelligence-panel', body: t.xIntelligenceBody }} icon="goal">
+    {error && announced === null ? <Txt role="supporting" color={p.wm}>{userFacingMessage(error, t)}</Txt> : null}
     {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').length === 0
       ? <Txt role="supporting">{t.xIntelligenceNoIdeas}</Txt> : null}
     {recommendationsEnabled && inbox.suggestions.filter(item => item.status === 'pending').map(item => <View key={item.id} testID={`intelligence-suggestion-${item.id}`}>
@@ -219,31 +412,49 @@ export function IntelligencePanel({ onChanged, autoGenerate = false, whenOff }: 
       accessibilityLabel={t.xIntelligenceTitle}
       value={draft}
       onChangeText={setDraft}
+      editable={!busy && confirming === null}
       placeholder={t.xIntelligencePlaceholder}
       placeholderTextColor={p.mu}
       maxLength={2000}
       multiline
       style={{ color: p.tx, backgroundColor: p.bg, padding: 14, minHeight: 60, borderRadius: 14, fontSize: 17, textAlign: rtl ? 'right' : 'left' }}
     />
-    <Pill testID="intelligence-analyze" label={t.xIntelligenceAnalyze} disabled={busy || !draft.trim()} onPress={() => void run(async () => {
-      await analyzeIntelligenceStatement(draft.trim());
-      setDraft('');
-    })} />
-    {recommendationsEnabled ? <Pill testID="intelligence-generate" label={t.xIntelligenceGenerate} disabled={busy || inbox.observations.length === 0} onPress={() => void run(() => generateIntelligenceSuggestions())} /> : null}
-    <Pill testID="intelligence-gmail-scan" label={t.xIntelligenceGmailScan} kind="outline" disabled={busy} onPress={() => void run(async () => {
-      let status: 'running' | 'complete' | 'busy' = 'running';
-      while (scanMounted.current && status !== 'complete') {
-        const answer = await scanGmailForIntelligence();
-        status = answer.scan.status;
-        if (scanMounted.current) setGmailScanProgress(answer.scan.messagesVisited);
-        if (status === 'busy') await new Promise(resolve => setTimeout(resolve, 1500));
-      }
-      if (status === 'complete' && scanMounted.current) setGmailScanProgress(null);
-    })} />
-    {gmailScanProgress !== null ? <View accessibilityLiveRegion="polite"><Txt role="supporting">{fill(t.xIntelligenceGmailScanProgress, { count: gmailScanProgress })}</Txt></View> : null}
-    <Txt role="supporting">{t.xIntelligenceGmailMonitorInfo}</Txt>
-    <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
-      kind="outline" disabled={busy || gmailMonitor === null} onPress={() => void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled))} />
+    {/* Three small actions in a row, each named for what it does. A press
+        opens a one-line explanation; only «كمّل» runs it. */}
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+      <Pill style={actionStyle} testID={ACTION_TEST_ID.analyze} label={t.xIntelligenceAnalyze} size={13} pad={10} kind={confirming === 'analyze' ? 'accent' : 'outline'} expanded={confirming === 'analyze'}
+        disabled={busy || !draft.trim()} onPress={() => openConfirm('analyze')} />
+      {recommendationsEnabled ? <Pill style={actionStyle} testID={ACTION_TEST_ID.generate} label={t.xIntelligenceGenerate} size={13} pad={10} kind={confirming === 'generate' ? 'accent' : 'outline'} expanded={confirming === 'generate'}
+        disabled={busy || inbox.observations.length === 0} onPress={() => openConfirm('generate')} /> : null}
+      <Pill style={actionStyle} testID={ACTION_TEST_ID.scan} label={t.xIntelligenceGmailScan} size={13} pad={10} kind={confirming === 'scan' ? 'accent' : 'outline'} expanded={confirming === 'scan'}
+        disabled={busy} onPress={() => openConfirm('scan')} />
+    </View>
+    {confirming ? <View testID="intelligence-confirm" style={{ gap: 10, backgroundColor: p.sf2, borderRadius: 14, padding: 12 }}>
+      <View ref={explainRef} accessible testID="intelligence-confirm-explain"><Txt role="supporting">{confirming === 'analyze' ? t.xIntelligenceAnalyzeExplain : confirming === 'generate' ? t.xIntelligenceGenerateExplain : t.xIntelligenceGmailScanExplain}</Txt></View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+        <Pill testID={`${ACTION_TEST_ID[confirming]}-confirm`} label={t.xIntelligenceRun} size={14} pad={12} disabled={busy}
+          onPress={() => void runConfirmed(confirming)} />
+        <Pill testID={`${ACTION_TEST_ID[confirming]}-cancel`} label={t.cancel} kind="outline" size={14} pad={12}
+          onPress={() => setConfirming(null)} />
+      </View>
+    </View> : null}
+    {/* One region for what the panel says: the status, and a failed refresh
+        with its retry — said once, never repeated in a second line. */}
+    <LiveRegion testID="intelligence-status">
+      {announced || refreshFailed ? <View style={{ gap: 8 }}>
+      {announced ? <Txt role="supporting" testID="intelligence-status-text">{announced}</Txt> : null}
+      {refreshFailed ? <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+        <Txt role="supporting" color={p.wm} testID="intelligence-refresh-failed">{t.xIntelligenceRefreshFailed}</Txt>
+        <Pill testID="intelligence-refresh-retry" label={t.errorsRetry} kind="outline" size={14} pad={12} disabled={busy} onPress={() => void retryRefresh()} />
+      </View> : null}
+      </View> : null}
+    </LiveRegion>
+    {gmailScanProgress !== null && gmailScanProgress > 0
+      ? <Txt role="supporting" color={p.mu} testID="intelligence-gmail-progress">{tr('xIntelligenceGmailScanProgress', { count: gmailScanProgress })}</Txt> : null}
+    <Disclosure id="intelligence-gmail-monitor-info" body={t.xIntelligenceGmailMonitorInfo} label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}>
+      <Pill testID="intelligence-gmail-monitor" label={gmailMonitor?.enabled ? t.xIntelligenceGmailMonitorOff : t.xIntelligenceGmailMonitorOn}
+        kind="outline" disabled={busy || gmailMonitor === null} onPress={() => void run(() => setGmailIntelligenceMonitor(!gmailMonitor?.enabled))} />
+    </Disclosure>
     {gmailMonitor?.error ? <Txt role="supporting" color={p.wm}>{t.xIntelligenceGmailMonitorError}</Txt> : null}
   </ProductSection>;
 }
