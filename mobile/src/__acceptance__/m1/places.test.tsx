@@ -87,6 +87,7 @@ beforeEach(async () => {
   repository = createFakeAuthRepository({ initialUser: USER });
   setAuthRepository(repository);
   announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
+  (Linking.openURL as jest.Mock).mockClear();
   jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
   fetchCalls = [];
   global.fetch = jest.fn(async (...args: unknown[]) => {
