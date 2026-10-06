@@ -82,7 +82,7 @@ export function UnderstoodMessage({ proposal, points, edits, onOpen }: {
     </Btn>;
   }
 
-  return <View testID="understood-list" accessibilityRole="list" style={{ alignSelf: 'stretch', gap: 4 }}>
+  return <View testID="understood-list" accessibilityRole="list" accessible={false} style={{ alignSelf: 'stretch', gap: 4 }}>
     {lines.map((line, index) => <Pressable key={line.key} testID={`understood-line-${index + 1}`}
       accessibilityRole="button" accessibilityLabel={line.label} accessibilityHint={t.understoodLineHint}
       onPress={() => onOpen(line.target)}
