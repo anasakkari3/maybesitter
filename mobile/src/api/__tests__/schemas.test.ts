@@ -200,6 +200,9 @@ const CASES: Array<[string, z.ZodType]> = [
   ['capture.chatEditWords', captureChatSchema],
   ['capture.chatCorrection', captureChatSchema],
   ['capture.chatEditStale', proposalChangedChatSchema],
+  // Contract v5: a protected point a later message removed, and bringing it back.
+  ['capture.chatRemovedLocked', captureChatSchema],
+  ['capture.chatEditRestore', captureChatSchema],
   ['capture.chatNotFound', captureChatRefusalSchema],
   ['capture.chatTooLong', captureChatRefusalSchema],
   ['commitments.today', commitmentListSchema],
