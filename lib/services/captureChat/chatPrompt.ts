@@ -17,8 +17,9 @@ import { captureItemRuleLines } from '../../../src/extraction/ollamaExtractor';
 import type { ExtractionContext } from '../../../src/extraction/extractionTypes';
 import { CAPTURE_CHAT_ACTIONS } from '../../../src/extraction/ollamaExtractionSchema';
 import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
-import { dayPartHour } from '../../../src/extraction/timeLexicon';
-import { chatTimeAllowance } from '../captureBoundary/chatEvidence';
+import { dayPartHour, hourWithDayPart, localTimeSpecFor } from '../../../src/extraction/timeLexicon';
+import { readRecurrence } from '../../../src/extraction/weekdayLexicon';
+import { chatTimeAllowance, contentWords, sameWord } from '../captureBoundary/chatEvidence';
 import type { ChatLanguage } from './chatReply';
 import type { CaptureChatTurn } from './conversationStore';
 import type { ScheduleEntryForPrompt } from './chatConflicts';
@@ -309,15 +310,47 @@ function citationsMustShareWords(left: readonly Set<number>[], right: readonly S
     && left.every((a) => right.every((b) => Array.from(a).some((word) => b.has(word))));
 }
 
-function modelClock(fields: unknown): { date: string | null; time: string | null } {
+function modelClock(fields: unknown, timezone: string): { date: string | null; time: string | null } {
   if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return { date: null, time: null };
-  const spec = (fields as Record<string, unknown>).localTimeSpec;
-  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) return { date: null, time: null };
-  const record = spec as Record<string, unknown>;
+  const fieldsRecord = fields as Record<string, unknown>;
+  const spec = fieldsRecord.localTimeSpec;
+  const record = spec && typeof spec === 'object' && !Array.isArray(spec)
+    ? spec as Record<string, unknown>
+    : null;
+  const instant = [fieldsRecord.remindAt, fieldsRecord.dueAt]
+    .find((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)));
+  const derived = instant ? localTimeSpecFor(new Date(instant), timezone) : null;
   return {
-    date: typeof record.date === 'string' ? record.date : null,
-    time: typeof record.time === 'string' ? record.time : null,
+    date: typeof record?.date === 'string' ? record.date : derived?.date ?? null,
+    time: typeof record?.time === 'string' ? record.time : derived?.time ?? null,
   };
+}
+
+function itemWords(fields: unknown): string[] {
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return [];
+  const record = fields as Record<string, unknown>;
+  return [record.title, record.action, record.appTitle]
+    .filter((value): value is string => typeof value === 'string')
+    .flatMap((value) => contentWords(value));
+}
+
+/** A cited clock and a named point must belong to the operation that carries them. */
+function operationFactsAgree(operations: readonly CitationOperation[], timezone: string): boolean {
+  const factual = operations.filter((operation) => operation.required && operation.fields !== undefined);
+  for (const operation of factual) {
+    const source = String(operation.source);
+    const statedClock = hourWithDayPart(source);
+    const sentClock = modelClock(operation.fields, timezone).time;
+    if (statedClock && statedClock !== 'ambiguous' && sentClock !== null && statedClock !== sentClock) return false;
+
+    const ownWords = itemWords(operation.fields);
+    const sourceWords = contentWords(source);
+    const namesOwn = ownWords.some((word) => sourceWords.some((candidate) => sameWord(word, candidate)));
+    const namesAnother = factual.some((other) => other !== operation
+      && itemWords(other.fields).some((word) => sourceWords.some((candidate) => sameWord(word, candidate))));
+    if (!namesOwn && namesAnother) return false;
+  }
+  return true;
 }
 
 /**
@@ -331,6 +364,7 @@ function sharedUpdateFactsAreUniform(
   candidates: readonly Set<number>[][],
   now: Date,
   timezone: string,
+  amPmAskedRefs: ReadonlySet<string>,
 ): boolean {
   for (let left = 0; left < operations.length; left += 1) {
     const a = operations[left]!;
@@ -342,13 +376,16 @@ function sharedUpdateFactsAreUniform(
       const clocks = new Set(clockTimesIn(source).map(({ hour, minute }) => `${hour}:${minute}`));
       const dateAllowance = chatTimeAllowance([source], now, timezone);
       const dates = dateAllowance.namedDates;
-      if (clocks.size > 1 || dates.size > 1) return false;
+      const recurring = (readRecurrence(source)?.weekdays.length ?? 0) > 1;
+      if (clocks.size > 1 || (dates.size > 1 && !recurring)) return false;
       const sourceHasTime = clocks.size > 0 || dayPartHour(source) !== null;
       const sourceHasDate = dates.size > 0 || dateAllowance.anyDate;
-      const aClock = modelClock(a.fields);
-      const bClock = modelClock(b.fields);
-      if (sourceHasTime && aClock.time !== null && bClock.time !== null && aClock.time !== bClock.time) return false;
-      if (sourceHasDate && aClock.date !== null && bClock.date !== null && aClock.date !== bClock.date) return false;
+      const aClock = modelClock(a.fields, timezone);
+      const bClock = modelClock(b.fields, timezone);
+      const sharedAmPmAnswer = clocks.size === 0 && dayPartHour(source) !== null
+        && amPmAskedRefs.has(a.key) && amPmAskedRefs.has(b.key);
+      if (sourceHasTime && !sharedAmPmAnswer && aClock.time !== null && bClock.time !== null && aClock.time !== bClock.time) return false;
+      if (sourceHasDate && !recurring && aClock.date !== null && bClock.date !== null && aClock.date !== bClock.date) return false;
     }
   }
   return true;
@@ -361,7 +398,7 @@ function sharedUpdateFactsAreUniform(
 export function validateChatCitations(
   answer: ChatModelAnswer,
   newestMessage: string,
-  context: { now: Date; timezone: string },
+  context: { now: Date; timezone: string; amPmAskedRefs?: ReadonlySet<string> },
 ): ValidatedChatCitations | null {
   const updates = answer.open.filter((operation) => operation.op === 'update');
   const added = answer.added.map((entry) => {
@@ -375,7 +412,7 @@ export function validateChatCitations(
     ...answer.open.filter((operation) => operation.op === 'remove' && operation.source !== undefined)
       .map((operation) => ({ key: operation.ref, source: operation.source, required: false, kind: 'remove' as const })),
     ...updates.map((operation) => ({ key: operation.ref, source: operation.source, required: true, kind: 'update' as const, fields: operation.fields })),
-    ...added.map((entry, index) => ({ key: `added:${index}`, source: entry.source, required: true, kind: 'added' as const })),
+    ...added.map((entry, index) => ({ key: `added:${index}`, source: entry.source, required: true, kind: 'added' as const, fields: entry.fields })),
   ];
   const required = operations.filter((operation) => operation.required);
   if (required.length === 1 && required[0]!.source === undefined) required[0]!.source = newestMessage;
@@ -395,7 +432,8 @@ export function validateChatCitations(
     candidates.push(occurrences);
   }
   if (!citationsCanCoexist(operations, candidates)) return null;
-  if (!sharedUpdateFactsAreUniform(operations, candidates, context.now, context.timezone)) return null;
+  if (!operationFactsAgree(operations, context.timezone)) return null;
+  if (!sharedUpdateFactsAreUniform(operations, candidates, context.now, context.timezone, context.amPmAskedRefs ?? new Set())) return null;
   return {
     added: added.map((entry) => entry.fields),
     deltaSources: [

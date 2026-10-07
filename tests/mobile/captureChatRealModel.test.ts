@@ -98,10 +98,13 @@ function replay(answers: readonly unknown[]): { provider: LLMProviderFunction; c
 function explicitCitations(
   answers: readonly unknown[],
   byTurn: readonly (Array<string | null> | undefined)[],
+  expectedKeepsByTurn: readonly (number[] | undefined)[] = [],
 ): unknown[] {
-  return answers.map((answer, index) => byTurn[index]
-    ? { ...(answer as Record<string, unknown>), sources: byTurn[index] }
-    : answer);
+  return answers.map((answer, index) => ({
+    ...(answer as Record<string, unknown>),
+    ...(byTurn[index] ? { sources: byTurn[index] } : {}),
+    ...(expectedKeepsByTurn[index] ? { expectedKeeps: expectedKeepsByTurn[index] } : {}),
+  }));
 }
 
 /** Replay a live turn that fell back to rules as a model outage, without shifting later answers. */
@@ -1074,7 +1077,7 @@ const RETITLED_BY_REF = [
 for (const [label, answers] of [
   ['as the model usually answers', explicitCitations(REAL.engagements, [undefined, [null, 'التانية الساعة 7']])],
   ['the recorded ref update retitles the second', RETITLED_BY_REF],
-  ['the model moved the first to 09:00', explicitCitations(REAL.engagementsFirstMoved, [undefined, [null, 'التانية الساعة 7']])],
+  ['the model moved the first to 09:00', explicitCitations(REAL.engagementsFirstMoved, [undefined, [null, 'التانية الساعة 7']], [undefined, [0]])],
 ] as const) {
   for (const locale of [undefined, 'ar'] as const) test(`«لا خلّي التانية الساعة 7» asks AM or PM for the second (${label}${locale ? ', app in Arabic' : ''})`, async () => {
     begin(replay(answers).provider);

@@ -48,6 +48,7 @@ import { resolveModuleRuntime, type RuntimeControlSnapshot } from '../../../src/
 import { screenForInjection } from '../../../src/extraction/injectionBoundary';
 import { CAPTURE_MIN_CALL_TIMEOUT_MS, LLMUnavailableError, type LLMProviderFunction } from '../../../src/extraction/llm/llmProvider';
 import { dayPartHour, instantFromLocal, localTimeSpecFor, typedHalfOfDay } from '../../../src/extraction/timeLexicon';
+import { clockTimesIn } from '../../../src/extraction/ruleBasedExtractor';
 import { geminiChatSchemaFor } from '../../../src/extraction/ollamaExtractionSchema';
 import { getAiConsent } from '../../consents/aiConsentService';
 import { CHAT_TIMEOUT_MS, captureLlmProvider } from '../../llm/captureProvider';
@@ -84,7 +85,28 @@ const CHAT_AFTER_MODEL_RESERVE_MS = 1_500;
  * failed without answering, and not for a reason another call would repeat.
  */
 const CHAT_RETRY_REASONS: ReadonlySet<string> = new Set(['server_error', 'unavailable', 'provider_error']);
-const EXPLICIT_PRIORITY = /\b(?:urgent|important|critical|must|have to)\b|(?:^|\s)(?:ضروري|مهم|عاجل|لازم)(?=\s|$)|(?:^|\s)(?:דחוף|חשוב|חייב|חייבת)(?=\s|$)/i;
+const EXPLICIT_PRIORITY = /\b(?:urgent|important|critical|must|have to|top priority|high priority|low priority)\b|(?:^|\s)(?:ضروري|مهم|عاجل|لازم)(?=\s|$)|(?:^|\s)(?:דחוף|חשוב|חייב|חייבת)(?=\s|$)/i;
+
+function citedSpanStatesPriority(message: string, source: unknown): boolean {
+  if (typeof source !== 'string') return EXPLICIT_PRIORITY.test(message);
+  const folded = (text: string) => text.normalize('NFKC').toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0591-\u05C7\u0640]/g, '')
+    .replace(/\s+/g, ' ').trim();
+  return folded(message).includes(folded(source)) && EXPLICIT_PRIORITY.test(source);
+}
+
+function modelClockFrom(fields: Record<string, unknown>, timezone: string): { date: string | null; time: string | null } {
+  const spec = fields.localTimeSpec && typeof fields.localTimeSpec === 'object' && !Array.isArray(fields.localTimeSpec)
+    ? fields.localTimeSpec as Record<string, unknown>
+    : null;
+  const instant = [fields.remindAt, fields.dueAt]
+    .find((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)));
+  const derived = instant ? localTimeSpecFor(new Date(instant), timezone) : null;
+  return {
+    date: typeof spec?.date === 'string' ? spec.date : derived?.date ?? null,
+    time: typeof spec?.time === 'string' ? spec.time : derived?.time ?? null,
+  };
+}
 
 function visibleProposalState(proposal: CaptureChatProposal | null): unknown {
   return {
@@ -530,11 +552,7 @@ export async function chatMobileCapture(
       if (!before) return false;
       const fields = operation.fields as Record<string, unknown>;
       if (Object.prototype.hasOwnProperty.call(fields, 'corrections')) return false;
-      const spec = fields.localTimeSpec && typeof fields.localTimeSpec === 'object'
-        ? fields.localTimeSpec as Record<string, unknown>
-        : null;
-      const instant = [fields.remindAt, fields.dueAt].find((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)));
-      const derivedSpec = !spec && instant ? localTimeSpecFor(new Date(instant), timezone) : null;
+      const clock = modelClockFrom(fields, timezone);
       const title = typeof fields.title === 'string' ? fields.title : typeof fields.action === 'string' ? fields.action : '';
       const appTitle = typeof fields.appTitle === 'string' ? fields.appTitle : undefined;
       const kind = typeof fields.kind === 'string' ? fields.kind : undefined;
@@ -543,12 +561,12 @@ export async function chatMobileCapture(
       const sameStoredField = (key: 'priority' | 'rangeMinutes' | 'recurrenceHint' | 'allDay'): boolean =>
         !Object.prototype.hasOwnProperty.call(fields, key)
         || JSON.stringify(fields[key]) === JSON.stringify(stored?.[key])
-        || (key === 'priority' && !EXPLICIT_PRIORITY.test(message));
+        || (key === 'priority' && !citedSpanStatesPriority(message, operation.source));
       return title.trim() === before.title
         && (appTitle === undefined || appTitle === before.appTitle)
         && (kind === undefined ? before.kind === undefined : kind === before.kind)
-        && (typeof spec?.date === 'string' ? spec.date : derivedSpec?.date ?? null) === before.date
-        && (typeof spec?.time === 'string' ? spec.time : derivedSpec?.time ?? null) === before.time
+        && clock.date === before.date
+        && clock.time === before.time
         && sameStoredField('priority')
         && sameStoredField('rangeMinutes')
         && sameStoredField('recurrenceHint')
@@ -558,7 +576,11 @@ export async function chatMobileCapture(
     const open = answer.open.map((operation) => noOpRefs.has(operation.ref)
       ? { ref: operation.ref, op: 'keep' as const }
       : operation);
-    const cited = current ? validateChatCitations({ ...answer, open }, message, { now, timezone }) : null;
+    const amPmAskedRefs = new Set(listed.filter((item) => {
+      const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === item.ref)?.[0] : undefined;
+      return entityId && current?.items.find((entry) => entry.itemId === entityId)?.clarification?.questionKey === 'ask_am_pm';
+    }).map((item) => item.ref));
+    const cited = current ? validateChatCitations({ ...answer, open }, message, { now, timezone, amPmAskedRefs }) : null;
     if (current && !cited) {
       return finish(templateReply({ language, proposal: current, editFailed: true }), 'model', current, turns, { conflictsKnown: true });
     }
@@ -571,8 +593,10 @@ export async function chatMobileCapture(
       const stored = entityId ? read?.resultsByItemId.get(entityId) : undefined;
       const half = card?.clarification?.questionKey === 'ask_am_pm' ? typedHalfOfDay(source) : null;
       const askedTime = stored?.localTimeSpec?.time;
-      const date = stored?.localTimeSpec?.date;
-      if (!half || !askedTime || !date) return operation;
+      if (!half || !askedTime || clockTimesIn(source).length > 0) return operation;
+      const fields = operation.fields as Record<string, unknown>;
+      const date = modelClockFrom(fields, timezone).date ?? stored?.localTimeSpec?.date;
+      if (!date) return operation;
       const statedHour = Number(askedTime.slice(0, 2)) % 12;
       // This is an answer to the card's binary AM/PM question: every evening
       // or night form selects that card's PM option, preserving the minute.
@@ -580,7 +604,6 @@ export async function chatMobileCapture(
       const time = `${String(hour).padStart(2, '0')}:${askedTime.slice(3, 5)}`;
       const instant = instantFromLocal(date, time, timezone)?.toISOString();
       if (!instant) return operation;
-      const fields = operation.fields as Record<string, unknown>;
       return {
         ...operation,
         fields: {
@@ -598,7 +621,7 @@ export async function chatMobileCapture(
       const entityId = read ? Object.entries(read.refs).find(([, ref]) => ref === operation.ref)?.[0] : undefined;
       const card = entityId ? current?.items.find((item) => item.itemId === entityId) : undefined;
       const source = cited?.deltaSources[index] ?? message;
-      if (card?.clarification?.questionKey !== 'ask_am_pm' || !typedHalfOfDay(source)) return null;
+      if (card?.clarification?.questionKey !== 'ask_am_pm' || !typedHalfOfDay(source) || clockTimesIn(source).length > 0) return null;
       const spec = operation.fields && typeof operation.fields === 'object' && !Array.isArray(operation.fields)
         ? (operation.fields as Record<string, unknown>).localTimeSpec
         : null;
@@ -678,18 +701,12 @@ export async function chatMobileCapture(
     }
     const listChanged = JSON.stringify(visibleProposalState(current)) !== JSON.stringify(visibleProposalState(proposal));
     const after = proposal ? await readMobileChatProposal(proposal.proposalId, uid) : null;
-    const modelClock = (fields: Record<string, unknown>): { date: string | null; time: string | null } => {
-      const spec = fields.localTimeSpec && typeof fields.localTimeSpec === 'object'
-        ? fields.localTimeSpec as Record<string, unknown>
-        : null;
-      const instant = [fields.remindAt, fields.dueAt]
-        .find((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)));
-      const derived = !spec && instant ? localTimeSpecFor(new Date(instant), timezone) : null;
-      return {
-        date: typeof spec?.date === 'string' ? spec.date : derived?.date ?? null,
-        time: typeof spec?.time === 'string' ? spec.time : derived?.time ?? null,
-      };
-    };
+    const modelClock = (fields: Record<string, unknown>): { date: string | null; time: string | null } =>
+      modelClockFrom(fields, timezone);
+    const updateSourceByRef = new Map(modelUpdates.map((operation, index) => [
+      operation.ref,
+      cited?.deltaSources[index] ?? message,
+    ]));
     const partlyAppliedUpdate = (operation: (typeof answer.open)[number]): boolean => {
       if (operation.op !== 'update' || noOpRefs.has(operation.ref)
         || !operation.fields || typeof operation.fields !== 'object' || Array.isArray(operation.fields)) return false;
@@ -722,7 +739,7 @@ export async function chatMobileCapture(
       if (desiredClock.date !== beforeClock.date && actualClock.date !== desiredClock.date) return true;
       if (desiredClock.time !== beforeClock.time && actualClock.time !== desiredClock.time) return true;
       for (const key of ['priority', 'rangeMinutes', 'recurrenceHint', 'allDay'] as const) {
-        if (key === 'priority' && !EXPLICIT_PRIORITY.test(message)) continue;
+        if (key === 'priority' && !EXPLICIT_PRIORITY.test(updateSourceByRef.get(operation.ref) ?? '')) continue;
         if (JSON.stringify(fields[key]) !== JSON.stringify(beforeResult?.[key])
           && JSON.stringify(actualResult?.[key]) !== JSON.stringify(fields[key])) return true;
       }

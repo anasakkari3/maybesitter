@@ -101,8 +101,14 @@ function item(title: string, date: string | null, time: string | null, extra: Re
   };
 }
 
-function answer(reply: string, action: 'propose' | 'update' | 'ask' | 'chat', items: unknown[], sources?: Array<string | null>): RecordedFullListAnswer {
-  return recordedFullListAnswer(reply, action, items, sources);
+function answer(
+  reply: string,
+  action: 'propose' | 'update' | 'ask' | 'chat',
+  items: unknown[],
+  sources?: Array<string | null>,
+  expectedKeeps?: number[],
+): RecordedFullListAnswer {
+  return recordedFullListAnswer(reply, action, items, sources, expectedKeeps);
 }
 
 /** A scripted model: answers in order, and keeps every prompt it was sent. */
@@ -281,7 +287,7 @@ test('«خلّيها الساعة 6 المسا» moves the time, and the reply s
 
 /* ── 3. an hour or a day nobody said ────────────────────────────── */
 
-test('a cited hour wins over a different model hour', async () => {
+test('a cited hour that disagrees with the model hour rolls the edit back', async () => {
   // The person said 5pm and then 6pm for the dentist; the model put it at
   // 7pm. The conversation states times, so the validator's "no time at all"
   // rule does not fire, and with two hours said its "the words' hour wins"
@@ -297,9 +303,10 @@ test('a cited hour wins over a different model hour', async () => {
     const first = await chat(uid, 'Remind me to call the dentist tomorrow at 5pm');
     const body = await chat(uid, 'hmm, or maybe 6pm', first.conversationId);
     const [dentist] = body.proposal!.items;
-    assert.equal(dentist!.resolvedTime, instant(TOMORROW, '18:00'), 'the citation\'s 18:00 was not applied');
+    assert.equal(dentist!.resolvedTime, instant(TOMORROW, '17:00'), 'a disagreeing model/citation hour was applied');
     assert.equal(dentist!.needsClarification, false);
     assert.equal(dentist!.resolvedDate, TOMORROW, 'the day the person did say was lost with the hour');
+    assert.match(body.reply, /couldn't apply/i);
   } finally {
     end();
   }
@@ -396,11 +403,11 @@ test('an edit to one item never gives the other item its day', async () => {
     // The model moves the dentist and leaves Sara with nothing.
     answer('Dentist moved to 5 PM. What day and time is the meeting with Sara?', 'update', [
       item('Dentist appointment', friday, '17:00'), item('Meeting with Sara', null, null, { person: 'Sara', ambiguityFlags: ['vague_time'] }),
-    ], ['make the dentist 5pm', null]),
+    ], ['make the dentist 5pm', null], [1]),
     // Or it gives Sara the dentist's Friday outright.
     answer('Dentist at 5 PM. Confirm below.', 'update', [
       item('Dentist appointment', friday, '17:00'), item('Meeting with Sara', friday, '09:00', { person: 'Sara' }),
-    ], ['make the dentist 5pm please', null]),
+    ], ['make the dentist 5pm please', null], [1]),
   );
   begin({ llmProviderFor: () => model.provider });
   try {
@@ -708,7 +715,7 @@ for (const [label, first, removal] of [
       ]),
       answer(label === 'ar' ? 'تمام، شلت التانية. شوفها وأكّد.' : 'Okay, just the dentist now. Confirm if right.', 'update', [
         item(dentist, TOMORROW, '17:00'),
-      ]),
+      ], undefined, label === 'ar' ? [0] : undefined),
     );
     begin({ llmProviderFor: () => model.provider });
     try {
@@ -1332,4 +1339,25 @@ test('the chat prompt names the reply language from the server\u2019s reading, i
   } finally {
     end();
   }
+});
+
+test('recorded full-list fixtures never silently turn an uncited changed item into keep', () => {
+  const prompt = buildChatPrompt(
+    [{ role: 'user', text: 'make the dentist 5pm' }],
+    [
+      { ref: 'i1', locked: false, title: 'Dentist', date: TOMORROW, time: '16:00', needsDayOrTime: false },
+      { ref: 'i2', locked: false, title: 'Meeting with Sara', date: DAY_AFTER, time: '09:00', needsDayOrTime: false },
+    ],
+    { now: new Date(), timezone: TZ },
+  );
+  const changed = [item('Dentist', TOMORROW, '17:00'), item('Meeting with Sara', TOMORROW, '09:00')];
+  assert.throws(
+    () => renderRefModelAnswer(recordedFullListAnswer('Done.', 'update', changed, ['make the dentist 5pm', null]), prompt),
+    /missing an explicit citation for item 2/,
+  );
+  const explicitKeep = JSON.parse(renderRefModelAnswer(
+    recordedFullListAnswer('Done.', 'update', changed, ['make the dentist 5pm', null], [1]),
+    prompt,
+  )) as { open: Array<{ ref: string; op: string }> };
+  assert.deepEqual(explicitKeep.open.map(({ ref, op }) => [ref, op]), [['i1', 'update'], ['i2', 'keep']]);
 });

@@ -227,7 +227,7 @@ function chatOperationIndex(item: unknown): number | null {
   return Number.isInteger(value) && Number(value) >= 0 ? Number(value) : null;
 }
 
-const EXPLICIT_PRIORITY = /\b(?:urgent|important|critical|must|have to)\b|(?:^|\s)(?:ضروري|مهم|عاجل|لازم)(?=\s|$)|(?:^|\s)(?:דחוף|חשוב|חייב|חייבת)(?=\s|$)/i;
+const EXPLICIT_PRIORITY = /\b(?:urgent|important|critical|must|have to|top priority|high priority|low priority)\b|(?:^|\s)(?:ضروري|مهم|عاجل|لازم)(?=\s|$)|(?:^|\s)(?:דחוף|חשוב|חייב|חייבת)(?=\s|$)/i;
 
 /**
  * An update begins with the stored point. Only fields supported by this

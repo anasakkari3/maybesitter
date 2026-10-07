@@ -145,8 +145,8 @@ const SECOND_AS_PRODUCTION = (prompt: string) => prompt.includes('"ref":"s1"') ?
   locked: [],
   open: [
     { ref: 's1', op: 'keep' },
-    { ref: 'i1', op: 'update', fields: item('Study every Tuesday and Thursday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
-    { ref: 'i2', op: 'remove' },
+    { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
+    { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'تدرس', TUESDAY, '19:00'), source: SECOND },
   ],
   added: [],
 }) : ({
@@ -154,8 +154,8 @@ const SECOND_AS_PRODUCTION = (prompt: string) => prompt.includes('"ref":"s1"') ?
   action: 'update',
   locked: [],
   open: [
-    { ref: 'i1', op: 'update', fields: item('Study every Tuesday and Thursday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
-    { ref: 'i2', op: 'remove' },
+    { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
+    { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
   ],
   added: [],
 });
@@ -209,6 +209,52 @@ for (const [label, firstAnswer] of Object.entries(FIRST_ANSWERS)) {
     }
   });
 }
+
+test('audit #1 recurring shared span also accepts the model returning Tuesday and Thursday', async () => {
+  const rightDays = (prompt: string) => ({
+    reply: SECOND_REPLY,
+    action: 'update' as const,
+    locked: [],
+    open: [
+      ...(prompt.includes('"ref":"s1"') ? [{ ref: 's1', op: 'keep' as const }] : []),
+      { ref: 'i1', op: 'update' as const, fields: item('Study every Tuesday', 'تدرس', recurringWeekday('Tuesday', '19:00'), '19:00'), source: SECOND },
+      { ref: 'i2', op: 'update' as const, fields: item('Study every Thursday', 'تدرس', recurringWeekday('Thursday', '19:00'), '19:00'), source: SECOND },
+    ],
+    added: [],
+  });
+  begin([FIRST_ANSWERS['Tuesday and Thursday'], rightDays]);
+  try {
+    const [, second] = await conversation(uidFor('AuditReactRightDays'), [FIRST, SECOND]);
+    twoSessions(second!, 'right-days model shape', [recurringWeekday('Tuesday', '19:00'), recurringWeekday('Thursday', '19:00')]);
+  } finally {
+    end();
+  }
+});
+
+test('an Arabic recurring shared span is one fact for both Tue/Tue and Tue/Thu model shapes', async () => {
+  const firstMessage = 'بدي ادرس يوم التلاتا والخميس الساعة 7 المسا';
+  const recurringMessage = 'كل تلاتا وخميس الساعة 7 المسا';
+  for (const [label, secondDate] of [['production Tue/Tue', TUESDAY], ['right days Tue/Thu', THURSDAY]] as const) {
+    begin([
+      { reply: 'تمام.', action: 'propose', items: [
+        item('Study on Tuesday', 'أدرس', TUESDAY, '19:00'),
+        item('Study on Thursday', 'أدرس', THURSDAY, '19:00'),
+      ] },
+      {
+        reply: 'تمام.', action: 'update', locked: [], added: [], open: [
+          { ref: 'i1', op: 'update', fields: item('Study every Tuesday', 'أدرس', TUESDAY, '19:00'), source: recurringMessage },
+          { ref: 'i2', op: 'update', fields: item('Study every Thursday', 'أدرس', secondDate, '19:00'), source: recurringMessage },
+        ],
+      },
+    ]);
+    try {
+      const [, second] = await conversation(uidFor(`ArabicRecurring${label.length}`), [firstMessage, recurringMessage]);
+      twoSessions(second!, label, [recurringWeekday('Tuesday', '19:00'), recurringWeekday('Thursday', '19:00')]);
+    } finally {
+      end();
+    }
+  }
+});
 
 test('audit #1: the two sessions confirm as two commitments on two days, with no clash warning between them', async () => {
   begin([FIRST_ANSWERS['nothing timed'], SECOND_AS_PRODUCTION]);
@@ -628,6 +674,7 @@ test('round 2 #3: a recurrence never moves another item off the day its own word
       reply: 'تمام. أكّد من تحت.', action: 'update',
       items: [item('Study', 'أدرس', TUESDAY, '19:00'), item('Study', 'أدرس', THURSDAY, '19:00'), item('Doctor', 'دكتور', FRIDAY, '16:00')],
       sources: [null, null, 'وكمان دكتور الجمعة الساعة 4 العصر'],
+      expectedKeeps: [0, 1],
     },
   ]);
   try {

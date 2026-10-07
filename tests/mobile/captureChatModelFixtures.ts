@@ -11,21 +11,22 @@ export type RecordedFullListAnswer = {
   items: unknown[];
   /** Exact newest-message citation for each item; null means no operation. */
   sources?: Array<string | null>;
+  /** Recorded fields intentionally rendered as v5 keep operations, by zero-based item index. */
+  expectedKeeps?: number[];
 };
-
-import { contentWords } from '../../lib/services/captureBoundary/chatEvidence.ts';
 
 type PromptEntry = { ref: string; locked: boolean; title: string; date: string | null; time: string | null };
 
-type PromptData = { current: PromptEntry[]; newestMessage: string };
+type PromptData = { current: PromptEntry[] };
 
 export function recordedFullListAnswer(
   reply: unknown,
   action: RecordedFullListAnswer['action'],
   items: unknown[],
   sources?: Array<string | null>,
+  expectedKeeps?: number[],
 ): RecordedFullListAnswer {
-  return { reply, action, items, ...(sources ? { sources } : {}) };
+  return { reply, action, items, ...(sources ? { sources } : {}), ...(expectedKeeps ? { expectedKeeps } : {}) };
 }
 
 function promptDataFrom(prompt: string): PromptData {
@@ -46,15 +47,7 @@ function promptDataFrom(prompt: string): PromptData {
       }]
       : [];
   });
-  const conversation = Array.isArray(data.conversation) ? data.conversation : [];
-  const newest = conversation.at(-1);
-  return {
-    current,
-    newestMessage: newest && typeof newest === 'object' && !Array.isArray(newest)
-      && typeof (newest as Record<string, unknown>).text === 'string'
-      ? (newest as Record<string, string>).text
-      : '',
-  };
+  return { current };
 }
 
 function isV5Answer(value: Record<string, unknown>): boolean {
@@ -76,16 +69,6 @@ function isSamePoint(fields: unknown, before: PromptEntry): boolean {
   return titleOf(fields).trim() === before.title
     && (typeof spec?.date === 'string' ? spec.date : null) === before.date
     && (typeof spec?.time === 'string' ? spec.time : null) === before.time;
-}
-
-function messageTargetsEntry(message: string, current: readonly PromptEntry[], index: number): boolean {
-  if (/^\s*(?:ok(?:ay)?|thanks?|تمام|شكرا|شكرًا|כן|תודה)[.!؟?]*\s*$/i.test(message)) return false;
-  const words = contentWords(message);
-  if (contentWords(current[index]!.title).some((word) => words.includes(word))) return true;
-  const namesSecond = /(?:\bsecond\b|(?:^|\s)و?(?:التانيه|التانية|الثانيه|الثانية)(?=\s|$))/i.test(message);
-  const namesFirst = /(?:\bfirst\b|(?:^|\s)و?(?:الاول|الأول|الاولى|الأولى)(?=\s|$))/i.test(message);
-  if (namesFirst || namesSecond) return (index === 0 && namesFirst) || (index === 1 && namesSecond);
-  return current.length === 1;
 }
 
 /** Render a recorded fixture as the exact v5 JSON a fake model returns. */
@@ -110,13 +93,13 @@ export function renderRefModelAnswer(answer: unknown, prompt: string): string {
   current.forEach((entry, index) => {
     const fields = fixture.items[index];
     const source = fixture.sources?.[index];
-    if (fields !== undefined && !entry.locked && !isSamePoint(fields, entry)
-      && messageTargetsEntry(promptData.newestMessage, current, index) && !source) {
+    const expectedKeep = fixture.expectedKeeps?.includes(index) === true;
+    if (fields !== undefined && !entry.locked && !isSamePoint(fields, entry) && !source && !expectedKeep) {
       throw new Error(`recorded fixture update is missing an explicit citation for item ${index + 1}`);
     }
     const operation = fields === undefined
       ? { ref: entry.ref, op: 'remove', ...(source ? { source } : {}) }
-      : entry.locked || isSamePoint(fields, entry) || !messageTargetsEntry(promptData.newestMessage, current, index)
+      : entry.locked || isSamePoint(fields, entry) || expectedKeep
         ? { ref: entry.ref, op: 'keep' }
         : { ref: entry.ref, op: 'update', fields, ...(source ? { source } : {}) };
     (entry.locked ? locked : open).push(operation);
