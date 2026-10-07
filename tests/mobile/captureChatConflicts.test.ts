@@ -477,9 +477,12 @@ test('F4-001: a clash that starts with the item survives the three-clash limit, 
   assert.equal(found.length, 3);
   assert.ok(found.some((conflict) => conflict.title === 'موعد مع المحامي'), `the same-hour clash was cut: ${JSON.stringify(found.map((c) => c.title))}`);
   assert.deepEqual(found.map((conflict) => conflict.startsAt), [...found.map((conflict) => conflict.startsAt)].sort());
-  // Fewer than the limit: untouched.
-  const two = [{ startsAt: at(FRIDAY, '09:00') }, { startsAt: at(FRIDAY, '10:00') }];
-  assert.deepEqual(withinLimit(two, at(FRIDAY, '10:00'), 3), two);
+  // Fewer than the limit: only put in time order.
+  const two = [{ startsAt: at(FRIDAY, '10:00') }, { startsAt: at(FRIDAY, '09:00') }];
+  assert.deepEqual(withinLimit(two, at(FRIDAY, '10:00'), 3), [two[1], two[0]]);
+  // Appended out of order (a proposal's own clashes after the schedule's), more than the limit (F4-002).
+  const mixed = ['11:00', '07:00', '10:00', '08:00', '09:00'].map((time) => ({ startsAt: at(FRIDAY, time) }));
+  assert.deepEqual(withinLimit(mixed, at(FRIDAY, '10:00'), 3).map((c) => c.startsAt), [at(FRIDAY, '07:00'), at(FRIDAY, '08:00'), at(FRIDAY, '10:00')]);
 });
 
 /* ── 6. another time: offered as a question, applied only on a yes ── */

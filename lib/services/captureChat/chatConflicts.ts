@@ -149,12 +149,14 @@ export function conflictsFor(
  * began earlier must not push it out of the list.
  */
 export function withinLimit<T extends { startsAt: string }>(conflicts: readonly T[], itemStart: string, limit: number): T[] {
-  if (conflicts.length <= limit) return [...conflicts];
+  // Time order first, whatever order the writers appended in (F4-002).
+  const ordered = [...conflicts].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt));
+  if (ordered.length <= limit) return ordered;
   const start = Date.parse(itemStart);
-  const same = conflicts.filter((conflict) => Date.parse(conflict.startsAt) === start);
-  const rest = conflicts.filter((conflict) => Date.parse(conflict.startsAt) !== start);
+  const same = ordered.filter((conflict) => Date.parse(conflict.startsAt) === start);
+  const rest = ordered.filter((conflict) => Date.parse(conflict.startsAt) !== start);
   const kept = new Set([...same, ...rest].slice(0, limit));
-  return conflicts.filter((conflict) => kept.has(conflict));
+  return ordered.filter((conflict) => kept.has(conflict));
 }
 
 /**
