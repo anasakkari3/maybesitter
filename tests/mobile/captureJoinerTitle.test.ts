@@ -34,7 +34,9 @@ test('F3: the literal load-pass capture stores the titles «هيك فهمت» sh
     const proposal = body.proposal as Proposal;
     assert.ok(proposal, 'no proposal');
     const titles = proposal.items.map((item) => item.title);
-    assert.ok(titles.includes('اتصل بالبنك'), `the bank keeps its joiner: ${JSON.stringify(titles)}`);
+    // Before a verb the «و» stays (no lexicon tells «واتصل» from «ورد»), and
+    // the summary says it too; before a request it goes.
+    assert.ok(titles.includes('واتصل بالبنك'), `the bank's title changed: ${JSON.stringify(titles)}`);
     assert.ok(titles.some((title) => title.startsWith('لازم') || title.startsWith('أشتري')), `the gift keeps its joiner: ${JSON.stringify(titles)}`);
     assertSummaryMatchesStored(proposal, 'load pass');
   } finally {
@@ -75,8 +77,11 @@ test('F3: only a clause that followed another is marked to lose its joiner', () 
 });
 
 test('F3: the joiner goes only when the very next word opens a point (F3-001)', () => {
-  assert.equal(withoutClauseJoiner('واتصل بالبنك'), 'اتصل بالبنك');
-  assert.equal(withoutClauseJoiner('وأشتري خبز'), 'أشتري خبز');
+  // Before a verb: kept — «ورد» (roses) would read as «رد» (reply) (F3-009).
+  assert.equal(withoutClauseJoiner('واتصل بالبنك'), 'واتصل بالبنك');
+  assert.equal(withoutClauseJoiner('وأشتري خبز'), 'وأشتري خبز');
+  assert.equal(withoutClauseJoiner('ورد لأمي'), 'ورد لأمي');
+  // Before a request or an intent: certain, so dropped.
   assert.equal(withoutClauseJoiner('وسجّل موعد دكتور'), 'سجّل موعد دكتور');
   assert.equal(withoutClauseJoiner('ولازم أشتري هدية'), 'لازم أشتري هدية');
   assert.equal(withoutClauseJoiner('وعم بفكر أتعلم عود'), 'عم بفكر أتعلم عود');
@@ -85,9 +90,9 @@ test('F3: the joiner goes only when the very next word opens a point (F3-001)', 
   assert.equal(withoutClauseJoiner('ותקנה לחם'), 'ותקנה לחם');
   assert.equal(withoutClauseJoiner('וטרינר לחתול'), 'וטרינר לחתול');
   assert.equal(withoutClauseJoiner('וצריך לקנות לחם'), 'צריך לקנות לחם');
-  // «وصّل» is the verb; «ووصّل» loses only the joining one.
+  // A verb after «و» — its own («وصّل») or a joined one («ووصّل») — is never read.
   assert.equal(withoutClauseJoiner('وصّل أمي عالدكتور'), 'وصّل أمي عالدكتور');
-  assert.equal(withoutClauseJoiner('ووصّل أمي عالدكتور'), 'وصّل أمي عالدكتور');
+  assert.equal(withoutClauseJoiner('ووصّل أمي عالدكتور'), 'ووصّل أمي عالدكتور');
   // A «و» that is the word's own letter stays, even with a request later on.
   assert.equal(withoutClauseJoiner('وزارة الداخلية لازم أراجعها'), 'وزارة الداخلية لازم أراجعها');
   assert.equal(withoutClauseJoiner('وردة لأمي لازم أجيبها'), 'وردة لأمي لازم أجيبها');
@@ -107,7 +112,10 @@ test('F3: the joiner goes only when the very next word opens a point (F3-001)', 
   // …but not one later in a word's own clause.
   assert.equal(withoutClauseJoiner('وزارة بستنى ردها'), 'وزارة بستنى ردها');
   // The conjunction's own vowel mark goes with it (F3-006).
-  assert.equal(withoutClauseJoiner('وَاتصل بالبنك'), 'اتصل بالبنك');
+  assert.equal(withoutClauseJoiner('وَلازم أشتري هدية'), 'لازم أشتري هدية');
+  // Marks inside the opener are folded for reading and kept in the words (F3-010).
+  assert.equal(withoutClauseJoiner('وَلَازِم أشتري'), 'لَازِم أشتري');
+  assert.equal(withoutClauseJoiner('וְצָרִיךְ לקנות'), 'צָרִיךְ לקנות');
   assert.equal(withoutClauseJoiner('וְצריך לקנות לחם'), 'צריך לקנות לחם');
   assert.equal(withoutClauseJoiner('وظيفة جديدة'), 'وظيفة جديدة');
 });
@@ -120,9 +128,9 @@ test('F3-001: a first clause is never stripped, whatever follows in it', async (
     assert.ok(!titles.some((title) => title.startsWith('زارة')), `a first item lost a letter: ${JSON.stringify(titles)}`);
     // Only provenance says a «و» joined two clauses: a first clause keeps
     // its words even when a verb follows the «و».
-    const own = await chat(uid, 'واتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
+    const own = await chat(uid, 'ولازم اتصل بأمي بكرا الساعة 5 المسا', { locale: 'ar' });
     const ownTitles = (own.proposal?.items ?? []).map((item) => item.title);
-    assert.ok(ownTitles.some((title) => title.startsWith('واتصل')), `a first clause lost its own «و»: ${JSON.stringify(ownTitles)}`);
+    assert.ok(!ownTitles.some((title) => title.startsWith('لازم')), `a first clause lost its own «و»: ${JSON.stringify(ownTitles)}`);
   } finally {
     end();
   }
@@ -130,11 +138,11 @@ test('F3-001: a first clause is never stripped, whatever follows in it', async (
 
 /* ── the model's path (production): Codex inspection F3-003 ── */
 
-test('F3-003: on the model path a new follower point is stored and shown without its «و»', async () => {
-  const message = 'لازم اتصل بأمي بكرا الساعة 5 المسا، واتصل بالبنك بكرا الساعة 12 الظهر، وعم بفكر أسافر الصيف الجاي';
+test('F3-003: on the model path a new follower point loses a certain «و», and the summary says what is stored', async () => {
+  const message = 'لازم اتصل بأمي بكرا الساعة 5 المسا، ولازم أدفع الفاتورة بكرا الساعة 12 الظهر، وعم بفكر أسافر الصيف الجاي';
   const uid = beginModel(modelFirstAnswer('تمام', 'propose', [
     modelItem('أتصل بأمي', TOMORROW, '17:00'),
-    modelItem('واتصل بالبنك', TOMORROW, '12:00'),
+    modelItem('ولازم أدفع الفاتورة', TOMORROW, '12:00'),
     modelItem('وعم بفكر أسافر الصيف الجاي', null, null, { kind: 'consideration' }),
   ]));
   try {
@@ -154,14 +162,14 @@ test('F3-003: a later model update that writes «و» into an existing point kee
   const uid = beginModel(
     modelFirstAnswer('تمام', 'propose', [modelItem('أتصل بأمي', TOMORROW, '17:00'), modelItem('ادفع الفاتورة', TOMORROW, '18:00')]),
     // The v5 answer with the citation every changing op carries on a later turn.
-    { ...modelRefAnswer('تمام.', 'update'), open: [{ ref: 'i2', op: 'update', fields: modelItem('ودفع فاتورة الكهربا', TOMORROW, '18:00'), source: 'سمّي الفاتورة ودفع فاتورة الكهربا' }] },
+    { ...modelRefAnswer('تمام.', 'update'), open: [{ ref: 'i2', op: 'update', fields: modelItem('ولازم أدفع فاتورة الكهربا', TOMORROW, '18:00'), source: 'سمّي الفاتورة ولازم أدفع فاتورة الكهربا' }] },
   );
   try {
     const first = await chat(uid, 'لازم اتصل بأمي بكرا الساعة 5 المسا، وادفع الفاتورة بكرا الساعة 6 المسا', { locale: 'ar' }) as Answer;
     // Said after another clause, so only "existing point" keeps the «و» here.
-    const later = await chat(uid, 'الاتصال زي ما هو، وسمّي الفاتورة ودفع فاتورة الكهربا', { conversationId: first.conversationId, locale: 'ar' }) as Answer;
+    const later = await chat(uid, 'الاتصال زي ما هو، وسمّي الفاتورة ولازم أدفع فاتورة الكهربا', { conversationId: first.conversationId, locale: 'ar' }) as Answer;
     const titles = (later.proposal as Proposal).items.map((item) => item.title);
-    assert.ok(titles.includes('ودفع فاتورة الكهربا'), `the update did not apply as written: ${JSON.stringify(titles)}`);
+    assert.ok(titles.includes('ولازم أدفع فاتورة الكهربا'), `the update did not apply as written: ${JSON.stringify(titles)}`);
     assertSummaryMatchesStored(later.proposal as Proposal, 'model update');
   } finally {
     end();

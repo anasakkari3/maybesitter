@@ -577,17 +577,15 @@ export function splitCaptureClauseDetails(raw: string): CaptureClause[] {
 }
 
 const LEADING_REQUEST = new RegExp(REQUEST_MARKER.source, REQUEST_MARKER.flags.replace('g', ''));
+/** Arabic harakat and Hebrew niqqud: folded away before a word is read. */
+const MARKS = new RegExp('[\\u064B-\\u065F\\u0670\\u0591-\\u05C7]', 'gu');
 
 /**
  * A clause that followed another one, without the «و» / "and" / «ו» that
  * joined them (load pass F3, 2026-10-07): «…، واتصل بالبنك بكرا» is the
- * point «اتصل بالبنك». Only for a clause that did follow another
- * (`CaptureClause.follows`), and only when the very next word opens a point —
- * an errand verb, a request («لازم», "need to") or a thought or a wait
- * («عم بفكر», «بستنى» — `opensWithUnresolvedIntent`) —
- * never because a marker appears somewhere later: «وزارة الداخلية لازم
- * أراجعها» keeps its «و» (Codex inspection F3-001). Applied once, where the
- * item or seed is made; the summary shows the stored words as they are.
+ * point. Only for a clause that did follow another (`CaptureClause.follows`),
+ * and only when the joiner is certain (below). Applied once, where an item
+ * is made; the summary shows the stored words as they are.
  */
 export function withoutClauseJoiner(clause: string): string {
   // The conjunction with any vowel marks on it («وَ», «וְ»), so none is left
@@ -595,18 +593,19 @@ export function withoutClauseJoiner(clause: string): string {
   const joined = new RegExp('^(?:and\\s+|و[\\u064B-\\u065F\\u0670]*|ו[\\u0591-\\u05C7]*)', 'iu').exec(clause);
   if (!joined) return clause;
   const remainder = clause.slice(joined[0].length).trimStart();
-  const first = (remainder.split(/\s+/)[0] ?? '').replace(NOT_LETTERS, '');
-  if (!remainder || !first) return clause;
+  if (!remainder) return clause;
   // "and" is a word of its own: dropping it can never take a letter with it.
   if (/^and\s/i.test(joined[0])) return remainder;
-  const request = LEADING_REQUEST.exec(remainder);
-  // An attached Hebrew «ו» goes only before a request or an intent: the
-  // generic Hebrew verb test reads any «ל…»/«ת…» word as a verb, and
-  // «וטרינר» would lose its own letter (Codex inspection F3-008).
-  const hebrew = joined[0].startsWith('ו');
-  const opensPoint = (!hebrew && opensWithAction(first))
-    || (request !== null && request.index === 0)
-    || opensWithUnresolvedIntent(remainder);
+  // An attached «و»/«ו» goes only before a word no word of the language
+  // starts with: a request («ولازم», «وبدي») or an intent («وعم بفكر»,
+  // «وبستنى»). Never before a verb: the verb lexicon cannot tell «واتصل»
+  // (and call) from «ورد» (roses → «رد», reply), «وطرينر», «وزارة»
+  // (Codex inspections F3-001, F3-008, F3-009). A «و» kept there is
+  // kept on the card and in the summary alike. Read with vowel marks folded
+  // away (F3-010); the words returned keep theirs.
+  const folded = remainder.replace(MARKS, '');
+  const request = LEADING_REQUEST.exec(folded);
+  const opensPoint = (request !== null && request.index === 0) || opensWithUnresolvedIntent(folded);
   return opensPoint ? remainder : clause;
 }
 
